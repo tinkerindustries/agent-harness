@@ -20,9 +20,11 @@ import (
 const usage = `usage: harness <command> [flags]
 
 commands:
-  ask "..."   send a prompt and stream reasoning and content to the terminal
-  models      list available models
-  balance     show account balance`
+  ask "..."             send a prompt and stream reasoning and content to the terminal
+  run -workspace P "..." run the agent loop against a workspace until it finishes or gives up
+  export <session-id>    rebuild a session's disk mirror from the database
+  models                list available models
+  balance               show account balance`
 
 func main() {
 	if err := config.LoadDotEnv(".env"); err != nil {
@@ -41,6 +43,10 @@ func main() {
 	switch os.Args[1] {
 	case "ask":
 		err = runAsk(ctx, os.Args[2:])
+	case "run":
+		err = runRun(ctx, os.Args[2:])
+	case "export":
+		err = runExport(ctx, os.Args[2:])
 	case "models":
 		err = runModels(ctx, os.Args[2:])
 	case "balance":

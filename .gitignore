@@ -19,6 +19,7 @@ dist/
 *.db-shm
 *.db-wal
 *.sqlite
+/data/
 
 # macOS
 .DS_Store
