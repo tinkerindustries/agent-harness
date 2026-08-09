@@ -5,8 +5,57 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 )
+
+// TestSessionJSONProvenance pins how the provenance fields appear in
+// session.json: job_type is always present, and the parent agent fields are
+// omitted when empty.
+func TestSessionJSONProvenance(t *testing.T) {
+	base := Session{
+		ID:             "sess-1",
+		Model:          "deepseek-v4-pro",
+		Effort:         "high",
+		Workspace:      "/tmp/ws",
+		PermissionMode: "default",
+		SystemPrompt:   "sys",
+		ToolSchema:     json.RawMessage(`[]`),
+		Status:         "running",
+		CreatedAt:      time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
+	}
+
+	populated := base
+	populated.JobType = agentmeta.JobTypeOrchestration
+	populated.ParentAgentType = "orchestrator"
+	populated.ParentAgentID = "orchestrator-1"
+	b, err := json.Marshal(toSessionJSON(populated))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"job_type":"orchestration"`, `"parent_agent_type":"orchestrator"`, `"parent_agent_id":"orchestrator-1"`} {
+		if !strings.Contains(string(b), want) {
+			t.Fatalf("session.json missing %s: %s", want, b)
+		}
+	}
+
+	empty := base
+	b, err = json.Marshal(toSessionJSON(empty))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `"job_type":""`) {
+		t.Fatalf("job_type should always be written, got: %s", b)
+	}
+	for _, absent := range []string{"parent_agent_type", "parent_agent_id"} {
+		if strings.Contains(string(b), absent) {
+			t.Fatalf("expected %s omitted when empty, got: %s", absent, b)
+		}
+	}
+}
 
 // TestExportMatchesLiveMirror simulates a live run writing its mirror
 // incrementally, then rebuilds the same session into a separate directory
