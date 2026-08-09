@@ -193,12 +193,13 @@ that was happening anyway.
 
 | Question | Closes at | How |
 | --- | --- | --- |
-| ~~Does pro honour `low` effort yet?~~ | Dropped 2026-08-09 | Inconclusive and not decision-changing — the harness defaults to max on pro either way |
+| ~~Does pro honour `low` effort yet?~~ | Closed 2026-08-09 | No. `low` and `high` produced reasoning within 1% on a real task; `max` was 2.4× both |
 | ~~Is the `[1m]` suffix real on the native endpoint?~~ | Closed 2026-08-09 | No. `GET /models` returns only `deepseek-v4-flash` and `deepseek-v4-pro` |
 | ~~Do streaming tool-call deltas arrive incrementally?~~ | Closed 2026-08-09 | Yes, OpenAI indexed form. Arguments fragment mid-token |
 | Are the Claude Code tool names the right vocabulary? | Phase 2 | Tool-call error rate against a rename, which is cheap |
 | Does changing effort mid-session disturb the cache? | Phase 2 | Hit rate across an effort change |
 | Flash or pro for the main loop? | Phase 2 | Same task both ways. Flash-0731 beats V4-Pro-Preview on published agent benchmarks |
+| Is `max` effort worth 2.1× the wall-clock over `high`? | Phase 2 | Quality comparison on real tasks. Cost and latency are already measured |
 | Is virtualisation needed? | Phase 4 | Frame times with a few hundred blocks |
 | ~~Is the prefix warmup worth its two probe requests?~~ | Closed 2026-08-09 | No. 128-token blocks persist from any single request, so there is nothing to warm |
 

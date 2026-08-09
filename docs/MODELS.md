@@ -88,8 +88,13 @@ compiled into the binary.
 The Codex model catalogue DeepSeek publishes muddies this: it declares
 `supported_reasoning_levels` of low, high, and max for pro as well as flash.
 That file tells a client what to offer in its picker, not what the server
-honours, so the mapping table above wins where they disagree. It may also be a
-sign the pro change has landed. One request at `low` against pro settles it.
+honours.
+
+Measurement settles it in the table's favour. On one coding task, pro produced
+10635 reasoning tokens at `low` and 10537 at `high` — within 1% — against 25777
+at `max`. Pro still collapses `low` into `high`, so the only real lever there is
+high against max, and the change DeepSeek promised for early August 2026 had not
+landed as of 2026-08-09.
 
 ## Parameters that do nothing under thinking
 
@@ -129,16 +134,82 @@ its documented failure mode is occasional empty content.
 
 ## Per-role defaults
 
-| Role | Model | Thinking | Effort |
-| --- | --- | --- | --- |
-| Main loop | pro | enabled | max |
-| Main loop, cost-conscious | flash | enabled | max |
-| `Task` subagent | flash | enabled | high |
-| `WebFetch` extraction | flash | disabled | — |
-| Compaction summary | flash | disabled | — |
-| Session title | flash | disabled | — |
+| Role | Model | Thinking | Effort | `max_tokens` |
+| --- | --- | --- | --- | --- |
+| Main loop | pro | enabled | high | 48000 |
+| Main loop, quality-first | pro | enabled | max | 48000 |
+| Main loop, cost-conscious | flash | enabled | max | 24000 |
+| `Task` subagent | flash | enabled | high | 20000 |
+| `WebFetch` extraction | flash | disabled | — | 4000 |
+| Compaction summary | flash | disabled | — | 8000 |
+| Session title | flash | disabled | — | 200 |
 
 All of these are configuration, not constants.
+
+## Sizing max_tokens
+
+`max_tokens` caps reasoning and content together and reasoning is generated
+first, so an undersized budget is consumed entirely by reasoning and the answer
+never starts — billed in full, `finish_reason: "length"`, empty `content`
+([OBSERVED.md](OBSERVED.md)).
+
+It is a ceiling, not a spend. Raising it costs nothing until something needs the
+room, which makes generosity close to free. The only real exposure is a runaway,
+and the documented one is JSON mode emitting unending whitespace until it hits
+the limit.
+
+Measured on flash at max effort against a 20000 ceiling:
+
+| Prompt | reasoning | answer | total | share of 20000 | wall |
+| --- | --- | --- | --- | --- | --- |
+| "Say hello." | 21 | 3 | 24 | 0.1% | 1s |
+| Reverse a slice, one function | 179 | 59 | 238 | 1.2% | 3s |
+| A real SSE reader with error handling | 10844 | 2191 | 13035 | 65% | 117s |
+| Hard combinatorics proof | 20000 | 0 | 20000 | 100%, starved | 194s |
+
+Reasoning outweighs the answer roughly five to one on real work, so the budget
+is set by reasoning volume rather than expected output length.
+
+Pro is much heavier. The same SSE reader task, pro at max effort, came to 25777
+reasoning and 2364 answer — 28141 tokens, against flash's 13035. Pro reasons
+about 2.4× more for identical work, which means a 20000 ceiling starves an
+ordinary coding task on the model the harness defaults to. That measurement is
+why the main loop gets 48000 rather than the 32000 flash alone would justify.
+
+The starvation case is recoverable rather than fatal. On `finish_reason` of
+`length` with empty `content`, retry once at double the budget and surface both
+the retry and its cost. Bound it at one retry — a second failure means the task
+needs decomposing, not a bigger ceiling.
+
+Those wall-clock figures are the other reason the harness always streams. The
+pro run above took 583 seconds — nearly ten minutes for a single sub-turn. An
+agent turn with eight sub-turns at that rate runs over an hour, and a
+non-streaming request of that length is indistinguishable from a hang.
+
+## Why the main loop defaults to high, not max
+
+DeepSeek's Claude Code configuration says `max`. We default to `high`, and the
+measurement is the reason. Same task, pro, same 40000 ceiling:
+
+| effort | reasoning | answer | total | wall |
+| --- | --- | --- | --- | --- |
+| `low` | 10635 | 1762 | 12397 | 260s |
+| `high` | 10537 | 1659 | 12196 | 277s |
+| `max` | 25777 | 2364 | 28141 | 583s |
+
+`max` costs 2.3× the tokens and 2.1× the wall-clock. On output price alone that
+is roughly 2.4c against 1.1c per sub-turn, which is affordable; the latency is
+not. An eight-sub-turn agent turn runs about 37 minutes at high and 78 at max.
+
+What the measurement does not cover is quality. `max` may well write better code,
+and DeepSeek benchmarked on it. But their own Codex configuration uses
+`model_reasoning_effort = "high"`, so their advice is already split, and an hour
+per turn is hard to defend for interactive work.
+
+So: `high` by default, `max` as a documented one-line switch for hard problems,
+and a real quality comparison on actual tasks as the thing that settles it. That
+comparison belongs in phase 2, alongside the flash-versus-pro question it
+resembles.
 
 Max effort is expensive in a loop, and the reason is worth stating plainly.
 Reasoning tokens bill as output when generated, then bill again as input on

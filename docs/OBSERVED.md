@@ -195,7 +195,31 @@ that was truncated mid-sentence. The first calls for a retry with a larger
 budget; the second calls for continuation. Both are wasted spend if
 misdiagnosed, and at max effort on pro the waste is real money.
 
-Budget `max_tokens` generously. The ceiling is 384K.
+### How much budget is actually needed
+
+Flash, max effort, 20000 ceiling:
+
+| Prompt | reasoning | answer | total | wall |
+| --- | --- | --- | --- | --- |
+| "Say hello." | 21 | 3 | 24 | 1s |
+| Reverse a slice, one function | 179 | 59 | 238 | 3s |
+| A real SSE reader with error handling | 10844 | 2191 | 13035 | 117s |
+| Hard combinatorics proof | 20000 | 0 | starved | 194s |
+
+Reasoning runs about five to one against the answer on real work, so the budget
+is set by reasoning volume rather than expected output size. A realistic coding
+task used 65% of 20000. A hard problem consumed all of it and produced nothing.
+
+Sizing and the retry rule live in [MODELS.md](MODELS.md).
+
+### Latency at max effort is minutes, not seconds
+
+117s for a real coding task, 194s for a hard problem. Neither is a fault.
+
+This is the strongest argument for streaming everything. A non-streaming request
+running three minutes is indistinguishable from a hang, and the documented
+ten-minute pre-inference hold sits on top of it. The idle watchdog has to be
+sized against gaps between deltas, never against total request duration.
 
 ## Pro matches flash where it matters
 
@@ -210,12 +234,22 @@ Pro block sizes measured at two prefix lengths: 850 → 768, and 2410 → 2304. 
 are exactly `floor(n/128) × 128`. CACHE.md's arithmetic holds on the model we
 actually default to.
 
-Pro's effort mapping remains unresolved. Reasoning volume on an easy problem was
-indistinguishable across low, high, and max, and on a hard problem all three
-saturated the `max_tokens` ceiling, so neither test discriminated. Separating
-them needs long, expensive runs with a very large budget. Not worth it — the
-harness defaults to max on pro regardless, so the answer would not change a
-decision.
+Pro's effort mapping is settled, on the third attempt. An easy problem did not
+discriminate and a hard one saturated the ceiling; a realistic coding task with
+a 40000 ceiling did:
+
+| effort | reasoning | answer | total | wall |
+| --- | --- | --- | --- | --- |
+| `low` | 10635 | 1762 | 12397 | 260s |
+| `high` | 10537 | 1659 | 12196 | 277s |
+| `max` | 25777 | 2364 | 28141 | 583s |
+
+`low` and `high` land within 1% of each other, so pro still collapses `low` into
+`high` exactly as `guides/thinking_mode.md` describes. The change DeepSeek
+promised for early August 2026 had not landed as of 2026-08-09.
+
+`max` is 2.4× the reasoning and 2.1× the wall-clock. That is what moved the
+harness default to `high` ([MODELS.md](MODELS.md)).
 
 ## Parallel tool calls, confirmed
 
