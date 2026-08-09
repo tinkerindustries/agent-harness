@@ -1,7 +1,7 @@
 # Source snapshot — 2026-08-09
 
 Pinned copies of the DeepSeek documentation pages the design decisions rest on,
-taken from `vendor/docs/deepseek/` on 2026-08-09.
+taken from `third_party/deepseek-docs/` on 2026-08-09.
 
 The mirror is generated and meant to be re-scraped, so a refresh replaces the
 exact text cited in [VALIDATION.md](../../VALIDATION.md). This directory is not
@@ -53,7 +53,7 @@ find . -name '*.md' ! -name MANIFEST.md | sed 's|^\./||' | sort | \
 ## Not captured
 
 The other 37 pages of the mirror, and `_img/`. Nothing in the design cites them.
-The full mirror stays at `vendor/docs/deepseek/`.
+The full mirror stays at `third_party/deepseek-docs/`.
 
 `faq.md` carries no content upstream — it redirects to a separate app that the
 mirror does not cover.

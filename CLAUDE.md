@@ -14,8 +14,8 @@ path, the tool array, or the system prompt, all of which are cache-critical.
 
 ## Vendored documentation
 
-`vendor/docs/deepseek/` mirrors <https://api-docs.deepseek.com/> as Markdown.
-Start at `vendor/docs/deepseek/README.md` for the index. Consult it before
+`third_party/deepseek-docs/` mirrors <https://api-docs.deepseek.com/> as Markdown.
+Start at `third_party/deepseek-docs/README.md` for the index. Consult it before
 answering questions about DeepSeek's API surface.
 
 The mirror is generated, not authored — do not hand-edit the files. To refresh,
@@ -35,5 +35,5 @@ upstream content. DeepSeek's prompt library is published in Chinese only;
 - The Responses API supports `deepseek-v4-flash` only.
 
 Pricing, rate limits, and context/output limits change; read
-`vendor/docs/deepseek/quick_start/pricing.md` rather than quoting numbers from
+`third_party/deepseek-docs/quick_start/pricing.md` rather than quoting numbers from
 memory.

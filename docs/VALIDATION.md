@@ -1,7 +1,7 @@
 # Validation against the vendored docs
 
 Every decision in DESIGN.md, TOOLS.md, and MODELS.md checked against
-`vendor/docs/deepseek/`. Mirror fetched 2026-08-09.
+`third_party/deepseek-docs/`. Mirror fetched 2026-08-09.
 
 The 26 pages cited below are pinned at
 [`sources/2026-08-09/`](sources/2026-08-09/MANIFEST.md), because the mirror is

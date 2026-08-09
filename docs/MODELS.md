@@ -20,8 +20,9 @@ the reason measured below.
 Their advice on effort is not consistent across harnesses, though. Claude Code
 gets `max`, Codex gets `model_reasoning_effort = "high"`, Deep Code documents
 `"max"` or `"high"`, and Oh My Pi locks its selector to high and xhigh. Their own
-published benchmark runs used max. Max is both the more common recommendation
-and the benchmarked one, so it stays the default.
+published benchmark runs used max. So max is the more common recommendation and
+the benchmarked one, which is why it took a measurement to move off it — see
+"Why the main loop defaults to high, not max" below.
 
 ## The pro default is contested
 
@@ -83,7 +84,7 @@ someone reads it as a level above high.
 DeepSeek says pro gains all three levels in early August 2026. The mirror was
 fetched on 2026-08-09 and still carries that as future tense, so the table is
 live as of today — but this is precisely the window in which it changes. Read
-`vendor/docs/deepseek/guides/thinking_mode.md` rather than trusting a table
+`third_party/deepseek-docs/guides/thinking_mode.md` rather than trusting a table
 compiled into the binary.
 
 The Codex model catalogue DeepSeek publishes muddies this: it declares
