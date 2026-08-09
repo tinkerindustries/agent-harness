@@ -1,0 +1,520 @@
+// Package worker is the harness's worker pool: it pulls work requests off
+// the WORK stream, runs each as a session.Runner call, and publishes the
+// result to the RESULTS stream (docs/DESIGN.md §4.10, PLAN.md phase 3).
+package worker
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"log"
+	"runtime/debug"
+	"sync"
+	"time"
+
+	"github.com/nats-io/nats.go/jetstream"
+
+	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
+	"github.com/mrgeoffrich/deepseek-harness/internal/session"
+	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+)
+
+// Pool pulls from Consumer and dispatches each message to a session
+// goroutine, bounded by Size. Nothing here holds per-request state outside
+// the handler for that request — the property docs/DESIGN.md §4.5 asks a
+// phase 3 caller of session.Runner to preserve.
+type Pool struct {
+	Store    *store.Store
+	Runner   *session.Runner
+	JS       jetstream.JetStream
+	Consumer jetstream.Consumer
+
+	Roots                 []string
+	DefaultModel          string
+	DefaultEffort         string
+	DefaultThinking       bool
+	DefaultMaxTokens      int
+	DefaultPermissionMode tools.Mode
+	DefaultDeadline       time.Duration
+	PriceTableDate        string
+
+	// Size bounds concurrent runs. It must equal the consumer's
+	// MaxAckPending (docs/DESIGN.md §4.10) so JetStream never delivers more
+	// than the pool can work on; Size is the local backstop, not the flow
+	// controller.
+	Size int
+
+	// HeartbeatInterval, LeasePollInterval, and RetryLaterDelay have
+	// production defaults and are overridable so tests do not have to wait
+	// on them.
+	HeartbeatInterval time.Duration
+	LeasePollInterval time.Duration
+	RetryLaterDelay   time.Duration
+
+	wg sync.WaitGroup
+}
+
+func (p *Pool) size() int {
+	if p.Size > 0 {
+		return p.Size
+	}
+	return 4
+}
+
+func (p *Pool) heartbeatInterval() time.Duration {
+	if p.HeartbeatInterval > 0 {
+		return p.HeartbeatInterval
+	}
+	return 20 * time.Second
+}
+
+func (p *Pool) leasePollInterval() time.Duration {
+	if p.LeasePollInterval > 0 {
+		return p.LeasePollInterval
+	}
+	return 2 * time.Second
+}
+
+func (p *Pool) retryLaterDelay() time.Duration {
+	if p.RetryLaterDelay > 0 {
+		return p.RetryLaterDelay
+	}
+	return 5 * time.Second
+}
+
+func (p *Pool) defaultDeadline() time.Duration {
+	if p.DefaultDeadline > 0 {
+		return p.DefaultDeadline
+	}
+	return 30 * time.Minute
+}
+
+func (p *Pool) defaultModel() string {
+	if p.DefaultModel != "" {
+		return p.DefaultModel
+	}
+	return "deepseek-v4-pro"
+}
+
+func (p *Pool) defaultEffort() string {
+	if p.DefaultEffort != "" {
+		return p.DefaultEffort
+	}
+	return "high"
+}
+
+func (p *Pool) defaultMaxTokens() int {
+	if p.DefaultMaxTokens > 0 {
+		return p.DefaultMaxTokens
+	}
+	return 48000
+}
+
+func (p *Pool) defaultPermissionMode() tools.Mode {
+	if p.DefaultPermissionMode != "" {
+		return p.DefaultPermissionMode
+	}
+	return tools.ModeDefault
+}
+
+// Run pulls and processes messages until ctx is done. On shutdown it stops
+// pulling new work but lets in-flight runs finish and publish normally —
+// an agent run takes minutes, and cutting one off on a routine restart
+// would waste it for no reason. Only a process that dies outright (the
+// kill in PLAN.md's exit criteria) leaves a message for the takeover path
+// to pick up.
+func (p *Pool) Run(ctx context.Context) error {
+	sem := make(chan struct{}, p.size())
+	consumeCtx, err := p.Consumer.Consume(func(msg jetstream.Msg) {
+		sem <- struct{}{}
+		p.wg.Add(1)
+		go func() {
+			defer p.wg.Done()
+			defer func() { <-sem }()
+			p.handle(msg)
+		}()
+	}, jetstream.PullMaxMessages(p.size()))
+	if err != nil {
+		return errors.New("worker: consume: " + err.Error())
+	}
+
+	<-ctx.Done()
+	consumeCtx.Stop()
+	p.wg.Wait()
+	return nil
+}
+
+func deliveryCount(msg jetstream.Msg) uint64 {
+	meta, err := msg.Metadata()
+	if err != nil || meta == nil {
+		return 1
+	}
+	return meta.NumDelivered
+}
+
+// handle is one message's whole lifecycle: parse, claim the idempotency
+// row, and either run a session, record a validation failure, republish a
+// terminal row, or defer to a later delivery.
+func (p *Pool) handle(msg jetstream.Msg) {
+	defer p.recoverPanic(msg)
+
+	numDelivered := deliveryCount(msg)
+
+	req, err := queue.ParseRequest(msg.Data())
+	if err != nil {
+		log.Printf("worker: malformed request body, terminating message: %v", err)
+		msg.Term()
+		return
+	}
+	if req.RequestID == "" {
+		log.Printf("worker: request has no request_id, terminating message")
+		msg.Term()
+		return
+	}
+
+	resolvedWorkspace, verr := req.Validate(p.Roots)
+
+	ctx := context.Background()
+	outcome, err := p.Store.ClaimWorkRequest(ctx, req.RequestID, numDelivered, time.Now().UTC())
+	if err != nil {
+		log.Printf("worker: claim %s: %v", req.RequestID, err)
+		msg.NakWithDelay(p.retryLaterDelay())
+		return
+	}
+
+	if !outcome.Claimed {
+		if outcome.Found && outcome.Existing.Status != store.WorkRequestStatusRunning {
+			p.republish(msg, outcome.Existing)
+			return
+		}
+		// A duplicate publish while the original is still genuinely
+		// running. Nak would redeliver this exact message and bump its own
+		// NumDelivered, which is indistinguishable from the server's own
+		// "nobody is heartbeating this" signal — after one such cycle
+		// shouldClaim would wrongly read this message as abandoned and
+		// take over a request that never stopped running. Wait and
+		// heartbeat instead, so the only way NumDelivered ever climbs past
+		// 1 is JetStream deciding so on its own.
+		p.waitForResolution(msg, req)
+		return
+	}
+
+	if verr != nil {
+		p.recordValidationFailure(ctx, msg, req.RequestID, verr)
+		return
+	}
+
+	p.run(msg, req, resolvedWorkspace, outcome)
+}
+
+// waitForResolution holds a message whose request_id is claimed by another,
+// live attempt, heartbeating it while polling the row until that attempt
+// finishes (then republishes its result) or this request's own deadline
+// passes (then Naks as a last resort — see the comment at the call site for
+// why that resort is safe). It never runs a session itself.
+func (p *Pool) waitForResolution(msg jetstream.Msg, req queue.Request) {
+	deadline := p.defaultDeadline()
+	if req.DeadlineMS > 0 {
+		deadline = time.Duration(req.DeadlineMS) * time.Millisecond
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	defer cancel()
+
+	hbDone := make(chan struct{})
+	go p.heartbeat(msg, hbDone)
+	defer close(hbDone)
+
+	ticker := time.NewTicker(p.leasePollInterval())
+	defer ticker.Stop()
+	for {
+		row, err := p.Store.GetWorkRequest(ctx, req.RequestID)
+		if err == nil && row.Status != store.WorkRequestStatusRunning {
+			p.republish(msg, row)
+			return
+		}
+		select {
+		case <-ticker.C:
+		case <-ctx.Done():
+			msg.NakWithDelay(p.retryLaterDelay())
+			return
+		}
+	}
+}
+
+func (p *Pool) recoverPanic(msg jetstream.Msg) {
+	if r := recover(); r != nil {
+		log.Printf("worker: recovered panic handling message: %v\n%s", r, debug.Stack())
+		msg.NakWithDelay(p.retryLaterDelay())
+	}
+}
+
+// recordValidationFailure is the request and result schema, validation and
+// its Term path (PLAN.md phase 3 testing note): a request that never
+// authorizes itself is recorded as failed under no session (sessionID ""),
+// published once, and Term'd so it is never redelivered.
+func (p *Pool) recordValidationFailure(ctx context.Context, msg jetstream.Msg, requestID string, verr error) {
+	if err := p.Store.SetWorkRequestSession(ctx, requestID, ""); err != nil {
+		log.Printf("worker: clear session for invalid request %s: %v", requestID, err)
+	}
+	now := time.Now().UTC()
+	result := queue.Result{
+		RequestID: requestID,
+		Status:    queue.StatusFailed,
+		Error:     &queue.ResultError{Code: "invalid_request", Message: verr.Error()},
+		StartedAt: now, FinishedAt: now,
+	}
+	p.finish(msg, requestID, "", result, true)
+}
+
+// run drives one claimed, valid request through lease acquisition and the
+// session loop to a terminal result.
+func (p *Pool) run(msg jetstream.Msg, req queue.Request, workspace string, outcome store.ClaimOutcome) {
+	started := time.Now().UTC()
+	sessionID := session.NewSessionID()
+
+	hbDone := make(chan struct{})
+	go p.heartbeat(msg, hbDone)
+	defer close(hbDone)
+
+	deadline := p.defaultDeadline()
+	if req.DeadlineMS > 0 {
+		deadline = time.Duration(req.DeadlineMS) * time.Millisecond
+	}
+	runCtx, cancel := context.WithTimeout(context.Background(), deadline)
+	defer cancel()
+
+	var previousSessionID string
+	if outcome.Found {
+		previousSessionID = outcome.Existing.SessionID
+	}
+
+	if err := p.Store.SetWorkRequestSession(runCtx, req.RequestID, sessionID); err != nil {
+		log.Printf("worker: attach session for %s: %v", req.RequestID, err)
+	}
+	p.publishAccepted(req.RequestID, sessionID, started)
+
+	// A takeover releases the abandoned attempt's lease before acquiring its
+	// own. A process killed outright never runs the defer below, so its
+	// workspace stays leased to a session id nothing will ever release.
+	// This rests on the same redelivery signal as the work_requests takeover
+	// and carries the same residual risk, which FinishWorkRequest's session
+	// fencing contains. Releasing an unheld lease is not an error.
+	if previousSessionID != "" {
+		if err := p.Store.ReleaseWorkspaceLease(runCtx, workspace, previousSessionID); err != nil {
+			log.Printf("worker: release abandoned lease for %s: %v", req.RequestID, err)
+		}
+	}
+	if err := p.Store.AcquireWorkspaceLeaseWait(runCtx, workspace, sessionID, p.leasePollInterval()); err != nil {
+		result := deniedResult(req.RequestID, sessionID, started, err)
+		p.finish(msg, req.RequestID, sessionID, result, false)
+		return
+	}
+	defer p.Store.ReleaseWorkspaceLease(context.Background(), workspace, sessionID)
+
+	mode := tools.Mode(req.PermissionMode)
+	if mode == "" {
+		mode = p.defaultPermissionMode()
+	}
+	model := req.Model
+	if model == "" {
+		model = p.defaultModel()
+	}
+	effort := req.Effort
+	if effort == "" {
+		effort = p.defaultEffort()
+	}
+
+	progressLimiter := queue.NewProgressLimiter(time.Second)
+	runResult, runErr := p.Runner.Run(runCtx, session.RunOptions{
+		SessionID:      sessionID,
+		Model:          model,
+		Effort:         effort,
+		Thinking:       p.DefaultThinking,
+		MaxTokens:      p.defaultMaxTokens(),
+		Workspace:      workspace,
+		PermissionMode: mode,
+		Deny:           req.Deny,
+		Prompt:         req.Prompt,
+		ResultSchema:   req.ResultSchema,
+		MaxSubTurns:    req.MaxSubTurns,
+		ParentID:       previousSessionID,
+		Progress: func(sp session.SubTurnProgress) {
+			if progressLimiter.Allow(time.Now()) {
+				p.publishProgress(req.RequestID, sp)
+			}
+		},
+	})
+
+	result := p.classify(req.RequestID, sessionID, started, runResult, runErr, runCtx.Err())
+	p.finish(msg, req.RequestID, sessionID, result, false)
+}
+
+func (p *Pool) heartbeat(msg jetstream.Msg, done <-chan struct{}) {
+	t := time.NewTicker(p.heartbeatInterval())
+	defer t.Stop()
+	for {
+		select {
+		case <-t.C:
+			if err := msg.InProgress(); err != nil {
+				log.Printf("worker: heartbeat: %v", err)
+			}
+		case <-done:
+			return
+		}
+	}
+}
+
+// classify turns a session run's outcome into a queue.Result. A timeout is
+// distinguished from an ordinary failure by checking runCtx's own error
+// rather than parsing runErr's text, since the context that actually
+// expired is the authoritative signal.
+func (p *Pool) classify(requestID, sessionID string, started time.Time, runResult *session.RunResult, runErr, ctxErr error) queue.Result {
+	res := queue.Result{RequestID: requestID, SessionID: sessionID, StartedAt: started, FinishedAt: time.Now().UTC()}
+
+	if runResult != nil {
+		res.SubTurns = runResult.SubTurns
+		res.Text = runResult.Text
+		res.Result = runResult.Result
+		res.Usage = &queue.ResultUsage{
+			CacheHitTokens:  runResult.Usage.CacheHitTokens,
+			CacheMissTokens: runResult.Usage.CacheMissTokens,
+			OutputTokens:    runResult.Usage.CompletionTokens,
+			ReasoningTokens: runResult.Usage.ReasoningTokens,
+			CostUSD:         runResult.Usage.CostUSD,
+			PriceTableDate:  p.PriceTableDate,
+		}
+	}
+
+	switch {
+	case runErr == nil && runResult != nil && runResult.Status == store.StatusMaxTurns:
+		// Exhausting the sub-turn budget is not an error, but it is not a
+		// finished task either. Reporting it as ok would hand the requester a
+		// partial run indistinguishable from a complete one.
+		res.Status = queue.StatusTimeout
+		res.Error = &queue.ResultError{Code: "max_sub_turns", Message: "run stopped at the sub-turn limit without calling Complete"}
+	case runErr == nil:
+		res.Status = queue.StatusOK
+	case errors.Is(ctxErr, context.DeadlineExceeded):
+		res.Status = queue.StatusTimeout
+		res.Error = &queue.ResultError{Code: "deadline_exceeded", Message: runErr.Error()}
+	default:
+		res.Status = queue.StatusFailed
+		res.Error = &queue.ResultError{Code: "run_failed", Message: runErr.Error()}
+	}
+	return res
+}
+
+// deniedResult reports a request that never reached the session loop
+// because its workspace stayed leased to another session through the whole
+// wait. docs/DESIGN.md §4.10 lists "denied" without defining what produces
+// it; this is that definition.
+func deniedResult(requestID, sessionID string, started time.Time, err error) queue.Result {
+	now := time.Now().UTC()
+	return queue.Result{
+		RequestID: requestID, SessionID: sessionID, Status: queue.StatusDenied,
+		Error:      &queue.ResultError{Code: "workspace_leased", Message: err.Error()},
+		StartedAt:  started,
+		FinishedAt: now,
+	}
+}
+
+// finish records requestID's outcome, publishes it, and disposes of msg.
+// The store write happens before the publish so that a crash between the
+// two leaves a terminal row behind: redelivery then republishes the stored
+// result instead of running the whole session again. The publish happens
+// before the ack (or Term) so a crash between those two redelivers the
+// request rather than losing the result docs/DESIGN.md §4.10 asks for.
+func (p *Pool) finish(msg jetstream.Msg, requestID, sessionID string, result queue.Result, term bool) {
+	data, err := json.Marshal(result)
+	if err != nil {
+		log.Printf("worker: encode result for %s: %v", requestID, err)
+		msg.NakWithDelay(p.retryLaterDelay())
+		return
+	}
+
+	matched, err := p.Store.FinishWorkRequest(context.Background(), requestID, sessionID, result.Status, data, result.FinishedAt)
+	if err != nil {
+		log.Printf("worker: record finish for %s: %v", requestID, err)
+		msg.NakWithDelay(p.retryLaterDelay())
+		return
+	}
+	if !matched {
+		// A newer attempt took the row over while this one was still
+		// running — a false redelivery, not an actually dead process. This
+		// delivery's own job is done either way; acking it just stops it
+		// being redelivered again for no purpose. The newer attempt's
+		// result is what gets published.
+		log.Printf("worker: %s finished under session %q, but the row had already moved on", requestID, sessionID)
+		msg.Ack()
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := p.JS.Publish(ctx, queue.FinalSubject(requestID), data, jetstream.WithMsgID(queue.FinalMsgID(requestID))); err != nil {
+		log.Printf("worker: publish final result for %s: %v", requestID, err)
+		msg.NakWithDelay(p.retryLaterDelay())
+		return
+	}
+	if term {
+		msg.Term()
+	} else {
+		msg.Ack()
+	}
+}
+
+// republish resends a terminal row's stored result under the same
+// Nats-Msg-Id, for a redelivery or a duplicate publish that arrived after
+// the original attempt already finished. No store write and no session
+// run: the row already says what happened.
+func (p *Pool) republish(msg jetstream.Msg, existing store.WorkRequest) {
+	if len(existing.Result) > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if _, err := p.JS.Publish(ctx, queue.FinalSubject(existing.RequestID), existing.Result, jetstream.WithMsgID(queue.FinalMsgID(existing.RequestID))); err != nil {
+			log.Printf("worker: republish result for %s: %v", existing.RequestID, err)
+			msg.NakWithDelay(p.retryLaterDelay())
+			return
+		}
+	}
+	msg.Ack()
+}
+
+func (p *Pool) publishAccepted(requestID, sessionID string, started time.Time) {
+	data, err := json.Marshal(queue.Accepted{RequestID: requestID, SessionID: sessionID, StartedAt: started})
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := p.JS.Publish(ctx, queue.AcceptedSubject(requestID), data); err != nil {
+		log.Printf("worker: publish accepted for %s: %v", requestID, err)
+	}
+}
+
+func (p *Pool) publishProgress(requestID string, sp session.SubTurnProgress) {
+	data, err := json.Marshal(queue.Progress{
+		RequestID: requestID,
+		SessionID: sp.SessionID,
+		SubTurn:   sp.SubTurn,
+		ToolCalls: sp.ToolCalls,
+		Usage: &queue.ResultUsage{
+			CacheHitTokens:  sp.Usage.PromptCacheHitTokens,
+			CacheMissTokens: sp.Usage.PromptCacheMissTokens,
+			OutputTokens:    sp.Usage.CompletionTokens,
+			ReasoningTokens: sp.Usage.ReasoningTokens,
+			CostUSD:         sp.Usage.CostUSD,
+			PriceTableDate:  p.PriceTableDate,
+		},
+		Timestamp: time.Now().UTC(),
+	})
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := p.JS.Publish(ctx, queue.ProgressSubject(requestID), data); err != nil {
+		log.Printf("worker: publish progress for %s: %v", requestID, err)
+	}
+}

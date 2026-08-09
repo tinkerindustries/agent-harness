@@ -46,6 +46,13 @@ type RunOptions struct {
 	Resolver       tools.Resolver
 	ParentID       string
 
+	// SessionID, when set, is used instead of generating a fresh one. A
+	// caller that must know the id before the session row exists — the
+	// worker pool acquiring a workspace lease under it before calling Run,
+	// say — generates one with NewSessionID and passes it back here so the
+	// lease and the session agree.
+	SessionID string
+
 	// Progress, when set, overrides Runner.Progress for this call only.
 	// Concurrent callers that need to tell their sub-turn reports apart —
 	// several CLI jobs sharing one Runner, say — set this instead of
@@ -113,6 +120,43 @@ type Runner struct {
 	// Progress, when set, is called after every sub-turn commits. It may be
 	// called concurrently by different Run calls and must not block.
 	Progress func(SubTurnProgress)
+
+	// ModelLimits caps concurrent in-flight DeepSeek requests per model,
+	// shared across every call to Run on this Runner — the semaphore
+	// docs/DESIGN.md §4.5 sizes under the account's per-model ceiling. A
+	// model absent from the map, or a nil map, is unlimited; that keeps
+	// existing callers (the CLI, every phase 2 test) exactly as they were.
+	ModelLimits map[string]int
+
+	semsMu sync.Mutex
+	sems   map[string]chan struct{}
+}
+
+// acquireModelSlot blocks until a concurrent-request slot for model is
+// free, or ctx is done. The returned release func is always safe to call
+// once; a caller with no limit configured gets a no-op.
+func (r *Runner) acquireModelSlot(ctx context.Context, model string) (func(), error) {
+	limit := r.ModelLimits[model]
+	if limit <= 0 {
+		return func() {}, nil
+	}
+	r.semsMu.Lock()
+	if r.sems == nil {
+		r.sems = make(map[string]chan struct{})
+	}
+	sem, ok := r.sems[model]
+	if !ok {
+		sem = make(chan struct{}, limit)
+		r.sems[model] = sem
+	}
+	r.semsMu.Unlock()
+
+	select {
+	case sem <- struct{}{}:
+		return func() { <-sem }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 func (r *Runner) maxSubTurns() int {
@@ -188,7 +232,10 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 		return nil, fmt.Errorf("session: encode tool schema: %w", err)
 	}
 
-	sessID := newID("sess")
+	sessID := opts.SessionID
+	if sessID == "" {
+		sessID = newID("sess")
+	}
 	executor.RunSubagent = r.subagentRunner(sessID, opts, executor.Workspace)
 
 	sess := store.Session{

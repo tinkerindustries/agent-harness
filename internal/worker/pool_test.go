@@ -1,0 +1,619 @@
+package worker
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nats.go/jetstream"
+
+	"github.com/mrgeoffrich/deepseek-harness/internal/config"
+	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
+	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
+	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
+	"github.com/mrgeoffrich/deepseek-harness/internal/session"
+	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+)
+
+// testNATSURL and connectOrSkip mirror internal/queue's test helpers: the
+// local docker-compose JetStream server, skipped when unreachable so
+// `go test ./...` passes without Docker, with the repo's own .env
+// consulted so a developer's port override (docker-compose.yml's own
+// comment: "a machine may already run NATS on the defaults") is honoured.
+func testNATSURL() string {
+	config.LoadDotEnv("../../.env")
+	if v := os.Getenv("NATS_URL"); v != "" {
+		return v
+	}
+	return "nats://127.0.0.1:4222"
+}
+
+func connectOrSkip(t *testing.T) (*nats.Conn, jetstream.JetStream) {
+	t.Helper()
+	nc, js, err := queue.Connect(testNATSURL())
+	if err != nil {
+		t.Skipf("no local NATS JetStream server reachable at %s (docker compose up -d): %v", testNATSURL(), err)
+	}
+	t.Cleanup(nc.Close)
+	return nc, js
+}
+
+func uniqueID(prefix string) string {
+	var b [8]byte
+	rand.Read(b[:])
+	return prefix + "-" + hex.EncodeToString(b[:])
+}
+
+// testHarness wires a Pool to a real local JetStream server and a fake
+// DeepSeek HTTP server, isolated per test by a fresh store and a fresh
+// durable consumer state (streams are cleaned up in t.Cleanup).
+type testHarness struct {
+	pool *Pool
+	js   jetstream.JetStream
+	root string
+	hits *hitCounter
+}
+
+type hitCounter struct {
+	mu sync.Mutex
+	n  int
+}
+
+func (h *hitCounter) inc() {
+	h.mu.Lock()
+	h.n++
+	h.mu.Unlock()
+}
+
+func (h *hitCounter) count() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.n
+}
+
+// plainAnswerServer answers every request (streaming or not) with answer
+// and no tool calls, ending the run at "ok" after a single sub-turn. delay
+// stalls the response so a test can keep a run "in flight" long enough to
+// race a duplicate request against it.
+func plainAnswerServer(t *testing.T, answer string, delay time.Duration, hits *hitCounter) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if hits != nil {
+			hits.inc()
+		}
+		if delay > 0 {
+			time.Sleep(delay)
+		}
+		body, _ := io.ReadAll(r.Body)
+		var probe struct {
+			Stream bool `json:"stream"`
+		}
+		_ = json.Unmarshal(body, &probe)
+
+		if !probe.Stream {
+			resp := deepseek.ChatCompletionResponse{
+				Choices: []deepseek.Choice{{Message: deepseek.Message{Role: deepseek.RoleAssistant, Content: answer}, FinishReason: deepseek.FinishStop}},
+				Usage:   &deepseek.Usage{PromptTokens: 50, CompletionTokens: 10},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+		writeChunk := func(c deepseek.ChatCompletionChunk) {
+			b, _ := json.Marshal(c)
+			fmt.Fprintf(w, "data: %s\n\n", b)
+			flusher.Flush()
+		}
+		content := answer
+		writeChunk(deepseek.ChatCompletionChunk{
+			Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{Role: "assistant", Content: &content}}},
+		})
+		finish := deepseek.FinishStop
+		writeChunk(deepseek.ChatCompletionChunk{
+			Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: &finish}},
+			Usage:   &deepseek.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
+		})
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+}
+
+func newTestHarness(t *testing.T, serverURL string, poolSize int) *testHarness {
+	t.Helper()
+	nc, js := connectOrSkip(t)
+	_ = nc
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	consumer, err := queue.EnsureStreams(ctx, js, poolSize)
+	if err != nil {
+		t.Fatalf("EnsureStreams: %v", err)
+	}
+	t.Cleanup(func() {
+		js.DeleteStream(context.Background(), queue.StreamWork)
+		js.DeleteStream(context.Background(), queue.StreamResults)
+	})
+
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "harness.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	root := filepath.Join(dir, "roots")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	runner := &session.Runner{
+		Store:      st,
+		Client:     deepseek.NewClient(serverURL, "test-key"),
+		Prices:     testPrices(),
+		FlashModel: "test-model",
+	}
+
+	pool := &Pool{
+		Store:                 st,
+		Runner:                runner,
+		JS:                    js,
+		Consumer:              consumer,
+		Roots:                 []string{resolvedRoot},
+		DefaultModel:          "test-model",
+		DefaultEffort:         deepseek.EffortHigh,
+		DefaultThinking:       true,
+		DefaultMaxTokens:      4000,
+		DefaultPermissionMode: tools.ModeFull,
+		DefaultDeadline:       20 * time.Second,
+		PriceTableDate:        "2026-08-09",
+		Size:                  poolSize,
+		HeartbeatInterval:     30 * time.Millisecond,
+		LeasePollInterval:     50 * time.Millisecond,
+		RetryLaterDelay:       300 * time.Millisecond,
+	}
+
+	return &testHarness{pool: pool, js: js, root: resolvedRoot}
+}
+
+func testPrices() *pricing.Table {
+	return &pricing.Table{
+		CapturedAt: "2026-08-09",
+		Models: map[string]pricing.ModelPrices{
+			"test-model": {InputCacheHitPerMillionUSD: 0.003625, InputCacheMissPerMillionUSD: 0.435, OutputPerMillionUSD: 0.87},
+		},
+	}
+}
+
+// startPool runs the pool in the background and returns a stop func that
+// cancels it and waits for Run to actually return before continuing. A
+// bare `go h.pool.Run(ctx)` plus `defer cancel()` races: cancel only asks
+// Run to stop, and t.Cleanup closes the store before Run's in-flight
+// handlers are guaranteed to have released it.
+func (h *testHarness) startPool(t *testing.T) (stop func()) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		h.pool.Run(ctx)
+		close(done)
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
+}
+
+func (h *testHarness) newWorkspace(t *testing.T) string {
+	t.Helper()
+	ws, err := os.MkdirTemp(h.root, "ws-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ws
+}
+
+func (h *testHarness) publish(t *testing.T, req queue.Request) {
+	t.Helper()
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := h.js.Publish(ctx, queue.RequestSubject(req.RequestID), data); err != nil {
+		t.Fatalf("publish %s: %v", req.RequestID, err)
+	}
+}
+
+func (h *testHarness) publishRaw(t *testing.T, subjectToken string, data []byte) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := h.js.Publish(ctx, queue.RequestSubject(subjectToken), data); err != nil {
+		t.Fatalf("publish raw %s: %v", subjectToken, err)
+	}
+}
+
+// fetchFinalResult waits up to timeout for a final result to appear on the
+// RESULTS stream for requestID, decoded into a queue.Result.
+func (h *testHarness) fetchFinalResult(t *testing.T, requestID string, timeout time.Duration) queue.Result {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	consumer, err := h.js.OrderedConsumer(ctx, queue.StreamResults, jetstream.OrderedConsumerConfig{
+		FilterSubjects: []string{queue.FinalSubject(requestID)},
+	})
+	if err != nil {
+		t.Fatalf("ordered consumer for %s: %v", requestID, err)
+	}
+	batch, err := consumer.Fetch(1, jetstream.FetchMaxWait(timeout))
+	if err != nil {
+		t.Fatalf("fetch final result for %s: %v", requestID, err)
+	}
+	for msg := range batch.Messages() {
+		var res queue.Result
+		if err := json.Unmarshal(msg.Data(), &res); err != nil {
+			t.Fatalf("decode result for %s: %v", requestID, err)
+		}
+		return res
+	}
+	t.Fatalf("no final result arrived for %s within %s", requestID, timeout)
+	return queue.Result{}
+}
+
+// countFinalResults counts however many final-result messages arrived for
+// requestID within timeout, used to prove a duplicate request_id produced
+// exactly one.
+func (h *testHarness) countFinalResults(t *testing.T, requestID string, timeout time.Duration) int {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	consumer, err := h.js.OrderedConsumer(ctx, queue.StreamResults, jetstream.OrderedConsumerConfig{
+		FilterSubjects: []string{queue.FinalSubject(requestID)},
+	})
+	if err != nil {
+		t.Fatalf("ordered consumer for %s: %v", requestID, err)
+	}
+	batch, err := consumer.Fetch(10, jetstream.FetchMaxWait(timeout))
+	if err != nil {
+		t.Fatalf("fetch for %s: %v", requestID, err)
+	}
+	n := 0
+	for range batch.Messages() {
+		n++
+	}
+	return n
+}
+
+// TestPoolFourConcurrentRequests is PLAN.md's first phase 3 exit criterion:
+// publish four requests at once and get four results back with correct
+// usage figures.
+func TestPoolFourConcurrentRequests(t *testing.T) {
+	hits := &hitCounter{}
+	srv := plainAnswerServer(t, "all done", 0, hits)
+	defer srv.Close()
+
+	h := newTestHarness(t, srv.URL, 4)
+	defer h.startPool(t)()
+
+	const n = 4
+	requestIDs := make([]string, n)
+	for i := 0; i < n; i++ {
+		requestIDs[i] = uniqueID("req-concurrent")
+		h.publish(t, queue.Request{
+			RequestID: requestIDs[i], Prompt: fmt.Sprintf("task %d", i), Workspace: h.newWorkspace(t),
+		})
+	}
+
+	var wg sync.WaitGroup
+	results := make([]queue.Result, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			results[i] = h.fetchFinalResult(t, requestIDs[i], 15*time.Second)
+		}(i)
+	}
+	wg.Wait()
+
+	for i, res := range results {
+		if res.Status != queue.StatusOK {
+			t.Fatalf("request %d: expected status ok, got %+v", i, res)
+		}
+		if res.Text != "all done" {
+			t.Fatalf("request %d: unexpected text %q", i, res.Text)
+		}
+		if res.Usage == nil || res.Usage.CacheHitTokens != 100 || res.Usage.CacheMissTokens != 100 {
+			t.Fatalf("request %d: unexpected usage %+v", i, res.Usage)
+		}
+		if res.SessionID == "" {
+			t.Fatalf("request %d: expected a session id", i)
+		}
+	}
+}
+
+// TestPoolDuplicateRequestIDRunsOnce is PLAN.md's third exit criterion:
+// publish the same request_id twice and get one run and one result. The
+// fake server stalls so the second publish lands while the first is
+// genuinely still in flight, exercising the retry-later path rather than
+// the takeover path.
+func TestPoolDuplicateRequestIDRunsOnce(t *testing.T) {
+	hits := &hitCounter{}
+	srv := plainAnswerServer(t, "done once", 700*time.Millisecond, hits)
+	defer srv.Close()
+
+	h := newTestHarness(t, srv.URL, 4)
+	defer h.startPool(t)()
+
+	requestID := uniqueID("req-dup")
+	ws := h.newWorkspace(t)
+	req := queue.Request{RequestID: requestID, Prompt: "do it once", Workspace: ws}
+
+	h.publish(t, req)
+	time.Sleep(150 * time.Millisecond) // let the first attempt claim the row before the duplicate arrives
+	h.publish(t, req)
+
+	res := h.fetchFinalResult(t, requestID, 15*time.Second)
+	if res.Status != queue.StatusOK || res.Text != "done once" {
+		t.Fatalf("unexpected result: %+v", res)
+	}
+
+	// Give any (incorrect) second run a moment it would need to reach the
+	// fake server, then confirm it never did.
+	time.Sleep(1 * time.Second)
+	if hits.count() != 1 {
+		t.Fatalf("expected exactly 1 session to have run against the fake server, got %d", hits.count())
+	}
+
+	if n := h.countFinalResults(t, requestID, 2*time.Second); n != 1 {
+		t.Fatalf("expected exactly 1 final result on the RESULTS stream, got %d", n)
+	}
+}
+
+// TestPoolMalformedRequestTermsWithoutRunning is the request and result
+// validation Term path: a request that fails validation gets a failed
+// result and is never run.
+func TestPoolMalformedRequestTermsWithoutRunning(t *testing.T) {
+	hits := &hitCounter{}
+	srv := plainAnswerServer(t, "should never run", 0, hits)
+	defer srv.Close()
+
+	h := newTestHarness(t, srv.URL, 4)
+	defer h.startPool(t)()
+
+	requestID := uniqueID("req-invalid")
+	h.publish(t, queue.Request{RequestID: requestID, Prompt: "go", Workspace: "/not/a/configured/root"})
+
+	res := h.fetchFinalResult(t, requestID, 10*time.Second)
+	if res.Status != queue.StatusFailed {
+		t.Fatalf("expected status failed, got %+v", res)
+	}
+	if res.Error == nil || res.Error.Code != "invalid_request" {
+		t.Fatalf("expected an invalid_request error, got %+v", res.Error)
+	}
+
+	time.Sleep(300 * time.Millisecond)
+	if hits.count() != 0 {
+		t.Fatalf("expected the fake server never to be called for an invalid request, got %d hits", hits.count())
+	}
+}
+
+// TestPoolHandleTakesOverAbandonedRow drives Pool.handle with a fake
+// jetstream.Msg reporting a redelivery, against a work_requests row shaped
+// like one a dead process abandoned mid-run. It covers the routing behind
+// PLAN.md's kill-and-restart exit criterion without waiting on the real 60s
+// AckWait.
+func TestPoolHandleTakesOverAbandonedRow(t *testing.T) {
+	hits := &hitCounter{}
+	// A small delay gives the heartbeat ticker (30ms in this harness) at
+	// least one tick to fire before the run completes.
+	srv := plainAnswerServer(t, "continued", 60*time.Millisecond, hits)
+	defer srv.Close()
+
+	h := newTestHarness(t, srv.URL, 4)
+
+	requestID := uniqueID("req-takeover")
+	ws := h.newWorkspace(t)
+
+	ctx := context.Background()
+	if _, err := h.pool.Store.ClaimWorkRequest(ctx, requestID, 1, time.Now()); err != nil {
+		t.Fatalf("simulate original claim: %v", err)
+	}
+	if err := h.pool.Store.SetWorkRequestSession(ctx, requestID, "sess-abandoned-fake"); err != nil {
+		t.Fatalf("attach abandoned session: %v", err)
+	}
+	// A process killed outright never runs its deferred
+	// ReleaseWorkspaceLease, so the abandoned attempt's lease is still held.
+	// The takeover must free it or the new session waits on a lease nothing
+	// will ever release.
+	if err := h.pool.Store.AcquireWorkspaceLease(ctx, ws, "sess-abandoned-fake"); err != nil {
+		t.Fatalf("simulate the abandoned attempt's held lease: %v", err)
+	}
+
+	reqBody, err := json.Marshal(queue.Request{RequestID: requestID, Prompt: "continue", Workspace: ws})
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := &fakeMsg{data: reqBody, numDelivered: 2}
+	h.pool.handle(msg)
+
+	if !msg.wasAcked() {
+		t.Fatalf("expected the takeover to finish and ack; acked=%v termed=%v nakked=%v", msg.acked, msg.termed, msg.nakked)
+	}
+	if msg.inProgress == 0 {
+		t.Fatal("expected at least one InProgress heartbeat during the run")
+	}
+
+	row, err := h.pool.Store.GetWorkRequest(ctx, requestID)
+	if err != nil {
+		t.Fatalf("get work request: %v", err)
+	}
+	if row.SessionID == "sess-abandoned-fake" {
+		t.Fatal("expected a fresh session to have taken over, not the abandoned one")
+	}
+	if row.Status != queue.StatusOK {
+		t.Fatalf("expected the row to finish ok, got %+v", row)
+	}
+
+	sess, err := h.pool.Store.GetSession(ctx, row.SessionID)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if sess.ParentID != "sess-abandoned-fake" {
+		t.Fatalf("expected the new session's parent_id to link to the abandoned session, got %q", sess.ParentID)
+	}
+
+	// The abandoned session's stale lease must not still be blocking
+	// anything once the takeover has finished cleanly.
+	if err := h.pool.Store.AcquireWorkspaceLease(ctx, ws, "someone-else"); err != nil {
+		t.Fatalf("expected the workspace lease to be free after the takeover finished, got %v", err)
+	}
+}
+
+// fakeMsg implements jetstream.Msg without a broker, for driving
+// Pool.handle directly with a controlled delivery count.
+type fakeMsg struct {
+	data         []byte
+	numDelivered uint64
+
+	mu         sync.Mutex
+	acked      bool
+	termed     bool
+	nakked     bool
+	inProgress int
+}
+
+func (m *fakeMsg) Metadata() (*jetstream.MsgMetadata, error) {
+	return &jetstream.MsgMetadata{NumDelivered: m.numDelivered}, nil
+}
+func (m *fakeMsg) Data() []byte         { return m.data }
+func (m *fakeMsg) Headers() nats.Header { return nil }
+func (m *fakeMsg) Subject() string      { return "test.subject" }
+func (m *fakeMsg) Reply() string        { return "" }
+
+func (m *fakeMsg) Ack() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.acked = true
+	return nil
+}
+func (m *fakeMsg) DoubleAck(context.Context) error { return m.Ack() }
+func (m *fakeMsg) Nak() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.nakked = true
+	return nil
+}
+func (m *fakeMsg) NakWithDelay(time.Duration) error { return m.Nak() }
+func (m *fakeMsg) InProgress() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.inProgress++
+	return nil
+}
+func (m *fakeMsg) Term() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.termed = true
+	return nil
+}
+func (m *fakeMsg) TermWithReason(string) error { return m.Term() }
+
+func (m *fakeMsg) wasAcked() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.acked
+}
+
+var _ jetstream.Msg = (*fakeMsg)(nil)
+
+// alwaysToolCallServer answers every request with the same tool call, so a
+// run never reaches a no-tool-call response and exhausts its sub-turn budget.
+func alwaysToolCallServer(t *testing.T) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+		writeChunk := func(c deepseek.ChatCompletionChunk) {
+			b, _ := json.Marshal(c)
+			fmt.Fprintf(w, "data: %s\n\n", b)
+			flusher.Flush()
+		}
+		writeChunk(deepseek.ChatCompletionChunk{Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{
+			Role:      "assistant",
+			ToolCalls: []deepseek.ToolCallDelta{{Index: 0, ID: "call-1", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "TodoWrite", Arguments: `{"todos":[]}`}}},
+		}}}})
+		finish := deepseek.FinishToolCalls
+		writeChunk(deepseek.ChatCompletionChunk{
+			Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: &finish}},
+			Usage:   &deepseek.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
+		})
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+}
+
+// A run that exhausts max_sub_turns must not report itself ok. The requester
+// otherwise cannot tell a finished task from one that stopped partway.
+func TestPoolMaxSubTurnsIsNotReportedAsOK(t *testing.T) {
+	srv := alwaysToolCallServer(t)
+	defer srv.Close()
+
+	h := newTestHarness(t, srv.URL, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	// Stop the pool and let it drain before the test returns, so t.Cleanup
+	// does not close the store under an in-flight lease release.
+	poolDone := make(chan struct{})
+	go func() {
+		defer close(poolDone)
+		h.pool.Run(ctx)
+	}()
+	defer func() {
+		cancel()
+		<-poolDone
+	}()
+
+	ws := filepath.Join(h.root, "maxturns")
+	if err := os.MkdirAll(ws, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	requestID := uniqueID("maxturns")
+	h.publish(t, queue.Request{
+		RequestID:   requestID,
+		Prompt:      "loop forever",
+		Workspace:   ws,
+		MaxSubTurns: 2,
+	})
+
+	res := h.fetchFinalResult(t, requestID, 25*time.Second)
+	if res.Status == queue.StatusOK {
+		t.Fatalf("a run that exhausted max_sub_turns reported status ok; requester cannot tell it from a completed run")
+	}
+	if res.Status != queue.StatusTimeout {
+		t.Fatalf("status = %q, want %q", res.Status, queue.StatusTimeout)
+	}
+	if res.Error == nil || res.Error.Code != "max_sub_turns" {
+		t.Fatalf("error = %+v, want code max_sub_turns", res.Error)
+	}
+}

@@ -99,6 +99,11 @@ func (r *Runner) summarize(ctx context.Context, messages []deepseek.Message) (st
 		Thinking:  &deepseek.ThinkingConfig{Type: deepseek.ThinkingDisabled},
 		MaxTokens: 8000,
 	}
+	release, err := r.acquireModelSlot(ctx, req.Model)
+	if err != nil {
+		return "", err
+	}
+	defer release()
 	resp, err := r.Client.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return "", err

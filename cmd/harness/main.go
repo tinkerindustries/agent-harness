@@ -22,6 +22,8 @@ const usage = `usage: harness <command> [flags]
 commands:
   ask "..."             send a prompt and stream reasoning and content to the terminal
   run -workspace P "..." run the agent loop against a workspace until it finishes or gives up
+  serve                  pull work requests from NATS JetStream and run them as a worker pool
+  publish -workspace P "..."  publish a work request to the queue "harness serve" reads
   export <session-id>    rebuild a session's disk mirror from the database
   models                list available models
   balance               show account balance`
@@ -45,6 +47,10 @@ func main() {
 		err = runAsk(ctx, os.Args[2:])
 	case "run":
 		err = runRun(ctx, os.Args[2:])
+	case "serve":
+		err = runServe(ctx, os.Args[2:])
+	case "publish":
+		err = runPublish(ctx, os.Args[2:])
 	case "export":
 		err = runExport(ctx, os.Args[2:])
 	case "models":

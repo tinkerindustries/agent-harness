@@ -493,3 +493,24 @@ func (s *Store) ReleaseWorkspaceLease(ctx context.Context, workspace, sessionID 
 		return err
 	})
 }
+
+// AcquireWorkspaceLeaseWait retries AcquireWorkspaceLease on pollInterval
+// until it succeeds or ctx is done, which is what makes wait-or-fail a
+// per-request choice (docs/DESIGN.md §4.5): the caller bounds ctx by the
+// request's own deadline, so a request with little time left effectively
+// fails fast and one with a long deadline effectively waits.
+func (s *Store) AcquireWorkspaceLeaseWait(ctx context.Context, workspace, sessionID string, pollInterval time.Duration) error {
+	for {
+		err := s.AcquireWorkspaceLease(ctx, workspace, sessionID)
+		if err == nil || !errors.Is(err, ErrWorkspaceLeased) {
+			return err
+		}
+		t := time.NewTimer(pollInterval)
+		select {
+		case <-t.C:
+		case <-ctx.Done():
+			t.Stop()
+			return ctx.Err()
+		}
+	}
+}

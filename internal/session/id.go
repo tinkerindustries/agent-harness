@@ -16,3 +16,12 @@ func newID(prefix string) string {
 	}
 	return prefix + "-" + hex.EncodeToString(b[:])
 }
+
+// NewSessionID returns an identifier in the same shape Run assigns a
+// session that does not set RunOptions.SessionID. A caller that must know
+// the id before Run creates the row — the worker pool acquiring a
+// workspace lease under it, say — generates one here and passes it back
+// through RunOptions.SessionID.
+func NewSessionID() string {
+	return newID("sess")
+}

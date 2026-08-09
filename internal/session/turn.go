@@ -179,6 +179,12 @@ func (r *Runner) stream(ctx context.Context, model string, messages []deepseek.M
 		Tools:           tools.Definitions(),
 	}
 
+	release, err := r.acquireModelSlot(ctx, model)
+	if err != nil {
+		return "", "", nil, "", nil, err
+	}
+	defer release()
+
 	events, err := r.Client.StreamChatCompletion(ctx, req)
 	if err != nil {
 		return "", "", nil, "", nil, err

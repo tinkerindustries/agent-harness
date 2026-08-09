@@ -439,7 +439,7 @@ Result body:
 
     {
       "request_id": "...", "session_id": "...",
-      "status":     "ok" | "failed" | "denied" | "timeout" | "cancelled",
+      "status":     "ok" | "failed" | "denied" | "timeout",
       "result":     { },        from Complete, null when it was never called
       "text":       "...",      final assistant message, always present
       "error":      { "code": "...", "message": "..." },
@@ -447,6 +447,23 @@ Result body:
                       price_table_date },
       "sub_turns":  n, "started_at": "...", "finished_at": "..."
     }
+
+What each terminal status means. `ok` is a run that finished on its own.
+`failed` covers a validation rejection, an unrecoverable API error, and a
+panic. `denied` is a request that never reached the loop because its workspace
+stayed leased to another session for the whole wait, carrying
+`error.code: workspace_leased`. `timeout` is a run that hit its `deadline_ms`
+or `max_sub_turns`.
+
+There is no `cancelled`. Nothing can cancel a run: the browser is read-only
+(§4.2) and a graceful shutdown drains in-flight work rather than cutting it
+off, because an agent run costs minutes and a restart is not a reason to waste
+one. A process that dies outright leaves its message unacked, and redelivery
+covers it.
+
+Lease contention is bounded by the request's own `deadline_ms` rather than a
+separate wait-or-fail flag. A short deadline behaves as fail-fast and a long
+one as wait, which keeps the wire shape smaller.
 
 `result_schema` is validated in Go against the `Complete` arguments. A failing
 payload returns a validation error through the tool result channel and the model

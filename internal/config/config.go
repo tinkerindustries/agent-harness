@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 const (
@@ -20,6 +21,20 @@ const (
 	defaultDataDir     = "data"
 	defaultPermission  = "default"
 	defaultMaxSubTurns = 100
+
+	// defaultNATSURL matches docker-compose.yml's default client port.
+	defaultNATSURL = "nats://127.0.0.1:4222"
+	// defaultWorkerPoolSize is also MaxAckPending on the WORK consumer
+	// (docs/DESIGN.md §4.10): the harness pulls only what it can run.
+	defaultWorkerPoolSize = 4
+	// defaultDeadlineMS is DESIGN.md §4.10's own example value for a work
+	// request that omits deadline_ms.
+	defaultDeadlineMS = 1_800_000
+	// defaultModelConcurrencyPro and defaultModelConcurrencyFlash are the
+	// account-wide ceilings docs/MODELS.md measured, not a per-installation
+	// choice (docs/MODELS.md, "Concurrency is per-model and account-wide").
+	defaultModelConcurrencyPro   = 500
+	defaultModelConcurrencyFlash = 2500
 )
 
 // Config is the harness's runtime configuration, read from the environment.
@@ -40,6 +55,28 @@ type Config struct {
 	// default, or full (docs/TOOLS.md).
 	PermissionMode string
 	MaxSubTurns    int
+
+	// NATSURL is the JetStream server harness serve connects to
+	// (docs/DESIGN.md §4.10).
+	NATSURL string
+	// WorkspaceRoots bounds what a work request's workspace may resolve
+	// under. Empty means every request is rejected at validation — an
+	// operator must opt a directory in before queue-driven runs can touch
+	// it, rather than the harness defaulting to trusting any absolute path
+	// a requester names.
+	WorkspaceRoots []string
+	// WorkerPoolSize is both the worker pool's goroutine budget and the
+	// WORK consumer's MaxAckPending, so JetStream stays the flow controller
+	// (docs/DESIGN.md §4.10).
+	WorkerPoolSize int
+	// DefaultDeadlineMS bounds a work request's run when it omits
+	// deadline_ms.
+	DefaultDeadlineMS int
+	// ModelConcurrencyPro and ModelConcurrencyFlash size the per-model
+	// semaphore shared across the worker pool (docs/DESIGN.md §4.5,
+	// docs/MODELS.md).
+	ModelConcurrencyPro   int
+	ModelConcurrencyFlash int
 }
 
 // Load reads Config from the environment. Call config.LoadDotEnv first if
@@ -77,18 +114,41 @@ func Load() (Config, error) {
 		maxSubTurns = n
 	}
 
+	workerPoolSize, err := envInt("DEEPSEEK_WORKER_POOL_SIZE", defaultWorkerPoolSize)
+	if err != nil {
+		return Config{}, err
+	}
+	deadlineMS, err := envInt("DEEPSEEK_DEFAULT_DEADLINE_MS", defaultDeadlineMS)
+	if err != nil {
+		return Config{}, err
+	}
+	concurrencyPro, err := envInt("DEEPSEEK_MODEL_CONCURRENCY_PRO", defaultModelConcurrencyPro)
+	if err != nil {
+		return Config{}, err
+	}
+	concurrencyFlash, err := envInt("DEEPSEEK_MODEL_CONCURRENCY_FLASH", defaultModelConcurrencyFlash)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
-		APIKey:         apiKey,
-		BaseURL:        envOr("DEEPSEEK_BASE_URL", defaultBaseURL),
-		Model:          envOr("DEEPSEEK_MODEL", defaultModel),
-		FlashModel:     envOr("DEEPSEEK_FLASH_MODEL", defaultFlashModel),
-		Effort:         envOr("DEEPSEEK_EFFORT", defaultEffort),
-		Thinking:       thinking,
-		MaxTokens:      maxTokens,
-		PriceTablePath: envOr("DEEPSEEK_PRICE_TABLE", defaultPriceTable),
-		DataDir:        envOr("DEEPSEEK_DATA_DIR", defaultDataDir),
-		PermissionMode: envOr("DEEPSEEK_PERMISSION_MODE", defaultPermission),
-		MaxSubTurns:    maxSubTurns,
+		APIKey:                apiKey,
+		BaseURL:               envOr("DEEPSEEK_BASE_URL", defaultBaseURL),
+		Model:                 envOr("DEEPSEEK_MODEL", defaultModel),
+		FlashModel:            envOr("DEEPSEEK_FLASH_MODEL", defaultFlashModel),
+		Effort:                envOr("DEEPSEEK_EFFORT", defaultEffort),
+		Thinking:              thinking,
+		MaxTokens:             maxTokens,
+		PriceTablePath:        envOr("DEEPSEEK_PRICE_TABLE", defaultPriceTable),
+		DataDir:               envOr("DEEPSEEK_DATA_DIR", defaultDataDir),
+		PermissionMode:        envOr("DEEPSEEK_PERMISSION_MODE", defaultPermission),
+		MaxSubTurns:           maxSubTurns,
+		NATSURL:               envOr("NATS_URL", defaultNATSURL),
+		WorkspaceRoots:        envList("DEEPSEEK_WORKSPACE_ROOTS"),
+		WorkerPoolSize:        workerPoolSize,
+		DefaultDeadlineMS:     deadlineMS,
+		ModelConcurrencyPro:   concurrencyPro,
+		ModelConcurrencyFlash: concurrencyFlash,
 	}, nil
 }
 
@@ -97,4 +157,34 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+func envInt(key string, def int) (int, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return def, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", key, err)
+	}
+	return n, nil
+}
+
+// envList splits a comma-separated environment variable, dropping empty
+// entries so a trailing comma or unset variable both yield nil rather than
+// a slice containing "".
+func envList(key string) []string {
+	v := os.Getenv(key)
+	if v == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(v, ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
