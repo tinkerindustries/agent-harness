@@ -26,5 +26,9 @@ dist/
 *.sqlite
 /data/
 
+# Bind mount for the harness container's workspace root.
+/workspaces/*
+!/workspaces/.gitkeep
+
 # macOS
 .DS_Store

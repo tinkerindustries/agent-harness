@@ -1,0 +1,17 @@
+.git/
+.env
+.env.*
+
+# Build output. The image builds both from source.
+bin/
+web/node_modules/
+web/tsconfig.tsbuildinfo
+
+# Not read by either build stage.
+third_party/
+docs/
+data/
+workspaces/
+*.test
+*.out
+.DS_Store

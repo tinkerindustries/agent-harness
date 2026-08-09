@@ -19,5 +19,43 @@ services:
       retries: 10
       start_period: 5s
 
+  harness:
+    build:
+      context: .
+    depends_on:
+      nats:
+        condition: service_healthy
+    env_file:
+      # Supplies DEEPSEEK_API_KEY and any model overrides. The environment
+      # block below wins over it for the container-specific values.
+      - path: .env
+        required: false
+    environment:
+      # .env's NATS_URL points at the published host port, which does not
+      # exist inside the network. Reach the broker by service name instead.
+      NATS_URL: nats://nats:4222
+      # The default binds loopback, unreachable from outside the container.
+      # The published port below keeps it loopback-only on the host.
+      DEEPSEEK_HTTP_ADDR: 0.0.0.0:8080
+      DEEPSEEK_DATA_DIR: /data
+      DEEPSEEK_WORKSPACE_ROOTS: /workspaces
+    ports:
+      - "127.0.0.1:${HARNESS_HTTP_PORT:-8080}:8080"
+    volumes:
+      # Agent sessions read and write here; the request's workspace must
+      # resolve under it.
+      - ${HARNESS_WORKSPACES:-./workspaces}:/workspaces
+      - harness-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/api/queue"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    # serve drains in-flight runs on SIGTERM rather than cutting them off.
+    stop_grace_period: 60s
+    restart: unless-stopped
+
 volumes:
   nats-data:
+  harness-data:

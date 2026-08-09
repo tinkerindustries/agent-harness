@@ -12,26 +12,24 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/config"
 )
 
-// testNATSURL is the local docker-compose JetStream server
-// (docker-compose.yml, .env.example). Tests here are skipped when nothing
-// answers on it, so `go test ./...` passes without Docker. The repo's own
-// .env is loaded (best effort, real env vars still win) because a machine
-// may already run NATS on the default port for an unrelated project
-// (docker-compose.yml's own comment); a developer who has overridden the
-// port there expects the test suite to honour it too.
+// testNATSURL is the broker in docker-compose.test.yml, started by
+// scripts/test.sh. It deliberately ignores NATS_URL: that names the
+// deployment's broker, and these tests delete the streams they run
+// against. The repo's own .env is loaded (best effort, real env vars still
+// win) so a port override there reaches the suite.
 func testNATSURL() string {
 	config.LoadDotEnv("../../.env")
-	if v := os.Getenv("NATS_URL"); v != "" {
+	if v := os.Getenv("HARNESS_TEST_NATS_URL"); v != "" {
 		return v
 	}
-	return "nats://127.0.0.1:4222"
+	return "nats://127.0.0.1:4422"
 }
 
 func connectOrSkip(t *testing.T) (*nats.Conn, jetstream.JetStream) {
 	t.Helper()
 	nc, js, err := Connect(testNATSURL())
 	if err != nil {
-		t.Skipf("no local NATS JetStream server reachable at %s (docker compose up -d): %v", testNATSURL(), err)
+		t.Skipf("no test NATS JetStream server reachable at %s (scripts/test.sh): %v", testNATSURL(), err)
 	}
 	t.Cleanup(nc.Close)
 	return nc, js

@@ -29,23 +29,23 @@ import (
 )
 
 // testNATSURL and connectOrSkip mirror internal/queue's test helpers: the
-// local docker-compose JetStream server, skipped when unreachable so
-// `go test ./...` passes without Docker, with the repo's own .env
-// consulted so a developer's port override (docker-compose.yml's own
-// comment: "a machine may already run NATS on the defaults") is honoured.
+// broker in docker-compose.test.yml, skipped when unreachable so
+// `go test ./...` passes without Docker. NATS_URL is ignored on purpose;
+// it names the deployment's broker, whose running pool would consume these
+// requests and reject them against its own workspace roots.
 func testNATSURL() string {
 	config.LoadDotEnv("../../.env")
-	if v := os.Getenv("NATS_URL"); v != "" {
+	if v := os.Getenv("HARNESS_TEST_NATS_URL"); v != "" {
 		return v
 	}
-	return "nats://127.0.0.1:4222"
+	return "nats://127.0.0.1:4422"
 }
 
 func connectOrSkip(t *testing.T) (*nats.Conn, jetstream.JetStream) {
 	t.Helper()
 	nc, js, err := queue.Connect(testNATSURL())
 	if err != nil {
-		t.Skipf("no local NATS JetStream server reachable at %s (docker compose up -d): %v", testNATSURL(), err)
+		t.Skipf("no test NATS JetStream server reachable at %s (scripts/test.sh): %v", testNATSURL(), err)
 	}
 	t.Cleanup(nc.Close)
 	return nc, js

@@ -15,6 +15,14 @@ path, the tool array, or the system prompt, all of which are cache-critical.
 Thinking mode ignores the sampling parameters and rejects the coercive
 `tool_choice` values, so wording is the main loop's only lever.
 
+## Running and testing
+
+`docker compose up -d` deploys the harness next to NATS; the image builds the
+frontend and the binary. Run the Go suite with `scripts/test.sh`, which starts
+the separate broker in `docker-compose.test.yml`. The integration tests delete
+the WORK and RESULTS streams, so they read `HARNESS_TEST_NATS_URL` and ignore
+`NATS_URL` — pointed at the deployment's broker they fight its running pool.
+
 ## Vendored documentation
 
 `third_party/deepseek-docs/` mirrors <https://api-docs.deepseek.com/> as Markdown.
