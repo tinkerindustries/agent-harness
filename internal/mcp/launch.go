@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
@@ -48,6 +49,30 @@ type launchOutput struct {
 	TranscriptURL string `json:"transcript_url,omitempty"`
 }
 
+// decodeResultSchema turns deepseek_agent's result_schema argument into the
+// raw JSON the queue validates. A client that sends the schema as a JSON
+// object is the common case; one that sends it as a string holding that same
+// JSON is just as correct from the tool schema's point of view, because a
+// field typed any has no declared type for the client to serialize against.
+// Marshalling that string would re-quote it into a JSON string, which
+// queue.Request.Validate then rejects for not being a top-level object, so
+// unwrap it here instead.
+func decodeResultSchema(v any) (json.RawMessage, error) {
+	if v == nil {
+		return nil, nil
+	}
+	if s, ok := v.(string); ok {
+		if strings.TrimSpace(s) == "" {
+			return nil, nil
+		}
+		if !json.Valid([]byte(s)) {
+			return nil, fmt.Errorf("sent as a string that is not valid JSON")
+		}
+		return json.RawMessage(s), nil
+	}
+	return json.Marshal(v)
+}
+
 func (svc *Service) registerLaunchTool(server *mcpsdk.Server) {
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "deepseek_agent",
@@ -83,12 +108,9 @@ func (svc *Service) handleLaunch(ctx context.Context, _ *mcpsdk.CallToolRequest,
 		return errorResult("%s", err.Error()), nil, nil
 	}
 
-	var resultSchema json.RawMessage
-	if in.ResultSchema != nil {
-		resultSchema, err = json.Marshal(in.ResultSchema)
-		if err != nil {
-			return errorResult("result_schema: %v", err), nil, nil
-		}
+	resultSchema, err := decodeResultSchema(in.ResultSchema)
+	if err != nil {
+		return errorResult("result_schema: %v", err), nil, nil
 	}
 
 	requestID := newRequestID()
