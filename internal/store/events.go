@@ -38,6 +38,11 @@ type SessionStartedPayload struct {
 	// panel without parsing the message text. OpeningMessage still holds the
 	// bytes that went to the model.
 	SkillCatalogue string `json:"skill_catalogue,omitempty"`
+	// ClaudeMDBlock is the exact substring of OpeningMessage that renders the
+	// root CLAUDE.md files found in the workspace (internal/claudemd), empty
+	// when there are none. It is stored separately the way SkillCatalogue is,
+	// so a consumer can lift it out without parsing the message text.
+	ClaudeMDBlock string `json:"claude_md_block,omitempty"`
 }
 
 // TurnStartedPayload marks the start of one sub-turn.
