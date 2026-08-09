@@ -21,13 +21,14 @@ shaped that way.
 | Test, frontend | `npm --prefix web run test` |
 | Format and vet | `gofmt -l cmd internal && go vet ./...` |
 | Frontend dev server | `npm --prefix web run dev`, against `harness serve -dev-frontend http://127.0.0.1:5173` |
-| Production stack | `scripts/prod.sh promote && scripts/prod.sh deploy` — see the rule below |
+| Production stack | `scripts/prod.sh promote && scripts/prod.sh deploy` — see [RELEASE.md](RELEASE.md) and the rule below |
 
 Subcommands: `ask`, `run`, `serve`, `mcp`, `publish`, `resume`, `delete`,
 `export`, `models`, `balance`. `harness help` lists them with their arguments.
 
 [TESTING.md](TESTING.md) covers running a subset, the broker the integration
-tests need, and the smoke sequence to finish on.
+tests need, and the smoke sequence to finish on. [RELEASE.md](RELEASE.md) covers
+cutting a version and deploying it to the production stack.
 
 ## Rules
 

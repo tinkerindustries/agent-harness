@@ -167,6 +167,9 @@ scripts/prod.sh promote     # build this checkout, move the prod tag onto it
 scripts/prod.sh deploy      # restart the stack onto the new tag
 ```
 
+[RELEASE.md](RELEASE.md) is the full sequence — versioning, the checks to run
+first, and how to roll back.
+
 `promote` refuses a dirty tree unless given `-f`, and also writes an immutable
 `deepseek-harness:prod-<sha>` tag, which is what `rollback` selects between:
 
