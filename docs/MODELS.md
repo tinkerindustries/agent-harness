@@ -119,6 +119,14 @@ non-thinking assistant messages inside one message array interacts with the
 nothing to honour, because all of the work above already runs in its own flash
 conversation.
 
+Those thinking-off conversations get a capability the main loop does not: tool
+forcing. `tool_choice: "required"` and named-tool forcing are rejected in
+thinking mode and accepted without it ([OBSERVED.md](OBSERVED.md)). So side work
+that needs structured output should define a tool whose schema is the output
+shape and force it, rather than using `response_format: {"type":"json_object"}`.
+Forcing yields schema-validated arguments; JSON mode yields only valid JSON, and
+its documented failure mode is occasional empty content.
+
 ## Per-role defaults
 
 | Role | Model | Thinking | Effort |

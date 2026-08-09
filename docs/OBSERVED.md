@@ -106,14 +106,34 @@ too broad. Measured:
 | `"required"` | 400 `Thinking mode does not support this tool_choice` |
 | `{"type":"function","function":{"name":...}}` | 400, same message |
 
-So thinking mode supports the two permissive values and rejects the two
-coercive ones. Forcing a specific tool is impossible while thinking is on, which
-rules out a class of design — no forced `TodoWrite` at plan time, no forced
-structured output via a named tool.
+So thinking mode supports the two permissive values and rejects the two coercive
+ones.
 
-Our rule of never sending `tool_choice` remains safe, because `auto` is the
-default when tools are present. But `none` is available and legitimate for a
-text-only turn.
+The restriction is specific to thinking mode, not to the API. With
+`thinking: {"type":"disabled"}` both coercive values return 200 and the forcing
+works: given the prompt "Hello, just say hi." and a weather tool, both
+`required` and the named form produced a `get_weather` call against the obvious
+intent of the prompt.
+
+| | `required` | named tool |
+| --- | --- | --- |
+| thinking enabled | 400 | 400 |
+| thinking disabled | forced call | forced call |
+
+Consequences. The main loop runs thinking-on permanently, so it can never
+guarantee a tool call — no forced `TodoWrite` at plan time, and no way to stop
+the model answering in prose when action was wanted. Prompt wording is the only
+lever there.
+
+Side work is different. `WebFetch` extraction, compaction summaries, and session
+titles already run thinking-off in their own flash conversations
+([MODELS.md](MODELS.md)), so they can force a named tool. That is a better
+structured-output mechanism than `response_format: {"type":"json_object"}`,
+which guarantees only valid JSON rather than schema conformance, and which the
+docs warn can occasionally return empty content.
+
+Our rule of never sending `tool_choice` from the main loop stands, because
+`auto` is the default when tools are present.
 
 ## Smaller findings
 
