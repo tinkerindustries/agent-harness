@@ -11,6 +11,9 @@ sessions in a single Go process, and returns a result to a results stream. The
 web UI is read-only: `GET` and `HEAD` only, and no endpoint starts or steers a
 run. `docs/DESIGN.md` is the reference; read it before changing the request
 path, the tool array, or the system prompt, all of which are cache-critical.
+`docs/PROMPTING.md` covers how to word the system prompt and tool descriptions.
+Thinking mode ignores the sampling parameters and rejects the coercive
+`tool_choice` values, so wording is the main loop's only lever.
 
 ## Vendored documentation
 
