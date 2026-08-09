@@ -1,15 +1,17 @@
 # Observed API behaviour
 
-Measured against the live API on 2026-08-09, `deepseek-v4-flash`, thinking mode
-enabled, effort `low`. [VALIDATION.md](VALIDATION.md) records what the docs say;
-this file records what the API does. Where they disagree, this file wins.
+Measured against the live API on 2026-08-09, both models, thinking mode enabled.
+[VALIDATION.md](VALIDATION.md) records what the docs say; this file records what
+the API does. Where they disagree, this file wins.
 
 Server build during these runs:
 `fp_a18b46594c_prod0820_fp8_kvcache_20260402`. Re-measure if that changes —
 several findings below are properties of the serving configuration, not the
 protocol.
 
-Everything here was measured on flash. Pro is untested.
+Each section names the model it was measured on. The cache block size,
+`tool_choice` behaviour, and the reasoning finding were checked on both and
+agree; the token-volume figures differ sharply between them.
 
 ## The cache is blocked at 128 tokens
 
