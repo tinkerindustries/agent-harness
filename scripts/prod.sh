@@ -83,10 +83,15 @@ status)
 	compose ps
 	echo
 	echo "Deployed image:"
-	docker image inspect "$IMAGE" \
-		--format '  {{.Id}}  built {{.Created}}' 2>/dev/null ||
+	# LastTagTime, not Created: a rebuild off cached layers inherits the
+	# original config timestamp, so Created reports the first promote no
+	# matter how many have happened since. LastTagTime is when this tag was
+	# moved here, which is what "when was this promoted" means.
+	docker image inspect "$IMAGE" --format \
+		'  {{.Id}}
+  promoted {{.Metadata.LastTagTime}}
+  tags     {{join .RepoTags ", "}}' 2>/dev/null ||
 		echo "  $IMAGE does not exist yet — run scripts/prod.sh promote"
-	echo "  tags: $(docker image inspect "$IMAGE" --format '{{join .RepoTags ", "}}' 2>/dev/null || echo none)"
 	echo
 	echo "Health:"
 	echo "  harness  $(curl -sf --max-time 3 localhost:8180/api/queue || echo unreachable)"
