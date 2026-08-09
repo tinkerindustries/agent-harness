@@ -28,7 +28,7 @@ func runPublish(ctx context.Context, args []string) error {
 	requestID := fs.String("request-id", "", "idempotency key; a random one is generated if omitted. Pass the same value twice to demonstrate deduplication")
 	model := fs.String("model", "", "override model (config default otherwise)")
 	effort := fs.String("effort", "", "override reasoning effort")
-	permissionMode := fs.String("permission-mode", "", "readonly, default, or full")
+	permissionMode := fs.String("permission-mode", "", "readonly or full (required)")
 	var deny stringList
 	fs.Var(&deny, "deny", "deny pattern, matched as a substring; repeatable")
 	resultSchemaPath := fs.String("result-schema", "", "path to a JSON Schema file Complete's result must satisfy")
@@ -48,6 +48,10 @@ func runPublish(ctx context.Context, args []string) error {
 			return errors.New("usage: harness publish -workspace P [flags] \"task\"")
 		}
 		task = strings.Join(fs.Args(), " ")
+	}
+
+	if *permissionMode == "" {
+		return errors.New("-permission-mode is required: readonly or full")
 	}
 
 	id := *requestID

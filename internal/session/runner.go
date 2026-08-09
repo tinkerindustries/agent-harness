@@ -128,12 +128,11 @@ type SubTurnProgress struct {
 // That is what lets phase 3 add a worker pool around this type without
 // changing it (docs/DESIGN.md §4.5).
 type Runner struct {
-	Store         *store.Store
-	Mirror        *store.Mirror
-	Client        *deepseek.Client
-	Prices        *pricing.Table
-	FlashModel    string
-	BashAllowlist []string
+	Store      *store.Store
+	Mirror     *store.Mirror
+	Client     *deepseek.Client
+	Prices     *pricing.Table
+	FlashModel string
 
 	// Hub, when set, is where every committed event and every session
 	// state change gets published for a browser to watch live. Nil is the
@@ -199,13 +198,6 @@ func (r *Runner) flashModel() string {
 	return "deepseek-v4-flash"
 }
 
-func (r *Runner) bashAllowlist() []string {
-	if r.BashAllowlist != nil {
-		return r.BashAllowlist
-	}
-	return tools.DefaultBashAllowlist
-}
-
 // progressFunc picks a call's progress hook: its own override if it set
 // one, otherwise the Runner-level default.
 func progressFunc(r *Runner, opts RunOptions) func(SubTurnProgress) {
@@ -234,15 +226,14 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	if opts.Workspace == "" {
 		return nil, errors.New("session: workspace is required")
 	}
-	if opts.PermissionMode == "" {
-		opts.PermissionMode = tools.ModeDefault
+	if !opts.PermissionMode.Valid() {
+		return nil, fmt.Errorf("session: permission mode %q must be readonly or full", opts.PermissionMode)
 	}
 
 	policy := &tools.Policy{
-		Mode:          opts.PermissionMode,
-		Deny:          opts.Deny,
-		BashAllowlist: r.bashAllowlist(),
-		Resolver:      opts.Resolver,
+		Mode:     opts.PermissionMode,
+		Deny:     opts.Deny,
+		Resolver: opts.Resolver,
 	}
 	executor, err := tools.NewExecutor(opts.Workspace, policy)
 	if err != nil {

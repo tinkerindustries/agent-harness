@@ -1,6 +1,10 @@
 package config
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+)
 
 const (
 	// defaultMCPAddr binds loopback only, same reasoning as
@@ -8,9 +12,11 @@ const (
 	// inside the workspace mount, so it is sensitive even before anyone
 	// reads a transcript through it.
 	defaultMCPAddr = "127.0.0.1:8090"
-	// defaultMCPPermissionCeiling is conservative on purpose: an operator
-	// opts a deployment into "full" rather than getting it by default.
-	defaultMCPPermissionCeiling = "default"
+	// defaultMCPPermissionCeiling imposes no restriction. permission_mode
+	// is mandatory on every launch, so a caller cannot reach "full" without
+	// naming it; the ceiling is an operator's opt-in limit on top of that.
+	// Set it to readonly to refuse write runs from this server entirely.
+	defaultMCPPermissionCeiling = "full"
 	// defaultMCPFlashModel mirrors defaultFlashModel; kept separate so an
 	// operator who renamed the harness's flash model can point the "flash"
 	// profile at the same one without editing harness config.
@@ -81,10 +87,8 @@ type MCPConfig struct {
 // first if .env should be consulted.
 func LoadMCP() (MCPConfig, error) {
 	ceiling := envOr("DEEPSEEK_MCP_PERMISSION_CEILING", defaultMCPPermissionCeiling)
-	switch ceiling {
-	case "readonly", "default", "full":
-	default:
-		return MCPConfig{}, fmt.Errorf("DEEPSEEK_MCP_PERMISSION_CEILING: must be readonly, default, or full, got %q", ceiling)
+	if !tools.Mode(ceiling).Valid() {
+		return MCPConfig{}, fmt.Errorf("DEEPSEEK_MCP_PERMISSION_CEILING: must be readonly or full, got %q", ceiling)
 	}
 
 	acceptedWaitMS, err := envInt("DEEPSEEK_MCP_ACCEPTED_WAIT_MS", defaultMCPAcceptedWaitMS)

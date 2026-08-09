@@ -325,7 +325,7 @@ Four points from that document bear on the rest of this design:
 - Permission is a policy, not a prompt.
 
 That last point is where this design departs from an interactive harness. The
-work request names a permission mode and may add deny patterns (§4.10). The
+work request must name a permission mode and may add deny patterns (§4.10). The
 session holds that policy for its whole life. A tool call is evaluated against
 it in Go and either runs or returns a denial through the tool result channel,
 which the model reads and routes around. Every decision is synchronous, so a
@@ -451,7 +451,7 @@ Request body:
       "workspace":       "/abs/path",         required, must sit under a configured root
       "model":           "deepseek-v4-pro",   optional, config default otherwise
       "effort":          "max",               optional
-      "permission_mode": "readonly" | "default" | "full",
+      "permission_mode": "readonly" | "full",   required
       "deny":            ["git push", "..."], optional, added to the mode's denials
       "result_schema":   { },                 optional JSON Schema for Complete
       "max_sub_turns":   100,                 optional

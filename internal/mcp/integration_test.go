@@ -93,7 +93,8 @@ func TestHandleLaunchQueuedOutcome(t *testing.T) {
 	svc, _ := newIntegrationService(t, js)
 
 	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{
-		Description: "queued test", Prompt: "do nothing", Workspace: "demo",
+		PermissionMode: "full",
+		Description:    "queued test", Prompt: "do nothing", Workspace: "demo",
 	})
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)
@@ -147,7 +148,8 @@ func TestHandleLaunchRunningOutcome(t *testing.T) {
 	}()
 
 	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{
-		Description: "running test", Prompt: "do something", Workspace: "demo",
+		PermissionMode: "full",
+		Description:    "running test", Prompt: "do something", Workspace: "demo",
 	})
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)
@@ -182,7 +184,8 @@ func TestHandleLaunchPublishFailure(t *testing.T) {
 	nc.Close()
 
 	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{
-		Description: "should fail", Prompt: "do something", Workspace: "demo",
+		PermissionMode: "full",
+		Description:    "should fail", Prompt: "do something", Workspace: "demo",
 	})
 	if err != nil {
 		t.Fatalf("unexpected protocol error (should be a tool error, not a protocol one): %v", err)

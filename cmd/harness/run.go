@@ -44,7 +44,7 @@ func runRun(ctx context.Context, args []string) error {
 	effort := fs.String("effort", "", "override reasoning effort: low, high, max")
 	thinking := fs.Bool("thinking", true, "enable thinking mode")
 	maxTokens := fs.Int("max-tokens", 0, "override max_tokens (default from config)")
-	permissionMode := fs.String("permission-mode", "", "readonly, default, or full (default from config)")
+	permissionMode := fs.String("permission-mode", "", "readonly or full (required)")
 	var deny stringList
 	fs.Var(&deny, "deny", "deny pattern, matched as a substring; repeatable")
 	resultSchemaPath := fs.String("result-schema", "", "path to a JSON Schema file Complete's result must satisfy")
@@ -82,19 +82,17 @@ func runRun(ctx context.Context, args []string) error {
 	if *maxTokens != 0 {
 		cfg.MaxTokens = *maxTokens
 	}
-	if *permissionMode != "" {
-		cfg.PermissionMode = *permissionMode
-	}
 	if *maxSubTurns != 0 {
 		cfg.MaxSubTurns = *maxSubTurns
 	}
 	cfg.Thinking = *thinking
 
-	mode := tools.Mode(cfg.PermissionMode)
-	switch mode {
-	case tools.ModeReadOnly, tools.ModeDefault, tools.ModeFull:
-	default:
-		return fmt.Errorf("invalid permission mode %q: must be readonly, default, or full", cfg.PermissionMode)
+	if *permissionMode == "" {
+		return errors.New("-permission-mode is required: readonly or full")
+	}
+	mode := tools.Mode(*permissionMode)
+	if !mode.Valid() {
+		return fmt.Errorf("invalid permission mode %q: must be readonly or full", *permissionMode)
 	}
 
 	var resultSchema json.RawMessage

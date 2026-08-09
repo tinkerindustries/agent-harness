@@ -53,10 +53,9 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 	startSubTurn := countTurns(allEvents) + 1
 
 	policy := &tools.Policy{
-		Mode:          tools.Mode(sess.PermissionMode),
-		Deny:          sess.DenyPatterns,
-		BashAllowlist: r.bashAllowlist(),
-		Resolver:      opts.Resolver,
+		Mode:     tools.Mode(sess.PermissionMode),
+		Deny:     sess.DenyPatterns,
+		Resolver: opts.Resolver,
 	}
 	executor, err := tools.NewExecutor(sess.Workspace, policy)
 	if err != nil {

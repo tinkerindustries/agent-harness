@@ -10,9 +10,15 @@ type Mode string
 
 const (
 	ModeReadOnly Mode = "readonly"
-	ModeDefault  Mode = "default"
 	ModeFull     Mode = "full"
 )
+
+// Valid reports whether m is one of the two modes. There is no zero-value
+// fallback: every ingress requires the mode explicitly, so an empty value
+// is a rejected request rather than a silent choice (docs/TOOLS.md).
+func (m Mode) Valid() bool {
+	return m == ModeReadOnly || m == ModeFull
+}
 
 // Resolver is consulted for a call the policy would otherwise deny. The CLI
 // registers one to prompt a terminal user; queue-driven sessions register
@@ -38,12 +44,8 @@ type Policy struct {
 	// for Bash and substring-of-"Tool arg" otherwise is what this
 	// implementation chose — see the phase 2 report). Deny only ever
 	// subtracts from what Mode allows; it can never widen it.
-	Deny []string
-	// BashAllowlist gates Bash in ModeDefault: the command's leading
-	// executable name (and any executable after a shell connector such as
-	// && or |) must appear here.
-	BashAllowlist []string
-	Resolver      Resolver
+	Deny     []string
+	Resolver Resolver
 }
 
 // alwaysAllowed tools have no side effects outside the session's own
@@ -89,19 +91,6 @@ func (p *Policy) evaluate(toolName, descriptor string) Decision {
 	case ModeFull:
 		return Decision{Allow: true, Rule: "full access mode"}
 
-	case ModeDefault:
-		switch toolName {
-		case "Write", "Edit", "Task":
-			return Decision{Allow: true, Rule: "permitted in default mode"}
-		case "Bash":
-			if p.bashAllowed(descriptor) {
-				return Decision{Allow: true, Rule: "command matches the configured allowlist"}
-			}
-			return Decision{Allow: false, Rule: "command is not on the configured Bash allowlist"}
-		default:
-			return Decision{Allow: false, Rule: toolName + " is not permitted in default mode"}
-		}
-
 	default:
 		return Decision{Allow: false, Rule: "unknown permission mode " + string(p.Mode)}
 	}
@@ -117,52 +106,4 @@ func (p *Policy) matchDeny(descriptor string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-// bashAllowed reports whether every executable named in command — the
-// leading word of the command itself and of each segment after a shell
-// connector (&&, ||, ;, |) — appears in the allowlist. It is a heuristic,
-// not a shell parser: good enough to keep obviously-out-of-policy commands
-// out, not a sandbox.
-func (p *Policy) bashAllowed(command string) bool {
-	allowed := make(map[string]bool, len(p.BashAllowlist))
-	for _, a := range p.BashAllowlist {
-		allowed[a] = true
-	}
-	for _, segment := range splitShellConnectors(command) {
-		segment = strings.TrimSpace(segment)
-		if segment == "" {
-			continue
-		}
-		fields := strings.Fields(segment)
-		if len(fields) == 0 {
-			continue
-		}
-		exe := fields[0]
-		if slash := strings.LastIndexByte(exe, '/'); slash >= 0 {
-			exe = exe[slash+1:]
-		}
-		if !allowed[exe] {
-			return false
-		}
-	}
-	return true
-}
-
-func splitShellConnectors(command string) []string {
-	replacer := strings.NewReplacer("&&", "\x00", "||", "\x00", ";", "\x00", "|", "\x00")
-	return strings.Split(replacer.Replace(command), "\x00")
-}
-
-// DefaultBashAllowlist is a conservative set of read-and-build commands for
-// ModeDefault. Config can override it.
-var DefaultBashAllowlist = []string{
-	// cd leads most commands a coding model writes. Matching checks every
-	// connector-separated segment, so allowing it does not let the rest of a
-	// chained command through.
-	"cd",
-	"git", "go", "npm", "npx", "yarn", "pnpm", "make", "python", "python3", "node",
-	"ls", "cat", "echo", "mkdir", "cp", "mv", "grep", "find", "sed", "awk",
-	"diff", "wc", "head", "tail", "sort", "uniq", "tree", "pwd", "which", "env",
-	"true", "false", "test", "rg", "jq", "gofmt",
 }

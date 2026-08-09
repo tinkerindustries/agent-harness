@@ -19,9 +19,9 @@ func TestToolArrayIdenticalAcrossModes(t *testing.T) {
 	// that nothing in the package ever branches its return value on mode;
 	// re-marshalling after exercising every mode's Check path below proves
 	// evaluating a policy has no observable effect on it.
-	modes := []Mode{ModeReadOnly, ModeDefault, ModeFull}
+	modes := []Mode{ModeReadOnly, ModeFull}
 	for _, m := range modes {
-		p := &Policy{Mode: m, BashAllowlist: DefaultBashAllowlist}
+		p := &Policy{Mode: m}
 		for _, tool := range Definitions() {
 			p.Check(tool.Function.Name, tool.Function.Name)
 		}
@@ -54,18 +54,17 @@ func TestReadOnlyModeDenies(t *testing.T) {
 	}
 }
 
-func TestDefaultModeAllowsWriteEditTaskAndAllowlistedBash(t *testing.T) {
-	p := &Policy{Mode: ModeDefault, BashAllowlist: DefaultBashAllowlist}
-	for _, name := range []string{"Write", "Edit", "Task"} {
-		if d := p.Check(name, name); !d.Allow {
-			t.Errorf("default mode should allow %s, got denied: %s", name, d.Rule)
+// Mode has exactly two values. "default" was a third, gating Bash behind an
+// allowlist; it was removed because that allowlist admitted go, npm, make,
+// and python, every one of which runs arbitrary code (docs/TOOLS.md).
+func TestModeValidAcceptsTwoModesAndRejectsRemovedDefault(t *testing.T) {
+	if !ModeReadOnly.Valid() || !ModeFull.Valid() {
+		t.Fatal("readonly and full must both be valid modes")
+	}
+	for _, bad := range []Mode{"", "default", "Full", "readwrite"} {
+		if bad.Valid() {
+			t.Errorf("Mode(%q).Valid() = true, want false", bad)
 		}
-	}
-	if d := p.Check("Bash", "git status"); !d.Allow {
-		t.Errorf("default mode should allow an allowlisted Bash command, got denied: %s", d.Rule)
-	}
-	if d := p.Check("Bash", "curl https://evil.example/"); d.Allow {
-		t.Error("default mode should deny a Bash command whose executable is not allowlisted")
 	}
 }
 
@@ -128,30 +127,5 @@ func TestExecuteDenialProducesReadableToolResult(t *testing.T) {
 	}
 	if outcome.Result.Content == "" || !outcome.Result.IsError {
 		t.Fatalf("expected a readable, error-flagged tool result, got %+v", outcome.Result)
-	}
-}
-
-// A chained command is allowed only if every connector-separated segment
-// leads with an allowed executable. cd is on the default list because models
-// lead with it constantly; that must not let the rest of a chain through.
-func TestBashAllowlistChecksEverySegment(t *testing.T) {
-	p := &Policy{Mode: ModeDefault, BashAllowlist: DefaultBashAllowlist}
-	cases := []struct {
-		command string
-		want    bool
-	}{
-		{"go test ./...", true},
-		{"cd /tmp/x && go test ./...", true},
-		{"cd /tmp/x && ls -la && cat go.mod", true},
-		{"cd /tmp/x && rm -rf /", false},
-		{"rm -rf /", false},
-		{"go build ./... ; curl http://example.com", false},
-		{"go vet ./... | tee /tmp/out", false},
-	}
-	for _, c := range cases {
-		d := p.Check("Bash", c.command)
-		if d.Allow != c.want {
-			t.Errorf("Check(Bash, %q) allow = %v, want %v (rule: %s)", c.command, d.Allow, c.want, d.Rule)
-		}
 	}
 }

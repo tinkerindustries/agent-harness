@@ -24,7 +24,7 @@ func newValidationService(t *testing.T, roots []string) *Service {
 
 func TestHandleLaunchRejectsMissingDescription(t *testing.T) {
 	svc := newValidationService(t, nil)
-	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{Prompt: "do it", Workspace: "x"})
+	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{Prompt: "do it", Workspace: "x", PermissionMode: "full"})
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestHandleLaunchRejectsMissingDescription(t *testing.T) {
 
 func TestHandleLaunchRejectsMissingPrompt(t *testing.T) {
 	svc := newValidationService(t, nil)
-	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{Description: "task", Workspace: "x"})
+	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{Description: "task", Workspace: "x", PermissionMode: "full"})
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestHandleLaunchRejectsMissingPrompt(t *testing.T) {
 func TestHandleLaunchRejectsUnresolvableWorkspace(t *testing.T) {
 	root := t.TempDir()
 	svc := newValidationService(t, []string{root})
-	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{Description: "task", Prompt: "do it", Workspace: "nope"})
+	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{Description: "task", Prompt: "do it", Workspace: "nope", PermissionMode: "full"})
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestHandleLaunchRejectsBadProfile(t *testing.T) {
 	root := t.TempDir()
 	mustMkdir(t, root, "ws")
 	svc := newValidationService(t, []string{root})
-	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{Description: "task", Prompt: "do it", Workspace: "ws", Profile: "ultra"})
+	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{Description: "task", Prompt: "do it", Workspace: "ws", Profile: "ultra", PermissionMode: "full"})
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)
 	}
@@ -89,7 +89,8 @@ func TestHandleLaunchRejectsNegativeMaxSubTurns(t *testing.T) {
 	mustMkdir(t, root, "ws")
 	svc := newValidationService(t, []string{root})
 	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{
-		Description: "task", Prompt: "do it", Workspace: "ws", MaxSubTurns: -1,
+		PermissionMode: "full",
+		Description:    "task", Prompt: "do it", Workspace: "ws", MaxSubTurns: -1,
 	})
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)

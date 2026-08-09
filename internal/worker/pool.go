@@ -32,14 +32,13 @@ type Pool struct {
 	JS       jetstream.JetStream
 	Consumer jetstream.Consumer
 
-	Roots                 []string
-	DefaultModel          string
-	DefaultEffort         string
-	DefaultThinking       bool
-	DefaultMaxTokens      int
-	DefaultPermissionMode tools.Mode
-	DefaultDeadline       time.Duration
-	PriceTableDate        string
+	Roots            []string
+	DefaultModel     string
+	DefaultEffort    string
+	DefaultThinking  bool
+	DefaultMaxTokens int
+	DefaultDeadline  time.Duration
+	PriceTableDate   string
 
 	// Size bounds concurrent runs. It must equal the consumer's
 	// MaxAckPending (docs/DESIGN.md §4.10) so JetStream never delivers more
@@ -116,13 +115,6 @@ func (p *Pool) defaultMaxTokens() int {
 		return p.DefaultMaxTokens
 	}
 	return 48000
-}
-
-func (p *Pool) defaultPermissionMode() tools.Mode {
-	if p.DefaultPermissionMode != "" {
-		return p.DefaultPermissionMode
-	}
-	return tools.ModeDefault
 }
 
 // Run pulls and processes messages until ctx is done. On shutdown it stops
@@ -356,10 +348,8 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, workspace string, outco
 	}
 	defer p.Store.ReleaseWorkspaceLease(context.Background(), workspace, sessionID)
 
+	// Validate has already rejected an absent or unknown mode.
 	mode := tools.Mode(req.PermissionMode)
-	if mode == "" {
-		mode = p.defaultPermissionMode()
-	}
 	model := req.Model
 	if model == "" {
 		model = p.defaultModel()

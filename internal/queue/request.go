@@ -22,7 +22,7 @@ type Request struct {
 	Workspace      string          `json:"workspace"`
 	Model          string          `json:"model,omitempty"`
 	Effort         string          `json:"effort,omitempty"`
-	PermissionMode string          `json:"permission_mode,omitempty"`
+	PermissionMode string          `json:"permission_mode"`
 	Deny           []string        `json:"deny,omitempty"`
 	ResultSchema   json.RawMessage `json:"result_schema,omitempty"`
 	MaxSubTurns    int             `json:"max_sub_turns,omitempty"`
@@ -74,10 +74,11 @@ func (r Request) Validate(roots []string) (resolvedWorkspace string, err error) 
 		return "", err
 	}
 
-	switch tools.Mode(r.PermissionMode) {
-	case "", tools.ModeReadOnly, tools.ModeDefault, tools.ModeFull:
-	default:
-		return "", fmt.Errorf("queue: permission_mode %q must be readonly, default, or full", r.PermissionMode)
+	if r.PermissionMode == "" {
+		return "", errors.New("queue: permission_mode is required: readonly or full")
+	}
+	if !tools.Mode(r.PermissionMode).Valid() {
+		return "", fmt.Errorf("queue: permission_mode %q must be readonly or full", r.PermissionMode)
 	}
 
 	if len(r.ResultSchema) > 0 && !isWellFormedSchema(r.ResultSchema) {

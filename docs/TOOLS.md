@@ -217,13 +217,25 @@ These hold for every tool and live in Go, not in prompt text.
 Permission is a policy the session is given at creation, not a question it asks
 later. The browser is read-only, so there is nobody there to ask.
 
-Three modes, fixed for the life of a session:
+Two modes, fixed for the life of a session and required on every request:
 
 - Read-only. `Read`, `Glob`, `Grep`, `List`, `WebFetch`, `TodoWrite`, and
   `Complete` run. `Write`, `Edit`, `Bash`, and `Task` are denied.
-- Default. Reads run. `Write` and `Edit` run inside the workspace root. `Bash`
-  runs against a configured allowlist and is denied otherwise.
-- Full access. Everything runs.
+- Full access. Everything runs, as root, inside the workspace mount.
+
+There is no third mode between them and no default. Every ingress — a work
+request, the MCP launch tool, `harness run` — rejects a request that does not
+name one, so no configuration value decides a session's permissions on a
+caller's behalf.
+
+A middle mode existed until it was removed. It gated `Bash` behind an
+executable allowlist that included `go`, `npm`, `make`, and `python`, each of
+which runs arbitrary code, so the boundary it drew was narrower than it
+appeared. Read-only against full access is the distinction the harness can
+actually enforce.
+
+`WebFetch` runs in read-only mode. It reaches the network, so read-only bounds
+what a session can change on disk rather than what it can send.
 
 A work request may add `deny` patterns on top of its mode. They only ever
 subtract; a request cannot widen the mode it asked for.

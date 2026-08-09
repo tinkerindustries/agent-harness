@@ -25,7 +25,6 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 	"github.com/mrgeoffrich/deepseek-harness/internal/session"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
-	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 )
 
 // testNATSURL and connectOrSkip mirror internal/queue's test helpers: the
@@ -174,22 +173,21 @@ func newTestHarness(t *testing.T, serverURL string, poolSize int) *testHarness {
 	}
 
 	pool := &Pool{
-		Store:                 st,
-		Runner:                runner,
-		JS:                    js,
-		Consumer:              consumer,
-		Roots:                 []string{resolvedRoot},
-		DefaultModel:          "test-model",
-		DefaultEffort:         deepseek.EffortHigh,
-		DefaultThinking:       true,
-		DefaultMaxTokens:      4000,
-		DefaultPermissionMode: tools.ModeFull,
-		DefaultDeadline:       20 * time.Second,
-		PriceTableDate:        "2026-08-09",
-		Size:                  poolSize,
-		HeartbeatInterval:     30 * time.Millisecond,
-		LeasePollInterval:     50 * time.Millisecond,
-		RetryLaterDelay:       300 * time.Millisecond,
+		Store:             st,
+		Runner:            runner,
+		JS:                js,
+		Consumer:          consumer,
+		Roots:             []string{resolvedRoot},
+		DefaultModel:      "test-model",
+		DefaultEffort:     deepseek.EffortHigh,
+		DefaultThinking:   true,
+		DefaultMaxTokens:  4000,
+		DefaultDeadline:   20 * time.Second,
+		PriceTableDate:    "2026-08-09",
+		Size:              poolSize,
+		HeartbeatInterval: 30 * time.Millisecond,
+		LeasePollInterval: 50 * time.Millisecond,
+		RetryLaterDelay:   300 * time.Millisecond,
 	}
 
 	return &testHarness{pool: pool, js: js, root: resolvedRoot}
@@ -323,7 +321,8 @@ func TestPoolFourConcurrentRequests(t *testing.T) {
 	for i := 0; i < n; i++ {
 		requestIDs[i] = uniqueID("req-concurrent")
 		h.publish(t, queue.Request{
-			RequestID: requestIDs[i], Prompt: fmt.Sprintf("task %d", i), Workspace: h.newWorkspace(t),
+			PermissionMode: "full",
+			RequestID:      requestIDs[i], Prompt: fmt.Sprintf("task %d", i), Workspace: h.newWorkspace(t),
 		})
 	}
 
@@ -369,7 +368,7 @@ func TestPoolDuplicateRequestIDRunsOnce(t *testing.T) {
 
 	requestID := uniqueID("req-dup")
 	ws := h.newWorkspace(t)
-	req := queue.Request{RequestID: requestID, Prompt: "do it once", Workspace: ws}
+	req := queue.Request{RequestID: requestID, Prompt: "do it once", Workspace: ws, PermissionMode: "full"}
 
 	h.publish(t, req)
 	time.Sleep(150 * time.Millisecond) // let the first attempt claim the row before the duplicate arrives
@@ -404,7 +403,7 @@ func TestPoolMalformedRequestTermsWithoutRunning(t *testing.T) {
 	defer h.startPool(t)()
 
 	requestID := uniqueID("req-invalid")
-	h.publish(t, queue.Request{RequestID: requestID, Prompt: "go", Workspace: "/not/a/configured/root"})
+	h.publish(t, queue.Request{RequestID: requestID, Prompt: "go", Workspace: "/not/a/configured/root", PermissionMode: "full"})
 
 	res := h.fetchFinalResult(t, requestID, 10*time.Second)
 	if res.Status != queue.StatusFailed {
@@ -452,7 +451,7 @@ func TestPoolHandleTakesOverAbandonedRow(t *testing.T) {
 		t.Fatalf("simulate the abandoned attempt's held lease: %v", err)
 	}
 
-	reqBody, err := json.Marshal(queue.Request{RequestID: requestID, Prompt: "continue", Workspace: ws})
+	reqBody, err := json.Marshal(queue.Request{RequestID: requestID, Prompt: "continue", Workspace: ws, PermissionMode: "full"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -601,10 +600,11 @@ func TestPoolMaxSubTurnsIsNotReportedAsOK(t *testing.T) {
 	}
 	requestID := uniqueID("maxturns")
 	h.publish(t, queue.Request{
-		RequestID:   requestID,
-		Prompt:      "loop forever",
-		Workspace:   ws,
-		MaxSubTurns: 2,
+		PermissionMode: "full",
+		RequestID:      requestID,
+		Prompt:         "loop forever",
+		Workspace:      ws,
+		MaxSubTurns:    2,
 	})
 
 	res := h.fetchFinalResult(t, requestID, 25*time.Second)
@@ -644,7 +644,7 @@ func TestPoolHaltsOnInsufficientBalance(t *testing.T) {
 	defer h.startPool(t)()
 
 	requestID := uniqueID("req-402")
-	h.publish(t, queue.Request{RequestID: requestID, Prompt: "task", Workspace: h.newWorkspace(t)})
+	h.publish(t, queue.Request{RequestID: requestID, Prompt: "task", Workspace: h.newWorkspace(t), PermissionMode: "full"})
 
 	deadline := time.Now().Add(10 * time.Second)
 	for {
@@ -681,7 +681,7 @@ func TestPoolHaltsOnInsufficientBalance(t *testing.T) {
 	// A second request, published after the halt, must never be picked up
 	// either — the pool stopped pulling, it did not just fail this one.
 	second := uniqueID("req-402-second")
-	h.publish(t, queue.Request{RequestID: second, Prompt: "task", Workspace: h.newWorkspace(t)})
+	h.publish(t, queue.Request{RequestID: second, Prompt: "task", Workspace: h.newWorkspace(t), PermissionMode: "full"})
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer cancel2()
 	consumer2, err := h.js.OrderedConsumer(ctx2, queue.StreamResults, jetstream.OrderedConsumerConfig{
@@ -738,7 +738,7 @@ func TestPoolGaveUpPropagatesCompleteStatus(t *testing.T) {
 	defer h.startPool(t)()
 
 	requestID := uniqueID("req-gave-up")
-	h.publish(t, queue.Request{RequestID: requestID, Prompt: "do the impossible task", Workspace: h.newWorkspace(t)})
+	h.publish(t, queue.Request{RequestID: requestID, Prompt: "do the impossible task", Workspace: h.newWorkspace(t), PermissionMode: "full"})
 
 	res := h.fetchFinalResult(t, requestID, 15*time.Second)
 	if res.Status != queue.StatusOK {

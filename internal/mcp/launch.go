@@ -27,7 +27,7 @@ type launchInput struct {
 	Prompt         string `json:"prompt" jsonschema:"The task for the agent to perform."`
 	Workspace      string `json:"workspace" jsonschema:"A workspace NAME, not a path. See the harness://workspaces resource for valid names."`
 	Profile        string `json:"profile,omitempty" jsonschema:"pro (default: the harness's main-loop model) or flash (deepseek-v4-flash, high effort)."`
-	PermissionMode string `json:"permission_mode,omitempty" jsonschema:"readonly, default, or full. Clamped to this server's configured permission ceiling."`
+	PermissionMode string `json:"permission_mode" jsonschema:"Required. readonly (Read, Glob, Grep, List, WebFetch only) or full (everything, as root, in the workspace). Refused if it exceeds this server's configured permission ceiling."`
 	ResultSchema   any    `json:"result_schema,omitempty" jsonschema:"JSON Schema the agent's Complete tool result must satisfy, if it calls Complete with a result."`
 	MaxSubTurns    int    `json:"max_sub_turns,omitempty" jsonschema:"Sub-turn budget for the run. Server default applies when omitted."`
 	DeadlineMS     int64  `json:"deadline_ms,omitempty" jsonschema:"Wall-clock deadline for the run, in milliseconds. Server default applies when omitted."`

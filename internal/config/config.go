@@ -19,7 +19,6 @@ const (
 	defaultMaxTokens   = 48000
 	defaultPriceTable  = "configs/prices.json"
 	defaultDataDir     = "data"
-	defaultPermission  = "default"
 	defaultMaxSubTurns = 100
 
 	// defaultNATSURL matches docker-compose.yml's default client port.
@@ -55,11 +54,8 @@ type Config struct {
 
 	// DataDir holds the SQLite database and the disk mirror
 	// (docs/DESIGN.md §4.8): <DataDir>/harness.db, <DataDir>/sessions/...
-	DataDir string
-	// PermissionMode is the default mode for CLI-launched runs: readonly,
-	// default, or full (docs/TOOLS.md).
-	PermissionMode string
-	MaxSubTurns    int
+	DataDir     string
+	MaxSubTurns int
 
 	// NATSURL is the JetStream server harness serve connects to
 	// (docs/DESIGN.md §4.10).
@@ -155,7 +151,6 @@ func Load() (Config, error) {
 		MaxTokens:             maxTokens,
 		PriceTablePath:        envOr("DEEPSEEK_PRICE_TABLE", defaultPriceTable),
 		DataDir:               envOr("DEEPSEEK_DATA_DIR", defaultDataDir),
-		PermissionMode:        envOr("DEEPSEEK_PERMISSION_MODE", defaultPermission),
 		MaxSubTurns:           maxSubTurns,
 		NATSURL:               envOr("NATS_URL", defaultNATSURL),
 		WorkspaceRoots:        envList("DEEPSEEK_WORKSPACE_ROOTS"),

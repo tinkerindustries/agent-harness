@@ -90,16 +90,17 @@ func TestMCPServerCallToolLaunchOverHTTP(t *testing.T) {
 	res, err := cs.CallTool(context.Background(), &mcpsdk.CallToolParams{
 		Name: "deepseek_agent",
 		Arguments: map[string]any{
-			"description": "http smoke test",
-			"prompt":      "do nothing",
-			"workspace":   "demo",
+			"description":     "http smoke test",
+			"prompt":          "do nothing",
+			"workspace":       "demo",
+			"permission_mode": "readonly",
 		},
 	})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
 	}
 	if res.IsError {
-		t.Fatalf("unexpected error result: %+v", res.Content)
+		t.Fatalf("unexpected error result: %s", contentText(res.Content))
 	}
 	if len(res.Content) == 0 {
 		t.Fatal("expected non-empty content")
@@ -172,4 +173,16 @@ func TestMCPServerReadSessionTranscriptResourceProxiesHarnessAPI(t *testing.T) {
 	if !strings.Contains(body, "deepseek-v4-pro") {
 		t.Fatalf("expected the proxied session metadata in the transcript, got: %s", body)
 	}
+}
+
+// contentText renders tool-result content for a failure message. %+v on the
+// slice prints pointers, which says nothing about why a call failed.
+func contentText(content []mcpsdk.Content) string {
+	var b strings.Builder
+	for _, c := range content {
+		if t, ok := c.(*mcpsdk.TextContent); ok {
+			b.WriteString(t.Text)
+		}
+	}
+	return b.String()
 }

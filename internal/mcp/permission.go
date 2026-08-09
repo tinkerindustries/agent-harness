@@ -1,39 +1,30 @@
 package mcp
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 )
 
-// permissionRank orders the three modes from least to most capable, so a
-// requested mode can be compared against a ceiling. tools.Mode gates
-// execution, never the tool array (docs/TOOLS.md), which is exactly the
-// property that lets a ceiling clamp a request without touching anything
-// DeepSeek sees.
-var permissionRank = map[tools.Mode]int{
-	tools.ModeReadOnly: 0,
-	tools.ModeDefault:  1,
-	tools.ModeFull:     2,
-}
-
-// resolvePermissionMode validates requested (the launch tool's optional
-// permission_mode argument) and clamps it to ceiling. An empty requested
-// value falls back to ceiling itself rather than to the harness's own
-// configured default: this server is a permission ceiling, not just a
-// default (docs/DESIGN.md's "Safety" section), so a caller that names
-// nothing must not end up more permissive than one who explicitly asked for
-// the maximum this server allows.
+// resolvePermissionMode validates the launch tool's permission_mode
+// argument against ceiling. The argument is mandatory: there is no fallback
+// value, so raising or lowering the ceiling cannot change what a caller who
+// named nothing ends up with.
+//
+// A request above the ceiling is refused rather than quietly lowered. A
+// caller therefore gets either the mode it asked for or an error naming the
+// limit, never a run that is more restricted than it believes.
 func resolvePermissionMode(requested string, ceiling tools.Mode) (tools.Mode, error) {
 	if requested == "" {
-		return ceiling, nil
+		return "", errors.New("permission_mode is required: readonly or full")
 	}
 	mode := tools.Mode(requested)
-	if _, ok := permissionRank[mode]; !ok {
-		return "", fmt.Errorf("permission_mode must be readonly, default, or full, got %q", requested)
+	if !mode.Valid() {
+		return "", fmt.Errorf("permission_mode must be readonly or full, got %q", requested)
 	}
-	if permissionRank[mode] > permissionRank[ceiling] {
-		return ceiling, nil
+	if mode == tools.ModeFull && ceiling == tools.ModeReadOnly {
+		return "", errors.New("permission_mode full is refused: this server's DEEPSEEK_MCP_PERMISSION_CEILING is readonly")
 	}
 	return mode, nil
 }

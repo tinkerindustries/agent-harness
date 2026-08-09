@@ -60,7 +60,7 @@ func testRoots(t *testing.T) (roots []string, workspace string) {
 
 func TestValidateAcceptsWorkspaceUnderRoot(t *testing.T) {
 	roots, ws := testRoots(t)
-	req := Request{RequestID: "req-1", Prompt: "go", Workspace: ws}
+	req := Request{RequestID: "req-1", Prompt: "go", Workspace: ws, PermissionMode: "full"}
 	resolved, err := req.Validate(roots)
 	if err != nil {
 		t.Fatalf("Validate: %v", err)
@@ -73,9 +73,10 @@ func TestValidateAcceptsWorkspaceUnderRoot(t *testing.T) {
 func TestValidateRejectsMissingFields(t *testing.T) {
 	roots, ws := testRoots(t)
 	cases := []Request{
-		{Prompt: "go", Workspace: ws},
-		{RequestID: "req-1", Workspace: ws},
-		{RequestID: "req-1", Prompt: "go"},
+		{Prompt: "go", Workspace: ws, PermissionMode: "full"},
+		{RequestID: "req-1", Workspace: ws, PermissionMode: "full"},
+		{RequestID: "req-1", Prompt: "go", PermissionMode: "full"},
+		{RequestID: "req-1", Prompt: "go", Workspace: ws},
 	}
 	for _, req := range cases {
 		if _, err := req.Validate(roots); err == nil {
@@ -86,7 +87,7 @@ func TestValidateRejectsMissingFields(t *testing.T) {
 
 func TestValidateRejectsRequestIDWithSubjectMetacharacters(t *testing.T) {
 	roots, ws := testRoots(t)
-	req := Request{RequestID: "req.1", Prompt: "go", Workspace: ws}
+	req := Request{RequestID: "req.1", Prompt: "go", Workspace: ws, PermissionMode: "full"}
 	if _, err := req.Validate(roots); err == nil {
 		t.Fatal("expected a request_id containing '.' to be rejected")
 	}
@@ -95,7 +96,7 @@ func TestValidateRejectsRequestIDWithSubjectMetacharacters(t *testing.T) {
 func TestValidateRejectsWorkspaceOutsideRoots(t *testing.T) {
 	roots, _ := testRoots(t)
 	other := t.TempDir()
-	req := Request{RequestID: "req-1", Prompt: "go", Workspace: other}
+	req := Request{RequestID: "req-1", Prompt: "go", Workspace: other, PermissionMode: "full"}
 	if _, err := req.Validate(roots); err == nil {
 		t.Fatal("expected a workspace outside every configured root to be rejected")
 	}
@@ -103,7 +104,7 @@ func TestValidateRejectsWorkspaceOutsideRoots(t *testing.T) {
 
 func TestValidateRejectsWorkspaceWhenNoRootsConfigured(t *testing.T) {
 	_, ws := testRoots(t)
-	req := Request{RequestID: "req-1", Prompt: "go", Workspace: ws}
+	req := Request{RequestID: "req-1", Prompt: "go", Workspace: ws, PermissionMode: "full"}
 	if _, err := req.Validate(nil); err == nil {
 		t.Fatal("expected validation to fail closed with no configured roots")
 	}
@@ -119,10 +120,23 @@ func TestValidateRejectsInvalidPermissionMode(t *testing.T) {
 
 func TestValidateAcceptsEveryPermissionMode(t *testing.T) {
 	roots, ws := testRoots(t)
-	for _, mode := range []string{"", "readonly", "default", "full"} {
+	for _, mode := range []string{"readonly", "full"} {
 		req := Request{RequestID: "req-1", Prompt: "go", Workspace: ws, PermissionMode: mode}
 		if _, err := req.Validate(roots); err != nil {
 			t.Fatalf("mode %q: %v", mode, err)
+		}
+	}
+}
+
+// permission_mode is required, and "default" is no longer one of its
+// values: a queue client still sending the removed mode fails loudly
+// rather than running under a substituted one.
+func TestValidateRequiresPermissionModeAndRejectsRemovedDefault(t *testing.T) {
+	roots, ws := testRoots(t)
+	for _, mode := range []string{"", "default"} {
+		req := Request{RequestID: "req-1", Prompt: "go", Workspace: ws, PermissionMode: mode}
+		if _, err := req.Validate(roots); err == nil {
+			t.Errorf("expected permission_mode %q to be rejected", mode)
 		}
 	}
 }
@@ -135,7 +149,7 @@ func TestValidateRejectsMalformedResultSchema(t *testing.T) {
 		json.RawMessage(`"a string"`),
 	}
 	for _, schema := range cases {
-		req := Request{RequestID: "req-1", Prompt: "go", Workspace: ws, ResultSchema: schema}
+		req := Request{RequestID: "req-1", Prompt: "go", Workspace: ws, ResultSchema: schema, PermissionMode: "full"}
 		if _, err := req.Validate(roots); err == nil {
 			t.Fatalf("expected result_schema %s to be rejected", schema)
 		}
@@ -144,7 +158,7 @@ func TestValidateRejectsMalformedResultSchema(t *testing.T) {
 
 func TestValidateAcceptsWellFormedResultSchema(t *testing.T) {
 	roots, ws := testRoots(t)
-	req := Request{RequestID: "req-1", Prompt: "go", Workspace: ws, ResultSchema: json.RawMessage(`{"type":"object","properties":{}}`)}
+	req := Request{RequestID: "req-1", Prompt: "go", Workspace: ws, ResultSchema: json.RawMessage(`{"type":"object","properties":{}}`), PermissionMode: "full"}
 	if _, err := req.Validate(roots); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}

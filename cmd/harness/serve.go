@@ -17,7 +17,6 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 	"github.com/mrgeoffrich/deepseek-harness/internal/session"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
-	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 	"github.com/mrgeoffrich/deepseek-harness/internal/worker"
 )
 
@@ -98,19 +97,18 @@ func runServe(ctx context.Context, args []string) error {
 	}
 
 	pool := &worker.Pool{
-		Store:                 st,
-		Runner:                runner,
-		JS:                    js,
-		Consumer:              consumer,
-		Roots:                 cfg.WorkspaceRoots,
-		DefaultModel:          cfg.Model,
-		DefaultEffort:         cfg.Effort,
-		DefaultThinking:       cfg.Thinking,
-		DefaultMaxTokens:      cfg.MaxTokens,
-		DefaultPermissionMode: tools.Mode(cfg.PermissionMode),
-		DefaultDeadline:       time.Duration(cfg.DefaultDeadlineMS) * time.Millisecond,
-		PriceTableDate:        priceTable.CapturedAt,
-		Size:                  cfg.WorkerPoolSize,
+		Store:            st,
+		Runner:           runner,
+		JS:               js,
+		Consumer:         consumer,
+		Roots:            cfg.WorkspaceRoots,
+		DefaultModel:     cfg.Model,
+		DefaultEffort:    cfg.Effort,
+		DefaultThinking:  cfg.Thinking,
+		DefaultMaxTokens: cfg.MaxTokens,
+		DefaultDeadline:  time.Duration(cfg.DefaultDeadlineMS) * time.Millisecond,
+		PriceTableDate:   priceTable.CapturedAt,
+		Size:             cfg.WorkerPoolSize,
 	}
 
 	static, err := httpapi.NewStaticHandler(cfg.DevFrontendURL)
