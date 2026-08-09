@@ -259,8 +259,9 @@ cheap harness and a ruinous one, so this phase is not decoration.
 - Balance from `GET /user/balance`, refreshed on startup and after a 402, which
   is surfaced as an empty account rather than a failure and stops the pool
   rather than failing each queued request in turn.
-- Model, effort, and the price table's capture date in the session header,
-  populated from `GET /models`.
+- Model, effort, and the price table's capture date in the session header. The
+  first two come from the session, the third from the price table; `GET /models`
+  is a separate startup check that the configured models still exist.
 - Queue health on the session list: consumer lag, in-flight count, redelivery
   count.
 - Session resume and delete from the CLI; the browser only lists. Reload-mid-run
@@ -315,7 +316,8 @@ that was happening anyway.
 | Does the model call `Complete` reliably when it cannot be forced? | Phase 3 | Rate of runs ending without it across a batch of queued jobs |
 | What worker pool size does one process hold? | Phase 3 | Raise it against a fixed batch until wall-clock stops improving. SQLite writes and API concurrency are the two candidate ceilings |
 | Do concurrent sessions actually share the head? | Phase 3 | `prompt_cache_miss_tokens` on the first request of the second session |
-| Is virtualisation needed? | Phase 5 | Frame times with a few hundred blocks |
+| ~~Is virtualisation needed?~~ | Closed 2026-08-09 | Split. Delta commits are flat from 50 to 8000 blocks. Appends are linear: 25ms mean at 500 blocks, 277ms at 8000. Still out for v1; long sessions will stutter on append (DESIGN.md §5.5) |
+| Should reasoning and content stream incrementally to the browser? | Open | The backend commits one delta per sub-turn, so a live transcript shows nothing for the length of a turn (DESIGN.md §5.0). Both folds already handle incremental events, so the change is confined to `session/turn.go`; the cost is one event row and one SSE frame per flush |
 
 ---
 

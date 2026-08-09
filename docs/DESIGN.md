@@ -521,6 +521,20 @@ updates, no command queue, no reconciliation between local intent and server
 state. What remains is the hard part, which is rendering two high-rate text
 channels without dropping frames.
 
+### 5.0 What actually reaches the browser today
+
+The backend accumulates a sub-turn's reasoning and content in Go and commits
+one `reasoning_delta` and one `content_delta` when the sub-turn ends, so the
+browser receives a whole turn at once rather than text at token rate. Measured
+on a four-sub-turn run, every sub-turn's events arrived in a single burst with
+seven-second gaps of silence between them. `tool_stdout` is the exception and
+does stream live.
+
+Both folds accumulate deltas by concatenation and would handle genuinely
+incremental events unchanged, so the gap is in `session/turn.go` alone. The
+sections below are written for the streaming case, which is what the frontend
+is built for and what the perf harness exercises.
+
 ### 5.1 The performance problem, stated
 
 Two text channels arrive as deltas at token rate. A long session accumulates
@@ -565,10 +579,23 @@ problem.
 
 ### 5.5 Virtualisation
 
-Not in v1. Frozen memoised blocks plus clamped output handle realistic session
-sizes. Virtualisation interacts badly with variable heights, streaming growth,
-and stick-to-bottom scrolling, and it costs more than it returns at these block
-counts. Phase 5 of the plan measures; the measurement decides.
+Measured in phase 5, and the measurement splits the question in two. The
+harness lives in `web/src/perf`; run it against a synthetic feed at a fixed
+rate with N blocks mounted.
+
+Delta commits are flat. From 50 to 8000 blocks the mean stays near 0.5ms,
+which is the freeze working: the hot path at token rate does not care how long
+the transcript is.
+
+Appending a block is linear in block count, and no amount of per-block
+memoisation removes it — React walks every keyed child to decide each one can
+bail out. At 500 blocks an append commit averaged 25ms with a 171ms worst
+case, already past a 60fps budget; at 8000 it averaged 277ms.
+
+So the original reasoning holds for the channel it was about and fails for the
+other one. Virtualisation is still out for v1, and a session that grows into
+the high hundreds of blocks will stutter on append. Revisit with the numbers
+above rather than from first principles.
 
 ### 5.6 Reasoning display
 
