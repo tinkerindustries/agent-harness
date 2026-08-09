@@ -104,9 +104,18 @@ type ToolStdoutPayload struct {
 	Text       string `json:"text"`
 }
 
-// UsagePayload is one sub-turn's token accounting plus the cache churn
+// UsagePayload is one request's token accounting plus the cache churn
 // diagnostic (docs/CACHE.md).
+//
+// One event per request to the API, not per sub-turn: the reasoning-starved
+// retry in internal/session sends a second request for the same sub-turn and
+// is billed for both, so that turn commits two of these, sharing a SubTurn
+// and distinguished by Attempt. Summing over every event is what gives a
+// session's true cost. Attempt is zero, and omitted, on the ordinary path
+// where the sub-turn made exactly one request.
 type UsagePayload struct {
+	SubTurn               int     `json:"sub_turn"`
+	Attempt               int     `json:"attempt,omitempty"`
 	PromptTokens          int     `json:"prompt_tokens"`
 	PromptCacheHitTokens  int     `json:"prompt_cache_hit_tokens"`
 	PromptCacheMissTokens int     `json:"prompt_cache_miss_tokens"`
@@ -119,6 +128,7 @@ type UsagePayload struct {
 
 // TurnFinishedPayload closes out a sub-turn's assistant message.
 type TurnFinishedPayload struct {
+	SubTurn      int    `json:"sub_turn"`
 	FinishReason string `json:"finish_reason"`
 }
 

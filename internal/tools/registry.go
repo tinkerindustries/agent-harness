@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
@@ -48,12 +49,27 @@ func errorResult(format string, args ...any) Result {
 	return Result{Content: fmt.Sprintf(format, args...), IsError: true}
 }
 
-// truncate caps s at n bytes and labels the result if it cut anything.
+// truncate caps s at n bytes and labels the result if it cut anything. The
+// cut backs off to a rune boundary: s[:n] at an arbitrary byte index can
+// leave a partial multi-byte rune at the tail, and encoding/json replaces
+// invalid UTF-8 with U+FFFD when it marshals the request, so the model would
+// silently receive a mangled final character rather than an error. The
+// reported byte count is what was actually kept, not n.
 func truncate(s string, n int) (string, bool) {
 	if len(s) <= n {
 		return s, false
 	}
-	return s[:n] + fmt.Sprintf("\n\n[truncated: %d of %d bytes shown]", n, len(s)), true
+	cut := s[:n]
+	for len(cut) > 0 {
+		// DecodeLastRuneInString reports (RuneError, 1) for an invalid
+		// encoding; a real U+FFFD in the text decodes with size 3, so the
+		// size check keeps this from eating one the caller meant to send.
+		if r, size := utf8.DecodeLastRuneInString(cut); r != utf8.RuneError || size > 1 {
+			break
+		}
+		cut = cut[:len(cut)-1]
+	}
+	return cut + fmt.Sprintf("\n\n[truncated: %d of %d bytes shown]", len(cut), len(s)), true
 }
 
 // CompletePayload is the parsed, schema-validated argument set from a

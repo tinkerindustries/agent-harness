@@ -138,6 +138,10 @@ func primeDetector(sess store.Session, events []store.Event) *cache.Detector {
 	if err != nil {
 		return cache.NewDetector()
 	}
+	// The last usage event of the turn, not the first: a sub-turn that hit
+	// the reasoning-starved retry commits one per request, and it is the
+	// final attempt whose prefix the resumed session builds on.
+	var last *store.UsagePayload
 	for _, e := range events[lastTurnIdx:] {
 		if e.Kind != store.KindUsage {
 			continue
@@ -146,7 +150,10 @@ func primeDetector(sess store.Session, events []store.Event) *cache.Detector {
 		if err := json.Unmarshal(e.Payload, &p); err != nil {
 			return cache.NewDetector()
 		}
-		return cache.NewDetectorFrom(p.PromptTokens+p.CompletionTokens, primeMessages)
+		last = &p
 	}
-	return cache.NewDetector()
+	if last == nil {
+		return cache.NewDetector()
+	}
+	return cache.NewDetectorFrom(last.PromptTokens+last.CompletionTokens, primeMessages)
 }

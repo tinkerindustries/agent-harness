@@ -120,7 +120,12 @@ export interface ToolStdoutPayload {
   text: string;
 }
 
+// One event per request to the API, not per sub-turn: a sub-turn that hit the
+// reasoning-starved retry commits two, sharing a sub_turn and distinguished by
+// attempt. attempt is absent on the ordinary one-request path.
 export interface UsagePayload {
+  sub_turn: number;
+  attempt?: number;
   prompt_tokens: number;
   prompt_cache_hit_tokens: number;
   prompt_cache_miss_tokens: number;
@@ -132,6 +137,7 @@ export interface UsagePayload {
 }
 
 export interface TurnFinishedPayload {
+  sub_turn: number;
   finish_reason: string;
 }
 

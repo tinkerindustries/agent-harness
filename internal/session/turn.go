@@ -54,7 +54,14 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	// undersized budget is billed in full and returns nothing. Retry once
 	// at double the budget rather than treating it as a hard failure
 	// (docs/OBSERVED.md, docs/MODELS.md).
+	//
+	// The starved attempt's usage is kept rather than overwritten. Both
+	// requests are billed, so dropping the first understates the run's cost
+	// by however much reasoning it burned — which, this failure mode being
+	// what it is, is the whole of an exhausted max_tokens budget.
+	var starved *deepseek.Usage
 	if deepseek.IsReasoningStarved(finishReason, content) && len(assembler.Finalize()) == 0 {
+		starved = usage
 		reasoning, content, assembler, finishReason, usage, err = r.stream(ctx, sess.Model, messages, opts.Effort, opts.Thinking, opts.MaxTokens*2)
 		if err != nil {
 			return subTurnOutcome{}, fmt.Errorf("session: sub-turn %d retry: %w", subTurn, err)
@@ -64,6 +71,15 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	toolCalls := assembler.Finalize()
 
 	inputs := []store.EventInput{{Kind: store.KindTurnStarted, Payload: store.TurnStartedPayload{SubTurn: subTurn}}}
+	// The discarded attempt is committed ahead of everything the retry
+	// produced, which is the order the two requests happened in. It carries
+	// no churn report: the detector observes the request whose prefix the
+	// next turn actually builds on, and both attempts sent the same
+	// messages, so observing twice would double-count one prefix.
+	if starved != nil {
+		inputs = append(inputs, store.EventInput{Kind: store.KindUsage,
+			Payload: r.buildUsagePayload(sess.Model, starved, nil, nil, subTurn, 1)})
+	}
 	if reasoning != "" {
 		inputs = append(inputs, store.EventInput{Kind: store.KindReasoningDelta, Payload: store.ReasoningDeltaPayload{Text: reasoning}})
 	}
@@ -75,9 +91,15 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 			Index: i, ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments,
 		}})
 	}
-	inputs = append(inputs, store.EventInput{Kind: store.KindTurnFinished, Payload: store.TurnFinishedPayload{FinishReason: finishReason}})
+	inputs = append(inputs, store.EventInput{Kind: store.KindTurnFinished, Payload: store.TurnFinishedPayload{SubTurn: subTurn, FinishReason: finishReason}})
 
-	usagePayload := r.buildUsagePayload(sess.Model, usage, messages, detector)
+	// Attempt stays 0 unless the retry above ran, so an ordinary sub-turn's
+	// usage event is unchanged but for its new SubTurn.
+	attempt := 0
+	if starved != nil {
+		attempt = 2
+	}
+	usagePayload := r.buildUsagePayload(sess.Model, usage, messages, detector, subTurn, attempt)
 	inputs = append(inputs, store.EventInput{Kind: store.KindUsage, Payload: usagePayload})
 
 	appended, err := r.Store.AppendEvents(ctx, sess.ID, inputs)
@@ -146,9 +168,14 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 // UsagePayload, including cost and the churn diagnostic. detector.Observe
 // must be called exactly once per sub-turn, in order, which is why this is
 // folded into the single place runSubTurn calls per turn.
-func (r *Runner) buildUsagePayload(model string, usage *deepseek.Usage, requestMessages []deepseek.Message, detector *cache.Detector) store.UsagePayload {
+// buildUsagePayload turns one request's usage into its store event. A nil
+// detector skips the churn report, for an attempt whose prefix the next turn
+// will not build on.
+func (r *Runner) buildUsagePayload(model string, usage *deepseek.Usage, requestMessages []deepseek.Message,
+	detector *cache.Detector, subTurn, attempt int) store.UsagePayload {
+
 	if usage == nil {
-		return store.UsagePayload{}
+		return store.UsagePayload{SubTurn: subTurn, Attempt: attempt}
 	}
 	reasoningTokens := 0
 	if usage.CompletionTokensDetails != nil {
@@ -160,8 +187,13 @@ func (r *Runner) buildUsagePayload(model string, usage *deepseek.Usage, requestM
 			cost = c
 		}
 	}
-	report := detector.Observe(requestMessages, *usage)
+	var report cache.Report
+	if detector != nil {
+		report = detector.Observe(requestMessages, *usage)
+	}
 	return store.UsagePayload{
+		SubTurn:               subTurn,
+		Attempt:               attempt,
 		PromptTokens:          usage.PromptTokens,
 		PromptCacheHitTokens:  usage.PromptCacheHitTokens,
 		PromptCacheMissTokens: usage.PromptCacheMissTokens,

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestBashRunsAndCapturesOutput(t *testing.T) {
@@ -82,6 +83,48 @@ func TestOutputCapTruncatesAndLabels(t *testing.T) {
 	}
 	if len(res.Content) > 100+64 {
 		t.Fatalf("expected output near the cap, got %d bytes", len(res.Content))
+	}
+}
+
+// The cut lands mid-rune for two of every three offsets into a run of
+// three-byte characters, and the result travels to the API through
+// encoding/json, which silently substitutes U+FFFD for invalid UTF-8 rather
+// than refusing to marshal it. Every cap in the package shares this
+// function, so a Read of a UTF-8 source file is as exposed as a Bash dump.
+func TestTruncateNeverSplitsARune(t *testing.T) {
+	s := strings.Repeat("日", 40) // 120 bytes, no byte boundary shared with a rune boundary
+	for n := 1; n < len(s); n++ {
+		out, cut := truncate(s, n)
+		if !cut {
+			t.Fatalf("n=%d: expected a cut below the input length", n)
+		}
+		if !utf8.ValidString(out) {
+			t.Fatalf("n=%d: truncate produced invalid UTF-8: %q", n, out)
+		}
+	}
+}
+
+// A U+FFFD the caller meant to send decodes with size 3, so the rune-boundary
+// backoff must not mistake it for the invalid encoding it uses as its signal
+// and eat the tail one byte at a time.
+func TestTruncateKeepsALiteralReplacementChar(t *testing.T) {
+	s := "ab�" + strings.Repeat("c", 20)
+	out, cut := truncate(s, 5)
+	if !cut {
+		t.Fatal("expected a cut")
+	}
+	if !strings.HasPrefix(out, "ab�") {
+		t.Fatalf("expected the literal U+FFFD to survive, got %q", out)
+	}
+}
+
+// The label reports what survived the rune-boundary backoff, not the
+// requested cap, so the two numbers in it stay a true account of the cut.
+func TestTruncateLabelReportsBytesKept(t *testing.T) {
+	s := strings.Repeat("日", 10) // 30 bytes
+	out, _ := truncate(s, 8)     // backs off to 6
+	if !strings.Contains(out, "[truncated: 6 of 30 bytes shown]") {
+		t.Fatalf("expected the label to name the kept byte count, got %q", out)
 	}
 }
 

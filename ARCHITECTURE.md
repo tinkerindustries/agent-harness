@@ -222,6 +222,11 @@ are here.
 - **The skills catalogue goes in the opening user message, never the system
   prompt**, and there is no `Skill` tool — a twelfth tool definition would
   enlarge the frozen head to duplicate what `Read` already does (§4.11).
+- **A `usage` event is one request, not one sub-turn.** The reasoning-starved
+  retry (§4.5) sends a second request for the same sub-turn and the API bills
+  both, so that turn commits two, sharing `sub_turn` and told apart by
+  `attempt`. A cost total sums every event; anything wanting the turn's
+  standing state — the cache detector on resume — takes the last.
 - **The HTTP API serves `GET` and `HEAD` and nothing else.** No endpoint starts,
   steers, or stops a run.
 - **`internal/mcp` opens no SQLite handle.** `harness serve` is the single
