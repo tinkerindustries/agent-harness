@@ -155,7 +155,7 @@ export interface EventsPage {
 }
 
 // QueueHealth mirrors internal/httpapi's queueHealth: GET /api/queue's
-// response (PLAN.md phase 6, "Queue health on the session list"). Available
+// response, the queue health the session list shows. Available
 // is false whenever there is nothing to report — no queue wired up, or the
 // live NATS call itself failed (Error then says why) — which the session
 // list treats as "say nothing" rather than an error state of its own.

@@ -3,8 +3,8 @@ package store
 import "encoding/json"
 
 // Event kinds, per docs/DESIGN.md §4.1. The event log is the one source of
-// truth the fold, the disk mirror, and (in later phases) the SSE stream and
-// NATS progress messages all read from.
+// truth the fold, the disk mirror, the SSE stream, and NATS progress
+// messages all read from.
 const (
 	KindSessionStarted EventKind = "session_started"
 	KindTurnStarted    EventKind = "turn_started"
@@ -70,7 +70,7 @@ type ToolCallPayload struct {
 // ToolResultPayload is the outcome of executing one tool call. Diff and
 // ChildSessionID are populated only for the tools that produce them (Edit
 // and Task respectively); every other tool leaves them empty, and the
-// frontend's per-tool block shaping (PLAN.md phase 5) reads them opt-in.
+// frontend's per-tool block shaping reads them opt-in.
 type ToolResultPayload struct {
 	ToolCallID     string     `json:"tool_call_id"`
 	Name           string     `json:"name"`
@@ -91,8 +91,8 @@ type ToolDeniedPayload struct {
 	Content    string `json:"content"`
 }
 
-// ToolStdoutPayload is incremental command output, for a future live
-// display. Nothing in phase 2 reads it back; Bash still records the final
+// ToolStdoutPayload is incremental command output for live display. It is
+// never read back to build the message array; Bash still records the final
 // ToolResultPayload.
 type ToolStdoutPayload struct {
 	ToolCallID string `json:"tool_call_id"`

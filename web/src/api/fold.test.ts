@@ -100,7 +100,7 @@ describe("FoldState live view", () => {
   });
 
   it("keeps the blocks array reference stable across events that do not freeze a new block", () => {
-    // This is the property PLAN.md phase 5 depends on: FrozenBlocks is
+    // This is the property the freeze depends on: FrozenBlocks is
     // memoised on the blocks array reference, so a reasoning/content/
     // tool_stdout delta must not produce a new array — only a block
     // actually freezing should.

@@ -210,8 +210,7 @@ per turn is hard to defend for interactive work.
 
 So: `high` by default, `max` as a documented one-line switch for hard problems,
 and a real quality comparison on actual tasks as the thing that settles it. That
-comparison belongs in phase 2, alongside the flash-versus-pro question it
-resembles.
+comparison is still open, alongside the flash-versus-pro question it resembles.
 
 Max effort is expensive in a loop, and the reason is worth stating plainly.
 Reasoning tokens bill as output when generated, then bill again as input on

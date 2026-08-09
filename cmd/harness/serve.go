@@ -141,7 +141,7 @@ func runServe(ctx context.Context, args []string) error {
 }
 
 // logStartupBalance refreshes the account balance once at startup
-// (docs/DESIGN.md §4.5, PLAN.md phase 6). It only logs: an empty account
+// (docs/DESIGN.md §4.5). It only logs: an empty account
 // found here does not stop the pool from starting, because the reactive
 // path (worker.Pool.Halt on an actual 402) is what docs/DESIGN.md means by
 // "stops the pool rather than failing each queued request in turn" — a

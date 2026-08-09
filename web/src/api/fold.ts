@@ -17,7 +17,7 @@ import type {
 
 // The event-to-view-model fold, mirroring internal/fold.Fold in shape
 // (docs/DESIGN.md §4.1): a pure reducer over the event log, one event at a
-// time. Unlike phase 4's version this does not re-derive the whole block
+// time. It does not re-derive the whole block
 // list on every call — FoldState.ingest folds a single event into either a
 // completed Block (pushed once, never touched again) or the in-progress
 // live view (docs/DESIGN.md §5.2). Folding the same event log through

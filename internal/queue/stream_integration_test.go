@@ -38,8 +38,7 @@ func connectOrSkip(t *testing.T) (*nats.Conn, jetstream.JetStream) {
 // TestEnsureStreamsConverges declares the streams and consumer against a
 // real server twice with different pool sizes, proving an empty server
 // converges and a second call updates rather than erroring
-// (docs/DESIGN.md §4.10, PLAN.md: "treats an existing definition as
-// satisfied").
+// (docs/DESIGN.md §4.10: "treats an existing definition as satisfied").
 func TestEnsureStreamsConverges(t *testing.T) {
 	_, js := connectOrSkip(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -86,9 +85,9 @@ func TestEnsureStreamsConverges(t *testing.T) {
 	}
 }
 
-// TestNatsMsgIDDeduplicates is the measurement PLAN.md's report section
-// calls out as already verified against the local server: two publishes
-// sharing a Nats-Msg-Id store one message, not two.
+// TestNatsMsgIDDeduplicates pins the deduplication the result publisher
+// relies on: two publishes sharing a Nats-Msg-Id store one message, not
+// two.
 func TestNatsMsgIDDeduplicates(t *testing.T) {
 	_, js := connectOrSkip(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

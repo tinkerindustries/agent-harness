@@ -77,9 +77,9 @@ type ToolCallFunc struct {
 	Arguments string `json:"arguments"`
 }
 
-// Tool describes a function the model may call. Phase 1 sends no tools, but
-// the type exists so message round-tripping compiles against the same
-// shape later phases use.
+// Tool describes a function the model may call. `harness ask` sends none,
+// but the type exists so message round-tripping compiles against the same
+// shape the agent loop uses.
 type Tool struct {
 	Type     string       `json:"type"`
 	Function ToolFunction `json:"function"`

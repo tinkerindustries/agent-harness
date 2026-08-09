@@ -636,7 +636,7 @@ problem.
 
 ### 5.5 Virtualisation
 
-Measured in phase 5, and the measurement splits the question in two. The
+Measured, and the measurement splits the question in two. The
 harness lives in `web/src/perf`; run it against a synthetic feed at a fixed
 rate with N blocks mounted.
 

@@ -4,8 +4,9 @@ import { TranscriptStore } from "./api/transcriptStore";
 
 // useNow re-renders its caller on an interval — used only for the session
 // list's live elapsed-time column, a handful of rows ticking once a second.
-// This is not the phase 5 performance problem (token-rate deltas across
-// hundreds of blocks); it is orders of magnitude cheaper.
+// This is not the performance problem docs/DESIGN.md §5.1 is about
+// (token-rate deltas across hundreds of blocks); it is orders of magnitude
+// cheaper.
 export function useNow(intervalMs: number): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {

@@ -68,7 +68,7 @@ func Connect(url string) (*nats.Conn, jetstream.JetStream, error) {
 
 // EnsureStreams declares the WORK and RESULTS streams and the WORK
 // consumer, converging an empty server rather than requiring a setup
-// script (docs/DESIGN.md §4.10, PLAN.md phase 3). CreateOrUpdate is
+// script (docs/DESIGN.md §4.10). CreateOrUpdate is
 // idempotent: run again against a server that already has matching
 // definitions, it is a no-op; run again with a different poolSize, it
 // updates MaxAckPending to match.

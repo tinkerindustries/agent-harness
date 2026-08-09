@@ -1,5 +1,5 @@
-// Package hub is the harness's in-process SSE fan-out (docs/DESIGN.md §4.2,
-// PLAN.md phase 4): per-session transcript subscribers, fed the same
+// Package hub is the harness's in-process SSE fan-out (docs/DESIGN.md
+// §4.2): per-session transcript subscribers, fed the same
 // store.Event values a session appends, and a session-list subscriber set,
 // fed the low-rate state changes docs/DESIGN.md §5.8 wants quiet.
 //

@@ -68,8 +68,8 @@ type RunOptions struct {
 	// cache.Mutate on the opening message) so the churn diagnostic has
 	// something real to catch. Zero disables it. Nothing publishes this
 	// through a work request; it exists to exercise CACHE.md's diagnostic
-	// against the live API on purpose (PLAN.md phase 6's exit criterion),
-	// not as something a production caller would ever set.
+	// against the live API on purpose, not as something a production
+	// caller would ever set.
 	DebugChurnAtSubTurn int
 }
 
@@ -126,8 +126,8 @@ type SubTurnProgress struct {
 // Runner executes agent sessions. Its fields are shared, read-mostly
 // resources (a store with its own internal synchronisation, a stateless API
 // client, a price table); nothing about one call to Run leaks into another.
-// That is what lets phase 3 add a worker pool around this type without
-// changing it (docs/DESIGN.md §4.5).
+// That is what lets the worker pool wrap this type without changing it
+// (docs/DESIGN.md §4.5).
 type Runner struct {
 	Store      *store.Store
 	Mirror     *store.Mirror
@@ -151,7 +151,7 @@ type Runner struct {
 	// shared across every call to Run on this Runner — the semaphore
 	// docs/DESIGN.md §4.5 sizes under the account's per-model ceiling. A
 	// model absent from the map, or a nil map, is unlimited; that keeps
-	// existing callers (the CLI, every phase 2 test) exactly as they were.
+	// unlimited callers (the CLI, every test) exactly as they were.
 	ModelLimits map[string]int
 
 	semsMu sync.Mutex
@@ -354,7 +354,7 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 // flash-backed session. Its transcript never joins the parent's message
 // array; only the text this returns does (docs/TOOLS.md). The session id it
 // also returns is what lets the browser find and render that transcript as a
-// collapsed child of the Task call that spawned it (PLAN.md phase 5).
+// collapsed child of the Task call that spawned it.
 func (r *Runner) subagentRunner(parentID string, parentOpts RunOptions, workspace string) func(context.Context, string, string, string) (string, string, error) {
 	return func(ctx context.Context, description, prompt, subagentType string) (string, string, error) {
 		res, err := r.Run(ctx, RunOptions{

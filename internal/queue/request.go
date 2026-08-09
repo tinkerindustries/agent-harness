@@ -81,8 +81,8 @@ func ParseRequest(data []byte) (Request, error) {
 // rather than fail loudly at validation.
 const requestIDDisallowed = ". \t\n\r*>"
 
-// Validate checks the fields docs/DESIGN.md §4.10 and PLAN.md's phase 3
-// work list call out: the repositories to clone, permission_mode, and
+// Validate checks the fields docs/DESIGN.md §4.10 calls out: the
+// repositories to clone, permission_mode, and
 // result_schema as a well-formed schema. A failing request gets a "failed"
 // result and a Term, never a retry — it will never parse or authorize
 // itself into something valid by being redelivered.

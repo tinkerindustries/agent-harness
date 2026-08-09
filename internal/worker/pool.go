@@ -1,6 +1,6 @@
 // Package worker is the harness's worker pool: it pulls work requests off
 // the WORK stream, runs each as a session.Runner call, and publishes the
-// result to the RESULTS stream (docs/DESIGN.md §4.10, PLAN.md phase 3).
+// result to the RESULTS stream (docs/DESIGN.md §4.10).
 package worker
 
 import (
@@ -25,8 +25,8 @@ import (
 
 // Pool pulls from Consumer and dispatches each message to a session
 // goroutine, bounded by Size. Nothing here holds per-request state outside
-// the handler for that request — the property docs/DESIGN.md §4.5 asks a
-// phase 3 caller of session.Runner to preserve.
+// the handler for that request — the property docs/DESIGN.md §4.5 asks
+// every caller of session.Runner to preserve.
 type Pool struct {
 	Store    *store.Store
 	Runner   *session.Runner
@@ -135,9 +135,8 @@ func (p *Pool) defaultMaxTokens() int {
 // Run pulls and processes messages until ctx is done. On shutdown it stops
 // pulling new work but lets in-flight runs finish and publish normally —
 // an agent run takes minutes, and cutting one off on a routine restart
-// would waste it for no reason. Only a process that dies outright (the
-// kill in PLAN.md's exit criteria) leaves a message for the takeover path
-// to pick up.
+// would waste it for no reason. Only a process that dies outright leaves
+// a message for the takeover path to pick up.
 func (p *Pool) Run(ctx context.Context) error {
 	sem := make(chan struct{}, p.size())
 	consumeCtx, err := p.Consumer.Consume(func(msg jetstream.Msg) {
@@ -183,8 +182,8 @@ func (p *Pool) Halt(reason string) {
 }
 
 // Halted reports whether Halt has been called and why, for the queue health
-// endpoint (docs/DESIGN.md §5.8, PLAN.md phase 6: "Balance ... stops the
-// pool") to surface an empty account as a state rather than leave an
+// endpoint (docs/DESIGN.md §5.8), which surfaces an empty account as a
+// state rather than leaving an
 // operator inferring it from a run of failed requests.
 func (p *Pool) Halted() (bool, string) {
 	if !p.halted.Load() {
@@ -301,7 +300,7 @@ func (p *Pool) recoverPanic(msg jetstream.Msg) {
 }
 
 // recordValidationFailure is the request and result schema, validation and
-// its Term path (PLAN.md phase 3 testing note): a request that never
+// its Term path: a request that never
 // authorizes itself is recorded as failed under no session (sessionID ""),
 // published once, and Term'd so it is never redelivered.
 func (p *Pool) recordValidationFailure(ctx context.Context, msg jetstream.Msg, requestID string, verr error) {

@@ -1,4 +1,4 @@
-// Frame-time statistics for the phase 5 measurement harness. A frame delta
+// Frame-time statistics for the measurement harness. A frame delta
 // is the time between two consecutive requestAnimationFrame callbacks — the
 // number that answers "did this hold 60fps," independent of how the store
 // itself batches updates.

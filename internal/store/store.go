@@ -63,8 +63,8 @@ type Session struct {
 
 // Event is one row of a session's append-only log, keyed by (session_id,
 // seq). Payload's shape depends on Kind; see events.go. The JSON tags are
-// load-bearing: phase 4 marshals Event directly onto the wire, for both the
-// paged /events endpoint and the SSE stream's data field.
+// load-bearing: the HTTP layer marshals Event directly onto the wire, for
+// both the paged /events endpoint and the SSE stream's data field.
 type Event struct {
 	SessionID string          `json:"session_id"`
 	Seq       int64           `json:"seq"`
@@ -137,8 +137,8 @@ CREATE TABLE IF NOT EXISTS workspace_leases (
 	heartbeat_at TEXT NOT NULL
 );
 
--- Phase 4 read paths: the session list's usage summary filters events down
--- to two kinds before scanning, and looks a session up by the request that
+-- Read paths: the session list's usage summary filters events down to two
+-- kinds before scanning, and looks a session up by the request that
 -- created it.
 CREATE INDEX IF NOT EXISTS idx_events_session_kind ON events (session_id, kind);
 CREATE INDEX IF NOT EXISTS idx_work_requests_session_id ON work_requests (session_id);
@@ -508,8 +508,8 @@ func (s *Store) GetEvents(ctx context.Context, sessionID string) ([]Event, error
 }
 
 // AcquireWorkspaceLease claims workspace for sessionID. It fails fast with
-// ErrWorkspaceLeased if another session already holds it; phase 2 has no
-// caller that waits (docs/DESIGN.md §4.5 assigns wait-or-fail to phase 3).
+// ErrWorkspaceLeased if another session already holds it; no caller waits
+// (docs/DESIGN.md §4.5).
 func (s *Store) AcquireWorkspaceLease(ctx context.Context, workspace, sessionID string) error {
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	return s.submit(ctx, func(tx *sql.Tx) error {

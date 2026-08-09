@@ -9,8 +9,8 @@ import { parseToolArgs, toolDetail } from "./toolArgs";
 
 type ToolResultData = Extract<Block, { type: "tool_result" }>;
 
-// ToolResultBlock is the "one shape per tool" rendering docs/TOOLS.md and
-// PLAN.md phase 5 ask for: Edit gets a diff table, Bash and file reads get
+// ToolResultBlock is the "one shape per tool" rendering docs/TOOLS.md asks
+// for: Edit gets a diff table, Bash and file reads get
 // syntax-highlighted, collapsible text, WebFetch's prose gets markdown, and
 // Task gets a link into the subagent's own transcript. Every other tool
 // falls back to plain collapsible text.

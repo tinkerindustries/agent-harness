@@ -8,7 +8,7 @@ import { PerfHarnessScreen } from "./perf/PerfHarnessScreen";
 // "/sessions/:id" is one session's transcript. The Go static handler falls
 // back to index.html for any unrecognised path, so a reload or a direct
 // link to /sessions/:id still loads this app and lands on the right
-// screen. "/perf" is the phase 5 measurement harness (web/src/perf) — a
+// screen. "/perf" is the measurement harness (web/src/perf) — a
 // developer tool, not part of the read-only product surface, but routed
 // here rather than as a second Vite entry point so it exercises the exact
 // same build and component tree the real transcript does.

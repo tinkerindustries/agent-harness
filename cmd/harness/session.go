@@ -19,7 +19,7 @@ import (
 // runResume continues a session the CLI already ran to a terminal state:
 // finished, failed, timed out, or stopped at its sub-turn limit. The
 // browser only lists sessions (docs/DESIGN.md §5); resume and delete are
-// CLI-only session management (PLAN.md phase 6).
+// CLI-only session management.
 func runResume(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("resume", flag.ContinueOnError)
 	maxTokens := fs.Int("max-tokens", 0, "override max_tokens (default from config)")

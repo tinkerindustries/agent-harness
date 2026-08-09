@@ -1,5 +1,5 @@
 // Package httpapi is the harness's read-only HTTP surface (docs/DESIGN.md
-// §4.2, PLAN.md phase 4): GET and HEAD only, on every path, including ones
+// §4.2): GET and HEAD only, on every path, including ones
 // that do not exist. It serves the session list and metadata from the
 // store, a paged read of one session's event log, and two SSE streams — a
 // per-session transcript and a quiet session-level list feed — fed by the
@@ -53,8 +53,8 @@ type QueuePool interface {
 
 // Server holds the things every handler reads: the store, for everything
 // historical; the hub, for everything live; and, optionally, the queue's
-// consumer and pool, for /api/queue (docs/DESIGN.md §5.8, PLAN.md phase 6:
-// "consumer lag, in-flight count, redelivery count"). None of these is
+// consumer and pool, for /api/queue's consumer lag, in-flight count, and
+// redelivery count (docs/DESIGN.md §5.8). None of these is
 // mutated by a request — there is no write path (docs/DESIGN.md §4.2).
 // Consumer and Pool are nil in any caller that has no queue at all (a
 // CLI-only harness never wires one up); the handler degrades to reporting
@@ -154,8 +154,8 @@ func (s *Server) buildStates(ctx context.Context, sessions []store.Session) ([]h
 }
 
 // queueHealth is /api/queue's response shape: consumer lag, in-flight
-// count, and redelivery count (PLAN.md phase 6's "queue health on the
-// session list"), plus whether the pool has halted itself and why — the
+// count, and redelivery count, which the session list shows as queue
+// health, plus whether the pool has halted itself and why — the
 // visible form of docs/DESIGN.md §4.5's "A 402 stops the pool". Available
 // is false whenever there is nothing to report from, which happens for any
 // harness that has no queue wired up (Consumer nil) or when the live NATS
@@ -235,8 +235,7 @@ func (s *Server) handleGetEvents(w http.ResponseWriter, r *http.Request) {
 // handleSessionStream serves one session's transcript: the full history
 // after Last-Event-ID (0 replays from the start), then live events as the
 // hub publishes them, with no gap and no duplicate at the seam between the
-// two (docs/DESIGN.md §4.2's "Last-Event-ID replay" and PLAN.md phase 4's
-// exit criteria).
+// two (docs/DESIGN.md §4.2's "Last-Event-ID replay").
 func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if _, err := s.Store.GetSession(r.Context(), id); err != nil {

@@ -3,8 +3,7 @@
 // and an approximate token count. The count is a character-based estimate,
 // not the API's own reasoning_tokens figure — that number belongs to the
 // usage event, arrives after the block that would show it has already
-// frozen, and is phase 6's territory (per-turn cost accounting) rather than
-// this panel's.
+// frozen, and belongs to per-turn cost accounting rather than this panel.
 function approxTokens(text: string): number {
   return Math.max(1, Math.round(text.length / 4));
 }

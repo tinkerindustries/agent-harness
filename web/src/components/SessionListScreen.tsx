@@ -102,7 +102,7 @@ export function SessionListScreen({ onOpen }: Props) {
 }
 
 // QueueHealthBar surfaces consumer lag, in-flight count, and redelivery
-// count (PLAN.md phase 6), plus a halted state as an unmissable banner
+// count, plus a halted state as an unmissable banner
 // rather than another quiet figure — an operator watching the list is
 // exactly who needs to know the pool stopped pulling work on an empty
 // account (docs/DESIGN.md §4.5). Renders nothing for a CLI-only harness

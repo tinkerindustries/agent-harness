@@ -4,8 +4,8 @@ import type { StoreEvent } from "../api/types";
 // live session produces (docs/DESIGN.md §5.1's "two text channels arrive as
 // deltas at token rate"), for PerfHarnessScreen to feed into a real
 // TranscriptStore. Nothing here talks to the network; it exists so the
-// measurement in PLAN.md phase 5 can be re-run without a live DeepSeek call
-// (CLAUDE.md: "prefer the synthetic feed for performance work").
+// virtualisation measurement can be re-run without a live DeepSeek call
+// (web/CLAUDE.md: re-measure rather than arguing from first principles).
 
 export interface SeqSource {
   next(): number;

@@ -70,7 +70,7 @@ func bashThenAnswerServer(t *testing.T, command, finalAnswer string) *httptest.S
 // TestBashPublishesLiveStdoutWhenHubSet proves the wiring end to end: with a
 // Hub attached, a Bash call's output reaches the store as tool_stdout events
 // ahead of (or alongside) its terminal tool_result, which is what lets the
-// browser show output as it happens (docs/DESIGN.md §5.2, PLAN.md phase 5).
+// browser show output as it happens (docs/DESIGN.md §5.2).
 func TestBashPublishesLiveStdoutWhenHubSet(t *testing.T) {
 	srv := bashThenAnswerServer(t, "echo hello-stream", "done")
 	defer srv.Close()
@@ -150,7 +150,7 @@ func TestBashSkipsStdoutEventsWithoutHub(t *testing.T) {
 // tool call is Task, delegating to a nested subagent run against the same
 // mock server, and asserts the parent's tool_result names the child session
 // it spawned — what the browser needs to render it as a collapsed child
-// transcript (docs/TOOLS.md "Task", PLAN.md phase 5).
+// transcript (docs/TOOLS.md "Task").
 func TestTaskResultCarriesChildSessionID(t *testing.T) {
 	var call int32Counter
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

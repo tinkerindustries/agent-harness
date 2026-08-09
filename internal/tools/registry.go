@@ -34,8 +34,8 @@ const (
 // runner uses to build the store event. Diff and ChildSessionID ride along
 // for the two tools that have something structured to add on top of Content
 // — Edit's line-level diff and Task's spawned session id — so the browser
-// can shape their blocks without re-deriving either from prose (docs/TOOLS.md,
-// PLAN.md phase 5: "one shape per tool").
+// can shape their blocks without re-deriving either from prose: one shape
+// per tool (docs/TOOLS.md).
 type Result struct {
 	Content        string
 	IsError        bool
@@ -103,7 +103,7 @@ type Executor struct {
 	// cannot import session directly without a cycle. The returned session id
 	// is the subagent's own session row — a distinct id from this Executor's
 	// session, linked to it as parent (docs/DESIGN.md §4.7) — so the browser
-	// can render it as a collapsed child transcript (PLAN.md phase 5).
+	// can render it as a collapsed child transcript.
 	RunSubagent func(ctx context.Context, description, prompt, subagentType string) (summary string, sessionID string, err error)
 
 	readsMu sync.Mutex

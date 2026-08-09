@@ -13,8 +13,8 @@ import (
 
 // NewStaticHandler serves the frontend: the embedded, built assets by
 // default, or a reverse proxy to a running Vite dev server when
-// devFrontendURL is set (docs/DESIGN.md §4.8, PLAN.md phase 4, "embed.FS
-// for the built frontend, with a dev-mode passthrough to the Vite server").
+// devFrontendURL is set: embed.FS for the built frontend, with a dev-mode
+// passthrough to the Vite server (docs/DESIGN.md §4.8).
 func NewStaticHandler(devFrontendURL string) (http.Handler, error) {
 	if devFrontendURL != "" {
 		target, err := url.Parse(devFrontendURL)

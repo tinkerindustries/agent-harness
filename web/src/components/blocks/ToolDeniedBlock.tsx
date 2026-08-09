@@ -4,9 +4,9 @@ import { toolDetail } from "./toolArgs";
 
 // A denied tool call renders as its own block, showing the call and the
 // policy that refused it — the main thing an operator wants to find after a
-// queue-driven run does less than expected (docs/DESIGN.md §5.8). Phase 4
-// already gave denials their own block kind; this is the per-tool detail on
-// top, matching ToolResultBlock's labelling.
+// queue-driven run does less than expected (docs/DESIGN.md §5.8). Denials
+// have their own block kind; this is the per-tool detail on top, matching
+// ToolResultBlock's labelling.
 export const ToolDeniedBlock = memo(function ToolDeniedBlock({ block }: { block: Extract<Block, { type: "tool_denied" }> }) {
   const detail = toolDetail(block.call);
   return (

@@ -42,7 +42,7 @@ type Policy struct {
 	// Deny holds substring patterns matched against a call's descriptor
 	// (docs/TOOLS.md does not pin the matching rule; substring-of-command
 	// for Bash and substring-of-"Tool arg" otherwise is what this
-	// implementation chose — see the phase 2 report). Deny only ever
+	// implementation chose). Deny only ever
 	// subtracts from what Mode allows; it can never widen it.
 	Deny     []string
 	Resolver Resolver

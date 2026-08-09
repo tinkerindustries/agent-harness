@@ -77,7 +77,7 @@ func sqlPlaceholders(n int) string {
 // sessionIDs in one query. It reads only the turn_started and usage event
 // kinds rather than the full log — reasoning and content deltas can be
 // large, and this recomputes on every session-list request and every live
-// state publish (docs/DESIGN.md §5.8, PLAN.md phase 4).
+// state publish (docs/DESIGN.md §5.8).
 func (s *Store) SessionUsageSummaries(ctx context.Context, sessionIDs []string) (map[string]SessionUsageSummary, error) {
 	out := make(map[string]SessionUsageSummary, len(sessionIDs))
 	if len(sessionIDs) == 0 {

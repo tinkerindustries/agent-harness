@@ -20,16 +20,20 @@ import (
 const usage = `usage: harness <command> [flags]
 
 commands:
-  ask "..."             send a prompt and stream reasoning and content to the terminal
-  run -workspace P "..." run the agent loop against a workspace until it finishes or gives up
-  serve                  pull work requests from NATS JetStream and run them as a worker pool
-  mcp                    run an MCP server that launches and collects harness runs over NATS
-  publish -workspace P "..."  publish a work request to the queue "harness serve" reads
+  ask "..."                    send a prompt and stream reasoning and content to the terminal
+  run -workspace P "..."       run the agent loop against a workspace until it finishes or gives up
+  serve                        pull work requests from NATS JetStream and run them as a worker pool
+  mcp                          run an MCP server that launches and collects harness runs over NATS
+  publish -repo URL "..."      publish a work request to the queue "harness serve" reads
   resume <session-id> ["..."]  continue a finished, failed, or timed-out session
-  delete <session-id>    remove a session and its event log (refuses a running one)
-  export <session-id>    rebuild a session's disk mirror from the database
-  models                list available models
-  balance               show account balance`
+  delete <session-id>          remove a session and its event log (refuses a running one)
+  export <session-id>          rebuild a session's disk mirror from the database
+  models                       list available models
+  balance                      show account balance
+
+run and publish both require -permission-mode, readonly or full. publish's
+-repo takes URL[#branch] and repeats; run's -workspace repeats too, paired
+with a -prompt each. "harness <command> -h" lists that command's flags.`
 
 func main() {
 	if err := config.LoadDotEnv(".env"); err != nil {
@@ -181,7 +185,7 @@ func runAsk(ctx context.Context, args []string) error {
 			fmt.Print(ev.Content)
 			contentBuf.WriteString(ev.Content)
 		case deepseek.EventToolCallDelta:
-			// Phase 1 sends no tools, so this should never fire.
+			// `ask` sends no tools, so this should never fire.
 			fmt.Printf("\n[unexpected tool call delta: index=%d name=%s]\n", ev.ToolCall.Index, ev.ToolCall.Function.Name)
 		case deepseek.EventFinish:
 			finishReason = ev.FinishReason

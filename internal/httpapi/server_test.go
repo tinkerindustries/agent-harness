@@ -664,8 +664,8 @@ func TestQueueHealthWithNoConsumerReportsUnavailable(t *testing.T) {
 }
 
 // TestQueueHealthReportsConsumerFiguresAndHaltState covers the three
-// figures PLAN.md phase 6 asks the session list to show — consumer lag,
-// in-flight count, redelivery count — plus the pool's halted state, all
+// figures the session list shows — consumer lag, in-flight count,
+// redelivery count — plus the pool's halted state, all
 // against fakes so the test needs no real NATS server.
 func TestQueueHealthReportsConsumerFiguresAndHaltState(t *testing.T) {
 	dir := t.TempDir()

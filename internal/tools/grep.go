@@ -27,7 +27,7 @@ type grepMatch struct {
 }
 
 // execGrep implements Grep with a Go fallback (docs/TOOLS.md; ripgrep
-// acceleration is deferred, see the phase 2 report). Defaults to
+// acceleration is deferred). Defaults to
 // files_with_matches so the model orients cheaply instead of pulling large
 // content into a context that gets re-sent every sub-turn.
 func execGrep(_ context.Context, e *Executor, argsRaw json.RawMessage) Result {

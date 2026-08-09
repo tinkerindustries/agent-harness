@@ -314,7 +314,7 @@ func (h *testHarness) countFinalResults(t *testing.T, requestID string, timeout 
 	return n
 }
 
-// TestPoolFourConcurrentRequests is PLAN.md's first phase 3 exit criterion:
+// TestPoolFourConcurrentRequests proves the pool runs concurrently:
 // publish four requests at once and get four results back with correct
 // usage figures.
 func TestPoolFourConcurrentRequests(t *testing.T) {
@@ -362,8 +362,8 @@ func TestPoolFourConcurrentRequests(t *testing.T) {
 	}
 }
 
-// TestPoolDuplicateRequestIDRunsOnce is PLAN.md's third exit criterion:
-// publish the same request_id twice and get one run and one result. The
+// TestPoolDuplicateRequestIDRunsOnce proves request_id is an idempotency
+// key: publish the same one twice and get one run and one result. The
 // fake server stalls so the second publish lands while the first is
 // genuinely still in flight, exercising the retry-later path rather than
 // the takeover path.
@@ -430,9 +430,8 @@ func TestPoolMalformedRequestTermsWithoutRunning(t *testing.T) {
 
 // TestPoolHandleTakesOverAbandonedRow drives Pool.handle with a fake
 // jetstream.Msg reporting a redelivery, against a work_requests row shaped
-// like one a dead process abandoned mid-run. It covers the routing behind
-// PLAN.md's kill-and-restart exit criterion without waiting on the real 60s
-// AckWait.
+// like one a dead process abandoned mid-run. It covers the routing a
+// kill-and-restart exercises, without waiting on the real 60s AckWait.
 func TestPoolHandleTakesOverAbandonedRow(t *testing.T) {
 	hits := &hitCounter{}
 	// A small delay gives the heartbeat ticker (30ms in this harness) at
@@ -626,8 +625,8 @@ func insufficientBalanceServer(t *testing.T) *httptest.Server {
 	}))
 }
 
-// TestPoolHaltsOnInsufficientBalance is PLAN.md phase 6's balance exit
-// criterion: a 402 is surfaced as an empty account and stops the pool
+// TestPoolHaltsOnInsufficientBalance pins the balance behaviour: a 402 is
+// surfaced as an empty account and stops the pool
 // rather than failing each queued request in turn (docs/DESIGN.md §4.5).
 // The request that hit the 402 is left unacked (no final result published)
 // so it redelivers once the pool is restarted with balance restored, and a

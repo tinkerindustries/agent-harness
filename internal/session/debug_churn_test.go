@@ -17,9 +17,9 @@ import (
 // TestDebugChurnAtSubTurnIsCaughtAndNamed drives RunOptions.DebugChurnAtSubTurn
 // through the full loop against a fake server that reports usage the way the
 // real API would for a genuinely broken prefix (near-total miss on the
-// churned sub-turn). It is the session-level half of PLAN.md phase 6's exit
-// criterion: "a deliberately churned prefix is caught by the diagnostic and
-// named to the specific message." The live demonstration against the real
+// churned sub-turn). It is the session-level half of the guarantee that a
+// deliberately churned prefix is caught by the diagnostic and named to the
+// specific message. The live demonstration against the real
 // API exercises the identical option through `harness run
 // -debug-churn-at-subturn` (cmd/harness/run.go).
 func TestDebugChurnAtSubTurnIsCaughtAndNamed(t *testing.T) {

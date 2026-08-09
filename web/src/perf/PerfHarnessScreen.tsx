@@ -5,12 +5,11 @@ import { BlockList } from "../components/BlockList";
 import { computeFrameStats, type FrameStats } from "./frameStats";
 import { buildSyntheticHistory, liveEventGenerator, makeSeqSource } from "./syntheticFeed";
 
-// PerfHarnessScreen is the measurement PLAN.md phase 5 requires as an exit
-// criterion, not a nicety: a synthetic delta feed at a fixed rate against a
-// mounted transcript, with render cost recorded, answering docs/DESIGN.md
-// §5.5's virtualisation question with a number. See the repo-level report
-// for how to run it and what it found; the short version is in the page's
-// own header text below.
+// PerfHarnessScreen is the instrument behind docs/DESIGN.md §5.5, not a
+// nicety: a synthetic delta feed at a fixed rate against a mounted
+// transcript, with render cost recorded, answering the virtualisation
+// question with a number. §5.5 records what it found; the short version is
+// in the page's own header text below.
 //
 // Two measurements run side by side:
 //
@@ -320,7 +319,7 @@ export function PerfHarnessScreen() {
   return (
     <div className="screen perf-harness">
       <header className="screen-header">
-        <h1>Phase 5 performance harness</h1>
+        <h1>Performance harness</h1>
       </header>
       <p className="dim">
         Synthetic delta feed at a fixed rate against N mounted blocks. "delta" commits are a reasoning/content/
