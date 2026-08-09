@@ -135,6 +135,104 @@ docs warn can occasionally return empty content.
 Our rule of never sending `tool_choice` from the main loop stands, because
 `auto` is the default when tools are present.
 
+## The reasoning_content 400 does not reproduce
+
+The most consequential result here, and a negative one.
+
+Three sources say omitting `reasoning_content` from a tool-call assistant
+message returns 400. `guides/thinking_mode.md`: "the API will return 400."
+`oh_my_pi.md`: "Skipping this causes 400." `copilot_cli.md` quotes the error
+text verbatim. DESIGN.md §3.1 was built on it.
+
+It could not be provoked. Every one of these returned 200:
+
+| Configuration | flash | pro |
+| --- | --- | --- |
+| Single tool call, reasoning removed from the assistant message | 200 | — |
+| Single tool call, `content: null` | 200 | — |
+| Two chained tool calls, reasoning removed from the first | 200 | 200 |
+| Two chained tool calls, reasoning removed from the second | 200 | 200 |
+| Two chained tool calls, reasoning removed from both | 200 | 200 |
+| Reasoning set to `null` rather than removed | 200 | 200 |
+| A second user turn with all turn-1 reasoning stripped | — | 200 |
+| The same, with `tools` omitted from the request | — | 200 |
+
+Coverage is decent but cannot prove a negative. The honest statement is that the
+requirement does not enforce on build `prod0820_fp8_kvcache_20260402`, on either
+model, across the configurations above. The third-party notes plainly describe
+real errors, so the likeliest reading is that the API was relaxed and both the
+docs and those configs describe earlier behaviour.
+
+What follows for the design. Keep replaying reasoning — the behaviour does not
+change. It is what the docs prescribe, the cost is negligible because the
+replayed tokens sit inside the cached prefix, and the docs give a quality reason
+("allowing the model to continue its previous reasoning") that this test says
+nothing about either way.
+
+What does change is that there is no 400 cliff to engineer around. Compaction
+may drop reasoning from older turns freely. A session resumed from a store that
+lost reasoning degrades rather than hard-fails. And §3.1 is a strong convention
+rather than a load-bearing constraint, which is a materially different thing to
+build on.
+
+## max_tokens bounds reasoning, and reasoning spends it first
+
+`max_tokens` caps reasoning and content together. Reasoning is generated first,
+so an insufficient budget is consumed entirely by reasoning and the answer never
+starts:
+
+| max_tokens | finish_reason | completion | reasoning | content |
+| --- | --- | --- | --- | --- |
+| 300 | `length` | 300 | 300 | `''` |
+| 1200 | `length` | 1200 | 1200 | `''` |
+| 4000 (pro, hard problem) | `length` | 4000 | 4000 | `''` |
+
+Every one of those is billed in full and returns nothing usable.
+
+The harness must treat `finish_reason == "length"` with empty `content` as its
+own condition — reasoning starved the answer — and distinguish it from an answer
+that was truncated mid-sentence. The first calls for a retry with a larger
+budget; the second calls for continuation. Both are wasted spend if
+misdiagnosed, and at max effort on pro the waste is real money.
+
+Budget `max_tokens` generously. The ceiling is 384K.
+
+## Pro matches flash where it matters
+
+| Property | flash | pro |
+| --- | --- | --- |
+| Cache block size | 128 tokens | 128 tokens |
+| `tool_choice: auto` / `none` | accepted | accepted |
+| `tool_choice: required` / named | 400 | 400, same message |
+| reasoning round-trip enforced | no | no |
+
+Pro block sizes measured at two prefix lengths: 850 → 768, and 2410 → 2304. Both
+are exactly `floor(n/128) × 128`. CACHE.md's arithmetic holds on the model we
+actually default to.
+
+Pro's effort mapping remains unresolved. Reasoning volume on an easy problem was
+indistinguishable across low, high, and max, and on a hard problem all three
+saturated the `max_tokens` ceiling, so neither test discriminated. Separating
+them needs long, expensive runs with a very large budget. Not worth it — the
+harness defaults to max on pro regardless, so the answer would not change a
+decision.
+
+## Parallel tool calls, confirmed
+
+One assistant message returned two calls for the prompt "What is the weather in
+Hobart, and also in Perth?":
+
+```
+call_00_dmW4ptK0w1ETVL...  get_weather({"location": "Hobart"})
+call_01_NgT8bWg9dyxlcS...  get_weather({"location": "Perth"})
+```
+
+The identifier prefix encodes the array index — `call_00_`, `call_01_`. Useful
+for asserting ordering in tests, though the `index` field is the thing to key
+on.
+
+This is the case the ordered-append rule exists for ([CACHE.md](CACHE.md)).
+
 ## Smaller findings
 
 **`prompt_tokens_details.cached_tokens` exists** and mirrors
@@ -162,7 +260,8 @@ them.
 
 ## Still untested
 
-Pro, at any effort. Whether pro honours `low` yet. Effort changes across a
-session and their effect on the cache. Long-context behaviour near 768K.
-Keep-alive frames under real queueing. Whether the 128-token block size holds
-on pro.
+Whether pro honours `low` distinctly — attempted, inconclusive, and abandoned as
+not decision-changing. Effort changes mid-session and their effect on the cache.
+Long-context behaviour near the 768K compaction threshold. Keep-alive frames
+under real queueing, which cannot be provoked on demand. Whether the reasoning
+round-trip requirement returns on a later server build.

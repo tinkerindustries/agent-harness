@@ -18,7 +18,7 @@ most — it lists what we are relying on that the local docs do not establish.
 | Anthropic endpoint ignores `cache_control`, `anthropic-beta`, `anthropic-version`, `top_k`, `thinking.budget_tokens` | `guides/anthropic_api.md` |
 | Anthropic endpoint does not support image, document, or `redacted_thinking` blocks | `guides/anthropic_api.md` |
 | Web search is server-side and Anthropic-format only; Chat Completions accepts `type: "function"` and nothing else | `guides/anthropic_api.md`, `agent_integrations/claude_code.md`, `api/create-chat-completion.md` |
-| `reasoning_content` must round-trip when `tools` is present, or the API returns 400 | `guides/thinking_mode.md` |
+| `reasoning_content` must round-trip when `tools` is present, or the API returns 400 | `guides/thinking_mode.md` — but see [OBSERVED.md](OBSERVED.md): the 400 does not reproduce on either model |
 | Cache-hit against cache-miss input pricing: 50× on flash, 120× on pro | `quick_start/pricing.md`, arithmetic |
 | Cache prefix units persist at end of user input, end of model output, and fixed intervals | `guides/kv_cache.md` |
 | Cache construction takes seconds and is best-effort | `guides/kv_cache.md` |

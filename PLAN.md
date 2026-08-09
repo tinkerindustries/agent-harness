@@ -26,9 +26,12 @@ generic OpenAI-compatible client gets wrong.
 - Request and response types as structs, never maps, so serialisation is
   byte-stable.
 - `POST /chat/completions`, non-streaming, against `https://api.deepseek.com`.
-- The request-shape rules: no `tool_choice`, `max_tokens` set explicitly,
-  `system` rather than `developer`, `""` rather than `null` for tool-call
-  assistant content.
+- The request-shape rules: no `tool_choice`, `max_tokens` set explicitly and
+  generously, `system` rather than `developer`, `""` rather than `null` for
+  tool-call assistant content.
+- Detect `finish_reason == "length"` with empty `content` as its own condition.
+  Reasoning spends `max_tokens` before the answer starts, so a tight budget is
+  billed in full and returns nothing ([docs/OBSERVED.md](docs/OBSERVED.md)).
 - Streaming. SSE reader with large-line handling, `:` comment filtering, an idle
   watchdog, `[DONE]` termination, transport-level timeouts and no client-level
   one. `stream_options.include_usage` on every request.
@@ -190,7 +193,7 @@ that was happening anyway.
 
 | Question | Closes at | How |
 | --- | --- | --- |
-| Does pro honour `low` effort yet? | Phase 1 | One request. The docs said this changes in early August 2026 |
+| ~~Does pro honour `low` effort yet?~~ | Dropped 2026-08-09 | Inconclusive and not decision-changing — the harness defaults to max on pro either way |
 | ~~Is the `[1m]` suffix real on the native endpoint?~~ | Closed 2026-08-09 | No. `GET /models` returns only `deepseek-v4-flash` and `deepseek-v4-pro` |
 | ~~Do streaming tool-call deltas arrive incrementally?~~ | Closed 2026-08-09 | Yes, OpenAI indexed form. Arguments fragment mid-token |
 | Are the Claude Code tool names the right vocabulary? | Phase 2 | Tool-call error rate against a rename, which is cheap |

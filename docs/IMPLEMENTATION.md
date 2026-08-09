@@ -53,9 +53,9 @@ The session row stores its rendered system prompt and tool schema, frozen at
 creation, so a harness upgrade cannot change a resumable session's prefix
 ([CACHE.md](CACHE.md)).
 
-Ends with: unit tests over the fold, covering a plain turn, a tool-call turn, and
-a multi-turn session where reasoning from turn 1 must still appear in turn 2's
-request. One test asserts the fold is append-only — folding N events then N+1
+Ends with: unit tests over the fold, covering a plain turn, a tool-call turn, a
+parallel-tool-call turn, and a multi-turn session carrying turn-1 reasoning into
+turn 2. One test asserts the fold is append-only — folding N events then N+1
 events yields identical bytes for the first N.
 
 ## 4. Tool layer

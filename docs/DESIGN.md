@@ -4,9 +4,10 @@ A coding harness: an agent loop that reads and writes files in a workspace, runs
 commands, and iterates until a task is done. Go owns the loop and the tools. A
 React frontend shows the transcript and gates dangerous actions.
 
-Two DeepSeek behaviours drive most of the decisions below: reasoning content has
-to be sent back to the API, and the prompt cache is worth 50–120× on input
-tokens. Sections 3.1 and 3.2 cover them.
+One DeepSeek behaviour drives most of the decisions below: the prompt cache is
+worth 50–120× on input tokens, and hits are blocked at 128 tokens of common
+prefix. Section 3.2 covers it. Section 3.1 covers reasoning replay, which the
+docs present as mandatory and which measurement shows is not.
 
 ## 1. Scope
 
@@ -37,36 +38,48 @@ through the Anthropic format — the OpenAI-format API accepts `type: "function"
 tools and nothing else. We build `WebFetch` ourselves instead. TOOLS.md prices
 that trade-off in full.
 
-The Anthropic endpoint has one further advantage worth naming: it handles
-thinking-block replay itself, so the class of 400 described in §3.1 cannot
-happen there. We handle that replay explicitly instead.
+The Anthropic endpoint was also credited with handling thinking-block replay
+itself, sparing callers a documented 400. Measurement since shows that 400 does
+not fire on the native endpoint either (§3.1), so the advantage is moot.
 
 Input is text only. Both models declare `input_modalities: ["text"]`, the
 Anthropic table marks image and document blocks unsupported, and the Responses
 API replaces image parts with placeholder text. No screenshots, no image paste,
 no visual diffing.
 
-## 3. The two rules that shape everything
+## 3. The rules that shape everything
 
-### 3.1 reasoning_content round-trips, always
+### 3.1 reasoning_content replay
 
-For requests carrying `tools`, the `reasoning_content` of every prior assistant
-message must be passed back. Omitting it returns 400, with the text `The
-reasoning_content in the thinking mode must be passed back to the API.` A coding
-harness always carries `tools`, so this always applies.
+The docs require that, for requests carrying `tools`, the `reasoning_content` of
+every prior assistant message is passed back, and say the API returns 400
+otherwise. Measurement on 2026-08-09 could not provoke that 400 on either model
+in any configuration ([OBSERVED.md](OBSERVED.md)), so treat it as a strong
+convention rather than an enforced constraint.
 
-A second rule travels with it and appears in no API reference: an assistant
-message carrying `tool_calls` must have non-null `content`. The fold emits `""`
-rather than `null` for a tool-call turn that produced no text. Source and
-reasoning in [VALIDATION.md](VALIDATION.md).
+The harness replays reasoning anyway. It is what the docs prescribe, the tokens
+sit inside the cached prefix so the cost is negligible, and the docs claim a
+quality benefit — the model continuing its own reasoning — that the test says
+nothing about.
 
-Reasoning is therefore conversation state, not a display artefact. It is stored
-verbatim and forever. Truncation happens at render time only; nothing truncated
-is ever written to the store.
+What the finding buys is the absence of a cliff. Compaction may drop reasoning
+from older turns. A session resumed from a store that lost reasoning degrades
+instead of failing. No error path needs to exist for it.
+
+The same applies to a rule that appears in no API reference: assistant messages
+carrying `tool_calls` are said to need non-null `content`. Also unenforced in
+testing. The fold still emits `""` rather than `null`, because matching the
+shape the API itself returns costs nothing.
+
+Reasoning is stored verbatim regardless. Display truncation happens at render
+time; nothing truncated is written to the store. That was the right call when
+the API demanded it and remains so now that it does not, because the store is
+the only record and reasoning cannot be reconstructed.
 
 Context grows quickly as a result. Reasoning tokens bill as output when
-generated, then bill again as input on every subsequent request in the turn. The
-1M window absorbs a lot, but the cost readout has to be visible.
+generated, then bill again as input on every later request in the turn — at the
+cache-hit rate, so cheaply, but they still consume the window and count toward
+the 768K compaction threshold.
 
 ### 3.2 The message array is append-only, or the cache dies
 
@@ -92,14 +105,11 @@ Rules that follow:
 - Request bodies serialise from structs, not `map[string]any`, so the bytes are
   stable.
 
-DeepSeek persists cache prefix units at the end of user input, at the end of
-model output, and at fixed token intervals for long content. The loop's rhythm —
-model output, tool result appended, re-request — lines up with those boundaries.
-Cache construction takes seconds, so a fast loop sometimes misses on the
-immediate next request. That is expected.
+The loop's rhythm — model output, tool result appended, re-request — grows the
+prefix only at the tail, which is the shape the cache rewards.
 
 One property of the mechanism deserves stating here rather than only in the
-tactics. Measured on flash, the cached length is
+tactics. Measured on both models, the cached length is
 `floor(common_prefix_tokens / 128) × 128`. The trailing partial block never
 hits, which costs under 127 tokens and does not matter. What matters is that the
 formula runs on the length of the *common* prefix, so divergence near the head
@@ -111,7 +121,7 @@ freezes its rendered system prompt and tool schema at creation, so upgrading the
 harness cannot change the prefix of a resumable session. And permission modes
 gate execution rather than tool availability, so the tool array never varies.
 
-[CACHE.md](CACHE.md) covers the tactics, the warmup, and the churn diagnostic.
+[CACHE.md](CACHE.md) covers the tactics and the churn diagnostic.
 
 ## 4. Backend
 
