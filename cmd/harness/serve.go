@@ -5,11 +5,14 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
+	"github.com/mrgeoffrich/deepseek-harness/internal/httpapi"
+	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 	"github.com/mrgeoffrich/deepseek-harness/internal/session"
@@ -26,6 +29,8 @@ import (
 func runServe(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	poolSize := fs.Int("pool-size", 0, "override worker pool size (default from config)")
+	addr := fs.String("addr", "", "override the HTTP address (default from config; loopback)")
+	devFrontend := fs.String("dev-frontend", "", "proxy non-API requests to a running Vite dev server at this URL instead of serving the embedded build")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -36,6 +41,12 @@ func runServe(ctx context.Context, args []string) error {
 	}
 	if *poolSize != 0 {
 		cfg.WorkerPoolSize = *poolSize
+	}
+	if *addr != "" {
+		cfg.HTTPAddr = *addr
+	}
+	if *devFrontend != "" {
+		cfg.DevFrontendURL = *devFrontend
 	}
 	if len(cfg.WorkspaceRoots) == 0 {
 		fmt.Fprintln(os.Stderr, "harness: warning: DEEPSEEK_WORKSPACE_ROOTS is not set; every work request will be denied at validation")
@@ -55,12 +66,14 @@ func runServe(ctx context.Context, args []string) error {
 	}
 	defer st.Close()
 
+	eventHub := hub.New()
 	runner := &session.Runner{
 		Store:      st,
 		Mirror:     store.NewMirror(cfg.DataDir),
 		Client:     deepseek.NewClient(cfg.BaseURL, cfg.APIKey),
 		Prices:     priceTable,
 		FlashModel: cfg.FlashModel,
+		Hub:        eventHub,
 		ModelLimits: map[string]int{
 			cfg.Model:      cfg.ModelConcurrencyPro,
 			cfg.FlashModel: cfg.ModelConcurrencyFlash,
@@ -96,7 +109,28 @@ func runServe(ctx context.Context, args []string) error {
 		Size:                  cfg.WorkerPoolSize,
 	}
 
+	static, err := httpapi.NewStaticHandler(cfg.DevFrontendURL)
+	if err != nil {
+		return err
+	}
+	api := &httpapi.Server{Store: st, Hub: eventHub, Static: static}
+	httpSrv := &http.Server{Addr: cfg.HTTPAddr, Handler: api.Handler()}
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := httpSrv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("harness serve: http shutdown: %v", err)
+		}
+	}()
+	go func() {
+		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("harness serve: http server error: %v", err)
+		}
+	}()
+
 	log.Printf("harness serve: connected to %s, pool size %d, model %s (flash %s), roots %v",
 		cfg.NATSURL, cfg.WorkerPoolSize, cfg.Model, cfg.FlashModel, cfg.WorkspaceRoots)
+	log.Printf("harness serve: http listening on %s", cfg.HTTPAddr)
 	return pool.Run(ctx)
 }

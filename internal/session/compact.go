@@ -54,6 +54,7 @@ func (r *Runner) compact(ctx context.Context, sess store.Session, allEvents []st
 			return sess, allEvents, fmt.Errorf("session: init mirror for compacted session: %w", err)
 		}
 	}
+	r.publishState(ctx, canonical)
 
 	opening := RenderCompactionOpeningMessage(workspace)
 	appended, err := r.Store.AppendEvents(ctx, newSess.ID, []store.EventInput{
@@ -63,6 +64,7 @@ func (r *Runner) compact(ctx context.Context, sess store.Session, allEvents []st
 		return sess, allEvents, fmt.Errorf("session: record compacted session start: %w", err)
 	}
 	r.mirrorAppend(canonical, appended)
+	r.publishEvents(canonical, appended)
 
 	finished := time.Now().UTC()
 	if err := r.Store.UpdateSessionStatus(ctx, sess.ID, store.StatusCompacted, &finished); err != nil {
@@ -71,6 +73,7 @@ func (r *Runner) compact(ctx context.Context, sess store.Session, allEvents []st
 	if updated, err := r.Store.GetSession(ctx, sess.ID); err == nil {
 		r.mirrorUpdateSession(updated)
 		r.mirrorTranscript(updated, allEvents)
+		r.publishState(ctx, updated)
 	}
 
 	return canonical, appended, nil

@@ -14,6 +14,11 @@ node_modules/
 dist/
 .vite/
 
+# The embedded frontend is build output, and it is committed anyway: go:embed
+# will not compile without it, so a clean clone could not build the binary.
+# Rebuild with `npm --prefix web run build` before `go build`.
+!internal/webassets/dist/
+
 # Session store
 *.db
 *.db-shm

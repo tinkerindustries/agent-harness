@@ -35,6 +35,11 @@ const (
 	// choice (docs/MODELS.md, "Concurrency is per-model and account-wide").
 	defaultModelConcurrencyPro   = 500
 	defaultModelConcurrencyFlash = 2500
+
+	// defaultHTTPAddr binds loopback only. Transcripts carry workspace
+	// paths, file contents, and command output, so the port is sensitive
+	// even though it is read-only (docs/DESIGN.md §4.2).
+	defaultHTTPAddr = "127.0.0.1:8080"
 )
 
 // Config is the harness's runtime configuration, read from the environment.
@@ -77,6 +82,15 @@ type Config struct {
 	// docs/MODELS.md).
 	ModelConcurrencyPro   int
 	ModelConcurrencyFlash int
+
+	// HTTPAddr is where harness serve's read-only browser surface listens
+	// (docs/DESIGN.md §4.2). Loopback by default; widen it deliberately,
+	// never by accident.
+	HTTPAddr string
+	// DevFrontendURL, when set, makes the HTTP server proxy every non-API
+	// path to a running Vite dev server instead of serving the embedded
+	// build (docs/DESIGN.md §4.8).
+	DevFrontendURL string
 }
 
 // Load reads Config from the environment. Call config.LoadDotEnv first if
@@ -149,6 +163,8 @@ func Load() (Config, error) {
 		DefaultDeadlineMS:     deadlineMS,
 		ModelConcurrencyPro:   concurrencyPro,
 		ModelConcurrencyFlash: concurrencyFlash,
+		HTTPAddr:              envOr("DEEPSEEK_HTTP_ADDR", defaultHTTPAddr),
+		DevFrontendURL:        os.Getenv("DEEPSEEK_DEV_FRONTEND_URL"),
 	}, nil
 }
 

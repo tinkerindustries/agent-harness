@@ -15,6 +15,7 @@ import (
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/cache"
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
+	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
@@ -91,7 +92,9 @@ type RunResult struct {
 }
 
 // SubTurnProgress is reported to Runner.Progress, when set, once per
-// completed sub-turn — the seam a CLI or future SSE hub hangs off.
+// completed sub-turn. It is a summary at sub-turn granularity, so it suits a
+// CLI line or the session-list feed. The transcript firehose publishes every
+// event through Runner.Hub instead.
 type SubTurnProgress struct {
 	SessionID string
 	SubTurn   int
@@ -113,6 +116,11 @@ type Runner struct {
 	Prices        *pricing.Table
 	FlashModel    string
 	BashAllowlist []string
+
+	// Hub, when set, is where every committed event and every session
+	// state change gets published for a browser to watch live. Nil is the
+	// CLI's normal case: nothing subscribes, so nothing is published.
+	Hub *hub.Hub
 
 	MaxSubTurns               int
 	CompactionThresholdTokens int
@@ -264,6 +272,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 			log.Printf("session: mirror init failed for %s: %v", sessID, err)
 		}
 	}
+	r.publishState(ctx, curSess)
 
 	opening := RenderOpeningMessage(executor.Workspace, opts.Prompt, opts.ResultSchema)
 	appended, err := r.Store.AppendEvents(ctx, sessID, []store.EventInput{
@@ -273,6 +282,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 		return r.fail(ctx, curSess, nil, 0, Usage{}, fmt.Errorf("session: record session start: %w", err))
 	}
 	r.mirrorAppend(curSess, appended)
+	r.publishEvents(curSess, appended)
 	allEvents := appended
 
 	detector := cache.NewDetector()
@@ -368,6 +378,39 @@ func (r *Runner) mirrorUpdateSession(sess store.Session) {
 	}
 }
 
+// publishEvents fans newly committed events out to live SSE subscribers, on
+// top of the disk mirror. Call it with the same events a successful
+// AppendEvents just returned, alongside the mirrorAppend call for the same
+// batch.
+func (r *Runner) publishEvents(sess store.Session, events []store.Event) {
+	if r.Hub == nil || len(events) == 0 {
+		return
+	}
+	r.Hub.PublishEvents(sess.ID, events)
+}
+
+// publishState recomputes sess's session-list row and fans it out to the
+// list stream (docs/DESIGN.md §5.8). It reads the usage summary and request
+// id back from the store rather than threading them through the run loop,
+// so the row a live subscriber sees is always exactly what a fresh GET
+// /api/sessions would return for the same session.
+func (r *Runner) publishState(ctx context.Context, sess store.Session) {
+	if r.Hub == nil {
+		return
+	}
+	summaries, err := r.Store.SessionUsageSummaries(ctx, []string{sess.ID})
+	if err != nil {
+		log.Printf("session: usage summary for %s: %v", sess.ID, err)
+		return
+	}
+	requestIDs, err := r.Store.RequestIDsForSessions(ctx, []string{sess.ID})
+	if err != nil {
+		log.Printf("session: request id lookup for %s: %v", sess.ID, err)
+		return
+	}
+	r.Hub.PublishSessionState(hub.BuildSessionState(sess, summaries[sess.ID], requestIDs[sess.ID]))
+}
+
 // finishRun records run_finished, updates the session's terminal status,
 // and rewrites the mirror one last time.
 func (r *Runner) finishRun(ctx context.Context, sess store.Session, allEvents []store.Event,
@@ -380,6 +423,7 @@ func (r *Runner) finishRun(ctx context.Context, sess store.Session, allEvents []
 		return &RunResult{SessionID: sess.ID, Status: store.StatusFailed, SubTurns: subTurns, Usage: agg}, err
 	}
 	r.mirrorAppend(sess, appended)
+	r.publishEvents(sess, appended)
 	allEvents = append(allEvents, appended...)
 
 	finished := time.Now().UTC()
@@ -389,6 +433,7 @@ func (r *Runner) finishRun(ctx context.Context, sess store.Session, allEvents []
 	if updated, err := r.Store.GetSession(ctx, sess.ID); err == nil {
 		r.mirrorUpdateSession(updated)
 		r.mirrorTranscript(updated, allEvents)
+		r.publishState(ctx, updated)
 	}
 
 	return &RunResult{
@@ -405,6 +450,7 @@ func (r *Runner) fail(ctx context.Context, sess store.Session, allEvents []store
 	})
 	if appendErr == nil {
 		r.mirrorAppend(sess, appended)
+		r.publishEvents(sess, appended)
 		allEvents = append(allEvents, appended...)
 	}
 
@@ -413,6 +459,7 @@ func (r *Runner) fail(ctx context.Context, sess store.Session, allEvents []store
 	if updated, err := r.Store.GetSession(ctx, sess.ID); err == nil {
 		r.mirrorUpdateSession(updated)
 		r.mirrorTranscript(updated, allEvents)
+		r.publishState(ctx, updated)
 	}
 
 	return &RunResult{SessionID: sess.ID, Status: store.StatusFailed, SubTurns: subTurns, Usage: agg}, cause

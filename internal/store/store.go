@@ -62,13 +62,15 @@ type Session struct {
 }
 
 // Event is one row of a session's append-only log, keyed by (session_id,
-// seq). Payload's shape depends on Kind; see events.go.
+// seq). Payload's shape depends on Kind; see events.go. The JSON tags are
+// load-bearing: phase 4 marshals Event directly onto the wire, for both the
+// paged /events endpoint and the SSE stream's data field.
 type Event struct {
-	SessionID string
-	Seq       int64
-	Kind      EventKind
-	Payload   json.RawMessage
-	CreatedAt time.Time
+	SessionID string          `json:"session_id"`
+	Seq       int64           `json:"seq"`
+	Kind      EventKind       `json:"kind"`
+	Payload   json.RawMessage `json:"payload"`
+	CreatedAt time.Time       `json:"created_at"`
 }
 
 // EventInput is one event to append. Payload is marshalled to JSON by
@@ -134,6 +136,12 @@ CREATE TABLE IF NOT EXISTS workspace_leases (
 	acquired_at  TEXT NOT NULL,
 	heartbeat_at TEXT NOT NULL
 );
+
+-- Phase 4 read paths: the session list's usage summary filters events down
+-- to two kinds before scanning, and looks a session up by the request that
+-- created it.
+CREATE INDEX IF NOT EXISTS idx_events_session_kind ON events (session_id, kind);
+CREATE INDEX IF NOT EXISTS idx_work_requests_session_id ON work_requests (session_id);
 `
 
 // Open opens (creating if needed) the SQLite database at path, applies the

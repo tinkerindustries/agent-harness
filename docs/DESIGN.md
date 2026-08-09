@@ -149,8 +149,11 @@ schema go in the opening user message, where they append rather than divide.
 
 A session is an append-only log of events. The log is what streams to the
 browser, what persists, what a NATS progress message summarises, and what the
-DeepSeek `messages` array folds from. One source of truth, four consumers. The
-frontend folds the same log into its view model.
+DeepSeek `messages` array folds from. One source of truth, four consumers.
+
+The frontend runs its own fold over the same log. It mirrors the Go fold in
+shape — pure, append-only, a switch on event kind — and not in output: one
+produces a `messages` array for the API, the other produces display blocks.
 
 Events: `session_started`, `turn_started`, `reasoning_delta`, `content_delta`,
 `tool_call`, `tool_denied`, `tool_stdout`, `tool_result`, `usage`,
@@ -178,9 +181,19 @@ stop a run. Work enters over NATS or the CLI.
     GET /api/sessions/{id}/stream        SSE, honours Last-Event-ID
     GET /api/stream                      SSE of session-level state changes
 
-A reload mid-run reconnects and replays from the last sequence number. The run
-lives in Go and is driven by NATS, so closing the tab has never had any bearing
-on it.
+Two different recoveries share one endpoint. A dropped connection is
+`EventSource`'s own reconnect, which sends `Last-Event-ID` and resumes at the
+next sequence number. A page reload has no memory of a sequence number and
+replays the session from the start. Both end up with the same transcript and
+neither can gap, because the per-session `seq` is dense and monotonic.
+
+A session that has already finished serves its whole history and then closes
+the stream. Compaction is the case worth naming: it marks a session
+`compacted` without appending a terminal event to that session's own log, so
+the stream ends on session status rather than on an event kind.
+
+The run lives in Go and is driven by NATS, so closing the tab has never had any
+bearing on it.
 
 Read-only removes CSRF and command-injection surface, and it does not make the
 service safe to expose. Transcripts carry workspace paths, file contents, and

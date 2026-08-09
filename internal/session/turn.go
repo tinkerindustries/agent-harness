@@ -75,8 +75,10 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 		return subTurnOutcome{}, fmt.Errorf("session: commit sub-turn %d: %w", subTurn, err)
 	}
 	r.mirrorAppend(sess, appended)
+	r.publishEvents(sess, appended)
 	*allEvents = append(*allEvents, appended...)
 	r.mirrorTranscript(sess, *allEvents)
+	r.publishState(ctx, sess)
 
 	if progress := progressFunc(r, opts); progress != nil {
 		progress(SubTurnProgress{
@@ -117,6 +119,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 		return subTurnOutcome{}, fmt.Errorf("session: commit tool results for sub-turn %d: %w", subTurn, err)
 	}
 	r.mirrorAppend(sess, appended2)
+	r.publishEvents(sess, appended2)
 	*allEvents = append(*allEvents, appended2...)
 
 	return subTurnOutcome{

@@ -223,9 +223,8 @@ update in the list.
 - The reasoning panel, expanding while streaming and collapsing on completion,
   showing elapsed time and token count.
 - Tool call and result blocks, one shape per tool. Streaming command output.
-- Denied calls as their own block, showing the call and the rule that refused
-  it. Denials are what an operator looks for when a queue-driven run did less
-  than its request asked for.
+  Denied calls already render as their own block from phase 4; this is the
+  per-tool shaping on top.
 - Large outputs collapsed to head and tail with expand.
 - Diffs rendered from the structured line arrays Go sends.
 - The plan panel, pinned beside the transcript, driven by `TodoWrite`.

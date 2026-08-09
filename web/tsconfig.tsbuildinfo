@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/hooks.ts","./src/main.tsx","./src/api/fold.ts","./src/api/sessionliststore.ts","./src/api/transcriptstore.ts","./src/api/types.ts","./src/components/sessionlistscreen.tsx","./src/components/transcriptscreen.tsx"],"version":"5.9.3"}
