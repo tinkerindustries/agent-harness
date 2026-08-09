@@ -119,6 +119,12 @@ Scans each cloned repository for `.claude/skills/` and `.deepcode/skills/` and
 renders what it finds into a catalogue. Discovery never fails a run. Depends on:
 nothing internal. §4.11.
 
+### `internal/claudemd`
+Scans the workspace and each cloned repository for a root `CLAUDE.md` and
+renders their contents into the opening user message, ahead of the skill
+catalogue and the task, capped per file and in total. Discovery never fails a
+run. Depends on: nothing internal.
+
 ### `internal/mcp`
 The MCP launch server: tools and resources over streamable HTTP, backed by the
 WORK and RESULTS streams and the harness's read-only API. Imports `store` and
@@ -150,17 +156,17 @@ Dependencies run one way, and Go's own `internal` visibility plus the absence of
 cycles is the only enforcement — there is no import linter.
 
 ```
-deepseek  pricing  skills  store  webassets     (no internal dependencies)
-     ↑        ↑       ↑      ↑ ↑        ↑
-   tools ─────┘       │      │ │        │
-     ↑                │   fold │        │
-   queue              │      ↑ │      httpapi ← hub
-     ↑                │      │ │
-workspace          session ──┘ │
-     ↑                ↑        │
-   worker ────────────┘        │
-                               │
-   mcp ────────────────────────┘  (types only)
+deepseek  pricing  skills   claudemd store    webassets     (no internal dependencies)
+      ↑       ↑        ↑        ↑        ↑        ↑
+   tools ─────┘        │        │        │        │
+      ↑                │        │     fold        │
+   queue               │        │        ↑        │       httpapi ← hub
+      ↑                │        │        │        │
+workspace          session ─────┘        │        │
+      ↑                ↑                 │        │
+   worker ─────────────┘                 │        │
+                                         │        │
+   mcp ──────────────────────────────────┘        │  (types only)
 ```
 
 The edges that matter:
