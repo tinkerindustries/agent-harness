@@ -279,10 +279,10 @@ Rules that concurrency imposes:
 - Cancellation is a context per session, derived from the process context and
   from the request deadline. A cancelled session still writes its terminal
   events.
-- Two sessions never share a workspace. The store holds a workspace lease keyed
-  by resolved absolute path; a request for a leased workspace waits or fails
-  fast, chosen per request. Concurrent `Edit` and `Bash` calls against one
-  directory interleave, and neither model can see why its file changed under it.
+- Two sessions never share a workspace. A queue-driven run gets its own
+  directory, named for its session id (§4.10). Concurrent `Edit` and `Bash`
+  calls against one directory interleave, and neither model can see why its
+  file changed under it.
 - Per-session state stays per-session. The churn diagnostic's previous-request
   hashes (§4.9, [CACHE.md](CACHE.md)) are the easy thing to accidentally share.
 
@@ -448,7 +448,8 @@ Request body:
     {
       "request_id":      "uuid",              required, the idempotency key
       "prompt":          "...",               required
-      "workspace":       "/abs/path",         required, must sit under a configured root
+      "repos":           [ { "url": "https://github.com/org/app.git",
+                             "branch": "main" } ],   required, at least one
       "model":           "deepseek-v4-pro",   optional, config default otherwise
       "effort":          "max",               optional
       "permission_mode": "readonly" | "full",   required
@@ -472,12 +473,23 @@ Result body:
       "complete_status": "done" | "gave_up" | ""
     }
 
+Every run works in a directory of its own: the worker creates
+`<workspace root>/<session id>` and clones each entry of `repos` into it,
+checking out `branch` or `main`. A repository URL must name an http(s), ssh,
+git, or `user@host:path` remote; `ext::` and local paths are refused, because
+git treats the first as a command to run and the second would copy the
+harness's own filesystem into a workspace a readonly run can read. Two entries
+whose URLs end in the same name are refused rather than one shadowing the
+other. Nothing is shared between runs and nothing is reused across attempts, so
+a redelivery clones afresh rather than inheriting a half-finished tree.
+
 What each terminal status means. `ok` is a run that finished on its own.
-`failed` covers a validation rejection, an unrecoverable API error, and a
-panic. `denied` is a request that never reached the loop because its workspace
-stayed leased to another session for the whole wait, carrying
-`error.code: workspace_leased`. `timeout` is a run that hit its `deadline_ms`
-or `max_sub_turns`.
+`failed` covers a validation rejection, a workspace that could not be built
+(`error.code: workspace_setup`, typically a clone that was refused or a branch
+that does not exist), an unrecoverable API error, and a panic. `timeout` is a
+run that hit its `deadline_ms` or `max_sub_turns`. `denied` is unused: it
+described a request whose workspace stayed leased to another session, which a
+per-run directory makes impossible.
 
 `complete_status` mirrors Complete's own `status` argument and is independent
 of `status` above: it says how the model characterised finishing, not whether
@@ -491,10 +503,6 @@ There is no `cancelled`. Nothing can cancel a run: the browser is read-only
 off, because an agent run costs minutes and a restart is not a reason to waste
 one. A process that dies outright leaves its message unacked, and redelivery
 covers it.
-
-Lease contention is bounded by the request's own `deadline_ms` rather than a
-separate wait-or-fail flag. A short deadline behaves as fail-fast and a long
-one as wait, which keeps the wire shape smaller.
 
 `result_schema` is validated in Go against the `Complete` arguments. A failing
 payload returns a validation error through the tool result channel and the model
@@ -526,6 +534,37 @@ to JetStream would persist thousands of messages per run for no reader's
 benefit. `progress` carries `turn_started`, `tool_call`, a truncated
 `tool_result`, and `usage`, rate-limited to at most one message per second. Full
 fidelity lives in the event log, on disk, and on the SSE stream.
+
+### 4.11 Skills
+
+A repository can ship Agent Skills: a directory per skill holding a `SKILL.md`
+whose YAML frontmatter carries a name and a description. `internal/skills`
+scans each cloned repository at session start, under `.claude/skills/` and
+`.deepcode/skills/`, and renders the names and descriptions it finds into the
+opening user message ahead of the task. The model reads a skill's body with
+`Read` when it decides one applies.
+
+Three consequences follow from §3.2. The catalogue goes in the opening message,
+never the system prompt, so a repository's skills cannot disturb the cached
+head. No `Skill` tool exists, because a twelfth tool definition would enlarge
+that head for every session to duplicate what `Read` already does. An empty
+catalogue renders to nothing, leaving the opening message byte-identical to a
+run with no skills.
+
+Only the description reaches the model up front, capped in length and in count,
+with anything dropped stated in the catalogue rather than silently omitted.
+Discovery never fails a run: an unreadable directory, a malformed `SKILL.md`,
+and a skill with no description each yield no entry and no error.
+
+A skill that instructs the agent to run a bundled script inherits the session's
+permission mode. Under `readonly` that call is refused at execution. Under
+`full` it runs, as any code in a cloned repository does.
+
+`session_started` carries the rendered catalogue alongside the opening message,
+as an exact substring of it. That is what lets the browser lift the catalogue
+into its own collapsed panel without parsing prose, and it is the one event
+that yields two blocks, which is why the transcript keys blocks on sequence
+number and type together.
 
 ## 5. Frontend
 

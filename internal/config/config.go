@@ -60,12 +60,12 @@ type Config struct {
 	// NATSURL is the JetStream server harness serve connects to
 	// (docs/DESIGN.md §4.10).
 	NATSURL string
-	// WorkspaceRoots bounds what a work request's workspace may resolve
-	// under. Empty means every request is rejected at validation — an
-	// operator must opt a directory in before queue-driven runs can touch
-	// it, rather than the harness defaulting to trusting any absolute path
-	// a requester names.
-	WorkspaceRoots []string
+	// WorkspaceRoot is the directory each run's own workspace is created
+	// under, one folder per session id holding that run's clones
+	// (docs/DESIGN.md §4.10). Empty means every request fails before it
+	// reaches the loop: an operator must name a directory the harness may
+	// write into rather than it picking one.
+	WorkspaceRoot string
 	// WorkerPoolSize is both the worker pool's goroutine budget and the
 	// WORK consumer's MaxAckPending, so JetStream stays the flow controller
 	// (docs/DESIGN.md §4.10).
@@ -153,7 +153,7 @@ func Load() (Config, error) {
 		DataDir:               envOr("DEEPSEEK_DATA_DIR", defaultDataDir),
 		MaxSubTurns:           maxSubTurns,
 		NATSURL:               envOr("NATS_URL", defaultNATSURL),
-		WorkspaceRoots:        envList("DEEPSEEK_WORKSPACE_ROOTS"),
+		WorkspaceRoot:         os.Getenv("DEEPSEEK_WORKSPACE_ROOT"),
 		WorkerPoolSize:        workerPoolSize,
 		DefaultDeadlineMS:     deadlineMS,
 		ModelConcurrencyPro:   concurrencyPro,

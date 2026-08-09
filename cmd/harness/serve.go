@@ -47,8 +47,8 @@ func runServe(ctx context.Context, args []string) error {
 	if *devFrontend != "" {
 		cfg.DevFrontendURL = *devFrontend
 	}
-	if len(cfg.WorkspaceRoots) == 0 {
-		fmt.Fprintln(os.Stderr, "harness: warning: DEEPSEEK_WORKSPACE_ROOTS is not set; every work request will be denied at validation")
+	if cfg.WorkspaceRoot == "" {
+		fmt.Fprintln(os.Stderr, "harness: warning: DEEPSEEK_WORKSPACE_ROOT is not set; every work request will fail before its session starts")
 	}
 
 	priceTable, err := pricing.Load(cfg.PriceTablePath)
@@ -101,7 +101,7 @@ func runServe(ctx context.Context, args []string) error {
 		Runner:           runner,
 		JS:               js,
 		Consumer:         consumer,
-		Roots:            cfg.WorkspaceRoots,
+		WorkspaceRoot:    cfg.WorkspaceRoot,
 		DefaultModel:     cfg.Model,
 		DefaultEffort:    cfg.Effort,
 		DefaultThinking:  cfg.Thinking,
@@ -134,8 +134,8 @@ func runServe(ctx context.Context, args []string) error {
 		}
 	}()
 
-	log.Printf("harness serve: connected to %s, pool size %d, model %s (flash %s), roots %v",
-		cfg.NATSURL, cfg.WorkerPoolSize, cfg.Model, cfg.FlashModel, cfg.WorkspaceRoots)
+	log.Printf("harness serve: connected to %s, pool size %d, model %s (flash %s), workspace root %s",
+		cfg.NATSURL, cfg.WorkerPoolSize, cfg.Model, cfg.FlashModel, cfg.WorkspaceRoot)
 	log.Printf("harness serve: http listening on %s", cfg.HTTPAddr)
 	return pool.Run(ctx)
 }

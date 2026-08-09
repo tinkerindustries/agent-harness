@@ -28,7 +28,7 @@ func transcriptResourceURI(sessionID string) string {
 
 // errorResult builds an IsError tool result from a formatted message. This
 // is the shape for every genuine failure this package reports: a bad
-// argument, a workspace that will not resolve, a NATS publish that failed.
+// argument, a repository git would not accept, a NATS publish that failed.
 func errorResult(format string, args ...any) *mcpsdk.CallToolResult {
 	return &mcpsdk.CallToolResult{
 		IsError: true,

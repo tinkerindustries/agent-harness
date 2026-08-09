@@ -23,7 +23,8 @@ import (
 // JSON body directly (docs/DESIGN.md §4.10).
 func runPublish(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("publish", flag.ContinueOnError)
-	workspace := fs.String("workspace", "", "workspace directory the request names (required)")
+	var repoFlags stringList
+	fs.Var(&repoFlags, "repo", "repository to clone into the run's workspace, as URL[#branch] (branch defaults to main); required, repeatable")
 	prompt := fs.String("prompt", "", "task for the request; if omitted, the task is the trailing positional argument")
 	requestID := fs.String("request-id", "", "idempotency key; a random one is generated if omitted. Pass the same value twice to demonstrate deduplication")
 	model := fs.String("model", "", "override model (config default otherwise)")
@@ -39,13 +40,13 @@ func runPublish(ctx context.Context, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *workspace == "" {
-		return errors.New("usage: harness publish -workspace P [flags] \"task\"")
+	if len(repoFlags) == 0 {
+		return errors.New("usage: harness publish -repo URL[#branch] [flags] \"task\"")
 	}
 	task := *prompt
 	if task == "" {
 		if fs.NArg() < 1 {
-			return errors.New("usage: harness publish -workspace P [flags] \"task\"")
+			return errors.New("usage: harness publish -repo URL[#branch] [flags] \"task\"")
 		}
 		task = strings.Join(fs.Args(), " ")
 	}
@@ -71,7 +72,7 @@ func runPublish(ctx context.Context, args []string) error {
 	req := queue.Request{
 		RequestID:      id,
 		Prompt:         task,
-		Workspace:      *workspace,
+		Repos:          parseRepoFlags(repoFlags),
 		Model:          *model,
 		Effort:         *effort,
 		PermissionMode: *permissionMode,
@@ -146,6 +147,21 @@ func runPublish(ctx context.Context, args []string) error {
 		return fmt.Errorf("no result arrived: %w", err)
 	}
 	return errors.New("no result arrived before the wait timed out")
+}
+
+// parseRepoFlags splits each -repo value on the last "#" into a URL and a
+// branch. Splitting on the last one keeps a "#" inside a URL intact, and a
+// value with none at all clones the default branch.
+func parseRepoFlags(values []string) []queue.Repo {
+	repos := make([]queue.Repo, 0, len(values))
+	for _, v := range values {
+		repo := queue.Repo{URL: v}
+		if i := strings.LastIndex(v, "#"); i >= 0 {
+			repo = queue.Repo{URL: v[:i], Branch: v[i+1:]}
+		}
+		repos = append(repos, repo)
+	}
+	return repos
 }
 
 func randomRequestID() string {

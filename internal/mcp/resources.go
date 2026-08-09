@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -13,13 +12,6 @@ import (
 )
 
 func (svc *Service) registerResources(server *mcpsdk.Server) {
-	server.AddResource(&mcpsdk.Resource{
-		URI:         "harness://workspaces",
-		Name:        "workspaces",
-		Description: "Valid workspace names for deepseek_agent's workspace argument.",
-		MIMEType:    "application/json",
-	}, svc.readWorkspaces)
-
 	server.AddResource(&mcpsdk.Resource{
 		URI:         "harness://sessions",
 		Name:        "sessions",
@@ -33,20 +25,6 @@ func (svc *Service) registerResources(server *mcpsdk.Server) {
 		Description: "One session's event log, rendered as readable markdown.",
 		MIMEType:    "text/markdown",
 	}, svc.readSessionTranscript)
-}
-
-func (svc *Service) readWorkspaces(ctx context.Context, req *mcpsdk.ReadResourceRequest) (*mcpsdk.ReadResourceResult, error) {
-	names := listWorkspaceNames(svc.Cfg.WorkspaceRoots)
-	if names == nil {
-		names = []string{}
-	}
-	b, err := json.Marshal(names)
-	if err != nil {
-		return nil, err
-	}
-	return &mcpsdk.ReadResourceResult{Contents: []*mcpsdk.ResourceContents{
-		{URI: req.Params.URI, MIMEType: "application/json", Text: string(b)},
-	}}, nil
 }
 
 func (svc *Service) readSessions(ctx context.Context, req *mcpsdk.ReadResourceRequest) (*mcpsdk.ReadResourceResult, error) {

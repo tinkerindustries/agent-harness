@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -42,17 +41,12 @@ func connectOrSkip(t *testing.T) (*nats.Conn, jetstream.JetStream) {
 }
 
 // newIntegrationService wires a Service against a real local JetStream
-// server, with its own workspace root and a fresh Registry per test.
-func newIntegrationService(t *testing.T, js jetstream.JetStream) (*Service, string) {
+// server, with a fresh Registry per test.
+func newIntegrationService(t *testing.T, js jetstream.JetStream) *Service {
 	t.Helper()
-	root := t.TempDir()
-	if err := os.Mkdir(filepath.Join(root, "demo"), 0o755); err != nil {
-		t.Fatal(err)
-	}
 	svc := &Service{
 		JS: js,
 		Cfg: config.MCPConfig{
-			WorkspaceRoots:    []string{root},
 			PermissionCeiling: "full",
 			FlashModel:        "test-flash",
 			AcceptedWaitMS:    300,
@@ -63,7 +57,7 @@ func newIntegrationService(t *testing.T, js jetstream.JetStream) (*Service, stri
 		HTTPClient: &http.Client{Timeout: 5 * time.Second},
 		Registry:   NewRegistry(),
 	}
-	return svc, root
+	return svc
 }
 
 // ensureTestStreams converges the WORK and RESULTS streams and leaves them
@@ -90,11 +84,11 @@ func ensureTestStreams(t *testing.T, js jetstream.JetStream) {
 func TestHandleLaunchQueuedOutcome(t *testing.T) {
 	_, js := connectOrSkip(t)
 	ensureTestStreams(t, js)
-	svc, _ := newIntegrationService(t, js)
+	svc := newIntegrationService(t, js)
 
 	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{
 		PermissionMode: "full",
-		Description:    "queued test", Prompt: "do nothing", Workspace: "demo",
+		Description:    "queued test", Prompt: "do nothing", Repos: testLaunchRepos(),
 	})
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)
@@ -128,7 +122,7 @@ func TestHandleLaunchQueuedOutcome(t *testing.T) {
 func TestHandleLaunchRunningOutcome(t *testing.T) {
 	_, js := connectOrSkip(t)
 	ensureTestStreams(t, js)
-	svc, _ := newIntegrationService(t, js)
+	svc := newIntegrationService(t, js)
 	svc.Cfg.AcceptedWaitMS = 3000
 
 	fakeSessionID := "sess-fake-running"
@@ -149,7 +143,7 @@ func TestHandleLaunchRunningOutcome(t *testing.T) {
 
 	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{
 		PermissionMode: "full",
-		Description:    "running test", Prompt: "do something", Workspace: "demo",
+		Description:    "running test", Prompt: "do something", Repos: testLaunchRepos(),
 	})
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)
@@ -180,12 +174,12 @@ func TestHandleLaunchRunningOutcome(t *testing.T) {
 // than racing a real broker.
 func TestHandleLaunchPublishFailure(t *testing.T) {
 	nc, js := connectOrSkip(t)
-	svc, _ := newIntegrationService(t, js)
+	svc := newIntegrationService(t, js)
 	nc.Close()
 
 	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{
 		PermissionMode: "full",
-		Description:    "should fail", Prompt: "do something", Workspace: "demo",
+		Description:    "should fail", Prompt: "do something", Repos: testLaunchRepos(),
 	})
 	if err != nil {
 		t.Fatalf("unexpected protocol error (should be a tool error, not a protocol one): %v", err)
@@ -226,7 +220,7 @@ func TestHandleCollectAfterTheFact(t *testing.T) {
 	// fresh process" that was never listening when the result was
 	// published.
 	_, freshJS := connectOrSkip(t)
-	svc, _ := newIntegrationService(t, freshJS)
+	svc := newIntegrationService(t, freshJS)
 
 	res, out, err := svc.handleCollect(context.Background(), nil, collectInput{RequestID: requestID, WaitMS: 500})
 	if err != nil {
@@ -252,7 +246,7 @@ func TestHandleCollectAfterTheFact(t *testing.T) {
 func TestHandleCollectIsRepeatable(t *testing.T) {
 	_, js := connectOrSkip(t)
 	ensureTestStreams(t, js)
-	svc, _ := newIntegrationService(t, js)
+	svc := newIntegrationService(t, js)
 
 	requestID := "collect-repeat-" + time.Now().Format("150405.000000000")
 	final := queue.Result{RequestID: requestID, SessionID: "sess-repeat", Status: queue.StatusOK, Text: "done", StartedAt: time.Now().UTC(), FinishedAt: time.Now().UTC()}
@@ -280,7 +274,7 @@ func TestHandleCollectIsRepeatable(t *testing.T) {
 func TestHandleCollectQueuedWhenNothingSeen(t *testing.T) {
 	_, js := connectOrSkip(t)
 	ensureTestStreams(t, js)
-	svc, _ := newIntegrationService(t, js)
+	svc := newIntegrationService(t, js)
 
 	res, _, err := svc.handleCollect(context.Background(), nil, collectInput{RequestID: "never-published", WaitMS: 100})
 	if err != nil {

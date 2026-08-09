@@ -52,9 +52,18 @@ func RenderSystemPrompt() string {
 // (docs/DESIGN.md §3.2). resultSchema, when non-empty, is shown here too —
 // putting it in Complete's tool definition instead would vary the tool
 // array per request and cost the shared prefix (docs/TOOLS.md).
-func RenderOpeningMessage(workspace, task string, resultSchema json.RawMessage) string {
+//
+// skillCatalogue, when non-empty, lists the skills found in the workspace's
+// repositories (internal/skills). It sits ahead of the task so the task text
+// stays last. An empty catalogue leaves the message byte-identical to what a
+// run without skills produces.
+func RenderOpeningMessage(workspace, task string, resultSchema json.RawMessage, skillCatalogue string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Workspace: %s\n\n", workspace)
+	if skillCatalogue != "" {
+		b.WriteString(skillCatalogue)
+		b.WriteString("\n")
+	}
 	fmt.Fprintf(&b, "Task:\n%s\n", task)
 	if len(resultSchema) > 0 {
 		b.WriteString("\nWhen you call Complete, its result argument must validate against this JSON Schema:\n")

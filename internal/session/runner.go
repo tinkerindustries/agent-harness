@@ -17,6 +17,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
+	"github.com/mrgeoffrich/deepseek-harness/internal/skills"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 )
@@ -283,9 +284,15 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	}
 	r.publishState(ctx, curSess)
 
-	opening := RenderOpeningMessage(executor.Workspace, opts.Prompt, opts.ResultSchema)
+	// Discovery runs per session, including for each Task subagent, because a
+	// subagent works the same workspace and benefits from the same skills.
+	catalogue := skills.Discover(executor.Workspace).Render()
+	opening := RenderOpeningMessage(executor.Workspace, opts.Prompt, opts.ResultSchema, catalogue)
 	appended, err := r.Store.AppendEvents(ctx, sessID, []store.EventInput{
-		{Kind: store.KindSessionStarted, Payload: store.SessionStartedPayload{OpeningMessage: opening}},
+		{Kind: store.KindSessionStarted, Payload: store.SessionStartedPayload{
+			OpeningMessage: opening,
+			SkillCatalogue: catalogue,
+		}},
 	})
 	if err != nil {
 		return r.fail(ctx, curSess, nil, 0, Usage{}, fmt.Errorf("session: record session start: %w", err))

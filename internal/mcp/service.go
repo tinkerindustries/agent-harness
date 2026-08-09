@@ -31,8 +31,8 @@ const serverVersion = "0.1.0"
 // Service holds everything the MCP tool and resource handlers need: the
 // JetStream context to publish work requests and read results, an HTTP
 // client for the harness's read-only API, the configuration that bounds a
-// workspace name, a permission mode, and a wait, and this process's own
-// record of what it has launched.
+// permission mode and a wait, and this process's own record of what it has
+// launched.
 type Service struct {
 	JS         jetstream.JetStream
 	Cfg        config.MCPConfig
@@ -50,7 +50,7 @@ func (svc *Service) NewServer() *mcpsdk.Server {
 	}, &mcpsdk.ServerOptions{
 		Instructions: "Launch and collect deepseek-harness agent runs. deepseek_agent starts a run and returns " +
 			"immediately; it never blocks for the run to finish. deepseek_result collects the outcome and is safe " +
-			"to call repeatedly. Read harness://workspaces before naming a workspace.",
+			"to call repeatedly. Each run works in a fresh directory holding the repositories it was launched with.",
 	})
 
 	svc.registerLaunchTool(server)

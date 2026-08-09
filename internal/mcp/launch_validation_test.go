@@ -2,8 +2,6 @@ package mcp
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/config"
@@ -14,17 +12,23 @@ import (
 // before handleLaunch or handleCollect ever touches svc.JS, so JS is left
 // nil on purpose — a nil-pointer panic here would itself be a bug (an
 // argument error should never reach the network).
-func newValidationService(t *testing.T, roots []string) *Service {
+func newValidationService(t *testing.T) *Service {
 	t.Helper()
 	return &Service{
-		Cfg:      config.MCPConfig{WorkspaceRoots: roots, PermissionCeiling: "full", FlashModel: "test-flash"},
+		Cfg:      config.MCPConfig{PermissionCeiling: "full", FlashModel: "test-flash"},
 		Registry: NewRegistry(),
 	}
 }
 
+// testLaunchRepos is one valid repository, the minimum a launch needs to
+// get past validation.
+func testLaunchRepos() []launchRepo {
+	return []launchRepo{{URL: "https://example.com/org/app.git"}}
+}
+
 func TestHandleLaunchRejectsMissingDescription(t *testing.T) {
-	svc := newValidationService(t, nil)
-	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{Prompt: "do it", Workspace: "x", PermissionMode: "full"})
+	svc := newValidationService(t)
+	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{Prompt: "do it", Repos: testLaunchRepos(), PermissionMode: "full"})
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)
 	}
@@ -34,8 +38,8 @@ func TestHandleLaunchRejectsMissingDescription(t *testing.T) {
 }
 
 func TestHandleLaunchRejectsMissingPrompt(t *testing.T) {
-	svc := newValidationService(t, nil)
-	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{Description: "task", Workspace: "x", PermissionMode: "full"})
+	svc := newValidationService(t)
+	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{Description: "task", Repos: testLaunchRepos(), PermissionMode: "full"})
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)
 	}
@@ -44,23 +48,34 @@ func TestHandleLaunchRejectsMissingPrompt(t *testing.T) {
 	}
 }
 
-func TestHandleLaunchRejectsUnresolvableWorkspace(t *testing.T) {
-	root := t.TempDir()
-	svc := newValidationService(t, []string{root})
-	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{Description: "task", Prompt: "do it", Workspace: "nope", PermissionMode: "full"})
+func TestHandleLaunchRejectsMissingRepos(t *testing.T) {
+	svc := newValidationService(t)
+	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{Description: "task", Prompt: "do it", PermissionMode: "full"})
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)
 	}
 	if !res.IsError {
-		t.Fatal("expected an error result for a workspace name with no matching directory")
+		t.Fatal("expected an error result for a launch naming no repositories")
+	}
+}
+
+func TestHandleLaunchRejectsUnsupportedRepoURL(t *testing.T) {
+	svc := newValidationService(t)
+	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{
+		Description: "task", Prompt: "do it", PermissionMode: "full",
+		Repos: []launchRepo{{URL: "ext::sh -c 'touch /tmp/pwned'"}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected protocol error: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("expected an error result for a repo url git would run as a command")
 	}
 }
 
 func TestHandleLaunchRejectsBadProfile(t *testing.T) {
-	root := t.TempDir()
-	mustMkdir(t, root, "ws")
-	svc := newValidationService(t, []string{root})
-	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{Description: "task", Prompt: "do it", Workspace: "ws", Profile: "ultra", PermissionMode: "full"})
+	svc := newValidationService(t)
+	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{Description: "task", Prompt: "do it", Repos: testLaunchRepos(), Profile: "ultra", PermissionMode: "full"})
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)
 	}
@@ -70,11 +85,9 @@ func TestHandleLaunchRejectsBadProfile(t *testing.T) {
 }
 
 func TestHandleLaunchRejectsBadPermissionMode(t *testing.T) {
-	root := t.TempDir()
-	mustMkdir(t, root, "ws")
-	svc := newValidationService(t, []string{root})
+	svc := newValidationService(t)
 	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{
-		Description: "task", Prompt: "do it", Workspace: "ws", PermissionMode: "root",
+		Description: "task", Prompt: "do it", Repos: testLaunchRepos(), PermissionMode: "root",
 	})
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)
@@ -85,12 +98,10 @@ func TestHandleLaunchRejectsBadPermissionMode(t *testing.T) {
 }
 
 func TestHandleLaunchRejectsNegativeMaxSubTurns(t *testing.T) {
-	root := t.TempDir()
-	mustMkdir(t, root, "ws")
-	svc := newValidationService(t, []string{root})
+	svc := newValidationService(t)
 	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{
 		PermissionMode: "full",
-		Description:    "task", Prompt: "do it", Workspace: "ws", MaxSubTurns: -1,
+		Description:    "task", Prompt: "do it", Repos: testLaunchRepos(), MaxSubTurns: -1,
 	})
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)
@@ -101,19 +112,12 @@ func TestHandleLaunchRejectsNegativeMaxSubTurns(t *testing.T) {
 }
 
 func TestHandleCollectRejectsMissingRequestID(t *testing.T) {
-	svc := newValidationService(t, nil)
+	svc := newValidationService(t)
 	res, _, err := svc.handleCollect(context.Background(), nil, collectInput{})
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)
 	}
 	if !res.IsError {
 		t.Fatal("expected an error result for a missing request_id")
-	}
-}
-
-func mustMkdir(t *testing.T, root, name string) {
-	t.Helper()
-	if err := os.Mkdir(filepath.Join(root, name), 0o755); err != nil {
-		t.Fatal(err)
 	}
 }

@@ -198,6 +198,16 @@ pre {
   background: #f7f7f7;
 }
 
+.block-skills {
+  background: #f7f7f7;
+}
+
+.skills-summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--color-dim);
+}
+
 .block-tool-error {
   border-color: var(--color-error);
 }

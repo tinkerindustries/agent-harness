@@ -14,10 +14,13 @@ node_modules/
 dist/
 .vite/
 
-# The embedded frontend is build output, and it is committed anyway: go:embed
-# will not compile without it, so a clean clone could not build the binary.
-# Rebuild with `npm --prefix web run build` before `go build`.
+# The embedded frontend is build output and is not committed. The directory
+# itself is, holding only .gitkeep, because go:embed will not compile against
+# a missing one. A binary built without running `npm --prefix web run build`
+# first therefore compiles and serves nothing.
 !internal/webassets/dist/
+internal/webassets/dist/*
+!internal/webassets/dist/.gitkeep
 
 # Session store
 *.db

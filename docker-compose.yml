@@ -26,8 +26,9 @@ services:
       nats:
         condition: service_healthy
     env_file:
-      # Supplies DEEPSEEK_API_KEY and any model overrides. The environment
-      # block below wins over it for the container-specific values.
+      # Supplies DEEPSEEK_API_KEY, GITHUB_TOKEN, and any model overrides.
+      # The environment block below wins over it for the container-specific
+      # values.
       - path: .env
         required: false
     environment:
@@ -38,14 +39,19 @@ services:
       # The published port below keeps it loopback-only on the host.
       DEEPSEEK_HTTP_ADDR: 0.0.0.0:8080
       DEEPSEEK_DATA_DIR: /data
-      DEEPSEEK_WORKSPACE_ROOTS: /workspaces
+      DEEPSEEK_WORKSPACE_ROOT: /workspaces
     ports:
       - "127.0.0.1:${HARNESS_HTTP_PORT:-8080}:8080"
     volumes:
-      # Agent sessions read and write here; the request's workspace must
-      # resolve under it.
+      # Each run gets a directory of its own here, named for its session id
+      # and holding the clones the request asked for.
       - ${HARNESS_WORKSPACES:-./workspaces}:/workspaces
       - harness-data:/data
+      # The host's docker daemon, for sessions that build or run containers.
+      # A session in full permission mode can do anything to the host through
+      # this socket, including mounting the host's filesystem into a
+      # container it starts.
+      - /var/run/docker.sock:/var/run/docker.sock
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/api/queue"]
       interval: 10s
@@ -81,16 +87,11 @@ services:
       DEEPSEEK_HARNESS_BASE_URL: http://harness:8080
       DEEPSEEK_HARNESS_PUBLIC_URL: http://localhost:${HARNESS_HTTP_PORT:-8080}
       DEEPSEEK_MCP_ADDR: 0.0.0.0:8090
-      DEEPSEEK_WORKSPACE_ROOTS: /workspaces
     ports:
       # This port starts sessions that run Bash as root inside the
       # workspace mount (docs/DESIGN.md's MCP launch server, "Safety").
       # Loopback only, same reasoning as the harness service's own port.
       - "127.0.0.1:${HARNESS_MCP_PORT:-8090}:8090"
-    volumes:
-      # Read-only: this service only resolves and lists workspace names, it
-      # never edits a file. The harness service holds the read-write mount.
-      - ${HARNESS_WORKSPACES:-./workspaces}:/workspaces:ro
     restart: unless-stopped
 
 volumes:

@@ -146,7 +146,7 @@ func TestDebugChurnAtSubTurnIsCaughtAndNamed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if started.OpeningMessage != RenderOpeningMessage(resolvedWS, "a task with several sub-turns", nil) {
+	if started.OpeningMessage != RenderOpeningMessage(resolvedWS, "a task with several sub-turns", nil, "") {
 		t.Fatalf("expected the stored opening message to be untouched by the debug hook, got %q", started.OpeningMessage)
 	}
 }

@@ -2,8 +2,6 @@ package queue
 
 import (
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -11,7 +9,7 @@ func TestParseRequestRoundTrips(t *testing.T) {
 	body := `{
 		"request_id": "req-1",
 		"prompt": "do the thing",
-		"workspace": "/tmp/ws",
+		"repos": [{"url": "https://example.com/org/app.git"}, {"url": "https://example.com/org/lib.git", "branch": "next"}],
 		"model": "deepseek-v4-flash",
 		"effort": "low",
 		"permission_mode": "default",
@@ -24,8 +22,11 @@ func TestParseRequestRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseRequest: %v", err)
 	}
-	if req.RequestID != "req-1" || req.Prompt != "do the thing" || req.Workspace != "/tmp/ws" {
+	if req.RequestID != "req-1" || req.Prompt != "do the thing" {
 		t.Fatalf("unexpected request: %+v", req)
+	}
+	if len(req.Repos) != 2 || req.Repos[0].URL != "https://example.com/org/app.git" || req.Repos[1].Branch != "next" {
+		t.Fatalf("unexpected repos: %+v", req.Repos)
 	}
 	if req.Model != "deepseek-v4-flash" || req.Effort != "low" || req.PermissionMode != "default" {
 		t.Fatalf("unexpected request: %+v", req)
@@ -44,85 +45,140 @@ func TestParseRequestRejectsMalformedJSON(t *testing.T) {
 	}
 }
 
-func testRoots(t *testing.T) (roots []string, workspace string) {
-	t.Helper()
-	root := t.TempDir()
-	ws := filepath.Join(root, "project")
-	if err := os.MkdirAll(ws, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	resolvedRoot, err := filepath.EvalSymlinks(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return []string{resolvedRoot}, filepath.Join(root, "project")
+// testRepos is one valid repository, the minimum a request needs to pass
+// validation.
+func testRepos() []Repo {
+	return []Repo{{URL: "https://example.com/org/app.git"}}
 }
 
-func TestValidateAcceptsWorkspaceUnderRoot(t *testing.T) {
-	roots, ws := testRoots(t)
-	req := Request{RequestID: "req-1", Prompt: "go", Workspace: ws, PermissionMode: "full"}
-	resolved, err := req.Validate(roots)
-	if err != nil {
-		t.Fatalf("Validate: %v", err)
+func TestBranchOrDefault(t *testing.T) {
+	if got := (Repo{URL: "https://example.com/org/app.git"}).BranchOrDefault(); got != "main" {
+		t.Fatalf("expected main, got %q", got)
 	}
-	if resolved == "" {
-		t.Fatal("expected a resolved workspace path")
+	if got := (Repo{URL: "https://example.com/org/app.git", Branch: "next"}).BranchOrDefault(); got != "next" {
+		t.Fatalf("expected next, got %q", got)
+	}
+}
+
+func TestRepoDir(t *testing.T) {
+	cases := map[string]string{
+		"https://example.com/org/app.git":   "app",
+		"https://example.com/org/app":       "app",
+		"https://example.com/org/app/":      "app",
+		"git@example.com:org/app.git":       "app",
+		"ssh://git@example.com/org/app.git": "app",
+	}
+	for url, want := range cases {
+		if got := (Repo{URL: url}).Dir(); got != want {
+			t.Errorf("Dir(%q) = %q, want %q", url, got, want)
+		}
+	}
+}
+
+func TestValidateAcceptsRepos(t *testing.T) {
+	req := Request{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: "full"}
+	if err := req.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
 	}
 }
 
 func TestValidateRejectsMissingFields(t *testing.T) {
-	roots, ws := testRoots(t)
 	cases := []Request{
-		{Prompt: "go", Workspace: ws, PermissionMode: "full"},
-		{RequestID: "req-1", Workspace: ws, PermissionMode: "full"},
+		{Prompt: "go", Repos: testRepos(), PermissionMode: "full"},
+		{RequestID: "req-1", Repos: testRepos(), PermissionMode: "full"},
 		{RequestID: "req-1", Prompt: "go", PermissionMode: "full"},
-		{RequestID: "req-1", Prompt: "go", Workspace: ws},
+		{RequestID: "req-1", Prompt: "go", Repos: testRepos()},
 	}
 	for _, req := range cases {
-		if _, err := req.Validate(roots); err == nil {
+		if err := req.Validate(); err == nil {
 			t.Fatalf("expected validation to fail for %+v", req)
 		}
 	}
 }
 
 func TestValidateRejectsRequestIDWithSubjectMetacharacters(t *testing.T) {
-	roots, ws := testRoots(t)
-	req := Request{RequestID: "req.1", Prompt: "go", Workspace: ws, PermissionMode: "full"}
-	if _, err := req.Validate(roots); err == nil {
+	req := Request{RequestID: "req.1", Prompt: "go", Repos: testRepos(), PermissionMode: "full"}
+	if err := req.Validate(); err == nil {
 		t.Fatal("expected a request_id containing '.' to be rejected")
 	}
 }
 
-func TestValidateRejectsWorkspaceOutsideRoots(t *testing.T) {
-	roots, _ := testRoots(t)
-	other := t.TempDir()
-	req := Request{RequestID: "req-1", Prompt: "go", Workspace: other, PermissionMode: "full"}
-	if _, err := req.Validate(roots); err == nil {
-		t.Fatal("expected a workspace outside every configured root to be rejected")
+// A repository URL reaches git clone, and git treats some transports as a
+// command to run rather than a place to fetch from.
+func TestValidateRejectsUnsupportedRepoURLs(t *testing.T) {
+	cases := []string{
+		"",
+		"ext::sh -c 'touch /tmp/pwned'",
+		"file:///etc",
+		"/etc/passwd",
+		"--upload-pack=touch /tmp/pwned",
+		"https://",
+	}
+	for _, url := range cases {
+		req := Request{RequestID: "req-1", Prompt: "go", Repos: []Repo{{URL: url}}, PermissionMode: "full"}
+		if err := req.Validate(); err == nil {
+			t.Errorf("expected repo url %q to be rejected", url)
+		}
 	}
 }
 
-func TestValidateRejectsWorkspaceWhenNoRootsConfigured(t *testing.T) {
-	_, ws := testRoots(t)
-	req := Request{RequestID: "req-1", Prompt: "go", Workspace: ws, PermissionMode: "full"}
-	if _, err := req.Validate(nil); err == nil {
-		t.Fatal("expected validation to fail closed with no configured roots")
+func TestValidateAcceptsSupportedRepoURLs(t *testing.T) {
+	cases := []string{
+		"https://example.com/org/app.git",
+		"http://example.com/org/app.git",
+		"ssh://git@example.com/org/app.git",
+		"git://example.com/org/app.git",
+		"git@example.com:org/app.git",
+	}
+	for _, url := range cases {
+		req := Request{RequestID: "req-1", Prompt: "go", Repos: []Repo{{URL: url}}, PermissionMode: "full"}
+		if err := req.Validate(); err != nil {
+			t.Errorf("repo url %q: %v", url, err)
+		}
+	}
+}
+
+func TestValidateRejectsUnusableBranchNames(t *testing.T) {
+	cases := []string{"-b", "feature branch", "a..b", "re:f", "ref^", "ref~1", "ref?"}
+	for _, branch := range cases {
+		req := Request{RequestID: "req-1", Prompt: "go", PermissionMode: "full",
+			Repos: []Repo{{URL: "https://example.com/org/app.git", Branch: branch}}}
+		if err := req.Validate(); err == nil {
+			t.Errorf("expected branch %q to be rejected", branch)
+		}
+	}
+}
+
+// Two repositories whose URLs end in the same name would clone into one
+// directory, the second one failing on a path that already exists.
+func TestValidateRejectsCollidingRepoNames(t *testing.T) {
+	req := Request{RequestID: "req-1", Prompt: "go", PermissionMode: "full", Repos: []Repo{
+		{URL: "https://example.com/one/app.git"},
+		{URL: "https://example.com/two/app.git"},
+	}}
+	if err := req.Validate(); err == nil {
+		t.Fatal("expected two repositories cloning into the same directory to be rejected")
+	}
+}
+
+func TestValidateRequiresAtLeastOneRepo(t *testing.T) {
+	req := Request{RequestID: "req-1", Prompt: "go", PermissionMode: "full"}
+	if err := req.Validate(); err == nil {
+		t.Fatal("expected a request with no repos to be rejected")
 	}
 }
 
 func TestValidateRejectsInvalidPermissionMode(t *testing.T) {
-	roots, ws := testRoots(t)
-	req := Request{RequestID: "req-1", Prompt: "go", Workspace: ws, PermissionMode: "sudo"}
-	if _, err := req.Validate(roots); err == nil {
+	req := Request{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: "sudo"}
+	if err := req.Validate(); err == nil {
 		t.Fatal("expected an invalid permission_mode to be rejected")
 	}
 }
 
 func TestValidateAcceptsEveryPermissionMode(t *testing.T) {
-	roots, ws := testRoots(t)
 	for _, mode := range []string{"readonly", "full"} {
-		req := Request{RequestID: "req-1", Prompt: "go", Workspace: ws, PermissionMode: mode}
-		if _, err := req.Validate(roots); err != nil {
+		req := Request{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: mode}
+		if err := req.Validate(); err != nil {
 			t.Fatalf("mode %q: %v", mode, err)
 		}
 	}
@@ -132,44 +188,41 @@ func TestValidateAcceptsEveryPermissionMode(t *testing.T) {
 // values: a queue client still sending the removed mode fails loudly
 // rather than running under a substituted one.
 func TestValidateRequiresPermissionModeAndRejectsRemovedDefault(t *testing.T) {
-	roots, ws := testRoots(t)
 	for _, mode := range []string{"", "default"} {
-		req := Request{RequestID: "req-1", Prompt: "go", Workspace: ws, PermissionMode: mode}
-		if _, err := req.Validate(roots); err == nil {
+		req := Request{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: mode}
+		if err := req.Validate(); err == nil {
 			t.Errorf("expected permission_mode %q to be rejected", mode)
 		}
 	}
 }
 
 func TestValidateRejectsMalformedResultSchema(t *testing.T) {
-	roots, ws := testRoots(t)
 	cases := []json.RawMessage{
 		json.RawMessage(`not json`),
 		json.RawMessage(`["not", "an", "object"]`),
 		json.RawMessage(`"a string"`),
 	}
 	for _, schema := range cases {
-		req := Request{RequestID: "req-1", Prompt: "go", Workspace: ws, ResultSchema: schema, PermissionMode: "full"}
-		if _, err := req.Validate(roots); err == nil {
+		req := Request{RequestID: "req-1", Prompt: "go", Repos: testRepos(), ResultSchema: schema, PermissionMode: "full"}
+		if err := req.Validate(); err == nil {
 			t.Fatalf("expected result_schema %s to be rejected", schema)
 		}
 	}
 }
 
 func TestValidateAcceptsWellFormedResultSchema(t *testing.T) {
-	roots, ws := testRoots(t)
-	req := Request{RequestID: "req-1", Prompt: "go", Workspace: ws, ResultSchema: json.RawMessage(`{"type":"object","properties":{}}`), PermissionMode: "full"}
-	if _, err := req.Validate(roots); err != nil {
+	req := Request{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: "full",
+		ResultSchema: json.RawMessage(`{"type":"object","properties":{}}`)}
+	if err := req.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
 }
 
 func TestValidateRejectsNegativeLimits(t *testing.T) {
-	roots, ws := testRoots(t)
-	if _, err := (Request{RequestID: "req-1", Prompt: "go", Workspace: ws, MaxSubTurns: -1}).Validate(roots); err == nil {
+	if err := (Request{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: "full", MaxSubTurns: -1}).Validate(); err == nil {
 		t.Fatal("expected negative max_sub_turns to be rejected")
 	}
-	if _, err := (Request{RequestID: "req-1", Prompt: "go", Workspace: ws, DeadlineMS: -1}).Validate(roots); err == nil {
+	if err := (Request{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: "full", DeadlineMS: -1}).Validate(); err == nil {
 		t.Fatal("expected negative deadline_ms to be rejected")
 	}
 }

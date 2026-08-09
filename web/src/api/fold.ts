@@ -29,6 +29,7 @@ import type {
 
 export type Block =
   | { type: "opening"; seq: number; text: string }
+  | { type: "skills"; seq: number; text: string }
   | {
       type: "assistant";
       seq: number;
@@ -112,7 +113,21 @@ export class FoldState {
     switch (ev.kind) {
       case "session_started": {
         const p = ev.payload as SessionStartedPayload;
-        this.pushBlock({ type: "opening", seq: ev.seq, text: p.opening_message });
+        // The catalogue is a substring of the opening message, so showing
+        // both verbatim would print it twice. It gets its own block and the
+        // opening block keeps the rest. Removing it by exact substring
+        // rather than by pattern is why the payload carries it separately.
+        const catalogue = p.skill_catalogue ?? "";
+        const hasCatalogue = catalogue !== "" && p.opening_message.includes(catalogue);
+        if (hasCatalogue) {
+          this.pushBlock({ type: "skills", seq: ev.seq, text: catalogue });
+        }
+        // The renderer writes a newline after the catalogue; take it too, so
+        // lifting the block out does not leave a gap behind.
+        const text = hasCatalogue
+          ? p.opening_message.replace(catalogue + "\n", "").replace(catalogue, "")
+          : p.opening_message;
+        this.pushBlock({ type: "opening", seq: ev.seq, text });
         break;
       }
       case "turn_started": {

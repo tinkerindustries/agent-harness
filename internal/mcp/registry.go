@@ -14,7 +14,7 @@ import (
 type runRecord struct {
 	RequestID      string    `json:"request_id"`
 	Description    string    `json:"description"`
-	Workspace      string    `json:"workspace"`
+	Repos          []string  `json:"repos,omitempty"` // url#branch, as launched
 	Profile        string    `json:"profile,omitempty"`
 	LaunchedAt     time.Time `json:"launched_at"`
 	Status         string    `json:"status"`

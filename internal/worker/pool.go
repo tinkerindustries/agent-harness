@@ -20,6 +20,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/session"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+	"github.com/mrgeoffrich/deepseek-harness/internal/workspace"
 )
 
 // Pool pulls from Consumer and dispatches each message to a session
@@ -32,7 +33,9 @@ type Pool struct {
 	JS       jetstream.JetStream
 	Consumer jetstream.Consumer
 
-	Roots            []string
+	// WorkspaceRoot is the parent directory each run's own workspace is
+	// created under, named for its session id (docs/DESIGN.md §4.10).
+	WorkspaceRoot    string
 	DefaultModel     string
 	DefaultEffort    string
 	DefaultThinking  bool
@@ -52,6 +55,11 @@ type Pool struct {
 	HeartbeatInterval time.Duration
 	LeasePollInterval time.Duration
 	RetryLaterDelay   time.Duration
+
+	// PrepareWorkspace builds one run's workspace. It defaults to
+	// workspace.Prepare and is overridable so a test can drive the pool
+	// without cloning over the network.
+	PrepareWorkspace func(ctx context.Context, root, sessionID string, repos []queue.Repo) (string, error)
 
 	wg sync.WaitGroup
 
@@ -87,6 +95,13 @@ func (p *Pool) retryLaterDelay() time.Duration {
 		return p.RetryLaterDelay
 	}
 	return 5 * time.Second
+}
+
+func (p *Pool) prepareWorkspace() func(context.Context, string, string, []queue.Repo) (string, error) {
+	if p.PrepareWorkspace != nil {
+		return p.PrepareWorkspace
+	}
+	return workspace.Prepare
 }
 
 func (p *Pool) defaultDeadline() time.Duration {
@@ -209,7 +224,7 @@ func (p *Pool) handle(msg jetstream.Msg) {
 		return
 	}
 
-	resolvedWorkspace, verr := req.Validate(p.Roots)
+	verr := req.Validate()
 
 	ctx := context.Background()
 	outcome, err := p.Store.ClaimWorkRequest(ctx, req.RequestID, numDelivered, time.Now().UTC())
@@ -241,7 +256,7 @@ func (p *Pool) handle(msg jetstream.Msg) {
 		return
 	}
 
-	p.run(msg, req, resolvedWorkspace, outcome)
+	p.run(msg, req, outcome)
 }
 
 // waitForResolution holds a message whose request_id is claimed by another,
@@ -303,9 +318,9 @@ func (p *Pool) recordValidationFailure(ctx context.Context, msg jetstream.Msg, r
 	p.finish(msg, requestID, "", result, true)
 }
 
-// run drives one claimed, valid request through lease acquisition and the
-// session loop to a terminal result.
-func (p *Pool) run(msg jetstream.Msg, req queue.Request, workspace string, outcome store.ClaimOutcome) {
+// run drives one claimed, valid request through workspace preparation and
+// the session loop to a terminal result.
+func (p *Pool) run(msg jetstream.Msg, req queue.Request, outcome store.ClaimOutcome) {
 	started := time.Now().UTC()
 	sessionID := session.NewSessionID()
 
@@ -330,23 +345,15 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, workspace string, outco
 	}
 	p.publishAccepted(req.RequestID, sessionID, started)
 
-	// A takeover releases the abandoned attempt's lease before acquiring its
-	// own. A process killed outright never runs the defer below, so its
-	// workspace stays leased to a session id nothing will ever release.
-	// This rests on the same redelivery signal as the work_requests takeover
-	// and carries the same residual risk, which FinishWorkRequest's session
-	// fencing contains. Releasing an unheld lease is not an error.
-	if previousSessionID != "" {
-		if err := p.Store.ReleaseWorkspaceLease(runCtx, workspace, previousSessionID); err != nil {
-			log.Printf("worker: release abandoned lease for %s: %v", req.RequestID, err)
-		}
-	}
-	if err := p.Store.AcquireWorkspaceLeaseWait(runCtx, workspace, sessionID, p.leasePollInterval()); err != nil {
-		result := deniedResult(req.RequestID, sessionID, started, err)
+	// Each attempt clones into a directory of its own, named for its session
+	// id, so a redelivery never inherits the half-finished tree of the
+	// attempt it took over.
+	ws, err := p.prepareWorkspace()(runCtx, p.WorkspaceRoot, sessionID, req.Repos)
+	if err != nil {
+		result := setupFailedResult(req.RequestID, sessionID, started, err)
 		p.finish(msg, req.RequestID, sessionID, result, false)
 		return
 	}
-	defer p.Store.ReleaseWorkspaceLease(context.Background(), workspace, sessionID)
 
 	// Validate has already rejected an absent or unknown mode.
 	mode := tools.Mode(req.PermissionMode)
@@ -366,7 +373,7 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, workspace string, outco
 		Effort:         effort,
 		Thinking:       p.DefaultThinking,
 		MaxTokens:      p.defaultMaxTokens(),
-		Workspace:      workspace,
+		Workspace:      ws,
 		PermissionMode: mode,
 		Deny:           req.Deny,
 		Prompt:         req.Prompt,
@@ -455,17 +462,16 @@ func (p *Pool) classify(requestID, sessionID string, started time.Time, runResul
 	return res
 }
 
-// deniedResult reports a request that never reached the session loop
-// because its workspace stayed leased to another session through the whole
-// wait. docs/DESIGN.md §4.10 lists "denied" without defining what produces
-// it; this is that definition.
-func deniedResult(requestID, sessionID string, started time.Time, err error) queue.Result {
-	now := time.Now().UTC()
+// setupFailedResult reports a request that never reached the session loop
+// because its workspace could not be built: a clone that was refused, a
+// branch that does not exist, an unwritable root. The session id is carried
+// so the failure is attributable to the attempt that owns the directory.
+func setupFailedResult(requestID, sessionID string, started time.Time, err error) queue.Result {
 	return queue.Result{
-		RequestID: requestID, SessionID: sessionID, Status: queue.StatusDenied,
-		Error:      &queue.ResultError{Code: "workspace_leased", Message: err.Error()},
+		RequestID: requestID, SessionID: sessionID, Status: queue.StatusFailed,
+		Error:      &queue.ResultError{Code: "workspace_setup", Message: err.Error()},
 		StartedAt:  started,
-		FinishedAt: now,
+		FinishedAt: time.Now().UTC(),
 	}
 }
 

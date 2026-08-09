@@ -177,7 +177,8 @@ func newTestHarness(t *testing.T, serverURL string, poolSize int) *testHarness {
 		Runner:            runner,
 		JS:                js,
 		Consumer:          consumer,
-		Roots:             []string{resolvedRoot},
+		WorkspaceRoot:     resolvedRoot,
+		PrepareWorkspace:  fakePrepareWorkspace,
 		DefaultModel:      "test-model",
 		DefaultEffort:     deepseek.EffortHigh,
 		DefaultThinking:   true,
@@ -221,13 +222,21 @@ func (h *testHarness) startPool(t *testing.T) (stop func()) {
 	}
 }
 
-func (h *testHarness) newWorkspace(t *testing.T) string {
-	t.Helper()
-	ws, err := os.MkdirTemp(h.root, "ws-")
-	if err != nil {
-		t.Fatal(err)
+// fakePrepareWorkspace stands in for workspace.Prepare so these tests drive
+// the pool without cloning anything over the network. The real clone is
+// covered in internal/workspace.
+func fakePrepareWorkspace(_ context.Context, root, sessionID string, _ []queue.Repo) (string, error) {
+	dir := filepath.Join(root, sessionID)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
 	}
-	return ws
+	return dir, nil
+}
+
+// testRepos is the minimum a request needs to pass validation. What it
+// names never gets cloned: fakePrepareWorkspace ignores it.
+func testRepos() []queue.Repo {
+	return []queue.Repo{{URL: "https://example.com/org/app.git"}}
 }
 
 func (h *testHarness) publish(t *testing.T, req queue.Request) {
@@ -322,7 +331,7 @@ func TestPoolFourConcurrentRequests(t *testing.T) {
 		requestIDs[i] = uniqueID("req-concurrent")
 		h.publish(t, queue.Request{
 			PermissionMode: "full",
-			RequestID:      requestIDs[i], Prompt: fmt.Sprintf("task %d", i), Workspace: h.newWorkspace(t),
+			RequestID:      requestIDs[i], Prompt: fmt.Sprintf("task %d", i), Repos: testRepos(),
 		})
 	}
 
@@ -367,8 +376,7 @@ func TestPoolDuplicateRequestIDRunsOnce(t *testing.T) {
 	defer h.startPool(t)()
 
 	requestID := uniqueID("req-dup")
-	ws := h.newWorkspace(t)
-	req := queue.Request{RequestID: requestID, Prompt: "do it once", Workspace: ws, PermissionMode: "full"}
+	req := queue.Request{RequestID: requestID, Prompt: "do it once", Repos: testRepos(), PermissionMode: "full"}
 
 	h.publish(t, req)
 	time.Sleep(150 * time.Millisecond) // let the first attempt claim the row before the duplicate arrives
@@ -403,7 +411,8 @@ func TestPoolMalformedRequestTermsWithoutRunning(t *testing.T) {
 	defer h.startPool(t)()
 
 	requestID := uniqueID("req-invalid")
-	h.publish(t, queue.Request{RequestID: requestID, Prompt: "go", Workspace: "/not/a/configured/root", PermissionMode: "full"})
+	h.publish(t, queue.Request{RequestID: requestID, Prompt: "go",
+		Repos: []queue.Repo{{URL: "ext::sh -c 'touch /tmp/pwned'"}}, PermissionMode: "full"})
 
 	res := h.fetchFinalResult(t, requestID, 10*time.Second)
 	if res.Status != queue.StatusFailed {
@@ -434,7 +443,6 @@ func TestPoolHandleTakesOverAbandonedRow(t *testing.T) {
 	h := newTestHarness(t, srv.URL, 4)
 
 	requestID := uniqueID("req-takeover")
-	ws := h.newWorkspace(t)
 
 	ctx := context.Background()
 	if _, err := h.pool.Store.ClaimWorkRequest(ctx, requestID, 1, time.Now()); err != nil {
@@ -443,15 +451,7 @@ func TestPoolHandleTakesOverAbandonedRow(t *testing.T) {
 	if err := h.pool.Store.SetWorkRequestSession(ctx, requestID, "sess-abandoned-fake"); err != nil {
 		t.Fatalf("attach abandoned session: %v", err)
 	}
-	// A process killed outright never runs its deferred
-	// ReleaseWorkspaceLease, so the abandoned attempt's lease is still held.
-	// The takeover must free it or the new session waits on a lease nothing
-	// will ever release.
-	if err := h.pool.Store.AcquireWorkspaceLease(ctx, ws, "sess-abandoned-fake"); err != nil {
-		t.Fatalf("simulate the abandoned attempt's held lease: %v", err)
-	}
-
-	reqBody, err := json.Marshal(queue.Request{RequestID: requestID, Prompt: "continue", Workspace: ws, PermissionMode: "full"})
+	reqBody, err := json.Marshal(queue.Request{RequestID: requestID, Prompt: "continue", Repos: testRepos(), PermissionMode: "full"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -484,10 +484,10 @@ func TestPoolHandleTakesOverAbandonedRow(t *testing.T) {
 		t.Fatalf("expected the new session's parent_id to link to the abandoned session, got %q", sess.ParentID)
 	}
 
-	// The abandoned session's stale lease must not still be blocking
-	// anything once the takeover has finished cleanly.
-	if err := h.pool.Store.AcquireWorkspaceLease(ctx, ws, "someone-else"); err != nil {
-		t.Fatalf("expected the workspace lease to be free after the takeover finished, got %v", err)
+	// The takeover works in a directory of its own rather than the
+	// abandoned attempt's half-finished tree.
+	if sess.Workspace == filepath.Join(h.root, "sess-abandoned-fake") {
+		t.Fatal("expected the takeover to get its own workspace, not the abandoned session's")
 	}
 }
 
@@ -594,16 +594,12 @@ func TestPoolMaxSubTurnsIsNotReportedAsOK(t *testing.T) {
 		<-poolDone
 	}()
 
-	ws := filepath.Join(h.root, "maxturns")
-	if err := os.MkdirAll(ws, 0o755); err != nil {
-		t.Fatal(err)
-	}
 	requestID := uniqueID("maxturns")
 	h.publish(t, queue.Request{
 		PermissionMode: "full",
 		RequestID:      requestID,
 		Prompt:         "loop forever",
-		Workspace:      ws,
+		Repos:          testRepos(),
 		MaxSubTurns:    2,
 	})
 
@@ -644,7 +640,7 @@ func TestPoolHaltsOnInsufficientBalance(t *testing.T) {
 	defer h.startPool(t)()
 
 	requestID := uniqueID("req-402")
-	h.publish(t, queue.Request{RequestID: requestID, Prompt: "task", Workspace: h.newWorkspace(t), PermissionMode: "full"})
+	h.publish(t, queue.Request{RequestID: requestID, Prompt: "task", Repos: testRepos(), PermissionMode: "full"})
 
 	deadline := time.Now().Add(10 * time.Second)
 	for {
@@ -681,7 +677,7 @@ func TestPoolHaltsOnInsufficientBalance(t *testing.T) {
 	// A second request, published after the halt, must never be picked up
 	// either — the pool stopped pulling, it did not just fail this one.
 	second := uniqueID("req-402-second")
-	h.publish(t, queue.Request{RequestID: second, Prompt: "task", Workspace: h.newWorkspace(t), PermissionMode: "full"})
+	h.publish(t, queue.Request{RequestID: second, Prompt: "task", Repos: testRepos(), PermissionMode: "full"})
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer cancel2()
 	consumer2, err := h.js.OrderedConsumer(ctx2, queue.StreamResults, jetstream.OrderedConsumerConfig{
@@ -738,7 +734,7 @@ func TestPoolGaveUpPropagatesCompleteStatus(t *testing.T) {
 	defer h.startPool(t)()
 
 	requestID := uniqueID("req-gave-up")
-	h.publish(t, queue.Request{RequestID: requestID, Prompt: "do the impossible task", Workspace: h.newWorkspace(t), PermissionMode: "full"})
+	h.publish(t, queue.Request{RequestID: requestID, Prompt: "do the impossible task", Repos: testRepos(), PermissionMode: "full"})
 
 	res := h.fetchFinalResult(t, requestID, 15*time.Second)
 	if res.Status != queue.StatusOK {

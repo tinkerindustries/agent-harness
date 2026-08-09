@@ -1,7 +1,8 @@
 // Package webassets embeds the built frontend so the harness ships as one
 // binary with no runtime assets (docs/DESIGN.md §4.8). dist/ is web/'s Vite
-// build output, written there by web/vite.config.ts's build.outDir; run
-// `npm --prefix web run build` before `go build` to refresh it.
+// build output, written there by web/vite.config.ts's build.outDir, and is
+// not in git beyond a .gitkeep. Run `npm --prefix web run build` before
+// `go build`, or the binary compiles and serves nothing.
 package webassets
 
 import (

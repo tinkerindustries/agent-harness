@@ -37,9 +37,8 @@ const (
 // MCPConfig is harness mcp's runtime configuration (docs/DESIGN.md's MCP
 // launch server). It is loaded separately from Config because the two
 // processes are deployed separately — harness mcp holds a NATS connection
-// and nothing else, never the SQLite handle serve owns — and share only the
-// env vars that name the same thing in both: NATS_URL and
-// DEEPSEEK_WORKSPACE_ROOTS.
+// and nothing else, never the SQLite handle serve owns — and share only
+// NATS_URL.
 type MCPConfig struct {
 	// NATSURL is the JetStream server to publish work requests to and read
 	// results from.
@@ -55,13 +54,6 @@ type MCPConfig struct {
 	// and wrong inside it (HarnessBaseURL is an internal service name a
 	// browser cannot resolve) — set it explicitly there.
 	HarnessPublicURL string
-	// WorkspaceRoots is the same set of roots the harness's own
-	// DEEPSEEK_WORKSPACE_ROOTS names. A workspace name the launch tool
-	// resolves against these roots is guaranteed to resolve the same way
-	// again when the harness validates the published request
-	// (docs/DESIGN.md §4.10), because it is checked against the identical
-	// roots both times.
-	WorkspaceRoots []string
 	// Addr is where harness mcp's streamable HTTP endpoint listens.
 	// Loopback by default (see defaultMCPAddr).
 	Addr string
@@ -106,7 +98,6 @@ func LoadMCP() (MCPConfig, error) {
 		NATSURL:           envOr("NATS_URL", defaultNATSURL),
 		HarnessBaseURL:    base,
 		HarnessPublicURL:  envOr("DEEPSEEK_HARNESS_PUBLIC_URL", base),
-		WorkspaceRoots:    envList("DEEPSEEK_WORKSPACE_ROOTS"),
 		Addr:              envOr("DEEPSEEK_MCP_ADDR", defaultMCPAddr),
 		PermissionCeiling: ceiling,
 		FlashModel:        envOr("DEEPSEEK_MCP_FLASH_MODEL", defaultMCPFlashModel),

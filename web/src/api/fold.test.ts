@@ -139,3 +139,34 @@ describe("FoldState live view", () => {
     expect(state.latestTodos).toEqual([]);
   });
 });
+
+// The skills catalogue is a substring of the opening message. It gets its own
+// block so the transcript does not print it twice (internal/skills).
+describe("skills catalogue", () => {
+  const catalogue = "Skills available in this workspace.\n\n- test-runner (repo/.claude/skills/test-runner/SKILL.md): Run the suite.\n";
+  const opening = `Workspace: /ws\n\n${catalogue}\nTask:\ndo the thing\n`;
+
+  it("splits the catalogue out of the opening message into its own block", () => {
+    const blocks = foldEvents([ev(1, "session_started", { opening_message: opening, skill_catalogue: catalogue })]);
+    expect(blocks.map((b) => b.type)).toEqual(["skills", "opening"]);
+
+    const skills = blocks.find((b) => b.type === "skills");
+    expect(skills).toMatchObject({ text: catalogue });
+
+    const openingBlock = blocks.find((b) => b.type === "opening");
+    expect(openingBlock && "text" in openingBlock && openingBlock.text).not.toContain("test-runner");
+    expect(openingBlock && "text" in openingBlock && openingBlock.text).toContain("do the thing");
+  });
+
+  it("pushes only an opening block when the run found no skills", () => {
+    const blocks = foldEvents([ev(1, "session_started", { opening_message: "Workspace: /ws\n\nTask:\ndo the thing\n" })]);
+    expect(blocks.map((b) => b.type)).toEqual(["opening"]);
+  });
+
+  it("leaves the opening message intact when the catalogue is not a substring of it", () => {
+    const blocks = foldEvents([ev(1, "session_started", { opening_message: opening, skill_catalogue: "something else" })]);
+    expect(blocks.map((b) => b.type)).toEqual(["opening"]);
+    const openingBlock = blocks[0];
+    expect("text" in openingBlock && openingBlock.text).toEqual(opening);
+  });
+});

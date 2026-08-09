@@ -17,7 +17,7 @@ export const FrozenBlocks = memo(function FrozenBlocks({ blocks }: { blocks: Blo
   return (
     <>
       {blocks.map((block) => (
-        <FrozenBlock key={block.seq} block={block} />
+        <FrozenBlock key={`${block.seq}-${block.type}`} block={block} />
       ))}
     </>
   );

@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
 
-# internal/webassets/dist is committed, but go:embed bakes in whatever sits
-# there at compile time. Rebuilding it here keeps the image's UI matching
-# web/src instead of whatever was last committed.
+# internal/webassets/dist holds only .gitkeep in git. go:embed bakes in
+# whatever sits there at compile time, so the image builds the frontend here
+# and copies it in before the Go build.
 FROM node:22-alpine AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
@@ -77,7 +77,35 @@ ARG GH_VERSION=2.97.0
 RUN wget -qO- https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${TARGETARCH}.tar.gz \
     | tar xz -C /usr/local/bin --strip-components=2 gh_${GH_VERSION}_linux_${TARGETARCH}/bin/gh
 
+# Playwright drives Alpine's own Chromium. The browsers `playwright install`
+# downloads are glibc-only and will not start on musl, so the symlinks below
+# put the system Chromium where Playwright looks for its downloaded one —
+# both the headed path and the headless shell it uses by default. That makes
+# `playwright screenshot` and chromium.launch() work with no flags. The
+# /opt/google/chrome path covers channel: "chrome" as well. Firefox and
+# WebKit have no musl build and are not available here.
+ARG PLAYWRIGHT_VERSION=1.62.1
+# NODE_PATH lets a script anywhere require("playwright") from the global
+# install. A project's own node_modules still wins over it.
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+    NODE_PATH=/usr/local/lib/node_modules
+RUN apk add --no-cache chromium nss freetype harfbuzz ttf-freefont font-noto-emoji && \
+    npm install -g playwright@${PLAYWRIGHT_VERSION} && \
+    chrome="$(node -e 'console.log(require("/usr/local/lib/node_modules/playwright").chromium.executablePath())')" && \
+    headless="$(echo "$chrome" | sed 's#/chromium-#/chromium_headless_shell-#; s#/chrome$#/headless_shell#')" && \
+    for p in "$chrome" "$headless"; do \
+        mkdir -p "$(dirname "$p")" && \
+        ln -sf /usr/bin/chromium "$p" && \
+        touch "$(dirname "$(dirname "$p")")/INSTALLATION_COMPLETE"; \
+    done && \
+    mkdir -p /opt/google/chrome && ln -sf /usr/bin/chromium /opt/google/chrome/chrome
+
+# The client for the docker socket docker-compose.yml mounts in. Paths given
+# to `docker run -v` name the host's filesystem, not this container's.
+RUN apk add --no-cache docker-cli docker-cli-compose docker-cli-buildx
+
 COPY --from=build /out/harness /usr/local/bin/harness
+COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 # The price table's default path is relative to the working directory, which
 # holds workspaces here. Point at an absolute copy so the image runs the same
 # way outside compose.
@@ -87,5 +115,5 @@ ENV DEEPSEEK_PRICE_TABLE=/etc/harness/prices.json \
 # Runs as root: agent sessions write into the mounted workspace, and a
 # fixed uid would collide with the host's ownership on a bind mount.
 WORKDIR /workspaces
-ENTRYPOINT ["harness"]
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["serve"]

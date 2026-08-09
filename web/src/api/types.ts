@@ -60,6 +60,10 @@ export interface StoreEvent {
 
 export interface SessionStartedPayload {
   opening_message: string;
+  // The skills catalogue embedded in opening_message, when the workspace had
+  // any. Sent separately so the fold can lift it into its own block without
+  // parsing the message text.
+  skill_catalogue?: string;
 }
 
 export interface TurnStartedPayload {

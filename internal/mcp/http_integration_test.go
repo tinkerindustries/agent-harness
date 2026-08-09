@@ -4,8 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -41,7 +39,7 @@ func startTestServer(t *testing.T, svc *Service) *mcpsdk.ClientSession {
 // promises a caller.
 func TestMCPServerListsToolsAndResources(t *testing.T) {
 	_, js := connectOrSkip(t)
-	svc, _ := newIntegrationService(t, js)
+	svc := newIntegrationService(t, js)
 	cs := startTestServer(t, svc)
 
 	tools, err := cs.ListTools(context.Background(), nil)
@@ -64,17 +62,14 @@ func TestMCPServerListsToolsAndResources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListResources: %v", err)
 	}
-	sawWorkspaces, sawSessions := false, false
+	sawSessions := false
 	for _, r := range resources.Resources {
-		switch r.URI {
-		case "harness://workspaces":
-			sawWorkspaces = true
-		case "harness://sessions":
+		if r.URI == "harness://sessions" {
 			sawSessions = true
 		}
 	}
-	if !sawWorkspaces || !sawSessions {
-		t.Fatalf("expected harness://workspaces and harness://sessions to be listed, got %+v", resources.Resources)
+	if !sawSessions {
+		t.Fatalf("expected harness://sessions to be listed, got %+v", resources.Resources)
 	}
 }
 
@@ -84,7 +79,7 @@ func TestMCPServerListsToolsAndResources(t *testing.T) {
 func TestMCPServerCallToolLaunchOverHTTP(t *testing.T) {
 	_, js := connectOrSkip(t)
 	ensureTestStreams(t, js)
-	svc, _ := newIntegrationService(t, js)
+	svc := newIntegrationService(t, js)
 	cs := startTestServer(t, svc)
 
 	res, err := cs.CallTool(context.Background(), &mcpsdk.CallToolParams{
@@ -92,7 +87,7 @@ func TestMCPServerCallToolLaunchOverHTTP(t *testing.T) {
 		Arguments: map[string]any{
 			"description":     "http smoke test",
 			"prompt":          "do nothing",
-			"workspace":       "demo",
+			"repos":           []any{map[string]any{"url": "https://example.com/org/app.git"}},
 			"permission_mode": "readonly",
 		},
 	})
@@ -108,29 +103,6 @@ func TestMCPServerCallToolLaunchOverHTTP(t *testing.T) {
 	text, ok := res.Content[0].(*mcpsdk.TextContent)
 	if !ok || !strings.Contains(text.Text, "queued") {
 		t.Fatalf("expected queued status in the tool result text, got %+v", res.Content)
-	}
-}
-
-// TestMCPServerReadWorkspacesResource reads harness://workspaces over the
-// real transport and confirms it reports the names this test created.
-func TestMCPServerReadWorkspacesResource(t *testing.T) {
-	_, js := connectOrSkip(t)
-	svc, root := newIntegrationService(t, js)
-	if err := os.Mkdir(filepath.Join(root, "second"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	cs := startTestServer(t, svc)
-
-	res, err := cs.ReadResource(context.Background(), &mcpsdk.ReadResourceParams{URI: "harness://workspaces"})
-	if err != nil {
-		t.Fatalf("ReadResource: %v", err)
-	}
-	if len(res.Contents) != 1 {
-		t.Fatalf("expected one content block, got %d", len(res.Contents))
-	}
-	body := res.Contents[0].Text
-	if !strings.Contains(body, "demo") || !strings.Contains(body, "second") {
-		t.Fatalf("expected both workspace names in %s", body)
 	}
 }
 
@@ -154,7 +126,7 @@ func TestMCPServerReadSessionTranscriptResourceProxiesHarnessAPI(t *testing.T) {
 	defer fake.Close()
 
 	_, js := connectOrSkip(t)
-	svc, _ := newIntegrationService(t, js)
+	svc := newIntegrationService(t, js)
 	svc.Cfg.HarnessBaseURL = fake.URL
 	svc.HTTPClient = &http.Client{Timeout: 5 * time.Second}
 	cs := startTestServer(t, svc)

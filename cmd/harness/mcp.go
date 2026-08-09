@@ -3,10 +3,8 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
@@ -37,10 +35,6 @@ func runMCP(ctx context.Context, args []string) error {
 	if *addr != "" {
 		cfg.Addr = *addr
 	}
-	if len(cfg.WorkspaceRoots) == 0 {
-		fmt.Fprintln(os.Stderr, "harness: warning: DEEPSEEK_WORKSPACE_ROOTS is not set; deepseek_agent will reject every workspace name")
-	}
-
 	nc, js, err := queue.Connect(cfg.NATSURL)
 	if err != nil {
 		return err
@@ -69,8 +63,8 @@ func runMCP(ctx context.Context, args []string) error {
 		}
 	}()
 
-	log.Printf("harness mcp: connected to %s, permission ceiling %s, workspace roots %v",
-		cfg.NATSURL, cfg.PermissionCeiling, cfg.WorkspaceRoots)
+	log.Printf("harness mcp: connected to %s, permission ceiling %s",
+		cfg.NATSURL, cfg.PermissionCeiling)
 	log.Printf("harness mcp: listening on %s/mcp", cfg.Addr)
 	if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		return err

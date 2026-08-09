@@ -32,6 +32,12 @@ type EventKind string
 // separately from the event log (docs/CACHE.md).
 type SessionStartedPayload struct {
 	OpeningMessage string `json:"opening_message"`
+	// SkillCatalogue is the exact substring of OpeningMessage that lists the
+	// workspace's skills (internal/skills), empty when there are none. It is
+	// stored separately so the browser can lift the catalogue into its own
+	// panel without parsing the message text. OpeningMessage still holds the
+	// bytes that went to the model.
+	SkillCatalogue string `json:"skill_catalogue,omitempty"`
 }
 
 // TurnStartedPayload marks the start of one sub-turn.

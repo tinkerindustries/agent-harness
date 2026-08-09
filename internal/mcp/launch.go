@@ -23,14 +23,19 @@ import (
 // which is wrong for a field that must accept an arbitrary JSON Schema
 // object.
 type launchInput struct {
-	Description    string `json:"description" jsonschema:"Short label for the run, shown in deepseek_runs."`
-	Prompt         string `json:"prompt" jsonschema:"The task for the agent to perform."`
-	Workspace      string `json:"workspace" jsonschema:"A workspace NAME, not a path. See the harness://workspaces resource for valid names."`
-	Profile        string `json:"profile,omitempty" jsonschema:"pro (default: the harness's main-loop model) or flash (deepseek-v4-flash, high effort)."`
-	PermissionMode string `json:"permission_mode" jsonschema:"Required. readonly (Read, Glob, Grep, List, WebFetch only) or full (everything, as root, in the workspace). Refused if it exceeds this server's configured permission ceiling."`
-	ResultSchema   any    `json:"result_schema,omitempty" jsonschema:"JSON Schema the agent's Complete tool result must satisfy, if it calls Complete with a result."`
-	MaxSubTurns    int    `json:"max_sub_turns,omitempty" jsonschema:"Sub-turn budget for the run. Server default applies when omitted."`
-	DeadlineMS     int64  `json:"deadline_ms,omitempty" jsonschema:"Wall-clock deadline for the run, in milliseconds. Server default applies when omitted."`
+	Description    string       `json:"description" jsonschema:"Short label for the run, shown in deepseek_runs."`
+	Prompt         string       `json:"prompt" jsonschema:"The task for the agent to perform."`
+	Repos          []launchRepo `json:"repos" jsonschema:"Repositories to clone into the run's workspace. At least one is required."`
+	Profile        string       `json:"profile,omitempty" jsonschema:"pro (default: the harness's main-loop model) or flash (deepseek-v4-flash, high effort)."`
+	PermissionMode string       `json:"permission_mode" jsonschema:"Required. readonly (Read, Glob, Grep, List, WebFetch only) or full (everything, as root, in the workspace). Refused if it exceeds this server's configured permission ceiling."`
+	ResultSchema   any          `json:"result_schema,omitempty" jsonschema:"JSON Schema the agent's Complete tool result must satisfy, if it calls Complete with a result."`
+	MaxSubTurns    int          `json:"max_sub_turns,omitempty" jsonschema:"Sub-turn budget for the run. Server default applies when omitted."`
+}
+
+// launchRepo is one entry of deepseek_agent's repos array.
+type launchRepo struct {
+	URL    string `json:"url" jsonschema:"Clone URL: https, ssh, git, or user@host:path."`
+	Branch string `json:"branch,omitempty" jsonschema:"Branch to check out. Defaults to main."`
 }
 
 // launchOutput is deepseek_agent's structured content: the handle a caller
@@ -48,7 +53,10 @@ func (svc *Service) registerLaunchTool(server *mcpsdk.Server) {
 		Name: "deepseek_agent",
 		Description: "Launch a deepseek-harness agent session. Publishes a work request to the harness's " +
 			"NATS work queue and returns immediately with a handle — it does not wait for the run to " +
-			"finish. Use deepseek_result to collect the outcome.",
+			"finish. Use deepseek_result to collect the outcome. The run works in a fresh directory " +
+			"holding a clone of every repository named in repos, each on its own branch or main. " +
+			"Skills those repositories ship under .claude/skills or .deepcode/skills are listed to " +
+			"the agent, which reads one when it applies to the task.",
 	}, svc.handleLaunch)
 }
 
@@ -60,9 +68,9 @@ func (svc *Service) handleLaunch(ctx context.Context, _ *mcpsdk.CallToolRequest,
 		return errorResult("prompt is required"), nil, nil
 	}
 
-	workspace, err := resolveWorkspaceName(svc.Cfg.WorkspaceRoots, in.Workspace)
-	if err != nil {
-		return errorResult("%s", err.Error()), nil, nil
+	repos := make([]queue.Repo, 0, len(in.Repos))
+	for _, r := range in.Repos {
+		repos = append(repos, queue.Repo{URL: r.URL, Branch: r.Branch})
 	}
 
 	model, effort, err := resolveProfile(in.Profile, svc.Cfg.FlashModel)
@@ -87,18 +95,17 @@ func (svc *Service) handleLaunch(ctx context.Context, _ *mcpsdk.CallToolRequest,
 	req := queue.Request{
 		RequestID:      requestID,
 		Prompt:         in.Prompt,
-		Workspace:      workspace,
+		Repos:          repos,
 		Model:          model,
 		Effort:         effort,
 		PermissionMode: string(mode),
 		ResultSchema:   resultSchema,
 		MaxSubTurns:    in.MaxSubTurns,
-		DeadlineMS:     in.DeadlineMS,
 	}
 	// Reuses the harness's own request validation (docs/DESIGN.md §4.10)
 	// rather than re-implementing it, so a request this accepts is
 	// guaranteed to pass the worker pool's validation too.
-	if _, err := req.Validate(svc.Cfg.WorkspaceRoots); err != nil {
+	if err := req.Validate(); err != nil {
 		return errorResult("%s", err.Error()), nil, nil
 	}
 
@@ -132,7 +139,7 @@ func (svc *Service) handleLaunch(ctx context.Context, _ *mcpsdk.CallToolRequest,
 	svc.Registry.recordLaunch(runRecord{
 		RequestID:   requestID,
 		Description: in.Description,
-		Workspace:   in.Workspace,
+		Repos:       repoLabels(repos),
 		Profile:     in.Profile,
 		LaunchedAt:  time.Now().UTC(),
 		Status:      "queued",
@@ -175,6 +182,17 @@ func (svc *Service) handleLaunch(ctx context.Context, _ *mcpsdk.CallToolRequest,
 		Content:           []mcpsdk.Content{&mcpsdk.TextContent{Text: string(b)}},
 		StructuredContent: out,
 	}, nil, nil
+}
+
+// repoLabels renders each repository as url#branch for deepseek_runs, with
+// the default branch spelled out so a listing never leaves a reader
+// guessing which one a run was launched against.
+func repoLabels(repos []queue.Repo) []string {
+	labels := make([]string, 0, len(repos))
+	for _, r := range repos {
+		labels = append(labels, r.URL+"#"+r.BranchOrDefault())
+	}
+	return labels
 }
 
 // newRequestID generates a work request's idempotency key, prefixed to make
