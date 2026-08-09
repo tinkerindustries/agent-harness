@@ -19,28 +19,36 @@ subsequent request can only hit the cache if it fully matches a cache prefix
 unit." A unit is hit only when it is wholly a prefix of the new request. There
 is no partial credit against a longer unit.
 
-Their Example 2 is the one to internalise. First request `A + B`, second request
-`A + C`. The second misses **entirely** — not "hits A, misses C". `A + B` is not
-a prefix of `A + C`, and no unit for `A` exists yet. Only after that second miss
-does the system notice the shared `A` and persist it, so a third request `A + D`
-finally hits `A`.
+### The interval is 128 tokens, measured
 
-Two consequences worth stating plainly.
+The docs mention persistence "at fixed token intervals" without naming the
+interval. Measured on flash on 2026-08-09 it is 128 tokens, exactly, across five
+prefix sizes ([OBSERVED.md](OBSERVED.md)):
 
-Hits are quantised to checkpoints. Divergence forfeits everything back to the
-previous checkpoint, not just the bytes after the divergence point.
+    hit = floor(common_prefix_tokens / 128) × 128
 
-The first divergence always pays full price. Common-prefix detection is
-retrospective — it needs two requests to have already diverged before it
-persists their shared head.
+The trailing partial block never hits. That is the whole penalty for a
+well-behaved request: at most 127 tokens.
 
-### Where checkpoints exist
+This is more forgiving than the docs' Example 2 suggests. That example — `A + B`
+then `A + C` missing entirely — only applies when `A` is under 128 tokens. At
+the prefix sizes a coding harness works with, the fixed-interval blocks are
+dense enough that one prior request is sufficient. A divergent-suffix request
+hit 3840 of 3893 tokens after exactly one previous call, with no wait.
 
-- At the end of user input and the end of model output, on every request.
-- Wherever common-prefix detection has fired.
-- At fixed token intervals through long inputs and outputs. The interval is not
-  documented, which is why long-context behaviour has to be measured rather than
-  predicted.
+### What this does and does not forgive
+
+It forgives the tail. A partial block at the end of the prefix costs under 127
+tokens, which is nothing.
+
+It forgives nothing at the head. The formula operates on the length of the
+*common* prefix, so divergence early in the request truncates that length
+directly. Put a clock at token 50 of the system prompt and the common prefix is
+50 tokens, `floor(50/128) × 128` is zero, and the entire conversation misses on
+every single request.
+
+Cheap tail, catastrophic head. That asymmetry is the reason the invariants below
+are worth enforcing in code rather than by convention.
 
 ## Why the agent loop is already well shaped
 
@@ -90,22 +98,19 @@ pollutes common-prefix detection with a near-duplicate.
 
 ## Active optimisations
 
-### Warm the stable prefix
+### There is no warmup to do
 
-`[system + tools]` is identical across every session but is never itself a
-checkpoint — the end-of-user-input unit includes the first user message, so it
-is too specific to reuse.
+An earlier draft of this document proposed firing two probe requests at startup
+to trigger common-prefix detection on `[system + tools]`. Measurement killed it.
 
-Common-prefix detection is the way in, and it can be triggered deliberately. Two
-startup requests carrying the same system prompt and tool schema but different
-trivial user messages make the system persist `[system + tools]` as its own
-unit. From then on every session's first request hits it instead of paying full
-price.
+The 128-token blocks are persisted by any single request that contains them, so
+the first real request of the first session already warms the stable head, and
+every session after that hits it. A warmup would buy one request's worth of
+benefit, once, ever. Not worth the code.
 
-Price it honestly: the prefix is a few thousand tokens, so the saving is
-fractions of a cent per session. The latency saving on first token is the better
-argument. Run it once per system-prompt version, not per launch, and skip it if
-the two probe requests would cost more than the sessions they serve.
+The corollary is worth keeping though: size the stable head so it is comfortably
+over 128 tokens. Ten tool schemas put it in the 2–3K range, so this takes care
+of itself.
 
 ### Compact into a new prefix, deliberately
 
@@ -131,9 +136,14 @@ that whether or not anything is wrong.
 The useful signal is expected miss against actual miss.
 
 The harness knows exactly what it appended since the previous request, so it can
-predict the miss: roughly the token count of the new content. `usage`
-`prompt_cache_miss_tokens` reports the truth. When actual greatly exceeds
-expected, the prefix churned.
+predict the miss precisely: the new content, plus the partial block left over
+from the previous prefix, so under 128 tokens of slack. `usage`
+`prompt_cache_miss_tokens` reports the truth. When actual exceeds expected by
+more than a block, the prefix churned.
+
+The 128-token granularity is what makes this diagnostic sharp. Expected and
+actual should agree to within 127 tokens on every healthy sub-turn, so a
+disagreement of thousands is unambiguous rather than a judgement call.
 
 That turns into a real diagnostic. Keep a per-message hash of the previous
 request's serialised messages array. On a churn detection, compare against the

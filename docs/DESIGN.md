@@ -99,11 +99,12 @@ Cache construction takes seconds, so a fast loop sometimes misses on the
 immediate next request. That is expected.
 
 One property of the mechanism deserves stating here rather than only in the
-tactics. A hit requires a persisted unit to be wholly a prefix of the new
-request; there is no partial credit against a longer unit. Divergence forfeits
-everything back to the previous checkpoint, and the first divergence always pays
-in full, because common-prefix detection only fires after two requests have
-already diverged.
+tactics. Measured on flash, the cached length is
+`floor(common_prefix_tokens / 128) × 128`. The trailing partial block never
+hits, which costs under 127 tokens and does not matter. What matters is that the
+formula runs on the length of the *common* prefix, so divergence near the head
+truncates that length to near zero and the whole conversation misses on every
+request. Cheap tail, catastrophic head.
 
 Two rules follow that are not obvious from the invariant alone. The session
 freezes its rendered system prompt and tool schema at creation, so upgrading the
@@ -172,8 +173,10 @@ Details that do not appear in the API reference and that a generic
 OpenAI-compatible client gets wrong. All are drawn from DeepSeek's published
 integration configurations; sources in [VALIDATION.md](VALIDATION.md).
 
-- Never send `tool_choice`. Thinking mode rejects it, and `auto` is already the
-  default when tools are present.
+- Never send `tool_choice`. Thinking mode accepts `auto` and `none` and rejects
+  `required` and named-tool forcing, so no tool can be forced while thinking is
+  on. `auto` is the default when tools are present, so omitting it costs
+  nothing.
 - Send `max_tokens`, not `max_completion_tokens`.
 - Set `max_tokens` explicitly on every request. Max output is 384K and no
   default is documented for V4.
@@ -237,6 +240,15 @@ The React build embeds through `embed.FS`. One binary, no runtime assets.
 Prices load from config, never from code. The pricing page carries an explicit
 notice that rates are about to rise significantly, so a compiled-in table goes
 stale on their schedule rather than ours.
+
+That rise stopped being hypothetical on 2026-08-06, when DeepSeek formally
+warned of a significant API price increase without naming a rate or a date.
+Rates verified against the live pricing page on 2026-08-09 still match the
+figures in MODELS.md, so the change had not landed as of then.
+
+The price table therefore carries its own capture date, and the cost readout
+shows it. A cost figure computed from a stale table is worse than no figure,
+because it looks authoritative.
 
 Track per turn and per session: cache-hit input tokens, cache-miss input tokens,
 output tokens, reasoning tokens, and derived cost.

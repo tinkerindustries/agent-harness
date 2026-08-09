@@ -175,7 +175,9 @@ These hold for every tool and live in Go, not in prompt text.
   table ignores `disable_parallel_tool_use`. Executing concurrently is fine;
   appending out of order is not, because it churns the prefix and costs the
   cache (`DESIGN.md` §3.2).
-- Never send `tool_choice`. Thinking mode rejects it (`DESIGN.md` §4.4).
+- Never send `tool_choice`. Thinking mode accepts `auto` and `none` but rejects
+  `required` and named-tool forcing, so no tool can be forced while thinking is
+  on (`DESIGN.md` §4.4, [OBSERVED.md](OBSERVED.md)).
 
 ## Permissions
 

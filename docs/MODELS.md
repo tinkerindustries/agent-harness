@@ -156,8 +156,10 @@ Chat Completions `model` enum both list plain `deepseek-v4-pro` and
 catalogue DeepSeek publishes uses the plain slugs with
 `"context_window": 1048576`.
 
-Treat the suffix as shim convention and send plain IDs on the native endpoint.
-`GET /models` settles it at runtime.
+Settled by observation on 2026-08-09. `GET /models` against the live API returns
+exactly two entries, `deepseek-v4-flash` and `deepseek-v4-pro`, both
+`owned_by: deepseek`. No suffixed variant exists. The suffix is shim convention;
+send plain IDs.
 
 ### Switching mid-session costs the cache
 

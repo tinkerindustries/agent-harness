@@ -79,10 +79,13 @@ message with no text, never `null`.
 Same source: `supportsToolChoice: false`, annotated "DeepSeek V4 thinking mode
 rejects the `tool_choice` parameter."
 
-`api/create-chat-completion.md` documents `tool_choice` in full with no
-thinking-mode caveat, so the two sources disagree. The harness runs thinking
-mode permanently, and `auto` is already the default when tools are present, so
-the resolution costs nothing: never send `tool_choice`.
+Measurement on 2026-08-09 shows that claim is too broad. `auto` and `none` are
+both accepted; `required` and named-tool forcing return 400 `Thinking mode does
+not support this tool_choice`. Details in [OBSERVED.md](OBSERVED.md).
+
+Never sending `tool_choice` remains the rule, since `auto` is the default when
+tools are present. The finding that matters is the capability limit: no tool can
+be forced while thinking is on.
 
 ### Two request-shape details
 
@@ -191,12 +194,9 @@ trained-in.
 **Effort changes not disturbing the cache.** Not documented. Reasoning from
 effort being a request parameter rather than prompt content.
 
-**Incremental tool-call deltas on Chat Completions.** Still unsettled, but
-confidence is higher than it was. `guides/responses_api.md` documents
-`response.function_call_arguments.delta` for incremental function call
-arguments, so DeepSeek does stream partial arguments on at least one surface.
-Same inference stack, different envelope. The assembler is written for the
-incremental form regardless, which is correct either way.
+**Incremental tool-call deltas on Chat Completions.** Settled by measurement on
+2026-08-09, not by the docs. They do arrive incrementally, in OpenAI's indexed
+form. See [OBSERVED.md](OBSERVED.md).
 
 ## Two things worth knowing that changed nothing
 

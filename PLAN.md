@@ -8,7 +8,9 @@ becomes possible once a phase lands. It is not a risk-reduction sequence. There
 are no throwaway spikes; every phase is production code in its final home.
 
 Design rationale lives in [docs/](docs/). This file says what gets built and in
-what order.
+what order. Findings measured against the live API are in
+[docs/OBSERVED.md](docs/OBSERVED.md) and override the vendored docs where they
+disagree.
 
 ---
 
@@ -155,7 +157,6 @@ decoration.
 - Model and effort controls in the session header, populated from `GET /models`.
 - A model switch shows its cache-miss estimate before it applies.
 - `temperature` and `top_p` hidden while thinking is enabled.
-- The prefix warmup, if the phase 1 and 2 numbers justify it.
 - Session list, resume, and delete.
 
 **Exit criteria.** v1. A run states its own cost, a deliberately churned prefix
@@ -190,13 +191,13 @@ that was happening anyway.
 | Question | Closes at | How |
 | --- | --- | --- |
 | Does pro honour `low` effort yet? | Phase 1 | One request. The docs said this changes in early August 2026 |
-| Is the `[1m]` suffix real on the native endpoint? | Phase 1 | `GET /models` |
-| Do streaming tool-call deltas arrive incrementally? | Phase 1 | Observe. The assembler handles both shapes |
+| ~~Is the `[1m]` suffix real on the native endpoint?~~ | Closed 2026-08-09 | No. `GET /models` returns only `deepseek-v4-flash` and `deepseek-v4-pro` |
+| ~~Do streaming tool-call deltas arrive incrementally?~~ | Closed 2026-08-09 | Yes, OpenAI indexed form. Arguments fragment mid-token |
 | Are the Claude Code tool names the right vocabulary? | Phase 2 | Tool-call error rate against a rename, which is cheap |
 | Does changing effort mid-session disturb the cache? | Phase 2 | Hit rate across an effort change |
 | Flash or pro for the main loop? | Phase 2 | Same task both ways. Flash-0731 beats V4-Pro-Preview on published agent benchmarks |
 | Is virtualisation needed? | Phase 4 | Frame times with a few hundred blocks |
-| Is the prefix warmup worth its two probe requests? | Phase 5 | Measure first-request miss with and without |
+| ~~Is the prefix warmup worth its two probe requests?~~ | Closed 2026-08-09 | No. 128-token blocks persist from any single request, so there is nothing to warm |
 
 ---
 
