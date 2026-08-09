@@ -4,6 +4,14 @@ A harness for running DeepSeek specifically. Target DeepSeek's own API rather
 than a provider-agnostic abstraction; where a choice arises, prefer the option
 that exercises DeepSeek's behaviour directly.
 
+## Shape
+
+Work arrives on a NATS JetStream queue, runs as one of several concurrent agent
+sessions in a single Go process, and returns a result to a results stream. The
+web UI is read-only: `GET` and `HEAD` only, and no endpoint starts or steers a
+run. `docs/DESIGN.md` is the reference; read it before changing the request
+path, the tool array, or the system prompt, all of which are cache-critical.
+
 ## Vendored documentation
 
 `vendor/docs/deepseek/` mirrors <https://api-docs.deepseek.com/> as Markdown.

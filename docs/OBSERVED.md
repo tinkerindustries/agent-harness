@@ -281,7 +281,7 @@ default, or an early `content == ""` check will fire on every reasoning frame.
 
 **A single tool definition cost about 280 prompt tokens.** A one-line user
 message with one small tool schema came to 293 prompt tokens against 9 for the
-same message with no tools. Ten tools should land in the 2–3K range, which is
+same message with no tools. Eleven tools should land in the 2–3K range, which is
 the stable head worth caching.
 
 **Reasoning dominates output even at `low` effort.** A prompt answered with the

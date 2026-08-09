@@ -273,8 +273,9 @@ or per-workspace `user_id` would start every session on a cold cache, which is
 the most expensive mistake available in this design and an invisible one.
 
 Omitting it is the default. The field earns its place only under a raised
-concurrency quota, where DeepSeek applies per-`user_id` limits, and a single-user
-harness never gets there.
+concurrency quota, where DeepSeek applies per-`user_id` limits. A queue-driven
+harness can plausibly reach that point; if it ever does, the value is one per
+installation and never one per session.
 
 ### Concurrency is per-model and account-wide
 
@@ -283,18 +284,26 @@ which key is used. The per-model semaphore (§4.5) draws from the selected
 model's pool, so a session running flash subagents under a pro main loop is
 drawing on two pools at once.
 
+The worker pool multiplies both. N concurrent sessions each running a main-loop
+call and some number of subagents is what sets the real draw, so size the pool
+against the pro limit and let flash have the headroom.
+
 ### Balance
 
 `GET /user/balance` returns `is_available` and totals in CNY or USD. Poll on
 startup and again after any 402.
 
-A 402 mid-run means the account is empty. The UI says that in those words and
-does not retry, because retrying an empty balance burns turns and reads to the
-user as a hang.
+A 402 mid-run means the account is empty. It is reported in those words and not
+retried, because retrying an empty balance burns turns and reads as a hang. With
+a worker pool it stops the pool rather than failing each queued request in turn,
+since every one of them will hit the same wall.
 
-## Where selection appears in the UI
+## Where selection happens
 
-Session creation picks model and effort. The session header shows both and
-allows changing either, with the cache-miss estimate attached to a model change.
-Per-role overrides — subagent model, extraction model — live in settings rather
-than in the session header.
+At session creation, from the work request's `model` and `effort` fields or the
+CLI's flags, and fixed for the session's life. There is no mid-session switch:
+it is a full cache miss, and the read-only UI has nobody to price that choice
+for. A caller wanting a different model sends a different request.
+
+Per-role defaults — subagent model, extraction model — live in config rather
+than per request.

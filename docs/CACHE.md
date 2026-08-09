@@ -77,15 +77,23 @@ binary. Otherwise upgrading the harness silently changes the prefix of every
 resumable session, and every resume is cold.
 
 **Never vary the tool array.** Permission modes gate execution, not availability
-— all ten tools ship on every request in every mode, and a disallowed call is
+— all eleven tools ship on every request in every mode, and a disallowed call is
 refused at execution with an error result the model can read. Removing tools per
 mode would give each mode its own prefix and make mode switching a cold start.
+A work request's `result_schema` is the tempting exception: it belongs in the
+opening user message, never in `Complete`'s definition.
 
 **Order tool results by `tool_calls` index**, never by completion order.
 
 **Keep volatile content out of the head.** No clock, cwd, git status, or file
-listing in the system prompt. Environment context is injected once at session
-start; refreshing it happens through a tool call the model makes, which appends.
+listing in the system prompt. Nothing from a work request either — workspace
+path, task instructions, and result schema all go in the opening user message.
+Environment context is injected once at session start; refreshing it happens
+through a tool call the model makes, which appends.
+
+**Keep the churn diagnostic per-session.** Its previous-request hashes are
+mutable state, and several sessions run at once. Sharing them across sessions
+produces churn reports that name the wrong message.
 
 **Serialise once and retry the same bytes.** A 500 or 503 retry must resend the
 identical buffer. Re-serialising risks a changed byte, which both misses and
@@ -109,8 +117,19 @@ every session after that hits it. A warmup would buy one request's worth of
 benefit, once, ever. Not worth the code.
 
 The corollary is worth keeping though: size the stable head so it is comfortably
-over 128 tokens. Ten tool schemas put it in the 2–3K range, so this takes care
-of itself.
+over 128 tokens. Eleven tool schemas put it in the 2–3K range, so this takes
+care of itself.
+
+### Concurrency helps here
+
+Sessions run several at a time and every one of them sends the same rendered
+system prompt and tool array. The head is persisted by whichever request lands
+first and every session after that starts warm on it, so a busy queue is cheaper
+per run than an idle one. This only holds while the head is genuinely identical,
+which is the reason nothing per-request may appear in it.
+
+Two sessions starting simultaneously from cold both miss, since cache
+construction takes seconds. That costs the head once, not once per session.
 
 ### Compact into a new prefix, deliberately
 

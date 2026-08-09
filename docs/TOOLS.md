@@ -47,9 +47,12 @@ trying against `Edit` if exact-match replacement underperforms.
 | `TodoWrite` | `todos[]` | The model's working plan |
 | `Task` | `description`, `prompt`, `subagent_type` | Delegate to a flash-backed subagent |
 | `WebFetch` | `url`, `prompt` | Fetch a URL and extract against a question |
+| `Complete` | `summary`, `result?`, `status?` | Emit the run's machine-readable result |
 
-Ten tools. Each has a trained-in analogue in at least two of the three named
-harnesses.
+Eleven tools. The first ten have a trained-in analogue in at least two of the
+three named harnesses. `Complete` does not, and the trained-vocabulary argument
+above says nothing about it — no harness in that set returns a structured result
+to a queue. It is named for what it does, and a rename costs one line.
 
 ## Per-tool notes
 
@@ -83,9 +86,9 @@ The highest-risk tool, and the one where harnesses diverge most in quality.
 
 ### Bash
 
-Approval-gated by default (see Permissions below). Wall-clock timeout and an
-output byte cap on every invocation, with truncation labelled in the result so
-the model knows it saw a fragment.
+The tool the permission policy exists for. Wall-clock timeout and an output byte
+cap on every invocation, with truncation labelled in the result so the model
+knows it saw a fragment.
 
 Foreground only in v1. Background shells with separate output-polling and kill
 tools are a named follow-up, and they matter for dev servers and test watchers.
@@ -120,6 +123,36 @@ and avoids mixing caches across models.
 Ours, not DeepSeek's. See the endpoint trade-off below. Fetch, extract to text,
 then have flash answer the caller's `prompt` against the extracted content, so
 the parent context receives an answer rather than a page.
+
+### Complete
+
+The seam between an agent run and the queue that asked for it. `summary` is
+prose for a human reading the transcript. `result` is the payload the requester
+receives in `harness.work.result.<id>.final`. `status` distinguishes a finished
+job from one the model gave up on, which is a different thing from a harness
+error.
+
+A call to `Complete` ends the run. Parallel tool calls mean it can arrive
+alongside others, so the rule is that the whole batch executes in `tool_calls`
+order and the run ends after it.
+
+Two consequences fall out of constraints stated elsewhere.
+
+It cannot be forced. Thinking mode rejects `tool_choice: required` and named
+tool forcing ([OBSERVED.md](OBSERVED.md)), so there is no way to make the model
+call this before it stops. The system prompt asks for it, and a run that ends
+without it returns its final assistant text with a null `result`. No error path
+is needed for the omission.
+
+Its schema never varies. When a work request supplies a `result_schema`, that
+schema goes in the opening user message and validation happens in Go against the
+stored copy. Putting it in the tool definition would give every request a
+different tool array and cost the whole shared prefix ([CACHE.md](CACHE.md)). A
+payload that fails validation returns the errors through the tool result channel
+and the run continues, so the model gets to correct it.
+
+`Complete` ships in every session including CLI ones that will never call it.
+One tool array across every caller is what keeps the stable head shared.
 
 ## Two decisions this changes
 
@@ -181,22 +214,35 @@ These hold for every tool and live in Go, not in prompt text.
 
 ## Permissions
 
-Three modes, session-scoped:
+Permission is a policy the session is given at creation, not a question it asks
+later. The browser is read-only, so there is nobody there to ask.
 
-- Read-only. `Read`, `Glob`, `Grep`, `List`, `WebFetch` run freely; everything
-  else prompts.
-- Default. Reads run freely, `Write` and `Edit` show a diff and prompt, `Bash`
-  prompts against a growable allowlist.
-- Full access. Nothing prompts.
+Three modes, fixed for the life of a session:
 
-Modes gate execution, never availability. All ten tools are sent on every
+- Read-only. `Read`, `Glob`, `Grep`, `List`, `WebFetch`, `TodoWrite`, and
+  `Complete` run. `Write`, `Edit`, `Bash`, and `Task` are denied.
+- Default. Reads run. `Write` and `Edit` run inside the workspace root. `Bash`
+  runs against a configured allowlist and is denied otherwise.
+- Full access. Everything runs.
+
+A work request may add `deny` patterns on top of its mode. They only ever
+subtract; a request cannot widen the mode it asked for.
+
+Modes gate execution, never availability. All eleven tools are sent on every
 request in every mode, and a call the mode disallows is refused at execution
 with an error result the model can read and route around. Removing tools per
 mode would give each mode a different prefix and make every mode switch a cold
 cache ([CACHE.md](CACHE.md)).
 
-Approval is an event in the log and the agent loop blocks on it, so an approval
-survives a page reload the same way the rest of the run does.
+A denial is not an error. It returns as a tool result naming the rule that
+refused it, which is the shape the model recovers from — it picks a different
+approach rather than retrying the same call. Denials are recorded as their own
+event kind so they are findable after the fact.
+
+The CLI registers an interactive resolver against the same decision point, so a
+terminal user is prompted for calls the policy would otherwise deny. Nothing
+else registers one. Whether a session can ask a human is a property of its
+caller, and every other part of the loop is identical.
 
 ## Context and compaction
 
