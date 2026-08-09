@@ -102,6 +102,11 @@ type RunResult struct {
 	Summary   string
 	SubTurns  int
 	Usage     Usage
+	// CompleteStatus is the status argument to Complete, when the model
+	// called it: "done" or "gave_up". Empty means Complete was never
+	// called, which is a normal outcome — thinking mode cannot force a
+	// tool call (docs/DESIGN.md §4.6) — not a sign of anything wrong.
+	CompleteStatus string
 }
 
 // SubTurnProgress is reported to Runner.Progress, when set, once per
@@ -458,7 +463,7 @@ func (r *Runner) finishRun(ctx context.Context, sess store.Session, allEvents []
 	payload := store.RunFinishedPayload{Reason: reason, Text: text, Result: result, Summary: summary, Status: completeStatus}
 	appended, err := r.Store.AppendEvents(ctx, sess.ID, []store.EventInput{{Kind: store.KindRunFinished, Payload: payload}})
 	if err != nil {
-		return &RunResult{SessionID: sess.ID, Status: store.StatusFailed, SubTurns: subTurns, Usage: agg}, err
+		return &RunResult{SessionID: sess.ID, Status: store.StatusFailed, SubTurns: subTurns, Usage: agg, CompleteStatus: completeStatus}, err
 	}
 	r.mirrorAppend(sess, appended)
 	r.publishEvents(sess, appended)
@@ -466,7 +471,7 @@ func (r *Runner) finishRun(ctx context.Context, sess store.Session, allEvents []
 
 	finished := time.Now().UTC()
 	if err := r.Store.UpdateSessionStatus(ctx, sess.ID, sessionStatus, &finished); err != nil {
-		return &RunResult{SessionID: sess.ID, Status: sessionStatus, SubTurns: subTurns, Usage: agg}, err
+		return &RunResult{SessionID: sess.ID, Status: sessionStatus, SubTurns: subTurns, Usage: agg, CompleteStatus: completeStatus}, err
 	}
 	if updated, err := r.Store.GetSession(ctx, sess.ID); err == nil {
 		r.mirrorUpdateSession(updated)
@@ -476,7 +481,7 @@ func (r *Runner) finishRun(ctx context.Context, sess store.Session, allEvents []
 
 	return &RunResult{
 		SessionID: sess.ID, Status: sessionStatus, Text: text, Result: result, Summary: summary,
-		SubTurns: subTurns, Usage: agg,
+		SubTurns: subTurns, Usage: agg, CompleteStatus: completeStatus,
 	}, nil
 }
 

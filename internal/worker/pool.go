@@ -435,6 +435,7 @@ func (p *Pool) classify(requestID, sessionID string, started time.Time, runResul
 		res.SubTurns = runResult.SubTurns
 		res.Text = runResult.Text
 		res.Result = runResult.Result
+		res.CompleteStatus = runResult.CompleteStatus
 		res.Usage = &queue.ResultUsage{
 			CacheHitTokens:  runResult.Usage.CacheHitTokens,
 			CacheMissTokens: runResult.Usage.CacheMissTokens,

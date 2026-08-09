@@ -127,6 +127,79 @@ func TestRunCompletesWithNoToolCalls(t *testing.T) {
 	}
 }
 
+// completeToolServer answers every streaming request with a single call to
+// Complete, ending the run in one sub-turn. It is what
+// TestRunGaveUpSetsCompleteStatus and its "done" counterpart drive against.
+func completeToolServer(t *testing.T, status, summary string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := fmt.Sprintf(`{"summary":%q,"status":%q}`, summary, status)
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
+			Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{
+				Role:      "assistant",
+				ToolCalls: []deepseek.ToolCallDelta{{Index: 0, ID: "call_00_complete", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "Complete", Arguments: args}}},
+			}}},
+		})
+		writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
+			Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishToolCalls)}},
+			Usage:   &deepseek.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
+		})
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		w.(http.Flusher).Flush()
+	}))
+}
+
+// TestRunGaveUpSetsCompleteStatus is the session-level half of the gave_up
+// propagation fix (docs/DESIGN.md §4.10): a model that calls Complete with
+// status "gave_up" must have that status readable off RunResult, not just
+// buried in the run_finished event payload. The session's own terminal
+// status stays "ok" either way — gave_up describes how the model
+// characterised finishing, not whether the run itself completed.
+func TestRunGaveUpSetsCompleteStatus(t *testing.T) {
+	srv := completeToolServer(t, "gave_up", "could not find the bug")
+	defer srv.Close()
+	r := newTestRunner(t, srv.URL)
+
+	ws := t.TempDir()
+	res, err := r.Run(t.Context(), RunOptions{
+		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "fix the bug",
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Status != store.StatusOK {
+		t.Fatalf("expected the session status to stay ok, got %s", res.Status)
+	}
+	if res.CompleteStatus != "gave_up" {
+		t.Fatalf("expected CompleteStatus %q, got %q", "gave_up", res.CompleteStatus)
+	}
+	if res.Summary != "could not find the bug" {
+		t.Fatalf("unexpected summary %q", res.Summary)
+	}
+}
+
+// TestRunDoneSetsCompleteStatus is TestRunGaveUpSetsCompleteStatus's
+// counterpart, proving CompleteStatus carries "done" too rather than only
+// ever being read for the gave_up case.
+func TestRunDoneSetsCompleteStatus(t *testing.T) {
+	srv := completeToolServer(t, "done", "fixed it")
+	defer srv.Close()
+	r := newTestRunner(t, srv.URL)
+
+	ws := t.TempDir()
+	res, err := r.Run(t.Context(), RunOptions{
+		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "fix the bug",
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.CompleteStatus != "done" {
+		t.Fatalf("expected CompleteStatus %q, got %q", "done", res.CompleteStatus)
+	}
+}
+
 // TestConcurrentSessionsAreIsolated runs two sessions at once against
 // different workspaces on a shared Runner (shared Store, shared Client) and
 // asserts neither one's event log leaks into the other's. This is the

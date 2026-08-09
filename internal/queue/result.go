@@ -47,6 +47,13 @@ type Result struct {
 	SubTurns   int             `json:"sub_turns"`
 	StartedAt  time.Time       `json:"started_at"`
 	FinishedAt time.Time       `json:"finished_at"`
+	// CompleteStatus is the status argument to Complete, when the model
+	// called it: "done" or "gave_up". Empty whenever Complete was never
+	// called, which does not by itself mean the run failed — Status is
+	// still what says whether the run finished, this only says how the
+	// model itself characterised finishing it. Additive: it does not
+	// change the meaning of any of the four Status values above.
+	CompleteStatus string `json:"complete_status,omitempty"`
 }
 
 // Accepted is published once to harness.work.result.<request_id>.accepted

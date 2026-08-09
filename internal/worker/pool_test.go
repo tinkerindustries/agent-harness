@@ -698,3 +698,56 @@ func TestPoolHaltsOnInsufficientBalance(t *testing.T) {
 		t.Fatal("expected a request published after the halt never to be pulled, let alone finished")
 	}
 }
+
+// gaveUpCompleteServer answers with a single call to Complete carrying
+// status "gave_up", ending the run in one sub-turn.
+func gaveUpCompleteServer(t *testing.T) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher := w.(http.Flusher)
+		writeChunk := func(c deepseek.ChatCompletionChunk) {
+			b, _ := json.Marshal(c)
+			fmt.Fprintf(w, "data: %s\n\n", b)
+			flusher.Flush()
+		}
+		writeChunk(deepseek.ChatCompletionChunk{Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{
+			Role:      "assistant",
+			ToolCalls: []deepseek.ToolCallDelta{{Index: 0, ID: "call-1", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "Complete", Arguments: `{"summary":"could not do it","status":"gave_up"}`}}},
+		}}}})
+		finish := deepseek.FinishToolCalls
+		writeChunk(deepseek.ChatCompletionChunk{
+			Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: &finish}},
+			Usage:   &deepseek.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
+		})
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+}
+
+// TestPoolGaveUpPropagatesCompleteStatus is the wire half of the gave_up
+// propagation fix (docs/DESIGN.md §4.10): a run whose model called Complete
+// with status "gave_up" must carry that on the published queue.Result, not
+// just in the session's own event log. Status stays "ok" — gave_up is an
+// additive field describing how the model characterised finishing, not a
+// fifth terminal status.
+func TestPoolGaveUpPropagatesCompleteStatus(t *testing.T) {
+	srv := gaveUpCompleteServer(t)
+	defer srv.Close()
+
+	h := newTestHarness(t, srv.URL, 4)
+	defer h.startPool(t)()
+
+	requestID := uniqueID("req-gave-up")
+	h.publish(t, queue.Request{RequestID: requestID, Prompt: "do the impossible task", Workspace: h.newWorkspace(t)})
+
+	res := h.fetchFinalResult(t, requestID, 15*time.Second)
+	if res.Status != queue.StatusOK {
+		t.Fatalf("expected status ok (gave_up is not a new terminal status), got %+v", res)
+	}
+	if res.CompleteStatus != "gave_up" {
+		t.Fatalf("expected complete_status %q on the wire result, got %q", "gave_up", res.CompleteStatus)
+	}
+	if res.Text != "" {
+		t.Fatalf("expected no final assistant text (the run ended on a tool call), got %q", res.Text)
+	}
+}

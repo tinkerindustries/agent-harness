@@ -25,8 +25,18 @@ accounting, a read-only browser transcript with a live plan panel driven by
 
 Out of scope for v1: any write path from the browser, auth and multi-user
 identity, remote or containerised workspaces, an editor pane, FIM inline
-completion, MCP, prefix completion, background shells, edit checkpointing and
-rollback. Each is additive against this architecture.
+completion, MCP tools inside the agent loop, prefix completion, background
+shells, edit checkpointing and rollback. Each is additive against this
+architecture.
+
+"MCP tools inside the agent loop" names one direction specifically: the
+harness *consuming* MCP tools as part of its own DeepSeek tool array, which
+would put a variable, request-dependent set of tool definitions in front of
+the frozen cached prefix (§3.2). The other direction is in scope and shipped:
+an MCP server that lets an external agent harness launch and collect
+deepseek-harness runs by publishing to the WORK stream below. It is a
+separate process (`harness mcp`) that never touches the system prompt or the
+tool array DeepSeek sees.
 
 The read-only browser is the constraint with the widest reach. No control in the
 UI can approve a tool call, so approval cannot be a question the loop asks a
@@ -458,7 +468,8 @@ Result body:
       "error":      { "code": "...", "message": "..." },
       "usage":      { cache hit, cache miss, output, reasoning, cost_usd,
                       price_table_date },
-      "sub_turns":  n, "started_at": "...", "finished_at": "..."
+      "sub_turns":       n, "started_at": "...", "finished_at": "...",
+      "complete_status": "done" | "gave_up" | ""
     }
 
 What each terminal status means. `ok` is a run that finished on its own.
@@ -467,6 +478,13 @@ panic. `denied` is a request that never reached the loop because its workspace
 stayed leased to another session for the whole wait, carrying
 `error.code: workspace_leased`. `timeout` is a run that hit its `deadline_ms`
 or `max_sub_turns`.
+
+`complete_status` mirrors Complete's own `status` argument and is independent
+of `status` above: it says how the model characterised finishing, not whether
+the run finished. Empty is normal — `Complete` cannot be forced (§4.6) — and
+must not be read as failure. A caller that only checks `status: "ok"` cannot
+tell a finished task from one the model gave up on and reported as such;
+`complete_status: "gave_up"` is that distinction.
 
 There is no `cancelled`. Nothing can cancel a run: the browser is read-only
 (§4.2) and a graceful shutdown drains in-flight work rather than cutting it

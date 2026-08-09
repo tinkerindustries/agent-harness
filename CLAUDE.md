@@ -15,6 +15,10 @@ path, the tool array, or the system prompt, all of which are cache-critical.
 Thinking mode ignores the sampling parameters and rejects the coercive
 `tool_choice` values, so wording is the main loop's only lever.
 
+`harness mcp` (`internal/mcp`) is a separate process, its own port, that lets
+an external agent harness launch and collect runs over the same NATS streams;
+it never touches the system prompt or tool array.
+
 ## Running and testing
 
 `docker compose up -d` deploys the harness next to NATS; the image builds the

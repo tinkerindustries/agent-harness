@@ -23,6 +23,7 @@ commands:
   ask "..."             send a prompt and stream reasoning and content to the terminal
   run -workspace P "..." run the agent loop against a workspace until it finishes or gives up
   serve                  pull work requests from NATS JetStream and run them as a worker pool
+  mcp                    run an MCP server that launches and collects harness runs over NATS
   publish -workspace P "..."  publish a work request to the queue "harness serve" reads
   resume <session-id> ["..."]  continue a finished, failed, or timed-out session
   delete <session-id>    remove a session and its event log (refuses a running one)
@@ -51,6 +52,8 @@ func main() {
 		err = runRun(ctx, os.Args[2:])
 	case "serve":
 		err = runServe(ctx, os.Args[2:])
+	case "mcp":
+		err = runMCP(ctx, os.Args[2:])
 	case "publish":
 		err = runPublish(ctx, os.Args[2:])
 	case "resume":
