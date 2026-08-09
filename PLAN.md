@@ -29,7 +29,7 @@ generic OpenAI-compatible client gets wrong.
 - `POST /chat/completions`, non-streaming, against `https://api.deepseek.com`,
   plus `GET /models` and `GET /user/balance`.
 - `thinking` and `reasoning_effort` wired through from config, defaulting to
-  enabled and `max` per [docs/MODELS.md](docs/MODELS.md).
+  enabled and `high` per [docs/MODELS.md](docs/MODELS.md).
 - The request-shape rules (§4.4): no `tool_choice`, `max_tokens` set explicitly
   and generously, `system` rather than `developer`, `""` rather than `null` for
   tool-call assistant content. One line each, and a class of 400 if missed.

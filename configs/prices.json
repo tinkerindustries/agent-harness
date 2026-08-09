@@ -1,0 +1,16 @@
+{
+  "captured_at": "2026-08-09",
+  "source": "https://api-docs.deepseek.com/quick_start/pricing",
+  "models": {
+    "deepseek-v4-flash": {
+      "input_cache_hit_per_million_usd": 0.0028,
+      "input_cache_miss_per_million_usd": 0.14,
+      "output_per_million_usd": 0.28
+    },
+    "deepseek-v4-pro": {
+      "input_cache_hit_per_million_usd": 0.003625,
+      "input_cache_miss_per_million_usd": 0.435,
+      "output_per_million_usd": 0.87
+    }
+  }
+}

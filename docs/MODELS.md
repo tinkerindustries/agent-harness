@@ -14,7 +14,8 @@ CLAUDE_CODE_AUTO_COMPACT_WINDOW=786432
 ```
 
 Reduced to settings: pro at max effort for the main loop, flash for subagents,
-compact at 768K. Those are the defaults this harness ships with.
+compact at 768K. We ship those defaults except on effort, which is `high` for
+the reason measured below.
 
 Their advice on effort is not consistent across harnesses, though. Claude Code
 gets `max`, Codex gets `model_reasoning_effort = "high"`, Deep Code documents

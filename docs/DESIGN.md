@@ -315,9 +315,11 @@ two callers, and no approval state in the event log.
 
 ### 4.7 Model routing and thinking settings
 
-Specified in [MODELS.md](MODELS.md). The defaults follow DeepSeek's own
-recommended Claude Code configuration: `deepseek-v4-pro` at `max` effort for the
-main loop, `deepseek-v4-flash` for subagents and mechanical side work.
+Specified in [MODELS.md](MODELS.md). The defaults are `deepseek-v4-pro` at
+`high` effort for the main loop and `deepseek-v4-flash` for subagents and
+mechanical side work. That follows DeepSeek's recommended Claude Code
+configuration except on effort, where measurement put `max` at 2.1× the
+wall-clock for no measured gain.
 
 Points that bear on the rest of this design:
 
