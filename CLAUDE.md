@@ -21,11 +21,13 @@ it never touches the system prompt or tool array.
 
 ## Running and testing
 
-`docker compose up -d` deploys the harness next to NATS; the image builds the
-frontend and the binary. Run the Go suite with `scripts/test.sh`, which starts
-the separate broker in `docker-compose.test.yml`. The integration tests delete
-the WORK and RESULTS streams, so they read `HARNESS_TEST_NATS_URL` and ignore
-`NATS_URL` — pointed at the deployment's broker they fight its running pool.
+Compose is the dev environment, running the harness, `harness mcp`, and NATS.
+Rebuild with `docker compose up -d --build` after any source change: the image
+bakes the frontend and the binary, so a plain `up -d` restarts the old code.
+Run the Go suite with `scripts/test.sh`, which starts the separate broker in
+`docker-compose.test.yml`. The integration tests delete the WORK and RESULTS
+streams, so they read `HARNESS_TEST_NATS_URL` and ignore `NATS_URL` — pointed
+at the deployment's broker they fight its running pool.
 
 ## Vendored documentation
 
