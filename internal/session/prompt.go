@@ -53,13 +53,19 @@ func RenderSystemPrompt() string {
 // putting it in Complete's tool definition instead would vary the tool
 // array per request and cost the shared prefix (docs/TOOLS.md).
 //
-// skillCatalogue, when non-empty, lists the skills found in the workspace's
-// repositories (internal/skills). It sits ahead of the task so the task text
-// stays last. An empty catalogue leaves the message byte-identical to what a
-// run without skills produces.
-func RenderOpeningMessage(workspace, task string, resultSchema json.RawMessage, skillCatalogue string) string {
+// claudeMDBlock, when non-empty, is the rendered contents of the root
+// CLAUDE.md files found in the workspace's repositories (internal/claudemd).
+// skillCatalogue, when non-empty, lists the skills found there
+// (internal/skills). Both sit ahead of the task so the task text stays last.
+// Empty blocks leave the message byte-identical to what a run without them
+// produces.
+func RenderOpeningMessage(workspace, task string, resultSchema json.RawMessage, claudeMDBlock, skillCatalogue string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Workspace: %s\n\n", workspace)
+	if claudeMDBlock != "" {
+		b.WriteString(claudeMDBlock)
+		b.WriteString("\n")
+	}
 	if skillCatalogue != "" {
 		b.WriteString(skillCatalogue)
 		b.WriteString("\n")

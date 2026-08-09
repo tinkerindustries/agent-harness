@@ -45,7 +45,7 @@ func TestPerRequestDataStaysOutOfTheSystemPrompt(t *testing.T) {
 	schema := json.RawMessage(`{"type":"object","properties":{"unlikelyField42":{"type":"string"}}}`)
 
 	sys := RenderSystemPrompt()
-	opening := RenderOpeningMessage(workspace, task, schema, "")
+	opening := RenderOpeningMessage(workspace, task, schema, "", "")
 
 	for _, needle := range []string{workspace, task, "unlikelyField42"} {
 		if !strings.Contains(opening, needle) {
