@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	_ "modernc.org/sqlite"
 )
 
@@ -45,20 +46,23 @@ var ErrNotFound = errors.New("store: not found")
 // running binary, so a harness upgrade cannot change the prefix of a
 // resumable session (docs/CACHE.md).
 type Session struct {
-	ID             string
-	ParentID       string
-	Model          string
-	Effort         string
-	Thinking       bool
-	Workspace      string
-	PermissionMode string
-	DenyPatterns   []string
-	SystemPrompt   string
-	ToolSchema     json.RawMessage
-	ResultSchema   json.RawMessage
-	Status         string
-	CreatedAt      time.Time
-	FinishedAt     *time.Time
+	ID              string
+	ParentID        string
+	JobType         string
+	ParentAgentType string
+	ParentAgentID   string
+	Model           string
+	Effort          string
+	Thinking        bool
+	Workspace       string
+	PermissionMode  string
+	DenyPatterns    []string
+	SystemPrompt    string
+	ToolSchema      json.RawMessage
+	ResultSchema    json.RawMessage
+	Status          string
+	CreatedAt       time.Time
+	FinishedAt      *time.Time
 }
 
 // Event is one row of a session's append-only log, keyed by (session_id,
@@ -95,20 +99,23 @@ type job struct {
 
 const schema = `
 CREATE TABLE IF NOT EXISTS sessions (
-	id              TEXT PRIMARY KEY,
-	parent_id       TEXT,
-	model           TEXT NOT NULL,
-	effort          TEXT NOT NULL,
-	thinking        INTEGER NOT NULL,
-	workspace       TEXT NOT NULL,
-	permission_mode TEXT NOT NULL,
-	deny_patterns   TEXT NOT NULL DEFAULT '[]',
-	system_prompt   TEXT NOT NULL,
-	tool_schema     TEXT NOT NULL,
-	result_schema   TEXT,
-	status          TEXT NOT NULL,
-	created_at      TEXT NOT NULL,
-	finished_at     TEXT
+	id                TEXT PRIMARY KEY,
+	parent_id         TEXT,
+	job_type          TEXT NOT NULL DEFAULT 'implementation',
+	parent_agent_type TEXT NOT NULL DEFAULT '',
+	parent_agent_id   TEXT NOT NULL DEFAULT '',
+	model             TEXT NOT NULL,
+	effort            TEXT NOT NULL,
+	thinking          INTEGER NOT NULL,
+	workspace         TEXT NOT NULL,
+	permission_mode   TEXT NOT NULL,
+	deny_patterns     TEXT NOT NULL DEFAULT '[]',
+	system_prompt     TEXT NOT NULL,
+	tool_schema       TEXT NOT NULL,
+	result_schema     TEXT,
+	status            TEXT NOT NULL,
+	created_at        TEXT NOT NULL,
+	finished_at       TEXT
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -178,6 +185,11 @@ func Open(path string) (*Store, error) {
 		readDB.Close()
 		return nil, fmt.Errorf("store: apply schema: %w", err)
 	}
+	if err := migrateSessions(writeDB); err != nil {
+		writeDB.Close()
+		readDB.Close()
+		return nil, fmt.Errorf("store: migrate sessions table: %w", err)
+	}
 
 	s := &Store{
 		writeDB: writeDB,
@@ -208,6 +220,54 @@ func setPragmasWithRetry(db *sql.DB) error {
 		time.Sleep(time.Duration(attempt+1) * 20 * time.Millisecond)
 	}
 	return err
+}
+
+// migrateSessions adds the session provenance columns to a sessions table
+// created by an older binary. It reads the existing columns and adds only
+// the missing ones, so it is a no-op on a database that already has them.
+// ALTER TABLE ADD COLUMN with a constant NOT NULL default backfills existing
+// rows in the same statement.
+func migrateSessions(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(sessions)`)
+	if err != nil {
+		return err
+	}
+	have := map[string]bool{}
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, typ string
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		have[name] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, col := range sessionMigrationColumns {
+		if have[col.name] {
+			continue
+		}
+		if _, err := db.Exec(`ALTER TABLE sessions ADD COLUMN ` + col.name + ` ` + col.def); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sessionMigrationColumns are the columns migrateSessions adds to a sessions
+// table created by an older binary.
+var sessionMigrationColumns = []struct {
+	name string
+	def  string
+}{
+	{"job_type", "TEXT NOT NULL DEFAULT 'implementation'"},
+	{"parent_agent_type", "TEXT NOT NULL DEFAULT ''"},
+	{"parent_agent_id", "TEXT NOT NULL DEFAULT ''"},
 }
 
 // Close stops the writer goroutine and closes both connection pools. It
@@ -265,11 +325,13 @@ func denyPatternsJSON(patterns []string) (string, error) {
 	return string(b), err
 }
 
-// CreateSession inserts sess. Status defaults to StatusRunning if unset.
+// CreateSession inserts sess. Status defaults to StatusRunning if unset, and
+// JobType defaults to the implementation job type.
 func (s *Store) CreateSession(ctx context.Context, sess Session) error {
 	if sess.Status == "" {
 		sess.Status = StatusRunning
 	}
+	sess.JobType = agentmeta.NormalizeJobType(sess.JobType)
 	deny, err := denyPatternsJSON(sess.DenyPatterns)
 	if err != nil {
 		return err
@@ -290,13 +352,13 @@ func (s *Store) CreateSession(ctx context.Context, sess Session) error {
 
 	return s.submit(ctx, func(tx *sql.Tx) error {
 		_, err := tx.Exec(`
-			INSERT INTO sessions (id, parent_id, model, effort, thinking, workspace,
-				permission_mode, deny_patterns, system_prompt, tool_schema, result_schema,
-				status, created_at, finished_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
-			sess.ID, parentID, sess.Model, sess.Effort, sess.Thinking, sess.Workspace,
-			sess.PermissionMode, deny, sess.SystemPrompt, toolSchema, resultSchema,
-			sess.Status, createdAt.Format(time.RFC3339Nano))
+			INSERT INTO sessions (id, parent_id, job_type, parent_agent_type, parent_agent_id,
+				model, effort, thinking, workspace, permission_mode, deny_patterns, system_prompt,
+				tool_schema, result_schema, status, created_at, finished_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+			sess.ID, parentID, sess.JobType, sess.ParentAgentType, sess.ParentAgentID,
+			sess.Model, sess.Effort, sess.Thinking, sess.Workspace, sess.PermissionMode,
+			deny, sess.SystemPrompt, toolSchema, resultSchema, sess.Status, createdAt.Format(time.RFC3339Nano))
 		return err
 	})
 }
@@ -357,7 +419,8 @@ func scanSession(row interface {
 	var parentID, resultSchema, finishedAt sql.NullString
 	var thinking int
 	var denyJSON, createdAt string
-	err := row.Scan(&sess.ID, &parentID, &sess.Model, &sess.Effort, &thinking, &sess.Workspace,
+	err := row.Scan(&sess.ID, &parentID, &sess.JobType, &sess.ParentAgentType, &sess.ParentAgentID,
+		&sess.Model, &sess.Effort, &thinking, &sess.Workspace,
 		&sess.PermissionMode, &denyJSON, &sess.SystemPrompt, (*sqlText)(&sess.ToolSchema), &resultSchema,
 		&sess.Status, &createdAt, &finishedAt)
 	if err != nil {
@@ -402,8 +465,9 @@ func (t *sqlText) Scan(src any) error {
 	return nil
 }
 
-const sessionColumns = `id, parent_id, model, effort, thinking, workspace, permission_mode,
-	deny_patterns, system_prompt, tool_schema, result_schema, status, created_at, finished_at`
+const sessionColumns = `id, parent_id, job_type, parent_agent_type, parent_agent_id, model, effort,
+	thinking, workspace, permission_mode, deny_patterns, system_prompt, tool_schema,
+	result_schema, status, created_at, finished_at`
 
 // GetSession reads one session by id.
 func (s *Store) GetSession(ctx context.Context, id string) (Session, error) {
