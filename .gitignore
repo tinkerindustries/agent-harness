@@ -29,9 +29,11 @@ internal/webassets/dist/*
 *.sqlite
 /data/
 
-# Bind mount for the harness container's workspace root.
+# Bind mount for the harness container's workspace root, dev stack then prod.
 /workspaces/*
 !/workspaces/.gitkeep
+/workspaces-prod/*
+!/workspaces-prod/.gitkeep
 
 # macOS
 .DS_Store

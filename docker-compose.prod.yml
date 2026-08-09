@@ -1,0 +1,116 @@
+# The production deployment on this machine, kept apart from the dev stack in
+# docker-compose.yml so development can rebuild, restart and `down -v` its own
+# stack without touching a harness that is mid-run.
+#
+# The isolation is the project name below: it gives this stack its own
+# containers, its own network and its own volumes. Nothing here is shared with
+# the dev project except the docker daemon and the host ports, and the ports
+# are deliberately different.
+#
+# Unlike docker-compose.yml these services never build. They run
+# deepseek-harness:prod, a tag that scripts/promote.sh moves onto an image
+# built from a clean checkout. A dev rebuild therefore cannot change what
+# production is running; only an explicit promote can.
+#
+# Ports and paths are written out rather than interpolated. `docker compose`
+# reads .env from this directory for substitution regardless of which -f it
+# was given, so a ${VAR} here would silently pick up the dev stack's values.
+# Container environment comes from .env.prod, named explicitly below.
+name: deepseek-harness-prod
+
+services:
+  nats:
+    image: nats:2.10-alpine
+    command:
+      - "--jetstream"
+      - "--store_dir=/data"
+      - "--http_port=8222"
+    ports:
+      # Loopback only, and clear of both the dev stack (4322/8322) and the
+      # test broker (4422). Published at all only so `harness` on the host can
+      # reach this broker for a one-off publish or inspection.
+      - "127.0.0.1:4522:4222"
+      - "127.0.0.1:8522:8222"
+    volumes:
+      - nats-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  harness:
+    image: deepseek-harness:prod
+    depends_on:
+      nats:
+        condition: service_healthy
+    env_file:
+      # Production's own credentials and model settings. Separate from .env so
+      # an edit made while developing does not reach this stack.
+      - path: .env.prod
+        required: true
+    environment:
+      # .env.prod's NATS_URL points at the published host port, which does not
+      # exist inside the network. Reach the broker by service name instead.
+      NATS_URL: nats://nats:4222
+      # The default binds loopback, unreachable from outside the container.
+      # The published port below keeps it loopback-only on the host.
+      DEEPSEEK_HTTP_ADDR: 0.0.0.0:8080
+      DEEPSEEK_DATA_DIR: /data
+      DEEPSEEK_WORKSPACE_ROOT: /workspaces
+    ports:
+      - "127.0.0.1:8180:8080"
+    volumes:
+      # Production runs get their workspaces here, beside the dev stack's
+      # ./workspaces and never mixed with it.
+      - ./workspaces-prod:/workspaces
+      - harness-data:/data
+      # The host's docker daemon, for sessions that build or run containers.
+      # A session in full permission mode can do anything to the host through
+      # this socket, including mounting the host's filesystem into a
+      # container it starts.
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/api/queue"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    # serve drains in-flight runs on SIGTERM rather than cutting them off.
+    stop_grace_period: 60s
+    restart: unless-stopped
+
+  mcp:
+    image: deepseek-harness:prod
+    command: ["mcp"]
+    depends_on:
+      nats:
+        condition: service_healthy
+      # Not a hard requirement to start — see cmd/harness/mcp.go's own
+      # startup check — but the streams and the read-only API this service
+      # depends on both come from harness, so there is nothing useful for
+      # it to do before harness is healthy.
+      harness:
+        condition: service_healthy
+    env_file:
+      - path: .env.prod
+        required: true
+    environment:
+      NATS_URL: nats://nats:4222
+      # The harness service by name, reachable inside this project's network.
+      DEEPSEEK_HARNESS_BASE_URL: http://harness:8080
+      # What a browser on the host needs, which the name above is not.
+      DEEPSEEK_HARNESS_PUBLIC_URL: http://localhost:8180
+      DEEPSEEK_MCP_ADDR: 0.0.0.0:8090
+    ports:
+      # This port starts sessions that run Bash as root inside the
+      # workspace mount (docs/DESIGN.md's MCP launch server, "Safety").
+      # Loopback only, same reasoning as the harness service's own port.
+      - "127.0.0.1:8190:8090"
+    restart: unless-stopped
+
+volumes:
+  nats-data:
+  harness-data:

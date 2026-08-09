@@ -21,6 +21,7 @@ shaped that way.
 | Test, frontend | `npm --prefix web run test` |
 | Format and vet | `gofmt -l cmd internal && go vet ./...` |
 | Frontend dev server | `npm --prefix web run dev`, against `harness serve -dev-frontend http://127.0.0.1:5173` |
+| Production stack | `scripts/prod.sh promote && scripts/prod.sh deploy` — see the rule below |
 
 Subcommands: `ask`, `run`, `serve`, `mcp`, `publish`, `resume`, `delete`,
 `export`, `models`, `balance`. `harness help` lists them with their arguments.
@@ -40,6 +41,14 @@ tests need, and the smoke sequence to finish on.
   lever.
 - **The web surface is read-only** — `GET` and `HEAD`, and no endpoint starts,
   steers, or stops a run. Don't add one.
+- **A production stack runs on this machine and must not be disturbed.** It is
+  the `deepseek-harness-prod` compose project from `docker-compose.prod.yml`,
+  on ports 8180 / 8190 / 4522, and it is very likely mid-run. A bare
+  `docker compose ...` in this directory only ever touches the dev project, so
+  keep it that way: never pass `-f docker-compose.prod.yml`, never
+  `docker rmi`/`docker tag` `deepseek-harness:prod`, and leave `.env.prod` and
+  `workspaces-prod/` alone. Promotion is a deliberate act by the operator —
+  see the README's "A production stack beside the dev one".
 - **Rebuild with `docker compose up -d --build`** after any source change. The
   image bakes the frontend and the binary, so a plain `up -d` restarts the old
   code.

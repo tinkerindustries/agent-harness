@@ -142,6 +142,46 @@ unacked and is redelivered.
 
 `docker compose down -v` removes both volumes and every session with them.
 
+## A production stack beside the dev one
+
+`docker-compose.prod.yml` is a second, independent deployment for a machine that
+does real work with the harness while the same checkout is being developed on.
+Its isolation is the compose project name `deepseek-harness-prod`: separate
+containers, network and volumes, on separate ports.
+
+| | dev | prod |
+| --- | --- | --- |
+| Compose project | `deepseek-harness` | `deepseek-harness-prod` |
+| Web UI | <http://localhost:8080> | <http://localhost:8180> |
+| MCP | `http://127.0.0.1:8090/mcp` | `http://127.0.0.1:8190/mcp` |
+| NATS client / monitor | 4322 / 8322 | 4522 / 8522 |
+| Workspaces | `workspaces/` | `workspaces-prod/` |
+| Environment | `.env` | `.env.prod` |
+
+The difference that matters is that **prod never builds**. Both its services run
+the `deepseek-harness:prod` tag, and only `promote` moves that tag, so no dev
+rebuild can change what production is running:
+
+```sh
+scripts/prod.sh promote     # build this checkout, move the prod tag onto it
+scripts/prod.sh deploy      # restart the stack onto the new tag
+```
+
+`promote` refuses a dirty tree unless given `-f`, and also writes an immutable
+`deepseek-harness:prod-<sha>` tag, which is what `rollback` selects between:
+
+```sh
+scripts/prod.sh rollback <sha> && scripts/prod.sh deploy
+```
+
+The rest is lifecycle: `up`, `down`, `logs [service]`, `status`, and anything
+else passed straight through to `docker compose`. Use the script rather than
+`docker compose` directly — without `-f docker-compose.prod.yml` the command
+lands on the dev stack instead.
+
+Both stacks mount the same host docker socket and share the same DeepSeek
+account, so per-model concurrency ceilings are spent between them.
+
 ## Running without Docker
 
 You need Go and Node; the versions are in `go.mod` and the `Dockerfile`. The

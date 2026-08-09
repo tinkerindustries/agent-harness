@@ -12,6 +12,7 @@ third_party/
 docs/
 data/
 workspaces/
+workspaces-prod/
 *.test
 *.out
 .DS_Store
