@@ -16,6 +16,13 @@ export interface SessionState {
   finished_at?: string;
   sub_turns: number;
   usage: Usage;
+  // price_table_date is the config price table's own capture date
+  // (internal/pricing.Table.CapturedAt), carried alongside usage so a cost
+  // figure is never shown without saying how current it is (docs/DESIGN.md
+  // §4.9: "A cost figure computed from a stale table is worse than no
+  // figure"). Empty when the session predates this field or the server
+  // omitted it.
+  price_table_date?: string;
 }
 
 export interface Usage {
@@ -74,12 +81,24 @@ export interface ToolCallPayload {
   arguments: string;
 }
 
+// DiffLine mirrors internal/store.DiffLine: one line of an Edit's computed
+// diff, tagged context/add/remove with 1-based line numbers on whichever
+// side it belongs to.
+export interface DiffLine {
+  kind: "context" | "add" | "remove";
+  text: string;
+  old_line?: number;
+  new_line?: number;
+}
+
 export interface ToolResultPayload {
   tool_call_id: string;
   name: string;
   content: string;
   is_error?: boolean;
   truncated?: boolean;
+  diff?: DiffLine[];
+  child_session_id?: string;
 }
 
 export interface ToolDeniedPayload {
@@ -87,6 +106,14 @@ export interface ToolDeniedPayload {
   name: string;
   rule: string;
   content: string;
+}
+
+// ToolStdoutPayload is one chunk of a running Bash call's live output
+// (internal/store.ToolStdoutPayload), coalesced server-side by
+// liveStdoutWriter rather than forwarded write-for-write.
+export interface ToolStdoutPayload {
+  tool_call_id: string;
+  text: string;
 }
 
 export interface UsagePayload {
@@ -121,4 +148,28 @@ export interface EventsPage {
   from: number;
   limit: number;
   next?: number;
+}
+
+// QueueHealth mirrors internal/httpapi's queueHealth: GET /api/queue's
+// response (PLAN.md phase 6, "Queue health on the session list"). Available
+// is false whenever there is nothing to report — no queue wired up, or the
+// live NATS call itself failed (Error then says why) — which the session
+// list treats as "say nothing" rather than an error state of its own.
+export interface QueueHealth {
+  available: boolean;
+  consumer_lag?: number;
+  in_flight?: number;
+  redelivered?: number;
+  halted: boolean;
+  halt_reason?: string;
+  error?: string;
+}
+
+// Todo mirrors internal/tools.Todo: one entry of the model's working plan,
+// parsed client-side from the arguments of the latest TodoWrite call rather
+// than carried on its own event (docs/TOOLS.md "TodoWrite").
+export interface Todo {
+  content: string;
+  status: "pending" | "in_progress" | "completed";
+  activeForm: string;
 }

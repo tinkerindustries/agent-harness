@@ -14,6 +14,7 @@ import (
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
+	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
 
 // Output and timeout limits (docs/TOOLS.md, "Execution rules": "Every tool
@@ -30,11 +31,17 @@ const (
 
 // Result is what one tool execution returns. Content is what goes back to
 // the model as the tool message; IsError and Truncated are metadata the
-// runner uses to build the store event.
+// runner uses to build the store event. Diff and ChildSessionID ride along
+// for the two tools that have something structured to add on top of Content
+// — Edit's line-level diff and Task's spawned session id — so the browser
+// can shape their blocks without re-deriving either from prose (docs/TOOLS.md,
+// PLAN.md phase 5: "one shape per tool").
 type Result struct {
-	Content   string
-	IsError   bool
-	Truncated bool
+	Content        string
+	IsError        bool
+	Truncated      bool
+	Diff           []store.DiffLine
+	ChildSessionID string
 }
 
 func errorResult(format string, args ...any) Result {
@@ -93,8 +100,11 @@ type Executor struct {
 
 	// RunSubagent executes Task by delegating to the session loop. It is
 	// injected by internal/session, which imports internal/tools; tools
-	// cannot import session directly without a cycle.
-	RunSubagent func(ctx context.Context, description, prompt, subagentType string) (string, error)
+	// cannot import session directly without a cycle. The returned session id
+	// is the subagent's own session row — a distinct id from this Executor's
+	// session, linked to it as parent (docs/DESIGN.md §4.7) — so the browser
+	// can render it as a collapsed child transcript (PLAN.md phase 5).
+	RunSubagent func(ctx context.Context, description, prompt, subagentType string) (summary string, sessionID string, err error)
 
 	readsMu sync.Mutex
 	reads   map[string]bool
@@ -226,4 +236,24 @@ func (e *Executor) Execute(ctx context.Context, call deepseek.ToolCall) Outcome 
 		return Outcome{Name: name, Result: errorResult("unknown tool %q", name)}
 	}
 	return Outcome{Name: name, Result: fn(ctx, e, argsRaw)}
+}
+
+// stdoutSinkKey is the context key a live-output sink is attached under.
+// Unexported so only WithStdoutSink can set it and only stdoutSinkFromContext
+// can read it.
+type stdoutSinkKey struct{}
+
+// WithStdoutSink attaches sink to ctx so a tool that produces incremental
+// output can forward it as it runs, ahead of the final Result. Bash is
+// currently the only caller; session builds one sink per tool call, keyed to
+// that call's tool_call_id, before invoking Execute. A context with no sink
+// attached — every existing caller, every test — makes the forwarding a
+// silent no-op (docs/DESIGN.md §5.2, "streaming command output").
+func WithStdoutSink(ctx context.Context, sink func(chunk string)) context.Context {
+	return context.WithValue(ctx, stdoutSinkKey{}, sink)
+}
+
+func stdoutSinkFromContext(ctx context.Context) func(string) {
+	sink, _ := ctx.Value(stdoutSinkKey{}).(func(string))
+	return sink
 }

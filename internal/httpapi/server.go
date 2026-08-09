@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/nats-io/nats.go/jetstream"
+
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
@@ -33,13 +35,37 @@ const (
 	maxEventsLimit     = 5000
 )
 
-// Server holds the two things every handler reads: the store, for
-// everything historical, and the hub, for everything live. Neither is
+// QueueConsumer is the subset of *jetstream.Consumer the queue health
+// endpoint reads. A narrow interface here, rather than a direct
+// jetstream.Consumer field, is what lets a test supply a fake with no real
+// NATS server behind it.
+type QueueConsumer interface {
+	Info(ctx context.Context) (*jetstream.ConsumerInfo, error)
+}
+
+// QueuePool is the subset of *worker.Pool's halted state the queue health
+// endpoint reads. A narrow interface here, rather than an import of
+// internal/worker, keeps this package's dependency pointed at the one
+// method it needs rather than a whole package.
+type QueuePool interface {
+	Halted() (bool, string)
+}
+
+// Server holds the things every handler reads: the store, for everything
+// historical; the hub, for everything live; and, optionally, the queue's
+// consumer and pool, for /api/queue (docs/DESIGN.md §5.8, PLAN.md phase 6:
+// "consumer lag, in-flight count, redelivery count"). None of these is
 // mutated by a request — there is no write path (docs/DESIGN.md §4.2).
+// Consumer and Pool are nil in any caller that has no queue at all (a
+// CLI-only harness never wires one up); the handler degrades to reporting
+// the queue as unavailable rather than panicking.
 type Server struct {
-	Store  *store.Store
-	Hub    *hub.Hub
-	Static http.Handler
+	Store          *store.Store
+	Hub            *hub.Hub
+	Static         http.Handler
+	Consumer       QueueConsumer
+	Pool           QueuePool
+	PriceTableDate string
 }
 
 // Handler returns the harness's whole HTTP surface. methodGate runs before
@@ -53,6 +79,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.handleGetEvents)
 	mux.HandleFunc("GET /api/sessions/{id}/stream", s.handleSessionStream)
 	mux.HandleFunc("GET /api/stream", s.handleListStream)
+	mux.HandleFunc("GET /api/queue", s.handleQueueHealth)
 	mux.Handle("/", s.Static)
 	return methodGate(mux)
 }
@@ -121,9 +148,48 @@ func (s *Server) buildStates(ctx context.Context, sessions []store.Session) ([]h
 	}
 	states := make([]hub.SessionState, len(sessions))
 	for i, sess := range sessions {
-		states[i] = hub.BuildSessionState(sess, summaries[sess.ID], requestIDs[sess.ID])
+		states[i] = hub.BuildSessionState(sess, summaries[sess.ID], requestIDs[sess.ID], s.PriceTableDate)
 	}
 	return states, nil
+}
+
+// queueHealth is /api/queue's response shape: consumer lag, in-flight
+// count, and redelivery count (PLAN.md phase 6's "queue health on the
+// session list"), plus whether the pool has halted itself and why — the
+// visible form of docs/DESIGN.md §4.5's "A 402 stops the pool". Available
+// is false whenever there is nothing to report from, which happens for any
+// harness that has no queue wired up (Consumer nil) or when the live NATS
+// call itself fails; Error then carries why.
+type queueHealth struct {
+	Available   bool   `json:"available"`
+	ConsumerLag uint64 `json:"consumer_lag,omitempty"`
+	InFlight    int    `json:"in_flight,omitempty"`
+	Redelivered int    `json:"redelivered,omitempty"`
+	Halted      bool   `json:"halted"`
+	HaltReason  string `json:"halt_reason,omitempty"`
+	Error       string `json:"error,omitempty"`
+}
+
+func (s *Server) handleQueueHealth(w http.ResponseWriter, r *http.Request) {
+	var health queueHealth
+	if s.Pool != nil {
+		health.Halted, health.HaltReason = s.Pool.Halted()
+	}
+	if s.Consumer == nil {
+		writeJSON(w, http.StatusOK, health)
+		return
+	}
+	info, err := s.Consumer.Info(r.Context())
+	if err != nil {
+		health.Error = err.Error()
+		writeJSON(w, http.StatusOK, health)
+		return
+	}
+	health.Available = true
+	health.ConsumerLag = info.NumPending
+	health.InFlight = info.NumAckPending
+	health.Redelivered = info.NumRedelivered
+	writeJSON(w, http.StatusOK, health)
 }
 
 type eventsPage struct {

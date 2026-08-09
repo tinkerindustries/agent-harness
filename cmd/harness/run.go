@@ -50,6 +50,7 @@ func runRun(ctx context.Context, args []string) error {
 	resultSchemaPath := fs.String("result-schema", "", "path to a JSON Schema file Complete's result must satisfy")
 	maxSubTurns := fs.Int("max-sub-turns", 0, "override max sub-turns (default from config)")
 	interactive := fs.Bool("interactive", false, "prompt on the terminal for calls the permission policy would otherwise deny (single-job only)")
+	debugChurnAt := fs.Int("debug-churn-at-subturn", 0, "debug: deliberately break the shared prefix on this sub-turn to exercise the churn diagnostic (docs/CACHE.md); 0 disables it")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -133,6 +134,9 @@ func runRun(ctx context.Context, args []string) error {
 	}
 
 	fmt.Printf("model %s (effort %s, thinking %v), permission mode %s, %d job(s)\n\n", cfg.Model, cfg.Effort, cfg.Thinking, mode, len(workspaces))
+	if *debugChurnAt > 0 {
+		fmt.Printf("debug: deliberately churning the prefix before sub-turn %d (docs/CACHE.md demonstration)\n\n", *debugChurnAt)
+	}
 
 	type jobResult struct {
 		label string
@@ -154,6 +158,7 @@ func runRun(ctx context.Context, args []string) error {
 				Model: cfg.Model, Effort: cfg.Effort, Thinking: cfg.Thinking, MaxTokens: cfg.MaxTokens,
 				Workspace: workspace, PermissionMode: mode, Deny: deny, Prompt: prompt,
 				ResultSchema: resultSchema, MaxSubTurns: cfg.MaxSubTurns, Resolver: resolver,
+				DebugChurnAtSubTurn: *debugChurnAt,
 				Progress: func(p session.SubTurnProgress) {
 					out.Lock()
 					defer out.Unlock()
@@ -195,9 +200,22 @@ func printResult(res *session.RunResult, priceTable *pricing.Table) {
 	if len(res.Result) > 0 {
 		fmt.Printf("result: %s\n", res.Result)
 	}
-	fmt.Printf("\nsub-turns %d, cache hit %d, cache miss %d, completion %d, reasoning %d\n",
-		res.SubTurns, res.Usage.CacheHitTokens, res.Usage.CacheMissTokens, res.Usage.CompletionTokens, res.Usage.ReasoningTokens)
+	fmt.Printf("\nsub-turns %d, cache hit %d, cache miss %d (%s), completion %d, reasoning %d\n",
+		res.SubTurns, res.Usage.CacheHitTokens, res.Usage.CacheMissTokens, cacheHitRate(res.Usage.CacheHitTokens, res.Usage.CacheMissTokens), res.Usage.CompletionTokens, res.Usage.ReasoningTokens)
 	fmt.Printf("cost $%.6f USD (price table captured %s)\n", res.Usage.CostUSD, priceTable.CapturedAt)
+}
+
+// cacheHitRate formats hit tokens over total prompt tokens as a percentage.
+// docs/CACHE.md is explicit that this number alone proves nothing — a
+// 200K-token cached prefix with a 500-token miss reports 99.8% whether or
+// not anything is wrong — so it is shown alongside the raw hit/miss counts
+// and the per-turn churn diagnostic, never in place of either.
+func cacheHitRate(hit, miss int) string {
+	total := hit + miss
+	if total == 0 {
+		return "n/a"
+	}
+	return fmt.Sprintf("%.1f%% hit", float64(hit)/float64(total)*100)
 }
 
 // printProgress is the default per-sub-turn line: the churn diagnostic
@@ -217,8 +235,8 @@ func printProgress(p session.SubTurnProgress) {
 	if len(p.ToolCalls) > 0 {
 		toolNames = " tools=" + strings.Join(p.ToolCalls, ",")
 	}
-	fmt.Printf("[sub-turn %d] prompt=%d hit=%d miss=%d (expected %d)%s completion=%d reasoning=%d cost=$%.6f%s\n",
-		p.SubTurn, u.PromptTokens, u.PromptCacheHitTokens, u.PromptCacheMissTokens, u.ExpectedMissTokens, churn,
+	fmt.Printf("[sub-turn %d] prompt=%d hit=%d miss=%d (%s, expected miss %d)%s completion=%d reasoning=%d cost=$%.6f%s\n",
+		p.SubTurn, u.PromptTokens, u.PromptCacheHitTokens, u.PromptCacheMissTokens, cacheHitRate(u.PromptCacheHitTokens, u.PromptCacheMissTokens), u.ExpectedMissTokens, churn,
 		u.CompletionTokens, u.ReasoningTokens, u.CostUSD, toolNames)
 }
 

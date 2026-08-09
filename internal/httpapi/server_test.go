@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
@@ -80,6 +83,7 @@ func TestNonGetMethodsReturn405Everywhere(t *testing.T) {
 		"/api/sessions/sess-1/events",
 		"/api/sessions/sess-1/stream",
 		"/api/stream",
+		"/api/queue",
 		"/api/sessions/does-not-exist",
 		"/totally/unregistered/path",
 	}
@@ -577,7 +581,7 @@ func TestListStreamSnapshotThenUpdate(t *testing.T) {
 	// events published in other tests use a different session id and this
 	// subscriber only ever asked for the list.
 	mustCreateSession(t, st, "sess-2", time.Now())
-	h.PublishSessionState(hub.BuildSessionState(mustGetSession(t, st, "sess-2"), store.SessionUsageSummary{}, ""))
+	h.PublishSessionState(hub.BuildSessionState(mustGetSession(t, st, "sess-2"), store.SessionUsageSummary{}, "", ""))
 
 	frame, err = sr.next()
 	if err != nil {
@@ -599,4 +603,123 @@ func mustGetSession(t *testing.T, st *store.Store, id string) store.Session {
 		t.Fatal(err)
 	}
 	return sess
+}
+
+// --- queue health ---
+
+type fakeConsumer struct {
+	info *jetstream.ConsumerInfo
+	err  error
+}
+
+func (f fakeConsumer) Info(ctx context.Context) (*jetstream.ConsumerInfo, error) {
+	return f.info, f.err
+}
+
+type fakePool struct {
+	halted bool
+	reason string
+}
+
+func (f fakePool) Halted() (bool, string) { return f.halted, f.reason }
+
+func getQueueHealth(t *testing.T, srv *httptest.Server) queueHealth {
+	t.Helper()
+	resp, err := srv.Client().Get(srv.URL + "/api/queue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	var qh queueHealth
+	if err := json.NewDecoder(resp.Body).Decode(&qh); err != nil {
+		t.Fatal(err)
+	}
+	return qh
+}
+
+// TestQueueHealthWithNoConsumerReportsUnavailable is the shape a CLI-only
+// harness gets: no NATS queue wired up at all, so the endpoint reports
+// unavailable rather than panicking on a nil Consumer.
+func TestQueueHealthWithNoConsumerReportsUnavailable(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "harness.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	api := &Server{Store: st, Hub: hub.New(), Static: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})}
+	srv := httptest.NewServer(api.Handler())
+	t.Cleanup(srv.Close)
+
+	qh := getQueueHealth(t, srv)
+	if qh.Available {
+		t.Fatalf("expected available=false with no Consumer, got %+v", qh)
+	}
+	if qh.Halted {
+		t.Fatalf("expected halted=false with no Pool, got %+v", qh)
+	}
+}
+
+// TestQueueHealthReportsConsumerFiguresAndHaltState covers the three
+// figures PLAN.md phase 6 asks the session list to show — consumer lag,
+// in-flight count, redelivery count — plus the pool's halted state, all
+// against fakes so the test needs no real NATS server.
+func TestQueueHealthReportsConsumerFiguresAndHaltState(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "harness.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	api := &Server{
+		Store: st, Hub: hub.New(),
+		Static: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+		Consumer: fakeConsumer{info: &jetstream.ConsumerInfo{
+			NumPending: 7, NumAckPending: 2, NumRedelivered: 1,
+		}},
+		Pool: fakePool{halted: true, reason: "account balance exhausted (402 from DeepSeek)"},
+	}
+	srv := httptest.NewServer(api.Handler())
+	t.Cleanup(srv.Close)
+
+	qh := getQueueHealth(t, srv)
+	if !qh.Available {
+		t.Fatalf("expected available=true, got %+v", qh)
+	}
+	if qh.ConsumerLag != 7 || qh.InFlight != 2 || qh.Redelivered != 1 {
+		t.Fatalf("unexpected queue figures: %+v", qh)
+	}
+	if !qh.Halted || qh.HaltReason == "" {
+		t.Fatalf("expected the halt state to be reported, got %+v", qh)
+	}
+}
+
+// TestQueueHealthSurfacesConsumerInfoError covers a live NATS call that
+// itself fails (server unreachable, say): reported through Error rather
+// than a 500, since the rest of the read-only surface still works fine.
+func TestQueueHealthSurfacesConsumerInfoError(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "harness.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	api := &Server{
+		Store: st, Hub: hub.New(),
+		Static:   http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+		Consumer: fakeConsumer{err: errors.New("nats: no responders available for request")},
+	}
+	srv := httptest.NewServer(api.Handler())
+	t.Cleanup(srv.Close)
+
+	qh := getQueueHealth(t, srv)
+	if qh.Available {
+		t.Fatalf("expected available=false when Consumer.Info errors, got %+v", qh)
+	}
+	if qh.Error == "" {
+		t.Fatal("expected the Consumer.Info error to be surfaced")
+	}
 }

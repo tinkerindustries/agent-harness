@@ -51,6 +51,20 @@ func NewDetector() *Detector {
 	return &Detector{}
 }
 
+// NewDetectorFrom returns a Detector primed as though Observe had just been
+// called for a sub-turn whose request was prevMessages and whose usage
+// totalled prevCacheableTokens (prompt tokens plus completion tokens).
+// Resuming a session uses this so the churn check on the first sub-turn
+// after resume compares against the session's real prior request instead of
+// silently skipping it the way a fresh Detector would (docs/CACHE.md).
+func NewDetectorFrom(prevCacheableTokens int, prevMessages []deepseek.Message) *Detector {
+	return &Detector{
+		have:                true,
+		prevCacheableTokens: prevCacheableTokens,
+		prevHashes:          hashMessages(prevMessages),
+	}
+}
+
 // Observe records this sub-turn's request and usage, returning the
 // diagnostic against whatever the previous call to Observe recorded. The
 // first call on a fresh Detector has nothing to compare against, so it

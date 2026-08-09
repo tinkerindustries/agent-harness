@@ -193,12 +193,21 @@ func RenderTranscript(sess Session, events []Event) string {
 	fmt.Fprintf(&b, "- status: %s\n\n", sess.Status)
 
 	subTurn := 0
+	sawStart := false
 	for _, e := range events {
 		switch e.Kind {
 		case KindSessionStarted:
 			var p SessionStartedPayload
 			_ = json.Unmarshal(e.Payload, &p)
-			fmt.Fprintf(&b, "## Task\n\n%s\n\n", p.OpeningMessage)
+			// The first session_started event is the opening task; any
+			// later one is Runner.Resume appending a continuation, which
+			// gets its own heading rather than reading as a second task.
+			if !sawStart {
+				fmt.Fprintf(&b, "## Task\n\n%s\n\n", p.OpeningMessage)
+				sawStart = true
+			} else {
+				fmt.Fprintf(&b, "## Resumed\n\n%s\n\n", p.OpeningMessage)
+			}
 		case KindTurnStarted:
 			var p TurnStartedPayload
 			_ = json.Unmarshal(e.Payload, &p)

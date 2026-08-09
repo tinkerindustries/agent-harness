@@ -57,6 +57,10 @@ func runServe(ctx context.Context, args []string) error {
 		return err
 	}
 
+	client := deepseek.NewClient(cfg.BaseURL, cfg.APIKey)
+	logStartupBalance(ctx, client)
+	logStartupModels(ctx, client, cfg.Model, cfg.FlashModel)
+
 	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
 		return fmt.Errorf("create data dir %s: %w", cfg.DataDir, err)
 	}
@@ -70,7 +74,7 @@ func runServe(ctx context.Context, args []string) error {
 	runner := &session.Runner{
 		Store:      st,
 		Mirror:     store.NewMirror(cfg.DataDir),
-		Client:     deepseek.NewClient(cfg.BaseURL, cfg.APIKey),
+		Client:     client,
 		Prices:     priceTable,
 		FlashModel: cfg.FlashModel,
 		Hub:        eventHub,
@@ -113,7 +117,10 @@ func runServe(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	api := &httpapi.Server{Store: st, Hub: eventHub, Static: static}
+	api := &httpapi.Server{
+		Store: st, Hub: eventHub, Static: static,
+		Consumer: consumer, Pool: pool, PriceTableDate: priceTable.CapturedAt,
+	}
 	httpSrv := &http.Server{Addr: cfg.HTTPAddr, Handler: api.Handler()}
 	go func() {
 		<-ctx.Done()
@@ -133,4 +140,54 @@ func runServe(ctx context.Context, args []string) error {
 		cfg.NATSURL, cfg.WorkerPoolSize, cfg.Model, cfg.FlashModel, cfg.WorkspaceRoots)
 	log.Printf("harness serve: http listening on %s", cfg.HTTPAddr)
 	return pool.Run(ctx)
+}
+
+// logStartupBalance refreshes the account balance once at startup
+// (docs/DESIGN.md §4.5, PLAN.md phase 6). It only logs: an empty account
+// found here does not stop the pool from starting, because the reactive
+// path (worker.Pool.Halt on an actual 402) is what docs/DESIGN.md means by
+// "stops the pool rather than failing each queued request in turn" — a
+// balance that looks fine now and runs out mid-run is exactly the case that
+// path exists for, so there is no separate startup gate to duplicate it.
+func logStartupBalance(ctx context.Context, client *deepseek.Client) {
+	balCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	bal, err := client.GetBalance(balCtx)
+	if err != nil {
+		log.Printf("harness serve: could not check account balance at startup: %v", err)
+		return
+	}
+	if !bal.IsAvailable {
+		log.Printf("harness serve: warning: account balance is empty (is_available=false); queued work will fail until it is topped up")
+		return
+	}
+	for _, b := range bal.BalanceInfos {
+		log.Printf("harness serve: balance available: %s %s (granted %s, topped up %s)",
+			b.TotalBalance, b.Currency, b.GrantedBalance, b.ToppedUpBalance)
+	}
+}
+
+// logStartupModels fetches the live model list once at startup and warns if
+// the configured main or flash model is not on it — the sanity check
+// docs/MODELS.md's "Populate the list from the API" describes, catching a
+// typo or a model DeepSeek has retired before it costs a queued request a
+// 400 instead. It only warns: GET /models failing, or a name it does not
+// recognise, is not a reason to refuse to start.
+func logStartupModels(ctx context.Context, client *deepseek.Client, model, flashModel string) {
+	modelsCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	resp, err := client.ListModels(modelsCtx)
+	if err != nil {
+		log.Printf("harness serve: could not fetch the live model list at startup: %v", err)
+		return
+	}
+	live := make(map[string]bool, len(resp.Data))
+	for _, m := range resp.Data {
+		live[m.ID] = true
+	}
+	for _, want := range []string{model, flashModel} {
+		if !live[want] {
+			log.Printf("harness serve: warning: configured model %q was not in GET /models' live list", want)
+		}
+	}
 }

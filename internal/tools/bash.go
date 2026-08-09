@@ -6,7 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
+	"strings"
+	"sync"
+	"time"
 )
 
 type bashArgs struct {
@@ -31,10 +35,12 @@ func execBash(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 	cmd.Dir = e.Workspace
 
 	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
+	live := &liveStdoutWriter{sink: stdoutSinkFromContext(ctx)}
+	cmd.Stdout = io.MultiWriter(&out, live)
+	cmd.Stderr = io.MultiWriter(&out, live)
 
 	runErr := cmd.Run()
+	live.flush()
 
 	text, truncated := truncate(out.String(), e.outputCap())
 	result := Result{Content: text, Truncated: truncated}
@@ -58,4 +64,57 @@ func execBash(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 		result.Content = "(no output)"
 	}
 	return result
+}
+
+// stdoutStreamInterval bounds how often liveStdoutWriter forwards buffered
+// output to its sink, so a command writing many small chunks turns into a
+// live update a couple of times a second rather than one store commit per OS
+// pipe read.
+const stdoutStreamInterval = 200 * time.Millisecond
+
+// liveStdoutWriter mirrors everything written through it to sink, coalesced
+// by time rather than forwarded write-for-write. A nil sink (no live
+// subscriber, or a caller that never attached one) makes every write free.
+type liveStdoutWriter struct {
+	sink func(string)
+
+	mu       sync.Mutex
+	pending  strings.Builder
+	lastSent time.Time
+}
+
+func (w *liveStdoutWriter) Write(p []byte) (int, error) {
+	if w.sink == nil {
+		return len(p), nil
+	}
+	w.mu.Lock()
+	w.pending.Write(p)
+	var chunk string
+	if time.Since(w.lastSent) >= stdoutStreamInterval {
+		chunk = w.pending.String()
+		w.pending.Reset()
+		w.lastSent = time.Now()
+	}
+	w.mu.Unlock()
+	if chunk != "" {
+		w.sink(chunk)
+	}
+	return len(p), nil
+}
+
+// flush forwards whatever is left buffered. Call it once after the command
+// exits, so the tail of the output — anything written inside the last
+// interval — still reaches a live subscriber instead of only appearing once
+// the final tool_result lands.
+func (w *liveStdoutWriter) flush() {
+	if w.sink == nil {
+		return
+	}
+	w.mu.Lock()
+	chunk := w.pending.String()
+	w.pending.Reset()
+	w.mu.Unlock()
+	if chunk != "" {
+		w.sink(chunk)
+	}
 }

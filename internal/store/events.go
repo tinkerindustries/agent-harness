@@ -23,9 +23,12 @@ const (
 // EventKind is the tag on an Event row that says how to decode its payload.
 type EventKind string
 
-// SessionStartedPayload carries the opening user message. It is the only
-// event that puts a message into the fold before the first sub-turn; the
-// system prompt and tool schema live on the Session row instead, frozen
+// SessionStartedPayload carries a user message that starts a new turn of
+// the conversation. It appears once, before the first sub-turn, for every
+// session; Runner.Resume appends a second (or later) one to carry the
+// instruction a resumed session continues with, which the fold treats
+// exactly the same way — append a user message at this point in the log.
+// The system prompt and tool schema live on the Session row instead, frozen
 // separately from the event log (docs/CACHE.md).
 type SessionStartedPayload struct {
 	OpeningMessage string `json:"opening_message"`
@@ -58,13 +61,18 @@ type ToolCallPayload struct {
 	Arguments string `json:"arguments"`
 }
 
-// ToolResultPayload is the outcome of executing one tool call.
+// ToolResultPayload is the outcome of executing one tool call. Diff and
+// ChildSessionID are populated only for the tools that produce them (Edit
+// and Task respectively); every other tool leaves them empty, and the
+// frontend's per-tool block shaping (PLAN.md phase 5) reads them opt-in.
 type ToolResultPayload struct {
-	ToolCallID string `json:"tool_call_id"`
-	Name       string `json:"name"`
-	Content    string `json:"content"`
-	IsError    bool   `json:"is_error,omitempty"`
-	Truncated  bool   `json:"truncated,omitempty"`
+	ToolCallID     string     `json:"tool_call_id"`
+	Name           string     `json:"name"`
+	Content        string     `json:"content"`
+	IsError        bool       `json:"is_error,omitempty"`
+	Truncated      bool       `json:"truncated,omitempty"`
+	Diff           []DiffLine `json:"diff,omitempty"`
+	ChildSessionID string     `json:"child_session_id,omitempty"`
 }
 
 // ToolDeniedPayload is a tool call refused by permission policy. It folds

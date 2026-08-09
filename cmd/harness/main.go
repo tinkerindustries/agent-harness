@@ -24,6 +24,8 @@ commands:
   run -workspace P "..." run the agent loop against a workspace until it finishes or gives up
   serve                  pull work requests from NATS JetStream and run them as a worker pool
   publish -workspace P "..."  publish a work request to the queue "harness serve" reads
+  resume <session-id> ["..."]  continue a finished, failed, or timed-out session
+  delete <session-id>    remove a session and its event log (refuses a running one)
   export <session-id>    rebuild a session's disk mirror from the database
   models                list available models
   balance               show account balance`
@@ -51,6 +53,10 @@ func main() {
 		err = runServe(ctx, os.Args[2:])
 	case "publish":
 		err = runPublish(ctx, os.Args[2:])
+	case "resume":
+		err = runResume(ctx, os.Args[2:])
+	case "delete":
+		err = runDelete(ctx, os.Args[2:])
 	case "export":
 		err = runExport(ctx, os.Args[2:])
 	case "models":
@@ -208,7 +214,7 @@ func runAsk(ctx context.Context, args []string) error {
 	cost, costErr := priceTable.Cost(cfg.Model, usage.PromptCacheHitTokens, usage.PromptCacheMissTokens, usage.CompletionTokens)
 
 	fmt.Printf("model          %s (effort %s, thinking %s)\n", cfg.Model, cfg.Effort, thinkingType)
-	fmt.Printf("prompt tokens  %d (cache hit %d / cache miss %d)\n", usage.PromptTokens, usage.PromptCacheHitTokens, usage.PromptCacheMissTokens)
+	fmt.Printf("prompt tokens  %d (cache hit %d / cache miss %d, %s)\n", usage.PromptTokens, usage.PromptCacheHitTokens, usage.PromptCacheMissTokens, cacheHitRate(usage.PromptCacheHitTokens, usage.PromptCacheMissTokens))
 	fmt.Printf("completion     %d (reasoning %d / answer %d)\n", usage.CompletionTokens, reasoningTokens, answerTokens)
 	if costErr == nil {
 		fmt.Printf("cost           $%.6f USD (price table captured %s)\n", cost, priceTable.CapturedAt)

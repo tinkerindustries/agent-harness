@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -81,5 +82,79 @@ func TestOutputCapTruncatesAndLabels(t *testing.T) {
 	}
 	if len(res.Content) > 100+64 {
 		t.Fatalf("expected output near the cap, got %d bytes", len(res.Content))
+	}
+}
+
+// TestLiveStdoutWriterCoalescesByTime exercises the writer directly rather
+// than through a real command, so the coalescing boundary can be forced
+// deterministically instead of racing a wall-clock interval.
+func TestLiveStdoutWriterCoalescesByTime(t *testing.T) {
+	var chunks []string
+	w := &liveStdoutWriter{sink: func(s string) { chunks = append(chunks, s) }}
+
+	// A fresh writer's lastSent is the zero Time, so the very first write is
+	// already past the interval and flushes immediately.
+	w.Write([]byte("a"))
+	if len(chunks) != 1 || chunks[0] != "a" {
+		t.Fatalf("expected the first write to flush immediately, got %v", chunks)
+	}
+
+	w.Write([]byte("b"))
+	if len(chunks) != 1 {
+		t.Fatalf("expected \"b\" to buffer rather than flush within the interval, got %v", chunks)
+	}
+
+	w.lastSent = time.Time{} // simulate the interval having elapsed
+	w.Write([]byte("c"))
+	if len(chunks) != 2 || chunks[1] != "bc" {
+		t.Fatalf("expected the buffered \"b\" and new \"c\" to flush together, got %v", chunks)
+	}
+
+	w.Write([]byte("d"))
+	w.flush()
+	if len(chunks) != 3 || chunks[2] != "d" {
+		t.Fatalf("expected flush to forward the remainder \"d\", got %v", chunks)
+	}
+}
+
+func TestLiveStdoutWriterNilSinkIsNoop(t *testing.T) {
+	w := &liveStdoutWriter{}
+	n, err := w.Write([]byte("hello"))
+	if err != nil || n != 5 {
+		t.Fatalf("expected a nil sink to still report a normal write, got n=%d err=%v", n, err)
+	}
+	w.flush() // must not panic
+}
+
+func TestBashForwardsLiveOutputThroughContextSink(t *testing.T) {
+	e, _ := newTestExecutor(t)
+	var mu sync.Mutex
+	var chunks []string
+	ctx := WithStdoutSink(t.Context(), func(s string) {
+		mu.Lock()
+		defer mu.Unlock()
+		chunks = append(chunks, s)
+	})
+
+	res := execBash(ctx, e, mustJSON(t, bashArgs{Command: "echo streamed"}))
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(chunks) == 0 {
+		t.Fatal("expected the sink to receive at least the final flush of the command's output")
+	}
+	if !strings.Contains(strings.Join(chunks, ""), "streamed") {
+		t.Fatalf("expected forwarded output to contain the command's output, got %q", chunks)
+	}
+}
+
+func TestBashWithoutStdoutSinkStillCapturesOutput(t *testing.T) {
+	e, _ := newTestExecutor(t)
+	res := execBash(t.Context(), e, mustJSON(t, bashArgs{Command: "echo unwatched"}))
+	if res.IsError || !strings.Contains(res.Content, "unwatched") {
+		t.Fatalf("expected normal output capture with no sink attached, got: %+v", res)
 	}
 }

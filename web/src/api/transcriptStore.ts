@@ -1,5 +1,5 @@
-import { foldEvents, type Block } from "./fold";
-import type { StoreEvent } from "./types";
+import { FoldState, type Block, type LiveView } from "./fold";
+import type { StoreEvent, Todo } from "./types";
 
 // One session's transcript, live or historical (docs/DESIGN.md §4.2: "the
 // same endpoint shape"). The SSE endpoint alone is the whole data source —
@@ -7,6 +7,13 @@ import type { StoreEvent } from "./types";
 // REST fetch to race against it. The browser's EventSource resumes
 // automatically on a dropped connection via Last-Event-ID; a page reload
 // just opens a fresh connection with none set, which replays everything.
+//
+// Deltas never touch React state directly (docs/DESIGN.md §5.2). ingest()
+// folds each event into FoldState's mutable buffers and marks the store
+// dirty; a requestAnimationFrame loop is what turns that into a snapshot
+// change, so a burst of events — token-rate deltas, or hundreds of
+// historical events replayed at connect — costs at most one React update
+// per frame no matter how many events arrived in it.
 
 type Listener = () => void;
 
@@ -14,47 +21,109 @@ export type ConnectionState = "connecting" | "open" | "closed";
 
 export interface TranscriptSnapshot {
   blocks: Block[];
+  live: LiveView;
+  todos: Todo[];
   connection: ConnectionState;
 }
 
 const TERMINAL_KINDS = new Set<StoreEvent["kind"]>(["run_finished", "error"]);
 
-export class TranscriptStore {
-  private events: StoreEvent[] = [];
-  private listeners = new Set<Listener>();
-  private snapshot: TranscriptSnapshot = { blocks: [], connection: "connecting" };
-  private es: EventSource;
+export interface TranscriptStoreOptions {
+  connect?: boolean;
+  // scheduleFlush/cancelFlush override what coalesces a dirty store into a
+  // flush. Production leaves these as requestAnimationFrame/
+  // cancelAnimationFrame, which is the real behaviour docs/DESIGN.md §5.2
+  // describes. web/src/perf's measurement harness overrides them with a
+  // microtask-based scheduler when it detects rAF is unusably throttled —
+  // an automated, backgrounded browser tab clamps requestAnimationFrame the
+  // same way it clamps setTimeout, which would make a scripted measurement
+  // run take tens of minutes for no more truth than a microtask flush
+  // already gives: React's commit cost is what scales with block count, and
+  // that cost does not depend on which scheduler triggered the commit.
+  scheduleFlush?: (cb: () => void) => number;
+  cancelFlush?: (handle: number) => void;
+}
 
-  constructor(sessionID: string) {
+const rafSchedule = (cb: () => void) => requestAnimationFrame(cb);
+const rafCancel = (handle: number) => cancelAnimationFrame(handle);
+
+export class TranscriptStore {
+  private fold = new FoldState();
+  private listeners = new Set<Listener>();
+  private snapshot: TranscriptSnapshot;
+  private es?: EventSource;
+  private connection: ConnectionState = "connecting";
+  private dirty = false;
+  private flushHandle: number | null = null;
+  private scheduleFlushImpl: (cb: () => void) => number;
+  private cancelFlushImpl: (handle: number) => void;
+
+  // opts.connect === false is the synthetic/test mode web/src/perf's
+  // measurement harness uses: no EventSource, no network at all. The caller
+  // drives the exact same fold-and-flush pipeline a live session runs by
+  // calling ingest() directly, at whatever rate it wants to measure.
+  constructor(sessionID: string, opts: TranscriptStoreOptions = {}) {
+    this.scheduleFlushImpl = opts.scheduleFlush ?? rafSchedule;
+    this.cancelFlushImpl = opts.cancelFlush ?? rafCancel;
+    this.snapshot = this.buildSnapshot();
+    if (opts.connect === false) {
+      this.connection = "open";
+      this.snapshot = this.buildSnapshot();
+      return;
+    }
+
     this.es = new EventSource(`/api/sessions/${encodeURIComponent(sessionID)}/stream`);
     this.es.onopen = () => this.setConnection("open");
     this.es.onerror = () => {
-      if (this.snapshot.connection !== "closed") this.setConnection("connecting");
+      if (this.connection !== "closed") this.setConnection("connecting");
     };
     this.es.onmessage = (m) => {
       const ev = JSON.parse(m.data) as StoreEvent;
-      this.events = [...this.events, ev];
-      this.recompute();
+      this.ingest(ev);
       if (TERMINAL_KINDS.has(ev.kind)) {
         // No more events will ever arrive for this session id (compaction
         // aside, which the server already accounts for by closing its end
         // of a compacted session's stream). Closing here stops the
         // browser's automatic reconnect from polling a session that will
         // never have anything new to say.
-        this.es.close();
+        this.es!.close();
         this.setConnection("closed");
       }
     };
   }
 
-  private recompute() {
-    this.snapshot = { blocks: foldEvents(this.events), connection: this.snapshot.connection };
-    this.notify();
+  ingest(ev: StoreEvent): void {
+    this.fold.ingest(ev);
+    this.markDirty();
   }
 
   private setConnection(connection: ConnectionState) {
-    this.snapshot = { ...this.snapshot, connection };
+    this.connection = connection;
+    this.markDirty();
+  }
+
+  private markDirty() {
+    this.dirty = true;
+    this.scheduleFlush();
+  }
+
+  private scheduleFlush() {
+    if (this.flushHandle !== null) return;
+    this.flushHandle = this.scheduleFlushImpl(() => {
+      this.flushHandle = null;
+      this.flush();
+    });
+  }
+
+  private flush() {
+    if (!this.dirty) return;
+    this.dirty = false;
+    this.snapshot = this.buildSnapshot();
     this.notify();
+  }
+
+  private buildSnapshot(): TranscriptSnapshot {
+    return { blocks: this.fold.blocks, live: this.fold.live, todos: this.fold.latestTodos, connection: this.connection };
   }
 
   private notify() {
@@ -69,6 +138,10 @@ export class TranscriptStore {
   getSnapshot = (): TranscriptSnapshot => this.snapshot;
 
   close(): void {
-    this.es.close();
+    this.es?.close();
+    if (this.flushHandle !== null) {
+      this.cancelFlushImpl(this.flushHandle);
+      this.flushHandle = null;
+    }
   }
 }

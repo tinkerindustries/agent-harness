@@ -25,6 +25,11 @@ type SessionState struct {
 	FinishedAt     *time.Time `json:"finished_at,omitempty"`
 	SubTurns       int        `json:"sub_turns"`
 	Usage          Usage      `json:"usage"`
+	// PriceTableDate is the price table's own capture date, carried
+	// alongside Usage so a cost figure never appears without saying how
+	// current it is (docs/DESIGN.md §4.9). Empty when the caller building
+	// this row has no price table to read a date from.
+	PriceTableDate string `json:"price_table_date,omitempty"`
 }
 
 // Usage is a session's running token and cost totals, summed from every
@@ -39,11 +44,12 @@ type Usage struct {
 }
 
 // BuildSessionState assembles the wire row from a session's stored
-// metadata, its usage summary, and its originating request id, if any. It
-// has no dependency on how the caller obtained those three things, so both
-// the live publish path (session.Runner, after every commit) and the REST
-// list handler (a batch store query) build the identical shape from it.
-func BuildSessionState(sess store.Session, summary store.SessionUsageSummary, requestID string) SessionState {
+// metadata, its usage summary, its originating request id (if any), and the
+// price table date its cost figure was computed under. It has no dependency
+// on how the caller obtained those things, so both the live publish path
+// (session.Runner, after every commit) and the REST list handler (a batch
+// store query) build the identical shape from it.
+func BuildSessionState(sess store.Session, summary store.SessionUsageSummary, requestID, priceTableDate string) SessionState {
 	return SessionState{
 		ID:             sess.ID,
 		ParentID:       sess.ParentID,
@@ -63,5 +69,6 @@ func BuildSessionState(sess store.Session, summary store.SessionUsageSummary, re
 			ReasoningTokens:  summary.ReasoningTokens,
 			CostUSD:          summary.CostUSD,
 		},
+		PriceTableDate: priceTableDate,
 	}
 }

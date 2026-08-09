@@ -34,10 +34,10 @@ func execTask(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 		return errorResult("Task is not available in this context: no subagent runner configured")
 	}
 
-	summary, err := e.RunSubagent(ctx, args.Description, args.Prompt, args.SubagentType)
+	summary, childSessionID, err := e.RunSubagent(ctx, args.Description, args.Prompt, args.SubagentType)
 	if err != nil {
 		return errorResult("subagent run failed: %v", err)
 	}
 	out, truncated := truncate(summary, e.outputCap())
-	return Result{Content: out, Truncated: truncated}
+	return Result{Content: out, Truncated: truncated, ChildSessionID: childSessionID}
 }

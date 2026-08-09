@@ -1,7 +1,8 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import type { Block } from "../api/fold";
 import type { SessionState } from "../api/types";
 import { useTranscriptStore } from "../hooks";
+import { BlockList } from "./BlockList";
+import { PlanPanel } from "./PlanPanel";
 
 interface Props {
   sessionId: string;
@@ -18,7 +19,7 @@ export function TranscriptScreen({ sessionId, onBack }: Props) {
   const meta = useSessionMeta(sessionId, snapshot.connection);
 
   return (
-    <div className="screen">
+    <div className="screen screen-transcript">
       <header className="screen-header">
         <button className="back-button" onClick={onBack}>
           ← sessions
@@ -41,11 +42,9 @@ export function TranscriptScreen({ sessionId, onBack }: Props) {
           )}
         </div>
       )}
-      <div className="transcript">
-        {snapshot.blocks.map((block) => (
-          <BlockView key={block.seq} block={block} />
-        ))}
-        {snapshot.blocks.length === 0 && <p className="empty-row">Waiting for the run to start…</p>}
+      <div className="transcript-layout">
+        <BlockList blocks={snapshot.blocks} live={snapshot.live} />
+        <PlanPanel todos={snapshot.todos} />
       </div>
     </div>
   );
@@ -73,80 +72,4 @@ function useSessionMeta(sessionId: string, refreshOn: unknown): SessionState | n
   }, [sessionId, refreshOn]);
 
   return meta;
-}
-
-function BlockView({ block }: { block: Block }) {
-  switch (block.type) {
-    case "opening":
-      return (
-        <section className="block block-opening">
-          <div className="block-label">task</div>
-          <p className="block-text">{block.text}</p>
-        </section>
-      );
-    case "assistant":
-      return (
-        <section className="block block-assistant">
-          <div className="block-label">sub-turn {block.subTurn}</div>
-          {block.reasoning && (
-            <details className="reasoning">
-              <summary>reasoning ({block.reasoning.length} chars)</summary>
-              <p className="block-text">{block.reasoning}</p>
-            </details>
-          )}
-          {block.content && <p className="block-text">{block.content}</p>}
-          {block.toolCalls.map((call) => (
-            <div className="tool-call" key={call.id}>
-              <code>
-                {call.name}({call.arguments})
-              </code>
-            </div>
-          ))}
-        </section>
-      );
-    case "tool_result":
-      return (
-        <section className={`block block-tool-result${block.is_error ? " block-tool-error" : ""}`}>
-          <div className="block-label">
-            {block.name} {block.is_error && "(error)"} {block.truncated && "(truncated)"}
-          </div>
-          <pre className="block-pre">{block.content}</pre>
-        </section>
-      );
-    case "tool_denied":
-      return (
-        <section className="block block-denied">
-          <div className="block-label">denied: {block.name}</div>
-          <p className="block-text">
-            rule: <code>{block.rule}</code>
-          </p>
-          <p className="block-text">{block.content}</p>
-        </section>
-      );
-    case "usage":
-      return (
-        <div className="block block-usage">
-          prompt {block.prompt_tokens} (hit {block.prompt_cache_hit_tokens} / miss {block.prompt_cache_miss_tokens}), completion{" "}
-          {block.completion_tokens}, cost ${block.cost_usd.toFixed(6)}
-          {block.churn_point_index !== undefined && (
-            <span className="churn-warning"> — churn at message {block.churn_point_index}</span>
-          )}
-        </div>
-      );
-    case "run_finished":
-      return (
-        <section className="block block-run-finished">
-          <div className="block-label">run finished: {block.reason}</div>
-          {block.summary && <p className="block-text">{block.summary}</p>}
-          {block.text && <p className="block-text">{block.text}</p>}
-        </section>
-      );
-    case "error":
-      return (
-        <section className="block block-error">
-          <div className="block-label">error</div>
-          <p className="block-text">{block.message}</p>
-        </section>
-      );
-  }
 }

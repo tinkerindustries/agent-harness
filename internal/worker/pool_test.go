@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -615,5 +616,85 @@ func TestPoolMaxSubTurnsIsNotReportedAsOK(t *testing.T) {
 	}
 	if res.Error == nil || res.Error.Code != "max_sub_turns" {
 		t.Fatalf("error = %+v, want code max_sub_turns", res.Error)
+	}
+}
+
+// insufficientBalanceServer answers every chat completion with a 402, the
+// shape DeepSeek returns for an exhausted account (internal/deepseek's
+// parseAPIError envelope).
+func insufficientBalanceServer(t *testing.T) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusPaymentRequired)
+		fmt.Fprint(w, `{"error":{"message":"Insufficient Balance","type":"insufficient_balance_error"}}`)
+	}))
+}
+
+// TestPoolHaltsOnInsufficientBalance is PLAN.md phase 6's balance exit
+// criterion: a 402 is surfaced as an empty account and stops the pool
+// rather than failing each queued request in turn (docs/DESIGN.md §4.5).
+// The request that hit the 402 is left unacked (no final result published)
+// so it redelivers once the pool is restarted with balance restored, and a
+// second request queued behind it is never even pulled.
+func TestPoolHaltsOnInsufficientBalance(t *testing.T) {
+	srv := insufficientBalanceServer(t)
+	defer srv.Close()
+
+	h := newTestHarness(t, srv.URL, 2)
+	defer h.startPool(t)()
+
+	requestID := uniqueID("req-402")
+	h.publish(t, queue.Request{RequestID: requestID, Prompt: "task", Workspace: h.newWorkspace(t)})
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if halted, reason := h.pool.Halted(); halted {
+			if !strings.Contains(reason, "402") {
+				t.Fatalf("expected the halt reason to mention 402, got %q", reason)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("pool never halted after a 402")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	// The halted request itself must not have a terminal result: it was
+	// left unacked for redelivery, not marked failed and finished.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	consumer, err := h.js.OrderedConsumer(ctx, queue.StreamResults, jetstream.OrderedConsumerConfig{
+		FilterSubjects: []string{queue.FinalSubject(requestID)},
+	})
+	if err != nil {
+		t.Fatalf("ordered consumer: %v", err)
+	}
+	batch, err := consumer.Fetch(1, jetstream.FetchMaxWait(2*time.Second))
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	for range batch.Messages() {
+		t.Fatal("expected no final result to be published for a request that hit an empty account")
+	}
+
+	// A second request, published after the halt, must never be picked up
+	// either — the pool stopped pulling, it did not just fail this one.
+	second := uniqueID("req-402-second")
+	h.publish(t, queue.Request{RequestID: second, Prompt: "task", Workspace: h.newWorkspace(t)})
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel2()
+	consumer2, err := h.js.OrderedConsumer(ctx2, queue.StreamResults, jetstream.OrderedConsumerConfig{
+		FilterSubjects: []string{queue.FinalSubject(second)},
+	})
+	if err != nil {
+		t.Fatalf("ordered consumer: %v", err)
+	}
+	batch2, err := consumer2.Fetch(1, jetstream.FetchMaxWait(1500*time.Millisecond))
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	for range batch2.Messages() {
+		t.Fatal("expected a request published after the halt never to be pulled, let alone finished")
 	}
 }

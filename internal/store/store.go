@@ -313,6 +313,43 @@ func (s *Store) UpdateSessionStatus(ctx context.Context, id, status string, fini
 	})
 }
 
+// ResumeSession marks a terminal session running again and clears
+// finished_at, unconditionally rather than through UpdateSessionStatus's
+// COALESCE — a resumed session is not finished anymore, so the old
+// timestamp must go, not survive. Runner.Resume calls this once it has
+// loaded the session and is about to append its continuation.
+func (s *Store) ResumeSession(ctx context.Context, id string) error {
+	return s.submit(ctx, func(tx *sql.Tx) error {
+		_, err := tx.Exec(`UPDATE sessions SET status = ?, finished_at = NULL WHERE id = ?`, StatusRunning, id)
+		return err
+	})
+}
+
+// DeleteSession removes id's row and its whole event log. It refuses a
+// session whose status is still "running": nothing may delete a row a live
+// session goroutine is still appending events to. The caller is responsible
+// for removing the disk mirror directory, which this has no path for.
+func (s *Store) DeleteSession(ctx context.Context, id string) error {
+	return s.submit(ctx, func(tx *sql.Tx) error {
+		var status string
+		err := tx.QueryRow(`SELECT status FROM sessions WHERE id = ?`, id).Scan(&status)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if status == StatusRunning {
+			return fmt.Errorf("store: refusing to delete %s: it is still running", id)
+		}
+		if _, err := tx.Exec(`DELETE FROM events WHERE session_id = ?`, id); err != nil {
+			return err
+		}
+		_, err = tx.Exec(`DELETE FROM sessions WHERE id = ?`, id)
+		return err
+	})
+}
+
 func scanSession(row interface {
 	Scan(dest ...any) error
 }) (Session, error) {

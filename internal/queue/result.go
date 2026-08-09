@@ -63,13 +63,21 @@ type Accepted struct {
 // summaries only — never content deltas — because full fidelity already
 // lives in the event log, on disk, and (in a later phase) on the SSE
 // stream.
+//
+// ExpectedMissTokens, Churned, and ChurnPointIndex are the churn diagnostic
+// (docs/CACHE.md) surfaced to a queue consumer, not just the CLI and the
+// browser: a requester watching progress can tell a healthy sub-turn from a
+// churned one without reading the database.
 type Progress struct {
-	RequestID string       `json:"request_id"`
-	SessionID string       `json:"session_id"`
-	SubTurn   int          `json:"sub_turn"`
-	ToolCalls []string     `json:"tool_calls,omitempty"`
-	Usage     *ResultUsage `json:"usage,omitempty"`
-	Timestamp time.Time    `json:"timestamp"`
+	RequestID          string       `json:"request_id"`
+	SessionID          string       `json:"session_id"`
+	SubTurn            int          `json:"sub_turn"`
+	ToolCalls          []string     `json:"tool_calls,omitempty"`
+	Usage              *ResultUsage `json:"usage,omitempty"`
+	ExpectedMissTokens int          `json:"expected_miss_tokens"`
+	Churned            bool         `json:"churned,omitempty"`
+	ChurnPointIndex    *int         `json:"churn_point_index,omitempty"`
+	Timestamp          time.Time    `json:"timestamp"`
 }
 
 // FinalMsgID is the Nats-Msg-Id set on a final-result publish. Deriving it

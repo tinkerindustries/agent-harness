@@ -71,6 +71,17 @@ func TestEditUniqueMatchApplies(t *testing.T) {
 	if !containsSubstring(res.Content, "- func f() {}") || !containsSubstring(res.Content, "+ func g() {}") {
 		t.Fatalf("expected an applied diff in the result, got: %s", res.Content)
 	}
+	// And the structured line array the browser renders as a table
+	// (docs/DESIGN.md §5.4), built from the same diff as the text above.
+	if len(res.Diff) != 2 {
+		t.Fatalf("expected a 2-line structured diff, got %+v", res.Diff)
+	}
+	if res.Diff[0].Kind != "remove" || res.Diff[0].Text != "func f() {}" {
+		t.Fatalf("unexpected first diff line: %+v", res.Diff[0])
+	}
+	if res.Diff[1].Kind != "add" || res.Diff[1].Text != "func g() {}" {
+		t.Fatalf("unexpected second diff line: %+v", res.Diff[1])
+	}
 }
 
 func TestEditRejectsAmbiguousMatchWithoutReplaceAll(t *testing.T) {

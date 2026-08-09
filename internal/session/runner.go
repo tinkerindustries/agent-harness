@@ -61,6 +61,15 @@ type RunOptions struct {
 	// session holds no state outside itself, and that includes which
 	// closure reports its progress).
 	Progress func(SubTurnProgress)
+
+	// DebugChurnAtSubTurn, when equal to a sub-turn number, deliberately
+	// breaks that one sub-turn's shared prefix before sending it (via
+	// cache.Mutate on the opening message) so the churn diagnostic has
+	// something real to catch. Zero disables it. Nothing publishes this
+	// through a work request; it exists to exercise CACHE.md's diagnostic
+	// against the live API on purpose (PLAN.md phase 6's exit criterion),
+	// not as something a production caller would ever set.
+	DebugChurnAtSubTurn int
 }
 
 // Usage aggregates token accounting across every sub-turn of a run.
@@ -80,7 +89,11 @@ func (u *Usage) add(p store.UsagePayload) {
 	u.CostUSD += p.CostUSD
 }
 
-// RunResult is what Run returns once a session reaches a terminal state.
+// RunResult is what Run (or Resume) returns once a session reaches a
+// terminal state. SubTurns is the session's absolute sub-turn count at that
+// point, so it reads the same way after a Resume as after a fresh Run; Usage
+// is only this call's own contribution (the sub-turns it actually ran), not
+// the session's lifetime total — store.SessionUsageSummaries has that.
 type RunResult struct {
 	SessionID string
 	Status    string
@@ -285,7 +298,17 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	r.publishEvents(curSess, appended)
 	allEvents := appended
 
-	detector := cache.NewDetector()
+	return r.runLoop(ctx, curSess, allEvents, opts, executor, cache.NewDetector(), 1)
+}
+
+// runLoop iterates sub-turns from startSubTurn through opts.MaxSubTurns (or
+// the Runner default) until the session reaches a terminal state. Both Run
+// and Resume end by calling this; they differ only in how curSess, allEvents,
+// executor, and detector got built — a fresh session versus one reloaded
+// from the store — and in where their own numbering starts.
+func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents []store.Event, opts RunOptions,
+	executor *tools.Executor, detector *cache.Detector, startSubTurn int) (*RunResult, error) {
+
 	var agg Usage
 	var lastText string
 	maxTurns := opts.MaxSubTurns
@@ -293,7 +316,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 		maxTurns = r.maxSubTurns()
 	}
 
-	for subTurn := 1; subTurn <= maxTurns; subTurn++ {
+	for subTurn := startSubTurn; subTurn <= maxTurns; subTurn++ {
 		outcome, err := r.runSubTurn(ctx, curSess, &allEvents, opts, executor, detector, subTurn)
 		if err != nil {
 			return r.fail(ctx, curSess, allEvents, subTurn-1, agg, err)
@@ -326,9 +349,11 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 
 // subagentRunner builds the closure Task uses to delegate to a nested,
 // flash-backed session. Its transcript never joins the parent's message
-// array; only the text this returns does (docs/TOOLS.md).
-func (r *Runner) subagentRunner(parentID string, parentOpts RunOptions, workspace string) func(context.Context, string, string, string) (string, error) {
-	return func(ctx context.Context, description, prompt, subagentType string) (string, error) {
+// array; only the text this returns does (docs/TOOLS.md). The session id it
+// also returns is what lets the browser find and render that transcript as a
+// collapsed child of the Task call that spawned it (PLAN.md phase 5).
+func (r *Runner) subagentRunner(parentID string, parentOpts RunOptions, workspace string) func(context.Context, string, string, string) (string, string, error) {
+	return func(ctx context.Context, description, prompt, subagentType string) (string, string, error) {
 		res, err := r.Run(ctx, RunOptions{
 			Model:          r.flashModel(),
 			Effort:         deepseek.EffortHigh,
@@ -342,12 +367,15 @@ func (r *Runner) subagentRunner(parentID string, parentOpts RunOptions, workspac
 			ParentID:       parentID,
 		})
 		if err != nil {
-			return "", err
+			if res != nil {
+				return "", res.SessionID, err
+			}
+			return "", "", err
 		}
 		if strings.TrimSpace(res.Text) != "" {
-			return res.Text, nil
+			return res.Text, res.SessionID, nil
 		}
-		return res.Summary, nil
+		return res.Summary, res.SessionID, nil
 	}
 }
 
@@ -408,7 +436,17 @@ func (r *Runner) publishState(ctx context.Context, sess store.Session) {
 		log.Printf("session: request id lookup for %s: %v", sess.ID, err)
 		return
 	}
-	r.Hub.PublishSessionState(hub.BuildSessionState(sess, summaries[sess.ID], requestIDs[sess.ID]))
+	r.Hub.PublishSessionState(hub.BuildSessionState(sess, summaries[sess.ID], requestIDs[sess.ID], r.priceTableDate()))
+}
+
+// priceTableDate is r.Prices's capture date, or "" when this Runner has no
+// price table (a test double, most often) — BuildSessionState treats an
+// empty date as "not shown" rather than a zero value worth displaying.
+func (r *Runner) priceTableDate() string {
+	if r.Prices == nil {
+		return ""
+	}
+	return r.Prices.CapturedAt
 }
 
 // finishRun records run_finished, updates the session's terminal status,
@@ -468,8 +506,10 @@ func (r *Runner) fail(ctx context.Context, sess store.Session, allEvents []store
 // executeToolCalls runs every call concurrently and returns outcomes in the
 // same order as calls, regardless of completion order — the appender is
 // what must preserve tool_calls order, not the execution itself
-// (docs/TOOLS.md).
-func executeToolCalls(ctx context.Context, executor *tools.Executor, calls []deepseek.AssembledToolCall) []tools.Outcome {
+// (docs/TOOLS.md). A Bash call gets a live stdout sink wired through its
+// context so the browser can show output as it happens instead of only on
+// completion (docs/DESIGN.md §5.2); every other tool runs exactly as before.
+func (r *Runner) executeToolCalls(ctx context.Context, sess store.Session, executor *tools.Executor, calls []deepseek.AssembledToolCall) []tools.Outcome {
 	outcomes := make([]tools.Outcome, len(calls))
 	var wg sync.WaitGroup
 	for i, c := range calls {
@@ -484,11 +524,37 @@ func executeToolCalls(ctx context.Context, executor *tools.Executor, calls []dee
 					Arguments: c.Arguments,
 				},
 			}
-			outcomes[i] = executor.Execute(ctx, call)
+			callCtx := ctx
+			if r.Hub != nil && c.Name == "Bash" {
+				callCtx = tools.WithStdoutSink(ctx, r.stdoutSink(ctx, sess, c.ID))
+			}
+			outcomes[i] = executor.Execute(callCtx, call)
 		}(i, c)
 	}
 	wg.Wait()
 	return outcomes
+}
+
+// stdoutSink returns the callback a running Bash call uses to publish
+// incremental output. Each chunk commits as its own tool_stdout event,
+// mirrored and fanned out to SSE subscribers exactly like any other event
+// batch (docs/DESIGN.md §4.1); liveStdoutWriter is what keeps the volume of
+// chunks down, not this function. It is never added to the fold's local
+// event slice — internal/fold already treats tool_stdout as carrying no
+// messages-array content, so there is nothing for the next request to gain
+// from holding onto it after it is published.
+func (r *Runner) stdoutSink(ctx context.Context, sess store.Session, toolCallID string) func(string) {
+	return func(chunk string) {
+		appended, err := r.Store.AppendEvents(ctx, sess.ID, []store.EventInput{
+			{Kind: store.KindToolStdout, Payload: store.ToolStdoutPayload{ToolCallID: toolCallID, Text: chunk}},
+		})
+		if err != nil {
+			log.Printf("session: append tool_stdout for %s: %v", sess.ID, err)
+			return
+		}
+		r.mirrorAppend(sess, appended)
+		r.publishEvents(sess, appended)
+	}
 }
 
 func toolCallNames(calls []deepseek.AssembledToolCall) []string {

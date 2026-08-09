@@ -7,6 +7,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
 
 type editArgs struct {
@@ -84,22 +86,28 @@ func execEdit(_ context.Context, e *Executor, argsRaw json.RawMessage) Result {
 	if args.ReplaceAll {
 		replacements = count
 	}
-	summary := fmt.Sprintf("Edited %s (%d replacement(s))\n\n%s", args.FilePath, replacements, renderDiff(args.OldString, args.NewString))
+	diff := store.ComputeDiff(args.OldString, args.NewString)
+	summary := fmt.Sprintf("Edited %s (%d replacement(s))\n\n%s", args.FilePath, replacements, renderDiffText(diff))
 	out, truncated := truncate(summary, e.outputCap())
-	return Result{Content: out, Truncated: truncated}
+	return Result{Content: out, Truncated: truncated, Diff: diff}
 }
 
-// renderDiff shows what changed as a minimal -/+ block. It reflects the
-// literal substitution rather than a line-aligned diff of the whole file,
-// which is enough to show the model what landed without recomputing a full
-// file diff for every edit.
-func renderDiff(oldString, newString string) string {
+// renderDiffText is the textual form of diff, for the tool message the model
+// reads. The structured form travels alongside on Result.Diff for the
+// browser to render as a table without recomputing anything (docs/DESIGN.md
+// §5.4); both come from the same store.ComputeDiff call, so the two views
+// never disagree.
+func renderDiffText(diff []store.DiffLine) string {
 	var b strings.Builder
-	for _, line := range strings.Split(oldString, "\n") {
-		b.WriteString("- " + line + "\n")
-	}
-	for _, line := range strings.Split(newString, "\n") {
-		b.WriteString("+ " + line + "\n")
+	for _, l := range diff {
+		switch l.Kind {
+		case store.DiffRemove:
+			b.WriteString("- " + l.Text + "\n")
+		case store.DiffAdd:
+			b.WriteString("+ " + l.Text + "\n")
+		default:
+			b.WriteString("  " + l.Text + "\n")
+		}
 	}
 	return b.String()
 }

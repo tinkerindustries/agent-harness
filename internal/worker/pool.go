@@ -10,10 +10,12 @@ import (
 	"log"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 	"github.com/mrgeoffrich/deepseek-harness/internal/session"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
@@ -53,6 +55,11 @@ type Pool struct {
 	RetryLaterDelay   time.Duration
 
 	wg sync.WaitGroup
+
+	haltMu     sync.Mutex
+	stopPull   func()
+	halted     atomic.Bool
+	haltReason atomic.Pointer[string]
 }
 
 func (p *Pool) size() int {
@@ -138,11 +145,48 @@ func (p *Pool) Run(ctx context.Context) error {
 	if err != nil {
 		return errors.New("worker: consume: " + err.Error())
 	}
+	p.haltMu.Lock()
+	p.stopPull = consumeCtx.Stop
+	p.haltMu.Unlock()
 
 	<-ctx.Done()
 	consumeCtx.Stop()
 	p.wg.Wait()
 	return nil
+}
+
+// Halt stops the pool from pulling any further work; runs already in flight
+// keep going and still publish their results normally. A 402 from DeepSeek
+// means the account balance is gone, and every other queued request would
+// hit the identical wall, so the pool stops instead of failing them one at a
+// time (docs/DESIGN.md §4.5, §4.10). Calling Halt more than once, or before
+// Run has started pulling, is safe; only the first call's reason sticks.
+func (p *Pool) Halt(reason string) {
+	if !p.halted.CompareAndSwap(false, true) {
+		return
+	}
+	p.haltReason.Store(&reason)
+	p.haltMu.Lock()
+	stop := p.stopPull
+	p.haltMu.Unlock()
+	if stop != nil {
+		stop()
+	}
+	log.Printf("worker: pool halted: %s", reason)
+}
+
+// Halted reports whether Halt has been called and why, for the queue health
+// endpoint (docs/DESIGN.md §5.8, PLAN.md phase 6: "Balance ... stops the
+// pool") to surface an empty account as a state rather than leave an
+// operator inferring it from a run of failed requests.
+func (p *Pool) Halted() (bool, string) {
+	if !p.halted.Load() {
+		return false, ""
+	}
+	if r := p.haltReason.Load(); r != nil {
+		return true, *r
+	}
+	return true, ""
 }
 
 func deliveryCount(msg jetstream.Msg) uint64 {
@@ -346,6 +390,21 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, workspace string, outco
 		},
 	})
 
+	// An empty account is distinct from an ordinary run failure: every other
+	// queued request is about to hit the same wall, so the pool stops
+	// pulling more work instead of finishing (and burning) each one in turn.
+	// This request's own session already recorded its failure through
+	// Runner.Run's normal error path; leaving the JetStream message unacked
+	// here, rather than publishing a terminal result, is what lets it
+	// redeliver and run as a fresh attempt once the pool is restarted with
+	// balance restored (docs/DESIGN.md §4.10's takeover path).
+	if runErr != nil && deepseek.IsInsufficientBalance(runErr) {
+		p.Halt("account balance exhausted (402 from DeepSeek)")
+		log.Printf("worker: %s failed on an empty account; left unacked for retry after the pool restarts", req.RequestID)
+		msg.NakWithDelay(p.retryLaterDelay())
+		return
+	}
+
 	result := p.classify(req.RequestID, sessionID, started, runResult, runErr, runCtx.Err())
 	p.finish(msg, req.RequestID, sessionID, result, false)
 }
@@ -507,7 +566,10 @@ func (p *Pool) publishProgress(requestID string, sp session.SubTurnProgress) {
 			CostUSD:         sp.Usage.CostUSD,
 			PriceTableDate:  p.PriceTableDate,
 		},
-		Timestamp: time.Now().UTC(),
+		ExpectedMissTokens: sp.Usage.ExpectedMissTokens,
+		Churned:            sp.Churned,
+		ChurnPointIndex:    sp.Usage.ChurnPointIndex,
+		Timestamp:          time.Now().UTC(),
 	})
 	if err != nil {
 		return

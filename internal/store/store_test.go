@@ -188,3 +188,83 @@ func mustCreateSession(t *testing.T, s *Store, id string) {
 		t.Fatalf("create session %s: %v", id, err)
 	}
 }
+
+// TestResumeSessionClearsFinishedAt is the state a resumed session needs
+// before Runner.Resume appends its continuation: running again, and not
+// still carrying the timestamp from the run that just finished.
+func TestResumeSessionClearsFinishedAt(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	mustCreateSession(t, s, "sess-1")
+
+	finished := time.Now().UTC()
+	if err := s.UpdateSessionStatus(ctx, "sess-1", StatusOK, &finished); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ResumeSession(ctx, "sess-1"); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	got, err := s.GetSession(ctx, "sess-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusRunning {
+		t.Fatalf("expected status running, got %s", got.Status)
+	}
+	if got.FinishedAt != nil {
+		t.Fatalf("expected finished_at cleared, got %v", got.FinishedAt)
+	}
+}
+
+// TestDeleteSessionRemovesEventsToo proves DeleteSession is not just a
+// sessions-row delete: a session's whole event log goes with it, and a
+// second delete on the same id reports ErrNotFound rather than succeeding
+// silently on nothing.
+func TestDeleteSessionRemovesEventsToo(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	mustCreateSession(t, s, "sess-1")
+	if _, err := s.AppendEvents(ctx, "sess-1", []EventInput{
+		{Kind: KindSessionStarted, Payload: SessionStartedPayload{OpeningMessage: "hi"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	finished := time.Now().UTC()
+	if err := s.UpdateSessionStatus(ctx, "sess-1", StatusOK, &finished); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.DeleteSession(ctx, "sess-1"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, err := s.GetSession(ctx, "sess-1"); err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound after delete, got %v", err)
+	}
+	events, err := s.GetEvents(ctx, "sess-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("expected no events left for a deleted session, got %d", len(events))
+	}
+
+	if err := s.DeleteSession(ctx, "sess-1"); err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound deleting an already-deleted session, got %v", err)
+	}
+}
+
+// TestDeleteSessionRefusesRunning protects a live session goroutine's own
+// writes: deleting the row out from under it while it is still running
+// would make its next AppendEvents call race a table that no longer exists.
+func TestDeleteSessionRefusesRunning(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	mustCreateSession(t, s, "sess-1") // CreateSession defaults to StatusRunning
+
+	if err := s.DeleteSession(ctx, "sess-1"); err == nil {
+		t.Fatal("expected DeleteSession to refuse a running session")
+	}
+	if _, err := s.GetSession(ctx, "sess-1"); err != nil {
+		t.Fatalf("session should still exist after a refused delete: %v", err)
+	}
+}

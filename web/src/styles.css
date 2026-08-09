@@ -235,3 +235,242 @@ pre {
   color: var(--color-dim);
   font-size: 0.85rem;
 }
+
+.reasoning-text {
+  color: var(--color-dim);
+  font-size: 0.85rem;
+}
+
+/* Phase 5: the two-column transcript layout, the plan panel pinned beside
+   it, per-tool block shaping, and the live/streaming variants of blocks
+   that have not frozen yet (docs/DESIGN.md §5). */
+
+.screen-transcript {
+  max-width: 1200px;
+}
+
+.transcript-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: calc(var(--space) * 3);
+}
+
+.transcript {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space);
+}
+
+.plan-panel {
+  position: sticky;
+  top: var(--space);
+  flex: 0 0 240px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: var(--space);
+  font-size: 0.85rem;
+}
+
+.plan-panel h2 {
+  margin: 0 0 var(--space) 0;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: var(--color-dim);
+}
+
+.plan-panel ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.todo-item {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.todo-mark {
+  color: var(--color-dim);
+  width: 1em;
+  flex: none;
+}
+
+.todo-completed {
+  color: var(--color-dim);
+  text-decoration: line-through;
+}
+
+.todo-in_progress .todo-mark {
+  color: var(--color-accent);
+}
+
+@media (max-width: 860px) {
+  .transcript-layout {
+    flex-direction: column-reverse;
+  }
+  .plan-panel {
+    position: static;
+    flex: none;
+    width: 100%;
+  }
+}
+
+.tool-detail {
+  color: var(--color-dim);
+  font-weight: normal;
+  text-transform: none;
+}
+
+.block-tool-pending {
+  border-style: dashed;
+  color: var(--color-dim);
+}
+
+.block-live {
+  border-style: dashed;
+}
+
+.live-pre {
+  white-space: pre-wrap;
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-text);
+}
+
+.collapse-toggle {
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  background: none;
+  border-radius: 4px;
+  padding: 2px 8px;
+  color: var(--color-accent);
+  align-self: flex-start;
+}
+
+.code-block {
+  margin: 0;
+  overflow-x: auto;
+  font-size: 0.85rem;
+  max-height: 480px;
+  overflow-y: auto;
+}
+
+.markdown {
+  font-size: 0.95rem;
+}
+
+.markdown :first-child {
+  margin-top: 0;
+}
+
+.markdown :last-child {
+  margin-bottom: 0;
+}
+
+.markdown pre {
+  overflow-x: auto;
+}
+
+.markdown code:not(pre code) {
+  background: #f2f2f2;
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: 0.9em;
+}
+
+.diff-table {
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  width: 100%;
+}
+
+.diff-table td {
+  padding: 0 6px;
+  vertical-align: top;
+}
+
+.diff-table pre {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.diff-lineno {
+  color: var(--color-dim);
+  text-align: right;
+  width: 3em;
+  user-select: none;
+}
+
+.diff-marker {
+  width: 1em;
+  text-align: center;
+  user-select: none;
+}
+
+.diff-add {
+  background: #e6ffed;
+}
+
+.diff-add .diff-marker {
+  color: #1a7a3a;
+}
+
+.diff-remove {
+  background: #ffeef0;
+}
+
+.diff-remove .diff-marker {
+  color: var(--color-error);
+}
+
+.task-child {
+  margin-top: var(--space);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space);
+}
+
+.task-child-body {
+  border-left: 2px solid var(--color-border);
+  padding-left: var(--space);
+}
+
+/* web/src/perf: the phase 5 measurement harness page. */
+
+.perf-harness {
+  max-width: 1200px;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.perf-results {
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+/* Phase 6: queue health on the session list (docs/DESIGN.md §5.8). */
+
+.queue-health {
+  font-size: 0.8rem;
+  color: var(--color-dim);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  margin-bottom: var(--space);
+}
+
+.queue-health-halted {
+  color: var(--color-warn);
+  border-color: var(--color-warn);
+  font-weight: 600;
+}

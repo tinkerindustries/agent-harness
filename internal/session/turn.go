@@ -35,6 +35,16 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 		return subTurnOutcome{}, fmt.Errorf("session: fold: %w", err)
 	}
 
+	// The deliberate-churn debug hook (RunOptions.DebugChurnAtSubTurn):
+	// break this one request's shared prefix on purpose so the diagnostic
+	// below has a real divergence to name. messages[1] is the opening user
+	// message, the earliest content that varies per session. The mutation
+	// only touches the copy sent on the wire; *allEvents, and therefore
+	// every later fold, is untouched.
+	if opts.DebugChurnAtSubTurn > 0 && opts.DebugChurnAtSubTurn == subTurn && len(messages) > 1 {
+		messages = cache.Mutate(messages, 1)
+	}
+
 	reasoning, content, assembler, finishReason, usage, err := r.stream(ctx, sess.Model, messages, opts.Effort, opts.Thinking, opts.MaxTokens)
 	if err != nil {
 		return subTurnOutcome{}, fmt.Errorf("session: sub-turn %d: %w", subTurn, err)
@@ -92,7 +102,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 		return subTurnOutcome{usagePayload: usagePayload, text: content}, nil
 	}
 
-	outcomes := executeToolCalls(ctx, executor, toolCalls)
+	outcomes := r.executeToolCalls(ctx, sess, executor, toolCalls)
 	toolInputs := make([]store.EventInput, 0, len(outcomes))
 	var completePayload tools.CompletePayload
 	completed := false
@@ -106,6 +116,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 			toolInputs = append(toolInputs, store.EventInput{Kind: store.KindToolResult, Payload: store.ToolResultPayload{
 				ToolCallID: toolCalls[i].ID, Name: oc.Name, Content: oc.Result.Content,
 				IsError: oc.Result.IsError, Truncated: oc.Result.Truncated,
+				Diff: oc.Result.Diff, ChildSessionID: oc.Result.ChildSessionID,
 			}})
 		}
 		if oc.IsComplete && !completed {
