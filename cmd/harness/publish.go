@@ -94,10 +94,6 @@ func runPublish(ctx context.Context, args []string) error {
 		ParentAgentType: *parentAgentType,
 		ParentAgentID:   *parentAgentID,
 	}
-	data, err := json.Marshal(req)
-	if err != nil {
-		return fmt.Errorf("encode request: %w", err)
-	}
 
 	cfg, err := loadConfig()
 	if err != nil {
@@ -124,7 +120,7 @@ func runPublish(ctx context.Context, args []string) error {
 	}
 
 	pubCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	_, err = js.Publish(pubCtx, queue.RequestSubject(id), data)
+	err = queue.PublishRequest(pubCtx, js, req)
 	cancel()
 	if err != nil {
 		return fmt.Errorf("publish request: %w", err)

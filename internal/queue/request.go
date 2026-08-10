@@ -6,11 +6,14 @@
 package queue
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
 	"strings"
+
+	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
@@ -77,6 +80,25 @@ func ParseRequest(data []byte) (Request, error) {
 		return Request{}, fmt.Errorf("queue: parse request: %w", err)
 	}
 	return req, nil
+}
+
+// PublishRequest marshals req and publishes it to the WORK stream on the
+// request's own subject. It is the one marshal-and-publish path every
+// producer uses — harness publish, deepseek_agent, and the browser's POST
+// /api/runs (docs/RUN-CONTROL.md "Starting is a publish, so the seam is a
+// publisher") — so the wire shape is defined once, in the package that owns
+// it, rather than re-marshalled by every caller. The caller owns the
+// context; a producer that wants a bounded publish wraps it in a timeout,
+// as cmd/harness/publish.go does.
+func PublishRequest(ctx context.Context, js jetstream.JetStream, req Request) error {
+	data, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("queue: encode request: %w", err)
+	}
+	if _, err := js.Publish(ctx, RequestSubject(req.RequestID), data); err != nil {
+		return fmt.Errorf("queue: publish request %s: %w", req.RequestID, err)
+	}
+	return nil
 }
 
 // requestIDCharset bars characters that are structurally significant in a
