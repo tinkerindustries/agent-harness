@@ -660,62 +660,284 @@ pre {
 
 /* ---------- settings screen ---------- */
 
-.settings-group {
-  margin-bottom: calc(var(--space) * 2);
-}
+/* The screen reads as a list: one registry entry per collapsible row, closed
+   to a single grid line (design/settings.html). Reading is the default state
+   and writing is an act, so a freshly opened screen has nothing in the tab
+   order but the disclosures, the filter chips, and the expand-all button. */
 
-.settings-group-heading {
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted-foreground);
-  margin: 0 0 var(--space);
-}
-
-.settings-row {
+.settings-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 7px 12px;
   border: 1px solid var(--border);
-  border-radius: calc(var(--radius) - 4px);
-  padding: var(--space);
-  margin-bottom: var(--space);
+  border-radius: calc(var(--radius) - 2px);
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+}
+
+.settings-strip b {
+  color: var(--foreground);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-strip .sep {
+  color: var(--border);
+}
+
+.settings-strip .spacer {
+  flex: 1;
+}
+
+.settings-summary-warn {
+  color: var(--status-gaveup);
+}
+
+.settings-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  margin-bottom: 8px;
+}
+
+.settings-filters .spacer {
+  flex: 1;
+}
+
+/* The filter chips: a pill toggle in the same vocabulary as design/tokens.css
+   .chip. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.chip:hover {
+  background: var(--muted);
+}
+
+.chip-active {
+  background: var(--secondary);
+  color: var(--foreground);
+  border-color: var(--ring);
+}
+
+/* A group of settings: one card, rows separated by a hairline. */
+.settings-group {
+  margin-top: 20px;
+}
+
+.settings-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 8px;
+}
+
+.settings-group-head h2 {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.settings-group-count {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-group-head .spacer {
+  flex: 1;
+}
+
+.settings-group-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  overflow: hidden;
+}
+
+.settings-group-card .settings-row + .settings-row {
+  border-top: 1px solid var(--border);
+}
+
+/* One setting row. Closed it is the summary grid; open it adds the body
+   below it. The value column is the one an operator scans: a stored value at
+   full weight, a default muted, a missing credential in the gave-up colour —
+   so the rows this installation has changed are findable without reading a
+   badge on every row (design/settings.html, components.html). */
+.settings-row {
   background: var(--card);
 }
 
-.settings-row-head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space);
-  font-size: 0.85rem;
+.settings-summary {
+  display: grid;
+  grid-template-columns: 10px minmax(150px, 250px) minmax(80px, 160px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-summary:hover {
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.settings-summary-open {
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 .settings-key {
   font-family: var(--font-mono);
+  font-size: 0.8125rem;
 }
 
-.settings-current {
-  display: flex;
-  align-items: center;
-  gap: var(--space);
-  margin: var(--space) 0;
-  font-size: 0.9rem;
-}
-
-.settings-value {
+.settings-val {
   font-family: var(--font-mono);
-  font-size: 0.85rem;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.settings-write {
+.settings-val-set {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.settings-val-unset {
+  color: var(--status-gaveup);
+}
+
+.settings-desc {
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+  min-width: 0;
+}
+
+.settings-flags {
   display: flex;
-  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.caret {
+  color: var(--muted-foreground);
+  transition: transform 0.12s ease;
+}
+
+.caret-open {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .caret {
+    transition: none;
+  }
+}
+
+/* The open row: full description, the unset-credential notice, the facts the
+   registry knows, and the write controls. */
+.settings-body {
+  padding: 2px 12px 14px 32px;
+  display: grid;
+  gap: 10px;
+  max-width: 92ch;
+}
+
+.settings-body p {
+  margin: 0;
+  font-size: 0.8125rem;
+  max-width: 78ch;
+}
+
+.facts {
+  display: flex;
   flex-wrap: wrap;
-  gap: var(--space);
+  gap: 6px 18px;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.facts .k {
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.6875rem;
+  margin-right: 5px;
+}
+
+.facts code {
+  background: var(--muted);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--foreground);
+}
+
+.write {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 .settings-input {
-  font-family: var(--font-mono);
-  font-size: 0.9rem;
+  min-width: 300px;
   flex: 0 1 320px;
-  min-width: 0;
+  font-family: var(--font-mono);
+}
+
+.field-error {
+  font-size: 0.75rem;
+  color: var(--status-failed);
+  font-family: var(--font-mono);
+  flex-basis: 100%;
+}
+
+.hint {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+/* The notices: .notice for "this breaks until you fix it", .notice-quiet for
+   the restart caveat that colours nothing (design/settings.html). */
+.notice {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--status-gaveup);
+  background: var(--status-gaveup-bg);
+  color: var(--foreground);
+  border-radius: calc(var(--radius) - 2px);
+  padding: 8px 12px;
+  font-size: 0.8125rem;
+}
+
+.notice-quiet {
+  border-left-color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--muted) 50%, transparent);
+  color: var(--muted-foreground);
 }
 
 .settings-error {
@@ -728,6 +950,19 @@ pre {
   border-radius: calc(var(--radius) - 4px);
   padding: var(--space);
   margin-bottom: var(--space);
+}
+
+@media (max-width: 900px) {
+  .settings-summary {
+    grid-template-columns: 10px minmax(0, 1fr) auto;
+  }
+  .settings-val {
+    grid-column: 2;
+    text-align: left;
+  }
+  .settings-desc {
+    display: none;
+  }
 }
 
 /* ---------- status and diff tokens on the shadcn Badge ----------
