@@ -20,9 +20,12 @@ import (
 )
 
 // testNATSURL and connectOrSkip mirror internal/queue's and
-// internal/worker's own test helpers: the broker in
-// docker-compose.test.yml, skipped when unreachable. NATS_URL is ignored on
-// purpose — see those packages' comments for why.
+// internal/worker's own test helpers: the broker in docker-compose.test.yml.
+// A missing broker is a failure, not a skip, by default — a suite that could
+// not run must not read as a pass in `go test ./...` output — with
+// HARNESS_TEST_NATS_OPTIONAL=1 as the deliberate opt-out for a developer who
+// genuinely has no Docker. NATS_URL is ignored on purpose — see those
+// packages' comments for why.
 func testNATSURL() string {
 	config.LoadDotEnv("../../.env")
 	if v := os.Getenv("HARNESS_TEST_NATS_URL"); v != "" {
@@ -35,7 +38,10 @@ func connectOrSkip(t *testing.T) (*nats.Conn, jetstream.JetStream) {
 	t.Helper()
 	nc, js, err := queue.Connect(testNATSURL())
 	if err != nil {
-		t.Skipf("no test NATS JetStream server reachable at %s (scripts/test.sh): %v", testNATSURL(), err)
+		if os.Getenv("HARNESS_TEST_NATS_OPTIONAL") == "1" {
+			t.Skipf("no test NATS JetStream server reachable at %s (scripts/test.sh): %v", testNATSURL(), err)
+		}
+		t.Fatalf("no test NATS JetStream server reachable at %s: %v — run scripts/test.sh to start one, or set HARNESS_TEST_NATS_OPTIONAL=1 to skip instead of failing", testNATSURL(), err)
 	}
 	t.Cleanup(nc.Close)
 	return nc, js
