@@ -77,6 +77,20 @@ Files with an `.en.` in the name are our English translations rather than
 upstream content. DeepSeek's prompt library is published in Chinese only;
 `_data/prompts.en.json` mirrors its structure and works as a drop-in substitute.
 
+## Generated skills
+
+`.claude/skills/playwright-cli/` is emitted by the tool it documents, not
+authored here. Refresh it with `playwright-cli install --skills` and copy the
+result in wholesale; the version in the image is pinned by
+`PLAYWRIGHT_CLI_VERSION` in the Dockerfile.
+
+Do not hand-edit any file under it, including the frontmatter. `playwright-cli`
+compares the skill against its own copy byte for byte and prints a "does not
+match the tool version" banner on *every* invocation when they differ — so a
+one-line tweak costs a banner on each of the dozens of calls a browser session
+makes. A stale copy is how the CLI's real commands and this skill's description
+of them drifted apart before.
+
 ## API facts
 
 - Base URL, OpenAI format: `https://api.deepseek.com`
