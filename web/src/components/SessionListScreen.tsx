@@ -2,6 +2,9 @@ import { useSyncExternalStore } from "react";
 import { sessionListStore } from "../api/sessionListStore";
 import type { QueueHealth, SessionState, Usage } from "../api/types";
 import { useNow, useQueueHealth } from "../hooks";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { statusVariant } from "./statusBadge";
 
 function formatElapsed(sess: SessionState, nowMs: number): string {
   const start = Date.parse(sess.created_at);
@@ -52,10 +55,12 @@ export function SessionListScreen({ onOpen, onSettings }: Props) {
     <div className="screen">
       <header className="screen-header">
         <h1>Sessions</h1>
-        <span className={`connection-badge connection-${snapshot.connection}`}>{snapshot.connection}</span>
-        <button className="settings-button" onClick={onSettings}>
+        <Badge variant="outline" className={`connection-badge connection-${snapshot.connection}`}>
+          {snapshot.connection}
+        </Badge>
+        <Button variant="outline" size="sm" onClick={onSettings}>
           settings
-        </button>
+        </Button>
       </header>
       <QueueHealthBar health={queueHealth} />
       <div className="table-scroll">
@@ -76,7 +81,7 @@ export function SessionListScreen({ onOpen, onSettings }: Props) {
             {snapshot.sessions.map((sess) => (
               <tr key={sess.id} className="session-row" onClick={() => onOpen(sess.id)}>
                 <td>
-                  <span className={`status-badge status-${sess.status}`}>{sess.status}</span>
+                  <Badge variant={statusVariant(sess.status)}>{sess.status}</Badge>
                 </td>
                 <td>
                   {sess.model} <span className="dim">({sess.effort})</span>

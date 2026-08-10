@@ -1,39 +1,268 @@
-/* Unstyled is expected for this phase (PLAN.md phase 4): enough plain CSS
-   to make the two screens legible, nothing more. Phase 5 is what makes this
-   hold frame rate and read well; phase 6 makes the economics legible. */
+/* The frontend's stylesheet, in three layers.
+ *
+ * 1. The shadcn/ui layer: Tailwind v4 plus the theme block below. The
+ *    variable values are ported verbatim from design/tokens.css — shadcn's
+ *    names carry shadcn's values, and the --status- / --diff- names survive
+ *    unchanged as the vocabulary on top that shadcn has no opinion about.
+ *    The dark block responds to prefers-color-scheme (no theme switcher;
+ *    docs/WEB-REDESIGN.md "What is deliberately not here").
+ * 2. The base layer: preflight plus the app's default body styling.
+ * 3. The bespoke layer: everything shadcn has no opinion about — the
+ *    transcript block styles, the diff table, the status and diff tokens,
+ *    and the layout that holds them. Rules the component layer now provides
+ *    (badge, button, input) live in the components, not here.
+ */
+
+@import "tailwindcss";
+@plugin "tailwindcss-animate";
+@import "shadcn/tailwind.css";
+
+/* The tokens respond to prefers-color-scheme rather than a .dark class, so
+   the `dark:` variant follows the media query too (design/tokens.css). */
+@custom-variant dark {
+  @media (prefers-color-scheme: dark) {
+    @slot;
+  }
+}
+
+/* ---------- theme: the design token set (design/tokens.css) ---------- */
 
 :root {
-  --color-bg: #ffffff;
-  --color-text: #1a1a1a;
-  --color-dim: #666666;
-  --color-border: #dddddd;
-  --color-accent: #2a5db0;
-  --color-error: #b0292a;
-  --color-warn: #a06a00;
-  --font-mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  --background: hsl(0 0% 100%);
+  --foreground: hsl(240 10% 4%);
+  --card: hsl(0 0% 100%);
+  --card-foreground: hsl(240 10% 4%);
+  --popover: hsl(0 0% 100%);
+  --popover-foreground: hsl(240 10% 4%);
+  --primary: hsl(240 6% 10%);
+  --primary-foreground: hsl(0 0% 98%);
+  --secondary: hsl(240 5% 96%);
+  --secondary-foreground: hsl(240 6% 10%);
+  --muted: hsl(240 5% 96%);
+  --muted-foreground: hsl(240 4% 46%);
+  --accent: hsl(240 5% 96%);
+  --accent-foreground: hsl(240 6% 10%);
+  --destructive: hsl(0 72% 45%);
+  --destructive-foreground: hsl(0 0% 98%);
+  --border: hsl(240 6% 90%);
+  --input: hsl(240 6% 90%);
+  --ring: hsl(240 5% 65%);
+  --radius: 0.5rem;
+
+  /* Session outcome vocabulary. One colour per meaning; the meanings are
+     defined in design/components.html. */
+  --status-running: hsl(217 91% 48%);
+  --status-running-bg: hsl(217 91% 96%);
+  --status-done: hsl(142 66% 32%);
+  --status-done-bg: hsl(142 66% 95%);
+  --status-gaveup: hsl(38 92% 38%);
+  --status-gaveup-bg: hsl(38 92% 95%);
+  --status-stopped: hsl(240 4% 46%);
+  --status-stopped-bg: hsl(240 5% 96%);
+  --status-failed: hsl(0 72% 45%);
+  --status-failed-bg: hsl(0 72% 96%);
+
+  --diff-add-bg: hsl(142 60% 95%);
+  --diff-add-fg: hsl(142 70% 24%);
+  --diff-remove-bg: hsl(0 70% 96%);
+  --diff-remove-fg: hsl(0 65% 36%);
+  --diff-gutter: hsl(240 4% 62%);
+
+  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* shadcn's generated defaults for what the app has no opinion about. */
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --background: hsl(240 10% 4%);
+    --foreground: hsl(0 0% 95%);
+    --card: hsl(240 8% 7%);
+    --card-foreground: hsl(0 0% 95%);
+    --popover: hsl(240 8% 7%);
+    --popover-foreground: hsl(0 0% 95%);
+    --primary: hsl(0 0% 95%);
+    --primary-foreground: hsl(240 6% 10%);
+    --secondary: hsl(240 6% 14%);
+    --secondary-foreground: hsl(0 0% 95%);
+    --muted: hsl(240 6% 14%);
+    --muted-foreground: hsl(240 5% 58%);
+    --accent: hsl(240 6% 14%);
+    --accent-foreground: hsl(0 0% 95%);
+    --destructive: hsl(0 70% 55%);
+    --border: hsl(240 6% 17%);
+    --input: hsl(240 6% 17%);
+    --ring: hsl(240 5% 40%);
+
+    --status-running: hsl(217 91% 68%);
+    --status-running-bg: hsl(217 60% 15%);
+    --status-done: hsl(142 60% 55%);
+    --status-done-bg: hsl(142 45% 13%);
+    --status-gaveup: hsl(38 92% 62%);
+    --status-gaveup-bg: hsl(38 60% 14%);
+    --status-stopped: hsl(240 5% 58%);
+    --status-stopped-bg: hsl(240 6% 14%);
+    --status-failed: hsl(0 75% 65%);
+    --status-failed-bg: hsl(0 50% 14%);
+
+    --diff-add-bg: hsl(142 40% 12%);
+    --diff-add-fg: hsl(142 55% 68%);
+    --diff-remove-bg: hsl(0 40% 14%);
+    --diff-remove-fg: hsl(0 60% 70%);
+    --diff-gutter: hsl(240 5% 45%);
+  }
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+/* highlight.js is imported light-only (github.css, in main.tsx); swap its
+   palette for github-dark's under the same media query the tokens use, so
+   code blocks stay readable on the dark page. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .hljs {
+    color: #c9d1d9;
+    background: #0d1117;
+  }
+  :root:not([data-theme="light"]) .hljs-doctag,
+  :root:not([data-theme="light"]) .hljs-keyword,
+  :root:not([data-theme="light"]) .hljs-template-tag,
+  :root:not([data-theme="light"]) .hljs-template-variable,
+  :root:not([data-theme="light"]) .hljs-type,
+  :root:not([data-theme="light"]) .hljs-variable.language_ {
+    color: #ff7b72;
+  }
+  :root:not([data-theme="light"]) .hljs-title,
+  :root:not([data-theme="light"]) .hljs-title.class_,
+  :root:not([data-theme="light"]) .hljs-title.class_.inherited__,
+  :root:not([data-theme="light"]) .hljs-title.function_ {
+    color: #d2a8ff;
+  }
+  :root:not([data-theme="light"]) .hljs-attr,
+  :root:not([data-theme="light"]) .hljs-attribute,
+  :root:not([data-theme="light"]) .hljs-literal,
+  :root:not([data-theme="light"]) .hljs-meta,
+  :root:not([data-theme="light"]) .hljs-number,
+  :root:not([data-theme="light"]) .hljs-operator,
+  :root:not([data-theme="light"]) .hljs-variable,
+  :root:not([data-theme="light"]) .hljs-selector-attr,
+  :root:not([data-theme="light"]) .hljs-selector-class,
+  :root:not([data-theme="light"]) .hljs-selector-id {
+    color: #79c0ff;
+  }
+  :root:not([data-theme="light"]) .hljs-regexp,
+  :root:not([data-theme="light"]) .hljs-string,
+  :root:not([data-theme="light"]) .hljs-meta .hljs-string {
+    color: #a5d6ff;
+  }
+  :root:not([data-theme="light"]) .hljs-built_in,
+  :root:not([data-theme="light"]) .hljs-symbol {
+    color: #ffa657;
+  }
+  :root:not([data-theme="light"]) .hljs-comment,
+  :root:not([data-theme="light"]) .hljs-code,
+  :root:not([data-theme="light"]) .hljs-formula {
+    color: #8b949e;
+  }
+  :root:not([data-theme="light"]) .hljs-name,
+  :root:not([data-theme="light"]) .hljs-quote,
+  :root:not([data-theme="light"]) .hljs-selector-tag,
+  :root:not([data-theme="light"]) .hljs-selector-pseudo {
+    color: #7ee787;
+  }
+  :root:not([data-theme="light"]) .hljs-section {
+    color: #1f6feb;
+    font-weight: bold;
+  }
+  :root:not([data-theme="light"]) .hljs-bullet {
+    color: #f2cc60;
+  }
+  :root:not([data-theme="light"]) .hljs-emphasis {
+    color: #c9d1d9;
+    font-style: italic;
+  }
+  :root:not([data-theme="light"]) .hljs-strong {
+    color: #c9d1d9;
+    font-weight: bold;
+  }
+  :root:not([data-theme="light"]) .hljs-addition {
+    color: #aff5b4;
+    background-color: #033a16;
+  }
+  :root:not([data-theme="light"]) .hljs-deletion {
+    color: #ffdcd7;
+    background-color: #67060c;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+html {
+  color-scheme: light dark;
+}
+
+/* ---------- the bespoke layer ----------
+   Layout, the transcript blocks, the diff table, and the status and diff
+   tokens. This is the layer shadcn has no opinion about (docs/WEB-REDESIGN.md
+   phase 1); the component styles (badge, button, input) live in
+   src/components/ui. */
+
+:root {
   --space: 8px;
 }
 
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  color: var(--color-text);
-  background: var(--color-bg);
-}
-
-code,
-pre {
-  font-family: var(--font-mono);
-}
+/* ---------- layout ---------- */
 
 .screen {
   max-width: 960px;
   margin: 0 auto;
   padding: calc(var(--space) * 2);
+}
+
+.screen-transcript {
+  max-width: 1200px;
 }
 
 .screen-header {
@@ -53,32 +282,20 @@ pre {
   white-space: nowrap;
 }
 
-.back-button,
-.settings-button {
-  font: inherit;
-  cursor: pointer;
-  border: 1px solid var(--color-border);
-  background: none;
-  border-radius: 4px;
-  padding: 4px 8px;
-}
-
-.connection-badge {
-  font-size: 0.75rem;
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid var(--color-border);
-  color: var(--color-dim);
-}
-
-.connection-open {
-  color: #1a7a3a;
-  border-color: #1a7a3a;
-}
-
 .dim {
-  color: var(--color-dim);
+  color: var(--muted-foreground);
 }
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+code,
+pre {
+  font-family: var(--font-mono);
+}
+
+/* ---------- session list ---------- */
 
 .session-table {
   width: 100%;
@@ -88,14 +305,14 @@ pre {
 
 .session-table th {
   text-align: left;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--border);
   padding: 6px 8px;
-  color: var(--color-dim);
+  color: var(--muted-foreground);
   font-weight: 600;
 }
 
 .session-table td {
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--border);
   padding: 6px 8px;
   vertical-align: top;
 }
@@ -105,7 +322,7 @@ pre {
 }
 
 .session-row:hover {
-  background: #f5f5f5;
+  background: var(--muted);
 }
 
 .workspace-cell {
@@ -118,39 +335,17 @@ pre {
 }
 
 .empty-row {
-  color: var(--color-dim);
+  color: var(--muted-foreground);
   padding: calc(var(--space) * 2);
 }
 
-.status-badge {
-  font-size: 0.75rem;
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid var(--color-border);
-  text-transform: uppercase;
+.connection-badge {
+  color: var(--muted-foreground);
 }
 
-.status-running {
-  color: var(--color-accent);
-  border-color: var(--color-accent);
-}
-
-.status-ok {
-  color: #1a7a3a;
-  border-color: #1a7a3a;
-}
-
-.status-failed,
-.status-timeout,
-.status-max_turns {
-  color: var(--color-error);
-  border-color: var(--color-error);
-}
-
-.status-compacted,
-.status-cancelled {
-  color: var(--color-warn);
-  border-color: var(--color-warn);
+.connection-open {
+  color: var(--status-done);
+  border-color: var(--status-done);
 }
 
 .session-meta {
@@ -160,24 +355,29 @@ pre {
   font-size: 0.85rem;
   margin-bottom: calc(var(--space) * 2);
   padding-bottom: var(--space);
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--border);
 }
 
+/* ---------- transcript blocks ---------- */
+
 .transcript {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space);
 }
 
 .block {
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
   padding: var(--space);
+  background: var(--card);
 }
 
 .block-label {
   font-size: 0.75rem;
-  color: var(--color-dim);
+  color: var(--muted-foreground);
   text-transform: uppercase;
   margin-bottom: 4px;
 }
@@ -196,44 +396,44 @@ pre {
 }
 
 .block-opening {
-  background: #f7f7f7;
+  background: var(--muted);
 }
 
 .block-skills {
-  background: #f7f7f7;
+  background: var(--muted);
 }
 
 .skills-summary {
   cursor: pointer;
   font-size: 0.85rem;
-  color: var(--color-dim);
+  color: var(--muted-foreground);
 }
 
 .block-tool-error {
-  border-color: var(--color-error);
+  border-color: var(--status-failed);
 }
 
 .block-denied {
-  border-color: var(--color-warn);
+  border-color: var(--status-gaveup);
 }
 
 .block-error {
-  border-color: var(--color-error);
-  color: var(--color-error);
+  border-color: var(--status-failed);
+  color: var(--status-failed);
 }
 
 .block-run-finished {
-  border-color: var(--color-accent);
+  border-color: var(--status-running);
 }
 
 .block-usage {
   font-size: 0.75rem;
-  color: var(--color-dim);
-  padding: 2px 4px;
+  color: var(--muted-foreground);
+  padding: 4px 8px;
 }
 
 .churn-warning {
-  color: var(--color-warn);
+  color: var(--status-gaveup);
 }
 
 .tool-call {
@@ -241,24 +441,93 @@ pre {
   font-size: 0.85rem;
 }
 
+.tool-detail {
+  color: var(--muted-foreground);
+  font-weight: normal;
+  text-transform: none;
+}
+
+.block-tool-pending {
+  border-style: dashed;
+  color: var(--muted-foreground);
+}
+
+.block-live {
+  border-style: dashed;
+}
+
+.live-pre {
+  white-space: pre-wrap;
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--foreground);
+}
+
+.collapse-toggle {
+  color: var(--status-running);
+}
+
 .reasoning summary {
   cursor: pointer;
-  color: var(--color-dim);
+  color: var(--muted-foreground);
   font-size: 0.85rem;
 }
 
 .reasoning-text {
-  color: var(--color-dim);
+  color: var(--muted-foreground);
   font-size: 0.85rem;
 }
 
-/* Phase 5: the two-column transcript layout, the plan panel pinned beside
-   it, per-tool block shaping, and the live/streaming variants of blocks
-   that have not frozen yet (docs/DESIGN.md §5). */
-
-.screen-transcript {
-  max-width: 1200px;
+.code-block {
+  margin: 0;
+  overflow-x: auto;
+  font-size: 0.85rem;
+  max-height: 480px;
+  overflow-y: auto;
 }
+
+.markdown {
+  font-size: 0.95rem;
+}
+
+/* Preflight zeroes element margins, so paragraph spacing is explicit here
+   rather than inherited from the browser's defaults. */
+.markdown p {
+  margin: 0 0 1em;
+}
+
+.markdown :first-child {
+  margin-top: 0;
+}
+
+.markdown :last-child {
+  margin-bottom: 0;
+}
+
+.markdown pre {
+  overflow-x: auto;
+}
+
+.markdown code:not(pre code) {
+  background: var(--muted);
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: 0.9em;
+}
+
+.task-child {
+  margin-top: var(--space);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space);
+}
+
+.task-child-body {
+  border-left: 2px solid var(--border);
+  padding-left: var(--space);
+}
+
+/* ---------- the plan column ---------- */
 
 .transcript-layout {
   display: flex;
@@ -266,29 +535,22 @@ pre {
   gap: calc(var(--space) * 3);
 }
 
-.transcript {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space);
-}
-
 .plan-panel {
   position: sticky;
   top: var(--space);
   flex: 0 0 240px;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
   padding: var(--space);
   font-size: 0.85rem;
+  background: var(--card);
 }
 
 .plan-panel h2 {
   margin: 0 0 var(--space) 0;
   font-size: 0.75rem;
   text-transform: uppercase;
-  color: var(--color-dim);
+  color: var(--muted-foreground);
 }
 
 .plan-panel ul {
@@ -307,18 +569,18 @@ pre {
 }
 
 .todo-mark {
-  color: var(--color-dim);
+  color: var(--muted-foreground);
   width: 1em;
   flex: none;
 }
 
 .todo-completed {
-  color: var(--color-dim);
+  color: var(--muted-foreground);
   text-decoration: line-through;
 }
 
 .todo-in_progress .todo-mark {
-  color: var(--color-accent);
+  color: var(--status-running);
 }
 
 @media (max-width: 860px) {
@@ -332,70 +594,7 @@ pre {
   }
 }
 
-.tool-detail {
-  color: var(--color-dim);
-  font-weight: normal;
-  text-transform: none;
-}
-
-.block-tool-pending {
-  border-style: dashed;
-  color: var(--color-dim);
-}
-
-.block-live {
-  border-style: dashed;
-}
-
-.live-pre {
-  white-space: pre-wrap;
-  margin: 0;
-  font-size: 0.85rem;
-  color: var(--color-text);
-}
-
-.collapse-toggle {
-  font: inherit;
-  font-size: 0.8rem;
-  cursor: pointer;
-  border: 1px solid var(--color-border);
-  background: none;
-  border-radius: 4px;
-  padding: 2px 8px;
-  color: var(--color-accent);
-  align-self: flex-start;
-}
-
-.code-block {
-  margin: 0;
-  overflow-x: auto;
-  font-size: 0.85rem;
-  max-height: 480px;
-  overflow-y: auto;
-}
-
-.markdown {
-  font-size: 0.95rem;
-}
-
-.markdown :first-child {
-  margin-top: 0;
-}
-
-.markdown :last-child {
-  margin-bottom: 0;
-}
-
-.markdown pre {
-  overflow-x: auto;
-}
-
-.markdown code:not(pre code) {
-  background: #f2f2f2;
-  border-radius: 3px;
-  padding: 1px 4px;
-  font-size: 0.9em;
-}
+/* ---------- diff table ---------- */
 
 .diff-table {
   border-collapse: collapse;
@@ -414,7 +613,7 @@ pre {
 }
 
 .diff-lineno {
-  color: var(--color-dim);
+  color: var(--diff-gutter);
   text-align: right;
   width: 3em;
   user-select: none;
@@ -427,68 +626,39 @@ pre {
 }
 
 .diff-add {
-  background: #e6ffed;
+  background: var(--diff-add-bg);
 }
 
 .diff-add .diff-marker {
-  color: #1a7a3a;
+  color: var(--diff-add-fg);
 }
 
 .diff-remove {
-  background: #ffeef0;
+  background: var(--diff-remove-bg);
 }
 
 .diff-remove .diff-marker {
-  color: var(--color-error);
+  color: var(--diff-remove-fg);
 }
 
-.task-child {
-  margin-top: var(--space);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space);
-}
-
-.task-child-body {
-  border-left: 2px solid var(--color-border);
-  padding-left: var(--space);
-}
-
-/* web/src/perf: the phase 5 measurement harness page. */
-
-.perf-harness {
-  max-width: 1200px;
-}
-
-.table-scroll {
-  overflow-x: auto;
-}
-
-.perf-results {
-  font-family: var(--font-mono);
-  white-space: nowrap;
-}
-
-/* Phase 6: queue health on the session list (docs/DESIGN.md §5.8). */
+/* ---------- queue health on the session list ---------- */
 
 .queue-health {
   font-size: 0.8rem;
-  color: var(--color-dim);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
   padding: 4px 8px;
   margin-bottom: var(--space);
 }
 
 .queue-health-halted {
-  color: var(--color-warn);
-  border-color: var(--color-warn);
+  color: var(--status-gaveup);
+  border-color: var(--status-gaveup);
   font-weight: 600;
 }
 
-/* web/src/components/SettingsScreen.tsx: the settings screen
-   (docs/DESIGN.md §4.2) — the browser's one write, key management only,
-   no run control. */
+/* ---------- settings screen ---------- */
 
 .settings-group {
   margin-bottom: calc(var(--space) * 2);
@@ -498,21 +668,16 @@ pre {
   font-size: 0.8rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--color-dim);
+  color: var(--muted-foreground);
   margin: 0 0 var(--space);
 }
 
-.settings-restart {
-  background: transparent;
-  color: var(--color-warn);
-  border: 1px solid var(--color-warn);
-}
-
 .settings-row {
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
   padding: var(--space);
   margin-bottom: var(--space);
+  background: var(--card);
 }
 
 .settings-row-head {
@@ -547,24 +712,67 @@ pre {
 }
 
 .settings-input {
-  font: inherit;
   font-family: var(--font-mono);
   font-size: 0.9rem;
-  padding: 4px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
   flex: 0 1 320px;
   min-width: 0;
 }
 
 .settings-error {
-  color: var(--color-error);
+  color: var(--status-failed);
   font-size: 0.85rem;
 }
 
 .settings-error-banner {
-  border: 1px solid var(--color-error);
-  border-radius: 4px;
+  border: 1px solid var(--status-failed);
+  border-radius: calc(var(--radius) - 4px);
   padding: var(--space);
   margin-bottom: var(--space);
+}
+
+/* ---------- status and diff tokens on the shadcn Badge ----------
+   The badge itself is the component; these are the harness's own vocabulary
+   tints on top of it, straight from design/tokens.css. */
+
+.badge-running {
+  background: var(--status-running-bg);
+  color: var(--status-running);
+}
+
+.badge-done {
+  background: var(--status-done-bg);
+  color: var(--status-done);
+}
+
+.badge-gaveup {
+  background: var(--status-gaveup-bg);
+  color: var(--status-gaveup);
+}
+
+.badge-stopped {
+  background: var(--status-stopped-bg);
+  color: var(--status-stopped);
+}
+
+.badge-failed {
+  background: var(--status-failed-bg);
+  color: var(--status-failed);
+}
+
+/* Outlined rather than filled: "takes effect on the next start" is a caveat
+   on a setting, not a state a session is in. */
+.badge-restart {
+  border-color: var(--status-gaveup);
+  color: var(--status-gaveup);
+}
+
+/* ---------- web/src/perf: the phase 5 measurement harness page ---------- */
+
+.perf-harness {
+  max-width: 1200px;
+}
+
+.perf-results {
+  font-family: var(--font-mono);
+  white-space: nowrap;
 }

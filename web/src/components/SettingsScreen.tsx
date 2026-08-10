@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { deleteSetting, listSettings, setSetting } from "../api/settings";
 import type { SettingEntry } from "../api/settings";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
 
 interface Props {
   onBack: () => void;
@@ -114,9 +117,9 @@ export function SettingsScreen({ onBack }: Props) {
   return (
     <div className="screen">
       <header className="screen-header">
-        <button className="back-button" onClick={onBack}>
+        <Button variant="outline" size="sm" onClick={onBack}>
           ← sessions
-        </button>
+        </Button>
         <h1>Settings</h1>
       </header>
       {loadError && (
@@ -136,27 +139,27 @@ export function SettingsScreen({ onBack }: Props) {
                 <div className="settings-row" key={entry.key}>
                   <div className="settings-row-head">
                     <span className="settings-key">{entry.key}</span>
-                    {entry.restart && <span className="status-badge settings-restart">restart</span>}
+                    {entry.restart && <Badge variant="restart">restart</Badge>}
                     <span className="dim">{entry.description}</span>
                   </div>
                   <div className="settings-current">
                     {entry.set ? (
                       <>
-                        <span className={`status-badge ${entry.override ? "status-warn" : "status-ok"}`}>
+                        <Badge variant={entry.override ? "running" : "done"}>
                           {entry.override ? "override" : "default"}
-                        </span>
+                        </Badge>
                         <span className="settings-value">{entry.value}</span>
                         {entry.override && <span className="dim">default {entry.default}</span>}
                       </>
                     ) : (
                       <>
-                        <span className="status-badge status-ok">default</span>
+                        <Badge variant="done">default</Badge>
                         <span className="dim">not set — default {entry.default} applies</span>
                       </>
                     )}
                   </div>
                   <div className="settings-write">
-                    <input
+                    <Input
                       className="settings-input"
                       type={inputType(entry)}
                       placeholder={placeholder}
@@ -166,21 +169,23 @@ export function SettingsScreen({ onBack }: Props) {
                       spellCheck={false}
                       autoComplete="off"
                     />
-                    <button
-                      className="back-button"
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={() => save(entry.key)}
                       disabled={row.busy || row.draft === ""}
                     >
                       Save
-                    </button>
-                    <button
-                      className="back-button"
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
                       onClick={() => resetToDefault(entry.key)}
                       disabled={row.busy || !entry.set}
                       title="delete the stored value so the registry default applies"
                     >
                       reset to default
-                    </button>
+                    </Button>
                     {row.error && <span className="settings-error">{row.error}</span>}
                   </div>
                 </div>

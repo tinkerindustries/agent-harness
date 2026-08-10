@@ -721,8 +721,16 @@ because it goes back to the API.
 
 ### 5.7 Stack
 
-Vite, React, TypeScript. No component framework. Plain CSS with custom
-properties. Three screens and one write path, so no router library — `App.tsx`
+Vite, React, TypeScript, shadcn/ui on Tailwind v4. The component layer is
+`badge`, `button`, `card`, `collapsible`, `input`, `toggle`,
+`toggle-group`, and `tooltip` (in `web/src/components/ui/`), themed from
+`design/tokens.css` with the variables ported into the theme block in
+`web/src/styles.css`. `ScrollArea` and `DataTable` are deliberately absent —
+the rail and the plan column are plain sticky elements, and the diff table
+renders inside the transcript (docs/WEB-REDESIGN.md phase 1). Everything
+shadcn has no opinion about — the transcript block styles, the diff table,
+and the status and diff tokens — is plain CSS in `web/src/styles.css`.
+Three screens and one write path, so no router library — `App.tsx`
 parses the pathname (`/`, `/sessions/:id`, `/settings`) and navigates with
 `history.pushState`/`popstate`, and the static handler falls back to
 `index.html` so a direct link or reload lands on the right screen — and no
