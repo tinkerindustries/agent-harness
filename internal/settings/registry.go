@@ -56,6 +56,7 @@ const (
 	KeyRunMaxSubTurns         = "run.max_sub_turns"
 	KeyRunDeadline            = "run.deadline"
 	KeyRunCompactionThreshold = "run.compaction_threshold"
+	KeyRunStopGracePeriod     = "run.stop_grace_period"
 
 	KeyToolOutputCap                 = "tools.output_cap"
 	KeyToolBashTimeout               = "tools.bash_timeout"
@@ -81,6 +82,7 @@ const (
 	KeyQueueResultsMaxAge        = "queue.results_max_age"
 	KeyHTTPEventsLimitDefault    = "http.events_limit_default"
 	KeyHTTPEventsLimitMax        = "http.events_limit_max"
+	KeyHTTPControlToken          = "http.control_token"
 )
 
 // Descriptor is one registry entry: everything the harness knows about a
@@ -121,6 +123,8 @@ var registry = []Descriptor{
 		"DeepSeek API key — the harness's own account", "", true, false),
 	stringSetting(KeyGoogleAPIKey, GroupCredentials,
 		"Google API key — sent to Gemini by ReviewScreenshot", "", true, false),
+	stringSetting(KeyHTTPControlToken, GroupCredentials,
+		"Bearer token the run-control endpoints require (docs/RUN-CONTROL.md). Generated at startup when unset.", "", true, false),
 
 	// --- Run budget ---
 	intSetting(KeyRunMaxTokens, GroupRunBudget, 48000, 1, 1_000_000,
@@ -131,6 +135,8 @@ var registry = []Descriptor{
 		"Wall clock a work request that omits deadline_ms gets. Chosen against run.max_sub_turns: 400 sub-turns at roughly six seconds each need about 40 minutes, and this hour leaves headroom. Raising one without the other does nothing."),
 	intSetting(KeyRunCompactionThreshold, GroupRunBudget, 768*1024, 1024, 1_000_000,
 		"Prompt-token threshold at which the session compacts its history (DeepSeek's recommended Claude Code compaction window, 768K of the 1M context)"),
+	durationSetting(KeyRunStopGracePeriod, GroupRunBudget, "30s", time.Second, time.Hour,
+		"How long a stop waits for a cancelled run to return before it gives up on the goroutine and finishes the run without it (docs/RUN-CONTROL.md \"Half two\"). Sized against the longest uninterruptible thing a healthy run does between context checks, not against sub-turn latency."),
 
 	// --- Tool limits ---
 	intSetting(KeyToolOutputCap, GroupToolLimits, 200_000, 1000, 10_000_000,

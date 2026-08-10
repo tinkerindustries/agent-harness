@@ -25,6 +25,7 @@ func TestRegistryDefaultsMatchTheConstantsTheyReplaced(t *testing.T) {
 		{settings.KeyRunMaxSubTurns, "400"},
 		{settings.KeyRunDeadline, "1h"},
 		{settings.KeyRunCompactionThreshold, "786432"},
+		{settings.KeyRunStopGracePeriod, "30s"},
 		{settings.KeyToolOutputCap, "200000"},
 		{settings.KeyToolBashTimeout, "2m"},
 		{settings.KeyToolBashTimeoutMax, "10m"},
@@ -47,6 +48,9 @@ func TestRegistryDefaultsMatchTheConstantsTheyReplaced(t *testing.T) {
 		{settings.KeyQueueResultsMaxAge, "168h"},
 		{settings.KeyHTTPEventsLimitDefault, "500"},
 		{settings.KeyHTTPEventsLimitMax, "5000"},
+		// The control token defaults to empty: it is generated at startup when
+		// unset, which is run control's job (phase 4), not the registry's.
+		{settings.KeyHTTPControlToken, ""},
 	}
 	for _, tc := range cases {
 		d, ok := settings.Lookup(tc.key)
