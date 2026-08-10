@@ -18,6 +18,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
+	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
 
@@ -31,9 +32,12 @@ func newTestServer(t *testing.T) (*httptest.Server, *store.Store, *hub.Hub) {
 	t.Cleanup(func() { st.Close() })
 
 	h := hub.New()
-	api := &Server{Store: st, Hub: h, Static: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "static placeholder")
-	})}
+	api := &Server{
+		Store: st, Hub: h, Settings: settings.NewResolver(st),
+		Static: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprint(w, "static placeholder")
+		}),
+	}
 
 	srv := httptest.NewServer(api.Handler())
 	t.Cleanup(srv.Close)
@@ -72,7 +76,14 @@ func appendAndPublish(t *testing.T, st *store.Store, h *hub.Hub, sessionID strin
 
 // --- method gate ---
 
-func TestNonGetMethodsReturn405Everywhere(t *testing.T) {
+// TestNonGetMethodsReturn405EverywhereExceptSettings pins the method gate: a
+// non-GET/HEAD request 405s on every path — including paths nothing here
+// recognises — with an Allow header naming what the path actually permits.
+// The settings key path is the single exception: PUT and DELETE pass the gate
+// there (the surface's one write, docs/DESIGN.md §4.2), so they are asserted
+// separately, and the other methods still 405 there with all four allowed
+// methods named.
+func TestNonGetMethodsReturn405EverywhereExceptSettings(t *testing.T) {
 	srv, st, _ := newTestServer(t)
 	mustCreateSession(t, st, "sess-1", time.Now())
 
@@ -87,6 +98,9 @@ func TestNonGetMethodsReturn405Everywhere(t *testing.T) {
 		"/api/queue",
 		"/api/sessions/does-not-exist",
 		"/api/requests/does-not-exist/status",
+		"/api/settings",     // the collection path has no write route
+		"/api/settings/",    // an empty key segment is not a key path
+		"/api/settings/a/b", // not exactly one key segment
 		"/totally/unregistered/path",
 	}
 	methods := []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodOptions}
@@ -106,9 +120,45 @@ func TestNonGetMethodsReturn405Everywhere(t *testing.T) {
 			if resp.StatusCode != http.StatusMethodNotAllowed {
 				t.Errorf("%s %s: got status %d, want 405", m, p, resp.StatusCode)
 			}
-			if resp.Header.Get("Allow") == "" {
-				t.Errorf("%s %s: expected an Allow header on 405", m, p)
+			if got := resp.Header.Get("Allow"); got != "GET, HEAD" {
+				t.Errorf("%s %s: Allow = %q, want %q", m, p, got, "GET, HEAD")
 			}
+		}
+	}
+
+	// The settings key path allows PUT and DELETE; every other method still
+	// 405s there, naming all four allowed methods in Allow.
+	settingsPath := "/api/settings/deepseek.api_key"
+	for _, m := range []string{http.MethodPut, http.MethodDelete} {
+		req, err := http.NewRequest(m, srv.URL+settingsPath, strings.NewReader(`{"value":"x"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("%s %s: %v", m, settingsPath, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusMethodNotAllowed {
+			t.Errorf("%s %s: gate refused a permitted write", m, settingsPath)
+		}
+	}
+	for _, m := range []string{http.MethodPost, http.MethodPatch, http.MethodOptions} {
+		req, err := http.NewRequest(m, srv.URL+settingsPath, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("%s %s: %v", m, settingsPath, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("%s %s: got status %d, want 405", m, settingsPath, resp.StatusCode)
+		}
+		if got := resp.Header.Get("Allow"); got != "GET, HEAD, PUT, DELETE" {
+			t.Errorf("%s %s: Allow = %q, want %q", m, settingsPath, got, "GET, HEAD, PUT, DELETE")
 		}
 	}
 }
@@ -850,5 +900,218 @@ func TestQueueHealthSurfacesConsumerInfoError(t *testing.T) {
 	}
 	if qh.Error == "" {
 		t.Fatal("expected the Consumer.Info error to be surfaced")
+	}
+}
+
+// --- settings ---
+
+// doSettingsWrite issues one PUT or DELETE against the settings key path with
+// the given extra headers, returning the response for the caller to inspect.
+func doSettingsWrite(t *testing.T, srv *httptest.Server, method, path, body string, headers map[string]string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, path, err)
+	}
+	return resp
+}
+
+func TestGetSettingsMasksSecretsAndListsAllKeys(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	ctx := context.Background()
+	if err := st.SetSetting(ctx, settings.KeyDeepSeekAPIKey, "sk-very-secret-1234"); err != nil {
+		t.Fatalf("set deepseek key: %v", err)
+	}
+	if err := st.SetSetting(ctx, settings.KeyGoogleVisionModel, "gemini-3.6-flash"); err != nil {
+		t.Fatalf("set vision model: %v", err)
+	}
+
+	resp, err := http.Get(srv.URL + "/api/settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("got status %d, want 200", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The stored secret's full value must not appear anywhere in the body.
+	if strings.Contains(string(body), "sk-very-secret-1234") {
+		t.Fatalf("stored secret appeared in full in the response body: %s", body)
+	}
+
+	var got []settingEntry
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(settings.ValidKeys) {
+		t.Fatalf("expected %d entries, got %d: %+v", len(settings.ValidKeys), len(got), got)
+	}
+	for i, key := range settings.ValidKeys {
+		if got[i].Key != key {
+			t.Fatalf("entry %d key = %q, want %q", i, got[i].Key, key)
+		}
+	}
+	if !got[0].Set || got[0].Value != maskSecret("sk-very-secret-1234") {
+		t.Fatalf("deepseek.api_key entry = %+v, want set with masked value %q", got[0], maskSecret("sk-very-secret-1234"))
+	}
+	if got[1].Set || got[1].Value != "" {
+		t.Fatalf("google.api_key should be unset with no value, got %+v", got[1])
+	}
+	if !got[2].Set || got[2].Value != "gemini-3.6-flash" {
+		t.Fatalf("google.vision_model entry = %+v, want set with its full value", got[2])
+	}
+}
+
+func TestPutSettingThenGetShowsItSet(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	resp := doSettingsWrite(t, srv, http.MethodPut, "/api/settings/google.vision_model", `{"value":"gemini-3.6-flash"}`, map[string]string{
+		"Content-Type": "application/json",
+	})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT: got status %d, want 200", resp.StatusCode)
+	}
+
+	getResp, err := http.Get(srv.URL + "/api/settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer getResp.Body.Close()
+	var got []settingEntry
+	if err := json.NewDecoder(getResp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	entry := got[2]
+	if entry.Key != settings.KeyGoogleVisionModel || !entry.Set || entry.Value != "gemini-3.6-flash" {
+		t.Fatalf("google.vision_model after PUT = %+v, want set with the written value", entry)
+	}
+}
+
+func TestPutSettingUnknownKeyReturns400(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	resp := doSettingsWrite(t, srv, http.MethodPut, "/api/settings/deepsek.api_key", `{"value":"sk-..."}`, map[string]string{
+		"Content-Type": "application/json",
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("got status %d, want 400", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Fatalf("error response Content-Type = %q, want JSON", ct)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "unknown setting") {
+		t.Fatalf("error body %q does not carry the UnknownKeyError message", body)
+	}
+	// The typo'd key must not have been stored.
+	if _, ok, err := st.Setting(context.Background(), "deepsek.api_key"); err != nil || ok {
+		t.Fatalf("unknown key was stored (ok=%v err=%v)", ok, err)
+	}
+}
+
+func TestPutSettingContentTypeRequired(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	for _, tc := range []struct {
+		name string
+		ct   string
+	}{
+		{"missing", ""},
+		{"wrong", "text/plain"},
+		{"form-encoded", "application/x-www-form-urlencoded"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			headers := map[string]string{}
+			if tc.ct != "" {
+				headers["Content-Type"] = tc.ct
+			}
+			resp := doSettingsWrite(t, srv, http.MethodPut, "/api/settings/deepseek.api_key", `{"value":"sk-x"}`, headers)
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusUnsupportedMediaType {
+				t.Fatalf("Content-Type %q: got status %d, want 415", tc.ct, resp.StatusCode)
+			}
+		})
+	}
+}
+
+func TestSettingsWritesOriginCheck(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	// A foreign Origin is refused with 403 on both writing methods.
+	for _, m := range []string{http.MethodPut, http.MethodDelete} {
+		resp := doSettingsWrite(t, srv, m, "/api/settings/deepseek.api_key", `{"value":"sk-x"}`, map[string]string{
+			"Content-Type": "application/json",
+			"Origin":       "https://evil.example",
+		})
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("%s with foreign Origin: got status %d, want 403", m, resp.StatusCode)
+		}
+	}
+
+	// A same-origin write passes.
+	resp := doSettingsWrite(t, srv, http.MethodPut, "/api/settings/google.vision_model", `{"value":"gemini-3.7-flash"}`, map[string]string{
+		"Content-Type": "application/json",
+		"Origin":       srv.URL,
+	})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("same-origin PUT: got status %d, want 200", resp.StatusCode)
+	}
+}
+
+func TestDeleteSettingUnsetsAndRejectsUnknownKey(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	headers := map[string]string{"Content-Type": "application/json"}
+
+	// Set a key, then delete it; the GET shows it unset again.
+	resp := doSettingsWrite(t, srv, http.MethodPut, "/api/settings/deepseek.api_key", `{"value":"sk-x"}`, headers)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT: got status %d, want 200", resp.StatusCode)
+	}
+	resp = doSettingsWrite(t, srv, http.MethodDelete, "/api/settings/deepseek.api_key", "", headers)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("DELETE: got status %d, want 200", resp.StatusCode)
+	}
+
+	getResp, err := http.Get(srv.URL + "/api/settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer getResp.Body.Close()
+	var got []settingEntry
+	if err := json.NewDecoder(getResp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got[0].Set {
+		t.Fatalf("deepseek.api_key still set after DELETE: %+v", got[0])
+	}
+
+	// Deleting an unknown key is a 400 carrying UnknownKeyError's message.
+	resp = doSettingsWrite(t, srv, http.MethodDelete, "/api/settings/not.a.key", "", headers)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("DELETE unknown key: got status %d, want 400", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "unknown setting") {
+		t.Fatalf("error body %q does not carry the UnknownKeyError message", body)
 	}
 }
