@@ -38,6 +38,12 @@ export interface SessionState {
   summary?: string;
   created_at: string;
   finished_at?: string;
+  // Version is the row's optimistic-concurrency counter (docs/DATA-API.md):
+  // the value a mutating write must echo back in If-Match, bumped by every
+  // change to the row. It rides on every representation — list, single, and
+  // the stream feed — so a client can always read a fresh version before
+  // writing.
+  version: number;
   sub_turns: number;
   usage: Usage;
   // price_table_date is the config price table's own capture date
@@ -184,6 +190,10 @@ export interface EventsPage {
   events: StoreEvent[];
   from: number;
   limit: number;
+  // has_more is whether more events follow this page, decided exactly by the
+  // server peeking one row past it; next, present only when has_more, is the
+  // from to ask for the next page with (docs/DATA-API.md "events").
+  has_more: boolean;
   next?: number;
 }
 

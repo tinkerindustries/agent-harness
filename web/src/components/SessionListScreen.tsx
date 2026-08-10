@@ -94,9 +94,10 @@ function toolCallTarget(name: string, argumentsJSON: string): string {
 interface Props {
   onOpen: (id: string) => void;
   onSettings: () => void;
+  onOperations: () => void;
 }
 
-export function SessionListScreen({ onOpen, onSettings }: Props) {
+export function SessionListScreen({ onOpen, onSettings, onOperations }: Props) {
   const snapshot = useSyncExternalStore(sessionListStore.subscribe, sessionListStore.getSnapshot);
   const now = useNow(1000);
   const queueHealth = useQueueHealth(5000);
@@ -129,6 +130,9 @@ export function SessionListScreen({ onOpen, onSettings }: Props) {
         </Badge>
         <Button variant="outline" size="sm" onClick={onSettings}>
           settings
+        </Button>
+        <Button variant="outline" size="sm" onClick={onOperations}>
+          operations
         </Button>
       </header>
       <QueueHealthBar health={queueHealth} />
