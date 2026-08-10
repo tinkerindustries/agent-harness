@@ -104,11 +104,14 @@ func (p *Pool) prepareWorkspace() func(context.Context, string, string, []queue.
 	return workspace.Prepare
 }
 
+// defaultDeadline is the wall clock a run that names no deadline gets. It
+// mirrors config's defaultDeadlineMS (60 minutes): sized to let a full
+// 400-sub-turn budget run at roughly six seconds a sub-turn.
 func (p *Pool) defaultDeadline() time.Duration {
 	if p.DefaultDeadline > 0 {
 		return p.DefaultDeadline
 	}
-	return 30 * time.Minute
+	return 60 * time.Minute
 }
 
 func (p *Pool) defaultModel() string {

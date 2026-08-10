@@ -491,8 +491,8 @@ Request body:
       "permission_mode":   "readonly" | "full",   required
       "deny":              ["git push", "..."], optional, added to the mode's denials
       "result_schema":     { },                 optional JSON Schema for Complete
-      "max_sub_turns":     100,                 optional
-      "deadline_ms":       1800000              optional
+      "max_sub_turns":     400,                 optional
+      "deadline_ms":       3600000              optional
       "job_type":          "implementation",    optional, implementation (default) or orchestration
       "parent_agent_type": "claude-code",       optional, the launching agent's kind, or "user"
       "parent_agent_id":   "abc123",            optional, the launching agent's session id
@@ -550,8 +550,8 @@ prompt or the tool definition, both of which are shared and frozen (§3.2).
 
 Acknowledgement discipline:
 
-- Heartbeat `InProgress` every 20 seconds while a run holds a message, so a
-  30-minute run does not trip the 60-second `AckWait`.
+- Heartbeat `InProgress` every 20 seconds while a run holds a message, so an
+  hour-long run does not trip the 60-second `AckWait`.
 - Publish the terminal result, then ack. Doing it in that order means a crash in
   between redelivers the request rather than losing it.
 - Publish `final` with `Nats-Msg-Id` set to `<request_id>.final`, so the

@@ -38,3 +38,37 @@ func TestLoadHTTPLogConfig(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadRunBudgetDefaults(t *testing.T) {
+	t.Setenv("DEEPSEEK_DATA_DIR", filepath.Join(t.TempDir(), "data"))
+
+	t.Run("defaults", func(t *testing.T) {
+		t.Setenv("DEEPSEEK_MAX_SUB_TURNS", "")
+		t.Setenv("DEEPSEEK_DEFAULT_DEADLINE_MS", "")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.MaxSubTurns != 400 {
+			t.Errorf("MaxSubTurns = %d, want 400", cfg.MaxSubTurns)
+		}
+		if cfg.DefaultDeadlineMS != 3_600_000 {
+			t.Errorf("DefaultDeadlineMS = %d, want 3600000", cfg.DefaultDeadlineMS)
+		}
+	})
+
+	t.Run("environment overrides", func(t *testing.T) {
+		t.Setenv("DEEPSEEK_MAX_SUB_TURNS", "600")
+		t.Setenv("DEEPSEEK_DEFAULT_DEADLINE_MS", "7200000")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.MaxSubTurns != 600 {
+			t.Errorf("MaxSubTurns = %d, want 600", cfg.MaxSubTurns)
+		}
+		if cfg.DefaultDeadlineMS != 7_200_000 {
+			t.Errorf("DefaultDeadlineMS = %d, want 7200000", cfg.DefaultDeadlineMS)
+		}
+	})
+}
