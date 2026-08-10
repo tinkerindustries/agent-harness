@@ -3441,7 +3441,7 @@ func TestSteerAppendsEventAndPublishes(t *testing.T) {
 	h := hub.New()
 	api := &Server{
 		Store: st, Hub: h, Settings: settings.NewResolver(st),
-		Static: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+		Static:       http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
 		ControlToken: "test-control-token",
 	}
 	srv := httptest.NewServer(api.Handler())
