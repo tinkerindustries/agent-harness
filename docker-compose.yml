@@ -26,8 +26,10 @@ services:
       nats:
         condition: service_healthy
     env_file:
-      # Supplies DEEPSEEK_API_KEY, GITHUB_TOKEN, and any model overrides.
-      # The environment block below wins over it for the container-specific
+      # Supplies GITHUB_TOKEN and any model overrides. The DeepSeek API key
+      # is not an environment variable: it lives in the harness's SQLite
+      # settings table and is set with `harness config set deepseek.api_key`.
+      # The environment block below wins over .env for the container-specific
       # values.
       - path: .env
         required: false
