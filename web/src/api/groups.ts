@@ -1,4 +1,5 @@
 import type { Block } from "./fold";
+import type { Todo } from "./types";
 
 // The sub-turn grouping (docs/WEB-REDESIGN.md phase 4): a pure display-side
 // view over the fold's `blocks` array that groups each sub-turn's assistant
@@ -56,6 +57,58 @@ export interface SubTurnGroup {
   // tags is the group's filter classification, computed from blocks and
   // usage the moment the group object is created or replaced.
   tags: GroupTags;
+  // phase is the plan item the sub-turn ran under (docs/WEB-REDESIGN.md
+  // phase 6): captured the moment the group is created, so every group but
+  // the tail one carries the same ref forever, and the rail can group the
+  // sub-turns without walking the session's TodoWrite history itself.
+  phase: RailPhaseRef;
+}
+
+// RailPhaseRef is a sub-turn's phase membership for the timeline rail
+// (docs/WEB-REDESIGN.md phase 6): the plan item that was in_progress when
+// the sub-turn ran. A new phase starts on every TodoWrite call in the event
+// stream — the boundary the fold already parses (its latestTodos is the plan
+// as of the last TodoWrite), so SubTurnGroupState only has to notice the
+// call in the group's own assistant block. The label/index are captured from
+// the fold's latestTodos at that moment, never re-parsed here.
+export interface RailPhaseRef {
+  // id is a monotonically increasing phase identifier, stable for the
+  // session; the rail's Accordion items and the observer's current marker
+  // key on it.
+  id: number;
+  // index is the 1-based position in the plan of the item that was
+  // in_progress ("1 · Fix retained-body leak"). 0 when the plan at the
+  // boundary had no usable item (no TodoWrite yet, or an empty plan).
+  index: number;
+  // label is that plan item's content, without the "1 · " prefix the rail
+  // renders. Empty when there was no plan yet or no usable item.
+  label: string;
+}
+
+// phaseFromTodos picks the plan item a new phase is named after: the item
+// that was in_progress, falling back to the first non-completed one when the
+// plan marked nothing in_progress (a freshly written plan commonly leaves
+// everything pending). Empty when the plan had no item to name the phase.
+export function phaseFromTodos(todos: Todo[], id: number): RailPhaseRef {
+  let index = -1;
+  let content = "";
+  for (let i = 0; i < todos.length; i++) {
+    if (todos[i].status === "in_progress") {
+      index = i;
+      content = todos[i].content;
+      break;
+    }
+  }
+  if (index < 0) {
+    for (let i = 0; i < todos.length; i++) {
+      if (todos[i].status !== "completed") {
+        index = i;
+        content = todos[i].content;
+        break;
+      }
+    }
+  }
+  return index < 0 ? { id, index: 0, label: "" } : { id, index: index + 1, label: content };
 }
 
 // ChurnPoint is the first sub-turn whose usage carried a cache-churn
@@ -141,12 +194,23 @@ export class SubTurnGroupState {
   // instead of walking the blocks again (docs/WEB-REDESIGN.md phase 5).
   counts: GroupCounts = { total: 0, edits: 0, bash: 0, errors: 0, churn: 0 };
   churnPoint: ChurnPoint | null = null;
+  // The phase timeline (docs/WEB-REDESIGN.md phase 6): currentPhase is the
+  // plan item the next group to freeze ran under, bumped on every TodoWrite
+  // call in a frozen assistant's own toolCalls. latestTodos is the fold's
+  // already-parsed plan, passed in per sync — the phase's name comes from
+  // there, so nothing here parses a TodoWrite's arguments.
+  private phaseSeq = 0;
+  private currentPhase: RailPhaseRef = { id: 0, index: 0, label: "" };
+  private latestTodos: Todo[] = [];
 
   // sync folds the current blocks array into items incrementally. Called on
   // every store snapshot; the fast path (same array reference — a live-only
   // delta, the token-rate hot path) returns the same items array unchanged.
-  sync(blocks: Block[]): TranscriptItem[] {
+  // latestTodos is the fold's plan as of this snapshot, used to name a new
+  // phase the moment the boundary sub-turn's group is created.
+  sync(blocks: Block[], latestTodos: Todo[] = []): TranscriptItem[] {
     if (blocks === this.lastBlocks) return this.items;
+    this.latestTodos = latestTodos;
     if (this.lastBlocks !== null && blocks.length <= this.lastBlocks.length) {
       // Same length, different reference: FoldState replaced an element in
       // place. The only such replacement is attachReasoningTokens, which
@@ -172,7 +236,16 @@ export class SubTurnGroupState {
   private pushBlock(block: Block, blocks: Block[]): void {
     switch (block.type) {
       case "assistant":
-        this.addGroup(withTags({ subTurn: block.subTurn, seq: block.seq, blocks: [block] }));
+        // A TodoWrite in the sub-turn's own calls marks a new phase
+        // (docs/WEB-REDESIGN.md phase 6): the boundary is free — every
+        // TodoWrite call in the event stream starts one — and the fold's
+        // latestTodos, which this sub-turn's TodoWrite just updated, names
+        // it. The group below freezes with that phase forever.
+        if (block.toolCalls.some((c) => c.name === "TodoWrite")) {
+          this.phaseSeq++;
+          this.currentPhase = phaseFromTodos(this.latestTodos, this.phaseSeq);
+        }
+        this.addGroup(withTags({ subTurn: block.subTurn, seq: block.seq, blocks: [block], phase: this.currentPhase }));
         break;
       case "tool_result":
       case "tool_denied": {

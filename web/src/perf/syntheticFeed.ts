@@ -37,14 +37,41 @@ const READ_OUTPUT = Array.from({ length: 220 }, (_, i) => `${String(i + 1).padSt
 type TurnKind = "plain" | "bash" | "edit" | "read";
 const TURN_KINDS: TurnKind[] = ["plain", "bash", "edit", "read"];
 
+// The synthetic session's plan, for the TodoWrite calls that phase the
+// history (docs/WEB-REDESIGN.md phase 6 needs plan boundaries to group the
+// rail's sub-turns under). Seven items, the shape of the measured session's
+// plan in design/transcript.html.
+const PLAN_ITEMS = [
+  "Fix retained-body leak",
+  "Add httplog test",
+  "Config: HTTPLogRoot",
+  "Session: Recorder lifecycle",
+  "docs/DESIGN.md §4.8",
+  "Tests: config and session",
+  "Verification and PR",
+];
+
+// planTodos is the plan as of a phase boundary: everything up to `boundary`
+// completed, the boundary item in_progress, the rest pending.
+function planTodos(boundary: number): unknown {
+  return PLAN_ITEMS.map((content, i) => ({
+    content,
+    status: i < boundary ? "completed" : i === boundary ? "in_progress" : "pending",
+    activeForm: i === boundary ? `working on ${content}` : content,
+  }));
+}
+
 // buildSyntheticHistory generates events for roughly targetBlocks frozen
 // blocks, cycling through plain answers and Bash/Edit/Read tool calls so the
 // mix looks like a real session: sizable Bash output, a real diff, and a
-// large enough Read to trigger the collapse threshold. This is the "few
-// hundred blocks mounted" half of the measurement. seq is shared with
-// whatever live feed follows it (PerfHarnessScreen passes the same source to
-// both) so seq numbers — which double as React keys — stay unique across the
-// whole synthetic session instead of each phase restarting its own count.
+// large enough Read to trigger the collapse threshold. A TodoWrite call
+// opens sub-turn 1 and every twentieth sub-turn after it, so the fold's
+// latestTodos — and therefore the timeline rail's phase groups — have real
+// plan boundaries to work with. This is the "few hundred blocks mounted"
+// half of the measurement. seq is shared with whatever live feed follows it
+// (PerfHarnessScreen passes the same source to both) so seq numbers — which
+// double as React keys — stay unique across the whole synthetic session
+// instead of each phase restarting its own count.
 export function buildSyntheticHistory(targetBlocks: number, sessionId: string, seq: SeqSource): StoreEvent[] {
   const events: StoreEvent[] = [];
   const push = (kind: StoreEvent["kind"], payload: unknown) => {
@@ -63,6 +90,16 @@ export function buildSyntheticHistory(targetBlocks: number, sessionId: string, s
     if (kind === "plain") push("content_delta", { text: words(20) });
 
     let callId: string | null = null;
+    if (turn === 1 || turn % 20 === 1) {
+      // Every TodoWrite call in the event stream marks a rail phase boundary
+      // (docs/WEB-REDESIGN.md phase 6). The first marks the plan itself.
+      push("tool_call", {
+        index: 0,
+        id: `plan_${turn}`,
+        name: "TodoWrite",
+        arguments: JSON.stringify({ todos: planTodos(Math.floor((turn - 1) / 20)) }),
+      });
+    }
     if (kind === "bash") {
       callId = `call_${turn}`;
       push("tool_call", { index: 0, id: callId, name: "Bash", arguments: JSON.stringify({ command: "npm test" }) });
@@ -138,6 +175,20 @@ export function liveEventGenerator(sessionId: string, seq: SeqSource): Generator
       for (let i = 0; i < 20; i++) yield push("reasoning_delta", { text: words(3) });
       for (let i = 0; i < 8; i++) yield push("content_delta", { text: words(3) });
 
+      // Every live sub-turn writes the plan, so the rail's phase grouping is
+      // exercised on the live append path too — each live turn opens its own
+      // phase in the rail.
+      yield push("tool_call", {
+        index: 0,
+        id: `live_plan_${turn}`,
+        name: "TodoWrite",
+        arguments: JSON.stringify({
+          todos: [
+            { content: `live item ${turn % 3}`, status: "in_progress", activeForm: "working" },
+            { content: "next", status: "pending", activeForm: "next" },
+          ],
+        }),
+      });
       const callId = `live_call_${turn}`;
       yield push("tool_call", { index: 0, id: callId, name: "Bash", arguments: JSON.stringify({ command: "npm run build" }) });
       yield push("turn_finished", { finish_reason: "tool_calls" });

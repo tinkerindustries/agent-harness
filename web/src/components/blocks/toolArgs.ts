@@ -119,3 +119,29 @@ export function toolHeader(
   else if (call.name === "Task" && extras?.child) stat = childStat(extras.child.subTurns, extras.child.costUsd);
   return { name: call.name, target: toolDetail(call), stat };
 }
+
+// ToolGlyph is one timeline-rail glyph (design/components.html "Tool
+// glyphs"): a monospace letter per tool, coloured by family — writes green,
+// shell blue, everything else neutral. "err" is never produced here; the
+// rail overrides a glyph whose result failed with { letter: "!", family:
+// "err" }.
+export interface ToolGlyph {
+  letter: string;
+  family: "write" | "shell" | "other" | "err";
+}
+
+// The design table's letters for the tools it names; anything else falls
+// back to its first letter (Glob → G, Complete → C, ...), neutral family.
+const GLYPH_BY_NAME: Record<string, ToolGlyph> = {
+  Edit: { letter: "E", family: "write" },
+  Write: { letter: "W", family: "write" },
+  Bash: { letter: "B", family: "shell" },
+  Read: { letter: "R", family: "other" },
+  Grep: { letter: "G", family: "other" },
+  Task: { letter: "T", family: "other" },
+  TodoWrite: { letter: "P", family: "other" },
+};
+
+export function toolGlyph(name: string): ToolGlyph {
+  return GLYPH_BY_NAME[name] ?? { letter: name.charAt(0) || "?", family: "other" };
+}
