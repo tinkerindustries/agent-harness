@@ -43,3 +43,8 @@ internal/webassets/dist/*
 web/tsconfig.tsbuildinfo
 
 /.playwright-cli
+
+# git worktrees and their per-worktree environment (docs/WORKTREES.md).
+# .env itself is already covered by the Secrets rule above.
+.claude/worktrees/
+.worktree-env.xml
