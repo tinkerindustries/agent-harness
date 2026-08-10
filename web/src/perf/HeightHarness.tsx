@@ -37,7 +37,9 @@ function microtaskScheduler(): TranscriptStoreOptions {
 }
 
 export function HeightHarness() {
-  const blocks = Number(new URL(window.location.href).searchParams.get("blocks") ?? DEFAULT_BLOCKS);
+  const params = new URL(window.location.href).searchParams;
+  const blocks = Number(params.get("blocks") ?? DEFAULT_BLOCKS);
+  const errorDemo = params.get("error") === "1";
   const [store] = useState(() => new TranscriptStore("perf-height", { connect: false, ...microtaskScheduler() }));
   const [seeded, setSeeded] = useState(false);
   const [height, setHeight] = useState<number | null>(null);
@@ -51,10 +53,33 @@ export function HeightHarness() {
     seededRef.current = true;
     const seq = makeSeqSource();
     const events = buildSyntheticHistory(blocks, "perf-height", seq);
+    if (errorDemo) {
+      // ?error=1 is a manual-inspection aid: turn the last Bash result into
+      // a failure and give the last sub-turn a churn usage, so the error
+      // card's forced-open behaviour and the churn banner can be seen.
+      for (let i = events.length - 1; i >= 0; i--) {
+        const ev = events[i];
+        if (ev.kind === "tool_result") {
+          (ev.payload as { is_error?: boolean }).is_error = true;
+          break;
+        }
+      }
+      for (let i = events.length - 1; i >= 0; i--) {
+        const ev = events[i];
+        if (ev.kind === "usage") {
+          Object.assign(ev.payload as Record<string, unknown>, {
+            prompt_cache_miss_tokens: 600,
+            expected_miss_tokens: 100,
+            churn_point_index: 1,
+          });
+          break;
+        }
+      }
+    }
     for (const ev of events) store.ingest(ev);
     setSubTurns(events.filter((e) => e.kind === "turn_finished").length);
     setSeeded(true);
-  }, [store, blocks]);
+  }, [store, blocks, errorDemo]);
 
   return (
     <HeightMount store={store} seeded={seeded} onHeight={setHeight}>
