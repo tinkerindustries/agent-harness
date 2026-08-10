@@ -135,12 +135,14 @@ func runRun(ctx context.Context, args []string) error {
 	}
 
 	r := &session.Runner{
-		Store:      st,
-		Mirror:     store.NewMirror(cfg.DataDir),
-		Client:     withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res)),
-		Recorder:   rec,
-		Prices:     priceTable,
-		FlashModel: cfg.FlashModel,
+		Store:       st,
+		Mirror:      store.NewMirror(cfg.DataDir),
+		Client:      withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res)),
+		Recorder:    rec,
+		Prices:      priceTable,
+		FlashModel:  cfg.FlashModel,
+		Gemini:      withGeminiHTTPLog(cfg, rec, googleAPIKeyProvider(res)),
+		GeminiModel: googleVisionModelProvider(res),
 	}
 
 	fmt.Printf("model %s (effort %s, thinking %v), permission mode %s, %d job(s)\n\n", cfg.Model, cfg.Effort, cfg.Thinking, mode, len(workspaces))

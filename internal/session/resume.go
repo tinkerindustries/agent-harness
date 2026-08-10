@@ -64,6 +64,8 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 	executor.Client = r.Client
 	executor.Prices = r.Prices
 	executor.FlashModel = r.flashModel()
+	executor.Gemini = r.Gemini
+	executor.GeminiModel = r.GeminiModel
 	executor.ResultSchema = sess.ResultSchema
 
 	runOpts := RunOptions{

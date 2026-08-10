@@ -15,15 +15,40 @@ const (
 	// KeyDeepSeekAPIKey is the DeepSeek API key, stored in plaintext by the
 	// operator's deliberate choice.
 	KeyDeepSeekAPIKey = "deepseek.api_key"
-	// KeyGoogleAPIKey is the Google API key phase 2's screenshot-review
-	// tool will read. Only the name is defined here; the client and the
-	// tool are a later phase's work.
+	// KeyGoogleAPIKey is the Google API key the ReviewScreenshot tool sends
+	// to Gemini. Phase 2's client reads it on every call via
+	// Resolver.GoogleAPIKey.
 	KeyGoogleAPIKey = "google.api_key"
+	// KeyGoogleVisionModel is the Gemini model ReviewScreenshot sends
+	// screenshots to, so the model can be changed without a rebuild. It is
+	// not a secret, so harness config list prints it in full; it defaults to
+	// gemini.DefaultModel when unset (Resolver.GoogleVisionModel).
+	KeyGoogleVisionModel = "google.vision_model"
 )
+
+// DefaultGoogleVisionModel is the model ReviewScreenshot uses when
+// google.vision_model is unset. It must match gemini.DefaultModel.
+const DefaultGoogleVisionModel = "gemini-3.5-flash"
 
 // ValidKeys lists every known setting key, in the order harness config list
 // prints them.
-var ValidKeys = []string{KeyDeepSeekAPIKey, KeyGoogleAPIKey}
+var ValidKeys = []string{KeyDeepSeekAPIKey, KeyGoogleAPIKey, KeyGoogleVisionModel}
+
+// SecretKeys lists the setting keys whose values are credentials and must be
+// masked by harness config list/get unless -reveal is given. Everything else
+// — model names and the like — prints in full.
+var SecretKeys = []string{KeyDeepSeekAPIKey, KeyGoogleAPIKey}
+
+// IsSecretKey reports whether key holds a credential that harness config
+// masks by default.
+func IsSecretKey(key string) bool {
+	for _, k := range SecretKeys {
+		if k == key {
+			return true
+		}
+	}
+	return false
+}
 
 // UnknownKeyError reports a read or write of a key outside the known set, so
 // a typo like "deepsek.api_key" fails loudly instead of silently storing a
@@ -84,6 +109,24 @@ func (r *Resolver) Unset(ctx context.Context, key string) error {
 func (r *Resolver) DeepSeekAPIKey(ctx context.Context) (string, error) {
 	v, _, err := r.store.Setting(ctx, KeyDeepSeekAPIKey)
 	return v, err
+}
+
+// GoogleAPIKey returns the stored Google API key, "" when unset — the exact
+// shape the gemini client's per-request key provider needs.
+func (r *Resolver) GoogleAPIKey(ctx context.Context) (string, error) {
+	v, _, err := r.store.Setting(ctx, KeyGoogleAPIKey)
+	return v, err
+}
+
+// GoogleVisionModel returns the stored Gemini vision model, DefaultGoogleVisionModel
+// when unset — the exact shape the ReviewScreenshot tool's per-call model
+// provider needs.
+func (r *Resolver) GoogleVisionModel(ctx context.Context) (string, error) {
+	v, ok, err := r.store.Setting(ctx, KeyGoogleVisionModel)
+	if err != nil || ok {
+		return v, err
+	}
+	return DefaultGoogleVisionModel, nil
 }
 
 func validate(key string) error {
