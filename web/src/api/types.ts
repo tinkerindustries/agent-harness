@@ -15,6 +15,12 @@ export interface SessionState {
   workspace: string;
   permission_mode: string;
   status: string;
+  // complete_status is the status argument the model gave Complete ("done"
+  // or "gave_up"), mirroring internal/hub's SessionState. Empty covers both
+  // a pre-migration row and a session that ended without calling Complete;
+  // the badge renders it as the plain terminal status rather than guessing
+  // (docs/WEB-REDESIGN.md phase 2).
+  complete_status?: string;
   created_at: string;
   finished_at?: string;
   sub_turns: number;

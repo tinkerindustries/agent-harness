@@ -4,7 +4,7 @@ import type { QueueHealth, SessionState, Usage } from "../api/types";
 import { useNow, useQueueHealth } from "../hooks";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { statusVariant } from "./statusBadge";
+import { outcome } from "./statusBadge";
 
 function formatElapsed(sess: SessionState, nowMs: number): string {
   const start = Date.parse(sess.created_at);
@@ -78,27 +78,30 @@ export function SessionListScreen({ onOpen, onSettings }: Props) {
             </tr>
           </thead>
           <tbody>
-            {snapshot.sessions.map((sess) => (
-              <tr key={sess.id} className="session-row" onClick={() => onOpen(sess.id)}>
-                <td>
-                  <Badge variant={statusVariant(sess.status)}>{sess.status}</Badge>
-                </td>
-                <td>
-                  {sess.model} <span className="dim">({sess.effort})</span>
-                  {sess.job_type && <span className="dim"> · {sess.job_type}</span>}
-                </td>
-                <td className="workspace-cell" title={sess.workspace}>
-                  {sess.workspace}
-                </td>
-                <td>{formatElapsed(sess, now)}</td>
-                <td>{sess.sub_turns}</td>
-                <td className="dim" title={hitRateTitle(sess.usage)}>
-                  {formatHitRate(sess.usage)}
-                </td>
-                <td title={costTitle(sess)}>{formatCost(sess.usage.cost_usd)}</td>
-                <td className="dim">{sess.request_id ?? "—"}</td>
-              </tr>
-            ))}
+            {snapshot.sessions.map((sess) => {
+              const badge = outcome(sess);
+              return (
+                <tr key={sess.id} className="session-row" onClick={() => onOpen(sess.id)}>
+                  <td>
+                    <Badge variant={badge.variant}>{badge.label}</Badge>
+                  </td>
+                  <td>
+                    {sess.model} <span className="dim">({sess.effort})</span>
+                    {sess.job_type && <span className="dim"> · {sess.job_type}</span>}
+                  </td>
+                  <td className="workspace-cell" title={sess.workspace}>
+                    {sess.workspace}
+                  </td>
+                  <td>{formatElapsed(sess, now)}</td>
+                  <td>{sess.sub_turns}</td>
+                  <td className="dim" title={hitRateTitle(sess.usage)}>
+                    {formatHitRate(sess.usage)}
+                  </td>
+                  <td title={costTitle(sess)}>{formatCost(sess.usage.cost_usd)}</td>
+                  <td className="dim">{sess.request_id ?? "—"}</td>
+                </tr>
+              );
+            })}
             {snapshot.sessions.length === 0 && (
               <tr>
                 <td colSpan={8} className="empty-row">
