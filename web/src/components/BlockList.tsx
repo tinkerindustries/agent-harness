@@ -33,7 +33,13 @@ interface Props {
   getToolCall?: (id: string) => ToolCallPayload | undefined;
 }
 
-export function BlockList({ items, live, density = "full", filter = "all", getToolCall = () => undefined }: Props) {
+// Module-level default so every render hands SubTurnList the same function
+// reference: an inline `() => undefined` default would be a fresh function
+// per render and defeat the list's memo on every delta for the callers
+// (TaskChildBody, the perf harness) that have no store registry to pass.
+const NOOP_GET_TOOL_CALL = (): ToolCallPayload | undefined => undefined;
+
+export function BlockList({ items, live, density = "full", filter = "all", getToolCall = NOOP_GET_TOOL_CALL }: Props) {
   const empty = items.length === 0 && !live.turn && live.pendingTools.size === 0;
   return (
     <div className="transcript">
