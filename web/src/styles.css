@@ -339,6 +339,281 @@ pre {
   padding: calc(var(--space) * 2);
 }
 
+/* ---------- session list: in-flight cards and the finished table ----------
+   Running sessions leave the table and become collapsible plan cards;
+   finished sessions keep the dense table, whose Session cell gains a
+   one-line subtitle per row (docs/WEB-REDESIGN.md phase 3,
+   design/sessions.html). */
+
+.list-section + .list-section {
+  margin-top: calc(var(--space) * 2.5);
+}
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: var(--space);
+}
+
+.section-head h2 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.section-head .count {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.inflight-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space);
+}
+
+.run-card {
+  overflow: hidden;
+}
+
+.run-summary {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  font: inherit;
+  color: inherit;
+}
+
+.run-summary:hover {
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.run-summary-open {
+  border-bottom: 1px solid var(--border);
+}
+
+.run-line1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.caret {
+  color: var(--muted-foreground);
+  flex: none;
+  transition: transform 0.15s ease;
+}
+
+.caret-open {
+  transform: rotate(90deg);
+}
+
+.run-id {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.run-meta {
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.run-stats {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+.run-stats b {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.run-line2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 7px;
+  padding-left: 20px;
+}
+
+.run-now {
+  font-size: 0.8125rem;
+  min-width: 0;
+}
+
+.run-now .verb {
+  color: var(--status-running);
+  font-weight: 500;
+}
+
+.run-progress {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.run-progress .ratio {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.run-body {
+  border-top: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+}
+
+.run-plan {
+  padding: 12px 14px 14px 34px;
+}
+
+.run-side {
+  padding: 12px 14px;
+  border-left: 1px solid var(--border);
+  background: color-mix(in srgb, var(--muted) 40%, transparent);
+  border-radius: 0 0 var(--radius) 0;
+}
+
+.panel-label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  margin-bottom: 8px;
+}
+
+/* The plan list as the in-flight card renders it: the same todo-item glyphs
+   and status classes PlanList renders in the transcript panel, drawn at the
+   card's density with the running item marked by a left rule and a tint
+   (design/sessions.html). The transcript keeps its own `.plan-panel ul`
+   rules — and its strikethrough, which the card deliberately drops. */
+.plan-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.plan-list .todo-item {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 8px;
+  padding: 3px 0 3px 8px;
+  font-size: 0.8125rem;
+  border-left: 2px solid transparent;
+  align-items: baseline;
+}
+
+.plan-list .todo-mark {
+  text-align: center;
+  line-height: 1.5;
+}
+
+.plan-list li.todo-completed {
+  color: var(--muted-foreground);
+}
+
+.plan-list li.todo-completed .todo-mark {
+  color: var(--status-done);
+}
+
+.plan-list li.todo-in_progress {
+  border-left-color: var(--status-running);
+  background: var(--status-running-bg);
+  font-weight: 500;
+}
+
+.plan-list li.todo-in_progress .todo-mark {
+  color: var(--status-running);
+}
+
+.plan-list li.todo-pending {
+  color: var(--foreground);
+}
+
+.run-plan .todo-completed {
+  text-decoration: none;
+}
+
+.activity {
+  display: grid;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+}
+
+.activity .row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.activity .t {
+  color: var(--muted-foreground);
+  flex: none;
+}
+
+.tool-tag {
+  display: inline-block;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--secondary);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  flex: none;
+}
+
+.activity .target {
+  min-width: 0;
+}
+
+.activity-empty {
+  font-size: 0.75rem;
+}
+
+.run-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.sess-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sess-id {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.sess-sub {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
 .connection-badge {
   color: var(--muted-foreground);
 }
