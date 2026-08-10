@@ -122,7 +122,7 @@ checking the key works.
 | Logs | `docker compose logs -f harness` |
 | Stop | `docker compose down` |
 | List sessions | browse <http://localhost:8080> |
-| Rebuild a session's on-disk transcript | `harness export <session-id>` |
+| Rebuild a session's disk mirror | `harness export <session-id>` |
 | Continue a finished or timed-out session | `harness resume <session-id> ["..."]` |
 
 `--build` matters: the image bakes the frontend and the binary, so a plain

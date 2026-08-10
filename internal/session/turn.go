@@ -119,7 +119,6 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	r.mirrorAppend(sess, appended)
 	r.publishEvents(sess, appended)
 	*allEvents = append(*allEvents, appended...)
-	r.mirrorTranscript(sess, *allEvents)
 	r.publishState(ctx, sess)
 
 	if progress := progressFunc(r, opts); progress != nil {

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // Mirror writes the disk copy of a session directory
@@ -16,7 +15,6 @@ import (
 //	<data_dir>/sessions/<yyyy-mm-dd>/<session_id>/
 //	  session.json      metadata, including the frozen system prompt and tools
 //	  events.jsonl       one JSON object per event, appended in seq order
-//	  transcript.md      rendered for reading, rewritten at turn boundaries
 //	  request.json       the originating work request, when there was one
 //
 // The mirror is derived, never a second source of truth. Every method here
@@ -87,8 +85,8 @@ func toSessionJSON(sess Session) sessionJSON {
 }
 
 // Init creates the session directory and writes session.json, truncating
-// any prior events.jsonl and transcript.md so a rebuild starts clean. It
-// writes request.json when request is non-empty.
+// any prior events.jsonl so a rebuild starts clean. It writes request.json
+// when request is non-empty.
 func (m *Mirror) Init(sess Session, request json.RawMessage) error {
 	dir := m.Dir(sess)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -173,96 +171,6 @@ func (m *Mirror) AppendEvents(sess Session, events []Event) error {
 	return nil
 }
 
-// WriteTranscript rewrites transcript.md from the full event list. It is
-// meant to be called at turn boundaries, not per delta.
-func (m *Mirror) WriteTranscript(sess Session, events []Event) error {
-	dir := m.Dir(sess)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("store: mkdir %s: %w", dir, err)
-	}
-	md := RenderTranscript(sess, events)
-	if err := os.WriteFile(filepath.Join(dir, "transcript.md"), []byte(md), 0o644); err != nil {
-		return fmt.Errorf("store: write transcript.md: %w", err)
-	}
-	return nil
-}
-
-// RenderTranscript renders a session's event log as human-readable
-// markdown. It is a pure function of sess and events: no wall-clock read, so
-// the same log always renders identical bytes.
-func RenderTranscript(sess Session, events []Event) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "# Session %s\n\n", sess.ID)
-	fmt.Fprintf(&b, "- model: %s (effort %s, thinking %v)\n", sess.Model, sess.Effort, sess.Thinking)
-	fmt.Fprintf(&b, "- workspace: %s\n", sess.Workspace)
-	fmt.Fprintf(&b, "- permission mode: %s\n", sess.PermissionMode)
-	fmt.Fprintf(&b, "- status: %s\n\n", sess.Status)
-
-	subTurn := 0
-	sawStart := false
-	for _, e := range events {
-		switch e.Kind {
-		case KindSessionStarted:
-			var p SessionStartedPayload
-			_ = json.Unmarshal(e.Payload, &p)
-			// The first session_started event is the opening task; any
-			// later one is Runner.Resume appending a continuation, which
-			// gets its own heading rather than reading as a second task.
-			if !sawStart {
-				fmt.Fprintf(&b, "## Task\n\n%s\n\n", p.OpeningMessage)
-				sawStart = true
-			} else {
-				fmt.Fprintf(&b, "## Resumed\n\n%s\n\n", p.OpeningMessage)
-			}
-		case KindTurnStarted:
-			var p TurnStartedPayload
-			_ = json.Unmarshal(e.Payload, &p)
-			subTurn = p.SubTurn
-			fmt.Fprintf(&b, "## Sub-turn %d\n\n", subTurn)
-		case KindReasoningDelta:
-			// Full reasoning lives in events.jsonl; the transcript shows
-			// only that reasoning happened, not its content, to stay
-			// readable across long sessions.
-		case KindContentDelta:
-			var p ContentDeltaPayload
-			_ = json.Unmarshal(e.Payload, &p)
-			b.WriteString(p.Text)
-		case KindToolCall:
-			var p ToolCallPayload
-			_ = json.Unmarshal(e.Payload, &p)
-			fmt.Fprintf(&b, "\n\n**tool call** `%s(%s)`\n", p.Name, p.Arguments)
-		case KindToolResult:
-			var p ToolResultPayload
-			_ = json.Unmarshal(e.Payload, &p)
-			label := "tool result"
-			if p.IsError {
-				label = "tool error"
-			}
-			fmt.Fprintf(&b, "\n```\n%s [%s]\n%s\n```\n", label, p.Name, p.Content)
-		case KindToolDenied:
-			var p ToolDeniedPayload
-			_ = json.Unmarshal(e.Payload, &p)
-			fmt.Fprintf(&b, "\n**denied** `%s`: %s\n", p.Name, p.Rule)
-		case KindUsage:
-			var p UsagePayload
-			_ = json.Unmarshal(e.Payload, &p)
-			fmt.Fprintf(&b, "\n_usage: prompt %d (hit %d / miss %d), completion %d, cost $%.6f_\n",
-				p.PromptTokens, p.PromptCacheHitTokens, p.PromptCacheMissTokens, p.CompletionTokens, p.CostUSD)
-		case KindTurnFinished:
-			b.WriteString("\n\n")
-		case KindRunFinished:
-			var p RunFinishedPayload
-			_ = json.Unmarshal(e.Payload, &p)
-			fmt.Fprintf(&b, "\n## Run finished (%s)\n\n%s\n", p.Reason, p.Summary)
-		case KindError:
-			var p ErrorPayload
-			_ = json.Unmarshal(e.Payload, &p)
-			fmt.Fprintf(&b, "\n## Error\n\n%s\n", p.Message)
-		}
-	}
-	return b.String()
-}
-
 // ExportTo rebuilds sessionID's mirror under m from the database. It is the
 // repair path after a crash between the DB commit and the disk write, and it
 // is exercised in tests to prove the mirror matches what a live run wrote.
@@ -279,9 +187,6 @@ func ExportTo(ctx context.Context, s *Store, m *Mirror, sessionID string) error 
 		return err
 	}
 	if err := m.AppendEvents(sess, events); err != nil {
-		return err
-	}
-	if err := m.WriteTranscript(sess, events); err != nil {
 		return err
 	}
 	return m.UpdateSession(sess)

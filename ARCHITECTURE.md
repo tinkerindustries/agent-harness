@@ -81,9 +81,8 @@ switch on event kind. Its counterpart is the frontend's own fold in
 
 ### `internal/store`
 SQLite (`modernc.org/sqlite`, pure Go, WAL) plus the derived disk mirror under
-`<data dir>/sessions/`, diff computation, and transcript rendering. The database
-is authoritative; the mirror is rebuildable with `harness export`. Depends on:
-nothing internal. §4.8.
+`<data dir>/sessions/` and diff computation. The database is authoritative; the
+mirror is rebuildable with `harness export`. Depends on: nothing internal. §4.8.
 
 ### `internal/hub`
 In-process SSE fan-out: per-session transcript subscribers and a quieter
