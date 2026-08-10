@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
+	_ "modernc.org/sqlite"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
@@ -24,8 +26,18 @@ import (
 
 func newTestServer(t *testing.T) (*httptest.Server, *store.Store, *hub.Hub) {
 	t.Helper()
+	srv, st, h, _ := newTestServerWithDB(t)
+	return srv, st, h
+}
+
+// newTestServerWithDB is newTestServer plus the SQLite file path, for tests
+// that must rewrite the store directly (backdating an event's created_at to
+// age a session past the idle threshold).
+func newTestServerWithDB(t *testing.T) (*httptest.Server, *store.Store, *hub.Hub, string) {
+	t.Helper()
 	dir := t.TempDir()
-	st, err := store.Open(filepath.Join(dir, "harness.db"))
+	path := filepath.Join(dir, "harness.db")
+	st, err := store.Open(path)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -41,7 +53,27 @@ func newTestServer(t *testing.T) (*httptest.Server, *store.Store, *hub.Hub) {
 
 	srv := httptest.NewServer(api.Handler())
 	t.Cleanup(srv.Close)
-	return srv, st, h
+	return srv, st, h, path
+}
+
+// backdateEvents rewrites every event of sessionID's log to at, so the
+// session's most recent event is genuinely older than the idle threshold. It
+// opens a second connection to the same SQLite file the store holds — the
+// same trick store_test.go uses to build a legacy database — and is safe
+// here because nothing else is writing during the test.
+func backdateEvents(t *testing.T, dbPath, sessionID string, at time.Time) {
+	t.Helper()
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open raw connection: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`PRAGMA busy_timeout=5000`); err != nil {
+		t.Fatalf("set busy timeout: %v", err)
+	}
+	if _, err := db.Exec(`UPDATE events SET created_at = ? WHERE session_id = ?`, at.UTC().Format(time.RFC3339Nano), sessionID); err != nil {
+		t.Fatalf("backdate events: %v", err)
+	}
 }
 
 func mustCreateSession(t *testing.T, st *store.Store, id string, createdAt time.Time) {
@@ -76,28 +108,27 @@ func appendAndPublish(t *testing.T, st *store.Store, h *hub.Hub, sessionID strin
 
 // --- method gate ---
 
-// TestNonGetMethodsReturn405EverywhereExceptSettings pins the method gate: a
-// non-GET/HEAD request 405s on every path — including paths nothing here
+// TestNonGetMethodsReturn405EverywhereExceptWriteRoutes pins the method gate:
+// a non-GET/HEAD request 405s on every path — including paths nothing here
 // recognises — with an Allow header naming what the path actually permits.
-// The settings key path is the single exception: PUT and DELETE pass the gate
-// there (the surface's one write, docs/DESIGN.md §4.2), so they are asserted
-// separately, and the other methods still 405 there with all four allowed
-// methods named.
-func TestNonGetMethodsReturn405EverywhereExceptSettings(t *testing.T) {
+// The paths with a write route are the exceptions: PUT and DELETE on a
+// settings key path, PATCH and DELETE on a session path (docs/DATA-API.md),
+// which pass the gate and are asserted separately; the other methods still
+// 405 there with all four allowed methods named.
+func TestNonGetMethodsReturn405EverywhereExceptWriteRoutes(t *testing.T) {
 	srv, st, _ := newTestServer(t)
 	mustCreateSession(t, st, "sess-1", time.Now())
 
-	paths := []string{
+	// Paths with no write route: every non-GET/HEAD method 405s, and the
+	// Allow header names GET and HEAD only.
+	plainPaths := []string{
 		"/",
-		"/api/sessions",
-		"/api/sessions/sess-1",
+		"/api/sessions", // the collection has no write route
 		"/api/sessions/sess-1/events",
 		"/api/sessions/sess-1/stream",
 		"/api/requests/req-1/status",
 		"/api/stream",
 		"/api/queue",
-		"/api/sessions/does-not-exist",
-		"/api/requests/does-not-exist/status",
 		"/api/settings",     // the collection path has no write route
 		"/api/settings/",    // an empty key segment is not a key path
 		"/api/settings/a/b", // not exactly one key segment
@@ -106,7 +137,7 @@ func TestNonGetMethodsReturn405EverywhereExceptSettings(t *testing.T) {
 	methods := []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodOptions}
 
 	client := srv.Client()
-	for _, p := range paths {
+	for _, p := range plainPaths {
 		for _, m := range methods {
 			req, err := http.NewRequest(m, srv.URL+p, nil)
 			if err != nil {
@@ -126,7 +157,7 @@ func TestNonGetMethodsReturn405EverywhereExceptSettings(t *testing.T) {
 		}
 	}
 
-	// The settings key path allows PUT and DELETE; every other method still
+	// A settings key path allows PUT and DELETE; every other method still
 	// 405s there, naming all four allowed methods in Allow.
 	settingsPath := "/api/settings/deepseek.api_key"
 	for _, m := range []string{http.MethodPut, http.MethodDelete} {
@@ -159,6 +190,45 @@ func TestNonGetMethodsReturn405EverywhereExceptSettings(t *testing.T) {
 		}
 		if got := resp.Header.Get("Allow"); got != "GET, HEAD, PUT, DELETE" {
 			t.Errorf("%s %s: Allow = %q, want %q", m, settingsPath, got, "GET, HEAD, PUT, DELETE")
+		}
+	}
+
+	// A session path allows PATCH and DELETE; every other method still 405s
+	// there, naming all four allowed methods in Allow. The gate must let the
+	// writing methods through even when the session id is unknown — the
+	// handler, not the gate, owns the 404.
+	for _, sessionPath := range []string{"/api/sessions/sess-1", "/api/sessions/does-not-exist"} {
+		for _, m := range []string{http.MethodPatch, http.MethodDelete} {
+			req, err := http.NewRequest(m, srv.URL+sessionPath, strings.NewReader(`{}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("%s %s: %v", m, sessionPath, err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusMethodNotAllowed {
+				t.Errorf("%s %s: gate refused a permitted write", m, sessionPath)
+			}
+		}
+		for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodOptions} {
+			req, err := http.NewRequest(m, srv.URL+sessionPath, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("%s %s: %v", m, sessionPath, err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s: got status %d, want 405", m, sessionPath, resp.StatusCode)
+			}
+			if got := resp.Header.Get("Allow"); got != "GET, HEAD, PATCH, DELETE" {
+				t.Errorf("%s %s: Allow = %q, want %q", m, sessionPath, got, "GET, HEAD, PATCH, DELETE")
+			}
 		}
 	}
 }
@@ -905,9 +975,9 @@ func TestQueueHealthSurfacesConsumerInfoError(t *testing.T) {
 
 // --- settings ---
 
-// doSettingsWrite issues one PUT or DELETE against the settings key path with
+// doWrite issues one write (PUT, PATCH, DELETE) against the given path with
 // the given extra headers, returning the response for the caller to inspect.
-func doSettingsWrite(t *testing.T, srv *httptest.Server, method, path, body string, headers map[string]string) *http.Response {
+func doWrite(t *testing.T, srv *httptest.Server, method, path, body string, headers map[string]string) *http.Response {
 	t.Helper()
 	req, err := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
 	if err != nil {
@@ -1070,7 +1140,7 @@ func entryByKey(t *testing.T, srv *httptest.Server, key string) settingEntry {
 
 func TestPutSettingThenGetShowsItSet(t *testing.T) {
 	srv, _, _ := newTestServer(t)
-	resp := doSettingsWrite(t, srv, http.MethodPut, "/api/settings/google.vision_model", `{"value":"gemini-3.6-flash"}`, map[string]string{
+	resp := doWrite(t, srv, http.MethodPut, "/api/settings/google.vision_model", `{"value":"gemini-3.6-flash"}`, map[string]string{
 		"Content-Type": "application/json",
 	})
 	resp.Body.Close()
@@ -1093,7 +1163,7 @@ func TestPutSettingThenGetShowsItSet(t *testing.T) {
 // screen can surface it verbatim.
 func TestPutSettingRejectsOutOfRangeValue(t *testing.T) {
 	srv, _, _ := newTestServer(t)
-	resp := doSettingsWrite(t, srv, http.MethodPut, "/api/settings/tools.bash_timeout", `{"value":"-5s"}`, map[string]string{
+	resp := doWrite(t, srv, http.MethodPut, "/api/settings/tools.bash_timeout", `{"value":"-5s"}`, map[string]string{
 		"Content-Type": "application/json",
 	})
 	defer resp.Body.Close()
@@ -1117,7 +1187,7 @@ func TestPutSettingRejectsOutOfRangeValue(t *testing.T) {
 
 func TestPutSettingUnknownKeyReturns400(t *testing.T) {
 	srv, st, _ := newTestServer(t)
-	resp := doSettingsWrite(t, srv, http.MethodPut, "/api/settings/deepsek.api_key", `{"value":"sk-..."}`, map[string]string{
+	resp := doWrite(t, srv, http.MethodPut, "/api/settings/deepsek.api_key", `{"value":"sk-..."}`, map[string]string{
 		"Content-Type": "application/json",
 	})
 	defer resp.Body.Close()
@@ -1155,7 +1225,7 @@ func TestPutSettingContentTypeRequired(t *testing.T) {
 			if tc.ct != "" {
 				headers["Content-Type"] = tc.ct
 			}
-			resp := doSettingsWrite(t, srv, http.MethodPut, "/api/settings/deepseek.api_key", `{"value":"sk-x"}`, headers)
+			resp := doWrite(t, srv, http.MethodPut, "/api/settings/deepseek.api_key", `{"value":"sk-x"}`, headers)
 			defer resp.Body.Close()
 			if resp.StatusCode != http.StatusUnsupportedMediaType {
 				t.Fatalf("Content-Type %q: got status %d, want 415", tc.ct, resp.StatusCode)
@@ -1168,7 +1238,7 @@ func TestSettingsWritesOriginCheck(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	// A foreign Origin is refused with 403 on both writing methods.
 	for _, m := range []string{http.MethodPut, http.MethodDelete} {
-		resp := doSettingsWrite(t, srv, m, "/api/settings/deepseek.api_key", `{"value":"sk-x"}`, map[string]string{
+		resp := doWrite(t, srv, m, "/api/settings/deepseek.api_key", `{"value":"sk-x"}`, map[string]string{
 			"Content-Type": "application/json",
 			"Origin":       "https://evil.example",
 		})
@@ -1179,7 +1249,7 @@ func TestSettingsWritesOriginCheck(t *testing.T) {
 	}
 
 	// A same-origin write passes.
-	resp := doSettingsWrite(t, srv, http.MethodPut, "/api/settings/google.vision_model", `{"value":"gemini-3.7-flash"}`, map[string]string{
+	resp := doWrite(t, srv, http.MethodPut, "/api/settings/google.vision_model", `{"value":"gemini-3.7-flash"}`, map[string]string{
 		"Content-Type": "application/json",
 		"Origin":       srv.URL,
 	})
@@ -1194,12 +1264,12 @@ func TestDeleteSettingUnsetsAndRejectsUnknownKey(t *testing.T) {
 	headers := map[string]string{"Content-Type": "application/json"}
 
 	// Set a key, then delete it; the GET shows it unset again.
-	resp := doSettingsWrite(t, srv, http.MethodPut, "/api/settings/deepseek.api_key", `{"value":"sk-x"}`, headers)
+	resp := doWrite(t, srv, http.MethodPut, "/api/settings/deepseek.api_key", `{"value":"sk-x"}`, headers)
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("PUT: got status %d, want 200", resp.StatusCode)
 	}
-	resp = doSettingsWrite(t, srv, http.MethodDelete, "/api/settings/deepseek.api_key", "", headers)
+	resp = doWrite(t, srv, http.MethodDelete, "/api/settings/deepseek.api_key", "", headers)
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("DELETE: got status %d, want 200", resp.StatusCode)
@@ -1219,7 +1289,7 @@ func TestDeleteSettingUnsetsAndRejectsUnknownKey(t *testing.T) {
 	}
 
 	// Deleting an unknown key is a 400 carrying UnknownKeyError's message.
-	resp = doSettingsWrite(t, srv, http.MethodDelete, "/api/settings/not.a.key", "", headers)
+	resp = doWrite(t, srv, http.MethodDelete, "/api/settings/not.a.key", "", headers)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("DELETE unknown key: got status %d, want 400", resp.StatusCode)
@@ -1232,3 +1302,395 @@ func TestDeleteSettingUnsetsAndRejectsUnknownKey(t *testing.T) {
 		t.Fatalf("error body %q does not carry the UnknownKeyError message", body)
 	}
 }
+
+// --- session writes ---
+
+// sessionVersion fetches one session's row and returns its version, standing
+// in for the client reading GET /api/sessions/{id} before a write — the
+// value it must echo back in If-Match (docs/DATA-API.md).
+func sessionVersion(t *testing.T, srv *httptest.Server, id string) int {
+	t.Helper()
+	resp, err := http.Get(srv.URL + "/api/sessions/" + id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/sessions/%s: got status %d, want 200", id, resp.StatusCode)
+	}
+	var got hub.SessionState
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Version < 1 {
+		t.Fatalf("session %s: expected a positive version, got %d", id, got.Version)
+	}
+	return got.Version
+}
+
+// TestPatchSessionClosesAbandonedSession pins the endpoint's success path:
+// a running session that has been quiet past the idle threshold — or has
+// never appended an event at all — can be closed into a terminal status,
+// which sets finished_at and bumps the version, and the close is visible to
+// a fresh GET.
+func TestPatchSessionClosesAbandonedSession(t *testing.T) {
+	srv, st, h, dbPath := newTestServerWithDB(t)
+	ctx := context.Background()
+
+	// An abandoned session: a worker appended one event two hours ago and
+	// died. The event is backdated so the row is genuinely quiet.
+	mustCreateSession(t, st, "abandoned", time.Now().Add(-2*time.Hour))
+	appendAndPublish(t, st, h, "abandoned", []store.EventInput{
+		{Kind: store.KindSessionStarted, Payload: store.SessionStartedPayload{OpeningMessage: "hi"}},
+	})
+	backdateEvents(t, dbPath, "abandoned", time.Now().Add(-2*time.Hour))
+
+	// A session that never appended an event has nothing recent and passes
+	// the idle check the same way.
+	mustCreateSession(t, st, "never-heard-from", time.Now().Add(-2*time.Hour))
+
+	for _, tc := range []struct {
+		name string
+		id   string
+	}{
+		{"with old events", "abandoned"},
+		{"with no events", "never-heard-from"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before := sessionVersion(t, srv, tc.id)
+			resp := doWrite(t, srv, http.MethodPatch, "/api/sessions/"+tc.id, `{"status":"cancelled"}`, map[string]string{
+				"Content-Type": "application/json",
+				"If-Match":     strconv.Itoa(before),
+			})
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("PATCH: got status %d, want 200", resp.StatusCode)
+			}
+			var got hub.SessionState
+			if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+				t.Fatal(err)
+			}
+			if got.Status != store.StatusCancelled || got.FinishedAt == nil {
+				t.Fatalf("expected cancelled with finished_at, got %+v", got)
+			}
+			if got.Version != before+1 {
+				t.Fatalf("version = %d, want %d (one mutation)", got.Version, before+1)
+			}
+
+			// A fresh read agrees, and the event log is untouched.
+			sess, err := st.GetSession(ctx, tc.id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if sess.Status != store.StatusCancelled || sess.FinishedAt == nil {
+				t.Fatalf("store row not closed: %+v", sess)
+			}
+			events, err := st.GetEvents(ctx, tc.id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, ev := range events {
+				if ev.Kind == store.KindRunFinished || ev.Kind == store.KindError {
+					t.Fatalf("close must not append events, found %s", ev.Kind)
+				}
+			}
+		})
+	}
+}
+
+// TestPatchSessionRefusesLiveSession pins the precondition that matters
+// (docs/DATA-API.md): a running session whose most recent event is newer
+// than the idle threshold is presumed live, and the close is a 409 whose
+// message names when the last event was. The row is untouched.
+func TestPatchSessionRefusesLiveSession(t *testing.T) {
+	srv, st, h := newTestServer(t)
+	ctx := context.Background()
+	mustCreateSession(t, st, "live", time.Now())
+	appendAndPublish(t, st, h, "live", []store.EventInput{
+		{Kind: store.KindSessionStarted, Payload: store.SessionStartedPayload{OpeningMessage: "hi"}},
+	})
+
+	before := sessionVersion(t, srv, "live")
+	resp := doWrite(t, srv, http.MethodPatch, "/api/sessions/live", `{"status":"cancelled"}`, map[string]string{
+		"Content-Type": "application/json",
+		"If-Match":     strconv.Itoa(before),
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("PATCH on a live session: got status %d, want 409", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "most recent event at") {
+		t.Fatalf("409 must say when the last event was, got %q", body)
+	}
+
+	sess, err := st.GetSession(ctx, "live")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.Status != store.StatusRunning || sess.FinishedAt != nil || sess.Version != before {
+		t.Fatalf("a refused close must not touch the row, got %+v", sess)
+	}
+}
+
+// TestSessionWritesGuardsAndPreconditions is the table the task pins for
+// both session write endpoints: the guards every write carries (415 without
+// a JSON content type, 403 cross-origin) and the write preconditions (428
+// without If-Match, 400 on a malformed or non-terminal body).
+func TestSessionWritesGuardsAndPreconditions(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	mustCreateSession(t, st, "sess-1", time.Now())
+
+	for _, tc := range []struct {
+		name    string
+		method  string
+		body    string
+		headers map[string]string
+		want    int
+	}{
+		{
+			name: "PATCH missing content type", method: http.MethodPatch,
+			body: `{"status":"cancelled"}`, headers: map[string]string{"If-Match": "1"},
+			want: http.StatusUnsupportedMediaType,
+		},
+		{
+			name: "PATCH wrong content type", method: http.MethodPatch,
+			body:    `{"status":"cancelled"}`,
+			headers: map[string]string{"Content-Type": "text/plain", "If-Match": "1"},
+			want:    http.StatusUnsupportedMediaType,
+		},
+		{
+			name: "PATCH cross-origin", method: http.MethodPatch,
+			body:    `{"status":"cancelled"}`,
+			headers: map[string]string{"Content-Type": "application/json", "If-Match": "1", "Origin": "https://evil.example"},
+			want:    http.StatusForbidden,
+		},
+		{
+			name: "PATCH missing If-Match", method: http.MethodPatch,
+			body: `{"status":"cancelled"}`, headers: map[string]string{"Content-Type": "application/json"},
+			want: http.StatusPreconditionRequired,
+		},
+		{
+			name: "PATCH malformed If-Match", method: http.MethodPatch,
+			body:    `{"status":"cancelled"}`,
+			headers: map[string]string{"Content-Type": "application/json", "If-Match": "abc"},
+			want:    http.StatusBadRequest,
+		},
+		{
+			name: "PATCH non-terminal status", method: http.MethodPatch,
+			body:    `{"status":"running"}`,
+			headers: map[string]string{"Content-Type": "application/json", "If-Match": "1"},
+			want:    http.StatusBadRequest,
+		},
+		{
+			name: "PATCH unknown status", method: http.MethodPatch,
+			body:    `{"status":"dancing"}`,
+			headers: map[string]string{"Content-Type": "application/json", "If-Match": "1"},
+			want:    http.StatusBadRequest,
+		},
+		{
+			name: "PATCH invalid JSON", method: http.MethodPatch,
+			body:    `not json`,
+			headers: map[string]string{"Content-Type": "application/json", "If-Match": "1"},
+			want:    http.StatusBadRequest,
+		},
+		{
+			name: "DELETE missing content type", method: http.MethodDelete,
+			headers: map[string]string{"If-Match": "1"},
+			want:    http.StatusUnsupportedMediaType,
+		},
+		{
+			name: "DELETE cross-origin", method: http.MethodDelete,
+			headers: map[string]string{"Content-Type": "application/json", "If-Match": "1", "Origin": "https://evil.example"},
+			want:    http.StatusForbidden,
+		},
+		{
+			name: "DELETE missing If-Match", method: http.MethodDelete,
+			headers: map[string]string{"Content-Type": "application/json"},
+			want:    http.StatusPreconditionRequired,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := doWrite(t, srv, tc.method, "/api/sessions/sess-1", tc.body, tc.headers)
+			defer resp.Body.Close()
+			if resp.StatusCode != tc.want {
+				t.Fatalf("got status %d, want %d", resp.StatusCode, tc.want)
+			}
+			// Every refusal is a JSON error body.
+			if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+				t.Fatalf("error Content-Type = %q, want JSON", ct)
+			}
+		})
+	}
+
+	// The rejected writes left the row alone.
+	sess, err := st.GetSession(context.Background(), "sess-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.Status != store.StatusRunning || sess.Version != 1 {
+		t.Fatalf("guarded writes must not touch the row, got %+v", sess)
+	}
+}
+
+// TestSessionWritesRejectStaleVersion pins the optimistic-concurrency
+// mechanism (docs/DATA-API.md) end to end: a write carrying a version older
+// than the row's current one is a 412 that names the current version, and
+// the row survives — for PATCH and DELETE alike.
+func TestSessionWritesRejectStaleVersion(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	ctx := context.Background()
+	mustCreateSession(t, st, "sess-1", time.Now()) // version 1
+
+	// The run's own terminal write bumps the row to version 2 — the exact
+	// race the mechanism exists for: an operator who read the session before
+	// the run finished must not land a write on the changed row.
+	if err := st.UpdateSessionStatus(ctx, "sess-1", store.StatusOK, &staleFinishedAt); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		method string
+		body   string
+	}{
+		{"PATCH", http.MethodPatch, `{"status":"cancelled"}`},
+		{"DELETE", http.MethodDelete, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := doWrite(t, srv, tc.method, "/api/sessions/sess-1", tc.body, map[string]string{
+				"Content-Type": "application/json",
+				"If-Match":     "1", // stale: the row is at version 2
+			})
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusPreconditionFailed {
+				t.Fatalf("stale %s: got status %d, want 412", tc.method, resp.StatusCode)
+			}
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(body), "current version 2") {
+				t.Fatalf("412 must name the current version, got %q", body)
+			}
+		})
+	}
+
+	sess, err := st.GetSession(ctx, "sess-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.Status != store.StatusOK || sess.Version != 2 {
+		t.Fatalf("stale writes must not touch the row, got %+v", sess)
+	}
+
+	// The same write with the current version succeeds.
+	resp := doWrite(t, srv, http.MethodPatch, "/api/sessions/sess-1", `{"status":"cancelled"}`, map[string]string{
+		"Content-Type": "application/json",
+		"If-Match":     "2",
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("fresh PATCH: got status %d, want 200", resp.StatusCode)
+	}
+}
+
+// TestDeleteSessionRemovesFinishedSession pins DELETE's success path: a
+// terminal session can be deleted with its current version, and the row and
+// its event log are gone afterwards.
+func TestDeleteSessionRemovesFinishedSession(t *testing.T) {
+	srv, st, h := newTestServer(t)
+	ctx := context.Background()
+	mustCreateSession(t, st, "sess-1", time.Now())
+	appendAndPublish(t, st, h, "sess-1", []store.EventInput{
+		{Kind: store.KindSessionStarted, Payload: store.SessionStartedPayload{OpeningMessage: "hi"}},
+	})
+	if err := st.UpdateSessionStatus(ctx, "sess-1", store.StatusOK, &staleFinishedAt); err != nil {
+		t.Fatal(err)
+	}
+
+	v := sessionVersion(t, srv, "sess-1") // 2
+	resp := doWrite(t, srv, http.MethodDelete, "/api/sessions/sess-1", "", map[string]string{
+		"Content-Type": "application/json",
+		"If-Match":     strconv.Itoa(v),
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("DELETE: got status %d, want 200", resp.StatusCode)
+	}
+	var okBody map[string]bool
+	if err := json.NewDecoder(resp.Body).Decode(&okBody); err != nil {
+		t.Fatal(err)
+	}
+	if !okBody["ok"] {
+		t.Fatalf("DELETE response = %+v, want ok:true", okBody)
+	}
+
+	if _, err := st.GetSession(ctx, "sess-1"); err != store.ErrNotFound {
+		t.Fatalf("session should be gone, got %v", err)
+	}
+	events, err := st.GetEvents(ctx, "sess-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("expected no events left, got %d", len(events))
+	}
+}
+
+// TestDeleteSessionRefusesRunning pins the surfaced store rule: DELETE
+// refuses a running session with 409 regardless of idleness — an abandoned
+// row is closed with PATCH first and deleted afterwards.
+func TestDeleteSessionRefusesRunning(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	ctx := context.Background()
+	mustCreateSession(t, st, "sess-1", time.Now())
+
+	resp := doWrite(t, srv, http.MethodDelete, "/api/sessions/sess-1", "", map[string]string{
+		"Content-Type": "application/json",
+		"If-Match":     "1",
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("DELETE on a running session: got status %d, want 409", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "still running") {
+		t.Fatalf("409 must say the session is still running, got %q", body)
+	}
+	if _, err := st.GetSession(ctx, "sess-1"); err != nil {
+		t.Fatalf("session should survive a refused delete: %v", err)
+	}
+}
+
+// TestSessionWritesNotFound pins 404 for both write endpoints on an unknown
+// session id.
+func TestSessionWritesNotFound(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	for _, tc := range []struct {
+		method string
+		body   string
+	}{
+		{http.MethodPatch, `{"status":"cancelled"}`},
+		{http.MethodDelete, ""},
+	} {
+		resp := doWrite(t, srv, tc.method, "/api/sessions/does-not-exist", tc.body, map[string]string{
+			"Content-Type": "application/json",
+			"If-Match":     "1",
+		})
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("%s unknown session: got status %d, want 404", tc.method, resp.StatusCode)
+		}
+	}
+}
+
+// staleFinishedAt is a non-nil finished_at for tests that finish a session
+// through the store without caring about the exact time.
+var staleFinishedAt = time.Now().UTC()
