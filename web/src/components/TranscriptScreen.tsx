@@ -35,6 +35,16 @@ export function TranscriptScreen({ sessionId, onBack }: Props) {
           </span>
           <span className="dim">{meta.workspace}</span>
           <span className="dim">{meta.permission_mode}</span>
+          {meta.job_type && <span className="dim">{meta.job_type}</span>}
+          {meta.parent_agent_type &&
+            (meta.parent_agent_type === "user" ? (
+              <span className="dim">started by a person</span>
+            ) : (
+              <span className="dim">
+                started by {meta.parent_agent_type}
+                {meta.parent_agent_id && ` (${meta.parent_agent_id})`}
+              </span>
+            ))}
           {meta.parent_id && (
             <span className="dim">
               forked from <code>{meta.parent_id}</code>
