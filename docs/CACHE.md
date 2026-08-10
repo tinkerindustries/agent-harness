@@ -83,6 +83,16 @@ mode would give each mode its own prefix and make mode switching a cold start.
 A work request's `result_schema` is the tempting exception: it belongs in the
 opening user message, never in `Complete`'s definition.
 
+**Never quote a configurable limit in a tool description.** The tool array is
+part of the frozen head, so a number that an operator can change — a timeout,
+an output cap, an image count — must not appear in a description: it would make
+the head vary per installation and change under operators' feet, costing the
+whole prompt cache on every change. The model discovers a bound from the tool's
+refusal message, which states the actual limit. The `ReviewScreenshot`
+description was the last one carrying such numbers and they were removed in the
+same change that made the limits settings; check any new description against
+this rule.
+
 **Order tool results by `tool_calls` index**, never by completion order.
 
 **Keep volatile content out of the head.** No clock, cwd, git status, or file

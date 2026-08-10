@@ -32,23 +32,37 @@ cd deepseek-harness
 cp .env.example .env
 ```
 
-Edit `.env` for the optional overrides — model and effort defaults, pool size,
-deadlines, ports — all documented inline in `.env.example`. The DeepSeek API
-key is **not** an environment variable anymore: it lives in the harness's
-SQLite settings table, and is set after the stack is up:
+`.env` holds the bootstrap overrides only — where the database lives, the
+ports, the NATS address — all documented inline in `.env.example`. Everything
+else the operator tunes — API keys, models, run budgets, tool limits, worker
+pool size, retention — lives in the harness's SQLite settings table and is
+changed with `harness config set` (or from the settings screen) without a
+rebuild:
+
+```sh
+docker compose exec harness harness config set run.max_tokens 96000
+docker compose exec harness harness config set tools.bash_timeout 5m
+```
+
+`harness config list` prints every setting grouped, with its resolved value,
+its default, and a `[restart]` mark on the few that only take effect on the
+next start (the worker pool size, the model-concurrency ceilings, the results
+retention, and the events paging limits). The DeepSeek API key is one of
+those settings:
 
 ```sh
 docker compose exec harness harness config set deepseek.api_key sk-...
 ```
 
-`harness config list` shows the stored keys with their values masked; `harness
-config get deepseek.api_key -reveal` prints one in full.
+`harness config get deepseek.api_key -reveal` prints one in full; `config
+list` masks secrets by default.
 
 The same keys can be managed from the browser: the settings screen at
-<http://localhost:8080/settings> (linked from the session list) shows each key
-with whether it is set and its display value, and lets an operator set or unset
-it. It shows the same masked values `config list` does — there is no way to
-read a full secret in the browser.
+<http://localhost:8080/settings> (linked from the session list) shows each
+setting grouped and typed, with its default, whether the current value is a
+default or an override, and a "reset to default" action. It shows the same
+masked values `config list` does — there is no way to read a full secret in
+the browser.
 
 Set `GITHUB_TOKEN` too if you want private clones. The container's entrypoint
 turns it into a git credential inside the container, and `gh` picks it up from

@@ -90,7 +90,11 @@ The highest-risk tool, and the one where harnesses diverge most in quality.
 
 The tool the permission policy exists for. Wall-clock timeout and an output byte
 cap on every invocation, with truncation labelled in the result so the model
-knows it saw a fragment.
+knows it saw a fragment. Both are defaults, not fixed values: an operator
+changes them with `harness config set tools.bash_timeout` (and
+`tools.bash_timeout_max`, the ceiling a request's own timeout is clamped to)
+and `tools.output_cap` — the whole `tools.` group of settings — and the next
+tool call picks the change up without a restart.
 
 Foreground only in v1. Background shells with separate output-polling and kill
 tools are a named follow-up, and they matter for dev servers and test watchers.
@@ -124,17 +128,26 @@ and avoids mixing caches across models.
 
 Ours, not DeepSeek's. See the endpoint trade-off below. Fetch, extract to text,
 then have flash answer the caller's `prompt` against the extracted content, so
-the parent context receives an answer rather than a page.
+the parent context receives an answer rather than a page. The fetch size cap,
+the extraction cap, and the call's timeout are defaults under the `tools.`
+group of settings (`tools.webfetch_max_body`, `tools.webfetch_max_extract`,
+`tools.webfetch_timeout`).
 
 ### ReviewScreenshot
 
 DeepSeek is text-only, so this is the harness's vision path: the agent captures
 a screenshot itself (a browser tool, a headless-browser script) and this tool
-sends it to Google Gemini for a diagnosis. It accepts one to four PNG, JPEG, or
-WebP files, workspace-confined like every other path-taking tool, at most 5 MB
-each. The first image is sent at `high` resolution and the rest at `medium`, per
-the prompting notes' advice that only the image needing scrutiny should be high
-— the model is told to put the screenshot it cares about first
+sends it to Google Gemini for a diagnosis. It accepts PNG, JPEG, or WebP files,
+workspace-confined like every other path-taking tool. The image count and the
+per-file size cap are defaults, not fixed values
+(`tools.reviewscreenshot_max_images`, `tools.reviewscreenshot_max_bytes`), so
+the tool description quotes no numbers — it is part of the frozen request head
+(docs/CACHE.md) and a number there would make the head vary per installation.
+A call that exceeds a bound is refused with an error stating the actual limit,
+which is how the model discovers it. The first image is sent at `high`
+resolution and the rest at `medium`, per the prompting notes' advice that only
+the image needing scrutiny should be high — the model is told to put the
+screenshot it cares about first
 ([`docs/gemini-3.5-flash-ui-review-prompting.md`](gemini-3.5-flash-ui-review-prompting.md)
 has the request-shape rationale: no temperature/top_p/top_k, `thinking_level`,
 "data first, question last").
@@ -142,7 +155,8 @@ has the request-shape rationale: no temperature/top_p/top_k, `thinking_level`,
 The model comes from the `google.vision_model` setting (default
 `gemini-3.5-flash`) and the key from `google.api_key`, both read through the
 settings table on every call, so either can change without a restart. The call
-has its own 60-second timeout rather than the 30-second tool default.
+has its own timeout (default 60s, `tools.reviewscreenshot_timeout`) rather than
+the 30-second tool default.
 
 Known limitation: Gemini calls do not appear in a session's cost accounting —
 `configs/prices.json` and `internal/pricing` cover DeepSeek only, and phase 2
@@ -224,7 +238,9 @@ These hold for every tool and live in Go, not in prompt text.
 - Paths resolve against the workspace root and are checked for escape after
   symlink resolution. Escapes are rejected, not sanitised.
 - Every tool has a wall-clock timeout and an output byte cap, with truncation
-  labelled in the result.
+  labelled in the result. Both are settings (`tools.` group) with the defaults
+  listed above; the values are resolved from the settings table on each call,
+  so a limit changed with `harness config set` applies without a restart.
 - Tool results are appended in `tool_calls` array order, never in completion
   order. Parallel tool calling is always on and cannot be disabled: the
   Responses API guide states it outright, the Codex model catalogue declares

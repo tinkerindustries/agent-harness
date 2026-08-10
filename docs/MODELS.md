@@ -146,7 +146,11 @@ its documented failure mode is occasional empty content.
 | Compaction summary | flash | disabled | — | 8000 |
 | Session title | flash | disabled | — | 200 |
 
-All of these are configuration, not constants.
+All of these are configuration, not constants. The main-loop row's model,
+effort, and `max_tokens` are settings in the harness's settings table
+(`model.default`, `model.flash`, `model.effort`, `run.max_tokens`) — the
+numbers in the table are the defaults an operator starts from. The `Task` and
+`WebFetch` rows' token budgets are code-level choices that stay as they are.
 
 ## Sizing max_tokens
 

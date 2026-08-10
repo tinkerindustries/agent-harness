@@ -199,7 +199,7 @@ untouchable from a browser.
     GET /api/sessions/{id}/events        historical page, ?from=<seq>&limit=
     GET /api/sessions/{id}/stream        SSE, honours Last-Event-ID
     GET /api/stream                      SSE of session-level state changes
-    GET /api/settings                    every known key, with set state and display value
+    GET /api/settings                    every setting, grouped, with its type, default, description, and the secret/restart flags
     PUT /api/settings/{key}              set a key, JSON body {"value": "..."}
     DELETE /api/settings/{key}           unset a key
 
@@ -214,6 +214,21 @@ methods demand `Content-Type: application/json` (415 otherwise) and refuse a
 request whose `Origin` does not match the request's own `Host` (403), so a
 page open in the operator's own browser cannot overwrite keys on the loopback
 port.
+
+**Settings are one registry.** Every setting — the API keys, the models, the
+run budget, the tool limits, and the operational limits below — is one entry
+in `internal/settings`' registry, carrying its type, default, validation
+bounds, description, and whether it needs a restart. Validation lives in the
+registry and is enforced in Go on every write path, so `harness config set`,
+an HTTP `PUT`, and the screen reject the same values with the same message.
+`GET /api/settings` serves the registry itself: each entry names its group
+(the screen's heading), type, default, description, and flags, plus whether
+the stored value is an override. Settings flagged "requires a restart" — the
+worker pool size, the model-concurrency ceilings, the results retention, and
+the events paging bounds — are read once at startup or baked into the
+JetStream stream; the CLI and the screen both mark them, because a setting
+that silently does nothing until an unrelated restart is worse than one that
+cannot be changed at all.
 
 Two different recoveries share one endpoint. A dropped connection is
 `EventSource`'s own reconnect, which sends `Last-Event-ID` and resumes at the
@@ -612,7 +627,9 @@ write is the settings screen, and that cannot reach a run. It has no prompt
 box, no approve button, and no cancel control, and the server would reject
 them anyway (§4.2). What it shows is a list of sessions, the transcript of any
 one of them — live or historical — and the settings screen for the harness's
-keys.
+settings: the registry (§4.2) rendered grouped and typed, with each entry's
+default, whether the current value is a default or an override, and the
+restart markers.
 
 That subtraction removes most of the usual frontend work — no optimistic
 updates, no command queue, no reconciliation between local intent and server

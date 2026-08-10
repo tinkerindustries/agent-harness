@@ -141,17 +141,25 @@ names the first message that differs when prediction and reality diverge.
 Diagnostic, not a request-path dependency.
 
 ### `internal/config`
-Environment loading and `.env` parsing. Defaults follow
-[`docs/MODELS.md`](docs/MODELS.md). Read configuration through here rather than
-calling `os.Getenv` elsewhere.
+Environment loading and `.env` parsing. Carries the bootstrap values only —
+the data directory (which locates the database the settings themselves live
+in), the network addresses, the price table path, and the workspace root —
+plus the thinking toggle. Everything else that used to be a default here
+(models, run budgets, worker sizes) lives in the settings registry. Read
+configuration through here rather than calling `os.Getenv` elsewhere.
 
 ### `internal/settings`
-The names and resolver for the `settings` table: which keys exist
-(`deepseek.api_key`, `google.api_key`), validation that a read or write names a
-known key, and a resolver that reads through to the store on every call, so a
-key changed by another process takes effect on the next request without
-restarting anything. Depends on: the settings surface of `internal/store`
-only — never `session`, `tools`, or `config`.
+The registry and resolver for the `settings` table. The registry is one
+ordered slice of descriptors — key, type (string/integer/duration), default,
+validation bounds, description, and the secret/restart flags — covering every
+setting: the API keys, the run budget, the tool limits, the model names, and
+the restart-required operational limits. `ValidKeys` and `IsSecretKey` derive
+from it; `Set` validates against it, so a value rejected by `harness config`
+reads identically from the HTTP API and the screen. The resolver reads through
+to the store on every call, so a key changed by another process takes effect
+on the next request without restarting anything (restart-flagged keys are the
+exception: they are read once at startup and marked as such). Depends on: the
+settings surface of `internal/store` only.
 
 ### `internal/pricing`
 The price table, loaded from JSON at runtime and carrying its own capture date.
@@ -196,12 +204,17 @@ The edges that matter:
 
 ## Cross-cutting concerns
 
-**Configuration.** Two sources. Runtime and deployment settings come through
-`internal/config` from the environment, with `.env` loaded best-effort at
-startup and real environment variables winning over it. Stored settings — the
-DeepSeek API key today — live in the `settings` table and resolve through
-`internal/settings`, so a key changed by one process takes effect in another
-without a restart. Names and defaults are documented in `.env.example`.
+**Configuration.** Two sources, and the split is deliberate. Bootstrap —
+where the database lives, where the service binds, the NATS address, the
+price table path, the workspace root — comes through `internal/config` from
+the environment, with `.env` loaded best-effort at startup and real
+environment variables winning over it. Everything operator-tunable — API
+keys, models, run budgets, tool limits, worker sizes, retention — lives in
+the `settings` table and resolves through `internal/settings`' registry, so
+an operator changes a limit with `harness config set` (or the settings
+screen) without a rebuild. Settings marked "requires a restart" are read once
+at startup and the UI says so. Names and defaults are documented in
+`.env.example` and in the registry itself.
 
 **Pricing.** Never compiled in. The table loads from the path in
 `DEEPSEEK_PRICE_TABLE` and carries a capture date that the cost readout shows,
