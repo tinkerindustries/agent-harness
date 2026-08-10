@@ -43,9 +43,11 @@ cutting a version and deploying it to the production stack.
 - **The HTTP API is becoming the harness's real interface, in stages.** The
   read-only rule is retired. Stage one is the data the harness manages —
   sessions, events, work requests, settings — and it is specified in
-  docs/DATA-API.md. Stage two is run control from the browser, which is
-  intended and not yet built: starting, steering, and stopping a run.
-  Until stage two lands, **do not give the HTTP server a NATS handle** — not
+  docs/DATA-API.md. Stage two is run control from the browser, built in stages
+  (docs/RUN-CONTROL.md): stopping (`POST /api/sessions/{id}/stop`, through the
+  declared `RunController` seam) and steering (`POST /api/sessions/{id}/steer`,
+  a store write the loop reads) are built; starting is not.
+  Until starting lands, **do not give the HTTP server a NATS handle** — not
   because reaching the loop is forbidden forever, but because the seam it goes
   through is a design decision that has not been made yet, and a handle
   smuggled in early is how it gets made by accident. Build stage one so stage

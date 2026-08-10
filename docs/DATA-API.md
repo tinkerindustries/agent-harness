@@ -16,12 +16,13 @@ Two distinctions bracket what belongs here:
   loop — is run control and lives in [RUN-CONTROL.md](RUN-CONTROL.md), whose
   seam is chosen: the HTTP server holds no NATS handle and `internal/httpapi`
   imports neither `internal/session` nor `internal/worker`
-  ([ARCHITECTURE.md](../ARCHITECTURE.md)). Stopping is the one run-control
-  action built so far — `POST /api/sessions/{id}/stop`, authenticated by the
-  `http.control_token` bearer token and acting on a run through the declared
-  `RunController` interface; starting and steering are not built yet. That
-  import boundary, not the absence of write endpoints, is what makes "no
-  endpoint can start or steer a run" structural.
+  ([ARCHITECTURE.md](../ARCHITECTURE.md)). Two run-control actions are built:
+  `POST /api/sessions/{id}/stop`, authenticated by the `http.control_token`
+  bearer token and acting on a run through the declared `RunController`
+  interface, and `POST /api/sessions/{id}/steer`, the same guards but no seam
+  at all — it is a store write the loop reads at its next sub-turn boundary.
+  Starting is not built yet. That import boundary, not the absence of write
+  endpoints, is what makes "no endpoint can start a run" structural.
 - **The store is the only record.** The event log is append-only and never
   editable; see [Events are not writable](#events-are-not-writable).
 
@@ -293,15 +294,16 @@ semantics: version 1 at creation, `+1` per mutation, `If-Match` required on
 mutating writes, 428 when absent, 412 when stale.
 
 **Run control is the deliberate exception** (docs/RUN-CONTROL.md "The HTTP
-surface"): `POST /api/sessions/{id}/stop` requires no `If-Match`. That rule
+surface"): `POST /api/sessions/{id}/stop` and `POST /api/sessions/{id}/steer`
+require no `If-Match`. That rule
 exists so an operator's write cannot land on a row that changed since they
-read it — a stop is an action on a run, not an edit of a row, and a running
-session's `version` changes continuously underneath the caller as the runner
-commits. Requiring a version echo would make a correct stop racy by
+read it — a stop or a steer is an action on a run, not an edit of a row, and a
+running session's `version` changes continuously underneath the caller as the
+runner commits. Requiring a version echo would make a correct stop racy by
 construction and push the operator to fetch-then-immediately-post, which is
 the check without the protection. The preconditions that matter there are
-about the *run*, not the row: the session exists (404), and this process is
-running it (409 naming the session's status).
+about the *run*, not the row: the session exists (404), and it is running
+(409 naming the session's status).
 
 Why a **lease** carries a version when the only mutation this API performs on
 it is a delete: the version is what makes the delete's `If-Match` mean
