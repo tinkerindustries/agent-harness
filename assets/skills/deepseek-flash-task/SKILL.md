@@ -1,6 +1,6 @@
 ---
 name: deepseek-flash-task
-description: Delegate a coding task to a DeepSeek V4 flash agent running with full permissions in the deepseek-harness, which branches off main, commits, pushes, opens a draft PR, and returns a schema-validated report of what was done, what was deferred, how it was verified, and what went wrong. Use this whenever the user wants deepseek, flash, or "the harness" to do a piece of work; whenever they say delegate, hand off, farm out, or "get an agent to" do something on a branch; whenever they name deepseek_agent or deepseek_result; and whenever they ask for work to be done on a named branch by something other than you. Reach for it even when the user does not name this skill, as long as the work is meant to happen in a harness run rather than in this session.
+description: Delegate a coding task to a DeepSeek V4 flash agent running with full permissions in the deepseek-harness, which branches off whatever base branch you name, commits, pushes, opens a draft PR, and returns a schema-validated report of what was done, what was deferred, how it was verified, and what went wrong. Use this whenever the user wants deepseek, flash, or "the harness" to do a piece of work; whenever they say delegate, hand off, farm out, or "get an agent to" do something on a branch; whenever they name deepseek_agent or deepseek_result; whenever they ask for work to be done on a named branch by something other than you; and whenever the work has to start from an existing branch rather than main. Reach for it even when the user does not name this skill, as long as the work is meant to happen in a harness run rather than in this session.
 ---
 
 # Delegating a task to a flash agent
@@ -9,8 +9,11 @@ A harness run is a fire-and-forget agent session on the other side of a NATS
 queue. It clones the repositories you name into a directory of its own inside
 the harness container, works there with the tool set the permission mode
 allows, and publishes one result. You never see that directory, which is what
-makes the push mandatory rather than a nicety: an unpushed commit dies with the
-workspace.
+makes the push mandatory rather than a nicety. The workspace does outlive the
+run — it sits under `workspaces/<session-id>/` on whatever machine the harness
+is on — but nothing in the MCP surface reaches into it, so a commit that was
+never pushed is not destroyed so much as stranded somewhere you would have to go
+and dig it out of by hand.
 
 Two mechanics do the heavy lifting, and both are worth knowing before you write
 the prompt.
@@ -44,9 +47,18 @@ Four things, and you can usually work out three of them yourself:
   `https://github.com/owner/repo.git` — because the container authenticates with
   a `GITHUB_TOKEN` credential helper for `https://github.com` and has no ssh
   key. An ssh URL fails at clone time and burns the run.
-- **The base branch.** Default main. If the repository's default is something
-  else, pass it as `repos[].branch` and name it in the prompt, since the agent
-  branches from whatever was checked out.
+- **The base branch.** Whatever the work should start from, passed as
+  `repos[].branch`. It reaches `git clone --branch`, which takes any ref that is
+  already pushed — a release branch, someone else's feature branch, the branch a
+  previous run left behind — not just the repository's default. The agent
+  branches from whatever it finds checked out, so this is the argument that
+  decides what its diff is against.
+
+  Decide it rather than defaulting to it. `main` is right for a self-contained
+  change, and wrong whenever the task builds on code that has not landed yet:
+  point it at the branch holding that code, or the agent will re-implement it or
+  conflict with it. A chain of runs where each one continues the last is what
+  `deepseek-flash-plan` is for.
 
 Name the repository, branch, and base in the same message where you show the
 rewritten brief at the end of step 2. A run costs minutes and dollars, and a
@@ -164,9 +176,9 @@ draft pull request against <base>:
     git push -u origin <branch-name>
     gh pr create --draft --base <base> --title "<title>" --body "<what and why>"
 
-The workspace directory is deleted when this run ends. Work that is committed
-but not pushed is lost, so treat the push as part of finishing the task, not as
-a follow-up.
+Nothing reaches into this workspace once the run ends, so work that is committed
+but not pushed cannot be collected. Treat the push as part of finishing the
+task, not as a follow-up.
 
 ## Verification
 
@@ -209,8 +221,10 @@ Call `deepseek_agent`:
 
 - `description`: a short label, visible in `deepseek_runs`.
 - `prompt`: the filled template.
-- `repos`: `[{ "url": "<https clone url>" }]`, plus `"branch"` when the base is
-  not main.
+- `repos`: `[{ "url": "<https clone url>", "branch": "<base>" }]`. Pass `branch`
+  every time, even when it is `main`. Leaving it out works, but it hides the one
+  argument most worth seeing in the call you are about to make, and a base that
+  was defaulted rather than chosen is only visible in the diff an hour later.
 - `profile`: `"flash"`.
 - `permission_mode`: `"full"`. The run needs Bash, Write, and network access to
   push. It also runs as root and, in this image, holds the host's docker
@@ -255,7 +269,9 @@ whether to keep waiting; the run continues either way.
   branch was pushed before the cutoff; partial work often survives.
 - `status: "failed"` with `error.code: "workspace_setup"` — a clone was refused
   or the base branch does not exist. Nothing ran. Usually an ssh URL that should
-  have been https, or a wrong base.
+  have been https, or a base branch that exists only in your checkout — the
+  clone is from the remote, so a base you have not pushed is a base the run
+  cannot see.
 
 When you relay the result, check the parts that are cheap to check. `pushed:
 true` with an empty `pull_request_url` means the branch is there and the PR is
