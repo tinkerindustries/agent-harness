@@ -62,7 +62,12 @@ export function StopControl({ sessionId, running, className }: StopControlProps)
     setStopping(true);
     setError(null);
     try {
-      await stopSession(sessionId, token);
+      // The reason is carried verbatim into the cancelled result, where it is
+      // the only record of why a run ended. The browser has no free-text
+      // field for it, so it says where the stop came from — which is what
+      // distinguishes it from a CLI or MCP stop when someone reads the result
+      // back later. An empty reason would leave that field blank.
+      await stopSession(sessionId, token, "stopped from the browser");
       setConfirming(false);
       // stopping stays true: the run is still ending, and the stream will
       // deliver the terminal state.
