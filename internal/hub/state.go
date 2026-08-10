@@ -13,28 +13,28 @@ import (
 // GET /api/stream, so the browser's fold treats a row the same way
 // regardless of which one delivered it.
 type SessionState struct {
-	ID              string     `json:"id"`
-	ParentID        string     `json:"parent_id,omitempty"`
-	RequestID       string     `json:"request_id,omitempty"`
-	JobType         string     `json:"job_type,omitempty"`
-	ParentAgentType string     `json:"parent_agent_type,omitempty"`
-	ParentAgentID   string     `json:"parent_agent_id,omitempty"`
-	Model           string     `json:"model"`
-	Effort          string     `json:"effort"`
-	Workspace       string     `json:"workspace"`
-	PermissionMode  string     `json:"permission_mode"`
-	Status          string     `json:"status"`
+	ID              string `json:"id"`
+	ParentID        string `json:"parent_id,omitempty"`
+	RequestID       string `json:"request_id,omitempty"`
+	JobType         string `json:"job_type,omitempty"`
+	ParentAgentType string `json:"parent_agent_type,omitempty"`
+	ParentAgentID   string `json:"parent_agent_id,omitempty"`
+	Model           string `json:"model"`
+	Effort          string `json:"effort"`
+	Workspace       string `json:"workspace"`
+	PermissionMode  string `json:"permission_mode"`
+	Status          string `json:"status"`
 	// CompleteStatus is the status argument the model gave Complete ("done"
 	// or "gave_up"), so the session list can tell a finished task from one
 	// the model gave up on (docs/WEB-REDESIGN.md phase 2). Empty covers a
 	// pre-migration row and a session that ended without calling Complete;
 	// the browser renders it as the plain terminal status rather than
 	// guessing.
-	CompleteStatus  string     `json:"complete_status,omitempty"`
-	CreatedAt       time.Time  `json:"created_at"`
-	FinishedAt      *time.Time `json:"finished_at,omitempty"`
-	SubTurns        int        `json:"sub_turns"`
-	Usage           Usage      `json:"usage"`
+	CompleteStatus string     `json:"complete_status,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	FinishedAt     *time.Time `json:"finished_at,omitempty"`
+	SubTurns       int        `json:"sub_turns"`
+	Usage          Usage      `json:"usage"`
 	// PriceTableDate is the price table's own capture date, carried
 	// alongside Usage so a cost figure never appears without saying how
 	// current it is (docs/DESIGN.md §4.9). Empty when the caller building
