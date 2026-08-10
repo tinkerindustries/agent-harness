@@ -79,20 +79,22 @@ func runConfigList(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
-		marker := "(not set)"
+		marker := "(default)"
 		display := value
 		if ok {
 			if settings.IsSecretKey(d.Key) {
 				display = maskSecret(value)
 			}
-			if value == d.Default {
-				marker = "(default)"
-			} else {
+			if value != d.Default {
 				marker = "(override)"
 			}
-		}
-		if d.Secret && !ok {
-			marker = "(not set) (secret)"
+		} else if !d.Secret {
+			// An unset key resolves to the registry default; show it so the
+			// list reads as the effective configuration.
+			display = d.Default
+		} else {
+			display = ""
+			marker = "(not set)"
 		}
 		if d.Restart {
 			marker += " [restart]"

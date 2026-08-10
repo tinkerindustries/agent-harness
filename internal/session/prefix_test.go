@@ -1,10 +1,12 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 )
 
@@ -54,5 +56,57 @@ func TestPerRequestDataStaysOutOfTheSystemPrompt(t *testing.T) {
 		if strings.Contains(sys, needle) {
 			t.Errorf("system prompt carries per-request value %q; it must stay in the opening message", needle)
 		}
+	}
+}
+
+// fakeSettingStore is a settings.Store backed by a map, enough for the
+// frozen-head test below to attach a real resolver.
+type fakeSettingStore struct {
+	values map[string]string
+}
+
+func (f *fakeSettingStore) Setting(ctx context.Context, key string) (string, bool, error) {
+	v, ok := f.values[key]
+	return v, ok, nil
+}
+func (f *fakeSettingStore) SetSetting(ctx context.Context, key, value string) error {
+	f.values[key] = value
+	return nil
+}
+func (f *fakeSettingStore) DeleteSetting(ctx context.Context, key string) error {
+	delete(f.values, key)
+	return nil
+}
+
+// TestToolSchemaDoesNotVaryWithSettings pins that a configurable tool limit
+// never reaches the tool array: changing tools.reviewscreenshot_max_images
+// through the settings table leaves the marshalled schema byte-identical.
+// The tool description quotes no numbers — the model discovers a changed
+// bound from the refusal message instead (docs/CACHE.md, "Never quote a
+// configurable limit in a tool description").
+func TestToolSchemaDoesNotVaryWithSettings(t *testing.T) {
+	marshal := func() string {
+		b, err := json.Marshal(tools.Definitions())
+		if err != nil {
+			t.Fatalf("encode tool schema: %v", err)
+		}
+		return string(b)
+	}
+
+	before := marshal()
+	if strings.Contains(before, "at most 4") || strings.Contains(before, "5 MB") {
+		t.Fatalf("tool schema quotes a configurable limit:\n%s", before)
+	}
+
+	res := settings.NewResolver(&fakeSettingStore{values: map[string]string{}})
+	if err := res.Set(context.Background(), settings.KeyToolReviewScreenshotMaxImages, "2"); err != nil {
+		t.Fatalf("set max images: %v", err)
+	}
+	if err := res.Set(context.Background(), settings.KeyToolReviewScreenshotMaxBytes, "1024"); err != nil {
+		t.Fatalf("set max bytes: %v", err)
+	}
+
+	if after := marshal(); after != before {
+		t.Fatalf("tool schema varies with settings:\n before: %s\n  after: %s", before, after)
 	}
 }
