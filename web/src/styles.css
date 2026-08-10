@@ -803,9 +803,14 @@ pre {
 .sess-sub {
   font-size: 0.75rem;
   color: var(--muted-foreground);
+  /* Subtitle text wraps normally; only a subtitle that is still too long
+     after three lines is ellipsized (the -webkit-box line clamp), instead of
+     the old single-line nowrap truncation. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* The finished table's Elapsed and Cost cells carry the same primary weight

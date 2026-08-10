@@ -358,7 +358,6 @@ export function SessionListScreen({ onOpen }: Props) {
                   <th>Model</th>
                   <th>Sub-turns</th>
                   <th>Cache</th>
-                  <th>Request</th>
                 </tr>
               </thead>
               <tbody>
@@ -367,7 +366,7 @@ export function SessionListScreen({ onOpen }: Props) {
                 ))}
                 {showEmpty && (
                   <tr>
-                    <td colSpan={8} className="empty-row">
+                    <td colSpan={7} className="empty-row">
                       No sessions yet.
                     </td>
                   </tr>
@@ -548,14 +547,17 @@ function RecentCalls({ calls }: { calls: RecentToolCall[] }) {
 }
 
 // FinishedRow is one finished session in the dense table. The Session cell
-// gains a one-line subtitle: the plan ratio and the model's own summary
-// (docs/WEB-REDESIGN.md phase 3), so scanning the list does not require
-// opening each transcript. Column order is Status, Session, Elapsed, Cost,
-// Model, Sub-turns, Cache, Request (design/sessions-v2.html): the two
-// numbers the redesign asked to prioritise sit right after Session, where
-// they stay visible before any column the scroll container might still need
-// on a narrow viewport. Elapsed and Cost carry the same primary weight as
-// the in-flight card's stat row.
+// carries the subtitle — the plan ratio and the model's own summary
+// (docs/WEB-REDESIGN.md phase 3), wrapped across up to three lines (the
+// .sess-sub line clamp), so scanning the list does not require opening each
+// transcript. The row itself is clickable (onOpen, on the <tr>) — the cell
+// holds no id any more, and the click target never lived on the id span.
+// Column order is Status, Session, Elapsed, Cost, Model, Sub-turns, Cache
+// (design/sessions-v2.html): the two numbers the redesign asked to
+// prioritise sit right after Session, where they stay visible before any
+// column the scroll container might still need on a narrow viewport.
+// Elapsed and Cost carry the same primary weight as the in-flight card's
+// stat row.
 function FinishedRow({
   sess,
   now,
@@ -577,8 +579,7 @@ function FinishedRow({
       </td>
       <td>
         <div className="sess-cell">
-          <span className="sess-id">{sess.id}</span>
-          {subtitle && <span className="sess-sub truncate">{subtitle}</span>}
+          <span className="sess-sub">{subtitle || "—"}</span>
         </div>
       </td>
       <td className="primary">{formatElapsed(sess, now)}</td>
@@ -593,7 +594,6 @@ function FinishedRow({
       <td className="dim" title={hitRateTitle(sess.usage)}>
         {formatHitRate(sess.usage)}
       </td>
-      <td className="dim">{sess.request_id ?? "—"}</td>
     </tr>
   );
 }
