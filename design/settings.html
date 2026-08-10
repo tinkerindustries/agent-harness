@@ -1,0 +1,1042 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Settings — harness design pass</title>
+    <link rel="stylesheet" href="tokens.css" />
+    <style>
+      .page {
+        max-width: 1080px;
+      }
+
+      h1 {
+        font-size: 1.375rem;
+        margin: 8px 0 6px;
+        letter-spacing: -0.02em;
+      }
+      p.lede {
+        color: var(--muted-foreground);
+        margin: 0 0 16px;
+        max-width: 78ch;
+      }
+
+      /* ---------- summary strip ---------- */
+      .summary {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 4px 8px;
+        padding: 7px 12px;
+        border: 1px solid var(--border);
+        border-radius: calc(var(--radius) - 2px);
+        font-size: 0.8125rem;
+        color: var(--muted-foreground);
+      }
+      .summary b {
+        color: var(--foreground);
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+      }
+      .summary .sep {
+        color: var(--border);
+      }
+
+      .filters {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      /* ---------- a group of settings ---------- */
+      .group {
+        overflow: hidden;
+      }
+      .group .setting + .setting {
+        border-top: 1px solid var(--border);
+      }
+
+      /* ---------- one setting row ---------- */
+      .setting > summary {
+        display: grid;
+        grid-template-columns: 10px minmax(150px, 250px) minmax(80px, 160px) minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 12px;
+      }
+      .setting > summary:hover {
+        background: color-mix(in srgb, var(--accent) 55%, transparent);
+      }
+      .setting[open] > summary {
+        background: color-mix(in srgb, var(--accent) 40%, transparent);
+      }
+      .setting .key {
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+      }
+      /* The value column is the one an operator scans. A stored value takes
+         full weight; a value that is only the registry default stays muted,
+         so the four rows this installation has changed are findable without
+         reading a badge on every row. */
+      .setting .val {
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        font-variant-numeric: tabular-nums;
+        color: var(--muted-foreground);
+        text-align: right;
+      }
+      .setting.is-override .val,
+      .setting.is-secret-set .val {
+        color: var(--foreground);
+        font-weight: 600;
+      }
+      .setting.is-unset .val {
+        color: var(--status-gaveup);
+      }
+      .setting .desc {
+        font-size: 0.8125rem;
+        color: var(--muted-foreground);
+        min-width: 0;
+      }
+      .setting .flags {
+        display: flex;
+        gap: 6px;
+        justify-content: flex-end;
+      }
+
+      /* ---------- one setting, opened ---------- */
+      .setting-body {
+        padding: 2px 12px 14px 32px;
+        display: grid;
+        gap: 10px;
+        max-width: 92ch;
+      }
+      .setting-body p {
+        margin: 0;
+        font-size: 0.8125rem;
+        max-width: 78ch;
+      }
+      .facts {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 18px;
+        font-size: 0.75rem;
+        color: var(--muted-foreground);
+      }
+      .facts .k {
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        font-size: 0.6875rem;
+        margin-right: 5px;
+      }
+      .facts code {
+        background: var(--muted);
+        padding: 1px 5px;
+        border-radius: 4px;
+        color: var(--foreground);
+      }
+      .write {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+      }
+      .write .input {
+        min-width: 300px;
+      }
+      .write .input.invalid {
+        border-color: var(--status-failed);
+      }
+      .field-error {
+        font-size: 0.75rem;
+        color: var(--status-failed);
+        font-family: var(--font-mono);
+        flex-basis: 100%;
+      }
+      .hint {
+        font-size: 0.75rem;
+        color: var(--muted-foreground);
+      }
+      .notice.notice-quiet {
+        border-left-color: var(--muted-foreground);
+        background: color-mix(in srgb, var(--muted) 50%, transparent);
+        color: var(--muted-foreground);
+      }
+
+      .note {
+        margin-top: 36px;
+        padding-top: 14px;
+        border-top: 1px dashed var(--border);
+        font-size: 0.8125rem;
+        color: var(--muted-foreground);
+        max-width: 78ch;
+      }
+      .note h3 {
+        font-size: 0.8125rem;
+        color: var(--foreground);
+        margin: 18px 0 6px;
+      }
+      .note h3:first-child {
+        margin-top: 0;
+      }
+      .note ul {
+        margin: 0;
+        padding-left: 18px;
+      }
+      .note li + li {
+        margin-top: 5px;
+      }
+      .note code {
+        background: var(--muted);
+        padding: 1px 5px;
+        border-radius: 4px;
+        color: var(--foreground);
+      }
+
+      @media (max-width: 900px) {
+        .setting > summary {
+          grid-template-columns: 10px minmax(0, 1fr) auto;
+        }
+        .setting .val {
+          grid-column: 2;
+          text-align: left;
+        }
+        .setting .desc {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="topbar">
+        <a class="btn btn-ghost" href="sessions.html">← sessions</a>
+        <span class="wordmark">deepseek-harness</span>
+        <span class="spacer"></span>
+        <input class="input" type="search" placeholder="Filter by key or description…" />
+        <span class="badge badge-outline">settings</span>
+      </div>
+
+      <h1>Settings</h1>
+      <p class="lede">
+        The registry, rendered. Every row is one entry in <code>internal/settings</code> — its type,
+        default, bounds and description come from there, and so does the validation, so a value this
+        screen rejects is rejected identically by <code>harness config set</code>. This screen is the
+        browser's only write and it stops at the settings table: nothing here starts, steers or stops
+        a run.
+      </p>
+
+      <div class="summary">
+        <span><b>27</b> settings</span>
+        <span class="sep">·</span>
+        <span><b>4</b> overridden</span>
+        <span class="sep">·</span>
+        <span><b>6</b> take effect on the next start</span>
+        <span class="sep">·</span>
+        <span style="color: var(--status-gaveup)"><b style="color: inherit">1</b> credential not set</span>
+        <span class="spacer" style="flex: 1"></span>
+        <span>rows without a badge are at their default</span>
+      </div>
+
+      <div class="filters">
+        <button class="chip" type="button" aria-pressed="true">All 27</button>
+        <button class="chip" type="button" aria-pressed="false">Overridden 4</button>
+        <button class="chip" type="button" aria-pressed="false">Needs attention 1</button>
+        <span class="spacer" style="flex: 1"></span>
+        <button class="btn btn-ghost" type="button">Expand all</button>
+      </div>
+
+      <div class="section-head">
+        <h2>Credentials</h2>
+        <span class="count">2 settings</span>
+      </div>
+
+      <div class="card group">
+        <!-- A secret that is set: the value column shows the server's mask, and
+             the row says so rather than implying the field is empty. -->
+        <details class="setting is-secret-set" open>
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">deepseek.api_key</span>
+            <span class="val">•••••3f9c</span>
+            <span class="desc truncate">DeepSeek API key — the harness's own account</span>
+            <span class="flags"><span class="badge badge-running">SET</span></span>
+          </summary>
+          <div class="setting-body">
+            <p>DeepSeek API key — the harness's own account.</p>
+            <div class="facts">
+              <span><span class="k">Type</span> string, secret</span>
+              <span><span class="k">Stored</span> <code>•••••3f9c</code></span>
+              <span><span class="k">Takes effect</span> next run</span>
+            </div>
+            <div class="write">
+              <input class="input" type="password" placeholder="replace current value" value="" />
+              <button class="btn" type="button">Save</button>
+              <button class="btn btn-ghost" type="button">Clear</button>
+              <span class="hint">
+                The full value never leaves the process — the API masks it to its last four
+                characters and has no reveal parameter. Reading one back is
+                <code>harness config get -reveal</code>, at a terminal.
+              </span>
+            </div>
+          </div>
+        </details>
+
+        <!-- A credential that is not set. The registry default for a key is the
+             empty string, so "not set — default applies" is the wrong sentence
+             here: say what stops working instead. -->
+        <details class="setting is-unset" open>
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">google.api_key</span>
+            <span class="val">not set</span>
+            <span class="desc truncate">Google API key — sent to Gemini by ReviewScreenshot</span>
+            <span class="flags"><span class="badge badge-gaveup">NOT SET</span></span>
+          </summary>
+          <div class="setting-body">
+            <p>Google API key — sent to Gemini by ReviewScreenshot.</p>
+            <div class="notice">
+              <b>ReviewScreenshot fails until this is set.</b> Nothing else in the harness reads it:
+              runs, tools and the queue are unaffected.
+            </div>
+            <div class="facts">
+              <span><span class="k">Type</span> string, secret</span>
+              <span><span class="k">Default</span> none</span>
+              <span><span class="k">Takes effect</span> next run</span>
+            </div>
+            <div class="write">
+              <input class="input" type="password" placeholder="paste the key" value="" />
+              <button class="btn" type="button">Save</button>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <div class="section-head">
+        <h2>Run budget</h2>
+        <span class="count">4 settings</span>
+      </div>
+
+      <div class="card group">
+        <details class="setting">
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">run.max_tokens</span>
+            <span class="val">48000</span>
+            <span class="desc truncate">Default max output tokens for a run that omits max_tokens</span>
+            <span class="flags"></span>
+          </summary>
+          <div class="setting-body">
+            <p>
+              Default max output tokens for a run that omits <code>max_tokens</code>. The real ceiling
+              is DeepSeek's output limit; this is the harness's own default.
+            </p>
+            <div class="facts">
+              <span><span class="k">Type</span> integer</span>
+              <span><span class="k">Default</span> <code>48000</code></span>
+              <span><span class="k">Range</span> <code>1</code> – <code>1000000</code></span>
+              <span><span class="k">Takes effect</span> next run</span>
+            </div>
+            <div class="write">
+              <input class="input" type="number" placeholder="48000" value="" />
+              <button class="btn" type="button">Save</button>
+            </div>
+          </div>
+        </details>
+
+        <!-- An override, opened, with a rejected value still in the field. The
+             message is the registry's own, forwarded from the 400. -->
+        <details class="setting is-override" open>
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">run.max_sub_turns</span>
+            <span class="val">600</span>
+            <span class="desc truncate">Sub-turn budget a work request that omits max_sub_turns gets</span>
+            <span class="flags"><span class="badge badge-running">OVERRIDE</span></span>
+          </summary>
+          <div class="setting-body">
+            <p>
+              Sub-turn budget a work request that omits <code>max_sub_turns</code> gets. Chosen
+              against <code>run.deadline</code>: a flash sub-turn averages about six seconds, so a
+              full 400-sub-turn run needs roughly 40 minutes of wall clock. Raising one without the
+              other does nothing.
+            </p>
+            <div class="facts">
+              <span><span class="k">Type</span> integer</span>
+              <span><span class="k">Stored</span> <code>600</code></span>
+              <span><span class="k">Default</span> <code>400</code></span>
+              <span><span class="k">Range</span> <code>1</code> – <code>1000000</code></span>
+              <span><span class="k">Takes effect</span> next run</span>
+            </div>
+            <div class="write">
+              <input class="input invalid" type="number" value="2000000" />
+              <button class="btn" type="button">Save</button>
+              <button class="btn btn-ghost" type="button">Reset to 400</button>
+              <span class="field-error">run.max_sub_turns: 2000000 is out of range [1, 1000000]</span>
+            </div>
+          </div>
+        </details>
+
+        <details class="setting is-override">
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">run.deadline</span>
+            <span class="val">1h30m</span>
+            <span class="desc truncate">Wall clock a work request that omits deadline_ms gets</span>
+            <span class="flags"><span class="badge badge-running">OVERRIDE</span></span>
+          </summary>
+          <div class="setting-body">
+            <p>
+              Wall clock a work request that omits <code>deadline_ms</code> gets. Chosen against
+              <code>run.max_sub_turns</code>: 400 sub-turns at roughly six seconds each need about 40
+              minutes, and the default hour leaves headroom. Raising one without the other does
+              nothing.
+            </p>
+            <div class="facts">
+              <span><span class="k">Type</span> duration</span>
+              <span><span class="k">Stored</span> <code>1h30m</code></span>
+              <span><span class="k">Default</span> <code>1h</code></span>
+              <span><span class="k">Range</span> <code>1s</code> – <code>8760h</code></span>
+              <span><span class="k">Takes effect</span> next run</span>
+            </div>
+            <div class="write">
+              <input class="input" type="text" placeholder="1h30m" value="" />
+              <button class="btn" type="button">Save</button>
+              <button class="btn btn-ghost" type="button">Reset to 1h</button>
+              <span class="hint">Go duration text: <code>30s</code>, <code>10m</code>, <code>1h</code>.</span>
+            </div>
+          </div>
+        </details>
+
+        <details class="setting">
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">run.compaction_threshold</span>
+            <span class="val">786432</span>
+            <span class="desc truncate">Prompt-token threshold at which the session compacts its history</span>
+            <span class="flags"></span>
+          </summary>
+          <div class="setting-body">
+            <p>
+              Prompt-token threshold at which the session compacts its history (DeepSeek's recommended
+              Claude Code compaction window, 768K of the 1M context).
+            </p>
+            <div class="facts">
+              <span><span class="k">Type</span> integer</span>
+              <span><span class="k">Default</span> <code>786432</code></span>
+              <span><span class="k">Range</span> <code>1024</code> – <code>1000000</code></span>
+              <span><span class="k">Takes effect</span> next run</span>
+            </div>
+            <div class="write">
+              <input class="input" type="number" placeholder="786432" value="" />
+              <button class="btn" type="button">Save</button>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <div class="section-head">
+        <h2>Tool limits</h2>
+        <span class="count">11 settings</span>
+      </div>
+
+      <div class="card group">
+        <details class="setting">
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">tools.output_cap</span>
+            <span class="val">200000</span>
+            <span class="desc truncate">Output byte cap for every tool result, with truncation labelled in the result</span>
+            <span class="flags"></span>
+          </summary>
+          <div class="setting-body">
+            <p>Output byte cap for every tool result, with truncation labelled in the result.</p>
+            <div class="facts">
+              <span><span class="k">Type</span> integer, bytes</span>
+              <span><span class="k">Default</span> <code>200000</code></span>
+              <span><span class="k">Range</span> <code>1000</code> – <code>10000000</code></span>
+              <span><span class="k">Takes effect</span> next run</span>
+            </div>
+            <div class="write">
+              <input class="input" type="number" placeholder="200000" value="" />
+              <button class="btn" type="button">Save</button>
+            </div>
+          </div>
+        </details>
+
+        <details class="setting">
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">tools.bash_timeout</span>
+            <span class="val">2m</span>
+            <span class="desc truncate">Default wall-clock timeout for a Bash call that omits timeout</span>
+            <span class="flags"></span>
+          </summary>
+          <div class="setting-body">
+            <p>Default wall-clock timeout for a Bash call that omits <code>timeout</code>.</p>
+            <div class="facts">
+              <span><span class="k">Type</span> duration</span>
+              <span><span class="k">Default</span> <code>2m</code></span>
+              <span><span class="k">Range</span> <code>1s</code> – <code>24h</code></span>
+              <span><span class="k">Takes effect</span> next run</span>
+            </div>
+            <div class="write">
+              <input class="input" type="text" placeholder="2m" value="" />
+              <button class="btn" type="button">Save</button>
+            </div>
+          </div>
+        </details>
+
+        <details class="setting">
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">tools.bash_timeout_max</span>
+            <span class="val">10m</span>
+            <span class="desc truncate">Ceiling a Bash call's requested timeout is clamped to</span>
+            <span class="flags"></span>
+          </summary>
+          <div class="setting-body">
+            <p>Ceiling a Bash call's requested timeout is clamped to.</p>
+            <div class="facts">
+              <span><span class="k">Type</span> duration</span>
+              <span><span class="k">Default</span> <code>10m</code></span>
+              <span><span class="k">Range</span> <code>1s</code> – <code>24h</code></span>
+              <span><span class="k">Takes effect</span> next run</span>
+            </div>
+            <div class="write">
+              <input class="input" type="text" placeholder="10m" value="" />
+              <button class="btn" type="button">Save</button>
+            </div>
+          </div>
+        </details>
+
+        <details class="setting">
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">tools.tool_timeout</span>
+            <span class="val">30s</span>
+            <span class="desc truncate">Default wall-clock timeout for every other tool</span>
+            <span class="flags"></span>
+          </summary>
+          <div class="setting-body">
+            <p>Default wall-clock timeout for every other tool.</p>
+            <div class="facts">
+              <span><span class="k">Type</span> duration</span>
+              <span><span class="k">Default</span> <code>30s</code></span>
+              <span><span class="k">Range</span> <code>1s</code> – <code>24h</code></span>
+              <span><span class="k">Takes effect</span> next run</span>
+            </div>
+            <div class="write">
+              <input class="input" type="text" placeholder="30s" value="" />
+              <button class="btn" type="button">Save</button>
+            </div>
+          </div>
+        </details>
+
+        <details class="setting">
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">tools.webfetch_timeout</span>
+            <span class="val">45s</span>
+            <span class="desc truncate">Wall-clock timeout for one WebFetch call</span>
+            <span class="flags"></span>
+          </summary>
+          <div class="setting-body">
+            <p>Wall-clock timeout for one WebFetch call.</p>
+            <div class="facts">
+              <span><span class="k">Type</span> duration</span>
+              <span><span class="k">Default</span> <code>45s</code></span>
+              <span><span class="k">Range</span> <code>1s</code> – <code>24h</code></span>
+              <span><span class="k">Takes effect</span> next run</span>
+            </div>
+            <div class="write">
+              <input class="input" type="text" placeholder="45s" value="" />
+              <button class="btn" type="button">Save</button>
+            </div>
+          </div>
+        </details>
+
+        <details class="setting">
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">tools.task_timeout</span>
+            <span class="val">10m</span>
+            <span class="desc truncate">Wall-clock timeout for one Task subagent call</span>
+            <span class="flags"></span>
+          </summary>
+          <div class="setting-body">
+            <p>Wall-clock timeout for one Task subagent call.</p>
+            <div class="facts">
+              <span><span class="k">Type</span> duration</span>
+              <span><span class="k">Default</span> <code>10m</code></span>
+              <span><span class="k">Range</span> <code>1s</code> – <code>24h</code></span>
+              <span><span class="k">Takes effect</span> next run</span>
+            </div>
+            <div class="write">
+              <input class="input" type="text" placeholder="10m" value="" />
+              <button class="btn" type="button">Save</button>
+            </div>
+          </div>
+        </details>
+
+        <details class="setting">
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">tools.reviewscreenshot_timeout</span>
+            <span class="val">60s</span>
+            <span class="desc truncate">Wall-clock timeout for one ReviewScreenshot Gemini call</span>
+            <span class="flags"></span>
+          </summary>
+          <div class="setting-body">
+            <p>
+              Wall-clock timeout for one ReviewScreenshot Gemini call (generating a diagnosis
+              routinely takes longer than the 30-second tool default).
+            </p>
+            <div class="facts">
+              <span><span class="k">Type</span> duration</span>
+              <span><span class="k">Default</span> <code>60s</code></span>
+              <span><span class="k">Range</span> <code>1s</code> – <code>24h</code></span>
+              <span><span class="k">Takes effect</span> next run</span>
+            </div>
+            <div class="write">
+              <input class="input" type="text" placeholder="60s" value="" />
+              <button class="btn" type="button">Save</button>
+            </div>
+          </div>
+        </details>
+
+        <details class="setting">
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">tools.webfetch_max_body</span>
+            <span class="val">4194304</span>
+            <span class="desc truncate">Bytes of a fetched page read before extraction</span>
+            <span class="flags"></span>
+          </summary>
+          <div class="setting-body">
+            <p>Bytes of a fetched page read before extraction.</p>
+            <div class="facts">
+              <span><span class="k">Type</span> integer, bytes</span>
+              <span><span class="k">Default</span> <code>4194304</code> (4 MiB)</span>
+              <span><span class="k">Range</span> <code>1024</code> – <code>1073741824</code></span>
+              <span><span class="k">Takes effect</span> next run</span>
+            </div>
+            <div class="write">
+              <input class="input" type="number" placeholder="4194304" value="" />
+              <button class="btn" type="button">Save</button>
+            </div>
+          </div>
+        </details>
+
+        <details class="setting">
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">tools.webfetch_max_extract</span>
+            <span class="val">40000</span>
+            <span class="desc truncate">Bytes of extracted text sent to the flash summarising call</span>
+            <span class="flags"></span>
+          </summary>
+          <div class="setting-body">
+            <p>Bytes of extracted text sent to the flash summarising call.</p>
+            <div class="facts">
+              <span><span class="k">Type</span> integer, bytes</span>
+              <span><span class="k">Default</span> <code>40000</code></span>
+              <span><span class="k">Range</span> <code>100</code> – <code>10000000</code></span>
+              <span><span class="k">Takes effect</span> next run</span>
+            </div>
+            <div class="write">
+              <input class="input" type="number" placeholder="40000" value="" />
+              <button class="btn" type="button">Save</button>
+            </div>
+          </div>
+        </details>
+
+        <details class="setting">
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">tools.reviewscreenshot_max_images</span>
+            <span class="val">4</span>
+            <span class="desc truncate">Maximum screenshots one ReviewScreenshot call accepts</span>
+            <span class="flags"></span>
+          </summary>
+          <div class="setting-body">
+            <p>Maximum screenshots one ReviewScreenshot call accepts.</p>
+            <div class="facts">
+              <span><span class="k">Type</span> integer</span>
+              <span><span class="k">Default</span> <code>4</code></span>
+              <span><span class="k">Range</span> <code>1</code> – <code>100</code></span>
+              <span><span class="k">Takes effect</span> next run</span>
+            </div>
+            <div class="write">
+              <input class="input" type="number" placeholder="4" value="" />
+              <button class="btn" type="button">Save</button>
+            </div>
+          </div>
+        </details>
+
+        <details class="setting">
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">tools.reviewscreenshot_max_bytes</span>
+            <span class="val">5242880</span>
+            <span class="desc truncate">Maximum bytes per screenshot file</span>
+            <span class="flags"></span>
+          </summary>
+          <div class="setting-body">
+            <p>Maximum bytes per screenshot file (5 MB at the default).</p>
+            <div class="facts">
+              <span><span class="k">Type</span> integer, bytes</span>
+              <span><span class="k">Default</span> <code>5242880</code> (5 MiB)</span>
+              <span><span class="k">Range</span> <code>1024</code> – <code>1073741824</code></span>
+              <span><span class="k">Takes effect</span> next run</span>
+            </div>
+            <div class="write">
+              <input class="input" type="number" placeholder="5242880" value="" />
+              <button class="btn" type="button">Save</button>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <div class="section-head">
+        <h2>Models</h2>
+        <span class="count">4 settings</span>
+      </div>
+
+      <div class="card group">
+        <details class="setting">
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">model.default</span>
+            <span class="val">deepseek-v4-pro</span>
+            <span class="desc truncate">Default model for runs that omit model</span>
+            <span class="flags"></span>
+          </summary>
+          <div class="setting-body">
+            <p>Default model for runs that omit <code>model</code>.</p>
+            <div class="facts">
+              <span><span class="k">Type</span> string</span>
+              <span><span class="k">Default</span> <code>deepseek-v4-pro</code></span>
+              <span><span class="k">Takes effect</span> next run</span>
+            </div>
+            <div class="write">
+              <input class="input" type="text" placeholder="deepseek-v4-pro" value="" />
+              <button class="btn" type="button">Save</button>
+            </div>
+          </div>
+        </details>
+
+        <details class="setting">
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">model.flash</span>
+            <span class="val">deepseek-v4-flash</span>
+            <span class="desc truncate">Model Task subagents and WebFetch summarisation run</span>
+            <span class="flags"></span>
+          </summary>
+          <div class="setting-body">
+            <p>Model Task subagents and WebFetch summarisation run.</p>
+            <div class="facts">
+              <span><span class="k">Type</span> string</span>
+              <span><span class="k">Default</span> <code>deepseek-v4-flash</code></span>
+              <span><span class="k">Takes effect</span> next run</span>
+            </div>
+            <div class="write">
+              <input class="input" type="text" placeholder="deepseek-v4-flash" value="" />
+              <button class="btn" type="button">Save</button>
+            </div>
+          </div>
+        </details>
+
+        <!-- The registry constrains this one to three values. A closed set is a
+             segmented control, not a text field that learns it was wrong after
+             a round trip. -->
+        <details class="setting" open>
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">model.effort</span>
+            <span class="val">high</span>
+            <span class="desc truncate">Default reasoning effort for runs that omit effort</span>
+            <span class="flags"></span>
+          </summary>
+          <div class="setting-body">
+            <p>Default reasoning effort for runs that omit <code>effort</code>.</p>
+            <div class="facts">
+              <span><span class="k">Type</span> string, closed set</span>
+              <span><span class="k">Default</span> <code>high</code></span>
+              <span><span class="k">Allowed</span> <code>low</code> <code>high</code> <code>max</code></span>
+              <span><span class="k">Takes effect</span> next run</span>
+            </div>
+            <div class="write">
+              <div class="segmented" role="group" aria-label="Default effort">
+                <button type="button" aria-pressed="false">low</button>
+                <button type="button" aria-pressed="true">high</button>
+                <button type="button" aria-pressed="false">max</button>
+              </div>
+              <span class="hint">Saves on selection. The default is the pressed one until it differs.</span>
+            </div>
+          </div>
+        </details>
+
+        <details class="setting">
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">google.vision_model</span>
+            <span class="val">gemini-3.5-flash</span>
+            <span class="desc truncate">Gemini model ReviewScreenshot sends screenshots to</span>
+            <span class="flags"></span>
+          </summary>
+          <div class="setting-body">
+            <p>Gemini model ReviewScreenshot sends screenshots to.</p>
+            <div class="facts">
+              <span><span class="k">Type</span> string</span>
+              <span><span class="k">Default</span> <code>gemini-3.5-flash</code></span>
+              <span><span class="k">Takes effect</span> next run</span>
+            </div>
+            <div class="write">
+              <input class="input" type="text" placeholder="gemini-3.5-flash" value="" />
+              <button class="btn" type="button">Save</button>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <div class="section-head">
+        <h2>Requires a restart</h2>
+        <span class="count">6 settings</span>
+        <span class="spacer" style="flex: 1"></span>
+        <span class="badge badge-restart">takes effect on the next start</span>
+      </div>
+
+      <div class="notice notice-quiet" style="margin-bottom: 8px">
+        These are read once at startup or baked into a JetStream stream. A write here is accepted and
+        stored immediately and changes nothing until the process restarts — which is worse than a
+        setting that cannot be changed at all, so the group says so rather than each row repeating it.
+      </div>
+
+      <div class="card group">
+        <details class="setting is-override" open>
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">worker.pool_size</span>
+            <span class="val">8</span>
+            <span class="desc truncate">Worker pool size, also the WORK consumer's MaxAckPending</span>
+            <span class="flags"><span class="badge badge-running">OVERRIDE</span></span>
+          </summary>
+          <div class="setting-body">
+            <p>Worker pool size, also the WORK consumer's <code>MaxAckPending</code>.</p>
+            <div class="facts">
+              <span><span class="k">Type</span> integer</span>
+              <span><span class="k">Stored</span> <code>8</code></span>
+              <span><span class="k">Default</span> <code>4</code></span>
+              <span><span class="k">Range</span> <code>1</code> – <code>100000</code></span>
+              <span><span class="k">Takes effect</span> next start</span>
+            </div>
+            <div class="write">
+              <input class="input" type="number" placeholder="8" value="" />
+              <button class="btn" type="button">Save</button>
+              <button class="btn btn-ghost" type="button">Reset to 4</button>
+            </div>
+          </div>
+        </details>
+
+        <details class="setting">
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">worker.model_concurrency_pro</span>
+            <span class="val">500</span>
+            <span class="desc truncate">Account-wide concurrent-request ceiling for the pro model</span>
+            <span class="flags"></span>
+          </summary>
+          <div class="setting-body">
+            <p>Account-wide concurrent-request ceiling for the pro model.</p>
+            <div class="facts">
+              <span><span class="k">Type</span> integer</span>
+              <span><span class="k">Default</span> <code>500</code></span>
+              <span><span class="k">Range</span> <code>1</code> – <code>1000000</code></span>
+              <span><span class="k">Takes effect</span> next start</span>
+            </div>
+            <div class="write">
+              <input class="input" type="number" placeholder="500" value="" />
+              <button class="btn" type="button">Save</button>
+            </div>
+          </div>
+        </details>
+
+        <details class="setting">
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">worker.model_concurrency_flash</span>
+            <span class="val">2500</span>
+            <span class="desc truncate">Account-wide concurrent-request ceiling for the flash model</span>
+            <span class="flags"></span>
+          </summary>
+          <div class="setting-body">
+            <p>Account-wide concurrent-request ceiling for the flash model.</p>
+            <div class="facts">
+              <span><span class="k">Type</span> integer</span>
+              <span><span class="k">Default</span> <code>2500</code></span>
+              <span><span class="k">Range</span> <code>1</code> – <code>1000000</code></span>
+              <span><span class="k">Takes effect</span> next start</span>
+            </div>
+            <div class="write">
+              <input class="input" type="number" placeholder="2500" value="" />
+              <button class="btn" type="button">Save</button>
+            </div>
+          </div>
+        </details>
+
+        <details class="setting">
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">queue.results_max_age</span>
+            <span class="val">168h</span>
+            <span class="desc truncate">RESULTS stream retention window</span>
+            <span class="flags"></span>
+          </summary>
+          <div class="setting-body">
+            <p>RESULTS stream retention window.</p>
+            <div class="facts">
+              <span><span class="k">Type</span> duration</span>
+              <span><span class="k">Default</span> <code>168h</code></span>
+              <span><span class="k">Range</span> <code>1h</code> – <code>8760h</code></span>
+              <span><span class="k">Takes effect</span> next start</span>
+            </div>
+            <div class="write">
+              <input class="input" type="text" placeholder="168h" value="" />
+              <button class="btn" type="button">Save</button>
+            </div>
+          </div>
+        </details>
+
+        <details class="setting">
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">http.events_limit_default</span>
+            <span class="val">500</span>
+            <span class="desc truncate">Default page size for GET /api/sessions/{id}/events</span>
+            <span class="flags"></span>
+          </summary>
+          <div class="setting-body">
+            <p>Default page size for <code>GET /api/sessions/{id}/events</code>.</p>
+            <div class="facts">
+              <span><span class="k">Type</span> integer</span>
+              <span><span class="k">Default</span> <code>500</code></span>
+              <span><span class="k">Range</span> <code>1</code> – <code>1000000</code></span>
+              <span><span class="k">Takes effect</span> next start</span>
+            </div>
+            <div class="write">
+              <input class="input" type="number" placeholder="500" value="" />
+              <button class="btn" type="button">Save</button>
+            </div>
+          </div>
+        </details>
+
+        <details class="setting">
+          <summary>
+            <span class="caret">▸</span>
+            <span class="key">http.events_limit_max</span>
+            <span class="val">5000</span>
+            <span class="desc truncate">Largest page size GET /api/sessions/{id}/events accepts</span>
+            <span class="flags"></span>
+          </summary>
+          <div class="setting-body">
+            <p>Largest page size <code>GET /api/sessions/{id}/events</code> accepts.</p>
+            <div class="facts">
+              <span><span class="k">Type</span> integer</span>
+              <span><span class="k">Default</span> <code>5000</code></span>
+              <span><span class="k">Range</span> <code>1</code> – <code>1000000</code></span>
+              <span><span class="k">Takes effect</span> next start</span>
+            </div>
+            <div class="write">
+              <input class="input" type="number" placeholder="5000" value="" />
+              <button class="btn" type="button">Save</button>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <div class="note">
+        <h3>What is proposed here</h3>
+        <ul>
+          <li>
+            <b>Reading is the default state; writing is an act.</b> The current screen renders a text
+            input and two buttons on all 27 rows at once — 27 fields and 54 buttons in the tab order
+            for a screen where a session typically changes nothing. Each row becomes a
+            <code>&lt;details&gt;</code> whose closed state is key, value and description, and whose
+            open state carries the write controls.
+          </li>
+          <li>
+            <b>The value column carries the state, not a badge on every row.</b> A stored value takes
+            full weight, a default stays muted, and only the exceptions — override, not set — are
+            badged. Twenty-three <code>default</code> badges tell an operator nothing.
+          </li>
+          <li>
+            <b>A closed set is a segmented control.</b> <code>model.effort</code> accepts exactly
+            <code>low</code>, <code>high</code>, <code>max</code>; the registry knows that, so the
+            screen should not make you discover it through a 400.
+          </li>
+          <li>
+            <b>Bounds are shown before the write, not after it.</b> Validation stays in Go — the
+            screen never re-implements a rule — but showing <code>1 – 1000000</code> beside the field
+            turns most rejections into non-events. When one does happen, the server's message lands
+            under the field it belongs to, which the current screen already does.
+          </li>
+          <li>
+            <b>An unset credential says what stops working.</b> The registry default for an API key is
+            the empty string, so the current "not set — default&nbsp;&nbsp;applies" renders with a
+            hole in it and understates the case. <code>google.api_key</code> unset means
+            ReviewScreenshot fails and nothing else changes; that is the sentence worth writing.
+          </li>
+          <li>
+            <b>The restart caveat moves to the group.</b> Every restart-flagged key is in the
+            "Requires a restart" group today, so the heading and one notice carry it. The per-row
+            <code>restart</code> badge stays in the vocabulary for a flagged key that ever lands in
+            another group.
+          </li>
+          <li>
+            <b>The secret rule is stated on the screen.</b> Masked to four characters, no reveal
+            parameter, <code>harness config get -reveal</code> at a terminal if you need the value.
+            An operator who cannot see the rule assumes the field is broken.
+          </li>
+        </ul>
+
+        <h3>What the API needs</h3>
+        <ul>
+          <li>
+            <code>min</code>, <code>max</code> and <code>allowed</code> on the
+            <code>GET /api/settings</code> payload. All three are already on
+            <code>settings.Descriptor</code> and none of them are serialised
+            (<code>internal/httpapi/server.go</code>, <code>settingEntry</code>). Without them the
+            range hints and the segmented control cannot be drawn, and the CLI shows bounds the
+            screen cannot. Nothing else on this page needs a backend change.
+          </li>
+          <li>
+            Optional, and only a nicety: a <code>unit</code> flag for the byte-valued integers, so
+            <code>4194304</code> can be glossed as 4&nbsp;MiB without the screen pattern-matching on
+            the description.
+          </li>
+        </ul>
+
+        <h3>What stays true</h3>
+        <ul>
+          <li>
+            Writes are <code>PUT</code>/<code>DELETE /api/settings/{key}</code> and stop at the
+            settings table. No control here reaches a run, and the run surface stays
+            <code>GET</code>-only (docs/DESIGN.md §4.2).
+          </li>
+          <li>
+            Validation lives in the registry and runs in Go on every path, so
+            <code>harness config set</code>, the <code>PUT</code>, and this screen reject the same
+            value with the same message.
+          </li>
+          <li>
+            The screen re-fetches after a write rather than guessing at the new display value — the
+            server owns the mask.
+          </li>
+        </ul>
+      </div>
+    </div>
+  </body>
+</html>

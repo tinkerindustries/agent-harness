@@ -210,7 +210,60 @@
             <code>SessionState</code>, or serve it from <code>GET /api/sessions/{id}/plan</code>.
           </p>
         </div>
+        <div class="card">
+          <h3>settings screen</h3>
+          <p>
+            Needs three fields it already has in Go. <code>Min</code>, <code>Max</code> and
+            <code>Allowed</code> are on <code>settings.Descriptor</code> and none of them are on
+            <code>settingEntry</code>, so the browser cannot show a bound the CLI shows, and cannot
+            know <code>model.effort</code> is a closed set. Everything else on that screen is already
+            served.
+          </p>
+        </div>
       </div>
+
+      <h2>Setting state vocabulary</h2>
+      <p class="lede">
+        The settings screen badges the exceptions only. A row at its registry default carries no
+        badge at all — twenty-three <code>default</code> badges on a 27-row screen say nothing, and
+        the value column already carries the state by weight.
+      </p>
+      <table class="spec">
+        <thead>
+          <tr>
+            <th style="width: 110px">Badge</th>
+            <th style="width: 190px">GET /api/settings</th>
+            <th>What it means</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>—</td>
+            <td><code>set: false</code>, non-secret</td>
+            <td>Nothing stored; the registry default applies. Unbadged, value muted. The common case.</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-running">OVERRIDE</span></td>
+            <td><code>override: true</code></td>
+            <td>A stored value that differs from the default. Value at full weight, and the open row names the default and offers to reset to it.</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-running">SET</span></td>
+            <td><code>secret: true, set: true</code></td>
+            <td>A credential is stored. The value column shows the server's mask; a secret's default is the empty string, so "override" would be technically true and say nothing.</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-gaveup">NOT SET</span></td>
+            <td><code>secret: true, set: false</code></td>
+            <td>A missing credential. The open row names what stops working — for <code>google.api_key</code>, ReviewScreenshot and nothing else.</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-restart">restart</span></td>
+            <td><code>restart: true</code></td>
+            <td>Read once at startup or baked into a JetStream stream. Every flagged key is in the "Requires a restart" group today, so the group heading carries it and the row does not; the badge is here for a flagged key that ever lands in another group.</td>
+          </tr>
+        </tbody>
+      </table>
 
       <h2>Badges</h2>
       <div class="card specimen">
@@ -223,6 +276,9 @@
         <span class="badge badge-outline">COMPACTED</span>
         <span class="badge badge-outline">full permissions</span>
         <span class="badge badge-failed">exit 2</span>
+        <span class="badge badge-running">OVERRIDE</span>
+        <span class="badge badge-gaveup">NOT SET</span>
+        <span class="badge badge-restart">restart</span>
       </div>
 
       <h2>Controls</h2>
@@ -305,11 +361,11 @@
         <tbody>
           <tr><td><code>.card</code></td><td><code>Card</code></td><td>Used flat, without CardHeader/CardContent, in the dense rows.</td></tr>
           <tr><td><code>.badge</code></td><td><code>Badge</code></td><td>New variants: running, done, gaveup, stopped, failed.</td></tr>
-          <tr><td><code>details.run</code>, <code>details.tool</code>, <code>details.reasoning</code></td><td><code>Collapsible</code></td><td>Radix. Independent open state, not an accordion.</td></tr>
+          <tr><td><code>details.run</code>, <code>details.tool</code>, <code>details.reasoning</code>, <code>details.setting</code></td><td><code>Collapsible</code></td><td>Radix. Independent open state, not an accordion.</td></tr>
           <tr><td><code>details.rail-phase</code></td><td><code>Accordion</code> (type multiple)</td><td>Several phases open at once while browsing.</td></tr>
-          <tr><td><code>.segmented</code></td><td><code>ToggleGroup</code> (type single)</td><td>Density and expand-all.</td></tr>
+          <tr><td><code>.segmented</code></td><td><code>ToggleGroup</code> (type single)</td><td>Density, expand-all, and a setting whose registry entry has an <code>Allowed</code> set.</td></tr>
           <tr><td><code>.chip</code></td><td><code>Toggle</code></td><td>Filters. Counts computed from the folded blocks.</td></tr>
-          <tr><td><code>.input</code></td><td><code>Input</code></td><td>Search and filter.</td></tr>
+          <tr><td><code>.input</code></td><td><code>Input</code></td><td>Search, filter, and the settings write field — <code>type="password"</code> for a secret, which is input masking only; the displayed value is the server's mask.</td></tr>
           <tr><td><code>.progress</code></td><td><code>Progress</code></td><td>Plan completion only. Never a token or time estimate.</td></tr>
           <tr><td><code>[title]</code> attributes</td><td><code>Tooltip</code></td><td>Price-table date, full workspace path, cache hit/miss counts.</td></tr>
           <tr><td><code>.sticky</code></td><td>plain CSS</td><td>Not <code>ScrollArea</code>. A custom scroll container costs a wrapper and a listener per column, and the rail is a scroll surface in a hot path.</td></tr>

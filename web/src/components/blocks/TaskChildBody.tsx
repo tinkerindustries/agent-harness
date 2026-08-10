@@ -19,7 +19,7 @@ export default function TaskChildBody({ sessionId }: { sessionId: string }) {
   const snapshot = useSyncExternalStore(ref.current.subscribe, ref.current.getSnapshot);
   return (
     <div className="task-child-body">
-      <BlockList blocks={snapshot.blocks} live={snapshot.live} />
+      <BlockList items={snapshot.items} live={snapshot.live} />
     </div>
   );
 }

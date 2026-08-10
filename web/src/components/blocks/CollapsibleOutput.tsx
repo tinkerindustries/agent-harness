@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { CodeBlock } from "../../render/CodeBlock";
+import { Button } from "../ui/button";
 
 // A 5,000-line file read is a disclosure problem, not a virtualisation
 // problem (docs/DESIGN.md §5.4): collapse to a head and tail preview with an
@@ -24,9 +25,9 @@ export function CollapsibleOutput({ text, language }: Props) {
     return (
       <>
         <CodeBlock code={text} language={language} />
-        <button className="collapse-toggle" onClick={() => setExpanded(false)}>
+        <Button variant="outline" size="sm" className="collapse-toggle" onClick={() => setExpanded(false)}>
           Show less
-        </button>
+        </Button>
       </>
     );
   }
@@ -37,9 +38,9 @@ export function CollapsibleOutput({ text, language }: Props) {
   return (
     <>
       <CodeBlock code={head} language={language} />
-      <button className="collapse-toggle" onClick={() => setExpanded(true)}>
+      <Button variant="outline" size="sm" className="collapse-toggle" onClick={() => setExpanded(true)}>
         Show {hidden} more lines
-      </button>
+      </Button>
       <CodeBlock code={tail} language={language} />
     </>
   );

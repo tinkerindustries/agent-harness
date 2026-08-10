@@ -1,5 +1,6 @@
 import { FoldState, type Block, type LiveView } from "./fold";
-import type { StoreEvent, Todo } from "./types";
+import { SubTurnGroupState, type ChurnPoint, type GroupCounts, type TranscriptItem } from "./groups";
+import type { StoreEvent, Todo, ToolCallPayload } from "./types";
 
 // One session's transcript, live or historical (docs/DESIGN.md §4.2: "the
 // same endpoint shape"). The SSE endpoint alone is the whole data source —
@@ -21,9 +22,26 @@ export type ConnectionState = "connecting" | "open" | "closed";
 
 export interface TranscriptSnapshot {
   blocks: Block[];
+  // The display-side grouping of `blocks` (docs/WEB-REDESIGN.md phase 4):
+  // sub-turn cards plus the top-level blocks outside any group. Computed
+  // incrementally by SubTurnGroupState so a live-only update keeps the same
+  // items reference — the grouped analogue of FoldState's stable blocks
+  // reference, and what lets the SubTurnList memo bail out on every delta.
+  items: TranscriptItem[];
   live: LiveView;
   todos: Todo[];
   connection: ConnectionState;
+  // counts and churnPoint come out of the same incremental pass that builds
+  // items (docs/WEB-REDESIGN.md phase 5): the filter chip row's numbers and
+  // the first cache-churn diagnostic, without a second walk over the blocks.
+  counts: GroupCounts;
+  churnPoint: ChurnPoint | null;
+  // getToolCall is the fold's tool-call registry, exposed read-only for the
+  // display layer: the sub-turn card builds its tool headers from the call
+  // the fold keeps (web/src/api/fold.ts getToolCall). Stable across
+  // snapshots, so memoised components can take it as a prop without breaking
+  // their bailouts.
+  getToolCall: (id: string) => ToolCallPayload | undefined;
 }
 
 const TERMINAL_KINDS = new Set<StoreEvent["kind"]>(["run_finished", "error"]);
@@ -49,6 +67,12 @@ const rafCancel = (handle: number) => cancelAnimationFrame(handle);
 
 export class TranscriptStore {
   private fold = new FoldState();
+  private groups = new SubTurnGroupState();
+  // The fold's already-parsed plan as of each block index, appended by
+  // ingest() as the fold freezes blocks (see ingest). SubTurnGroupState
+  // reads it to name a rail phase from the boundary sub-turn's own plan even
+  // when a flush folds a whole burst of blocks at once.
+  private todosAtBlock: Todo[][] = [];
   private listeners = new Set<Listener>();
   private snapshot: TranscriptSnapshot;
   private es?: EventSource;
@@ -93,7 +117,16 @@ export class TranscriptStore {
   }
 
   ingest(ev: StoreEvent): void {
+    const before = this.fold.blocks.length;
     this.fold.ingest(ev);
+    // Record the fold's already-parsed plan as of the moment each block
+    // froze (docs/WEB-REDESIGN.md phase 6, the rail's phase grouping): a
+    // flush folds whatever blocks arrived since the last one, so without a
+    // per-block record every phase in a burst — a finished session's replay,
+    // or the perf harness seeding at once — would be named from the plan at
+    // the END of the burst (its last TodoWrite). Nothing is re-parsed here;
+    // latestTodos is the fold's own parse of the TodoWrite arguments.
+    for (let i = before; i < this.fold.blocks.length; i++) this.todosAtBlock.push(this.fold.latestTodos);
     this.markDirty();
   }
 
@@ -123,8 +156,22 @@ export class TranscriptStore {
   }
 
   private buildSnapshot(): TranscriptSnapshot {
-    return { blocks: this.fold.blocks, live: this.fold.live, todos: this.fold.latestTodos, connection: this.connection };
+    return {
+      blocks: this.fold.blocks,
+      items: this.groups.sync(this.fold.blocks, this.fold.latestTodos, this.todosAtBlock),
+      live: this.fold.live,
+      todos: this.fold.latestTodos,
+      connection: this.connection,
+      counts: { ...this.groups.counts },
+      churnPoint: this.groups.churnPoint,
+      getToolCall: this.getToolCall,
+    };
   }
+
+  // getToolCall is a stable arrow property so every snapshot carries the same
+  // reference — a fresh closure per buildSnapshot would defeat the memoised
+  // components that take it as a prop (docs/WEB-REDESIGN.md phase 5).
+  private getToolCall = (id: string): ToolCallPayload | undefined => this.fold.getToolCall(id);
 
   private notify() {
     for (const l of this.listeners) l();

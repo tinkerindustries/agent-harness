@@ -1,39 +1,268 @@
-/* Unstyled is expected for this phase (PLAN.md phase 4): enough plain CSS
-   to make the two screens legible, nothing more. Phase 5 is what makes this
-   hold frame rate and read well; phase 6 makes the economics legible. */
+/* The frontend's stylesheet, in three layers.
+ *
+ * 1. The shadcn/ui layer: Tailwind v4 plus the theme block below. The
+ *    variable values are ported verbatim from design/tokens.css — shadcn's
+ *    names carry shadcn's values, and the --status- / --diff- names survive
+ *    unchanged as the vocabulary on top that shadcn has no opinion about.
+ *    The dark block responds to prefers-color-scheme (no theme switcher;
+ *    docs/WEB-REDESIGN.md "What is deliberately not here").
+ * 2. The base layer: preflight plus the app's default body styling.
+ * 3. The bespoke layer: everything shadcn has no opinion about — the
+ *    transcript block styles, the diff table, the status and diff tokens,
+ *    and the layout that holds them. Rules the component layer now provides
+ *    (badge, button, input) live in the components, not here.
+ */
+
+@import "tailwindcss";
+@plugin "tailwindcss-animate";
+@import "shadcn/tailwind.css";
+
+/* The tokens respond to prefers-color-scheme rather than a .dark class, so
+   the `dark:` variant follows the media query too (design/tokens.css). */
+@custom-variant dark {
+  @media (prefers-color-scheme: dark) {
+    @slot;
+  }
+}
+
+/* ---------- theme: the design token set (design/tokens.css) ---------- */
 
 :root {
-  --color-bg: #ffffff;
-  --color-text: #1a1a1a;
-  --color-dim: #666666;
-  --color-border: #dddddd;
-  --color-accent: #2a5db0;
-  --color-error: #b0292a;
-  --color-warn: #a06a00;
-  --font-mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  --background: hsl(0 0% 100%);
+  --foreground: hsl(240 10% 4%);
+  --card: hsl(0 0% 100%);
+  --card-foreground: hsl(240 10% 4%);
+  --popover: hsl(0 0% 100%);
+  --popover-foreground: hsl(240 10% 4%);
+  --primary: hsl(240 6% 10%);
+  --primary-foreground: hsl(0 0% 98%);
+  --secondary: hsl(240 5% 96%);
+  --secondary-foreground: hsl(240 6% 10%);
+  --muted: hsl(240 5% 96%);
+  --muted-foreground: hsl(240 4% 46%);
+  --accent: hsl(240 5% 96%);
+  --accent-foreground: hsl(240 6% 10%);
+  --destructive: hsl(0 72% 45%);
+  --destructive-foreground: hsl(0 0% 98%);
+  --border: hsl(240 6% 90%);
+  --input: hsl(240 6% 90%);
+  --ring: hsl(240 5% 65%);
+  --radius: 0.5rem;
+
+  /* Session outcome vocabulary. One colour per meaning; the meanings are
+     defined in design/components.html. */
+  --status-running: hsl(217 91% 48%);
+  --status-running-bg: hsl(217 91% 96%);
+  --status-done: hsl(142 66% 32%);
+  --status-done-bg: hsl(142 66% 95%);
+  --status-gaveup: hsl(38 92% 38%);
+  --status-gaveup-bg: hsl(38 92% 95%);
+  --status-stopped: hsl(240 4% 46%);
+  --status-stopped-bg: hsl(240 5% 96%);
+  --status-failed: hsl(0 72% 45%);
+  --status-failed-bg: hsl(0 72% 96%);
+
+  --diff-add-bg: hsl(142 60% 95%);
+  --diff-add-fg: hsl(142 70% 24%);
+  --diff-remove-bg: hsl(0 70% 96%);
+  --diff-remove-fg: hsl(0 65% 36%);
+  --diff-gutter: hsl(240 4% 62%);
+
+  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* shadcn's generated defaults for what the app has no opinion about. */
+  --chart-1: oklch(0.87 0 0);
+  --chart-2: oklch(0.556 0 0);
+  --chart-3: oklch(0.439 0 0);
+  --chart-4: oklch(0.371 0 0);
+  --chart-5: oklch(0.269 0 0);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --background: hsl(240 10% 4%);
+    --foreground: hsl(0 0% 95%);
+    --card: hsl(240 8% 7%);
+    --card-foreground: hsl(0 0% 95%);
+    --popover: hsl(240 8% 7%);
+    --popover-foreground: hsl(0 0% 95%);
+    --primary: hsl(0 0% 95%);
+    --primary-foreground: hsl(240 6% 10%);
+    --secondary: hsl(240 6% 14%);
+    --secondary-foreground: hsl(0 0% 95%);
+    --muted: hsl(240 6% 14%);
+    --muted-foreground: hsl(240 5% 58%);
+    --accent: hsl(240 6% 14%);
+    --accent-foreground: hsl(0 0% 95%);
+    --destructive: hsl(0 70% 55%);
+    --border: hsl(240 6% 17%);
+    --input: hsl(240 6% 17%);
+    --ring: hsl(240 5% 40%);
+
+    --status-running: hsl(217 91% 68%);
+    --status-running-bg: hsl(217 60% 15%);
+    --status-done: hsl(142 60% 55%);
+    --status-done-bg: hsl(142 45% 13%);
+    --status-gaveup: hsl(38 92% 62%);
+    --status-gaveup-bg: hsl(38 60% 14%);
+    --status-stopped: hsl(240 5% 58%);
+    --status-stopped-bg: hsl(240 6% 14%);
+    --status-failed: hsl(0 75% 65%);
+    --status-failed-bg: hsl(0 50% 14%);
+
+    --diff-add-bg: hsl(142 40% 12%);
+    --diff-add-fg: hsl(142 55% 68%);
+    --diff-remove-bg: hsl(0 40% 14%);
+    --diff-remove-fg: hsl(0 60% 70%);
+    --diff-gutter: hsl(240 5% 45%);
+  }
+}
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+/* highlight.js is imported light-only (github.css, in main.tsx); swap its
+   palette for github-dark's under the same media query the tokens use, so
+   code blocks stay readable on the dark page. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .hljs {
+    color: #c9d1d9;
+    background: #0d1117;
+  }
+  :root:not([data-theme="light"]) .hljs-doctag,
+  :root:not([data-theme="light"]) .hljs-keyword,
+  :root:not([data-theme="light"]) .hljs-template-tag,
+  :root:not([data-theme="light"]) .hljs-template-variable,
+  :root:not([data-theme="light"]) .hljs-type,
+  :root:not([data-theme="light"]) .hljs-variable.language_ {
+    color: #ff7b72;
+  }
+  :root:not([data-theme="light"]) .hljs-title,
+  :root:not([data-theme="light"]) .hljs-title.class_,
+  :root:not([data-theme="light"]) .hljs-title.class_.inherited__,
+  :root:not([data-theme="light"]) .hljs-title.function_ {
+    color: #d2a8ff;
+  }
+  :root:not([data-theme="light"]) .hljs-attr,
+  :root:not([data-theme="light"]) .hljs-attribute,
+  :root:not([data-theme="light"]) .hljs-literal,
+  :root:not([data-theme="light"]) .hljs-meta,
+  :root:not([data-theme="light"]) .hljs-number,
+  :root:not([data-theme="light"]) .hljs-operator,
+  :root:not([data-theme="light"]) .hljs-variable,
+  :root:not([data-theme="light"]) .hljs-selector-attr,
+  :root:not([data-theme="light"]) .hljs-selector-class,
+  :root:not([data-theme="light"]) .hljs-selector-id {
+    color: #79c0ff;
+  }
+  :root:not([data-theme="light"]) .hljs-regexp,
+  :root:not([data-theme="light"]) .hljs-string,
+  :root:not([data-theme="light"]) .hljs-meta .hljs-string {
+    color: #a5d6ff;
+  }
+  :root:not([data-theme="light"]) .hljs-built_in,
+  :root:not([data-theme="light"]) .hljs-symbol {
+    color: #ffa657;
+  }
+  :root:not([data-theme="light"]) .hljs-comment,
+  :root:not([data-theme="light"]) .hljs-code,
+  :root:not([data-theme="light"]) .hljs-formula {
+    color: #8b949e;
+  }
+  :root:not([data-theme="light"]) .hljs-name,
+  :root:not([data-theme="light"]) .hljs-quote,
+  :root:not([data-theme="light"]) .hljs-selector-tag,
+  :root:not([data-theme="light"]) .hljs-selector-pseudo {
+    color: #7ee787;
+  }
+  :root:not([data-theme="light"]) .hljs-section {
+    color: #1f6feb;
+    font-weight: bold;
+  }
+  :root:not([data-theme="light"]) .hljs-bullet {
+    color: #f2cc60;
+  }
+  :root:not([data-theme="light"]) .hljs-emphasis {
+    color: #c9d1d9;
+    font-style: italic;
+  }
+  :root:not([data-theme="light"]) .hljs-strong {
+    color: #c9d1d9;
+    font-weight: bold;
+  }
+  :root:not([data-theme="light"]) .hljs-addition {
+    color: #aff5b4;
+    background-color: #033a16;
+  }
+  :root:not([data-theme="light"]) .hljs-deletion {
+    color: #ffdcd7;
+    background-color: #67060c;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+html {
+  color-scheme: light dark;
+}
+
+/* ---------- the bespoke layer ----------
+   Layout, the transcript blocks, the diff table, and the status and diff
+   tokens. This is the layer shadcn has no opinion about (docs/WEB-REDESIGN.md
+   phase 1); the component styles (badge, button, input) live in
+   src/components/ui. */
+
+:root {
   --space: 8px;
 }
 
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  color: var(--color-text);
-  background: var(--color-bg);
-}
-
-code,
-pre {
-  font-family: var(--font-mono);
-}
+/* ---------- layout ---------- */
 
 .screen {
   max-width: 960px;
   margin: 0 auto;
   padding: calc(var(--space) * 2);
+}
+
+.screen-transcript {
+  max-width: 1200px;
 }
 
 .screen-header {
@@ -53,32 +282,20 @@ pre {
   white-space: nowrap;
 }
 
-.back-button,
-.settings-button {
-  font: inherit;
-  cursor: pointer;
-  border: 1px solid var(--color-border);
-  background: none;
-  border-radius: 4px;
-  padding: 4px 8px;
-}
-
-.connection-badge {
-  font-size: 0.75rem;
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid var(--color-border);
-  color: var(--color-dim);
-}
-
-.connection-open {
-  color: #1a7a3a;
-  border-color: #1a7a3a;
-}
-
 .dim {
-  color: var(--color-dim);
+  color: var(--muted-foreground);
 }
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+code,
+pre {
+  font-family: var(--font-mono);
+}
+
+/* ---------- session list ---------- */
 
 .session-table {
   width: 100%;
@@ -88,14 +305,14 @@ pre {
 
 .session-table th {
   text-align: left;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--border);
   padding: 6px 8px;
-  color: var(--color-dim);
+  color: var(--muted-foreground);
   font-weight: 600;
 }
 
 .session-table td {
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--border);
   padding: 6px 8px;
   vertical-align: top;
 }
@@ -105,7 +322,7 @@ pre {
 }
 
 .session-row:hover {
-  background: #f5f5f5;
+  background: var(--muted);
 }
 
 .workspace-cell {
@@ -118,39 +335,307 @@ pre {
 }
 
 .empty-row {
-  color: var(--color-dim);
+  color: var(--muted-foreground);
   padding: calc(var(--space) * 2);
 }
 
-.status-badge {
+/* ---------- session list: in-flight cards and the finished table ----------
+   Running sessions leave the table and become collapsible plan cards;
+   finished sessions keep the dense table, whose Session cell gains a
+   one-line subtitle per row (docs/WEB-REDESIGN.md phase 3,
+   design/sessions.html). */
+
+.list-section + .list-section {
+  margin-top: calc(var(--space) * 2.5);
+}
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: var(--space);
+}
+
+.section-head h2 {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+.section-head .count {
   font-size: 0.75rem;
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid var(--color-border);
+  color: var(--muted-foreground);
+}
+
+.inflight-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space);
+}
+
+.run-card {
+  overflow: hidden;
+  /* The Card component's default padding and gap are for its own
+     header/content parts; the disclosure inside owns the card's layout. */
+  padding: 0;
+  gap: 0;
+}
+
+.run-summary {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 12px 14px;
+  cursor: pointer;
+  background: transparent;
+  border: none;
+  font: inherit;
+  color: inherit;
+}
+
+.run-summary:hover {
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.run-summary-open {
+  border-bottom: 1px solid var(--border);
+}
+
+.run-line1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.caret {
+  color: var(--muted-foreground);
+  flex: none;
+  transition: transform 0.15s ease;
+}
+
+.caret-open {
+  transform: rotate(90deg);
+}
+
+.run-id {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.run-meta {
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  white-space: nowrap;
+}
+
+.run-stats {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+.run-stats b {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.run-line2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 7px;
+  padding-left: 20px;
+}
+
+.run-now {
+  font-size: 0.8125rem;
+  min-width: 0;
+}
+
+.run-now .verb {
+  color: var(--status-running);
+  font-weight: 500;
+}
+
+.run-progress {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.run-progress .ratio {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.run-body {
+  border-top: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+}
+
+/* A session that never wrote a plan has no plan column; the side panel is
+   the whole body, so its divider has nothing to divide. */
+.run-body-noplan {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.run-body-noplan .run-side {
+  border-left: none;
+}
+
+.run-plan {
+  padding: 12px 14px 14px 34px;
+}
+
+.run-side {
+  padding: 12px 14px;
+  border-left: 1px solid var(--border);
+  background: color-mix(in srgb, var(--muted) 40%, transparent);
+  border-radius: 0 0 var(--radius) 0;
+}
+
+.panel-label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
+  color: var(--muted-foreground);
+  margin-bottom: 8px;
 }
 
-.status-running {
-  color: var(--color-accent);
-  border-color: var(--color-accent);
+/* The plan list as the in-flight card renders it: the same todo-item glyphs
+   and status classes PlanList renders in the transcript panel, drawn at the
+   card's density with the running item marked by a left rule and a tint
+   (design/sessions.html). Every rule is scoped under .run-plan so the
+   transcript's own `.plan-panel ul` rendering — and its strikethrough, which
+   the card deliberately drops — is untouched. */
+.run-plan .plan-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
-.status-ok {
-  color: #1a7a3a;
-  border-color: #1a7a3a;
+.run-plan .plan-list .todo-item {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  gap: 8px;
+  padding: 3px 0 3px 8px;
+  font-size: 0.8125rem;
+  border-left: 2px solid transparent;
+  align-items: baseline;
 }
 
-.status-failed,
-.status-timeout,
-.status-max_turns {
-  color: var(--color-error);
-  border-color: var(--color-error);
+.run-plan .plan-list .todo-mark {
+  text-align: center;
+  line-height: 1.5;
 }
 
-.status-compacted,
-.status-cancelled {
-  color: var(--color-warn);
-  border-color: var(--color-warn);
+.run-plan .plan-list li.todo-completed {
+  color: var(--muted-foreground);
+}
+
+.run-plan .plan-list li.todo-completed .todo-mark {
+  color: var(--status-done);
+}
+
+.run-plan .plan-list li.todo-in_progress {
+  border-left-color: var(--status-running);
+  background: var(--status-running-bg);
+  font-weight: 500;
+}
+
+.run-plan .plan-list li.todo-in_progress .todo-mark {
+  color: var(--status-running);
+}
+
+.run-plan .plan-list li.todo-pending {
+  color: var(--foreground);
+}
+
+.run-plan .todo-completed {
+  text-decoration: none;
+}
+
+.activity {
+  display: grid;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+}
+
+.activity .row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.activity .t {
+  color: var(--muted-foreground);
+  flex: none;
+}
+
+.tool-tag {
+  display: inline-block;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--secondary);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  flex: none;
+}
+
+.activity .target {
+  min-width: 0;
+}
+
+.activity-empty {
+  font-size: 0.75rem;
+}
+
+.run-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.sess-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sess-id {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.sess-sub {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.connection-badge {
+  color: var(--muted-foreground);
+}
+
+.connection-open {
+  color: var(--status-done);
+  border-color: var(--status-done);
 }
 
 .session-meta {
@@ -160,24 +645,29 @@ pre {
   font-size: 0.85rem;
   margin-bottom: calc(var(--space) * 2);
   padding-bottom: var(--space);
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--border);
 }
 
+/* ---------- transcript blocks ---------- */
+
 .transcript {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: var(--space);
 }
 
 .block {
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
   padding: var(--space);
+  background: var(--card);
 }
 
 .block-label {
   font-size: 0.75rem;
-  color: var(--color-dim);
+  color: var(--muted-foreground);
   text-transform: uppercase;
   margin-bottom: 4px;
 }
@@ -196,44 +686,286 @@ pre {
 }
 
 .block-opening {
-  background: #f7f7f7;
+  background: var(--muted);
 }
 
 .block-skills {
-  background: #f7f7f7;
+  background: var(--muted);
 }
 
 .skills-summary {
   cursor: pointer;
   font-size: 0.85rem;
-  color: var(--color-dim);
+  color: var(--muted-foreground);
 }
 
 .block-tool-error {
-  border-color: var(--color-error);
+  border-color: var(--status-failed);
 }
 
 .block-denied {
-  border-color: var(--color-warn);
+  border-color: var(--status-gaveup);
 }
 
 .block-error {
-  border-color: var(--color-error);
-  color: var(--color-error);
+  border-color: var(--status-failed);
+  color: var(--status-failed);
 }
 
 .block-run-finished {
-  border-color: var(--color-accent);
+  border-color: var(--status-running);
 }
 
 .block-usage {
   font-size: 0.75rem;
-  color: var(--color-dim);
-  padding: 2px 4px;
+  color: var(--muted-foreground);
+  padding: 4px 8px;
 }
 
 .churn-warning {
-  color: var(--color-warn);
+  color: var(--status-gaveup);
+}
+
+/* ---------- sub-turn cards (docs/WEB-REDESIGN.md phase 4) ----------
+   One card per sub-turn: reasoning, assistant text, tool calls and their
+   results in one body, with the sub-turn's usage figures in the header.
+   The inner blocks render exactly as they do outside a group; only the
+   container and the header are new. The card surface itself is the shadcn
+   Card with Tailwind utilities overriding its defaults; these rules are the
+   header and body layout shadcn has no opinion about. */
+
+/* The header is a disclosure button since phase 5 (Compact collapses a card
+   to it); the layout is the same row the pre-collapse header had. */
+.subturn-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space);
+  padding: 8px 12px;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.subturn-header:hover {
+  background: var(--accent);
+}
+
+/* A closed card in Compact mode is the header alone, so the hairline only
+   belongs under an open header, above the body. */
+.subturn-header[data-state="closed"] {
+  border-bottom: 0;
+}
+
+.subturn-header .caret {
+  flex: none;
+}
+
+.subturn-header[data-state="open"] .caret,
+.opening-summary[aria-expanded="true"] .caret {
+  transform: rotate(90deg);
+}
+
+.subturn-n {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  flex: none;
+}
+
+.subturn-sum {
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.subturn-cost {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+  flex: none;
+  white-space: nowrap;
+}
+
+.subturn-body {
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space);
+}
+
+/* Anchors for the churn banner's "Jump to it" link and, later, the phase 6
+   rail: keep the target clear of the sticky toolbar. */
+.subturn {
+  scroll-margin-top: 46px;
+}
+
+/* A tool card inside a sub-turn body (design/transcript.html's .tool):
+   header row of name, target, and trailing stat over the result body. */
+.tool-card {
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  overflow: hidden;
+}
+
+.tool-card-error {
+  border-color: color-mix(in srgb, var(--status-failed) 45%, var(--border));
+}
+
+.tool-card-error .tool-header {
+  background: var(--status-failed-bg);
+}
+
+.tool-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--muted) 45%, transparent);
+  font-size: 0.8125rem;
+}
+
+.tool-name {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 0.75rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--secondary);
+  flex: none;
+}
+
+.tool-target {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.tool-stat {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+  flex: none;
+}
+
+.tool-body {
+  border-top: 1px solid var(--border);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space);
+}
+
+/* ---------- transcript toolbar and chips (docs/WEB-REDESIGN.md phase 5) ---
+   The density toggle and the filter chips over the folded blocks. Counts
+   come from the snapshot, computed in the same pass that builds the cards. */
+
+.transcript-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 16px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--background);
+}
+
+.toolbar-sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--border);
+  margin: 2px 2px;
+}
+
+/* The filter chips: a pill Toggle in the same vocabulary as design/tokens.css
+   .chip, on top of the shadcn Toggle's pressed state. */
+.chip-toggle {
+  height: 26px;
+  min-width: 0;
+  padding: 0 10px;
+  gap: 5px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.chip-toggle:hover {
+  background: var(--muted);
+}
+
+.chip-toggle-active,
+.chip-toggle[data-state="on"] {
+  background: var(--secondary);
+  color: var(--foreground);
+  border-color: var(--ring);
+}
+
+.churn-banner {
+  margin-bottom: 16px;
+}
+
+.churn-banner a {
+  color: var(--status-gaveup);
+  font-weight: 600;
+}
+
+/* ---------- the collapsed opening block (docs/WEB-REDESIGN.md phase 5) --- */
+
+.opening-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.opening-summary:hover {
+  color: var(--foreground);
+}
+
+.opening-summary-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
 }
 
 .tool-call {
@@ -241,24 +973,93 @@ pre {
   font-size: 0.85rem;
 }
 
+.tool-detail {
+  color: var(--muted-foreground);
+  font-weight: normal;
+  text-transform: none;
+}
+
+.block-tool-pending {
+  border-style: dashed;
+  color: var(--muted-foreground);
+}
+
+.block-live {
+  border-style: dashed;
+}
+
+.live-pre {
+  white-space: pre-wrap;
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--foreground);
+}
+
+.collapse-toggle {
+  color: var(--status-running);
+}
+
 .reasoning summary {
   cursor: pointer;
-  color: var(--color-dim);
+  color: var(--muted-foreground);
   font-size: 0.85rem;
 }
 
 .reasoning-text {
-  color: var(--color-dim);
+  color: var(--muted-foreground);
   font-size: 0.85rem;
 }
 
-/* Phase 5: the two-column transcript layout, the plan panel pinned beside
-   it, per-tool block shaping, and the live/streaming variants of blocks
-   that have not frozen yet (docs/DESIGN.md §5). */
-
-.screen-transcript {
-  max-width: 1200px;
+.code-block {
+  margin: 0;
+  overflow-x: auto;
+  font-size: 0.85rem;
+  max-height: 480px;
+  overflow-y: auto;
 }
+
+.markdown {
+  font-size: 0.95rem;
+}
+
+/* Preflight zeroes element margins, so paragraph spacing is explicit here
+   rather than inherited from the browser's defaults. */
+.markdown p {
+  margin: 0 0 1em;
+}
+
+.markdown :first-child {
+  margin-top: 0;
+}
+
+.markdown :last-child {
+  margin-bottom: 0;
+}
+
+.markdown pre {
+  overflow-x: auto;
+}
+
+.markdown code:not(pre code) {
+  background: var(--muted);
+  border-radius: 3px;
+  padding: 1px 4px;
+  font-size: 0.9em;
+}
+
+.task-child {
+  margin-top: var(--space);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space);
+}
+
+.task-child-body {
+  border-left: 2px solid var(--border);
+  padding-left: var(--space);
+}
+
+/* ---------- the plan column ---------- */
 
 .transcript-layout {
   display: flex;
@@ -266,29 +1067,22 @@ pre {
   gap: calc(var(--space) * 3);
 }
 
-.transcript {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space);
-}
-
 .plan-panel {
   position: sticky;
   top: var(--space);
   flex: 0 0 240px;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
   padding: var(--space);
   font-size: 0.85rem;
+  background: var(--card);
 }
 
 .plan-panel h2 {
   margin: 0 0 var(--space) 0;
   font-size: 0.75rem;
   text-transform: uppercase;
-  color: var(--color-dim);
+  color: var(--muted-foreground);
 }
 
 .plan-panel ul {
@@ -307,18 +1101,18 @@ pre {
 }
 
 .todo-mark {
-  color: var(--color-dim);
+  color: var(--muted-foreground);
   width: 1em;
   flex: none;
 }
 
 .todo-completed {
-  color: var(--color-dim);
+  color: var(--muted-foreground);
   text-decoration: line-through;
 }
 
 .todo-in_progress .todo-mark {
-  color: var(--color-accent);
+  color: var(--status-running);
 }
 
 @media (max-width: 860px) {
@@ -332,70 +1126,192 @@ pre {
   }
 }
 
-.tool-detail {
-  color: var(--color-dim);
-  font-weight: normal;
-  text-transform: none;
+/* ---------- the timeline rail (docs/WEB-REDESIGN.md phase 6) ----------
+   The sticky left column that lists every sub-turn under the plan item that
+   was in_progress when it ran (design/transcript.html). The column sticks
+   below the toolbar and scrolls its own content with plain overflow — NOT
+   ScrollArea (phase 1's deliberate omission: a custom scroll container costs
+   a wrapper and a listener per column on a screen that is already
+   frame-budget sensitive). */
+
+.transcript-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-.block-tool-pending {
-  border-style: dashed;
-  color: var(--color-dim);
-}
-
-.block-live {
-  border-style: dashed;
-}
-
-.live-pre {
-  white-space: pre-wrap;
-  margin: 0;
-  font-size: 0.85rem;
-  color: var(--color-text);
-}
-
-.collapse-toggle {
-  font: inherit;
-  font-size: 0.8rem;
-  cursor: pointer;
-  border: 1px solid var(--color-border);
-  background: none;
-  border-radius: 4px;
-  padding: 2px 8px;
-  color: var(--color-accent);
+.timeline-rail {
+  flex: 0 0 220px;
   align-self: flex-start;
-}
-
-.code-block {
-  margin: 0;
-  overflow-x: auto;
-  font-size: 0.85rem;
-  max-height: 480px;
+  position: sticky;
+  top: 54px;
+  max-height: calc(100vh - 70px);
   overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
+  background: var(--card);
+  font-size: 0.8125rem;
+  padding: 6px 0 10px;
 }
 
-.markdown {
-  font-size: 0.95rem;
+.rail-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 12px 8px;
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
 }
 
-.markdown :first-child {
-  margin-top: 0;
+.rail-count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
 }
 
-.markdown :last-child {
-  margin-bottom: 0;
+/* A phase is one AccordionItem (type multiple — several open at once while
+   browsing); the summary row is the trigger, styled as design/transcript.html's
+   .rail-phase > summary. */
+.rail-phase {
+  border-bottom: 0;
 }
 
-.markdown pre {
-  overflow-x: auto;
+.rail-phase-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 10px;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  text-align: left;
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  font: inherit;
 }
 
-.markdown code:not(pre code) {
-  background: #f2f2f2;
-  border-radius: 3px;
-  padding: 1px 4px;
-  font-size: 0.9em;
+.rail-phase-trigger:hover {
+  background: var(--accent);
 }
+
+.rail-caret {
+  flex: none;
+}
+
+.rail-phase-trigger[data-state="open"] .rail-caret {
+  transform: rotate(90deg);
+}
+
+.phase-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.rail-phase-trigger[data-state="open"] .phase-name {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.phase-range {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.rail-phase-content {
+  padding-bottom: 2px;
+}
+
+/* One sub-turn entry: number and the glyph row, an anchor to the card (the
+   .subturn scroll-margin-top keeps the target clear of the sticky toolbar).
+   The current entry is marked by aria-current and the observer's marker. */
+.rail-turn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 26px;
+  border-left: 2px solid transparent;
+  text-decoration: none;
+  color: var(--foreground);
+}
+
+.rail-turn:hover {
+  background: var(--accent);
+}
+
+.rail-turn[aria-current="true"] {
+  border-left-color: var(--foreground);
+  background: var(--secondary);
+  font-weight: 600;
+}
+
+.rail-turn .n {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  width: 26px;
+  flex: none;
+  text-align: right;
+}
+
+.rail-turn[aria-current="true"] .n {
+  color: var(--foreground);
+}
+
+/* The glyph row: one monospace letter per tool call, coloured by family
+   (design/components.html "Tool glyphs" — writes green, shell blue, failed
+   results red). */
+.glyphs {
+  display: flex;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.g {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 4px;
+  background: var(--secondary);
+  color: var(--muted-foreground);
+  font-size: 0.625rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  flex: none;
+}
+
+.g-write {
+  background: var(--diff-add-bg);
+  color: var(--diff-add-fg);
+}
+
+.g-bash {
+  background: var(--status-running-bg);
+  color: var(--status-running);
+}
+
+.g-err {
+  background: var(--status-failed-bg);
+  color: var(--status-failed);
+}
+
+/* A narrow viewport has no room for a third column; the rail is a
+   navigation aid, not the transcript itself. */
+@media (max-width: 1100px) {
+  .timeline-rail {
+    display: none;
+  }
+}
+
+/* ---------- diff table ---------- */
 
 .diff-table {
   border-collapse: collapse;
@@ -414,7 +1330,7 @@ pre {
 }
 
 .diff-lineno {
-  color: var(--color-dim);
+  color: var(--diff-gutter);
   text-align: right;
   width: 3em;
   user-select: none;
@@ -427,41 +1343,385 @@ pre {
 }
 
 .diff-add {
-  background: #e6ffed;
+  background: var(--diff-add-bg);
 }
 
 .diff-add .diff-marker {
-  color: #1a7a3a;
+  color: var(--diff-add-fg);
 }
 
 .diff-remove {
-  background: #ffeef0;
+  background: var(--diff-remove-bg);
 }
 
 .diff-remove .diff-marker {
-  color: var(--color-error);
+  color: var(--diff-remove-fg);
 }
 
-.task-child {
-  margin-top: var(--space);
+/* ---------- queue health on the session list ---------- */
+
+.queue-health {
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
+  padding: 4px 8px;
+  margin-bottom: var(--space);
+}
+
+.queue-health-halted {
+  color: var(--status-gaveup);
+  border-color: var(--status-gaveup);
+  font-weight: 600;
+}
+
+/* ---------- settings screen ---------- */
+
+/* The screen reads as a list: one registry entry per collapsible row, closed
+   to a single grid line (design/settings.html). Reading is the default state
+   and writing is an act, so a freshly opened screen has nothing in the tab
+   order but the disclosures, the filter chips, and the expand-all button. */
+
+.settings-strip {
   display: flex;
-  flex-direction: column;
-  gap: var(--space);
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
 }
 
-.task-child-body {
-  border-left: 2px solid var(--color-border);
-  padding-left: var(--space);
+.settings-strip b {
+  color: var(--foreground);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
-/* web/src/perf: the phase 5 measurement harness page. */
+.settings-strip .sep {
+  color: var(--border);
+}
+
+.settings-strip .spacer {
+  flex: 1;
+}
+
+.settings-summary-warn {
+  color: var(--status-gaveup);
+}
+
+.settings-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  margin-bottom: 8px;
+}
+
+.settings-filters .spacer {
+  flex: 1;
+}
+
+/* The filter chips: a pill toggle in the same vocabulary as design/tokens.css
+   .chip. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.chip:hover {
+  background: var(--muted);
+}
+
+.chip-active {
+  background: var(--secondary);
+  color: var(--foreground);
+  border-color: var(--ring);
+}
+
+/* A group of settings: one card, rows separated by a hairline. */
+.settings-group {
+  margin-top: 20px;
+}
+
+.settings-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 8px;
+}
+
+.settings-group-head h2 {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.settings-group-count {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-group-head .spacer {
+  flex: 1;
+}
+
+.settings-group-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  overflow: hidden;
+}
+
+.settings-group-card .settings-row + .settings-row {
+  border-top: 1px solid var(--border);
+}
+
+/* One setting row. Closed it is the summary grid; open it adds the body
+   below it. The value column is the one an operator scans: a stored value at
+   full weight, a default muted, a missing credential in the gave-up colour —
+   so the rows this installation has changed are findable without reading a
+   badge on every row (design/settings.html, components.html). */
+.settings-row {
+  background: var(--card);
+}
+
+.settings-summary {
+  display: grid;
+  grid-template-columns: 10px minmax(150px, 250px) minmax(80px, 160px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.settings-summary:hover {
+  background: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.settings-summary-open {
+  background: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.settings-key {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.settings-val {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.settings-val-set {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.settings-val-unset {
+  color: var(--status-gaveup);
+}
+
+.settings-desc {
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+  min-width: 0;
+}
+
+.settings-flags {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.caret {
+  color: var(--muted-foreground);
+  transition: transform 0.12s ease;
+}
+
+.caret-open {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .caret {
+    transition: none;
+  }
+}
+
+/* The open row: full description, the unset-credential notice, the facts the
+   registry knows, and the write controls. */
+.settings-body {
+  padding: 2px 12px 14px 32px;
+  display: grid;
+  gap: 10px;
+  max-width: 92ch;
+}
+
+.settings-body p {
+  margin: 0;
+  font-size: 0.8125rem;
+  max-width: 78ch;
+}
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.facts .k {
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 0.6875rem;
+  margin-right: 5px;
+}
+
+.facts code {
+  background: var(--muted);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--foreground);
+}
+
+.write {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-input {
+  min-width: 300px;
+  flex: 0 1 320px;
+  font-family: var(--font-mono);
+}
+
+.field-error {
+  font-size: 0.75rem;
+  color: var(--status-failed);
+  font-family: var(--font-mono);
+  flex-basis: 100%;
+}
+
+.hint {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+/* The notices: .notice for "this breaks until you fix it", .notice-quiet for
+   the restart caveat that colours nothing (design/settings.html). */
+.notice {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--status-gaveup);
+  background: var(--status-gaveup-bg);
+  color: var(--foreground);
+  border-radius: calc(var(--radius) - 2px);
+  padding: 8px 12px;
+  font-size: 0.8125rem;
+}
+
+.notice-quiet {
+  border-left-color: var(--muted-foreground);
+  background: color-mix(in srgb, var(--muted) 50%, transparent);
+  color: var(--muted-foreground);
+}
+
+.settings-error {
+  color: var(--status-failed);
+  font-size: 0.85rem;
+}
+
+.settings-error-banner {
+  border: 1px solid var(--status-failed);
+  border-radius: calc(var(--radius) - 4px);
+  padding: var(--space);
+  margin-bottom: var(--space);
+}
+
+@media (max-width: 900px) {
+  .settings-summary {
+    grid-template-columns: 10px minmax(0, 1fr) auto;
+  }
+  .settings-val {
+    grid-column: 2;
+    text-align: left;
+  }
+  .settings-desc {
+    display: none;
+  }
+}
+
+/* ---------- status and diff tokens on the shadcn Badge ----------
+   The badge itself is the component; these are the harness's own vocabulary
+   tints on top of it, straight from design/tokens.css. */
+
+.badge-running {
+  background: var(--status-running-bg);
+  color: var(--status-running);
+}
+
+.badge-done {
+  background: var(--status-done-bg);
+  color: var(--status-done);
+}
+
+.badge-gaveup {
+  background: var(--status-gaveup-bg);
+  color: var(--status-gaveup);
+}
+
+.badge-stopped {
+  background: var(--status-stopped-bg);
+  color: var(--status-stopped);
+}
+
+.badge-failed {
+  background: var(--status-failed-bg);
+  color: var(--status-failed);
+}
+
+/* Outlined rather than filled: "takes effect on the next start" is a caveat
+   on a setting, not a state a session is in. */
+.badge-restart {
+  border-color: var(--status-gaveup);
+  color: var(--status-gaveup);
+}
+
+/* ---------- web/src/perf: the phase 5 measurement harness page ---------- */
 
 .perf-harness {
   max-width: 1200px;
-}
-
-.table-scroll {
-  overflow-x: auto;
 }
 
 .perf-results {
@@ -469,102 +1729,8 @@ pre {
   white-space: nowrap;
 }
 
-/* Phase 6: queue health on the session list (docs/DESIGN.md §5.8). */
-
-.queue-health {
-  font-size: 0.8rem;
-  color: var(--color-dim);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  padding: 4px 8px;
-  margin-bottom: var(--space);
-}
-
-.queue-health-halted {
-  color: var(--color-warn);
-  border-color: var(--color-warn);
-  font-weight: 600;
-}
-
-/* web/src/components/SettingsScreen.tsx: the settings screen
-   (docs/DESIGN.md §4.2) — the browser's one write, key management only,
-   no run control. */
-
-.settings-group {
-  margin-bottom: calc(var(--space) * 2);
-}
-
-.settings-group-heading {
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--color-dim);
-  margin: 0 0 var(--space);
-}
-
-.settings-restart {
-  background: transparent;
-  color: var(--color-warn);
-  border: 1px solid var(--color-warn);
-}
-
-.settings-row {
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  padding: var(--space);
-  margin-bottom: var(--space);
-}
-
-.settings-row-head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space);
-  font-size: 0.85rem;
-}
-
-.settings-key {
+/* The phase 5 height measurement's headline figure (web/src/perf/HeightHarness). */
+.perf-height-result {
+  margin: 0 0 16px;
   font-family: var(--font-mono);
-}
-
-.settings-current {
-  display: flex;
-  align-items: center;
-  gap: var(--space);
-  margin: var(--space) 0;
-  font-size: 0.9rem;
-}
-
-.settings-value {
-  font-family: var(--font-mono);
-  font-size: 0.85rem;
-}
-
-.settings-write {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space);
-}
-
-.settings-input {
-  font: inherit;
-  font-family: var(--font-mono);
-  font-size: 0.9rem;
-  padding: 4px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  flex: 0 1 320px;
-  min-width: 0;
-}
-
-.settings-error {
-  color: var(--color-error);
-  font-size: 0.85rem;
-}
-
-.settings-error-banner {
-  border: 1px solid var(--color-error);
-  border-radius: 4px;
-  padding: var(--space);
-  margin-bottom: var(--space);
 }

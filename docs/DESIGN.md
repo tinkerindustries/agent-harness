@@ -625,11 +625,11 @@ number and type together.
 The browser observes and, where runs are concerned, does not act — its one
 write is the settings screen, and that cannot reach a run. It has no prompt
 box, no approve button, and no cancel control, and the server would reject
-them anyway (§4.2). What it shows is a list of sessions, the transcript of any
-one of them — live or historical — and the settings screen for the harness's
-settings: the registry (§4.2) rendered grouped and typed, with each entry's
-default, whether the current value is a default or an override, and the
-restart markers.
+them anyway (§4.2). What it shows is a list of sessions (§5.8), the transcript
+of any one of them — live or historical (§5.9, §5.10) — and the settings
+screen for the harness's settings: the registry (§4.2) rendered grouped, with
+each entry's default, its validation bounds, whether the current value is a
+default or an override, and the restart markers.
 
 That subtraction removes most of the usual frontend work — no optimistic
 updates, no command queue, no reconciliation between local intent and server
@@ -669,10 +669,14 @@ hot region.
 - Deltas append to a plain string buffer and set a dirty flag. A
   `requestAnimationFrame` loop flushes it, so React sees at most one update per
   frame regardless of token rate.
-- Completed blocks freeze. They become immutable values wrapped in `React.memo`,
-  keyed by block id, and never re-render again.
+- Completed content freezes. Top-level blocks (opening, skills, `run_finished`,
+  `error`) become immutable values wrapped in `React.memo`, keyed by block id,
+  and never re-render again; a sub-turn card freezes at group granularity — its
+  children array is reference-stable from the moment its last tool result
+  lands, and the memoised card bails out on it (§5.9).
 
-The freeze carries most of the win. In a 400-block session, 399 blocks are inert.
+The freeze carries most of the win. In a 142-sub-turn session, 141 cards are
+inert.
 
 ### 5.3 Parse on completion, not during
 
@@ -721,8 +725,16 @@ because it goes back to the API.
 
 ### 5.7 Stack
 
-Vite, React, TypeScript. No component framework. Plain CSS with custom
-properties. Three screens and one write path, so no router library — `App.tsx`
+Vite, React, TypeScript, shadcn/ui on Tailwind v4. The component layer is
+`accordion`, `badge`, `button`, `card`, `collapsible`, `input`, `toggle`,
+`toggle-group`, and `tooltip` (in `web/src/components/ui/`), themed from
+`design/tokens.css` with the variables ported into the theme block in
+`web/src/styles.css`. `ScrollArea` and `DataTable` are deliberately absent —
+the rail and the plan column are plain sticky elements, and the diff table
+renders inside the transcript (docs/WEB-REDESIGN.md phase 1). Everything
+shadcn has no opinion about — the transcript block styles, the diff table,
+and the status and diff tokens — is plain CSS in `web/src/styles.css`.
+Three screens and one write path, so no router library — `App.tsx`
 parses the pathname (`/`, `/sessions/:id`, `/settings`) and navigates with
 `history.pushState`/`popstate`, and the static handler falls back to
 `index.html` so a direct link or reload lands on the right screen — and no
@@ -732,12 +744,124 @@ data layer beyond the SSE client, the store, and the settings fetch calls
 ### 5.8 Session list
 
 Several sessions run at once, so the list is a first-class screen rather than a
-drawer. Each row shows status, model, workspace, elapsed time, sub-turn count,
-running cost, and the originating request id where there is one. It subscribes
-to `GET /api/stream`, which carries session-level state changes only and stays
-quiet while transcripts are loud.
+drawer. It subscribes to `GET /api/stream`, which carries session-level state
+changes only and stays quiet while transcripts are loud. The screen splits the
+list in two (docs/WEB-REDESIGN.md phase 3). In-flight sessions render as
+collapsible plan cards: collapsed, the trigger answers what the session is
+doing — the `in_progress` item's activeForm — and how far in it is, the
+completed ratio; expanded, it shows the whole plan and the last few tool calls.
+A session that never wrote a plan shows a card with no plan section rather than
+an empty one, and the disclosure state lives above the cards so it survives a
+list update.
 
-A denied tool call renders in the transcript as its own block, showing the call
-and the policy that refused it. Denials are the main thing an operator wants to
-find after a queue-driven run does less than expected, so they are not folded
-into generic tool results.
+Finished sessions stay a dense table — status, session id with a one-line
+subtitle, model, elapsed time, sub-turn count, cache-hit rate, running cost,
+and the originating request id where there is one. The subtitle carries the
+plan ratio ("11 of 11 plan items") and the model's own summary, so scanning the
+list does not require opening each transcript. The plan is persisted with the
+session — a `plan` column on the sessions table, written whenever `TodoWrite`
+executes and carried on `hub.SessionState` — so the finished table's ratio
+survives the run and the list never re-walks the event log to derive it.
+
+### 5.9 The sub-turn is the unit
+
+The transcript renders one card per sub-turn (docs/WEB-REDESIGN.md phase 4):
+reasoning, assistant text, tool calls and their results in one body, with the
+usage block absorbed into the card header instead of a fifth sibling block.
+The grouping is a display-side view over the fold's `blocks` array —
+`SubTurnGroupState` in `web/src/api/groups.ts` — computed incrementally in the
+same style `FoldState.pushBlock` uses: append to the last group, or start a new
+one on the next `assistant` block. The `Block` union and the event fold are
+untouched, so `fold.ts` stays in shape agreement with `internal/fold`;
+`opening`, skills, `run_finished`, and `error` stay top-level, and a starved
+retry's first usage stays a loose block rather than leaking into the previous
+turn's header.
+
+The §5.2 freeze now operates at group granularity. A card cannot freeze until
+its last tool result lands, so the tail group's children keep growing while its
+results stream in; the moment the last one freezes, the group holds an
+unchanged children array and the memoised card bails out forever. `SubTurnList`
+is memoised on the items array itself, so a live-only delta never re-renders
+the transcript.
+
+Measured with `web/src/perf` on the sweep §5.5 used (50..2000 blocks at 60
+events/s), before and after the grouping:
+
+- Delta commits stay flat in group count — the same property §5.5 measured for
+  blocks. Delta commit means run 0.02–0.24 ms both before and after.
+- Append commits, the O(n) reconciliation walk §5.5 measured, fall because the
+  walk now runs over groups instead of blocks and every earlier group bails
+  out. At 2000 blocks the append mean dropped 6.66 ms -> 1.43 ms and the max
+  8.9 ms -> 2.3 ms.
+
+Phase 5 stacked the transcript's browsing controls on top of the card
+(docs/WEB-REDESIGN.md phase 5). A Compact/Full toggle collapses every card to
+its header line; a card containing a failed result or a denial stays open in
+both modes, because an error you have to expand to find is an error you miss.
+Tool call headers are built from the call the fold already keeps in
+`toolCallsById`, showing the target rather than the raw arguments JSON —
+`Edit`/`Write` show the path and the `+n −n` from the diff, `Bash` the
+command, `Read`/`Grep` the path or pattern, `Task` the description plus the
+child session's turn count and cost. The opening block collapses to one summary
+line (word count and the files it names); filter chips over the cards
+(All/Edits/Bash/Errors/Churn) read their counts off the same pass that builds
+the groups; and a cache-churn banner above the transcript links to the first
+sub-turn whose usage carried `churn_point_index`. Density is a plain string
+prop on the memoised card/list chain, so the phase 4 bailouts survive every
+live-only delta — toggling it is the one deliberate all-cards re-render.
+
+Scroll height on the synthetic 142-sub-turn feed (391 blocks) that
+`web/src/perf` mounts: Full 7,880 px, Compact 6,973 px — about 12% shorter in
+Compact on the same feed. The 86,674 px / 974 block elements figures in
+docs/WEB-REDESIGN.md were measured on the real session
+`sess-f93b37beb37098b5637832e829c37d92` before any of this plan existed, and
+have not been re-measured against the new UI; no scroll-height figure taken on
+the synthetic feed is comparable to them. Collapsing a card on the real session
+would hide far more text than it does on the synthetic feed, so the real saving
+is likely larger — but nobody has measured that, and this record says so.
+
+### 5.10 The timeline rail
+
+Phase 6 added a sticky left column to the transcript screen
+(docs/WEB-REDESIGN.md phase 6): one entry per sub-turn — the number and one
+glyph per tool call, coloured by family, a failed result or a denial
+overriding to red — grouped under the plan item that was `in_progress` when
+the sub-turn ran. The boundary is free: every `TodoWrite` call in the event
+stream starts a phase, and the fold already parses those calls, so the rail
+groups sub-turns without walking the session's history itself. Each entry is an
+anchor to its card; one `IntersectionObserver` watches the group containers and
+marks the current entry. The column is plain sticky CSS — `ScrollArea` stays
+out, phase 1's deliberate omission — scrolling its own content with `overflow`.
+
+The observer is one instance for the whole rail, and that is measured rather
+than asserted: the perf harness replaces `window.IntersectionObserver` with a
+counting subclass at module load, before any component mounts, so whatever the
+screen constructs during the run is what gets reported.
+
+Measured on the synthetic 142-sub-turn feed (391 blocks), in a production
+build:
+
+- IntersectionObserver instances: 1 for 142 sub-turns. A dev build reports 2 —
+  StrictMode mounts, unmounts and remounts the effect.
+- Rail: 8 phases, 142 entries.
+- Scrolling the whole transcript: 35 frames, mean 8.13 ms, max 9.40 ms, none
+  over 16.7 ms, 15 marker updates.
+- Commit cost (dev build — React Profiler's `onRender` is a no-op in a
+  production build): scroll 17 commits at mean 1.059 ms / max 1.500 ms; live
+  append 4 commits at mean 0.550 ms / max 1.300 ms.
+- Compact-mode scroll height on the same feed: 7,357 px.
+
+### 5.11 Measured, end to end
+
+The bundle embedded in the Go binary, before phase 1 and after phase 6:
+
+    CSS    8.44 kB -> 46.71 kB   (gzip   2.38 kB ->   9.71 kB)
+    JS   376.28 kB -> 478.92 kB  (gzip 119.31 kB -> 150.27 kB)
+
+The frontend test count grew from 38 before phase 1 to 89 after phase 6. The
+per-feature numbers live with their features: the sub-turn grouping and the
+density toggle in §5.9, the timeline rail in §5.10. Every scroll-height figure
+in §5 was measured on the synthetic feed that `web/src/perf` mounts; the
+86,674 px / 974 block elements baseline quoted in docs/WEB-REDESIGN.md was
+measured on the real session `sess-f93b37beb37098b5637832e829c37d92` and has
+not been re-measured against the new UI — the two are not comparable (§5.9).

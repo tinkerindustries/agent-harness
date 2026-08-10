@@ -28,7 +28,14 @@ export const ToolResultBlock = memo(function ToolResultBlock({ block }: { block:
   );
 });
 
-function ToolResultBody({ block }: { block: ToolResultData }) {
+// ToolResultBody is the "one shape per tool" rendering docs/TOOLS.md asks
+// for: Edit gets a diff table, Bash and file reads get
+// syntax-highlighted, collapsible text, WebFetch's prose gets markdown, and
+// Task gets a link into the subagent's own transcript. Every other tool
+// falls back to plain collapsible text. Exported so the sub-turn card's tool
+// cards can reuse exactly the same bodies their standalone blocks render
+// (docs/WEB-REDESIGN.md phase 5).
+export function ToolResultBody({ block }: { block: ToolResultData }) {
   switch (block.name) {
     case "Edit":
       return block.diff && block.diff.length > 0 ? <DiffTable diff={block.diff} /> : <CollapsibleOutput text={block.content} />;

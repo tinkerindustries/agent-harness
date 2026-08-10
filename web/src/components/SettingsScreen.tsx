@@ -1,6 +1,16 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { deleteSetting, listSettings, setSetting } from "../api/settings";
 import type { SettingEntry } from "../api/settings";
+import { cn } from "@/lib/utils";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "./ui/collapsible";
+import { Input } from "./ui/input";
+import { ToggleGroup, ToggleGroupItem } from "./ui/toggle-group";
 
 interface Props {
   onBack: () => void;
@@ -46,9 +56,264 @@ function inputType(entry: SettingEntry): "number" | "password" | "text" {
   return "text";
 }
 
+// rowBadge is the badge vocabulary from design/components.html: only the
+// exceptions are badged. A secret that is set says SET (its default is the
+// empty string, so "override" would be technically true and say nothing), a
+// missing credential says NOT SET, a stored value that differs from its
+// default says OVERRIDE, and a row sitting at its default carries no badge
+// at all — the value column already carries the state by weight.
+function rowBadge(
+  entry: SettingEntry,
+): { label: string; variant: "running" | "gaveup" } | null {
+  if (entry.secret) {
+    return entry.set
+      ? { label: "SET", variant: "running" }
+      : { label: "NOT SET", variant: "gaveup" };
+  }
+  return entry.override ? { label: "OVERRIDE", variant: "running" } : null;
+}
+
+// displayValue is the closed row's value column: a set key shows the server's
+// value (the mask for a secret), an unset secret says "not set" rather than
+// rendering with a hole, and an unset ordinary key shows the default it
+// resolves to.
+function displayValue(entry: SettingEntry): string {
+  if (entry.secret && !entry.set) return "not set";
+  return entry.set ? (entry.value ?? "") : entry.default;
+}
+
+// valueClass carries the state by weight (design/settings.html): a stored
+// value at full weight, a missing credential in the gave-up colour, and a
+// value that is only the registry default muted.
+function valueClass(entry: SettingEntry): string | null {
+  if (entry.secret && !entry.set) return "settings-val-unset";
+  return entry.set ? "settings-val-set" : null;
+}
+
+// typeLabel names the registry type the way the mock's facts row does,
+// folding the flags that change how the row is rendered: "string, secret",
+// "string, closed set".
+function typeLabel(entry: SettingEntry): string {
+  let label = entry.type;
+  if (entry.secret) label += ", secret";
+  if (entry.allowed && entry.allowed.length > 0) label += ", closed set";
+  return label;
+}
+
+// UnsetNotice is the sentence that says what stops working when a credential
+// is missing. A secret's registry default is the empty string, so the old
+// "not set — default  applies" rendered with a hole in it and understated
+// the case; the true sentence is per-credential (design/settings.html). The
+// two credentials today have one consumer each: the harness itself, and
+// ReviewScreenshot.
+interface UnsetNotice {
+  lead: string;
+  rest: string;
+}
+
+function unsetSecretNotice(entry: SettingEntry): UnsetNotice | null {
+  if (!entry.secret || entry.set) return null;
+  switch (entry.key) {
+    case "deepseek.api_key":
+      return {
+        lead: "The harness's own account.",
+        rest: " No run can talk to DeepSeek until this is set.",
+      };
+    case "google.api_key":
+      return {
+        lead: "ReviewScreenshot fails until this is set.",
+        rest: " Nothing else in the harness reads it — runs, tools and the queue are unaffected.",
+      };
+    default:
+      return { lead: "Nothing that reads this credential works until it is set.", rest: "" };
+  }
+}
+
+// Filter is which rows the list shows: everything, only the stored values
+// that differ from their default (the four overrides), or only the missing
+// credentials.
+type Filter = "all" | "override" | "attention";
+
+// SettingRow is one registry entry. Closed, it is a single grid line — caret,
+// key, value, description, badges — and the only thing in the tab order on a
+// freshly opened screen. Open, it carries the full description, the bounds,
+// and the write controls. A setting with a closed set of allowed values
+// (model.effort) renders a ToggleGroup that saves on selection instead of a
+// text input: the registry knows the accepted values, so the screen should
+// not make an operator discover them through a 400.
+interface RowProps {
+  entry: SettingEntry;
+  row: RowState;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onDraft: (key: string, draft: string) => void;
+  onSave: (key: string) => void;
+  onSaveAllowed: (key: string, value: string) => void;
+  onClear: (key: string) => void;
+}
+
+function SettingRow({
+  entry,
+  row,
+  open,
+  onOpenChange,
+  onDraft,
+  onSave,
+  onSaveAllowed,
+  onClear,
+}: RowProps) {
+  const badge = rowBadge(entry);
+  const notice = unsetSecretNotice(entry);
+  const placeholder = entry.secret
+    ? entry.set
+      ? "replace current value"
+      : "paste the key"
+    : entry.default;
+  // The current value a ToggleGroup starts pressed on: the stored value, or
+  // the default for a key that has nothing stored. Only Go can make the
+  // pressed state wrong, and only by storing a value the registry accepted.
+  const current = entry.set ? (entry.value ?? "") : entry.default;
+
+  return (
+    <Collapsible className="settings-row" open={open} onOpenChange={onOpenChange}>
+      <CollapsibleTrigger asChild>
+        <button
+          type="button"
+          className={cn("settings-summary", open && "settings-summary-open")}
+        >
+          <span className={cn("caret", open && "caret-open")}>▸</span>
+          <span className="settings-key">{entry.key}</span>
+          <span className={cn("settings-val", valueClass(entry))}>{displayValue(entry)}</span>
+          <span className="settings-desc truncate">{entry.description}</span>
+          <span className="settings-flags">
+            {badge && <Badge variant={badge.variant}>{badge.label}</Badge>}
+          </span>
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="settings-body">
+          <p className="settings-desc-full">{entry.description}</p>
+          {notice && (
+            <div className="notice">
+              <b>{notice.lead}</b>
+              {notice.rest}
+            </div>
+          )}
+          <div className="facts">
+            <span>
+              <span className="k">Type</span> {typeLabel(entry)}
+            </span>
+            {entry.set && (
+              <span>
+                <span className="k">Stored</span> <code>{entry.value}</code>
+              </span>
+            )}
+            {(!entry.secret || !entry.set) && (
+              <span>
+                <span className="k">Default</span>{" "}
+                <code>{entry.default === "" ? "none" : entry.default}</code>
+              </span>
+            )}
+            {entry.min !== undefined && entry.max !== undefined && (
+              <span>
+                <span className="k">Range</span> <code>{entry.min}</code> – <code>{entry.max}</code>
+              </span>
+            )}
+            {entry.allowed && entry.allowed.length > 0 && (
+              <span>
+                <span className="k">Allowed</span>{" "}
+                {entry.allowed.map((v) => (
+                  <code key={v}>{v}</code>
+                ))}
+              </span>
+            )}
+            <span>
+              <span className="k">Takes effect</span> {entry.restart ? "next start" : "next run"}
+            </span>
+          </div>
+          <div className="write">
+            {entry.allowed && entry.allowed.length > 0 ? (
+              <>
+                <ToggleGroup
+                  type="single"
+                  variant="outline"
+                  size="sm"
+                  value={current}
+                  onValueChange={(v) => {
+                    if (v && v !== current) onSaveAllowed(entry.key, v);
+                  }}
+                  disabled={row.busy}
+                >
+                  {entry.allowed.map((v) => (
+                    <ToggleGroupItem key={v} value={v}>
+                      {v}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
+                <span className="hint">
+                  Saves on selection. The default is the pressed one until it differs.
+                </span>
+              </>
+            ) : (
+              <>
+                <Input
+                  className="settings-input"
+                  type={inputType(entry)}
+                  placeholder={placeholder}
+                  value={row.draft}
+                  onChange={(ev) => onDraft(entry.key, ev.target.value)}
+                  disabled={row.busy}
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onSave(entry.key)}
+                  disabled={row.busy || row.draft === ""}
+                >
+                  Save
+                </Button>
+                {entry.set && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onClear(entry.key)}
+                    disabled={row.busy}
+                    title="delete the stored value so the registry default applies"
+                  >
+                    {entry.secret ? "Clear" : `Reset to ${entry.default}`}
+                  </Button>
+                )}
+              </>
+            )}
+            {entry.type === "duration" && (
+              <span className="hint">
+                Go duration text: <code>30s</code>, <code>10m</code>, <code>1h</code>.
+              </span>
+            )}
+            {entry.secret && (
+              <span className="hint">
+                The full value never leaves the process — the API masks it to its last four
+                characters and has no reveal parameter. Reading one back is{" "}
+                <code>harness config get -reveal</code>, at a terminal.
+              </span>
+            )}
+            {row.error && <span className="field-error">{row.error}</span>}
+          </div>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 export function SettingsScreen({ onBack }: Props) {
   const [entries, setEntries] = useState<SettingEntry[] | null>(null);
   const [rows, setRows] = useState<Record<string, RowState>>({});
+  // openKeys starts empty: the screen opens with every row closed, so nothing
+  // is in the tab order but the disclosures and the back button.
+  const [openKeys, setOpenKeys] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState<Filter>("all");
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // refresh re-fetches the whole list and rebuilds the row bookkeeping on
@@ -62,7 +327,9 @@ export function SettingsScreen({ onBack }: Props) {
       setEntries(next);
       setRows((prev) => {
         const merged: Record<string, RowState> = {};
-        for (const entry of next) merged[entry.key] = prev[entry.key] ?? { draft: "", busy: false, error: null };
+        for (const entry of next) {
+          merged[entry.key] = prev[entry.key] ?? { draft: "", busy: false, error: null };
+        }
         return merged;
       });
       setLoadError(null);
@@ -74,6 +341,40 @@ export function SettingsScreen({ onBack }: Props) {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  const counts = useMemo(() => {
+    if (!entries) return null;
+    return {
+      total: entries.length,
+      overridden: entries.filter((e) => e.override).length,
+      restart: entries.filter((e) => e.restart).length,
+      notSet: entries.filter((e) => e.secret && !e.set).length,
+    };
+  }, [entries]);
+
+  const visibleEntries = useMemo(() => {
+    if (!entries) return [];
+    if (filter === "all") return entries;
+    return entries.filter((e) =>
+      filter === "override" ? e.override : e.secret && !e.set,
+    );
+  }, [entries, filter]);
+
+  const allOpen =
+    visibleEntries.length > 0 && visibleEntries.every((e) => openKeys.has(e.key));
+
+  function toggleOpen(key: string, open: boolean) {
+    setOpenKeys((prev) => {
+      const next = new Set(prev);
+      if (open) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setOpenKeys(allOpen ? new Set() : new Set(visibleEntries.map((e) => e.key)));
+  }
 
   function updateDraft(key: string, draft: string) {
     setRows((prev) => ({ ...prev, [key]: { ...prev[key], draft } }));
@@ -92,12 +393,39 @@ export function SettingsScreen({ onBack }: Props) {
     } catch (err) {
       setRows((prev) => ({
         ...prev,
-        [key]: { ...prev[key], busy: false, error: err instanceof Error ? err.message : String(err) },
+        [key]: {
+          ...prev[key],
+          busy: false,
+          error: err instanceof Error ? err.message : String(err),
+        },
       }));
     }
   }
 
-  async function resetToDefault(key: string) {
+  // saveAllowed is the ToggleGroup path: a closed set saves on selection —
+  // the group only offers values the registry accepts, so there is nothing to
+  // type and nothing to validate client-side (validation stays in Go; a
+  // rejected write still surfaces the server's message under the row).
+  async function saveAllowed(key: string, value: string) {
+    if (rows[key]?.busy) return;
+    setRows((prev) => ({ ...prev, [key]: { ...prev[key], busy: true, error: null } }));
+    try {
+      await setSetting(key, value);
+      await refresh();
+      setRows((prev) => ({ ...prev, [key]: { ...prev[key], busy: false } }));
+    } catch (err) {
+      setRows((prev) => ({
+        ...prev,
+        [key]: {
+          ...prev[key],
+          busy: false,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      }));
+    }
+  }
+
+  async function clear(key: string) {
     setRows((prev) => ({ ...prev, [key]: { ...prev[key], busy: true, error: null } }));
     try {
       await deleteSetting(key);
@@ -106,7 +434,11 @@ export function SettingsScreen({ onBack }: Props) {
     } catch (err) {
       setRows((prev) => ({
         ...prev,
-        [key]: { ...prev[key], busy: false, error: err instanceof Error ? err.message : String(err) },
+        [key]: {
+          ...prev[key],
+          busy: false,
+          error: err instanceof Error ? err.message : String(err),
+        },
       }));
     }
   }
@@ -114,9 +446,9 @@ export function SettingsScreen({ onBack }: Props) {
   return (
     <div className="screen">
       <header className="screen-header">
-        <button className="back-button" onClick={onBack}>
+        <Button variant="outline" size="sm" onClick={onBack}>
           ← sessions
-        </button>
+        </Button>
         <h1>Settings</h1>
       </header>
       {loadError && (
@@ -125,69 +457,100 @@ export function SettingsScreen({ onBack }: Props) {
         </div>
       )}
       {entries === null && !loadError && <p className="dim">Loading settings…</p>}
-      {entries !== null &&
-        groupBy(entries).map(([group, groupEntries]) => (
-          <section className="settings-group" key={group}>
-            <h2 className="settings-group-heading">{group}</h2>
-            {groupEntries.map((entry) => {
-              const row = rows[entry.key] ?? { draft: "", busy: false, error: null };
-              const placeholder = entry.set ? "replace current value" : entry.default;
-              return (
-                <div className="settings-row" key={entry.key}>
-                  <div className="settings-row-head">
-                    <span className="settings-key">{entry.key}</span>
-                    {entry.restart && <span className="status-badge settings-restart">restart</span>}
-                    <span className="dim">{entry.description}</span>
-                  </div>
-                  <div className="settings-current">
-                    {entry.set ? (
-                      <>
-                        <span className={`status-badge ${entry.override ? "status-warn" : "status-ok"}`}>
-                          {entry.override ? "override" : "default"}
-                        </span>
-                        <span className="settings-value">{entry.value}</span>
-                        {entry.override && <span className="dim">default {entry.default}</span>}
-                      </>
-                    ) : (
-                      <>
-                        <span className="status-badge status-ok">default</span>
-                        <span className="dim">not set — default {entry.default} applies</span>
-                      </>
-                    )}
-                  </div>
-                  <div className="settings-write">
-                    <input
-                      className="settings-input"
-                      type={inputType(entry)}
-                      placeholder={placeholder}
-                      value={row.draft}
-                      onChange={(ev) => updateDraft(entry.key, ev.target.value)}
-                      disabled={row.busy}
-                      spellCheck={false}
-                      autoComplete="off"
-                    />
-                    <button
-                      className="back-button"
-                      onClick={() => save(entry.key)}
-                      disabled={row.busy || row.draft === ""}
-                    >
-                      Save
-                    </button>
-                    <button
-                      className="back-button"
-                      onClick={() => resetToDefault(entry.key)}
-                      disabled={row.busy || !entry.set}
-                      title="delete the stored value so the registry default applies"
-                    >
-                      reset to default
-                    </button>
-                    {row.error && <span className="settings-error">{row.error}</span>}
-                  </div>
+      {entries !== null && counts && (
+        <>
+          <div className="settings-strip">
+            <span>
+              <b>{counts.total}</b> settings
+            </span>
+            <span className="sep">·</span>
+            <span>
+              <b>{counts.overridden}</b> overridden
+            </span>
+            <span className="sep">·</span>
+            <span>
+              <b>{counts.restart}</b> take effect on the next start
+            </span>
+            <span className="sep">·</span>
+            <span className="settings-summary-warn">
+              <b>{counts.notSet}</b> credential not set
+            </span>
+            <span className="spacer" />
+            <span>rows without a badge are at their default</span>
+          </div>
+
+          <div className="settings-filters">
+            <button
+              type="button"
+              className={cn("chip", filter === "all" && "chip-active")}
+              aria-pressed={filter === "all"}
+              onClick={() => setFilter("all")}
+            >
+              All {counts.total}
+            </button>
+            <button
+              type="button"
+              className={cn("chip", filter === "override" && "chip-active")}
+              aria-pressed={filter === "override"}
+              onClick={() => setFilter("override")}
+            >
+              Overridden {counts.overridden}
+            </button>
+            <button
+              type="button"
+              className={cn("chip", filter === "attention" && "chip-active")}
+              aria-pressed={filter === "attention"}
+              onClick={() => setFilter("attention")}
+            >
+              Needs attention {counts.notSet}
+            </button>
+            <span className="spacer" />
+            <Button variant="outline" size="sm" onClick={toggleAll}>
+              {allOpen ? "Collapse all" : "Expand all"}
+            </Button>
+          </div>
+
+          {groupBy(visibleEntries).map(([group, groupEntries]) => (
+            <section className="settings-group" key={group}>
+              <div className="settings-group-head">
+                <h2>{group}</h2>
+                <span className="settings-group-count">
+                  {groupEntries.length} settings
+                </span>
+                {groupEntries.some((e) => e.restart) && (
+                  <>
+                    <span className="spacer" />
+                    <Badge variant="restart">takes effect on the next start</Badge>
+                  </>
+                )}
+              </div>
+              {groupEntries.some((e) => e.restart) && (
+                <div className="notice notice-quiet">
+                  These are read once at startup or baked into a JetStream stream. A write here is
+                  accepted and stored immediately and changes nothing until the process restarts —
+                  which is worse than a setting that cannot be changed at all, so the group says so
+                  rather than each row repeating it.
                 </div>
-              );
-            })}
-          </section>
-        ))}
+              )}
+              <div className="settings-group-card">
+                {groupEntries.map((entry) => (
+                  <SettingRow
+                    key={entry.key}
+                    entry={entry}
+                    row={rows[entry.key] ?? { draft: "", busy: false, error: null }}
+                    open={openKeys.has(entry.key)}
+                    onOpenChange={(open) => toggleOpen(entry.key, open)}
+                    onDraft={updateDraft}
+                    onSave={save}
+                    onSaveAllowed={saveAllowed}
+                    onClear={clear}
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
+        </>
+      )}
     </div>
   );
 }

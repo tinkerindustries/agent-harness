@@ -95,6 +95,16 @@ export class FoldState {
   // arguments (file_path, command, pattern, ...) that produced it.
   private toolCallsById = new Map<string, ToolCallPayload>();
 
+  // getToolCall is the deliberate read path into the registry for the
+  // display layer (docs/WEB-REDESIGN.md phase 5): the sub-turn card builds
+  // its tool headers from the call the fold keeps here rather than the
+  // display layer re-parsing the arguments string or keeping its own copy.
+  // Reading through this method is all the exposure the registry needs —
+  // nothing outside the fold ever mutates it.
+  getToolCall(id: string): ToolCallPayload | undefined {
+    return this.toolCallsById.get(id);
+  }
+
   // pushBlock replaces `blocks` with a new array rather than mutating in
   // place. That copy is the whole reason components/BlockList.tsx can wrap
   // the frozen list in a single React.memo keyed on the blocks array

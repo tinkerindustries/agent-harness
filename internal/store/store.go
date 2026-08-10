@@ -61,8 +61,42 @@ type Session struct {
 	ToolSchema      json.RawMessage
 	ResultSchema    json.RawMessage
 	Status          string
-	CreatedAt       time.Time
-	FinishedAt      *time.Time
+	// CompleteStatus is the status argument the model gave Complete ("done"
+	// or "gave_up"), when it called the tool at all. Empty covers both a
+	// pre-migration row and a session that ended without calling Complete
+	// (docs/WEB-REDESIGN.md phase 2); the browser renders the empty value as
+	// the plain terminal status rather than guessing.
+	CompleteStatus string
+	// Plan is the JSON encoding of the working plan's todos array, written
+	// verbatim from the latest TodoWrite call (docs/WEB-REDESIGN.md phase 3).
+	// Empty covers both a pre-migration row and a session that never called
+	// TodoWrite; the browser renders the empty value as "no plan section"
+	// rather than an empty list.
+	Plan string
+	// RecentToolCalls is the rolling roll of the last few tool calls the
+	// session made, for the in-flight card's activity panel
+	// (docs/WEB-REDESIGN.md phase 3). Nil when the session made none yet.
+	RecentToolCalls []RecentToolCall
+	// Summary is the summary argument the model gave Complete, its own
+	// one-line account of what the run did, shown under the finished table's
+	// session id (docs/WEB-REDESIGN.md phase 3). Empty when Complete was
+	// never called.
+	Summary    string
+	CreatedAt  time.Time
+	FinishedAt *time.Time
+}
+
+// RecentToolCall is one entry of the session row's rolling roll of the last
+// few tool calls, carried on the session list so an in-flight card can show
+// what a running session is doing without opening its transcript
+// (docs/WEB-REDESIGN.md phase 3, design/sessions.html's "Last five calls").
+// Arguments is the raw text the model produced; it is not guaranteed to be
+// valid JSON and is kept only so the browser can shape a one-line target
+// (file path, command, pattern) out of it.
+type RecentToolCall struct {
+	Name      string    `json:"name"`
+	Arguments string    `json:"arguments"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // Event is one row of a session's append-only log, keyed by (session_id,
@@ -274,6 +308,26 @@ var sessionMigrationColumns = []struct {
 	{"job_type", "TEXT NOT NULL DEFAULT 'implementation'"},
 	{"parent_agent_type", "TEXT NOT NULL DEFAULT ''"},
 	{"parent_agent_id", "TEXT NOT NULL DEFAULT ''"},
+	// complete_status: the status argument to Complete, kept alongside the
+	// session's own status so the session list can tell DONE from GAVE UP
+	// (docs/WEB-REDESIGN.md phase 2). Older rows default to the empty string,
+	// which the browser renders as the plain terminal status rather than
+	// guessing.
+	{"complete_status", "TEXT NOT NULL DEFAULT ''"},
+	// plan: the JSON todos array of the latest TodoWrite call, so the
+	// session list carries the live plan without re-walking the event log
+	// and keeps it for finished sessions (docs/WEB-REDESIGN.md phase 3).
+	// Older rows default to the empty string, which the browser renders as
+	// "no plan section" rather than an empty list.
+	{"plan", "TEXT NOT NULL DEFAULT ''"},
+	// recent_tool_calls: the rolling roll of the last few tool calls, for
+	// the in-flight card's activity panel (docs/WEB-REDESIGN.md phase 3).
+	{"recent_tool_calls", "TEXT NOT NULL DEFAULT ''"},
+	// summary: the summary argument the model gave Complete, its own
+	// one-line account of the run, shown under the finished table's session
+	// id (docs/WEB-REDESIGN.md phase 3). Older rows default to the empty
+	// string, which the browser renders as no subtitle.
+	{"summary", "TEXT NOT NULL DEFAULT ''"},
 }
 
 // Close stops the writer goroutine and closes both connection pools. It
@@ -381,6 +435,72 @@ func (s *Store) UpdateSessionStatus(ctx context.Context, id, status string, fini
 	})
 }
 
+// FinishSession marks a session terminal the way finishRun ends one: status
+// and finished_at together with complete_status, the status argument the
+// model gave Complete ("" when it never called the tool), and summary, the
+// model's own one-line account of the run ("" when it never called the
+// tool). Keeping the complete_status and summary writes in the same UPDATE
+// as the terminal status is what makes the session list able to tell DONE
+// from GAVE UP and to subtitle the finished table without re-walking the
+// event log (docs/WEB-REDESIGN.md phases 2 and 3).
+func (s *Store) FinishSession(ctx context.Context, id, status, completeStatus, summary string, finishedAt *time.Time) error {
+	var fa sql.NullString
+	if finishedAt != nil {
+		fa = sql.NullString{String: finishedAt.UTC().Format(time.RFC3339Nano), Valid: true}
+	}
+	return s.submit(ctx, func(tx *sql.Tx) error {
+		_, err := tx.Exec(`UPDATE sessions SET status = ?, complete_status = ?, summary = ?, finished_at = COALESCE(?, finished_at) WHERE id = ?`,
+			status, completeStatus, summary, fa, id)
+		return err
+	})
+}
+
+// maxRecentToolCalls is how many tool calls the session row's rolling roll
+// keeps for the in-flight card's activity panel (docs/WEB-REDESIGN.md phase
+// 3, design/sessions.html's "Last five calls").
+const maxRecentToolCalls = 5
+
+// UpdateSessionLiveState atomically rewrites the session row's live plan
+// and recent-tool-call roll (docs/WEB-REDESIGN.md phase 3). plan is the
+// JSON todos array from the latest TodoWrite call; the empty string keeps
+// the existing plan, so a sub-turn with no TodoWrite never clobbers one
+// that had it. calls are appended to the stored roll and trimmed to the
+// most recent maxRecentToolCalls. The runner calls this where it already
+// appends tool_call events — the one place that sees every tool call and
+// already holds the store handle; tools.Executor never touches the store.
+func (s *Store) UpdateSessionLiveState(ctx context.Context, id, plan string, calls []RecentToolCall) error {
+	if plan == "" && len(calls) == 0 {
+		return nil
+	}
+	return s.submit(ctx, func(tx *sql.Tx) error {
+		if plan != "" {
+			if _, err := tx.Exec(`UPDATE sessions SET plan = ? WHERE id = ?`, plan, id); err != nil {
+				return err
+			}
+		}
+		if len(calls) > 0 {
+			var existing string
+			if err := tx.QueryRow(`SELECT recent_tool_calls FROM sessions WHERE id = ?`, id).Scan(&existing); err != nil {
+				return err
+			}
+			var roll []RecentToolCall
+			_ = json.Unmarshal([]byte(existing), &roll)
+			roll = append(roll, calls...)
+			if len(roll) > maxRecentToolCalls {
+				roll = roll[len(roll)-maxRecentToolCalls:]
+			}
+			b, err := json.Marshal(roll)
+			if err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`UPDATE sessions SET recent_tool_calls = ? WHERE id = ?`, string(b), id); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // ResumeSession marks a terminal session running again and clears
 // finished_at, unconditionally rather than through UpdateSessionStatus's
 // COALESCE — a resumed session is not finished anymore, so the old
@@ -424,11 +544,11 @@ func scanSession(row interface {
 	var sess Session
 	var parentID, resultSchema, finishedAt sql.NullString
 	var thinking int
-	var denyJSON, createdAt string
+	var denyJSON, createdAt, recentCalls string
 	err := row.Scan(&sess.ID, &parentID, &sess.JobType, &sess.ParentAgentType, &sess.ParentAgentID,
 		&sess.Model, &sess.Effort, &thinking, &sess.Workspace,
 		&sess.PermissionMode, &denyJSON, &sess.SystemPrompt, (*sqlText)(&sess.ToolSchema), &resultSchema,
-		&sess.Status, &createdAt, &finishedAt)
+		&sess.Status, &createdAt, &finishedAt, &sess.CompleteStatus, &sess.Plan, &recentCalls, &sess.Summary)
 	if err != nil {
 		return Session{}, err
 	}
@@ -439,6 +559,13 @@ func scanSession(row interface {
 	}
 	if err := json.Unmarshal([]byte(denyJSON), &sess.DenyPatterns); err != nil {
 		return Session{}, fmt.Errorf("store: decode deny_patterns: %w", err)
+	}
+	// The column defaults to '' on a pre-migration row, which is not valid
+	// JSON; the empty roll is the same thing as none.
+	if recentCalls != "" {
+		if err := json.Unmarshal([]byte(recentCalls), &sess.RecentToolCalls); err != nil {
+			return Session{}, fmt.Errorf("store: decode recent_tool_calls: %w", err)
+		}
 	}
 	sess.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt)
 	if err != nil {
@@ -473,7 +600,7 @@ func (t *sqlText) Scan(src any) error {
 
 const sessionColumns = `id, parent_id, job_type, parent_agent_type, parent_agent_id, model, effort,
 	thinking, workspace, permission_mode, deny_patterns, system_prompt, tool_schema,
-	result_schema, status, created_at, finished_at`
+	result_schema, status, created_at, finished_at, complete_status, plan, recent_tool_calls, summary`
 
 // GetSession reads one session by id.
 func (s *Store) GetSession(ctx context.Context, id string) (Session, error) {

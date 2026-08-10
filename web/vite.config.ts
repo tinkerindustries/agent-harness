@@ -1,6 +1,8 @@
 import { writeFileSync } from "node:fs";
+import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 
 // emptyOutDir wipes the directory on every build, .gitkeep included. That
 // file is committed — go:embed will not compile against a missing directory,
@@ -21,9 +23,14 @@ function keepGitkeep(outDir: string) {
 // (docs/DESIGN.md §4.8: "One binary, no runtime assets"). Dev mode
 // (`npm run dev`) is unaffected by outDir; `harness serve -dev-frontend
 // http://127.0.0.1:5173` proxies to this dev server instead of reading
-// the built assets.
+// the built assets. The tailwindcss() plugin is the Tailwind v4 integration.
 export default defineConfig({
-  plugins: [react(), keepGitkeep("../internal/webassets/dist")],
+  plugins: [react(), tailwindcss(), keepGitkeep("../internal/webassets/dist")],
+  resolve: {
+    alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+    },
+  },
   build: {
     outDir: "../internal/webassets/dist",
     emptyOutDir: true,

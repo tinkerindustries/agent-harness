@@ -1,4 +1,5 @@
 import { Suspense, lazy, useState } from "react";
+import { Button } from "../ui/button";
 
 // A Task call's subagent runs in its own session, entirely off the parent's
 // message array (docs/TOOLS.md "Task"); the browser reflects that by
@@ -15,9 +16,9 @@ export function TaskChildTranscript({ sessionId }: { sessionId: string }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="task-child">
-      <button className="collapse-toggle" onClick={() => setOpen((o) => !o)}>
+      <Button variant="outline" size="sm" className="collapse-toggle" onClick={() => setOpen((o) => !o)}>
         {open ? "Hide" : "Show"} subagent transcript <code className="tool-detail">{sessionId}</code>
-      </button>
+      </Button>
       {open && (
         <Suspense fallback={<p className="dim">Loading…</p>}>
           <TaskChildBody sessionId={sessionId} />

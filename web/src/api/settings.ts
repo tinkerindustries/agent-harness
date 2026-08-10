@@ -15,8 +15,17 @@
 // default, description, secret, restart) plus the run's own state — whether
 // it is set, whether the current value is an override or the default, and
 // its display value. value is absent when the key is unset, and masked for
-// a secret key. The registry is the source of truth; this module only
-// carries what the screen needs to render it.
+// a secret key.
+//
+// min and max are the validation bounds in display form, present only for
+// the types that have them — a JSON number for an integer setting, Go
+// duration text ("1s", "24h") for a duration setting, absent for a plain
+// string. The screen shows them; the registry in Go still enforces them.
+// allowed, when present, is a closed set of accepted values (model.effort)
+// and renders as a ToggleGroup rather than a text input.
+//
+// The registry is the source of truth; this module only carries what the
+// screen needs to render it.
 export interface SettingEntry {
   key: string;
   group: string;
@@ -28,6 +37,9 @@ export interface SettingEntry {
   set: boolean;
   override: boolean;
   value?: string;
+  min?: number | string;
+  max?: number | string;
+  allowed?: string[];
 }
 
 // listSettings fetches GET /api/settings: every known key in registry

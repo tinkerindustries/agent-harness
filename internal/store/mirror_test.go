@@ -32,11 +32,15 @@ func TestSessionJSONProvenance(t *testing.T) {
 	populated.JobType = agentmeta.JobTypeOrchestration
 	populated.ParentAgentType = "orchestrator"
 	populated.ParentAgentID = "orchestrator-1"
+	populated.CompleteStatus = "gave_up"
+	populated.Plan = `[{"content":"a","status":"completed","activeForm":""}]`
+	populated.RecentToolCalls = []RecentToolCall{{Name: "Bash", Arguments: `{"command":"go build"}`}}
+	populated.Summary = "wired it up"
 	b, err := json.Marshal(toSessionJSON(populated))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"job_type":"orchestration"`, `"parent_agent_type":"orchestrator"`, `"parent_agent_id":"orchestrator-1"`} {
+	for _, want := range []string{`"job_type":"orchestration"`, `"parent_agent_type":"orchestrator"`, `"parent_agent_id":"orchestrator-1"`, `"complete_status":"gave_up"`, `"plan":[{"content":"a"`, `"recent_tool_calls":[{"name":"Bash"`, `"summary":"wired it up"`} {
 		if !strings.Contains(string(b), want) {
 			t.Fatalf("session.json missing %s: %s", want, b)
 		}
@@ -50,7 +54,7 @@ func TestSessionJSONProvenance(t *testing.T) {
 	if !strings.Contains(string(b), `"job_type":""`) {
 		t.Fatalf("job_type should always be written, got: %s", b)
 	}
-	for _, absent := range []string{"parent_agent_type", "parent_agent_id"} {
+	for _, absent := range []string{"parent_agent_type", "parent_agent_id", "complete_status", "plan", "recent_tool_calls", "summary"} {
 		if strings.Contains(string(b), absent) {
 			t.Fatalf("expected %s omitted when empty, got: %s", absent, b)
 		}

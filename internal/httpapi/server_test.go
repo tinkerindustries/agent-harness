@@ -997,6 +997,54 @@ func TestGetSettingsMasksSecretsAndListsAllKeys(t *testing.T) {
 	if byKey[settings.KeyRunMaxTokens].Default != "48000" {
 		t.Fatalf("default field = %q, want 48000", byKey[settings.KeyRunMaxTokens].Default)
 	}
+
+	// The bounds phase 7 adds (docs/WEB-REDESIGN.md): an integer setting's min
+	// and max arrive as JSON numbers, a duration's as compact Go duration text
+	// ("1s", "24h" — never "24h0m0s"), and a plain string setting carries
+	// neither, so its payload does not grow a pair of meaningless zeroes.
+	if min, ok := byKey[settings.KeyRunMaxTokens].Min.(float64); !ok || min != 1 {
+		t.Fatalf("run.max_tokens min = %v (%T), want 1", byKey[settings.KeyRunMaxTokens].Min, byKey[settings.KeyRunMaxTokens].Min)
+	}
+	if max, ok := byKey[settings.KeyRunMaxTokens].Max.(float64); !ok || max != 1_000_000 {
+		t.Fatalf("run.max_tokens max = %v (%T), want 1000000", byKey[settings.KeyRunMaxTokens].Max, byKey[settings.KeyRunMaxTokens].Max)
+	}
+	if min, ok := byKey[settings.KeyRunDeadline].Min.(string); !ok || min != "1s" {
+		t.Fatalf("run.deadline min = %v (%T), want \"1s\"", byKey[settings.KeyRunDeadline].Min, byKey[settings.KeyRunDeadline].Min)
+	}
+	if max, ok := byKey[settings.KeyRunDeadline].Max.(string); !ok || max != "8760h" {
+		t.Fatalf("run.deadline max = %v (%T), want \"8760h\"", byKey[settings.KeyRunDeadline].Max, byKey[settings.KeyRunDeadline].Max)
+	}
+	if max, ok := byKey[settings.KeyToolBashTimeout].Max.(string); !ok || max != "24h" {
+		t.Fatalf("tools.bash_timeout max = %v (%T), want \"24h\"", byKey[settings.KeyToolBashTimeout].Max, byKey[settings.KeyToolBashTimeout].Max)
+	}
+	// model.effort is the one closed set: allowed must be serialised so the
+	// screen can draw a ToggleGroup instead of a text input.
+	if allowed := byKey[settings.KeyDefaultEffort].Allowed; len(allowed) != 3 || allowed[0] != "low" || allowed[1] != "high" || allowed[2] != "max" {
+		t.Fatalf("model.effort allowed = %v, want [low high max]", allowed)
+	}
+	// A string setting with no bounds or set must omit min/max/allowed
+	// entirely — the payload's own keys prove it, not just the Go zero value.
+	var raw []map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range raw {
+		key := strings.Trim(string(row["key"]), `"`)
+		d, ok := settings.Lookup(key)
+		if !ok {
+			t.Fatalf("row for unknown key %q", key)
+		}
+		_, hasMin := row["min"]
+		_, hasMax := row["max"]
+		_, hasAllowed := row["allowed"]
+		wantBounds := d.Type == settings.TypeInteger || d.Type == settings.TypeDuration
+		if hasMin != wantBounds || hasMax != wantBounds {
+			t.Fatalf("%s: min/max present = %v/%v, want %v (type %s)", key, hasMin, hasMax, wantBounds, d.Type)
+		}
+		if hasAllowed != (len(d.Allowed) > 0) {
+			t.Fatalf("%s: allowed present = %v, want %v", key, hasAllowed, len(d.Allowed) > 0)
+		}
+	}
 }
 
 // entryByKey fetches GET /api/settings and returns the entry for key.

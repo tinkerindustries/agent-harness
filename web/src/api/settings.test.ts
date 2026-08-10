@@ -85,6 +85,54 @@ describe("listSettings", () => {
     expect(entries[2].restart).toBe(true);
   });
 
+  it("passes the phase-7 bounds through untouched: numbers for integers, Go duration text for durations, closed sets for allowed", async () => {
+    const mock = stubFetch();
+    mock.mockResolvedValue(
+      fakeResponse(200, [
+        registryRow(), // run.max_tokens, integer — no min/max in this row yet
+        registryRow({
+          key: "run.max_tokens",
+          group: "Run budget",
+          type: "integer",
+          min: 1,
+          max: 1000000,
+        }),
+        registryRow({
+          key: "tools.bash_timeout",
+          group: "Tool limits",
+          type: "duration",
+          default: "2m",
+          min: "1s",
+          max: "24h",
+        }),
+        registryRow({
+          key: "model.effort",
+          group: "Models",
+          type: "string",
+          default: "high",
+          allowed: ["low", "high", "max"],
+        }),
+        registryRow({
+          key: "model.default",
+          group: "Models",
+          type: "string",
+          default: "deepseek-v4-pro",
+        }),
+      ]),
+    );
+
+    const entries = await listSettings();
+
+    expect(entries[0].min).toBeUndefined();
+    expect(entries[1]).toMatchObject({ min: 1, max: 1000000 });
+    expect(entries[2]).toMatchObject({ min: "1s", max: "24h" });
+    expect(entries[3].allowed).toEqual(["low", "high", "max"]);
+    // A plain string setting arrives without the pair of meaningless zeroes.
+    expect(entries[4].min).toBeUndefined();
+    expect(entries[4].max).toBeUndefined();
+    expect(entries[4].allowed).toBeUndefined();
+  });
+
   it("turns a server error into a readable Error carrying the message", async () => {
     stubFetch().mockResolvedValue(fakeResponse(500, { error: "internal error" }));
 
