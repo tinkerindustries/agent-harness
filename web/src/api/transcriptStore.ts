@@ -1,4 +1,5 @@
 import { FoldState, type Block, type LiveView } from "./fold";
+import { SubTurnGroupState, type TranscriptItem } from "./groups";
 import type { StoreEvent, Todo } from "./types";
 
 // One session's transcript, live or historical (docs/DESIGN.md §4.2: "the
@@ -21,6 +22,12 @@ export type ConnectionState = "connecting" | "open" | "closed";
 
 export interface TranscriptSnapshot {
   blocks: Block[];
+  // The display-side grouping of `blocks` (docs/WEB-REDESIGN.md phase 4):
+  // sub-turn cards plus the top-level blocks outside any group. Computed
+  // incrementally by SubTurnGroupState so a live-only update keeps the same
+  // items reference — the grouped analogue of FoldState's stable blocks
+  // reference, and what lets the SubTurnList memo bail out on every delta.
+  items: TranscriptItem[];
   live: LiveView;
   todos: Todo[];
   connection: ConnectionState;
@@ -49,6 +56,7 @@ const rafCancel = (handle: number) => cancelAnimationFrame(handle);
 
 export class TranscriptStore {
   private fold = new FoldState();
+  private groups = new SubTurnGroupState();
   private listeners = new Set<Listener>();
   private snapshot: TranscriptSnapshot;
   private es?: EventSource;
@@ -123,7 +131,13 @@ export class TranscriptStore {
   }
 
   private buildSnapshot(): TranscriptSnapshot {
-    return { blocks: this.fold.blocks, live: this.fold.live, todos: this.fold.latestTodos, connection: this.connection };
+    return {
+      blocks: this.fold.blocks,
+      items: this.groups.sync(this.fold.blocks),
+      live: this.fold.live,
+      todos: this.fold.latestTodos,
+      connection: this.connection,
+    };
   }
 
   private notify() {

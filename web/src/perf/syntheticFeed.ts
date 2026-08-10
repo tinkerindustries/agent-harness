@@ -101,6 +101,7 @@ export function buildSyntheticHistory(targetBlocks: number, sessionId: string, s
     }
 
     push("usage", {
+      sub_turn: turn,
       prompt_tokens: 1000 + turn * 50,
       prompt_cache_hit_tokens: 900 + turn * 45,
       prompt_cache_miss_tokens: 100 + turn * 5,
@@ -143,6 +144,7 @@ export function liveEventGenerator(sessionId: string, seq: SeqSource): Generator
       for (let i = 0; i < 15; i++) yield push("tool_stdout", { tool_call_id: callId, text: `build output line ${i}\n` });
       yield push("tool_result", { tool_call_id: callId, name: "Bash", content: BASH_OUTPUT });
       yield push("usage", {
+        sub_turn: turn,
         prompt_tokens: 1000,
         prompt_cache_hit_tokens: 900,
         prompt_cache_miss_tokens: 100,

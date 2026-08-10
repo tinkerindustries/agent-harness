@@ -58,7 +58,7 @@ export function TranscriptScreen({ sessionId, onBack }: Props) {
         </div>
       )}
       <div className="transcript-layout">
-        <BlockList blocks={snapshot.blocks} live={snapshot.live} />
+        <BlockList items={snapshot.items} live={snapshot.live} />
         <PlanPanel todos={snapshot.todos} />
       </div>
     </div>

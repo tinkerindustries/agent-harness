@@ -436,6 +436,59 @@ pre {
   color: var(--status-gaveup);
 }
 
+/* ---------- sub-turn cards (docs/WEB-REDESIGN.md phase 4) ----------
+   One card per sub-turn: reasoning, assistant text, tool calls and their
+   results in one body, with the sub-turn's usage figures in the header.
+   The inner blocks render exactly as they do outside a group; only the
+   container and the header are new. The card surface itself is the shadcn
+   Card with Tailwind utilities overriding its defaults; these rules are the
+   header and body layout shadcn has no opinion about. */
+
+.subturn-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.subturn-n {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  flex: none;
+}
+
+.subturn-sum {
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.subturn-cost {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+  flex: none;
+  white-space: nowrap;
+}
+
+.subturn-body {
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space);
+}
+
 .tool-call {
   margin-top: 4px;
   font-size: 0.85rem;
