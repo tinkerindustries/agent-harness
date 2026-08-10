@@ -95,6 +95,16 @@
         </a>
       </div>
       <div class="card">
+        <a class="mock" href="settings.html">
+          <h3>settings.html — the settings screen</h3>
+          <p>
+            The registry as a list of disclosures: closed is key, value and description; open is the
+            bounds and the write. Only the exceptions are badged, and a closed set becomes a
+            segmented control.
+          </p>
+        </a>
+      </div>
+      <div class="card">
         <a class="mock" href="components.html">
           <h3>components.html — vocabulary and components</h3>
           <p>
@@ -117,16 +127,23 @@
           gave up. The store distinguishes them already — see components.html.
         </li>
         <li>
-          Nothing proposed here starts, steers or stops a run. The server stays <code>GET</code> and
-          <code>HEAD</code>.
+          The settings mock is the registry itself — 27 entries in five groups, four of them
+          overridden on this installation. The bounds and the closed set it draws are on
+          <code>settings.Descriptor</code> and not yet on the wire.
+        </li>
+        <li>
+          Nothing proposed here starts, steers or stops a run. The one write is
+          <code>PUT</code>/<code>DELETE /api/settings/{key}</code>, which stops at the settings
+          table; everywhere else the server stays <code>GET</code> and <code>HEAD</code>.
         </li>
       </ul>
 
       <h2>Implementation plan</h2>
       <ul class="facts">
         <li>
-          <code>docs/WEB-REDESIGN.md</code> — six phases, each shippable on its own, with the two
-          backend fields the session list needs and the frame-budget checks that gate each one.
+          <code>docs/WEB-REDESIGN.md</code> — eight phases, each shippable on its own, with the two
+          backend fields the session list needs, the three the settings screen needs, and the
+          frame-budget checks that gate each one.
         </li>
       </ul>
     </div>

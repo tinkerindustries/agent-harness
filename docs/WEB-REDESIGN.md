@@ -2,10 +2,12 @@
 
 The mockups are in [`design/`](../design/). This is the order to build them in.
 
-Seven phases. Each one ships on its own and leaves the UI working; nothing here
+Eight phases. Each one ships on its own and leaves the UI working; nothing here
 needs a big-bang cutover. Phases 2 and 3 are the two the design pass was asked
 for — the DONE status and the in-flight plan on the main page — and they come
-early because they carry most of the value.
+early because they carry most of the value. Phase 7, the settings screen, is
+independent of the six before it and can be taken out of order; it is late only
+because it is the one screen that was already working.
 
 Nothing in this plan touches the system prompt, the tool array, or the request
 path, so the cache invariant in [DESIGN.md](DESIGN.md) §3.2 is not in play. Every
@@ -27,6 +29,8 @@ sub-turns, 16:31, 99.3% cache hit, $0.0838:
 - Every session in the list shows a green `OK`, including the ones that gave up.
 - The plan is visible only inside a session, and only as struck-through text.
 - An in-flight session is a table row identical to a finished one.
+- The settings screen renders all 27 registry entries as always-open write rows,
+  and the bounds the registry validates against never reach the browser.
 
 ## Phase 1 — shadcn foundation
 
@@ -178,7 +182,39 @@ scrolling without a measurable frame cost. Phases collapse and expand
 independently. The observer is one instance over the group containers, not one
 per block.
 
-## Phase 7 — Measure and record
+## Phase 7 — The settings screen
+
+**Goal.** The registry reads as a list rather than a wall of write controls. The
+mock is `design/settings.html`.
+
+The screen renders all 27 registry entries with a text input and two buttons on
+every row, so a screen an operator visits to change one key opens with 27 fields
+and 54 buttons in the tab order, and the four keys this installation has actually
+overridden are indistinguishable from the twenty-three at their defaults.
+
+**Backend.** One change: serialise `min`, `max` and `allowed` on
+`settingEntry` (`internal/httpapi/server.go`). All three already exist on
+`settings.Descriptor` and none of them reach the browser, so the screen cannot
+show a bound the CLI shows and cannot know that `model.effort` is a closed set.
+Emit `min`/`max` only for the types that have them — integer and duration — and
+`allowed` only when non-empty, so a string setting's payload does not grow a
+pair of meaningless zeroes. Validation stays where it is: the screen shows the
+bound, Go enforces it.
+
+**Frontend.** Each row becomes a `Collapsible`: closed is key, value and
+description in one grid line; open is the description in full, the bounds, and
+the write controls. Weight carries the state — a stored value at full weight, a
+default muted — and only override and not-set are badged. A setting with
+`allowed` renders a `ToggleGroup` instead of an input. An unset secret says what
+stops working rather than "not set — default  applies", which renders with a
+hole in it because a key's registry default is the empty string.
+
+**Exit.** The screen opens with no field focused and nothing to tab through but
+the disclosures; the four overridden keys are findable without reading a badge on
+every row; `model.effort` cannot be set to a value the registry rejects; and a
+rejected write still shows the server's own message under the field.
+
+## Phase 8 — Measure and record
 
 **Goal.** Leave the next person the numbers rather than the argument.
 

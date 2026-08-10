@@ -231,6 +231,15 @@ a {
   color: var(--status-failed);
 }
 
+/* Outlined rather than filled: "takes effect on the next start" is a caveat on
+   a setting, not a state a session is in, and the settings screen needs it to
+   read differently from the filled amber it uses for a missing credential. */
+.badge-restart {
+  border-color: var(--status-gaveup);
+  color: var(--status-gaveup);
+  font-weight: 500;
+}
+
 .dot {
   width: 6px;
   height: 6px;
