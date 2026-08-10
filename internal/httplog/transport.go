@@ -3,6 +3,7 @@ package httplog
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"io"
 	"log"
 	"net/http"
@@ -16,25 +17,12 @@ import (
 // unchanged; a failure to write the log is logged and does not fail the
 // request.
 func NewTransport(next http.RoundTripper, rec *Recorder) http.RoundTripper {
-	return &transport{next: next, rec: rec, attempts: make(map[string]*attemptState)}
+	return &transport{next: next, rec: rec}
 }
 
 type transport struct {
 	next http.RoundTripper
 	rec  *Recorder
-
-	mu       sync.Mutex
-	attempts map[string]*attemptState
-}
-
-// attemptState remembers a session's most recent request so a retry can be
-// numbered. Client.do reissues the same method, URL, and body for a retry,
-// and nothing else in the harness repeats a request byte-identically.
-type attemptState struct {
-	method  string
-	url     string
-	body    string
-	attempt int
 }
 
 func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -49,7 +37,7 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	ex := &Exchange{
-		Attempt:    t.nextAttempt(sessionID, req, reqBody),
+		Attempt:    t.rec.NextAttempt(sessionID, req.Method, req.URL.String(), sha256.Sum256([]byte(reqBody))),
 		SessionID:  sessionID,
 		Method:     req.Method,
 		URL:        req.URL.String(),
@@ -73,28 +61,6 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	ex.TTFBMs = time.Since(ex.StartedAt).Milliseconds()
 	resp.Body = &captureBody{src: resp.Body, rec: t.rec, ex: ex, ctx: req.Context()}
 	return resp, nil
-}
-
-// nextAttempt returns the retry number for req: 0 for a new request, one
-// more than the previous attempt for a request identical to the one before
-// it in the same session.
-func (t *transport) nextAttempt(sessionID string, req *http.Request, body string) int {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	st := t.attempts[sessionID]
-	if st == nil {
-		st = &attemptState{}
-		t.attempts[sessionID] = st
-	}
-	if st.method == req.Method && st.url == req.URL.String() && st.body == body {
-		st.attempt++
-		return st.attempt
-	}
-	st.method = req.Method
-	st.url = req.URL.String()
-	st.body = body
-	st.attempt = 0
-	return 0
 }
 
 // readRequestBody returns the request body for the record, leaving the
