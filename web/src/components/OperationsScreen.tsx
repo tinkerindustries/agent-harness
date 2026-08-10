@@ -7,10 +7,10 @@ import {
   errorMessage,
   fetchLastEventAt,
   formatDuration,
-  getWorkRequest,
   isStuckSession,
   listLeases,
   listSessions,
+  listWorkRequests,
   quietMs,
   releaseLease,
 } from "../api/operations";
@@ -110,30 +110,22 @@ export function OperationsScreen({ onBack }: Props) {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const now = useNow(1000);
 
-  // refresh re-fetches the whole screen from the server. Work requests have
-  // no list endpoint (docs/DATA-API.md phase 3 lists get/PATCH/DELETE only),
-  // so the screen enumerates them through the sessions they produced: every
-  // session carries its originating request_id, each of those rows is read,
-  // and the running ones are shown. A 404 on the way means the row was
-  // deleted between reads — nothing to show, not an error. A running
-  // session's quiet time comes from the tail of its event log, which is
-  // read-only and paged exactly like the transcript reads it.
+  // refresh re-fetches the whole screen from the server. Work requests come
+  // from their own list endpoint (docs/DATA-API.md): every work_requests
+  // row, newest first, each carrying the version a write echoes back in
+  // If-Match. Listing the rows directly — rather than walking the sessions
+  // each one produced — is what makes a request whose worker died during
+  // workspace preparation visible: it never got a session, so it has no
+  // session to be found through, only its row. The screen shows the running
+  // ones. A running session's quiet time comes from the tail of its event
+  // log, which is read-only and paged exactly like the transcript reads it.
   const refresh = useCallback(async () => {
     try {
-      const [sessions, leases] = await Promise.all([listSessions(), listLeases()]);
-      const requestIds = [...new Set(sessions.map((s) => s.request_id).filter((x): x is string => Boolean(x)))];
-      const requestRows = (
-        await Promise.all(
-          requestIds.map(async (id) => {
-            try {
-              return await getWorkRequest(id);
-            } catch (err) {
-              if (statusOf(err) === 404) return null; // deleted since the session list was read
-              throw err;
-            }
-          }),
-        )
-      ).filter((r): r is WorkRequestRow => r !== null);
+      const [sessions, requests, leases] = await Promise.all([
+        listSessions(),
+        listWorkRequests(),
+        listLeases(),
+      ]);
 
       const running = (
         await Promise.all(
@@ -150,7 +142,7 @@ export function OperationsScreen({ onBack }: Props) {
         )
       ).filter((r): r is RunningSession => r !== null);
 
-      setData({ running, requests: requestRows.filter((r) => r.status === "running"), leases });
+      setData({ running, requests: requests.filter((r) => r.status === "running"), leases });
       setLoadError(null);
     } catch (err) {
       setLoadError(errorMessage(err));

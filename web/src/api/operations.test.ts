@@ -12,6 +12,7 @@ import {
   isStuckSession,
   listLeases,
   listSessions,
+  listWorkRequests,
   quietMs,
   releaseLease,
   SESSION_IDLE_THRESHOLD_MS,
@@ -110,6 +111,42 @@ describe("getWorkRequest", () => {
 
     expect(mock).toHaveBeenCalledWith("/api/requests/req-1");
     expect(row).toMatchObject({ request_id: "req-1", session_id: "sess-1", delivery_count: 2, version: 4 });
+  });
+});
+
+describe("listWorkRequests", () => {
+  it("GETs /api/requests and parses every row, version included — a sessionless running request included", async () => {
+    const mock = stubFetch();
+    mock.mockResolvedValue(
+      fakeResponse(200, [
+        {
+          request_id: "req-2",
+          session_id: "sess-2",
+          status: "running",
+          received_at: "2026-01-02T00:00:00Z",
+          delivery_count: 2,
+          version: 3,
+        },
+        {
+          request_id: "req-1",
+          status: "running",
+          received_at: "2026-01-01T00:00:00Z",
+          delivery_count: 1,
+          version: 1,
+        },
+      ]),
+    );
+
+    const rows = await listWorkRequests();
+
+    expect(mock).toHaveBeenCalledWith("/api/requests");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ request_id: "req-2", session_id: "sess-2", delivery_count: 2, version: 3 });
+    // The sessionless row (a request whose worker died before its session
+    // existed) arrives with session_id absent and its version intact — the
+    // row the screen can now find without a session to walk through.
+    expect(rows[1]).toMatchObject({ request_id: "req-1", version: 1 });
+    expect(rows[1].session_id).toBeUndefined();
   });
 });
 
