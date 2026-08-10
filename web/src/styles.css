@@ -1682,6 +1682,130 @@ pre {
   }
 }
 
+/* ---------- operations screen ----------
+
+   The first screen where the browser acts on the harness (docs/DATA-API.md
+   phase 5): stuck sessions, running work requests, and workspace leases,
+   each with the writes that rewrite operational state. It follows the
+   settings screen's density and the session list's table conventions — same
+   strip up top for the counts, same dense table, same destructive vocabulary
+   — rather than inventing a third visual language. */
+
+.ops-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+}
+
+.ops-strip b {
+  color: var(--foreground);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.ops-strip .sep {
+  color: var(--border);
+}
+
+.ops-strip .spacer {
+  flex: 1;
+}
+
+.ops-empty {
+  padding: var(--space) 0;
+}
+
+.ops-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.ops-table th {
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  padding: 6px 8px;
+  color: var(--muted-foreground);
+  font-weight: 600;
+}
+
+.ops-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 6px 8px;
+  vertical-align: top;
+}
+
+.ops-row:hover {
+  background: var(--muted);
+}
+
+/* The headline figure of a quiet row: the duration since its last event or
+   heartbeat, at full weight so the rows this screen exists to find are the
+   ones that catch the eye. */
+.ops-quiet {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ops-mono {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.ops-actions-cell {
+  min-width: 180px;
+}
+
+.ops-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* The inline confirm step a delete/release requires (no window.confirm — a
+   modal blocks the page and automation cannot dismiss it). It names what is
+   about to be destroyed and sits in the row itself, so the row's context
+   stays visible. */
+.ops-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+  font-size: 0.8125rem;
+  color: var(--foreground);
+}
+
+.ops-confirm code {
+  font-family: var(--font-mono);
+  background: var(--muted);
+  padding: 0 4px;
+  border-radius: 4px;
+}
+
+.ops-confirm-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.ops-error {
+  color: var(--status-failed);
+  font-size: 0.85rem;
+}
+
+.ops-error-banner {
+  border: 1px solid var(--status-failed);
+  border-radius: calc(var(--radius) - 4px);
+  padding: var(--space);
+  margin-bottom: var(--space);
+}
+
 /* ---------- status and diff tokens on the shadcn Badge ----------
    The badge itself is the component; these are the harness's own vocabulary
    tints on top of it, straight from design/tokens.css. */

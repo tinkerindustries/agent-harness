@@ -178,8 +178,8 @@ func (p *Pool) defaultMaxTokens(ctx context.Context) int {
 // Run pulls and processes messages until ctx is done. On shutdown it stops
 // pulling new work but lets in-flight runs finish and publish normally —
 // an agent run takes minutes, and cutting one off on a routine restart
-// would waste it for no reason. Only a process that dies outright leaves
-// a message for the takeover path to pick up.
+// would waste it for no reason. Only a process that dies outright leaves a
+// message for the spent-request path to pick up.
 func (p *Pool) Run(ctx context.Context) error {
 	sem := make(chan struct{}, p.size())
 	consumeCtx, err := p.Consumer.Consume(func(msg jetstream.Msg) {
@@ -263,8 +263,8 @@ func (p *Pool) retryLater(msg jetstream.Msg, requestID, code, message string) {
 		requestID, p.maxDeliveryAttempts(), code)
 	// Record the failure under no session, the same way a validation
 	// failure does. finish matches the row on its session id, so a row
-	// still carrying the dead attempt's session would be read as "a newer
-	// attempt took this over" and the result would never be published.
+	// still carrying the dead attempt's session id would not match and the
+	// result would never be published.
 	if err := p.Store.SetWorkRequestSession(context.Background(), requestID, ""); err != nil {
 		log.Printf("worker: clear session for exhausted request %s: %v", requestID, err)
 	}
@@ -320,20 +320,32 @@ func (p *Pool) handle(msg jetstream.Msg) {
 	}
 
 	if !outcome.Claimed {
-		if outcome.Found && outcome.Existing.Status != store.WorkRequestStatusRunning {
+		switch outcome.Refusal {
+		case store.RefusalTerminal:
 			p.republish(msg, outcome.Existing)
 			return
+		case store.RefusalSpent:
+			// The request already ran once — its row carries the session id.
+			// A work request is single-use: close the abandoned session, tell
+			// the caller, and terminate the message.
+			p.handleSpent(msg, req, outcome)
+			return
+		default:
+			// A duplicate publish while the original is still genuinely
+			// running and has not attached its session yet (a sessionless
+			// running row only falls through here when this message is on its
+			// first delivery; a redelivered one would have been claimed as an
+			// attempt that died during preparation). Nak would redeliver this
+			// exact message and bump its own NumDelivered, which is
+			// indistinguishable from the server's own "nobody is heartbeating
+			// this" signal — after one such cycle shouldClaim would wrongly
+			// read this message as abandoned and start a second session for a
+			// request that never stopped being owned. Wait and heartbeat
+			// instead, so the only way NumDelivered ever climbs past 1 is
+			// JetStream deciding so on its own.
+			p.waitForResolution(msg, req)
+			return
 		}
-		// A duplicate publish while the original is still genuinely
-		// running. Nak would redeliver this exact message and bump its own
-		// NumDelivered, which is indistinguishable from the server's own
-		// "nobody is heartbeating this" signal — after one such cycle
-		// shouldClaim would wrongly read this message as abandoned and
-		// take over a request that never stopped running. Wait and
-		// heartbeat instead, so the only way NumDelivered ever climbs past
-		// 1 is JetStream deciding so on its own.
-		p.waitForResolution(msg, req)
-		return
 	}
 
 	if verr != nil {
@@ -341,7 +353,115 @@ func (p *Pool) handle(msg jetstream.Msg) {
 		return
 	}
 
-	p.run(msg, req, outcome)
+	p.run(msg, req)
+}
+
+// abandonedSessionIdleThreshold is how long a running session must have
+// been quiet before the spent-request path may close it as abandoned. It
+// mirrors internal/httpapi's sessionIdleThreshold, the operator-facing
+// definition of "abandoned": a redelivery can be false — a heartbeat that
+// failed to land while the original attempt was still alive — and the idle
+// check is what stops the close from touching a live session. A live run
+// appends events continuously, so quiet for this long means abandoned.
+const abandonedSessionIdleThreshold = 10 * time.Minute
+
+// handleSpent is the single-use path for a delivery whose request is spent:
+// the work_requests row carries a session id, so an attempt actually
+// started and nothing may ever run this request again. It closes the
+// abandoned session — the row phase 1's CloseSession was built for, and the
+// one that until now never got closed, so abandoned sessions sat running in
+// the list forever — publishes a failed result telling the caller what
+// happened and how to retry, and terminates the message: no further
+// delivery can help.
+func (p *Pool) handleSpent(msg jetstream.Msg, req queue.Request, outcome store.ClaimOutcome) {
+	ctx := context.Background()
+	sessionID := outcome.Existing.SessionID
+
+	proceed, started, err := p.closeAbandonedSession(ctx, sessionID)
+	if err != nil {
+		log.Printf("worker: close abandoned session %s for spent request %s: %v", sessionID, req.RequestID, err)
+		p.retryLater(msg, req.RequestID, "abandoned_close_failed",
+			fmt.Sprintf("could not close the abandoned session after %d delivery attempts: %v", p.maxDeliveryAttempts(), err))
+		return
+	}
+	if !proceed {
+		// The original attempt is still alive (or is actively writing its
+		// session row, which for a running session only the run loop does).
+		// Leave the row alone and let the existing duplicate-handling path
+		// own this message.
+		p.waitForResolution(msg, req)
+		return
+	}
+
+	now := time.Now().UTC()
+	if started.IsZero() {
+		// The session row was gone (an operator closed and deleted it), so
+		// there is no creation time to report; the failure time is the only
+		// honest one.
+		started = now
+	}
+	result := queue.Result{
+		RequestID: req.RequestID,
+		SessionID: sessionID,
+		Status:    queue.StatusFailed,
+		Error: &queue.ResultError{
+			Code: "abandoned",
+			Message: "the run was abandoned when its worker died before finishing; " +
+				"work requests are single-use, so this request will not run again — " +
+				"republish it under a new request_id to retry",
+		},
+		StartedAt:  started,
+		FinishedAt: now,
+	}
+	p.finish(msg, req.RequestID, sessionID, result, true)
+}
+
+// closeAbandonedSession closes sessionID as an abandoned run and reports
+// whether the spent-request path may proceed. proceed is true when the
+// session is terminal (or gone) and the failure can be recorded and
+// published; proceed is false with nil error when the session looks live
+// and the message should fall through to the duplicate-handling path
+// instead.
+//
+// The session's version is read immediately before the close, so a
+// concurrent write shows up as a VersionConflictError and the close is
+// retried once with the fresh version. That distinguishes the two things a
+// conflict can mean: an operator closed the session in the gap (the retry
+// then succeeds, keeping the terminal status), or the run loop wrote —
+// for a running session the only writer that ever touches it — meaning the
+// original attempt is alive (the retry hits the idle check, or conflicts
+// again, and proceed is false). A session with no events has nothing
+// recent and passes the idle check, which is exactly the abandoned-during-
+// preparation shape this path exists to close.
+func (p *Pool) closeAbandonedSession(ctx context.Context, sessionID string) (proceed bool, started time.Time, err error) {
+	for attempt := 0; attempt < 2; attempt++ {
+		sess, err := p.Store.GetSession(ctx, sessionID)
+		if errors.Is(err, store.ErrNotFound) {
+			// The session row is gone (an operator closed and deleted it).
+			// The request is still spent — its row keeps the session id — so
+			// the failure must still be recorded and published.
+			return true, time.Time{}, nil
+		}
+		if err != nil {
+			return false, time.Time{}, err
+		}
+		_, err = p.Store.CloseSession(ctx, sessionID, store.StatusFailed, sess.Version, time.Now().UTC(), abandonedSessionIdleThreshold)
+		if err == nil {
+			return true, sess.CreatedAt, nil
+		}
+		var active *store.ActiveSessionError
+		if errors.As(err, &active) {
+			return false, time.Time{}, nil
+		}
+		var conflict *store.VersionConflictError
+		if !errors.As(err, &conflict) {
+			return false, time.Time{}, err
+		}
+		// Version conflict: re-read and retry once (loop iteration). Two
+		// consecutive conflicts on a row that is still running mean a live
+		// run loop is writing it.
+	}
+	return false, time.Time{}, nil
 }
 
 // waitForResolution holds a message whose request_id is claimed by another,
@@ -406,7 +526,7 @@ func (p *Pool) recordValidationFailure(ctx context.Context, msg jetstream.Msg, r
 
 // run drives one claimed, valid request through workspace preparation and
 // the session loop to a terminal result.
-func (p *Pool) run(msg jetstream.Msg, req queue.Request, outcome store.ClaimOutcome) {
+func (p *Pool) run(msg jetstream.Msg, req queue.Request) {
 	started := time.Now().UTC()
 	sessionID := session.NewSessionID()
 
@@ -421,19 +541,14 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, outcome store.ClaimOutc
 	runCtx, cancel := context.WithTimeout(context.Background(), deadline)
 	defer cancel()
 
-	var previousSessionID string
-	if outcome.Found {
-		previousSessionID = outcome.Existing.SessionID
-	}
-
 	if err := p.Store.SetWorkRequestSession(runCtx, req.RequestID, sessionID); err != nil {
 		log.Printf("worker: attach session for %s: %v", req.RequestID, err)
 	}
 	p.publishAccepted(req.RequestID, sessionID, started)
 
 	// Each attempt clones into a directory of its own, named for its session
-	// id, so a redelivery never inherits the half-finished tree of the
-	// attempt it took over.
+	// id, so a redelivery never inherits the half-finished tree of an
+	// attempt that died before its session existed.
 	ws, err := p.prepareWorkspace()(runCtx, p.WorkspaceRoot, sessionID, req.Repos)
 	if err != nil {
 		result := setupFailedResult(req.RequestID, sessionID, started, err)
@@ -465,7 +580,6 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, outcome store.ClaimOutc
 		Prompt:          req.Prompt,
 		ResultSchema:    req.ResultSchema,
 		MaxSubTurns:     req.MaxSubTurns,
-		ParentID:        previousSessionID,
 		JobType:         req.JobType,
 		ParentAgentType: req.ParentAgentType,
 		ParentAgentID:   req.ParentAgentID,
@@ -483,7 +597,9 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, outcome store.ClaimOutc
 	// Runner.Run's normal error path; leaving the JetStream message unacked
 	// here, rather than publishing a terminal result, is what lets it
 	// redeliver and run as a fresh attempt once the pool is restarted with
-	// balance restored (docs/DESIGN.md §4.10's takeover path).
+	// balance restored — the one retry this phase keeps, because the
+	// request's row still carries the session id and every later delivery
+	// goes through the spent-request path.
 	if runErr != nil && deepseek.IsInsufficientBalance(runErr) {
 		p.Halt("account balance exhausted (402 from DeepSeek)")
 		log.Printf("worker: %s failed on an empty account; left unacked for retry after the pool restarts", req.RequestID)

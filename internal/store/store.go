@@ -41,6 +41,87 @@ var ErrWorkspaceLeased = errors.New("store: workspace already leased")
 // ErrNotFound is returned when a lookup by id finds no row.
 var ErrNotFound = errors.New("store: not found")
 
+// SessionRunningError is returned when a mutating write targets a session
+// whose status is still "running": nothing may delete (or otherwise
+// overwrite) a row a live session goroutine is still appending events to.
+// It surfaces as a 409 on the HTTP surface (docs/DATA-API.md).
+type SessionRunningError struct {
+	SessionID string
+}
+
+func (e *SessionRunningError) Error() string {
+	return fmt.Sprintf("store: refusing to delete %s: it is still running", e.SessionID)
+}
+
+// ActiveSessionError is returned when a write would close a running session
+// whose most recent event is newer than the caller's idle threshold — the
+// row looks live, so the write refuses rather than race the run loop
+// (docs/DATA-API.md "Preconditions"). LastEventAt is what the 409 message
+// names: when the session was actually last heard from.
+type ActiveSessionError struct {
+	SessionID   string
+	LastEventAt time.Time
+}
+
+func (e *ActiveSessionError) Error() string {
+	return fmt.Sprintf("store: session %s is still active: most recent event at %s",
+		e.SessionID, e.LastEventAt.UTC().Format(time.RFC3339))
+}
+
+// VersionConflictError is returned when a mutating write carries an If-Match
+// version that does not equal the row's current version — the client read the
+// row before someone else changed it (docs/DATA-API.md "Optimistic
+// concurrency"). It surfaces as a 412 on the HTTP surface. Resource names the
+// row ("session <id>", "work_request <id>") so the message is
+// self-describing in every resource's handler.
+type VersionConflictError struct {
+	Resource string
+	Want     int
+	Current  int
+}
+
+func (e *VersionConflictError) Error() string {
+	return fmt.Sprintf("store: %s changed since it was read: If-Match %d, current version %d",
+		e.Resource, e.Want, e.Current)
+}
+
+// ActiveRequestError is returned when a write would close or delete a work
+// request whose session is still live — the row a live pool worker is using,
+// which will publish its own terminal result. The request's session id is
+// the signal: the session's most recent event newer than the caller's idle
+// threshold means the request is genuinely in flight, so the write refuses
+// rather than race the worker (docs/DATA-API.md "Preconditions"). It
+// surfaces as a 409 on the HTTP surface, and LastEventAt is what the message
+// names: when the session was actually last heard from.
+type ActiveRequestError struct {
+	RequestID   string
+	SessionID   string
+	LastEventAt time.Time
+}
+
+func (e *ActiveRequestError) Error() string {
+	return fmt.Sprintf("store: work request %s is still in flight: its session %s had its most recent event at %s",
+		e.RequestID, e.SessionID, e.LastEventAt.UTC().Format(time.RFC3339))
+}
+
+// ActiveLeaseError is returned when a write would release a workspace lease
+// whose heartbeat is newer than the caller's idle threshold — the lease a
+// live session is still holding, so the write refuses rather than releasing
+// a workspace that is being used right now (docs/DATA-API.md
+// "Preconditions"). It surfaces as a 409 on the HTTP surface, and
+// LastHeartbeatAt is what the message names: when the lease was actually
+// last heartbeated.
+type ActiveLeaseError struct {
+	Workspace       string
+	SessionID       string
+	LastHeartbeatAt time.Time
+}
+
+func (e *ActiveLeaseError) Error() string {
+	return fmt.Sprintf("store: lease on workspace %s is still held by live session %s: last heartbeat at %s",
+		e.Workspace, e.SessionID, e.LastHeartbeatAt.UTC().Format(time.RFC3339))
+}
+
 // Session is the frozen metadata row for one agent session. SystemPrompt and
 // ToolSchema are rendered once at creation and never regenerated from the
 // running binary, so a harness upgrade cannot change the prefix of a
@@ -84,6 +165,13 @@ type Session struct {
 	Summary    string
 	CreatedAt  time.Time
 	FinishedAt *time.Time
+	// Version is the row's optimistic-concurrency counter (docs/DATA-API.md
+	// "Optimistic concurrency"): 1 at creation, incremented by 1 on every
+	// successful mutation. The HTTP surface returns it in the session
+	// representation and requires it echoed back in If-Match on a mutating
+	// write, so a write based on a stale read fails with a version conflict
+	// instead of racing whoever changed the row first.
+	Version int
 }
 
 // RecentToolCall is one entry of the session row's rolling roll of the last
@@ -149,7 +237,8 @@ CREATE TABLE IF NOT EXISTS sessions (
 	result_schema     TEXT,
 	status            TEXT NOT NULL,
 	created_at        TEXT NOT NULL,
-	finished_at       TEXT
+	finished_at       TEXT,
+	version           INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS events (
@@ -168,14 +257,16 @@ CREATE TABLE IF NOT EXISTS work_requests (
 	result         TEXT,
 	received_at    TEXT NOT NULL,
 	finished_at    TEXT,
-	delivery_count INTEGER NOT NULL DEFAULT 0
+	delivery_count INTEGER NOT NULL DEFAULT 0,
+	version        INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS workspace_leases (
 	workspace    TEXT PRIMARY KEY,
 	session_id   TEXT NOT NULL,
 	acquired_at  TEXT NOT NULL,
-	heartbeat_at TEXT NOT NULL
+	heartbeat_at TEXT NOT NULL,
+	version      INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -225,10 +316,20 @@ func Open(path string) (*Store, error) {
 		readDB.Close()
 		return nil, fmt.Errorf("store: apply schema: %w", err)
 	}
-	if err := migrateSessions(writeDB); err != nil {
+	if err := migrateTableColumns(writeDB, "sessions", sessionMigrationColumns); err != nil {
 		writeDB.Close()
 		readDB.Close()
 		return nil, fmt.Errorf("store: migrate sessions table: %w", err)
+	}
+	if err := migrateTableColumns(writeDB, "work_requests", workRequestMigrationColumns); err != nil {
+		writeDB.Close()
+		readDB.Close()
+		return nil, fmt.Errorf("store: migrate work_requests table: %w", err)
+	}
+	if err := migrateTableColumns(writeDB, "workspace_leases", workspaceLeaseMigrationColumns); err != nil {
+		writeDB.Close()
+		readDB.Close()
+		return nil, fmt.Errorf("store: migrate workspace_leases table: %w", err)
 	}
 
 	s := &Store{
@@ -262,13 +363,12 @@ func setPragmasWithRetry(db *sql.DB) error {
 	return err
 }
 
-// migrateSessions adds the session provenance columns to a sessions table
-// created by an older binary. It reads the existing columns and adds only
-// the missing ones, so it is a no-op on a database that already has them.
-// ALTER TABLE ADD COLUMN with a constant NOT NULL default backfills existing
-// rows in the same statement.
-func migrateSessions(db *sql.DB) error {
-	rows, err := db.Query(`PRAGMA table_info(sessions)`)
+// migrateTableColumns adds columns to a table created by an older binary. It
+// reads the existing columns and adds only the missing ones, so it is a
+// no-op on a database that already has them. ALTER TABLE ADD COLUMN with a
+// constant NOT NULL default backfills existing rows in the same statement.
+func migrateTableColumns(db *sql.DB, table string, columns []migrationColumn) error {
+	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
 	if err != nil {
 		return err
 	}
@@ -288,23 +388,27 @@ func migrateSessions(db *sql.DB) error {
 		return err
 	}
 
-	for _, col := range sessionMigrationColumns {
+	for _, col := range columns {
 		if have[col.name] {
 			continue
 		}
-		if _, err := db.Exec(`ALTER TABLE sessions ADD COLUMN ` + col.name + ` ` + col.def); err != nil {
+		if _, err := db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + col.name + ` ` + col.def); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// sessionMigrationColumns are the columns migrateSessions adds to a sessions
-// table created by an older binary.
-var sessionMigrationColumns = []struct {
+// migrationColumn is one column migrateTableColumns adds to a table created
+// by an older binary.
+type migrationColumn struct {
 	name string
 	def  string
-}{
+}
+
+// sessionMigrationColumns are the columns migrateTableColumns adds to a
+// sessions table created by an older binary.
+var sessionMigrationColumns = []migrationColumn{
 	{"job_type", "TEXT NOT NULL DEFAULT 'implementation'"},
 	{"parent_agent_type", "TEXT NOT NULL DEFAULT ''"},
 	{"parent_agent_id", "TEXT NOT NULL DEFAULT ''"},
@@ -328,6 +432,28 @@ var sessionMigrationColumns = []struct {
 	// id (docs/WEB-REDESIGN.md phase 3). Older rows default to the empty
 	// string, which the browser renders as no subtitle.
 	{"summary", "TEXT NOT NULL DEFAULT ''"},
+	// version: the optimistic-concurrency counter every mutating write
+	// checks and bumps (docs/DATA-API.md). Older rows default to 1, which is
+	// also the version a freshly created row starts at.
+	{"version", "INTEGER NOT NULL DEFAULT 1"},
+}
+
+// workRequestMigrationColumns are the columns migrateTableColumns adds to a
+// work_requests table created by an older binary.
+var workRequestMigrationColumns = []migrationColumn{
+	// version: the optimistic-concurrency counter every mutating write
+	// checks and bumps (docs/DATA-API.md). Older rows default to 1, which is
+	// also the version a freshly created row starts at.
+	{"version", "INTEGER NOT NULL DEFAULT 1"},
+}
+
+// workspaceLeaseMigrationColumns are the columns migrateTableColumns adds to
+// a workspace_leases table created by an older binary.
+var workspaceLeaseMigrationColumns = []migrationColumn{
+	// version: the optimistic-concurrency counter every mutating write
+	// checks and bumps (docs/DATA-API.md). Older rows default to 1, which is
+	// also the version a freshly created row starts at.
+	{"version", "INTEGER NOT NULL DEFAULT 1"},
 }
 
 // Close stops the writer goroutine and closes both connection pools. It
@@ -414,8 +540,8 @@ func (s *Store) CreateSession(ctx context.Context, sess Session) error {
 		_, err := tx.Exec(`
 			INSERT INTO sessions (id, parent_id, job_type, parent_agent_type, parent_agent_id,
 				model, effort, thinking, workspace, permission_mode, deny_patterns, system_prompt,
-				tool_schema, result_schema, status, created_at, finished_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+				tool_schema, result_schema, status, created_at, finished_at, version)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1)`,
 			sess.ID, parentID, sess.JobType, sess.ParentAgentType, sess.ParentAgentID,
 			sess.Model, sess.Effort, sess.Thinking, sess.Workspace, sess.PermissionMode,
 			deny, sess.SystemPrompt, toolSchema, resultSchema, sess.Status, createdAt.Format(time.RFC3339Nano))
@@ -430,7 +556,7 @@ func (s *Store) UpdateSessionStatus(ctx context.Context, id, status string, fini
 		fa = sql.NullString{String: finishedAt.UTC().Format(time.RFC3339Nano), Valid: true}
 	}
 	return s.submit(ctx, func(tx *sql.Tx) error {
-		_, err := tx.Exec(`UPDATE sessions SET status = ?, finished_at = COALESCE(?, finished_at) WHERE id = ?`, status, fa, id)
+		_, err := tx.Exec(`UPDATE sessions SET status = ?, finished_at = COALESCE(?, finished_at), version = version + 1 WHERE id = ?`, status, fa, id)
 		return err
 	})
 }
@@ -449,7 +575,7 @@ func (s *Store) FinishSession(ctx context.Context, id, status, completeStatus, s
 		fa = sql.NullString{String: finishedAt.UTC().Format(time.RFC3339Nano), Valid: true}
 	}
 	return s.submit(ctx, func(tx *sql.Tx) error {
-		_, err := tx.Exec(`UPDATE sessions SET status = ?, complete_status = ?, summary = ?, finished_at = COALESCE(?, finished_at) WHERE id = ?`,
+		_, err := tx.Exec(`UPDATE sessions SET status = ?, complete_status = ?, summary = ?, finished_at = COALESCE(?, finished_at), version = version + 1 WHERE id = ?`,
 			status, completeStatus, summary, fa, id)
 		return err
 	})
@@ -474,7 +600,7 @@ func (s *Store) UpdateSessionLiveState(ctx context.Context, id, plan string, cal
 	}
 	return s.submit(ctx, func(tx *sql.Tx) error {
 		if plan != "" {
-			if _, err := tx.Exec(`UPDATE sessions SET plan = ? WHERE id = ?`, plan, id); err != nil {
+			if _, err := tx.Exec(`UPDATE sessions SET plan = ?, version = version + 1 WHERE id = ?`, plan, id); err != nil {
 				return err
 			}
 		}
@@ -493,7 +619,7 @@ func (s *Store) UpdateSessionLiveState(ctx context.Context, id, plan string, cal
 			if err != nil {
 				return err
 			}
-			if _, err := tx.Exec(`UPDATE sessions SET recent_tool_calls = ? WHERE id = ?`, string(b), id); err != nil {
+			if _, err := tx.Exec(`UPDATE sessions SET recent_tool_calls = ?, version = version + 1 WHERE id = ?`, string(b), id); err != nil {
 				return err
 			}
 		}
@@ -508,27 +634,126 @@ func (s *Store) UpdateSessionLiveState(ctx context.Context, id, plan string, cal
 // loaded the session and is about to append its continuation.
 func (s *Store) ResumeSession(ctx context.Context, id string) error {
 	return s.submit(ctx, func(tx *sql.Tx) error {
-		_, err := tx.Exec(`UPDATE sessions SET status = ?, finished_at = NULL WHERE id = ?`, StatusRunning, id)
+		_, err := tx.Exec(`UPDATE sessions SET status = ?, finished_at = NULL, version = version + 1 WHERE id = ?`, StatusRunning, id)
 		return err
 	})
 }
 
+// CloseSession transitions id to a terminal status — the write that lets an
+// operator close a session a dead worker left running (docs/DATA-API.md).
+// It carries two guards, both checked inside the write transaction so no
+// interleaving write can slip between a check and the UPDATE:
+//
+//   - Optimistic concurrency: wantVersion must equal the row's current
+//     version, or VersionConflictError is returned. The version is read from
+//     the session representation and echoed back in If-Match.
+//   - Idleness: a running session whose most recent event is newer than
+//     minIdle is presumed live and refused with ActiveSessionError. A live
+//     run appends events continuously, so "abandoned" means quiet for
+//     minIdle; a session with no events has nothing recent and passes. now is
+//     the clock the idleness is judged against — the caller's — so the rule
+//     is the HTTP layer's policy, not the store's.
+//
+// A running session gets the new status and finished_at = now. One already
+// terminal keeps both — a re-close is a version bump and nothing else, so a
+// retried write is idempotent and a finished run cannot be relabelled. The
+// updated row is returned. The event log is untouched.
+func (s *Store) CloseSession(ctx context.Context, id, status string, wantVersion int, now time.Time, minIdle time.Duration) (Session, error) {
+	if status == StatusRunning {
+		return Session{}, fmt.Errorf("store: CloseSession: %s is not a terminal status", status)
+	}
+	var out Session
+	err := s.submit(ctx, func(tx *sql.Tx) error {
+		var storedStatus string
+		var version int
+		if err := tx.QueryRow(`SELECT status, version FROM sessions WHERE id = ?`, id).Scan(&storedStatus, &version); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		if version != wantVersion {
+			return &VersionConflictError{Resource: "session " + id, Want: wantVersion, Current: version}
+		}
+		if storedStatus == StatusRunning {
+			last, ok, err := lastEventAt(tx, id)
+			if err != nil {
+				return err
+			}
+			if ok && now.Sub(last) < minIdle {
+				return &ActiveSessionError{SessionID: id, LastEventAt: last}
+			}
+		}
+		// Only a running session takes the new status. A row that is
+		// already terminal keeps the status it finished with: this endpoint
+		// exists to close an abandoned run, not to relabel a finished one,
+		// and a completed session's status is a fact about what happened.
+		// Overwriting it would let any client — or any bug — rewrite the
+		// record the transcript, the fold and resume all read as history.
+		// A re-close therefore lands as a version bump and nothing else,
+		// which keeps a retried PATCH idempotent.
+		newStatus := storedStatus
+		var fa sql.NullString
+		if storedStatus == StatusRunning {
+			newStatus = status
+			fa = sql.NullString{String: now.UTC().Format(time.RFC3339Nano), Valid: true}
+		}
+		if _, err := tx.Exec(`UPDATE sessions SET status = ?, finished_at = COALESCE(?, finished_at), version = version + 1 WHERE id = ?`, newStatus, fa, id); err != nil {
+			return err
+		}
+		var err2 error
+		out, err2 = scanSession(tx.QueryRow(`SELECT `+sessionColumns+` FROM sessions WHERE id = ?`, id))
+		return err2
+	})
+	if err != nil {
+		return Session{}, err
+	}
+	return out, nil
+}
+
+// lastEventAt returns the created_at of sessionID's most recent event, or
+// ok=false when the session has no events. Events are appended in seq order
+// under the single writer goroutine, so the last seq is the last event.
+func lastEventAt(tx *sql.Tx, sessionID string) (time.Time, bool, error) {
+	var createdAt string
+	err := tx.QueryRow(`SELECT created_at FROM events WHERE session_id = ? ORDER BY seq DESC LIMIT 1`, sessionID).Scan(&createdAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	t, err := time.Parse(time.RFC3339Nano, createdAt)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("store: decode event created_at: %w", err)
+	}
+	return t, true, nil
+}
+
 // DeleteSession removes id's row and its whole event log. It refuses a
 // session whose status is still "running": nothing may delete a row a live
-// session goroutine is still appending events to. The caller is responsible
-// for removing the disk mirror directory, which this has no path for.
-func (s *Store) DeleteSession(ctx context.Context, id string) error {
+// session goroutine is still appending events to. wantVersion enforces the
+// optimistic-concurrency precondition (docs/DATA-API.md): it must equal the
+// row's current version, or VersionConflictError is returned, so a delete
+// based on a stale read refuses instead of deleting a row that changed since
+// the client saw it. The caller is responsible for removing the disk mirror
+// directory, which this has no path for.
+func (s *Store) DeleteSession(ctx context.Context, id string, wantVersion int) error {
 	return s.submit(ctx, func(tx *sql.Tx) error {
 		var status string
-		err := tx.QueryRow(`SELECT status FROM sessions WHERE id = ?`, id).Scan(&status)
+		var version int
+		err := tx.QueryRow(`SELECT status, version FROM sessions WHERE id = ?`, id).Scan(&status, &version)
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
 		if err != nil {
 			return err
 		}
+		if version != wantVersion {
+			return &VersionConflictError{Resource: "session " + id, Want: wantVersion, Current: version}
+		}
 		if status == StatusRunning {
-			return fmt.Errorf("store: refusing to delete %s: it is still running", id)
+			return &SessionRunningError{SessionID: id}
 		}
 		if _, err := tx.Exec(`DELETE FROM events WHERE session_id = ?`, id); err != nil {
 			return err
@@ -548,7 +773,8 @@ func scanSession(row interface {
 	err := row.Scan(&sess.ID, &parentID, &sess.JobType, &sess.ParentAgentType, &sess.ParentAgentID,
 		&sess.Model, &sess.Effort, &thinking, &sess.Workspace,
 		&sess.PermissionMode, &denyJSON, &sess.SystemPrompt, (*sqlText)(&sess.ToolSchema), &resultSchema,
-		&sess.Status, &createdAt, &finishedAt, &sess.CompleteStatus, &sess.Plan, &recentCalls, &sess.Summary)
+		&sess.Status, &createdAt, &finishedAt, &sess.CompleteStatus, &sess.Plan, &recentCalls, &sess.Summary,
+		&sess.Version)
 	if err != nil {
 		return Session{}, err
 	}
@@ -600,7 +826,7 @@ func (t *sqlText) Scan(src any) error {
 
 const sessionColumns = `id, parent_id, job_type, parent_agent_type, parent_agent_id, model, effort,
 	thinking, workspace, permission_mode, deny_patterns, system_prompt, tool_schema,
-	result_schema, status, created_at, finished_at, complete_status, plan, recent_tool_calls, summary`
+	result_schema, status, created_at, finished_at, complete_status, plan, recent_tool_calls, summary, version`
 
 // GetSession reads one session by id.
 func (s *Store) GetSession(ctx context.Context, id string) (Session, error) {
@@ -714,7 +940,7 @@ func (s *Store) AcquireWorkspaceLease(ctx context.Context, workspace, sessionID 
 		err := tx.QueryRow(`SELECT session_id FROM workspace_leases WHERE workspace = ?`, workspace).Scan(&holder)
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
-			_, err := tx.Exec(`INSERT INTO workspace_leases (workspace, session_id, acquired_at, heartbeat_at) VALUES (?, ?, ?, ?)`,
+			_, err := tx.Exec(`INSERT INTO workspace_leases (workspace, session_id, acquired_at, heartbeat_at, version) VALUES (?, ?, ?, ?, 1)`,
 				workspace, sessionID, now, now)
 			return err
 		case err != nil:

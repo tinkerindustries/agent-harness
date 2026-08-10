@@ -49,8 +49,14 @@ type SessionState struct {
 	Summary    string     `json:"summary,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
-	SubTurns   int        `json:"sub_turns"`
-	Usage      Usage      `json:"usage"`
+	// Version is the row's optimistic-concurrency counter
+	// (docs/DATA-API.md): the value a mutating write must echo back in
+	// If-Match, bumped by every change to the row. It rides on every
+	// representation — list, single, and the stream feed — so a client can
+	// always read a fresh version before writing.
+	Version  int   `json:"version"`
+	SubTurns int   `json:"sub_turns"`
+	Usage    Usage `json:"usage"`
 	// PriceTableDate is the price table's own capture date, carried
 	// alongside Usage so a cost figure never appears without saying how
 	// current it is (docs/DESIGN.md §4.9). Empty when the caller building
@@ -94,6 +100,7 @@ func BuildSessionState(sess store.Session, summary store.SessionUsageSummary, re
 		Summary:         sess.Summary,
 		CreatedAt:       sess.CreatedAt,
 		FinishedAt:      sess.FinishedAt,
+		Version:         sess.Version,
 		SubTurns:        summary.SubTurns,
 		Usage: Usage{
 			CacheHitTokens:   summary.PromptCacheHitTokens,

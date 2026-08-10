@@ -233,11 +233,16 @@ Two things stage two has to answer, and stage one should not foreclose:
     GET /api/settings                    every setting, grouped, with its type, default, description, and the secret/restart flags
     PUT /api/settings/{key}              set a key, JSON body {"value": "..."}
     DELETE /api/settings/{key}           unset a key
+    PATCH /api/sessions/{id}             close an abandoned session into a terminal status
+    DELETE /api/sessions/{id}            delete a finished session and its event log
 
-`GET` and `HEAD` are served on every path. The writing methods are allowed on
-the settings endpoints only: a POST to `/api/sessions` still 405s with an
-`Allow` header naming what the path actually permits, and the settings
-collection path itself (`/api/settings` without a key) has no write route.
+`GET` and `HEAD` are served on every path. The writing methods are allowed
+where a write route exists — settings keys, and one session's row — and
+nowhere else: a POST to `/api/sessions` still 405s with an `Allow` header
+naming what the path actually permits, the settings collection path itself
+(`/api/settings` without a key) has no write route, and the events resource
+is never writable. The whole surface, including the work-request and lease
+endpoints later phases add, is specified in [DATA-API.md](DATA-API.md).
 Secret keys are masked in `GET /api/settings` to at most their last four
 characters, exactly as `harness config list` masks them, and the full value
 never leaves the process over HTTP — there is no reveal parameter. The writing
@@ -572,7 +577,8 @@ git treats the first as a command to run and the second would copy the
 harness's own filesystem into a workspace a readonly run can read. Two entries
 whose URLs end in the same name are refused rather than one shadowing the
 other. Nothing is shared between runs and nothing is reused across attempts, so
-a redelivery clones afresh rather than inheriting a half-finished tree.
+a redelivery that still may run — one whose attempt died before its session
+existed — clones afresh rather than inheriting a half-finished tree.
 
 What each terminal status means. `ok` is a run that finished on its own.
 `failed` covers a validation rejection, a workspace that could not be built
@@ -593,7 +599,10 @@ There is no `cancelled`. Nothing can cancel a run: the browser cannot steer
 the loop (§4.2) and a graceful shutdown drains in-flight work rather than
 cutting it off, because an agent run costs minutes and a restart is not a
 reason to waste one. A process that dies outright leaves its message unacked,
-and redelivery covers it.
+and redelivery covers it — for the request that never attached a session.
+Once a session exists, the request is single-use and a redelivery fails it
+rather than re-runs it (below), which is the price of a hard kill: graceful
+shutdown is the supported way out of a run, and it never wastes one.
 
 `result_schema` is validated in Go against the `Complete` arguments. A failing
 payload returns a validation error through the tool result channel and the model
@@ -614,17 +623,19 @@ Acknowledgement discipline:
 - `Nak` with a delay when the failure is transient and retries are exhausted.
   On the last delivery attempt, publish `failed` and `Term`.
 - `MaxDeliver` bounds how many times one request may be delivered, from
-  `worker.max_delivery_attempts` (default 5, restart-required). The ceiling has
-  to exist, and its absence was a real defect: a run holds its message unacked
-  for the whole run and heartbeats `InProgress`, so a process that dies stops
-  heartbeating and the request comes back as a fresh attempt — the takeover
-  path above, and what we want. Under JetStream's default of unlimited
-  redelivery, a request that kills its worker every time is redelivered
-  forever, each attempt burning a pool slot, and killing the stuck run is what
-  produces the next attempt rather than ending it. `MaxDeliveryAttempts` on the
-  pool must equal the consumer's `MaxDeliver`: the server enforces the ceiling,
-  and the pool needs to know it so the final attempt can publish a terminal
-  result instead of the request silently ceasing to exist.
+  `worker.max_delivery_attempts` (default 5, restart-required). Its job
+  changed with single-use requests: it is no longer the main defence against
+  runaway retries — that is the session id, which stops a request that ever
+  produced a session from running again — but a **backstop for requests that
+  die before their session exists**. Those are the only requests redelivery
+  still claims, and one of them that keeps dying during preparation (a
+  workspace root that stays unwritable, say) would otherwise be redelivered
+  forever, each attempt burning a pool slot. The two mechanisms are not
+  redundant: the ceiling caps pre-session attempts, the session id caps
+  everything after the first session. `MaxDeliveryAttempts` on the pool must
+  equal the consumer's `MaxDeliver`: the server enforces the ceiling, and the
+  pool needs to know it so the final attempt can publish a terminal result
+  instead of the request silently ceasing to exist.
 - A run wedged inside a tool call is not reaped by `deadline_ms`. The run
   context carries the deadline, so a loop that checks it stops; a tool call
   blocked on something that ignores cancellation does not, and the run holds
@@ -632,10 +643,40 @@ Acknowledgement discipline:
   request stops coming back — but it does not end the wedged attempt.
 
 Idempotency is a row, not a convention. `request_id` is the primary key of
-`work_requests`. A redelivery whose row is terminal republishes the stored
-result and acks without running anything. A row left `running` by a process that
-died is taken over as a fresh session linked to the abandoned one, so the
-transcript of the failed attempt survives for review.
+`work_requests`, and the row's `session_id` column is the discriminator that
+decides whether a delivery may run:
+
+- **No session id yet** — the attempt died during workspace preparation,
+  before the session row existed. Nothing happened that matters (no clone, no
+  file write, no command, no money spent), so a redelivery may claim the row
+  and run afresh.
+- **Session id set** — the request is **single-use**. The id is attached the
+  moment the session row exists, before the run does anything side-effecting,
+  so a row that carries one is proof an attempt actually started. An agent run
+  is not idempotent: it clones repositories, writes files, runs commands,
+  pushes branches, opens pull requests, and spends money, and re-running one
+  blind repeats all of that against a workspace and a branch that have moved
+  on. The worker therefore never runs a session for such a request again,
+  whatever its status. It closes the abandoned session instead — the row phase
+  1's `CloseSession` was built for, and the one that until now never got
+  closed, so abandoned sessions sat `running` in the list forever — publishes a
+  `failed` result telling the caller the run was abandoned, that work requests
+  are single-use, and that republishing under a new `request_id` is how to
+  retry, and terminates the message, because no further delivery can help. The
+  abandoned session's transcript still survives for review, now better than
+  before: it is closed, not left `running` forever.
+- **Terminal row** — a finished request republishes its stored result and
+  acks without running anything.
+
+The trade-off being accepted is explicit: a hard kill mid-run **loses the run
+rather than retrying it**. Graceful shutdown drains in-flight work, so this
+only bites on SIGKILL, OOM, or a machine reboot — the cases where the process
+is gone and cannot finish anyway. A false redelivery (a heartbeat that failed
+to land while the original attempt was still alive) is guarded the same way
+the operator-facing close is: the spent path passes a real idle threshold to
+`CloseSession`, and a session whose most recent event is newer than it is
+refused as still active, leaving the row alone and letting the message fall
+through to the duplicate-handling path instead.
 
 Progress messages are turn-level, never token-level. Publishing content deltas
 to JetStream would persist thousands of messages per run for no reader's

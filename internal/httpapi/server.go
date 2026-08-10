@@ -1,13 +1,16 @@
-// Package httpapi is the harness's HTTP surface (docs/DESIGN.md §4.2):
-// read-only with respect to runs, with the settings endpoints as the single
-// exception. GET and HEAD are served on every path, including ones that do
-// not exist; PUT and DELETE are allowed on the settings key path alone. It
-// serves the session list and metadata from the store, a paged read of one
+// Package httpapi is the harness's HTTP surface (docs/DESIGN.md §4.2,
+// docs/DATA-API.md): it reads and writes the data the harness manages and
+// cannot reach the run loop. GET and HEAD are served on every path, including
+// ones that do not exist; the writing methods are allowed where a write route
+// exists — PUT and DELETE on a settings key, PATCH and DELETE on one session.
+// It serves the session list and metadata from the store, a paged read of one
 // session's event log, two SSE streams — a per-session transcript and a
 // quiet session-level list feed — fed by the in-process hub package rather
-// than NATS, and the settings table, which is the one thing a browser can
-// write. Nothing here starts, steers, or stops a run; that is the whole
-// point of the browser being read-only with respect to runs.
+// than NATS, and the settings table. The write surface is the data the
+// harness manages: closing an abandoned session, deleting a finished one,
+// setting a key. Nothing here starts, steers, or stops a run; that is the
+// whole point of the browser being read-only with respect to runs, and the
+// import boundary below is what makes it structural.
 package httpapi
 
 import (
@@ -35,6 +38,58 @@ import (
 // that reached a terminal status without an event of its own to announce it
 // (compaction retires the old session id silently; see handleSessionStream).
 const sseKeepaliveInterval = 15 * time.Second
+
+// sessionIdleThreshold is how long a running session must have been quiet
+// before PATCH /api/sessions/{id} may close it (docs/DATA-API.md
+// "Preconditions"). A live run appends events continuously, so a session
+// whose most recent event is newer than this is presumed live and the close
+// refuses with a 409 naming the last event's time. Ten minutes is the value
+// used operating the harness by hand: long enough that a run paused on a
+// slow tool call is never mistaken for dead, short enough that an abandoned
+// row is closable without waiting out the work day. A named constant, never
+// a literal, because the close endpoints and the tests both lean on it.
+const sessionIdleThreshold = 10 * time.Minute
+
+// terminalSessionStatuses are the statuses PATCH /api/sessions/{id} accepts:
+// every status except running. Closing *into* running would be a resume,
+// which is run control (docs/DATA-API.md) — the endpoint is for closing a
+// session a dead worker left running, not for reviving one.
+var terminalSessionStatuses = map[string]bool{
+	store.StatusOK:        true,
+	store.StatusFailed:    true,
+	store.StatusTimeout:   true,
+	store.StatusMaxTurns:  true,
+	store.StatusCancelled: true,
+	store.StatusCompacted: true,
+}
+
+// terminalSessionStatusList is the same set in a stable order, for the 400
+// message that names the accepted values.
+var terminalSessionStatusList = []string{
+	store.StatusOK, store.StatusFailed, store.StatusTimeout,
+	store.StatusMaxTurns, store.StatusCancelled, store.StatusCompacted,
+}
+
+// terminalRequestStatuses are the statuses PATCH /api/requests/{request_id}
+// accepts: the terminal statuses a work request can hold (docs/DESIGN.md
+// §4.10) — everything except running, which is the only status a live worker
+// can hold and the one this endpoint exists to retire. "cancelled" is
+// included even though nothing in the worker produces it: closing a dead
+// request is the operator's analogue of closing a dead session, and the
+// operator's status vocabulary is the session one.
+var terminalRequestStatuses = map[string]bool{
+	"ok":        true,
+	"failed":    true,
+	"denied":    true,
+	"timeout":   true,
+	"cancelled": true,
+}
+
+// terminalRequestStatusList is the same set in a stable order, for the 400
+// message that names the accepted values.
+var terminalRequestStatusList = []string{
+	"ok", "failed", "denied", "timeout", "cancelled",
+}
 
 const (
 	// defaultEventsLimit and maxEventsLimit are the built-in paging bounds
@@ -65,9 +120,10 @@ type QueuePool interface {
 // Server holds the things every handler reads: the store, for everything
 // historical; the hub, for everything live; and, optionally, the queue's
 // consumer and pool, for /api/queue's consumer lag, in-flight count, and
-// redelivery count (docs/DESIGN.md §5.8). Settings is the surface's one
-// write: the settings endpoints read and write through it, and nothing else
-// in Server is mutated by a request — the run surface stays read-only
+// redelivery count (docs/DESIGN.md §5.8). The write surface is the data the
+// harness manages (docs/DATA-API.md): the settings endpoints and the session
+// close/delete endpoints read and write through Store, and nothing else in
+// Server is mutated by a request — the run surface stays read-only
 // (docs/DESIGN.md §4.2). Consumer and Pool are nil in any caller that has no
 // queue at all (a CLI-only harness never wires one up); the handler degrades
 // to reporting the queue as unavailable rather than panicking.
@@ -92,32 +148,61 @@ type Server struct {
 // Handler returns the harness's whole HTTP surface. methodGate runs before
 // routing, so a request outside the method allowlist is rejected on every
 // path, including ones nothing here recognises: GET and HEAD everywhere, and
-// PUT and DELETE on the settings key path only (docs/DESIGN.md §4.2).
+// the writing methods where a write route exists — PUT and DELETE on a
+// settings key path, PATCH and DELETE on one session's path
+// (docs/DESIGN.md §4.2, docs/DATA-API.md).
 func (s *Server) Handler() http.Handler {
+	return methodGate(s.routes())
+}
+
+// routes builds the router: every pattern the surface serves, method and
+// path. Handler wraps it in the method gate; the bare router is also
+// exposed for the test that asserts the events resource carries no
+// mutating route (docs/DATA-API.md "Events are not writable") — a route
+// registered on it later fails that test rather than passing behind the
+// gate unnoticed.
+func (s *Server) routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/sessions", s.handleListSessions)
 	mux.HandleFunc("GET /api/sessions/{id}", s.handleGetSession)
+	mux.HandleFunc("PATCH /api/sessions/{id}", s.handlePatchSession)
+	mux.HandleFunc("DELETE /api/sessions/{id}", s.handleDeleteSession)
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.handleGetEvents)
 	mux.HandleFunc("GET /api/sessions/{id}/stream", s.handleSessionStream)
+	mux.HandleFunc("GET /api/requests/{request_id}", s.handleGetWorkRequest)
+	mux.HandleFunc("PATCH /api/requests/{request_id}", s.handlePatchWorkRequest)
+	mux.HandleFunc("DELETE /api/requests/{request_id}", s.handleDeleteWorkRequest)
 	mux.HandleFunc("GET /api/requests/{request_id}/status", s.handleRequestStatus)
+	mux.HandleFunc("GET /api/leases", s.handleListLeases)
+	// The lease key is a workspace path, which contains slashes, so the
+	// segment is the rest of the path after /api/leases/ — a client
+	// percent-encodes each slash (DELETE /api/leases/%2Ftmp%2Fws) and the
+	// wildcard matches the remainder exactly (docs/DATA-API.md phase 3).
+	mux.HandleFunc("DELETE /api/leases/{workspace...}", s.handleDeleteLease)
 	mux.HandleFunc("GET /api/stream", s.handleListStream)
 	mux.HandleFunc("GET /api/queue", s.handleQueueHealth)
 	mux.HandleFunc("GET /api/settings", s.handleGetSettings)
 	mux.HandleFunc("PUT /api/settings/{key}", s.handlePutSetting)
 	mux.HandleFunc("DELETE /api/settings/{key}", s.handleDeleteSetting)
 	mux.Handle("/", s.Static)
-	return methodGate(mux)
+	return mux
 }
 
 // methodGate enforces the method allowlist ahead of any routing decision. GET
-// and HEAD pass on every path; PUT and DELETE pass only on a settings key
-// path (/api/settings/<key>), the surface's one write (docs/DESIGN.md §4.2).
-// A pattern registered with a method already 405s a wrong-method request that
+// and HEAD pass on every path; the writing methods pass only where a write
+// route exists — PUT and DELETE on a settings key path, PATCH and DELETE on a
+// session or work-request path, DELETE on a lease path (docs/DATA-API.md). A
+// pattern registered with a method already 405s a wrong-method request that
 // matches its path (net/http's ServeMux does this since Go 1.22), but that
-// only covers paths this package recognises; the static handler's "/"
-// pattern matches everything, method or not, and POST to a path nobody
-// registered would otherwise fall through to a 404 rather than the 405
-// docs/DESIGN.md §4.2 requires everywhere else.
+// only covers paths this package recognises; the static handler's "/" pattern
+// matches everything, method or not, and a POST to a path nobody registered
+// would otherwise fall through to a 404 rather than the 405 docs/DESIGN.md
+// §4.2 requires everywhere else.
+//
+// The gate decides against the escaped path, matching how the mux matches:
+// a workspace lease key is a path containing slashes, and a client
+// percent-encodes them (DELETE /api/leases/%2Ftmp%2Fws), so the escaped form
+// is the one whose shape identifies the route.
 func methodGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		method := r.Method
@@ -125,13 +210,32 @@ func methodGate(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if (method == http.MethodPut || method == http.MethodDelete) && isSettingsKeyPath(r.URL.Path) {
+		path := r.URL.EscapedPath()
+		if writeAllowed(method, path) {
 			next.ServeHTTP(w, r)
 			return
 		}
-		w.Header().Set("Allow", allowedMethods(r.URL.Path))
+		w.Header().Set("Allow", allowedMethods(path))
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	})
+}
+
+// writeAllowed reports whether method is a writing method the surface allows
+// on path. The sets live here, one place, so a phase that adds a resource
+// extends this switch rather than the gate itself.
+func writeAllowed(method, path string) bool {
+	switch {
+	case isSettingsKeyPath(path):
+		return method == http.MethodPut || method == http.MethodDelete
+	case isSessionPath(path):
+		return method == http.MethodPatch || method == http.MethodDelete
+	case isRequestPath(path):
+		return method == http.MethodPatch || method == http.MethodDelete
+	case isLeasePath(path):
+		return method == http.MethodDelete
+	default:
+		return false
+	}
 }
 
 // isSettingsKeyPath reports whether path is one key's settings resource —
@@ -147,14 +251,62 @@ func isSettingsKeyPath(path string) bool {
 	return rest != "" && !strings.Contains(rest, "/")
 }
 
+// isSessionPath reports whether path is exactly one session's resource —
+// /api/sessions/<id> with no further segments. The collection
+// (/api/sessions) and the event and stream subresources carry their own
+// rules: events are never writable (docs/DATA-API.md).
+func isSessionPath(path string) bool {
+	const prefix = "/api/sessions/"
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	rest := strings.TrimPrefix(path, prefix)
+	return rest != "" && !strings.Contains(rest, "/")
+}
+
+// isRequestPath reports whether path is exactly one work request's resource —
+// /api/requests/<request_id> with no further segments. The poll snapshot
+// subresource /api/requests/<request_id>/status is a read and carries its
+// own rule (it is never writable), so the gate keeps it out of the write
+// routes.
+func isRequestPath(path string) bool {
+	const prefix = "/api/requests/"
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	rest := strings.TrimPrefix(path, prefix)
+	return rest != "" && !strings.Contains(rest, "/")
+}
+
+// isLeasePath reports whether path is one workspace lease's resource — the
+// remainder of /api/leases/ is the lease key, which is a workspace path and
+// may itself contain slashes, percent-encoded by the client
+// (/api/leases/%2Ftmp%2Fws). The collection (/api/leases) is read-only.
+func isLeasePath(path string) bool {
+	const prefix = "/api/leases/"
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	rest := strings.TrimPrefix(path, prefix)
+	return rest != ""
+}
+
 // allowedMethods names the methods the surface actually allows for path, for
-// the Allow header on a rejected request. Only the settings key path allows
+// the Allow header on a rejected request. Only paths with a write route allow
 // the writing methods; every other path is GET and HEAD.
 func allowedMethods(path string) string {
-	if isSettingsKeyPath(path) {
+	switch {
+	case isSettingsKeyPath(path):
 		return "GET, HEAD, PUT, DELETE"
+	case isSessionPath(path):
+		return "GET, HEAD, PATCH, DELETE"
+	case isRequestPath(path):
+		return "GET, HEAD, PATCH, DELETE"
+	case isLeasePath(path):
+		return "GET, HEAD, DELETE"
+	default:
+		return "GET, HEAD"
 	}
-	return "GET, HEAD"
 }
 
 func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
@@ -206,6 +358,330 @@ func (s *Server) buildStates(ctx context.Context, sessions []store.Session) ([]h
 		states[i] = hub.BuildSessionState(sess, summaries[sess.ID], requestIDs[sess.ID], s.PriceTableDate)
 	}
 	return states, nil
+}
+
+// --- session writes ---
+
+// patchSessionBody is the JSON body PATCH /api/sessions/{id} accepts: the
+// terminal status to close the session into (docs/DATA-API.md).
+type patchSessionBody struct {
+	Status string `json:"status"`
+}
+
+// handlePatchSession serves PATCH /api/sessions/{id}: closes a session a dead
+// worker left running by transitioning it to a terminal status and setting
+// finished_at (docs/DATA-API.md). It is the write the read-only rule was
+// retired for — an abandoned row still says "running" and nothing else ever
+// closes it.
+//
+// The guards and preconditions, in order: the content-type and origin guards
+// every write carries; a body whose status is a terminal status (400
+// otherwise, naming the accepted values); the If-Match version (428 missing,
+// 412 stale — checked inside the store's write transaction so no interleaving
+// write can race it); and the idle precondition — a running session whose most
+// recent event is newer than sessionIdleThreshold is presumed live and
+// refused with a 409 naming the last event's time. Success is 200 with the
+// updated session row (including its new version), also fanned out to the
+// /api/stream list feed so open session lists update.
+func (s *Server) handlePatchSession(w http.ResponseWriter, r *http.Request) {
+	if !writeGuards(w, r) {
+		return
+	}
+	var body patchSessionBody
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `invalid JSON body: expected {"status": "<terminal status>"}`})
+		return
+	}
+	if !terminalSessionStatuses[body.Status] {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("status must be one of %s", strings.Join(terminalSessionStatusList, ", "))})
+		return
+	}
+	want, ok := parseIfMatch(w, r)
+	if !ok {
+		return
+	}
+	sess, err := s.Store.CloseSession(r.Context(), r.PathValue("id"), body.Status, want, time.Now(), sessionIdleThreshold)
+	if err != nil {
+		writeSessionWriteError(w, err)
+		return
+	}
+	states, err := s.buildStates(r.Context(), []store.Session{sess})
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, states[0])
+	s.Hub.PublishSessionState(states[0])
+}
+
+// handleDeleteSession serves DELETE /api/sessions/{id}: removes the session
+// row and its whole event log (docs/DATA-API.md), surfacing
+// store.DeleteSession — which refuses a running session regardless of
+// idleness, so an abandoned row must be closed with PATCH before it can be
+// deleted. It carries the content-type and origin guards and requires the
+// If-Match version (428 missing, 412 stale); the version check and the
+// running refusal both happen inside the store's write transaction.
+// Success is 200 {"ok": true}.
+func (s *Server) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
+	if !writeGuards(w, r) {
+		return
+	}
+	want, ok := parseIfMatch(w, r)
+	if !ok {
+		return
+	}
+	if err := s.Store.DeleteSession(r.Context(), r.PathValue("id"), want); err != nil {
+		writeSessionWriteError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// parseIfMatch reads the If-Match header every mutating write carries
+// (docs/DATA-API.md "Optimistic concurrency"): the version from the resource
+// representation, echoed back. A missing header is 428 Precondition Required
+// — the write cannot be proven fresh without it. A value that is not a
+// positive integer is a 400: the header is malformed, and the client should
+// fix its request rather than re-read. Whether the value *matches* the row is
+// the store's call, checked inside the write transaction.
+func parseIfMatch(w http.ResponseWriter, r *http.Request) (int, bool) {
+	header := r.Header.Get("If-Match")
+	if header == "" {
+		writeJSON(w, http.StatusPreconditionRequired, map[string]string{"error": "If-Match header required: echo the version from the resource"})
+		return 0, false
+	}
+	v, err := strconv.Atoi(strings.TrimSpace(header))
+	if err != nil || v < 1 {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "If-Match must be the version integer from the resource"})
+		return 0, false
+	}
+	return v, true
+}
+
+// writeSessionWriteError maps a store error from a session write to the wire:
+// not found is 404, a live or running session is 409, a version mismatch is
+// 412 — each carrying the store's own message, which names the last event's
+// time or the current version — and anything else is a 500 like every other
+// handler (docs/DATA-API.md "Error shape").
+func writeSessionWriteError(w http.ResponseWriter, err error) {
+	var active *store.ActiveSessionError
+	var running *store.SessionRunningError
+	var conflict *store.VersionConflictError
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
+	case errors.As(err, &active):
+		writeJSON(w, http.StatusConflict, map[string]string{"error": active.Error()})
+	case errors.As(err, &running):
+		writeJSON(w, http.StatusConflict, map[string]string{"error": running.Error()})
+	case errors.As(err, &conflict):
+		writeJSON(w, http.StatusPreconditionFailed, map[string]string{"error": conflict.Error()})
+	default:
+		writeInternalError(w, err)
+	}
+}
+
+// --- work-request and workspace-lease writes (phase 3) ---
+
+// workRequestRow is one work_requests row over HTTP: the idempotency row
+// itself — request id, session id, status, result JSON, received_at,
+// finished_at, delivery count — plus the version every row resource carries
+// (docs/DATA-API.md). It is the row, distinct from the polled snapshot
+// /api/requests/{request_id}/status serves; it answers "what does the table
+// say" rather than "what is the run doing right now".
+type workRequestRow struct {
+	RequestID     string          `json:"request_id"`
+	SessionID     string          `json:"session_id,omitempty"`
+	Status        string          `json:"status"`
+	Result        json.RawMessage `json:"result,omitempty"`
+	ReceivedAt    time.Time       `json:"received_at"`
+	FinishedAt    *time.Time      `json:"finished_at,omitempty"`
+	DeliveryCount int             `json:"delivery_count"`
+	Version       int             `json:"version"`
+}
+
+func workRequestRowFrom(wr store.WorkRequest) workRequestRow {
+	return workRequestRow{
+		RequestID:     wr.RequestID,
+		SessionID:     wr.SessionID,
+		Status:        wr.Status,
+		Result:        wr.Result,
+		ReceivedAt:    wr.ReceivedAt,
+		FinishedAt:    wr.FinishedAt,
+		DeliveryCount: wr.DeliveryCount,
+		Version:       wr.Version,
+	}
+}
+
+func (s *Server) handleGetWorkRequest(w http.ResponseWriter, r *http.Request) {
+	wr, err := s.Store.GetWorkRequest(r.Context(), r.PathValue("request_id"))
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(w, "request not found", http.StatusNotFound)
+			return
+		}
+		writeInternalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, workRequestRowFrom(wr))
+}
+
+// handlePatchWorkRequest serves PATCH /api/requests/{request_id}: closes a
+// request a dead worker left running by transitioning it to a terminal status
+// and setting finished_at (docs/DATA-API.md phase 3). It is the work-request
+// analogue of PATCH /api/sessions/{id}: an abandoned row still says "running"
+// and nothing else ever closes it.
+//
+// The guards and preconditions, in order: the content-type and origin guards
+// every write carries; a body whose status is a terminal status (400
+// otherwise, naming the accepted values); the If-Match version (428 missing,
+// 412 stale — checked inside the store's write transaction so no interleaving
+// write can race it); and the in-flight precondition — a request whose
+// session's most recent event is newer than sessionIdleThreshold is being run
+// by a live pool worker right now and is refused with a 409 naming the last
+// event's time. A request with no session id has never run and passes. A
+// request already terminal keeps its status — a re-close is a version bump
+// and nothing else, so a retried write is idempotent. Success is 200 with the
+// updated row.
+func (s *Server) handlePatchWorkRequest(w http.ResponseWriter, r *http.Request) {
+	if !writeGuards(w, r) {
+		return
+	}
+	var body patchSessionBody
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `invalid JSON body: expected {"status": "<terminal status>"}`})
+		return
+	}
+	if !terminalRequestStatuses[body.Status] {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("status must be one of %s", strings.Join(terminalRequestStatusList, ", "))})
+		return
+	}
+	want, ok := parseIfMatch(w, r)
+	if !ok {
+		return
+	}
+	wr, err := s.Store.CloseWorkRequest(r.Context(), r.PathValue("request_id"), body.Status, want, time.Now(), sessionIdleThreshold)
+	if err != nil {
+		writeRequestWriteError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, workRequestRowFrom(wr))
+}
+
+// handleDeleteWorkRequest serves DELETE /api/requests/{request_id}: removes
+// the work_requests row (docs/DATA-API.md phase 3). It carries the same
+// guards as the other writes, requires the If-Match version, and refuses a
+// request whose session is still live with a 409 naming the last event's time
+// — deleting the row of a run a live worker is finishing would swallow the
+// worker's result. A dead request — one whose session is idle or absent — may
+// be deleted directly. Success is 200 {"ok": true}.
+func (s *Server) handleDeleteWorkRequest(w http.ResponseWriter, r *http.Request) {
+	if !writeGuards(w, r) {
+		return
+	}
+	want, ok := parseIfMatch(w, r)
+	if !ok {
+		return
+	}
+	if err := s.Store.DeleteWorkRequest(r.Context(), r.PathValue("request_id"), want, time.Now(), sessionIdleThreshold); err != nil {
+		writeRequestWriteError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// writeRequestWriteError maps a store error from a work-request write to the
+// wire: not found is 404, a request in flight is 409, a version mismatch is
+// 412 — each carrying the store's own message, which names the last event's
+// time or the current version — and anything else is a 500 like every other
+// handler (docs/DATA-API.md "Error shape").
+func writeRequestWriteError(w http.ResponseWriter, err error) {
+	var active *store.ActiveRequestError
+	var conflict *store.VersionConflictError
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "request not found"})
+	case errors.As(err, &active):
+		writeJSON(w, http.StatusConflict, map[string]string{"error": active.Error()})
+	case errors.As(err, &conflict):
+		writeJSON(w, http.StatusPreconditionFailed, map[string]string{"error": conflict.Error()})
+	default:
+		writeInternalError(w, err)
+	}
+}
+
+// workspaceLeaseRow is one workspace_leases row over HTTP (docs/DATA-API.md
+// phase 3): the workspace, the session holding it, when it was acquired, when
+// it was last heartbeated, and the version every row resource carries.
+type workspaceLeaseRow struct {
+	Workspace   string    `json:"workspace"`
+	SessionID   string    `json:"session_id"`
+	AcquiredAt  time.Time `json:"acquired_at"`
+	HeartbeatAt time.Time `json:"heartbeat_at"`
+	Version     int       `json:"version"`
+}
+
+func workspaceLeaseRowFrom(l store.WorkspaceLease) workspaceLeaseRow {
+	return workspaceLeaseRow{
+		Workspace:   l.Workspace,
+		SessionID:   l.SessionID,
+		AcquiredAt:  l.AcquiredAt,
+		HeartbeatAt: l.HeartbeatAt,
+		Version:     l.Version,
+	}
+}
+
+func (s *Server) handleListLeases(w http.ResponseWriter, r *http.Request) {
+	leases, err := s.Store.ListWorkspaceLeases(r.Context())
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	rows := make([]workspaceLeaseRow, 0, len(leases))
+	for _, l := range leases {
+		rows = append(rows, workspaceLeaseRowFrom(l))
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+// handleDeleteLease serves DELETE /api/leases/{workspace}: releases a
+// workspace lease (docs/DATA-API.md phase 3). It carries the content-type and
+// origin guards, requires the If-Match version (428 missing, 412 stale), and
+// refuses a lease whose heartbeat is newer than sessionIdleThreshold with a
+// 409 naming the last heartbeat — the lease analog of the session endpoints'
+// active refusal: a live session heartbeats its lease, so a recent heartbeat
+// means the workspace is in use right now. Success is 200 {"ok": true}.
+func (s *Server) handleDeleteLease(w http.ResponseWriter, r *http.Request) {
+	if !writeGuards(w, r) {
+		return
+	}
+	want, ok := parseIfMatch(w, r)
+	if !ok {
+		return
+	}
+	if err := s.Store.DeleteWorkspaceLease(r.Context(), r.PathValue("workspace"), want, time.Now(), sessionIdleThreshold); err != nil {
+		writeLeaseWriteError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// writeLeaseWriteError maps a store error from a lease write to the wire: not
+// found is 404, a live lease is 409 naming the last heartbeat, a version
+// mismatch is 412, and anything else is a 500 like every other handler.
+func writeLeaseWriteError(w http.ResponseWriter, err error) {
+	var active *store.ActiveLeaseError
+	var conflict *store.VersionConflictError
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "lease not found"})
+	case errors.As(err, &active):
+		writeJSON(w, http.StatusConflict, map[string]string{"error": active.Error()})
+	case errors.As(err, &conflict):
+		writeJSON(w, http.StatusPreconditionFailed, map[string]string{"error": conflict.Error()})
+	default:
+		writeInternalError(w, err)
+	}
 }
 
 // requestStatus is GET /api/requests/{request_id}/status's response: a
@@ -417,9 +893,9 @@ type putSettingBody struct {
 // message; a missing or non-JSON content type is a 415; and a cross-origin
 // request (an Origin header that does not match the request's own Host) is a
 // 403 — the guards that keep a page open in the operator's browser from
-// writing keys to a loopback port (docs/DESIGN.md §4.2).
+// writing keys to a loopback port (docs/DESIGN.md §4.2, docs/DATA-API.md).
 func (s *Server) handlePutSetting(w http.ResponseWriter, r *http.Request) {
-	if !requireJSONContentType(w, r) || !checkOrigin(w, r) {
+	if !writeGuards(w, r) {
 		return
 	}
 	var body putSettingBody
@@ -438,7 +914,7 @@ func (s *Server) handlePutSetting(w http.ResponseWriter, r *http.Request) {
 // harness config unset. Deleting an unset key is not an error. It carries the
 // same content-type and origin guards as PUT (docs/DESIGN.md §4.2).
 func (s *Server) handleDeleteSetting(w http.ResponseWriter, r *http.Request) {
-	if !requireJSONContentType(w, r) || !checkOrigin(w, r) {
+	if !writeGuards(w, r) {
 		return
 	}
 	if err := s.Settings.Unset(r.Context(), r.PathValue("key")); err != nil {
@@ -466,10 +942,26 @@ func writeSettingError(w http.ResponseWriter, err error) {
 	}
 }
 
-// requireJSONContentType refuses a settings write whose Content-Type is not
+// writeGuards runs the two guards every write endpoint carries, in order, and
+// reports whether the request may proceed: a JSON content type (415) and a
+// same-origin check (403) (docs/DATA-API.md "The guards every write
+// carries"). Settings, session, and — from phase 3 — work-request and lease
+// handlers all call this one helper rather than repeating the pair, so the
+// guard set is extended in one place, not in every handler.
+func writeGuards(w http.ResponseWriter, r *http.Request) bool {
+	if !requireJSONContentType(w, r) {
+		return false
+	}
+	if !checkOrigin(w, r) {
+		return false
+	}
+	return true
+}
+
+// requireJSONContentType refuses a write whose Content-Type is not
 // application/json with 415 — a missing header included. A cross-origin form
 // post cannot set that header without a preflight the gate rejects, so this
-// and checkOrigin keep a web page from writing keys to a loopback port
+// and checkOrigin keep a web page from writing to a loopback port
 // (docs/DESIGN.md §4.2).
 func requireJSONContentType(w http.ResponseWriter, r *http.Request) bool {
 	mediaType, _, _ := strings.Cut(r.Header.Get("Content-Type"), ";")
@@ -480,7 +972,7 @@ func requireJSONContentType(w http.ResponseWriter, r *http.Request) bool {
 	return false
 }
 
-// checkOrigin refuses a cross-origin settings write with 403. The port binds
+// checkOrigin refuses a cross-origin write with 403. The port binds
 // loopback by default, which stops a remote attacker and does nothing about a
 // page open in the operator's own browser: any site can issue a cross-origin
 // request to 127.0.0.1. When the request carries an Origin header it must
@@ -516,7 +1008,14 @@ type eventsPage struct {
 	Events []store.Event `json:"events"`
 	From   int64         `json:"from"`
 	Limit  int           `json:"limit"`
-	Next   *int64        `json:"next,omitempty"`
+	// HasMore is the answer a pager actually needs: whether more events —
+	// more *matching* events when ?kind= is set — follow this page. It is
+	// decided by fetching one row past the page, so it is exact even when
+	// the log ends exactly on a page boundary. Next, when HasMore is true,
+	// is the seq to ask for the next page with: pass it back as ?from=
+	// (docs/DATA-API.md "events").
+	HasMore bool   `json:"has_more"`
+	Next    *int64 `json:"next,omitempty"`
 }
 
 func (s *Server) eventsLimits() (def, max int) {
@@ -537,6 +1036,12 @@ func (s *Server) handleGetEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	kinds, err := parseEventKinds(r.URL.Query().Get("kind"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
 	def, max := s.eventsLimits()
 	from := parseInt64(r.URL.Query().Get("from"), 0)
 	if from < 0 {
@@ -547,21 +1052,68 @@ func (s *Server) handleGetEvents(w http.ResponseWriter, r *http.Request) {
 		limit = def
 	}
 
-	events, err := s.Store.GetEventsAfter(r.Context(), id, from-1, limit)
+	// Fetch one row past the page so "is there more" is an exact answer
+	// rather than a guess from a page that happens to be full — a full page
+	// cannot tell "there is a next page" from "the log ends exactly here".
+	// The extra row is dropped before the response. When a kind filter is
+	// set, the probe is filtered the same way, so HasMore means more
+	// *matching* events, never more events the filter would discard.
+	events, err := s.Store.GetEventsAfterKinds(r.Context(), id, from-1, limit+1, kinds)
 	if err != nil {
 		writeInternalError(w, err)
 		return
+	}
+	hasMore := len(events) > limit
+	if hasMore {
+		events = events[:limit]
 	}
 	if events == nil {
 		events = []store.Event{}
 	}
 
-	page := eventsPage{Events: events, From: from, Limit: limit}
-	if len(events) == limit {
+	page := eventsPage{Events: events, From: from, Limit: limit, HasMore: hasMore}
+	if hasMore {
 		next := events[len(events)-1].Seq + 1
 		page.Next = &next
 	}
 	writeJSON(w, http.StatusOK, page)
+}
+
+// eventKindNames is every kind the event log can hold, as strings, in store
+// declaration order — the ?kind= filter's valid-value list. It derives from
+// store.EventKinds, the one list of kinds internal/store defines, so the
+// filter accepts exactly what the log can hold and its 400 names exactly
+// that; a kind added to the store extends the API here without a second
+// literal to forget (docs/DATA-API.md "events").
+var eventKindNames = func() []string {
+	names := make([]string, len(store.EventKinds))
+	for i, k := range store.EventKinds {
+		names[i] = string(k)
+	}
+	return names
+}()
+
+// parseEventKinds turns a ?kind= value — a comma-separated list of event
+// kind names — into the store kinds a page is filtered by. An empty value is
+// no filter (every kind). An unknown name is an error that names the valid
+// kinds, surfaced as the 400 docs/DATA-API.md's error shape prescribes.
+func parseEventKinds(v string) ([]store.EventKind, error) {
+	if v == "" {
+		return nil, nil
+	}
+	parts := strings.Split(v, ",")
+	kinds := make([]store.EventKind, 0, len(parts))
+	for _, p := range parts {
+		name := strings.TrimSpace(p)
+		if name == "" {
+			continue
+		}
+		if !store.ValidEventKind(name) {
+			return nil, fmt.Errorf("unknown event kind %q; valid kinds: %s", name, strings.Join(eventKindNames, ", "))
+		}
+		kinds = append(kinds, store.EventKind(name))
+	}
+	return kinds, nil
 }
 
 // handleSessionStream serves one session's transcript: the full history
