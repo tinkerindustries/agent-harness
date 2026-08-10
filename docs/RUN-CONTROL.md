@@ -116,14 +116,22 @@ type Controller struct {
 type inflight struct {
     requestID string
     sessionID string
+    msg       jetstream.Msg      // so the escalation can run the same finish
     cancel    context.CancelFunc // cancels runCtx: the soft stop
     done      chan struct{}      // closed when Runner.Run returns
-    releaseSlot func()           // idempotent; frees the pool semaphore
+    releaseSlot   func()         // idempotent; frees the pool semaphore
+    stopHeartbeat func()         // idempotent; stops the message heartbeat
+    started   time.Time
     stopping  atomic.Bool        // a stop has been accepted
     disposed  atomic.Bool        // the JetStream message has been answered
     reason    atomic.Pointer[string]
 }
 ```
+
+That is the shipped shape, not a sketch. Two fields are there for reasons
+that only became visible while building it: `msg`, because the escalation has
+to run the *same* finish sequence an ordinary run would rather than a
+parallel one, and `stopHeartbeat`, for the reason in the guards below.
 
 `httpapi` is given a small interface — `RunController` — implemented by
 `*worker.Pool`, not the whole pool, exactly as `QueuePool` already is for
@@ -229,11 +237,13 @@ the model, so say what to do differently.
    publishes a `cancelled` result and acks, exactly as it publishes any other
    terminal result.
 4. If the grace period passes, force-finish: mark the session row cancelled,
-   publish the terminal result, dispose of the JetStream message, release the
-   pool slot, and log a leaked-goroutine warning naming the session and the
-   tool call it was last seen in.
+   publish the terminal result, dispose of the JetStream message, stop the
+   heartbeat, release the pool slot, and log a leaked-goroutine warning
+   naming the session and request ids.
 
-Four things have to be true for step 4 to be honest rather than cosmetic.
+Six things have to be true for step 4 to be honest rather than cosmetic. The
+first four were designed in; the last two were found while building it, and
+each is a real failure rather than a tidiness point.
 
 **The pool slot must actually free.** Today the semaphore token is released by
 `defer func() { <-sem }()` in `Pool.Run`'s consume callback — a defer inside
@@ -251,6 +261,11 @@ whatever the local count says. The force-finish path therefore runs the same
 wedged goroutine that wakes up an hour later logs and returns instead of
 publishing a second, contradictory result over the top of the first.
 
+The flag's home is the `inflight` record rather than the registry, and that
+placement is load-bearing: `finish` deregisters the run, so a guard that lived
+in the map would stop guarding at exactly the moment the wedged goroutine is
+still out there holding a reference.
+
 **A cancelled session's log must stop growing.** The wedged goroutine holds a
 `store.Store` handle and will, if it ever unblocks, append tool results, a
 second `run_finished`, and a `FinishSession` that would move the row out of
@@ -266,6 +281,26 @@ This is worth more than tidiness: it is a second, independent stop. A wedged
 goroutine that wakes finds its next append refused, fails the run, and unwinds
 — so the leak is bounded by the wedged syscall, not by the run's remaining
 sub-turn budget.
+
+**The heartbeat closer must be shared, or the stop panics the process.**
+`Pool.run` stops its heartbeat with `defer close(hbDone)`. If the force-finish
+path closed that channel too, the wedged goroutine's own deferred close would
+close an already-closed channel and take the whole harness down with it — the
+one bug in this design that costs more than the run it was stopping. Both
+paths go through a single `sync.Once`-guarded closer. Leaving the heartbeat
+running instead is not an option either: it calls `msg.InProgress()` on an
+acked message every twenty seconds, forever.
+
+**A stop must not relabel a run that finished first.** The grace period
+creates a race with a real cost: the run reaches a terminal status of its own
+in the moment between the timer firing and the cancel landing. Overwriting
+`ok` with `cancelled` there would destroy the exact distinction the new status
+exists to carry, on the strength of a timer. `store.CancelRunningSession`
+refuses any row that is already terminal with a typed `SessionFinishedError`
+naming what it finished as; the escalation logs it, publishes nothing, and
+leaves the run's own result alone. A second cancel of an already-cancelled row
+is a no-op rather than a version bump, so a retried stop cannot move
+`finished_at` off the moment the stop actually landed.
 
 **A cancelled parent must take its subagents with it.** A `Task` subagent runs
 `Runner.Run` under the parent's `ctx`, so `cancel()` propagates without extra
