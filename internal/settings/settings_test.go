@@ -3,7 +3,9 @@ package settings
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 )
 
 // fakeStore is the settings surface of *store.Store, backed by a map so the
@@ -94,9 +96,11 @@ func TestResolverRejectsUnknownKeys(t *testing.T) {
 		if !errors.As(err, &ue) {
 			t.Fatalf("error = %v, want UnknownKeyError", err)
 		}
-		want := `unknown setting "deepsek.api_key"; valid settings: deepseek.api_key, google.api_key, google.vision_model`
-		if ue.Error() != want {
-			t.Fatalf("error text = %q, want %q", ue.Error(), want)
+		msg := ue.Error()
+		for _, want := range []string{`unknown setting "deepsek.api_key"`, "valid settings: deepseek.api_key, google.api_key", "worker.pool_size"} {
+			if !strings.Contains(msg, want) {
+				t.Errorf("error text %q does not contain %q", msg, want)
+			}
 		}
 	}
 }
@@ -114,8 +118,8 @@ func TestGoogleKeys(t *testing.T) {
 	}
 
 	model, err := r.GoogleVisionModel(ctx)
-	if err != nil || model != DefaultGoogleVisionModel {
-		t.Fatalf("GoogleVisionModel on empty store = %q err=%v, want %q nil", model, err, DefaultGoogleVisionModel)
+	if err != nil || model != "gemini-3.5-flash" {
+		t.Fatalf("GoogleVisionModel on empty store = %q err=%v, want gemini-3.5-flash nil", model, err)
 	}
 
 	if err := r.Set(ctx, KeyGoogleAPIKey, "gk-abc"); err != nil {
@@ -143,5 +147,91 @@ func TestIsSecretKey(t *testing.T) {
 	}
 	if IsSecretKey(KeyGoogleVisionModel) {
 		t.Error("google.vision_model is not a secret and must print in full")
+	}
+	for _, key := range []string{KeyRunMaxTokens, KeyWorkerPoolSize, KeyDefaultModel, KeyToolOutputCap} {
+		if IsSecretKey(key) {
+			t.Errorf("%s is not a credential and must not be masked", key)
+		}
+	}
+}
+
+// TestTypedAccessorsResolveDefaultsAndStoredValues pins the registry's
+// contract: with nothing stored, String/Int/Duration return the registry
+// default — the exact constants the limits used to be — and a stored value
+// wins.
+func TestTypedAccessorsResolveDefaultsAndStoredValues(t *testing.T) {
+	r := NewResolver(&fakeStore{values: map[string]string{}})
+	ctx := context.Background()
+
+	if v, err := r.Int(ctx, KeyRunMaxTokens); err != nil || v != 48000 {
+		t.Fatalf("Int(run.max_tokens) on empty store = %d err=%v, want 48000 nil", v, err)
+	}
+	if v, err := r.Duration(ctx, KeyRunDeadline); err != nil || v != 60*time.Minute {
+		t.Fatalf("Duration(run.deadline) on empty store = %v err=%v, want 1h nil", v, err)
+	}
+	if v, err := r.String(ctx, KeyDefaultModel); err != nil || v != "deepseek-v4-pro" {
+		t.Fatalf("String(model.default) on empty store = %q err=%v, want deepseek-v4-pro nil", v, err)
+	}
+
+	if err := r.Set(ctx, KeyRunMaxTokens, "100"); err != nil {
+		t.Fatalf("Set run.max_tokens: %v", err)
+	}
+	if v, err := r.Int(ctx, KeyRunMaxTokens); err != nil || v != 100 {
+		t.Fatalf("Int(run.max_tokens) after Set = %d err=%v, want 100 nil", v, err)
+	}
+}
+
+// TestSetRejectsValuesOutOfBounds pins that validation lives in the registry
+// and fires on every write: a negative bash timeout, an effort outside the
+// enum, a non-integer max_tokens, and an out-of-range page limit all fail
+// with a ValidationError carrying the descriptor's bounds.
+func TestSetRejectsValuesOutOfBounds(t *testing.T) {
+	r := NewResolver(&fakeStore{values: map[string]string{}})
+	ctx := context.Background()
+
+	cases := []struct {
+		key   string
+		value string
+		want  string
+	}{
+		{KeyToolBashTimeout, "-5s", "out of range"},
+		{KeyToolBashTimeout, "not a duration", "is not a duration"},
+		{KeyRunMaxTokens, "not a number", "is not an integer"},
+		{KeyRunMaxTokens, "0", "out of range"},
+		{KeyRunMaxTokens, "5000000000", "out of range"},
+		{KeyDefaultEffort, "turbo", "must be one of low, high, max"},
+		{KeyHTTPEventsLimitMax, "0", "out of range"},
+	}
+	for _, tc := range cases {
+		err := r.Set(ctx, tc.key, tc.value)
+		var ve ValidationError
+		if !errors.As(err, &ve) {
+			t.Fatalf("Set(%s, %q) error = %v, want ValidationError", tc.key, tc.value, err)
+		}
+		if !strings.Contains(ve.Error(), tc.want) {
+			t.Errorf("Set(%s, %q) error %q does not contain %q", tc.key, tc.value, ve.Error(), tc.want)
+		}
+		if _, ok, err := r.Get(ctx, tc.key); err != nil || ok {
+			t.Errorf("Set(%s, %q) stored the rejected value (ok=%v err=%v)", tc.key, tc.value, ok, err)
+		}
+	}
+}
+
+// TestRestartFlagsPins the six settings that need a restart, so the CLI and
+// the screen keep marking exactly them.
+func TestRestartFlags(t *testing.T) {
+	for _, key := range []string{
+		KeyWorkerPoolSize, KeyWorkerConcurrencyPro, KeyWorkerConcurrencyFlash,
+		KeyQueueResultsMaxAge, KeyHTTPEventsLimitDefault, KeyHTTPEventsLimitMax,
+	} {
+		d, ok := Lookup(key)
+		if !ok || !d.Restart {
+			t.Errorf("%s must carry the restart flag", key)
+		}
+	}
+	for _, key := range []string{KeyRunMaxTokens, KeyToolOutputCap, KeyDefaultModel, KeyGoogleVisionModel} {
+		if d, ok := Lookup(key); !ok || d.Restart {
+			t.Errorf("%s must not carry the restart flag", key)
+		}
 	}
 }
