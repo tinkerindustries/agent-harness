@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/session"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
@@ -61,6 +60,9 @@ func runResume(ctx context.Context, args []string) error {
 		return err
 	}
 
+	rec := newHTTPLogRecorder(cfg)
+	defer closeHTTPLog(rec)
+
 	var resolver tools.Resolver
 	if *interactive {
 		resolver = newInteractiveResolver()
@@ -69,7 +71,8 @@ func runResume(ctx context.Context, args []string) error {
 	r := &session.Runner{
 		Store:      st,
 		Mirror:     store.NewMirror(cfg.DataDir),
-		Client:     deepseek.NewClient(cfg.BaseURL, cfg.APIKey),
+		Client:     withHTTPLog(cfg, rec),
+		Recorder:   rec,
 		Prices:     priceTable,
 		FlashModel: cfg.FlashModel,
 	}

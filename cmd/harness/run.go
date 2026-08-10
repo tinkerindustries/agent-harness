@@ -13,7 +13,6 @@ import (
 	"sync"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/session"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
@@ -128,6 +127,9 @@ func runRun(ctx context.Context, args []string) error {
 	}
 	defer st.Close()
 
+	rec := newHTTPLogRecorder(cfg)
+	defer closeHTTPLog(rec)
+
 	var resolver tools.Resolver
 	if *interactive {
 		resolver = newInteractiveResolver()
@@ -136,7 +138,8 @@ func runRun(ctx context.Context, args []string) error {
 	r := &session.Runner{
 		Store:      st,
 		Mirror:     store.NewMirror(cfg.DataDir),
-		Client:     deepseek.NewClient(cfg.BaseURL, cfg.APIKey),
+		Client:     withHTTPLog(cfg, rec),
+		Recorder:   rec,
 		Prices:     priceTable,
 		FlashModel: cfg.FlashModel,
 	}
