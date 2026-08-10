@@ -1126,6 +1126,191 @@ pre {
   }
 }
 
+/* ---------- the timeline rail (docs/WEB-REDESIGN.md phase 6) ----------
+   The sticky left column that lists every sub-turn under the plan item that
+   was in_progress when it ran (design/transcript.html). The column sticks
+   below the toolbar and scrolls its own content with plain overflow — NOT
+   ScrollArea (phase 1's deliberate omission: a custom scroll container costs
+   a wrapper and a listener per column on a screen that is already
+   frame-budget sensitive). */
+
+.transcript-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.timeline-rail {
+  flex: 0 0 220px;
+  align-self: flex-start;
+  position: sticky;
+  top: 54px;
+  max-height: calc(100vh - 70px);
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
+  background: var(--card);
+  font-size: 0.8125rem;
+  padding: 6px 0 10px;
+}
+
+.rail-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 12px 8px;
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.rail-count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A phase is one AccordionItem (type multiple — several open at once while
+   browsing); the summary row is the trigger, styled as design/transcript.html's
+   .rail-phase > summary. */
+.rail-phase {
+  border-bottom: 0;
+}
+
+.rail-phase-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 10px;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  text-align: left;
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  font: inherit;
+}
+
+.rail-phase-trigger:hover {
+  background: var(--accent);
+}
+
+.rail-caret {
+  flex: none;
+}
+
+.rail-phase-trigger[data-state="open"] .rail-caret {
+  transform: rotate(90deg);
+}
+
+.phase-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.rail-phase-trigger[data-state="open"] .phase-name {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.phase-range {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.rail-phase-content {
+  padding-bottom: 2px;
+}
+
+/* One sub-turn entry: number and the glyph row, an anchor to the card (the
+   .subturn scroll-margin-top keeps the target clear of the sticky toolbar).
+   The current entry is marked by aria-current and the observer's marker. */
+.rail-turn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 26px;
+  border-left: 2px solid transparent;
+  text-decoration: none;
+  color: var(--foreground);
+}
+
+.rail-turn:hover {
+  background: var(--accent);
+}
+
+.rail-turn[aria-current="true"] {
+  border-left-color: var(--foreground);
+  background: var(--secondary);
+  font-weight: 600;
+}
+
+.rail-turn .n {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  width: 26px;
+  flex: none;
+  text-align: right;
+}
+
+.rail-turn[aria-current="true"] .n {
+  color: var(--foreground);
+}
+
+/* The glyph row: one monospace letter per tool call, coloured by family
+   (design/components.html "Tool glyphs" — writes green, shell blue, failed
+   results red). */
+.glyphs {
+  display: flex;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.g {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 4px;
+  background: var(--secondary);
+  color: var(--muted-foreground);
+  font-size: 0.625rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  flex: none;
+}
+
+.g-write {
+  background: var(--diff-add-bg);
+  color: var(--diff-add-fg);
+}
+
+.g-bash {
+  background: var(--status-running-bg);
+  color: var(--status-running);
+}
+
+.g-err {
+  background: var(--status-failed-bg);
+  color: var(--status-failed);
+}
+
+/* A narrow viewport has no room for a third column; the rail is a
+   navigation aid, not the transcript itself. */
+@media (max-width: 1100px) {
+  .timeline-rail {
+    display: none;
+  }
+}
+
 /* ---------- diff table ---------- */
 
 .diff-table {

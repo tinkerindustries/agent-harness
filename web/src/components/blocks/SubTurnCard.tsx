@@ -45,6 +45,11 @@ export const SubTurnCard = memo(function SubTurnCard({
   return (
     <Card
       id={`sub-turn-${group.subTurn}`}
+      // data-seq is the group's stable id for the phase 6 rail: the rail's
+      // single IntersectionObserver watches these card elements and maps
+      // them back to rail entries by this attribute (docs/WEB-REDESIGN.md
+      // phase 6, "the group is what the observer watches").
+      data-seq={group.seq}
       className="subturn gap-0 py-0 shadow-none overflow-hidden rounded-lg"
     >
       <Collapsible

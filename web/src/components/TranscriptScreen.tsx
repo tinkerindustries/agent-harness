@@ -1,10 +1,11 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { SessionState } from "../api/types";
 import type { Block } from "../api/fold";
 import type { TranscriptFilter } from "../api/groups";
 import { useTranscriptStore } from "../hooks";
 import { BlockList } from "./BlockList";
 import { PlanPanel } from "./PlanPanel";
+import { TimelineRail } from "./TimelineRail";
 import { TranscriptToolbar } from "./TranscriptToolbar";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -33,6 +34,9 @@ export function TranscriptScreen({ sessionId, onBack }: Props) {
   // one deliberate re-render.
   const [density, setDensity] = useState<Density>("compact");
   const [filter, setFilter] = useState<TranscriptFilter>("all");
+  // The transcript column the phase 6 rail's single IntersectionObserver
+  // watches for the current marker (docs/WEB-REDESIGN.md phase 6).
+  const transcriptRef = useRef<HTMLDivElement>(null);
 
   return (
     <div className="screen screen-transcript">
@@ -87,13 +91,21 @@ export function TranscriptScreen({ sessionId, onBack }: Props) {
         </div>
       )}
       <div className="transcript-layout">
-        <BlockList
+        <TimelineRail
           items={snapshot.items}
-          live={snapshot.live}
-          density={density}
-          filter={filter}
           getToolCall={snapshot.getToolCall}
+          filter={filter}
+          containerRef={transcriptRef}
         />
+        <div ref={transcriptRef} className="transcript-col">
+          <BlockList
+            items={snapshot.items}
+            live={snapshot.live}
+            density={density}
+            filter={filter}
+            getToolCall={snapshot.getToolCall}
+          />
+        </div>
         <PlanPanel todos={snapshot.todos} />
       </div>
     </div>

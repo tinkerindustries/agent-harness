@@ -144,7 +144,7 @@ export class TranscriptStore {
   private buildSnapshot(): TranscriptSnapshot {
     return {
       blocks: this.fold.blocks,
-      items: this.groups.sync(this.fold.blocks),
+      items: this.groups.sync(this.fold.blocks, this.fold.latestTodos),
       live: this.fold.live,
       todos: this.fold.latestTodos,
       connection: this.connection,
