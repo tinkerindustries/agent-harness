@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -11,6 +12,41 @@ const (
 	managedBlockStart = "# --- harness worktree env: managed by `harness worktree init`; edits below are overwritten ---"
 	managedBlockEnd   = "# --- end harness worktree env ---"
 )
+
+// managedKeys are every key the block above sets. Any line defining one of
+// these outside the block — most commonly a leftover from the main
+// checkout's own .env, which init copies in wholesale — is stripped rather
+// than left to shadow the managed value: dotenv parsers disagree on which
+// duplicate wins (config.LoadDotEnv keeps the *first*; docker compose's own
+// parser keeps the *last*), so two conflicting definitions is a bug either
+// way, not a matter of ordering them correctly.
+var managedKeys = []string{
+	"COMPOSE_PROJECT_NAME",
+	"NATS_CLIENT_PORT", "NATS_MONITOR_PORT", "NATS_URL",
+	"HARNESS_HTTP_PORT", "HARNESS_MCP_PORT",
+	"HARNESS_TEST_NATS_PORT", "HARNESS_TEST_NATS_URL",
+	"DEEPSEEK_HTTP_ADDR", "DEEPSEEK_MCP_ADDR",
+	"DEEPSEEK_HARNESS_BASE_URL", "DEEPSEEK_HARNESS_PUBLIC_URL",
+	"DEEPSEEK_WORKSPACE_ROOT", "HARNESS_VITE_PORT",
+}
+
+// stripManagedKeys drops every line of content that assigns one of
+// managedKeys, leaving comments and everything else untouched. Used on both
+// the seed content (a copy of the main checkout's .env) and the material
+// outside the markers in an existing worktree .env, so the managed block is
+// always the single definition of each of these keys.
+func stripManagedKeys(content string) string {
+	lines := strings.Split(content, "\n")
+	kept := make([]string, 0, len(lines))
+	for _, line := range lines {
+		key, _, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if ok && slices.Contains(managedKeys, key) {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n")
+}
 
 // managedBlock renders the .env lines this package owns for one worktree's
 // allocation. Every value here is also on the descriptor; this is the form
@@ -61,13 +97,11 @@ func UpsertEnv(worktreeRoot string, d Descriptor, seedFrom string) error {
 		if seedErr != nil && !os.IsNotExist(seedErr) {
 			return fmt.Errorf("read %s to seed %s: %w", seedFrom, envPath, seedErr)
 		}
+		seedContent := strings.TrimRight(stripManagedKeys(string(seed)), "\n")
 		var b strings.Builder
-		if len(seed) > 0 {
-			b.Write(seed)
-			if !strings.HasSuffix(string(seed), "\n") {
-				b.WriteByte('\n')
-			}
-			b.WriteByte('\n')
+		if seedContent != "" {
+			b.WriteString(seedContent)
+			b.WriteString("\n\n")
 		}
 		b.WriteString(block)
 		b.WriteByte('\n')
@@ -83,19 +117,31 @@ func UpsertEnv(worktreeRoot string, d Descriptor, seedFrom string) error {
 	if startIdx == -1 || endIdx == -1 || endIdx < startIdx {
 		// No managed block yet (a hand-written .env, or one predating this
 		// tool): append rather than guessing where to splice.
+		rest := strings.TrimRight(stripManagedKeys(content), "\n")
 		var b strings.Builder
-		b.WriteString(content)
-		if !strings.HasSuffix(content, "\n") {
-			b.WriteByte('\n')
+		if rest != "" {
+			b.WriteString(rest)
+			b.WriteString("\n\n")
 		}
-		b.WriteByte('\n')
 		b.WriteString(block)
 		b.WriteByte('\n')
 		return writeFileAtomic(envPath, []byte(b.String()), 0o600)
 	}
 
-	newContent := content[:startIdx] + block + content[endIdx+len(managedBlockEnd):]
-	return writeFileAtomic(envPath, []byte(newContent), 0o600)
+	before := strings.TrimRight(stripManagedKeys(content[:startIdx]), "\n")
+	after := strings.TrimLeft(stripManagedKeys(content[endIdx+len(managedBlockEnd):]), "\n")
+	var b strings.Builder
+	if before != "" {
+		b.WriteString(before)
+		b.WriteString("\n\n")
+	}
+	b.WriteString(block)
+	if after != "" {
+		b.WriteString("\n\n")
+		b.WriteString(after)
+	}
+	b.WriteByte('\n')
+	return writeFileAtomic(envPath, []byte(b.String()), 0o600)
 }
 
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
