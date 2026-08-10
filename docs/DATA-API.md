@@ -10,7 +10,7 @@ the decisions those phases must copy rather than re-make.
 Two distinctions bracket what belongs here:
 
 - **Data, not run control.** A write that changes a row the harness manages —
-  closing an abandoned session, deleting a finished one, retrying a dead work
+  closing an abandoned session, deleting a finished one, closing a dead work
   request — is data and belongs in this API. A write that *starts, steers, or
   stops a run* — publishing a work request, resuming a session, cancelling the
   loop — is run control and is a later stage whose seam is not designed yet.
@@ -71,12 +71,16 @@ plus the SSE transcript stream.
 
 A work request is the idempotency row for one queued job: request id, the
 session that ran it, status, result JSON, `received_at`, `finished_at`,
-delivery count. Phase 3 adds:
+delivery count. It is **single-use**: the row's `session_id` is attached the
+moment an attempt's session row exists, and once it is set the request never
+runs again, whatever its status ([DESIGN.md §4.10](DESIGN.md#410-work-ingress-over-nats-jetstream)).
+A request is retried by republishing it under a new `request_id`, never by
+re-running the old one. Phase 3 adds:
 
 - `GET /api/requests/{request_id}` — the row (the existing
   `/status` snapshot stays).
-- `PATCH /api/requests/{request_id}` — repair a dead request (phase 2 makes
-  requests single-use; a request left `running` by a dead worker needs the same
+- `PATCH /api/requests/{request_id}` — close a dead request (a request left
+  `running` by a dead worker still holds its spent row and needs the same
   kind of operator close sessions do).
 - `DELETE /api/requests/{request_id}` — remove the row.
 

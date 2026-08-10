@@ -53,14 +53,12 @@ const (
 	// zero. Production resolves worker.max_delivery_attempts from the
 	// settings registry and passes it in.
 	//
-	// A ceiling has to exist. A run holds its message unacked for the whole
-	// run and heartbeats InProgress; a process that dies stops heartbeating,
-	// AckWait expires, and the request comes back as a fresh attempt, which
-	// is the takeover path §4.10 describes and is what we want. With
-	// JetStream's default of unlimited redelivery, though, a request that
-	// kills its worker every time is redelivered forever — each attempt
-	// burning a pool slot — and the operator's instinctive fix, killing the
-	// stuck run, is precisely what triggers the next attempt.
+	// A ceiling has to exist. Once a request carries a session id it is
+	// single-use and a redelivery fails it rather than re-runs it (§4.10), so
+	// the ceiling's job is the requests that die *before* their session
+	// exists — the only ones redelivery still claims. One of those that keeps
+	// dying during preparation would otherwise be redelivered forever, each
+	// attempt burning a pool slot; the ceiling caps that.
 	DefaultMaxDeliveryAttempts = 5
 
 	// resultsDuplicateWindow is longer than the 2-minute
