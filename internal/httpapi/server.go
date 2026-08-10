@@ -579,26 +579,37 @@ func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `invalid JSON body: expected {"reason": "..."}`})
 		return
 	}
-	sess, err := s.Store.GetSession(r.Context(), r.PathValue("id"))
+	// The registry is asked before the store, and the order is load-bearing. A
+	// run is registered before its workspace is prepared, and its session row
+	// is not created until the session loop starts — so a run wedged in a
+	// git clone is registered, stoppable, and has no row to look up. Asking
+	// the store first would answer 404 for exactly the run an operator most
+	// needs to end (docs/RUN-CONTROL.md "Half two": the escalation has its own
+	// branch for a stop that finds no session row to mark).
+	//
+	// The controller is nil in any caller that has no pool; that caller is
+	// running nothing, and every session falls through to the store below.
+	id := r.PathValue("id")
+	if s.Run != nil && s.Run.Running(id) {
+		if err := s.Run.Stop(id, body.Reason); err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusAccepted, map[string]any{"session_id": id, "stopping": true})
+		return
+	}
+
+	// Not running here: the store decides whether that is a 404 for a session
+	// nobody has heard of, or a 409 for one this process finished or never
+	// ran, naming the status it actually holds.
+	sess, err := s.Store.GetSession(r.Context(), id)
 	if err != nil {
 		writeSessionLookupError(w, err)
 		return
 	}
-	// The controller is nil in any caller that has no pool; that caller is
-	// running nothing, so every existing session is "not running here" — the
-	// same honest answer as a session this process finished or never ran.
-	running := s.Run != nil && s.Run.Running(sess.ID)
-	if !running {
-		writeJSON(w, http.StatusConflict, map[string]string{
-			"error": fmt.Sprintf("session %s is not running in this process (status %s)", sess.ID, sess.Status),
-		})
-		return
-	}
-	if err := s.Run.Stop(sess.ID, body.Reason); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
-	writeJSON(w, http.StatusAccepted, map[string]any{"session_id": sess.ID, "stopping": true})
+	writeJSON(w, http.StatusConflict, map[string]string{
+		"error": fmt.Sprintf("session %s is not running in this process (status %s)", sess.ID, sess.Status),
+	})
 }
 
 // requireControlToken enforces the bearer token the run-control endpoints

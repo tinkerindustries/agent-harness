@@ -3028,7 +3028,7 @@ func TestStopPreconditionsAndIdempotence(t *testing.T) {
 		t.Fatalf("finish session: %v", err)
 	}
 
-	// 404: the session does not exist in the store.
+	// 404: the session does not exist in the store, and no run owns it either.
 	resp := doWrite(t, srv, http.MethodPost, "/api/sessions/does-not-exist/stop", `{}`, controlAuth)
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
@@ -3084,6 +3084,34 @@ func TestStopPreconditionsAndIdempotence(t *testing.T) {
 	}
 	if ctrl.stops[0].reason != "enough" {
 		t.Fatalf("first stop reason = %q, want %q", ctrl.stops[0].reason, "enough")
+	}
+}
+
+// TestStopRunWithNoSessionRowYet is the case the registry is asked about
+// before the store: a run is registered before its workspace is prepared, and
+// its session row is not created until the session loop starts. So a run
+// wedged in a git clone is registered and stoppable while no row exists for
+// it — and looking the store up first would answer 404 for exactly the run an
+// operator most needs to end (docs/RUN-CONTROL.md "Half two").
+func TestStopRunWithNoSessionRowYet(t *testing.T) {
+	ctrl := &fakeRunController{running: map[string]bool{"sess-cloning": true}}
+	srv, _ := newControlTestServer(t, ctrl)
+
+	// No mustCreateSession: the store has never heard of this session.
+	resp := doWrite(t, srv, http.MethodPost, "/api/sessions/sess-cloning/stop", `{"reason":"clone is wedged"}`, controlAuth)
+	body, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("a registered run with no session row: got status %d, want 202 (body %s)", resp.StatusCode, body)
+	}
+	if len(ctrl.stops) != 1 || ctrl.stops[0].sessionID != "sess-cloning" {
+		t.Fatalf("expected one stop for sess-cloning, got %+v", ctrl.stops)
+	}
+	if ctrl.stops[0].reason != "clone is wedged" {
+		t.Fatalf("stop reason = %q, want %q", ctrl.stops[0].reason, "clone is wedged")
 	}
 }
 
