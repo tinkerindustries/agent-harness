@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { foldEvents } from "./fold";
-import { groupBySubTurn, SubTurnGroupState, type SubTurnGroup, type TranscriptItem } from "./groups";
+import { groupBySubTurn, groupMatchesFilter, SubTurnGroupState, type SubTurnGroup, type TranscriptItem } from "./groups";
 import type { StoreEvent } from "./types";
 
 function ev(seq: number, kind: StoreEvent["kind"], payload: unknown): StoreEvent {
@@ -206,5 +206,99 @@ describe("SubTurnGroupState incremental sync", () => {
     const state = new SubTurnGroupState();
     for (let n = 1; n <= blocks.length; n++) state.sync(blocks.slice(0, n));
     expect(state.sync(blocks)).toEqual(groupBySubTurn(blocks));
+  });
+});
+
+// A session whose filter families are all represented: turn 1 a clean Bash,
+// turn 2 an Edit followed by a failing Bash, turn 3 a churned usage.
+function filterSampleEvents(): StoreEvent[] {
+  return [
+    ev(1, "session_started", { opening_message: "x" }),
+    // turn 1: one clean Bash call
+    ev(2, "turn_started", { sub_turn: 1 }),
+    ev(3, "tool_call", { index: 0, id: "c1", name: "Bash", arguments: '{"command":"npm test"}' }),
+    ev(4, "turn_finished", { finish_reason: "tool_calls" }),
+    ev(5, "tool_result", { tool_call_id: "c1", name: "Bash", content: "ok\n" }),
+    usage(1),
+    // turn 2: an Edit and a failing Bash
+    ev(6, "turn_started", { sub_turn: 2 }),
+    ev(7, "tool_call", { index: 0, id: "c2", name: "Edit", arguments: '{"file_path":"a.go"}' }),
+    ev(8, "tool_call", { index: 1, id: "c3", name: "Bash", arguments: '{"command":"go build ./..."}' }),
+    ev(9, "turn_finished", { finish_reason: "tool_calls" }),
+    ev(10, "tool_result", {
+      tool_call_id: "c2",
+      name: "Edit",
+      content: "edited",
+      diff: [
+        { kind: "remove", text: "a", old_line: 1 },
+        { kind: "add", text: "b", new_line: 1 },
+      ],
+    }),
+    ev(11, "tool_result", { tool_call_id: "c3", name: "Bash", content: "failed\n[exit code 2]", is_error: true }),
+    usage(2),
+    // turn 3: a churned usage
+    ev(12, "turn_started", { sub_turn: 3 }),
+    ev(13, "turn_finished", { finish_reason: "stop" }),
+    usage(3, { prompt_cache_miss_tokens: 500, expected_miss_tokens: 100, churn_point_index: 88 }),
+  ];
+}
+
+describe("filter counts", () => {
+  it("maintains per-card counts from the same pass that builds the groups", () => {
+    const state = new SubTurnGroupState();
+    state.sync(foldEvents(filterSampleEvents()));
+    // Two Bash cards (turns 1 and 2), one Edit card, one error card (turn 2's
+    // failing Bash), one churned card — the families count cards, not calls.
+    expect(state.counts).toEqual({ total: 3, edits: 1, bash: 2, errors: 1, churn: 1 });
+  });
+
+  it("counts are identical whether folded incrementally or all at once", () => {
+    const blocks = foldEvents(filterSampleEvents());
+    const state = new SubTurnGroupState();
+    for (let n = 1; n <= blocks.length; n++) state.sync(blocks.slice(0, n));
+    const once = new SubTurnGroupState();
+    once.sync(blocks);
+    expect(state.counts).toEqual(once.counts);
+    expect(state.churnPoint).toEqual(once.churnPoint);
+  });
+
+  it("matches a group against its filter family", () => {
+    const items = groupBySubTurn(foldEvents(filterSampleEvents()));
+    const byTurn = new Map<number, SubTurnGroup>();
+    for (const item of items) {
+      if (item.kind === "group") byTurn.set(item.group.subTurn, item.group);
+    }
+    const turn1 = byTurn.get(1)!;
+    const turn2 = byTurn.get(2)!;
+    const turn3 = byTurn.get(3)!;
+    expect(groupMatchesFilter(turn1, "bash")).toBe(true);
+    expect(groupMatchesFilter(turn1, "edits")).toBe(false);
+    expect(groupMatchesFilter(turn2, "edits")).toBe(true);
+    expect(groupMatchesFilter(turn2, "errors")).toBe(true);
+    expect(groupMatchesFilter(turn2, "bash")).toBe(true);
+    expect(groupMatchesFilter(turn3, "churn")).toBe(true);
+    expect(groupMatchesFilter(turn3, "errors")).toBe(false);
+    for (const group of [turn1, turn2, turn3]) expect(groupMatchesFilter(group, "all")).toBe(true);
+  });
+
+  it("records the first churn point with the tokens re-sent above the expected miss", () => {
+    const state = new SubTurnGroupState();
+    state.sync(foldEvents(filterSampleEvents()));
+    expect(state.churnPoint).toEqual({ subTurn: 3, excessTokens: 400 });
+  });
+
+  it("records a churn carried by a loose usage (starved retry) too", () => {
+    const events = [
+      ev(1, "session_started", { opening_message: "x" }),
+      ev(2, "turn_started", { sub_turn: 1 }),
+      // First attempt's usage arrives before turn_finished, so it stays a
+      // loose block — but it still names the churn the banner must show.
+      usage(1, { attempt: 1, prompt_cache_miss_tokens: 600, expected_miss_tokens: 100, churn_point_index: 12 }),
+      ev(3, "turn_finished", { finish_reason: "stop" }),
+      usage(1, { attempt: 2 }),
+    ];
+    const state = new SubTurnGroupState();
+    state.sync(foldEvents(events));
+    expect(state.churnPoint).toEqual({ subTurn: 1, excessTokens: 500 });
   });
 });
