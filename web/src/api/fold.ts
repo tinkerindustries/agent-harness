@@ -39,6 +39,7 @@ export type Block =
       toolCalls: ToolCallPayload[];
       finishReason: string;
       reasoningElapsedMs?: number;
+      reasoningTokens?: number;
     }
   | ({ type: "tool_result"; seq: number; call?: ToolCallPayload } & ToolResultPayload)
   | ({ type: "tool_denied"; seq: number; call?: ToolCallPayload } & ToolDeniedPayload)
@@ -109,6 +110,22 @@ export class FoldState {
     this.blocks = [...this.blocks, block];
   }
 
+  // attachReasoningTokens amends the sub-turn's frozen assistant block with
+  // the API's own reasoning_tokens count, once per sub-turn. A starved
+  // retry's first usage arrives before its turn_finished and is skipped here;
+  // the retry's own usage, which follows turn_finished, attaches instead.
+  private attachReasoningTokens(p: UsagePayload): void {
+    if (this.live.turn && this.live.turn.subTurn === p.sub_turn) return;
+    for (let i = this.blocks.length - 1; i >= 0; i--) {
+      const b = this.blocks[i];
+      if (b.type === "assistant" && b.subTurn === p.sub_turn && b.reasoningTokens === undefined) {
+        this.blocks = [...this.blocks];
+        this.blocks[i] = { ...b, reasoningTokens: p.reasoning_tokens };
+        return;
+      }
+    }
+  }
+
   ingest(ev: StoreEvent): void {
     switch (ev.kind) {
       case "session_started": {
@@ -159,7 +176,6 @@ export class FoldState {
         const p = ev.payload as TurnFinishedPayload;
         const turn = this.live.turn;
         if (turn) {
-          const elapsed = Date.parse(ev.created_at) - Date.parse(turn.startedAt);
           this.pushBlock({
             type: "assistant",
             seq: turn.seq,
@@ -168,7 +184,10 @@ export class FoldState {
             content: turn.content,
             toolCalls: turn.toolCalls,
             finishReason: p.finish_reason,
-            reasoningElapsedMs: Number.isFinite(elapsed) ? elapsed : undefined,
+            // The figure is measured server-side around the request and
+            // carried in the payload; every event of a batch shares one
+            // created_at, which cannot express it. Absent on old sessions.
+            reasoningElapsedMs: p.elapsed_ms,
           });
           for (const call of turn.toolCalls) {
             this.live.pendingTools.set(call.id, { call, stdout: "" });
@@ -198,6 +217,7 @@ export class FoldState {
       case "usage": {
         const p = ev.payload as UsagePayload;
         this.pushBlock({ type: "usage", seq: ev.seq, ...p });
+        this.attachReasoningTokens(p);
         break;
       }
       case "run_finished": {

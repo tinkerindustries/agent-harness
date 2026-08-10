@@ -1,9 +1,9 @@
 // ReasoningPanel is voluminous and mostly skimmed (docs/DESIGN.md §5.6): it
 // expands while streaming and collapses on completion, showing elapsed time
-// and an approximate token count. The count is a character-based estimate,
-// not the API's own reasoning_tokens figure — that number belongs to the
-// usage event, arrives after the block that would show it has already
-// frozen, and belongs to per-turn cost accounting rather than this panel.
+// and a token count. Completed sub-turns show the API's own reasoning_tokens
+// figure, attached by the fold when the usage event lands; a sub-turn still
+// streaming has no usage event yet, so its count falls back to a
+// character-based estimate.
 function approxTokens(text: string): number {
   return Math.max(1, Math.round(text.length / 4));
 }
@@ -19,15 +19,17 @@ interface Props {
   defaultOpen: boolean;
   elapsedMs?: number;
   startedAt?: string;
+  tokens?: number;
 }
 
-export function ReasoningPanel({ text, defaultOpen, elapsedMs, startedAt }: Props) {
+export function ReasoningPanel({ text, defaultOpen, elapsedMs, startedAt, tokens }: Props) {
   const elapsed = elapsedMs ?? (startedAt ? Date.now() - Date.parse(startedAt) : undefined);
   const elapsedLabel = elapsed !== undefined ? formatElapsed(elapsed) : "";
+  const tokenLabel = tokens !== undefined ? `${tokens} tokens` : `~${approxTokens(text)} tokens`;
   return (
     <details className="reasoning" open={defaultOpen}>
       <summary>
-        reasoning{elapsedLabel && ` · ${elapsedLabel}`} · ~{approxTokens(text)} tokens
+        reasoning{elapsedLabel && ` · ${elapsedLabel}`} · {tokenLabel}
       </summary>
       <pre className="block-text reasoning-text">{text}</pre>
     </details>
