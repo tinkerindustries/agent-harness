@@ -84,13 +84,22 @@ RUN wget -qO- https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${G
 # `playwright screenshot` and chromium.launch() work with no flags. The
 # /opt/google/chrome path covers channel: "chrome" as well. Firefox and
 # WebKit have no musl build and are not available here.
+#
+# @playwright/cli ships its own copy of Playwright (a newer snapshot than the
+# stable one installed above), which resolves to its own browser build number
+# and therefore its own cache paths. The second loop below derives the
+# executable path from the playwright-core package that @playwright/cli
+# actually resolves — never a hardcoded build number — and symlinks that set
+# too, so the documented `playwright-cli` commands can launch the browser.
 ARG PLAYWRIGHT_VERSION=1.62.1
+ARG PLAYWRIGHT_CLI_VERSION=0.1.18
 # NODE_PATH lets a script anywhere require("playwright") from the global
 # install. A project's own node_modules still wins over it.
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
     NODE_PATH=/usr/local/lib/node_modules
-RUN apk add --no-cache chromium nss freetype harfbuzz ttf-freefont font-noto-emoji && \
+RUN apk add --no-cache chromium nss freetype harfbuzz ttf-freefont font-noto-emoji ffmpeg && \
     npm install -g playwright@${PLAYWRIGHT_VERSION} && \
+    npm install -g @playwright/cli@${PLAYWRIGHT_CLI_VERSION} && \
     chrome="$(node -e 'console.log(require("/usr/local/lib/node_modules/playwright").chromium.executablePath())')" && \
     headless="$(echo "$chrome" | sed 's#/chromium-#/chromium_headless_shell-#; s#/chrome$#/headless_shell#')" && \
     for p in "$chrome" "$headless"; do \
@@ -98,7 +107,29 @@ RUN apk add --no-cache chromium nss freetype harfbuzz ttf-freefont font-noto-emo
         ln -sf /usr/bin/chromium "$p" && \
         touch "$(dirname "$(dirname "$p")")/INSTALLATION_COMPLETE"; \
     done && \
+    cli_core="$(dirname "$(node -e 'console.log(require.resolve("playwright-core/package.json", { paths: ["/usr/local/lib/node_modules/@playwright/cli"] }))')")" && \
+    cli_chrome="$(node -e 'console.log(require(process.argv[1]).chromium.executablePath())' "$cli_core")" && \
+    cli_headless="$(echo "$cli_chrome" | sed 's#/chromium-#/chromium_headless_shell-#; s#/chrome$#/headless_shell#')" && \
+    for p in "$cli_chrome" "$cli_headless"; do \
+        mkdir -p "$(dirname "$p")" && \
+        ln -sf /usr/bin/chromium "$p" && \
+        touch "$(dirname "$(dirname "$p")")/INSTALLATION_COMPLETE"; \
+    done && \
+    ffmpeg_ver="$(node -e 'const path=require("path"); const coreDir=path.dirname(require.resolve("playwright-core/package.json", { paths: ["/usr/local/lib/node_modules/@playwright/cli"] })); console.log(require(path.join(coreDir, "browsers.json")).browsers.find(b => b.name === "ffmpeg").revision)')" && \
+    ffmpeg_dir="/root/.cache/ms-playwright/ffmpeg-${ffmpeg_ver}" && \
+    mkdir -p "$ffmpeg_dir" && \
+    ln -sf /usr/bin/ffmpeg "$ffmpeg_dir/ffmpeg-linux" && \
+    touch "$ffmpeg_dir/INSTALLATION_COMPLETE" && \
     mkdir -p /opt/google/chrome && ln -sf /usr/bin/chromium /opt/google/chrome/chrome
+
+# Agent sessions run as root, and Chromium refuses to start as root while its
+# sandbox is enabled. The raw `playwright` CLI adds --no-sandbox implicitly;
+# the CLI's own launcher only does when the config asks for it, and its
+# default channel config actually forces the sandbox on. A global config file
+# is the tool's documented surface for this — a workspace's own
+# .playwright/cli.config.json still takes precedence over it.
+RUN mkdir -p /root/.playwright && \
+    printf '%s\n' '{"browser":{"launchOptions":{"chromiumSandbox":false}}}' > /root/.playwright/cli.config.json
 
 # The client for the docker socket docker-compose.yml mounts in. Paths given
 # to `docker run -v` name the host's filesystem, not this container's.
