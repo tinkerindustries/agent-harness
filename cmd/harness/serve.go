@@ -56,7 +56,9 @@ func runServe(ctx context.Context, args []string) error {
 		return err
 	}
 
-	client := deepseek.NewClient(cfg.BaseURL, cfg.APIKey)
+	rec := newHTTPLogRecorder(cfg)
+	defer closeHTTPLog(rec)
+	client := withHTTPLog(cfg, rec)
 	logStartupBalance(ctx, client)
 	logStartupModels(ctx, client, cfg.Model, cfg.FlashModel)
 
@@ -74,6 +76,7 @@ func runServe(ctx context.Context, args []string) error {
 		Store:      st,
 		Mirror:     store.NewMirror(cfg.DataDir),
 		Client:     client,
+		Recorder:   rec,
 		Prices:     priceTable,
 		FlashModel: cfg.FlashModel,
 		Hub:        eventHub,

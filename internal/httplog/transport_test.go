@@ -418,6 +418,48 @@ func TestRetryIsItsOwnLine(t *testing.T) {
 	}
 }
 
+// Closing a session drops its retry identity with the writer: reopening the
+// same session id starts again at attempt 0 for a request that would
+// otherwise have counted as a retry.
+func TestAttemptStateDroppedOnClose(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "ok")
+	}))
+	defer srv.Close()
+
+	root := t.TempDir()
+	rec := NewRecorder(root)
+	client := &http.Client{Transport: NewTransport(srv.Client().Transport, rec)}
+
+	send := func() {
+		req, err := http.NewRequestWithContext(WithSessionID(context.Background(), "sess-again"), http.MethodPost, srv.URL+"/chat/completions", strings.NewReader(`{"prompt":"same"}`))
+		if err != nil {
+			t.Fatalf("new request: %v", err)
+		}
+		resp := doRequest(t, client, req)
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}
+
+	send()
+	send()
+	if err := rec.Close("sess-again"); err != nil {
+		t.Fatalf("close recorder: %v", err)
+	}
+	send()
+	if err := rec.Close("sess-again"); err != nil {
+		t.Fatalf("close recorder: %v", err)
+	}
+
+	lines := readExchanges(t, sessionLogPath(root, "sess-again"))
+	if len(lines) != 3 {
+		t.Fatalf("got %d exchange lines, want 3", len(lines))
+	}
+	if lines[0].Attempt != 0 || lines[1].Attempt != 1 || lines[2].Attempt != 0 {
+		t.Errorf("attempts = %d, %d, %d; want 0, 1, 0", lines[0].Attempt, lines[1].Attempt, lines[2].Attempt)
+	}
+}
+
 // A transport error with no response at all reaches the caller unchanged
 // and is still recorded, with the error and no status.
 func TestTransportErrorIsRecorded(t *testing.T) {

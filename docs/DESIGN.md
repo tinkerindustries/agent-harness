@@ -393,6 +393,14 @@ transaction first, then append to disk; a failed disk write logs and does not
 fail the run. `harness export` rebuilds any session's directory from the
 database, which is also the repair path after a crash between the two writes.
 
+HTTP capture. Beside the mirror, the raw wire traffic lives under
+
+    <data_dir>/http/<yyyy-mm-dd>/<session_id>/exchanges.jsonl.gz
+
+one gzipped JSON line per HTTP exchange. This tree is primary, not derived:
+nothing rebuilds it, `harness export` does not produce it, and it is the only
+record of what actually crossed the wire.
+
 The React build embeds through `embed.FS`. One binary, no runtime assets.
 
 ### 4.9 Cost accounting

@@ -17,6 +17,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/cache"
 	"github.com/mrgeoffrich/deepseek-harness/internal/claudemd"
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
+	"github.com/mrgeoffrich/deepseek-harness/internal/httplog"
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/skills"
@@ -144,6 +145,14 @@ type Runner struct {
 	// state change gets published for a browser to watch live. Nil is the
 	// CLI's normal case: nothing subscribes, so nothing is published.
 	Hub *hub.Hub
+
+	// Recorder, when set, captures every HTTP exchange a session makes into
+	// its own file under the recorder's root (docs/DESIGN.md §4.8). Nil is
+	// the normal case when capture is off; every use is guarded. The runner
+	// opens a session's writer where its row is created and closes it when
+	// the run ends, so compacted successors and Task subagents each get
+	// their own file.
+	Recorder *httplog.Recorder
 
 	MaxSubTurns               int
 	CompactionThresholdTokens int
@@ -285,6 +294,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("session: reload created session: %w", err)
 	}
+	r.openLog(curSess)
 	if r.Mirror != nil {
 		if err := r.Mirror.Init(curSess, nil); err != nil {
 			log.Printf("session: mirror init failed for %s: %v", sessID, err)
@@ -409,6 +419,30 @@ func (r *Runner) mirrorAppend(sess store.Session, events []store.Event) {
 	}
 }
 
+// openLog opens sess's http log writer, creating its file under the
+// recorder's root. A nil Recorder (capture off) is a no-op; a failed open
+// is logged, never a reason to fail the run. Call it once the session row
+// exists, so every session that exists gets a file.
+func (r *Runner) openLog(sess store.Session) {
+	if r.Recorder == nil {
+		return
+	}
+	if err := r.Recorder.Open(sess.ID, time.Now()); err != nil {
+		log.Printf("session: open http log for %s: %v", sess.ID, err)
+	}
+}
+
+// closeLog closes sessionID's http log writer, finalising its gzip member.
+// A nil Recorder or a session that was never opened is a no-op.
+func (r *Runner) closeLog(sessionID string) {
+	if r.Recorder == nil {
+		return
+	}
+	if err := r.Recorder.Close(sessionID); err != nil {
+		log.Printf("session: close http log for %s: %v", sessionID, err)
+	}
+}
+
 func (r *Runner) mirrorTranscript(sess store.Session, events []store.Event) {
 	if r.Mirror == nil {
 		return
@@ -489,6 +523,7 @@ func (r *Runner) finishRun(ctx context.Context, sess store.Session, allEvents []
 	if err := r.Store.UpdateSessionStatus(ctx, sess.ID, sessionStatus, &finished); err != nil {
 		return &RunResult{SessionID: sess.ID, Status: sessionStatus, SubTurns: subTurns, Usage: agg, CompleteStatus: completeStatus}, err
 	}
+	r.closeLog(sess.ID)
 	if updated, err := r.Store.GetSession(ctx, sess.ID); err == nil {
 		r.mirrorUpdateSession(updated)
 		r.mirrorTranscript(updated, allEvents)
@@ -515,6 +550,7 @@ func (r *Runner) fail(ctx context.Context, sess store.Session, allEvents []store
 
 	finished := time.Now().UTC()
 	_ = r.Store.UpdateSessionStatus(ctx, sess.ID, store.StatusFailed, &finished)
+	r.closeLog(sess.ID)
 	if updated, err := r.Store.GetSession(ctx, sess.ID); err == nil {
 		r.mirrorUpdateSession(updated)
 		r.mirrorTranscript(updated, allEvents)
@@ -545,9 +581,9 @@ func (r *Runner) executeToolCalls(ctx context.Context, sess store.Session, execu
 					Arguments: c.Arguments,
 				},
 			}
-			callCtx := ctx
+			callCtx := httplog.WithSessionID(ctx, sess.ID)
 			if r.Hub != nil && c.Name == "Bash" {
-				callCtx = tools.WithStdoutSink(ctx, r.stdoutSink(ctx, sess, c.ID))
+				callCtx = tools.WithStdoutSink(callCtx, r.stdoutSink(ctx, sess, c.ID))
 			}
 			outcomes[i] = executor.Execute(callCtx, call)
 		}(i, c)

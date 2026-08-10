@@ -10,7 +10,9 @@ package httplog
 
 import (
 	"compress/gzip"
+	"crypto/sha256"
 	"encoding/json"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -27,12 +29,23 @@ type Recorder struct {
 }
 
 // sessionWriter is one session's gzip file. The gzip writer is not safe
-// for concurrent use, so every write, flush, and close takes mu.
+// for concurrent use, so every write, flush, and close takes mu. It also
+// holds the session's retry identity: the previous request's method, URL,
+// and body hash, so a retry can be numbered. The body is kept as a hash,
+// not the body itself — a chat completion body is the whole message array,
+// and a long-lived serve process would otherwise retain hundreds of
+// megabytes it will never use again. Recorder.Close drops this state with
+// the writer.
 type sessionWriter struct {
 	mu   sync.Mutex
 	file *os.File
 	gz   *gzip.Writer
 	seq  int64
+
+	method   string
+	url      string
+	bodyHash [sha256.Size]byte
+	attempt  int
 }
 
 // NewRecorder returns a Recorder writing under root.
@@ -82,6 +95,31 @@ func (r *Recorder) Close(sessionID string) error {
 		return nil
 	}
 	return w.close()
+}
+
+// NextAttempt returns the retry number for a request from sessionID: 0 for
+// a new request, one more than the previous attempt for a request identical
+// to the one before it in that session. The state lives on the session's
+// writer, so Recorder.Close drops it with the file; a writer that cannot be
+// opened is logged and the request counts as a new one, never a reason to
+// fail the request itself.
+func (r *Recorder) NextAttempt(sessionID, method, url string, bodyHash [sha256.Size]byte) int {
+	w, err := r.open(sessionID, time.Now())
+	if err != nil {
+		log.Printf("httplog: open writer for %s: %v", sessionID, err)
+		return 0
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.method == method && w.url == url && w.bodyHash == bodyHash {
+		w.attempt++
+		return w.attempt
+	}
+	w.method = method
+	w.url = url
+	w.bodyHash = bodyHash
+	w.attempt = 0
+	return 0
 }
 
 // CloseAll flushes and closes every open session writer.

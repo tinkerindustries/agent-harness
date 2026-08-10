@@ -9,6 +9,7 @@ import (
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/fold"
+	"github.com/mrgeoffrich/deepseek-harness/internal/httplog"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
 
@@ -23,7 +24,7 @@ func (r *Runner) compact(ctx context.Context, sess store.Session, allEvents []st
 	if err != nil {
 		return sess, allEvents, fmt.Errorf("session: fold for compaction: %w", err)
 	}
-	summary, err := r.summarize(ctx, messages)
+	summary, err := r.summarize(httplog.WithSessionID(ctx, sess.ID), messages)
 	if err != nil {
 		return sess, allEvents, fmt.Errorf("session: summarise for compaction: %w", err)
 	}
@@ -52,6 +53,7 @@ func (r *Runner) compact(ctx context.Context, sess store.Session, allEvents []st
 	if err != nil {
 		return sess, allEvents, fmt.Errorf("session: reload compacted session: %w", err)
 	}
+	r.openLog(canonical)
 	if r.Mirror != nil {
 		if err := r.Mirror.Init(canonical, nil); err != nil {
 			return sess, allEvents, fmt.Errorf("session: init mirror for compacted session: %w", err)
@@ -73,6 +75,7 @@ func (r *Runner) compact(ctx context.Context, sess store.Session, allEvents []st
 	if err := r.Store.UpdateSessionStatus(ctx, sess.ID, store.StatusCompacted, &finished); err != nil {
 		return sess, allEvents, fmt.Errorf("session: mark parent compacted: %w", err)
 	}
+	r.closeLog(sess.ID)
 	if updated, err := r.Store.GetSession(ctx, sess.ID); err == nil {
 		r.mirrorUpdateSession(updated)
 		r.mirrorTranscript(updated, allEvents)

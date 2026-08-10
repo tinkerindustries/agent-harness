@@ -6,6 +6,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -15,6 +17,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/config"
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
+	"github.com/mrgeoffrich/deepseek-harness/internal/httplog"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 )
 
@@ -92,6 +95,40 @@ func loadConfig() (config.Config, error) {
 	return cfg, nil
 }
 
+// newHTTPLogRecorder returns a Recorder writing under cfg.HTTPLogRoot, or
+// nil when capture is off. Every command that builds one must CloseAll
+// before the process exits so each gzip member is closed and the files are
+// valid.
+func newHTTPLogRecorder(cfg config.Config) *httplog.Recorder {
+	if !cfg.HTTPLogEnabled {
+		return nil
+	}
+	return httplog.NewRecorder(cfg.HTTPLogRoot)
+}
+
+// closeHTTPLog closes every open session writer rec owns. Nil is a no-op,
+// so commands can defer it unconditionally.
+func closeHTTPLog(rec *httplog.Recorder) {
+	if rec == nil {
+		return
+	}
+	if err := rec.CloseAll(); err != nil {
+		log.Printf("harness: close http log: %v", err)
+	}
+}
+
+// withHTTPLog wraps a fresh client's transport so every exchange is
+// captured by rec. A nil rec (capture off) leaves the request path
+// untouched.
+func withHTTPLog(cfg config.Config, rec *httplog.Recorder) *deepseek.Client {
+	if rec == nil {
+		return deepseek.NewClient(cfg.BaseURL, cfg.APIKey)
+	}
+	return deepseek.NewClient(cfg.BaseURL, cfg.APIKey, deepseek.WithTransportWrapper(func(next http.RoundTripper) http.RoundTripper {
+		return httplog.NewTransport(next, rec)
+	}))
+}
+
 func explainError(err error) error {
 	if deepseek.IsInsufficientBalance(err) {
 		return fmt.Errorf("account balance is exhausted (HTTP 402): %w", err)
@@ -143,7 +180,9 @@ func runAsk(ctx context.Context, args []string) error {
 		return err
 	}
 
-	client := deepseek.NewClient(cfg.BaseURL, cfg.APIKey)
+	rec := newHTTPLogRecorder(cfg)
+	defer closeHTTPLog(rec)
+	client := withHTTPLog(cfg, rec)
 
 	var messages []deepseek.Message
 	if *system != "" {
@@ -252,7 +291,9 @@ func runModels(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	client := deepseek.NewClient(cfg.BaseURL, cfg.APIKey)
+	rec := newHTTPLogRecorder(cfg)
+	defer closeHTTPLog(rec)
+	client := withHTTPLog(cfg, rec)
 
 	resp, err := client.ListModels(ctx)
 	if err != nil {
@@ -273,7 +314,9 @@ func runBalance(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	client := deepseek.NewClient(cfg.BaseURL, cfg.APIKey)
+	rec := newHTTPLogRecorder(cfg)
+	defer closeHTTPLog(rec)
+	client := withHTTPLog(cfg, rec)
 
 	resp, err := client.GetBalance(ctx)
 	if err != nil {
