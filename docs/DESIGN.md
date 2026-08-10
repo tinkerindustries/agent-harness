@@ -17,7 +17,7 @@ docs present as mandatory and which measurement shows is not.
 ## 1. Scope
 
 In scope for v1: concurrent agent sessions in one process, NATS JetStream
-ingress and result publication, the eleven tools in [TOOLS.md](TOOLS.md), a
+ingress and result publication, the twelve tools in [TOOLS.md](TOOLS.md), a
 declarative per-request permission policy, flash-backed subagents via `Task`, an
 append-only event log in SQLite mirrored to disk for review, cost and cache
 accounting, a read-only browser transcript with a live plan panel driven by
@@ -64,10 +64,13 @@ The Anthropic endpoint was also credited with handling thinking-block replay
 itself, sparing callers a documented 400. Measurement since shows that 400 does
 not fire on the native endpoint either (§3.1), so the advantage is moot.
 
-Input is text only. Both models declare `input_modalities: ["text"]`, the
+Input to DeepSeek is text only. Both models declare `input_modalities: ["text"]`, the
 Anthropic table marks image and document blocks unsupported, and the Responses
-API replaces image parts with placeholder text. No screenshots, no image paste,
-no visual diffing.
+API replaces image parts with placeholder text. No screenshots reach DeepSeek,
+no image paste, no visual diffing inside the loop. Vision is a tool instead:
+`ReviewScreenshot` sends the agent's screenshots to Google Gemini and returns
+the findings, so a screenshot the agent captures itself can still be reviewed
+([TOOLS.md](TOOLS.md)).
 
 ## 3. The rules that shape everything
 
@@ -308,7 +311,8 @@ every one of them will hit the same wall.
 Specified in [TOOLS.md](TOOLS.md). The set is `Read`, `Write`, `Edit`, `Bash`,
 `Glob`, `Grep`, `List`, `TodoWrite`, `Task`, and `WebFetch` — the vocabulary of
 the harnesses DeepSeek names as its V4 agent optimisation targets — plus
-`Complete`, which is ours.
+`Complete`, which is ours, and `ReviewScreenshot`, which sends screenshots to
+Gemini because DeepSeek cannot see images.
 
 Four points from that document bear on the rest of this design:
 
@@ -557,7 +561,7 @@ opening user message ahead of the task. The model reads a skill's body with
 
 Three consequences follow from §3.2. The catalogue goes in the opening message,
 never the system prompt, so a repository's skills cannot disturb the cached
-head. No `Skill` tool exists, because a twelfth tool definition would enlarge
+head. No `Skill` tool exists, because a thirteenth tool definition would enlarge
 that head for every session to duplicate what `Read` already does. An empty
 catalogue renders to nothing, leaving the opening message byte-identical to a
 run with no skills.

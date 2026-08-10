@@ -18,6 +18,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/config"
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
+	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
 	"github.com/mrgeoffrich/deepseek-harness/internal/httplog"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
@@ -158,6 +159,40 @@ func withHTTPLog(cfg config.Config, rec *httplog.Recorder, provider func() (stri
 		return deepseek.NewClient(cfg.BaseURL, "", deepseek.WithAPIKeyProvider(provider))
 	}
 	return deepseek.NewClient(cfg.BaseURL, "", deepseek.WithAPIKeyProvider(provider), deepseek.WithTransportWrapper(func(next http.RoundTripper) http.RoundTripper {
+		return httplog.NewTransport(next, rec)
+	}))
+}
+
+// googleAPIKeyProvider returns the key provider the gemini client calls
+// before every request: a read of google.api_key through the store, made on
+// every call, so a key set while a process is running takes effect on the
+// next request without a restart.
+func googleAPIKeyProvider(res *settings.Resolver) func() (string, error) {
+	return func() (string, error) {
+		return res.GoogleAPIKey(context.Background())
+	}
+}
+
+// googleVisionModelProvider returns the model provider the ReviewScreenshot
+// tool calls before every call: a read of google.vision_model through the
+// store, defaulting to gemini-3.5-flash when unset, so a model changed
+// while a process is running takes effect on the next call without a
+// restart.
+func googleVisionModelProvider(res *settings.Resolver) func() (string, error) {
+	return func() (string, error) {
+		return res.GoogleVisionModel(context.Background())
+	}
+}
+
+// withGeminiHTTPLog wraps a fresh gemini client's transport so every
+// exchange is captured by rec, mirroring withHTTPLog. A nil rec (capture
+// off) leaves the request path untouched. The client reads its API key from
+// provider before every request.
+func withGeminiHTTPLog(cfg config.Config, rec *httplog.Recorder, provider func() (string, error)) *gemini.Client {
+	if rec == nil {
+		return gemini.NewClient(gemini.DefaultBaseURL, gemini.WithAPIKeyProvider(provider))
+	}
+	return gemini.NewClient(gemini.DefaultBaseURL, gemini.WithAPIKeyProvider(provider), gemini.WithTransportWrapper(func(next http.RoundTripper) http.RoundTripper {
 		return httplog.NewTransport(next, rec)
 	}))
 }

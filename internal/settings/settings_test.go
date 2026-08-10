@@ -94,9 +94,54 @@ func TestResolverRejectsUnknownKeys(t *testing.T) {
 		if !errors.As(err, &ue) {
 			t.Fatalf("error = %v, want UnknownKeyError", err)
 		}
-		want := `unknown setting "deepsek.api_key"; valid settings: deepseek.api_key, google.api_key`
+		want := `unknown setting "deepsek.api_key"; valid settings: deepseek.api_key, google.api_key, google.vision_model`
 		if ue.Error() != want {
 			t.Fatalf("error text = %q, want %q", ue.Error(), want)
 		}
+	}
+}
+
+// TestGoogleKeysPins the two phase-2 resolver methods: GoogleAPIKey reads
+// the stored key ("" when unset) and GoogleVisionModel defaults to
+// gemini-3.5-flash when unset and honours a stored value.
+func TestGoogleKeys(t *testing.T) {
+	r := NewResolver(&fakeStore{values: map[string]string{}})
+	ctx := context.Background()
+
+	key, err := r.GoogleAPIKey(ctx)
+	if err != nil || key != "" {
+		t.Fatalf("GoogleAPIKey on empty store = %q err=%v, want \"\" nil", key, err)
+	}
+
+	model, err := r.GoogleVisionModel(ctx)
+	if err != nil || model != DefaultGoogleVisionModel {
+		t.Fatalf("GoogleVisionModel on empty store = %q err=%v, want %q nil", model, err, DefaultGoogleVisionModel)
+	}
+
+	if err := r.Set(ctx, KeyGoogleAPIKey, "gk-abc"); err != nil {
+		t.Fatalf("Set google.api_key: %v", err)
+	}
+	if err := r.Set(ctx, KeyGoogleVisionModel, "gemini-3.6-flash"); err != nil {
+		t.Fatalf("Set google.vision_model: %v", err)
+	}
+	key, err = r.GoogleAPIKey(ctx)
+	if err != nil || key != "gk-abc" {
+		t.Fatalf("GoogleAPIKey = %q err=%v, want gk-abc nil", key, err)
+	}
+	model, err = r.GoogleVisionModel(ctx)
+	if err != nil || model != "gemini-3.6-flash" {
+		t.Fatalf("GoogleVisionModel = %q err=%v, want gemini-3.6-flash nil", model, err)
+	}
+}
+
+func TestIsSecretKey(t *testing.T) {
+	if !IsSecretKey(KeyDeepSeekAPIKey) {
+		t.Error("deepseek.api_key must be treated as a secret")
+	}
+	if !IsSecretKey(KeyGoogleAPIKey) {
+		t.Error("google.api_key must be treated as a secret")
+	}
+	if IsSecretKey(KeyGoogleVisionModel) {
+		t.Error("google.vision_model is not a secret and must print in full")
 	}
 }

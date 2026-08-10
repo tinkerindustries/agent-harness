@@ -12,9 +12,10 @@ import (
 )
 
 // runConfig reads and writes the settings table: list, get, set, unset.
-// Values are masked by default so a secret never lands in full in terminal
-// scrollback or a CI log; only `get -reveal` prints one in full, and only
-// for the single key it names.
+// Secret-shaped values (the API keys, per settings.IsSecretKey) are masked
+// by default so a credential never lands in full in terminal scrollback or a
+// CI log; only `get -reveal` prints one in full, and only for the single key
+// it names. Non-secret settings like google.vision_model print in full.
 func runConfig(ctx context.Context, args []string) error {
 	if len(args) < 1 {
 		return errors.New("usage: harness config list | get <key> | set <key> <value> | unset <key>")
@@ -77,7 +78,11 @@ func runConfigList(ctx context.Context, args []string) error {
 			fmt.Printf("%s = (not set)\n", key)
 			continue
 		}
-		fmt.Printf("%s = %s\n", key, maskSecret(value))
+		if settings.IsSecretKey(key) {
+			fmt.Printf("%s = %s\n", key, maskSecret(value))
+		} else {
+			fmt.Printf("%s = %s\n", key, value)
+		}
 	}
 	return nil
 }
@@ -111,7 +116,7 @@ func runConfigGet(ctx context.Context, args []string) error {
 		fmt.Printf("%s = (not set)\n", key)
 		return nil
 	}
-	if *reveal {
+	if *reveal || !settings.IsSecretKey(key) {
 		fmt.Printf("%s = %s\n", key, value)
 	} else {
 		fmt.Printf("%s = %s\n", key, maskSecret(value))

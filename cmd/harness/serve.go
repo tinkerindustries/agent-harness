@@ -75,13 +75,15 @@ func runServe(ctx context.Context, args []string) error {
 
 	eventHub := hub.New()
 	runner := &session.Runner{
-		Store:      st,
-		Mirror:     store.NewMirror(cfg.DataDir),
-		Client:     client,
-		Recorder:   rec,
-		Prices:     priceTable,
-		FlashModel: cfg.FlashModel,
-		Hub:        eventHub,
+		Store:       st,
+		Mirror:      store.NewMirror(cfg.DataDir),
+		Client:      client,
+		Recorder:    rec,
+		Prices:      priceTable,
+		FlashModel:  cfg.FlashModel,
+		Gemini:      withGeminiHTTPLog(cfg, rec, googleAPIKeyProvider(res)),
+		GeminiModel: googleVisionModelProvider(res),
+		Hub:         eventHub,
 		ModelLimits: map[string]int{
 			cfg.Model:      cfg.ModelConcurrencyPro,
 			cfg.FlashModel: cfg.ModelConcurrencyFlash,

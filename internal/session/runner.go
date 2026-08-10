@@ -17,6 +17,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/cache"
 	"github.com/mrgeoffrich/deepseek-harness/internal/claudemd"
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
+	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
 	"github.com/mrgeoffrich/deepseek-harness/internal/httplog"
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
@@ -141,6 +142,18 @@ type Runner struct {
 	Prices     *pricing.Table
 	FlashModel string
 
+	// Gemini is the client the ReviewScreenshot tool uses to send screenshots
+	// to Google's Gemini API. Nil is the CLI's case when none is configured:
+	// the tool then reports itself unavailable instead of failing the run
+	// (internal/tools, ReviewScreenshot).
+	Gemini *gemini.Client
+
+	// GeminiModel resolves the vision model name per call — the same
+	// read-through-the-store shape as the DeepSeek API key provider, so a
+	// model changed with `harness config set google.vision_model` takes
+	// effect without a restart. Nil falls back to gemini.DefaultModel.
+	GeminiModel func() (string, error)
+
 	// Hub, when set, is where every committed event and every session
 	// state change gets published for a browser to watch live. Nil is the
 	// CLI's normal case: nothing subscribes, so nothing is published.
@@ -257,6 +270,8 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	executor.Client = r.Client
 	executor.Prices = r.Prices
 	executor.FlashModel = r.flashModel()
+	executor.Gemini = r.Gemini
+	executor.GeminiModel = r.GeminiModel
 	executor.ResultSchema = opts.ResultSchema
 
 	toolSchema, err := json.Marshal(tools.Definitions())

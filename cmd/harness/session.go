@@ -71,12 +71,14 @@ func runResume(ctx context.Context, args []string) error {
 	}
 
 	r := &session.Runner{
-		Store:      st,
-		Mirror:     store.NewMirror(cfg.DataDir),
-		Client:     withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(settingsRes)),
-		Recorder:   rec,
-		Prices:     priceTable,
-		FlashModel: cfg.FlashModel,
+		Store:       st,
+		Mirror:      store.NewMirror(cfg.DataDir),
+		Client:      withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(settingsRes)),
+		Recorder:    rec,
+		Prices:      priceTable,
+		FlashModel:  cfg.FlashModel,
+		Gemini:      withGeminiHTTPLog(cfg, rec, googleAPIKeyProvider(settingsRes)),
+		GeminiModel: googleVisionModelProvider(settingsRes),
 	}
 
 	fmt.Printf("resuming %s: %s (effort %s), workspace %s\n\n", sessionID, sess.Model, sess.Effort, sess.Workspace)

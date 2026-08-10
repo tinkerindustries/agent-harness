@@ -47,12 +47,14 @@ trying against `Edit` if exact-match replacement underperforms.
 | `TodoWrite` | `todos[]` | The model's working plan |
 | `Task` | `description`, `prompt`, `subagent_type` | Delegate to a flash-backed subagent |
 | `WebFetch` | `url`, `prompt` | Fetch a URL and extract against a question |
+| `ReviewScreenshot` | `image_paths[]`, `question`, `spec?` | Send screenshots to Gemini's vision model and return its diagnosis |
 | `Complete` | `summary`, `result?`, `status?` | Emit the run's machine-readable result |
 
-Eleven tools. The first ten have a trained-in analogue in at least two of the
-three named harnesses. `Complete` does not, and the trained-vocabulary argument
-above says nothing about it — no harness in that set returns a structured result
-to a queue. It is named for what it does, and a rename costs one line.
+Twelve tools. The first ten have a trained-in analogue in at least two of the
+three named harnesses. `ReviewScreenshot` and `Complete` do not. The former
+exists because DeepSeek cannot see images, so vision is a Gemini call this
+harness builds itself; the trained-vocabulary argument above says nothing
+about either, and each is named for what it does.
 
 ## Per-tool notes
 
@@ -124,6 +126,28 @@ Ours, not DeepSeek's. See the endpoint trade-off below. Fetch, extract to text,
 then have flash answer the caller's `prompt` against the extracted content, so
 the parent context receives an answer rather than a page.
 
+### ReviewScreenshot
+
+DeepSeek is text-only, so this is the harness's vision path: the agent captures
+a screenshot itself (a browser tool, a headless-browser script) and this tool
+sends it to Google Gemini for a diagnosis. It accepts one to four PNG, JPEG, or
+WebP files, workspace-confined like every other path-taking tool, at most 5 MB
+each. The first image is sent at `high` resolution and the rest at `medium`, per
+the prompting notes' advice that only the image needing scrutiny should be high
+— the model is told to put the screenshot it cares about first
+([`docs/gemini-3.5-flash-ui-review-prompting.md`](gemini-3.5-flash-ui-review-prompting.md)
+has the request-shape rationale: no temperature/top_p/top_k, `thinking_level`,
+"data first, question last").
+
+The model comes from the `google.vision_model` setting (default
+`gemini-3.5-flash`) and the key from `google.api_key`, both read through the
+settings table on every call, so either can change without a restart. The call
+has its own 60-second timeout rather than the 30-second tool default.
+
+Known limitation: Gemini calls do not appear in a session's cost accounting —
+`configs/prices.json` and `internal/pricing` cover DeepSeek only, and phase 2
+deliberately does not extend them.
+
 ### Complete
 
 The seam between an agent run and the queue that asked for it. `summary` is
@@ -187,7 +211,7 @@ So the choice is:
   go without trained-in web search.
 - Move to `/anthropic` for server-side search and lose all four.
 
-Recommendation: stay native. Search is one tool among ten, our own `WebFetch`
+Recommendation: stay native. Search is one tool among eleven, our own `WebFetch`
 covers the documentation-lookup case that a coding harness actually needs, and
 DeepSeek's own note says its web search bills extra tokens for summarisation
 anyway. The decision is reversible per-session if it proves wrong, since the
@@ -219,8 +243,9 @@ later. The browser is read-only, so there is nobody there to ask.
 
 Two modes, fixed for the life of a session and required on every request:
 
-- Read-only. `Read`, `Glob`, `Grep`, `List`, `WebFetch`, `TodoWrite`, and
-  `Complete` run. `Write`, `Edit`, `Bash`, and `Task` are denied.
+- Read-only. `Read`, `Glob`, `Grep`, `List`, `WebFetch`, `ReviewScreenshot`,
+  `TodoWrite`, and `Complete` run. `Write`, `Edit`, `Bash`, and `Task` are
+  denied.
 - Full access. Everything runs, as root, inside the workspace mount.
 
 There is no third mode between them and no default. Every ingress — a work
@@ -236,11 +261,13 @@ actually enforce.
 
 `WebFetch` runs in read-only mode. It reaches the network, so read-only bounds
 what a session can change on disk rather than what it can send.
+`ReviewScreenshot` is the same: it reads a file and sends it over the network,
+changing nothing on disk.
 
 A work request may add `deny` patterns on top of its mode. They only ever
 subtract; a request cannot widen the mode it asked for.
 
-Modes gate execution, never availability. All eleven tools are sent on every
+Modes gate execution, never availability. All twelve tools are sent on every
 request in every mode, and a call the mode disallows is refused at execution
 with an error result the model can read and route around. Removing tools per
 mode would give each mode a different prefix and make every mode switch a cold
