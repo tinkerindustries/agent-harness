@@ -94,6 +94,28 @@ func TestPrepareClonesEveryRepo(t *testing.T) {
 	}
 }
 
+// TestPrepareCreatesScratchDirectory pins that Prepare leaves a scratch/
+// directory beside the clones, for files that are not part of the deliverable
+// — a screenshot for ReviewScreenshot, a scratch note, a temporary download.
+// It lives and dies with the session directory exactly like a clone does.
+func TestPrepareCreatesScratchDirectory(t *testing.T) {
+	origin := newOrigin(t)
+	root := t.TempDir()
+
+	dir, err := Prepare(context.Background(), root, "sess-scratch", []queue.Repo{{URL: origin}})
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+	if fi, err := os.Stat(filepath.Join(dir, "scratch")); err != nil {
+		t.Fatalf("expected a scratch directory in the session workspace: %v", err)
+	} else if !fi.IsDir() {
+		t.Fatalf("scratch exists but is not a directory")
+	}
+	if _, err := os.Stat(filepath.Join(dir, filepath.Base(origin), "scratch")); err == nil {
+		t.Fatal("scratch must sit beside the clone, not inside it")
+	}
+}
+
 // A branch that does not exist is the common way a launch gets the repo
 // right and the ref wrong, and the run must fail rather than start against
 // whatever git left behind.

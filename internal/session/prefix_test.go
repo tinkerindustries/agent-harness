@@ -59,6 +59,20 @@ func TestPerRequestDataStaysOutOfTheSystemPrompt(t *testing.T) {
 	}
 }
 
+// The system prompt tells the model where scratch output belongs: a scratch/
+// directory at the workspace root, never /tmp (shared across concurrent
+// sessions in the container) and never inside a cloned repository. Asserted by
+// content, not exact wording, so a future rewording does not make the test
+// brittle — it must keep naming scratch/ and ruling out /tmp.
+func TestSystemPromptDirectsScratchFilesToScratchDirectory(t *testing.T) {
+	sys := RenderSystemPrompt()
+	for _, needle := range []string{"scratch/", "/tmp"} {
+		if !strings.Contains(sys, needle) {
+			t.Errorf("system prompt should mention %q, it does not", needle)
+		}
+	}
+}
+
 // fakeSettingStore is a settings.Store backed by a map, enough for the
 // frozen-head test below to attach a real resolver.
 type fakeSettingStore struct {
