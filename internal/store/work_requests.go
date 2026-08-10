@@ -227,6 +227,28 @@ func (s *Store) GetWorkRequest(ctx context.Context, requestID string) (WorkReque
 	return wr, nil
 }
 
+// ListWorkRequests returns every work_requests row, newest first by
+// received_at — the work-request analog of ListSessions' created_at order,
+// so the newest claim leads the list. The collection is how an operator
+// finds a request whose worker died before its session existed: it has no
+// session to be discovered through, only this row.
+func (s *Store) ListWorkRequests(ctx context.Context) ([]WorkRequest, error) {
+	rows, err := s.readDB.QueryContext(ctx, `SELECT `+workRequestColumns+` FROM work_requests ORDER BY received_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []WorkRequest
+	for rows.Next() {
+		wr, err := scanWorkRequest(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, wr)
+	}
+	return out, rows.Err()
+}
+
 func selectWorkRequestTx(tx *sql.Tx, requestID string) (WorkRequest, error) {
 	row := tx.QueryRow(`
 		SELECT `+workRequestColumns+`

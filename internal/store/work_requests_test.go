@@ -305,6 +305,57 @@ func TestGetWorkRequestNotFound(t *testing.T) {
 	}
 }
 
+// TestListWorkRequestsNewestFirst pins GET /api/requests's store layer: every
+// row, newest first by received_at — the work-request analog of the sessions
+// list's created_at order — with the sessionless running row a request whose
+// worker died during workspace preparation leaves behind present and shaped
+// like any other row.
+func TestListWorkRequestsNewestFirst(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// Oldest: a request that never ran — claimed an hour ago, no session
+	// ever attached.
+	if _, err := s.ClaimWorkRequest(ctx, "req-old-sessionless", 1, time.Now().UTC().Add(-time.Hour)); err != nil {
+		t.Fatalf("claim sessionless: %v", err)
+	}
+	// Middle: a request whose attempt actually started.
+	requestWithSession(t, s, "req-mid", "sess-mid")
+	// Newest: a request that ran to completion.
+	requestWithSession(t, s, "req-new", "sess-new")
+	if matched, err := s.FinishWorkRequest(ctx, "req-new", "sess-new", "ok", json.RawMessage(`{"status":"ok"}`), time.Now().UTC()); err != nil || !matched {
+		t.Fatalf("finish: matched=%v err=%v", matched, err)
+	}
+
+	rows, err := s.ListWorkRequests(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("expected 3 rows, got %d: %+v", len(rows), rows)
+	}
+	wantOrder := []string{"req-new", "req-mid", "req-old-sessionless"}
+	for i, want := range wantOrder {
+		if rows[i].RequestID != want {
+			t.Fatalf("row %d = %q, want %q (newest first by received_at)", i, rows[i].RequestID, want)
+		}
+	}
+	// The sessionless running row is present, the shape a request whose
+	// worker died during preparation leaves behind.
+	var sessionless *WorkRequest
+	for i := range rows {
+		if rows[i].RequestID == "req-old-sessionless" {
+			sessionless = &rows[i]
+		}
+	}
+	if sessionless == nil {
+		t.Fatal("the sessionless running request must appear in the list")
+	}
+	if sessionless.Status != WorkRequestStatusRunning || sessionless.SessionID != "" || sessionless.Version != 1 {
+		t.Fatalf("unexpected sessionless row: %+v", sessionless)
+	}
+}
+
 // requestWithSession claims requestID, creates sessionID, appends one event
 // (created at call time), and attaches the session — the row shape of a
 // request whose attempt actually started. The event's timestamp is the
