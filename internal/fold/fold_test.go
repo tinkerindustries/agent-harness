@@ -260,6 +260,35 @@ func TestFoldSteer(t *testing.T) {
 	requireEqualMessages(t, got, want)
 }
 
+// TestFoldTwoSteersInOneBatch covers the loop's batch append: two steers the
+// loop applies at one sub-turn boundary (a single AppendEvents batch, so the
+// mirror and hub see one batch) fold to two user messages in seq order — the
+// ordering the brief pins for "two steers arrive as two user messages in the
+// order they were sent".
+func TestFoldTwoSteersInOneBatch(t *testing.T) {
+	b := &eventBuilder{}
+	events := []store.Event{
+		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "do it"}),
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
+		b.ev(store.KindContentDelta, store.ContentDeltaPayload{Text: "done"}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "stop"}),
+		b.ev(store.KindSteerApplied, store.SteerAppliedPayload{SourceSeq: 6, Text: "first", SubTurn: 2}),
+		b.ev(store.KindSteerApplied, store.SteerAppliedPayload{SourceSeq: 7, Text: "second", SubTurn: 2}),
+	}
+	got, err := Fold(testSession(), events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []deepseek.Message{
+		deepseek.SystemMessage("you are a coding agent"),
+		deepseek.UserMessage("do it"),
+		{Role: deepseek.RoleAssistant, Content: "done"},
+		deepseek.UserMessage("first"),
+		deepseek.UserMessage("second"),
+	}
+	requireEqualMessages(t, got, want)
+}
+
 // TestAppendOnly is the load-bearing property: folding events[:n] for every
 // n must be a strict prefix, message for message, of folding the full log.
 // Breaking this breaks the prompt cache (docs/CACHE.md).

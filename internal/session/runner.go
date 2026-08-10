@@ -387,8 +387,22 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 		maxTurns = r.maxSubTurns(ctx)
 	}
 
+	// The applied-steer high-water mark is derived from the log, once, when a
+	// run starts or resumes — never carried in memory across runs, so Resume
+	// and a compacted successor both recompute it and a steer is never
+	// delivered twice (docs/RUN-CONTROL.md "How the loop picks one up"). The
+	// one rough edge of the two-kind design, worth saying here rather than
+	// leaving a later reader to work out: a compacted session is a NEW session
+	// id with a fresh log, so steers applied before compaction live in the
+	// summary that carried them forward, and unapplied ones stay attached to
+	// the retired session — they are neither delivered nor lost.
+	appliedSeq, err := r.Store.LastAppliedSteerSeq(ctx, curSess.ID)
+	if err != nil {
+		return r.fail(ctx, curSess, allEvents, startSubTurn-1, agg, fmt.Errorf("session: derive applied steer seq: %w", err))
+	}
+
 	for subTurn := startSubTurn; subTurn <= maxTurns; subTurn++ {
-		outcome, err := r.runSubTurn(ctx, curSess, &allEvents, opts, executor, detector, subTurn)
+		outcome, err := r.runSubTurn(ctx, curSess, &allEvents, opts, executor, detector, subTurn, &appliedSeq)
 		if err != nil {
 			return r.fail(ctx, curSess, allEvents, subTurn-1, agg, err)
 		}
@@ -411,6 +425,14 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 			} else {
 				curSess = newSess
 				allEvents = newEvents
+				// The compacted child is a new session with a fresh log, so
+				// the applied-steer mark is re-derived for it rather than
+				// carried over from the retired session (see the comment where
+				// appliedSeq is first derived above).
+				appliedSeq, err = r.Store.LastAppliedSteerSeq(ctx, curSess.ID)
+				if err != nil {
+					return r.fail(ctx, curSess, allEvents, subTurn-1, agg, fmt.Errorf("session: derive applied steer seq: %w", err))
+				}
 			}
 		}
 	}
