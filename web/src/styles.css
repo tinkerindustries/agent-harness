@@ -444,12 +444,40 @@ pre {
    Card with Tailwind utilities overriding its defaults; these rules are the
    header and body layout shadcn has no opinion about. */
 
+/* The header is a disclosure button since phase 5 (Compact collapses a card
+   to it); the layout is the same row the pre-collapse header had. */
 .subturn-header {
   display: flex;
   align-items: center;
   gap: var(--space);
   padding: 8px 12px;
+  width: 100%;
+  border: 0;
   border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.subturn-header:hover {
+  background: var(--accent);
+}
+
+/* A closed card in Compact mode is the header alone, so the hairline only
+   belongs under an open header, above the body. */
+.subturn-header[data-state="closed"] {
+  border-bottom: 0;
+}
+
+.subturn-header .caret {
+  flex: none;
+}
+
+.subturn-header[data-state="open"] .caret,
+.opening-summary[aria-expanded="true"] .caret {
+  transform: rotate(90deg);
 }
 
 .subturn-n {
@@ -487,6 +515,167 @@ pre {
   display: flex;
   flex-direction: column;
   gap: var(--space);
+}
+
+/* Anchors for the churn banner's "Jump to it" link and, later, the phase 6
+   rail: keep the target clear of the sticky toolbar. */
+.subturn {
+  scroll-margin-top: 46px;
+}
+
+/* A tool card inside a sub-turn body (design/transcript.html's .tool):
+   header row of name, target, and trailing stat over the result body. */
+.tool-card {
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  overflow: hidden;
+}
+
+.tool-card-error {
+  border-color: color-mix(in srgb, var(--status-failed) 45%, var(--border));
+}
+
+.tool-card-error .tool-header {
+  background: var(--status-failed-bg);
+}
+
+.tool-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--muted) 45%, transparent);
+  font-size: 0.8125rem;
+}
+
+.tool-name {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 0.75rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--secondary);
+  flex: none;
+}
+
+.tool-target {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.tool-stat {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground);
+  flex: none;
+}
+
+.tool-body {
+  border-top: 1px solid var(--border);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space);
+}
+
+/* ---------- transcript toolbar and chips (docs/WEB-REDESIGN.md phase 5) ---
+   The density toggle and the filter chips over the folded blocks. Counts
+   come from the snapshot, computed in the same pass that builds the cards. */
+
+.transcript-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0 16px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--background);
+}
+
+.toolbar-sep {
+  width: 1px;
+  align-self: stretch;
+  background: var(--border);
+  margin: 2px 2px;
+}
+
+/* The filter chips: a pill Toggle in the same vocabulary as design/tokens.css
+   .chip, on top of the shadcn Toggle's pressed state. */
+.chip-toggle {
+  height: 26px;
+  min-width: 0;
+  padding: 0 10px;
+  gap: 5px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--background);
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.chip-toggle:hover {
+  background: var(--muted);
+}
+
+.chip-toggle-active,
+.chip-toggle[data-state="on"] {
+  background: var(--secondary);
+  color: var(--foreground);
+  border-color: var(--ring);
+}
+
+.churn-banner {
+  margin-bottom: 16px;
+}
+
+.churn-banner a {
+  color: var(--status-gaveup);
+  font-weight: 600;
+}
+
+/* ---------- the collapsed opening block (docs/WEB-REDESIGN.md phase 5) --- */
+
+.opening-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.opening-summary:hover {
+  color: var(--foreground);
+}
+
+.opening-summary-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
 }
 
 .tool-call {
@@ -1063,4 +1252,10 @@ pre {
 .perf-results {
   font-family: var(--font-mono);
   white-space: nowrap;
+}
+
+/* The phase 5 height measurement's headline figure (web/src/perf/HeightHarness). */
+.perf-height-result {
+  margin: 0 0 16px;
+  font-family: var(--font-mono);
 }

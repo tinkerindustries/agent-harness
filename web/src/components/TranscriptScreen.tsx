@@ -1,12 +1,15 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type { SessionState } from "../api/types";
 import type { Block } from "../api/fold";
+import type { TranscriptFilter } from "../api/groups";
 import { useTranscriptStore } from "../hooks";
 import { BlockList } from "./BlockList";
 import { PlanPanel } from "./PlanPanel";
+import { TranscriptToolbar } from "./TranscriptToolbar";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { outcome, type OutcomeSession } from "./statusBadge";
+import type { Density } from "./blocks/SubTurnCard";
 
 interface Props {
   sessionId: string;
@@ -22,6 +25,14 @@ export function TranscriptScreen({ sessionId, onBack }: Props) {
   // /api/sessions/{id} returned back when the screen first mounted.
   const meta = useSessionMeta(sessionId, snapshot.connection);
   const badge = meta ? outcome(headerOutcomeSession(meta, snapshot.blocks)) : null;
+
+  // Phase 5 display state (docs/WEB-REDESIGN.md): density starts Compact so
+  // a long session opens readable, and the filter starts at All. Both are
+  // plain strings, so the memoised card/list components compare them by
+  // value and still bail out on every live-only delta; toggling one is the
+  // one deliberate re-render.
+  const [density, setDensity] = useState<Density>("compact");
+  const [filter, setFilter] = useState<TranscriptFilter>("all");
 
   return (
     <div className="screen screen-transcript">
@@ -59,8 +70,30 @@ export function TranscriptScreen({ sessionId, onBack }: Props) {
           )}
         </div>
       )}
+      <TranscriptToolbar
+        density={density}
+        onDensityChange={setDensity}
+        filter={filter}
+        onFilterChange={setFilter}
+        counts={snapshot.counts}
+      />
+      {snapshot.churnPoint && (
+        <div className="notice churn-banner">
+          <b>
+            Cache churn at sub-turn {snapshot.churnPoint.subTurn}: {snapshot.churnPoint.excessTokens.toLocaleString("en-US")} tokens
+            re-sent above the expected miss.
+          </b>{" "}
+          The prefix moved — see docs/CACHE.md. <a href={`#sub-turn-${snapshot.churnPoint.subTurn}`}>Jump to it →</a>
+        </div>
+      )}
       <div className="transcript-layout">
-        <BlockList items={snapshot.items} live={snapshot.live} />
+        <BlockList
+          items={snapshot.items}
+          live={snapshot.live}
+          density={density}
+          filter={filter}
+          getToolCall={snapshot.getToolCall}
+        />
         <PlanPanel todos={snapshot.todos} />
       </div>
     </div>

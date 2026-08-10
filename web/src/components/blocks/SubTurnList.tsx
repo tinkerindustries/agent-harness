@@ -1,7 +1,9 @@
 import { memo } from "react";
-import type { TranscriptItem } from "../../api/groups";
+import type { TranscriptFilter, TranscriptItem } from "../../api/groups";
+import type { ToolCallPayload } from "../../api/types";
 import { FrozenBlock } from "./FrozenBlock";
-import { SubTurnCard } from "./SubTurnCard";
+import { SubTurnCard, type Density } from "./SubTurnCard";
+import { groupMatchesFilter } from "../../api/groups";
 
 // SubTurnList is the display-side grouping of docs/WEB-REDESIGN.md phase 4:
 // each sub-turn's assistant block, tool results, and usage render as one
@@ -16,14 +18,32 @@ import { SubTurnCard } from "./SubTurnCard";
 // its children array reference and its SubTurnCard memo bails out on the
 // group reference, so an append costs a walk over items plus a render of the
 // tail group, not a re-render of the transcript (§5.2's freeze, at group
-// granularity).
-export const SubTurnList = memo(function SubTurnList({ items }: { items: TranscriptItem[] }) {
+// granularity). density, filter, and getToolCall are the phase 5 additions:
+// all three are stable values across a live-only delta, so the memo bailout
+// is unaffected; toggling density or a filter chip is the one deliberate
+// re-render.
+export const SubTurnList = memo(function SubTurnList({
+  items,
+  density,
+  filter,
+  getToolCall,
+}: {
+  items: TranscriptItem[];
+  density: Density;
+  filter: TranscriptFilter;
+  getToolCall: (id: string) => ToolCallPayload | undefined;
+}) {
   return (
     <>
       {items.map((item) =>
         item.kind === "group" ? (
-          <SubTurnCard key={item.group.seq} group={item.group} />
+          groupMatchesFilter(item.group, filter) ? (
+            <SubTurnCard key={item.group.seq} group={item.group} density={density} getToolCall={getToolCall} />
+          ) : null
         ) : (
+          // Top-level blocks are outside the chips' subject matter: the
+          // filters choose which sub-turn cards to show, and opening /
+          // skills / run_finished / error stay no matter what.
           <FrozenBlock key={`${item.block.seq}-${item.block.type}`} block={item.block} />
         ),
       )}

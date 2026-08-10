@@ -1,4 +1,4 @@
-import type { ToolCallPayload } from "../../api/types";
+import type { DiffLine, ToolCallPayload } from "../../api/types";
 
 // parseToolArgs safely decodes a tool call's arguments for display purposes
 // only. A malformed or still-assembling payload (arguments can arrive mid-
@@ -46,4 +46,76 @@ export function toolDetail(call: ToolCallPayload | undefined): string {
     default:
       return "";
   }
+}
+
+// exitCode extracts the Bash tool's "[exit code N]" trailer from an error
+// result (internal/tools/bash.go appends it), for the failed-call badge on a
+// tool header. Empty when the result is not a Bash failure or the trailer is
+// absent (older sessions).
+export function exitCode(name: string, content: string): string {
+  if (name !== "Bash") return "";
+  const m = content.match(/\[exit code (\d+)\]/);
+  return m ? `exit ${m[1]}` : "";
+}
+
+// formatCost trims a fixed-six-decimal cost to its significant digits, so a
+// figure reads $0.00035 rather than $0.000350 (shared by the sub-turn header
+// and the Task tool header's child stat).
+export function formatCost(cost: number): string {
+  if (!Number.isFinite(cost) || cost <= 0) return "0";
+  return cost.toFixed(6).replace(/\.?0+$/, "");
+}
+
+// diffStat is the +n −n figure an Edit/Write tool header carries, counted
+// from the result's diff. A zero side is suppressed rather than printed as
+// "+0" or "−0" (docs/WEB-REDESIGN.md phase 5), and an empty diff yields an
+// empty stat.
+export function diffStat(diff: DiffLine[] | undefined): string {
+  if (!diff) return "";
+  let adds = 0;
+  let removes = 0;
+  for (const line of diff) {
+    if (line.kind === "add") adds++;
+    else if (line.kind === "remove") removes++;
+  }
+  const parts: string[] = [];
+  if (adds > 0) parts.push(`+${adds}`);
+  if (removes > 0) parts.push(`−${removes}`);
+  return parts.join(" ");
+}
+
+// childStat is the Task tool header's trailing figure: the child session's
+// sub-turn count and cost. A zero sub-turn count is suppressed rather than
+// printed as "0 sub-turns" — the count only appears when it means something.
+export function childStat(subTurns: number, costUsd: number): string {
+  const details: string[] = [];
+  if (subTurns > 0) details.push(`${subTurns} sub-turn${subTurns === 1 ? "" : "s"}`);
+  const cost = formatCost(costUsd);
+  if (cost !== "0") details.push(`$${cost}`);
+  return details.length > 0 ? `child · ${details.join(" · ")}` : "child";
+}
+
+// ToolHeader is a tool call's one-line summary (design/transcript.html's
+// .tool > summary): the tool name, the target the call acts on rather than
+// its raw arguments JSON, and the trailing stat — the +n −n from the diff
+// for Edit/Write, the child session's figures for a Task.
+export interface ToolHeader {
+  name: string;
+  target: string;
+  stat: string;
+}
+
+// toolHeader builds the header from the call the fold keeps plus the
+// result-side facts the call alone cannot know (the diff, the child session
+// figures). diff and child are optional so the header renders sensibly
+// before a result lands.
+export function toolHeader(
+  call: ToolCallPayload | undefined,
+  extras?: { diff?: DiffLine[]; child?: { subTurns: number; costUsd: number } },
+): ToolHeader {
+  if (!call) return { name: "", target: "", stat: "" };
+  let stat = "";
+  if (call.name === "Edit" || call.name === "Write") stat = diffStat(extras?.diff);
+  else if (call.name === "Task" && extras?.child) stat = childStat(extras.child.subTurns, extras.child.costUsd);
+  return { name: call.name, target: toolDetail(call), stat };
 }
