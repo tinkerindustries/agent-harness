@@ -392,6 +392,12 @@ func (p *Pool) handleSpent(msg jetstream.Msg, req queue.Request, outcome store.C
 	}
 
 	now := time.Now().UTC()
+	if started.IsZero() {
+		// The session row was gone (an operator closed and deleted it), so
+		// there is no creation time to report; the failure time is the only
+		// honest one.
+		started = now
+	}
 	result := queue.Result{
 		RequestID: req.RequestID,
 		SessionID: sessionID,
