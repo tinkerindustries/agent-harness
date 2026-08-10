@@ -78,6 +78,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/sessions/{id}", s.handleGetSession)
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.handleGetEvents)
 	mux.HandleFunc("GET /api/sessions/{id}/stream", s.handleSessionStream)
+	mux.HandleFunc("GET /api/requests/{request_id}/status", s.handleRequestStatus)
 	mux.HandleFunc("GET /api/stream", s.handleListStream)
 	mux.HandleFunc("GET /api/queue", s.handleQueueHealth)
 	mux.Handle("/", s.Static)
@@ -151,6 +152,70 @@ func (s *Server) buildStates(ctx context.Context, sessions []store.Session) ([]h
 		states[i] = hub.BuildSessionState(sess, summaries[sess.ID], requestIDs[sess.ID], s.PriceTableDate)
 	}
 	return states, nil
+}
+
+// requestStatus is GET /api/requests/{request_id}/status's response: a
+// polled snapshot of one work request, keyed on request_id rather than
+// session id so a request that never got a session still has an answer.
+// DurationMS is elapsed time since the request was claimed; for a terminal
+// request that is the time between claim and finish. TranscriptURL is
+// relative, the same /sessions/{id} shape the frontend links.
+type requestStatus struct {
+	RequestID     string                 `json:"request_id"`
+	SessionID     string                 `json:"session_id"`
+	Status        string                 `json:"status"`
+	SubTurn       int                    `json:"sub_turn,omitempty"`
+	Todos         []store.StatusTodo     `json:"todos,omitempty"`
+	ActiveForm    string                 `json:"active_form,omitempty"`
+	ToolCalls     []store.StatusToolCall `json:"tool_calls,omitempty"`
+	Usage         *store.UsagePayload    `json:"usage,omitempty"`
+	StartedAt     time.Time              `json:"started_at"`
+	DurationMS    int64                  `json:"duration_ms"`
+	TranscriptURL string                 `json:"transcript_url,omitempty"`
+	ErrorCode     string                 `json:"error_code,omitempty"`
+	ErrorMessage  string                 `json:"error_message,omitempty"`
+}
+
+func (s *Server) handleRequestStatus(w http.ResponseWriter, r *http.Request) {
+	requestID := r.PathValue("request_id")
+	st, err := s.Store.RequestStatus(r.Context(), requestID)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(w, "request not found", http.StatusNotFound)
+			return
+		}
+		writeInternalError(w, err)
+		return
+	}
+
+	var duration time.Duration
+	if st.FinishedAt != nil {
+		duration = st.FinishedAt.Sub(st.StartedAt)
+	} else {
+		duration = time.Since(st.StartedAt)
+	}
+	if duration < 0 {
+		duration = 0
+	}
+
+	out := requestStatus{
+		RequestID:    st.RequestID,
+		SessionID:    st.SessionID,
+		Status:       st.Status,
+		SubTurn:      st.SubTurn,
+		Todos:        st.Todos,
+		ActiveForm:   st.ActiveForm,
+		ToolCalls:    st.ToolCalls,
+		Usage:        st.Usage,
+		StartedAt:    st.StartedAt,
+		DurationMS:   duration.Milliseconds(),
+		ErrorCode:    st.ErrorCode,
+		ErrorMessage: st.ErrorMessage,
+	}
+	if st.SessionID != "" {
+		out.TranscriptURL = "/sessions/" + st.SessionID
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // queueHealth is /api/queue's response shape: consumer lag, in-flight
