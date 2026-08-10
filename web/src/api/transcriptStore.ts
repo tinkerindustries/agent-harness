@@ -68,6 +68,11 @@ const rafCancel = (handle: number) => cancelAnimationFrame(handle);
 export class TranscriptStore {
   private fold = new FoldState();
   private groups = new SubTurnGroupState();
+  // The fold's already-parsed plan as of each block index, appended by
+  // ingest() as the fold freezes blocks (see ingest). SubTurnGroupState
+  // reads it to name a rail phase from the boundary sub-turn's own plan even
+  // when a flush folds a whole burst of blocks at once.
+  private todosAtBlock: Todo[][] = [];
   private listeners = new Set<Listener>();
   private snapshot: TranscriptSnapshot;
   private es?: EventSource;
@@ -112,7 +117,16 @@ export class TranscriptStore {
   }
 
   ingest(ev: StoreEvent): void {
+    const before = this.fold.blocks.length;
     this.fold.ingest(ev);
+    // Record the fold's already-parsed plan as of the moment each block
+    // froze (docs/WEB-REDESIGN.md phase 6, the rail's phase grouping): a
+    // flush folds whatever blocks arrived since the last one, so without a
+    // per-block record every phase in a burst — a finished session's replay,
+    // or the perf harness seeding at once — would be named from the plan at
+    // the END of the burst (its last TodoWrite). Nothing is re-parsed here;
+    // latestTodos is the fold's own parse of the TodoWrite arguments.
+    for (let i = before; i < this.fold.blocks.length; i++) this.todosAtBlock.push(this.fold.latestTodos);
     this.markDirty();
   }
 
@@ -144,7 +158,7 @@ export class TranscriptStore {
   private buildSnapshot(): TranscriptSnapshot {
     return {
       blocks: this.fold.blocks,
-      items: this.groups.sync(this.fold.blocks, this.fold.latestTodos),
+      items: this.groups.sync(this.fold.blocks, this.fold.latestTodos, this.todosAtBlock),
       live: this.fold.live,
       todos: this.fold.latestTodos,
       connection: this.connection,

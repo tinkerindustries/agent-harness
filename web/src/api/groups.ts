@@ -196,21 +196,29 @@ export class SubTurnGroupState {
   churnPoint: ChurnPoint | null = null;
   // The phase timeline (docs/WEB-REDESIGN.md phase 6): currentPhase is the
   // plan item the next group to freeze ran under, bumped on every TodoWrite
-  // call in a frozen assistant's own toolCalls. latestTodos is the fold's
-  // already-parsed plan, passed in per sync — the phase's name comes from
-  // there, so nothing here parses a TodoWrite's arguments.
+  // call in a frozen assistant's own toolCalls. The phase's name comes from
+  // the fold's already-parsed plan, passed in per sync — so nothing here
+  // parses a TodoWrite's arguments. latestTodos is the fallback plan (the
+  // one the store held at flush time); todosAtBlock is the plan as of each
+  // block index, recorded by the store while it folded the events, which is
+  // what names a phase correctly when a flush folds a whole batch of blocks
+  // at once (a replay burst): with only the batch-end plan, every phase in
+  // the batch would be named from the last TodoWrite in it.
   private phaseSeq = 0;
   private currentPhase: RailPhaseRef = { id: 0, index: 0, label: "" };
   private latestTodos: Todo[] = [];
+  private todosAtBlock: Todo[][] = [];
 
   // sync folds the current blocks array into items incrementally. Called on
   // every store snapshot; the fast path (same array reference — a live-only
   // delta, the token-rate hot path) returns the same items array unchanged.
-  // latestTodos is the fold's plan as of this snapshot, used to name a new
-  // phase the moment the boundary sub-turn's group is created.
-  sync(blocks: Block[], latestTodos: Todo[] = []): TranscriptItem[] {
+  // latestTodos is the fold's plan as of this snapshot and todosAtBlock the
+  // plan as of each block index (see the field comment) — the boundary
+  // sub-turn's own plan names the new phase the moment its group is created.
+  sync(blocks: Block[], latestTodos: Todo[] = [], todosAtBlock: Todo[][] = []): TranscriptItem[] {
     if (blocks === this.lastBlocks) return this.items;
     this.latestTodos = latestTodos;
+    this.todosAtBlock = todosAtBlock;
     if (this.lastBlocks !== null && blocks.length <= this.lastBlocks.length) {
       // Same length, different reference: FoldState replaced an element in
       // place. The only such replacement is attachReasoningTokens, which
@@ -223,7 +231,7 @@ export class SubTurnGroupState {
       return this.items;
     }
     const start = this.lastBlocks ? this.lastBlocks.length : 0;
-    for (let i = start; i < blocks.length; i++) this.pushBlock(blocks[i], blocks);
+    for (let i = start; i < blocks.length; i++) this.pushBlock(blocks[i], blocks, i);
     this.lastBlocks = blocks;
     return this.items;
   }
@@ -232,18 +240,20 @@ export class SubTurnGroupState {
   // style FoldState.pushBlock uses: an assistant block starts a new group,
   // tool results and usage append to the last one, and everything else stays
   // top-level. blocks is the whole current array, needed only so a usage
-  // block can re-read its group's (possibly amended) assistant element.
-  private pushBlock(block: Block, blocks: Block[]): void {
+  // block can re-read its group's (possibly amended) assistant element;
+  // blockIndex is the block's position in that array, which picks the plan
+  // (todosAtBlock) the boundary sub-turn wrote.
+  private pushBlock(block: Block, blocks: Block[], blockIndex: number): void {
     switch (block.type) {
       case "assistant":
         // A TodoWrite in the sub-turn's own calls marks a new phase
         // (docs/WEB-REDESIGN.md phase 6): the boundary is free — every
         // TodoWrite call in the event stream starts one — and the fold's
-        // latestTodos, which this sub-turn's TodoWrite just updated, names
-        // it. The group below freezes with that phase forever.
+        // already-parsed plan, as of this block (todosAtBlock), names it.
+        // The group below freezes with that phase forever.
         if (block.toolCalls.some((c) => c.name === "TodoWrite")) {
           this.phaseSeq++;
-          this.currentPhase = phaseFromTodos(this.latestTodos, this.phaseSeq);
+          this.currentPhase = phaseFromTodos(this.todosAt(blockIndex), this.phaseSeq);
         }
         this.addGroup(withTags({ subTurn: block.subTurn, seq: block.seq, blocks: [block], phase: this.currentPhase }));
         break;
@@ -306,6 +316,14 @@ export class SubTurnGroupState {
       if (item.kind === "group") return { index: i, group: item.group };
     }
     return null;
+  }
+
+  // todosAt is the plan as of one block index: the store's per-block record
+  // when there is one, otherwise the plan it held at the latest sync (the
+  // per-event callers — tests, groupBySubTurn — pass no timeline and get the
+  // same naming as before).
+  private todosAt(blockIndex: number): Todo[] {
+    return this.todosAtBlock[blockIndex] ?? this.latestTodos;
   }
 
   // replaceGroup swaps one item in place. Only the tail group is ever
