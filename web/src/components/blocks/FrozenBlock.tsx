@@ -1,6 +1,6 @@
 import type { Block } from "../../api/fold";
 import { AssistantBlock } from "./AssistantBlock";
-import { ErrorBlock, RunFinishedBlock, UsageBlock } from "./MiscBlocks";
+import { ErrorBlock, RunFinishedBlock, SteerBlock, UsageBlock } from "./MiscBlocks";
 import { OpeningBlock } from "./OpeningBlock";
 import { SkillsBlock } from "./SkillsBlock";
 import { ToolDeniedBlock } from "./ToolDeniedBlock";
@@ -36,5 +36,7 @@ export function FrozenBlock({ block }: { block: Block }) {
       return <RunFinishedBlock block={block} />;
     case "error":
       return <ErrorBlock block={block} />;
+    case "steer":
+      return <SteerBlock block={block} />;
   }
 }

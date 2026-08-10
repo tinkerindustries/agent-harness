@@ -246,6 +246,32 @@ export async function stopSession(id: string, token: string, reason?: string): P
   return (await res.json()) as StopResponse;
 }
 
+// SteerResponse is POST /api/sessions/{id}/steer's 202 body: the acceptance
+// plus the seq the caller's text landed at. Steering is not idempotent — two
+// steers are two instructions — so the seq is how a caller tells its own
+// steer from any other (docs/RUN-CONTROL.md "The HTTP surface").
+export interface SteerResponse {
+  session_id: string;
+  seq: number;
+}
+
+// steerSession appends an instruction to a running session via POST
+// /api/sessions/{id}/steer (docs/RUN-CONTROL.md "The HTTP surface"). The
+// response is an acceptance, not a delivery: the text reaches the model at
+// the next sub-turn boundary, which may be a minute or more away if a long
+// tool call is in flight, and the transcript's steer block shows it as
+// pending until then. The text is carried verbatim. The bearer token is
+// required, exactly as for stopSession.
+export async function steerSession(id: string, token: string, text: string): Promise<SteerResponse> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/steer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ text, source: "web" }),
+  });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as SteerResponse;
+}
+
 // --- logic the screen is built from (tested without a DOM) ---
 
 // isStuckSession reports whether a session row counts as stuck: still

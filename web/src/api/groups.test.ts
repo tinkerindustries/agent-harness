@@ -207,6 +207,36 @@ describe("SubTurnGroupState incremental sync", () => {
     for (let n = 1; n <= blocks.length; n++) state.sync(blocks.slice(0, n));
     expect(state.sync(blocks)).toEqual(groupBySubTurn(blocks));
   });
+
+  it("keeps a steer block top-level and propagates its pending → delivered flip through sync", () => {
+    // A steer is an operator instruction, not a model turn: it must stay a
+    // top-level block outside any sub-turn group, and when the fold flips it
+    // to delivered in place (same array length, new block reference), the
+    // grouped view must swap the item's block rather than keep the stale
+    // pending one (groups.ts refreshAmended).
+    const fold = new FoldState();
+    const group = new SubTurnGroupState();
+    const ingest = (e: StoreEvent) => {
+      fold.ingest(e);
+      return group.sync(fold.blocks);
+    };
+
+    ingest(ev(1, "session_started", { opening_message: "x" }));
+    ingest(ev(2, "turn_started", { sub_turn: 1 }));
+    ingest(ev(3, "turn_finished", { sub_turn: 1, finish_reason: "stop" }));
+    let items = ingest(ev(4, "steer_message", { text: "be terse", source: "web" }));
+    expect(typesOf(items)).toEqual(["block", "group:1", "block"]);
+    const pending = items[2].kind === "block" ? items[2].block : null;
+    expect(pending).toEqual({ type: "steer", seq: 4, text: "be terse", state: "pending" });
+
+    // The steer_applied arrives on a later event: the fold flips the steer
+    // block in place (same array length, new block reference) and sync must
+    // hand back items carrying the delivered block, in the same position.
+    items = ingest(ev(5, "steer_applied", { source_seq: 4, text: "be terse", sub_turn: 1 }));
+    const delivered = items[2].kind === "block" ? items[2].block : null;
+    expect(delivered).toEqual({ type: "steer", seq: 4, text: "be terse", state: "delivered" });
+    expect(typesOf(items)).toEqual(["block", "group:1", "block"]);
+  });
 });
 
 // A session whose filter families are all represented: turn 1 a clean Bash,
