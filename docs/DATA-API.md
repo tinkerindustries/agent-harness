@@ -63,9 +63,35 @@ log are never editable over HTTP.
 ### events
 
 The event log is read-only over HTTP, forever — see
-[Events are not writable](#events-are-not-writable). Phase 4 adds paging;
-until then the endpoint is `GET /api/sessions/{id}/events?from=<seq>&limit=`
-plus the SSE transcript stream.
+[Events are not writable](#events-are-not-writable). Phase 4 adds paging and
+kind filtering:
+
+- `GET /api/sessions/{id}/events?from=<seq>&limit=<n>&kind=<a>,<b>` — one
+  page of the log in seq order, starting at seq `from` (0, the default,
+  starts at the beginning), at most `limit` rows (clamped to
+  `http.events_limit_default` and `http.events_limit_max`), restricted to the
+  comma-separated `kind` names when present.
+- The response is the pre-existing body plus paging metadata alongside it —
+  `events`, `from`, and `limit` keep their exact meanings:
+
+  ```json
+  {"events": [...], "from": 1, "limit": 500, "has_more": true, "next": 501}
+  ```
+
+  `has_more` is whether more events — more *matching* events when `kind` is
+  set — follow this page, decided exactly by peeking one row past it, so a
+  log that ends precisely on a page boundary reports no more. `next` is
+  present only when `has_more` is true and is the `from` to ask for the next
+  page with: a client pages forward by echoing it back and stops when
+  `has_more` is false.
+- An unknown `kind` name is a 400 whose message names the valid kinds. The
+  valid list is `store.EventKinds` in `internal/store` — the filter accepts
+  exactly the kinds the log can hold and the 400 names the same list, so
+  they can never disagree. No `kind` means every kind. The filter runs in
+  SQL: a page of tool traffic never pulls the transcript's reasoning and
+  content deltas off the disk.
+
+Plus the SSE transcript stream.
 
 ### work_requests
 

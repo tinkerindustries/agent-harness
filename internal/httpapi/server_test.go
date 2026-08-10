@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -597,6 +598,247 @@ func TestGetEventsUnknownSession(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("got status %d, want 404", resp.StatusCode)
+	}
+}
+
+// fetchEventsPage GETs the events endpoint and decodes the page, failing the
+// test on any transport or status error.
+func fetchEventsPage(t *testing.T, srv *httptest.Server, qs string) eventsPage {
+	t.Helper()
+	resp, err := http.Get(srv.URL + qs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s: got status %d, want 200", qs, resp.StatusCode)
+	}
+	var page eventsPage
+	if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
+		t.Fatal(err)
+	}
+	return page
+}
+
+// TestEventsPagingArrivesAtTheEndExactlyOnce drives a log longer than the
+// page size purely on the paging metadata — keep asking with the next cursor
+// while has_more is true — and asserts it arrives at the end exactly once:
+// the final page is the first one whose has_more is false and it holds
+// exactly the remaining events, with no empty trailing page and no off-by-one.
+// The second scenario is the edge the old "a full page means more" heuristic
+// answered wrong: a log that ends exactly on a page boundary has no more even
+// though its last page is full.
+func TestEventsPagingArrivesAtTheEndExactlyOnce(t *testing.T) {
+	srv, st, h := newTestServer(t)
+	mustCreateSession(t, st, "sess-1", time.Now())
+	mustCreateSession(t, st, "sess-exact", time.Now())
+	for i := 0; i < 7; i++ {
+		appendAndPublish(t, st, h, "sess-1", []store.EventInput{
+			{Kind: store.KindContentDelta, Payload: store.ContentDeltaPayload{Text: strconv.Itoa(i)}},
+		})
+	}
+	for i := 0; i < 6; i++ {
+		appendAndPublish(t, st, h, "sess-exact", []store.EventInput{
+			{Kind: store.KindContentDelta, Payload: store.ContentDeltaPayload{Text: strconv.Itoa(i)}},
+		})
+	}
+
+	// page follows the cursor from from=1 while has_more is true and
+	// returns the seqs seen and how many pages the log took.
+	page := func(id string) (seqs []int64, pages int) {
+		t.Helper()
+		from := int64(1)
+		for {
+			p := fetchEventsPage(t, srv, fmt.Sprintf("/api/sessions/%s/events?from=%d&limit=3", id, from))
+			for _, ev := range p.Events {
+				seqs = append(seqs, ev.Seq)
+			}
+			pages++
+			if !p.HasMore {
+				if p.Next != nil {
+					t.Fatalf("%s: a page with has_more=false must not carry a next cursor, got %d", id, *p.Next)
+				}
+				return seqs, pages
+			}
+			if p.Next == nil {
+				t.Fatalf("%s: a page with has_more=true must carry a next cursor", id)
+			}
+			from = *p.Next
+		}
+	}
+
+	seqs, pages := page("sess-1")
+	if pages != 3 || !slices.Equal(seqs, []int64{1, 2, 3, 4, 5, 6, 7}) {
+		t.Fatalf("sess-1: %d pages, seqs %v; want 3 pages covering 1..7", pages, seqs)
+	}
+
+	seqs, pages = page("sess-exact")
+	if pages != 2 || !slices.Equal(seqs, []int64{1, 2, 3, 4, 5, 6}) {
+		t.Fatalf("sess-exact: %d pages, seqs %v; want 2 pages covering 1..6 with the full second page reporting no more", pages, seqs)
+	}
+}
+
+// TestEventsKindFilterPagingReportsMoreMatchingEvents pins the composition
+// of ?kind= with paging (docs/DATA-API.md "events"): has_more on a filtered
+// page means more *matching* events, not more events of any kind. A log
+// whose tool traffic is interleaved with content deltas is paged on the
+// tool_call kind, and a kind that matches once reports no more even while
+// the unfiltered log continues past it.
+func TestEventsKindFilterPagingReportsMoreMatchingEvents(t *testing.T) {
+	srv, st, h := newTestServer(t)
+	mustCreateSession(t, st, "sess-1", time.Now())
+
+	var inputs []store.EventInput
+	for i := 0; i < 4; i++ {
+		inputs = append(inputs,
+			store.EventInput{Kind: store.KindToolCall, Payload: store.ToolCallPayload{ID: "c" + strconv.Itoa(i), Name: "Read", Arguments: `{}`}},
+			store.EventInput{Kind: store.KindContentDelta, Payload: store.ContentDeltaPayload{Text: "noise"}},
+		)
+	}
+	inputs = append(inputs, store.EventInput{Kind: store.KindUsage, Payload: store.UsagePayload{SubTurn: 1, CostUSD: 0.001}})
+	appendAndPublish(t, st, h, "sess-1", inputs)
+	// seqs: 1 tool_call, 2 content_delta, 3 tool_call, 4 content_delta,
+	//       5 tool_call, 6 content_delta, 7 tool_call, 8 content_delta,
+	//       9 usage. Four tool_call matches, interleaved with non-matches.
+
+	// Page the tool_call kind with limit 2: exactly two pages, each full,
+	// the first reporting more and the second — the exact remainder — not.
+	from := int64(1)
+	var pages []eventsPage
+	for i := 0; i < 3; i++ {
+		p := fetchEventsPage(t, srv, fmt.Sprintf("/api/sessions/sess-1/events?from=%d&limit=2&kind=tool_call", from))
+		pages = append(pages, p)
+		if !p.HasMore {
+			break
+		}
+		from = *p.Next
+	}
+	if len(pages) != 2 {
+		t.Fatalf("expected 2 pages of tool_call, got %d", len(pages))
+	}
+	if !pages[0].HasMore || pages[0].Next == nil {
+		t.Fatalf("first filtered page must report more (4 matches, limit 2), got %+v", pages[0])
+	}
+	if pages[1].HasMore || pages[1].Next != nil {
+		t.Fatalf("second filtered page must be the last, got %+v", pages[1])
+	}
+	if len(pages[1].Events) != 2 {
+		t.Fatalf("last filtered page = %d events, want the exact remainder of 2", len(pages[1].Events))
+	}
+	for _, p := range pages {
+		for _, ev := range p.Events {
+			if ev.Kind != store.KindToolCall {
+				t.Fatalf("kind filter leaked a %s event into the page", ev.Kind)
+			}
+		}
+	}
+
+	// The cursor composes with the filter: a from in the middle of
+	// non-matching events resumes at the next match.
+	resumed := fetchEventsPage(t, srv, "/api/sessions/sess-1/events?from=6&limit=2&kind=tool_call")
+	if len(resumed.Events) != 1 || resumed.Events[0].Seq != 7 || resumed.HasMore {
+		t.Fatalf("resumed filtered page = %+v, want just the tool_call at seq 7 with no more", resumed)
+	}
+
+	// A kind that matches once reports has_more=false immediately, while the
+	// unfiltered log keeps going past it — "more" is about matching events.
+	usage := fetchEventsPage(t, srv, "/api/sessions/sess-1/events?from=1&limit=2&kind=usage")
+	if len(usage.Events) != 1 || usage.HasMore || usage.Next != nil {
+		t.Fatalf("usage filter = %+v, want exactly its one event with no more", usage)
+	}
+}
+
+// TestEventsUnknownKindReturns400NamingValidKinds pins the filter's
+// validation (docs/DATA-API.md "events"): an unknown kind name is a 400 whose
+// message names every valid kind, and the valid list comes from
+// store.EventKinds — the same list the filter accepts — never a literal
+// here. A single bad name poisons the whole list, so a typo in one of many
+// kinds is caught rather than silently narrowing the page.
+func TestEventsUnknownKindReturns400NamingValidKinds(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	mustCreateSession(t, st, "sess-1", time.Now())
+
+	for _, qs := range []string{
+		"?kind=bogus",
+		"?kind=tool_call,bogus",
+		"?kind=ToolCall",     // names are case-sensitive
+		"?kind=run-finished", // the kind is run_finished
+	} {
+		resp, err := http.Get(srv.URL + "/api/sessions/sess-1/events" + qs)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("GET %s: got status %d, want 400", qs, resp.StatusCode)
+		}
+		var got map[string]string
+		if err := json.Unmarshal(body, &got); err != nil {
+			t.Fatal(err)
+		}
+		msg := got["error"]
+		for _, k := range store.EventKinds {
+			if !strings.Contains(msg, string(k)) {
+				t.Fatalf("GET %s: 400 message %q does not name valid kind %q", qs, msg, k)
+			}
+		}
+	}
+}
+
+// TestEventsPathHasNoMutatingRouteInRouter pins the events resource's
+// immutability against the routing table itself (docs/DATA-API.md "Events
+// are not writable"): the router registers GET on an events path and nothing
+// else, so a mutating request falls through to the static "/" catch-all
+// rather than a method-specific route. ServeMux.Handler reports the most
+// specific pattern a request matches, so a mutating events route added later
+// answers with its own pattern here and fails the test — it cannot hide
+// behind the method gate, which is a separate layer from the table this
+// assertion reads.
+func TestEventsPathHasNoMutatingRouteInRouter(t *testing.T) {
+	api := &Server{
+		Static: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+	}
+	mux := api.routes()
+
+	// The events resource is readable: GET matches the registered pattern.
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/api/sessions/sess-1/events", nil)
+	if _, pat := mux.Handler(req); pat != "GET /api/sessions/{id}/events" {
+		t.Fatalf("GET on an events path routes to %q, want the events pattern", pat)
+	}
+
+	// No mutating method may have a route on an events path: every one of
+	// them must fall through to the static catch-all ("/"). A pattern
+	// registered later — an edit button's POST, say — would displace the
+	// catch-all here and fail the test.
+	for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+		req := httptest.NewRequest(m, "http://example.com/api/sessions/sess-1/events", nil)
+		if _, pat := mux.Handler(req); pat != "/" {
+			t.Errorf("%s on an events path routes to %q, want the static fallthrough \"/\": the events resource must stay read-only", m, pat)
+		}
+	}
+}
+
+// TestEventsPathMutatingMethods405WithAllow pins the wire behaviour of the
+// same invariant: PUT, PATCH, POST and DELETE on an events path answer 405
+// with an Allow header naming what the path really permits — GET and HEAD —
+// exactly like every other path that has no write route (docs/DATA-API.md).
+func TestEventsPathMutatingMethods405WithAllow(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	mustCreateSession(t, st, "sess-1", time.Now())
+
+	for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+		resp := doWrite(t, srv, m, "/api/sessions/sess-1/events", "", nil)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Fatalf("%s on an events path: got status %d, want 405", m, resp.StatusCode)
+		}
+		if got := resp.Header.Get("Allow"); got != "GET, HEAD" {
+			t.Errorf("%s on an events path: Allow = %q, want %q", m, got, "GET, HEAD")
+		}
 	}
 }
 

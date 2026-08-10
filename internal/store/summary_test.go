@@ -67,6 +67,65 @@ func TestGetEventsAfterUnknownSession(t *testing.T) {
 	}
 }
 
+// TestGetEventsAfterKindsFiltersInSQL pins the ?kind= filter's read: only
+// matching kinds come back, in seq order, restricted to the seq and limit
+// bounds exactly like the unfiltered read — the filter is a WHERE clause,
+// not a post-query discard, so paging a filter never pulls the events it
+// will throw away.
+func TestGetEventsAfterKindsFiltersInSQL(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	mustCreateSession(t, s, "sess-1")
+
+	if _, err := s.AppendEvents(ctx, "sess-1", []EventInput{
+		{Kind: KindTurnStarted, Payload: TurnStartedPayload{SubTurn: 1}},
+		{Kind: KindToolCall, Payload: ToolCallPayload{ID: "c1", Name: "Read", Arguments: `{}`}},
+		{Kind: KindContentDelta, Payload: ContentDeltaPayload{Text: "noise"}},
+		{Kind: KindToolCall, Payload: ToolCallPayload{ID: "c2", Name: "Bash", Arguments: `{}`}},
+		{Kind: KindToolResult, Payload: ToolResultPayload{ToolCallID: "c2", Name: "Bash", Content: "ok"}},
+		{Kind: KindUsage, Payload: UsagePayload{SubTurn: 1, CostUSD: 0.001}},
+	}); err != nil {
+		t.Fatalf("append events: %v", err)
+	}
+	// seqs: 1 turn_started, 2 tool_call, 3 content_delta, 4 tool_call,
+	//       5 tool_result, 6 usage.
+
+	got, err := s.GetEventsAfterKinds(ctx, "sess-1", 0, -1, []EventKind{KindToolCall, KindToolResult})
+	if err != nil {
+		t.Fatalf("get filtered events: %v", err)
+	}
+	var seqs []int64
+	for _, e := range got {
+		if e.Kind != KindToolCall && e.Kind != KindToolResult {
+			t.Fatalf("filter returned a %s event", e.Kind)
+		}
+		seqs = append(seqs, e.Seq)
+	}
+	if len(seqs) != 3 || seqs[0] != 2 || seqs[1] != 4 || seqs[2] != 5 {
+		t.Fatalf("filtered seqs = %v, want 2, 4, 5", seqs)
+	}
+
+	// The seq bound and the limit apply to the filtered set, not the raw
+	// log: "from" 3 skips the tool_call at seq 2, and the limit 1 stops at
+	// the next match.
+	got, err = s.GetEventsAfterKinds(ctx, "sess-1", 2, 1, []EventKind{KindToolCall})
+	if err != nil {
+		t.Fatalf("get filtered paged events: %v", err)
+	}
+	if len(got) != 1 || got[0].Seq != 4 || got[0].Kind != KindToolCall {
+		t.Fatalf("filtered paged read = %+v, want just the tool_call at seq 4", got)
+	}
+
+	// An empty kind list is no filter — the unfiltered read's shape.
+	got, err = s.GetEventsAfterKinds(ctx, "sess-1", 0, -1, nil)
+	if err != nil {
+		t.Fatalf("get unfiltered events: %v", err)
+	}
+	if len(got) != 6 {
+		t.Fatalf("expected all 6 events with no kinds, got %d", len(got))
+	}
+}
+
 func TestSessionUsageSummaries(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()

@@ -23,6 +23,30 @@ const (
 // EventKind is the tag on an Event row that says how to decode its payload.
 type EventKind string
 
+// EventKinds is every kind the event log can hold, in declaration order. The
+// HTTP layer's ?kind= filter and its 400 "valid kinds" message derive from
+// this list rather than a literal of their own (docs/DATA-API.md "events"),
+// so adding an event kind to the log automatically extends the API's filter
+// surface instead of silently leaving the new kind unfilterable.
+var EventKinds = []EventKind{
+	KindSessionStarted, KindTurnStarted, KindReasoningDelta, KindContentDelta,
+	KindToolCall, KindToolDenied, KindToolStdout, KindToolResult, KindUsage,
+	KindTurnFinished, KindRunFinished, KindError,
+}
+
+// ValidEventKind reports whether name is a kind the event log can hold — the
+// membership test the HTTP layer's ?kind= filter runs before touching the
+// store. The answer comes from EventKinds, the same list the filter's 400
+// message is built from, so the two can never disagree.
+func ValidEventKind(name string) bool {
+	for _, k := range EventKinds {
+		if string(k) == name {
+			return true
+		}
+	}
+	return false
+}
+
 // SessionStartedPayload carries a user message that starts a new turn of
 // the conversation. It appears once, before the first sub-turn, for every
 // session; Runner.Resume appends a second (or later) one to carry the
