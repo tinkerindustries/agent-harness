@@ -233,9 +233,10 @@ Call `deepseek_agent`:
 - `result_schema`: the contents of `references/result-schema.json`, read and
   passed as a JSON object.
 - `max_sub_turns`: leave it out for anything an experienced engineer would
-  finish in an hour; the server default is 100. Raise it to 150–200 for work
-  that spans many files, and say so, since the run ends as `timeout` when the
-  budget runs out.
+  finish in an hour; the server default is 400 — about 40 minutes of flash
+  sub-turns, inside the default hour-long deadline. Raise it only for work
+  that will clearly need more, and say so, since the run ends as `timeout`
+  when the budget runs out.
 
 The call returns immediately with a `request_id` and usually a transcript URL.
 Give both to the user in your next message. Runs take minutes, and a user who

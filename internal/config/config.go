@@ -12,23 +12,32 @@ import (
 )
 
 const (
-	defaultBaseURL     = "https://api.deepseek.com"
-	defaultModel       = "deepseek-v4-pro"
-	defaultFlashModel  = "deepseek-v4-flash"
-	defaultEffort      = "high"
-	defaultMaxTokens   = 48000
-	defaultPriceTable  = "configs/prices.json"
-	defaultDataDir     = "data"
-	defaultMaxSubTurns = 100
+	defaultBaseURL    = "https://api.deepseek.com"
+	defaultModel      = "deepseek-v4-pro"
+	defaultFlashModel = "deepseek-v4-flash"
+	defaultEffort     = "high"
+	defaultMaxTokens  = 48000
+	defaultPriceTable = "configs/prices.json"
+	defaultDataDir    = "data"
+	// defaultMaxSubTurns is the sub-turn budget a work request that omits
+	// max_sub_turns gets. It is chosen against defaultDeadlineMS: a flash
+	// sub-turn averages about six seconds on this harness, so a full
+	// 400-sub-turn run needs roughly 40 minutes of wall clock, and the
+	// deadline below is sized to let that budget actually run. Raising one
+	// without the other does nothing.
+	defaultMaxSubTurns = 400
 
 	// defaultNATSURL matches docker-compose.yml's default client port.
 	defaultNATSURL = "nats://127.0.0.1:4222"
 	// defaultWorkerPoolSize is also MaxAckPending on the WORK consumer
 	// (docs/DESIGN.md §4.10): the harness pulls only what it can run.
 	defaultWorkerPoolSize = 4
-	// defaultDeadlineMS is DESIGN.md §4.10's own example value for a work
-	// request that omits deadline_ms.
-	defaultDeadlineMS = 1_800_000
+	// defaultDeadlineMS is the wall clock a work request that omits
+	// deadline_ms gets. It is chosen against defaultMaxSubTurns: 400
+	// sub-turns at roughly six seconds each need about 40 minutes, and this
+	// hour leaves headroom over that. Raising one without the other does
+	// nothing. DESIGN.md §4.10's request body shows the same example values.
+	defaultDeadlineMS = 3_600_000
 	// defaultModelConcurrencyPro and defaultModelConcurrencyFlash are the
 	// account-wide ceilings docs/MODELS.md measured, not a per-installation
 	// choice (docs/MODELS.md, "Concurrency is per-model and account-wide").

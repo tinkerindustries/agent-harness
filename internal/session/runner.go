@@ -26,8 +26,12 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 )
 
-// DefaultMaxSubTurns bounds a run when RunOptions.MaxSubTurns is unset.
-const DefaultMaxSubTurns = 100
+// DefaultMaxSubTurns bounds a run when RunOptions.MaxSubTurns is unset. It
+// pairs with config's defaultDeadlineMS: the hour-long deadline is sized to
+// let a full 400-sub-turn budget run, at roughly six seconds a flash
+// sub-turn. Both defaults must move together — raising one without the other
+// does nothing.
+const DefaultMaxSubTurns = 400
 
 // CompactionThresholdTokens is DeepSeek's recommended Claude Code
 // compaction window, 768K of the 1M context (docs/TOOLS.md, "Context and
