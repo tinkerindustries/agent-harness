@@ -45,13 +45,18 @@ cutting a version and deploying it to the production stack.
   sessions, events, work requests, settings — and it is specified in
   docs/DATA-API.md. Stage two is run control from the browser, built in stages
   (docs/RUN-CONTROL.md): stopping (`POST /api/sessions/{id}/stop`, through the
-  declared `RunController` seam) and steering (`POST /api/sessions/{id}/steer`,
-  a store write the loop reads) are built; starting is not.
-  Until starting lands, **do not give the HTTP server a NATS handle** — not
-  because reaching the loop is forbidden forever, but because the seam it goes
-  through is a design decision that has not been made yet, and a handle
-  smuggled in early is how it gets made by accident. Build stage one so stage
-  two is an addition rather than a rewrite.
+  declared `RunController` seam), steering (`POST /api/sessions/{id}/steer`,
+  a store write the loop reads), and starting (`POST /api/runs`, through the
+  declared `RunPublisher` seam) are built.
+  **The HTTP server holds no JetStream handle; it holds two narrow run-control
+  seams, `RunPublisher` and `RunController`.** `RunPublisher` (declared in
+  `internal/httpapi`, implemented by `cmd/harness` over the queue's own
+  handle) publishes one validated `queue.Request` to the WORK stream — the
+  browser is one more producer, not a second way a session starts, and the
+  claim/heartbeat/redelivery machinery stays the only one. The seam was
+  chosen deliberately, not by an import appearing, which is what the old rule
+  ("do not give the HTTP server a NATS handle") was protecting: this is its
+  record. Build stage one so stage two is an addition rather than a rewrite.
   Every write carries the guards the settings endpoints already use — same
   origin, `application/json`, loopback. Authentication is the open question
   stage two forces: the port serves transcripts carrying workspace paths, file

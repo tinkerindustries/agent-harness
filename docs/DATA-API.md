@@ -12,17 +12,19 @@ Two distinctions bracket what belongs here:
 - **Data, not run control.** A write that changes a row the harness manages —
   closing an abandoned session, deleting a finished one, closing a dead work
   request — is data and belongs in this API. A write that *starts, steers, or
-  stops a run* — publishing a work request, resuming a session, cancelling the
-  loop — is run control and lives in [RUN-CONTROL.md](RUN-CONTROL.md), whose
-  seam is chosen: the HTTP server holds no NATS handle and `internal/httpapi`
-  imports neither `internal/session` nor `internal/worker`
-  ([ARCHITECTURE.md](../ARCHITECTURE.md)). Two run-control actions are built:
-  `POST /api/sessions/{id}/stop`, authenticated by the `http.control_token`
-  bearer token and acting on a run through the declared `RunController`
-  interface, and `POST /api/sessions/{id}/steer`, the same guards but no seam
-  at all — it is a store write the loop reads at its next sub-turn boundary.
-  Starting is not built yet. That import boundary, not the absence of write
-  endpoints, is what makes "no endpoint can start a run" structural.
+  stops a run* is run control and lives in [RUN-CONTROL.md](RUN-CONTROL.md),
+  whose seams are chosen: the HTTP server holds no JetStream handle and
+  `internal/httpapi` imports neither `internal/session` nor
+  `internal/worker` ([ARCHITECTURE.md](../ARCHITECTURE.md)). Three
+  run-control actions are built: `POST /api/runs`, which publishes a
+  validated work request to the WORK stream through the declared
+  `RunPublisher` interface (implemented by `cmd/harness` over the queue's own
+  handle); `POST /api/sessions/{id}/stop`, authenticated by the
+  `http.control_token` bearer token and acting on a run through the declared
+  `RunController` interface; and `POST /api/sessions/{id}/steer`, the same
+  guards but no seam at all — it is a store write the loop reads at its next
+  sub-turn boundary. That import boundary is what keeps run control a
+  declared seam rather than a reach into a running loop.
 - **The store is the only record.** The event log is append-only and never
   editable; see [Events are not writable](#events-are-not-writable).
 

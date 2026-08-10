@@ -213,16 +213,21 @@ were a shell on the box or a hand-written SQLite update against a live store.
 An API is the better answer, so the prohibition is retired and
 [DATA-API.md](DATA-API.md) is the surface that replaces it.
 
-Run control is being built in stages (docs/RUN-CONTROL.md), and the seam is
+Run control is built in stages (docs/RUN-CONTROL.md), and the seams are
 chosen: stopping goes through the `RunController` interface declared in
-`internal/httpapi` and implemented by `*worker.Pool`, so the HTTP server still
-holds no NATS handle and work enters over NATS or the CLI. `POST
-/api/sessions/{id}/stop` is live, authenticated by the `http.control_token`
-bearer token. Steering is live too — `POST /api/sessions/{id}/steer` is a
-store write by the handler and a store read by the loop, so it needs no seam
-at all; starting is the one stage not built yet. The distinction while
-that is true is the target, not the verb: a write that closes an abandoned
-session row is data, and a write that publishes a work request is run control.
+`internal/httpapi` and implemented by `*worker.Pool`; starting goes through
+the `RunPublisher` interface, declared in `internal/httpapi` and implemented
+by `cmd/harness` over the queue's own JetStream handle — so the HTTP server
+still holds no NATS handle, only the narrow ability to enqueue one validated
+request, and work enters over NATS whichever surface asked for it. `POST
+/api/sessions/{id}/stop` and `POST /api/runs` are live, authenticated by the
+`http.control_token` bearer token. Steering is live too — `POST
+/api/sessions/{id}/steer` is a store write by the handler and a store read by
+the loop, so it needs no seam at all. The distinction that used to matter —
+a write that closes an abandoned session row is data, and a write that
+publishes a work request is run control — is now settled: the run-control
+endpoints are the three actions in docs/RUN-CONTROL.md, and the data write
+surface stays docs/DATA-API.md.
 
 Two things stage two has to answer, and stage one should not foreclose:
 
@@ -565,6 +570,15 @@ Request body:
       "parent_agent_type": "claude-code",       optional, the launching agent's kind, or "user"
       "parent_agent_id":   "abc123",            optional, the launching agent's session id
     }
+
+The browser is one producer among several. `POST /api/runs` (docs/RUN-CONTROL.md)
+accepts this body over HTTP — `request_id` optional there and generated when
+absent, because a browser form has no idempotency key to offer — validates it
+with the queue's own `Request.Validate`, and publishes it to the WORK stream
+through the `RunPublisher` seam; a caller that supplies a `request_id` gets
+the same deduplication every other producer gets. `harness publish` and
+`deepseek_agent` are the other two producers, and all three share the one
+marshal-and-publish path, `queue.PublishRequest`.
 
 Result body:
 
