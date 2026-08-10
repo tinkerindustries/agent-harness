@@ -152,6 +152,16 @@ type Server struct {
 // settings key path, PATCH and DELETE on one session's path
 // (docs/DESIGN.md §4.2, docs/DATA-API.md).
 func (s *Server) Handler() http.Handler {
+	return methodGate(s.routes())
+}
+
+// routes builds the router: every pattern the surface serves, method and
+// path. Handler wraps it in the method gate; the bare router is also
+// exposed for the test that asserts the events resource carries no
+// mutating route (docs/DATA-API.md "Events are not writable") — a route
+// registered on it later fails that test rather than passing behind the
+// gate unnoticed.
+func (s *Server) routes() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/sessions", s.handleListSessions)
 	mux.HandleFunc("GET /api/sessions/{id}", s.handleGetSession)
@@ -175,7 +185,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PUT /api/settings/{key}", s.handlePutSetting)
 	mux.HandleFunc("DELETE /api/settings/{key}", s.handleDeleteSetting)
 	mux.Handle("/", s.Static)
-	return methodGate(mux)
+	return mux
 }
 
 // methodGate enforces the method allowlist ahead of any routing decision. GET
@@ -998,7 +1008,14 @@ type eventsPage struct {
 	Events []store.Event `json:"events"`
 	From   int64         `json:"from"`
 	Limit  int           `json:"limit"`
-	Next   *int64        `json:"next,omitempty"`
+	// HasMore is the answer a pager actually needs: whether more events —
+	// more *matching* events when ?kind= is set — follow this page. It is
+	// decided by fetching one row past the page, so it is exact even when
+	// the log ends exactly on a page boundary. Next, when HasMore is true,
+	// is the seq to ask for the next page with: pass it back as ?from=
+	// (docs/DATA-API.md "events").
+	HasMore bool   `json:"has_more"`
+	Next    *int64 `json:"next,omitempty"`
 }
 
 func (s *Server) eventsLimits() (def, max int) {
@@ -1019,6 +1036,12 @@ func (s *Server) handleGetEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	kinds, err := parseEventKinds(r.URL.Query().Get("kind"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
 	def, max := s.eventsLimits()
 	from := parseInt64(r.URL.Query().Get("from"), 0)
 	if from < 0 {
@@ -1029,21 +1052,68 @@ func (s *Server) handleGetEvents(w http.ResponseWriter, r *http.Request) {
 		limit = def
 	}
 
-	events, err := s.Store.GetEventsAfter(r.Context(), id, from-1, limit)
+	// Fetch one row past the page so "is there more" is an exact answer
+	// rather than a guess from a page that happens to be full — a full page
+	// cannot tell "there is a next page" from "the log ends exactly here".
+	// The extra row is dropped before the response. When a kind filter is
+	// set, the probe is filtered the same way, so HasMore means more
+	// *matching* events, never more events the filter would discard.
+	events, err := s.Store.GetEventsAfterKinds(r.Context(), id, from-1, limit+1, kinds)
 	if err != nil {
 		writeInternalError(w, err)
 		return
+	}
+	hasMore := len(events) > limit
+	if hasMore {
+		events = events[:limit]
 	}
 	if events == nil {
 		events = []store.Event{}
 	}
 
-	page := eventsPage{Events: events, From: from, Limit: limit}
-	if len(events) == limit {
+	page := eventsPage{Events: events, From: from, Limit: limit, HasMore: hasMore}
+	if hasMore {
 		next := events[len(events)-1].Seq + 1
 		page.Next = &next
 	}
 	writeJSON(w, http.StatusOK, page)
+}
+
+// eventKindNames is every kind the event log can hold, as strings, in store
+// declaration order — the ?kind= filter's valid-value list. It derives from
+// store.EventKinds, the one list of kinds internal/store defines, so the
+// filter accepts exactly what the log can hold and its 400 names exactly
+// that; a kind added to the store extends the API here without a second
+// literal to forget (docs/DATA-API.md "events").
+var eventKindNames = func() []string {
+	names := make([]string, len(store.EventKinds))
+	for i, k := range store.EventKinds {
+		names[i] = string(k)
+	}
+	return names
+}()
+
+// parseEventKinds turns a ?kind= value — a comma-separated list of event
+// kind names — into the store kinds a page is filtered by. An empty value is
+// no filter (every kind). An unknown name is an error that names the valid
+// kinds, surfaced as the 400 docs/DATA-API.md's error shape prescribes.
+func parseEventKinds(v string) ([]store.EventKind, error) {
+	if v == "" {
+		return nil, nil
+	}
+	parts := strings.Split(v, ",")
+	kinds := make([]store.EventKind, 0, len(parts))
+	for _, p := range parts {
+		name := strings.TrimSpace(p)
+		if name == "" {
+			continue
+		}
+		if !store.ValidEventKind(name) {
+			return nil, fmt.Errorf("unknown event kind %q; valid kinds: %s", name, strings.Join(eventKindNames, ", "))
+		}
+		kinds = append(kinds, store.EventKind(name))
+	}
+	return kinds, nil
 }
 
 // handleSessionStream serves one session's transcript: the full history
