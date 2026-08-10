@@ -48,6 +48,16 @@ func execEdit(_ context.Context, e *Executor, argsRaw json.RawMessage) Result {
 	if err != nil {
 		return errorResult("%v", err)
 	}
+	size, binary, err := isBinaryFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return errorResult("file not found: %s", args.FilePath)
+		}
+		return errorResult("open %s: %v", args.FilePath, err)
+	}
+	if binary {
+		return binaryFileError(args.FilePath, size)
+	}
 	if !e.wasRead(path) {
 		return errorResult("%s has not been read in this session; Read it before editing", args.FilePath)
 	}
