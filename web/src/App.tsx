@@ -1,22 +1,30 @@
 import { useEffect, useState } from "react";
 import { SessionListScreen } from "./components/SessionListScreen";
+import { SettingsScreen } from "./components/SettingsScreen";
 import { TranscriptScreen } from "./components/TranscriptScreen";
 import { PerfHarnessScreen } from "./perf/PerfHarnessScreen";
 
-// Two screens, no router library (docs/DESIGN.md §5.7): plain pathname
+// Three screens, no router library (docs/DESIGN.md §5.7): plain pathname
 // parsing plus history.pushState/popstate. "/" is the session list;
-// "/sessions/:id" is one session's transcript. The Go static handler falls
-// back to index.html for any unrecognised path, so a reload or a direct
-// link to /sessions/:id still loads this app and lands on the right
-// screen. "/perf" is the measurement harness (web/src/perf) — a
-// developer tool, not part of the read-only product surface, but routed
-// here rather than as a second Vite entry point so it exercises the exact
-// same build and component tree the real transcript does.
+// "/sessions/:id" is one session's transcript; "/settings" is the settings
+// screen — the browser's one write, key management only, no run control
+// (docs/DESIGN.md §4.2). The Go static handler falls back to index.html for
+// any unrecognised path, so a reload or a direct link to /sessions/:id or
+// /settings still loads this app and lands on the right screen. "/perf" is
+// the measurement harness (web/src/perf) — a developer tool, not part of
+// the read-only product surface, but routed here rather than as a second
+// Vite entry point so it exercises the exact same build and component tree
+// the real transcript does.
 
-type Route = { kind: "list" } | { kind: "session"; id: string } | { kind: "perf" };
+type Route =
+  | { kind: "list" }
+  | { kind: "session"; id: string }
+  | { kind: "perf" }
+  | { kind: "settings" };
 
 function parseRoute(pathname: string): Route {
   if (pathname.replace(/\/$/, "") === "/perf") return { kind: "perf" };
+  if (pathname.replace(/\/$/, "") === "/settings") return { kind: "settings" };
   const m = pathname.match(/^\/sessions\/([^/]+)\/?$/);
   return m ? { kind: "session", id: decodeURIComponent(m[1]) } : { kind: "list" };
 }
@@ -41,5 +49,10 @@ export default function App() {
   if (route.kind === "perf") {
     return <PerfHarnessScreen />;
   }
-  return <SessionListScreen onOpen={(id) => navigate(`/sessions/${encodeURIComponent(id)}`)} />;
+  if (route.kind === "settings") {
+    return <SettingsScreen onBack={() => navigate("/")} />;
+  }
+  return (
+    <SessionListScreen onOpen={(id) => navigate(`/sessions/${encodeURIComponent(id)}`)} onSettings={() => navigate("/settings")} />
+  );
 }
