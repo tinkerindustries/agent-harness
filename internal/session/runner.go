@@ -603,7 +603,6 @@ func (r *Runner) fail(ctx context.Context, sess store.Session, allEvents []store
 // context so the browser can show output as it happens instead of only on
 // completion (docs/DESIGN.md §5.2); every other tool runs exactly as before.
 func (r *Runner) executeToolCalls(ctx context.Context, sess store.Session, executor *tools.Executor, calls []deepseek.AssembledToolCall) []tools.Outcome {
-	r.persistLiveState(ctx, sess, calls)
 	outcomes := make([]tools.Outcome, len(calls))
 	var wg sync.WaitGroup
 	for i, c := range calls {
@@ -630,15 +629,16 @@ func (r *Runner) executeToolCalls(ctx context.Context, sess store.Session, execu
 }
 
 // persistLiveState writes this sub-turn's plan and recent-tool-call roll to
-// the session row (docs/WEB-REDESIGN.md phase 3). It runs in the runner —
-// the one component that sees every tool call and already holds the store
-// handle — rather than inside tools.Executor, which deliberately does not
-// import internal/store. TodoWrite's todos array is stored verbatim (via
-// store.StatusTodo, the same parse the status endpoint uses) so the session
-// list carries the live plan without re-walking the event log on every
-// publish, and finished sessions keep their last plan for the finished
-// table's plan-ratio subtitle. TodoWrite itself is not rolled into the
-// recent calls: the plan panel already says what it said.
+// the session row (docs/WEB-REDESIGN.md phase 3). The runner calls it where
+// it already appends the tool_call events — the one component that sees
+// every tool call and already holds the store handle — rather than inside
+// tools.Executor, which deliberately does not import internal/store.
+// TodoWrite's todos array is stored verbatim (via store.StatusTodo, the
+// same parse the status endpoint uses) so the session list carries the live
+// plan without re-walking the event log on every publish, and finished
+// sessions keep their last plan for the finished table's plan-ratio
+// subtitle. TodoWrite itself is not rolled into the recent calls: the plan
+// panel already says what it said.
 func (r *Runner) persistLiveState(ctx context.Context, sess store.Session, calls []deepseek.AssembledToolCall) {
 	var plan string
 	var recent []store.RecentToolCall
