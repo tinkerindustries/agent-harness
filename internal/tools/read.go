@@ -44,6 +44,17 @@ func execRead(_ context.Context, e *Executor, argsRaw json.RawMessage) Result {
 		return errorResult("%s is a directory, not a file", args.FilePath)
 	}
 
+	size, binary, err := isBinaryFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return errorResult("file not found: %s", args.FilePath)
+		}
+		return errorResult("open %s: %v", args.FilePath, err)
+	}
+	if binary {
+		return binaryFileError(args.FilePath, size)
+	}
+
 	start := args.Offset
 	if start < 1 {
 		start = 1
