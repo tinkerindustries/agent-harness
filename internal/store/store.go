@@ -41,6 +41,14 @@ var ErrWorkspaceLeased = errors.New("store: workspace already leased")
 // ErrNotFound is returned when a lookup by id finds no row.
 var ErrNotFound = errors.New("store: not found")
 
+// ErrSessionCancelled is returned when a write targets a session that was
+// stopped: its status is "cancelled", which is terminal and final
+// (docs/RUN-CONTROL.md "Half two"). AppendEvents refuses a cancelled session
+// so a wedged goroutine that wakes long after a stop cannot dirty the log it
+// was stopped in, and FinishSession and UpdateSessionStatus refuse to move a
+// cancelled row anywhere else.
+var ErrSessionCancelled = errors.New("store: session is cancelled")
+
 // SessionRunningError is returned when a mutating write targets a session
 // whose status is still "running": nothing may delete (or otherwise
 // overwrite) a row a live session goroutine is still appending events to.
@@ -549,13 +557,26 @@ func (s *Store) CreateSession(ctx context.Context, sess Session) error {
 	})
 }
 
-// UpdateSessionStatus sets status and, when non-nil, finishedAt.
+// UpdateSessionStatus sets status and, when non-nil, finishedAt. It refuses
+// to move a cancelled row: cancelled is terminal and final, and a wedged
+// goroutine that wakes after a stop must not be able to relabel the session
+// it was stopped in (docs/RUN-CONTROL.md "Half two").
 func (s *Store) UpdateSessionStatus(ctx context.Context, id, status string, finishedAt *time.Time) error {
 	var fa sql.NullString
 	if finishedAt != nil {
 		fa = sql.NullString{String: finishedAt.UTC().Format(time.RFC3339Nano), Valid: true}
 	}
 	return s.submit(ctx, func(tx *sql.Tx) error {
+		var stored string
+		if err := tx.QueryRow(`SELECT status FROM sessions WHERE id = ?`, id).Scan(&stored); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		if stored == StatusCancelled {
+			return ErrSessionCancelled
+		}
 		_, err := tx.Exec(`UPDATE sessions SET status = ?, finished_at = COALESCE(?, finished_at), version = version + 1 WHERE id = ?`, status, fa, id)
 		return err
 	})
@@ -568,13 +589,26 @@ func (s *Store) UpdateSessionStatus(ctx context.Context, id, status string, fini
 // tool). Keeping the complete_status and summary writes in the same UPDATE
 // as the terminal status is what makes the session list able to tell DONE
 // from GAVE UP and to subtitle the finished table without re-walking the
-// event log (docs/WEB-REDESIGN.md phases 2 and 3).
+// event log (docs/WEB-REDESIGN.md phases 2 and 3). It refuses to move a
+// cancelled row, like UpdateSessionStatus: a cancelled session is terminal
+// and final, and no wedged goroutine that wakes after a stop may relabel it
+// (docs/RUN-CONTROL.md "Half two").
 func (s *Store) FinishSession(ctx context.Context, id, status, completeStatus, summary string, finishedAt *time.Time) error {
 	var fa sql.NullString
 	if finishedAt != nil {
 		fa = sql.NullString{String: finishedAt.UTC().Format(time.RFC3339Nano), Valid: true}
 	}
 	return s.submit(ctx, func(tx *sql.Tx) error {
+		var stored string
+		if err := tx.QueryRow(`SELECT status FROM sessions WHERE id = ?`, id).Scan(&stored); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		if stored == StatusCancelled {
+			return ErrSessionCancelled
+		}
 		_, err := tx.Exec(`UPDATE sessions SET status = ?, complete_status = ?, summary = ?, finished_at = COALESCE(?, finished_at), version = version + 1 WHERE id = ?`,
 			status, completeStatus, summary, fa, id)
 		return err
@@ -635,6 +669,33 @@ func (s *Store) UpdateSessionLiveState(ctx context.Context, id, plan string, cal
 func (s *Store) ResumeSession(ctx context.Context, id string) error {
 	return s.submit(ctx, func(tx *sql.Tx) error {
 		_, err := tx.Exec(`UPDATE sessions SET status = ?, finished_at = NULL, version = version + 1 WHERE id = ?`, StatusRunning, id)
+		return err
+	})
+}
+
+// CancelRunningSession marks id cancelled, sets finished_at = now, and bumps
+// version — the store half of a stop (docs/RUN-CONTROL.md "Half two"). It
+// deliberately takes no idle precondition: CloseSession's idle check exists
+// to stop an operator closing a live row, while this writer is the run's own
+// owner and the row being live is the point. A distinct method rather than
+// CloseSession(..., minIdle: 0) so the intent is readable at the call site.
+// A second cancel lands as a version bump and nothing else: the row is
+// already cancelled, so finished_at is kept, the way a re-close keeps it.
+func (s *Store) CancelRunningSession(ctx context.Context, id string, now time.Time) error {
+	return s.submit(ctx, func(tx *sql.Tx) error {
+		var storedStatus string
+		if err := tx.QueryRow(`SELECT status FROM sessions WHERE id = ?`, id).Scan(&storedStatus); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		var fa sql.NullString
+		if storedStatus != StatusCancelled {
+			fa = sql.NullString{String: now.UTC().Format(time.RFC3339Nano), Valid: true}
+		}
+		_, err := tx.Exec(`UPDATE sessions SET status = ?, finished_at = COALESCE(?, finished_at), version = version + 1 WHERE id = ?`,
+			StatusCancelled, fa, id)
 		return err
 	})
 }
@@ -871,6 +932,23 @@ func (s *Store) AppendEvents(ctx context.Context, sessionID string, inputs []Eve
 	out := make([]Event, len(inputs))
 
 	err := s.submit(ctx, func(tx *sql.Tx) error {
+		// The fence sits inside the write transaction, beside the MAX(seq)
+		// read: one status lookup per batch, never per event, and a check
+		// outside the transaction would be a race against the stop, not a
+		// guard. Only "cancelled" refuses — compaction and resume append to
+		// sessions in every other terminal status (docs/RUN-CONTROL.md "Half
+		// two").
+		var status string
+		if err := tx.QueryRow(`SELECT status FROM sessions WHERE id = ?`, sessionID).Scan(&status); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		if status == StatusCancelled {
+			return ErrSessionCancelled
+		}
+
 		var maxSeq sql.NullInt64
 		if err := tx.QueryRow(`SELECT MAX(seq) FROM events WHERE session_id = ?`, sessionID).Scan(&maxSeq); err != nil {
 			return err
