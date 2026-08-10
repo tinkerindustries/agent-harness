@@ -70,6 +70,27 @@ var terminalSessionStatusList = []string{
 	store.StatusMaxTurns, store.StatusCancelled, store.StatusCompacted,
 }
 
+// terminalRequestStatuses are the statuses PATCH /api/requests/{request_id}
+// accepts: the terminal statuses a work request can hold (docs/DESIGN.md
+// §4.10) — everything except running, which is the only status a live worker
+// can hold and the one this endpoint exists to retire. "cancelled" is
+// included even though nothing in the worker produces it: closing a dead
+// request is the operator's analogue of closing a dead session, and the
+// operator's status vocabulary is the session one.
+var terminalRequestStatuses = map[string]bool{
+	"ok":        true,
+	"failed":    true,
+	"denied":    true,
+	"timeout":   true,
+	"cancelled": true,
+}
+
+// terminalRequestStatusList is the same set in a stable order, for the 400
+// message that names the accepted values.
+var terminalRequestStatusList = []string{
+	"ok", "failed", "denied", "timeout", "cancelled",
+}
+
 const (
 	// defaultEventsLimit and maxEventsLimit are the built-in paging bounds
 	// when a Server is built without the fields (the test path). Production
@@ -138,7 +159,16 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/sessions/{id}", s.handleDeleteSession)
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.handleGetEvents)
 	mux.HandleFunc("GET /api/sessions/{id}/stream", s.handleSessionStream)
+	mux.HandleFunc("GET /api/requests/{request_id}", s.handleGetWorkRequest)
+	mux.HandleFunc("PATCH /api/requests/{request_id}", s.handlePatchWorkRequest)
+	mux.HandleFunc("DELETE /api/requests/{request_id}", s.handleDeleteWorkRequest)
 	mux.HandleFunc("GET /api/requests/{request_id}/status", s.handleRequestStatus)
+	mux.HandleFunc("GET /api/leases", s.handleListLeases)
+	// The lease key is a workspace path, which contains slashes, so the
+	// segment is the rest of the path after /api/leases/ — a client
+	// percent-encodes each slash (DELETE /api/leases/%2Ftmp%2Fws) and the
+	// wildcard matches the remainder exactly (docs/DATA-API.md phase 3).
+	mux.HandleFunc("DELETE /api/leases/{workspace...}", s.handleDeleteLease)
 	mux.HandleFunc("GET /api/stream", s.handleListStream)
 	mux.HandleFunc("GET /api/queue", s.handleQueueHealth)
 	mux.HandleFunc("GET /api/settings", s.handleGetSettings)
@@ -151,12 +181,18 @@ func (s *Server) Handler() http.Handler {
 // methodGate enforces the method allowlist ahead of any routing decision. GET
 // and HEAD pass on every path; the writing methods pass only where a write
 // route exists — PUT and DELETE on a settings key path, PATCH and DELETE on a
-// session path (docs/DATA-API.md). A pattern registered with a method already
-// 405s a wrong-method request that matches its path (net/http's ServeMux does
-// this since Go 1.22), but that only covers paths this package recognises;
-// the static handler's "/" pattern matches everything, method or not, and a
-// POST to a path nobody registered would otherwise fall through to a 404
-// rather than the 405 docs/DESIGN.md §4.2 requires everywhere else.
+// session or work-request path, DELETE on a lease path (docs/DATA-API.md). A
+// pattern registered with a method already 405s a wrong-method request that
+// matches its path (net/http's ServeMux does this since Go 1.22), but that
+// only covers paths this package recognises; the static handler's "/" pattern
+// matches everything, method or not, and a POST to a path nobody registered
+// would otherwise fall through to a 404 rather than the 405 docs/DESIGN.md
+// §4.2 requires everywhere else.
+//
+// The gate decides against the escaped path, matching how the mux matches:
+// a workspace lease key is a path containing slashes, and a client
+// percent-encodes them (DELETE /api/leases/%2Ftmp%2Fws), so the escaped form
+// is the one whose shape identifies the route.
 func methodGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		method := r.Method
@@ -164,25 +200,29 @@ func methodGate(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if writeAllowed(method, r.URL.Path) {
+		path := r.URL.EscapedPath()
+		if writeAllowed(method, path) {
 			next.ServeHTTP(w, r)
 			return
 		}
-		w.Header().Set("Allow", allowedMethods(r.URL.Path))
+		w.Header().Set("Allow", allowedMethods(path))
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	})
 }
 
 // writeAllowed reports whether method is a writing method the surface allows
 // on path. The sets live here, one place, so a phase that adds a resource
-// (work requests and leases, docs/DATA-API.md phase 3) extends this switch
-// rather than the gate itself.
+// extends this switch rather than the gate itself.
 func writeAllowed(method, path string) bool {
 	switch {
 	case isSettingsKeyPath(path):
 		return method == http.MethodPut || method == http.MethodDelete
 	case isSessionPath(path):
 		return method == http.MethodPatch || method == http.MethodDelete
+	case isRequestPath(path):
+		return method == http.MethodPatch || method == http.MethodDelete
+	case isLeasePath(path):
+		return method == http.MethodDelete
 	default:
 		return false
 	}
@@ -214,6 +254,33 @@ func isSessionPath(path string) bool {
 	return rest != "" && !strings.Contains(rest, "/")
 }
 
+// isRequestPath reports whether path is exactly one work request's resource —
+// /api/requests/<request_id> with no further segments. The poll snapshot
+// subresource /api/requests/<request_id>/status is a read and carries its
+// own rule (it is never writable), so the gate keeps it out of the write
+// routes.
+func isRequestPath(path string) bool {
+	const prefix = "/api/requests/"
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	rest := strings.TrimPrefix(path, prefix)
+	return rest != "" && !strings.Contains(rest, "/")
+}
+
+// isLeasePath reports whether path is one workspace lease's resource — the
+// remainder of /api/leases/ is the lease key, which is a workspace path and
+// may itself contain slashes, percent-encoded by the client
+// (/api/leases/%2Ftmp%2Fws). The collection (/api/leases) is read-only.
+func isLeasePath(path string) bool {
+	const prefix = "/api/leases/"
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	rest := strings.TrimPrefix(path, prefix)
+	return rest != ""
+}
+
 // allowedMethods names the methods the surface actually allows for path, for
 // the Allow header on a rejected request. Only paths with a write route allow
 // the writing methods; every other path is GET and HEAD.
@@ -223,6 +290,10 @@ func allowedMethods(path string) string {
 		return "GET, HEAD, PUT, DELETE"
 	case isSessionPath(path):
 		return "GET, HEAD, PATCH, DELETE"
+	case isRequestPath(path):
+		return "GET, HEAD, PATCH, DELETE"
+	case isLeasePath(path):
+		return "GET, HEAD, DELETE"
 	default:
 		return "GET, HEAD"
 	}
@@ -393,6 +464,209 @@ func writeSessionWriteError(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": active.Error()})
 	case errors.As(err, &running):
 		writeJSON(w, http.StatusConflict, map[string]string{"error": running.Error()})
+	case errors.As(err, &conflict):
+		writeJSON(w, http.StatusPreconditionFailed, map[string]string{"error": conflict.Error()})
+	default:
+		writeInternalError(w, err)
+	}
+}
+
+// --- work-request and workspace-lease writes (phase 3) ---
+
+// workRequestRow is one work_requests row over HTTP: the idempotency row
+// itself — request id, session id, status, result JSON, received_at,
+// finished_at, delivery count — plus the version every row resource carries
+// (docs/DATA-API.md). It is the row, distinct from the polled snapshot
+// /api/requests/{request_id}/status serves; it answers "what does the table
+// say" rather than "what is the run doing right now".
+type workRequestRow struct {
+	RequestID     string          `json:"request_id"`
+	SessionID     string          `json:"session_id,omitempty"`
+	Status        string          `json:"status"`
+	Result        json.RawMessage `json:"result,omitempty"`
+	ReceivedAt    time.Time       `json:"received_at"`
+	FinishedAt    *time.Time      `json:"finished_at,omitempty"`
+	DeliveryCount int             `json:"delivery_count"`
+	Version       int             `json:"version"`
+}
+
+func workRequestRowFrom(wr store.WorkRequest) workRequestRow {
+	return workRequestRow{
+		RequestID:     wr.RequestID,
+		SessionID:     wr.SessionID,
+		Status:        wr.Status,
+		Result:        wr.Result,
+		ReceivedAt:    wr.ReceivedAt,
+		FinishedAt:    wr.FinishedAt,
+		DeliveryCount: wr.DeliveryCount,
+		Version:       wr.Version,
+	}
+}
+
+func (s *Server) handleGetWorkRequest(w http.ResponseWriter, r *http.Request) {
+	wr, err := s.Store.GetWorkRequest(r.Context(), r.PathValue("request_id"))
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			http.Error(w, "request not found", http.StatusNotFound)
+			return
+		}
+		writeInternalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, workRequestRowFrom(wr))
+}
+
+// handlePatchWorkRequest serves PATCH /api/requests/{request_id}: closes a
+// request a dead worker left running by transitioning it to a terminal status
+// and setting finished_at (docs/DATA-API.md phase 3). It is the work-request
+// analogue of PATCH /api/sessions/{id}: an abandoned row still says "running"
+// and nothing else ever closes it.
+//
+// The guards and preconditions, in order: the content-type and origin guards
+// every write carries; a body whose status is a terminal status (400
+// otherwise, naming the accepted values); the If-Match version (428 missing,
+// 412 stale — checked inside the store's write transaction so no interleaving
+// write can race it); and the in-flight precondition — a request whose
+// session's most recent event is newer than sessionIdleThreshold is being run
+// by a live pool worker right now and is refused with a 409 naming the last
+// event's time. A request with no session id has never run and passes. A
+// request already terminal keeps its status — a re-close is a version bump
+// and nothing else, so a retried write is idempotent. Success is 200 with the
+// updated row.
+func (s *Server) handlePatchWorkRequest(w http.ResponseWriter, r *http.Request) {
+	if !writeGuards(w, r) {
+		return
+	}
+	var body patchSessionBody
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `invalid JSON body: expected {"status": "<terminal status>"}`})
+		return
+	}
+	if !terminalRequestStatuses[body.Status] {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("status must be one of %s", strings.Join(terminalRequestStatusList, ", "))})
+		return
+	}
+	want, ok := parseIfMatch(w, r)
+	if !ok {
+		return
+	}
+	wr, err := s.Store.CloseWorkRequest(r.Context(), r.PathValue("request_id"), body.Status, want, time.Now(), sessionIdleThreshold)
+	if err != nil {
+		writeRequestWriteError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, workRequestRowFrom(wr))
+}
+
+// handleDeleteWorkRequest serves DELETE /api/requests/{request_id}: removes
+// the work_requests row (docs/DATA-API.md phase 3). It carries the same
+// guards as the other writes, requires the If-Match version, and refuses a
+// request whose session is still live with a 409 naming the last event's time
+// — deleting the row of a run a live worker is finishing would swallow the
+// worker's result. A dead request — one whose session is idle or absent — may
+// be deleted directly. Success is 200 {"ok": true}.
+func (s *Server) handleDeleteWorkRequest(w http.ResponseWriter, r *http.Request) {
+	if !writeGuards(w, r) {
+		return
+	}
+	want, ok := parseIfMatch(w, r)
+	if !ok {
+		return
+	}
+	if err := s.Store.DeleteWorkRequest(r.Context(), r.PathValue("request_id"), want, time.Now(), sessionIdleThreshold); err != nil {
+		writeRequestWriteError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// writeRequestWriteError maps a store error from a work-request write to the
+// wire: not found is 404, a request in flight is 409, a version mismatch is
+// 412 — each carrying the store's own message, which names the last event's
+// time or the current version — and anything else is a 500 like every other
+// handler (docs/DATA-API.md "Error shape").
+func writeRequestWriteError(w http.ResponseWriter, err error) {
+	var active *store.ActiveRequestError
+	var conflict *store.VersionConflictError
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "request not found"})
+	case errors.As(err, &active):
+		writeJSON(w, http.StatusConflict, map[string]string{"error": active.Error()})
+	case errors.As(err, &conflict):
+		writeJSON(w, http.StatusPreconditionFailed, map[string]string{"error": conflict.Error()})
+	default:
+		writeInternalError(w, err)
+	}
+}
+
+// workspaceLeaseRow is one workspace_leases row over HTTP (docs/DATA-API.md
+// phase 3): the workspace, the session holding it, when it was acquired, when
+// it was last heartbeated, and the version every row resource carries.
+type workspaceLeaseRow struct {
+	Workspace   string    `json:"workspace"`
+	SessionID   string    `json:"session_id"`
+	AcquiredAt  time.Time `json:"acquired_at"`
+	HeartbeatAt time.Time `json:"heartbeat_at"`
+	Version     int       `json:"version"`
+}
+
+func workspaceLeaseRowFrom(l store.WorkspaceLease) workspaceLeaseRow {
+	return workspaceLeaseRow{
+		Workspace:   l.Workspace,
+		SessionID:   l.SessionID,
+		AcquiredAt:  l.AcquiredAt,
+		HeartbeatAt: l.HeartbeatAt,
+		Version:     l.Version,
+	}
+}
+
+func (s *Server) handleListLeases(w http.ResponseWriter, r *http.Request) {
+	leases, err := s.Store.ListWorkspaceLeases(r.Context())
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	rows := make([]workspaceLeaseRow, 0, len(leases))
+	for _, l := range leases {
+		rows = append(rows, workspaceLeaseRowFrom(l))
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+// handleDeleteLease serves DELETE /api/leases/{workspace}: releases a
+// workspace lease (docs/DATA-API.md phase 3). It carries the content-type and
+// origin guards, requires the If-Match version (428 missing, 412 stale), and
+// refuses a lease whose heartbeat is newer than sessionIdleThreshold with a
+// 409 naming the last heartbeat — the lease analog of the session endpoints'
+// active refusal: a live session heartbeats its lease, so a recent heartbeat
+// means the workspace is in use right now. Success is 200 {"ok": true}.
+func (s *Server) handleDeleteLease(w http.ResponseWriter, r *http.Request) {
+	if !writeGuards(w, r) {
+		return
+	}
+	want, ok := parseIfMatch(w, r)
+	if !ok {
+		return
+	}
+	if err := s.Store.DeleteWorkspaceLease(r.Context(), r.PathValue("workspace"), want, time.Now(), sessionIdleThreshold); err != nil {
+		writeLeaseWriteError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// writeLeaseWriteError maps a store error from a lease write to the wire: not
+// found is 404, a live lease is 409 naming the last heartbeat, a version
+// mismatch is 412, and anything else is a 500 like every other handler.
+func writeLeaseWriteError(w http.ResponseWriter, err error) {
+	var active *store.ActiveLeaseError
+	var conflict *store.VersionConflictError
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "lease not found"})
+	case errors.As(err, &active):
+		writeJSON(w, http.StatusConflict, map[string]string{"error": active.Error()})
 	case errors.As(err, &conflict):
 		writeJSON(w, http.StatusPreconditionFailed, map[string]string{"error": conflict.Error()})
 	default:
