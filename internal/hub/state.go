@@ -24,6 +24,13 @@ type SessionState struct {
 	Workspace       string     `json:"workspace"`
 	PermissionMode  string     `json:"permission_mode"`
 	Status          string     `json:"status"`
+	// CompleteStatus is the status argument the model gave Complete ("done"
+	// or "gave_up"), so the session list can tell a finished task from one
+	// the model gave up on (docs/WEB-REDESIGN.md phase 2). Empty covers a
+	// pre-migration row and a session that ended without calling Complete;
+	// the browser renders it as the plain terminal status rather than
+	// guessing.
+	CompleteStatus  string     `json:"complete_status,omitempty"`
 	CreatedAt       time.Time  `json:"created_at"`
 	FinishedAt      *time.Time `json:"finished_at,omitempty"`
 	SubTurns        int        `json:"sub_turns"`
@@ -65,6 +72,7 @@ func BuildSessionState(sess store.Session, summary store.SessionUsageSummary, re
 		Workspace:       sess.Workspace,
 		PermissionMode:  sess.PermissionMode,
 		Status:          sess.Status,
+		CompleteStatus:  sess.CompleteStatus,
 		CreatedAt:       sess.CreatedAt,
 		FinishedAt:      sess.FinishedAt,
 		SubTurns:        summary.SubTurns,

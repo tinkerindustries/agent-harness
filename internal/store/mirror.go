@@ -52,6 +52,7 @@ type sessionJSON struct {
 	ToolSchema      json.RawMessage `json:"tool_schema"`
 	ResultSchema    json.RawMessage `json:"result_schema,omitempty"`
 	Status          string          `json:"status"`
+	CompleteStatus  string          `json:"complete_status,omitempty"`
 	CreatedAt       string          `json:"created_at"`
 	FinishedAt      string          `json:"finished_at,omitempty"`
 }
@@ -73,6 +74,7 @@ func toSessionJSON(sess Session) sessionJSON {
 		ToolSchema:      sess.ToolSchema,
 		ResultSchema:    sess.ResultSchema,
 		Status:          sess.Status,
+		CompleteStatus:  sess.CompleteStatus,
 		CreatedAt:       sess.CreatedAt.UTC().Format("2006-01-02T15:04:05.000000000Z07:00"),
 	}
 	if sess.FinishedAt != nil {

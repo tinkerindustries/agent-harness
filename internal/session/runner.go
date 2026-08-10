@@ -542,8 +542,8 @@ func (r *Runner) priceTableDate() string {
 	return r.Prices.CapturedAt
 }
 
-// finishRun records run_finished, updates the session's terminal status,
-// and rewrites the mirror's session.json one last time.
+// finishRun records run_finished, updates the session's terminal status and
+// complete_status, and rewrites the mirror's session.json one last time.
 func (r *Runner) finishRun(ctx context.Context, sess store.Session, allEvents []store.Event,
 	reason, sessionStatus, text string, result json.RawMessage, summary, completeStatus string,
 	agg Usage, subTurns int) (*RunResult, error) {
@@ -558,7 +558,7 @@ func (r *Runner) finishRun(ctx context.Context, sess store.Session, allEvents []
 	allEvents = append(allEvents, appended...)
 
 	finished := time.Now().UTC()
-	if err := r.Store.UpdateSessionStatus(ctx, sess.ID, sessionStatus, &finished); err != nil {
+	if err := r.Store.FinishSession(ctx, sess.ID, sessionStatus, completeStatus, &finished); err != nil {
 		return &RunResult{SessionID: sess.ID, Status: sessionStatus, SubTurns: subTurns, Usage: agg, CompleteStatus: completeStatus}, err
 	}
 	r.closeLog(sess.ID)
