@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/session"
@@ -51,7 +52,16 @@ func runRun(ctx context.Context, args []string) error {
 	maxSubTurns := fs.Int("max-sub-turns", 0, "override max sub-turns (default from config)")
 	interactive := fs.Bool("interactive", false, "prompt on the terminal for calls the permission policy would otherwise deny (single-job only)")
 	debugChurnAt := fs.Int("debug-churn-at-subturn", 0, "debug: deliberately break the shared prefix on this sub-turn to exercise the churn diagnostic (docs/CACHE.md); 0 disables it")
+	jobType := fs.String("job-type", agentmeta.JobTypeImplementation, "implementation or orchestration (default implementation)")
+	parentAgentType := fs.String("parent-agent-type", agentmeta.ParentAgentUser, "the agent that owns this session, or \"user\"")
+	parentAgentID := fs.String("parent-agent-id", "", "that agent's session id; must be empty when the type is user")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := agentmeta.ValidateJobType(*jobType); err != nil {
+		return err
+	}
+	if err := agentmeta.ValidateParentAgent(*parentAgentType, *parentAgentID); err != nil {
 		return err
 	}
 
@@ -156,6 +166,7 @@ func runRun(ctx context.Context, args []string) error {
 				Model: cfg.Model, Effort: cfg.Effort, Thinking: cfg.Thinking, MaxTokens: cfg.MaxTokens,
 				Workspace: workspace, PermissionMode: mode, Deny: deny, Prompt: prompt,
 				ResultSchema: resultSchema, MaxSubTurns: cfg.MaxSubTurns, Resolver: resolver,
+				JobType: *jobType, ParentAgentType: *parentAgentType, ParentAgentID: *parentAgentID,
 				DebugChurnAtSubTurn: *debugChurnAt,
 				Progress: func(p session.SubTurnProgress) {
 					out.Lock()

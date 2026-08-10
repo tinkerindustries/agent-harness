@@ -14,6 +14,7 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 )
 
@@ -37,7 +38,16 @@ func runPublish(ctx context.Context, args []string) error {
 	deadlineMS := fs.Int64("deadline-ms", 0, "override the request's deadline in milliseconds")
 	wait := fs.Bool("wait", false, "block until the final result is published, then print it")
 	waitTimeout := fs.Duration("wait-timeout", 0, "how long -wait blocks for (default: the request's own deadline, or the config default deadline)")
+	jobType := fs.String("job-type", "", "implementation or orchestration (default implementation)")
+	parentAgentType := fs.String("parent-agent-type", "", "the agent that owns this session, or \"user\"")
+	parentAgentID := fs.String("parent-agent-id", "", "that agent's session id; must be empty when the type is user")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := agentmeta.ValidateJobType(*jobType); err != nil {
+		return err
+	}
+	if err := agentmeta.ValidateParentAgent(*parentAgentType, *parentAgentID); err != nil {
 		return err
 	}
 	if len(repoFlags) == 0 {
@@ -70,16 +80,19 @@ func runPublish(ctx context.Context, args []string) error {
 	}
 
 	req := queue.Request{
-		RequestID:      id,
-		Prompt:         task,
-		Repos:          parseRepoFlags(repoFlags),
-		Model:          *model,
-		Effort:         *effort,
-		PermissionMode: *permissionMode,
-		Deny:           deny,
-		ResultSchema:   resultSchema,
-		MaxSubTurns:    *maxSubTurns,
-		DeadlineMS:     *deadlineMS,
+		RequestID:       id,
+		Prompt:          task,
+		Repos:           parseRepoFlags(repoFlags),
+		Model:           *model,
+		Effort:          *effort,
+		PermissionMode:  *permissionMode,
+		Deny:            deny,
+		ResultSchema:    resultSchema,
+		MaxSubTurns:     *maxSubTurns,
+		DeadlineMS:      *deadlineMS,
+		JobType:         *jobType,
+		ParentAgentType: *parentAgentType,
+		ParentAgentID:   *parentAgentID,
 	}
 	data, err := json.Marshal(req)
 	if err != nil {
