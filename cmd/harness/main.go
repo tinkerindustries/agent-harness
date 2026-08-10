@@ -39,6 +39,8 @@ commands:
   models                       list available models
   balance                      show account balance
   config                       read and write settings in the database: list, get, set, unset
+  worktree <cmd>               allocate per-worktree ports so sibling git worktrees of this
+                                repo can run docker-compose.yml and .test.yml concurrently
 
 run and publish both require -permission-mode, readonly or full. publish's
 -repo takes URL[#branch] and repeats; run's -workspace repeats too, paired
@@ -81,6 +83,8 @@ func main() {
 		err = runBalance(ctx, os.Args[2:])
 	case "config":
 		err = runConfig(ctx, os.Args[2:])
+	case "worktree":
+		err = runWorktree(ctx, os.Args[2:])
 	case "-h", "-help", "--help", "help":
 		fmt.Println(usage)
 		return

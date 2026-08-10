@@ -24,7 +24,8 @@ shaped that way.
 | Production stack | `scripts/prod.sh promote && scripts/prod.sh deploy` — see [RELEASE.md](RELEASE.md) and the rule below |
 
 Subcommands: `ask`, `run`, `serve`, `mcp`, `publish`, `resume`, `delete`,
-`export`, `models`, `balance`. `harness help` lists them with their arguments.
+`export`, `models`, `balance`, `worktree`. `harness help` lists them with
+their arguments.
 
 [TESTING.md](TESTING.md) covers running a subset, the broker the integration
 tests need, and the smoke sequence to finish on. [RELEASE.md](RELEASE.md) covers
@@ -72,6 +73,14 @@ cutting a version and deploying it to the production stack.
 - **The host's docker socket is mounted into the harness container**, so a
   session in `full` permission mode has control of the host daemon. Weigh that
   before changing what a mode allows.
+- **Sibling git worktrees each get their own ports and compose project**,
+  allocated by `harness worktree init` and torn down by `harness worktree rm`.
+  Create one with `/worktree-create <slug>`, remove one with
+  `/worktree-remove <slug>` — the two installed skills get the ordering right.
+  [`docs/WORKTREES.md`](docs/WORKTREES.md) is the reference: the slot model,
+  the port bands, what's still shared, and why `web/vite.config.ts` and
+  `scripts/test.sh` are the only two files that needed a code change to
+  become worktree-aware.
 
 ## Vendored documentation
 
