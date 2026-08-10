@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -126,4 +127,82 @@ func (svc *Service) controlToken(ctx context.Context) (string, error) {
 		return "", errors.New("the harness has no control token configured")
 	}
 	return out.Token, nil
+}
+
+// steerInput is deepseek_steer's argument set: a session_id or a request_id
+// (resolved to its session exactly as deepseek_stop resolves one), and the
+// text of the instruction, carried verbatim into the user message the model
+// sees.
+type steerInput struct {
+	SessionID string `json:"session_id,omitempty" jsonschema:"The session_id of the running run to steer, as returned by deepseek_agent or deepseek_status."`
+	RequestID string `json:"request_id,omitempty" jsonschema:"Alternative to session_id: the request_id returned by deepseek_agent. Resolved to the session it produced."`
+	Text      string `json:"text" jsonschema:"The instruction to append to the running run, verbatim. It is not a command the run stops to obey."`
+}
+
+// steerOutput is deepseek_steer's structured content: the acceptance the
+// endpoint returned, including the seq the caller's text landed at. Steering
+// is not idempotent — two steers are two instructions — so the seq is how a
+// caller tells its own steer from any other.
+type steerOutput struct {
+	SessionID string `json:"session_id"`
+	Seq       int64  `json:"seq"`
+}
+
+// registerSteerTool wires deepseek_steer into the server, beside
+// deepseek_stop. The description has to carry the one thing an agent will
+// otherwise get wrong: the run does not stop to read this, and it reaches
+// the model at the next sub-turn boundary, which may be a minute or more away
+// if a long tool call is in flight (docs/RUN-CONTROL.md "MCP and CLI").
+func (svc *Service) registerSteerTool(server *mcpsdk.Server) {
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "deepseek_steer",
+		Description: "Append an instruction to a running deepseek-harness run, by session_id or request_id. The run does NOT stop to read this: " +
+			"the text is queued and reaches the model at the next sub-turn boundary, which may be a minute or more away if a long tool call is " +
+			"in flight. It is an instruction the model sees as a new user message, not a command the harness executes. Returns immediately with " +
+			"the acceptance and the seq the text landed at; call deepseek_status afterwards to see the run continue.",
+	}, svc.handleSteer)
+}
+
+func (svc *Service) handleSteer(ctx context.Context, _ *mcpsdk.CallToolRequest, in steerInput) (*mcpsdk.CallToolResult, any, error) {
+	if in.SessionID == "" && in.RequestID == "" {
+		return errorResult("session_id or request_id is required"), nil, nil
+	}
+	if strings.TrimSpace(in.Text) == "" {
+		return errorResult("text is required"), nil, nil
+	}
+
+	sessionID := in.SessionID
+	if sessionID == "" {
+		resolved, err := svc.resolveSession(ctx, in.RequestID)
+		if err != nil {
+			return errorResult("resolve request %s: %v", in.RequestID, err), nil, nil
+		}
+		sessionID = resolved
+	}
+
+	token, err := svc.controlToken(ctx)
+	if err != nil {
+		return errorResult("%v", err), nil, nil
+	}
+
+	var out steerOutput
+	if err := postJSON(ctx, svc.HTTPClient, svc.Cfg.HarnessBaseURL, "/api/sessions/"+sessionID+"/steer", token,
+		steerSessionRequest{Text: in.Text, Source: "mcp"}, &out); err != nil {
+		return errorResult("steer session %s: %v", sessionID, err), nil, nil
+	}
+
+	text := fmt.Sprintf("status: accepted\nsession_id: %s\nseq: %d\nThe steer is queued and will reach the model at the next sub-turn boundary "+
+		"— it does not stop the run to read it, so a long tool call in flight delays it by up to that call's whole remaining time.\n",
+		sessionID, out.Seq)
+	return &mcpsdk.CallToolResult{
+		Content:           []mcpsdk.Content{&mcpsdk.TextContent{Text: text}},
+		StructuredContent: out,
+	}, nil, nil
+}
+
+// steerSessionRequest is the JSON body POST /api/sessions/{id}/steer accepts:
+// the text verbatim plus the source naming where the steer came from.
+type steerSessionRequest struct {
+	Text   string `json:"text"`
+	Source string `json:"source,omitempty"`
 }

@@ -52,18 +52,23 @@ Don't change `build.outDir`.
 
 ## Rules
 
-The browser can write to the data the harness manages, and it can stop a
-running session: no prompt box, no approve button, and one run-control
-action, a **stop** on the in-flight session card and in the transcript
-header, visible only while the session is running and behind a confirmation
-(docs/RUN-CONTROL.md "The frontend"). The stop is an acceptance, not an
+The browser can write to the data the harness manages, and it can control a
+running session: no prompt box, no approve button, and two run-control
+actions on the transcript screen, visible only while the session is running —
+a **steer** input and a **stop**, the stop behind a confirmation
+(docs/RUN-CONTROL.md "The frontend"). The steer write is an acceptance, not
+a delivery: the text lands in the log and reaches the model at the next
+sub-turn boundary, and the transcript's steer block shows it as *pending*
+until the matching `steer_applied` arrives — a steer that sits pending for
+minutes is the operator's signal that the run is wedged, which is a feature
+of the display, not an accident of it. The stop is an acceptance, not an
 outcome: between the 202 and the terminal event the control shows
 *stopping…*, and the terminal state arrives over the SSE stream the screens
 are already connected to — the screen never polls for it and never
 optimistically marks the session cancelled. The approve button stays out —
 docs/DESIGN.md §4.6, and a loop that waits on a person is a loop that stalls
-when nobody is watching. The prompt box (start) and the steer input are
-staged, not permanent — docs/RUN-CONTROL.md.
+when nobody is watching. The prompt box (start) is staged, not permanent —
+docs/RUN-CONTROL.md.
 
 What that means for work here: a screen that writes is now ordinary, so the
 settings screen stops being a special case and becomes the pattern to follow.

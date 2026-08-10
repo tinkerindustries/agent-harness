@@ -9,10 +9,11 @@ A work request names a prompt, one or more repositories, and a permission mode.
 The harness clones those repositories into a directory of its own, runs an agent
 loop that reads and writes files and runs commands in there, and publishes a
 result. Requests arrive over NATS JetStream; results go back over a second
-stream. A browser can watch, and can change settings — nothing it does can
-start or steer a run. It can stop one: the stop endpoint acts on a run through
-the `RunController` seam (docs/RUN-CONTROL.md), a narrow interface declared in
-`internal/httpapi` and implemented by `*worker.Pool`.
+stream. A browser can watch, change settings, and steer and stop a run. Stop
+acts on a run through the `RunController` seam (docs/RUN-CONTROL.md), a narrow
+interface declared in `internal/httpapi` and implemented by `*worker.Pool`;
+steer needs no seam at all — it is a store write by the handler and a store
+read by the loop, with the database as the boundary.
 
 One binary, `harness`, is every entry point. Two subcommands are long-running
 services and the rest are one-shot CLI:
@@ -98,10 +99,12 @@ JetStream — the browser reads the store and the hub, never NATS. §4.2, §5.8.
 The HTTP surface and the static file server for the embedded frontend. `GET`
 and `HEAD` on every path, plus the write endpoints over the data the harness
 manages (docs/DATA-API.md). Serves the store and the hub and writes through the
-store; the one reach into a running loop is the stop endpoint, which acts on a
-run through the `RunController` seam — a narrow interface declared here and
+store; the reach into a running loop is the stop endpoint, which acts on a run
+through the `RunController` seam — a narrow interface declared here and
 implemented by `*worker.Pool`, so this package still imports neither `session`
-nor `worker` (docs/RUN-CONTROL.md). §4.2.
+nor `worker` (docs/RUN-CONTROL.md). Steering (`POST /api/sessions/{id}/steer`)
+needs no seam: it is a store write the session loop reads at its next sub-turn
+boundary. §4.2.
 
 ### `internal/webassets`
 `go:embed` of the built frontend, so the binary ships with no runtime assets.
@@ -172,8 +175,9 @@ Depends on: nothing internal. §4.9.
 
 ### `web/`
 The React frontend — three screens: the session list, one session's
-transcript, and the settings screen. It reads and writes the harness's data and
-does not yet control runs (§4.2). Its own build and test cycle; see
+transcript, and the settings screen. It reads and writes the harness's data
+and can steer and stop a running session; it does not yet start one (§4.2).
+Its own build and test cycle; see
 [`web/CLAUDE.md`](web/CLAUDE.md) for the constraints on changing it. §5.
 
 ## How the pieces relate
@@ -200,12 +204,14 @@ The edges that matter:
 - **`internal/httpapi` imports neither `session` nor `worker`.** It reaches the
   store and the hub, for both reads and writes, and neither of those reaches
   session or worker. That import boundary — not the absence of write endpoints
-  — is what makes "no endpoint can start or steer a run" a structural fact
-  rather than a policy, and it is why the boundary survived the read-only rule
-  being retired. Run control goes through a seam declared here deliberately
-  rather than by an import appearing: the stop endpoint holds a narrow
-  `RunController` interface implemented by `*worker.Pool` (docs/RUN-CONTROL.md),
-  exactly the shape `QueuePool` already uses for `/api/queue`.
+  — is what makes "no endpoint can start a run" a structural fact rather than
+  a policy, and it is why the boundary survived the read-only rule being
+  retired. Run control goes through a seam declared here deliberately rather
+  than by an import appearing: the stop endpoint holds a narrow `RunController`
+  interface implemented by `*worker.Pool` (docs/RUN-CONTROL.md), exactly the
+  shape `QueuePool` already uses for `/api/queue`. Steering is the exception
+  that proves the rule — it needs no seam because it is a store write by the
+  handler and a store read by the loop, and the store is already here.
 - **`internal/session` is the only package that speaks to both the API client
   and the tools.** A change that needs both belongs there.
 - **`internal/worker` is the only package that acks a JetStream message.**
@@ -267,10 +273,11 @@ are here.
   `attempt`. A cost total sums every event; anything wanting the turn's
   standing state — the cache detector on resume — takes the last.
 - **The HTTP API serves `GET` and `HEAD` on every path, and the writing
-  methods only where a write route exists.** No endpoint starts or steers a
-  run. The one action that reaches a running loop is
-  `POST /api/sessions/{id}/stop`, which goes through the declared
-  `RunController` seam and is authenticated by a bearer token
+  methods only where a write route exists.** No endpoint starts a run. The two
+  actions that touch a running run are `POST /api/sessions/{id}/stop`, which
+  goes through the declared `RunController` seam, and `POST
+  /api/sessions/{id}/steer`, which is a store write the loop reads at its next
+  sub-turn boundary — both authenticated by a bearer token
   (docs/RUN-CONTROL.md).
 - **`internal/mcp` opens no SQLite handle.** `harness serve` is the single
   writer.
@@ -317,4 +324,9 @@ a session name the host, not the container.
 
 **The two folds must agree in shape.** `internal/fold` produces the API
 `messages` array and `web/src/api/fold.ts` produces display blocks, from the
-same event log. A new event kind needs both.
+same event log. A new event kind needs both. The steering pair is the current
+example: both folds know `steer_message` and `steer_applied`, and each does
+with them what its own consumer needs — the Go fold appends the applied
+steer's text as a user message, and the browser fold emits a pending block
+and flips it to delivered, which is the one place the browser fold completes a
+block it has already emitted (docs/RUN-CONTROL.md "The frontend").

@@ -722,6 +722,36 @@ pre {
   padding: 4px 8px;
 }
 
+/* An operator steer (docs/RUN-CONTROL.md "The frontend"): a top-level block,
+   deliberately distinct from the model's own turns — the amber (gave-up)
+   family marks it as human input, and the two states are the point. Pending
+   (only the steer_message exists) is the operator's signal that the run is
+   wedged or still mid-tool-call; delivered (the steer_applied arrived) is
+   the loop having actually folded it in. */
+.block-steer {
+  border-left: 3px solid var(--status-gaveup);
+}
+
+.block-steer-pending {
+  border-style: dashed;
+  border-color: var(--status-gaveup);
+  background: var(--status-gaveup-bg);
+}
+
+.block-steer-pending .block-label {
+  color: var(--status-gaveup);
+  font-weight: 600;
+}
+
+.block-steer-delivered {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--muted) 40%, transparent);
+}
+
+.block-steer-delivered .block-label {
+  color: var(--status-done);
+}
+
 .churn-warning {
   color: var(--status-gaveup);
 }
@@ -1815,6 +1845,25 @@ pre {
   flex-direction: row;
   align-items: center;
   flex-wrap: wrap;
+}
+
+/* The steer control (docs/RUN-CONTROL.md "The frontend"): an input on the
+   transcript screen, visible only while the session is running, that appends
+   an instruction the loop picks up at the next sub-turn boundary. The write
+   is an acceptance, not a delivery — the transcript's steer block carries
+   the pending/delivered states, so this control only reports a refused
+   write, never a delivery. */
+.steer-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 14px 0 16px;
+}
+
+.steer-input {
+  flex: 1;
+  min-width: 240px;
 }
 
 .ops-error {

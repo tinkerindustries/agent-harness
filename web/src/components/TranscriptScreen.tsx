@@ -8,6 +8,7 @@ import { PlanPanel } from "./PlanPanel";
 import { TimelineRail } from "./TimelineRail";
 import { TranscriptToolbar } from "./TranscriptToolbar";
 import { StopControl } from "./StopControl";
+import { SteerControl } from "./SteerControl";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { outcome, type OutcomeSession } from "./statusBadge";
@@ -83,6 +84,7 @@ export function TranscriptScreen({ sessionId, onBack }: Props) {
         onFilterChange={setFilter}
         counts={snapshot.counts}
       />
+      <SteerControl sessionId={sessionId} running={meta?.status === "running"} className="steer-inline" />
       {snapshot.churnPoint && (
         <div className="notice churn-banner">
           <b>

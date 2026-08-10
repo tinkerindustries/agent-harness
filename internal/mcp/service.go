@@ -47,11 +47,13 @@ func (svc *Service) NewServer() *mcpsdk.Server {
 		Name:    "deepseek-harness",
 		Version: serverVersion,
 	}, &mcpsdk.ServerOptions{
-		Instructions: "Launch, collect, and stop deepseek-harness agent runs. deepseek_agent starts a run and returns " +
+		Instructions: "Launch, collect, steer, and stop deepseek-harness agent runs. deepseek_agent starts a run and returns " +
 			"immediately; it never blocks for the run to finish. While a run is in flight, deepseek_status " +
-			"reports where it is up to; deepseek_result returns the final outcome once the run is done; " +
-			"deepseek_stop ends a run early and returns immediately with whether the stop was accepted. " +
-			"None of deepseek_status, deepseek_result, or deepseek_stop blocks. Each run works in a fresh directory holding " +
+			"reports where it is up to; deepseek_steer appends an instruction that reaches the model at the next " +
+			"sub-turn boundary — the run does not stop to read it, so a long tool call delays it; deepseek_result " +
+			"returns the final outcome once the run is done; deepseek_stop ends a run early and returns immediately " +
+			"with whether the stop was accepted. None of deepseek_status, deepseek_result, deepseek_steer, or " +
+			"deepseek_stop blocks. Each run works in a fresh directory holding " +
 			"the repositories it was launched with.",
 	})
 
@@ -60,6 +62,7 @@ func (svc *Service) NewServer() *mcpsdk.Server {
 	svc.registerCollectTool(server)
 	svc.registerRunsTool(server)
 	svc.registerStopTool(server)
+	svc.registerSteerTool(server)
 	svc.registerResources(server)
 
 	return server

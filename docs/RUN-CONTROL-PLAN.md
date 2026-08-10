@@ -15,7 +15,9 @@ backend half of it".
 Steps 1 to 3 have landed on `deepseek/run-control`. Step 4 was split in two
 after watching how much of one fitted into a single run: the endpoint and its
 authentication are one unit of thinking, and the three thin clients over it
-are another. Steps 4a and 4b have landed on the branch.
+are another. Steps 4a and 4b have landed on the branch. Step 5 has landed on
+`deepseek/run-control-p5-steer`, the branch that merges into
+`deepseek/run-control` as this phase's pull request.
 
 | Step | State |
 | --- | --- |
@@ -24,7 +26,7 @@ are another. Steps 4a and 4b have landed on the branch.
 | 3 — The control seam | landed (`9c3178a`) |
 | 4a — Stop over HTTP, and the control token | landed |
 | 4b — Stop's three clients: MCP, CLI, browser | landed |
-| 5 — Steer, end to end | |
+| 5 — Steer, end to end | landed (this phase) |
 | 6 — Start from the browser | |
 
 Two guards in step 3 were not in this plan when it was written and are now in

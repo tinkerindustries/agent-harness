@@ -177,8 +177,15 @@ produces a `messages` array for the API, the other produces display blocks.
 
 Events: `session_started`, `turn_started`, `reasoning_delta`, `content_delta`,
 `tool_call`, `tool_denied`, `tool_stdout`, `tool_result`, `usage`,
-`turn_finished`, `run_finished`, `error`. Each carries a per-session monotonic
-sequence number.
+`turn_finished`, `run_finished`, `error`, `steer_message`, `steer_applied`.
+Each carries a per-session monotonic sequence number.
+
+The last two are the steering pair (docs/RUN-CONTROL.md "Two event kinds,
+not one"): `steer_message` records that an operator sent text at this
+instant and carries no messages-array content, and `steer_applied` records
+that the loop folded that text into a user message at this sub-turn
+boundary — linked by the applied event's `source_seq`, which is what lets a
+resumed run recompute which steers are outstanding from the log alone.
 
 There is no approval event. A permission decision resolves synchronously inside
 the tool call from a policy the session already holds (§4.6), so the loop never
@@ -211,7 +218,9 @@ chosen: stopping goes through the `RunController` interface declared in
 `internal/httpapi` and implemented by `*worker.Pool`, so the HTTP server still
 holds no NATS handle and work enters over NATS or the CLI. `POST
 /api/sessions/{id}/stop` is live, authenticated by the `http.control_token`
-bearer token; starting and steering are not built yet. The distinction while
+bearer token. Steering is live too — `POST /api/sessions/{id}/steer` is a
+store write by the handler and a store read by the loop, so it needs no seam
+at all; starting is the one stage not built yet. The distinction while
 that is true is the target, not the verb: a write that closes an abandoned
 session row is data, and a write that publishes a work request is run control.
 
@@ -727,8 +736,11 @@ The browser shows a list of sessions (§5.8), the transcript of any one of them
 — live or historical (§5.9, §5.10) — and the settings screen: the registry
 (§4.2) rendered grouped, with each entry's default, its validation bounds,
 whether the current value is a default or an override, and the restart markers.
-It does not yet start, steer, or stop a run, and it has no prompt box, no
-approve button, and no cancel control.
+It can steer and stop a running session (docs/RUN-CONTROL.md "The frontend"):
+a steer input and a stop control on the transcript screen, both visible only
+while the session is running, with the steer's pending/delivered states
+carried by the fold. It cannot yet start a run, and it has no prompt box and
+no approve button.
 
 That was a subtraction the frontend was designed around, and it removed most of
 the usual frontend work — no optimistic updates, no command queue, no

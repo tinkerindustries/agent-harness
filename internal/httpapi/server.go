@@ -12,7 +12,10 @@
 // session, deleting a finished one, setting a key. Run control is a declared
 // seam, not an import: stopping goes through the RunController interface
 // below, satisfied by *worker.Pool without this package knowing the package
-// exists, and nothing here starts or steers a run.
+// exists, and nothing here starts a run. Steering is the one control that
+// needs no seam at all — it is a store write by the handler and a store read
+// by the loop, with the database as the boundary (docs/RUN-CONTROL.md
+// "Steering: augment, don't gate").
 package httpapi
 
 import (
@@ -146,14 +149,16 @@ type RunController interface {
 // harness manages (docs/DATA-API.md): the settings endpoints and the session
 // close/delete endpoints read and write through Store, and nothing else in
 // Server is mutated by a request — the run surface stays read-only except
-// for the stop endpoint, which acts on a run through the RunController seam
+// for the two run-control endpoints: stop, which acts on a run through the
+// RunController seam, and steer, which is a plain store write the session
+// loop reads at its next sub-turn boundary and needs no seam at all
 // (docs/RUN-CONTROL.md). Consumer and Pool are nil in any caller that has no
 // queue at all (a CLI-only harness never wires one up); the handler degrades
 // to reporting the queue as unavailable rather than panicking. Run is nil the
 // same way in a caller with no pool, and the stop handler then answers 409
 // for every existing session — this process is running nothing. ControlToken
 // is the process's copy of http.control_token; empty means run control is not
-// configured and the stop endpoint fails closed with 503.
+// configured and the run-control endpoints fail closed with 503.
 type Server struct {
 	Store          *store.Store
 	Hub            *hub.Hub
@@ -198,6 +203,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("PATCH /api/sessions/{id}", s.handlePatchSession)
 	mux.HandleFunc("DELETE /api/sessions/{id}", s.handleDeleteSession)
 	mux.HandleFunc("POST /api/sessions/{id}/stop", s.handleStopSession)
+	mux.HandleFunc("POST /api/sessions/{id}/steer", s.handleSteerSession)
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.handleGetEvents)
 	mux.HandleFunc("GET /api/sessions/{id}/stream", s.handleSessionStream)
 	mux.HandleFunc("GET /api/control-token", s.handleGetControlToken)
@@ -269,6 +275,8 @@ func writeAllowed(method, path string) bool {
 		return method == http.MethodDelete
 	case isStopPath(path):
 		return method == http.MethodPost
+	case isSteerPath(path):
+		return method == http.MethodPost
 	default:
 		return false
 	}
@@ -316,6 +324,22 @@ func isStopPath(path string) bool {
 	return ok && id != "" && tail == "stop"
 }
 
+// isSteerPath reports whether path is one session's steer subresource —
+// /api/sessions/<id>/steer, exactly one id segment and the literal "steer".
+// POST may pass the gate here and nowhere else, the same shape rule as
+// isStopPath: it is an action on a run (docs/RUN-CONTROL.md "The HTTP
+// surface"), not an edit of the row, and isSessionPath must not be widened to
+// cover it.
+func isSteerPath(path string) bool {
+	const prefix = "/api/sessions/"
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	rest := strings.TrimPrefix(path, prefix)
+	id, tail, ok := strings.Cut(rest, "/")
+	return ok && id != "" && tail == "steer"
+}
+
 // isRequestPath reports whether path is exactly one work request's resource —
 // /api/requests/<request_id> with no further segments. The poll snapshot
 // subresource /api/requests/<request_id>/status is a read and carries its
@@ -357,6 +381,8 @@ func allowedMethods(path string) string {
 	case isLeasePath(path):
 		return "GET, HEAD, DELETE"
 	case isStopPath(path):
+		return "GET, HEAD, POST"
+	case isSteerPath(path):
 		return "GET, HEAD, POST"
 	default:
 		return "GET, HEAD"
@@ -610,6 +636,90 @@ func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusConflict, map[string]string{
 		"error": fmt.Sprintf("session %s is not running in this process (status %s)", sess.ID, sess.Status),
 	})
+}
+
+// steerSessionBody is the JSON body POST /api/sessions/{id}/steer accepts:
+// the operator's instruction, verbatim, plus an optional source naming where
+// it came from — "web", "mcp", or "cli" — which defaults to "web" when
+// absent (the browser is the HTTP surface's primary client). The text is
+// carried verbatim into the user message the loop folds, so a caller's
+// formatting survives (docs/RUN-CONTROL.md "Steering").
+type steerSessionBody struct {
+	Text   string `json:"text"`
+	Source string `json:"source,omitempty"`
+}
+
+// handleSteerSession serves POST /api/sessions/{id}/steer: appends a
+// steer_message event to the session's log for the loop to pick up at its
+// next sub-turn boundary (docs/RUN-CONTROL.md "Steering"). The loop reads the
+// store once per sub-turn and never blocks on it, so this handler does not
+// touch the RunController the stop handler needs — a reader who just read
+// that handler will expect one, and it is deliberately absent: steering is a
+// store write by the handler and a store read by the loop, with the
+// database — which every replica shares — as the seam. The event is fanned
+// out to the session's SSE stream so the transcript shows it immediately as
+// a pending steer block.
+//
+// The guards and preconditions, in order: the content-type and origin guards
+// every write carries; the bearer token (401 missing or wrong, 503 when no
+// token is configured); a body whose text is empty or whitespace only (400 —
+// an empty steer would be a user message with nothing to say); the session
+// existing in the store (404); the session being `running` (409 — a steer for
+// a finished run would sit in the log forever, unapplied and unexplained);
+// and 202 {"session_id", "seq"} otherwise, where seq is the sequence number
+// the steer_message landed at. Unlike stop, steering is deliberately NOT
+// idempotent: two steers are two instructions, which is why the response
+// carries the seq the caller's text landed at.
+//
+// No If-Match, for the same reason as stop: this is an action on a run, not
+// an edit of a row, and a running session's version changes continuously
+// underneath the caller (docs/RUN-CONTROL.md "The HTTP surface").
+func (s *Server) handleSteerSession(w http.ResponseWriter, r *http.Request) {
+	if !writeGuards(w, r) {
+		return
+	}
+	if !s.requireControlToken(w, r) {
+		return
+	}
+	var body steerSessionBody
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `invalid JSON body: expected {"text": "..."}`})
+		return
+	}
+	if strings.TrimSpace(body.Text) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "text must not be empty"})
+		return
+	}
+	id := r.PathValue("id")
+	sess, err := s.Store.GetSession(r.Context(), id)
+	if err != nil {
+		writeSessionLookupError(w, err)
+		return
+	}
+	if sess.Status != store.StatusRunning {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": fmt.Sprintf("session %s is not running (status %s); a steer needs a running run", sess.ID, sess.Status),
+		})
+		return
+	}
+
+	source := body.Source
+	if source == "" {
+		source = "web"
+	}
+	appended, err := s.Store.AppendEvents(r.Context(), id, []store.EventInput{{
+		Kind:    store.KindSteerMessage,
+		Payload: store.SteerMessagePayload{Text: body.Text, Source: source},
+	}})
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	// Fan the event out to the session's transcript stream the way the runner
+	// fans out its own commits, so the browser's steer block appears the
+	// moment the steer is accepted rather than at the next sub-turn.
+	s.Hub.PublishEvents(id, appended)
+	writeJSON(w, http.StatusAccepted, map[string]any{"session_id": id, "seq": appended[0].Seq})
 }
 
 // requireControlToken enforces the bearer token the run-control endpoints

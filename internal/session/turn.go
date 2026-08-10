@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -24,13 +25,71 @@ type subTurnOutcome struct {
 	text         string
 }
 
+// steerBatchSize caps how many pending steers one sub-turn boundary applies.
+// The loop reads pending steers exactly once per sub-turn
+// (docs/RUN-CONTROL.md "How the loop picks one up"), so a burst of steers is
+// delivered over a few sub-turns rather than ballooning a single request,
+// and the per-sub-turn store read is bounded.
+const steerBatchSize = 8
+
+// pickUpSteers is the whole steering mechanism (docs/RUN-CONTROL.md "How the
+// loop picks one up"): one store read at a sub-turn boundary — nothing
+// mid-tool-call, nothing that blocks, no polling. It reads the steer_message
+// events past the applied high-water mark, appends one steer_applied per
+// steer as a single AppendEvents batch (so the mirror and the hub see one
+// batch), pushes them onto allEvents so the fold that follows includes them,
+// and advances appliedSeq. Steers arrive in seq order, so two steers fold to
+// two user messages in the order they were sent. The high-water mark only
+// ever moves forward by steers this call applied, so a steer is never
+// delivered twice.
+func (r *Runner) pickUpSteers(ctx context.Context, sess store.Session, allEvents *[]store.Event, appliedSeq *int64, subTurn int) error {
+	steers, err := r.Store.SteerMessagesAfter(ctx, sess.ID, *appliedSeq, steerBatchSize)
+	if err != nil {
+		return fmt.Errorf("session: read pending steers: %w", err)
+	}
+	if len(steers) == 0 {
+		return nil
+	}
+
+	inputs := make([]store.EventInput, 0, len(steers))
+	for _, s := range steers {
+		var p store.SteerMessagePayload
+		if err := json.Unmarshal(s.Payload, &p); err != nil {
+			return fmt.Errorf("session: decode steer_message at seq %d: %w", s.Seq, err)
+		}
+		inputs = append(inputs, store.EventInput{Kind: store.KindSteerApplied, Payload: store.SteerAppliedPayload{
+			SourceSeq: s.Seq, Text: p.Text, SubTurn: subTurn,
+		}})
+	}
+	appended, err := r.Store.AppendEvents(ctx, sess.ID, inputs)
+	if err != nil {
+		return fmt.Errorf("session: append steer_applied: %w", err)
+	}
+	r.mirrorAppend(sess, appended)
+	r.publishEvents(sess, appended)
+	*allEvents = append(*allEvents, appended...)
+	// steers are in seq order and the steer_applied events were appended in
+	// that order, so the last one carries the new high-water mark.
+	*appliedSeq = steers[len(steers)-1].Seq
+	return nil
+}
+
 // runSubTurn folds the log, sends one request, and commits the result. The
 // whole sub-turn — deltas, tool calls, the finish marker, and usage —
 // commits as one store.AppendEvents batch, so a crash mid-stream leaves no
 // half-written turn behind: a resumed session either has the whole turn or
 // none of it (docs/DESIGN.md §4.5, §4.8).
 func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *[]store.Event, opts RunOptions,
-	executor *tools.Executor, detector *cache.Detector, subTurn int) (subTurnOutcome, error) {
+	executor *tools.Executor, detector *cache.Detector, subTurn int, appliedSeq *int64) (subTurnOutcome, error) {
+
+	// Pending steers are read once per sub-turn, before the fold, and folded
+	// in as user messages at the tail — after the previous sub-turn's tool
+	// round, never mid-call. A steer sent while a long tool call is running
+	// reaches the model only here, at the next natural boundary, which is
+	// what keeps §4.6's stalling problem closed.
+	if err := r.pickUpSteers(ctx, sess, allEvents, appliedSeq, subTurn); err != nil {
+		return subTurnOutcome{}, err
+	}
 
 	messages, err := fold.Fold(sess, *allEvents)
 	if err != nil {

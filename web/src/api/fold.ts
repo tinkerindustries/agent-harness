@@ -4,6 +4,8 @@ import type {
   ReasoningDeltaPayload,
   RunFinishedPayload,
   SessionStartedPayload,
+  SteerAppliedPayload,
+  SteerMessagePayload,
   StoreEvent,
   Todo,
   ToolCallPayload,
@@ -45,7 +47,15 @@ export type Block =
   | ({ type: "tool_denied"; seq: number; call?: ToolCallPayload } & ToolDeniedPayload)
   | ({ type: "usage"; seq: number } & UsagePayload)
   | ({ type: "run_finished"; seq: number } & RunFinishedPayload)
-  | ({ type: "error"; seq: number } & ErrorPayload);
+  | ({ type: "error"; seq: number } & ErrorPayload)
+  // A steer: an operator instruction appended to a running session
+  // (docs/RUN-CONTROL.md "Steering"). Emitted in the *pending* state by
+  // steer_message and flipped to *delivered* by the matching steer_applied
+  // (matched by source_seq) — the one place this fold completes a block it
+  // has already emitted, which the Go fold must never do but display blocks
+  // can: there is no prompt cache here, and a steer that sits pending for
+  // minutes is exactly the operator's signal that the run is wedged.
+  | { type: "steer"; seq: number; text: string; state: "pending" | "delivered" };
 
 // LiveTurn is the sub-turn currently streaming: reasoning and content grow
 // by concatenation as reasoning_delta/content_delta events arrive, and the
@@ -238,6 +248,30 @@ export class FoldState {
       case "error": {
         const p = ev.payload as ErrorPayload;
         this.pushBlock({ type: "error", seq: ev.seq, ...p });
+        break;
+      }
+      case "steer_message": {
+        const p = ev.payload as SteerMessagePayload;
+        this.pushBlock({ type: "steer", seq: ev.seq, text: p.text, state: "pending" });
+        break;
+      }
+      case "steer_applied": {
+        // The one place this fold completes a block it has already emitted
+        // (see the steer variant's comment): the Go fold's append-only rule
+        // protects the prompt cache, which display blocks have no stake in,
+        // and the two-state rendering is the whole reason the log carries two
+        // kinds — a steer that never flips to delivered is the operator's
+        // signal that the run is wedged. The block keeps its position (where
+        // the operator sent it) and only its state changes.
+        const p = ev.payload as SteerAppliedPayload;
+        for (let i = this.blocks.length - 1; i >= 0; i--) {
+          const b = this.blocks[i];
+          if (b.type === "steer" && b.seq === p.source_seq && b.state === "pending") {
+            this.blocks = [...this.blocks];
+            this.blocks[i] = { ...b, state: "delivered" };
+            break;
+          }
+        }
         break;
       }
     }

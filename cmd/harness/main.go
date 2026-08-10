@@ -35,6 +35,7 @@ commands:
   publish -repo URL "..."      publish a work request to the queue "harness serve" reads
   resume <session-id> ["..."]  continue a finished, failed, or timed-out session
   stop <session-id> ["reason"] ask the harness to stop a running session
+  steer <session-id> "text"    append an instruction to a running session
   delete <session-id>          remove a session and its event log (refuses a running one)
   export <session-id>          rebuild a session's disk mirror from the database
   models                       list available models
@@ -74,6 +75,8 @@ func main() {
 		err = runResume(ctx, os.Args[2:])
 	case "stop":
 		err = runStop(ctx, os.Args[2:])
+	case "steer":
+		err = runSteer(ctx, os.Args[2:])
 	case "delete":
 		err = runDelete(ctx, os.Args[2:])
 	case "export":

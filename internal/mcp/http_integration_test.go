@@ -46,7 +46,7 @@ func TestMCPServerListsToolsAndResources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
 	}
-	wantTools := map[string]bool{"deepseek_agent": false, "deepseek_status": false, "deepseek_result": false, "deepseek_runs": false, "deepseek_stop": false}
+	wantTools := map[string]bool{"deepseek_agent": false, "deepseek_status": false, "deepseek_result": false, "deepseek_runs": false, "deepseek_stop": false, "deepseek_steer": false}
 	for _, tool := range tools.Tools {
 		if _, ok := wantTools[tool.Name]; ok {
 			wantTools[tool.Name] = true

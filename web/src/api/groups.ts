@@ -221,11 +221,10 @@ export class SubTurnGroupState {
     this.todosAtBlock = todosAtBlock;
     if (this.lastBlocks !== null && blocks.length <= this.lastBlocks.length) {
       // Same length, different reference: FoldState replaced an element in
-      // place. The only such replacement is attachReasoningTokens, which
-      // always rides the ingest that appended the usage block, so the append
-      // path below already re-reads the amended assistant. Nothing to do
-      // here beyond remembering the new array; the defensive refresh exists
-      // in case some future fold change replaces an element on its own.
+      // place. Two replacements exist: attachReasoningTokens, which always
+      // rides the ingest that appended the usage block, and the steer
+      // block's pending → delivered flip, which rides the ingest of its
+      // steer_applied event. Both are handled by refreshAmended below.
       this.refreshAmended(blocks);
       this.lastBlocks = blocks;
       return this.items;
@@ -298,7 +297,10 @@ export class SubTurnGroupState {
         break;
       }
       default:
-        // opening, skills, run_finished, error — top-level, outside any group.
+        // opening, skills, run_finished, error, steer — top-level, outside
+        // any group. A steer block later flips pending → delivered in place
+        // (refreshAmended); the other top-level blocks freeze once and are
+        // never touched again.
         this.items = [...this.items, { kind: "block", block }];
         break;
     }
@@ -385,22 +387,38 @@ export class SubTurnGroupState {
     };
   }
 
-  // refreshAmended handles the (currently unreachable) case of an in-place
-  // element replacement without an accompanying append: swap the amended
-  // assistant block into its group's children so the card shows the new
-  // element. Other groups are left untouched.
+  // refreshAmended handles an in-place element replacement in the blocks
+  // array without an accompanying append. Two cases exist: the assistant
+  // block amended by attachReasoningTokens (a sub-turn card's first child),
+  // and — since phase 5 — a steer block flipped pending → delivered by its
+  // steer_applied event (a top-level block, which the fold keeps at the
+  // position where the operator sent it). The scan is defensive; in practice
+  // only the tail item is ever affected.
   private refreshAmended(blocks: Block[]): void {
     const prev = this.lastBlocks!;
     for (let i = 0; i < blocks.length; i++) {
       if (blocks[i] === prev[i]) continue;
       const b = blocks[i];
-      if (b.type !== "assistant") return;
-      for (let j = this.items.length - 1; j >= 0; j--) {
-        const item = this.items[j];
-        if (item.kind === "group" && item.group.subTurn === b.subTurn && item.group.blocks[0] !== b) {
-          this.replaceGroup(j, { ...item.group, blocks: [b, ...item.group.blocks.slice(1)] });
-          return;
+      if (b.type === "assistant") {
+        for (let j = this.items.length - 1; j >= 0; j--) {
+          const item = this.items[j];
+          if (item.kind === "group" && item.group.subTurn === b.subTurn && item.group.blocks[0] !== b) {
+            this.replaceGroup(j, { ...item.group, blocks: [b, ...item.group.blocks.slice(1)] });
+            return;
+          }
         }
+        return;
+      }
+      if (b.type === "steer") {
+        for (let j = 0; j < this.items.length; j++) {
+          const item = this.items[j];
+          if (item.kind === "block" && item.block.type === "steer" && item.block.seq === b.seq && item.block !== b) {
+            this.items = [...this.items];
+            this.items[j] = { kind: "block", block: b };
+            return;
+          }
+        }
+        return;
       }
       return;
     }

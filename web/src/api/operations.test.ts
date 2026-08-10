@@ -16,6 +16,7 @@ import {
   quietMs,
   releaseLease,
   SESSION_IDLE_THRESHOLD_MS,
+  steerSession,
   stopSession,
 } from "./operations";
 
@@ -436,6 +437,32 @@ describe("stopSession", () => {
     );
 
     await expect(stopSession("sess-1", "tok-1")).rejects.toThrow("not running in this process (status ok)");
+  });
+});
+
+describe("steerSession", () => {
+  it("POSTs /api/sessions/{id}/steer with the JSON content type, the bearer token, and the text body, and parses the 202 acceptance's seq", async () => {
+    const mock = stubFetch();
+    mock.mockResolvedValue(fakeResponse(202, { session_id: "sess-1", seq: 412 }));
+
+    const out = await steerSession("sess-1", "tok-1", "be terse");
+
+    const [url, init] = mock.mock.calls[0];
+    expect(url).toBe("/api/sessions/sess-1/steer");
+    expect(init).toMatchObject({
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer tok-1" },
+      body: JSON.stringify({ text: "be terse", source: "web" }),
+    });
+    expect(out).toEqual({ session_id: "sess-1", seq: 412 });
+  });
+
+  it("carries the server's 409 out as the Error — steering a finished run is refused with the session's status named", async () => {
+    stubFetch().mockResolvedValue(
+      fakeResponse(409, { error: "session sess-1 is not running (status ok); a steer needs a running run" }),
+    );
+
+    await expect(steerSession("sess-1", "tok-1", "be terse")).rejects.toThrow("not running (status ok)");
   });
 });
 
