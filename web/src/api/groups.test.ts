@@ -306,8 +306,11 @@ describe("filter counts", () => {
 // The timeline rail's phase grouping (docs/WEB-REDESIGN.md phase 6): every
 // TodoWrite call in the event stream starts a phase, and the phase is named
 // after the plan item that was in_progress when it ran — read from the fold's
-// latestTodos, which the store passes into sync the way the real
-// TranscriptStore does (fold.ingest then groups.sync per event).
+// latestTodos, which the store records per block (TranscriptStore.ingest)
+// and passes into sync. foldedItems below folds one event at a time, which
+// exercises the same naming the store's per-block record produces; the
+// batch test further down checks the all-at-once flush path the store
+// actually uses for a burst.
 function todoWrite(seq: number, id: string, todos: Todo[]): StoreEvent {
   return ev(seq, "tool_call", { index: 0, id, name: "TodoWrite", arguments: JSON.stringify({ todos }) });
 }
@@ -390,6 +393,46 @@ describe("rail phase assignment", () => {
     expect(byTurn.get(1)!.phase).toEqual({ id: 0, index: 0, label: "" });
     expect(byTurn.get(2)!.phase).toEqual({ id: 0, index: 0, label: "" });
     expect(byTurn.get(3)!.phase).toEqual({ id: 1, index: 1, label: "Survey" });
+  });
+
+  it("names each phase from the boundary sub-turn's own plan when a flush folds a whole batch at once", () => {
+    const plan1 = [todo("Fix retained-body leak", "in_progress"), todo("Add httplog test", "pending")];
+    const plan2 = [todo("Fix retained-body leak", "completed"), todo("Add httplog test", "in_progress")];
+    const events = [
+      ev(1, "session_started", { opening_message: "x" }),
+      // phase 1 = item 1, phase 2 = item 2 — the same history the per-event
+      // test above uses, but folded in ONE sync call as the store does when
+      // a burst (a replay, or the perf harness seeding) lands in one flush.
+      ev(2, "turn_started", { sub_turn: 1 }),
+      todoWrite(3, "p1", plan1),
+      ev(4, "turn_finished", { finish_reason: "stop" }),
+      usage(1),
+      ev(5, "turn_started", { sub_turn: 2 }),
+      ev(6, "turn_finished", { finish_reason: "stop" }),
+      usage(2),
+      ev(7, "turn_started", { sub_turn: 3 }),
+      todoWrite(8, "p2", plan2),
+      ev(9, "turn_finished", { finish_reason: "stop" }),
+      usage(3),
+    ];
+    // What TranscriptStore.ingest records: the fold's latestTodos as of each
+    // block it froze — never a re-parse of the TodoWrite arguments.
+    const fold = new FoldState();
+    const todosAtBlock: Todo[][] = [];
+    for (const event of events) {
+      const before = fold.blocks.length;
+      fold.ingest(event);
+      for (let i = before; i < fold.blocks.length; i++) todosAtBlock.push(fold.latestTodos);
+    }
+    const groups = new SubTurnGroupState();
+    const items = groups.sync(fold.blocks, fold.latestTodos, todosAtBlock);
+    const byTurn = groupsByTurn(items);
+    // Named from each boundary sub-turn's own plan — with only the batch-end
+    // plan (fold.latestTodos), phase 1 would be named "Add httplog test"
+    // and phase 2 would collapse into it.
+    expect(byTurn.get(1)!.phase).toEqual({ id: 1, index: 1, label: "Fix retained-body leak" });
+    expect(byTurn.get(2)!.phase).toEqual({ id: 1, index: 1, label: "Fix retained-body leak" });
+    expect(byTurn.get(3)!.phase).toEqual({ id: 2, index: 2, label: "Add httplog test" });
   });
 
   it("keeps a group's phase through its own tool-result append (the tail-group replacement path)", () => {
