@@ -315,7 +315,7 @@ a hand reduction over the same list; at 1600px the finished table shows
 Elapsed and Cost without scrolling; the in-flight card keeps all four stats
 visible by letting the run-meta line ellipsize first.
 
-**Status.** Landed (commit `4bdc31a`, PR #43).
+**Status.** Landed (commit `ef406cf`, PR #46).
 
 ## What is deliberately not here
 
