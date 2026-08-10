@@ -34,7 +34,7 @@ What the screens are, since the redesign (docs/WEB-REDESIGN.md):
   slots, from `worker.pool_size`), Spend today, Median duration today, Done vs
   gave up today — is a client-side reduction over the same session list, with
   no backend field behind it. The finished table's columns run Status, Session,
-  Elapsed, Cost, Model, Sub-turns, Cache, Request: the two numbers an operator
+  Elapsed, Cost, Model, Sub-turns, Cache: the two numbers an operator
   scans for sit right after Session, where they stay visible before any column
   that still needs the scroll container. The nav's right slot carries the
   start-run trigger (docs/RUN-CONTROL.md phase 6 — it opens the start form as
