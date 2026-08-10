@@ -38,7 +38,13 @@ Rules:
   you stop without finishing, call Complete with status "gave_up" and say
   why in summary.
 - Work only within the workspace path given in the opening message. Paths
-  outside it are rejected.`
+  outside it are rejected.
+- Ad hoc files that are not part of the task's deliverable — a screenshot
+  taken for ReviewScreenshot, a scratch note, a temporary download — belong
+  in a scratch/ directory at the workspace root, sibling to the repository
+  clone(s); never /tmp (shared with every other concurrent session in this
+  container, and not preserved), and never inside a cloned repository (risks
+  being swept into a commit).`
 
 // RenderSystemPrompt returns the frozen system prompt text. Sessions store
 // its output directly on creation and never call it again for the life of
