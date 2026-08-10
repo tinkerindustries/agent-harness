@@ -19,7 +19,8 @@ export function LiveAssistantBlock({ turn }: { turn: LiveTurn }) {
       {turn.toolCalls.map((call) => (
         <div className="tool-call" key={call.id}>
           <code>
-            {call.name}({call.arguments})
+            {call.name}
+            {toolDetail(call) && <span className="tool-detail"> → {toolDetail(call)}</span>}
           </code>
         </div>
       ))}

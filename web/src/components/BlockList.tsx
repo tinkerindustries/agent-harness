@@ -1,6 +1,8 @@
 import type { LiveView } from "../api/fold";
-import type { TranscriptItem } from "../api/groups";
+import type { TranscriptFilter, TranscriptItem } from "../api/groups";
+import type { ToolCallPayload } from "../api/types";
 import { SubTurnList } from "./blocks/SubTurnList";
+import type { Density } from "./blocks/SubTurnCard";
 import { LiveAssistantBlock, LivePendingToolBlock } from "./blocks/LiveBlocks";
 
 // BlockList is the whole transcript body: the grouped blocks — each
@@ -18,16 +20,30 @@ import { LiveAssistantBlock, LivePendingToolBlock } from "./blocks/LiveBlocks";
 // both at the top level (TranscriptScreen) and recursively inside a Task
 // call's collapsed child transcript (blocks/TaskChildBody), which is why it
 // takes plain data rather than reading a store itself.
+//
+// density, filter, and getToolCall are the phase 5 additions
+// (docs/WEB-REDESIGN.md). Their defaults keep the recursive and measurement
+// callers — which have no toolbar of their own — on the full, unfiltered
+// rendering.
 interface Props {
   items: TranscriptItem[];
   live: LiveView;
+  density?: Density;
+  filter?: TranscriptFilter;
+  getToolCall?: (id: string) => ToolCallPayload | undefined;
 }
 
-export function BlockList({ items, live }: Props) {
+// Module-level default so every render hands SubTurnList the same function
+// reference: an inline `() => undefined` default would be a fresh function
+// per render and defeat the list's memo on every delta for the callers
+// (TaskChildBody, the perf harness) that have no store registry to pass.
+const NOOP_GET_TOOL_CALL = (): ToolCallPayload | undefined => undefined;
+
+export function BlockList({ items, live, density = "full", filter = "all", getToolCall = NOOP_GET_TOOL_CALL }: Props) {
   const empty = items.length === 0 && !live.turn && live.pendingTools.size === 0;
   return (
     <div className="transcript">
-      <SubTurnList items={items} />
+      <SubTurnList items={items} density={density} filter={filter} getToolCall={getToolCall} />
       {live.turn && <LiveAssistantBlock turn={live.turn} />}
       {[...live.pendingTools.entries()].map(([id, pending]) => (
         <LivePendingToolBlock key={id} toolCallId={id} pending={pending} />

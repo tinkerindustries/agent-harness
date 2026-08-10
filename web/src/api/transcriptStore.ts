@@ -1,6 +1,6 @@
 import { FoldState, type Block, type LiveView } from "./fold";
-import { SubTurnGroupState, type TranscriptItem } from "./groups";
-import type { StoreEvent, Todo } from "./types";
+import { SubTurnGroupState, type ChurnPoint, type GroupCounts, type TranscriptItem } from "./groups";
+import type { StoreEvent, Todo, ToolCallPayload } from "./types";
 
 // One session's transcript, live or historical (docs/DESIGN.md §4.2: "the
 // same endpoint shape"). The SSE endpoint alone is the whole data source —
@@ -31,6 +31,17 @@ export interface TranscriptSnapshot {
   live: LiveView;
   todos: Todo[];
   connection: ConnectionState;
+  // counts and churnPoint come out of the same incremental pass that builds
+  // items (docs/WEB-REDESIGN.md phase 5): the filter chip row's numbers and
+  // the first cache-churn diagnostic, without a second walk over the blocks.
+  counts: GroupCounts;
+  churnPoint: ChurnPoint | null;
+  // getToolCall is the fold's tool-call registry, exposed read-only for the
+  // display layer: the sub-turn card builds its tool headers from the call
+  // the fold keeps (web/src/api/fold.ts getToolCall). Stable across
+  // snapshots, so memoised components can take it as a prop without breaking
+  // their bailouts.
+  getToolCall: (id: string) => ToolCallPayload | undefined;
 }
 
 const TERMINAL_KINDS = new Set<StoreEvent["kind"]>(["run_finished", "error"]);
@@ -137,8 +148,16 @@ export class TranscriptStore {
       live: this.fold.live,
       todos: this.fold.latestTodos,
       connection: this.connection,
+      counts: { ...this.groups.counts },
+      churnPoint: this.groups.churnPoint,
+      getToolCall: this.getToolCall,
     };
   }
+
+  // getToolCall is a stable arrow property so every snapshot carries the same
+  // reference — a fresh closure per buildSnapshot would defeat the memoised
+  // components that take it as a prop (docs/WEB-REDESIGN.md phase 5).
+  private getToolCall = (id: string): ToolCallPayload | undefined => this.fold.getToolCall(id);
 
   private notify() {
     for (const l of this.listeners) l();

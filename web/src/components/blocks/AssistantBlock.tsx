@@ -2,6 +2,7 @@ import { memo } from "react";
 import type { Block } from "../../api/fold";
 import { Markdown } from "../../render/Markdown";
 import { ReasoningPanel } from "./ReasoningPanel";
+import { toolDetail } from "./toolArgs";
 
 // AssistantBlock is frozen the moment turn_finished lands: reasoning and
 // content are complete text, parsed and highlighted exactly once by
@@ -23,7 +24,10 @@ export const AssistantBlock = memo(function AssistantBlock({ block }: { block: E
 // AssistantBody is the assistant block's content without the boxed wrapper
 // or the sub-turn label — how a frozen assistant renders inside its sub-turn
 // card. Not memoised: it is only ever reached through a memoised parent
-// (AssistantBlock or SubTurnCard), so the memo sits one level up.
+// (AssistantBlock or SubTurnCard), so the memo sits one level up. Tool calls
+// list their target (docs/WEB-REDESIGN.md phase 5) rather than the raw
+// arguments JSON; inside a sub-turn card the calls render as full tool cards
+// (SubTurnCard), and this listing is the loose-block fallback.
 export function AssistantBody({ block }: { block: Extract<Block, { type: "assistant" }> }) {
   return (
     <>
@@ -34,7 +38,8 @@ export function AssistantBody({ block }: { block: Extract<Block, { type: "assist
       {block.toolCalls.map((call) => (
         <div className="tool-call" key={call.id}>
           <code>
-            {call.name}({call.arguments})
+            {call.name}
+            {toolDetail(call) && <span className="tool-detail"> → {toolDetail(call)}</span>}
           </code>
         </div>
       ))}

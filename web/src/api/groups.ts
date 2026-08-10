@@ -19,6 +19,25 @@ import type { Block } from "./fold";
 
 export type UsageBlock = Extract<Block, { type: "usage" }>;
 
+// GroupTags is the filter classification of one sub-turn group, computed in
+// the same pass that builds the group (docs/WEB-REDESIGN.md phase 5: the
+// chip counts "come from the same pass that renders them"). Only the tail
+// group is ever created or replaced, so the walk stays bounded to one
+// sub-turn's blocks.
+export interface GroupTags {
+  // edits counts Edit and Write tool results in the group — the "edits"
+  // filter family (design/transcript.html groups both under one glyph
+  // colour).
+  edits: number;
+  // bash counts Bash tool results.
+  bash: number;
+  // errors counts failed tool results (is_error) and denied calls — the
+  // cards that must stay open in Compact mode.
+  errors: number;
+  // churn is whether the group's usage carried a churn_point_index.
+  churn: boolean;
+}
+
 export interface SubTurnGroup {
   // The sub-turn number, from the assistant block that opens the group.
   subTurn: number;
@@ -34,6 +53,76 @@ export interface SubTurnGroup {
   // absorbed here and stays a loose block; the retry's own usage (the last
   // one) is what lands in the header.
   usage?: UsageBlock;
+  // tags is the group's filter classification, computed from blocks and
+  // usage the moment the group object is created or replaced.
+  tags: GroupTags;
+}
+
+// ChurnPoint is the first sub-turn whose usage carried a cache-churn
+// diagnostic, for the banner above the transcript (docs/WEB-REDESIGN.md
+// phase 5): sub-turn, and the tokens re-sent above the expected miss.
+export interface ChurnPoint {
+  subTurn: number;
+  excessTokens: number;
+}
+
+// GroupCounts is the chip row's numbers: how many sub-turn cards match each
+// filter family, maintained incrementally in the same pass that builds the
+// groups — never a second walk over the blocks per chip.
+export interface GroupCounts {
+  total: number;
+  edits: number;
+  bash: number;
+  errors: number;
+  churn: number;
+}
+
+// TranscriptFilter is the filter chip vocabulary: which cards the transcript
+// shows. "all" is the no-filter state.
+export type TranscriptFilter = "all" | "edits" | "bash" | "errors" | "churn";
+
+const ZERO_TAGS: GroupTags = { edits: 0, bash: 0, errors: 0, churn: false };
+
+// computeTags classifies a group from its own blocks and usage.
+export function computeTags(group: Pick<SubTurnGroup, "blocks" | "usage">): GroupTags {
+  const tags: GroupTags = { ...ZERO_TAGS };
+  for (const block of group.blocks) {
+    if (block.type === "tool_result") {
+      if (block.name === "Edit" || block.name === "Write") tags.edits++;
+      else if (block.name === "Bash") tags.bash++;
+      if (block.is_error) tags.errors++;
+    } else if (block.type === "tool_denied") {
+      tags.errors++;
+    }
+  }
+  if (group.usage?.churn_point_index !== undefined) tags.churn = true;
+  return tags;
+}
+
+// withTags returns the group with its tags computed. Only called on a group
+// being created or replaced — i.e. the tail group.
+function withTags(group: Omit<SubTurnGroup, "tags">): SubTurnGroup {
+  return { ...group, tags: computeTags(group) };
+}
+
+// groupMatchesFilter is the chips' membership test: a group matches "edits"
+// when it contains an Edit/Write result, "bash" when it contains a Bash
+// result, "errors" when it contains a failed result or a denial, and "churn"
+// when its usage carried a churn diagnostic. The tags it reads were computed
+// when the group was built, so matching costs no block walk at render time.
+export function groupMatchesFilter(group: SubTurnGroup, filter: TranscriptFilter): boolean {
+  switch (filter) {
+    case "all":
+      return true;
+    case "edits":
+      return group.tags.edits > 0;
+    case "bash":
+      return group.tags.bash > 0;
+    case "errors":
+      return group.tags.errors > 0;
+    case "churn":
+      return group.tags.churn;
+  }
 }
 
 // TranscriptItem is one entry of the grouped transcript: either a sub-turn
@@ -47,6 +136,11 @@ export type TranscriptItem =
 export class SubTurnGroupState {
   private items: TranscriptItem[] = [];
   private lastBlocks: Block[] | null = null;
+  // counts and churnPoint are maintained in the same pass that builds
+  // items, so the chip row and the churn banner read them off the snapshot
+  // instead of walking the blocks again (docs/WEB-REDESIGN.md phase 5).
+  counts: GroupCounts = { total: 0, edits: 0, bash: 0, errors: 0, churn: 0 };
+  churnPoint: ChurnPoint | null = null;
 
   // sync folds the current blocks array into items incrementally. Called on
   // every store snapshot; the fast path (same array reference — a live-only
@@ -78,7 +172,7 @@ export class SubTurnGroupState {
   private pushBlock(block: Block, blocks: Block[]): void {
     switch (block.type) {
       case "assistant":
-        this.items = [...this.items, { kind: "group", group: { subTurn: block.subTurn, seq: block.seq, blocks: [block] } }];
+        this.addGroup(withTags({ subTurn: block.subTurn, seq: block.seq, blocks: [block] }));
         break;
       case "tool_result":
       case "tool_denied": {
@@ -87,7 +181,7 @@ export class SubTurnGroupState {
           this.items = [...this.items, { kind: "block", block }];
           break;
         }
-        this.replaceGroup(last.index, { ...last.group, blocks: [...last.group.blocks, block] });
+        this.replaceGroup(last.index, withTags({ ...last.group, blocks: [...last.group.blocks, block] }));
         break;
       }
       case "usage": {
@@ -98,6 +192,7 @@ export class SubTurnGroupState {
         // a starved retry's first usage arrives before its assistant block
         // freezes and must not leak into the previous turn's header.
         if (!last || last.group.subTurn !== block.sub_turn) {
+          this.observeChurn(block);
           this.items = [...this.items, { kind: "block", block }];
           break;
         }
@@ -115,7 +210,8 @@ export class SubTurnGroupState {
           }
         }
         const children = assistant === group.blocks[0] ? group.blocks : [assistant, ...group.blocks.slice(1)];
-        this.replaceGroup(last.index, { ...group, blocks: children, usage: block });
+        this.observeChurn(block);
+        this.replaceGroup(last.index, withTags({ ...group, blocks: children, usage: block }));
         break;
       }
       default:
@@ -123,6 +219,12 @@ export class SubTurnGroupState {
         this.items = [...this.items, { kind: "block", block }];
         break;
     }
+  }
+
+  // addGroup appends a brand-new group and accounts its tags in counts.
+  private addGroup(group: SubTurnGroup): void {
+    this.items = [...this.items, { kind: "group", group }];
+    this.addCounts(group.tags);
   }
 
   private lastGroup(): { index: number; group: SubTurnGroup } | null {
@@ -133,9 +235,63 @@ export class SubTurnGroupState {
     return null;
   }
 
+  // replaceGroup swaps one item in place. Only the tail group is ever
+  // replaced, so counts are maintained by subtracting the outgoing group's
+  // membership and adding the incoming one's — an O(1) bookkeeping cost per
+  // append, not a walk over the session.
   private replaceGroup(index: number, group: SubTurnGroup): void {
+    const prev = this.items[index];
+    if (prev && prev.kind === "group") this.subtractCounts(prev.group.tags);
+    this.addCounts(group.tags);
     this.items = [...this.items];
     this.items[index] = { kind: "group", group };
+  }
+
+  // membership is a group's contribution to counts: the filter families are
+  // per-card (does this card contain an edit?), so a card with two Edits
+  // counts once for the edits chip, matching what the filter shows.
+  private static membership(tags: GroupTags): GroupCounts {
+    return {
+      total: 1,
+      edits: tags.edits > 0 ? 1 : 0,
+      bash: tags.bash > 0 ? 1 : 0,
+      errors: tags.errors > 0 ? 1 : 0,
+      churn: tags.churn ? 1 : 0,
+    };
+  }
+
+  private addCounts(tags: GroupTags): void {
+    const m = SubTurnGroupState.membership(tags);
+    this.counts = {
+      total: this.counts.total + m.total,
+      edits: this.counts.edits + m.edits,
+      bash: this.counts.bash + m.bash,
+      errors: this.counts.errors + m.errors,
+      churn: this.counts.churn + m.churn,
+    };
+  }
+
+  private subtractCounts(tags: GroupTags): void {
+    const m = SubTurnGroupState.membership(tags);
+    this.counts = {
+      total: this.counts.total - m.total,
+      edits: this.counts.edits - m.edits,
+      bash: this.counts.bash - m.bash,
+      errors: this.counts.errors - m.errors,
+      churn: this.counts.churn - m.churn,
+    };
+  }
+
+  // observeChurn records the first churn diagnostic seen, whether the usage
+  // lands in a group's header or stays a loose block (a starved retry's
+  // first usage). The banner links to the first churn sub-turn; later ones
+  // still count on the chip.
+  private observeChurn(usage: UsageBlock): void {
+    if (this.churnPoint || usage.churn_point_index === undefined) return;
+    this.churnPoint = {
+      subTurn: usage.sub_turn,
+      excessTokens: Math.max(0, usage.prompt_cache_miss_tokens - usage.expected_miss_tokens),
+    };
   }
 
   // refreshAmended handles the (currently unreachable) case of an in-place
