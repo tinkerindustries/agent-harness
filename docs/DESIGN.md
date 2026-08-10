@@ -233,11 +233,16 @@ Two things stage two has to answer, and stage one should not foreclose:
     GET /api/settings                    every setting, grouped, with its type, default, description, and the secret/restart flags
     PUT /api/settings/{key}              set a key, JSON body {"value": "..."}
     DELETE /api/settings/{key}           unset a key
+    PATCH /api/sessions/{id}             close an abandoned session into a terminal status
+    DELETE /api/sessions/{id}            delete a finished session and its event log
 
-`GET` and `HEAD` are served on every path. The writing methods are allowed on
-the settings endpoints only: a POST to `/api/sessions` still 405s with an
-`Allow` header naming what the path actually permits, and the settings
-collection path itself (`/api/settings` without a key) has no write route.
+`GET` and `HEAD` are served on every path. The writing methods are allowed
+where a write route exists — settings keys, and one session's row — and
+nowhere else: a POST to `/api/sessions` still 405s with an `Allow` header
+naming what the path actually permits, the settings collection path itself
+(`/api/settings` without a key) has no write route, and the events resource
+is never writable. The whole surface, including the work-request and lease
+endpoints later phases add, is specified in [DATA-API.md](DATA-API.md).
 Secret keys are masked in `GET /api/settings` to at most their last four
 characters, exactly as `harness config list` masks them, and the full value
 never leaves the process over HTTP — there is no reveal parameter. The writing

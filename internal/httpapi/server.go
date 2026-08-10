@@ -390,9 +390,7 @@ func writeSessionWriteError(w http.ResponseWriter, err error) {
 	case errors.Is(err, store.ErrNotFound):
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
 	case errors.As(err, &active):
-		writeJSON(w, http.StatusConflict, map[string]string{"error": fmt.Sprintf(
-			"session %s is still active: most recent event at %s", active.SessionID,
-			active.LastEventAt.UTC().Format(time.RFC3339))})
+		writeJSON(w, http.StatusConflict, map[string]string{"error": active.Error()})
 	case errors.As(err, &running):
 		writeJSON(w, http.StatusConflict, map[string]string{"error": running.Error()})
 	case errors.As(err, &conflict):
