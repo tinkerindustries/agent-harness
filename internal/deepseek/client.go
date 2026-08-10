@@ -37,6 +37,14 @@ func WithHTTPClient(h *http.Client) ClientOption {
 	return func(c *Client) { c.httpClient = h }
 }
 
+// WithTransportWrapper wraps the client's existing transport, e.g. to
+// capture traffic. The default transport's dial, TLS handshake, and
+// response header timeouts survive because the wrapper replaces the
+// Transport field, not the http.Client.
+func WithTransportWrapper(wrap func(http.RoundTripper) http.RoundTripper) ClientOption {
+	return func(c *Client) { c.httpClient.Transport = wrap(c.httpClient.Transport) }
+}
+
 // NewClient builds a Client for baseURL using apiKey. The default HTTP
 // client sets no overall request timeout: that would cap an entire stream
 // rather than one phase of it. Transport-level timeouts bound connection
