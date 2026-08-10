@@ -81,6 +81,11 @@ func TestBashBackgroundedProcessDoesNotHang(t *testing.T) {
 	if !strings.Contains(res.Content, "left a process holding its output open") {
 		t.Fatalf("expected the result to name the cause, got: %s", res.Content)
 	}
+	// What the command printed before it wedged survives, the way it does on
+	// the timeout path: the explanation replaces nothing.
+	if !strings.Contains(res.Content, "started") {
+		t.Fatalf("expected the output written before the wedge to be kept, got: %s", res.Content)
+	}
 	if elapsed < waitDelay {
 		t.Fatalf("expected the call to wait out the wait delay, took %s (< %s)", elapsed, waitDelay)
 	}

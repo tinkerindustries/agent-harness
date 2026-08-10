@@ -70,9 +70,16 @@ func execBash(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 		return result
 	}
 	if errors.Is(runErr, exec.ErrWaitDelay) {
-		return errorResult(
-			"the command exited but left a process holding its output open; the harness stopped waiting after %s and killed the process group. Redirect output and detach (cmd >/tmp/x.log 2>&1 &) if you meant to leave something running",
-			waitDelay)
+		// Everything the command wrote before it wedged is kept, the way the
+		// timeout path above keeps it. A command that builds, prints its log,
+		// and only then backgrounds something would otherwise come back as the
+		// explanation alone, and the model would have lost the output it
+		// actually asked for.
+		result.Content = fmt.Sprintf(
+			"the command exited but left a process holding its output open; the harness stopped waiting after %s and killed the process group. Redirect output and detach (cmd >/tmp/x.log 2>&1 &) if you meant to leave something running\n\npartial output:\n%s",
+			waitDelay, text)
+		result.IsError = true
+		return result
 	}
 
 	var exitErr *exec.ExitError
