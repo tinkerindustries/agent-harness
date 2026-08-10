@@ -13,12 +13,15 @@ Two distinctions bracket what belongs here:
   closing an abandoned session, deleting a finished one, closing a dead work
   request — is data and belongs in this API. A write that *starts, steers, or
   stops a run* — publishing a work request, resuming a session, cancelling the
-  loop — is run control and is a later stage whose seam is not designed yet.
-  Until that seam exists the HTTP server holds no NATS handle and
-  `internal/httpapi` imports neither `internal/session` nor `internal/worker`
-  ([ARCHITECTURE.md](../ARCHITECTURE.md)); that import boundary, not the
-  absence of write endpoints, is what makes "no endpoint can start a run"
-  structural.
+  loop — is run control and lives in [RUN-CONTROL.md](RUN-CONTROL.md), whose
+  seam is chosen: the HTTP server holds no NATS handle and `internal/httpapi`
+  imports neither `internal/session` nor `internal/worker`
+  ([ARCHITECTURE.md](../ARCHITECTURE.md)). Stopping is the one run-control
+  action built so far — `POST /api/sessions/{id}/stop`, authenticated by the
+  `http.control_token` bearer token and acting on a run through the declared
+  `RunController` interface; starting and steering are not built yet. That
+  import boundary, not the absence of write endpoints, is what makes "no
+  endpoint can start or steer a run" structural.
 - **The store is the only record.** The event log is append-only and never
   editable; see [Events are not writable](#events-are-not-writable).
 
@@ -288,6 +291,17 @@ that already changed.
 Phase 3 adds the column to `work_requests` and `workspace_leases` with the same
 semantics: version 1 at creation, `+1` per mutation, `If-Match` required on
 mutating writes, 428 when absent, 412 when stale.
+
+**Run control is the deliberate exception** (docs/RUN-CONTROL.md "The HTTP
+surface"): `POST /api/sessions/{id}/stop` requires no `If-Match`. That rule
+exists so an operator's write cannot land on a row that changed since they
+read it — a stop is an action on a run, not an edit of a row, and a running
+session's `version` changes continuously underneath the caller as the runner
+commits. Requiring a version echo would make a correct stop racy by
+construction and push the operator to fetch-then-immediately-post, which is
+the check without the protection. The preconditions that matter there are
+about the *run*, not the row: the session exists (404), and this process is
+running it (409 naming the session's status).
 
 Why a **lease** carries a version when the only mutation this API performs on
 it is a delete: the version is what makes the delete's `If-Match` mean

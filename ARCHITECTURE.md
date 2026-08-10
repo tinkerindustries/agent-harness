@@ -10,7 +10,9 @@ The harness clones those repositories into a directory of its own, runs an agent
 loop that reads and writes files and runs commands in there, and publishes a
 result. Requests arrive over NATS JetStream; results go back over a second
 stream. A browser can watch, and can change settings — nothing it does can
-start, steer, or stop a run.
+start or steer a run. It can stop one: the stop endpoint acts on a run through
+the `RunController` seam (docs/RUN-CONTROL.md), a narrow interface declared in
+`internal/httpapi` and implemented by `*worker.Pool`.
 
 One binary, `harness`, is every entry point. Two subcommands are long-running
 services and the rest are one-shot CLI:
@@ -33,7 +35,7 @@ flowchart LR
     session --> tools[internal/tools<br/>in the workspace]
     session --> store[(SQLite + disk mirror)]
     session --> hub[internal/hub]
-    hub --> http[internal/httpapi<br/>SSE; GET/HEAD, settings PUT/DELETE]
+    hub --> http[internal/httpapi<br/>SSE; GET/HEAD, writes, stop]
     store --> http
     http --> web[web/ React]
     worker -->|result| RESULTS[(RESULTS stream)]
@@ -96,7 +98,10 @@ JetStream — the browser reads the store and the hub, never NATS. §4.2, §5.8.
 The HTTP surface and the static file server for the embedded frontend. `GET`
 and `HEAD` on every path, plus the write endpoints over the data the harness
 manages (docs/DATA-API.md). Serves the store and the hub and writes through the
-store; it cannot reach a running loop. §4.2.
+store; the one reach into a running loop is the stop endpoint, which acts on a
+run through the `RunController` seam — a narrow interface declared here and
+implemented by `*worker.Pool`, so this package still imports neither `session`
+nor `worker` (docs/RUN-CONTROL.md). §4.2.
 
 ### `internal/webassets`
 `go:embed` of the built frontend, so the binary ships with no runtime assets.
@@ -197,8 +202,10 @@ The edges that matter:
   session or worker. That import boundary — not the absence of write endpoints
   — is what makes "no endpoint can start or steer a run" a structural fact
   rather than a policy, and it is why the boundary survived the read-only rule
-  being retired. Run control, when it comes, goes through a seam declared here
-  deliberately rather than by an import appearing.
+  being retired. Run control goes through a seam declared here deliberately
+  rather than by an import appearing: the stop endpoint holds a narrow
+  `RunController` interface implemented by `*worker.Pool` (docs/RUN-CONTROL.md),
+  exactly the shape `QueuePool` already uses for `/api/queue`.
 - **`internal/session` is the only package that speaks to both the API client
   and the tools.** A change that needs both belongs there.
 - **`internal/worker` is the only package that acks a JetStream message.**
@@ -259,8 +266,12 @@ are here.
   both, so that turn commits two, sharing `sub_turn` and told apart by
   `attempt`. A cost total sums every event; anything wanting the turn's
   standing state — the cache detector on resume — takes the last.
-- **The HTTP API serves `GET` and `HEAD` and nothing else.** No endpoint starts,
-  steers, or stops a run.
+- **The HTTP API serves `GET` and `HEAD` on every path, and the writing
+  methods only where a write route exists.** No endpoint starts or steers a
+  run. The one action that reaches a running loop is
+  `POST /api/sessions/{id}/stop`, which goes through the declared
+  `RunController` seam and is authenticated by a bearer token
+  (docs/RUN-CONTROL.md).
 - **`internal/mcp` opens no SQLite handle.** `harness serve` is the single
   writer.
 - **`internal/webassets/dist` is build output.** Never hand-edit it; never
