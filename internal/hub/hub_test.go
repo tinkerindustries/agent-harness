@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -155,6 +156,51 @@ func TestBuildSessionStateCarriesProvenance(t *testing.T) {
 	if st.CompleteStatus != "gave_up" {
 		t.Fatalf("expected complete_status %q on the wire row, got %q", "gave_up", st.CompleteStatus)
 	}
+}
+
+// TestBuildSessionStateCarriesLivePlan asserts the plan, recent-tool-call
+// roll, and summary reach the wire row in the shape the browser consumes
+// them: plan as the raw todos array, the roll as an array of calls, and the
+// summary as a string — all omitted when empty (docs/WEB-REDESIGN.md
+// phase 3).
+func TestBuildSessionStateCarriesLivePlan(t *testing.T) {
+	sess := store.Session{
+		ID:              "sess-1",
+		Plan:            `[{"content":"a","status":"completed","activeForm":""}]`,
+		RecentToolCalls: []store.RecentToolCall{{Name: "Bash", Arguments: `{"command":"go build ./..."}`}},
+		Summary:         "wired it up",
+	}
+	st := BuildSessionState(sess, store.SessionUsageSummary{}, "req-1", "")
+	if string(st.Plan) != sess.Plan {
+		t.Fatalf("expected plan %q on the wire row, got %q", sess.Plan, st.Plan)
+	}
+	if len(st.RecentToolCalls) != 1 || st.RecentToolCalls[0].Name != "Bash" {
+		t.Fatalf("unexpected recent tool calls on the wire row: %+v", st.RecentToolCalls)
+	}
+	if st.Summary != "wired it up" {
+		t.Fatalf("expected summary %q on the wire row, got %q", "wired it up", st.Summary)
+	}
+
+	// The empty row omits all three: the wire must not carry a "plan":null
+	// or an empty summary the browser would have to second-guess.
+	b, err := json.Marshal(BuildSessionState(store.Session{ID: "sess-2"}, store.SessionUsageSummary{}, "", ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, absent := range []string{`"plan"`, `"recent_tool_calls"`, `"summary"`} {
+		if jsonContains(b, absent) {
+			t.Fatalf("expected %s omitted when empty, got %s", absent, b)
+		}
+	}
+}
+
+func jsonContains(b []byte, needle string) bool {
+	for i := 0; i+len(needle) <= len(b); i++ {
+		if string(b[i:i+len(needle)]) == needle {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCancelUnsubscribes(t *testing.T) {

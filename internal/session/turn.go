@@ -119,6 +119,12 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	r.mirrorAppend(sess, appended)
 	r.publishEvents(sess, appended)
 	*allEvents = append(*allEvents, appended...)
+	// Persist the plan and recent-tool-call roll here, beside the tool_call
+	// events just appended, so the state publish that follows carries the
+	// new plan on the same sub-turn (docs/WEB-REDESIGN.md phase 3). The
+	// runner sees every tool call and holds the store handle; tools.Executor
+	// never does.
+	r.persistLiveState(ctx, sess, toolCalls)
 	r.publishState(ctx, sess)
 
 	if progress := progressFunc(r, opts); progress != nil {
