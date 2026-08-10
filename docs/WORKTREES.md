@@ -131,3 +131,54 @@ by docker compose project label (`com.docker.compose.project`), never by
 reading a compose file, so it still works after `git worktree remove` has
 already deleted the directory. Run it before that removal, not after; the
 installed `/worktree-remove` skill does both in the right order.
+
+## Agent workspaces (`-standalone`)
+
+A `deepseek-flash-task` run clones the target repo into a directory of its own
+inside the harness container. When that target is this repo, the same
+collision `harness worktree` was built to prevent is back in a different
+shape: the container shares the host's docker socket
+(docker-compose.yml's `harness` service), so `docker compose up` from inside
+an agent's clone binds real host ports under a real host compose project name
+— potentially the dev (or prod) deployment's own, since that's the stack
+currently running the agent.
+
+Plain `harness worktree init` refuses to help here: a fresh `git clone` has no
+linked-worktree relationship to anything, so `--git-dir` and
+`--git-common-dir` are always equal and it looks exactly like the main
+checkout (slot 0). `-standalone` is the escape hatch — it skips that check and
+allocates a slot for the clone as if it were a linked worktree:
+
+```
+harness worktree init -slug <unique-slug> -standalone
+docker compose up -d --build      # or scripts/test.sh — both read the .env just written
+harness worktree rm <unique-slug> # unconditionally, before finishing
+```
+
+Never pass `-standalone` in your own primary checkout of this repo — git
+cannot distinguish "the real main checkout" from "a disposable clone" on its
+own, so the flag is the only thing making that call, and it trusts you to mean
+it.
+
+Two things make this work without touching `init`'s allocation logic at all:
+
+- **The registry is genuinely shared.** `docker-compose.yml` mounts the host's
+  `$HOME/.deepseek-harness` into the container at `/root/.deepseek-harness`
+  (the container runs as root, so that's where `os.UserHomeDir()` resolves).
+  `harness worktree init/list/rm/doctor` inside a session read and write the
+  exact same file the host's own worktrees do — so a slot an agent allocates
+  is genuinely unavailable to a concurrent host worktree, and vice versa.
+- **Nothing downstream needed a standalone-specific code path.** `MainRoot()`
+  for a clone with no linked-worktree sibling simply resolves to the clone's
+  own root, so `UpsertEnv`'s "seed from the main checkout's `.env`" step finds
+  no file there and seeds nothing — correct, since an agent's `GITHUB_TOKEN`
+  and DeepSeek credentials arrive some other way, not through a worktree
+  `.env`. `harness worktree rm` was already registry-and-docker-label-only
+  with no git dependency, so it needs no changes either.
+
+`AllocateSlot`'s live port probe (`ports.probeFree()`) binds on the
+container's own loopback, which is a different network namespace than the
+host ports `docker compose up` actually publishes to via the shared daemon —
+so from inside a session that probe cannot catch a collision the way it can
+on the host. The registry check is what actually prevents collisions here;
+the probe is a bonus that happens not to fire in this environment.

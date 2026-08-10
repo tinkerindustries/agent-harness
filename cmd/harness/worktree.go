@@ -18,7 +18,8 @@ import (
 const worktreeUsage = `usage: harness worktree <command> [flags]
 
 commands:
-  init [-slug NAME] [-dry-run] [-force]   allocate this worktree a slot, write
+  init [-slug NAME] [-dry-run] [-force] [-standalone]
+                                           allocate this worktree a slot, write
                                            .worktree-env.xml and update .env
   show [path]                             print a worktree's descriptor
   list                                    every registered worktree
@@ -28,7 +29,13 @@ commands:
 
 Run "init" from inside the worktree, after it exists. Run "rm" before
 "git worktree remove" — see docs/WORKTREES.md and
-.claude/skills/worktree-create, .claude/skills/worktree-remove.`
+.claude/skills/worktree-create, .claude/skills/worktree-remove.
+
+-standalone treats a plain "git clone" (no sibling main checkout) as
+allocatable too, for a disposable workspace with no linked-worktree
+relationship to anything else — a deepseek-flash-task agent's own clone, not
+your primary checkout of this repo. Git cannot tell the two apart on its own;
+this flag is what tells "init" which one you mean.`
 
 func runWorktree(ctx context.Context, args []string) error {
 	if len(args) < 1 {
@@ -60,6 +67,7 @@ func runWorktreeInit(args []string) error {
 	slugFlag := fs.String("slug", "", "worktree slug (default: the worktree directory's name)")
 	dryRun := fs.Bool("dry-run", false, "compute and print the allocation without writing anything")
 	force := fs.Bool("force", false, "reassign the slug even if it is registered to a different path")
+	standalone := fs.Bool("standalone", false, "allocate a plain git clone with no sibling main checkout — for a disposable agent workspace, never your primary checkout")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -68,12 +76,14 @@ func runWorktreeInit(args []string) error {
 	if err != nil {
 		return fmt.Errorf("worktree init: %w (run this from inside a git worktree)", err)
 	}
-	isMain, err := worktree.IsMainWorktree(root)
-	if err != nil {
-		return err
-	}
-	if isMain {
-		return errors.New("worktree init: this is the main checkout (slot 0) — it already uses docker-compose.yml's default ports and needs no manifest; run this from a linked worktree instead")
+	if !*standalone {
+		isMain, err := worktree.IsMainWorktree(root)
+		if err != nil {
+			return err
+		}
+		if isMain {
+			return errors.New("worktree init: this is the main checkout (slot 0) — it already uses docker-compose.yml's default ports and needs no manifest; run this from a linked worktree instead, or pass -standalone if this is actually a disposable clone with no sibling main checkout")
+		}
 	}
 
 	slug := *slugFlag

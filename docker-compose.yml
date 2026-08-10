@@ -54,6 +54,14 @@ services:
       # this socket, including mounting the host's filesystem into a
       # container it starts.
       - /var/run/docker.sock:/var/run/docker.sock
+      # Same file `harness worktree init/list/rm/doctor` reads and writes on
+      # the host (registryDir() resolves $HOME/.deepseek-harness; the
+      # container runs as root, hence /root here). Sharing it is what lets a
+      # session's own `harness worktree init -standalone` (docs/WORKTREES.md)
+      # allocate a slot the host's real worktrees also see, instead of
+      # colliding with them the moment it runs docker compose against the
+      # shared daemon above.
+      - ${HOME}/.deepseek-harness:/root/.deepseek-harness
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/api/queue"]
       interval: 10s

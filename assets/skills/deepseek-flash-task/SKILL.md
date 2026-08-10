@@ -180,6 +180,29 @@ Nothing reaches into this workspace once the run ends, so work that is committed
 but not pushed cannot be collected. Treat the push as part of finishing the
 task, not as a follow-up.
 
+## Isolating docker compose, if you use it
+
+This container shares the host's docker socket, so `docker compose up` binds
+real ports on the real host under a real compose project name — not something
+scoped to this workspace. Skip this section if your verification never brings
+anything up with docker compose.
+
+If <repo-dir>/ is deepseek-harness itself, isolate before bringing anything
+up, reusing <branch-name>'s slug (the part after `deepseek/`) as the worktree
+slug — it is already kebab-case and unique to this task:
+
+    harness worktree init -slug <branch-slug> -standalone
+    docker compose up -d --build      # or scripts/test.sh — both now read the ports/project name that just wrote to .env
+
+Tear it down before you finish, pass or fail — a slot left allocated is a slot
+nothing else on the host can use:
+
+    harness worktree rm <branch-slug>
+
+For any other repository, there is no such tool: pick a compose project name
+and ports nothing else is likely using, and bring everything back down
+yourself before finishing.
+
 ## Verification
 
 Find out how this repository builds and tests itself — a README, a scripts
@@ -211,6 +234,9 @@ error. A run that ends silently tells the requester nothing.
 - Work only inside <repo-dir>/ in the workspace.
 - Branch off <base>, name the branch <branch-name>, push it, open a draft PR.
 - Run the repository's own build and test commands and report each one.
+- If you brought anything up with docker compose, tear it down before
+  finishing — `harness worktree rm <branch-slug>` for deepseek-harness itself,
+  `docker compose down` otherwise.
 - English throughout.
 - Finish with Complete.
 ```
