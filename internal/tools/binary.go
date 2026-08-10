@@ -42,13 +42,48 @@ func isBinaryFile(path string) (size int64, binary bool, err error) {
 	if bytes.IndexByte(head, 0) >= 0 {
 		return info.Size(), true, nil
 	}
-	for len(head) > 0 {
-		if r, size := utf8.DecodeLastRune(head); r != utf8.RuneError || size > 1 {
+	head = trimTruncatedRune(head, n)
+	return info.Size(), !utf8.Valid(head), nil
+}
+
+// trimTruncatedRune drops a trailing rune that the probe cut in half, so a
+// text file is not reported as binary for stopping mid-character. Only a
+// probe that filled its buffer can have cut anything, and only bytes that
+// could belong to an incomplete rune are dropped: trimming a byte that can
+// never appear in a valid encoding, such as 0xFF, would report binary data
+// as text.
+func trimTruncatedRune(head []byte, n int) []byte {
+	if n < binaryProbeSize {
+		return head
+	}
+	for trimmed := 0; trimmed < utf8.UTFMax-1 && len(head) > 0; {
+		c := head[len(head)-1]
+		if utf8.RuneStart(c) {
+			// A lead byte announcing more bytes than the probe kept is the
+			// cut; anything else is data in its own right.
+			if leadRuneLen(c) > trimmed+1 {
+				head = head[:len(head)-1]
+			}
 			break
 		}
 		head = head[:len(head)-1]
+		trimmed++
 	}
-	return info.Size(), !utf8.Valid(head), nil
+	return head
+}
+
+// leadRuneLen returns how many bytes the rune starting with c occupies, or 0
+// when c cannot start one.
+func leadRuneLen(c byte) int {
+	switch {
+	case c >= 0xC2 && c <= 0xDF:
+		return 2
+	case c >= 0xE0 && c <= 0xEF:
+		return 3
+	case c >= 0xF0 && c <= 0xF4:
+		return 4
+	}
+	return 0
 }
 
 // binaryFileError is the result both Read and Edit return when the guard

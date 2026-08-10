@@ -2,6 +2,7 @@ package tools
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,6 +40,60 @@ func TestIsBinaryFileRejectsInvalidUTF8(t *testing.T) {
 	}
 	if !binary {
 		t.Fatal("expected invalid UTF-8 to be binary")
+	}
+}
+
+// Invalid bytes running to the end of the probe are the case the partial-rune
+// trim can swallow: every trailing byte decodes as RuneError, so an unbounded
+// trim empties the buffer and an empty buffer is valid UTF-8.
+func TestIsBinaryFileRejectsInvalidUTF8AtEnd(t *testing.T) {
+	cases := []struct {
+		name string
+		data []byte
+	}{
+		{"short, no NUL", bytes.Repeat([]byte{0xFF}, 100)},
+		{"exactly the probe", bytes.Repeat([]byte{0xFF}, binaryProbeSize)},
+		{"longer than the probe", bytes.Repeat([]byte{0xFF}, binaryProbeSize+808)},
+		{"one bad byte at the probe boundary", append(bytes.Repeat([]byte("a"), binaryProbeSize-1), 0xFF)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "bad.bin")
+			if err := os.WriteFile(path, tc.data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, binary, err := isBinaryFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !binary {
+				t.Fatalf("expected %d bytes of invalid UTF-8 to be binary", len(tc.data))
+			}
+		})
+	}
+}
+
+// A rune split by the probe boundary must survive the trim at every length a
+// multi-byte rune can be cut to, or valid text reads as binary.
+func TestIsBinaryFileAcceptsRuneSplitAtEveryOffset(t *testing.T) {
+	// U+1F600 is four bytes, the longest rune the trim has to forgive.
+	emoji := []byte("\U0001F600")
+	for cut := 1; cut < len(emoji); cut++ {
+		t.Run(fmt.Sprintf("%d-of-%d-bytes", cut, len(emoji)), func(t *testing.T) {
+			data := append(bytes.Repeat([]byte("a"), binaryProbeSize-cut), emoji[:cut]...)
+			data = append(data, emoji[cut:]...)
+			path := filepath.Join(t.TempDir(), "split.txt")
+			if err := os.WriteFile(path, data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			_, binary, err := isBinaryFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if binary {
+				t.Fatalf("a rune cut after %d byte(s) at the probe boundary must not read as binary", cut)
+			}
+		})
 	}
 }
 
