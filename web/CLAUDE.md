@@ -2,16 +2,41 @@
 
 The frontend: a session list, a transcript, and the settings screen, fed by
 SSE from `harness serve` for the session surface. Vite, React, TypeScript,
-with shadcn/ui on Tailwind v4 as the component layer — `badge`, `button`,
-`card`, `collapsible`, `input`, `toggle`, `toggle-group`, and `tooltip` are
-in (in `src/components/ui/`); `ScrollArea` and `DataTable` are deliberately
-out, because the rail and the plan column are plain sticky elements and the
-diff table renders inside the transcript (docs/WEB-REDESIGN.md phase 1). The
-theme variables are ported from `design/tokens.css`, and everything shadcn
-has no opinion about — the transcript block styles, the diff table, and the
-status and diff tokens — is plain CSS in `src/styles.css`. No router, no
-data layer beyond the SSE client, the store, and the settings fetch calls.
-`docs/DESIGN.md` §5 is the reference for the reasoning behind all of it.
+with shadcn/ui on Tailwind v4 as the component layer — `accordion`, `badge`,
+`button`, `card`, `collapsible`, `input`, `toggle`, `toggle-group`, and
+`tooltip` are in (in `src/components/ui/`); `ScrollArea` and `DataTable` are
+deliberately out, because the rail and the plan column are plain sticky
+elements and the diff table renders inside the transcript
+(docs/WEB-REDESIGN.md phase 1). The theme variables are ported from
+`design/tokens.css`, and everything shadcn has no opinion about — the
+transcript block styles, the diff table, and the status and diff tokens — is
+plain CSS in `src/styles.css`. No router, no data layer beyond the SSE client,
+the store, and the settings fetch calls. `docs/DESIGN.md` §5 is the reference
+for the reasoning behind all of it.
+
+What the screens are, since the redesign (docs/WEB-REDESIGN.md):
+
+- **Session list.** In-flight sessions are collapsible plan cards — collapsed,
+  the trigger shows the `in_progress` item's activeForm and the completed
+  ratio; expanded, the whole plan and the last few tool calls. Finished
+  sessions are a dense table whose Session cell carries a one-line subtitle:
+  the plan ratio and the model's summary. Outcomes render as
+  `DONE` / `GAVE UP` / `STOPPED` (`statusBadge.ts`), not one green OK.
+- **Transcript.** The unit is the sub-turn, not the block: one card per
+  sub-turn, reasoning, text, tool calls and results in one body and the usage
+  block in the header (`src/api/groups.ts` builds the groups as a display-side
+  view over the fold's `blocks`; the `Block` union is untouched). A
+  Compact/Full toggle collapses every card to its header line; filter chips
+  (All/Edits/Bash/Errors/Churn) read their counts from the grouping pass; tool
+  call headers show the target, not the arguments JSON; the opening block
+  collapses to one summary line; a cache-churn banner links to the first
+  sub-turn that churned. The sticky left rail lists every sub-turn under the
+  plan item that was `in_progress`, one glyph per tool call, with a single
+  IntersectionObserver marking the current entry.
+- **Settings.** One collapsible row per registry entry: closed is key, value
+  and description; open is the write controls with the bounds the registry
+  validates against. A closed set renders a `ToggleGroup`; only overrides and
+  unset secrets are badged.
 
 Build output lands in `../internal/webassets/dist`, which the Go binary embeds.
 Don't change `build.outDir`.
@@ -41,9 +66,13 @@ blocks; the naive shape re-parses the whole transcript tens of times a second.
   outside React and set a dirty flag; a `requestAnimationFrame` loop flushes it,
   so React sees at most one update per frame whatever the token rate. Components
   subscribe to the external store with `useSyncExternalStore`.
-- **Completed blocks freeze.** They become immutable values wrapped in
-  `React.memo`, keyed by block id, and never re-render again. This carries most
-  of the win — in a long session almost every block is inert.
+- **Completed content freezes.** Top-level blocks (opening, skills,
+  `run_finished`, `error`) become immutable values wrapped in `React.memo`,
+  keyed by block id, and never re-render again. A sub-turn card freezes at
+  group granularity: its children array is reference-stable from the moment
+  its last tool result lands, and the memoised card bails out on it
+  (`src/api/groups.ts`, docs/DESIGN.md §5.9). This carries most of the win —
+  in a long session every card but the tail one is inert.
 - **A streaming block renders as plain preformatted text.** No markdown parse, no
   highlighting, no diff computation until the block completes; then it parses and
   highlights once and swaps in.
@@ -53,12 +82,16 @@ blocks; the naive shape re-parses the whole transcript tens of times a second.
   control. A huge file read is a disclosure problem, not a virtualisation one.
 - **`src/api/fold.ts` must stay in shape agreement with `internal/fold`.** Both
   walk the same event log — one produces the API `messages` array, the other
-  display blocks. A new event kind needs both.
+  display blocks. A new event kind needs both. The sub-turn grouping and the
+  rail (`src/api/groups.ts`, `components/TimelineRail.tsx`) are display-side
+  views over the fold's output and never add a `Block` variant.
 
 Virtualisation is out, and the measurements that decided it are in §5.5: delta
 commits are flat in block count, appending a block is linear and no amount of
-memoisation removes it. Re-measure with the harness in `src/perf` rather than
-arguing from first principles.
+memoisation removes it. Phase 4 attacked the append cost at group granularity
+instead — the walk now runs over sub-turn cards and every earlier card bails
+out, with the numbers in §5.9 — but the conclusion stands. Re-measure with the
+harness in `src/perf` rather than arguing from first principles.
 
-Tests cover the fold and the display helpers. There is no DOM harness and the
-components are not unit-tested — see [../TESTING.md](../TESTING.md).
+Tests cover the fold, the grouping, and the display helpers. There is no DOM
+harness and the components are not unit-tested — see [../TESTING.md](../TESTING.md).
