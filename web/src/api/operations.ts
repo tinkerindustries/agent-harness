@@ -197,6 +197,55 @@ export async function releaseLease(workspace: string, version: number): Promise<
   if (!res.ok) throw await apiError(res);
 }
 
+// --- run control (docs/RUN-CONTROL.md) ---
+
+// StopResponse is POST /api/sessions/{id}/stop's 202 body: the acceptance,
+// not the outcome. The run is still ending; its terminal state arrives over
+// the session's own SSE stream (a cancelled result for a queue caller, the
+// stream for the browser), and the status badge renders CANCELLED when it
+// lands.
+export interface StopResponse {
+  session_id: string;
+  stopping: boolean;
+}
+
+// controlToken is the run-control bearer token, fetched once per page load
+// and reused for every stop. GET /api/control-token serves the token to
+// loopback callers only (docs/RUN-CONTROL.md "Authentication"), and the
+// browser is served by the harness itself, so this works exactly when the
+// page does. null means run control is not configured: a harness that never
+// generated a token answers 200 with an empty string, and an empty token is
+// treated as unavailable rather than cached and sent as an empty bearer,
+// which would 503 — a missing credential fails closed.
+let controlTokenPromise: Promise<string | null> | null = null;
+
+export function controlToken(): Promise<string | null> {
+  controlTokenPromise ??= fetch("/api/control-token")
+    .then((res) => (res.ok ? res.json() : null))
+    .then((body: { token?: string } | null) => (body && body.token ? body.token : null))
+    .catch(() => null);
+  return controlTokenPromise;
+}
+
+// stopSession asks the harness to end a running session via POST
+// /api/sessions/{id}/stop (docs/RUN-CONTROL.md "The HTTP surface"). The
+// response is an acceptance, not an outcome: a 202 means the stop landed and
+// the run is ending — possibly on its own inside the grace period — and the
+// terminal state arrives over the SSE stream the caller is already
+// connected to; nothing here polls or guesses at it. The reason is optional
+// and carried verbatim into the cancelled result. The bearer token is
+// required: callers hold the controlToken() result and hide the control when
+// it is null rather than sending a request that would 503.
+export async function stopSession(id: string, token: string, reason?: string): Promise<StopResponse> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/stop`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(reason ? { reason } : {}),
+  });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as StopResponse;
+}
+
 // --- logic the screen is built from (tested without a DOM) ---
 
 // isStuckSession reports whether a session row counts as stuck: still

@@ -42,8 +42,9 @@ import { Button } from "./ui/button";
 //     destroyed. No window.confirm: a modal blocks the page and the
 //     repository's automation cannot dismiss it.
 //
-// Nothing here starts, steers, or stops a run: that is run control, a later
-// stage whose seam is not designed yet (docs/DATA-API.md).
+// Stop is not offered here: it lives on the in-flight session card and the
+// transcript header, where an operator sees the run it would end
+// (docs/RUN-CONTROL.md "The frontend").
 
 interface Props {
   onBack: () => void;

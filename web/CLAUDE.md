@@ -52,9 +52,18 @@ Don't change `build.outDir`.
 
 ## Rules
 
-The browser can write to the data the harness manages and cannot yet control a
-run: no prompt box, no approve button, no cancel control. That second half is
-intended and staged, not permanent — docs/DESIGN.md §4.2 and docs/DATA-API.md.
+The browser can write to the data the harness manages, and it can stop a
+running session: no prompt box, no approve button, and one run-control
+action, a **stop** on the in-flight session card and in the transcript
+header, visible only while the session is running and behind a confirmation
+(docs/RUN-CONTROL.md "The frontend"). The stop is an acceptance, not an
+outcome: between the 202 and the terminal event the control shows
+*stopping…*, and the terminal state arrives over the SSE stream the screens
+are already connected to — the screen never polls for it and never
+optimistically marks the session cancelled. The approve button stays out —
+docs/DESIGN.md §4.6, and a loop that waits on a person is a loop that stalls
+when nobody is watching. The prompt box (start) and the steer input are
+staged, not permanent — docs/RUN-CONTROL.md.
 
 What that means for work here: a screen that writes is now ordinary, so the
 settings screen stops being a special case and becomes the pattern to follow.

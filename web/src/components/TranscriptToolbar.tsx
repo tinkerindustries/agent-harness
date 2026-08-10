@@ -9,7 +9,8 @@ import type { Density } from "./blocks/SubTurnCard";
 // the left, then one filter chip per family with its card count. The counts
 // come straight off the snapshot's GroupCounts — the same pass that builds
 // the cards — so the toolbar never walks the blocks itself. This is display
-// state only: nothing here starts, steers, or stops a run.
+// state only: the run-control stop lives in the screen header (StopControl),
+// and nothing here starts, steers, or stops a run.
 interface Props {
   density: Density;
   onDensityChange: (density: Density) => void;
