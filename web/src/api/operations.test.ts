@@ -13,9 +13,11 @@ import {
   listLeases,
   listSessions,
   listWorkRequests,
+  parseRepoSpec,
   quietMs,
   releaseLease,
   SESSION_IDLE_THRESHOLD_MS,
+  startRun,
   steerSession,
   stopSession,
 } from "./operations";
@@ -463,6 +465,54 @@ describe("steerSession", () => {
     );
 
     await expect(steerSession("sess-1", "tok-1", "be terse")).rejects.toThrow("not running (status ok)");
+  });
+});
+
+describe("startRun", () => {
+  it("POSTs /api/runs with the JSON content type, the bearer token, and the work-request body, and parses the 202 acceptance's request_id", async () => {
+    const mock = stubFetch();
+    mock.mockResolvedValue(fakeResponse(202, { request_id: "web-abc" }));
+
+    const body = {
+      prompt: "do the thing",
+      repos: [{ url: "https://github.com/org/app.git", branch: "dev" }],
+      permission_mode: "readonly",
+    };
+    const out = await startRun("tok-1", body);
+
+    const [url, init] = mock.mock.calls[0];
+    expect(url).toBe("/api/runs");
+    expect(init).toMatchObject({
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer tok-1" },
+      body: JSON.stringify(body),
+    });
+    expect(out).toEqual({ request_id: "web-abc" });
+  });
+
+  it("carries the server's 400 out as the Error — the validator's message is what the form shows", async () => {
+    stubFetch().mockResolvedValue(fakeResponse(400, { error: "queue: permission_mode \"admin\" must be readonly or full" }));
+
+    await expect(startRun("tok-1", { prompt: "x", repos: [{ url: "https://x/y.git" }], permission_mode: "admin" })).rejects.toThrow(
+      "must be readonly or full",
+    );
+  });
+});
+
+describe("parseRepoSpec", () => {
+  it("splits a spec on its last # into url and branch, the way harness publish's -repo flag does", () => {
+    expect(parseRepoSpec("https://github.com/org/app.git#dev")).toEqual({
+      url: "https://github.com/org/app.git",
+      branch: "dev",
+    });
+  });
+
+  it("returns just the url when there is no # — the default branch is cloned", () => {
+    expect(parseRepoSpec("https://github.com/org/app.git")).toEqual({ url: "https://github.com/org/app.git" });
+  });
+
+  it("trims whitespace and splits on the last # so a # inside a URL survives", () => {
+    expect(parseRepoSpec("  https://x/y#z.git#topic  ")).toEqual({ url: "https://x/y#z.git", branch: "topic" });
   });
 });
 
