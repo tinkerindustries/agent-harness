@@ -49,10 +49,10 @@ func TestEnsureStreamsConverges(t *testing.T) {
 		js.DeleteStream(context.Background(), StreamResults)
 	})
 
-	if _, err := EnsureStreams(ctx, js, 4, DefaultResultsMaxAge); err != nil {
+	if _, err := EnsureStreams(ctx, js, 4, DefaultResultsMaxAge, DefaultMaxDeliveryAttempts); err != nil {
 		t.Fatalf("first EnsureStreams: %v", err)
 	}
-	consumer, err := EnsureStreams(ctx, js, 8, DefaultResultsMaxAge)
+	consumer, err := EnsureStreams(ctx, js, 8, DefaultResultsMaxAge, DefaultMaxDeliveryAttempts)
 	if err != nil {
 		t.Fatalf("second EnsureStreams: %v", err)
 	}
@@ -93,7 +93,7 @@ func TestNatsMsgIDDeduplicates(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if _, err := EnsureStreams(ctx, js, 4, DefaultResultsMaxAge); err != nil {
+	if _, err := EnsureStreams(ctx, js, 4, DefaultResultsMaxAge, DefaultMaxDeliveryAttempts); err != nil {
 		t.Fatalf("EnsureStreams: %v", err)
 	}
 	t.Cleanup(func() {
@@ -136,4 +136,47 @@ func TestNatsMsgIDDeduplicates(t *testing.T) {
 		t.Fatalf("expected 2 stored messages (one deduplicated pair plus one distinct), got %d", count)
 	}
 	_ = info
+}
+
+// TestEnsureStreamsBoundsRedelivery pins the ceiling on the consumer itself.
+// JetStream's default is unlimited redelivery, which means a request whose
+// worker dies every time is redelivered forever, each attempt burning a pool
+// slot — and killing the stuck run is what triggers the next attempt rather
+// than ending it (docs/DESIGN.md §4.10).
+func TestEnsureStreamsBoundsRedelivery(t *testing.T) {
+	nc, js := connectOrSkip(t)
+	defer nc.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	t.Cleanup(func() {
+		js.DeleteStream(context.Background(), StreamWork)
+		js.DeleteStream(context.Background(), StreamResults)
+	})
+
+	consumer, err := EnsureStreams(ctx, js, 4, DefaultResultsMaxAge, 3)
+	if err != nil {
+		t.Fatalf("EnsureStreams: %v", err)
+	}
+	info, err := consumer.Info(ctx)
+	if err != nil {
+		t.Fatalf("consumer info: %v", err)
+	}
+	if info.Config.MaxDeliver != 3 {
+		t.Fatalf("MaxDeliver = %d, want 3 — unlimited redelivery is the bug this bounds", info.Config.MaxDeliver)
+	}
+
+	// Zero means the built-in default rather than JetStream's unlimited.
+	consumer, err = EnsureStreams(ctx, js, 4, DefaultResultsMaxAge, 0)
+	if err != nil {
+		t.Fatalf("EnsureStreams with zero: %v", err)
+	}
+	info, err = consumer.Info(ctx)
+	if err != nil {
+		t.Fatalf("consumer info: %v", err)
+	}
+	if info.Config.MaxDeliver != DefaultMaxDeliveryAttempts {
+		t.Fatalf("MaxDeliver = %d, want the default %d", info.Config.MaxDeliver, DefaultMaxDeliveryAttempts)
+	}
 }
