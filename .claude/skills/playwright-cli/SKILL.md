@@ -147,12 +147,12 @@ playwright-cli unroute
 ```bash
 playwright-cli console
 playwright-cli console warning
-playwright-cli network
+playwright-cli requests
 playwright-cli run-code "async page => await page.context().grantPermissions(['geolocation'])"
 playwright-cli tracing-start
 playwright-cli tracing-stop
-playwright-cli video-start
-playwright-cli video-stop video.webm
+playwright-cli video-start video.webm
+playwright-cli video-stop
 ```
 
 ## Open parameters
@@ -162,8 +162,8 @@ playwright-cli open --browser=chrome
 playwright-cli open --browser=firefox
 playwright-cli open --browser=webkit
 playwright-cli open --browser=msedge
-# Connect to browser via extension
-playwright-cli open --extension
+# Connect to a running browser via the Playwright extension
+playwright-cli attach --extension=chrome
 
 # Use persistent profile (by default profile is in-memory)
 playwright-cli open --persistent
@@ -192,9 +192,7 @@ After each command, playwright-cli provides a snapshot of the current browser st
 [Snapshot](.playwright-cli/page-2026-02-14T19-22-42-679Z.yml)
 ```
 
-You can also take a snapshot on demand using `playwright-cli snapshot` command.
-
-If `--filename` is not provided, a new snapshot file is created with a timestamp. Default to automatic file naming, use `--filename=` when artifact is a part of the workflow result.
+You can also take a snapshot on demand using `playwright-cli snapshot` command. Without `--filename` the snapshot is returned inline in the response; pass `--filename=name.yaml` to save it to a file and the output links the file instead. (Other commands such as `goto` and `click` still write a timestamped `page-*.yml` snapshot file and print its link automatically.)
 
 ## Browser Sessions
 
@@ -254,7 +252,7 @@ playwright-cli open https://example.com
 playwright-cli click e4
 playwright-cli fill e7 "test"
 playwright-cli console
-playwright-cli network
+playwright-cli requests
 playwright-cli close
 ```
 
