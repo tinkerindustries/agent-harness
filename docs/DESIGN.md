@@ -570,15 +570,17 @@ Result body:
     }
 
 Every run works in a directory of its own: the worker creates
-`<workspace root>/<session id>` and clones each entry of `repos` into it,
-checking out `branch` or `main`. A repository URL must name an http(s), ssh,
-git, or `user@host:path` remote; `ext::` and local paths are refused, because
-git treats the first as a command to run and the second would copy the
-harness's own filesystem into a workspace a readonly run can read. Two entries
-whose URLs end in the same name are refused rather than one shadowing the
-other. Nothing is shared between runs and nothing is reused across attempts, so
-a redelivery that still may run — one whose attempt died before its session
-existed — clones afresh rather than inheriting a half-finished tree.
+`<workspace root>/<session id>` — with a `scratch/` subdirectory for files
+that are not part of the deliverable, sibling to the clones — and clones each
+entry of `repos` into it, checking out `branch` or `main`. A repository URL
+must name an http(s), ssh, git, or `user@host:path` remote; `ext::` and local
+paths are refused, because git treats the first as a command to run and the
+second would copy the harness's own filesystem into a workspace a readonly run
+can read. Two entries whose URLs end in the same name are refused rather than
+one shadowing the other. Nothing is shared between runs and nothing is reused
+across attempts, so a redelivery that still may run — one whose attempt died
+before its session existed — clones afresh rather than inheriting a
+half-finished tree.
 
 What each terminal status means. `ok` is a run that finished on its own.
 `failed` covers a validation rejection, a workspace that could not be built
