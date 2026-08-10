@@ -56,7 +56,7 @@ The run is going to take minutes whether you watch it or not. Before you settle 
 
 If the run passes roughly ten minutes with no result, say where it has got to and ask whether to keep waiting. The run continues either way; you are checking that the user still wants to spend the time, not asking permission to keep waiting.
 
-## Three interfaces, three jobs
+## Which interface for which job
 
 Using the wrong one is what makes waiting expensive:
 
@@ -65,8 +65,10 @@ Using the wrong one is what makes waiting expensive:
 | `GET /api/requests/{id}/status` | The wait itself. Free, instant, costs no turn, and carries the todo list and what is in flight. | Nothing, really — it is the right default for anything automated. |
 | `deepseek_status` | The user asks what the run is doing and you want it in the conversation. Same data, no wait parameter, returns immediately. | A loop. It is still a turn per call. |
 | `deepseek_result` | The outcome, once the run is terminal: the schema-validated report — branch SHAs, commits, PR URL, files changed, per-command verification — plus `error.code`. | Progress. It answers with a short pending line and points you at `deepseek_status`. |
+| `harness://session/{id}/transcript` | Reading what the run actually did, tool call by tool call, when the report is thin or does not add up. | Waiting. It pages the whole event log to build the markdown. |
+| `harness://sessions` | Finding a run that `deepseek_runs` does not have. This is the harness's own history rather than one process's memory. | The state of a run you already have an id for. |
 
-So: poll the endpoint, call `deepseek_status` when a human asks, and call `deepseek_result` once at the end.
+So: poll the endpoint, call `deepseek_status` when a human asks, call `deepseek_result` once at the end, and read a resource only when you are digging into a specific run.
 
 Nothing here blocks. `deepseek_result` keeps a 300 ms floor on its fetch, which is not a wait for the run — a JetStream fetch needs a non-zero window to notice a message already sitting in the stream, and without it an already-finished run would report as queued.
 
@@ -74,7 +76,11 @@ Nothing here blocks. `deepseek_result` keeps a 300 ms floor on its fetch, which 
 
 `deepseek_result` only reads the results stream and the read-only API, so it is safe to call more than once, and it will still find the result later — from a different session, hours afterwards. There is no window you can miss, which is another reason not to hover.
 
-If you have lost the `request_id`, `deepseek_runs` lists recent runs. Never re-run `deepseek_agent` because a run seems to have vanished — that launches a second agent against the same branch, and you will not find out until two PRs appear.
+It inlines at most 4000 characters of the run's answer. When it truncates, the footer names the `harness://session/{id}/transcript` resource, which holds the whole thing.
+
+If you have lost the `request_id`, `deepseek_runs` lists what this MCP server process launched, with two limits on it. The state beside each row is a snapshot from the last time `deepseek_agent` or `deepseek_result` touched that entry, so a run that finished ten minutes ago still reads `running` — the row gives you the id to call `deepseek_result` with, not the outcome. And the list is one process's memory: a run launched before an MCP restart, or from another editor's server against the same harness, is simply absent. `harness://sessions` has those.
+
+Never re-run `deepseek_agent` because a run seems to have vanished — that launches a second agent against the same branch, and you will not find out until two PRs appear.
 
 ## Read the outcome honestly
 
