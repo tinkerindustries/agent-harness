@@ -558,7 +558,7 @@ func (r *Runner) finishRun(ctx context.Context, sess store.Session, allEvents []
 	allEvents = append(allEvents, appended...)
 
 	finished := time.Now().UTC()
-	if err := r.Store.FinishSession(ctx, sess.ID, sessionStatus, completeStatus, &finished); err != nil {
+	if err := r.Store.FinishSession(ctx, sess.ID, sessionStatus, completeStatus, summary, &finished); err != nil {
 		return &RunResult{SessionID: sess.ID, Status: sessionStatus, SubTurns: subTurns, Usage: agg, CompleteStatus: completeStatus}, err
 	}
 	r.closeLog(sess.ID)
@@ -626,6 +626,59 @@ func (r *Runner) executeToolCalls(ctx context.Context, sess store.Session, execu
 	}
 	wg.Wait()
 	return outcomes
+}
+
+// persistLiveState writes this sub-turn's plan and recent-tool-call roll to
+// the session row (docs/WEB-REDESIGN.md phase 3). The runner calls it where
+// it already appends the tool_call events — the one component that sees
+// every tool call and already holds the store handle — rather than inside
+// tools.Executor, which deliberately does not import internal/store.
+// TodoWrite's todos array is stored verbatim (via store.StatusTodo, the
+// same parse the status endpoint uses) so the session list carries the live
+// plan without re-walking the event log on every publish, and finished
+// sessions keep their last plan for the finished table's plan-ratio
+// subtitle. TodoWrite itself is not rolled into the recent calls: the plan
+// panel already says what it said.
+func (r *Runner) persistLiveState(ctx context.Context, sess store.Session, calls []deepseek.AssembledToolCall) {
+	var plan string
+	var recent []store.RecentToolCall
+	for _, c := range calls {
+		if c.Name == "TodoWrite" {
+			if p := planJSON(c.Arguments); p != "" {
+				plan = p
+			}
+			continue
+		}
+		recent = append(recent, store.RecentToolCall{
+			Name:      c.Name,
+			Arguments: c.Arguments,
+			CreatedAt: time.Now().UTC(),
+		})
+	}
+	if plan == "" && len(recent) == 0 {
+		return
+	}
+	if err := r.Store.UpdateSessionLiveState(ctx, sess.ID, plan, recent); err != nil {
+		log.Printf("session: persist live state for %s: %v", sess.ID, err)
+	}
+}
+
+// planJSON extracts the todos array of a TodoWrite call's arguments as the
+// JSON text to persist on the session row, or "" when the arguments do not
+// parse or carry no todos array. The field names are store.StatusTodo's, so
+// the stored plan survives the trip unchanged.
+func planJSON(arguments string) string {
+	var args struct {
+		Todos []store.StatusTodo `json:"todos"`
+	}
+	if json.Unmarshal([]byte(arguments), &args) != nil || args.Todos == nil {
+		return ""
+	}
+	b, err := json.Marshal(args.Todos)
+	if err != nil {
+		return ""
+	}
+	return string(b)
 }
 
 // stdoutSink returns the callback a running Bash call uses to publish

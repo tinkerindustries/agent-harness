@@ -21,6 +21,21 @@ export interface SessionState {
   // the badge renders it as the plain terminal status rather than guessing
   // (docs/WEB-REDESIGN.md phase 2).
   complete_status?: string;
+  // plan is the session's working plan: the todos array of the most recent
+  // TodoWrite call, verbatim, mirroring internal/hub's SessionState
+  // (docs/WEB-REDESIGN.md phase 3). Absent covers a pre-migration row and a
+  // session that never called TodoWrite; the in-flight card renders no plan
+  // section rather than an empty one.
+  plan?: Todo[];
+  // recent_tool_calls is the last few tool calls the session made, for the
+  // in-flight card's activity panel (docs/WEB-REDESIGN.md phase 3). Absent
+  // when the session made none yet.
+  recent_tool_calls?: RecentToolCall[];
+  // summary is the summary argument the model gave Complete, its own
+  // one-line account of the run, shown under the finished table's session
+  // id (docs/WEB-REDESIGN.md phase 3). Absent when Complete was never
+  // called.
+  summary?: string;
   created_at: string;
   finished_at?: string;
   sub_turns: number;
@@ -194,4 +209,16 @@ export interface Todo {
   content: string;
   status: "pending" | "in_progress" | "completed";
   activeForm: string;
+}
+
+// RecentToolCall mirrors internal/store.RecentToolCall: one entry of the
+// session row's rolling roll of the last few tool calls, carried on the
+// session list so an in-flight card can show what a running session is
+// doing without opening its transcript (docs/WEB-REDESIGN.md phase 3).
+// arguments is the raw text the model produced, kept only so the browser
+// can shape a one-line target (file path, command, pattern) out of it.
+export interface RecentToolCall {
+  name: string;
+  arguments: string;
+  created_at: string;
 }

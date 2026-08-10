@@ -53,8 +53,13 @@ type sessionJSON struct {
 	ResultSchema    json.RawMessage `json:"result_schema,omitempty"`
 	Status          string          `json:"status"`
 	CompleteStatus  string          `json:"complete_status,omitempty"`
-	CreatedAt       string          `json:"created_at"`
-	FinishedAt      string          `json:"finished_at,omitempty"`
+	// Plan is the stored todos array as JSON, written as the array itself
+	// (like the hub wire row) rather than a JSON-escaped string.
+	Plan            json.RawMessage  `json:"plan,omitempty"`
+	RecentToolCalls []RecentToolCall `json:"recent_tool_calls,omitempty"`
+	Summary         string           `json:"summary,omitempty"`
+	CreatedAt       string           `json:"created_at"`
+	FinishedAt      string           `json:"finished_at,omitempty"`
 }
 
 func toSessionJSON(sess Session) sessionJSON {
@@ -75,6 +80,9 @@ func toSessionJSON(sess Session) sessionJSON {
 		ResultSchema:    sess.ResultSchema,
 		Status:          sess.Status,
 		CompleteStatus:  sess.CompleteStatus,
+		Plan:            json.RawMessage(sess.Plan),
+		RecentToolCalls: sess.RecentToolCalls,
+		Summary:         sess.Summary,
 		CreatedAt:       sess.CreatedAt.UTC().Format("2006-01-02T15:04:05.000000000Z07:00"),
 	}
 	if sess.FinishedAt != nil {

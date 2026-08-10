@@ -209,7 +209,7 @@ func TestFinishSessionRecordsCompleteStatus(t *testing.T) {
 	mustCreateSession(t, s, "sess-1")
 
 	finished := time.Now().UTC()
-	if err := s.FinishSession(ctx, "sess-1", StatusOK, "gave_up", &finished); err != nil {
+	if err := s.FinishSession(ctx, "sess-1", StatusOK, "gave_up", "could not find the bug", &finished); err != nil {
 		t.Fatalf("finish session: %v", err)
 	}
 	got, err := s.GetSession(ctx, "sess-1")
@@ -222,13 +222,16 @@ func TestFinishSessionRecordsCompleteStatus(t *testing.T) {
 	if got.CompleteStatus != "gave_up" {
 		t.Fatalf("expected complete_status %q, got %q", "gave_up", got.CompleteStatus)
 	}
+	if got.Summary != "could not find the bug" {
+		t.Fatalf("expected summary %q, got %q", "could not find the bug", got.Summary)
+	}
 	if got.FinishedAt == nil {
 		t.Fatal("expected finished_at set")
 	}
 
 	// A session that ends without calling Complete — the model answered in
 	// prose and called no tool — keeps the empty string, not a made-up one.
-	if err := s.FinishSession(ctx, "sess-1", StatusOK, "", &finished); err != nil {
+	if err := s.FinishSession(ctx, "sess-1", StatusOK, "", "", &finished); err != nil {
 		t.Fatalf("finish session: %v", err)
 	}
 	got, err = s.GetSession(ctx, "sess-1")
@@ -237,6 +240,78 @@ func TestFinishSessionRecordsCompleteStatus(t *testing.T) {
 	}
 	if got.CompleteStatus != "" {
 		t.Fatalf("expected complete_status to be empty when Complete was never called, got %q", got.CompleteStatus)
+	}
+}
+
+// TestPlanColumnRoundTrips proves the session row's plan and
+// recent-tool-call roll survive the trip into the row and back out, and
+// that the roll is trimmed to the most recent few calls — the shape the
+// session list needs to render the in-flight card without re-walking the
+// event log (docs/WEB-REDESIGN.md phase 3).
+func TestPlanColumnRoundTrips(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	mustCreateSession(t, s, "sess-1")
+
+	plan := `[{"content":"Read the spec","status":"completed","activeForm":""},{"content":"Wire it up","status":"in_progress","activeForm":"Wiring"}]`
+	now := time.Now().UTC()
+	calls := []RecentToolCall{
+		{Name: "Read", Arguments: `{"file_path":"docs/WEB-REDESIGN.md"}`, CreatedAt: now},
+		{Name: "TodoWrite", Arguments: `{"todos":[]}`, CreatedAt: now},
+		{Name: "Bash", Arguments: `{"command":"go build ./..."}`, CreatedAt: now.Add(time.Second)},
+	}
+	if err := s.UpdateSessionLiveState(ctx, "sess-1", plan, calls); err != nil {
+		t.Fatalf("update live state: %v", err)
+	}
+
+	got, err := s.GetSession(ctx, "sess-1")
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if got.Plan != plan {
+		t.Fatalf("expected plan %q, got %q", plan, got.Plan)
+	}
+	// The store persists what it is given and trims to the window; filtering
+	// TodoWrite out of the roll is the runner's job, never the store's.
+	if len(got.RecentToolCalls) != 3 {
+		t.Fatalf("expected 3 recent tool calls, got %d: %+v", len(got.RecentToolCalls), got.RecentToolCalls)
+	}
+	if got.RecentToolCalls[0].Name != "Read" || got.RecentToolCalls[1].Name != "TodoWrite" || got.RecentToolCalls[2].Name != "Bash" {
+		t.Fatalf("unexpected roll: %+v", got.RecentToolCalls)
+	}
+
+	// A sub-turn with no TodoWrite must not clobber the stored plan; the
+	// runner passes "" and the store keeps what is there.
+	if err := s.UpdateSessionLiveState(ctx, "sess-1", "", nil); err != nil {
+		t.Fatalf("update live state without plan: %v", err)
+	}
+	got, err = s.GetSession(ctx, "sess-1")
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if got.Plan != plan {
+		t.Fatalf("expected plan to survive a no-plan update, got %q", got.Plan)
+	}
+
+	// The roll trims to maxRecentToolCalls, keeping the newest entries.
+	for i := 0; i < 6; i++ {
+		if err := s.UpdateSessionLiveState(ctx, "sess-1", "", []RecentToolCall{
+			{Name: "Grep", Arguments: `{"pattern":"x"}`, CreatedAt: now.Add(time.Duration(i+1) * time.Hour)},
+		}); err != nil {
+			t.Fatalf("update live state %d: %v", i, err)
+		}
+	}
+	got, err = s.GetSession(ctx, "sess-1")
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if len(got.RecentToolCalls) != maxRecentToolCalls {
+		t.Fatalf("expected the roll trimmed to %d, got %d: %+v", maxRecentToolCalls, len(got.RecentToolCalls), got.RecentToolCalls)
+	}
+	for _, c := range got.RecentToolCalls {
+		if c.Name != "Grep" {
+			t.Fatalf("expected the roll to hold only the newest calls, got %+v", got.RecentToolCalls)
+		}
 	}
 }
 
