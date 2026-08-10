@@ -25,11 +25,19 @@ func testNATSURL() string {
 	return "nats://127.0.0.1:4422"
 }
 
+// connectOrSkip connects to the test broker. A missing broker is a failure,
+// not a skip, by default: a suite that could not run must not read as a pass
+// in `go test ./...` output. The deliberate opt-out is
+// HARNESS_TEST_NATS_OPTIONAL=1, for a developer who genuinely has no Docker;
+// scripts/test.sh never sets it, so its own broker being unreachable is loud.
 func connectOrSkip(t *testing.T) (*nats.Conn, jetstream.JetStream) {
 	t.Helper()
 	nc, js, err := Connect(testNATSURL())
 	if err != nil {
-		t.Skipf("no test NATS JetStream server reachable at %s (scripts/test.sh): %v", testNATSURL(), err)
+		if os.Getenv("HARNESS_TEST_NATS_OPTIONAL") == "1" {
+			t.Skipf("no test NATS JetStream server reachable at %s (scripts/test.sh): %v", testNATSURL(), err)
+		}
+		t.Fatalf("no test NATS JetStream server reachable at %s: %v — run scripts/test.sh to start one, or set HARNESS_TEST_NATS_OPTIONAL=1 to skip instead of failing", testNATSURL(), err)
 	}
 	t.Cleanup(nc.Close)
 	return nc, js

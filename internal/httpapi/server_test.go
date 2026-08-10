@@ -2109,6 +2109,68 @@ func TestGetWorkRequestRowNotFound(t *testing.T) {
 	}
 }
 
+// TestListWorkRequestsListsTable pins GET /api/requests (docs/DATA-API.md):
+// every work_requests row, newest first by received_at, each in the same
+// shape as GET /api/requests/{request_id} with the version a subsequent
+// write must echo back in If-Match — and including the sessionless running
+// row a request whose worker died during workspace preparation leaves
+// behind, which is exactly the row the operations screen could not find
+// while it had to enumerate requests through sessions.
+func TestListWorkRequestsListsTable(t *testing.T) {
+	srv, st, h, dbPath := newTestServerWithDB(t)
+	ctx := context.Background()
+
+	// Oldest: a request that never ran — claimed, no session ever attached.
+	if _, err := st.ClaimWorkRequest(ctx, "req-sessionless", 1, time.Now().UTC().Add(-2*time.Hour)); err != nil {
+		t.Fatalf("claim sessionless: %v", err)
+	}
+	// Middle: a running request whose worker died mid-run (idle session).
+	mustCreateWorkRequest(t, st, h, dbPath, "req-dead", "sess-dead", time.Now().UTC().Add(-time.Hour))
+	// Newest: a request that ran to completion.
+	mustCreateWorkRequest(t, st, h, dbPath, "req-finished", "sess-finished", time.Now().UTC().Add(-30*time.Minute))
+	if matched, err := st.FinishWorkRequest(ctx, "req-finished", "sess-finished", "ok", json.RawMessage(`{"status":"ok"}`), time.Now().UTC()); err != nil || !matched {
+		t.Fatalf("finish: matched=%v err=%v", matched, err)
+	}
+
+	resp, err := http.Get(srv.URL + "/api/requests")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("got status %d, want 200", resp.StatusCode)
+	}
+	var got []workRequestRow
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected 3 rows, got %d: %+v", len(got), got)
+	}
+	wantOrder := []string{"req-finished", "req-dead", "req-sessionless"}
+	for i, want := range wantOrder {
+		if got[i].RequestID != want {
+			t.Fatalf("row %d = %q, want %q (newest first by received_at)", i, got[i].RequestID, want)
+		}
+	}
+	// The sessionless running request appears — the hole this endpoint fills.
+	if got[2].RequestID != "req-sessionless" || got[2].SessionID != "" || got[2].Status != "running" {
+		t.Fatalf("expected the sessionless running request in the list, got %+v", got[2])
+	}
+	if got[2].Version != 1 {
+		t.Fatalf("sessionless row version = %d, want 1 (one claim)", got[2].Version)
+	}
+	// Every row carries the version and received_at a list row must.
+	for _, row := range got {
+		if row.Version < 1 {
+			t.Fatalf("row %s: expected a positive version, got %d", row.RequestID, row.Version)
+		}
+		if row.ReceivedAt.IsZero() {
+			t.Fatalf("row %s: expected received_at set", row.RequestID)
+		}
+	}
+}
+
 // TestPatchWorkRequestClosesDeadRequest pins the success path: a running
 // request whose session has been quiet past the idle threshold — or that has
 // no session at all — can be closed into a terminal status, which sets

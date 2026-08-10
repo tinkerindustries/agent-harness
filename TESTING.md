@@ -106,9 +106,13 @@ from the last.
 
 ## Known-awkward tests
 
-**Integration tests skip, they do not fail.** With no broker reachable they call
-`t.Skipf`, so a bare `go test ./...` passes while testing none of the queue
-path. Green output is not evidence unless you went through `scripts/test.sh`.
+**Integration tests fail, they do not skip, when the broker is missing.** With
+no broker reachable the `queue`, `worker` and `mcp` suites call `t.Fatalf`
+naming the URL they tried and pointing at `scripts/test.sh`, so `go test ./...`
+never reads as a pass while the queue path went untested. The deliberate
+opt-out is `HARNESS_TEST_NATS_OPTIONAL=1`, which restores the old skip for a
+developer who genuinely has no Docker; `scripts/test.sh` never sets it, so its
+own broker being unreachable is loud.
 
 **`workspaces/` holds real clones from local runs.** Each is its own Go module,
 so `./...` steps over them, but they are also why the directory is gitignored —

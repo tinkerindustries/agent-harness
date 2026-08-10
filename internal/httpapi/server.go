@@ -6,7 +6,8 @@
 // It serves the session list and metadata from the store, a paged read of one
 // session's event log, two SSE streams — a per-session transcript and a
 // quiet session-level list feed — fed by the in-process hub package rather
-// than NATS, and the settings table. The write surface is the data the
+// than NATS, the settings table, and the work-request and workspace-lease
+// rows. The write surface is the data the
 // harness manages: closing an abandoned session, deleting a finished one,
 // setting a key. Nothing here starts, steers, or stops a run; that is the
 // whole point of the browser being read-only with respect to runs, and the
@@ -169,6 +170,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("DELETE /api/sessions/{id}", s.handleDeleteSession)
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.handleGetEvents)
 	mux.HandleFunc("GET /api/sessions/{id}/stream", s.handleSessionStream)
+	mux.HandleFunc("GET /api/requests", s.handleListWorkRequests)
 	mux.HandleFunc("GET /api/requests/{request_id}", s.handleGetWorkRequest)
 	mux.HandleFunc("PATCH /api/requests/{request_id}", s.handlePatchWorkRequest)
 	mux.HandleFunc("DELETE /api/requests/{request_id}", s.handleDeleteWorkRequest)
@@ -511,6 +513,27 @@ func workRequestRowFrom(wr store.WorkRequest) workRequestRow {
 		DeliveryCount: wr.DeliveryCount,
 		Version:       wr.Version,
 	}
+}
+
+// handleListWorkRequests serves GET /api/requests: every work_requests row,
+// newest first by received_at — the work-request analog of the sessions
+// list's order (docs/DATA-API.md). Each row is the same shape
+// GET /api/requests/{request_id} returns, including the version a write
+// must echo back in If-Match. The collection is how an operator finds a
+// request whose worker died during workspace preparation: it never got a
+// session, so it has no session to be discovered through, only this row. It
+// is a read, so it carries no write guards.
+func (s *Server) handleListWorkRequests(w http.ResponseWriter, r *http.Request) {
+	requests, err := s.Store.ListWorkRequests(r.Context())
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	rows := make([]workRequestRow, 0, len(requests))
+	for _, wr := range requests {
+		rows = append(rows, workRequestRowFrom(wr))
+	}
+	writeJSON(w, http.StatusOK, rows)
 }
 
 func (s *Server) handleGetWorkRequest(w http.ResponseWriter, r *http.Request) {

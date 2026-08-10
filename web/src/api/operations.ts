@@ -73,6 +73,17 @@ export async function getWorkRequest(requestId: string): Promise<WorkRequestRow>
   return (await res.json()) as WorkRequestRow;
 }
 
+// listWorkRequests fetches GET /api/requests: every work-request row,
+// newest first by received_at, each carrying the version a write must echo
+// back in If-Match. The collection is how the operations screen finds a
+// request whose worker died during workspace preparation: it never got a
+// session, so it has no session to be discovered through, only this row.
+export async function listWorkRequests(): Promise<WorkRequestRow[]> {
+  const res = await fetch("/api/requests");
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as WorkRequestRow[];
+}
+
 // listLeases fetches GET /api/leases: the lease table, keyed by workspace.
 export async function listLeases(): Promise<WorkspaceLeaseRow[]> {
   const res = await fetch("/api/leases");

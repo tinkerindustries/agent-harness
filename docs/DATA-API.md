@@ -22,10 +22,10 @@ Two distinctions bracket what belongs here:
 - **The store is the only record.** The event log is append-only and never
   editable; see [Events are not writable](#events-are-not-writable).
 
-Phase ownership: sessions (list, get, PATCH, DELETE), work requests (get,
-PATCH, DELETE), and workspace leases (list, DELETE) are built. Events paging
-and the admin UI are specified here and built in later phases. Settings is
-built and is the pattern the other resources follow.
+Phase ownership: sessions (list, get, PATCH, DELETE), work requests (list,
+get, PATCH, DELETE), and workspace leases (list, DELETE) are built. Events
+paging and the admin UI are specified here and built in later phases.
+Settings is built and is the pattern the other resources follow.
 
 ## Resource model
 
@@ -37,7 +37,7 @@ concurrency on the row, and a JSON error body.
 | --- | --- | --- | --- | --- |
 | sessions | `/api/sessions` | GET (list), GET `/api/sessions/{id}` | PATCH `/api/sessions/{id}`, DELETE `/api/sessions/{id}` | 1 (built) |
 | events | `/api/sessions/{id}/events` | GET (paged, `?from=&limit=`) | **none** | 4 (paging) |
-| work_requests | `/api/requests/{request_id}` | GET `/api/requests/{request_id}` (row), GET `/api/requests/{request_id}/status` (poll snapshot) | PATCH, DELETE `/api/requests/{request_id}` | 3 (built) |
+| work_requests | `/api/requests` | GET (list), GET `/api/requests/{request_id}` (row), GET `/api/requests/{request_id}/status` (poll snapshot) | PATCH, DELETE `/api/requests/{request_id}` | 3 (built) |
 | workspace_leases | `/api/leases` | GET (list) | DELETE `/api/leases/{workspace}` | 3 (built) |
 | settings | `/api/settings` | GET `/api/settings` | PUT, DELETE `/api/settings/{key}` | built |
 
@@ -103,6 +103,13 @@ runs again, whatever its status ([DESIGN.md §4.10](DESIGN.md#410-work-ingress-o
 A request is retried by republishing it under a new `request_id`, never by
 re-running the old one. Phase 3 adds:
 
+- `GET /api/requests` — the work_requests table: every row, newest first by
+  `received_at` (the work-request analog of the sessions list's
+  `created_at` order), each row the same shape as `GET
+  /api/requests/{request_id}` including `version`. The collection is how an
+  operator finds a request whose worker died during workspace preparation:
+  it never got a session, so it has no session to be discovered through,
+  only this row. It is a read and carries no write guards.
 - `GET /api/requests/{request_id}` — the row: request id, session id, status,
   result JSON, `received_at`, `finished_at`, delivery count, and `version`.
   The existing `/status` snapshot is untouched: the snapshot answers "what is
@@ -407,7 +414,10 @@ If-Match: <version>
   remains the safe order when its message might still be redelivered.
 - Success: 200 `{"ok": true}`.
 
-`GET /api/requests/{request_id}` returns the row: `request_id`, `session_id`,
+`GET /api/requests` returns the whole table in `received_at` order, newest
+first — the same list convention `GET /api/sessions` establishes — with every
+row in the `GET /api/requests/{request_id}` shape below, `version` included.
+`GET /api/requests/{request_id}` returns one row: `request_id`, `session_id`,
 `status`, `result`, `received_at`, `finished_at`, `delivery_count`, `version`.
 The `/status` poll snapshot is unchanged.
 
