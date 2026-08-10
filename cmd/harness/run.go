@@ -15,6 +15,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/session"
+	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 )
@@ -118,14 +119,12 @@ func runRun(ctx context.Context, args []string) error {
 		return err
 	}
 
-	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
-		return fmt.Errorf("create data dir %s: %w", cfg.DataDir, err)
-	}
-	st, err := store.Open(filepath.Join(cfg.DataDir, "harness.db"))
+	st, err := openStore(cfg)
 	if err != nil {
-		return fmt.Errorf("open store: %w", err)
+		return err
 	}
 	defer st.Close()
+	res := settings.NewResolver(st)
 
 	rec := newHTTPLogRecorder(cfg)
 	defer closeHTTPLog(rec)
@@ -138,7 +137,7 @@ func runRun(ctx context.Context, args []string) error {
 	r := &session.Runner{
 		Store:      st,
 		Mirror:     store.NewMirror(cfg.DataDir),
-		Client:     withHTTPLog(cfg, rec),
+		Client:     withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res)),
 		Recorder:   rec,
 		Prices:     priceTable,
 		FlashModel: cfg.FlashModel,
