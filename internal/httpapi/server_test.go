@@ -299,6 +299,35 @@ func TestNonGetMethodsReturn405EverywhereExceptWriteRoutes(t *testing.T) {
 			}
 		}
 	}
+
+	// A stop path allows POST (the run-control write); every other method
+	// still 405s there, naming the three allowed methods in Allow. The gate
+	// must let POST through even when the session id is unknown — the
+	// handler, not the gate, owns the 404 (docs/RUN-CONTROL.md).
+	for _, stopPath := range []string{"/api/sessions/sess-1/stop", "/api/sessions/does-not-exist/stop"} {
+		resp := doWrite(t, srv, http.MethodPost, stopPath, `{}`, map[string]string{"Content-Type": "application/json"})
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusMethodNotAllowed {
+			t.Errorf("POST %s: gate refused a permitted write", stopPath)
+		}
+		for _, m := range []string{http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodOptions} {
+			req, err := http.NewRequest(m, srv.URL+stopPath, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("%s %s: %v", m, stopPath, err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s: got status %d, want 405", m, stopPath, resp.StatusCode)
+			}
+			if got := resp.Header.Get("Allow"); got != "GET, HEAD, POST" {
+				t.Errorf("%s %s: Allow = %q, want %q", m, stopPath, got, "GET, HEAD, POST")
+			}
+		}
+	}
 }
 
 func TestGetOnUnregisteredPathIsNot405(t *testing.T) {
@@ -2797,5 +2826,327 @@ func TestLeaseWritesGuardsAndPreconditions(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("DELETE unknown lease: got status %d, want 404", resp.StatusCode)
+	}
+}
+
+// --- run control: stop (phase 4) ---
+
+// fakeRunController is the test double for RunController: a set of running
+// sessions, the Stop calls it received, and an optional error every Stop
+// returns. It stands in for *worker.Pool so these tests need no worker
+// package and no broker.
+type fakeRunController struct {
+	running map[string]bool
+	stops   []stopCall
+	err     error // when set, every Stop returns it
+}
+
+// stopCall is one recorded Stop(sessionID, reason) invocation.
+type stopCall struct {
+	sessionID string
+	reason    string
+}
+
+func (f *fakeRunController) Stop(sessionID, reason string) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.stops = append(f.stops, stopCall{sessionID, reason})
+	return nil
+}
+
+func (f *fakeRunController) Running(sessionID string) bool {
+	return f.running[sessionID]
+}
+
+// newControlTestServer builds a test server with the run-control bearer token
+// set and ctrl wired in — the server shape phase 4's stop endpoint needs.
+// The token is fixed for the test; the controller's running set drives the
+// preconditions.
+func newControlTestServer(t *testing.T, ctrl *fakeRunController) (*httptest.Server, *store.Store) {
+	t.Helper()
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "harness.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	api := &Server{
+		Store: st, Hub: hub.New(), Settings: settings.NewResolver(st),
+		Static: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprint(w, "static placeholder")
+		}),
+		Run: ctrl, ControlToken: "test-control-token",
+	}
+	srv := httptest.NewServer(api.Handler())
+	t.Cleanup(srv.Close)
+	return srv, st
+}
+
+// controlAuth is the header set a passing stop request carries: JSON content
+// type plus the test's bearer token.
+var controlAuth = map[string]string{"Content-Type": "application/json", "Authorization": "Bearer test-control-token"}
+
+// TestStopRequiresBearerToken pins the authentication on POST
+// /api/sessions/{id}/stop (docs/RUN-CONTROL.md "Authentication"): a missing
+// Authorization header is 401, a wrong token is 401, and only the configured
+// token reaches the controller. The constant-time comparison is the handler's
+// concern; here the wire behaviour is pinned.
+func TestStopRequiresBearerToken(t *testing.T) {
+	ctrl := &fakeRunController{running: map[string]bool{"sess-1": true}}
+	srv, st := newControlTestServer(t, ctrl)
+	mustCreateSession(t, st, "sess-1", time.Now())
+
+	for _, tc := range []struct {
+		name   string
+		header string
+		want   int
+	}{
+		{"missing", "", http.StatusUnauthorized},
+		{"wrong token", "Bearer not-the-token", http.StatusUnauthorized},
+		{"right token", "Bearer test-control-token", http.StatusAccepted},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			headers := map[string]string{"Content-Type": "application/json"}
+			if tc.header != "" {
+				headers["Authorization"] = tc.header
+			}
+			resp := doWrite(t, srv, http.MethodPost, "/api/sessions/sess-1/stop", `{"reason":"operator intervened"}`, headers)
+			defer resp.Body.Close()
+			if resp.StatusCode != tc.want {
+				t.Fatalf("got status %d, want %d", resp.StatusCode, tc.want)
+			}
+			if tc.want == http.StatusUnauthorized {
+				if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+					t.Fatalf("401 Content-Type = %q, want JSON", ct)
+				}
+			}
+		})
+	}
+
+	if len(ctrl.stops) != 1 || ctrl.stops[0].sessionID != "sess-1" || ctrl.stops[0].reason != "operator intervened" {
+		t.Fatalf("controller saw %+v, want one Stop(sess-1, operator intervened)", ctrl.stops)
+	}
+}
+
+// TestStopFailsClosedWithoutToken pins the fail-closed property: a Server
+// built without the startup token generation — every test that does not set
+// ControlToken — answers 503 to the stop endpoint. A missing credential must
+// not let the request through.
+func TestStopFailsClosedWithoutToken(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "harness.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	api := &Server{
+		Store: st, Hub: hub.New(), Settings: settings.NewResolver(st),
+		Static: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+		Run:    &fakeRunController{running: map[string]bool{"sess-1": true}},
+	}
+	srv := httptest.NewServer(api.Handler())
+	t.Cleanup(srv.Close)
+	mustCreateSession(t, st, "sess-1", time.Now())
+
+	resp := doWrite(t, srv, http.MethodPost, "/api/sessions/sess-1/stop", `{}`, map[string]string{
+		"Content-Type":  "application/json",
+		"Authorization": "Bearer test-control-token",
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("got status %d, want 503", resp.StatusCode)
+	}
+}
+
+// TestStopCarriesTheSharedWriteGuards pins that the stop endpoint runs the
+// same guards every other write carries — 415 without a JSON content type,
+// 403 cross-origin — before anything else, exactly like the settings and
+// session handlers (docs/DATA-API.md "The guards every write carries"), and
+// that a refused request never reaches the controller.
+func TestStopCarriesTheSharedWriteGuards(t *testing.T) {
+	ctrl := &fakeRunController{running: map[string]bool{"sess-1": true}}
+	srv, st := newControlTestServer(t, ctrl)
+	mustCreateSession(t, st, "sess-1", time.Now())
+
+	for _, tc := range []struct {
+		name    string
+		headers map[string]string
+		want    int
+	}{
+		{
+			name:    "missing content type",
+			headers: map[string]string{"Authorization": "Bearer test-control-token"},
+			want:    http.StatusUnsupportedMediaType,
+		},
+		{
+			name: "wrong content type",
+			headers: map[string]string{
+				"Content-Type": "text/plain", "Authorization": "Bearer test-control-token",
+			},
+			want: http.StatusUnsupportedMediaType,
+		},
+		{
+			name: "cross-origin",
+			headers: map[string]string{
+				"Content-Type": "application/json", "Authorization": "Bearer test-control-token",
+				"Origin": "https://evil.example",
+			},
+			want: http.StatusForbidden,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := doWrite(t, srv, http.MethodPost, "/api/sessions/sess-1/stop", `{}`, tc.headers)
+			defer resp.Body.Close()
+			if resp.StatusCode != tc.want {
+				t.Fatalf("got status %d, want %d", resp.StatusCode, tc.want)
+			}
+		})
+	}
+	if len(ctrl.stops) != 0 {
+		t.Fatalf("guarded requests must not reach the controller, got %+v", ctrl.stops)
+	}
+}
+
+// TestStopPreconditionsAndIdempotence pins the stop endpoint's preconditions
+// (docs/RUN-CONTROL.md "The HTTP surface"): 404 for a session that does not
+// exist in the store, 409 naming the session's actual status when this
+// process is not running it — the honest answer both for a session that
+// already finished and for one being run by nothing at all — and 202
+// {"session_id", "stopping": true} for an accepted stop, and again for a
+// repeat stop, because stopping is idempotent: a second stop for a run
+// already stopping is another 202, not a 409.
+func TestStopPreconditionsAndIdempotence(t *testing.T) {
+	ctrl := &fakeRunController{running: map[string]bool{"sess-1": true}}
+	srv, st := newControlTestServer(t, ctrl)
+	ctx := context.Background()
+	mustCreateSession(t, st, "sess-1", time.Now())
+	mustCreateSession(t, st, "finished", time.Now())
+	mustCreateSession(t, st, "stuck", time.Now()) // running in the store, run by nothing at all
+	finishedAt := time.Now().UTC()
+	if err := st.UpdateSessionStatus(ctx, "finished", store.StatusOK, &finishedAt); err != nil {
+		t.Fatalf("finish session: %v", err)
+	}
+
+	// 404: the session does not exist in the store.
+	resp := doWrite(t, srv, http.MethodPost, "/api/sessions/does-not-exist/stop", `{}`, controlAuth)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown session: got status %d, want 404", resp.StatusCode)
+	}
+
+	// 409 naming the session's actual status: one that already finished, and
+	// one being run by nothing at all.
+	for _, tc := range []struct {
+		sessionID string
+		status    string
+	}{
+		{"finished", store.StatusOK},
+		{"stuck", store.StatusRunning},
+	} {
+		resp := doWrite(t, srv, http.MethodPost, "/api/sessions/"+tc.sessionID+"/stop", `{}`, controlAuth)
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != http.StatusConflict {
+			t.Fatalf("%s: got status %d, want 409 (body %s)", tc.sessionID, resp.StatusCode, body)
+		}
+		if !strings.Contains(string(body), "status "+tc.status) {
+			t.Fatalf("%s: 409 must name the session's actual status, got %q", tc.sessionID, body)
+		}
+	}
+
+	// 202: accepted, with the session id and stopping flag.
+	resp = doWrite(t, srv, http.MethodPost, "/api/sessions/sess-1/stop", `{"reason":"enough"}`, controlAuth)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("accepted stop: got status %d, want 202", resp.StatusCode)
+	}
+	var got map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if got["session_id"] != "sess-1" || got["stopping"] != true {
+		t.Fatalf("202 body = %+v, want {\"session_id\":\"sess-1\",\"stopping\":true}", got)
+	}
+
+	// 202 again: a repeat stop is idempotent, not a conflict.
+	resp = doWrite(t, srv, http.MethodPost, "/api/sessions/sess-1/stop", `{}`, controlAuth)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("repeat stop: got status %d, want 202", resp.StatusCode)
+	}
+
+	if len(ctrl.stops) != 2 {
+		t.Fatalf("controller saw %d stops, want 2: %+v", len(ctrl.stops), ctrl.stops)
+	}
+	if ctrl.stops[0].reason != "enough" {
+		t.Fatalf("first stop reason = %q, want %q", ctrl.stops[0].reason, "enough")
+	}
+}
+
+// TestStopSurfacesControllerFailure pins the one error path the handler owns
+// beyond the preconditions: a controller whose Stop fails is a 500 carrying
+// the error's message (docs/RUN-CONTROL.md). The handler never parses the
+// error's text to distinguish "no such run" — it asks Running first, so this
+// 500 is reserved for failures that are genuinely unexpected.
+func TestStopSurfacesControllerFailure(t *testing.T) {
+	ctrl := &fakeRunController{
+		running: map[string]bool{"sess-1": true},
+		err:     errors.New("pool is shutting down"),
+	}
+	srv, st := newControlTestServer(t, ctrl)
+	mustCreateSession(t, st, "sess-1", time.Now())
+
+	resp := doWrite(t, srv, http.MethodPost, "/api/sessions/sess-1/stop", `{}`, controlAuth)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("got status %d, want 500", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "pool is shutting down") {
+		t.Fatalf("500 must carry the controller's error message, got %q", body)
+	}
+}
+
+// TestGetControlTokenServesLoopbackOnly pins GET /api/control-token
+// (docs/RUN-CONTROL.md "Authentication"): the token is served to a loopback
+// RemoteAddr — the shape the browser and a same-host MCP server get it in —
+// and a non-loopback caller is 403.
+func TestGetControlTokenServesLoopbackOnly(t *testing.T) {
+	srv, _ := newControlTestServer(t, &fakeRunController{})
+
+	resp, err := http.Get(srv.URL + "/api/control-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("loopback GET: got status %d, want 200", resp.StatusCode)
+	}
+	var got map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got["token"] != "test-control-token" {
+		t.Fatalf("token = %q, want the configured token", got["token"])
+	}
+
+	// A non-loopback RemoteAddr is refused with 403.
+	api := &Server{
+		ControlToken: "test-control-token",
+		Static:       http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+	}
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/api/control-token", nil)
+	req.RemoteAddr = "192.0.2.1:4567"
+	rr := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("non-loopback GET: got status %d, want 403", rr.Code)
 	}
 }
