@@ -443,15 +443,6 @@ func (r *Runner) closeLog(sessionID string) {
 	}
 }
 
-func (r *Runner) mirrorTranscript(sess store.Session, events []store.Event) {
-	if r.Mirror == nil {
-		return
-	}
-	if err := r.Mirror.WriteTranscript(sess, events); err != nil {
-		log.Printf("session: mirror transcript failed for %s: %v", sess.ID, err)
-	}
-}
-
 func (r *Runner) mirrorUpdateSession(sess store.Session) {
 	if r.Mirror == nil {
 		return
@@ -505,7 +496,7 @@ func (r *Runner) priceTableDate() string {
 }
 
 // finishRun records run_finished, updates the session's terminal status,
-// and rewrites the mirror one last time.
+// and rewrites the mirror's session.json one last time.
 func (r *Runner) finishRun(ctx context.Context, sess store.Session, allEvents []store.Event,
 	reason, sessionStatus, text string, result json.RawMessage, summary, completeStatus string,
 	agg Usage, subTurns int) (*RunResult, error) {
@@ -526,7 +517,6 @@ func (r *Runner) finishRun(ctx context.Context, sess store.Session, allEvents []
 	r.closeLog(sess.ID)
 	if updated, err := r.Store.GetSession(ctx, sess.ID); err == nil {
 		r.mirrorUpdateSession(updated)
-		r.mirrorTranscript(updated, allEvents)
 		r.publishState(ctx, updated)
 	}
 
@@ -553,7 +543,6 @@ func (r *Runner) fail(ctx context.Context, sess store.Session, allEvents []store
 	r.closeLog(sess.ID)
 	if updated, err := r.Store.GetSession(ctx, sess.ID); err == nil {
 		r.mirrorUpdateSession(updated)
-		r.mirrorTranscript(updated, allEvents)
 		r.publishState(ctx, updated)
 	}
 

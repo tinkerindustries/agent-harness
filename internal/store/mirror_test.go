@@ -92,8 +92,7 @@ func TestExportMatchesLiveMirror(t *testing.T) {
 	}
 
 	// Simulate the runner: append a batch of events, write them to both the
-	// store and the live mirror, occasionally rewriting the transcript, the
-	// way a real sub-turn boundary would.
+	// store and the live mirror, the way a real sub-turn boundary would.
 	batches := [][]EventInput{
 		{
 			{Kind: KindSessionStarted, Payload: SessionStartedPayload{OpeningMessage: "fix the bug"}},
@@ -114,7 +113,6 @@ func TestExportMatchesLiveMirror(t *testing.T) {
 		},
 	}
 
-	var all []Event
 	for _, batch := range batches {
 		appended, err := s.AppendEvents(ctx, sess.ID, batch)
 		if err != nil {
@@ -122,10 +120,6 @@ func TestExportMatchesLiveMirror(t *testing.T) {
 		}
 		if err := live.AppendEvents(created, appended); err != nil {
 			t.Fatalf("live append: %v", err)
-		}
-		all = append(all, appended...)
-		if err := live.WriteTranscript(created, all); err != nil {
-			t.Fatalf("live transcript: %v", err)
 		}
 	}
 
@@ -144,9 +138,6 @@ func TestExportMatchesLiveMirror(t *testing.T) {
 	if err := live.UpdateSession(finalSess); err != nil {
 		t.Fatal(err)
 	}
-	if err := live.WriteTranscript(finalSess, all); err != nil {
-		t.Fatal(err)
-	}
 
 	exportRoot := t.TempDir()
 	exportMirror := NewMirror(exportRoot)
@@ -157,7 +148,7 @@ func TestExportMatchesLiveMirror(t *testing.T) {
 	liveDir := live.Dir(finalSess)
 	exportDir := exportMirror.Dir(finalSess)
 
-	for _, name := range []string{"session.json", "events.jsonl", "transcript.md"} {
+	for _, name := range []string{"session.json", "events.jsonl"} {
 		liveBytes, err := os.ReadFile(filepath.Join(liveDir, name))
 		if err != nil {
 			t.Fatalf("read live %s: %v", name, err)

@@ -10,12 +10,9 @@ import (
 )
 
 // renderTranscriptMarkdown renders a session's event log as readable
-// markdown for the harness://session/<id>/transcript resource. It is a
-// smaller cousin of store.RenderTranscript: that function takes a
-// store.Session read straight off the database, which carries fields (like
-// Thinking) the harness's read-only HTTP API does not expose; this one
-// works from exactly what GET /api/sessions/{id} and .../events actually
-// return, reusing store.Event and its payload types to decode them.
+// markdown for the harness://session/<id>/transcript resource. It works
+// from exactly what GET /api/sessions/{id} and .../events actually return,
+// reusing store.Event and its payload types to decode them.
 func renderTranscriptMarkdown(sess hub.SessionState, events []store.Event) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Session %s\n\n", sess.ID)

@@ -78,7 +78,6 @@ func (r *Runner) compact(ctx context.Context, sess store.Session, allEvents []st
 	r.closeLog(sess.ID)
 	if updated, err := r.Store.GetSession(ctx, sess.ID); err == nil {
 		r.mirrorUpdateSession(updated)
-		r.mirrorTranscript(updated, allEvents)
 		r.publishState(ctx, updated)
 	}
 
