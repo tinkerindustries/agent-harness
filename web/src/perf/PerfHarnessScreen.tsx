@@ -4,6 +4,7 @@ import { TranscriptStore, type TranscriptStoreOptions } from "../api/transcriptS
 import { BlockList } from "../components/BlockList";
 import { computeFrameStats, type FrameStats } from "./frameStats";
 import { buildSyntheticHistory, liveEventGenerator, makeSeqSource } from "./syntheticFeed";
+import { HeightHarness } from "./HeightHarness";
 
 // PerfHarnessScreen is the instrument behind docs/DESIGN.md §5.5, not a
 // nicety: a synthetic delta feed at a fixed rate against a mounted
@@ -262,6 +263,12 @@ async function runOne(cfg: RunConfig, hooks: RunHooks): Promise<RunResult> {
 }
 
 export function PerfHarnessScreen() {
+  // ?height=1 swaps the render-cost sweep for the phase 5 exit measurement:
+  // the transcript screen in Compact mode against a synthetic session, with
+  // its scroll height reported (web/src/perf/HeightHarness.tsx). Read before
+  // any hooks because the two modes share no state.
+  if (new URL(window.location.href).searchParams.get("height") === "1") return <HeightHarness />;
+
   const [status, setStatus] = useState("idle");
   const [results, setResults] = useState<RunResult[]>([]);
   const [store, setStore] = useState<TranscriptStore | null>(null);
