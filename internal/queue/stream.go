@@ -49,6 +49,20 @@ const (
 	// trips it.
 	AckWait = 60 * time.Second
 
+	// DefaultMaxDeliveryAttempts is the delivery ceiling when a caller passes
+	// zero. Production resolves worker.max_delivery_attempts from the
+	// settings registry and passes it in.
+	//
+	// A ceiling has to exist. A run holds its message unacked for the whole
+	// run and heartbeats InProgress; a process that dies stops heartbeating,
+	// AckWait expires, and the request comes back as a fresh attempt, which
+	// is the takeover path §4.10 describes and is what we want. With
+	// JetStream's default of unlimited redelivery, though, a request that
+	// kills its worker every time is redelivered forever — each attempt
+	// burning a pool slot — and the operator's instinctive fix, killing the
+	// stuck run, is precisely what triggers the next attempt.
+	DefaultMaxDeliveryAttempts = 5
+
 	// resultsDuplicateWindow is longer than the 2-minute
 	// JetStream default. A final result republished after a crash between
 	// the DB write and the original publish (docs/DESIGN.md §4.10) can
@@ -98,10 +112,15 @@ func Connect(url string) (*nats.Conn, jetstream.JetStream, error) {
 // idempotent: run again against a server that already has matching
 // definitions, it is a no-op; run again with a different poolSize, it
 // updates MaxAckPending to match. resultsMaxAge is the RESULTS stream's
-// retention window; zero means DefaultResultsMaxAge.
-func EnsureStreams(ctx context.Context, js jetstream.JetStream, poolSize int, resultsMaxAge time.Duration) (jetstream.Consumer, error) {
+// retention window; zero means DefaultResultsMaxAge. maxDeliver bounds how
+// many times one request may be delivered; zero means
+// DefaultMaxDeliveryAttempts.
+func EnsureStreams(ctx context.Context, js jetstream.JetStream, poolSize int, resultsMaxAge time.Duration, maxDeliver int) (jetstream.Consumer, error) {
 	if resultsMaxAge <= 0 {
 		resultsMaxAge = DefaultResultsMaxAge
+	}
+	if maxDeliver <= 0 {
+		maxDeliver = DefaultMaxDeliveryAttempts
 	}
 	_, err := js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
 		Name:      StreamWork,
@@ -130,6 +149,7 @@ func EnsureStreams(ctx context.Context, js jetstream.JetStream, poolSize int, re
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		AckWait:       AckWait,
 		MaxAckPending: poolSize,
+		MaxDeliver:    maxDeliver,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("queue: ensure %s consumer: %w", ConsumerDurable, err)

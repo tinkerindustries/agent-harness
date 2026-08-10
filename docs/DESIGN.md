@@ -475,7 +475,8 @@ collect a result long after it stopped listening.
     Stream WORK      subjects harness.work.request.*
                      retention WorkQueue
                      consumer  durable pull, AckExplicit,
-                               AckWait 60s, MaxAckPending = pool size
+                               AckWait 60s, MaxAckPending = pool size,
+                               MaxDeliver = worker.max_delivery_attempts
 
     Stream RESULTS   subjects harness.work.result.>
                      retention Limits, MaxAge 7d
@@ -576,6 +577,23 @@ Acknowledgement discipline:
   parse, and redelivering it burns the pool.
 - `Nak` with a delay when the failure is transient and retries are exhausted.
   On the last delivery attempt, publish `failed` and `Term`.
+- `MaxDeliver` bounds how many times one request may be delivered, from
+  `worker.max_delivery_attempts` (default 5, restart-required). The ceiling has
+  to exist, and its absence was a real defect: a run holds its message unacked
+  for the whole run and heartbeats `InProgress`, so a process that dies stops
+  heartbeating and the request comes back as a fresh attempt — the takeover
+  path above, and what we want. Under JetStream's default of unlimited
+  redelivery, a request that kills its worker every time is redelivered
+  forever, each attempt burning a pool slot, and killing the stuck run is what
+  produces the next attempt rather than ending it. `MaxDeliveryAttempts` on the
+  pool must equal the consumer's `MaxDeliver`: the server enforces the ceiling,
+  and the pool needs to know it so the final attempt can publish a terminal
+  result instead of the request silently ceasing to exist.
+- A run wedged inside a tool call is not reaped by `deadline_ms`. The run
+  context carries the deadline, so a loop that checks it stops; a tool call
+  blocked on something that ignores cancellation does not, and the run holds
+  its slot past its deadline. The delivery ceiling bounds the damage — the
+  request stops coming back — but it does not end the wedged attempt.
 
 Idempotency is a row, not a convention. `request_id` is the primary key of
 `work_requests`. A redelivery whose row is terminal republishes the stored

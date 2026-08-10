@@ -141,7 +141,7 @@ func newTestHarness(t *testing.T, serverURL string, poolSize int) *testHarness {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	consumer, err := queue.EnsureStreams(ctx, js, poolSize, queue.DefaultResultsMaxAge)
+	consumer, err := queue.EnsureStreams(ctx, js, poolSize, queue.DefaultResultsMaxAge, queue.DefaultMaxDeliveryAttempts)
 	if err != nil {
 		t.Fatalf("EnsureStreams: %v", err)
 	}
@@ -576,6 +576,18 @@ func (m *fakeMsg) wasAcked() bool {
 	return m.acked
 }
 
+func (m *fakeMsg) wasNakked() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.nakked
+}
+
+func (m *fakeMsg) wasTermed() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.termed
+}
+
 var _ jetstream.Msg = (*fakeMsg)(nil)
 
 // alwaysToolCallServer answers every request with the same tool call, so a
@@ -775,5 +787,53 @@ func TestPoolGaveUpPropagatesCompleteStatus(t *testing.T) {
 	}
 	if res.Text != "" {
 		t.Fatalf("expected no final assistant text (the run ended on a tool call), got %q", res.Text)
+	}
+}
+
+// TestPoolLastDeliveryPublishesFailedRatherThanVanishing pins the ceiling
+// docs/DESIGN.md §4.10 asks for: "On the last delivery attempt, publish
+// failed and Term." The consumer's MaxDeliver stops redelivering after N
+// attempts, so without this the request would simply stop existing and a
+// caller polling for its result would wait forever.
+func TestPoolLastDeliveryPublishesFailedRatherThanVanishing(t *testing.T) {
+	srv := plainAnswerServer(t, "unused", 0, &hitCounter{})
+	defer srv.Close()
+	h := newTestHarness(t, srv.URL, 4)
+	h.pool.MaxDeliveryAttempts = 3
+
+	ctx := context.Background()
+	requestID := uniqueID("req-exhausted")
+	if _, err := h.pool.Store.ClaimWorkRequest(ctx, requestID, 1, time.Now()); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+
+	// Not the last attempt: defer to a later delivery, as before.
+	early := &fakeMsg{numDelivered: 2}
+	h.pool.retryLater(early, requestID, "claim_failed", "transient")
+	if !early.wasNakked() {
+		t.Fatalf("delivery 2 of 3 should nak for a later attempt; acked=%v termed=%v nakked=%v",
+			early.acked, early.termed, early.nakked)
+	}
+
+	// The last attempt: there is no later delivery, so the caller has to be
+	// told something.
+	last := &fakeMsg{numDelivered: 3}
+	h.pool.retryLater(last, requestID, "claim_failed", "still failing on the last attempt")
+	if last.wasNakked() {
+		t.Fatal("the last delivery must not nak: nothing would redeliver it and the request would vanish")
+	}
+	if !last.wasTermed() {
+		t.Fatalf("expected the last delivery to be termed; acked=%v termed=%v", last.acked, last.termed)
+	}
+
+	row, err := h.pool.Store.GetWorkRequest(ctx, requestID)
+	if err != nil {
+		t.Fatalf("get work request: %v", err)
+	}
+	if row.Status != queue.StatusFailed {
+		t.Fatalf("expected the row to be recorded failed, got %q", row.Status)
+	}
+	if !strings.Contains(string(row.Result), "still failing on the last attempt") {
+		t.Fatalf("expected the stored result to carry the reason, got %s", row.Result)
 	}
 }

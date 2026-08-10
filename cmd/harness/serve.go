@@ -79,6 +79,10 @@ func runServe(ctx context.Context, args []string) error {
 	if *poolSize != 0 {
 		workerPoolSize = *poolSize
 	}
+	maxDeliveryAttempts, err := res.Int(ctx, settings.KeyWorkerMaxDeliveryAttempts)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", settings.KeyWorkerMaxDeliveryAttempts, err)
+	}
 	concurrencyPro, err := res.Int(ctx, settings.KeyWorkerConcurrencyPro)
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", settings.KeyWorkerConcurrencyPro, err)
@@ -138,22 +142,23 @@ func runServe(ctx context.Context, args []string) error {
 	defer nc.Close()
 
 	ensureCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	consumer, err := queue.EnsureStreams(ensureCtx, js, workerPoolSize, resultsMaxAge)
+	consumer, err := queue.EnsureStreams(ensureCtx, js, workerPoolSize, resultsMaxAge, maxDeliveryAttempts)
 	cancel()
 	if err != nil {
 		return fmt.Errorf("declare streams: %w", err)
 	}
 
 	pool := &worker.Pool{
-		Store:           st,
-		Runner:          runner,
-		JS:              js,
-		Consumer:        consumer,
-		WorkspaceRoot:   cfg.WorkspaceRoot,
-		DefaultThinking: cfg.Thinking,
-		PriceTableDate:  priceTable.CapturedAt,
-		Size:            workerPoolSize,
-		Settings:        res,
+		Store:               st,
+		Runner:              runner,
+		JS:                  js,
+		Consumer:            consumer,
+		WorkspaceRoot:       cfg.WorkspaceRoot,
+		DefaultThinking:     cfg.Thinking,
+		PriceTableDate:      priceTable.CapturedAt,
+		Size:                workerPoolSize,
+		MaxDeliveryAttempts: maxDeliveryAttempts,
+		Settings:            res,
 	}
 
 	static, err := httpapi.NewStaticHandler(cfg.DevFrontendURL)

@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"runtime/debug"
 	"sync"
@@ -57,6 +58,14 @@ type Pool struct {
 	// than the pool can work on; Size is the local backstop, not the flow
 	// controller.
 	Size int
+
+	// MaxDeliveryAttempts must equal the consumer's MaxDeliver. The server
+	// enforces the ceiling; the pool needs to know it so the last attempt
+	// can publish a terminal result before the message goes away, rather
+	// than leaving the caller waiting on a request that will never be
+	// delivered again (docs/DESIGN.md §4.10). Zero means
+	// queue.DefaultMaxDeliveryAttempts.
+	MaxDeliveryAttempts int
 
 	// HeartbeatInterval, LeasePollInterval, and RetryLaterDelay have
 	// production defaults and are overridable so tests do not have to wait
@@ -229,6 +238,48 @@ func (p *Pool) Halted() (bool, string) {
 	return true, ""
 }
 
+func (p *Pool) maxDeliveryAttempts() uint64 {
+	if p.MaxDeliveryAttempts > 0 {
+		return uint64(p.MaxDeliveryAttempts)
+	}
+	return queue.DefaultMaxDeliveryAttempts
+}
+
+// retryLater defers a request to a later delivery, except on the delivery
+// the consumer's MaxDeliver makes the last one — there is no later delivery
+// then, and a bare Nak would drop the request without the caller ever
+// learning why. docs/DESIGN.md §4.10: "On the last delivery attempt, publish
+// failed and Term."
+//
+// code and message describe the transient failure that stopped this attempt;
+// they only reach anyone on the final attempt, which is the one where the
+// caller has no other way to find out.
+func (p *Pool) retryLater(msg jetstream.Msg, requestID, code, message string) {
+	if requestID == "" || deliveryCount(msg) < p.maxDeliveryAttempts() {
+		msg.NakWithDelay(p.retryLaterDelay())
+		return
+	}
+	log.Printf("worker: %s exhausted %d delivery attempts (%s); publishing a failed result and terminating the message",
+		requestID, p.maxDeliveryAttempts(), code)
+	// Record the failure under no session, the same way a validation
+	// failure does. finish matches the row on its session id, so a row
+	// still carrying the dead attempt's session would be read as "a newer
+	// attempt took this over" and the result would never be published.
+	if err := p.Store.SetWorkRequestSession(context.Background(), requestID, ""); err != nil {
+		log.Printf("worker: clear session for exhausted request %s: %v", requestID, err)
+	}
+	now := time.Now().UTC()
+	p.finish(msg, requestID, "", queue.Result{
+		RequestID: requestID,
+		Status:    queue.StatusFailed,
+		Error: &queue.ResultError{
+			Code:    code,
+			Message: message,
+		},
+		StartedAt: now, FinishedAt: now,
+	}, true)
+}
+
 func deliveryCount(msg jetstream.Msg) uint64 {
 	meta, err := msg.Metadata()
 	if err != nil || meta == nil {
@@ -263,7 +314,8 @@ func (p *Pool) handle(msg jetstream.Msg) {
 	outcome, err := p.Store.ClaimWorkRequest(ctx, req.RequestID, numDelivered, time.Now().UTC())
 	if err != nil {
 		log.Printf("worker: claim %s: %v", req.RequestID, err)
-		msg.NakWithDelay(p.retryLaterDelay())
+		p.retryLater(msg, req.RequestID, "claim_failed",
+			fmt.Sprintf("could not claim the idempotency row after %d delivery attempts: %v", p.maxDeliveryAttempts(), err))
 		return
 	}
 
@@ -320,7 +372,8 @@ func (p *Pool) waitForResolution(msg jetstream.Msg, req queue.Request) {
 		select {
 		case <-ticker.C:
 		case <-ctx.Done():
-			msg.NakWithDelay(p.retryLaterDelay())
+			p.retryLater(msg, req.RequestID, "duplicate_unresolved",
+				fmt.Sprintf("a concurrent attempt held the request and had not finished after %d delivery attempts", p.maxDeliveryAttempts()))
 			return
 		}
 	}
@@ -434,7 +487,12 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, outcome store.ClaimOutc
 	if runErr != nil && deepseek.IsInsufficientBalance(runErr) {
 		p.Halt("account balance exhausted (402 from DeepSeek)")
 		log.Printf("worker: %s failed on an empty account; left unacked for retry after the pool restarts", req.RequestID)
-		msg.NakWithDelay(p.retryLaterDelay())
+		// One delivery is spent per pool restart that still finds the
+		// account empty, so this waits for balance across restarts as
+		// before — but within the ceiling, and the last attempt says the
+		// account was empty instead of the request disappearing.
+		p.retryLater(msg, req.RequestID, "insufficient_balance",
+			fmt.Sprintf("the DeepSeek account had no balance on each of %d delivery attempts", p.maxDeliveryAttempts()))
 		return
 	}
 

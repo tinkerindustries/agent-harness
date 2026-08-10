@@ -73,12 +73,13 @@ const (
 	KeyDefaultFlashModel = "model.flash"
 	KeyDefaultEffort     = "model.effort"
 
-	KeyWorkerPoolSize         = "worker.pool_size"
-	KeyWorkerConcurrencyPro   = "worker.model_concurrency_pro"
-	KeyWorkerConcurrencyFlash = "worker.model_concurrency_flash"
-	KeyQueueResultsMaxAge     = "queue.results_max_age"
-	KeyHTTPEventsLimitDefault = "http.events_limit_default"
-	KeyHTTPEventsLimitMax     = "http.events_limit_max"
+	KeyWorkerPoolSize            = "worker.pool_size"
+	KeyWorkerMaxDeliveryAttempts = "worker.max_delivery_attempts"
+	KeyWorkerConcurrencyPro      = "worker.model_concurrency_pro"
+	KeyWorkerConcurrencyFlash    = "worker.model_concurrency_flash"
+	KeyQueueResultsMaxAge        = "queue.results_max_age"
+	KeyHTTPEventsLimitDefault    = "http.events_limit_default"
+	KeyHTTPEventsLimitMax        = "http.events_limit_max"
 )
 
 // Descriptor is one registry entry: everything the harness knows about a
@@ -168,6 +169,8 @@ var registry = []Descriptor{
 	// --- Requires a restart ---
 	intSetting(KeyWorkerPoolSize, GroupRequiresRestart, 4, 1, 100_000,
 		"Worker pool size, also the WORK consumer's MaxAckPending").withRestart(),
+	intSetting(KeyWorkerMaxDeliveryAttempts, GroupRequiresRestart, 5, 1, 100,
+		"Times one work request may be delivered before JetStream stops redelivering it. A run whose process dies leaves its message unacked and it comes back as a fresh attempt; without a ceiling that repeats forever, so a request that kills its worker is retried until someone notices. The last attempt publishes a failed result rather than vanishing.").withRestart(),
 	intSetting(KeyWorkerConcurrencyPro, GroupRequiresRestart, 500, 1, 1_000_000,
 		"Account-wide concurrent-request ceiling for the pro model").withRestart(),
 	intSetting(KeyWorkerConcurrencyFlash, GroupRequiresRestart, 2500, 1, 1_000_000,
