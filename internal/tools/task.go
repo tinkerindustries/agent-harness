@@ -38,6 +38,6 @@ func execTask(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 	if err != nil {
 		return errorResult("subagent run failed: %v", err)
 	}
-	out, truncated := truncate(summary, e.outputCap())
+	out, truncated := truncate(summary, e.outputCap(ctx))
 	return Result{Content: out, Truncated: truncated, ChildSessionID: childSessionID}
 }

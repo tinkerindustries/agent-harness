@@ -16,12 +16,18 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
+	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
 
-// Output and timeout limits (docs/TOOLS.md, "Execution rules": "Every tool
-// has a wall-clock timeout and an output byte cap, with truncation labelled
-// in the result").
+// Output and timeout limits, the built-in defaults when no settings resolver
+// is attached (the test path). Production resolves the same values through
+// the settings registry — internal/settings carries each of these as the
+// default of its tools.* key, and the two are pinned equal by
+// internal/settings/registry_test.go — so an operator can change any of them
+// with `harness config set` without a rebuild (docs/TOOLS.md, "Execution
+// rules": "Every tool has a wall-clock timeout and an output byte cap, with
+// truncation labelled in the result").
 const (
 	DefaultOutputCap   = 200_000
 	DefaultBashTimeout = 2 * time.Minute
@@ -148,6 +154,13 @@ type Executor struct {
 	// can render it as a collapsed child transcript.
 	RunSubagent func(ctx context.Context, description, prompt, subagentType string) (summary string, sessionID string, err error)
 
+	// Settings, when set, is where the tool limits (output caps, timeouts,
+	// WebFetch and ReviewScreenshot bounds) resolve from on every call, so a
+	// limit changed with `harness config set tools.*` takes effect on the
+	// next tool call without a restart. Nil is the test path: the package
+	// constants below apply.
+	Settings *settings.Resolver
+
 	readsMu sync.Mutex
 	reads   map[string]bool
 
@@ -165,29 +178,26 @@ func NewExecutor(workspace string, policy *Policy) (*Executor, error) {
 	return &Executor{
 		Workspace: root,
 		Policy:    policy,
-		OutputCap: DefaultOutputCap,
 		reads:     make(map[string]bool),
 	}, nil
 }
 
-func (e *Executor) outputCap() int {
+func (e *Executor) outputCap(ctx context.Context) int {
 	if e.OutputCap > 0 {
 		return e.OutputCap
+	}
+	if e.Settings != nil {
+		if v, err := e.Settings.Int(ctx, settings.KeyToolOutputCap); err == nil {
+			return v
+		}
 	}
 	return DefaultOutputCap
 }
 
-func (e *Executor) timeoutFor(name string, argsRaw json.RawMessage) time.Duration {
+func (e *Executor) timeoutFor(ctx context.Context, name string, argsRaw json.RawMessage) time.Duration {
 	switch name {
 	case "Bash":
-		def := e.Timeouts.BashDefault
-		if def == 0 {
-			def = DefaultBashTimeout
-		}
-		max := e.Timeouts.BashMax
-		if max == 0 {
-			max = MaxBashTimeout
-		}
+		def, max := e.bashTimeouts(ctx)
 		var args bashArgs
 		if json.Unmarshal(argsRaw, &args) == nil && args.TimeoutMS > 0 {
 			requested := time.Duration(args.TimeoutMS) * time.Millisecond
@@ -201,23 +211,64 @@ func (e *Executor) timeoutFor(name string, argsRaw json.RawMessage) time.Duratio
 		if e.Timeouts.WebFetch > 0 {
 			return e.Timeouts.WebFetch
 		}
+		if e.Settings != nil {
+			if v, err := e.Settings.Duration(ctx, settings.KeyToolWebFetchTimeout); err == nil {
+				return v
+			}
+		}
 		return WebFetchTimeout
 	case "Task":
 		if e.Timeouts.Task > 0 {
 			return e.Timeouts.Task
+		}
+		if e.Settings != nil {
+			if v, err := e.Settings.Duration(ctx, settings.KeyToolTaskTimeout); err == nil {
+				return v
+			}
 		}
 		return TaskTimeout
 	case "ReviewScreenshot":
 		if e.Timeouts.ReviewScreenshot > 0 {
 			return e.Timeouts.ReviewScreenshot
 		}
+		if e.Settings != nil {
+			if v, err := e.Settings.Duration(ctx, settings.KeyToolReviewScreenshotTimeout); err == nil {
+				return v
+			}
+		}
 		return ReviewScreenshotTimeout
 	default:
 		if e.Timeouts.Tool > 0 {
 			return e.Timeouts.Tool
 		}
+		if e.Settings != nil {
+			if v, err := e.Settings.Duration(ctx, settings.KeyToolTimeout); err == nil {
+				return v
+			}
+		}
 		return DefaultToolTimeout
 	}
+}
+
+// bashTimeouts returns the Bash default and ceiling timeouts, honouring an
+// explicit Timeouts field first, then the settings, then the constants.
+func (e *Executor) bashTimeouts(ctx context.Context) (def, max time.Duration) {
+	def, max = DefaultBashTimeout, MaxBashTimeout
+	if e.Timeouts.BashDefault > 0 {
+		def = e.Timeouts.BashDefault
+	}
+	if e.Timeouts.BashMax > 0 {
+		max = e.Timeouts.BashMax
+	}
+	if e.Settings != nil {
+		if v, err := e.Settings.Duration(ctx, settings.KeyToolBashTimeout); err == nil {
+			def = v
+		}
+		if v, err := e.Settings.Duration(ctx, settings.KeyToolBashTimeoutMax); err == nil {
+			max = v
+		}
+	}
+	return def, max
 }
 
 // markRead records that path (already workspace-resolved) has been read
@@ -271,7 +322,7 @@ func (e *Executor) Execute(ctx context.Context, call deepseek.ToolCall) Outcome 
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, e.timeoutFor(name, argsRaw))
+	ctx, cancel := context.WithTimeout(ctx, e.timeoutFor(ctx, name, argsRaw))
 	defer cancel()
 
 	if name == "Complete" {

@@ -38,12 +38,6 @@ func runResume(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if *maxTokens != 0 {
-		cfg.MaxTokens = *maxTokens
-	}
-	if *maxSubTurns != 0 {
-		cfg.MaxSubTurns = *maxSubTurns
-	}
 
 	priceTable, err := pricing.Load(cfg.PriceTablePath)
 	if err != nil {
@@ -56,6 +50,21 @@ func runResume(ctx context.Context, args []string) error {
 	}
 	defer st.Close()
 	settingsRes := settings.NewResolver(st)
+
+	resolvedMaxTokens, err := settingsRes.Int(ctx, settings.KeyRunMaxTokens)
+	if err != nil {
+		return err
+	}
+	if *maxTokens != 0 {
+		resolvedMaxTokens = *maxTokens
+	}
+	resolvedMaxSubTurns, err := settingsRes.Int(ctx, settings.KeyRunMaxSubTurns)
+	if err != nil {
+		return err
+	}
+	if *maxSubTurns != 0 {
+		resolvedMaxSubTurns = *maxSubTurns
+	}
 
 	sess, err := st.GetSession(ctx, sessionID)
 	if err != nil {
@@ -76,9 +85,9 @@ func runResume(ctx context.Context, args []string) error {
 		Client:      withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(settingsRes)),
 		Recorder:    rec,
 		Prices:      priceTable,
-		FlashModel:  cfg.FlashModel,
 		Gemini:      withGeminiHTTPLog(cfg, rec, googleAPIKeyProvider(settingsRes)),
 		GeminiModel: googleVisionModelProvider(settingsRes),
+		Settings:    settingsRes,
 	}
 
 	fmt.Printf("resuming %s: %s (effort %s), workspace %s\n\n", sessionID, sess.Model, sess.Effort, sess.Workspace)
@@ -88,7 +97,7 @@ func runResume(ctx context.Context, args []string) error {
 
 	res, err := r.Resume(ctx, session.ResumeOptions{
 		SessionID: sessionID, Prompt: prompt,
-		MaxTokens: cfg.MaxTokens, MaxSubTurns: cfg.MaxSubTurns,
+		MaxTokens: resolvedMaxTokens, MaxSubTurns: resolvedMaxSubTurns,
 		Resolver: resolver,
 		Progress: printProgress,
 	})

@@ -3,52 +3,22 @@
 // as environment variables read once at startup, settings live in the
 // database so an operator can change a key while harness serve is running
 // and have the next request pick the change up without a restart.
+//
+// Every setting is one entry in the registry (registry.go): its key, type,
+// default, validation bounds, description, and the secret/restart flags.
+// harness config, the HTTP API, and the settings screen all read from that
+// one registry, so a value rejected by the CLI reads identically from a
+// browser. Values are stored as text in the settings table and parsed on
+// read; nothing about the schema changes.
 package settings
 
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 )
-
-const (
-	// KeyDeepSeekAPIKey is the DeepSeek API key, stored in plaintext by the
-	// operator's deliberate choice.
-	KeyDeepSeekAPIKey = "deepseek.api_key"
-	// KeyGoogleAPIKey is the Google API key the ReviewScreenshot tool sends
-	// to Gemini. Phase 2's client reads it on every call via
-	// Resolver.GoogleAPIKey.
-	KeyGoogleAPIKey = "google.api_key"
-	// KeyGoogleVisionModel is the Gemini model ReviewScreenshot sends
-	// screenshots to, so the model can be changed without a rebuild. It is
-	// not a secret, so harness config list prints it in full; it defaults to
-	// gemini.DefaultModel when unset (Resolver.GoogleVisionModel).
-	KeyGoogleVisionModel = "google.vision_model"
-)
-
-// DefaultGoogleVisionModel is the model ReviewScreenshot uses when
-// google.vision_model is unset. It must match gemini.DefaultModel.
-const DefaultGoogleVisionModel = "gemini-3.5-flash"
-
-// ValidKeys lists every known setting key, in the order harness config list
-// prints them.
-var ValidKeys = []string{KeyDeepSeekAPIKey, KeyGoogleAPIKey, KeyGoogleVisionModel}
-
-// SecretKeys lists the setting keys whose values are credentials and must be
-// masked by harness config list/get unless -reveal is given. Everything else
-// — model names and the like — prints in full.
-var SecretKeys = []string{KeyDeepSeekAPIKey, KeyGoogleAPIKey}
-
-// IsSecretKey reports whether key holds a credential that harness config
-// masks by default.
-func IsSecretKey(key string) bool {
-	for _, k := range SecretKeys {
-		if k == key {
-			return true
-		}
-	}
-	return false
-}
 
 // UnknownKeyError reports a read or write of a key outside the known set, so
 // a typo like "deepsek.api_key" fails loudly instead of silently storing a
@@ -79,7 +49,9 @@ func NewResolver(st Store) *Resolver {
 	return &Resolver{store: st}
 }
 
-// Get returns key's value, or ok=false when it is unset.
+// Get returns key's stored value, or ok=false when it is unset. The value is
+// exactly what is in the settings table — callers that want the resolved
+// value (the default when unset) use String, Int, or Duration instead.
 func (r *Resolver) Get(ctx context.Context, key string) (string, bool, error) {
 	if err := validate(key); err != nil {
 		return "", false, err
@@ -88,10 +60,16 @@ func (r *Resolver) Get(ctx context.Context, key string) (string, bool, error) {
 }
 
 // Set writes key, rejecting any key outside the known set with an error that
-// lists the valid ones.
+// lists the valid ones, and any value that fails the registry's type or
+// bounds check with a ValidationError. A rejected value is identical whether
+// it arrives from harness config set, an HTTP PUT, or the settings screen.
 func (r *Resolver) Set(ctx context.Context, key, value string) error {
 	if err := validate(key); err != nil {
 		return err
+	}
+	d, _ := Lookup(key)
+	if err := d.validate(value); err != nil {
+		return ValidationError{Key: key, Value: value, Err: err}
 	}
 	return r.store.SetSetting(ctx, key, value)
 }
@@ -104,36 +82,66 @@ func (r *Resolver) Unset(ctx context.Context, key string) error {
 	return r.store.DeleteSetting(ctx, key)
 }
 
+// String returns key's resolved value: the stored value when set, the
+// registry default when unset.
+func (r *Resolver) String(ctx context.Context, key string) (string, error) {
+	v, ok, err := r.Get(ctx, key)
+	if err != nil || ok {
+		return v, err
+	}
+	d, _ := Lookup(key)
+	return d.Default, nil
+}
+
+// Int returns key's resolved value as an integer.
+func (r *Resolver) Int(ctx context.Context, key string) (int, error) {
+	v, err := r.String(ctx, key)
+	if err != nil {
+		return 0, err
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("%s: stored value %q is not an integer: %w", key, v, err)
+	}
+	return n, nil
+}
+
+// Duration returns key's resolved value as a time span.
+func (r *Resolver) Duration(ctx context.Context, key string) (time.Duration, error) {
+	v, err := r.String(ctx, key)
+	if err != nil {
+		return 0, err
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return 0, fmt.Errorf("%s: stored value %q is not a duration: %w", key, v, err)
+	}
+	return d, nil
+}
+
 // DeepSeekAPIKey returns the stored DeepSeek API key, "" when unset — the
 // exact shape the deepseek client's per-request key provider needs.
 func (r *Resolver) DeepSeekAPIKey(ctx context.Context) (string, error) {
-	v, _, err := r.store.Setting(ctx, KeyDeepSeekAPIKey)
-	return v, err
+	return r.String(ctx, KeyDeepSeekAPIKey)
 }
 
 // GoogleAPIKey returns the stored Google API key, "" when unset — the exact
 // shape the gemini client's per-request key provider needs.
 func (r *Resolver) GoogleAPIKey(ctx context.Context) (string, error) {
-	v, _, err := r.store.Setting(ctx, KeyGoogleAPIKey)
-	return v, err
+	return r.String(ctx, KeyGoogleAPIKey)
 }
 
-// GoogleVisionModel returns the stored Gemini vision model, DefaultGoogleVisionModel
-// when unset — the exact shape the ReviewScreenshot tool's per-call model
-// provider needs.
+// GoogleVisionModel returns the stored Gemini vision model, the registry's
+// google.vision_model default when unset — the exact shape the
+// ReviewScreenshot tool's per-call model provider needs.
 func (r *Resolver) GoogleVisionModel(ctx context.Context) (string, error) {
-	v, ok, err := r.store.Setting(ctx, KeyGoogleVisionModel)
-	if err != nil || ok {
-		return v, err
-	}
-	return DefaultGoogleVisionModel, nil
+	return r.String(ctx, KeyGoogleVisionModel)
 }
 
 func validate(key string) error {
-	for _, k := range ValidKeys {
-		if k == key {
-			return nil
-		}
+	_, ok := Lookup(key)
+	if ok {
+		return nil
 	}
 	return UnknownKeyError{Key: key}
 }

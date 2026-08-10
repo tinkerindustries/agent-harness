@@ -69,20 +69,37 @@ func runConfigList(ctx context.Context, args []string) error {
 	}
 	defer st.Close()
 
-	for _, key := range settings.ValidKeys {
-		value, ok, err := res.Get(ctx, key)
+	var lastGroup string
+	for _, d := range settings.Descriptors() {
+		if d.Group != lastGroup {
+			fmt.Printf("\n== %s ==\n", d.Group)
+			lastGroup = d.Group
+		}
+		value, ok, err := res.Get(ctx, d.Key)
 		if err != nil {
 			return err
 		}
-		if !ok {
-			fmt.Printf("%s = (not set)\n", key)
-			continue
-		}
-		if settings.IsSecretKey(key) {
-			fmt.Printf("%s = %s\n", key, maskSecret(value))
+		marker := "(default)"
+		display := value
+		if ok {
+			if settings.IsSecretKey(d.Key) {
+				display = maskSecret(value)
+			}
+			if value != d.Default {
+				marker = "(override)"
+			}
+		} else if !d.Secret {
+			// An unset key resolves to the registry default; show it so the
+			// list reads as the effective configuration.
+			display = d.Default
 		} else {
-			fmt.Printf("%s = %s\n", key, value)
+			display = ""
+			marker = "(not set)"
 		}
+		if d.Restart {
+			marker += " [restart]"
+		}
+		fmt.Printf("%s = %s %s\n", d.Key, display, marker)
 	}
 	return nil
 }

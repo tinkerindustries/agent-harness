@@ -9,6 +9,7 @@ import (
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
+	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
 
@@ -19,11 +20,34 @@ type reviewScreenshotArgs struct {
 }
 
 // Limits the ReviewScreenshot tool enforces on its input (docs/TOOLS.md,
-// "ReviewScreenshot").
+// "ReviewScreenshot"). Production resolves both through the settings
+// registry (tools.reviewscreenshot_max_images, tools.reviewscreenshot_max_bytes);
+// these are the built-in defaults, pinned equal by
+// internal/settings/registry_test.go. The tool description names no numbers
+// (docs/CACHE.md: the tool array is part of the frozen request head), so the
+// model learns a changed limit from the refusal message instead.
 const (
 	reviewScreenshotMaxImages = 4
 	reviewScreenshotMaxBytes  = 5 << 20 // 5 MB per file
 )
+
+func (e *Executor) reviewScreenshotMaxImages(ctx context.Context) int {
+	if e.Settings != nil {
+		if v, err := e.Settings.Int(ctx, settings.KeyToolReviewScreenshotMaxImages); err == nil {
+			return v
+		}
+	}
+	return reviewScreenshotMaxImages
+}
+
+func (e *Executor) reviewScreenshotMaxBytes(ctx context.Context) int {
+	if e.Settings != nil {
+		if v, err := e.Settings.Int(ctx, settings.KeyToolReviewScreenshotMaxBytes); err == nil {
+			return v
+		}
+	}
+	return reviewScreenshotMaxBytes
+}
 
 // reviewScreenshotSystemInstruction is the fixed system instruction from the
 // prompt skeleton in docs/gemini-3.5-flash-ui-review-prompting.md: the
@@ -53,8 +77,9 @@ func execReviewScreenshot(ctx context.Context, e *Executor, argsRaw json.RawMess
 	if args.Question == "" {
 		return errorResult("question is required")
 	}
-	if len(args.ImagePaths) > reviewScreenshotMaxImages {
-		return errorResult("ReviewScreenshot accepts at most %d images, got %d", reviewScreenshotMaxImages, len(args.ImagePaths))
+	maxImages := e.reviewScreenshotMaxImages(ctx)
+	if len(args.ImagePaths) > maxImages {
+		return errorResult("ReviewScreenshot accepts at most %d images, got %d", maxImages, len(args.ImagePaths))
 	}
 
 	images := make([]gemini.Image, 0, len(args.ImagePaths))
@@ -73,8 +98,9 @@ func execReviewScreenshot(ctx context.Context, e *Executor, argsRaw json.RawMess
 		if info.IsDir() {
 			return errorResult("%s is a directory, not a screenshot", userPath)
 		}
-		if info.Size() > reviewScreenshotMaxBytes {
-			return errorResult("screenshot %s is %d bytes, over the 5 MB per-file limit", userPath, info.Size())
+		maxBytes := int64(e.reviewScreenshotMaxBytes(ctx))
+		if info.Size() > maxBytes {
+			return errorResult("screenshot %s is %d bytes, over the %d-byte per-file limit", userPath, info.Size(), maxBytes)
 		}
 		mimeType, ok := screenshotMIMEType(path)
 		if !ok {
@@ -120,7 +146,7 @@ func execReviewScreenshot(ctx context.Context, e *Executor, argsRaw json.RawMess
 	if err != nil {
 		return errorResult("%v", err)
 	}
-	out, truncated := truncate(answer, e.outputCap())
+	out, truncated := truncate(answer, e.outputCap(ctx))
 	res := Result{Content: out, Truncated: truncated}
 	if usage != nil {
 		res.GeminiUsage = geminiUsagePayload(e.Prices, model, usage)

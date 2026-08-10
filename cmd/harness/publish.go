@@ -137,7 +137,11 @@ func runPublish(ctx context.Context, args []string) error {
 
 	timeout := *waitTimeout
 	if timeout <= 0 {
-		timeout = time.Duration(cfg.DefaultDeadlineMS) * time.Millisecond
+		// The run deadline is a setting now (run.deadline); publish has no
+		// database handle — it only talks to NATS — so it mirrors the
+		// setting's default (60 minutes) here. -deadline-ms and -wait-timeout
+		// still override.
+		timeout = 60 * time.Minute
 		if *deadlineMS > 0 {
 			timeout = time.Duration(*deadlineMS) * time.Millisecond
 		}

@@ -962,15 +962,62 @@ func TestGetSettingsMasksSecretsAndListsAllKeys(t *testing.T) {
 			t.Fatalf("entry %d key = %q, want %q", i, got[i].Key, key)
 		}
 	}
-	if !got[0].Set || got[0].Value != maskSecret("sk-very-secret-1234") {
-		t.Fatalf("deepseek.api_key entry = %+v, want set with masked value %q", got[0], maskSecret("sk-very-secret-1234"))
+
+	byKey := map[string]settingEntry{}
+	for _, e := range got {
+		byKey[e.Key] = e
 	}
-	if got[1].Set || got[1].Value != "" {
-		t.Fatalf("google.api_key should be unset with no value, got %+v", got[1])
+
+	key := byKey[settings.KeyDeepSeekAPIKey]
+	if !key.Set || key.Value != maskSecret("sk-very-secret-1234") || !key.Secret || key.Override != true {
+		t.Fatalf("deepseek.api_key entry = %+v, want set, masked, secret, override", key)
 	}
-	if !got[2].Set || got[2].Value != "gemini-3.6-flash" {
-		t.Fatalf("google.vision_model entry = %+v, want set with its full value", got[2])
+	gkey := byKey[settings.KeyGoogleAPIKey]
+	if gkey.Set || gkey.Value != "" || !gkey.Secret {
+		t.Fatalf("google.api_key should be unset with no value, got %+v", gkey)
 	}
+	vision := byKey[settings.KeyGoogleVisionModel]
+	if !vision.Set || vision.Value != "gemini-3.6-flash" || vision.Secret {
+		t.Fatalf("google.vision_model entry = %+v, want set with its full value", vision)
+	}
+	// A set value that differs from the default is an override; an unset key
+	// is not.
+	if byKey[settings.KeyRunMaxTokens].Override {
+		t.Fatalf("run.max_tokens should not be an override when unset: %+v", byKey[settings.KeyRunMaxTokens])
+	}
+	if !byKey[settings.KeyWorkerPoolSize].Restart {
+		t.Fatalf("worker.pool_size must carry the restart flag: %+v", byKey[settings.KeyWorkerPoolSize])
+	}
+	if byKey[settings.KeyRunMaxTokens].Restart {
+		t.Fatalf("run.max_tokens must not carry the restart flag: %+v", byKey[settings.KeyRunMaxTokens])
+	}
+	if byKey[settings.KeyRunMaxTokens].Type != "integer" || byKey[settings.KeyRunDeadline].Type != "duration" || byKey[settings.KeyDefaultModel].Type != "string" {
+		t.Fatalf("type field must mirror the registry: %+v %+v %+v", byKey[settings.KeyRunMaxTokens], byKey[settings.KeyRunDeadline], byKey[settings.KeyDefaultModel])
+	}
+	if byKey[settings.KeyRunMaxTokens].Default != "48000" {
+		t.Fatalf("default field = %q, want 48000", byKey[settings.KeyRunMaxTokens].Default)
+	}
+}
+
+// entryByKey fetches GET /api/settings and returns the entry for key.
+func entryByKey(t *testing.T, srv *httptest.Server, key string) settingEntry {
+	t.Helper()
+	getResp, err := http.Get(srv.URL + "/api/settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer getResp.Body.Close()
+	var got []settingEntry
+	if err := json.NewDecoder(getResp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range got {
+		if e.Key == key {
+			return e
+		}
+	}
+	t.Fatalf("no entry for %s in %+v", key, got)
+	return settingEntry{}
 }
 
 func TestPutSettingThenGetShowsItSet(t *testing.T) {
@@ -983,18 +1030,40 @@ func TestPutSettingThenGetShowsItSet(t *testing.T) {
 		t.Fatalf("PUT: got status %d, want 200", resp.StatusCode)
 	}
 
-	getResp, err := http.Get(srv.URL + "/api/settings")
+	entry := entryByKey(t, srv, settings.KeyGoogleVisionModel)
+	if entry.Key != settings.KeyGoogleVisionModel || !entry.Set || entry.Value != "gemini-3.6-flash" {
+		t.Fatalf("google.vision_model after PUT = %+v, want set with the written value", entry)
+	}
+	if !entry.Override {
+		t.Fatalf("a value differing from the default must be marked as an override: %+v", entry)
+	}
+}
+
+// TestPutSettingRejectsOutOfRangeValue pins the "one bound, enforced in Go"
+// property: a value the registry rejects comes back as a 400 carrying the
+// registry's message — the same message harness config set prints — so the
+// screen can surface it verbatim.
+func TestPutSettingRejectsOutOfRangeValue(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	resp := doSettingsWrite(t, srv, http.MethodPut, "/api/settings/tools.bash_timeout", `{"value":"-5s"}`, map[string]string{
+		"Content-Type": "application/json",
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("got status %d, want 400", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer getResp.Body.Close()
-	var got []settingEntry
-	if err := json.NewDecoder(getResp.Body).Decode(&got); err != nil {
-		t.Fatal(err)
+	if !strings.Contains(string(body), "out of range") {
+		t.Fatalf("error body %q does not carry the registry's validation message", body)
 	}
-	entry := got[2]
-	if entry.Key != settings.KeyGoogleVisionModel || !entry.Set || entry.Value != "gemini-3.6-flash" {
-		t.Fatalf("google.vision_model after PUT = %+v, want set with the written value", entry)
+
+	// The rejected value must not have been stored.
+	entry := entryByKey(t, srv, settings.KeyToolBashTimeout)
+	if entry.Set {
+		t.Fatalf("rejected value was stored: %+v", entry)
 	}
 }
 

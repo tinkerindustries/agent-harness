@@ -20,7 +20,7 @@ var skipDirs = map[string]bool{
 
 // execGlob implements Glob: path matching by pattern, walked from path or
 // the workspace root.
-func execGlob(_ context.Context, e *Executor, argsRaw json.RawMessage) Result {
+func execGlob(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result {
 	var args globArgs
 	if err := json.Unmarshal(argsRaw, &args); err != nil {
 		return errorResult("invalid arguments: %v", err)
@@ -75,7 +75,7 @@ func execGlob(_ context.Context, e *Executor, argsRaw json.RawMessage) Result {
 	if len(matches) == 0 {
 		return Result{Content: "no files matched"}
 	}
-	out, truncated := truncate(joinLines(matches), e.outputCap())
+	out, truncated := truncate(joinLines(matches), e.outputCap(ctx))
 	return Result{Content: out, Truncated: truncated}
 }
 

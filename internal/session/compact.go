@@ -98,7 +98,7 @@ func (r *Runner) summarize(ctx context.Context, messages []deepseek.Message) (st
 	}
 
 	req := deepseek.ChatCompletionRequest{
-		Model: r.flashModel(),
+		Model: r.flashModel(ctx),
 		Messages: []deepseek.Message{
 			deepseek.SystemMessage("Summarise the following agent session transcript so the work can continue in a new session without it. " +
 				"Cover: the original task, what has been done, the current state of the workspace, and what remains."),

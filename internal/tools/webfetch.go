@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
+	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 )
 
 type webFetchArgs struct {
@@ -23,11 +24,31 @@ type webFetchArgs struct {
 // extraction; webFetchMaxExtract bounds how much extracted text is sent to
 // the summarising model, so one huge page cannot blow the budget of the
 // flash call that reads it (docs/MODELS.md: WebFetch extraction gets 4000
-// max_tokens of output).
+// max_tokens of output). Production resolves both through the settings
+// registry (tools.webfetch_max_body, tools.webfetch_max_extract); these are
+// the built-in defaults, pinned equal by internal/settings/registry_test.go.
 const (
 	webFetchMaxBody    = 4 << 20
 	webFetchMaxExtract = 40_000
 )
+
+func (e *Executor) webFetchMaxBody(ctx context.Context) int {
+	if e.Settings != nil {
+		if v, err := e.Settings.Int(ctx, settings.KeyToolWebFetchMaxBody); err == nil {
+			return v
+		}
+	}
+	return webFetchMaxBody
+}
+
+func (e *Executor) webFetchMaxExtract(ctx context.Context) int {
+	if e.Settings != nil {
+		if v, err := e.Settings.Int(ctx, settings.KeyToolWebFetchMaxExtract); err == nil {
+			return v
+		}
+	}
+	return webFetchMaxExtract
+}
 
 // execWebFetch implements WebFetch: fetch a URL, extract it to text, then
 // have flash answer the caller's prompt against that text, so the parent
@@ -66,7 +87,7 @@ func execWebFetch(ctx context.Context, e *Executor, argsRaw json.RawMessage) Res
 		return errorResult("fetch %s: HTTP %d", args.URL, resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(io.LimitReader(resp.Body, webFetchMaxBody))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, int64(e.webFetchMaxBody(ctx))))
 	if err != nil {
 		return errorResult("read %s: %v", args.URL, err)
 	}
@@ -75,15 +96,15 @@ func execWebFetch(ctx context.Context, e *Executor, argsRaw json.RawMessage) Res
 	if extracted == "" {
 		return Result{Content: "fetched the page but found no extractable text"}
 	}
-	if len(extracted) > webFetchMaxExtract {
-		extracted = extracted[:webFetchMaxExtract]
+	if len(extracted) > e.webFetchMaxExtract(ctx) {
+		extracted = extracted[:e.webFetchMaxExtract(ctx)]
 	}
 
 	answer, err := e.summarizeFetch(ctx, extracted, args.Prompt)
 	if err != nil {
 		return errorResult("summarise %s: %v", args.URL, err)
 	}
-	out, truncated := truncate(answer, e.outputCap())
+	out, truncated := truncate(answer, e.outputCap(ctx))
 	return Result{Content: out, Truncated: truncated}
 }
 

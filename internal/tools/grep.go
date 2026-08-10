@@ -30,7 +30,7 @@ type grepMatch struct {
 // acceleration is deferred). Defaults to
 // files_with_matches so the model orients cheaply instead of pulling large
 // content into a context that gets re-sent every sub-turn.
-func execGrep(_ context.Context, e *Executor, argsRaw json.RawMessage) Result {
+func execGrep(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result {
 	var args grepArgs
 	if err := json.Unmarshal(argsRaw, &args); err != nil {
 		return errorResult("invalid arguments: %v", err)
@@ -93,7 +93,7 @@ func execGrep(_ context.Context, e *Executor, argsRaw json.RawMessage) Result {
 		return errorResult("search %s: %v", args.Path, walkErr)
 	}
 
-	return formatGrepMatches(matches, mode, e.outputCap())
+	return formatGrepMatches(matches, mode, e.outputCap(ctx))
 }
 
 // grepFile scans one file for re, returning nil, false for files it skips

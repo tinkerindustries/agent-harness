@@ -56,7 +56,7 @@ func TestBashTimeoutFires(t *testing.T) {
 
 func TestExecutorTimeoutForHonoursRequestedBashTimeout(t *testing.T) {
 	e, _ := newTestExecutor(t)
-	got := e.timeoutFor("Bash", mustJSON(t, bashArgs{TimeoutMS: 50}))
+	got := e.timeoutFor(t.Context(), "Bash", mustJSON(t, bashArgs{TimeoutMS: 50}))
 	if got != 50*time.Millisecond {
 		t.Fatalf("expected the requested 50ms timeout, got %s", got)
 	}
@@ -65,7 +65,7 @@ func TestExecutorTimeoutForHonoursRequestedBashTimeout(t *testing.T) {
 func TestExecutorTimeoutForCapsBashTimeoutAtMax(t *testing.T) {
 	e, _ := newTestExecutor(t)
 	e.Timeouts.BashMax = time.Second
-	got := e.timeoutFor("Bash", mustJSON(t, bashArgs{TimeoutMS: 1000 * 60 * 60}))
+	got := e.timeoutFor(t.Context(), "Bash", mustJSON(t, bashArgs{TimeoutMS: 1000 * 60 * 60}))
 	if got != time.Second {
 		t.Fatalf("expected the timeout capped at BashMax (1s), got %s", got)
 	}

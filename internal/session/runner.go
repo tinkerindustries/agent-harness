@@ -21,16 +21,21 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/httplog"
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
+	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/skills"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 )
 
-// DefaultMaxSubTurns bounds a run when RunOptions.MaxSubTurns is unset. It
-// pairs with config's defaultDeadlineMS: the hour-long deadline is sized to
-// let a full 400-sub-turn budget run, at roughly six seconds a flash
-// sub-turn. Both defaults must move together — raising one without the other
-// does nothing.
+// DefaultMaxSubTurns and CompactionThresholdTokens are the built-in run
+// budget defaults when the Runner has no settings resolver attached (the
+// test path). Production resolves both through the settings registry
+// (run.max_sub_turns, run.compaction_threshold), which carries these exact
+// values as defaults; the two are pinned equal by
+// internal/settings/registry_test.go. The sub-turn budget's other home —
+// config's old defaultMaxSubTurns — was folded into the registry alongside
+// this one, so both read the same setting and cannot drift again
+// (docs/DESIGN.md §4.10).
 const DefaultMaxSubTurns = 400
 
 // CompactionThresholdTokens is DeepSeek's recommended Claude Code
@@ -174,6 +179,13 @@ type Runner struct {
 	MaxSubTurns               int
 	CompactionThresholdTokens int
 
+	// Settings, when set, is where the run budget (run.max_sub_turns,
+	// run.compaction_threshold) and the flash model (model.flash) resolve
+	// from, read through the store on every call, so a key changed with
+	// `harness config set` takes effect on the next session without a
+	// restart. Nil is the test path: the package constants apply.
+	Settings *settings.Resolver
+
 	// Progress, when set, is called after every sub-turn commits. It may be
 	// called concurrently by different Run calls and must not block.
 	Progress func(SubTurnProgress)
@@ -216,16 +228,26 @@ func (r *Runner) acquireModelSlot(ctx context.Context, model string) (func(), er
 	}
 }
 
-func (r *Runner) maxSubTurns() int {
+func (r *Runner) maxSubTurns(ctx context.Context) int {
 	if r.MaxSubTurns > 0 {
 		return r.MaxSubTurns
+	}
+	if r.Settings != nil {
+		if v, err := r.Settings.Int(ctx, settings.KeyRunMaxSubTurns); err == nil {
+			return v
+		}
 	}
 	return DefaultMaxSubTurns
 }
 
-func (r *Runner) flashModel() string {
+func (r *Runner) flashModel(ctx context.Context) string {
 	if r.FlashModel != "" {
 		return r.FlashModel
+	}
+	if r.Settings != nil {
+		if m, err := r.Settings.String(ctx, settings.KeyDefaultFlashModel); err == nil && m != "" {
+			return m
+		}
 	}
 	return "deepseek-v4-flash"
 }
@@ -239,9 +261,14 @@ func progressFunc(r *Runner, opts RunOptions) func(SubTurnProgress) {
 	return r.Progress
 }
 
-func (r *Runner) compactionThreshold() int {
+func (r *Runner) compactionThreshold(ctx context.Context) int {
 	if r.CompactionThresholdTokens != 0 {
 		return r.CompactionThresholdTokens
+	}
+	if r.Settings != nil {
+		if v, err := r.Settings.Int(ctx, settings.KeyRunCompactionThreshold); err == nil {
+			return v
+		}
 	}
 	return CompactionThresholdTokens
 }
@@ -273,9 +300,10 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	}
 	executor.Client = r.Client
 	executor.Prices = r.Prices
-	executor.FlashModel = r.flashModel()
+	executor.FlashModel = r.flashModel(ctx)
 	executor.Gemini = r.Gemini
 	executor.GeminiModel = r.GeminiModel
+	executor.Settings = r.Settings
 	executor.ResultSchema = opts.ResultSchema
 
 	toolSchema, err := json.Marshal(tools.Definitions())
@@ -356,7 +384,7 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 	var lastText string
 	maxTurns := opts.MaxSubTurns
 	if maxTurns <= 0 {
-		maxTurns = r.maxSubTurns()
+		maxTurns = r.maxSubTurns(ctx)
 	}
 
 	for subTurn := startSubTurn; subTurn <= maxTurns; subTurn++ {
@@ -376,7 +404,7 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 				outcome.text, nil, "", "", agg, subTurn)
 		}
 
-		if outcome.usagePayload.PromptTokens >= r.compactionThreshold() {
+		if outcome.usagePayload.PromptTokens >= r.compactionThreshold(ctx) {
 			newSess, newEvents, err := r.compact(ctx, curSess, allEvents, executor.Workspace)
 			if err != nil {
 				log.Printf("session: compaction failed for %s, continuing uncompacted: %v", curSess.ID, err)
@@ -402,7 +430,7 @@ func (r *Runner) subagentRunner(parentID string, parentOpts RunOptions, workspac
 		// delegation does not change who owns the work and ParentID already
 		// records the lineage.
 		res, err := r.Run(ctx, RunOptions{
-			Model:           r.flashModel(),
+			Model:           r.flashModel(ctx),
 			Effort:          deepseek.EffortHigh,
 			Thinking:        true,
 			MaxTokens:       20000,

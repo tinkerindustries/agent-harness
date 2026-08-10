@@ -232,16 +232,6 @@ func runAsk(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if *model != "" {
-		cfg.Model = *model
-	}
-	if *effort != "" {
-		cfg.Effort = *effort
-	}
-	if *maxTokens != 0 {
-		cfg.MaxTokens = *maxTokens
-	}
-	cfg.Thinking = *thinking
 
 	priceTable, err := pricing.Load(cfg.PriceTablePath)
 	if err != nil {
@@ -255,6 +245,30 @@ func runAsk(ctx context.Context, args []string) error {
 	defer st.Close()
 	res := settings.NewResolver(st)
 
+	// The ask defaults resolve through the settings registry; the flags
+	// below override.
+	resolvedModel, err := res.String(ctx, settings.KeyDefaultModel)
+	if err != nil {
+		return err
+	}
+	if *model != "" {
+		resolvedModel = *model
+	}
+	resolvedEffort, err := res.String(ctx, settings.KeyDefaultEffort)
+	if err != nil {
+		return err
+	}
+	if *effort != "" {
+		resolvedEffort = *effort
+	}
+	resolvedMaxTokens, err := res.Int(ctx, settings.KeyRunMaxTokens)
+	if err != nil {
+		return err
+	}
+	if *maxTokens != 0 {
+		resolvedMaxTokens = *maxTokens
+	}
+
 	rec := newHTTPLogRecorder(cfg)
 	defer closeHTTPLog(rec)
 	client := withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res))
@@ -266,16 +280,16 @@ func runAsk(ctx context.Context, args []string) error {
 	messages = append(messages, deepseek.UserMessage(prompt))
 
 	thinkingType := deepseek.ThinkingDisabled
-	if cfg.Thinking {
+	if *thinking {
 		thinkingType = deepseek.ThinkingEnabled
 	}
 
 	req := deepseek.ChatCompletionRequest{
-		Model:           cfg.Model,
+		Model:           resolvedModel,
 		Messages:        messages,
 		Thinking:        &deepseek.ThinkingConfig{Type: thinkingType},
-		ReasoningEffort: cfg.Effort,
-		MaxTokens:       cfg.MaxTokens,
+		ReasoningEffort: resolvedEffort,
+		MaxTokens:       resolvedMaxTokens,
 	}
 
 	start := time.Now()
@@ -342,9 +356,9 @@ func runAsk(ctx context.Context, args []string) error {
 	}
 	answerTokens := usage.CompletionTokens - reasoningTokens
 
-	cost, costErr := priceTable.Cost(cfg.Model, usage.PromptCacheHitTokens, usage.PromptCacheMissTokens, usage.CompletionTokens)
+	cost, costErr := priceTable.Cost(resolvedModel, usage.PromptCacheHitTokens, usage.PromptCacheMissTokens, usage.CompletionTokens)
 
-	fmt.Printf("model          %s (effort %s, thinking %s)\n", cfg.Model, cfg.Effort, thinkingType)
+	fmt.Printf("model          %s (effort %s, thinking %s)\n", resolvedModel, resolvedEffort, thinkingType)
 	fmt.Printf("prompt tokens  %d (cache hit %d / cache miss %d, %s)\n", usage.PromptTokens, usage.PromptCacheHitTokens, usage.PromptCacheMissTokens, cacheHitRate(usage.PromptCacheHitTokens, usage.PromptCacheMissTokens))
 	fmt.Printf("completion     %d (reasoning %d / answer %d)\n", usage.CompletionTokens, reasoningTokens, answerTokens)
 	if costErr == nil {

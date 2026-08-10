@@ -39,36 +39,33 @@ func TestLoadHTTPLogConfig(t *testing.T) {
 	}
 }
 
-func TestLoadRunBudgetDefaults(t *testing.T) {
+// TestLoadKeepsBootstrapFieldsOnly pins that the run-budget, model, and
+// worker defaults are no longer environment variables: Config carries only
+// bootstrap fields, and Load succeeds (and ignores) an .env that still names
+// the old variables. The moved defaults live in internal/settings' registry,
+// and their resolved values are pinned there.
+func TestLoadKeepsBootstrapFieldsOnly(t *testing.T) {
+	// An operator's old .env naming the moved variables must not break Load,
+	// and must not influence Config.
+	t.Setenv("DEEPSEEK_MODEL", "deepseek-v4-pro")
+	t.Setenv("DEEPSEEK_FLASH_MODEL", "deepseek-v4-flash")
+	t.Setenv("DEEPSEEK_EFFORT", "high")
+	t.Setenv("DEEPSEEK_MAX_TOKENS", "48000")
+	t.Setenv("DEEPSEEK_MAX_SUB_TURNS", "400")
+	t.Setenv("DEEPSEEK_DEFAULT_DEADLINE_MS", "3600000")
+	t.Setenv("DEEPSEEK_WORKER_POOL_SIZE", "4")
+	t.Setenv("DEEPSEEK_MODEL_CONCURRENCY_PRO", "500")
+	t.Setenv("DEEPSEEK_MODEL_CONCURRENCY_FLASH", "2500")
 	t.Setenv("DEEPSEEK_DATA_DIR", filepath.Join(t.TempDir(), "data"))
 
-	t.Run("defaults", func(t *testing.T) {
-		t.Setenv("DEEPSEEK_MAX_SUB_TURNS", "")
-		t.Setenv("DEEPSEEK_DEFAULT_DEADLINE_MS", "")
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("Load: %v", err)
-		}
-		if cfg.MaxSubTurns != 400 {
-			t.Errorf("MaxSubTurns = %d, want 400", cfg.MaxSubTurns)
-		}
-		if cfg.DefaultDeadlineMS != 3_600_000 {
-			t.Errorf("DefaultDeadlineMS = %d, want 3600000", cfg.DefaultDeadlineMS)
-		}
-	})
-
-	t.Run("environment overrides", func(t *testing.T) {
-		t.Setenv("DEEPSEEK_MAX_SUB_TURNS", "600")
-		t.Setenv("DEEPSEEK_DEFAULT_DEADLINE_MS", "7200000")
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("Load: %v", err)
-		}
-		if cfg.MaxSubTurns != 600 {
-			t.Errorf("MaxSubTurns = %d, want 600", cfg.MaxSubTurns)
-		}
-		if cfg.DefaultDeadlineMS != 7_200_000 {
-			t.Errorf("DefaultDeadlineMS = %d, want 7200000", cfg.DefaultDeadlineMS)
-		}
-	})
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Thinking != true {
+		t.Errorf("Thinking = %v, want true", cfg.Thinking)
+	}
+	if cfg.DataDir == "" || cfg.NATSURL == "" || cfg.HTTPAddr == "" || cfg.BaseURL == "" {
+		t.Errorf("bootstrap fields must survive Load: %+v", cfg)
+	}
 }

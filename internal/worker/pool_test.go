@@ -141,7 +141,7 @@ func newTestHarness(t *testing.T, serverURL string, poolSize int) *testHarness {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	consumer, err := queue.EnsureStreams(ctx, js, poolSize)
+	consumer, err := queue.EnsureStreams(ctx, js, poolSize, queue.DefaultResultsMaxAge)
 	if err != nil {
 		t.Fatalf("EnsureStreams: %v", err)
 	}

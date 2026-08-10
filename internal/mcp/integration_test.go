@@ -72,7 +72,7 @@ func ensureTestStreams(t *testing.T, js jetstream.JetStream) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if _, err := queue.EnsureStreams(ctx, js, 4); err != nil {
+	if _, err := queue.EnsureStreams(ctx, js, 4, queue.DefaultResultsMaxAge); err != nil {
 		t.Fatalf("EnsureStreams: %v", err)
 	}
 	t.Cleanup(func() {

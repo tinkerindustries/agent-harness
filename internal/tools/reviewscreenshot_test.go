@@ -2,6 +2,7 @@ package tools
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -98,9 +99,9 @@ func TestReviewScreenshotRefusesBadExtensions(t *testing.T) {
 	}
 }
 
-// TestReviewScreenshotRefusesOversizeFile pins the 5 MB per-file cap: an
-// over-limit file is refused with an error naming the limit, and the refusal
-// happens before any request is sent.
+// TestReviewScreenshotRefusesOversizeFile pins the per-file byte cap: an
+// over-limit file is refused with an error naming the actual limit, and the
+// refusal happens before any request is sent.
 func TestReviewScreenshotRefusesOversizeFile(t *testing.T) {
 	hit := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -122,8 +123,9 @@ func TestReviewScreenshotRefusesOversizeFile(t *testing.T) {
 		ImagePaths: []string{"big.png"},
 		Question:   "what is wrong?",
 	})
-	if !res.IsError || !strings.Contains(res.Content, "5 MB") {
-		t.Fatalf("expected a size refusal naming the limit, got: %s", res.Content)
+	want := fmt.Sprintf("over the %d-byte per-file limit", reviewScreenshotMaxBytes)
+	if !res.IsError || !strings.Contains(res.Content, want) {
+		t.Fatalf("expected a size refusal naming the limit %d, got: %s", reviewScreenshotMaxBytes, res.Content)
 	}
 	if hit {
 		t.Fatal("request was sent despite an over-limit file")

@@ -49,15 +49,18 @@ const (
 	// trips it.
 	AckWait = 60 * time.Second
 
-	// resultsMaxAge is the RESULTS stream's retention window.
-	resultsMaxAge = 7 * 24 * time.Hour
-
 	// resultsDuplicateWindow is longer than the 2-minute
 	// JetStream default. A final result republished after a crash between
 	// the DB write and the original publish (docs/DESIGN.md §4.10) can
 	// arrive well after AckWait plus redelivery latency; a longer window
 	// keeps Nats-Msg-Id dedup covering that gap.
 	resultsDuplicateWindow = 10 * time.Minute
+
+	// DefaultResultsMaxAge is the RESULTS stream's retention window when a
+	// caller passes zero. Production resolves queue.results_max_age from the
+	// settings registry and passes it in; this is the built-in default
+	// (7 days), pinned equal by internal/settings/registry_test.go.
+	DefaultResultsMaxAge = 7 * 24 * time.Hour
 )
 
 // RequestSubject is the subject a work request publishes to. The wildcard
@@ -94,8 +97,12 @@ func Connect(url string) (*nats.Conn, jetstream.JetStream, error) {
 // script (docs/DESIGN.md §4.10). CreateOrUpdate is
 // idempotent: run again against a server that already has matching
 // definitions, it is a no-op; run again with a different poolSize, it
-// updates MaxAckPending to match.
-func EnsureStreams(ctx context.Context, js jetstream.JetStream, poolSize int) (jetstream.Consumer, error) {
+// updates MaxAckPending to match. resultsMaxAge is the RESULTS stream's
+// retention window; zero means DefaultResultsMaxAge.
+func EnsureStreams(ctx context.Context, js jetstream.JetStream, poolSize int, resultsMaxAge time.Duration) (jetstream.Consumer, error) {
+	if resultsMaxAge <= 0 {
+		resultsMaxAge = DefaultResultsMaxAge
+	}
 	_, err := js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
 		Name:      StreamWork,
 		Subjects:  []string{requestSubjectPrefix + "*"},
