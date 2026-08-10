@@ -5,6 +5,7 @@ import { BlockList } from "../components/BlockList";
 import { computeFrameStats, type FrameStats } from "./frameStats";
 import { buildSyntheticHistory, liveEventGenerator, makeSeqSource } from "./syntheticFeed";
 import { HeightHarness } from "./HeightHarness";
+import { RailHarness } from "./RailHarness";
 
 // PerfHarnessScreen is the instrument behind docs/DESIGN.md §5.5, not a
 // nicety: a synthetic delta feed at a fixed rate against a mounted
@@ -265,9 +266,13 @@ async function runOne(cfg: RunConfig, hooks: RunHooks): Promise<RunResult> {
 export function PerfHarnessScreen() {
   // ?height=1 swaps the render-cost sweep for the phase 5 exit measurement:
   // the transcript screen in Compact mode against a synthetic session, with
-  // its scroll height reported (web/src/perf/HeightHarness.tsx). Read before
-  // any hooks because the two modes share no state.
+  // its scroll height reported (web/src/perf/HeightHarness.tsx). ?rail=1
+  // swaps it for the phase 6 exit measurement: the same screen with the
+  // timeline rail, scrolling through it to count marker updates and frame
+  // cost (web/src/perf/RailHarness.tsx). Read before any hooks because the
+  // modes share no state.
   if (new URL(window.location.href).searchParams.get("height") === "1") return <HeightHarness />;
+  if (new URL(window.location.href).searchParams.get("rail") === "1") return <RailHarness />;
 
   const [status, setStatus] = useState("idle");
   const [results, setResults] = useState<RunResult[]>([]);
