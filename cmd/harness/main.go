@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -17,8 +18,11 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/config"
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
+	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
 	"github.com/mrgeoffrich/deepseek-harness/internal/httplog"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
+	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
+	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
 
 const usage = `usage: harness <command> [flags]
@@ -34,6 +38,7 @@ commands:
   export <session-id>          rebuild a session's disk mirror from the database
   models                       list available models
   balance                      show account balance
+  config                       read and write settings in the database: list, get, set, unset
 
 run and publish both require -permission-mode, readonly or full. publish's
 -repo takes URL[#branch] and repeats; run's -workspace repeats too, paired
@@ -74,6 +79,8 @@ func main() {
 		err = runModels(ctx, os.Args[2:])
 	case "balance":
 		err = runBalance(ctx, os.Args[2:])
+	case "config":
+		err = runConfig(ctx, os.Args[2:])
 	case "-h", "-help", "--help", "help":
 		fmt.Println(usage)
 		return
@@ -117,14 +124,75 @@ func closeHTTPLog(rec *httplog.Recorder) {
 	}
 }
 
+// openStore opens (creating if needed) the harness database under
+// cfg.DataDir and returns the handle. Every command that reaches the API —
+// ask, run, resume, models, balance, serve — holds one, because settings
+// (including the DeepSeek API key) live in the database now, not in the
+// environment.
+func openStore(cfg config.Config) (*store.Store, error) {
+	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create data dir %s: %w", cfg.DataDir, err)
+	}
+	st, err := store.Open(filepath.Join(cfg.DataDir, "harness.db"))
+	if err != nil {
+		return nil, fmt.Errorf("open store: %w", err)
+	}
+	return st, nil
+}
+
+// deepSeekAPIKeyProvider returns the key provider the deepseek client calls
+// before every request: a read of deepseek.api_key through the store, made
+// on every call, so a key set while a process is running takes effect on the
+// next request without a restart.
+func deepSeekAPIKeyProvider(res *settings.Resolver) func() (string, error) {
+	return func() (string, error) {
+		return res.DeepSeekAPIKey(context.Background())
+	}
+}
+
 // withHTTPLog wraps a fresh client's transport so every exchange is
 // captured by rec. A nil rec (capture off) leaves the request path
-// untouched.
-func withHTTPLog(cfg config.Config, rec *httplog.Recorder) *deepseek.Client {
+// untouched. The client reads its API key from provider before every
+// request, so the string passed to NewClient is always the empty placeholder.
+func withHTTPLog(cfg config.Config, rec *httplog.Recorder, provider func() (string, error)) *deepseek.Client {
 	if rec == nil {
-		return deepseek.NewClient(cfg.BaseURL, cfg.APIKey)
+		return deepseek.NewClient(cfg.BaseURL, "", deepseek.WithAPIKeyProvider(provider))
 	}
-	return deepseek.NewClient(cfg.BaseURL, cfg.APIKey, deepseek.WithTransportWrapper(func(next http.RoundTripper) http.RoundTripper {
+	return deepseek.NewClient(cfg.BaseURL, "", deepseek.WithAPIKeyProvider(provider), deepseek.WithTransportWrapper(func(next http.RoundTripper) http.RoundTripper {
+		return httplog.NewTransport(next, rec)
+	}))
+}
+
+// googleAPIKeyProvider returns the key provider the gemini client calls
+// before every request: a read of google.api_key through the store, made on
+// every call, so a key set while a process is running takes effect on the
+// next request without a restart.
+func googleAPIKeyProvider(res *settings.Resolver) func() (string, error) {
+	return func() (string, error) {
+		return res.GoogleAPIKey(context.Background())
+	}
+}
+
+// googleVisionModelProvider returns the model provider the ReviewScreenshot
+// tool calls before every call: a read of google.vision_model through the
+// store, defaulting to gemini-3.5-flash when unset, so a model changed
+// while a process is running takes effect on the next call without a
+// restart.
+func googleVisionModelProvider(res *settings.Resolver) func() (string, error) {
+	return func() (string, error) {
+		return res.GoogleVisionModel(context.Background())
+	}
+}
+
+// withGeminiHTTPLog wraps a fresh gemini client's transport so every
+// exchange is captured by rec, mirroring withHTTPLog. A nil rec (capture
+// off) leaves the request path untouched. The client reads its API key from
+// provider before every request.
+func withGeminiHTTPLog(cfg config.Config, rec *httplog.Recorder, provider func() (string, error)) *gemini.Client {
+	if rec == nil {
+		return gemini.NewClient(gemini.DefaultBaseURL, gemini.WithAPIKeyProvider(provider))
+	}
+	return gemini.NewClient(gemini.DefaultBaseURL, gemini.WithAPIKeyProvider(provider), gemini.WithTransportWrapper(func(next http.RoundTripper) http.RoundTripper {
 		return httplog.NewTransport(next, rec)
 	}))
 }
@@ -180,9 +248,16 @@ func runAsk(ctx context.Context, args []string) error {
 		return err
 	}
 
+	st, err := openStore(cfg)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	res := settings.NewResolver(st)
+
 	rec := newHTTPLogRecorder(cfg)
 	defer closeHTTPLog(rec)
-	client := withHTTPLog(cfg, rec)
+	client := withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res))
 
 	var messages []deepseek.Message
 	if *system != "" {
@@ -291,9 +366,15 @@ func runModels(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	st, err := openStore(cfg)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	res := settings.NewResolver(st)
 	rec := newHTTPLogRecorder(cfg)
 	defer closeHTTPLog(rec)
-	client := withHTTPLog(cfg, rec)
+	client := withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res))
 
 	resp, err := client.ListModels(ctx)
 	if err != nil {
@@ -314,9 +395,15 @@ func runBalance(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	st, err := openStore(cfg)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	res := settings.NewResolver(st)
 	rec := newHTTPLogRecorder(cfg)
 	defer closeHTTPLog(rec)
-	client := withHTTPLog(cfg, rec)
+	client := withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res))
 
 	resp, err := client.GetBalance(ctx)
 	if err != nil {

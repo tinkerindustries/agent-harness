@@ -6,7 +6,8 @@ DeepSeek's own API rather than a provider-agnostic abstraction.
 
 Work arrives on a NATS JetStream queue, runs as one of several concurrent agent
 sessions in a single Go process, and returns a result to a results stream. A
-read-only web UI shows what the sessions are doing. An MCP server lets another
+web UI shows what the sessions are doing and lets an operator set the
+harness's API keys. An MCP server lets another
 agent harness — Claude Code, Cursor — launch runs here and collect them later.
 
 ## What you need
@@ -31,9 +32,23 @@ cd deepseek-harness
 cp .env.example .env
 ```
 
-Edit `.env` and set `DEEPSEEK_API_KEY`. Everything else is optional and
-documented inline in `.env.example` — model and effort defaults, pool size,
-deadlines, ports.
+Edit `.env` for the optional overrides — model and effort defaults, pool size,
+deadlines, ports — all documented inline in `.env.example`. The DeepSeek API
+key is **not** an environment variable anymore: it lives in the harness's
+SQLite settings table, and is set after the stack is up:
+
+```sh
+docker compose exec harness harness config set deepseek.api_key sk-...
+```
+
+`harness config list` shows the stored keys with their values masked; `harness
+config get deepseek.api_key -reveal` prints one in full.
+
+The same keys can be managed from the browser: the settings screen at
+<http://localhost:8080/settings> (linked from the session list) shows each key
+with whether it is set and its display value, and lets an operator set or unset
+it. It shows the same masked values `config list` does — there is no way to
+read a full secret in the browser.
 
 Set `GITHUB_TOKEN` too if you want private clones. The container's entrypoint
 turns it into a git credential inside the container, and `gh` picks it up from

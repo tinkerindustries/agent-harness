@@ -1,4 +1,4 @@
-// Package tools implements the eleven tools in docs/TOOLS.md: schemas that
+// Package tools implements the twelve tools in docs/TOOLS.md: schemas that
 // match the trained-in shape, argument validation in Go, workspace
 // confinement, per-tool timeouts and output caps, and the permission policy
 // that gates execution without ever changing which tools are on offer
@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
+	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
@@ -28,6 +29,11 @@ const (
 	DefaultToolTimeout = 30 * time.Second
 	WebFetchTimeout    = 45 * time.Second
 	TaskTimeout        = 10 * time.Minute
+	// ReviewScreenshotTimeout bounds one Gemini call: generating a diagnosis
+	// of up to four screenshots routinely takes longer than the 30-second
+	// default tool timeout, so it gets its own (docs/TOOLS.md,
+	// "ReviewScreenshot").
+	ReviewScreenshotTimeout = 60 * time.Second
 )
 
 // Result is what one tool execution returns. Content is what goes back to
@@ -93,11 +99,12 @@ type Outcome struct {
 // Timeouts overrides the package defaults; a zero value in any field keeps
 // the default.
 type Timeouts struct {
-	BashDefault time.Duration
-	BashMax     time.Duration
-	Tool        time.Duration
-	WebFetch    time.Duration
-	Task        time.Duration
+	BashDefault      time.Duration
+	BashMax          time.Duration
+	Tool             time.Duration
+	WebFetch         time.Duration
+	Task             time.Duration
+	ReviewScreenshot time.Duration
 }
 
 // Executor runs tools against one session's mutable state. An Executor
@@ -113,6 +120,19 @@ type Executor struct {
 	Client     *deepseek.Client
 	Prices     *pricing.Table
 	FlashModel string
+
+	// Gemini is the client the ReviewScreenshot tool uses to send screenshots
+	// to Google's Gemini API. Nil (a session with no client configured) makes
+	// the tool return an ordinary error result saying so, the same shape
+	// WebFetch uses for a nil Client — it never panics and never fails the
+	// run.
+	Gemini *gemini.Client
+
+	// GeminiModel resolves the vision model name per call, the same
+	// read-through-the-store shape as the DeepSeek API key provider, so a
+	// model changed with `harness config set google.vision_model` takes
+	// effect without a restart. Nil falls back to gemini.DefaultModel.
+	GeminiModel func() (string, error)
 
 	// RunSubagent executes Task by delegating to the session loop. It is
 	// injected by internal/session, which imports internal/tools; tools
@@ -181,6 +201,11 @@ func (e *Executor) timeoutFor(name string, argsRaw json.RawMessage) time.Duratio
 			return e.Timeouts.Task
 		}
 		return TaskTimeout
+	case "ReviewScreenshot":
+		if e.Timeouts.ReviewScreenshot > 0 {
+			return e.Timeouts.ReviewScreenshot
+		}
+		return ReviewScreenshotTimeout
 	default:
 		if e.Timeouts.Tool > 0 {
 			return e.Timeouts.Tool
@@ -207,16 +232,17 @@ func (e *Executor) wasRead(path string) bool {
 type toolFunc func(ctx context.Context, e *Executor, args json.RawMessage) Result
 
 var toolFuncs = map[string]toolFunc{
-	"Read":      execRead,
-	"Write":     execWrite,
-	"Edit":      execEdit,
-	"Bash":      execBash,
-	"Glob":      execGlob,
-	"Grep":      execGrep,
-	"List":      execList,
-	"TodoWrite": execTodoWrite,
-	"Task":      execTask,
-	"WebFetch":  execWebFetch,
+	"Read":             execRead,
+	"Write":            execWrite,
+	"Edit":             execEdit,
+	"Bash":             execBash,
+	"Glob":             execGlob,
+	"Grep":             execGrep,
+	"List":             execList,
+	"TodoWrite":        execTodoWrite,
+	"Task":             execTask,
+	"WebFetch":         execWebFetch,
+	"ReviewScreenshot": execReviewScreenshot,
 }
 
 // Execute evaluates permission for call, then runs it (or Complete's

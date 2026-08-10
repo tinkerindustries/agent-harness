@@ -1,10 +1,13 @@
-// Package httpapi is the harness's read-only HTTP surface (docs/DESIGN.md
-// §4.2): GET and HEAD only, on every path, including ones
-// that do not exist. It serves the session list and metadata from the
-// store, a paged read of one session's event log, and two SSE streams — a
-// per-session transcript and a quiet session-level list feed — fed by the
-// in-process hub package rather than NATS. Nothing here starts, steers, or
-// stops a run; that is the whole point of the browser being read-only.
+// Package httpapi is the harness's HTTP surface (docs/DESIGN.md §4.2):
+// read-only with respect to runs, with the settings endpoints as the single
+// exception. GET and HEAD are served on every path, including ones that do
+// not exist; PUT and DELETE are allowed on the settings key path alone. It
+// serves the session list and metadata from the store, a paged read of one
+// session's event log, two SSE streams — a per-session transcript and a
+// quiet session-level list feed — fed by the in-process hub package rather
+// than NATS, and the settings table, which is the one thing a browser can
+// write. Nothing here starts, steers, or stops a run; that is the whole
+// point of the browser being read-only with respect to runs.
 package httpapi
 
 import (
@@ -15,12 +18,15 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
+	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
 
@@ -54,11 +60,12 @@ type QueuePool interface {
 // Server holds the things every handler reads: the store, for everything
 // historical; the hub, for everything live; and, optionally, the queue's
 // consumer and pool, for /api/queue's consumer lag, in-flight count, and
-// redelivery count (docs/DESIGN.md §5.8). None of these is
-// mutated by a request — there is no write path (docs/DESIGN.md §4.2).
-// Consumer and Pool are nil in any caller that has no queue at all (a
-// CLI-only harness never wires one up); the handler degrades to reporting
-// the queue as unavailable rather than panicking.
+// redelivery count (docs/DESIGN.md §5.8). Settings is the surface's one
+// write: the settings endpoints read and write through it, and nothing else
+// in Server is mutated by a request — the run surface stays read-only
+// (docs/DESIGN.md §4.2). Consumer and Pool are nil in any caller that has no
+// queue at all (a CLI-only harness never wires one up); the handler degrades
+// to reporting the queue as unavailable rather than panicking.
 type Server struct {
 	Store          *store.Store
 	Hub            *hub.Hub
@@ -66,12 +73,13 @@ type Server struct {
 	Consumer       QueueConsumer
 	Pool           QueuePool
 	PriceTableDate string
+	Settings       *settings.Resolver
 }
 
 // Handler returns the harness's whole HTTP surface. methodGate runs before
-// routing, so a non-GET/HEAD request is rejected on every path, including
-// ones nothing here recognises — the read-only constraint has to hold for
-// paths that do not exist too (docs/DESIGN.md §4.2).
+// routing, so a request outside the method allowlist is rejected on every
+// path, including ones nothing here recognises: GET and HEAD everywhere, and
+// PUT and DELETE on the settings key path only (docs/DESIGN.md §4.2).
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/sessions", s.handleListSessions)
@@ -81,26 +89,59 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/requests/{request_id}/status", s.handleRequestStatus)
 	mux.HandleFunc("GET /api/stream", s.handleListStream)
 	mux.HandleFunc("GET /api/queue", s.handleQueueHealth)
+	mux.HandleFunc("GET /api/settings", s.handleGetSettings)
+	mux.HandleFunc("PUT /api/settings/{key}", s.handlePutSetting)
+	mux.HandleFunc("DELETE /api/settings/{key}", s.handleDeleteSetting)
 	mux.Handle("/", s.Static)
 	return methodGate(mux)
 }
 
-// methodGate enforces GET and HEAD only ahead of any routing decision. A
-// pattern registered with a method already 405s a wrong-method request that
+// methodGate enforces the method allowlist ahead of any routing decision. GET
+// and HEAD pass on every path; PUT and DELETE pass only on a settings key
+// path (/api/settings/<key>), the surface's one write (docs/DESIGN.md §4.2).
+// A pattern registered with a method already 405s a wrong-method request that
 // matches its path (net/http's ServeMux does this since Go 1.22), but that
 // only covers paths this package recognises; the static handler's "/"
 // pattern matches everything, method or not, and POST to a path nobody
 // registered would otherwise fall through to a 404 rather than the 405
-// docs/DESIGN.md §4.2 requires everywhere.
+// docs/DESIGN.md §4.2 requires everywhere else.
 func methodGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			w.Header().Set("Allow", "GET, HEAD")
-			http.Error(w, "read-only: GET and HEAD only", http.StatusMethodNotAllowed)
+		method := r.Method
+		if method == http.MethodGet || method == http.MethodHead {
+			next.ServeHTTP(w, r)
 			return
 		}
-		next.ServeHTTP(w, r)
+		if (method == http.MethodPut || method == http.MethodDelete) && isSettingsKeyPath(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		w.Header().Set("Allow", allowedMethods(r.URL.Path))
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	})
+}
+
+// isSettingsKeyPath reports whether path is one key's settings resource —
+// /api/settings/<key>, exactly one key segment. PUT and DELETE may pass the
+// gate here and nowhere else; the mux's own PUT/DELETE patterns then handle
+// it, and the handler rejects a key outside settings.ValidKeys.
+func isSettingsKeyPath(path string) bool {
+	const prefix = "/api/settings/"
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	rest := strings.TrimPrefix(path, prefix)
+	return rest != "" && !strings.Contains(rest, "/")
+}
+
+// allowedMethods names the methods the surface actually allows for path, for
+// the Allow header on a rejected request. Only the settings key path allows
+// the writing methods; every other path is GET and HEAD.
+func allowedMethods(path string) string {
+	if isSettingsKeyPath(path) {
+		return "GET, HEAD, PUT, DELETE"
+	}
+	return "GET, HEAD"
 }
 
 func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
@@ -255,6 +296,141 @@ func (s *Server) handleQueueHealth(w http.ResponseWriter, r *http.Request) {
 	health.InFlight = info.NumAckPending
 	health.Redelivered = info.NumRedelivered
 	writeJSON(w, http.StatusOK, health)
+}
+
+// --- settings ---
+
+// settingEntry is one row of GET /api/settings: the key, whether it is set,
+// and its display value. A secret key (settings.IsSecretKey) is masked to at
+// most its last four characters, exactly as harness config list masks it; the
+// full value never leaves the process over HTTP. An unset key omits value.
+type settingEntry struct {
+	Key   string `json:"key"`
+	Set   bool   `json:"set"`
+	Value string `json:"value,omitempty"`
+}
+
+// handleGetSettings serves GET /api/settings: every key in settings.ValidKeys
+// in order, each with whether it is set and its display value. There is
+// deliberately no reveal parameter — the full secret never leaves the process
+// over HTTP; the CLI's `config get -reveal` is for an operator at a terminal.
+func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
+	entries := make([]settingEntry, 0, len(settings.ValidKeys))
+	for _, key := range settings.ValidKeys {
+		value, ok, err := s.Settings.Get(r.Context(), key)
+		if err != nil {
+			writeInternalError(w, err)
+			return
+		}
+		entry := settingEntry{Key: key, Set: ok}
+		if ok {
+			entry.Value = value
+			if settings.IsSecretKey(key) {
+				entry.Value = maskSecret(value)
+			}
+		}
+		entries = append(entries, entry)
+	}
+	writeJSON(w, http.StatusOK, entries)
+}
+
+// putSettingBody is the JSON body PUT /api/settings/{key} accepts.
+type putSettingBody struct {
+	Value string `json:"value"`
+}
+
+// handlePutSetting serves PUT /api/settings/{key}: writes key through the
+// settings resolver. An unknown key is a 400 carrying UnknownKeyError's
+// message; a missing or non-JSON content type is a 415; and a cross-origin
+// request (an Origin header that does not match the request's own Host) is a
+// 403 — the guards that keep a page open in the operator's browser from
+// writing keys to a loopback port (docs/DESIGN.md §4.2).
+func (s *Server) handlePutSetting(w http.ResponseWriter, r *http.Request) {
+	if !requireJSONContentType(w, r) || !checkOrigin(w, r) {
+		return
+	}
+	var body putSettingBody
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `invalid JSON body: expected {"value": "..."}`})
+		return
+	}
+	if err := s.Settings.Set(r.Context(), r.PathValue("key"), body.Value); err != nil {
+		writeSettingError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleDeleteSetting serves DELETE /api/settings/{key}: unsets key, mirroring
+// harness config unset. Deleting an unset key is not an error. It carries the
+// same content-type and origin guards as PUT (docs/DESIGN.md §4.2).
+func (s *Server) handleDeleteSetting(w http.ResponseWriter, r *http.Request) {
+	if !requireJSONContentType(w, r) || !checkOrigin(w, r) {
+		return
+	}
+	if err := s.Settings.Unset(r.Context(), r.PathValue("key")); err != nil {
+		writeSettingError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// writeSettingError writes a settings resolver error as JSON: an unknown key
+// is a 400 carrying UnknownKeyError's message (which names the valid keys and
+// never a value), anything else is a 500 like every other handler.
+func writeSettingError(w http.ResponseWriter, err error) {
+	var ue settings.UnknownKeyError
+	if errors.As(err, &ue) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": ue.Error()})
+		return
+	}
+	writeInternalError(w, err)
+}
+
+// requireJSONContentType refuses a settings write whose Content-Type is not
+// application/json with 415 — a missing header included. A cross-origin form
+// post cannot set that header without a preflight the gate rejects, so this
+// and checkOrigin keep a web page from writing keys to a loopback port
+// (docs/DESIGN.md §4.2).
+func requireJSONContentType(w http.ResponseWriter, r *http.Request) bool {
+	mediaType, _, _ := strings.Cut(r.Header.Get("Content-Type"), ";")
+	if strings.TrimSpace(mediaType) == "application/json" {
+		return true
+	}
+	writeJSON(w, http.StatusUnsupportedMediaType, map[string]string{"error": "Content-Type must be application/json"})
+	return false
+}
+
+// checkOrigin refuses a cross-origin settings write with 403. The port binds
+// loopback by default, which stops a remote attacker and does nothing about a
+// page open in the operator's own browser: any site can issue a cross-origin
+// request to 127.0.0.1. When the request carries an Origin header it must
+// match the request's own Host (scheme aside), so a same-origin fetch from
+// the harness's own page passes and a fetch from any other site does not. A
+// request with no Origin header is not browser-initiated and passes.
+func checkOrigin(w http.ResponseWriter, r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" || u.Host != r.Host {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "cross-origin write refused"})
+		return false
+	}
+	return true
+}
+
+// maskSecret masks value so at most its last 4 characters are visible, the
+// exact mask the CLI's harness config list applies to secrets
+// (cmd/harness/config.go). A value of 4 characters or fewer reveals none of
+// itself — the guarantee is that no stored secret ever appears in full over
+// HTTP.
+func maskSecret(value string) string {
+	if len(value) <= 4 {
+		return strings.Repeat("*", len(value))
+	}
+	return strings.Repeat("*", len(value)-4) + value[len(value)-4:]
 }
 
 type eventsPage struct {

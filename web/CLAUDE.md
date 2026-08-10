@@ -1,9 +1,10 @@
 # web/
 
-The read-only frontend: a session list and a transcript, fed by SSE from
-`harness serve`. Vite, React, TypeScript, plain CSS with custom properties — no
-component framework, no router, no data layer beyond the SSE client and the
-store. `docs/DESIGN.md` §5 is the reference for the reasoning behind all of it.
+The frontend: a session list, a transcript, and the settings screen, fed by
+SSE from `harness serve` for the session surface. Vite, React, TypeScript,
+plain CSS with custom properties — no component framework, no router, no data
+layer beyond the SSE client, the store, and the settings fetch calls.
+`docs/DESIGN.md` §5 is the reference for the reasoning behind all of it.
 
 Build output lands in `../internal/webassets/dist`, which the Go binary embeds.
 Don't change `build.outDir`.
@@ -19,9 +20,11 @@ Don't change `build.outDir`.
 
 ## Rules
 
-The browser observes and does not act. No prompt box, no approve button, no
-cancel control — the server serves `GET` and `HEAD` and returns 405 for anything
-else.
+The browser observes and, where runs are concerned, does not act. No prompt
+box, no approve button, no cancel control — the server serves `GET` and
+`HEAD` everywhere and the settings writes (`PUT`/`DELETE /api/settings/{key}`)
+are the only writes it allows; the settings screen is the browser's one write
+and it cannot reach a run (docs/DESIGN.md §4.2).
 
 Everything below is about frame budget, which is the only hard problem here. Two
 text channels arrive as deltas and a long session accumulates hundreds of

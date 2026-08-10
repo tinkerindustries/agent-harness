@@ -40,9 +40,10 @@ function hitRateTitle(usage: Usage): string {
 
 interface Props {
   onOpen: (id: string) => void;
+  onSettings: () => void;
 }
 
-export function SessionListScreen({ onOpen }: Props) {
+export function SessionListScreen({ onOpen, onSettings }: Props) {
   const snapshot = useSyncExternalStore(sessionListStore.subscribe, sessionListStore.getSnapshot);
   const now = useNow(1000);
   const queueHealth = useQueueHealth(5000);
@@ -52,6 +53,9 @@ export function SessionListScreen({ onOpen }: Props) {
       <header className="screen-header">
         <h1>Sessions</h1>
         <span className={`connection-badge connection-${snapshot.connection}`}>{snapshot.connection}</span>
+        <button className="settings-button" onClick={onSettings}>
+          settings
+        </button>
       </header>
       <QueueHealthBar health={queueHealth} />
       <table className="session-table">

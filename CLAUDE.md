@@ -40,8 +40,11 @@ cutting a version and deploying it to the production stack.
   and tool descriptions. Thinking mode ignores the sampling parameters and
   rejects the coercive `tool_choice` values, so wording is the main loop's only
   lever.
-- **The web surface is read-only** — `GET` and `HEAD`, and no endpoint starts,
-  steers, or stops a run. Don't add one.
+- **The web surface is read-only with respect to runs** — no endpoint starts,
+  steers, or stops a run, and nothing a browser does can reach the loop. The
+  settings endpoints (`GET /api/settings`, `PUT`/`DELETE /api/settings/{key}`,
+  see docs/DESIGN.md §4.2) are the one write, and they stop at the settings
+  table. Don't add another one, and don't give the HTTP server a NATS handle.
 - **A production stack runs on this machine and must not be disturbed.** It is
   the `deepseek-harness-prod` compose project from `docker-compose.prod.yml`,
   on ports 8180 / 8190 / 4522, and it is very likely mid-run. A bare

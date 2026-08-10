@@ -9,13 +9,14 @@ A work request names a prompt, one or more repositories, and a permission mode.
 The harness clones those repositories into a directory of its own, runs an agent
 loop that reads and writes files and runs commands in there, and publishes a
 result. Requests arrive over NATS JetStream; results go back over a second
-stream. A browser can watch, and can do nothing else.
+stream. A browser can watch, and can change settings — nothing it does can
+start, steer, or stop a run.
 
 One binary, `harness`, is every entry point. Two subcommands are long-running
 services and the rest are one-shot CLI:
 
-- **`harness serve`** — the worker pool, the SQLite store, and the read-only
-  HTTP surface, in a single process. Concurrent sessions are goroutines, not
+- **`harness serve`** — the worker pool, the SQLite store, and the HTTP
+  surface, in a single process. Concurrent sessions are goroutines, not
   child processes (§4.5).
 - **`harness mcp`** — a separate process on its own port, letting an external
   agent harness launch and collect runs. It publishes to the same streams and
@@ -32,7 +33,7 @@ flowchart LR
     session --> tools[internal/tools<br/>in the workspace]
     session --> store[(SQLite + disk mirror)]
     session --> hub[internal/hub]
-    hub --> http[internal/httpapi<br/>SSE, GET/HEAD only]
+    hub --> http[internal/httpapi<br/>SSE; GET/HEAD, settings PUT/DELETE]
     store --> http
     http --> web[web/ React]
     worker -->|result| RESULTS[(RESULTS stream)]
@@ -82,7 +83,9 @@ switch on event kind. Its counterpart is the frontend's own fold in
 ### `internal/store`
 SQLite (`modernc.org/sqlite`, pure Go, WAL) plus the derived disk mirror under
 `<data dir>/sessions/` and diff computation. The database is authoritative; the
-mirror is rebuildable with `harness export`. Depends on: nothing internal. §4.8.
+mirror is rebuildable with `harness export`. The `settings` table holds the
+harness's stored configuration — the DeepSeek API key among it — written and
+read through `internal/settings`. Depends on: nothing internal. §4.8.
 
 ### `internal/hub`
 In-process SSE fan-out: per-session transcript subscribers and a quieter
@@ -90,9 +93,10 @@ session-list subscriber set. Fed the same events a session appends. Touches no
 JetStream — the browser reads the store and the hub, never NATS. §4.2, §5.8.
 
 ### `internal/httpapi`
-The read-only HTTP surface and the static file server for the embedded
-frontend. `GET` and `HEAD` only; everything else is 405. Serves the store and
-the hub and cannot reach a running loop. §4.2.
+The HTTP surface and the static file server for the embedded frontend. `GET`
+and `HEAD` on every path; `PUT` and `DELETE` on the settings key path only —
+the surface's one write. Serves the store and the hub, and reaches settings
+through the store; it cannot reach a running loop. §4.2.
 
 ### `internal/webassets`
 `go:embed` of the built frontend, so the binary ships with no runtime assets.
@@ -126,7 +130,7 @@ run. Depends on: nothing internal.
 
 ### `internal/mcp`
 The MCP launch server: tools and resources over streamable HTTP, backed by the
-WORK and RESULTS streams and the harness's read-only API. Imports `store` and
+WORK and RESULTS streams and the harness's HTTP API. Imports `store` and
 `hub` for their types only — it renders transcripts fetched over HTTP and opens
 no database. It never touches the system prompt or the tool array.
 
@@ -141,13 +145,23 @@ Environment loading and `.env` parsing. Defaults follow
 [`docs/MODELS.md`](docs/MODELS.md). Read configuration through here rather than
 calling `os.Getenv` elsewhere.
 
+### `internal/settings`
+The names and resolver for the `settings` table: which keys exist
+(`deepseek.api_key`, `google.api_key`), validation that a read or write names a
+known key, and a resolver that reads through to the store on every call, so a
+key changed by another process takes effect on the next request without
+restarting anything. Depends on: the settings surface of `internal/store`
+only — never `session`, `tools`, or `config`.
+
 ### `internal/pricing`
 The price table, loaded from JSON at runtime and carrying its own capture date.
 Depends on: nothing internal. §4.9.
 
 ### `web/`
-The React frontend — two screens, no write path. Its own build and test cycle;
-see [`web/CLAUDE.md`](web/CLAUDE.md) for the constraints on changing it. §5.
+The React frontend — three screens: the session list, one session's
+transcript, and the settings screen, which is the browser's one write (key
+management only, no run control; §4.2). Its own build and test cycle; see
+[`web/CLAUDE.md`](web/CLAUDE.md) for the constraints on changing it. §5.
 
 ## How the pieces relate
 
@@ -170,8 +184,9 @@ workspace          session ─────┘        │        │
 
 The edges that matter:
 
-- **`internal/httpapi` imports neither `session` nor `worker`.** The read path
-  reaches the store and the hub and stops there. Keeping it that way is what
+- **`internal/httpapi` imports neither `session` nor `worker`.** Its read path
+  reaches the store and the hub, and its one write path — settings — reaches
+  the store; neither reaches session or worker. Keeping it that way is what
   makes "no endpoint can start or steer a run" a structural fact rather than a
   policy.
 - **`internal/session` is the only package that speaks to both the API client
@@ -181,9 +196,12 @@ The edges that matter:
 
 ## Cross-cutting concerns
 
-**Configuration.** All of it through `internal/config`, sourced from the
-environment with `.env` loaded best-effort at startup. Real environment
-variables win over `.env`. Names and defaults are documented in `.env.example`.
+**Configuration.** Two sources. Runtime and deployment settings come through
+`internal/config` from the environment, with `.env` loaded best-effort at
+startup and real environment variables winning over it. Stored settings — the
+DeepSeek API key today — live in the `settings` table and resolve through
+`internal/settings`, so a key changed by one process takes effect in another
+without a restart. Names and defaults are documented in `.env.example`.
 
 **Pricing.** Never compiled in. The table loads from the path in
 `DEEPSEEK_PRICE_TABLE` and carries a capture date that the cost readout shows,
