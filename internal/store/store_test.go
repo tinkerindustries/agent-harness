@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -66,6 +67,11 @@ func TestCreateAndGetSession(t *testing.T) {
 	}
 	if got.Status != StatusOK || got.FinishedAt == nil {
 		t.Fatalf("expected finished session, got %+v", got)
+	}
+	// The optimistic-concurrency counter (docs/DATA-API.md) starts at 1 and
+	// increments on every successful mutation.
+	if got.Version != 2 {
+		t.Fatalf("expected version 2 after one mutation, got %d", got.Version)
 	}
 }
 
@@ -465,6 +471,13 @@ func mustCreateSession(t *testing.T, s *Store, id string) {
 	}
 }
 
+// finishedPtr returns a pointer to now, for the tests that must pass a
+// non-nil finished_at to a status write.
+func finishedPtr() *time.Time {
+	now := time.Now().UTC()
+	return &now
+}
+
 // TestResumeSessionClearsFinishedAt is the state a resumed session needs
 // before Runner.Resume appends its continuation: running again, and not
 // still carrying the timestamp from the run that just finished.
@@ -509,8 +522,12 @@ func TestDeleteSessionRemovesEventsToo(t *testing.T) {
 	if err := s.UpdateSessionStatus(ctx, "sess-1", StatusOK, &finished); err != nil {
 		t.Fatal(err)
 	}
+	sess, err := s.GetSession(ctx, "sess-1")
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
 
-	if err := s.DeleteSession(ctx, "sess-1"); err != nil {
+	if err := s.DeleteSession(ctx, "sess-1", sess.Version); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	if _, err := s.GetSession(ctx, "sess-1"); err != ErrNotFound {
@@ -524,7 +541,7 @@ func TestDeleteSessionRemovesEventsToo(t *testing.T) {
 		t.Fatalf("expected no events left for a deleted session, got %d", len(events))
 	}
 
-	if err := s.DeleteSession(ctx, "sess-1"); err != ErrNotFound {
+	if err := s.DeleteSession(ctx, "sess-1", sess.Version); err != ErrNotFound {
 		t.Fatalf("expected ErrNotFound deleting an already-deleted session, got %v", err)
 	}
 }
@@ -536,11 +553,139 @@ func TestDeleteSessionRefusesRunning(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 	mustCreateSession(t, s, "sess-1") // CreateSession defaults to StatusRunning
+	sess, err := s.GetSession(ctx, "sess-1")
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
 
-	if err := s.DeleteSession(ctx, "sess-1"); err == nil {
-		t.Fatal("expected DeleteSession to refuse a running session")
+	var running *SessionRunningError
+	if err := s.DeleteSession(ctx, "sess-1", sess.Version); !errors.As(err, &running) {
+		t.Fatalf("expected SessionRunningError, got %v", err)
 	}
 	if _, err := s.GetSession(ctx, "sess-1"); err != nil {
 		t.Fatalf("session should still exist after a refused delete: %v", err)
+	}
+}
+
+// TestDeleteSessionVersionConflict pins the optimistic-concurrency
+// precondition (docs/DATA-API.md): a delete carrying a version that does not
+// match the row refuses with VersionConflictError, and the row survives.
+func TestDeleteSessionVersionConflict(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	mustCreateSession(t, s, "sess-1") // version 1, running
+	if err := s.UpdateSessionStatus(ctx, "sess-1", StatusOK, finishedPtr()); err != nil {
+		t.Fatal(err)
+	}
+	// The row is now version 2; deleting with the stale version 1 refuses.
+	var conflict *VersionConflictError
+	if err := s.DeleteSession(ctx, "sess-1", 1); !errors.As(err, &conflict) {
+		t.Fatalf("expected VersionConflictError, got %v", err)
+	}
+	if conflict.Want != 1 || conflict.Current != 2 {
+		t.Fatalf("conflict = want %d current %d, want 1 and 2", conflict.Want, conflict.Current)
+	}
+	if _, err := s.GetSession(ctx, "sess-1"); err != nil {
+		t.Fatalf("session should survive a refused delete: %v", err)
+	}
+}
+
+// TestCloseSession pins CloseSession end to end: an idle running session can
+// be closed (status terminal, finished_at set, version bumped, event log
+// untouched), a session with a recent event refuses with ActiveSessionError
+// carrying the last event's time, a stale version refuses with
+// VersionConflictError, and an already-terminal session re-closes as a no-op
+// that preserves finished_at.
+func TestCloseSession(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// A running session whose most recent event is 20 minutes old: abandoned.
+	mustCreateSession(t, s, "abandoned")
+	appendAt := time.Now().UTC()
+	if _, err := s.AppendEvents(ctx, "abandoned", []EventInput{
+		{Kind: KindSessionStarted, Payload: SessionStartedPayload{OpeningMessage: "hi"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// now 20 minutes after the append: the event is older than any threshold
+	// the harness uses (sessionIdleThreshold is 10m).
+	now := appendAt.Add(20 * time.Minute)
+	closed, err := s.CloseSession(ctx, "abandoned", StatusCancelled, 1, now, 10*time.Minute)
+	if err != nil {
+		t.Fatalf("close abandoned session: %v", err)
+	}
+	if closed.Status != StatusCancelled || closed.FinishedAt == nil {
+		t.Fatalf("expected cancelled with finished_at, got %+v", closed)
+	}
+	if !closed.FinishedAt.Equal(now) {
+		t.Fatalf("finished_at = %v, want the close time %v", closed.FinishedAt, now)
+	}
+	if closed.Version != 2 {
+		t.Fatalf("expected version 2 after a close, got %d", closed.Version)
+	}
+	// The event log is untouched by a close.
+	events, err := s.GetEvents(ctx, "abandoned")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Kind != KindSessionStarted {
+		t.Fatalf("close must not append or remove events, got %+v", events)
+	}
+
+	// A running session with a fresh event is presumed live: 409 material.
+	mustCreateSession(t, s, "live")
+	if _, err := s.AppendEvents(ctx, "live", []EventInput{
+		{Kind: KindSessionStarted, Payload: SessionStartedPayload{OpeningMessage: "hi"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.CloseSession(ctx, "live", StatusCancelled, 1, time.Now().UTC(), 10*time.Minute)
+	var active *ActiveSessionError
+	if !errors.As(err, &active) {
+		t.Fatalf("expected ActiveSessionError for a live session, got %v", err)
+	}
+	if active.LastEventAt.IsZero() {
+		t.Fatal("ActiveSessionError must carry the last event's time")
+	}
+	// The session is unchanged.
+	live, err := s.GetSession(ctx, "live")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if live.Status != StatusRunning || live.Version != 1 {
+		t.Fatalf("a refused close must not touch the row, got %+v", live)
+	}
+
+	// A stale version refuses before any idleness judgement.
+	mustCreateSession(t, s, "stale")
+	if err := s.UpdateSessionStatus(ctx, "stale", StatusOK, finishedPtr()); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.CloseSession(ctx, "stale", StatusCancelled, 1, time.Now().UTC(), 10*time.Minute)
+	var conflict *VersionConflictError
+	if !errors.As(err, &conflict) {
+		t.Fatalf("expected VersionConflictError for a stale close, got %v", err)
+	}
+
+	// Re-closing an already-terminal session is a no-op that keeps the
+	// original finished_at and bumps the version.
+	reclosed, err := s.CloseSession(ctx, "abandoned", StatusFailed, 2, now.Add(time.Hour), 10*time.Minute)
+	if err != nil {
+		t.Fatalf("re-close: %v", err)
+	}
+	if reclosed.Status != StatusFailed || !reclosed.FinishedAt.Equal(now) {
+		t.Fatalf("re-close must change status but keep finished_at, got %+v", reclosed)
+	}
+	if reclosed.Version != 3 {
+		t.Fatalf("expected version 3 after a re-close, got %d", reclosed.Version)
+	}
+}
+
+// TestCloseSessionNotFound reports ErrNotFound for an unknown id.
+func TestCloseSessionNotFound(t *testing.T) {
+	s := openTestStore(t)
+	if _, err := s.CloseSession(context.Background(), "missing", StatusCancelled, 1, time.Now().UTC(), time.Minute); err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }

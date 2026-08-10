@@ -138,7 +138,10 @@ func runDelete(ctx context.Context, args []string) error {
 	}
 	mirrorDir := store.NewMirror(cfg.DataDir).Dir(sess)
 
-	if err := st.DeleteSession(ctx, sessionID); err != nil {
+	// The version the read above returned is the optimistic-concurrency
+	// precondition (docs/DATA-API.md): a row that changed between the read
+	// and the delete refuses rather than being deleted by a stale decision.
+	if err := st.DeleteSession(ctx, sessionID, sess.Version); err != nil {
 		return err
 	}
 	if err := os.RemoveAll(mirrorDir); err != nil {
