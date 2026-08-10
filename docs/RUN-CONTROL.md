@@ -348,8 +348,33 @@ one. `TestAppendOnly` in `fold_test.go` asserts precisely that this never
 happens, and the prompt cache is what the assertion is protecting
 ([CACHE.md](CACHE.md)).
 
-Buffering the steer inside the fold until a "resting point" does not fix it;
-it relocates the same rewrite. So the split is made in the log instead:
+One event kind *can* be made to work, and an earlier draft of this document
+wrongly said it could not. If the fold tracks how many tool calls are
+outstanding — the count it would need anyway to know the message array is at
+rest — it can buffer a `steer_message` and emit it only once every outstanding
+call has its result. The position is then stable for every prefix, and
+`TestAppendOnly` holds. So the choice below is not forced by the append-only
+property; it is made on three other grounds, and a later reader deciding to
+collapse the two kinds should weigh these rather than re-derive a prohibition
+that does not exist:
+
+- **The fold stays a dumb switch.** Buffering moves state into the one
+  function whose simplicity the prompt cache rests on. The append-only proof
+  would newly depend on the outstanding-call bookkeeping being right in every
+  case — parallel calls, a denial among the results, a crash mid-round.
+- **Both folds would need it.** `web/src/api/fold.ts` walks the same log and
+  must agree in shape (ARCHITECTURE.md). With two kinds the browser matches
+  `source_seq` and is done; with one it has to re-derive the same tracking to
+  know a steer has actually been delivered.
+- **A wedged run stays legible.** The case that started this plan is a run
+  that never reaches another boundary. With two kinds, a steer sits in the log
+  as sent-and-never-applied, which is exactly what the transcript should show.
+  With one, "queued" and "delivered" are the same event and the operator
+  cannot tell the difference — on precisely the run where the difference is
+  the diagnosis.
+
+The delivery point is identical either way: a steer reaches the model at the
+next sub-turn boundary, never mid-call. So the split is made in the log:
 
 | Kind | Appended by | In the fold? | Meaning |
 | --- | --- | --- | --- |
