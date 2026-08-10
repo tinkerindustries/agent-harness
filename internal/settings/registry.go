@@ -60,6 +60,7 @@ const (
 	KeyToolOutputCap                 = "tools.output_cap"
 	KeyToolBashTimeout               = "tools.bash_timeout"
 	KeyToolBashTimeoutMax            = "tools.bash_timeout_max"
+	KeyToolBashWaitDelay             = "tools.bash_wait_delay"
 	KeyToolTimeout                   = "tools.tool_timeout"
 	KeyToolWebFetchTimeout           = "tools.webfetch_timeout"
 	KeyToolTaskTimeout               = "tools.task_timeout"
@@ -138,6 +139,8 @@ var registry = []Descriptor{
 		"Default wall-clock timeout for a Bash call that omits timeout"),
 	durationSetting(KeyToolBashTimeoutMax, GroupToolLimits, "10m", time.Second, 24*time.Hour,
 		"Ceiling a Bash call's requested timeout is clamped to"),
+	durationSetting(KeyToolBashWaitDelay, GroupToolLimits, "2s", 100*time.Millisecond, 5*time.Minute,
+		"How long a Bash call keeps waiting for a command's output pipes to close after the command exits or is cancelled, before it stops waiting and kills the process group. A command that backgrounds a process without redirecting its output holds the pipes open after the shell exits; this bounds that wait so the call cannot hang, and the process group kill takes the orphan with it."),
 	durationSetting(KeyToolTimeout, GroupToolLimits, "30s", time.Second, 24*time.Hour,
 		"Default wall-clock timeout for every other tool"),
 	durationSetting(KeyToolWebFetchTimeout, GroupToolLimits, "45s", time.Second, 24*time.Hour,
