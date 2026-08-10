@@ -459,20 +459,22 @@ func TestPoolMalformedRequestTermsWithoutRunning(t *testing.T) {
 	}
 }
 
-// TestPoolHandleTakesOverAbandonedRow drives Pool.handle with a fake
-// jetstream.Msg reporting a redelivery, against a work_requests row shaped
-// like one a dead process abandoned mid-run. It covers the routing a
-// kill-and-restart exercises, without waiting on the real 60s AckWait.
-func TestPoolHandleTakesOverAbandonedRow(t *testing.T) {
+// TestPoolHandleSpentRequestClosesSessionFailsAndTerms drives Pool.handle
+// with a fake jetstream.Msg reporting a redelivery, against a work_requests
+// row shaped like one a dead process abandoned mid-run: the row carries the
+// session id, so the request is single-use and must never run again. The
+// spent-request path has to close the abandoned session (which otherwise sat
+// running in the list forever), publish a failed result naming the reason
+// and the retry, and Term the message. It covers the routing a kill-and-
+// restart exercises, without waiting on the real 60s AckWait.
+func TestPoolHandleSpentRequestClosesSessionFailsAndTerms(t *testing.T) {
 	hits := &hitCounter{}
-	// A small delay gives the heartbeat ticker (30ms in this harness) at
-	// least one tick to fire before the run completes.
-	srv := plainAnswerServer(t, "continued", 60*time.Millisecond, hits)
+	srv := plainAnswerServer(t, "must never run", 0, hits)
 	defer srv.Close()
 
 	h := newTestHarness(t, srv.URL, 4)
 
-	requestID := uniqueID("req-takeover")
+	requestID := uniqueID("req-spent")
 
 	ctx := context.Background()
 	if _, err := h.pool.Store.ClaimWorkRequest(ctx, requestID, 1, time.Now()); err != nil {
@@ -481,6 +483,10 @@ func TestPoolHandleTakesOverAbandonedRow(t *testing.T) {
 	if err := h.pool.Store.SetWorkRequestSession(ctx, requestID, "sess-abandoned-fake"); err != nil {
 		t.Fatalf("attach abandoned session: %v", err)
 	}
+	// The abandoned attempt's session row exists, running, with no events —
+	// the abandoned-during-preparation shape that passes the idle check.
+	mustCreatePoolSession(t, h, "sess-abandoned-fake")
+
 	reqBody, err := json.Marshal(queue.Request{RequestID: requestID, Prompt: "continue", Repos: testRepos(), PermissionMode: "full"})
 	if err != nil {
 		t.Fatal(err)
@@ -488,36 +494,144 @@ func TestPoolHandleTakesOverAbandonedRow(t *testing.T) {
 	msg := &fakeMsg{data: reqBody, numDelivered: 2}
 	h.pool.handle(msg)
 
-	if !msg.wasAcked() {
-		t.Fatalf("expected the takeover to finish and ack; acked=%v termed=%v nakked=%v", msg.acked, msg.termed, msg.nakked)
-	}
-	if msg.inProgress == 0 {
-		t.Fatal("expected at least one InProgress heartbeat during the run")
+	if !msg.wasTermed() {
+		t.Fatalf("expected the spent request's message to be termed; acked=%v termed=%v nakked=%v", msg.acked, msg.termed, msg.nakked)
 	}
 
+	// The session is closed, not left running forever.
+	sess, err := h.pool.Store.GetSession(ctx, "sess-abandoned-fake")
+	if err != nil {
+		t.Fatalf("get abandoned session: %v", err)
+	}
+	if sess.Status == store.StatusRunning {
+		t.Fatal("expected the abandoned session to be closed, not left running")
+	}
+	if sess.FinishedAt == nil {
+		t.Fatal("expected the abandoned session to carry a finished_at")
+	}
+
+	// The work_requests row is terminal with a failed result naming the
+	// reason and the retry.
 	row, err := h.pool.Store.GetWorkRequest(ctx, requestID)
 	if err != nil {
 		t.Fatalf("get work request: %v", err)
 	}
-	if row.SessionID == "sess-abandoned-fake" {
-		t.Fatal("expected a fresh session to have taken over, not the abandoned one")
+	if row.Status != queue.StatusFailed {
+		t.Fatalf("expected the row to be recorded failed, got %q", row.Status)
 	}
-	if row.Status != queue.StatusOK {
-		t.Fatalf("expected the row to finish ok, got %+v", row)
+	if !strings.Contains(string(row.Result), "abandoned") ||
+		!strings.Contains(string(row.Result), "single-use") ||
+		!strings.Contains(string(row.Result), "new request_id") {
+		t.Fatalf("expected the stored result to name the reason and the retry, got %s", row.Result)
 	}
 
-	sess, err := h.pool.Store.GetSession(ctx, row.SessionID)
+	// The caller gets the failed result on the RESULTS stream.
+	res := h.fetchFinalResult(t, requestID, 5*time.Second)
+	if res.Status != queue.StatusFailed {
+		t.Fatalf("expected a failed result on the stream, got %+v", res)
+	}
+	if res.Error == nil || res.Error.Code != "abandoned" {
+		t.Fatalf("expected error code abandoned, got %+v", res.Error)
+	}
+	if res.SessionID != "sess-abandoned-fake" {
+		t.Fatalf("expected the result to carry the abandoned session id, got %q", res.SessionID)
+	}
+
+	// The fake DeepSeek server was never hit: nothing re-ran.
+	if hits.count() != 0 {
+		t.Fatalf("expected no session to have run for a spent request, got %d hits", hits.count())
+	}
+}
+
+// TestPoolHandleSpentRequestStillActiveLeavesRowAlone is the false-redelivery
+// guard: a redelivery whose abandoned session is actually still live (its
+// most recent event is newer than the idle threshold) must not be closed.
+// The message falls through to the duplicate-handling path — which polls
+// until this request's own deadline, then naks for a later delivery — and
+// both rows stay exactly as they were.
+func TestPoolHandleSpentRequestStillActiveLeavesRowAlone(t *testing.T) {
+	hits := &hitCounter{}
+	srv := plainAnswerServer(t, "must never run", 0, hits)
+	defer srv.Close()
+
+	h := newTestHarness(t, srv.URL, 4)
+
+	requestID := uniqueID("req-live")
+
+	ctx := context.Background()
+	if _, err := h.pool.Store.ClaimWorkRequest(ctx, requestID, 1, time.Now()); err != nil {
+		t.Fatalf("simulate original claim: %v", err)
+	}
+	if err := h.pool.Store.SetWorkRequestSession(ctx, requestID, "sess-still-live"); err != nil {
+		t.Fatalf("attach session: %v", err)
+	}
+	// The original attempt is alive: its session row exists, running, and has
+	// a just-appended event, which is newer than the idle threshold.
+	mustCreatePoolSession(t, h, "sess-still-live")
+	if _, err := h.pool.Store.AppendEvents(ctx, "sess-still-live", []store.EventInput{
+		{Kind: store.KindSessionStarted, Payload: store.SessionStartedPayload{OpeningMessage: "hi"}},
+	}); err != nil {
+		t.Fatalf("append event: %v", err)
+	}
+
+	// A short deadline so the wait-for-resolution fallback gives up quickly
+	// and naks for a later delivery instead of running.
+	reqBody, err := json.Marshal(queue.Request{
+		RequestID: requestID, Prompt: "continue", Repos: testRepos(), PermissionMode: "full",
+		DeadlineMS: 400,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	msg := &fakeMsg{data: reqBody, numDelivered: 2}
+	h.pool.handle(msg)
+
+	if !msg.wasNakked() {
+		t.Fatalf("expected the duplicate to be nakked for a later delivery after the wait deadline; acked=%v termed=%v nakked=%v",
+			msg.acked, msg.termed, msg.nakked)
+	}
+	if msg.wasTermed() {
+		t.Fatal("a live attempt must never be failed and termed")
+	}
+
+	// The live session is untouched — the whole point of the idle check.
+	sess, err := h.pool.Store.GetSession(ctx, "sess-still-live")
 	if err != nil {
 		t.Fatalf("get session: %v", err)
 	}
-	if sess.ParentID != "sess-abandoned-fake" {
-		t.Fatalf("expected the new session's parent_id to link to the abandoned session, got %q", sess.ParentID)
+	if sess.Status != store.StatusRunning {
+		t.Fatalf("expected the live session to stay running, got %q", sess.Status)
 	}
 
-	// The takeover works in a directory of its own rather than the
-	// abandoned attempt's half-finished tree.
-	if sess.Workspace == filepath.Join(h.root, "sess-abandoned-fake") {
-		t.Fatal("expected the takeover to get its own workspace, not the abandoned session's")
+	// The work_requests row is untouched too: still running under the live
+	// session, and no result was published for a request that is still alive.
+	row, err := h.pool.Store.GetWorkRequest(ctx, requestID)
+	if err != nil {
+		t.Fatalf("get work request: %v", err)
+	}
+	if row.Status != store.WorkRequestStatusRunning || row.SessionID != "sess-still-live" {
+		t.Fatalf("expected the row to stay running under the live session, got %+v", row)
+	}
+	if hits.count() != 0 {
+		t.Fatalf("expected no session to have run, got %d hits", hits.count())
+	}
+}
+
+// mustCreatePoolSession creates a running session row for the pool tests,
+// the minimum the store needs.
+func mustCreatePoolSession(t *testing.T, h *testHarness, id string) {
+	t.Helper()
+	err := h.pool.Store.CreateSession(context.Background(), store.Session{
+		ID:             id,
+		Model:          "test-model",
+		Effort:         "high",
+		Workspace:      filepath.Join(h.root, id),
+		PermissionMode: "full",
+		SystemPrompt:   "sys",
+		ToolSchema:     json.RawMessage(`[]`),
+	})
+	if err != nil {
+		t.Fatalf("create session %s: %v", id, err)
 	}
 }
 
