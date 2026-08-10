@@ -4,7 +4,6 @@
 package config
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -44,7 +43,6 @@ const (
 
 // Config is the harness's runtime configuration, read from the environment.
 type Config struct {
-	APIKey         string
 	BaseURL        string
 	Model          string
 	FlashModel     string
@@ -104,11 +102,6 @@ type Config struct {
 // Load reads Config from the environment. Call config.LoadDotEnv first if
 // .env should be consulted.
 func Load() (Config, error) {
-	apiKey := os.Getenv("DEEPSEEK_API_KEY")
-	if apiKey == "" {
-		return Config{}, errors.New("DEEPSEEK_API_KEY is not set")
-	}
-
 	maxTokens := defaultMaxTokens
 	if v := os.Getenv("DEEPSEEK_MAX_TOKENS"); v != "" {
 		n, err := strconv.Atoi(v)
@@ -165,7 +158,6 @@ func Load() (Config, error) {
 	}
 
 	return Config{
-		APIKey:                apiKey,
 		BaseURL:               envOr("DEEPSEEK_BASE_URL", defaultBaseURL),
 		Model:                 envOr("DEEPSEEK_MODEL", defaultModel),
 		FlashModel:            envOr("DEEPSEEK_FLASH_MODEL", defaultFlashModel),
