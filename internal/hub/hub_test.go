@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
 
@@ -130,6 +131,25 @@ func TestSubscribeListReceivesSnapshot(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for list event")
+	}
+}
+
+// TestBuildSessionStateCarriesProvenance asserts the job type and parent
+// agent fields on a stored session reach the wire row unchanged, so both the
+// REST list and the session_state stream surface them.
+func TestBuildSessionStateCarriesProvenance(t *testing.T) {
+	sess := store.Session{
+		ID:              "sess-1",
+		JobType:         agentmeta.JobTypeOrchestration,
+		ParentAgentType: "claude-code",
+		ParentAgentID:   "sess-parent-1",
+	}
+	st := BuildSessionState(sess, store.SessionUsageSummary{}, "req-1", "")
+	if st.JobType != agentmeta.JobTypeOrchestration {
+		t.Fatalf("expected job type %q on the wire row, got %q", agentmeta.JobTypeOrchestration, st.JobType)
+	}
+	if st.ParentAgentType != "claude-code" || st.ParentAgentID != "sess-parent-1" {
+		t.Fatalf("expected parent agent claude-code/sess-parent-1 on the wire row, got %q/%q", st.ParentAgentType, st.ParentAgentID)
 	}
 }
 

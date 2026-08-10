@@ -14,6 +14,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/config"
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 )
@@ -110,6 +111,57 @@ func TestHandleLaunchQueuedOutcome(t *testing.T) {
 	records := svc.Registry.list()
 	if len(records) != 1 || records[0].RequestID != lo.RequestID || records[0].Status != "queued" {
 		t.Fatalf("expected the registry to record the queued launch, got %+v", records)
+	}
+}
+
+// capturingJS wraps a real JetStream handle and keeps the payload of the
+// last synchronous publish, so a test can assert the exact bytes handleLaunch
+// puts on the WORK stream. A second consumer cannot read them back: the WORK
+// stream is WorkQueue-retention and already has the harness-workers durable,
+// and a workqueue stream admits only one consumer per subject filter.
+type capturingJS struct {
+	jetstream.JetStream
+	published []byte
+}
+
+func (c *capturingJS) Publish(ctx context.Context, subject string, payload []byte, opts ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
+	c.published = append([]byte(nil), payload...)
+	return c.JetStream.Publish(ctx, subject, payload, opts...)
+}
+
+// TestHandleLaunchCarriesProvenance launches with a job type and a parent
+// agent set and captures the published work request, asserting the three
+// provenance fields reach the wire unchanged.
+func TestHandleLaunchCarriesProvenance(t *testing.T) {
+	_, js := connectOrSkip(t)
+	ensureTestStreams(t, js)
+	svc := newIntegrationService(t, js)
+	captured := &capturingJS{JetStream: js}
+	svc.JS = captured
+
+	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{
+		PermissionMode: "full",
+		Description:    "provenance test", Prompt: "do something", Repos: testLaunchRepos(),
+		JobType:         agentmeta.JobTypeOrchestration,
+		ParentAgentType: "claude-code",
+		ParentAgentID:   "sess-parent-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected protocol error: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected error result: %+v", res.Content)
+	}
+
+	var got queue.Request
+	if err := json.Unmarshal(captured.published, &got); err != nil {
+		t.Fatalf("parse published work request: %v", err)
+	}
+	if got.JobType != agentmeta.JobTypeOrchestration {
+		t.Fatalf("expected job type %q on the published request, got %q", agentmeta.JobTypeOrchestration, got.JobType)
+	}
+	if got.ParentAgentType != "claude-code" || got.ParentAgentID != "sess-parent-1" {
+		t.Fatalf("expected parent agent claude-code/sess-parent-1 on the published request, got %q/%q", got.ParentAgentType, got.ParentAgentID)
 	}
 }
 

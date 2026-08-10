@@ -13,18 +13,21 @@ import (
 // GET /api/stream, so the browser's fold treats a row the same way
 // regardless of which one delivered it.
 type SessionState struct {
-	ID             string     `json:"id"`
-	ParentID       string     `json:"parent_id,omitempty"`
-	RequestID      string     `json:"request_id,omitempty"`
-	Model          string     `json:"model"`
-	Effort         string     `json:"effort"`
-	Workspace      string     `json:"workspace"`
-	PermissionMode string     `json:"permission_mode"`
-	Status         string     `json:"status"`
-	CreatedAt      time.Time  `json:"created_at"`
-	FinishedAt     *time.Time `json:"finished_at,omitempty"`
-	SubTurns       int        `json:"sub_turns"`
-	Usage          Usage      `json:"usage"`
+	ID              string     `json:"id"`
+	ParentID        string     `json:"parent_id,omitempty"`
+	RequestID       string     `json:"request_id,omitempty"`
+	JobType         string     `json:"job_type,omitempty"`
+	ParentAgentType string     `json:"parent_agent_type,omitempty"`
+	ParentAgentID   string     `json:"parent_agent_id,omitempty"`
+	Model           string     `json:"model"`
+	Effort          string     `json:"effort"`
+	Workspace       string     `json:"workspace"`
+	PermissionMode  string     `json:"permission_mode"`
+	Status          string     `json:"status"`
+	CreatedAt       time.Time  `json:"created_at"`
+	FinishedAt      *time.Time `json:"finished_at,omitempty"`
+	SubTurns        int        `json:"sub_turns"`
+	Usage           Usage      `json:"usage"`
 	// PriceTableDate is the price table's own capture date, carried
 	// alongside Usage so a cost figure never appears without saying how
 	// current it is (docs/DESIGN.md §4.9). Empty when the caller building
@@ -51,17 +54,20 @@ type Usage struct {
 // store query) build the identical shape from it.
 func BuildSessionState(sess store.Session, summary store.SessionUsageSummary, requestID, priceTableDate string) SessionState {
 	return SessionState{
-		ID:             sess.ID,
-		ParentID:       sess.ParentID,
-		RequestID:      requestID,
-		Model:          sess.Model,
-		Effort:         sess.Effort,
-		Workspace:      sess.Workspace,
-		PermissionMode: sess.PermissionMode,
-		Status:         sess.Status,
-		CreatedAt:      sess.CreatedAt,
-		FinishedAt:     sess.FinishedAt,
-		SubTurns:       summary.SubTurns,
+		ID:              sess.ID,
+		ParentID:        sess.ParentID,
+		RequestID:       requestID,
+		JobType:         sess.JobType,
+		ParentAgentType: sess.ParentAgentType,
+		ParentAgentID:   sess.ParentAgentID,
+		Model:           sess.Model,
+		Effort:          sess.Effort,
+		Workspace:       sess.Workspace,
+		PermissionMode:  sess.PermissionMode,
+		Status:          sess.Status,
+		CreatedAt:       sess.CreatedAt,
+		FinishedAt:      sess.FinishedAt,
+		SubTurns:        summary.SubTurns,
 		Usage: Usage{
 			CacheHitTokens:   summary.PromptCacheHitTokens,
 			CacheMissTokens:  summary.PromptCacheMissTokens,

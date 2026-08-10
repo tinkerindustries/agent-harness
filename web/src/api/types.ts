@@ -7,6 +7,9 @@ export interface SessionState {
   id: string;
   parent_id?: string;
   request_id?: string;
+  job_type?: string;
+  parent_agent_type?: string;
+  parent_agent_id?: string;
   model: string;
   effort: string;
   workspace: string;

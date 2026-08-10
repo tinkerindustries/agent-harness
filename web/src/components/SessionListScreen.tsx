@@ -75,6 +75,7 @@ export function SessionListScreen({ onOpen }: Props) {
               </td>
               <td>
                 {sess.model} <span className="dim">({sess.effort})</span>
+                {sess.job_type && <span className="dim"> · {sess.job_type}</span>}
               </td>
               <td className="workspace-cell" title={sess.workspace}>
                 {sess.workspace}
