@@ -394,5 +394,5 @@ export function PerfHarnessScreen() {
 
 function PerfMount({ store }: { store: TranscriptStore }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  return <BlockList blocks={snapshot.blocks} live={snapshot.live} />;
+  return <BlockList items={snapshot.items} live={snapshot.live} />;
 }

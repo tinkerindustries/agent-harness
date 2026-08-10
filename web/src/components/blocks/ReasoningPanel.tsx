@@ -8,7 +8,9 @@ function approxTokens(text: string): number {
   return Math.max(1, Math.round(text.length / 4));
 }
 
-function formatElapsed(ms: number): string {
+// formatElapsed is shared with SubTurnCard, which shows the same wall-clock
+// figure in the sub-turn header.
+export function formatElapsed(ms: number): string {
   if (ms < 0 || !Number.isFinite(ms)) return "";
   const s = ms / 1000;
   return s < 10 ? `${s.toFixed(1)}s` : `${Math.round(s)}s`;
