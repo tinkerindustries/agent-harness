@@ -3,6 +3,8 @@ package queue
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 )
 
 func TestParseRequestRoundTrips(t *testing.T) {
@@ -224,5 +226,38 @@ func TestValidateRejectsNegativeLimits(t *testing.T) {
 	}
 	if err := (Request{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: "full", DeadlineMS: -1}).Validate(); err == nil {
 		t.Fatal("expected negative deadline_ms to be rejected")
+	}
+}
+
+// The provenance fields are optional: a request that knows nothing about
+// them, and one that names a valid job type and parent agent, both pass.
+func TestValidateAcceptsProvenanceFields(t *testing.T) {
+	cases := []Request{
+		{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: "full",
+			JobType: agentmeta.JobTypeOrchestration, ParentAgentType: "orchestrator", ParentAgentID: "orch-1"},
+		{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: "full",
+			JobType: agentmeta.JobTypeImplementation, ParentAgentType: agentmeta.ParentAgentUser},
+		{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: "full"},
+	}
+	for _, req := range cases {
+		if err := req.Validate(); err != nil {
+			t.Errorf("Validate: %v", err)
+		}
+	}
+}
+
+// A present-but-malformed provenance field fails validation; an absent one
+// never does.
+func TestValidateRejectsMalformedProvenanceFields(t *testing.T) {
+	cases := []Request{
+		{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: "full", JobType: "orchestrator"},
+		{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: "full", ParentAgentID: "id-with-no-type"},
+		{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: "full",
+			ParentAgentType: agentmeta.ParentAgentUser, ParentAgentID: "someone"},
+	}
+	for _, req := range cases {
+		if err := req.Validate(); err == nil {
+			t.Errorf("expected validation to fail for %+v", req)
+		}
 	}
 }

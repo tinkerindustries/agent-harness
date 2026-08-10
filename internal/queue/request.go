@@ -12,22 +12,26 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 )
 
 // Request is a work request as it arrives on the WORK stream
 // (docs/DESIGN.md §4.10).
 type Request struct {
-	RequestID      string          `json:"request_id"`
-	Prompt         string          `json:"prompt"`
-	Repos          []Repo          `json:"repos"`
-	Model          string          `json:"model,omitempty"`
-	Effort         string          `json:"effort,omitempty"`
-	PermissionMode string          `json:"permission_mode"`
-	Deny           []string        `json:"deny,omitempty"`
-	ResultSchema   json.RawMessage `json:"result_schema,omitempty"`
-	MaxSubTurns    int             `json:"max_sub_turns,omitempty"`
-	DeadlineMS     int64           `json:"deadline_ms,omitempty"`
+	RequestID       string          `json:"request_id"`
+	Prompt          string          `json:"prompt"`
+	Repos           []Repo          `json:"repos"`
+	Model           string          `json:"model,omitempty"`
+	Effort          string          `json:"effort,omitempty"`
+	PermissionMode  string          `json:"permission_mode"`
+	Deny            []string        `json:"deny,omitempty"`
+	ResultSchema    json.RawMessage `json:"result_schema,omitempty"`
+	MaxSubTurns     int             `json:"max_sub_turns,omitempty"`
+	DeadlineMS      int64           `json:"deadline_ms,omitempty"`
+	JobType         string          `json:"job_type,omitempty"`
+	ParentAgentType string          `json:"parent_agent_type,omitempty"`
+	ParentAgentID   string          `json:"parent_agent_id,omitempty"`
 }
 
 // Repo is one checkout a request asks for. The worker clones each one into
@@ -116,6 +120,12 @@ func (r Request) Validate() error {
 	}
 	if r.DeadlineMS < 0 {
 		return errors.New("queue: deadline_ms must not be negative")
+	}
+	if err := agentmeta.ValidateJobType(r.JobType); err != nil {
+		return fmt.Errorf("queue: %w", err)
+	}
+	if err := agentmeta.ValidateParentAgent(r.ParentAgentType, r.ParentAgentID); err != nil {
+		return fmt.Errorf("queue: %w", err)
 	}
 
 	return nil
