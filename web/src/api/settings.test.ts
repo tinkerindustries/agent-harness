@@ -27,28 +27,62 @@ function stubFetch(): ReturnType<typeof vi.fn> {
   return fetchMock;
 }
 
+// registryRow builds one server row in the current wire shape: the registry
+// descriptor plus set state. The client must pass it through untouched.
+function registryRow(overrides: Partial<Parameters<typeof Object.assign>[0]> = {}): Record<string, unknown> {
+  return {
+    key: "run.max_tokens",
+    group: "Run budget",
+    type: "integer",
+    default: "48000",
+    description: "Default max output tokens",
+    secret: false,
+    restart: false,
+    set: false,
+    override: false,
+    ...overrides,
+  };
+}
+
 describe("listSettings", () => {
-  it("GETs /api/settings and parses the entry array, omitting value for an unset key", async () => {
+  it("GETs /api/settings and parses the descriptor rows, omitting value for an unset key", async () => {
     const mock = stubFetch();
     mock.mockResolvedValue(
       fakeResponse(200, [
-        { key: "deepseek.api_key", set: false },
-        { key: "google.api_key", set: true, value: "****abcd" },
-        { key: "google.vision_model", set: true, value: "gemini-3.5-flash" },
+        registryRow(),
+        registryRow({
+          key: "deepseek.api_key",
+          group: "Credentials",
+          type: "string",
+          default: "",
+          secret: true,
+          set: true,
+          override: true,
+          value: "****abcd",
+        }),
+        registryRow({ key: "worker.pool_size", group: "Requires a restart", default: "4", restart: true }),
       ]),
     );
 
     const entries = await listSettings();
 
     expect(mock).toHaveBeenCalledWith("/api/settings");
-    const [entriesWithKeys] = entries;
     expect(entries).toHaveLength(3);
-    expect(entries[0]).toEqual({ key: "deepseek.api_key", set: false });
+    expect(entries[0]).toEqual({
+      key: "run.max_tokens",
+      group: "Run budget",
+      type: "integer",
+      default: "48000",
+      description: "Default max output tokens",
+      secret: false,
+      restart: false,
+      set: false,
+      override: false,
+    });
     expect(entries[0].value).toBeUndefined();
-    expect(entries[1]).toEqual({ key: "google.api_key", set: true, value: "****abcd" });
-    expect(entries[2]).toEqual({ key: "google.vision_model", set: true, value: "gemini-3.5-flash" });
-    // TS narrowing check that the unset row really has no value member.
-    expect("value" in entriesWithKeys!).toBe(false);
+    expect(entries[1].value).toBe("****abcd");
+    expect(entries[1].secret).toBe(true);
+    expect(entries[2].restart).toBe(true);
   });
 
   it("turns a server error into a readable Error carrying the message", async () => {
@@ -76,9 +110,15 @@ describe("setSetting", () => {
   });
 
   it("carries a 400 unknown-key message out as the Error", async () => {
-    stubFetch().mockResolvedValue(fakeResponse(400, { error: 'unknown setting "deepsek.api_key"; valid settings: deepseek.api_key, google.api_key, google.vision_model' }));
+    stubFetch().mockResolvedValue(fakeResponse(400, { error: 'unknown setting "deepsek.api_key"; valid settings: ...' }));
 
     await expect(setSetting("deepsek.api_key", "sk-x")).rejects.toThrow('unknown setting "deepsek.api_key"');
+  });
+
+  it("carries a 400 validation message out as the Error — the registry's bound, surfaced verbatim", async () => {
+    stubFetch().mockResolvedValue(fakeResponse(400, { error: "tools.bash_timeout: -5s is out of range [1s, 24h0m0s]" }));
+
+    await expect(setSetting("tools.bash_timeout", "-5s")).rejects.toThrow("out of range");
   });
 
   it("falls back to the status line when the error body is not JSON", async () => {
@@ -97,7 +137,7 @@ describe("setSetting", () => {
 });
 
 describe("deleteSetting", () => {
-  it("DELETEs /api/settings/{key} with the JSON content type, no body", async () => {
+  it("DELETEs /api/settings/{key} with the JSON content type, no body — the screen's 'reset to default'", async () => {
     const mock = stubFetch();
     mock.mockResolvedValue(fakeResponse(200, { ok: true }));
 

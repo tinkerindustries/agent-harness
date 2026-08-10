@@ -490,6 +490,24 @@ pre {
    (docs/DESIGN.md §4.2) — the browser's one write, key management only,
    no run control. */
 
+.settings-group {
+  margin-bottom: calc(var(--space) * 2);
+}
+
+.settings-group-heading {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-dim);
+  margin: 0 0 var(--space);
+}
+
+.settings-restart {
+  background: transparent;
+  color: var(--color-warn);
+  border: 1px solid var(--color-warn);
+}
+
 .settings-row {
   border: 1px solid var(--color-border);
   border-radius: 4px;

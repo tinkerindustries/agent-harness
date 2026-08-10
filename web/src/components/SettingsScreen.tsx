@@ -18,23 +18,33 @@ interface RowState {
   error: string | null;
 }
 
-// describe is display-only wording for the three known keys
-// (internal/settings), keyed so a key added server-side still renders (its
-// key alone) without the screen pretending to know what it is for.
-const DESCRIPTIONS: Record<string, string> = {
-  "deepseek.api_key": "DeepSeek API key — the harness's own account",
-  "google.api_key": "Google API key — sent to Gemini by ReviewScreenshot",
-  "google.vision_model": "Gemini model ReviewScreenshot sends screenshots to",
-};
-
-function describe(key: string): string {
-  return DESCRIPTIONS[key] ?? key;
+// groupBy renders the server's registry order into heading groups, keeping
+// first-seen order so the screen shows the same grouping the CLI prints.
+function groupBy(entries: SettingEntry[]): [string, SettingEntry[]][] {
+  const groups: [string, SettingEntry[]][] = [];
+  const byGroup = new Map<string, SettingEntry[]>();
+  for (const entry of entries) {
+    let list = byGroup.get(entry.group);
+    if (!list) {
+      list = [];
+      byGroup.set(entry.group, list);
+      groups.push([entry.group, list]);
+    }
+    list.push(entry);
+  }
+  return groups;
 }
 
-// The two secret keys are typed into a password field so what is being
-// entered is not legible over a shoulder. This is input masking only — the
-// display value beside the field is whatever mask the server decided.
-const SECRET_KEYS: ReadonlySet<string> = new Set(["deepseek.api_key", "google.api_key"]);
+// inputType picks the input kind for a registry type: integers get a number
+// input, secrets a password field (input masking only — the display value
+// beside the field is whatever mask the server decided), everything else
+// text. Durations stay text: "30s", "10m", "1h" — a plain number input would
+// invite the wrong unit.
+function inputType(entry: SettingEntry): "number" | "password" | "text" {
+  if (entry.secret) return "password";
+  if (entry.type === "integer") return "number";
+  return "text";
+}
 
 export function SettingsScreen({ onBack }: Props) {
   const [entries, setEntries] = useState<SettingEntry[] | null>(null);
@@ -87,7 +97,7 @@ export function SettingsScreen({ onBack }: Props) {
     }
   }
 
-  async function unset(key: string) {
+  async function resetToDefault(key: string) {
     setRows((prev) => ({ ...prev, [key]: { ...prev[key], busy: true, error: null } }));
     try {
       await deleteSetting(key);
@@ -116,54 +126,68 @@ export function SettingsScreen({ onBack }: Props) {
       )}
       {entries === null && !loadError && <p className="dim">Loading settings…</p>}
       {entries !== null &&
-        entries.map((entry) => {
-          const row = rows[entry.key] ?? { draft: "", busy: false, error: null };
-          return (
-            <div className="settings-row" key={entry.key}>
-              <div className="settings-row-head">
-                <span className="settings-key">{entry.key}</span>
-                <span className="dim">{describe(entry.key)}</span>
-              </div>
-              <div className="settings-current">
-                {entry.set ? (
-                  <>
-                    <span className="status-badge status-ok">set</span>
-                    <span className="settings-value">{entry.value}</span>
-                  </>
-                ) : (
-                  <span className="dim">not set</span>
-                )}
-              </div>
-              <div className="settings-write">
-                <input
-                  className="settings-input"
-                  type={SECRET_KEYS.has(entry.key) ? "password" : "text"}
-                  placeholder={entry.set ? "replace current value" : "set a value"}
-                  value={row.draft}
-                  onChange={(ev) => updateDraft(entry.key, ev.target.value)}
-                  disabled={row.busy}
-                  spellCheck={false}
-                  autoComplete="off"
-                />
-                <button
-                  className="back-button"
-                  onClick={() => save(entry.key)}
-                  disabled={row.busy || row.draft === ""}
-                >
-                  Save
-                </button>
-                <button
-                  className="back-button"
-                  onClick={() => unset(entry.key)}
-                  disabled={row.busy || !entry.set}
-                >
-                  Unset
-                </button>
-                {row.error && <span className="settings-error">{row.error}</span>}
-              </div>
-            </div>
-          );
-        })}
+        groupBy(entries).map(([group, groupEntries]) => (
+          <section className="settings-group" key={group}>
+            <h2 className="settings-group-heading">{group}</h2>
+            {groupEntries.map((entry) => {
+              const row = rows[entry.key] ?? { draft: "", busy: false, error: null };
+              const placeholder = entry.set ? "replace current value" : entry.default;
+              return (
+                <div className="settings-row" key={entry.key}>
+                  <div className="settings-row-head">
+                    <span className="settings-key">{entry.key}</span>
+                    {entry.restart && <span className="status-badge settings-restart">restart</span>}
+                    <span className="dim">{entry.description}</span>
+                  </div>
+                  <div className="settings-current">
+                    {entry.set ? (
+                      <>
+                        <span className={`status-badge ${entry.override ? "status-warn" : "status-ok"}`}>
+                          {entry.override ? "override" : "default"}
+                        </span>
+                        <span className="settings-value">{entry.value}</span>
+                        {entry.override && <span className="dim">default {entry.default}</span>}
+                      </>
+                    ) : (
+                      <>
+                        <span className="status-badge status-ok">default</span>
+                        <span className="dim">not set — default {entry.default} applies</span>
+                      </>
+                    )}
+                  </div>
+                  <div className="settings-write">
+                    <input
+                      className="settings-input"
+                      type={inputType(entry)}
+                      placeholder={placeholder}
+                      value={row.draft}
+                      onChange={(ev) => updateDraft(entry.key, ev.target.value)}
+                      disabled={row.busy}
+                      spellCheck={false}
+                      autoComplete="off"
+                    />
+                    <button
+                      className="back-button"
+                      onClick={() => save(entry.key)}
+                      disabled={row.busy || row.draft === ""}
+                    >
+                      Save
+                    </button>
+                    <button
+                      className="back-button"
+                      onClick={() => resetToDefault(entry.key)}
+                      disabled={row.busy || !entry.set}
+                      title="delete the stored value so the registry default applies"
+                    >
+                      reset to default
+                    </button>
+                    {row.error && <span className="settings-error">{row.error}</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </section>
+        ))}
     </div>
   );
 }
