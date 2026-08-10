@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { foldEvents } from "./fold";
-import { groupBySubTurn, groupMatchesFilter, SubTurnGroupState, type SubTurnGroup, type TranscriptItem } from "./groups";
-import type { StoreEvent } from "./types";
+import { FoldState, foldEvents } from "./fold";
+import { groupBySubTurn, groupMatchesFilter, phaseFromTodos, SubTurnGroupState, type SubTurnGroup, type TranscriptItem } from "./groups";
+import type { StoreEvent, Todo } from "./types";
 
 function ev(seq: number, kind: StoreEvent["kind"], payload: unknown): StoreEvent {
   return { session_id: "s", seq, kind, payload, created_at: `2026-01-01T00:00:${String(seq).padStart(2, "0")}Z` };
@@ -300,5 +300,120 @@ describe("filter counts", () => {
     const state = new SubTurnGroupState();
     state.sync(foldEvents(events));
     expect(state.churnPoint).toEqual({ subTurn: 1, excessTokens: 500 });
+  });
+});
+
+// The timeline rail's phase grouping (docs/WEB-REDESIGN.md phase 6): every
+// TodoWrite call in the event stream starts a phase, and the phase is named
+// after the plan item that was in_progress when it ran — read from the fold's
+// latestTodos, which the store passes into sync the way the real
+// TranscriptStore does (fold.ingest then groups.sync per event).
+function todoWrite(seq: number, id: string, todos: Todo[]): StoreEvent {
+  return ev(seq, "tool_call", { index: 0, id, name: "TodoWrite", arguments: JSON.stringify({ todos }) });
+}
+
+function todo(content: string, status: Todo["status"]): Todo {
+  return { content, status, activeForm: `working on ${content}` };
+}
+
+// foldedItems runs the store's exact pipeline — fold each event, then sync
+// the groups with the fold's current latestTodos — so phase labels are
+// captured at the moment each group freezes, exactly as in production.
+function foldedItems(events: StoreEvent[]): TranscriptItem[] {
+  const fold = new FoldState();
+  const groups = new SubTurnGroupState();
+  for (const event of events) {
+    fold.ingest(event);
+    groups.sync(fold.blocks, fold.latestTodos);
+  }
+  return groups.sync(fold.blocks, fold.latestTodos);
+}
+
+function groupsByTurn(items: TranscriptItem[]): Map<number, SubTurnGroup> {
+  const byTurn = new Map<number, SubTurnGroup>();
+  for (const item of items) {
+    if (item.kind === "group") byTurn.set(item.group.subTurn, item.group);
+  }
+  return byTurn;
+}
+
+describe("rail phase assignment", () => {
+  it("starts a phase on every TodoWrite call and names it from the fold's latestTodos at that moment", () => {
+    const plan1 = [todo("Fix retained-body leak", "in_progress"), todo("Add httplog test", "pending")];
+    const plan2 = [todo("Fix retained-body leak", "completed"), todo("Add httplog test", "in_progress")];
+    const events = [
+      ev(1, "session_started", { opening_message: "x" }),
+      // turn 1 writes the plan: phase 1 = item 1
+      ev(2, "turn_started", { sub_turn: 1 }),
+      todoWrite(3, "p1", plan1),
+      ev(4, "turn_finished", { finish_reason: "stop" }),
+      usage(1),
+      // turn 2 makes no TodoWrite: still phase 1
+      ev(5, "turn_started", { sub_turn: 2 }),
+      ev(6, "turn_finished", { finish_reason: "stop" }),
+      usage(2),
+      // turn 3 writes the next plan: phase 2 = item 2
+      ev(7, "turn_started", { sub_turn: 3 }),
+      todoWrite(8, "p2", plan2),
+      ev(9, "turn_finished", { finish_reason: "stop" }),
+      usage(3),
+    ];
+    const byTurn = groupsByTurn(foldedItems(events));
+    expect(byTurn.get(1)!.phase).toEqual({ id: 1, index: 1, label: "Fix retained-body leak" });
+    expect(byTurn.get(2)!.phase).toEqual({ id: 1, index: 1, label: "Fix retained-body leak" });
+    expect(byTurn.get(3)!.phase).toEqual({ id: 2, index: 2, label: "Add httplog test" });
+    // Groups in the same phase share the phase ref object; a phase change
+    // is a new object.
+    expect(byTurn.get(1)!.phase).toBe(byTurn.get(2)!.phase);
+    expect(byTurn.get(3)!.phase).not.toBe(byTurn.get(1)!.phase);
+  });
+
+  it("names the first phase from the first TodoWrite even when it arrives after earlier sub-turns", () => {
+    const plan = [todo("Survey", "in_progress")];
+    const events = [
+      ev(1, "session_started", { opening_message: "x" }),
+      // sub-turns 1-2 ran before any plan existed: phase 0, no label
+      ev(2, "turn_started", { sub_turn: 1 }),
+      ev(3, "turn_finished", { finish_reason: "stop" }),
+      usage(1),
+      ev(4, "turn_started", { sub_turn: 2 }),
+      ev(5, "turn_finished", { finish_reason: "stop" }),
+      usage(2),
+      // sub-turn 3 writes the first plan: the boundary sub-turn belongs to
+      // the phase its own TodoWrite opens
+      ev(6, "turn_started", { sub_turn: 3 }),
+      todoWrite(7, "p1", plan),
+      ev(8, "turn_finished", { finish_reason: "stop" }),
+      usage(3),
+    ];
+    const byTurn = groupsByTurn(foldedItems(events));
+    expect(byTurn.get(1)!.phase).toEqual({ id: 0, index: 0, label: "" });
+    expect(byTurn.get(2)!.phase).toEqual({ id: 0, index: 0, label: "" });
+    expect(byTurn.get(3)!.phase).toEqual({ id: 1, index: 1, label: "Survey" });
+  });
+
+  it("keeps a group's phase through its own tool-result append (the tail-group replacement path)", () => {
+    const plan = [todo("Edit config", "in_progress")];
+    const events = [
+      ev(1, "session_started", { opening_message: "x" }),
+      ev(2, "turn_started", { sub_turn: 1 }),
+      todoWrite(3, "p1", plan),
+      ev(4, "tool_call", { index: 1, id: "c1", name: "Edit", arguments: '{"file_path":"a.go"}' }),
+      ev(5, "turn_finished", { finish_reason: "tool_calls" }),
+      ev(6, "tool_result", { tool_call_id: "c1", name: "Edit", content: "edited" }),
+      usage(1),
+    ];
+    const items = foldedItems(events);
+    const group = groupsByTurn(items).get(1)!;
+    // The group was created with the phase; the tool-result append replaced
+    // the group object but must not re-assign its phase.
+    expect(group.phase).toEqual({ id: 1, index: 1, label: "Edit config" });
+    expect(group.blocks.map((b) => b.type)).toEqual(["assistant", "tool_result"]);
+  });
+
+  it("falls back to the first non-completed item when nothing is in_progress, and to empty when the plan is empty", () => {
+    expect(phaseFromTodos([todo("a", "pending"), todo("b", "completed")], 3)).toEqual({ id: 3, index: 1, label: "a" });
+    expect(phaseFromTodos([todo("a", "completed"), todo("b", "completed")], 3)).toEqual({ id: 3, index: 0, label: "" });
+    expect(phaseFromTodos([], 3)).toEqual({ id: 3, index: 0, label: "" });
   });
 });

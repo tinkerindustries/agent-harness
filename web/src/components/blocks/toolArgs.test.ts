@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DiffLine, ToolCallPayload } from "../../api/types";
-import { childStat, diffStat, formatCost, parseToolArgs, toolDetail, toolHeader } from "./toolArgs";
+import { childStat, diffStat, formatCost, parseToolArgs, toolDetail, toolGlyph, toolHeader } from "./toolArgs";
 
 function call(name: string, args: unknown): ToolCallPayload {
   return { index: 0, id: "c1", name, arguments: JSON.stringify(args) };
@@ -89,6 +89,24 @@ describe("childStat", () => {
   it("suppresses a zero sub-turn count rather than printing 0 sub-turns", () => {
     expect(childStat(0, 0.0043)).toBe("child · $0.0043");
     expect(childStat(0, 0)).toBe("child");
+  });
+});
+
+describe("toolGlyph", () => {
+  it("maps the design table's letters and families (design/components.html)", () => {
+    expect(toolGlyph("Edit")).toEqual({ letter: "E", family: "write" });
+    expect(toolGlyph("Write")).toEqual({ letter: "W", family: "write" });
+    expect(toolGlyph("Bash")).toEqual({ letter: "B", family: "shell" });
+    expect(toolGlyph("Read")).toEqual({ letter: "R", family: "other" });
+    expect(toolGlyph("Grep")).toEqual({ letter: "G", family: "other" });
+    expect(toolGlyph("Task")).toEqual({ letter: "T", family: "other" });
+    expect(toolGlyph("TodoWrite")).toEqual({ letter: "P", family: "other" });
+  });
+
+  it("falls back to the tool's first letter, neutral family, for tools the table does not name", () => {
+    expect(toolGlyph("Glob")).toEqual({ letter: "G", family: "other" });
+    expect(toolGlyph("Complete")).toEqual({ letter: "C", family: "other" });
+    expect(toolGlyph("")).toEqual({ letter: "?", family: "other" });
   });
 });
 
