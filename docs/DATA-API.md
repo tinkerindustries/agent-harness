@@ -22,23 +22,23 @@ Two distinctions bracket what belongs here:
 - **The store is the only record.** The event log is append-only and never
   editable; see [Events are not writable](#events-are-not-writable).
 
-Phase ownership: sessions (list, get, PATCH, DELETE) is built. Work requests
-(get, PATCH, DELETE), workspace leases (list, DELETE), events paging, and the
-admin UI are specified here and built in later phases. Settings is built and is
-the pattern the other resources follow.
+Phase ownership: sessions (list, get, PATCH, DELETE), work requests (get,
+PATCH, DELETE), and workspace leases (list, DELETE) are built. Events paging
+and the admin UI are specified here and built in later phases. Settings is
+built and is the pattern the other resources follow.
 
 ## Resource model
 
 Five resources. One shape of write everywhere: a guard trio (content type,
-origin, and — for sessions — the idle precondition), optimistic concurrency on
-the row, and a JSON error body.
+origin, and the idle precondition where the row a run may be using), optimistic
+concurrency on the row, and a JSON error body.
 
 | Resource | Endpoint | Read | Write | Phase |
 | --- | --- | --- | --- | --- |
-| sessions | `/api/sessions` | GET (list), GET `/api/sessions/{id}` | PATCH `/api/sessions/{id}`, DELETE `/api/sessions/{id}` | 1 (this one) |
+| sessions | `/api/sessions` | GET (list), GET `/api/sessions/{id}` | PATCH `/api/sessions/{id}`, DELETE `/api/sessions/{id}` | 1 (built) |
 | events | `/api/sessions/{id}/events` | GET (paged, `?from=&limit=`) | **none** | 4 (paging) |
-| work_requests | `/api/requests/{request_id}` | GET `/api/requests/{request_id}/status` (poll snapshot) | PATCH, DELETE `/api/requests/{request_id}` | 3 |
-| workspace_leases | `/api/leases` | GET (list) | DELETE `/api/leases/{workspace}` | 3 |
+| work_requests | `/api/requests/{request_id}` | GET `/api/requests/{request_id}` (row), GET `/api/requests/{request_id}/status` (poll snapshot) | PATCH, DELETE `/api/requests/{request_id}` | 3 (built) |
+| workspace_leases | `/api/leases` | GET (list) | DELETE `/api/leases/{workspace}` | 3 (built) |
 | settings | `/api/settings` | GET `/api/settings` | PUT, DELETE `/api/settings/{key}` | built |
 
 ### sessions
@@ -77,8 +77,10 @@ runs again, whatever its status ([DESIGN.md §4.10](DESIGN.md#410-work-ingress-o
 A request is retried by republishing it under a new `request_id`, never by
 re-running the old one. Phase 3 adds:
 
-- `GET /api/requests/{request_id}` — the row (the existing
-  `/status` snapshot stays).
+- `GET /api/requests/{request_id}` — the row: request id, session id, status,
+  result JSON, `received_at`, `finished_at`, delivery count, and `version`.
+  The existing `/status` snapshot is untouched: the snapshot answers "what is
+  the run doing right now", this answers "what does the table say".
 - `PATCH /api/requests/{request_id}` — close a dead request (a request left
   `running` by a dead worker still holds its spent row and needs the same
   kind of operator close sessions do).
@@ -89,8 +91,11 @@ re-running the old one. Phase 3 adds:
 A lease is a workspace held by a session: `workspace`, `session_id`,
 `acquired_at`, `heartbeat_at`. Phase 3 adds:
 
-- `GET /api/leases` — the lease table.
-- `DELETE /api/leases/{workspace}` — release a lease.
+- `GET /api/leases` — the lease table, keyed by workspace, each row carrying
+  `version`.
+- `DELETE /api/leases/{workspace}` — release a lease. The lease key is a
+  workspace path, so it can contain slashes; a client percent-encodes them
+  (`DELETE /api/leases/%2Ftmp%2Fws`).
 
 ### settings
 
@@ -169,7 +174,47 @@ event append, funnels through the store's single writer goroutine, so checking
 transaction means no live run's append can slip between the two. A check
 outside the transaction would be a race, not a guard.
 
-Phases 3 to 5 use the same rule and the same status code: a write that targets
+Phase 3 reuses the same rule and the same status code for the two new row
+resources, each judged by the signal its row already carries rather than a new
+one:
+
+- **PATCH and DELETE /api/requests/{request_id} on a request in flight.** The
+  request's `session_id` is the signal. A running request whose session's most
+  recent event is newer than the idle threshold is being run by a live pool
+  worker right now — it will publish its own terminal result — and both the
+  close and the delete are refused with a 409 naming the session's last
+  event's time, exactly as the session endpoints name it. A request with **no
+  session id at all has never run** — the single-use guard only fires once an
+  attempt's session row exists — so it has no demonstrated liveness to protect
+  and is closable and deletable. That is a deliberate decision, not an
+  omission: the alternative (refuse everything sessionless) would strand a
+  request whose worker died during workspace preparation, before its session
+  existed, forever. The narrow race it accepts — closing a request in the
+  seconds between claim and session attach — costs at most a run whose result
+  the worker still publishes (its finish is fenced on the row's session id).
+- **DELETE /api/leases/{workspace} on a live lease.** `heartbeat_at` is the
+  signal: a live session heartbeats its lease, so a lease whose heartbeat is
+  newer than the idle threshold is held by a live session right now and the
+  release is refused with a 409 naming the last heartbeat, the lease analog of
+  the session endpoints' last-event refusal. Both thresholds are the same
+  named constant — `sessionIdleThreshold` in `internal/httpapi`, ten minutes.
+
+A dead request — one whose session is idle, or that never ran — and a stranded
+lease are the exact rows these endpoints exist to close and release, so both
+writes go through once the row is demonstrably quiet. A request DELETE differs
+from the session DELETE in one respect deliberately: it does not refuse a
+`running` row that is merely abandoned. The session DELETE refuses running
+regardless of idleness because a live session goroutine may still be appending
+to the session row at any instant; a dead request's row is written only by the
+worker's finish path, which the operator has already proven quiet, so an
+abandoned request row can be deleted directly. The idempotency caveat is the
+same one session deletes carry — deleting the row of a request whose message
+is still being redelivered lets a later delivery claim it fresh, so the
+PATCH-then-DELETE sequence remains the safe order — but the endpoint does not
+force it, and the spec's own words ("refuse with 409 when the request row a
+live worker may be using") name only the live case.
+
+Phases 4 and 5 use the same rule and the same status code: a write that targets
 a row a run may be using refuses with 409, never queues, never overwrites.
 
 ## Optimistic concurrency
@@ -210,6 +255,17 @@ that already changed.
 Phase 3 adds the column to `work_requests` and `workspace_leases` with the same
 semantics: version 1 at creation, `+1` per mutation, `If-Match` required on
 mutating writes, 428 when absent, 412 when stale.
+
+Why a **lease** carries a version when the only mutation this API performs on
+it is a delete: the version is what makes the delete's `If-Match` mean
+something. The lease is a row a run acquires and releases; if the operator
+reads the table and the lease is released and re-acquired by a new session in
+between, a versionless delete could not tell "the lease I read" from "the
+lease that replaced it" — the delete would release a lease the operator never
+saw. The version turns that into a 412 naming the current version, the same
+answer every other stale write gets. It costs one column and the copy of the
+mechanism phase 1 already built; a later reader should not have to infer the
+decision from the absence of the column.
 
 ## Error shape
 
@@ -286,14 +342,70 @@ Because a running session cannot be deleted, closing an abandoned session is
 two calls: PATCH to a terminal status, then DELETE with the version the PATCH
 response returned.
 
-### Phase 3 — work_requests and workspace_leases (specified, not built)
+### Phase 3 — work_requests and workspace_leases (built)
 
-`PATCH /api/requests/{request_id}` and `DELETE /api/requests/{request_id}` take
-a JSON body / no body, carry the guards, require `If-Match` against the row's
-version, and refuse with 409 when the request row a live worker may be using.
-`GET /api/leases` lists leases; `DELETE /api/leases/{workspace}` releases one.
-All of them follow the phase-1 shape: guards, precondition-409, `If-Match`
-version, `{"error": "..."}` failures, `{"ok": true}` successes.
+```
+PATCH /api/requests/{request_id}
+Content-Type: application/json
+If-Match: <version>
+{"status": "cancelled"}
+```
+
+- Body: `{"status": "<terminal status>"}` — one of `ok`, `failed`, `denied`,
+  `timeout`, `cancelled` (every status except `running`). Anything else is a
+  400 naming the accepted values; a malformed body is a 400.
+- Preconditions, both inside the store transaction: version must equal
+  `If-Match` (412 on mismatch, 428 if the header is missing) and, when the
+  request is running, its session's most recent event must be older than
+  `sessionIdleThreshold` (409 naming the last event's time). A request with no
+  session id has never run and passes (see [Preconditions](#preconditions-a-write-must-not-race-a-run)).
+- Effect on a **running** request: status set, `finished_at` set to now.
+- Effect on a request **already terminal**: nothing but a version bump — a
+  retried PATCH is idempotent and a finished request cannot be relabelled,
+  mirroring the session rule.
+- The session row and event log are untouched.
+- Success: 200 with the updated row (the same shape as `GET
+  /api/requests/{request_id}`, including the new `version`).
+
+```
+DELETE /api/requests/{request_id}
+Content-Type: application/json
+If-Match: <version>
+```
+
+- Preconditions: version must equal `If-Match` (412/428 as above); a request
+  whose session is still live is refused with 409 regardless — the row a live
+  worker is using (see [Preconditions](#preconditions-a-write-must-not-race-a-run)).
+- Effect: the row is removed. A dead request — one whose session is idle, or
+  one that never ran — may be deleted directly; closing it with PATCH first
+  remains the safe order when its message might still be redelivered.
+- Success: 200 `{"ok": true}`.
+
+`GET /api/requests/{request_id}` returns the row: `request_id`, `session_id`,
+`status`, `result`, `received_at`, `finished_at`, `delivery_count`, `version`.
+The `/status` poll snapshot is unchanged.
+
+```
+GET /api/leases
+```
+
+Returns the lease table in workspace order, each row carrying `workspace`,
+`session_id`, `acquired_at`, `heartbeat_at`, `version`.
+
+```
+DELETE /api/leases/{workspace}
+Content-Type: application/json
+If-Match: <version>
+```
+
+- Preconditions: version must equal `If-Match` (412/428 as above); a lease
+  whose `heartbeat_at` is newer than `sessionIdleThreshold` is held by a live
+  session and refused with 409 naming the last heartbeat.
+- Effect: the lease row is removed.
+- Success: 200 `{"ok": true}`.
+
+The lease key is a workspace path and may contain slashes; a client
+percent-encodes them (`DELETE /api/leases/%2Ftmp%2Fws`).
 
 ### Phase 4 — events paging
 

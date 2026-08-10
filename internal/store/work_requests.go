@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -18,6 +19,12 @@ const WorkRequestStatusRunning = "running"
 // WorkRequest is one row of the idempotency table docs/DESIGN.md §4.10
 // describes: "Idempotency is a row, not a convention." request_id is the
 // primary key a redelivered or duplicated work request is checked against.
+// Version is the row's optimistic-concurrency counter (docs/DATA-API.md
+// "Optimistic concurrency"): 1 at creation, incremented by 1 on every
+// successful mutation. The HTTP surface returns it in the work-request
+// representation and requires it echoed back in If-Match on a mutating
+// write, so a write based on a stale read fails with a version conflict
+// instead of racing whoever changed the row first.
 type WorkRequest struct {
 	RequestID     string
 	SessionID     string
@@ -26,6 +33,7 @@ type WorkRequest struct {
 	ReceivedAt    time.Time
 	FinishedAt    *time.Time
 	DeliveryCount int
+	Version       int
 }
 
 // ClaimOutcome is what ClaimWorkRequest found and did, in one atomic step.
@@ -141,13 +149,13 @@ func (s *Store) ClaimWorkRequest(ctx context.Context, requestID string, numDeliv
 
 		if !out.Found {
 			_, err := tx.Exec(`
-				INSERT INTO work_requests (request_id, session_id, status, result, received_at, finished_at, delivery_count)
-				VALUES (?, NULL, ?, NULL, ?, NULL, ?)`,
+				INSERT INTO work_requests (request_id, session_id, status, result, received_at, finished_at, delivery_count, version)
+				VALUES (?, NULL, ?, NULL, ?, NULL, ?, 1)`,
 				requestID, WorkRequestStatusRunning, now.UTC().Format(time.RFC3339Nano), deliveryCount)
 			return err
 		}
 		_, err = tx.Exec(`
-			UPDATE work_requests SET status = ?, result = NULL, finished_at = NULL, delivery_count = ?
+			UPDATE work_requests SET status = ?, result = NULL, finished_at = NULL, delivery_count = ?, version = version + 1
 			WHERE request_id = ?`,
 			WorkRequestStatusRunning, deliveryCount, requestID)
 		return err
@@ -163,10 +171,12 @@ func (s *Store) ClaimWorkRequest(ctx context.Context, requestID string, numDeliv
 // finishes, so a crash mid-run leaves the row pointing at the attempt that
 // was actually making it — which is what makes a work request single-use: a
 // redelivery sees the session id and refuses to run again (docs/DESIGN.md
-// §4.10).
+// §4.10). It bumps the row's version like every other mutation, so an
+// operator read made before the attach goes stale and a later write against
+// it 412s.
 func (s *Store) SetWorkRequestSession(ctx context.Context, requestID, sessionID string) error {
 	return s.submit(ctx, func(tx *sql.Tx) error {
-		_, err := tx.Exec(`UPDATE work_requests SET session_id = ? WHERE request_id = ?`, sessionID, requestID)
+		_, err := tx.Exec(`UPDATE work_requests SET session_id = ?, version = version + 1 WHERE request_id = ?`, sessionID, requestID)
 		return err
 	})
 }
@@ -182,7 +192,7 @@ func (s *Store) FinishWorkRequest(ctx context.Context, requestID, sessionID, sta
 	var matched bool
 	err := s.submit(ctx, func(tx *sql.Tx) error {
 		res, err := tx.Exec(`
-			UPDATE work_requests SET status = ?, result = ?, finished_at = ?
+			UPDATE work_requests SET status = ?, result = ?, finished_at = ?, version = version + 1
 			WHERE request_id = ? AND session_id = ?`,
 			status, string(result), finishedAt.UTC().Format(time.RFC3339Nano), requestID, sessionID)
 		if err != nil {
@@ -205,7 +215,7 @@ func (s *Store) FinishWorkRequest(ctx context.Context, requestID, sessionID, sta
 // terminal request's stored result.
 func (s *Store) GetWorkRequest(ctx context.Context, requestID string) (WorkRequest, error) {
 	row := s.readDB.QueryRowContext(ctx,
-		`SELECT request_id, session_id, status, result, received_at, finished_at, delivery_count
+		`SELECT `+workRequestColumns+`
 		 FROM work_requests WHERE request_id = ?`, requestID)
 	wr, err := scanWorkRequest(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -219,10 +229,14 @@ func (s *Store) GetWorkRequest(ctx context.Context, requestID string) (WorkReque
 
 func selectWorkRequestTx(tx *sql.Tx, requestID string) (WorkRequest, error) {
 	row := tx.QueryRow(`
-		SELECT request_id, session_id, status, result, received_at, finished_at, delivery_count
+		SELECT `+workRequestColumns+`
 		FROM work_requests WHERE request_id = ?`, requestID)
 	return scanWorkRequest(row)
 }
+
+// workRequestColumns is the column list every work_requests read uses, so a
+// column added for one query cannot silently miss another.
+const workRequestColumns = `request_id, session_id, status, result, received_at, finished_at, delivery_count, version`
 
 func scanWorkRequest(row interface {
 	Scan(dest ...any) error
@@ -230,7 +244,7 @@ func scanWorkRequest(row interface {
 	var wr WorkRequest
 	var sessionID, result, finishedAt sql.NullString
 	var receivedAt string
-	if err := row.Scan(&wr.RequestID, &sessionID, &wr.Status, &result, &receivedAt, &finishedAt, &wr.DeliveryCount); err != nil {
+	if err := row.Scan(&wr.RequestID, &sessionID, &wr.Status, &result, &receivedAt, &finishedAt, &wr.DeliveryCount, &wr.Version); err != nil {
 		return WorkRequest{}, err
 	}
 	wr.SessionID = sessionID.String
@@ -250,4 +264,115 @@ func scanWorkRequest(row interface {
 		wr.FinishedAt = &t
 	}
 	return wr, nil
+}
+
+// CloseWorkRequest transitions requestID to a terminal status — the write
+// that lets an operator close a request a dead worker left running
+// (docs/DATA-API.md phase 3). It carries two guards, both checked inside the
+// write transaction so no interleaving write can slip between a check and
+// the UPDATE:
+//
+//   - Optimistic concurrency: wantVersion must equal the row's current
+//     version, or VersionConflictError is returned. The version is read from
+//     the work-request representation and echoed back in If-Match.
+//   - Idleness: a running request whose session is still live is refused with
+//     ActiveRequestError. The request's session id is the signal: a live
+//     session — one whose most recent event is newer than minIdle — is a
+//     request a live pool worker is running right now, which will publish its
+//     own terminal result, so closing it underneath the worker is the same
+//     class of mistake as closing a live session. A request with no session
+//     id has never run — nothing is in flight to protect — and passes.
+//
+// A running request gets the new status and finished_at = now. One already
+// terminal keeps both — a re-close is a version bump and nothing else, so a
+// retried write is idempotent and a finished request cannot be relabelled.
+// The updated row is returned. The event log and the session row are
+// untouched.
+func (s *Store) CloseWorkRequest(ctx context.Context, requestID, status string, wantVersion int, now time.Time, minIdle time.Duration) (WorkRequest, error) {
+	if status == WorkRequestStatusRunning {
+		return WorkRequest{}, fmt.Errorf("store: CloseWorkRequest: %s is not a terminal status", status)
+	}
+	var out WorkRequest
+	err := s.submit(ctx, func(tx *sql.Tx) error {
+		var storedStatus string
+		var sessionID sql.NullString
+		var version int
+		if err := tx.QueryRow(`SELECT status, session_id, version FROM work_requests WHERE request_id = ?`, requestID).Scan(&storedStatus, &sessionID, &version); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		if version != wantVersion {
+			return &VersionConflictError{Resource: "work_request " + requestID, Want: wantVersion, Current: version}
+		}
+		if storedStatus == WorkRequestStatusRunning && sessionID.Valid && sessionID.String != "" {
+			last, ok, err := lastEventAt(tx, sessionID.String)
+			if err != nil {
+				return err
+			}
+			if ok && now.Sub(last) < minIdle {
+				return &ActiveRequestError{RequestID: requestID, SessionID: sessionID.String, LastEventAt: last}
+			}
+		}
+		// Only a running request takes the new status. A row that is already
+		// terminal keeps the status it finished with, mirroring
+		// CloseSession: this endpoint exists to close a request a dead worker
+		// left running, not to relabel a finished one, and a finished
+		// request's status is a fact about what happened. A re-close lands as
+		// a version bump and nothing else, which keeps a retried PATCH
+		// idempotent.
+		newStatus := storedStatus
+		var fa sql.NullString
+		if storedStatus == WorkRequestStatusRunning {
+			newStatus = status
+			fa = sql.NullString{String: now.UTC().Format(time.RFC3339Nano), Valid: true}
+		}
+		if _, err := tx.Exec(`UPDATE work_requests SET status = ?, finished_at = COALESCE(?, finished_at), version = version + 1 WHERE request_id = ?`, newStatus, fa, requestID); err != nil {
+			return err
+		}
+		var err2 error
+		out, err2 = selectWorkRequestTx(tx, requestID)
+		return err2
+	})
+	if err != nil {
+		return WorkRequest{}, err
+	}
+	return out, nil
+}
+
+// DeleteWorkRequest removes requestID's row. It refuses a request whose
+// session is still live — the row a live pool worker is using, which will
+// publish its own terminal result — with ActiveRequestError, so a delete
+// cannot land underneath a run the way nothing may delete a live session.
+// A request whose session is idle or absent has no live worker holding it
+// and may be deleted directly (docs/DATA-API.md phase 3). wantVersion
+// enforces the optimistic-concurrency precondition: it must equal the row's
+// current version, or VersionConflictError is returned.
+func (s *Store) DeleteWorkRequest(ctx context.Context, requestID string, wantVersion int, now time.Time, minIdle time.Duration) error {
+	return s.submit(ctx, func(tx *sql.Tx) error {
+		var storedStatus string
+		var sessionID sql.NullString
+		var version int
+		if err := tx.QueryRow(`SELECT status, session_id, version FROM work_requests WHERE request_id = ?`, requestID).Scan(&storedStatus, &sessionID, &version); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		if version != wantVersion {
+			return &VersionConflictError{Resource: "work_request " + requestID, Want: wantVersion, Current: version}
+		}
+		if storedStatus == WorkRequestStatusRunning && sessionID.Valid && sessionID.String != "" {
+			last, ok, err := lastEventAt(tx, sessionID.String)
+			if err != nil {
+				return err
+			}
+			if ok && now.Sub(last) < minIdle {
+				return &ActiveRequestError{RequestID: requestID, SessionID: sessionID.String, LastEventAt: last}
+			}
+		}
+		_, err := tx.Exec(`DELETE FROM work_requests WHERE request_id = ?`, requestID)
+		return err
+	})
 }

@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -126,7 +127,9 @@ func TestNonGetMethodsReturn405EverywhereExceptWriteRoutes(t *testing.T) {
 		"/api/sessions", // the collection has no write route
 		"/api/sessions/sess-1/events",
 		"/api/sessions/sess-1/stream",
-		"/api/requests/req-1/status",
+		"/api/requests",              // the collection has no write route
+		"/api/requests/req-1/status", // the poll snapshot is never writable
+		"/api/leases",                // the collection has no write route
 		"/api/stream",
 		"/api/queue",
 		"/api/settings",     // the collection path has no write route
@@ -228,6 +231,70 @@ func TestNonGetMethodsReturn405EverywhereExceptWriteRoutes(t *testing.T) {
 			}
 			if got := resp.Header.Get("Allow"); got != "GET, HEAD, PATCH, DELETE" {
 				t.Errorf("%s %s: Allow = %q, want %q", m, sessionPath, got, "GET, HEAD, PATCH, DELETE")
+			}
+		}
+	}
+
+	// A work-request path allows PATCH and DELETE; every other method still
+	// 405s there, naming all four allowed methods in Allow.
+	for _, requestPath := range []string{"/api/requests/req-1", "/api/requests/does-not-exist"} {
+		for _, m := range []string{http.MethodPatch, http.MethodDelete} {
+			req, err := http.NewRequest(m, srv.URL+requestPath, strings.NewReader(`{}`))
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("%s %s: %v", m, requestPath, err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusMethodNotAllowed {
+				t.Errorf("%s %s: gate refused a permitted write", m, requestPath)
+			}
+		}
+		for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodOptions} {
+			req, err := http.NewRequest(m, srv.URL+requestPath, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("%s %s: %v", m, requestPath, err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s: got status %d, want 405", m, requestPath, resp.StatusCode)
+			}
+			if got := resp.Header.Get("Allow"); got != "GET, HEAD, PATCH, DELETE" {
+				t.Errorf("%s %s: Allow = %q, want %q", m, requestPath, got, "GET, HEAD, PATCH, DELETE")
+			}
+		}
+	}
+
+	// A workspace-lease path allows DELETE (release); every other method
+	// still 405s there, naming the three allowed methods in Allow.
+	for _, leasePath := range []string{"/api/leases/ws-1", "/api/leases/does-not-exist"} {
+		resp := doWrite(t, srv, http.MethodDelete, leasePath, "", map[string]string{"Content-Type": "application/json"})
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusMethodNotAllowed {
+			t.Errorf("DELETE %s: gate refused a permitted write", leasePath)
+		}
+		for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodOptions} {
+			req, err := http.NewRequest(m, srv.URL+leasePath, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("%s %s: %v", m, leasePath, err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s: got status %d, want 405", m, leasePath, resp.StatusCode)
+			}
+			if got := resp.Header.Get("Allow"); got != "GET, HEAD, DELETE" {
+				t.Errorf("%s %s: Allow = %q, want %q", m, leasePath, got, "GET, HEAD, DELETE")
 			}
 		}
 	}
@@ -1694,3 +1761,737 @@ func TestSessionWritesNotFound(t *testing.T) {
 // staleFinishedAt is a non-nil finished_at for tests that finish a session
 // through the store without caring about the exact time.
 var staleFinishedAt = time.Now().UTC()
+
+// --- work requests and workspace leases (phase 3) ---
+
+// mustCreateWorkRequest claims requestID, creates sessionID, appends one
+// event, and attaches the session — the row shape of a request whose attempt
+// actually started. The event is backdated to eventAt, so the request's
+// liveness is under the test's control: a recent eventAt is a live request,
+// an old one a dead one.
+func mustCreateWorkRequest(t *testing.T, st *store.Store, h *hub.Hub, dbPath, requestID, sessionID string, eventAt time.Time) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := st.ClaimWorkRequest(ctx, requestID, 1, eventAt); err != nil {
+		t.Fatalf("claim %s: %v", requestID, err)
+	}
+	mustCreateSession(t, st, sessionID, eventAt)
+	appendAndPublish(t, st, h, sessionID, []store.EventInput{
+		{Kind: store.KindSessionStarted, Payload: store.SessionStartedPayload{OpeningMessage: "hi"}},
+	})
+	backdateEvents(t, dbPath, sessionID, eventAt)
+	if err := st.SetWorkRequestSession(ctx, requestID, sessionID); err != nil {
+		t.Fatalf("attach session: %v", err)
+	}
+}
+
+// requestVersion fetches one work-request row and returns its version,
+// standing in for the client reading GET /api/requests/{request_id} before a
+// write — the value it must echo back in If-Match (docs/DATA-API.md).
+func requestVersion(t *testing.T, srv *httptest.Server, requestID string) int {
+	t.Helper()
+	resp, err := http.Get(srv.URL + "/api/requests/" + requestID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/requests/%s: got status %d, want 200", requestID, resp.StatusCode)
+	}
+	var got workRequestRow
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Version < 1 {
+		t.Fatalf("request %s: expected a positive version, got %d", requestID, got.Version)
+	}
+	return got.Version
+}
+
+// TestGetWorkRequestRow pins GET /api/requests/{request_id}: the idempotency
+// row itself — request id, session id, status, result, received_at,
+// finished_at, delivery count, version — distinct from the /status poll
+// snapshot. A terminal row carries its stored result.
+func TestGetWorkRequestRow(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	ctx := context.Background()
+
+	claimedAt := time.Now().UTC().Add(-time.Hour)
+	if _, err := st.ClaimWorkRequest(ctx, "req-1", 1, claimedAt); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if err := st.SetWorkRequestSession(ctx, "req-1", "sess-attempt"); err != nil {
+		t.Fatalf("attach session: %v", err)
+	}
+	finishedAt := time.Now().UTC()
+	result := json.RawMessage(`{"status":"failed","error":{"code":"workspace_setup","message":"clone refused"}}`)
+	if matched, err := st.FinishWorkRequest(ctx, "req-1", "sess-attempt", "failed", result, finishedAt); err != nil || !matched {
+		t.Fatalf("finish: matched=%v err=%v", matched, err)
+	}
+
+	resp, err := http.Get(srv.URL + "/api/requests/req-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("got status %d, want 200", resp.StatusCode)
+	}
+	var got workRequestRow
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.RequestID != "req-1" || got.SessionID != "sess-attempt" || got.Status != "failed" {
+		t.Fatalf("unexpected identity: %+v", got)
+	}
+	if string(got.Result) != string(result) {
+		t.Fatalf("expected the stored result back, got %s", got.Result)
+	}
+	if !got.ReceivedAt.Equal(claimedAt) || got.FinishedAt == nil || !got.FinishedAt.Equal(finishedAt) {
+		t.Fatalf("unexpected timestamps: received %v finished %v", got.ReceivedAt, got.FinishedAt)
+	}
+	if got.Version != 3 {
+		t.Fatalf("version = %d, want 3 (claim, attach, finish)", got.Version)
+	}
+}
+
+func TestGetWorkRequestRowNotFound(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	resp, err := http.Get(srv.URL + "/api/requests/does-not-exist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("got status %d, want 404", resp.StatusCode)
+	}
+}
+
+// TestPatchWorkRequestClosesDeadRequest pins the success path: a running
+// request whose session has been quiet past the idle threshold — or that has
+// no session at all — can be closed into a terminal status, which sets
+// finished_at and bumps the version, and the close is visible to a fresh GET.
+func TestPatchWorkRequestClosesDeadRequest(t *testing.T) {
+	srv, st, h, dbPath := newTestServerWithDB(t)
+	ctx := context.Background()
+
+	// A request whose worker died mid-run: last event two hours ago.
+	mustCreateWorkRequest(t, st, h, dbPath, "req-abandoned", "sess-abandoned", time.Now().Add(-2*time.Hour))
+	// A request that never ran: claimed, no session ever attached.
+	if _, err := st.ClaimWorkRequest(ctx, "req-never-ran", 1, time.Now().Add(-2*time.Hour)); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name      string
+		requestID string
+	}{
+		{"with idle session", "req-abandoned"},
+		{"with no session", "req-never-ran"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before := requestVersion(t, srv, tc.requestID)
+			resp := doWrite(t, srv, http.MethodPatch, "/api/requests/"+tc.requestID, `{"status":"cancelled"}`, map[string]string{
+				"Content-Type": "application/json",
+				"If-Match":     strconv.Itoa(before),
+			})
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("PATCH: got status %d, want 200", resp.StatusCode)
+			}
+			var got workRequestRow
+			if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+				t.Fatal(err)
+			}
+			if got.Status != "cancelled" || got.FinishedAt == nil {
+				t.Fatalf("expected cancelled with finished_at, got %+v", got)
+			}
+			if got.Version != before+1 {
+				t.Fatalf("version = %d, want %d (one mutation)", got.Version, before+1)
+			}
+
+			row, err := st.GetWorkRequest(ctx, tc.requestID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if row.Status != "cancelled" || row.FinishedAt == nil {
+				t.Fatalf("store row not closed: %+v", row)
+			}
+		})
+	}
+}
+
+// TestPatchWorkRequestRefusesLiveRequest pins the precondition that matters
+// (docs/DATA-API.md phase 3): a running request whose session's most recent
+// event is newer than the idle threshold is being run by a live pool worker
+// right now, and the close is a 409 whose message names when the session was
+// last heard from. The row is untouched.
+func TestPatchWorkRequestRefusesLiveRequest(t *testing.T) {
+	srv, st, h, dbPath := newTestServerWithDB(t)
+	ctx := context.Background()
+	mustCreateWorkRequest(t, st, h, dbPath, "req-live", "sess-live", time.Now())
+
+	before := requestVersion(t, srv, "req-live")
+	resp := doWrite(t, srv, http.MethodPatch, "/api/requests/req-live", `{"status":"cancelled"}`, map[string]string{
+		"Content-Type": "application/json",
+		"If-Match":     strconv.Itoa(before),
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("PATCH on a live request: got status %d, want 409", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "most recent event at") {
+		t.Fatalf("409 must say when the session was last heard from, got %q", body)
+	}
+
+	row, err := st.GetWorkRequest(ctx, "req-live")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.Status != store.WorkRequestStatusRunning || row.FinishedAt != nil || row.Version != before {
+		t.Fatalf("a refused close must not touch the row, got %+v", row)
+	}
+}
+
+// TestPatchWorkRequestRecloseKeepsTerminalStatus pins the idempotent re-close:
+// a request already terminal keeps the status it finished with — a retried
+// PATCH is a version bump and nothing else.
+func TestPatchWorkRequestRecloseKeepsTerminalStatus(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	ctx := context.Background()
+	if _, err := st.ClaimWorkRequest(ctx, "req-1", 1, time.Now().UTC()); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if err := st.SetWorkRequestSession(ctx, "req-1", "sess-1"); err != nil {
+		t.Fatalf("attach session: %v", err)
+	}
+	if matched, err := st.FinishWorkRequest(ctx, "req-1", "sess-1", "ok", json.RawMessage(`{"status":"ok"}`), time.Now().UTC()); err != nil || !matched {
+		t.Fatalf("finish: matched=%v err=%v", matched, err)
+	}
+
+	before := requestVersion(t, srv, "req-1")
+	resp := doWrite(t, srv, http.MethodPatch, "/api/requests/req-1", `{"status":"cancelled"}`, map[string]string{
+		"Content-Type": "application/json",
+		"If-Match":     strconv.Itoa(before),
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PATCH: got status %d, want 200", resp.StatusCode)
+	}
+	var got workRequestRow
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "ok" {
+		t.Fatalf("a re-close must keep the status the request finished with, got %q", got.Status)
+	}
+	if got.Version != before+1 {
+		t.Fatalf("version = %d, want %d", got.Version, before+1)
+	}
+}
+
+// TestRequestWritesGuardsAndPreconditions is the table the task pins for both
+// work-request write endpoints: the guards every write carries (415 without a
+// JSON content type, 403 cross-origin), the write preconditions (428 without
+// If-Match, 400 on a malformed or non-terminal body), and the 412/428
+// concurrency paths.
+func TestRequestWritesGuardsAndPreconditions(t *testing.T) {
+	srv, st, h, dbPath := newTestServerWithDB(t)
+	ctx := context.Background()
+	mustCreateWorkRequest(t, st, h, dbPath, "req-1", "sess-1", time.Now().Add(-2*time.Hour))
+
+	for _, tc := range []struct {
+		name    string
+		method  string
+		body    string
+		headers map[string]string
+		want    int
+	}{
+		{
+			name: "PATCH missing content type", method: http.MethodPatch,
+			body: `{"status":"cancelled"}`, headers: map[string]string{"If-Match": "1"},
+			want: http.StatusUnsupportedMediaType,
+		},
+		{
+			name: "PATCH wrong content type", method: http.MethodPatch,
+			body:    `{"status":"cancelled"}`,
+			headers: map[string]string{"Content-Type": "text/plain", "If-Match": "1"},
+			want:    http.StatusUnsupportedMediaType,
+		},
+		{
+			name: "PATCH cross-origin", method: http.MethodPatch,
+			body:    `{"status":"cancelled"}`,
+			headers: map[string]string{"Content-Type": "application/json", "If-Match": "1", "Origin": "https://evil.example"},
+			want:    http.StatusForbidden,
+		},
+		{
+			name: "PATCH missing If-Match", method: http.MethodPatch,
+			body: `{"status":"cancelled"}`, headers: map[string]string{"Content-Type": "application/json"},
+			want: http.StatusPreconditionRequired,
+		},
+		{
+			name: "PATCH malformed If-Match", method: http.MethodPatch,
+			body:    `{"status":"cancelled"}`,
+			headers: map[string]string{"Content-Type": "application/json", "If-Match": "abc"},
+			want:    http.StatusBadRequest,
+		},
+		{
+			name: "PATCH non-terminal status", method: http.MethodPatch,
+			body:    `{"status":"running"}`,
+			headers: map[string]string{"Content-Type": "application/json", "If-Match": "1"},
+			want:    http.StatusBadRequest,
+		},
+		{
+			name: "PATCH unknown status", method: http.MethodPatch,
+			body:    `{"status":"dancing"}`,
+			headers: map[string]string{"Content-Type": "application/json", "If-Match": "1"},
+			want:    http.StatusBadRequest,
+		},
+		{
+			name: "PATCH invalid JSON", method: http.MethodPatch,
+			body:    `not json`,
+			headers: map[string]string{"Content-Type": "application/json", "If-Match": "1"},
+			want:    http.StatusBadRequest,
+		},
+		{
+			name: "DELETE missing content type", method: http.MethodDelete,
+			headers: map[string]string{"If-Match": "1"},
+			want:    http.StatusUnsupportedMediaType,
+		},
+		{
+			name: "DELETE cross-origin", method: http.MethodDelete,
+			headers: map[string]string{"Content-Type": "application/json", "If-Match": "1", "Origin": "https://evil.example"},
+			want:    http.StatusForbidden,
+		},
+		{
+			name: "DELETE missing If-Match", method: http.MethodDelete,
+			headers: map[string]string{"Content-Type": "application/json"},
+			want:    http.StatusPreconditionRequired,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := doWrite(t, srv, tc.method, "/api/requests/req-1", tc.body, tc.headers)
+			defer resp.Body.Close()
+			if resp.StatusCode != tc.want {
+				t.Fatalf("got status %d, want %d", resp.StatusCode, tc.want)
+			}
+			if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+				t.Fatalf("error Content-Type = %q, want JSON", ct)
+			}
+		})
+	}
+
+	// The rejected writes left the row alone: still running, and the version
+	// is whatever the guarded writes found it at (the row was claimed and
+	// attached before this test's writes began).
+	row, err := st.GetWorkRequest(ctx, "req-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.Status != store.WorkRequestStatusRunning || row.Version != 2 {
+		t.Fatalf("guarded writes must not touch the row, got %+v", row)
+	}
+}
+
+// TestRequestWritesRejectStaleVersion pins the optimistic-concurrency
+// mechanism end to end: a write carrying a version older than the row's
+// current one is a 412 that names the current version, for PATCH and DELETE
+// alike.
+func TestRequestWritesRejectStaleVersion(t *testing.T) {
+	srv, st, h, dbPath := newTestServerWithDB(t)
+	ctx := context.Background()
+	mustCreateWorkRequest(t, st, h, dbPath, "req-1", "sess-1", time.Now().Add(-2*time.Hour))
+
+	// The worker's own terminal write bumps the row to a later version — the
+	// exact race the mechanism exists for: an operator who read the request
+	// before it finished must not land a write on the changed row.
+	if _, err := st.ClaimWorkRequest(ctx, "req-1", 2, time.Now().Add(-2*time.Hour)); err != nil {
+		t.Fatalf("re-claim: %v", err)
+	}
+	current := requestVersion(t, srv, "req-1")
+
+	for _, tc := range []struct {
+		name   string
+		method string
+		body   string
+	}{
+		{"PATCH", http.MethodPatch, `{"status":"cancelled"}`},
+		{"DELETE", http.MethodDelete, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := doWrite(t, srv, tc.method, "/api/requests/req-1", tc.body, map[string]string{
+				"Content-Type": "application/json",
+				"If-Match":     "1", // stale: the row is at the re-claimed version
+			})
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusPreconditionFailed {
+				t.Fatalf("stale %s: got status %d, want 412", tc.method, resp.StatusCode)
+			}
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(body), fmt.Sprintf("current version %d", current)) {
+				t.Fatalf("412 must name the current version, got %q", body)
+			}
+		})
+	}
+
+	row, err := st.GetWorkRequest(ctx, "req-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.Status != store.WorkRequestStatusRunning || row.Version != current {
+		t.Fatalf("stale writes must not touch the row, got %+v", row)
+	}
+}
+
+// TestDeleteWorkRequestRemovesRow pins DELETE's success path: a dead request —
+// terminal, running with an idle session, or never run at all — can be
+// deleted with its current version, and the row is gone afterwards.
+func TestDeleteWorkRequestRemovesRow(t *testing.T) {
+	srv, st, h, dbPath := newTestServerWithDB(t)
+	ctx := context.Background()
+
+	// Terminal: finished normally.
+	mustCreateWorkRequest(t, st, h, dbPath, "req-terminal", "sess-terminal", time.Now().Add(-2*time.Hour))
+	if matched, err := st.FinishWorkRequest(ctx, "req-terminal", "sess-terminal", "ok", json.RawMessage(`{"status":"ok"}`), time.Now().UTC()); err != nil || !matched {
+		t.Fatalf("finish: matched=%v err=%v", matched, err)
+	}
+	// Dead: running with an idle session.
+	mustCreateWorkRequest(t, st, h, dbPath, "req-dead", "sess-dead", time.Now().Add(-2*time.Hour))
+	// Never ran: running with no session.
+	if _, err := st.ClaimWorkRequest(ctx, "req-never-ran", 1, time.Now().Add(-2*time.Hour)); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name      string
+		requestID string
+	}{
+		{"terminal", "req-terminal"},
+		{"running with idle session", "req-dead"},
+		{"running with no session", "req-never-ran"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			v := requestVersion(t, srv, tc.requestID)
+			resp := doWrite(t, srv, http.MethodDelete, "/api/requests/"+tc.requestID, "", map[string]string{
+				"Content-Type": "application/json",
+				"If-Match":     strconv.Itoa(v),
+			})
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("DELETE: got status %d, want 200", resp.StatusCode)
+			}
+			var okBody map[string]bool
+			if err := json.NewDecoder(resp.Body).Decode(&okBody); err != nil {
+				t.Fatal(err)
+			}
+			if !okBody["ok"] {
+				t.Fatalf("DELETE response = %+v, want ok:true", okBody)
+			}
+			if _, err := st.GetWorkRequest(ctx, tc.requestID); err != store.ErrNotFound {
+				t.Fatalf("row should be gone, got %v", err)
+			}
+		})
+	}
+}
+
+// TestDeleteWorkRequestRefusesLive pins the delete precondition: a request
+// whose session is still live is being run by a live worker right now, and
+// deleting its row would swallow the worker's result — the delete is a 409
+// naming the last event's time, and the row survives.
+func TestDeleteWorkRequestRefusesLive(t *testing.T) {
+	srv, st, h, dbPath := newTestServerWithDB(t)
+	ctx := context.Background()
+	mustCreateWorkRequest(t, st, h, dbPath, "req-live", "sess-live", time.Now())
+
+	v := requestVersion(t, srv, "req-live")
+	resp := doWrite(t, srv, http.MethodDelete, "/api/requests/req-live", "", map[string]string{
+		"Content-Type": "application/json",
+		"If-Match":     strconv.Itoa(v),
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("DELETE on a live request: got status %d, want 409", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "most recent event at") {
+		t.Fatalf("409 must say when the session was last heard from, got %q", body)
+	}
+	if _, err := st.GetWorkRequest(ctx, "req-live"); err != nil {
+		t.Fatalf("a refused delete must leave the row, got %v", err)
+	}
+}
+
+// TestRequestWritesNotFound pins 404 for both write endpoints on an unknown
+// request id.
+func TestRequestWritesNotFound(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	for _, tc := range []struct {
+		method string
+		body   string
+	}{
+		{http.MethodPatch, `{"status":"cancelled"}`},
+		{http.MethodDelete, ""},
+	} {
+		resp := doWrite(t, srv, tc.method, "/api/requests/does-not-exist", tc.body, map[string]string{
+			"Content-Type": "application/json",
+			"If-Match":     "1",
+		})
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("%s unknown request: got status %d, want 404", tc.method, resp.StatusCode)
+		}
+	}
+}
+
+// TestGetLeasesListsTable pins GET /api/leases: every lease row, in
+// workspace order, with session id, timestamps, and version.
+func TestGetLeasesListsTable(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	ctx := context.Background()
+
+	if err := st.AcquireWorkspaceLease(ctx, "/tmp/ws-b", "sess-2"); err != nil {
+		t.Fatalf("acquire ws-b: %v", err)
+	}
+	if err := st.AcquireWorkspaceLease(ctx, "/tmp/ws-a", "sess-1"); err != nil {
+		t.Fatalf("acquire ws-a: %v", err)
+	}
+
+	resp, err := http.Get(srv.URL + "/api/leases")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("got status %d, want 200", resp.StatusCode)
+	}
+	var got []workspaceLeaseRow
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 leases, got %d: %+v", len(got), got)
+	}
+	if got[0].Workspace != "/tmp/ws-a" || got[0].SessionID != "sess-1" {
+		t.Fatalf("expected ws-a first with sess-1, got %+v", got[0])
+	}
+	if got[1].Workspace != "/tmp/ws-b" || got[1].SessionID != "sess-2" {
+		t.Fatalf("expected ws-b second with sess-2, got %+v", got[1])
+	}
+	for _, l := range got {
+		if l.Version != 1 {
+			t.Fatalf("a freshly acquired lease must be at version 1, got %+v", l)
+		}
+		if l.AcquiredAt.IsZero() || l.HeartbeatAt.IsZero() {
+			t.Fatalf("expected timestamps set, got %+v", l)
+		}
+	}
+}
+
+// backdateLeaseHeartbeat rewrites one lease's heartbeat_at to at, so the
+// lease is genuinely quiet past the idle threshold. It opens a second
+// connection to the same SQLite file, the same trick backdateEvents uses.
+func backdateLeaseHeartbeat(t *testing.T, dbPath, workspace string, at time.Time) {
+	t.Helper()
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open raw connection: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`PRAGMA busy_timeout=5000`); err != nil {
+		t.Fatalf("set busy timeout: %v", err)
+	}
+	if _, err := db.Exec(`UPDATE workspace_leases SET heartbeat_at = ? WHERE workspace = ?`, at.UTC().Format(time.RFC3339Nano), workspace); err != nil {
+		t.Fatalf("backdate lease heartbeat: %v", err)
+	}
+}
+
+// leaseVersion fetches GET /api/leases and returns one workspace's lease
+// version, standing in for the client reading the table before a write.
+func leaseVersion(t *testing.T, srv *httptest.Server, workspace string) int {
+	t.Helper()
+	resp, err := http.Get(srv.URL + "/api/leases")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/leases: got status %d, want 200", resp.StatusCode)
+	}
+	var got []workspaceLeaseRow
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range got {
+		if l.Workspace == workspace {
+			if l.Version < 1 {
+				t.Fatalf("lease %s: expected a positive version, got %d", workspace, l.Version)
+			}
+			return l.Version
+		}
+	}
+	t.Fatalf("no lease for %s in %+v", workspace, got)
+	return 0
+}
+
+// TestDeleteLeaseReleasesStranded pins the success path: a lease whose
+// heartbeat is older than the idle threshold is stranded — its session is
+// gone or dead — and the release removes the row.
+func TestDeleteLeaseReleasesStranded(t *testing.T) {
+	srv, st, _, dbPath := newTestServerWithDB(t)
+	ctx := context.Background()
+
+	if err := st.AcquireWorkspaceLease(ctx, "/tmp/ws", "sess-1"); err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	backdateLeaseHeartbeat(t, dbPath, "/tmp/ws", time.Now().Add(-2*time.Hour))
+
+	v := leaseVersion(t, srv, "/tmp/ws")
+	resp := doWrite(t, srv, http.MethodDelete, "/api/leases/"+url.PathEscape("/tmp/ws"), "", map[string]string{
+		"Content-Type": "application/json",
+		"If-Match":     strconv.Itoa(v),
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("DELETE: got status %d, want 200", resp.StatusCode)
+	}
+	var okBody map[string]bool
+	if err := json.NewDecoder(resp.Body).Decode(&okBody); err != nil {
+		t.Fatal(err)
+	}
+	if !okBody["ok"] {
+		t.Fatalf("DELETE response = %+v, want ok:true", okBody)
+	}
+	leases, err := st.ListWorkspaceLeases(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leases) != 0 {
+		t.Fatalf("expected the lease gone, got %+v", leases)
+	}
+}
+
+// TestDeleteLeaseRefusesLive pins the precondition that matters: a lease
+// whose heartbeat is newer than the idle threshold is held by a live session
+// right now, and the release is a 409 whose message names the last heartbeat.
+// The row is untouched.
+func TestDeleteLeaseRefusesLive(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	ctx := context.Background()
+
+	if err := st.AcquireWorkspaceLease(ctx, "/tmp/ws", "sess-1"); err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+
+	v := leaseVersion(t, srv, "/tmp/ws")
+	resp := doWrite(t, srv, http.MethodDelete, "/api/leases/"+url.PathEscape("/tmp/ws"), "", map[string]string{
+		"Content-Type": "application/json",
+		"If-Match":     strconv.Itoa(v),
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("DELETE on a live lease: got status %d, want 409", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "last heartbeat at") {
+		t.Fatalf("409 must name the last heartbeat, got %q", body)
+	}
+	leases, err := st.ListWorkspaceLeases(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leases) != 1 || leases[0].Version != v {
+		t.Fatalf("a refused release must not touch the row, got %+v", leases)
+	}
+}
+
+// TestLeaseWritesGuardsAndPreconditions is the table for the lease release
+// endpoint: the guards every write carries (415 without a JSON content type,
+// 403 cross-origin), the If-Match precondition (428 missing, 412 stale), and
+// the 404 on an unknown workspace.
+func TestLeaseWritesGuardsAndPreconditions(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	ctx := context.Background()
+	if err := st.AcquireWorkspaceLease(ctx, "/tmp/ws", "sess-1"); err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name    string
+		headers map[string]string
+		want    int
+	}{
+		{
+			name:    "missing content type",
+			headers: map[string]string{"If-Match": "1"},
+			want:    http.StatusUnsupportedMediaType,
+		},
+		{
+			name:    "wrong content type",
+			headers: map[string]string{"Content-Type": "text/plain", "If-Match": "1"},
+			want:    http.StatusUnsupportedMediaType,
+		},
+		{
+			name:    "cross-origin",
+			headers: map[string]string{"Content-Type": "application/json", "If-Match": "1", "Origin": "https://evil.example"},
+			want:    http.StatusForbidden,
+		},
+		{
+			name:    "missing If-Match",
+			headers: map[string]string{"Content-Type": "application/json"},
+			want:    http.StatusPreconditionRequired,
+		},
+		{
+			name:    "malformed If-Match",
+			headers: map[string]string{"Content-Type": "application/json", "If-Match": "abc"},
+			want:    http.StatusBadRequest,
+		},
+		{
+			name:    "stale If-Match",
+			headers: map[string]string{"Content-Type": "application/json", "If-Match": "99"},
+			want:    http.StatusPreconditionFailed,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := doWrite(t, srv, http.MethodDelete, "/api/leases/"+url.PathEscape("/tmp/ws"), "", tc.headers)
+			defer resp.Body.Close()
+			if resp.StatusCode != tc.want {
+				t.Fatalf("got status %d, want %d", resp.StatusCode, tc.want)
+			}
+			if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+				t.Fatalf("error Content-Type = %q, want JSON", ct)
+			}
+		})
+	}
+
+	// The rejected writes left the lease alone.
+	leases, err := st.ListWorkspaceLeases(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(leases) != 1 || leases[0].Version != 1 {
+		t.Fatalf("guarded writes must not touch the row, got %+v", leases)
+	}
+
+	// An unknown workspace is a 404.
+	resp := doWrite(t, srv, http.MethodDelete, "/api/leases/"+url.PathEscape("/tmp/unknown"), "", map[string]string{
+		"Content-Type": "application/json",
+		"If-Match":     "1",
+	})
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("DELETE unknown lease: got status %d, want 404", resp.StatusCode)
+	}
+}

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -300,6 +301,260 @@ func TestFinishWorkRequestFencedBySession(t *testing.T) {
 func TestGetWorkRequestNotFound(t *testing.T) {
 	s := openTestStore(t)
 	if _, err := s.GetWorkRequest(context.Background(), "does-not-exist"); err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+// requestWithSession claims requestID, creates sessionID, appends one event
+// (created at call time), and attaches the session — the row shape of a
+// request whose attempt actually started. The event's timestamp is the
+// liveness signal CloseWorkRequest and DeleteWorkRequest judge against the
+// caller's `now`, so a test controls "live" vs "dead" purely through the now
+// it passes.
+func requestWithSession(t *testing.T, s *Store, requestID, sessionID string) {
+	t.Helper()
+	ctx := context.Background()
+	if _, err := s.ClaimWorkRequest(ctx, requestID, 1, time.Now().UTC()); err != nil {
+		t.Fatalf("claim %s: %v", requestID, err)
+	}
+	mustCreateSession(t, s, sessionID)
+	if _, err := s.AppendEvents(ctx, sessionID, []EventInput{
+		{Kind: KindSessionStarted, Payload: SessionStartedPayload{OpeningMessage: "hi"}},
+	}); err != nil {
+		t.Fatalf("append events: %v", err)
+	}
+	if err := s.SetWorkRequestSession(ctx, requestID, sessionID); err != nil {
+		t.Fatalf("attach session: %v", err)
+	}
+}
+
+// TestCloseWorkRequestClosesDeadRequest pins the success path (docs/DATA-API.md
+// phase 3): a running request whose session is idle — or that has no session
+// at all — can be closed into a terminal status, which sets finished_at and
+// bumps the version. A session that never appended an event has nothing
+// recent and passes the idle check the same way.
+func TestCloseWorkRequestClosesDeadRequest(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// A request whose worker died mid-run: session attached, last event two
+	// hours ago.
+	requestWithSession(t, s, "req-dead", "sess-dead")
+	// A request that never ran: claimed but no session was ever attached.
+	if _, err := s.ClaimWorkRequest(ctx, "req-never-ran", 1, time.Now().UTC()); err != nil {
+		t.Fatalf("claim req-never-ran: %v", err)
+	}
+	// A request whose attempt died before its first event: session exists,
+	// no events at all.
+	if _, err := s.ClaimWorkRequest(ctx, "req-no-events", 1, time.Now().UTC()); err != nil {
+		t.Fatalf("claim req-no-events: %v", err)
+	}
+	mustCreateSession(t, s, "sess-no-events")
+	if err := s.SetWorkRequestSession(ctx, "req-no-events", "sess-no-events"); err != nil {
+		t.Fatalf("attach session: %v", err)
+	}
+
+	future := time.Now().UTC().Add(2 * time.Hour)
+	for _, tc := range []struct {
+		name      string
+		requestID string
+	}{
+		{"with idle session", "req-dead"},
+		{"with no session", "req-never-ran"},
+		{"with eventless session", "req-no-events"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before, err := s.GetWorkRequest(ctx, tc.requestID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			closed, err := s.CloseWorkRequest(ctx, tc.requestID, "cancelled", before.Version, future, 10*time.Minute)
+			if err != nil {
+				t.Fatalf("close: %v", err)
+			}
+			if closed.Status != "cancelled" || closed.FinishedAt == nil {
+				t.Fatalf("expected cancelled with finished_at, got %+v", closed)
+			}
+			if closed.Version != before.Version+1 {
+				t.Fatalf("version = %d, want %d (one mutation)", closed.Version, before.Version+1)
+			}
+			// A fresh read agrees.
+			row, err := s.GetWorkRequest(ctx, tc.requestID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if row.Status != "cancelled" || row.FinishedAt == nil {
+				t.Fatalf("store row not closed: %+v", row)
+			}
+		})
+	}
+}
+
+// TestCloseWorkRequestRefusesLiveRequest pins the precondition that matters
+// (docs/DATA-API.md phase 3): a running request whose session's most recent
+// event is newer than the idle threshold is being run by a live pool worker
+// right now, and the close is a 409 whose message names when the session was
+// last heard from. The row is untouched.
+func TestCloseWorkRequestRefusesLiveRequest(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	requestWithSession(t, s, "req-live", "sess-live")
+
+	before, err := s.GetWorkRequest(ctx, "req-live")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.CloseWorkRequest(ctx, "req-live", "cancelled", before.Version, time.Now().UTC(), 10*time.Minute)
+	var active *ActiveRequestError
+	if !errors.As(err, &active) {
+		t.Fatalf("expected ActiveRequestError, got %v", err)
+	}
+	if active.RequestID != "req-live" || active.SessionID != "sess-live" {
+		t.Fatalf("error must name the request and its session, got %+v", active)
+	}
+	if active.LastEventAt.IsZero() {
+		t.Fatalf("error must name the last event's time, got %+v", active)
+	}
+
+	row, err := s.GetWorkRequest(ctx, "req-live")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if row.Status != WorkRequestStatusRunning || row.FinishedAt != nil || row.Version != before.Version {
+		t.Fatalf("a refused close must not touch the row, got %+v", row)
+	}
+}
+
+// TestCloseWorkRequestRecloseIsVersionBump pins the idempotent re-close
+// (docs/DATA-API.md phase 3, mirroring CloseSession): a request already
+// terminal keeps the status it finished with, so a retried PATCH is a version
+// bump and nothing else and a finished request cannot be relabelled.
+func TestCloseWorkRequestRecloseIsVersionBump(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	requestWithSession(t, s, "req-finished", "sess-finished")
+	result := json.RawMessage(`{"status":"ok","text":"done"}`)
+	if matched, err := s.FinishWorkRequest(ctx, "req-finished", "sess-finished", "ok", result, time.Now().UTC()); err != nil || !matched {
+		t.Fatalf("finish: matched=%v err=%v", matched, err)
+	}
+
+	before, err := s.GetWorkRequest(ctx, "req-finished")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.Status != "ok" {
+		t.Fatalf("expected the row finished ok, got %+v", before)
+	}
+	reclosed, err := s.CloseWorkRequest(ctx, "req-finished", "cancelled", before.Version, time.Now().UTC(), 10*time.Minute)
+	if err != nil {
+		t.Fatalf("re-close: %v", err)
+	}
+	if reclosed.Status != "ok" {
+		t.Fatalf("a re-close must keep the status the request finished with, got %q", reclosed.Status)
+	}
+	if reclosed.FinishedAt == nil || !reclosed.FinishedAt.Equal(*before.FinishedAt) {
+		t.Fatalf("a re-close must keep finished_at, got %+v", reclosed.FinishedAt)
+	}
+	if reclosed.Version != before.Version+1 {
+		t.Fatalf("version = %d, want %d", reclosed.Version, before.Version+1)
+	}
+}
+
+// TestCloseWorkRequestGuards pins the remaining write preconditions: a stale
+// If-Match version is a VersionConflictError, an unknown request is
+// ErrNotFound, and "running" is not a terminal status the store accepts.
+func TestCloseWorkRequestGuards(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	requestWithSession(t, s, "req-1", "sess-1")
+
+	_, err := s.CloseWorkRequest(ctx, "req-1", "cancelled", 99, time.Now().UTC(), 10*time.Minute)
+	var conflict *VersionConflictError
+	if !errors.As(err, &conflict) {
+		t.Fatalf("expected VersionConflictError, got %v", err)
+	}
+	if conflict.Resource != "work_request req-1" {
+		t.Fatalf("conflict must name the resource, got %q", conflict.Resource)
+	}
+
+	if _, err := s.CloseWorkRequest(ctx, "does-not-exist", "cancelled", 1, time.Now().UTC(), 10*time.Minute); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+
+	if _, err := s.CloseWorkRequest(ctx, "req-1", WorkRequestStatusRunning, 1, time.Now().UTC(), 10*time.Minute); err == nil {
+		t.Fatal("closing into running must be rejected")
+	}
+}
+
+// TestDeleteWorkRequest pins DELETE /api/requests/{request_id}'s store layer:
+// a terminal row is removed; a dead-but-running row (idle session, or no
+// session at all) is removed directly; a row whose session is live is refused
+// with ActiveRequestError; a stale version and an unknown id refuse.
+func TestDeleteWorkRequest(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	// Terminal: finished normally.
+	requestWithSession(t, s, "req-terminal", "sess-terminal")
+	if matched, err := s.FinishWorkRequest(ctx, "req-terminal", "sess-terminal", "ok", json.RawMessage(`{"status":"ok"}`), time.Now().UTC()); err != nil || !matched {
+		t.Fatalf("finish: matched=%v err=%v", matched, err)
+	}
+	// Dead: running with an idle session.
+	requestWithSession(t, s, "req-dead", "sess-dead")
+	// Never ran: running with no session.
+	if _, err := s.ClaimWorkRequest(ctx, "req-never-ran", 1, time.Now().UTC()); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+
+	future := time.Now().UTC().Add(2 * time.Hour)
+	for _, tc := range []struct {
+		name      string
+		requestID string
+	}{
+		{"terminal", "req-terminal"},
+		{"running with idle session", "req-dead"},
+		{"running with no session", "req-never-ran"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			before, err := s.GetWorkRequest(ctx, tc.requestID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := s.DeleteWorkRequest(ctx, tc.requestID, before.Version, future, 10*time.Minute); err != nil {
+				t.Fatalf("delete: %v", err)
+			}
+			if _, err := s.GetWorkRequest(ctx, tc.requestID); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("row should be gone, got %v", err)
+			}
+		})
+	}
+
+	// Live: refused with ActiveRequestError naming the last event.
+	requestWithSession(t, s, "req-live", "sess-live")
+	before, err := s.GetWorkRequest(ctx, "req-live")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = s.DeleteWorkRequest(ctx, "req-live", before.Version, time.Now().UTC(), 10*time.Minute)
+	var active *ActiveRequestError
+	if !errors.As(err, &active) {
+		t.Fatalf("expected ActiveRequestError for a live request, got %v", err)
+	}
+	if _, err := s.GetWorkRequest(ctx, "req-live"); err != nil {
+		t.Fatalf("a refused delete must leave the row, got %v", err)
+	}
+
+	// Stale version and unknown id.
+	requestWithSession(t, s, "req-2", "sess-2")
+	row, err := s.GetWorkRequest(ctx, "req-2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var conflict *VersionConflictError
+	if err := s.DeleteWorkRequest(ctx, "req-2", row.Version+1, future, 10*time.Minute); !errors.As(err, &conflict) {
+		t.Fatalf("expected VersionConflictError for a stale delete, got %v", err)
+	}
+	if err := s.DeleteWorkRequest(ctx, "does-not-exist", 1, future, 10*time.Minute); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
 }

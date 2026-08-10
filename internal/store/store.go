@@ -72,7 +72,7 @@ func (e *ActiveSessionError) Error() string {
 // version that does not equal the row's current version — the client read the
 // row before someone else changed it (docs/DATA-API.md "Optimistic
 // concurrency"). It surfaces as a 412 on the HTTP surface. Resource names the
-// row ("session <id>", later "work_request <id>") so the message is
+// row ("session <id>", "work_request <id>") so the message is
 // self-describing in every resource's handler.
 type VersionConflictError struct {
 	Resource string
@@ -83,6 +83,43 @@ type VersionConflictError struct {
 func (e *VersionConflictError) Error() string {
 	return fmt.Sprintf("store: %s changed since it was read: If-Match %d, current version %d",
 		e.Resource, e.Want, e.Current)
+}
+
+// ActiveRequestError is returned when a write would close or delete a work
+// request whose session is still live — the row a live pool worker is using,
+// which will publish its own terminal result. The request's session id is
+// the signal: the session's most recent event newer than the caller's idle
+// threshold means the request is genuinely in flight, so the write refuses
+// rather than race the worker (docs/DATA-API.md "Preconditions"). It
+// surfaces as a 409 on the HTTP surface, and LastEventAt is what the message
+// names: when the session was actually last heard from.
+type ActiveRequestError struct {
+	RequestID   string
+	SessionID   string
+	LastEventAt time.Time
+}
+
+func (e *ActiveRequestError) Error() string {
+	return fmt.Sprintf("store: work request %s is still in flight: its session %s had its most recent event at %s",
+		e.RequestID, e.SessionID, e.LastEventAt.UTC().Format(time.RFC3339))
+}
+
+// ActiveLeaseError is returned when a write would release a workspace lease
+// whose heartbeat is newer than the caller's idle threshold — the lease a
+// live session is still holding, so the write refuses rather than releasing
+// a workspace that is being used right now (docs/DATA-API.md
+// "Preconditions"). It surfaces as a 409 on the HTTP surface, and
+// LastHeartbeatAt is what the message names: when the lease was actually
+// last heartbeated.
+type ActiveLeaseError struct {
+	Workspace       string
+	SessionID       string
+	LastHeartbeatAt time.Time
+}
+
+func (e *ActiveLeaseError) Error() string {
+	return fmt.Sprintf("store: lease on workspace %s is still held by live session %s: last heartbeat at %s",
+		e.Workspace, e.SessionID, e.LastHeartbeatAt.UTC().Format(time.RFC3339))
 }
 
 // Session is the frozen metadata row for one agent session. SystemPrompt and
@@ -220,14 +257,16 @@ CREATE TABLE IF NOT EXISTS work_requests (
 	result         TEXT,
 	received_at    TEXT NOT NULL,
 	finished_at    TEXT,
-	delivery_count INTEGER NOT NULL DEFAULT 0
+	delivery_count INTEGER NOT NULL DEFAULT 0,
+	version        INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS workspace_leases (
 	workspace    TEXT PRIMARY KEY,
 	session_id   TEXT NOT NULL,
 	acquired_at  TEXT NOT NULL,
-	heartbeat_at TEXT NOT NULL
+	heartbeat_at TEXT NOT NULL,
+	version      INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS settings (
@@ -277,10 +316,20 @@ func Open(path string) (*Store, error) {
 		readDB.Close()
 		return nil, fmt.Errorf("store: apply schema: %w", err)
 	}
-	if err := migrateSessions(writeDB); err != nil {
+	if err := migrateTableColumns(writeDB, "sessions", sessionMigrationColumns); err != nil {
 		writeDB.Close()
 		readDB.Close()
 		return nil, fmt.Errorf("store: migrate sessions table: %w", err)
+	}
+	if err := migrateTableColumns(writeDB, "work_requests", workRequestMigrationColumns); err != nil {
+		writeDB.Close()
+		readDB.Close()
+		return nil, fmt.Errorf("store: migrate work_requests table: %w", err)
+	}
+	if err := migrateTableColumns(writeDB, "workspace_leases", workspaceLeaseMigrationColumns); err != nil {
+		writeDB.Close()
+		readDB.Close()
+		return nil, fmt.Errorf("store: migrate workspace_leases table: %w", err)
 	}
 
 	s := &Store{
@@ -314,13 +363,12 @@ func setPragmasWithRetry(db *sql.DB) error {
 	return err
 }
 
-// migrateSessions adds the session provenance columns to a sessions table
-// created by an older binary. It reads the existing columns and adds only
-// the missing ones, so it is a no-op on a database that already has them.
-// ALTER TABLE ADD COLUMN with a constant NOT NULL default backfills existing
-// rows in the same statement.
-func migrateSessions(db *sql.DB) error {
-	rows, err := db.Query(`PRAGMA table_info(sessions)`)
+// migrateTableColumns adds columns to a table created by an older binary. It
+// reads the existing columns and adds only the missing ones, so it is a
+// no-op on a database that already has them. ALTER TABLE ADD COLUMN with a
+// constant NOT NULL default backfills existing rows in the same statement.
+func migrateTableColumns(db *sql.DB, table string, columns []migrationColumn) error {
+	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
 	if err != nil {
 		return err
 	}
@@ -340,23 +388,27 @@ func migrateSessions(db *sql.DB) error {
 		return err
 	}
 
-	for _, col := range sessionMigrationColumns {
+	for _, col := range columns {
 		if have[col.name] {
 			continue
 		}
-		if _, err := db.Exec(`ALTER TABLE sessions ADD COLUMN ` + col.name + ` ` + col.def); err != nil {
+		if _, err := db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + col.name + ` ` + col.def); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// sessionMigrationColumns are the columns migrateSessions adds to a sessions
-// table created by an older binary.
-var sessionMigrationColumns = []struct {
+// migrationColumn is one column migrateTableColumns adds to a table created
+// by an older binary.
+type migrationColumn struct {
 	name string
 	def  string
-}{
+}
+
+// sessionMigrationColumns are the columns migrateTableColumns adds to a
+// sessions table created by an older binary.
+var sessionMigrationColumns = []migrationColumn{
 	{"job_type", "TEXT NOT NULL DEFAULT 'implementation'"},
 	{"parent_agent_type", "TEXT NOT NULL DEFAULT ''"},
 	{"parent_agent_id", "TEXT NOT NULL DEFAULT ''"},
@@ -380,6 +432,24 @@ var sessionMigrationColumns = []struct {
 	// id (docs/WEB-REDESIGN.md phase 3). Older rows default to the empty
 	// string, which the browser renders as no subtitle.
 	{"summary", "TEXT NOT NULL DEFAULT ''"},
+	// version: the optimistic-concurrency counter every mutating write
+	// checks and bumps (docs/DATA-API.md). Older rows default to 1, which is
+	// also the version a freshly created row starts at.
+	{"version", "INTEGER NOT NULL DEFAULT 1"},
+}
+
+// workRequestMigrationColumns are the columns migrateTableColumns adds to a
+// work_requests table created by an older binary.
+var workRequestMigrationColumns = []migrationColumn{
+	// version: the optimistic-concurrency counter every mutating write
+	// checks and bumps (docs/DATA-API.md). Older rows default to 1, which is
+	// also the version a freshly created row starts at.
+	{"version", "INTEGER NOT NULL DEFAULT 1"},
+}
+
+// workspaceLeaseMigrationColumns are the columns migrateTableColumns adds to
+// a workspace_leases table created by an older binary.
+var workspaceLeaseMigrationColumns = []migrationColumn{
 	// version: the optimistic-concurrency counter every mutating write
 	// checks and bumps (docs/DATA-API.md). Older rows default to 1, which is
 	// also the version a freshly created row starts at.
@@ -870,7 +940,7 @@ func (s *Store) AcquireWorkspaceLease(ctx context.Context, workspace, sessionID 
 		err := tx.QueryRow(`SELECT session_id FROM workspace_leases WHERE workspace = ?`, workspace).Scan(&holder)
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
-			_, err := tx.Exec(`INSERT INTO workspace_leases (workspace, session_id, acquired_at, heartbeat_at) VALUES (?, ?, ?, ?)`,
+			_, err := tx.Exec(`INSERT INTO workspace_leases (workspace, session_id, acquired_at, heartbeat_at, version) VALUES (?, ?, ?, ?, 1)`,
 				workspace, sessionID, now, now)
 			return err
 		case err != nil:
