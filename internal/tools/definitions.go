@@ -111,10 +111,18 @@ var definitions = []deepseek.Tool{
 		},
 		"required": ["url", "prompt"]
 	}`),
-	function("ReviewScreenshot", "Send one to four screenshots to Google Gemini's vision model and return its diagnosis of the question. The first image gets high resolution and the rest medium, so put the screenshot that needs the closest scrutiny first. Screenshots are PNG, JPEG, or WebP files, workspace-relative or absolute paths, at most 5 MB each. Returns Gemini's findings as the tool result.", `{
+	// The ReviewScreenshot description names no limits. The image count and
+	// per-file size caps are settings (tools.reviewscreenshot_max_images,
+	// tools.reviewscreenshot_max_bytes), and this text is part of the frozen
+	// request head (docs/CACHE.md): a number here would make the head vary
+	// per installation and change under operators' feet, costing the whole
+	// prompt cache. The model discovers a bound from the refusal message,
+	// which states the actual limit — the same shape the other tools' caps
+	// use.
+	function("ReviewScreenshot", "Send the screenshots to Google Gemini's vision model and return its diagnosis of the question. The first image gets high resolution and the rest medium, so put the screenshot that needs the closest scrutiny first. Screenshots are PNG, JPEG, or WebP files, workspace-relative or absolute paths. Returns Gemini's findings as the tool result.", `{
 		"type": "object",
 		"properties": {
-			"image_paths": {"type": "array", "items": {"type": "string"}, "description": "Absolute or workspace-relative paths to PNG, JPEG, or WebP screenshot files. At most 4, each at most 5 MB. The first image is reviewed at high resolution and the rest at medium, so put the screenshot you care about most first."},
+			"image_paths": {"type": "array", "items": {"type": "string"}, "description": "Absolute or workspace-relative paths to PNG, JPEG, or WebP screenshot files. The first image is reviewed at high resolution and the rest at medium, so put the screenshot you care about most first."},
 			"question": {"type": "string", "description": "What to diagnose about the screenshots"},
 			"spec": {"type": "string", "description": "Optional design spec or target CSS to compare the screenshots against"}
 		},

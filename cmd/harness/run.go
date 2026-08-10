@@ -83,19 +83,49 @@ func runRun(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+
+	priceTable, err := pricing.Load(cfg.PriceTablePath)
+	if err != nil {
+		return err
+	}
+
+	st, err := openStore(cfg)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	res := settings.NewResolver(st)
+
+	// The run defaults resolve through the settings registry, so a key set
+	// with `harness config set` applies here too; the flags below override.
+	resolvedModel, err := res.String(ctx, settings.KeyDefaultModel)
+	if err != nil {
+		return err
+	}
 	if *model != "" {
-		cfg.Model = *model
+		resolvedModel = *model
+	}
+	resolvedEffort, err := res.String(ctx, settings.KeyDefaultEffort)
+	if err != nil {
+		return err
 	}
 	if *effort != "" {
-		cfg.Effort = *effort
+		resolvedEffort = *effort
+	}
+	resolvedMaxTokens, err := res.Int(ctx, settings.KeyRunMaxTokens)
+	if err != nil {
+		return err
 	}
 	if *maxTokens != 0 {
-		cfg.MaxTokens = *maxTokens
+		resolvedMaxTokens = *maxTokens
+	}
+	resolvedMaxSubTurns, err := res.Int(ctx, settings.KeyRunMaxSubTurns)
+	if err != nil {
+		return err
 	}
 	if *maxSubTurns != 0 {
-		cfg.MaxSubTurns = *maxSubTurns
+		resolvedMaxSubTurns = *maxSubTurns
 	}
-	cfg.Thinking = *thinking
 
 	if *permissionMode == "" {
 		return errors.New("-permission-mode is required: readonly or full")
@@ -114,18 +144,6 @@ func runRun(ctx context.Context, args []string) error {
 		resultSchema = b
 	}
 
-	priceTable, err := pricing.Load(cfg.PriceTablePath)
-	if err != nil {
-		return err
-	}
-
-	st, err := openStore(cfg)
-	if err != nil {
-		return err
-	}
-	defer st.Close()
-	res := settings.NewResolver(st)
-
 	rec := newHTTPLogRecorder(cfg)
 	defer closeHTTPLog(rec)
 
@@ -140,12 +158,12 @@ func runRun(ctx context.Context, args []string) error {
 		Client:      withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res)),
 		Recorder:    rec,
 		Prices:      priceTable,
-		FlashModel:  cfg.FlashModel,
 		Gemini:      withGeminiHTTPLog(cfg, rec, googleAPIKeyProvider(res)),
 		GeminiModel: googleVisionModelProvider(res),
+		Settings:    res,
 	}
 
-	fmt.Printf("model %s (effort %s, thinking %v), permission mode %s, %d job(s)\n\n", cfg.Model, cfg.Effort, cfg.Thinking, mode, len(workspaces))
+	fmt.Printf("model %s (effort %s, thinking %v), permission mode %s, %d job(s)\n\n", resolvedModel, resolvedEffort, cfg.Thinking, mode, len(workspaces))
 	if *debugChurnAt > 0 {
 		fmt.Printf("debug: deliberately churning the prefix before sub-turn %d (docs/CACHE.md demonstration)\n\n", *debugChurnAt)
 	}
@@ -167,9 +185,9 @@ func runRun(ctx context.Context, args []string) error {
 		go func(i int, label, workspace, prompt string) {
 			defer wg.Done()
 			res, err := r.Run(ctx, session.RunOptions{
-				Model: cfg.Model, Effort: cfg.Effort, Thinking: cfg.Thinking, MaxTokens: cfg.MaxTokens,
+				Model: resolvedModel, Effort: resolvedEffort, Thinking: *thinking, MaxTokens: resolvedMaxTokens,
 				Workspace: workspace, PermissionMode: mode, Deny: deny, Prompt: prompt,
-				ResultSchema: resultSchema, MaxSubTurns: cfg.MaxSubTurns, Resolver: resolver,
+				ResultSchema: resultSchema, MaxSubTurns: resolvedMaxSubTurns, Resolver: resolver,
 				JobType: *jobType, ParentAgentType: *parentAgentType, ParentAgentID: *parentAgentID,
 				DebugChurnAtSubTurn: *debugChurnAt,
 				Progress: func(p session.SubTurnProgress) {

@@ -18,6 +18,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 	"github.com/mrgeoffrich/deepseek-harness/internal/session"
+	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 	"github.com/mrgeoffrich/deepseek-harness/internal/workspace"
@@ -42,6 +43,14 @@ type Pool struct {
 	DefaultMaxTokens int
 	DefaultDeadline  time.Duration
 	PriceTableDate   string
+
+	// Settings, when set, is where the per-request defaults resolve from:
+	// run.max_tokens, run.deadline, model.default, and model.effort are read
+	// through the store on every request, so a key changed with `harness
+	// config set` takes effect on the next request without a restart. Nil is
+	// the test path: the Default* fields above, then the built-in values
+	// below, apply.
+	Settings *settings.Resolver
 
 	// Size bounds concurrent runs. It must equal the consumer's
 	// MaxAckPending (docs/DESIGN.md §4.10) so JetStream never delivers more
@@ -105,32 +114,54 @@ func (p *Pool) prepareWorkspace() func(context.Context, string, string, []queue.
 }
 
 // defaultDeadline is the wall clock a run that names no deadline gets. It
-// mirrors config's defaultDeadlineMS (60 minutes): sized to let a full
-// 400-sub-turn budget run at roughly six seconds a sub-turn.
-func (p *Pool) defaultDeadline() time.Duration {
+// resolves run.deadline from the settings registry when a resolver is
+// attached — sized to let a full 400-sub-turn budget run at roughly six
+// seconds a sub-turn — and falls back to 60 minutes otherwise (the
+// registry default, mirrored here for the test path).
+func (p *Pool) defaultDeadline(ctx context.Context) time.Duration {
 	if p.DefaultDeadline > 0 {
 		return p.DefaultDeadline
+	}
+	if p.Settings != nil {
+		if v, err := p.Settings.Duration(ctx, settings.KeyRunDeadline); err == nil {
+			return v
+		}
 	}
 	return 60 * time.Minute
 }
 
-func (p *Pool) defaultModel() string {
+func (p *Pool) defaultModel(ctx context.Context) string {
 	if p.DefaultModel != "" {
 		return p.DefaultModel
+	}
+	if p.Settings != nil {
+		if v, err := p.Settings.String(ctx, settings.KeyDefaultModel); err == nil {
+			return v
+		}
 	}
 	return "deepseek-v4-pro"
 }
 
-func (p *Pool) defaultEffort() string {
+func (p *Pool) defaultEffort(ctx context.Context) string {
 	if p.DefaultEffort != "" {
 		return p.DefaultEffort
+	}
+	if p.Settings != nil {
+		if v, err := p.Settings.String(ctx, settings.KeyDefaultEffort); err == nil {
+			return v
+		}
 	}
 	return "high"
 }
 
-func (p *Pool) defaultMaxTokens() int {
+func (p *Pool) defaultMaxTokens(ctx context.Context) int {
 	if p.DefaultMaxTokens > 0 {
 		return p.DefaultMaxTokens
+	}
+	if p.Settings != nil {
+		if v, err := p.Settings.Int(ctx, settings.KeyRunMaxTokens); err == nil {
+			return v
+		}
 	}
 	return 48000
 }
@@ -267,7 +298,7 @@ func (p *Pool) handle(msg jetstream.Msg) {
 // passes (then Naks as a last resort — see the comment at the call site for
 // why that resort is safe). It never runs a session itself.
 func (p *Pool) waitForResolution(msg jetstream.Msg, req queue.Request) {
-	deadline := p.defaultDeadline()
+	deadline := p.defaultDeadline(context.Background())
 	if req.DeadlineMS > 0 {
 		deadline = time.Duration(req.DeadlineMS) * time.Millisecond
 	}
@@ -330,7 +361,7 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, outcome store.ClaimOutc
 	go p.heartbeat(msg, hbDone)
 	defer close(hbDone)
 
-	deadline := p.defaultDeadline()
+	deadline := p.defaultDeadline(context.Background())
 	if req.DeadlineMS > 0 {
 		deadline = time.Duration(req.DeadlineMS) * time.Millisecond
 	}
@@ -361,11 +392,11 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, outcome store.ClaimOutc
 	mode := tools.Mode(req.PermissionMode)
 	model := req.Model
 	if model == "" {
-		model = p.defaultModel()
+		model = p.defaultModel(runCtx)
 	}
 	effort := req.Effort
 	if effort == "" {
-		effort = p.defaultEffort()
+		effort = p.defaultEffort(runCtx)
 	}
 
 	progressLimiter := queue.NewProgressLimiter(time.Second)
@@ -374,7 +405,7 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, outcome store.ClaimOutc
 		Model:           model,
 		Effort:          effort,
 		Thinking:        p.DefaultThinking,
-		MaxTokens:       p.defaultMaxTokens(),
+		MaxTokens:       p.defaultMaxTokens(runCtx),
 		Workspace:       ws,
 		PermissionMode:  mode,
 		Deny:            req.Deny,

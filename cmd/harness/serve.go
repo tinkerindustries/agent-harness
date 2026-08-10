@@ -27,7 +27,7 @@ import (
 // than cutting them off.
 func runServe(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
-	poolSize := fs.Int("pool-size", 0, "override worker pool size (default from config)")
+	poolSize := fs.Int("pool-size", 0, "override worker pool size (default: the worker.pool_size setting)")
 	addr := fs.String("addr", "", "override the HTTP address (default from config; loopback)")
 	devFrontend := fs.String("dev-frontend", "", "proxy non-API requests to a running Vite dev server at this URL instead of serving the embedded build")
 	if err := fs.Parse(args); err != nil {
@@ -37,9 +37,6 @@ func runServe(ctx context.Context, args []string) error {
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
-	}
-	if *poolSize != 0 {
-		cfg.WorkerPoolSize = *poolSize
 	}
 	if *addr != "" {
 		cfg.HTTPAddr = *addr
@@ -69,9 +66,53 @@ func runServe(ctx context.Context, args []string) error {
 	}
 	defer st.Close()
 	res := settings.NewResolver(st)
+
+	// Restart-required settings, resolved once at startup: the worker pool
+	// size, the two model-concurrency ceilings, the RESULTS stream
+	// retention, and the events paging bounds are read at startup or baked
+	// into the JetStream stream, so a change takes effect on the next start
+	// (the settings screen marks each of these; docs/DESIGN.md §4.2).
+	workerPoolSize, err := res.Int(ctx, settings.KeyWorkerPoolSize)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", settings.KeyWorkerPoolSize, err)
+	}
+	if *poolSize != 0 {
+		workerPoolSize = *poolSize
+	}
+	concurrencyPro, err := res.Int(ctx, settings.KeyWorkerConcurrencyPro)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", settings.KeyWorkerConcurrencyPro, err)
+	}
+	concurrencyFlash, err := res.Int(ctx, settings.KeyWorkerConcurrencyFlash)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", settings.KeyWorkerConcurrencyFlash, err)
+	}
+	resultsMaxAge, err := res.Duration(ctx, settings.KeyQueueResultsMaxAge)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", settings.KeyQueueResultsMaxAge, err)
+	}
+	eventsLimitDefault, err := res.Int(ctx, settings.KeyHTTPEventsLimitDefault)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", settings.KeyHTTPEventsLimitDefault, err)
+	}
+	eventsLimitMax, err := res.Int(ctx, settings.KeyHTTPEventsLimitMax)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", settings.KeyHTTPEventsLimitMax, err)
+	}
+	// The model names are live settings too; the startup warning and the
+	// concurrency-limits map keyed by them snapshot today's values.
+	defaultModel, err := res.String(ctx, settings.KeyDefaultModel)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", settings.KeyDefaultModel, err)
+	}
+	defaultFlashModel, err := res.String(ctx, settings.KeyDefaultFlashModel)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", settings.KeyDefaultFlashModel, err)
+	}
+
 	client := withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res))
 	logStartupBalance(ctx, client)
-	logStartupModels(ctx, client, cfg.Model, cfg.FlashModel)
+	logStartupModels(ctx, client, defaultModel, defaultFlashModel)
 
 	eventHub := hub.New()
 	runner := &session.Runner{
@@ -80,13 +121,13 @@ func runServe(ctx context.Context, args []string) error {
 		Client:      client,
 		Recorder:    rec,
 		Prices:      priceTable,
-		FlashModel:  cfg.FlashModel,
 		Gemini:      withGeminiHTTPLog(cfg, rec, googleAPIKeyProvider(res)),
 		GeminiModel: googleVisionModelProvider(res),
 		Hub:         eventHub,
+		Settings:    res,
 		ModelLimits: map[string]int{
-			cfg.Model:      cfg.ModelConcurrencyPro,
-			cfg.FlashModel: cfg.ModelConcurrencyFlash,
+			defaultModel:      concurrencyPro,
+			defaultFlashModel: concurrencyFlash,
 		},
 	}
 
@@ -97,25 +138,22 @@ func runServe(ctx context.Context, args []string) error {
 	defer nc.Close()
 
 	ensureCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	consumer, err := queue.EnsureStreams(ensureCtx, js, cfg.WorkerPoolSize)
+	consumer, err := queue.EnsureStreams(ensureCtx, js, workerPoolSize, resultsMaxAge)
 	cancel()
 	if err != nil {
 		return fmt.Errorf("declare streams: %w", err)
 	}
 
 	pool := &worker.Pool{
-		Store:            st,
-		Runner:           runner,
-		JS:               js,
-		Consumer:         consumer,
-		WorkspaceRoot:    cfg.WorkspaceRoot,
-		DefaultModel:     cfg.Model,
-		DefaultEffort:    cfg.Effort,
-		DefaultThinking:  cfg.Thinking,
-		DefaultMaxTokens: cfg.MaxTokens,
-		DefaultDeadline:  time.Duration(cfg.DefaultDeadlineMS) * time.Millisecond,
-		PriceTableDate:   priceTable.CapturedAt,
-		Size:             cfg.WorkerPoolSize,
+		Store:           st,
+		Runner:          runner,
+		JS:              js,
+		Consumer:        consumer,
+		WorkspaceRoot:   cfg.WorkspaceRoot,
+		DefaultThinking: cfg.Thinking,
+		PriceTableDate:  priceTable.CapturedAt,
+		Size:            workerPoolSize,
+		Settings:        res,
 	}
 
 	static, err := httpapi.NewStaticHandler(cfg.DevFrontendURL)
@@ -125,6 +163,8 @@ func runServe(ctx context.Context, args []string) error {
 	api := &httpapi.Server{
 		Store: st, Hub: eventHub, Static: static, Settings: res,
 		Consumer: consumer, Pool: pool, PriceTableDate: priceTable.CapturedAt,
+		DefaultEventsLimit: eventsLimitDefault,
+		MaxEventsLimit:     eventsLimitMax,
 	}
 	httpSrv := &http.Server{Addr: cfg.HTTPAddr, Handler: api.Handler()}
 	go func() {
@@ -142,7 +182,7 @@ func runServe(ctx context.Context, args []string) error {
 	}()
 
 	log.Printf("harness serve: connected to %s, pool size %d, model %s (flash %s), workspace root %s",
-		cfg.NATSURL, cfg.WorkerPoolSize, cfg.Model, cfg.FlashModel, cfg.WorkspaceRoot)
+		cfg.NATSURL, workerPoolSize, defaultModel, defaultFlashModel, cfg.WorkspaceRoot)
 	log.Printf("harness serve: http listening on %s", cfg.HTTPAddr)
 	return pool.Run(ctx)
 }

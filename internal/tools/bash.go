@@ -42,7 +42,7 @@ func execBash(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 	runErr := cmd.Run()
 	live.flush()
 
-	text, truncated := truncate(out.String(), e.outputCap())
+	text, truncated := truncate(out.String(), e.outputCap(ctx))
 	result := Result{Content: text, Truncated: truncated}
 
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {

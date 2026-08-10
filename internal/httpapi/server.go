@@ -37,6 +37,11 @@ import (
 const sseKeepaliveInterval = 15 * time.Second
 
 const (
+	// defaultEventsLimit and maxEventsLimit are the built-in paging bounds
+	// when a Server is built without the fields (the test path). Production
+	// resolves http.events_limit_default and http.events_limit_max from the
+	// settings registry at startup and sets the Server fields; the values
+	// are pinned equal by internal/settings/registry_test.go.
 	defaultEventsLimit = 500
 	maxEventsLimit     = 5000
 )
@@ -74,6 +79,14 @@ type Server struct {
 	Pool           QueuePool
 	PriceTableDate string
 	Settings       *settings.Resolver
+
+	// DefaultEventsLimit and MaxEventsLimit bound ?limit= on the events
+	// endpoint. They are resolved from http.events_limit_default and
+	// http.events_limit_max once at startup: a change needs a restart, which
+	// the settings screen marks. Zero (the test path) falls back to the
+	// package constants.
+	DefaultEventsLimit int
+	MaxEventsLimit     int
 }
 
 // Handler returns the harness's whole HTTP surface. methodGate runs before
@@ -300,32 +313,50 @@ func (s *Server) handleQueueHealth(w http.ResponseWriter, r *http.Request) {
 
 // --- settings ---
 
-// settingEntry is one row of GET /api/settings: the key, whether it is set,
-// and its display value. A secret key (settings.IsSecretKey) is masked to at
-// most its last four characters, exactly as harness config list masks it; the
-// full value never leaves the process over HTTP. An unset key omits value.
+// settingEntry is one row of GET /api/settings: the registry descriptor
+// (group, type, default, description, secret, restart) plus the run's own
+// state — whether it is set, whether the current value is an override or the
+// default, and the display value. A secret key (settings.IsSecretKey) is
+// masked to at most its last four characters, exactly as harness config list
+// masks it; the full value never leaves the process over HTTP. An unset key
+// omits value.
 type settingEntry struct {
-	Key   string `json:"key"`
-	Set   bool   `json:"set"`
-	Value string `json:"value,omitempty"`
+	Key         string `json:"key"`
+	Group       string `json:"group"`
+	Type        string `json:"type"`
+	Default     string `json:"default"`
+	Description string `json:"description"`
+	Secret      bool   `json:"secret"`
+	Restart     bool   `json:"restart"`
+	Set         bool   `json:"set"`
+	Override    bool   `json:"override"`
+	Value       string `json:"value,omitempty"`
 }
 
 // handleGetSettings serves GET /api/settings: every key in settings.ValidKeys
-// in order, each with whether it is set and its display value. There is
-// deliberately no reveal parameter — the full secret never leaves the process
-// over HTTP; the CLI's `config get -reveal` is for an operator at a terminal.
+// in order (registry order, grouped), each with its descriptor and whether
+// it is set, its display value, and whether the stored value differs from
+// the default. The override flag is computed here, where the real value is
+// known — a masked secret can never be compared client-side. There is
+// deliberately no reveal parameter — the full secret never leaves the
+// process over HTTP; the CLI's `config get -reveal` is for an operator at a
+// terminal.
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	entries := make([]settingEntry, 0, len(settings.ValidKeys))
-	for _, key := range settings.ValidKeys {
-		value, ok, err := s.Settings.Get(r.Context(), key)
+	for _, d := range settings.Descriptors() {
+		value, ok, err := s.Settings.Get(r.Context(), d.Key)
 		if err != nil {
 			writeInternalError(w, err)
 			return
 		}
-		entry := settingEntry{Key: key, Set: ok}
+		entry := settingEntry{
+			Key: d.Key, Group: d.Group, Type: d.Type.String(), Default: d.Default,
+			Description: d.Description, Secret: d.Secret, Restart: d.Restart,
+			Set: ok, Override: ok && value != d.Default,
+		}
 		if ok {
 			entry.Value = value
-			if settings.IsSecretKey(key) {
+			if d.Secret {
 				entry.Value = maskSecret(value)
 			}
 		}
@@ -376,15 +407,21 @@ func (s *Server) handleDeleteSetting(w http.ResponseWriter, r *http.Request) {
 }
 
 // writeSettingError writes a settings resolver error as JSON: an unknown key
-// is a 400 carrying UnknownKeyError's message (which names the valid keys and
-// never a value), anything else is a 500 like every other handler.
+// or a value that fails the registry's validation is a 400 carrying the
+// resolver's message (an unknown key names the valid keys; a rejected value
+// names the type or bounds — never a value), anything else is a 500 like
+// every other handler.
 func writeSettingError(w http.ResponseWriter, err error) {
 	var ue settings.UnknownKeyError
-	if errors.As(err, &ue) {
+	var ve settings.ValidationError
+	switch {
+	case errors.As(err, &ue):
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": ue.Error()})
-		return
+	case errors.As(err, &ve):
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": ve.Error()})
+	default:
+		writeInternalError(w, err)
 	}
-	writeInternalError(w, err)
 }
 
 // requireJSONContentType refuses a settings write whose Content-Type is not
@@ -440,6 +477,17 @@ type eventsPage struct {
 	Next   *int64        `json:"next,omitempty"`
 }
 
+func (s *Server) eventsLimits() (def, max int) {
+	def, max = defaultEventsLimit, maxEventsLimit
+	if s.DefaultEventsLimit > 0 {
+		def = s.DefaultEventsLimit
+	}
+	if s.MaxEventsLimit > 0 {
+		max = s.MaxEventsLimit
+	}
+	return def, max
+}
+
 func (s *Server) handleGetEvents(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if _, err := s.Store.GetSession(r.Context(), id); err != nil {
@@ -447,13 +495,14 @@ func (s *Server) handleGetEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	def, max := s.eventsLimits()
 	from := parseInt64(r.URL.Query().Get("from"), 0)
 	if from < 0 {
 		from = 0
 	}
-	limit := parseInt(r.URL.Query().Get("limit"), defaultEventsLimit)
-	if limit <= 0 || limit > maxEventsLimit {
-		limit = defaultEventsLimit
+	limit := parseInt(r.URL.Query().Get("limit"), def)
+	if limit <= 0 || limit > max {
+		limit = def
 	}
 
 	events, err := s.Store.GetEventsAfter(r.Context(), id, from-1, limit)

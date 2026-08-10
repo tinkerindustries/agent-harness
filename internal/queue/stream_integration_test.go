@@ -49,10 +49,10 @@ func TestEnsureStreamsConverges(t *testing.T) {
 		js.DeleteStream(context.Background(), StreamResults)
 	})
 
-	if _, err := EnsureStreams(ctx, js, 4); err != nil {
+	if _, err := EnsureStreams(ctx, js, 4, DefaultResultsMaxAge); err != nil {
 		t.Fatalf("first EnsureStreams: %v", err)
 	}
-	consumer, err := EnsureStreams(ctx, js, 8)
+	consumer, err := EnsureStreams(ctx, js, 8, DefaultResultsMaxAge)
 	if err != nil {
 		t.Fatalf("second EnsureStreams: %v", err)
 	}
@@ -80,8 +80,8 @@ func TestEnsureStreamsConverges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("results stream info: %v", err)
 	}
-	if resultsInfo.CachedInfo().Config.MaxAge != resultsMaxAge {
-		t.Fatalf("expected RESULTS MaxAge %s, got %s", resultsMaxAge, resultsInfo.CachedInfo().Config.MaxAge)
+	if resultsInfo.CachedInfo().Config.MaxAge != DefaultResultsMaxAge {
+		t.Fatalf("expected RESULTS MaxAge %s, got %s", DefaultResultsMaxAge, resultsInfo.CachedInfo().Config.MaxAge)
 	}
 }
 
@@ -93,7 +93,7 @@ func TestNatsMsgIDDeduplicates(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if _, err := EnsureStreams(ctx, js, 4); err != nil {
+	if _, err := EnsureStreams(ctx, js, 4, DefaultResultsMaxAge); err != nil {
 		t.Fatalf("EnsureStreams: %v", err)
 	}
 	t.Cleanup(func() {

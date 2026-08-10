@@ -69,9 +69,9 @@ const (
 	KeyToolReviewScreenshotMaxImages = "tools.reviewscreenshot_max_images"
 	KeyToolReviewScreenshotMaxBytes  = "tools.reviewscreenshot_max_bytes"
 
-	KeyDefaultModel     = "model.default"
+	KeyDefaultModel      = "model.default"
 	KeyDefaultFlashModel = "model.flash"
-	KeyDefaultEffort    = "model.effort"
+	KeyDefaultEffort     = "model.effort"
 
 	KeyWorkerPoolSize         = "worker.pool_size"
 	KeyWorkerConcurrencyPro   = "worker.model_concurrency_pro"

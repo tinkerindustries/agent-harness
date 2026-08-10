@@ -25,7 +25,7 @@ var lineNumberPrefix = regexp.MustCompile(`(?m)^\s*[0-9]+\t`)
 
 // execEdit implements Edit: exact-match replacement, requiring a prior Read
 // and a unique match unless replace_all is set (docs/TOOLS.md).
-func execEdit(_ context.Context, e *Executor, argsRaw json.RawMessage) Result {
+func execEdit(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result {
 	var args editArgs
 	if err := json.Unmarshal(argsRaw, &args); err != nil {
 		return errorResult("invalid arguments: %v", err)
@@ -98,7 +98,7 @@ func execEdit(_ context.Context, e *Executor, argsRaw json.RawMessage) Result {
 	}
 	diff := store.ComputeDiff(args.OldString, args.NewString)
 	summary := fmt.Sprintf("Edited %s (%d replacement(s))\n\n%s", args.FilePath, replacements, renderDiffText(diff))
-	out, truncated := truncate(summary, e.outputCap())
+	out, truncated := truncate(summary, e.outputCap(ctx))
 	return Result{Content: out, Truncated: truncated, Diff: diff}
 }
 

@@ -18,7 +18,7 @@ type readArgs struct {
 // execRead implements Read: cat -n style output, because that is the shape
 // the target harnesses return and the model reads offsets out of it
 // (docs/TOOLS.md).
-func execRead(_ context.Context, e *Executor, argsRaw json.RawMessage) Result {
+func execRead(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result {
 	var args readArgs
 	if err := json.Unmarshal(argsRaw, &args); err != nil {
 		return errorResult("invalid arguments: %v", err)
@@ -91,6 +91,6 @@ func execRead(_ context.Context, e *Executor, argsRaw json.RawMessage) Result {
 	}
 
 	e.markRead(path)
-	out, truncated := truncate(b.String(), e.outputCap())
+	out, truncated := truncate(b.String(), e.outputCap(ctx))
 	return Result{Content: out, Truncated: truncated}
 }

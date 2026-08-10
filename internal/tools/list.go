@@ -15,7 +15,7 @@ type listArgs struct {
 
 // execList implements List: the immediate entries of a directory, files and
 // subdirectories both, sorted, honouring glob ignore patterns.
-func execList(_ context.Context, e *Executor, argsRaw json.RawMessage) Result {
+func execList(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result {
 	var args listArgs
 	if err := json.Unmarshal(argsRaw, &args); err != nil {
 		return errorResult("invalid arguments: %v", err)
@@ -68,6 +68,6 @@ func execList(_ context.Context, e *Executor, argsRaw json.RawMessage) Result {
 	if len(names) == 0 {
 		return Result{Content: "(empty directory)"}
 	}
-	out, truncated := truncate(joinLines(names), e.outputCap())
+	out, truncated := truncate(joinLines(names), e.outputCap(ctx))
 	return Result{Content: out, Truncated: truncated}
 }
