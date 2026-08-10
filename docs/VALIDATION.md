@@ -204,6 +204,13 @@ form. See [OBSERVED.md](OBSERVED.md).
 as the framework used for their published V4-Flash benchmarks. DeepSeek is
 shipping their own harness. Worth watching, given the name of this repository.
 
+Checked on 2026-08-10: still unreleased. An invite-only beta opened on
+2026-08-01 for developers with existing open-source agent projects, announced by
+Harness team lead Cui Tianyi on X; press reports put registrations around 712 by
+2026-08-04. The `deepseek-ai` GitHub org has no harness repository, and no
+licence or release date has been announced. The `deepseek-harness` repositories
+on GitHub are unrelated third-party work.
+
 `oh_my_pi.md` warns that `reasoning_content` replay behaviour varies across
 unofficial providers — DeepInfra, KiloCode, NVIDIA NIM, Zenmux — and advises the
 official endpoint. Independent support for targeting `api.deepseek.com`
