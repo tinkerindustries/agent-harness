@@ -79,30 +79,12 @@ func renderFinal(publicBaseURL string, res queue.Result) *mcpsdk.CallToolResult 
 	return result
 }
 
-// renderRunning is deepseek_result's answer when the run has not finished
-// but has progressed at least once: sub-turn count and cost so far, from
-// the most recent .progress message.
-func renderRunning(publicBaseURL, requestID string, p queue.Progress) *mcpsdk.CallToolResult {
-	var b strings.Builder
-	fmt.Fprintf(&b, "status: running\n")
-	fmt.Fprintf(&b, "sub_turn: %d\n", p.SubTurn)
-	if p.Usage != nil {
-		fmt.Fprintf(&b, "cost so far: $%.6f USD (price table %s)\n", p.Usage.CostUSD, p.Usage.PriceTableDate)
-	}
-	if p.Churned {
-		b.WriteString("cache: churned this sub-turn\n")
-	}
-	if url := transcriptURL(publicBaseURL, p.SessionID); url != "" {
-		fmt.Fprintf(&b, "transcript: %s\n", url)
-	}
-	return &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: b.String()}}}
-}
-
-// renderQueued is deepseek_result's answer when neither a final result nor
-// a progress message has arrived: normal for a request still waiting on a
-// free worker slot (docs/DESIGN.md §4.10), not an error.
-func renderQueued(requestID string) *mcpsdk.CallToolResult {
-	text := fmt.Sprintf("status: queued\nrequest_id: %s\nno accepted or progress message seen yet; call deepseek_result again later.\n", requestID)
+// renderPending is deepseek_result's answer when no final result exists at
+// the moment the call is made: the run may still be queued, mid-run, or
+// failed before its session existed, and deepseek_status distinguishes them.
+// Never an error — a run in flight is the normal case for this tool.
+func renderPending(requestID string) *mcpsdk.CallToolResult {
+	text := fmt.Sprintf("request_id: %s\nno final result yet; the run is still going. Call deepseek_status with this request_id for where it is up to.\n", requestID)
 	return &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: text}}}
 }
 

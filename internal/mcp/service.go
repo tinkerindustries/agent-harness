@@ -31,8 +31,7 @@ const serverVersion = "0.4.1"
 // Service holds everything the MCP tool and resource handlers need: the
 // JetStream context to publish work requests and read results, an HTTP
 // client for the harness's read-only API, the configuration that bounds a
-// permission mode and a wait, and this process's own record of what it has
-// launched.
+// permission mode, and this process's own record of what it has launched.
 type Service struct {
 	JS         jetstream.JetStream
 	Cfg        config.MCPConfig
@@ -49,11 +48,14 @@ func (svc *Service) NewServer() *mcpsdk.Server {
 		Version: serverVersion,
 	}, &mcpsdk.ServerOptions{
 		Instructions: "Launch and collect deepseek-harness agent runs. deepseek_agent starts a run and returns " +
-			"immediately; it never blocks for the run to finish. deepseek_result collects the outcome and is safe " +
-			"to call repeatedly. Each run works in a fresh directory holding the repositories it was launched with.",
+			"immediately; it never blocks for the run to finish. While a run is in flight, deepseek_status " +
+			"reports where it is up to; deepseek_result returns the final outcome once the run is done. " +
+			"Neither deepseek_status nor deepseek_result blocks. Each run works in a fresh directory holding " +
+			"the repositories it was launched with.",
 	})
 
 	svc.registerLaunchTool(server)
+	svc.registerStatusTool(server)
 	svc.registerCollectTool(server)
 	svc.registerRunsTool(server)
 	svc.registerResources(server)
