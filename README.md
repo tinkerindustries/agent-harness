@@ -44,6 +44,12 @@ docker compose exec harness harness config set deepseek.api_key sk-...
 `harness config list` shows the stored keys with their values masked; `harness
 config get deepseek.api_key -reveal` prints one in full.
 
+The same keys can be managed from the browser: the settings screen at
+<http://localhost:8080/settings> (linked from the session list) shows each key
+with whether it is set and its display value, and lets an operator set or unset
+it. It shows the same masked values `config list` does — there is no way to
+read a full secret in the browser.
+
 Set `GITHUB_TOKEN` too if you want private clones. The container's entrypoint
 turns it into a git credential inside the container, and `gh` picks it up from
 the environment. Nothing is written to your host's git config.

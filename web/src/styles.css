@@ -53,7 +53,8 @@ pre {
   white-space: nowrap;
 }
 
-.back-button {
+.back-button,
+.settings-button {
   font: inherit;
   cursor: pointer;
   border: 1px solid var(--color-border);
@@ -483,4 +484,69 @@ pre {
   color: var(--color-warn);
   border-color: var(--color-warn);
   font-weight: 600;
+}
+
+/* web/src/components/SettingsScreen.tsx: the settings screen
+   (docs/DESIGN.md §4.2) — the browser's one write, key management only,
+   no run control. */
+
+.settings-row {
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: var(--space);
+  margin-bottom: var(--space);
+}
+
+.settings-row-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space);
+  font-size: 0.85rem;
+}
+
+.settings-key {
+  font-family: var(--font-mono);
+}
+
+.settings-current {
+  display: flex;
+  align-items: center;
+  gap: var(--space);
+  margin: var(--space) 0;
+  font-size: 0.9rem;
+}
+
+.settings-value {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.settings-write {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space);
+}
+
+.settings-input {
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  flex: 0 1 320px;
+  min-width: 0;
+}
+
+.settings-error {
+  color: var(--color-error);
+  font-size: 0.85rem;
+}
+
+.settings-error-banner {
+  border: 1px solid var(--color-error);
+  border-radius: 4px;
+  padding: var(--space);
+  margin-bottom: var(--space);
 }
