@@ -332,15 +332,17 @@ func (p *Pool) handle(msg jetstream.Msg) {
 			return
 		default:
 			// A duplicate publish while the original is still genuinely
-			// running (its session id is not set yet, or the row is
-			// sessionless because the attempt died before attaching one).
-			// Nak would redeliver this exact message and bump its own
-			// NumDelivered, which is indistinguishable from the server's own
-			// "nobody is heartbeating this" signal — after one such cycle
-			// shouldClaim would wrongly read this message as abandoned and
-			// start a second session for a request that never stopped being
-			// owned. Wait and heartbeat instead, so the only way NumDelivered
-			// ever climbs past 1 is JetStream deciding so on its own.
+			// running and has not attached its session yet (a sessionless
+			// running row only falls through here when this message is on its
+			// first delivery; a redelivered one would have been claimed as an
+			// attempt that died during preparation). Nak would redeliver this
+			// exact message and bump its own NumDelivered, which is
+			// indistinguishable from the server's own "nobody is heartbeating
+			// this" signal — after one such cycle shouldClaim would wrongly
+			// read this message as abandoned and start a second session for a
+			// request that never stopped being owned. Wait and heartbeat
+			// instead, so the only way NumDelivered ever climbs past 1 is
+			// JetStream deciding so on its own.
 			p.waitForResolution(msg, req)
 			return
 		}
