@@ -149,6 +149,18 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 				IsError: oc.Result.IsError, Truncated: oc.Result.Truncated,
 				Diff: oc.Result.Diff, ChildSessionID: oc.Result.ChildSessionID,
 			}})
+			// A ReviewScreenshot call bills separately from this sub-turn's
+			// DeepSeek request; its usage rides home on the tool result and
+			// is committed as its own usage event, so the session's cost
+			// total covers Gemini the same way it covers DeepSeek
+			// (docs/DESIGN.md §4.9, SessionUsageSummaries sums every usage
+			// event). The cost and token mapping are already computed by
+			// the tool; the runner only stamps the sub-turn it happened in.
+			if oc.Result.GeminiUsage != nil {
+				g := *oc.Result.GeminiUsage
+				g.SubTurn = subTurn
+				toolInputs = append(toolInputs, store.EventInput{Kind: store.KindUsage, Payload: g})
+			}
 		}
 		if oc.IsComplete && !completed {
 			completed = true

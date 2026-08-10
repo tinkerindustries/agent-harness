@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
+	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
+	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
 
 type reviewScreenshotArgs struct {
@@ -114,12 +116,44 @@ func execReviewScreenshot(ctx context.Context, e *Executor, argsRaw json.RawMess
 		question = "Design spec / target CSS:\n" + args.Spec + "\n\n" + question
 	}
 
-	answer, err := e.Gemini.GenerateContent(ctx, model, reviewScreenshotSystemInstruction, question, images)
+	answer, usage, err := e.Gemini.GenerateContent(ctx, model, reviewScreenshotSystemInstruction, question, images)
 	if err != nil {
 		return errorResult("%v", err)
 	}
 	out, truncated := truncate(answer, e.outputCap())
-	return Result{Content: out, Truncated: truncated}
+	res := Result{Content: out, Truncated: truncated}
+	if usage != nil {
+		res.GeminiUsage = geminiUsagePayload(e.Prices, model, usage)
+	}
+	return res
+}
+
+// geminiUsagePayload turns one successful Gemini call's usage into the
+// store's usage-event shape, cost included, so the runner can commit it and
+// the session's cost total picks it up like any DeepSeek turn. The token
+// mapping (thinking billed at the output rate, cached input a subset of
+// input) is decided and documented in gemini.Usage.TokenSplit. Cost is
+// computed against the same price table DeepSeek's turns use, keyed by the
+// vision model that actually ran. A nil price table, or a model with no
+// entry, leaves cost at zero rather than failing the tool result: the run
+// itself succeeded, and the operator's price table is the thing that is
+// incomplete (docs/DESIGN.md §4.9 prices load from config, never from
+// code).
+func geminiUsagePayload(prices *pricing.Table, model string, usage *gemini.Usage) *store.UsagePayload {
+	cacheHit, cacheMiss, completion, reasoning := usage.TokenSplit()
+	payload := &store.UsagePayload{
+		PromptTokens:          usage.TotalInputTokens,
+		PromptCacheHitTokens:  cacheHit,
+		PromptCacheMissTokens: cacheMiss,
+		CompletionTokens:      completion,
+		ReasoningTokens:       reasoning,
+	}
+	if prices != nil {
+		if c, err := prices.Cost(model, cacheHit, cacheMiss, completion); err == nil {
+			payload.CostUSD = c
+		}
+	}
+	return payload
 }
 
 // screenshotMIMEType reports the Gemini MIME type for a screenshot file, by

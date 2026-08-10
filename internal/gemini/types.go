@@ -58,11 +58,66 @@ type GenerationConfig struct {
 
 // GenerateContentResponse is the response body of an interactions call. The
 // model's text sits in the steps whose Type is "model_output", in their
-// content's text parts; Text() concatenates those.
+// content's text parts; Text() concatenates those. Usage, when the API
+// returns it, is the call's token accounting.
 type GenerateContentResponse struct {
 	ID     string `json:"id"`
 	Status string `json:"status"`
 	Steps  []Step `json:"steps"`
+	Usage  *Usage `json:"usage,omitempty"`
+}
+
+// Usage is one interactions call's token accounting, in the shape the live
+// API returns it (verified sample: total_tokens 72 = total_input_tokens 15
+// + total_output_tokens 1 + total_thought_tokens 56, with
+// total_cached_tokens 0 and input_tokens_by_modality summing to the input
+// count).
+type Usage struct {
+	TotalTokens           int             `json:"total_tokens"`
+	TotalInputTokens      int             `json:"total_input_tokens"`
+	InputTokensByModality []ModalityUsage `json:"input_tokens_by_modality,omitempty"`
+	TotalCachedTokens     int             `json:"total_cached_tokens"`
+	TotalOutputTokens     int             `json:"total_output_tokens"`
+	TotalToolUseTokens    int             `json:"total_tool_use_tokens"`
+	TotalThoughtTokens    int             `json:"total_thought_tokens"`
+	RawPromptToken        int             `json:"raw_prompt_token"`
+}
+
+// ModalityUsage is one entry of usage.input_tokens_by_modality.
+type ModalityUsage struct {
+	Modality string `json:"modality"`
+	Tokens   int    `json:"tokens"`
+}
+
+// TokenSplit maps this usage onto the harness's pricing shape — cache-hit
+// input, cache-miss input, and completion — which is the shape
+// pricing.Table.Cost expects. Two mappings are decisions, not guesses:
+//
+//   - Thinking tokens bill at the output rate. Google's pricing page labels
+//     every output price "Output price (including thinking tokens)", so
+//     total_thought_tokens and total_output_tokens are both output: the
+//     billed completion is their sum (and the verified sample's total_tokens
+//     is input + output + thought, confirming there is no third rate). The
+//     thought half is also reported as the reasoning counter, mirroring how
+//     DeepSeek's CompletionTokens already include its reasoning tokens.
+//   - total_cached_tokens is a subset of total_input_tokens: a context-cache
+//     hit is input the API served from cache, so the uncached input is the
+//     difference. (The verified sample — input 15, cached 0 — agrees
+//     trivially; the subset relationship is the API's documented contract
+//     for context caching.)
+//
+// One thing this shape cannot express: Gemini's context caching also carries
+// a per-hour storage charge that has no counterpart in the three-rate table,
+// so a cost figure here covers the cached reads, not the cached storage.
+func (u *Usage) TokenSplit() (cacheHit, cacheMiss, completion, reasoning int) {
+	cacheHit = u.TotalCachedTokens
+	cacheMiss = u.TotalInputTokens - u.TotalCachedTokens
+	if cacheMiss < 0 {
+		cacheMiss = 0
+	}
+	completion = u.TotalOutputTokens + u.TotalThoughtTokens
+	reasoning = u.TotalThoughtTokens
+	return cacheHit, cacheMiss, completion, reasoning
 }
 
 // Step is one step of an interaction. Only model_output steps carry the

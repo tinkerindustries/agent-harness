@@ -133,10 +133,12 @@ type Image struct {
 
 // GenerateContent sends one interaction to model with the screenshots first
 // and question last ("data first, question last", per the doc), plus
-// systemInstruction as the system instruction. It returns the model's text.
-// The key is resolved per request; an empty key fails before anything is
-// sent.
-func (c *Client) GenerateContent(ctx context.Context, model, systemInstruction, question string, images []Image) (string, error) {
+// systemInstruction as the system instruction. It returns the model's text
+// and, when the API reported one, the call's usage for cost accounting
+// (internal/session commits it as its own usage event, the same way a
+// DeepSeek turn's usage is). The key is resolved per request; an empty key
+// fails before anything is sent.
+func (c *Client) GenerateContent(ctx context.Context, model, systemInstruction, question string, images []Image) (string, *Usage, error) {
 	if model == "" {
 		model = DefaultModel
 	}
@@ -163,13 +165,13 @@ func (c *Client) GenerateContent(ctx context.Context, model, systemInstruction, 
 
 	resp, err := c.generateContent(ctx, req)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	text := resp.Text()
 	if text == "" {
-		return "", fmt.Errorf("gemini: no text output in response (status %q, id %q)", resp.Status, resp.ID)
+		return "", nil, fmt.Errorf("gemini: no text output in response (status %q, id %q)", resp.Status, resp.ID)
 	}
-	return text, nil
+	return text, resp.Usage, nil
 }
 
 func (c *Client) generateContent(ctx context.Context, req GenerateContentRequest) (*GenerateContentResponse, error) {

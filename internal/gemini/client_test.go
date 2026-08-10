@@ -31,7 +31,7 @@ func TestRequestShapePinsTheDoc(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }))
-	_, err := c.GenerateContent(context.Background(), "gemini-3.5-flash",
+	_, _, err := c.GenerateContent(context.Background(), "gemini-3.5-flash",
 		"You are reviewing a web page screenshot against its intended design.",
 		"Based on the preceding screenshot, identify all visual discrepancies.",
 		[]Image{
@@ -146,7 +146,7 @@ func TestAPIKeyRidesInHeader(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-secret", nil }))
-	if _, err := c.GenerateContent(context.Background(), "gemini-3.5-flash", "", "hello?", []Image{{Data: []byte("x"), MIMEType: "image/png", Resolution: ResolutionHigh}}); err != nil {
+	if _, _, err := c.GenerateContent(context.Background(), "gemini-3.5-flash", "", "hello?", []Image{{Data: []byte("x"), MIMEType: "image/png", Resolution: ResolutionHigh}}); err != nil {
 		t.Fatalf("GenerateContent: %v", err)
 	}
 }
@@ -163,7 +163,7 @@ func TestEmptyKeyFailsBeforeSending(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "", nil }))
-	_, err := c.GenerateContent(context.Background(), "gemini-3.5-flash", "", "hello?", nil)
+	_, _, err := c.GenerateContent(context.Background(), "gemini-3.5-flash", "", "hello?", nil)
 	if err != ErrNoAPIKey {
 		t.Fatalf("error = %v, want ErrNoAPIKey", err)
 	}
@@ -189,7 +189,7 @@ func TestGenerateContentReturnsModelText(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }))
-	got, err := c.GenerateContent(context.Background(), "gemini-3.5-flash", "", "hello?", []Image{{Data: []byte("x"), MIMEType: "image/png", Resolution: ResolutionHigh}})
+	got, _, err := c.GenerateContent(context.Background(), "gemini-3.5-flash", "", "hello?", []Image{{Data: []byte("x"), MIMEType: "image/png", Resolution: ResolutionHigh}})
 	if err != nil {
 		t.Fatalf("GenerateContent: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestGenerateContentEmptyTextIsAnError(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }))
-	if _, err := c.GenerateContent(context.Background(), "gemini-3.5-flash", "", "hello?", []Image{{Data: []byte("x"), MIMEType: "image/png", Resolution: ResolutionHigh}}); err == nil {
+	if _, _, err := c.GenerateContent(context.Background(), "gemini-3.5-flash", "", "hello?", []Image{{Data: []byte("x"), MIMEType: "image/png", Resolution: ResolutionHigh}}); err == nil {
 		t.Fatal("expected an error for a textless response, got nil")
 	}
 }
@@ -224,8 +224,87 @@ func TestAPIErrorSurfacesTheMessage(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }))
-	_, err := c.GenerateContent(context.Background(), "gemini-3.5-flash", "", "hello?", []Image{{Data: []byte("x"), MIMEType: "image/png", Resolution: ResolutionHigh}})
+	_, _, err := c.GenerateContent(context.Background(), "gemini-3.5-flash", "", "hello?", []Image{{Data: []byte("x"), MIMEType: "image/png", Resolution: ResolutionHigh}})
 	if err == nil || !strings.Contains(err.Error(), "bad request details") {
 		t.Fatalf("error = %v, want it to carry the API message", err)
+	}
+}
+
+// TestGenerateContentReturnsParsedUsage pins that the usage block of a real
+// interactions response is decoded, not dropped: the exact verified shape
+// from the follow-up brief, so cost accounting downstream sees the true
+// figures.
+func TestGenerateContentReturnsParsedUsage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{
+			"id": "i-1",
+			"status": "completed",
+			"steps": [{"type": "model_output", "content": [{"type": "text", "text": "[{}]"}]}],
+			"usage": {
+				"total_tokens": 72,
+				"total_input_tokens": 15,
+				"input_tokens_by_modality": [{"modality": "text", "tokens": 15}],
+				"total_cached_tokens": 0,
+				"total_output_tokens": 1,
+				"total_tool_use_tokens": 0,
+				"total_thought_tokens": 56,
+				"raw_prompt_token": 50
+			}
+		}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }))
+	_, usage, err := c.GenerateContent(context.Background(), "gemini-3.5-flash", "", "hello?", []Image{{Data: []byte("x"), MIMEType: "image/png", Resolution: ResolutionHigh}})
+	if err != nil {
+		t.Fatalf("GenerateContent: %v", err)
+	}
+	if usage == nil {
+		t.Fatal("usage is nil; the response's usage block was not parsed")
+	}
+	if usage.TotalTokens != 72 || usage.TotalInputTokens != 15 || usage.TotalCachedTokens != 0 ||
+		usage.TotalOutputTokens != 1 || usage.TotalThoughtTokens != 56 || usage.RawPromptToken != 50 {
+		t.Errorf("usage = %+v, want the verified sample figures", usage)
+	}
+	if len(usage.InputTokensByModality) != 1 || usage.InputTokensByModality[0].Modality != "text" || usage.InputTokensByModality[0].Tokens != 15 {
+		t.Errorf("input_tokens_by_modality = %+v, want [{text 15}]", usage.InputTokensByModality)
+	}
+}
+
+// TestUsageTokenSplit pins the two mapping decisions in Usage.TokenSplit
+// against the verified sample: total_tokens 72 = input 15 + output 1 +
+// thought 56, thinking bills at the output rate, and cached tokens are a
+// subset of input (here trivially: cached 0, so uncached input is the whole
+// 15).
+func TestUsageTokenSplit(t *testing.T) {
+	u := &Usage{
+		TotalTokens:        72,
+		TotalInputTokens:   15,
+		TotalCachedTokens:  0,
+		TotalOutputTokens:  1,
+		TotalThoughtTokens: 56,
+	}
+	cacheHit, cacheMiss, completion, reasoning := u.TokenSplit()
+	if cacheHit != 0 || cacheMiss != 15 {
+		t.Errorf("input split = hit %d, miss %d; want 0, 15", cacheHit, cacheMiss)
+	}
+	if completion != 57 {
+		t.Errorf("completion = %d, want 57 (output 1 + thought 56, billed at the output rate)", completion)
+	}
+	if reasoning != 56 {
+		t.Errorf("reasoning = %d, want 56", reasoning)
+	}
+
+	// A cached subset of input: 100 input, 40 cached → 60 uncached, and the
+	// difference must never go negative on a malformed report.
+	u2 := &Usage{TotalInputTokens: 100, TotalCachedTokens: 40, TotalOutputTokens: 5, TotalThoughtTokens: 2}
+	hit, miss, comp, _ := u2.TokenSplit()
+	if hit != 40 || miss != 60 || comp != 7 {
+		t.Errorf("split = hit %d, miss %d, completion %d; want 40, 60, 7", hit, miss, comp)
+	}
+	u3 := &Usage{TotalInputTokens: 10, TotalCachedTokens: 50}
+	if _, miss, _, _ := u3.TokenSplit(); miss != 0 {
+		t.Errorf("cached tokens larger than input must clamp the miss to 0, got %d", miss)
 	}
 }
