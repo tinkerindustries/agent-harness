@@ -244,9 +244,16 @@ If-Match: <version>
   `If-Match` (412 on mismatch, 428 if the header is missing) and, when the
   session is running, its most recent event must be older than
   `sessionIdleThreshold` (409 naming the last event's time).
-- Effect: status set, `finished_at` set to now on a running session, preserved
-  on one already terminal (a re-close is a no-op that still bumps the version).
-  The event log is untouched — no close event is appended.
+- Effect on a **running** session: status set, `finished_at` set to now.
+- Effect on a session **already terminal**: nothing but a version bump. Both
+  the status and `finished_at` it finished with are kept, so a retried PATCH
+  is idempotent and a completed run cannot be relabelled. This endpoint closes
+  an abandoned run; it does not rewrite what a finished one did, and a
+  finished run's status is a fact the transcript, the fold and resume all read
+  as history. Correcting a genuinely wrong terminal status is a DELETE, or the
+  CLI — not a silent overwrite through an endpoint that will have a button on
+  it (phase 5).
+- The event log is untouched — no close event is appended.
 - Success: 200 with the updated session row (same shape as `GET
   /api/sessions/{id}`, including the new `version`), also fanned out to the
   `/api/stream` list feed so open session lists update.

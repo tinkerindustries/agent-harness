@@ -584,10 +584,10 @@ func (s *Store) ResumeSession(ctx context.Context, id string) error {
 //     the clock the idleness is judged against — the caller's — so the rule
 //     is the HTTP layer's policy, not the store's.
 //
-// A running session gets finished_at = now; one already terminal keeps its
-// existing finished_at (a re-close is a no-op on status and timestamp but
-// still bumps the version, so a stale retry fails like any other stale
-// write). The updated row is returned. The event log is untouched.
+// A running session gets the new status and finished_at = now. One already
+// terminal keeps both — a re-close is a version bump and nothing else, so a
+// retried write is idempotent and a finished run cannot be relabelled. The
+// updated row is returned. The event log is untouched.
 func (s *Store) CloseSession(ctx context.Context, id, status string, wantVersion int, now time.Time, minIdle time.Duration) (Session, error) {
 	if status == StatusRunning {
 		return Session{}, fmt.Errorf("store: CloseSession: %s is not a terminal status", status)
@@ -614,11 +614,21 @@ func (s *Store) CloseSession(ctx context.Context, id, status string, wantVersion
 				return &ActiveSessionError{SessionID: id, LastEventAt: last}
 			}
 		}
+		// Only a running session takes the new status. A row that is
+		// already terminal keeps the status it finished with: this endpoint
+		// exists to close an abandoned run, not to relabel a finished one,
+		// and a completed session's status is a fact about what happened.
+		// Overwriting it would let any client — or any bug — rewrite the
+		// record the transcript, the fold and resume all read as history.
+		// A re-close therefore lands as a version bump and nothing else,
+		// which keeps a retried PATCH idempotent.
+		newStatus := storedStatus
 		var fa sql.NullString
 		if storedStatus == StatusRunning {
+			newStatus = status
 			fa = sql.NullString{String: now.UTC().Format(time.RFC3339Nano), Valid: true}
 		}
-		if _, err := tx.Exec(`UPDATE sessions SET status = ?, finished_at = COALESCE(?, finished_at), version = version + 1 WHERE id = ?`, status, fa, id); err != nil {
+		if _, err := tx.Exec(`UPDATE sessions SET status = ?, finished_at = COALESCE(?, finished_at), version = version + 1 WHERE id = ?`, newStatus, fa, id); err != nil {
 			return err
 		}
 		var err2 error

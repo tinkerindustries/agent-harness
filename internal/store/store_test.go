@@ -668,14 +668,16 @@ func TestCloseSession(t *testing.T) {
 		t.Fatalf("expected VersionConflictError for a stale close, got %v", err)
 	}
 
-	// Re-closing an already-terminal session is a no-op that keeps the
-	// original finished_at and bumps the version.
+	// Re-closing an already-terminal session is a no-op on both status and
+	// finished_at, and bumps the version. See
+	// TestCloseSessionDoesNotRelabelATerminalSession for why the status is
+	// held rather than overwritten.
 	reclosed, err := s.CloseSession(ctx, "abandoned", StatusFailed, 2, now.Add(time.Hour), 10*time.Minute)
 	if err != nil {
 		t.Fatalf("re-close: %v", err)
 	}
-	if reclosed.Status != StatusFailed || !reclosed.FinishedAt.Equal(now) {
-		t.Fatalf("re-close must change status but keep finished_at, got %+v", reclosed)
+	if reclosed.Status != StatusCancelled || !reclosed.FinishedAt.Equal(now) {
+		t.Fatalf("re-close must keep both status and finished_at, got %+v", reclosed)
 	}
 	if reclosed.Version != 3 {
 		t.Fatalf("expected version 3 after a re-close, got %d", reclosed.Version)
@@ -687,5 +689,49 @@ func TestCloseSessionNotFound(t *testing.T) {
 	s := openTestStore(t)
 	if _, err := s.CloseSession(context.Background(), "missing", StatusCancelled, 1, time.Now().UTC(), time.Minute); err != ErrNotFound {
 		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+// TestCloseSessionDoesNotRelabelATerminalSession pins the audit property:
+// PATCH exists to close an abandoned run, not to rewrite what a finished one
+// did. A session that already reached a terminal status keeps that status,
+// so a re-close is a version bump and nothing else — idempotent for a
+// retried write, and unable to turn a completed run into a failed one.
+func TestCloseSessionDoesNotRelabelATerminalSession(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	mustCreateSession(t, s, "finished")
+	appendAt := time.Now().UTC()
+	if _, err := s.AppendEvents(ctx, "finished", []EventInput{
+		{Kind: KindSessionStarted, Payload: SessionStartedPayload{OpeningMessage: "hi"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	now := appendAt.Add(20 * time.Minute)
+
+	// Close it once, the way an abandoned run would be closed.
+	closed, err := s.CloseSession(ctx, "finished", StatusOK, 1, now, 10*time.Minute)
+	if err != nil {
+		t.Fatalf("first close: %v", err)
+	}
+	if closed.Status != StatusOK {
+		t.Fatalf("first close: status = %q, want %q", closed.Status, StatusOK)
+	}
+	firstFinished := closed.FinishedAt
+
+	// Now try to relabel the finished run as failed.
+	again, err := s.CloseSession(ctx, "finished", StatusFailed, closed.Version, now.Add(time.Minute), 10*time.Minute)
+	if err != nil {
+		t.Fatalf("re-close: %v", err)
+	}
+	if again.Status != StatusOK {
+		t.Fatalf("a terminal session was relabelled %q; a finished run's status is a fact about what happened", again.Status)
+	}
+	if again.FinishedAt == nil || !again.FinishedAt.Equal(*firstFinished) {
+		t.Fatalf("finished_at moved on a re-close: %v, want %v", again.FinishedAt, firstFinished)
+	}
+	if again.Version != closed.Version+1 {
+		t.Fatalf("version = %d, want %d — a re-close still bumps the version so a stale retry fails", again.Version, closed.Version+1)
 	}
 }
