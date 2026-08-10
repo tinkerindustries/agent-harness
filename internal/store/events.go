@@ -18,6 +18,8 @@ const (
 	KindTurnFinished   EventKind = "turn_finished"
 	KindRunFinished    EventKind = "run_finished"
 	KindError          EventKind = "error"
+	KindSteerMessage   EventKind = "steer_message"
+	KindSteerApplied   EventKind = "steer_applied"
 )
 
 // EventKind is the tag on an Event row that says how to decode its payload.
@@ -31,7 +33,7 @@ type EventKind string
 var EventKinds = []EventKind{
 	KindSessionStarted, KindTurnStarted, KindReasoningDelta, KindContentDelta,
 	KindToolCall, KindToolDenied, KindToolStdout, KindToolResult, KindUsage,
-	KindTurnFinished, KindRunFinished, KindError,
+	KindTurnFinished, KindRunFinished, KindError, KindSteerMessage, KindSteerApplied,
 }
 
 // ValidEventKind reports whether name is a kind the event log can hold — the
@@ -173,4 +175,23 @@ type RunFinishedPayload struct {
 // ErrorPayload records a run-ending failure.
 type ErrorPayload struct {
 	Message string `json:"message"`
+}
+
+// SteerMessagePayload is an operator instruction accepted for a running
+// session (docs/RUN-CONTROL.md "Steering"). It carries no messages-array
+// content: the loop decides where the model sees it, and records that with a
+// steer_applied event. Source is who sent it — "web", "mcp", or "cli".
+type SteerMessagePayload struct {
+	Text   string `json:"text"`
+	Source string `json:"source,omitempty"` // "web", "mcp", "cli"
+}
+
+// SteerAppliedPayload is the point in the log where a steer_message became a
+// user message. SourceSeq links it to the steer_message it applies, which is
+// what lets a resumed run recompute which steers are outstanding from the log
+// alone, with no in-memory high-water mark to lose.
+type SteerAppliedPayload struct {
+	SourceSeq int64  `json:"source_seq"`
+	Text      string `json:"text"`
+	SubTurn   int    `json:"sub_turn"`
 }

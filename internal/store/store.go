@@ -1008,6 +1008,68 @@ func (s *Store) GetEvents(ctx context.Context, sessionID string) ([]Event, error
 	return out, rows.Err()
 }
 
+// SteerMessagesAfter returns the steer_message events for sessionID with seq
+// greater than afterSeq, in seq order, capped at limit. The session loop runs
+// this once per sub-turn (docs/RUN-CONTROL.md "How the loop picks one up"), so
+// the query filters by kind and seq in SQL: it must never pull reasoning or
+// content payloads off the disk, the same rule RequestStatus follows for its
+// own cheap polled query.
+func (s *Store) SteerMessagesAfter(ctx context.Context, sessionID string, afterSeq int64, limit int) ([]Event, error) {
+	rows, err := s.readDB.QueryContext(ctx,
+		`SELECT session_id, seq, kind, payload, created_at FROM events
+		 WHERE session_id = ? AND kind = ? AND seq > ? ORDER BY seq ASC LIMIT ?`,
+		sessionID, KindSteerMessage, afterSeq, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Event
+	for rows.Next() {
+		var e Event
+		var kind, createdAt, payload string
+		if err := rows.Scan(&e.SessionID, &e.Seq, &kind, &payload, &createdAt); err != nil {
+			return nil, err
+		}
+		e.Kind = EventKind(kind)
+		e.Payload = json.RawMessage(payload)
+		e.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt)
+		if err != nil {
+			return nil, fmt.Errorf("store: decode event created_at: %w", err)
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// LastAppliedSteerSeq returns the highest SourceSeq across the session's
+// steer_applied events, or 0 when there are none. The session loop runs this
+// once when a run starts or resumes — not per sub-turn — so reading the
+// steer_applied payloads and taking the max in Go is simpler than SQL JSON
+// extraction, and those payloads are tiny.
+func (s *Store) LastAppliedSteerSeq(ctx context.Context, sessionID string) (int64, error) {
+	rows, err := s.readDB.QueryContext(ctx,
+		`SELECT payload FROM events WHERE session_id = ? AND kind = ?`, sessionID, KindSteerApplied)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	var max int64
+	for rows.Next() {
+		var payload string
+		if err := rows.Scan(&payload); err != nil {
+			return 0, err
+		}
+		var p SteerAppliedPayload
+		if err := json.Unmarshal([]byte(payload), &p); err != nil {
+			return 0, fmt.Errorf("store: decode steer_applied payload: %w", err)
+		}
+		if p.SourceSeq > max {
+			max = p.SourceSeq
+		}
+	}
+	return max, rows.Err()
+}
+
 // AcquireWorkspaceLease claims workspace for sessionID. It fails fast with
 // ErrWorkspaceLeased if another session already holds it; no caller waits
 // (docs/DESIGN.md §4.5).
