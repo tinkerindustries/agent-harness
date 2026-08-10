@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -56,6 +57,17 @@ type Config struct {
 	// (docs/DESIGN.md §4.8): <DataDir>/harness.db, <DataDir>/sessions/...
 	DataDir     string
 	MaxSubTurns int
+
+	// HTTPLogRoot is where raw HTTP exchanges are captured:
+	// <DataDir>/http/<yyyy-mm-dd>/<session_id>/exchanges.jsonl.gz. The log
+	// is primary, not derived: nothing rebuilds it, harness export does not
+	// produce it, and nothing prunes the tree. Every sub-turn resends the
+	// whole message array, so a long run writes tens of megabytes before
+	// compression.
+	HTTPLogRoot string
+	// HTTPLogEnabled defaults to on. "0" or "false" turns capture off and
+	// installs no wrapper on the request path at all.
+	HTTPLogEnabled bool
 
 	// NATSURL is the JetStream server harness serve connects to
 	// (docs/DESIGN.md §4.10).
@@ -124,6 +136,17 @@ func Load() (Config, error) {
 		maxSubTurns = n
 	}
 
+	dataDir := envOr("DEEPSEEK_DATA_DIR", defaultDataDir)
+
+	httpLog := true
+	if v := os.Getenv("DEEPSEEK_HTTP_LOG"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("DEEPSEEK_HTTP_LOG: %w", err)
+		}
+		httpLog = b
+	}
+
 	workerPoolSize, err := envInt("DEEPSEEK_WORKER_POOL_SIZE", defaultWorkerPoolSize)
 	if err != nil {
 		return Config{}, err
@@ -150,7 +173,9 @@ func Load() (Config, error) {
 		Thinking:              thinking,
 		MaxTokens:             maxTokens,
 		PriceTablePath:        envOr("DEEPSEEK_PRICE_TABLE", defaultPriceTable),
-		DataDir:               envOr("DEEPSEEK_DATA_DIR", defaultDataDir),
+		DataDir:               dataDir,
+		HTTPLogRoot:           filepath.Join(dataDir, "http"),
+		HTTPLogEnabled:        httpLog,
 		MaxSubTurns:           maxSubTurns,
 		NATSURL:               envOr("NATS_URL", defaultNATSURL),
 		WorkspaceRoot:         os.Getenv("DEEPSEEK_WORKSPACE_ROOT"),
