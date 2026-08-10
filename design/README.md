@@ -6,11 +6,13 @@ nothing imported from `web/`. Open `index.html` in a browser.
 | File | Shows |
 | --- | --- |
 | `index.html` | Index, and the measurements the mocks are drawn against |
-| `sessions.html` | Main page: in-flight sessions as collapsible plan cards, finished sessions as a dense table |
+| `sessions.html` | Phase 3 main page: in-flight sessions as collapsible plan cards, finished sessions as a dense table |
+| `sessions-v2.html` | **Phase 9** main page: adds the shared top nav and a stat strip, and fixes the finished table's overflow bug — see the note at the bottom of the file |
+| `nav.html` | **Phase 9** top nav in its four states (Sessions/Operations/Settings active, session-detail crumb) |
 | `transcript.html` | Session page: sticky timeline rail, one card per sub-turn, density toggle |
 | `settings.html` | Settings page: the registry as disclosures, closed to key and value, open to bounds and the write |
 | `components.html` | Outcome-to-badge mapping, colour tokens, shadcn component mapping |
-| `tokens.css` | Shared token layer and primitives |
+| `tokens.css` | Shared token layer and primitives, including the phase 9 `.topnav` additions |
 
 Every collapsible is a `<details>` and every token name in `tokens.css` is
 shadcn/ui's, so the mocks map onto components rather than needing a second
