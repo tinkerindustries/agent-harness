@@ -23,7 +23,7 @@ append-only event log in SQLite mirrored to disk for review, cost and cache
 accounting, a read-only browser transcript with a live plan panel driven by
 `TodoWrite`, and session resume.
 
-Out of scope for v1: any write path from the browser, auth and multi-user
+Out of scope for v1: run control from the browser, auth and multi-user
 identity, remote or containerised workspaces, an editor pane, FIM inline
 completion, MCP tools inside the agent loop, prefix completion, background
 shells, edit checkpointing and rollback. Each is additive against this
@@ -39,10 +39,15 @@ separate process (`harness mcp`) that never touches the system prompt or the
 tool array DeepSeek sees.
 
 The browser's inability to control a run is the constraint with the widest
-reach. No control in the UI can approve a tool call — the run surface is
-read-only (§4.2), settings being the one write and not a run control — so
-approval cannot be a question the loop asks a human and waits on. Section 4.6
-covers what replaces it.
+reach. No control in the UI can approve a tool call, so approval cannot be a
+question the loop asks a human and waits on. Section 4.6 covers what replaces
+it.
+
+That constraint is being lifted in stages (§4.2): the data the harness manages
+is writable over HTTP, and run control is intended next. §4.6 is the section to
+re-read when it lands — the policy there is not merely a workaround for a
+browser that cannot answer, it is also what keeps an unattended run from
+stalling on a question nobody is there to answer.
 
 ## 2. Which API surface
 
@@ -188,11 +193,37 @@ so SSE fits, and `Last-Event-ID` gives replay without extra protocol. The
 settings endpoints below are the one place a click goes up, and they are plain
 fetch calls, not SSE.
 
-The v1 HTTP API is read-only with respect to runs: no endpoint starts, steers,
-or stops a run, and nothing a browser does can reach the loop. Work enters over
-NATS or the CLI. Settings are the single exception — an operator configures the
-harness's keys from the same browser surface — and the run surface stays
-untouchable from a browser.
+The HTTP API reads and writes the data the harness manages, and cannot reach
+the run loop. Those are two separate properties and only the second is a
+constraint now.
+
+v1 allowed exactly one write — the settings endpoints — and forbade the rest.
+That bought a genuinely simpler frontend, and it was the right default while
+the only client was a browser rendering transcripts. It stopped paying when
+operating the harness meant reaching past its own API: an abandoned session
+row that no code path ever closes has to be repaired somehow, and the choices
+were a shell on the box or a hand-written SQLite update against a live store.
+An API is the better answer, so the prohibition is retired and
+[DATA-API.md](DATA-API.md) is the surface that replaces it.
+
+Run control is the next stage rather than a permanent exclusion. The intent is
+an interactive frontend that can start, steer, and stop a run; it is not built,
+and until the seam it goes through is designed, the HTTP server holds no NATS
+handle and work enters over NATS or the CLI. The distinction while that is true
+is the target, not the verb: a write that closes an abandoned session row is
+data, and a write that publishes a work request is run control.
+
+Two things stage two has to answer, and stage one should not foreclose:
+
+- **Authentication.** Loopback is the whole of the current story, and it holds
+  only while the surface is one operator's own machine. An interactive site is
+  the kind of thing someone exposes, and transcripts carry workspace paths,
+  file contents, and command output.
+- **§4.6's approval model.** It is built on the browser being unable to answer
+  the loop, so a run never blocks on a human. Making the browser able to answer
+  reopens that, and the answer is not "add an approve button" — a loop that
+  waits on a person is a loop that stalls when nobody is watching. Whatever
+  stage two does here, it needs a default for the unattended case.
 
     GET /api/sessions                    list, newest first, with status and cost
     GET /api/sessions/{id}               metadata
@@ -244,11 +275,16 @@ the stream ends on session status rather than on an event kind.
 The run lives in Go and is driven by NATS, so closing the tab has never had any
 bearing on it.
 
-Read-only-with-respect-to-runs shrinks the CSRF and command-injection surface,
-and the settings writes carry the origin and content-type guards above, but
-none of that makes the service safe to expose. Transcripts carry workspace
-paths, file contents, and command output. Treat the port as sensitive and bind
-it to loopback by default.
+The origin and content-type guards above are what stands between a page in the
+operator's browser and the write endpoints, and they are not much. Nothing here
+makes the service safe to expose: transcripts carry workspace paths, file
+contents, and command output, and the write surface now reaches the store.
+Treat the port as sensitive and bind it to loopback by default.
+
+That was defensible when the surface was one write against a settings table.
+It gets less so with every endpoint added, and the interactive frontend the
+API is heading towards is the point where loopback stops being an answer —
+see §4.2's note on what stage two has to settle.
 
 WebSocket buys nothing here; the session surface is a one-way stream and the
 settings writes are ordinary fetch calls.
@@ -640,19 +676,26 @@ number and type together.
 
 ## 5. Frontend
 
-The browser observes and, where runs are concerned, does not act — its one
-write is the settings screen, and that cannot reach a run. It has no prompt
-box, no approve button, and no cancel control, and the server would reject
-them anyway (§4.2). What it shows is a list of sessions (§5.8), the transcript
-of any one of them — live or historical (§5.9, §5.10) — and the settings
-screen for the harness's settings: the registry (§4.2) rendered grouped, with
-each entry's default, its validation bounds, whether the current value is a
-default or an override, and the restart markers.
+The browser shows a list of sessions (§5.8), the transcript of any one of them
+— live or historical (§5.9, §5.10) — and the settings screen: the registry
+(§4.2) rendered grouped, with each entry's default, its validation bounds,
+whether the current value is a default or an override, and the restart markers.
+It does not yet start, steer, or stop a run, and it has no prompt box, no
+approve button, and no cancel control.
 
-That subtraction removes most of the usual frontend work — no optimistic
-updates, no command queue, no reconciliation between local intent and server
-state. What remains is the hard part, which is rendering two high-rate text
-channels without dropping frames.
+That was a subtraction the frontend was designed around, and it removed most of
+the usual frontend work — no optimistic updates, no command queue, no
+reconciliation between local intent and server state. It is being undone
+deliberately (§4.2), and each of those three returns as the surface grows:
+
+- **Optimistic updates and reconciliation** arrive with the first write whose
+  result the user waits on. The settings screen dodged this by re-fetching
+  after every write, which is honest and cheap at one form and will not scale
+  to a screen where several writes are in flight.
+- **A command queue** arrives with run control, because a request that starts a
+  run is not answered by the response to it.
+- **The frame budget below is unaffected.** It is about rendering deltas, not
+  about what the browser is allowed to send, and none of it changes.
 
 ### 5.0 What actually reaches the browser today
 
@@ -752,7 +795,7 @@ the rail and the plan column are plain sticky elements, and the diff table
 renders inside the transcript (docs/WEB-REDESIGN.md phase 1). Everything
 shadcn has no opinion about — the transcript block styles, the diff table,
 and the status and diff tokens — is plain CSS in `web/src/styles.css`.
-Three screens and one write path, so no router library — `App.tsx`
+Three screens, so no router library — `App.tsx`
 parses the pathname (`/`, `/sessions/:id`, `/settings`) and navigates with
 `history.pushState`/`popstate`, and the static handler falls back to
 `index.html` so a direct link or reload lands on the right screen — and no

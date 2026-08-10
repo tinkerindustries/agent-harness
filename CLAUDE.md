@@ -40,11 +40,21 @@ cutting a version and deploying it to the production stack.
   and tool descriptions. Thinking mode ignores the sampling parameters and
   rejects the coercive `tool_choice` values, so wording is the main loop's only
   lever.
-- **The web surface is read-only with respect to runs** — no endpoint starts,
-  steers, or stops a run, and nothing a browser does can reach the loop. The
-  settings endpoints (`GET /api/settings`, `PUT`/`DELETE /api/settings/{key}`,
-  see docs/DESIGN.md §4.2) are the one write, and they stop at the settings
-  table. Don't add another one, and don't give the HTTP server a NATS handle.
+- **The HTTP API is becoming the harness's real interface, in stages.** The
+  read-only rule is retired. Stage one is the data the harness manages —
+  sessions, events, work requests, settings — and it is specified in
+  docs/DATA-API.md. Stage two is run control from the browser, which is
+  intended and not yet built: starting, steering, and stopping a run.
+  Until stage two lands, **do not give the HTTP server a NATS handle** — not
+  because reaching the loop is forbidden forever, but because the seam it goes
+  through is a design decision that has not been made yet, and a handle
+  smuggled in early is how it gets made by accident. Build stage one so stage
+  two is an addition rather than a rewrite.
+  Every write carries the guards the settings endpoints already use — same
+  origin, `application/json`, loopback. Authentication is the open question
+  stage two forces: the port serves transcripts carrying workspace paths, file
+  contents, and command output, and loopback stops being sufficient the moment
+  the surface is something a person leaves open.
 - **A production stack runs on this machine and must not be disturbed.** It is
   the `deepseek-harness-prod` compose project from `docker-compose.prod.yml`,
   on ports 8180 / 8190 / 4522, and it is very likely mid-run. A bare
