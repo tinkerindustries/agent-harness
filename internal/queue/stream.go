@@ -10,8 +10,11 @@ import (
 )
 
 // Stream and subject names, and the consumer's ack discipline, fixed by
-// docs/DESIGN.md §4.10.
-const (
+// docs/DESIGN.md §4.10. The names are variables, not constants, for one
+// reason only: IsolateForTest renames them so a test package never shares
+// a stream or consumer with production or with another test package. The
+// production values below are what every non-test caller sees.
+var (
 	StreamWork    = "WORK"
 	StreamResults = "RESULTS"
 
@@ -20,7 +23,27 @@ const (
 
 	// ConsumerDurable is the WORK stream's durable pull consumer name.
 	ConsumerDurable = "harness-workers"
+)
 
+// IsolateForTest renames the streams, the durable consumer, and the
+// subject prefixes so this process's tests share nothing with production
+// or with another test package running against the same broker. Each test
+// package calls it from its TestMain with its own prefix ("mcp", "worker",
+// "queue"), which is what lets `go test ./internal/mcp/... ./internal/
+// worker/...` run in parallel: internal/worker's real pool used to consume
+// the requests internal/mcp's tests asserted were sitting unconsumed on the
+// one shared WORK stream. It must never be called from production code;
+// nothing outside _test.go files does.
+func IsolateForTest(prefix string) {
+	StreamWork = prefix + "-WORK"
+	StreamResults = prefix + "-RESULTS"
+	ConsumerDurable = prefix + "-harness-workers"
+	requestSubjectPrefix = prefix + ".harness.work.request."
+	resultSubjectPrefix = prefix + ".harness.work.result."
+}
+
+// Ack discipline and retention, fixed by docs/DESIGN.md §4.10.
+const (
 	// AckWait is fixed at 60s (docs/DESIGN.md §4.10); the pool's InProgress
 	// heartbeat interval is sized well under it so a multi-minute run never
 	// trips it.
