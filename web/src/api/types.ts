@@ -142,6 +142,9 @@ export interface UsagePayload {
 export interface TurnFinishedPayload {
   sub_turn: number;
   finish_reason: string;
+  // Wall time of the sub-turn's request(s), measured server-side around the
+  // stream calls. Absent on sessions committed before the field existed.
+  elapsed_ms?: number;
 }
 
 export interface RunFinishedPayload {

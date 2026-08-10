@@ -232,6 +232,40 @@ func TestAppendEventsAssignsSequentialSeq(t *testing.T) {
 	}
 }
 
+// TestAppendEventsRoundTripsTurnFinishedElapsedMs proves the elapsed_ms
+// payload field survives the marshal/read path that serves the browser via
+// /events and the SSE stream.
+func TestAppendEventsRoundTripsTurnFinishedElapsedMs(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	mustCreateSession(t, s, "sess-1")
+
+	appended, err := s.AppendEvents(ctx, "sess-1", []EventInput{
+		{Kind: KindTurnFinished, Payload: TurnFinishedPayload{FinishReason: "stop", ElapsedMs: 124200}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p TurnFinishedPayload
+	if err := json.Unmarshal(appended[0].Payload, &p); err != nil {
+		t.Fatalf("decode appended payload: %v", err)
+	}
+	if p.ElapsedMs != 124200 {
+		t.Fatalf("expected appended turn_finished to carry elapsed_ms, got %d", p.ElapsedMs)
+	}
+
+	events, err := s.GetEvents(ctx, "sess-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(events[0].Payload, &p); err != nil {
+		t.Fatalf("decode stored payload: %v", err)
+	}
+	if p.ElapsedMs != 124200 {
+		t.Fatalf("expected stored turn_finished to carry elapsed_ms, got %d", p.ElapsedMs)
+	}
+}
+
 func TestAppendEventsConcurrentSessionsDoNotInterleaveSeq(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()

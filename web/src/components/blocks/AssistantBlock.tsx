@@ -12,7 +12,9 @@ export const AssistantBlock = memo(function AssistantBlock({ block }: { block: E
   return (
     <section className="block block-assistant">
       <div className="block-label">sub-turn {block.subTurn}</div>
-      {block.reasoning && <ReasoningPanel text={block.reasoning} defaultOpen={false} elapsedMs={block.reasoningElapsedMs} />}
+      {block.reasoning && (
+        <ReasoningPanel text={block.reasoning} defaultOpen={false} elapsedMs={block.reasoningElapsedMs} tokens={block.reasoningTokens} />
+      )}
       {block.content && <Markdown text={block.content} />}
       {block.toolCalls.map((call) => (
         <div className="tool-call" key={call.id}>

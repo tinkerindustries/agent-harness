@@ -59,7 +59,9 @@ func TestFoldPlainTurn(t *testing.T) {
 		b.ev(store.KindReasoningDelta, store.ReasoningDeltaPayload{Text: "ok, done thinking."}),
 		b.ev(store.KindContentDelta, store.ContentDeltaPayload{Text: "The bug is "}),
 		b.ev(store.KindContentDelta, store.ContentDeltaPayload{Text: "fixed."}),
-		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "stop"}),
+		// ElapsedMs is display-only: the fold must ignore it, so a log that
+		// carries it folds to the same messages as one that does not.
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "stop", ElapsedMs: 124200}),
 		b.ev(store.KindRunFinished, store.RunFinishedPayload{Reason: "no_tool_calls", Text: "The bug is fixed."}),
 	}
 

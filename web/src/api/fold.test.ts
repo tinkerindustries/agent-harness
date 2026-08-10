@@ -24,6 +24,80 @@ function sampleEvents(): StoreEvent[] {
   ];
 }
 
+// The reasoning panel figures: elapsed_ms rides the turn_finished payload
+// (created_at is one instant for a whole batch and cannot express it) and the
+// token count is the API's reasoning_tokens from the sub-turn's usage event.
+describe("reasoning panel figures", () => {
+  function usage(subTurn: number, reasoningTokens: number, attempt?: number): StoreEvent {
+    return ev(99, "usage", {
+      sub_turn: subTurn,
+      attempt,
+      prompt_tokens: 10,
+      prompt_cache_hit_tokens: 5,
+      prompt_cache_miss_tokens: 5,
+      completion_tokens: 3,
+      reasoning_tokens: reasoningTokens,
+      cost_usd: 0,
+      expected_miss_tokens: 5,
+    });
+  }
+
+  it("carries the measured elapsed_ms from turn_finished onto the assistant block", () => {
+    const blocks = foldEvents([
+      ev(1, "session_started", { opening_message: "x" }),
+      ev(2, "turn_started", { sub_turn: 1 }),
+      ev(3, "reasoning_delta", { text: "hmm" }),
+      ev(4, "turn_finished", { sub_turn: 1, finish_reason: "stop", elapsed_ms: 124200 }),
+    ]);
+    const assistant = blocks.find((b) => b.type === "assistant");
+    expect(assistant && "reasoningElapsedMs" in assistant ? assistant.reasoningElapsedMs : undefined).toBe(124200);
+  });
+
+  it("leaves the assistant block with no elapsed segment and no tokens when the events carry neither field", () => {
+    // A session committed before elapsed_ms existed: no duration segment and
+    // the ~chars/4 estimate retained, rather than a made-up 0.0s.
+    const blocks = foldEvents([
+      ev(1, "session_started", { opening_message: "x" }),
+      ev(2, "turn_started", { sub_turn: 1 }),
+      ev(3, "reasoning_delta", { text: "hmm" }),
+      ev(4, "turn_finished", { sub_turn: 1, finish_reason: "stop" }),
+    ]);
+    const assistant = blocks.find((b) => b.type === "assistant");
+    expect(assistant && "reasoningElapsedMs" in assistant ? assistant.reasoningElapsedMs : undefined).toBeUndefined();
+    expect(assistant && "reasoningTokens" in assistant ? assistant.reasoningTokens : undefined).toBeUndefined();
+  });
+
+  it("takes the reasoning token count from the usage event rather than estimating", () => {
+    const blocks = foldEvents([
+      ev(1, "session_started", { opening_message: "x" }),
+      ev(2, "turn_started", { sub_turn: 1 }),
+      ev(3, "reasoning_delta", { text: "hmm" }),
+      ev(4, "turn_finished", { sub_turn: 1, finish_reason: "stop" }),
+      usage(1, 14293),
+    ]);
+    const assistant = blocks.find((b) => b.type === "assistant");
+    expect(assistant && "reasoningTokens" in assistant ? assistant.reasoningTokens : undefined).toBe(14293);
+  });
+
+  it("attaches tokens once, from the usage event that follows turn_finished", () => {
+    // The starved retry commits its first attempt's usage before
+    // turn_finished; the turn is still live then, so that one must not
+    // attach. The retry's own usage, after turn_finished, does.
+    const state = new FoldState();
+    state.ingest(ev(1, "session_started", { opening_message: "x" }));
+    state.ingest(ev(2, "turn_started", { sub_turn: 1 }));
+    state.ingest(usage(1, 4000, 1));
+    state.ingest(ev(3, "reasoning_delta", { text: "hmm" }));
+    state.ingest(ev(4, "turn_finished", { sub_turn: 1, finish_reason: "stop" }));
+    const assistant = state.blocks.find((b) => b.type === "assistant");
+    expect(assistant && "reasoningTokens" in assistant ? assistant.reasoningTokens : undefined).toBeUndefined();
+
+    state.ingest(usage(1, 6820, 2));
+    const amended = state.blocks.find((b) => b.type === "assistant");
+    expect(amended && "reasoningTokens" in amended ? amended.reasoningTokens : undefined).toBe(6820);
+  });
+});
+
 describe("foldEvents", () => {
   it("produces one block per completed unit: opening, assistant, tool_result, usage, run_finished", () => {
     const blocks = foldEvents(sampleEvents());
