@@ -31,9 +31,17 @@ cd deepseek-harness
 cp .env.example .env
 ```
 
-Edit `.env` and set `DEEPSEEK_API_KEY`. Everything else is optional and
-documented inline in `.env.example` — model and effort defaults, pool size,
-deadlines, ports.
+Edit `.env` for the optional overrides — model and effort defaults, pool size,
+deadlines, ports — all documented inline in `.env.example`. The DeepSeek API
+key is **not** an environment variable anymore: it lives in the harness's
+SQLite settings table, and is set after the stack is up:
+
+```sh
+docker compose exec harness harness config set deepseek.api_key sk-...
+```
+
+`harness config list` shows the stored keys with their values masked; `harness
+config get deepseek.api_key -reveal` prints one in full.
 
 Set `GITHUB_TOKEN` too if you want private clones. The container's entrypoint
 turns it into a git credential inside the container, and `gh` picks it up from

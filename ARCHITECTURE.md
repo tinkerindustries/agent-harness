@@ -82,7 +82,9 @@ switch on event kind. Its counterpart is the frontend's own fold in
 ### `internal/store`
 SQLite (`modernc.org/sqlite`, pure Go, WAL) plus the derived disk mirror under
 `<data dir>/sessions/` and diff computation. The database is authoritative; the
-mirror is rebuildable with `harness export`. Depends on: nothing internal. §4.8.
+mirror is rebuildable with `harness export`. The `settings` table holds the
+harness's stored configuration — the DeepSeek API key among it — written and
+read through `internal/settings`. Depends on: nothing internal. §4.8.
 
 ### `internal/hub`
 In-process SSE fan-out: per-session transcript subscribers and a quieter
@@ -141,6 +143,14 @@ Environment loading and `.env` parsing. Defaults follow
 [`docs/MODELS.md`](docs/MODELS.md). Read configuration through here rather than
 calling `os.Getenv` elsewhere.
 
+### `internal/settings`
+The names and resolver for the `settings` table: which keys exist
+(`deepseek.api_key`, `google.api_key`), validation that a read or write names a
+known key, and a resolver that reads through to the store on every call, so a
+key changed by another process takes effect on the next request without
+restarting anything. Depends on: the settings surface of `internal/store`
+only — never `session`, `tools`, or `config`.
+
 ### `internal/pricing`
 The price table, loaded from JSON at runtime and carrying its own capture date.
 Depends on: nothing internal. §4.9.
@@ -181,9 +191,12 @@ The edges that matter:
 
 ## Cross-cutting concerns
 
-**Configuration.** All of it through `internal/config`, sourced from the
-environment with `.env` loaded best-effort at startup. Real environment
-variables win over `.env`. Names and defaults are documented in `.env.example`.
+**Configuration.** Two sources. Runtime and deployment settings come through
+`internal/config` from the environment, with `.env` loaded best-effort at
+startup and real environment variables winning over it. Stored settings — the
+DeepSeek API key today — live in the `settings` table and resolve through
+`internal/settings`, so a key changed by one process takes effect in another
+without a restart. Names and defaults are documented in `.env.example`.
 
 **Pricing.** Never compiled in. The table loads from the path in
 `DEEPSEEK_PRICE_TABLE` and carries a capture date that the cost readout shows,

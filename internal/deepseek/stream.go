@@ -54,7 +54,7 @@ func (c *Client) StreamChatCompletion(ctx context.Context, req ChatCompletionReq
 
 	resp, err := c.do(ctx, http.MethodPost, "/chat/completions", body)
 	if err != nil {
-		return nil, fmt.Errorf("deepseek: stream request: %w", err)
+		return nil, wrapClientError("stream request", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, parseAPIError(resp)

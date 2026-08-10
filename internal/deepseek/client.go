@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -12,16 +13,23 @@ import (
 	"time"
 )
 
-// Client talks to a single DeepSeek base URL with one API key.
+// Client talks to a single DeepSeek base URL. The API key is supplied per
+// request by a provider, so a key stored in the database can change while
+// the client lives without rebuilding it.
 type Client struct {
-	baseURL     string
-	apiKey      string
-	httpClient  *http.Client
-	idleTimeout time.Duration
-	maxRetries  int
-	retryBase   time.Duration
-	retryMax    time.Duration
+	baseURL        string
+	apiKeyProvider func() (string, error)
+	httpClient     *http.Client
+	idleTimeout    time.Duration
+	maxRetries     int
+	retryBase      time.Duration
+	retryMax       time.Duration
 }
+
+// ErrNoAPIKey is returned before a request is sent when the key provider
+// supplies an empty key — the operator's fix is named rather than DeepSeek's
+// 401 being what they see.
+var ErrNoAPIKey = errors.New("no DeepSeek API key configured; set one with: harness config set deepseek.api_key <key>")
 
 // ClientOption customises a Client built by NewClient.
 type ClientOption func(*Client)
@@ -30,6 +38,13 @@ type ClientOption func(*Client)
 // StreamChatCompletion.
 func WithIdleTimeout(d time.Duration) ClientOption {
 	return func(c *Client) { c.idleTimeout = d }
+}
+
+// WithAPIKeyProvider replaces the key supplied at construction time with one
+// resolved per request. The provider is called before every request is sent;
+// an empty key returned from it fails the request locally with ErrNoAPIKey.
+func WithAPIKeyProvider(fn func() (string, error)) ClientOption {
+	return func(c *Client) { c.apiKeyProvider = fn }
 }
 
 // WithHTTPClient overrides the default HTTP client, e.g. in tests.
@@ -45,15 +60,20 @@ func WithTransportWrapper(wrap func(http.RoundTripper) http.RoundTripper) Client
 	return func(c *Client) { c.httpClient.Transport = wrap(c.httpClient.Transport) }
 }
 
-// NewClient builds a Client for baseURL using apiKey. The default HTTP
-// client sets no overall request timeout: that would cap an entire stream
-// rather than one phase of it. Transport-level timeouts bound connection
-// setup, and StreamChatCompletion's idle watchdog bounds gaps between
-// frames (docs/DESIGN.md §4.3).
+// NewClient builds a Client for baseURL using apiKey. The string is wrapped
+// in a provider internally, so NewClient keeps its fixed-key behaviour while
+// the client itself reads the key per request; WithAPIKeyProvider replaces
+// the fixed key with one resolved at request time. The default HTTP client
+// sets no overall request timeout: that would cap an entire stream rather
+// than one phase of it. Transport-level timeouts bound connection setup, and
+// StreamChatCompletion's idle watchdog bounds gaps between frames
+// (docs/DESIGN.md §4.3).
 func NewClient(baseURL, apiKey string, opts ...ClientOption) *Client {
 	c := &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
-		apiKey:  apiKey,
+		apiKeyProvider: func() (string, error) {
+			return apiKey, nil
+		},
 		httpClient: &http.Client{
 			Transport: &http.Transport{
 				DialContext:           (&net.Dialer{Timeout: 15 * time.Second}).DialContext,
@@ -74,6 +94,13 @@ func NewClient(baseURL, apiKey string, opts ...ClientOption) *Client {
 }
 
 func (c *Client) newRequest(ctx context.Context, method, path string, body []byte) (*http.Request, error) {
+	apiKey, err := c.apiKeyProvider()
+	if err != nil {
+		return nil, fmt.Errorf("deepseek: resolve api key: %w", err)
+	}
+	if apiKey == "" {
+		return nil, ErrNoAPIKey
+	}
 	var bodyReader io.Reader
 	if body != nil {
 		bodyReader = bytes.NewReader(body)
@@ -82,7 +109,7 @@ func (c *Client) newRequest(ctx context.Context, method, path string, body []byt
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Accept", "application/json")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -132,6 +159,17 @@ func sleepBackoff(ctx context.Context, base, max time.Duration, attempt int) boo
 	}
 }
 
+// wrapClientError adds operation context to err, except for ErrNoAPIKey:
+// that one surfaces verbatim, so the operator sees the fix — "no DeepSeek
+// API key configured; set one with: harness config set deepseek.api_key
+// <key>" — without a transport prefix in front of it.
+func wrapClientError(op string, err error) error {
+	if errors.Is(err, ErrNoAPIKey) {
+		return err
+	}
+	return fmt.Errorf("deepseek: %s: %w", op, err)
+}
+
 // CreateChatCompletion sends req without streaming and waits for the full
 // response.
 func (c *Client) CreateChatCompletion(ctx context.Context, req ChatCompletionRequest) (*ChatCompletionResponse, error) {
@@ -144,7 +182,7 @@ func (c *Client) CreateChatCompletion(ctx context.Context, req ChatCompletionReq
 
 	resp, err := c.do(ctx, http.MethodPost, "/chat/completions", body)
 	if err != nil {
-		return nil, fmt.Errorf("deepseek: chat completion request: %w", err)
+		return nil, wrapClientError("chat completion request", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, parseAPIError(resp)
@@ -162,7 +200,7 @@ func (c *Client) CreateChatCompletion(ctx context.Context, req ChatCompletionReq
 func (c *Client) ListModels(ctx context.Context) (*ModelsResponse, error) {
 	resp, err := c.do(ctx, http.MethodGet, "/models", nil)
 	if err != nil {
-		return nil, fmt.Errorf("deepseek: list models: %w", err)
+		return nil, wrapClientError("list models", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, parseAPIError(resp)
@@ -180,7 +218,7 @@ func (c *Client) ListModels(ctx context.Context) (*ModelsResponse, error) {
 func (c *Client) GetBalance(ctx context.Context) (*BalanceResponse, error) {
 	resp, err := c.do(ctx, http.MethodGet, "/user/balance", nil)
 	if err != nil {
-		return nil, fmt.Errorf("deepseek: get balance: %w", err)
+		return nil, wrapClientError("get balance", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, parseAPIError(resp)

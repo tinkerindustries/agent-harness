@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
@@ -16,6 +15,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 	"github.com/mrgeoffrich/deepseek-harness/internal/session"
+	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/worker"
 )
@@ -58,18 +58,20 @@ func runServe(ctx context.Context, args []string) error {
 
 	rec := newHTTPLogRecorder(cfg)
 	defer closeHTTPLog(rec)
-	client := withHTTPLog(cfg, rec)
-	logStartupBalance(ctx, client)
-	logStartupModels(ctx, client, cfg.Model, cfg.FlashModel)
 
-	if err := os.MkdirAll(cfg.DataDir, 0o755); err != nil {
-		return fmt.Errorf("create data dir %s: %w", cfg.DataDir, err)
-	}
-	st, err := store.Open(filepath.Join(cfg.DataDir, "harness.db"))
+	// The store must be open before the client makes its first request:
+	// the client reads the DeepSeek API key from the settings table on
+	// every call, and serve must start (and serve) with no key stored — an
+	// operator sets one afterwards, and runs fail individually until then.
+	st, err := openStore(cfg)
 	if err != nil {
-		return fmt.Errorf("open store: %w", err)
+		return err
 	}
 	defer st.Close()
+	res := settings.NewResolver(st)
+	client := withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res))
+	logStartupBalance(ctx, client)
+	logStartupModels(ctx, client, cfg.Model, cfg.FlashModel)
 
 	eventHub := hub.New()
 	runner := &session.Runner{

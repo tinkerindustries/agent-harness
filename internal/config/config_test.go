@@ -6,7 +6,8 @@ import (
 )
 
 func TestLoadHTTPLogConfig(t *testing.T) {
-	t.Setenv("DEEPSEEK_API_KEY", "sk-test")
+	// The DeepSeek API key is no longer an environment variable — Load must
+	// succeed without DEEPSEEK_API_KEY, so this test deliberately sets none.
 	dataDir := filepath.Join(t.TempDir(), "data")
 	t.Setenv("DEEPSEEK_DATA_DIR", dataDir)
 
