@@ -171,7 +171,9 @@ export function OperationsScreen({ onBack }: Props) {
   // guessing at the new state. A 412 — someone else changed the row — also
   // re-fetches, so the screen shows the current versions, and the server's
   // message (which names the current version) stays visible under the row.
-  // The write is never retried with a fresher version.
+  // The write is never retried with a fresher version. A 404 means the row
+  // is already gone (a delete landed elsewhere), which is the same staleness
+  // and gets the same re-fetch.
   async function runWrite(key: string, write: () => Promise<void>) {
     if (busy) return;
     setBusy(true);
@@ -186,7 +188,7 @@ export function OperationsScreen({ onBack }: Props) {
       await refresh();
     } catch (err) {
       setErrors((prev) => ({ ...prev, [key]: errorMessage(err) }));
-      if (statusOf(err) === 412) {
+      if (statusOf(err) === 412 || statusOf(err) === 404) {
         await refresh();
       }
     } finally {
