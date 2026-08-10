@@ -1,11 +1,14 @@
 import type { VariantProps } from "class-variance-authority";
 import { badgeVariants } from "./ui/badge";
 
-// statusVariant maps a store session status to the badge variant that
-// carries its colour (docs/WEB-REDESIGN.md phase 1). The vocabulary is
-// design/components.html's: done/stopped/gaveup/failed/running, with the
-// store's legacy statuses folded onto them — the badge text itself is still
-// the raw status, because changing what the badges say is phase 2.
+// The session outcome vocabulary (docs/WEB-REDESIGN.md phase 2,
+// design/components.html): one badge label and colour per meaning. The
+// store already distinguishes every row in the table below; the old UI
+// rendered the first three as one green OK. complete_status is the status
+// argument the model gave Complete ("done" or "gave_up"), empty when it
+// never called the tool; reason is run_finished's reason ("complete",
+// "no_tool_calls", "max_sub_turns"), which only the transcript stream
+// carries — the session list never sees it.
 type BadgeVariant = NonNullable<VariantProps<typeof badgeVariants>["variant"]>;
 
 const STATUS_VARIANT: Record<string, BadgeVariant> = {
@@ -20,4 +23,50 @@ const STATUS_VARIANT: Record<string, BadgeVariant> = {
 
 export function statusVariant(status: string): BadgeVariant {
   return STATUS_VARIANT[status] ?? "outline";
+}
+
+export interface OutcomeSession {
+  status: string;
+  complete_status?: string;
+  reason?: string;
+}
+
+export interface Outcome {
+  label: string;
+  variant: BadgeVariant;
+}
+
+// outcome maps one session row onto the badge it should carry. Both the
+// session list and the transcript header call it — one function, so the two
+// screens cannot drift apart. The mapping is design/components.html's table:
+// status ok splits on complete_status (done / gave_up) and, where the
+// transcript's run_finished block is available, on reason (no_tool_calls →
+// STOPPED). A status ok with neither signal is the pre-migration fallback:
+// the plain terminal status, OK, rather than a guess. Every other store
+// status maps straight from the table.
+export function outcome(session: OutcomeSession): Outcome {
+  if (session.status === "ok") {
+    if (session.complete_status === "done") return { label: "DONE", variant: "done" };
+    if (session.complete_status === "gave_up") return { label: "GAVE UP", variant: "gaveup" };
+    if (session.reason === "no_tool_calls") return { label: "STOPPED", variant: "stopped" };
+    return { label: "OK", variant: statusVariant("ok") };
+  }
+  switch (session.status) {
+    case "running":
+      return { label: "RUNNING", variant: "running" };
+    case "max_turns":
+      return { label: "MAX TURNS", variant: "gaveup" };
+    case "failed":
+      return { label: "FAILED", variant: "failed" };
+    case "timeout":
+      return { label: "TIMEOUT", variant: "stopped" };
+    case "cancelled":
+      return { label: "CANCELLED", variant: "stopped" };
+    case "compacted":
+      return { label: "COMPACTED", variant: "outline" };
+    default:
+      // An unknown status renders as itself on the neutral outline badge —
+      // the pre-shadcn behaviour — rather than being guessed at.
+      return { label: session.status, variant: "outline" };
+  }
 }

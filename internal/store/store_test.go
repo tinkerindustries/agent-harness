@@ -186,9 +186,57 @@ VALUES ('legacy-1', 'deepseek-v4-pro', 'high', 1, '/tmp/ws', 'default',
 		if got.ParentAgentType != "" || got.ParentAgentID != "" {
 			t.Fatalf("open %d: expected empty parent agent fields, got %+v", attempt, got)
 		}
+		// The migration backfill rule (docs/WEB-REDESIGN.md phase 2): a row
+		// written by an older binary reads back with the empty complete_status
+		// the new column defaults to — the browser renders that as the plain
+		// terminal status rather than guessing which outcome it was.
+		if got.CompleteStatus != "" {
+			t.Fatalf("open %d: expected complete_status to default to empty on a pre-migration row, got %q", attempt, got.CompleteStatus)
+		}
 		if err := s.Close(); err != nil {
 			t.Fatalf("close %d: %v", attempt, err)
 		}
+	}
+}
+
+// TestFinishSessionRecordsCompleteStatus proves the finish path writes the
+// model's Complete status argument onto the session row alongside the
+// terminal status, so the session list can tell DONE from GAVE UP without
+// re-walking the event log (docs/WEB-REDESIGN.md phase 2).
+func TestFinishSessionRecordsCompleteStatus(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	mustCreateSession(t, s, "sess-1")
+
+	finished := time.Now().UTC()
+	if err := s.FinishSession(ctx, "sess-1", StatusOK, "gave_up", &finished); err != nil {
+		t.Fatalf("finish session: %v", err)
+	}
+	got, err := s.GetSession(ctx, "sess-1")
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if got.Status != StatusOK {
+		t.Fatalf("expected status %q, got %q", StatusOK, got.Status)
+	}
+	if got.CompleteStatus != "gave_up" {
+		t.Fatalf("expected complete_status %q, got %q", "gave_up", got.CompleteStatus)
+	}
+	if got.FinishedAt == nil {
+		t.Fatal("expected finished_at set")
+	}
+
+	// A session that ends without calling Complete — the model answered in
+	// prose and called no tool — keeps the empty string, not a made-up one.
+	if err := s.FinishSession(ctx, "sess-1", StatusOK, "", &finished); err != nil {
+		t.Fatalf("finish session: %v", err)
+	}
+	got, err = s.GetSession(ctx, "sess-1")
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if got.CompleteStatus != "" {
+		t.Fatalf("expected complete_status to be empty when Complete was never called, got %q", got.CompleteStatus)
 	}
 }
 

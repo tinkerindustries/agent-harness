@@ -1,11 +1,12 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import type { SessionState } from "../api/types";
+import type { Block } from "../api/fold";
 import { useTranscriptStore } from "../hooks";
 import { BlockList } from "./BlockList";
 import { PlanPanel } from "./PlanPanel";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { statusVariant } from "./statusBadge";
+import { outcome, type OutcomeSession } from "./statusBadge";
 
 interface Props {
   sessionId: string;
@@ -20,6 +21,7 @@ export function TranscriptScreen({ sessionId, onBack }: Props) {
   // already shows below it, rather than freezing on whatever GET
   // /api/sessions/{id} returned back when the screen first mounted.
   const meta = useSessionMeta(sessionId, snapshot.connection);
+  const badge = meta ? outcome(headerOutcomeSession(meta, snapshot.blocks)) : null;
 
   return (
     <div className="screen screen-transcript">
@@ -32,9 +34,9 @@ export function TranscriptScreen({ sessionId, onBack }: Props) {
           {snapshot.connection}
         </Badge>
       </header>
-      {meta && (
+      {meta && badge && (
         <div className="session-meta">
-          <Badge variant={statusVariant(meta.status)}>{meta.status}</Badge>
+          <Badge variant={badge.variant}>{badge.label}</Badge>
           <span>
             {meta.model} ({meta.effort})
           </span>
@@ -63,6 +65,25 @@ export function TranscriptScreen({ sessionId, onBack }: Props) {
       </div>
     </div>
   );
+}
+
+// headerOutcomeSession is the outcome() input for the transcript header: the
+// metadata row plus the run_finished block's reason, when the fold has one.
+// The metadata endpoint carries complete_status but not run_finished's
+// reason, so STOPPED (answered in prose, no Complete call) is only
+// distinguishable on this screen, straight from the folded event log
+// (design/components.html). The session list has no reason and renders the
+// plain terminal status for the same row.
+function headerOutcomeSession(meta: SessionState, blocks: Block[]): OutcomeSession {
+  return { status: meta.status, complete_status: meta.complete_status, reason: lastRunFinishedReason(blocks) };
+}
+
+function lastRunFinishedReason(blocks: Block[]): string | undefined {
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i];
+    if (b.type === "run_finished") return b.reason;
+  }
+  return undefined;
 }
 
 function useSessionMeta(sessionId: string, refreshOn: unknown): SessionState | null {

@@ -61,8 +61,14 @@ type Session struct {
 	ToolSchema      json.RawMessage
 	ResultSchema    json.RawMessage
 	Status          string
-	CreatedAt       time.Time
-	FinishedAt      *time.Time
+	// CompleteStatus is the status argument the model gave Complete ("done"
+	// or "gave_up"), when it called the tool at all. Empty covers both a
+	// pre-migration row and a session that ended without calling Complete
+	// (docs/WEB-REDESIGN.md phase 2); the browser renders the empty value as
+	// the plain terminal status rather than guessing.
+	CompleteStatus string
+	CreatedAt      time.Time
+	FinishedAt     *time.Time
 }
 
 // Event is one row of a session's append-only log, keyed by (session_id,
@@ -274,6 +280,12 @@ var sessionMigrationColumns = []struct {
 	{"job_type", "TEXT NOT NULL DEFAULT 'implementation'"},
 	{"parent_agent_type", "TEXT NOT NULL DEFAULT ''"},
 	{"parent_agent_id", "TEXT NOT NULL DEFAULT ''"},
+	// complete_status: the status argument to Complete, kept alongside the
+	// session's own status so the session list can tell DONE from GAVE UP
+	// (docs/WEB-REDESIGN.md phase 2). Older rows default to the empty string,
+	// which the browser renders as the plain terminal status rather than
+	// guessing.
+	{"complete_status", "TEXT NOT NULL DEFAULT ''"},
 }
 
 // Close stops the writer goroutine and closes both connection pools. It
@@ -381,6 +393,24 @@ func (s *Store) UpdateSessionStatus(ctx context.Context, id, status string, fini
 	})
 }
 
+// FinishSession marks a session terminal the way finishRun ends one: status
+// and finished_at together with complete_status, the status argument the
+// model gave Complete ("" when it never called the tool). Keeping the
+// complete_status write in the same UPDATE as the terminal status is what
+// makes the session list able to tell DONE from GAVE UP without re-walking
+// the event log (docs/WEB-REDESIGN.md phase 2).
+func (s *Store) FinishSession(ctx context.Context, id, status, completeStatus string, finishedAt *time.Time) error {
+	var fa sql.NullString
+	if finishedAt != nil {
+		fa = sql.NullString{String: finishedAt.UTC().Format(time.RFC3339Nano), Valid: true}
+	}
+	return s.submit(ctx, func(tx *sql.Tx) error {
+		_, err := tx.Exec(`UPDATE sessions SET status = ?, complete_status = ?, finished_at = COALESCE(?, finished_at) WHERE id = ?`,
+			status, completeStatus, fa, id)
+		return err
+	})
+}
+
 // ResumeSession marks a terminal session running again and clears
 // finished_at, unconditionally rather than through UpdateSessionStatus's
 // COALESCE — a resumed session is not finished anymore, so the old
@@ -428,7 +458,7 @@ func scanSession(row interface {
 	err := row.Scan(&sess.ID, &parentID, &sess.JobType, &sess.ParentAgentType, &sess.ParentAgentID,
 		&sess.Model, &sess.Effort, &thinking, &sess.Workspace,
 		&sess.PermissionMode, &denyJSON, &sess.SystemPrompt, (*sqlText)(&sess.ToolSchema), &resultSchema,
-		&sess.Status, &createdAt, &finishedAt)
+		&sess.Status, &createdAt, &finishedAt, &sess.CompleteStatus)
 	if err != nil {
 		return Session{}, err
 	}
@@ -473,7 +503,7 @@ func (t *sqlText) Scan(src any) error {
 
 const sessionColumns = `id, parent_id, job_type, parent_agent_type, parent_agent_id, model, effort,
 	thinking, workspace, permission_mode, deny_patterns, system_prompt, tool_schema,
-	result_schema, status, created_at, finished_at`
+	result_schema, status, created_at, finished_at, complete_status`
 
 // GetSession reads one session by id.
 func (s *Store) GetSession(ctx context.Context, id string) (Session, error) {
