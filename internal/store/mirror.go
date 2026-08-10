@@ -37,24 +37,27 @@ func (m *Mirror) Dir(sess Session) string {
 }
 
 type sessionJSON struct {
-	ID              string          `json:"id"`
-	ParentID        string          `json:"parent_id,omitempty"`
-	JobType         string          `json:"job_type"`
-	ParentAgentType string          `json:"parent_agent_type,omitempty"`
-	ParentAgentID   string          `json:"parent_agent_id,omitempty"`
-	Model           string          `json:"model"`
-	Effort          string          `json:"effort"`
-	Thinking        bool            `json:"thinking"`
-	Workspace       string          `json:"workspace"`
-	PermissionMode  string          `json:"permission_mode"`
-	DenyPatterns    []string        `json:"deny_patterns"`
-	SystemPrompt    string          `json:"system_prompt"`
-	ToolSchema      json.RawMessage `json:"tool_schema"`
-	ResultSchema    json.RawMessage `json:"result_schema,omitempty"`
-	Status          string          `json:"status"`
-	CompleteStatus  string          `json:"complete_status,omitempty"`
-	CreatedAt       string          `json:"created_at"`
-	FinishedAt      string          `json:"finished_at,omitempty"`
+	ID              string           `json:"id"`
+	ParentID        string           `json:"parent_id,omitempty"`
+	JobType         string           `json:"job_type"`
+	ParentAgentType string           `json:"parent_agent_type,omitempty"`
+	ParentAgentID   string           `json:"parent_agent_id,omitempty"`
+	Model           string           `json:"model"`
+	Effort          string           `json:"effort"`
+	Thinking        bool             `json:"thinking"`
+	Workspace       string           `json:"workspace"`
+	PermissionMode  string           `json:"permission_mode"`
+	DenyPatterns    []string         `json:"deny_patterns"`
+	SystemPrompt    string           `json:"system_prompt"`
+	ToolSchema      json.RawMessage  `json:"tool_schema"`
+	ResultSchema    json.RawMessage  `json:"result_schema,omitempty"`
+	Status          string           `json:"status"`
+	CompleteStatus  string           `json:"complete_status,omitempty"`
+	Plan            string           `json:"plan,omitempty"`
+	RecentToolCalls []RecentToolCall `json:"recent_tool_calls,omitempty"`
+	Summary         string           `json:"summary,omitempty"`
+	CreatedAt       string           `json:"created_at"`
+	FinishedAt      string           `json:"finished_at,omitempty"`
 }
 
 func toSessionJSON(sess Session) sessionJSON {
@@ -75,6 +78,9 @@ func toSessionJSON(sess Session) sessionJSON {
 		ResultSchema:    sess.ResultSchema,
 		Status:          sess.Status,
 		CompleteStatus:  sess.CompleteStatus,
+		Plan:            sess.Plan,
+		RecentToolCalls: sess.RecentToolCalls,
+		Summary:         sess.Summary,
 		CreatedAt:       sess.CreatedAt.UTC().Format("2006-01-02T15:04:05.000000000Z07:00"),
 	}
 	if sess.FinishedAt != nil {

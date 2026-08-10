@@ -1,6 +1,7 @@
 package hub
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
@@ -30,11 +31,26 @@ type SessionState struct {
 	// pre-migration row and a session that ended without calling Complete;
 	// the browser renders it as the plain terminal status rather than
 	// guessing.
-	CompleteStatus string     `json:"complete_status,omitempty"`
-	CreatedAt      time.Time  `json:"created_at"`
-	FinishedAt     *time.Time `json:"finished_at,omitempty"`
-	SubTurns       int        `json:"sub_turns"`
-	Usage          Usage      `json:"usage"`
+	CompleteStatus string `json:"complete_status,omitempty"`
+	// Plan is the session's working plan: the todos array of the most
+	// recent TodoWrite call, verbatim (docs/WEB-REDESIGN.md phase 3).
+	// Absent covers a pre-migration row and a session that never called
+	// TodoWrite; the browser renders the card without a plan section rather
+	// than an empty one.
+	Plan json.RawMessage `json:"plan,omitempty"`
+	// RecentToolCalls is the last few tool calls the session made, for the
+	// in-flight card's activity panel (docs/WEB-REDESIGN.md phase 3).
+	// Absent when the session made none yet.
+	RecentToolCalls []store.RecentToolCall `json:"recent_tool_calls,omitempty"`
+	// Summary is the summary argument the model gave Complete, its own
+	// one-line account of the run, shown under the finished table's session
+	// id (docs/WEB-REDESIGN.md phase 3). Absent when Complete was never
+	// called.
+	Summary    string     `json:"summary,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	SubTurns   int        `json:"sub_turns"`
+	Usage      Usage      `json:"usage"`
 	// PriceTableDate is the price table's own capture date, carried
 	// alongside Usage so a cost figure never appears without saying how
 	// current it is (docs/DESIGN.md §4.9). Empty when the caller building
@@ -73,6 +89,9 @@ func BuildSessionState(sess store.Session, summary store.SessionUsageSummary, re
 		PermissionMode:  sess.PermissionMode,
 		Status:          sess.Status,
 		CompleteStatus:  sess.CompleteStatus,
+		Plan:            json.RawMessage(sess.Plan),
+		RecentToolCalls: sess.RecentToolCalls,
+		Summary:         sess.Summary,
 		CreatedAt:       sess.CreatedAt,
 		FinishedAt:      sess.FinishedAt,
 		SubTurns:        summary.SubTurns,
