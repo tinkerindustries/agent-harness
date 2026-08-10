@@ -15,13 +15,31 @@ import (
 // number of rows; limit <= 0 means unlimited, which the SSE replay path
 // relies on to hand back a whole session's history in one call.
 func (s *Store) GetEventsAfter(ctx context.Context, sessionID string, afterSeq int64, limit int) ([]Event, error) {
+	return s.GetEventsAfterKinds(ctx, sessionID, afterSeq, limit, nil)
+}
+
+// GetEventsAfterKinds is GetEventsAfter with a kind filter: only events
+// whose kind is one of kinds are returned, and the filter runs in SQL, so a
+// paged read of, say, tool traffic never pulls the transcript's reasoning
+// and content deltas off the disk (docs/DATA-API.md "events"). kinds nil or
+// empty means no restriction — the SSE replay path's unfiltered read. limit
+// caps the number of rows; limit <= 0 means unlimited.
+func (s *Store) GetEventsAfterKinds(ctx context.Context, sessionID string, afterSeq int64, limit int, kinds []EventKind) ([]Event, error) {
 	if limit <= 0 {
 		limit = -1 // SQLite: a negative LIMIT means no limit.
 	}
-	rows, err := s.readDB.QueryContext(ctx,
-		`SELECT session_id, seq, kind, payload, created_at FROM events
-		 WHERE session_id = ? AND seq > ? ORDER BY seq ASC LIMIT ?`,
-		sessionID, afterSeq, limit)
+	where := `session_id = ? AND seq > ?`
+	args := []any{sessionID, afterSeq}
+	if len(kinds) > 0 {
+		where += ` AND kind IN (` + sqlPlaceholders(len(kinds)) + `)`
+		for _, k := range kinds {
+			args = append(args, string(k))
+		}
+	}
+	query := `SELECT session_id, seq, kind, payload, created_at FROM events WHERE ` + where + ` ORDER BY seq ASC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := s.readDB.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
