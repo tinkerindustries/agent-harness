@@ -26,7 +26,7 @@ import (
 // serverVersion is this package's own version, independent of the harness
 // binary's — the MCP protocol surface (tool and resource names) can move at
 // a different pace than the agent loop it launches.
-const serverVersion = "0.11.0"
+const serverVersion = "0.12.0"
 
 // Service holds everything the MCP tool and resource handlers need: the
 // JetStream context to publish work requests and read results, an HTTP
