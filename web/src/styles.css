@@ -449,6 +449,7 @@ pre {
   padding: 6px 8px;
   color: var(--muted-foreground);
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .session-table td {
@@ -568,20 +569,46 @@ pre {
   color: var(--muted-foreground);
   font-size: 0.8125rem;
   white-space: nowrap;
+  /* The stat row is the card's headline; on a narrow column the meta
+     (model · effort · job type) gives up its space first so all four
+     run-stats stay visible. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .run-stats {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 16px;
   font-size: 0.8125rem;
   font-variant-numeric: tabular-nums;
-  color: var(--muted-foreground);
   white-space: nowrap;
 }
 
-.run-stats b {
+/* The four numbers a running session is judged by, in the priority the phase
+   9 design asked for (design/sessions-v2.html): elapsed and cost are the two
+   an operator scans for, so they are full weight and a step larger, while
+   sub-turns and cache sit dimmer. All four were already shown; only which
+   ones are loud changed. */
+.run-stats .primary {
+  color: var(--foreground);
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.run-stats .primary .unit {
+  font-weight: 400;
+  color: var(--muted-foreground);
+  margin-left: 3px;
+}
+
+.run-stats .secondary {
+  color: var(--muted-foreground);
+}
+
+.run-stats .secondary b {
   color: var(--foreground);
   font-weight: 600;
 }
@@ -757,6 +784,15 @@ pre {
   display: flex;
   flex-direction: column;
   gap: 1px;
+  /* The phase 9 fix for the finished table's real overflow bug: without a
+     max-width a long plan summary stretched the Session column until every
+     column after it scrolled off the right edge (measured live at 1600px —
+     only Status and Session visible). The subtitle now ellipses instead of
+     pushing (design/sessions-v2.html), and Elapsed/Cost sit right after
+     Session so the two prioritised numbers are never the ones that scroll
+     away. */
+  max-width: 360px;
+  min-width: 0;
 }
 
 .sess-id {
@@ -767,6 +803,62 @@ pre {
 .sess-sub {
   font-size: 0.75rem;
   color: var(--muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The finished table's Elapsed and Cost cells carry the same primary weight
+   as the in-flight card's stat row (design/sessions-v2.html). */
+.session-table .primary {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ---------- session list: the stat strip (docs/WEB-REDESIGN.md phase 9) ---
+   The four cards above the queue health bar (design/sessions-v2.html):
+   Running (of the pool's slots), Spend today, Median duration today, Done vs
+   gave up today. All four are computed client-side over the session list the
+   screen already holds, plus worker.pool_size off the settings endpoint —
+   no new backend field, no new endpoint. */
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+/* A stat card is the shadcn Card with the design's tighter padding and no
+   shadow; the label/value stack replaces the Card parts' default gap. */
+.stat {
+  padding: 10px 12px;
+  gap: 0;
+  border-radius: var(--radius);
+  box-shadow: none;
+}
+
+.stat .label {
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+}
+
+.stat .value {
+  font-size: 1.375rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+}
+
+.stat .value small {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: var(--muted-foreground);
+  margin-left: 4px;
 }
 
 .connection-badge {
