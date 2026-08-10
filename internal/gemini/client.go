@@ -131,18 +131,18 @@ type Image struct {
 	Resolution string
 }
 
-// GenerateContent sends one interaction to model with the screenshots first
+// Interact sends one interaction to model with the screenshots first
 // and question last ("data first, question last", per the doc), plus
 // systemInstruction as the system instruction. It returns the model's text
 // and, when the API reported one, the call's usage for cost accounting
 // (internal/session commits it as its own usage event, the same way a
 // DeepSeek turn's usage is). The key is resolved per request; an empty key
 // fails before anything is sent.
-func (c *Client) GenerateContent(ctx context.Context, model, systemInstruction, question string, images []Image) (string, *Usage, error) {
+func (c *Client) Interact(ctx context.Context, model, systemInstruction, question string, images []Image) (string, *Usage, error) {
 	if model == "" {
 		model = DefaultModel
 	}
-	req := GenerateContentRequest{
+	req := InteractionRequest{
 		Model:             model,
 		SystemInstruction: systemInstruction,
 		GenerationConfig:  &GenerationConfig{ThinkingLevel: ThinkingLevelMedium},
@@ -163,7 +163,7 @@ func (c *Client) GenerateContent(ctx context.Context, model, systemInstruction, 
 	}
 	req.Input = append(req.Input, Content{Type: ContentTypeText, Text: question})
 
-	resp, err := c.generateContent(ctx, req)
+	resp, err := c.interact(ctx, req)
 	if err != nil {
 		return "", nil, err
 	}
@@ -174,7 +174,7 @@ func (c *Client) GenerateContent(ctx context.Context, model, systemInstruction, 
 	return text, resp.Usage, nil
 }
 
-func (c *Client) generateContent(ctx context.Context, req GenerateContentRequest) (*GenerateContentResponse, error) {
+func (c *Client) interact(ctx context.Context, req InteractionRequest) (*InteractionResponse, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("gemini: encode request: %w", err)
@@ -194,7 +194,7 @@ func (c *Client) generateContent(ctx context.Context, req GenerateContentRequest
 	}
 	defer resp.Body.Close()
 
-	var out GenerateContentResponse
+	var out InteractionResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, fmt.Errorf("gemini: decode response: %w", err)
 	}

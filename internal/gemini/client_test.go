@@ -17,7 +17,7 @@ import (
 // the doc's Sources pages (whats-new-gemini-3.5 and media-resolution), which
 // document the /v1beta/interactions surface in snake_case.
 func TestRequestShapePinsTheDoc(t *testing.T) {
-	var got GenerateContentRequest
+	var got InteractionRequest
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1beta/interactions" {
 			t.Errorf("path = %q, want /v1beta/interactions", r.URL.Path)
@@ -31,7 +31,7 @@ func TestRequestShapePinsTheDoc(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }))
-	_, _, err := c.GenerateContent(context.Background(), "gemini-3.5-flash",
+	_, _, err := c.Interact(context.Background(), "gemini-3.5-flash",
 		"You are reviewing a web page screenshot against its intended design.",
 		"Based on the preceding screenshot, identify all visual discrepancies.",
 		[]Image{
@@ -39,7 +39,7 @@ func TestRequestShapePinsTheDoc(t *testing.T) {
 			{Data: []byte("second"), MIMEType: "image/webp", Resolution: ResolutionMedium},
 		})
 	if err != nil {
-		t.Fatalf("GenerateContent: %v", err)
+		t.Fatalf("Interact: %v", err)
 	}
 
 	if got.Model != "gemini-3.5-flash" {
@@ -91,7 +91,7 @@ func TestRequestShapePinsTheDoc(t *testing.T) {
 // prose simply omits it, and the serialised body then contains no
 // response_format at all.
 func TestResponseFormatIsTopLevelAndOptional(t *testing.T) {
-	withFormat := GenerateContentRequest{
+	withFormat := InteractionRequest{
 		Model:            "gemini-3.5-flash",
 		Input:            []Content{{Type: ContentTypeText, Text: "hello"}},
 		GenerationConfig: &GenerationConfig{ThinkingLevel: ThinkingLevelMedium},
@@ -116,7 +116,7 @@ func TestResponseFormatIsTopLevelAndOptional(t *testing.T) {
 		t.Errorf("response_format must not live inside generation_config, got: %s", raw)
 	}
 
-	withoutFormat := GenerateContentRequest{
+	withoutFormat := InteractionRequest{
 		Model: "gemini-3.5-flash",
 		Input: []Content{{Type: ContentTypeText, Text: "hello"}},
 	}
@@ -146,8 +146,8 @@ func TestAPIKeyRidesInHeader(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-secret", nil }))
-	if _, _, err := c.GenerateContent(context.Background(), "gemini-3.5-flash", "", "hello?", []Image{{Data: []byte("x"), MIMEType: "image/png", Resolution: ResolutionHigh}}); err != nil {
-		t.Fatalf("GenerateContent: %v", err)
+	if _, _, err := c.Interact(context.Background(), "gemini-3.5-flash", "", "hello?", []Image{{Data: []byte("x"), MIMEType: "image/png", Resolution: ResolutionHigh}}); err != nil {
+		t.Fatalf("Interact: %v", err)
 	}
 }
 
@@ -163,7 +163,7 @@ func TestEmptyKeyFailsBeforeSending(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "", nil }))
-	_, _, err := c.GenerateContent(context.Background(), "gemini-3.5-flash", "", "hello?", nil)
+	_, _, err := c.Interact(context.Background(), "gemini-3.5-flash", "", "hello?", nil)
 	if err != ErrNoAPIKey {
 		t.Fatalf("error = %v, want ErrNoAPIKey", err)
 	}
@@ -172,9 +172,9 @@ func TestEmptyKeyFailsBeforeSending(t *testing.T) {
 	}
 }
 
-// TestGenerateContentReturnsModelText asserts the response steps are
+// TestInteractReturnsModelText asserts the response steps are
 // unwrapped into the model's text, skipping non-output steps.
-func TestGenerateContentReturnsModelText(t *testing.T) {
+func TestInteractReturnsModelText(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{
@@ -189,19 +189,19 @@ func TestGenerateContentReturnsModelText(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }))
-	got, _, err := c.GenerateContent(context.Background(), "gemini-3.5-flash", "", "hello?", []Image{{Data: []byte("x"), MIMEType: "image/png", Resolution: ResolutionHigh}})
+	got, _, err := c.Interact(context.Background(), "gemini-3.5-flash", "", "hello?", []Image{{Data: []byte("x"), MIMEType: "image/png", Resolution: ResolutionHigh}})
 	if err != nil {
-		t.Fatalf("GenerateContent: %v", err)
+		t.Fatalf("Interact: %v", err)
 	}
 	if want := "line one\nline two"; got != want {
 		t.Fatalf("text = %q, want %q", got, want)
 	}
 }
 
-// TestGenerateContentEmptyTextIsAnError pins that a response with no text
+// TestInteractEmptyTextIsAnError pins that a response with no text
 // (a safety block, say) surfaces as an error rather than an empty tool
 // result the model cannot read.
-func TestGenerateContentEmptyTextIsAnError(t *testing.T) {
+func TestInteractEmptyTextIsAnError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"id":"i-1","status":"completed","steps":[]}`))
@@ -209,7 +209,7 @@ func TestGenerateContentEmptyTextIsAnError(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }))
-	if _, _, err := c.GenerateContent(context.Background(), "gemini-3.5-flash", "", "hello?", []Image{{Data: []byte("x"), MIMEType: "image/png", Resolution: ResolutionHigh}}); err == nil {
+	if _, _, err := c.Interact(context.Background(), "gemini-3.5-flash", "", "hello?", []Image{{Data: []byte("x"), MIMEType: "image/png", Resolution: ResolutionHigh}}); err == nil {
 		t.Fatal("expected an error for a textless response, got nil")
 	}
 }
@@ -224,17 +224,17 @@ func TestAPIErrorSurfacesTheMessage(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }))
-	_, _, err := c.GenerateContent(context.Background(), "gemini-3.5-flash", "", "hello?", []Image{{Data: []byte("x"), MIMEType: "image/png", Resolution: ResolutionHigh}})
+	_, _, err := c.Interact(context.Background(), "gemini-3.5-flash", "", "hello?", []Image{{Data: []byte("x"), MIMEType: "image/png", Resolution: ResolutionHigh}})
 	if err == nil || !strings.Contains(err.Error(), "bad request details") {
 		t.Fatalf("error = %v, want it to carry the API message", err)
 	}
 }
 
-// TestGenerateContentReturnsParsedUsage pins that the usage block of a real
+// TestInteractReturnsParsedUsage pins that the usage block of a real
 // interactions response is decoded, not dropped: the exact verified shape
 // from the follow-up brief, so cost accounting downstream sees the true
 // figures.
-func TestGenerateContentReturnsParsedUsage(t *testing.T) {
+func TestInteractReturnsParsedUsage(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{
@@ -256,9 +256,9 @@ func TestGenerateContentReturnsParsedUsage(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }))
-	_, usage, err := c.GenerateContent(context.Background(), "gemini-3.5-flash", "", "hello?", []Image{{Data: []byte("x"), MIMEType: "image/png", Resolution: ResolutionHigh}})
+	_, usage, err := c.Interact(context.Background(), "gemini-3.5-flash", "", "hello?", []Image{{Data: []byte("x"), MIMEType: "image/png", Resolution: ResolutionHigh}})
 	if err != nil {
-		t.Fatalf("GenerateContent: %v", err)
+		t.Fatalf("Interact: %v", err)
 	}
 	if usage == nil {
 		t.Fatal("usage is nil; the response's usage block was not parsed")

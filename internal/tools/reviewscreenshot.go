@@ -116,7 +116,7 @@ func execReviewScreenshot(ctx context.Context, e *Executor, argsRaw json.RawMess
 		question = "Design spec / target CSS:\n" + args.Spec + "\n\n" + question
 	}
 
-	answer, usage, err := e.Gemini.GenerateContent(ctx, model, reviewScreenshotSystemInstruction, question, images)
+	answer, usage, err := e.Gemini.Interact(ctx, model, reviewScreenshotSystemInstruction, question, images)
 	if err != nil {
 		return errorResult("%v", err)
 	}

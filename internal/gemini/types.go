@@ -9,13 +9,13 @@ const (
 	ContentTypeImage = "image"
 )
 
-// GenerateContentRequest is the request body for POST /v1beta/interactions
+// InteractionRequest is the request body for POST /v1beta/interactions
 // (docs/gemini-3.5-flash-ui-review-prompting.md's sources document this
 // surface, so the JSON is snake_case throughout). Field order below is what
 // encoding/json emits, so the same value always produces the same bytes.
 // There is deliberately no temperature, top_p, or top_k field: the doc is
 // explicit that Gemini 3.x must not receive them.
-type GenerateContentRequest struct {
+type InteractionRequest struct {
 	Model             string            `json:"model"`
 	SystemInstruction string            `json:"system_instruction,omitempty"`
 	Input             []Content         `json:"input"`
@@ -56,11 +56,11 @@ type GenerationConfig struct {
 	ThinkingLevel string `json:"thinking_level,omitempty"`
 }
 
-// GenerateContentResponse is the response body of an interactions call. The
+// InteractionResponse is the response body of an interactions call. The
 // model's text sits in the steps whose Type is "model_output", in their
 // content's text parts; Text() concatenates those. Usage, when the API
 // returns it, is the call's token accounting.
-type GenerateContentResponse struct {
+type InteractionResponse struct {
 	ID     string `json:"id"`
 	Status string `json:"status"`
 	Steps  []Step `json:"steps"`
@@ -130,7 +130,7 @@ type Step struct {
 
 // Text returns the model's output as the concatenation of every text part
 // of every model_output step, or "" when there is none.
-func (r *GenerateContentResponse) Text() string {
+func (r *InteractionResponse) Text() string {
 	var parts []string
 	for _, s := range r.Steps {
 		if s.Type != "model_output" {
