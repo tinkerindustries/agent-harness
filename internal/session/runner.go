@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/cache"
 	"github.com/mrgeoffrich/deepseek-harness/internal/claudemd"
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
@@ -36,18 +37,21 @@ const CompactionThresholdTokens = 768 * 1024
 // many concurrent calls to Run without any of them touching another's
 // state.
 type RunOptions struct {
-	Model          string
-	Effort         string
-	Thinking       bool
-	MaxTokens      int
-	Workspace      string
-	PermissionMode tools.Mode
-	Deny           []string
-	Prompt         string
-	ResultSchema   json.RawMessage
-	MaxSubTurns    int
-	Resolver       tools.Resolver
-	ParentID       string
+	Model           string
+	Effort          string
+	Thinking        bool
+	MaxTokens       int
+	Workspace       string
+	PermissionMode  tools.Mode
+	Deny            []string
+	Prompt          string
+	ResultSchema    json.RawMessage
+	MaxSubTurns     int
+	Resolver        tools.Resolver
+	ParentID        string
+	JobType         string
+	ParentAgentType string
+	ParentAgentID   string
 
 	// SessionID, when set, is used instead of generating a fresh one. A
 	// caller that must know the id before the session row exists — the
@@ -258,18 +262,21 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	executor.RunSubagent = r.subagentRunner(sessID, opts, executor.Workspace)
 
 	sess := store.Session{
-		ID:             sessID,
-		ParentID:       opts.ParentID,
-		Model:          opts.Model,
-		Effort:         opts.Effort,
-		Thinking:       opts.Thinking,
-		Workspace:      executor.Workspace,
-		PermissionMode: string(opts.PermissionMode),
-		DenyPatterns:   opts.Deny,
-		SystemPrompt:   RenderSystemPrompt(),
-		ToolSchema:     toolSchema,
-		ResultSchema:   opts.ResultSchema,
-		Status:         store.StatusRunning,
+		ID:              sessID,
+		ParentID:        opts.ParentID,
+		JobType:         opts.JobType,
+		ParentAgentType: opts.ParentAgentType,
+		ParentAgentID:   opts.ParentAgentID,
+		Model:           opts.Model,
+		Effort:          opts.Effort,
+		Thinking:        opts.Thinking,
+		Workspace:       executor.Workspace,
+		PermissionMode:  string(opts.PermissionMode),
+		DenyPatterns:    opts.Deny,
+		SystemPrompt:    RenderSystemPrompt(),
+		ToolSchema:      toolSchema,
+		ResultSchema:    opts.ResultSchema,
+		Status:          store.StatusRunning,
 	}
 	if err := r.Store.CreateSession(ctx, sess); err != nil {
 		return nil, fmt.Errorf("session: create session: %w", err)
@@ -361,17 +368,24 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 // collapsed child of the Task call that spawned it.
 func (r *Runner) subagentRunner(parentID string, parentOpts RunOptions, workspace string) func(context.Context, string, string, string) (string, string, error) {
 	return func(ctx context.Context, description, prompt, subagentType string) (string, string, error) {
+		// A subagent does work rather than orchestrating it, so its job type
+		// is always implementation. It inherits the parent's owner, because
+		// delegation does not change who owns the work and ParentID already
+		// records the lineage.
 		res, err := r.Run(ctx, RunOptions{
-			Model:          r.flashModel(),
-			Effort:         deepseek.EffortHigh,
-			Thinking:       true,
-			MaxTokens:      20000,
-			Workspace:      workspace,
-			PermissionMode: parentOpts.PermissionMode,
-			Deny:           parentOpts.Deny,
-			Prompt:         prompt,
-			Resolver:       parentOpts.Resolver,
-			ParentID:       parentID,
+			Model:           r.flashModel(),
+			Effort:          deepseek.EffortHigh,
+			Thinking:        true,
+			MaxTokens:       20000,
+			Workspace:       workspace,
+			PermissionMode:  parentOpts.PermissionMode,
+			Deny:            parentOpts.Deny,
+			Prompt:          prompt,
+			Resolver:        parentOpts.Resolver,
+			ParentID:        parentID,
+			JobType:         agentmeta.JobTypeImplementation,
+			ParentAgentType: parentOpts.ParentAgentType,
+			ParentAgentID:   parentOpts.ParentAgentID,
 		})
 		if err != nil {
 			if res != nil {

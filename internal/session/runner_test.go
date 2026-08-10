@@ -11,6 +11,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
@@ -124,6 +125,34 @@ func TestRunCompletesWithNoToolCalls(t *testing.T) {
 	wantSequence := []string{"session_started", "turn_started", "content_delta", "turn_finished", "usage", "run_finished"}
 	if strings.Join(kinds, ",") != strings.Join(wantSequence, ",") {
 		t.Fatalf("unexpected event sequence: %v", kinds)
+	}
+}
+
+// TestRunWritesProvenanceOntoSessionRow proves Run carries JobType,
+// ParentAgentType, and ParentAgentID from RunOptions onto the session row
+// it creates.
+func TestRunWritesProvenanceOntoSessionRow(t *testing.T) {
+	srv := plainAnswerServer(t, "all done")
+	defer srv.Close()
+	r := newTestRunner(t, srv.URL)
+
+	ws := t.TempDir()
+	res, err := r.Run(t.Context(), RunOptions{
+		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "say something",
+		JobType: agentmeta.JobTypeOrchestration, ParentAgentType: "orchestrator", ParentAgentID: "orch-1",
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	sess, err := r.Store.GetSession(t.Context(), res.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.JobType != agentmeta.JobTypeOrchestration ||
+		sess.ParentAgentType != "orchestrator" || sess.ParentAgentID != "orch-1" {
+		t.Fatalf("unexpected provenance on the session row: %+v", sess)
 	}
 }
 
@@ -278,7 +307,8 @@ func mustEvalSymlinks(t *testing.T, p string) string {
 // TestCompactionForksNewSession drives a low compaction threshold so the
 // first sub-turn (which reports oversized usage) triggers a fork before the
 // second sub-turn runs. It proves the parent is marked compacted and the
-// child is linked to it and carries a system prompt seeded with a summary.
+// child is linked to it, carries a system prompt seeded with a summary, and
+// inherits the parent's provenance.
 func TestCompactionForksNewSession(t *testing.T) {
 	var streamCall int32Counter
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -336,6 +366,7 @@ func TestCompactionForksNewSession(t *testing.T) {
 	res, err := r.Run(t.Context(), RunOptions{
 		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "a task that will need compaction",
+		JobType: agentmeta.JobTypeOrchestration, ParentAgentType: "orchestrator", ParentAgentID: "orch-1",
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -367,6 +398,10 @@ func TestCompactionForksNewSession(t *testing.T) {
 	}
 	if !strings.Contains(child.SystemPrompt, "summary of prior work") {
 		t.Fatalf("expected the child's system prompt to carry the summary, got: %s", child.SystemPrompt)
+	}
+	if child.JobType != agentmeta.JobTypeOrchestration ||
+		child.ParentAgentType != "orchestrator" || child.ParentAgentID != "orch-1" {
+		t.Fatalf("expected the compacted child to inherit the parent's provenance, got: %+v", child)
 	}
 }
 

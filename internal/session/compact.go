@@ -29,18 +29,21 @@ func (r *Runner) compact(ctx context.Context, sess store.Session, allEvents []st
 	}
 
 	newSess := store.Session{
-		ID:             newID("sess"),
-		ParentID:       sess.ID,
-		Model:          sess.Model,
-		Effort:         sess.Effort,
-		Thinking:       sess.Thinking,
-		Workspace:      sess.Workspace,
-		PermissionMode: sess.PermissionMode,
-		DenyPatterns:   sess.DenyPatterns,
-		SystemPrompt:   RenderCompactionSummarySystemPrompt(summary),
-		ToolSchema:     sess.ToolSchema,
-		ResultSchema:   sess.ResultSchema,
-		Status:         store.StatusRunning,
+		ID:              newID("sess"),
+		ParentID:        sess.ID,
+		JobType:         sess.JobType,
+		ParentAgentType: sess.ParentAgentType,
+		ParentAgentID:   sess.ParentAgentID,
+		Model:           sess.Model,
+		Effort:          sess.Effort,
+		Thinking:        sess.Thinking,
+		Workspace:       sess.Workspace,
+		PermissionMode:  sess.PermissionMode,
+		DenyPatterns:    sess.DenyPatterns,
+		SystemPrompt:    RenderCompactionSummarySystemPrompt(summary),
+		ToolSchema:      sess.ToolSchema,
+		ResultSchema:    sess.ResultSchema,
+		Status:          store.StatusRunning,
 	}
 	if err := r.Store.CreateSession(ctx, newSess); err != nil {
 		return sess, allEvents, fmt.Errorf("session: create compacted session: %w", err)
