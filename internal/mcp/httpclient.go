@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -51,6 +52,48 @@ func getJSON(ctx context.Context, client *http.Client, baseURL, path string, out
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return fmt.Errorf("GET %s: status %d: %s", path, resp.StatusCode, string(body))
+	}
+	if out == nil {
+		return nil
+	}
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return fmt.Errorf("decode response from %s: %w", path, err)
+	}
+	return nil
+}
+
+// postJSON issues a POST against baseURL+path with body marshalled as JSON
+// and a bearer token on the request. It decodes a JSON response into out.
+// This is the package's first non-GET helper: deepseek_stop is the one tool
+// that acts on the harness rather than reading it, and it reaches the same
+// run-control endpoint the CLI and the browser use (docs/RUN-CONTROL.md
+// "MCP and CLI") rather than opening a second path around it. The package
+// still opens no SQLite handle — this is an HTTP call like the others.
+//
+// Any 2xx counts as success (the stop endpoint answers 202). Everything
+// else is an error carrying the status and the server's own {"error": "..."}
+// message, so a 409 naming the session's actual status surfaces verbatim to
+// the caller instead of being replaced by a guess.
+func postJSON(ctx context.Context, client *http.Client, baseURL, path, token string, body any, out any) error {
+	data, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("encode request body for %s: %w", path, err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+path, bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("build request for %s: %w", path, err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("POST %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("POST %s: status %d: %s", path, resp.StatusCode, string(body))
 	}
 	if out == nil {
 		return nil

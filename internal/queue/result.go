@@ -7,13 +7,16 @@ import (
 
 // Result statuses (docs/DESIGN.md §4.10). "timeout" covers both budgets a run
 // can exhaust, the wall-clock deadline and the sub-turn limit, distinguished
-// by error.code. Nothing produces a "cancelled" status because nothing can
-// cancel a run: the browser is read-only and shutdown drains in-flight work.
+// by error.code. "cancelled" is an operator's decision — a run stopped on
+// purpose — while "timeout" is a budget running out with no operator involved
+// (docs/RUN-CONTROL.md "Half two"). Nothing produces a cancelled status today
+// because the stop path is not wired in yet; it lands with run control.
 const (
-	StatusOK      = "ok"
-	StatusFailed  = "failed"
-	StatusDenied  = "denied"
-	StatusTimeout = "timeout"
+	StatusOK        = "ok"
+	StatusFailed    = "failed"
+	StatusDenied    = "denied"
+	StatusTimeout   = "timeout"
+	StatusCancelled = "cancelled"
 )
 
 // ResultError is the machine-readable failure detail on a non-ok Result.

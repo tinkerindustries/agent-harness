@@ -43,8 +43,9 @@ import { useNavRight } from "./TopNav";
 //     destroyed. No window.confirm: a modal blocks the page and the
 //     repository's automation cannot dismiss it.
 //
-// Nothing here starts, steers, or stops a run: that is run control, a later
-// stage whose seam is not designed yet (docs/DATA-API.md).
+// Stop is not offered here: it lives on the in-flight session card and the
+// transcript header, where an operator sees the run it would end
+// (docs/RUN-CONTROL.md "The frontend").
 
 // RunningSession is one still-running session row plus the quiet signal the
 // row itself does not carry: its most recent event's time, read from the

@@ -2,12 +2,16 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/httpapi"
@@ -66,6 +70,30 @@ func runServe(ctx context.Context, args []string) error {
 	}
 	defer st.Close()
 	res := settings.NewResolver(st)
+
+	// The run-control bearer token: http.control_token, generated when the
+	// setting is empty so an installation that has never had one gets one on
+	// its first start (docs/RUN-CONTROL.md "Authentication"). 32 bytes of
+	// crypto/rand, base64url, stored through the ordinary settings path like
+	// any other key. The value is never logged; only the fact of generation
+	// is. The process keeps its own copy on the HTTP server, so the endpoint
+	// works even if the setting is later deleted — and a Server built without
+	// this step (every test that does not set one) has an empty token and the
+	// stop endpoint fails closed with 503.
+	controlToken, err := res.String(ctx, settings.KeyHTTPControlToken)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", settings.KeyHTTPControlToken, err)
+	}
+	if controlToken == "" {
+		controlToken, err = generateControlToken()
+		if err != nil {
+			return err
+		}
+		if err := res.Set(ctx, settings.KeyHTTPControlToken, controlToken); err != nil {
+			return fmt.Errorf("store generated %s: %w", settings.KeyHTTPControlToken, err)
+		}
+		log.Printf("harness serve: generated a new %s (the run-control bearer token)", settings.KeyHTTPControlToken)
+	}
 
 	// Restart-required settings, resolved once at startup: the worker pool
 	// size, the two model-concurrency ceilings, the RESULTS stream
@@ -168,6 +196,7 @@ func runServe(ctx context.Context, args []string) error {
 	api := &httpapi.Server{
 		Store: st, Hub: eventHub, Static: static, Settings: res,
 		Consumer: consumer, Pool: pool, PriceTableDate: priceTable.CapturedAt,
+		Run: pool, Publisher: publishAdapter{js: js}, ControlToken: controlToken,
 		DefaultEventsLimit: eventsLimitDefault,
 		MaxEventsLimit:     eventsLimitMax,
 	}
@@ -190,6 +219,35 @@ func runServe(ctx context.Context, args []string) error {
 		cfg.NATSURL, workerPoolSize, defaultModel, defaultFlashModel, cfg.WorkspaceRoot)
 	log.Printf("harness serve: http listening on %s", cfg.HTTPAddr)
 	return pool.Run(ctx)
+}
+
+// publishAdapter is the RunPublisher implementation for harness serve: the
+// browser's POST /api/runs enqueues through the same JetStream handle the
+// pool reads, so a browser-started run is byte-identical in the store to one
+// started from MCP or the CLI — same event kinds, same validation, same
+// idempotency on a duplicate request_id (docs/RUN-CONTROL.md "Starting is a
+// publish, so the seam is a publisher"). The interface is declared in
+// internal/httpapi and implemented here, in cmd/, because composition
+// happens in cmd/ and nowhere else (ARCHITECTURE.md).
+type publishAdapter struct {
+	js jetstream.JetStream
+}
+
+func (a publishAdapter) PublishRequest(ctx context.Context, req queue.Request) error {
+	return queue.PublishRequest(ctx, a.js, req)
+}
+
+// generateControlToken returns a fresh http.control_token value: 32 bytes of
+// crypto/rand encoded as base64url without padding (docs/RUN-CONTROL.md
+// "Authentication"). It never logs or returns the value in a way that names
+// it; the caller stores it through the settings path and hands it to the HTTP
+// server, and the startup log says only that one was generated.
+func generateControlToken() (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate %s: %w", settings.KeyHTTPControlToken, err)
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 // logStartupBalance refreshes the account balance once at startup

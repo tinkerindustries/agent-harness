@@ -760,6 +760,178 @@ func TestCloseSessionNotFound(t *testing.T) {
 	}
 }
 
+// TestAppendEventsRefusesCancelledSession pins the append fence
+// (docs/RUN-CONTROL.md "Half two"): a stopped run's wedged goroutine that
+// wakes later must not be able to dirty the session it was stopped in. Only
+// "cancelled" refuses — compaction and resume append to sessions in every
+// other terminal status, so a fence that widened to terminal statuses
+// generally would break both.
+func TestAppendEventsRefusesCancelledSession(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	mustCreateSession(t, s, "stopped")
+	if err := s.CancelRunningSession(ctx, "stopped", time.Now().UTC()); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	if _, err := s.AppendEvents(ctx, "stopped", []EventInput{
+		{Kind: KindContentDelta, Payload: ContentDeltaPayload{Text: "late"}},
+	}); !errors.Is(err, ErrSessionCancelled) {
+		t.Fatalf("append to a cancelled session = %v, want ErrSessionCancelled", err)
+	}
+	events, err := s.GetEvents(ctx, "stopped")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("a refused append must leave the log untouched, got %d events", len(events))
+	}
+
+	// Every other terminal status still accepts appends: compaction retires a
+	// parent as compacted and resume appends a continuation before flipping
+	// the row back to running.
+	for _, status := range []string{StatusOK, StatusFailed, StatusTimeout, StatusMaxTurns, StatusCompacted} {
+		id := "sess-" + status
+		mustCreateSession(t, s, id)
+		if err := s.UpdateSessionStatus(ctx, id, status, finishedPtr()); err != nil {
+			t.Fatalf("set %s to %s: %v", id, status, err)
+		}
+		if _, err := s.AppendEvents(ctx, id, []EventInput{
+			{Kind: KindTurnStarted, Payload: TurnStartedPayload{SubTurn: 1}},
+		}); err != nil {
+			t.Fatalf("append to a %s session must still work, got %v", status, err)
+		}
+	}
+}
+
+// TestFinishSessionCannotLeaveCancelled pins the terminal-status fence: a
+// cancelled row is final, so neither finish path may move it anywhere else —
+// that is what stops a wedged goroutine that wakes after a stop from
+// relabelling the session (docs/RUN-CONTROL.md "Half two").
+func TestFinishSessionCannotLeaveCancelled(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	mustCreateSession(t, s, "stopped")
+	now := time.Now().UTC()
+	if err := s.CancelRunningSession(ctx, "stopped", now); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+
+	if err := s.FinishSession(ctx, "stopped", StatusOK, "done", "summary", finishedPtr()); !errors.Is(err, ErrSessionCancelled) {
+		t.Fatalf("FinishSession out of cancelled = %v, want ErrSessionCancelled", err)
+	}
+	if err := s.UpdateSessionStatus(ctx, "stopped", StatusFailed, finishedPtr()); !errors.Is(err, ErrSessionCancelled) {
+		t.Fatalf("UpdateSessionStatus out of cancelled = %v, want ErrSessionCancelled", err)
+	}
+	// Even a finish that would leave it cancelled is refused: the row is
+	// already terminal, and the refused write is the wedged goroutine's
+	// signal to log and unwind rather than publish a second result.
+	if err := s.FinishSession(ctx, "stopped", StatusCancelled, "", "", finishedPtr()); !errors.Is(err, ErrSessionCancelled) {
+		t.Fatalf("FinishSession as cancelled on a cancelled row = %v, want ErrSessionCancelled", err)
+	}
+
+	got, err := s.GetSession(ctx, "stopped")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusCancelled || got.FinishedAt == nil || !got.FinishedAt.Equal(now) {
+		t.Fatalf("a refused status write must leave the row untouched, got %+v", got)
+	}
+}
+
+// TestCancelRunningSessionIgnoresIdleness is the mirror image of CloseSession's
+// idle test: CancelRunningSession takes no idle precondition, because it is
+// the run's own owner stopping a live row — the row being live is the point —
+// where CloseSession's idle check exists to stop an operator closing one.
+func TestCancelRunningSessionIgnoresIdleness(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	mustCreateSession(t, s, "live")
+
+	// A fresh event would make CloseSession refuse with ActiveSessionError
+	// for any minIdle the harness uses; CancelRunningSession must not care.
+	if _, err := s.AppendEvents(ctx, "live", []EventInput{
+		{Kind: KindSessionStarted, Payload: SessionStartedPayload{OpeningMessage: "hi"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := s.CancelRunningSession(ctx, "live", now); err != nil {
+		t.Fatalf("cancel a live session: %v", err)
+	}
+	got, err := s.GetSession(ctx, "live")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusCancelled || got.FinishedAt == nil || !got.FinishedAt.Equal(now) {
+		t.Fatalf("expected cancelled with finished_at = now, got %+v", got)
+	}
+	if got.Version != 2 {
+		t.Fatalf("expected version 2 (create, cancel), got %d", got.Version)
+	}
+
+	// A second cancel is a no-op: the row is already cancelled, and neither
+	// finished_at nor the version moves. A stop retried by an operator, or by
+	// a caller that did not see the first answer, must not shift the moment
+	// the stop actually landed.
+	again := now.Add(time.Minute)
+	if err := s.CancelRunningSession(ctx, "live", again); err != nil {
+		t.Fatalf("re-cancel: %v", err)
+	}
+	got, err = s.GetSession(ctx, "live")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusCancelled || !got.FinishedAt.Equal(now) {
+		t.Fatalf("a re-cancel must keep status and finished_at, got %+v", got)
+	}
+	if got.Version != 2 {
+		t.Fatalf("expected the version to stay at 2 after a no-op re-cancel, got %d", got.Version)
+	}
+}
+
+// TestCancelRunningSessionRefusesAFinishedRun is the race a stop's grace
+// period creates: the run reaches a terminal status of its own in the moment
+// between the operator asking and the timer firing. Cancelling then would
+// relabel a completed run as one an operator killed, destroying the
+// distinction store.StatusCancelled exists to carry, so it refuses and names
+// what the session actually finished as.
+func TestCancelRunningSessionRefusesAFinishedRun(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	mustCreateSession(t, s, "finished-first")
+
+	finished := time.Now().UTC()
+	if err := s.FinishSession(ctx, "finished-first", StatusOK, "done", "all done", &finished); err != nil {
+		t.Fatal(err)
+	}
+
+	err := s.CancelRunningSession(ctx, "finished-first", finished.Add(time.Second))
+	var fin *SessionFinishedError
+	if !errors.As(err, &fin) {
+		t.Fatalf("expected SessionFinishedError, got %v", err)
+	}
+	if fin.Status != StatusOK {
+		t.Fatalf("expected the error to name the status it finished as, got %q", fin.Status)
+	}
+
+	got, err := s.GetSession(ctx, "finished-first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusOK || got.CompleteStatus != "done" {
+		t.Fatalf("the completed run must keep its own outcome, got %+v", got)
+	}
+}
+
+// TestCancelRunningSessionNotFound reports ErrNotFound for an unknown id.
+func TestCancelRunningSessionNotFound(t *testing.T) {
+	s := openTestStore(t)
+	if err := s.CancelRunningSession(context.Background(), "missing", time.Now().UTC()); err != ErrNotFound {
+		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
 // TestCloseSessionDoesNotRelabelATerminalSession pins the audit property:
 // PATCH exists to close an abandoned run, not to rewrite what a finished one
 // did. A session that already reached a terminal status keeps that status,

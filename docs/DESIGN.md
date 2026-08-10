@@ -177,8 +177,15 @@ produces a `messages` array for the API, the other produces display blocks.
 
 Events: `session_started`, `turn_started`, `reasoning_delta`, `content_delta`,
 `tool_call`, `tool_denied`, `tool_stdout`, `tool_result`, `usage`,
-`turn_finished`, `run_finished`, `error`. Each carries a per-session monotonic
-sequence number.
+`turn_finished`, `run_finished`, `error`, `steer_message`, `steer_applied`.
+Each carries a per-session monotonic sequence number.
+
+The last two are the steering pair (docs/RUN-CONTROL.md "Two event kinds,
+not one"): `steer_message` records that an operator sent text at this
+instant and carries no messages-array content, and `steer_applied` records
+that the loop folded that text into a user message at this sub-turn
+boundary — linked by the applied event's `source_seq`, which is what lets a
+resumed run recompute which steers are outstanding from the log alone.
 
 There is no approval event. A permission decision resolves synchronously inside
 the tool call from a policy the session already holds (§4.6), so the loop never
@@ -206,12 +213,21 @@ were a shell on the box or a hand-written SQLite update against a live store.
 An API is the better answer, so the prohibition is retired and
 [DATA-API.md](DATA-API.md) is the surface that replaces it.
 
-Run control is the next stage rather than a permanent exclusion. The intent is
-an interactive frontend that can start, steer, and stop a run; it is not built,
-and until the seam it goes through is designed, the HTTP server holds no NATS
-handle and work enters over NATS or the CLI. The distinction while that is true
-is the target, not the verb: a write that closes an abandoned session row is
-data, and a write that publishes a work request is run control.
+Run control is built in stages (docs/RUN-CONTROL.md), and the seams are
+chosen: stopping goes through the `RunController` interface declared in
+`internal/httpapi` and implemented by `*worker.Pool`; starting goes through
+the `RunPublisher` interface, declared in `internal/httpapi` and implemented
+by `cmd/harness` over the queue's own JetStream handle — so the HTTP server
+still holds no NATS handle, only the narrow ability to enqueue one validated
+request, and work enters over NATS whichever surface asked for it. `POST
+/api/sessions/{id}/stop` and `POST /api/runs` are live, authenticated by the
+`http.control_token` bearer token. Steering is live too — `POST
+/api/sessions/{id}/steer` is a store write by the handler and a store read by
+the loop, so it needs no seam at all. The distinction that used to matter —
+a write that closes an abandoned session row is data, and a write that
+publishes a work request is run control — is now settled: the run-control
+endpoints are the three actions in docs/RUN-CONTROL.md, and the data write
+surface stays docs/DATA-API.md.
 
 Two things stage two has to answer, and stage one should not foreclose:
 
@@ -555,6 +571,15 @@ Request body:
       "parent_agent_id":   "abc123",            optional, the launching agent's session id
     }
 
+The browser is one producer among several. `POST /api/runs` (docs/RUN-CONTROL.md)
+accepts this body over HTTP — `request_id` optional there and generated when
+absent, because a browser form has no idempotency key to offer — validates it
+with the queue's own `Request.Validate`, and publishes it to the WORK stream
+through the `RunPublisher` seam; a caller that supplies a `request_id` gets
+the same deduplication every other producer gets. `harness publish` and
+`deepseek_agent` are the other two producers, and all three share the one
+marshal-and-publish path, `queue.PublishRequest`.
+
 Result body:
 
     {
@@ -597,14 +622,18 @@ must not be read as failure. A caller that only checks `status: "ok"` cannot
 tell a finished task from one the model gave up on and reported as such;
 `complete_status: "gave_up"` is that distinction.
 
-There is no `cancelled`. Nothing can cancel a run: the browser cannot steer
-the loop (§4.2) and a graceful shutdown drains in-flight work rather than
-cutting it off, because an agent run costs minutes and a restart is not a
-reason to waste one. A process that dies outright leaves its message unacked,
-and redelivery covers it — for the request that never attached a session.
-Once a session exists, the request is single-use and a redelivery fails it
-rather than re-runs it (below), which is the price of a hard kill: graceful
-shutdown is the supported way out of a run, and it never wastes one.
+`cancelled` is an operator's stop, not a shutdown. `POST /api/sessions/{id}/stop`
+sets it (docs/RUN-CONTROL.md): a healthy run answers a cancelled context at its
+next check point, a wedged one is force-finished after the grace period, and
+the result carries `error.code: "cancelled"` with the operator's reason. It is
+distinct from `timeout`, which is deadline-driven with no operator involved. A
+graceful shutdown still drains in-flight work rather than cutting it off,
+because an agent run costs minutes and a restart is not a reason to waste one.
+A process that dies outright leaves its message unacked, and redelivery covers
+it — for the request that never attached a session. Once a session exists, the
+request is single-use and a redelivery fails it rather than re-runs it (below),
+which is the price of a hard kill: graceful shutdown is the supported way out
+of a run, and it never wastes one.
 
 `result_schema` is validated in Go against the `Complete` arguments. A failing
 payload returns a validation error through the tool result channel and the model
@@ -723,8 +752,11 @@ The browser shows a list of sessions (§5.8), the transcript of any one of them
 — live or historical (§5.9, §5.10) — and the settings screen: the registry
 (§4.2) rendered grouped, with each entry's default, its validation bounds,
 whether the current value is a default or an override, and the restart markers.
-It does not yet start, steer, or stop a run, and it has no prompt box, no
-approve button, and no cancel control.
+It can steer and stop a running session (docs/RUN-CONTROL.md "The frontend"):
+a steer input and a stop control on the transcript screen, both visible only
+while the session is running, with the steer's pending/delivered states
+carried by the fold. It cannot yet start a run, and it has no prompt box and
+no approve button.
 
 That was a subtraction the frontend was designed around, and it removed most of
 the usual frontend work — no optimistic updates, no command queue, no

@@ -114,10 +114,21 @@ func Fold(sess store.Session, events []store.Event) ([]deepseek.Message, error) 
 				ToolCallID: p.ToolCallID,
 			})
 
-		case store.KindToolStdout, store.KindUsage, store.KindRunFinished, store.KindError:
+		case store.KindSteerApplied:
+			var p store.SteerAppliedPayload
+			if err := json.Unmarshal(e.Payload, &p); err != nil {
+				return nil, fmt.Errorf("fold: steer_applied at seq %d: %w", e.Seq, err)
+			}
+			messages = append(messages, deepseek.UserMessage(p.Text))
+
+		case store.KindToolStdout, store.KindUsage, store.KindRunFinished, store.KindError, store.KindSteerMessage:
 			// Carry no messages-array content. Usage and errors are
 			// diagnostics; run_finished is a terminal marker read by the
-			// runner, not something the model replays.
+			// runner, not something the model replays. steer_message joins
+			// them, unlike steer_applied: only the loop's later steer_applied
+			// places the text as a user message, so a steer mid-tool-call
+			// cannot move a message the fold had already placed
+			// (docs/RUN-CONTROL.md "Two event kinds, not one").
 		}
 	}
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSyncExternalStore } from "react";
 import { sessionListStore } from "../api/sessionListStore";
 import { listSettings } from "../api/settings";
+import { controlToken } from "../api/operations";
 import type { QueueHealth, RecentToolCall, SessionState, Usage } from "../api/types";
 import { useNow, useQueueHealth } from "../hooks";
 import { cn } from "@/lib/utils";
@@ -17,6 +18,8 @@ import {
 import { outcome } from "./statusBadge";
 import { PlanList } from "./PlanList";
 import { planProgress, splitVerb } from "./planProgress";
+import { StopControl } from "./StopControl";
+import { StartRunForm } from "./StartRunForm";
 import { useNavRight } from "./TopNav";
 
 function formatElapsed(sess: SessionState, nowMs: number): string {
@@ -197,6 +200,27 @@ export function SessionListScreen({ onOpen }: Props) {
   // table already holds, client-side, so a keystroke never hits the network.
   const [query, setQuery] = useState("");
 
+  // The start form (docs/RUN-CONTROL.md "The frontend"): the trigger lives
+  // in the nav's right slot, the form card opens at the top of the screen.
+  // The control token is fetched once per page load (controlToken caches its
+  // promise); a null token means run control is not configured, and the nav
+  // says so instead of offering a button that would 503.
+  const [startOpen, setStartOpen] = useState(false);
+  const [startToken, setStartToken] = useState<string | null>(null);
+  const [startTokenReady, setStartTokenReady] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    controlToken().then((t) => {
+      if (!cancelled) {
+        setStartToken(t);
+        setStartTokenReady(true);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // The stat strip's "of N slots" reads worker.pool_size off the same
   // settings endpoint the settings screen calls. One fetch on mount — the
   // pool size changes only with a restart — and if it is unreachable the
@@ -247,10 +271,28 @@ export function SessionListScreen({ onOpen }: Props) {
   const showEmpty = snapshot.sessions.length === 0;
 
   // The nav's right slot for this screen (design/nav.html's Sessions state):
-  // the search input and the LIVE badge. The dot pulses while the stream is
-  // open and goes still while EventSource reconnects.
+  // the start-run trigger (phase 6, docs/RUN-CONTROL.md "The frontend"), the
+  // search input, and the LIVE badge. The dot pulses while the stream is
+  // open and goes still while EventSource reconnects. When run control is
+  // not configured the trigger is replaced by a note saying so — a form
+  // whose submit would 503 must not be offered as a button.
   useNavRight(
     <>
+      {startTokenReady && startToken === null ? (
+        <span className="nav-note" title="start harness serve once to generate http.control_token">
+          run control not configured — starting is disabled
+        </span>
+      ) : (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setStartOpen((o) => !o)}
+          disabled={!startTokenReady}
+          aria-expanded={startOpen}
+        >
+          {startOpen ? "Close" : "Start run"}
+        </Button>
+      )}
       <Input
         type="search"
         className="nav-search"
@@ -268,6 +310,9 @@ export function SessionListScreen({ onOpen }: Props) {
 
   return (
     <div className="screen">
+      {startOpen && startToken !== null && (
+        <StartRunForm token={startToken} onClose={() => setStartOpen(false)} onOpen={onOpen} />
+      )}
       <StatStrip stats={stats} poolSize={poolSize} />
       <QueueHealthBar health={queueHealth} />
 
@@ -472,6 +517,7 @@ function InFlightCard({
                 <Button variant="outline" size="sm" onClick={() => onOpen(sess.id)}>
                   Open transcript
                 </Button>
+                <StopControl sessionId={sess.id} running={true} />
               </div>
             </div>
           </div>

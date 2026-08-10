@@ -7,6 +7,8 @@ import { BlockList } from "./BlockList";
 import { PlanPanel } from "./PlanPanel";
 import { TimelineRail } from "./TimelineRail";
 import { TranscriptToolbar } from "./TranscriptToolbar";
+import { StopControl } from "./StopControl";
+import { SteerControl } from "./SteerControl";
 import { Badge } from "./ui/badge";
 import { outcome, type OutcomeSession } from "./statusBadge";
 import { useNavRight } from "./TopNav";
@@ -38,12 +40,21 @@ export function TranscriptScreen({ sessionId }: Props) {
   const transcriptRef = useRef<HTMLDivElement>(null);
 
   // The nav's right slot for this screen (design/nav.html's Session detail
-  // state): the connection badge. The crumb for the session id is the nav's
-  // own, rendered from the route.
+  // state): the connection badge, and the Stop control while the run is
+  // live. The crumb for the session id is the nav's own, rendered from the
+  // route.
+  //
+  // Stop lives here rather than in a screen header because phase 9 retired
+  // the transcript's own header into this slot; StopControl renders nothing
+  // once the session stops running, so the slot falls back to the badge
+  // alone without a conditional here.
   useNavRight(
-    <Badge variant="outline" className={`connection-badge connection-${snapshot.connection}`}>
-      {snapshot.connection}
-    </Badge>,
+    <>
+      <StopControl sessionId={sessionId} running={meta?.status === "running"} className="stop-nav" />
+      <Badge variant="outline" className={`connection-badge connection-${snapshot.connection}`}>
+        {snapshot.connection}
+      </Badge>
+    </>,
   );
 
   return (
@@ -80,6 +91,7 @@ export function TranscriptScreen({ sessionId }: Props) {
         onFilterChange={setFilter}
         counts={snapshot.counts}
       />
+      <SteerControl sessionId={sessionId} running={meta?.status === "running"} className="steer-inline" />
       {snapshot.churnPoint && (
         <div className="notice churn-banner">
           <b>

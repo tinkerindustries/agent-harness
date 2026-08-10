@@ -29,3 +29,21 @@ export const ErrorBlock = memo(function ErrorBlock({ block }: { block: Extract<B
     </section>
   );
 });
+
+// SteerBlock renders an operator steer (docs/RUN-CONTROL.md "The frontend"):
+// an operator instruction the loop will fold into the model's next request.
+// It is deliberately styled distinctly from the model's own turns — a
+// top-level block, not a sub-turn card — and the two states are the point:
+// *pending* (only the steer_message event exists) is the operator's signal
+// that the run is wedged or still mid-tool-call, and *delivered* (the
+// matching steer_applied arrived) is the run having actually picked it up.
+export const SteerBlock = memo(function SteerBlock({ block }: { block: Extract<Block, { type: "steer" }> }) {
+  return (
+    <section className={`block block-steer block-steer-${block.state}`}>
+      <div className="block-label">
+        {block.state === "pending" ? "steer · sent, not yet delivered" : "steer · delivered"}
+      </div>
+      <p className="block-text">{block.text}</p>
+    </section>
+  );
+});

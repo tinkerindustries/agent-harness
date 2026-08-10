@@ -75,7 +75,9 @@ export type EventKind =
   | "usage"
   | "turn_finished"
   | "run_finished"
-  | "error";
+  | "error"
+  | "steer_message"
+  | "steer_applied";
 
 // StoreEvent mirrors internal/store.Event: one row of a session's
 // append-only log. payload's shape depends on kind; see the *Payload
@@ -184,6 +186,27 @@ export interface RunFinishedPayload {
 
 export interface ErrorPayload {
   message: string;
+}
+
+// SteerMessagePayload mirrors internal/store.SteerMessagePayload: an
+// operator instruction accepted for a running session (docs/RUN-CONTROL.md
+// "Steering"). It carries no messages-array content — the loop decides where
+// the model sees it and records that with a steer_applied event — so the
+// browser shows it as a pending steer block until the matching steer_applied
+// arrives.
+export interface SteerMessagePayload {
+  text: string;
+  source?: string;
+}
+
+// SteerAppliedPayload mirrors internal/store.SteerAppliedPayload: the point
+// in the log where a steer_message became a user message. source_seq links it
+// to the steer_message it applies; the browser uses that to flip the pending
+// steer block to delivered.
+export interface SteerAppliedPayload {
+  source_seq: number;
+  text: string;
+  sub_turn: number;
 }
 
 export interface EventsPage {

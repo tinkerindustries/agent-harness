@@ -10,6 +10,33 @@ doing whatever happens to the rest. Steps 4 to 6 each land backend, MCP, CLI
 and web together, so a step is "this capability works end to end", never "the
 backend half of it".
 
+## Status
+
+Steps 1 to 3 have landed on `deepseek/run-control`. Step 4 was split in two
+after watching how much of one fitted into a single run: the endpoint and its
+authentication are one unit of thinking, and the three thin clients over it
+are another. Steps 4a and 4b have landed on the branch. Step 5 has landed on
+`deepseek/run-control-p5-steer`, the branch that merges into
+`deepseek/run-control` as that phase's pull request. Step 6 — start from the
+browser — has landed on `deepseek/run-control-p6-start`, the branch that
+merges into `deepseek/run-control` as this phase's pull request.
+
+| Step | State |
+| --- | --- |
+| 1 — `Bash` survives a wedged child | landed (`ddc23c0`, plus `db1510e` keeping the partial output) |
+| 2 — Store, event, and settings foundations | landed (`0d0ae42`, plus `5ae461b` refusing to relabel a finished run) |
+| 3 — The control seam | landed (`9c3178a`) |
+| 4a — Stop over HTTP, and the control token | landed |
+| 4b — Stop's three clients: MCP, CLI, browser | landed |
+| 5 — Steer, end to end | landed |
+| 6 — Start from the browser | landed (this phase) |
+
+Two guards in step 3 were not in this plan when it was written and are now in
+the design: the heartbeat closer must be shared through one `sync.Once` (a
+double close panics the process), and the disposal flag lives on the run's
+record rather than in the registry (the registry entry is gone by the time a
+wedged goroutine wakes).
+
 Verification after every step, per [CLAUDE.md](../CLAUDE.md):
 
 ```sh
@@ -233,6 +260,17 @@ leak it never was.
 ---
 
 ## Step 4 — Stop, end to end
+
+Split in two. **4a** is the endpoint and the authentication it needs — one
+package, one test file, and the piece everything later depends on. **4b** is
+the three clients over it, which share no new backend thinking. The table
+below covers both; the split is where the runs divide, not where the design
+does.
+
+Step 3 already provides more than this plan assumed when it was written:
+`Pool.Stop` returns `ErrRunNotFound`, handles the finished-first race, and
+classifies a stopped run as `cancelled`. 4a is the endpoint, the token, and
+the interface declaration — nothing else.
 
 **Goal.** An operator or another agent can stop a run from the browser, MCP,
 or the CLI — including a wedged one.

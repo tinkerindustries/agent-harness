@@ -214,6 +214,73 @@ describe("FoldState live view", () => {
   });
 });
 
+// The steer block (docs/RUN-CONTROL.md "The frontend"): emitted by
+// steer_message in the *pending* state and flipped to *delivered* by the
+// matching steer_applied (matched by source_seq). This is the one place the
+// browser fold completes a block it has already emitted — the Go fold's
+// append-only rule protects the prompt cache, which display blocks have no
+// stake in, and the two states are exactly how an operator tells a wedged
+// run from a busy one.
+describe("steer block", () => {
+  it("emits a pending steer block on steer_message and flips it to delivered on the matching steer_applied", () => {
+    const state = new FoldState();
+    state.ingest(ev(1, "session_started", { opening_message: "x" }));
+    state.ingest(ev(2, "steer_message", { text: "be terse", source: "web" }));
+    expect(state.blocks).toEqual([
+      { type: "opening", seq: 1, text: "x" },
+      { type: "steer", seq: 2, text: "be terse", state: "pending" },
+    ]);
+
+    state.ingest(ev(3, "steer_applied", { source_seq: 2, text: "be terse", sub_turn: 1 }));
+    expect(state.blocks).toEqual([
+      { type: "opening", seq: 1, text: "x" },
+      { type: "steer", seq: 2, text: "be terse", state: "delivered" },
+    ]);
+  });
+
+  it("matches by source_seq, so one steer_applied flips only its own steer", () => {
+    const state = new FoldState();
+    state.ingest(ev(1, "steer_message", { text: "first" }));
+    state.ingest(ev(2, "steer_message", { text: "second" }));
+    state.ingest(ev(3, "steer_applied", { source_seq: 2, text: "second", sub_turn: 1 }));
+    expect(state.blocks).toEqual([
+      { type: "steer", seq: 1, text: "first", state: "pending" },
+      { type: "steer", seq: 2, text: "second", state: "delivered" },
+    ]);
+  });
+
+  it("keeps the block at the position where the steer was sent — the flip never moves it", () => {
+    const state = new FoldState();
+    state.ingest(ev(1, "session_started", { opening_message: "x" }));
+    state.ingest(ev(2, "steer_message", { text: "be terse" }));
+    state.ingest(ev(3, "turn_started", { sub_turn: 1 }));
+    state.ingest(ev(4, "turn_finished", { sub_turn: 1, finish_reason: "stop" }));
+    state.ingest(ev(5, "steer_applied", { source_seq: 2, text: "be terse", sub_turn: 1 }));
+
+    const steer = state.blocks.find((b) => b.type === "steer");
+    expect(steer).toEqual({ type: "steer", seq: 2, text: "be terse", state: "delivered" });
+    expect(state.blocks.map((b) => b.type)).toEqual(["opening", "steer", "assistant"]);
+  });
+
+  it("is the one deliberate divergence from the append-only property", () => {
+    // A prefix that ends at the steer_message folds to a *pending* steer; the
+    // full log folds to *delivered*. The Go fold would be broken by such a
+    // rewrite (the prompt cache depends on append-only); display blocks are
+    // not, and the pending state is the feature (web/src/api/fold.ts).
+    const events = [
+      ev(1, "session_started", { opening_message: "x" }),
+      ev(2, "steer_message", { text: "be terse" }),
+      ev(3, "steer_applied", { source_seq: 2, text: "be terse", sub_turn: 1 }),
+    ];
+    const prefix = foldEvents(events.slice(0, 2));
+    const full = foldEvents(events);
+    expect(prefix[1]).toEqual({ type: "steer", seq: 2, text: "be terse", state: "pending" });
+    expect(full[1]).toEqual({ type: "steer", seq: 2, text: "be terse", state: "delivered" });
+    // Everything else still agrees: the opening block is untouched.
+    expect(prefix[0]).toEqual(full[0]);
+  });
+});
+
 // The skills catalogue is a substring of the opening message. It gets its own
 // block so the transcript does not print it twice (internal/skills).
 describe("skills catalogue", () => {

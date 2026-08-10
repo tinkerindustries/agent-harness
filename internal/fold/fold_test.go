@@ -223,6 +223,72 @@ func TestFoldMultiTurnCarriesReasoning(t *testing.T) {
 	requireEqualMessages(t, got, want)
 }
 
+// TestFoldSteer pins the two-kind asymmetry in the fold: steer_message
+// contributes nothing to the messages array, and only the loop's later
+// steer_applied becomes a user message carrying the text verbatim
+// (docs/RUN-CONTROL.md "Two event kinds, not one").
+func TestFoldSteer(t *testing.T) {
+	b := &eventBuilder{}
+	events := []store.Event{
+		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "do it"}),
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
+		b.ev(store.KindContentDelta, store.ContentDeltaPayload{Text: "done"}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "stop"}),
+		// A steer accepted after the turn finished but never applied.
+		b.ev(store.KindSteerMessage, store.SteerMessagePayload{Text: "be terse", Source: "cli"}),
+	}
+	got, err := Fold(testSession(), events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []deepseek.Message{
+		deepseek.SystemMessage("you are a coding agent"),
+		deepseek.UserMessage("do it"),
+		{Role: deepseek.RoleAssistant, Content: "done"},
+	}
+	requireEqualMessages(t, got, want)
+
+	// Once the loop applies it at the next boundary, the text becomes a user
+	// message verbatim, in seq order after the turn that finished.
+	applied := append(events,
+		b.ev(store.KindSteerApplied, store.SteerAppliedPayload{SourceSeq: 5, Text: "be terse", SubTurn: 2}))
+	got, err = Fold(testSession(), applied)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want = append(want, deepseek.UserMessage("be terse"))
+	requireEqualMessages(t, got, want)
+}
+
+// TestFoldTwoSteersInOneBatch covers the loop's batch append: two steers the
+// loop applies at one sub-turn boundary (a single AppendEvents batch, so the
+// mirror and hub see one batch) fold to two user messages in seq order — the
+// ordering the brief pins for "two steers arrive as two user messages in the
+// order they were sent".
+func TestFoldTwoSteersInOneBatch(t *testing.T) {
+	b := &eventBuilder{}
+	events := []store.Event{
+		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "do it"}),
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
+		b.ev(store.KindContentDelta, store.ContentDeltaPayload{Text: "done"}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "stop"}),
+		b.ev(store.KindSteerApplied, store.SteerAppliedPayload{SourceSeq: 6, Text: "first", SubTurn: 2}),
+		b.ev(store.KindSteerApplied, store.SteerAppliedPayload{SourceSeq: 7, Text: "second", SubTurn: 2}),
+	}
+	got, err := Fold(testSession(), events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []deepseek.Message{
+		deepseek.SystemMessage("you are a coding agent"),
+		deepseek.UserMessage("do it"),
+		{Role: deepseek.RoleAssistant, Content: "done"},
+		deepseek.UserMessage("first"),
+		deepseek.UserMessage("second"),
+	}
+	requireEqualMessages(t, got, want)
+}
+
 // TestAppendOnly is the load-bearing property: folding events[:n] for every
 // n must be a strict prefix, message for message, of folding the full log.
 // Breaking this breaks the prompt cache (docs/CACHE.md).
@@ -237,9 +303,20 @@ func TestAppendOnly(t *testing.T) {
 		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 0, ID: "call_00_a", Name: "Read", Arguments: `{"file_path":"a.go"}`}),
 		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 1, ID: "call_01_b", Name: "Read", Arguments: `{"file_path":"b.go"}`}),
 		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "tool_calls"}),
+		// The awkward position: a steer sent while the tool calls are
+		// outstanding lands between the assistant's tool_call events and its
+		// tool_result events. If the fold turned steer_message into a user
+		// message here, a longer fold would have to move it below the tool
+		// messages — the append-only violation the two-kind split exists to
+		// prevent (docs/RUN-CONTROL.md "Two event kinds, not one").
+		b.ev(store.KindSteerMessage, store.SteerMessagePayload{Text: "answer in one line", Source: "web"}),
 		b.ev(store.KindUsage, store.UsagePayload{PromptTokens: 100}),
 		b.ev(store.KindToolResult, store.ToolResultPayload{ToolCallID: "call_00_a", Name: "Read", Content: "1\ta"}),
 		b.ev(store.KindToolDenied, store.ToolDeniedPayload{ToolCallID: "call_01_b", Name: "Read", Rule: "readonly", Content: "denied"}),
+		// The loop applies the steer at the next sub-turn boundary, where the
+		// message array is at rest — a user message whose fold position is
+		// final the moment the event exists.
+		b.ev(store.KindSteerApplied, store.SteerAppliedPayload{SourceSeq: 8, Text: "answer in one line", SubTurn: 2}),
 
 		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 2}),
 		b.ev(store.KindContentDelta, store.ContentDeltaPayload{Text: "all "}),

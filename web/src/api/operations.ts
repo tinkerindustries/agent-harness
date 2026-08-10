@@ -197,6 +197,141 @@ export async function releaseLease(workspace: string, version: number): Promise<
   if (!res.ok) throw await apiError(res);
 }
 
+// --- run control (docs/RUN-CONTROL.md) ---
+
+// StopResponse is POST /api/sessions/{id}/stop's 202 body: the acceptance,
+// not the outcome. The run is still ending; its terminal state arrives over
+// the session's own SSE stream (a cancelled result for a queue caller, the
+// stream for the browser), and the status badge renders CANCELLED when it
+// lands.
+export interface StopResponse {
+  session_id: string;
+  stopping: boolean;
+}
+
+// controlToken is the run-control bearer token, fetched once per page load
+// and reused for every stop. GET /api/control-token serves the token to
+// loopback callers only (docs/RUN-CONTROL.md "Authentication"), and the
+// browser is served by the harness itself, so this works exactly when the
+// page does. null means run control is not configured: a harness that never
+// generated a token answers 200 with an empty string, and an empty token is
+// treated as unavailable rather than cached and sent as an empty bearer,
+// which would 503 — a missing credential fails closed.
+let controlTokenPromise: Promise<string | null> | null = null;
+
+export function controlToken(): Promise<string | null> {
+  controlTokenPromise ??= fetch("/api/control-token")
+    .then((res) => (res.ok ? res.json() : null))
+    .then((body: { token?: string } | null) => (body && body.token ? body.token : null))
+    .catch(() => null);
+  return controlTokenPromise;
+}
+
+// stopSession asks the harness to end a running session via POST
+// /api/sessions/{id}/stop (docs/RUN-CONTROL.md "The HTTP surface"). The
+// response is an acceptance, not an outcome: a 202 means the stop landed and
+// the run is ending — possibly on its own inside the grace period — and the
+// terminal state arrives over the SSE stream the caller is already
+// connected to; nothing here polls or guesses at it. The reason is optional
+// and carried verbatim into the cancelled result. The bearer token is
+// required: callers hold the controlToken() result and hide the control when
+// it is null rather than sending a request that would 503.
+export async function stopSession(id: string, token: string, reason?: string): Promise<StopResponse> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/stop`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(reason ? { reason } : {}),
+  });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as StopResponse;
+}
+
+// SteerResponse is POST /api/sessions/{id}/steer's 202 body: the acceptance
+// plus the seq the caller's text landed at. Steering is not idempotent — two
+// steers are two instructions — so the seq is how a caller tells its own
+// steer from any other (docs/RUN-CONTROL.md "The HTTP surface").
+export interface SteerResponse {
+  session_id: string;
+  seq: number;
+}
+
+// steerSession appends an instruction to a running session via POST
+// /api/sessions/{id}/steer (docs/RUN-CONTROL.md "The HTTP surface"). The
+// response is an acceptance, not a delivery: the text reaches the model at
+// the next sub-turn boundary, which may be a minute or more away if a long
+// tool call is in flight, and the transcript's steer block shows it as
+// pending until then. The text is carried verbatim. The bearer token is
+// required, exactly as for stopSession.
+export async function steerSession(id: string, token: string, text: string): Promise<SteerResponse> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/steer`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ text, source: "web" }),
+  });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as SteerResponse;
+}
+
+// StartRunResponse is POST /api/runs's 202 body: the request_id the run was
+// accepted under. A start is not answered by the run's outcome — the session
+// appears on the existing GET /api/stream list feed once the pool claims the
+// request, and nothing here polls for it or invents a row (docs/RUN-CONTROL.md
+// "POST /api/runs").
+export interface StartRunResponse {
+  request_id: string;
+}
+
+// WorkRequest is the queue.Request wire shape POST /api/runs accepts,
+// mirroring internal/queue.Request: the required prompt, repos, and
+// permission_mode, plus the optional fields harness publish's flags set.
+// request_id is absent for a browser start — the server generates one, since
+// a browser form has no idempotency key to offer (docs/RUN-CONTROL.md "POST
+// /api/runs").
+export interface WorkRequest {
+  prompt: string;
+  repos: { url: string; branch?: string }[];
+  permission_mode: string;
+  model?: string;
+  effort?: string;
+  deny?: string[];
+  result_schema?: unknown;
+  max_sub_turns?: number;
+  deadline_ms?: number;
+  job_type?: string;
+  parent_agent_type?: string;
+  parent_agent_id?: string;
+}
+
+// startRun publishes a work request via POST /api/runs (docs/RUN-CONTROL.md
+// "POST /api/runs"). The 202 carries the request_id the run was accepted
+// under; the session itself appears on the session-list feed once the pool
+// claims it, and the screen follows it from there rather than polling. The
+// bearer token is required, exactly as for stopSession: callers hide the
+// form when controlToken() is null rather than sending a request that would
+// 503.
+export async function startRun(token: string, body: WorkRequest): Promise<StartRunResponse> {
+  const res = await fetch("/api/runs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as StartRunResponse;
+}
+
+// parseRepoSpec splits one repository spec on its last "#" into the url and
+// branch the wire shape carries, exactly as harness publish's -repo flag
+// does (cmd/harness/publish.go parseRepoFlags): "https://x/y.git#dev" →
+// {url, branch}, "https://x/y.git" → {url} with no branch. Splitting on the
+// last "#" keeps a "#" inside a URL intact, and a spec with none at all
+// clones the default branch.
+export function parseRepoSpec(spec: string): { url: string; branch?: string } {
+  const v = spec.trim();
+  const i = v.lastIndexOf("#");
+  if (i < 0) return { url: v };
+  return { url: v.slice(0, i), branch: v.slice(i + 1) };
+}
+
 // --- logic the screen is built from (tested without a DOM) ---
 
 // isStuckSession reports whether a session row counts as stuck: still

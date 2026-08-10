@@ -9,10 +9,12 @@ import { PerfHarnessScreen } from "./perf/PerfHarnessScreen";
 // Four screens, no router library (docs/DESIGN.md §5.7): plain pathname
 // parsing plus history.pushState/popstate. "/" is the session list;
 // "/sessions/:id" is one session's transcript; "/settings" is the settings
-// screen; "/operations" is the operations screen — the one place the browser
+// screen; "/operations" is the operations screen — the place the browser
 // writes operational state (closing stuck sessions, closing dead work
-// requests, releasing stranded leases; docs/DATA-API.md phase 5). No run
-// control anywhere: nothing starts, steers, or stops a run. The Go static
+// requests, releasing stranded leases; docs/DATA-API.md phase 5). Run control
+// is complete on the session surface: start (the form on the session list,
+// docs/RUN-CONTROL.md phase 6), stop on the in-flight card and the transcript
+// header, and steer on the transcript — all through the declared seams. The Go static
 // handler falls back to index.html for any unrecognised path, so a reload or
 // a direct link to /sessions/:id, /settings, or /operations still loads this
 // app and lands on the right screen. "/perf" is the measurement harness

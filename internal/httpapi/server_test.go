@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -22,6 +23,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
+	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
@@ -298,6 +300,106 @@ func TestNonGetMethodsReturn405EverywhereExceptWriteRoutes(t *testing.T) {
 				t.Errorf("%s %s: Allow = %q, want %q", m, leasePath, got, "GET, HEAD, DELETE")
 			}
 		}
+	}
+
+	// A stop path allows POST (the run-control write); every other method
+	// still 405s there, naming the three allowed methods in Allow. The gate
+	// must let POST through even when the session id is unknown — the
+	// handler, not the gate, owns the 404 (docs/RUN-CONTROL.md).
+	for _, stopPath := range []string{"/api/sessions/sess-1/stop", "/api/sessions/does-not-exist/stop"} {
+		resp := doWrite(t, srv, http.MethodPost, stopPath, `{}`, map[string]string{"Content-Type": "application/json"})
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusMethodNotAllowed {
+			t.Errorf("POST %s: gate refused a permitted write", stopPath)
+		}
+		for _, m := range []string{http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodOptions} {
+			req, err := http.NewRequest(m, srv.URL+stopPath, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("%s %s: %v", m, stopPath, err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s: got status %d, want 405", m, stopPath, resp.StatusCode)
+			}
+			if got := resp.Header.Get("Allow"); got != "GET, HEAD, POST" {
+				t.Errorf("%s %s: Allow = %q, want %q", m, stopPath, got, "GET, HEAD, POST")
+			}
+		}
+	}
+
+	// A steer path allows POST the same way (phase 5, docs/RUN-CONTROL.md);
+	// every other method still 405s there with the same Allow header, and the
+	// gate must not widen isSessionPath to cover it — POST /api/sessions/{id}
+	// itself stays a 405 (asserted in the session-path block above).
+	for _, steerPath := range []string{"/api/sessions/sess-1/steer", "/api/sessions/does-not-exist/steer"} {
+		resp := doWrite(t, srv, http.MethodPost, steerPath, `{}`, map[string]string{"Content-Type": "application/json"})
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusMethodNotAllowed {
+			t.Errorf("POST %s: gate refused a permitted write", steerPath)
+		}
+		for _, m := range []string{http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodOptions} {
+			req, err := http.NewRequest(m, srv.URL+steerPath, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := client.Do(req)
+			if err != nil {
+				t.Fatalf("%s %s: %v", m, steerPath, err)
+			}
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusMethodNotAllowed {
+				t.Errorf("%s %s: got status %d, want 405", m, steerPath, resp.StatusCode)
+			}
+			if got := resp.Header.Get("Allow"); got != "GET, HEAD, POST" {
+				t.Errorf("%s %s: Allow = %q, want %q", m, steerPath, got, "GET, HEAD, POST")
+			}
+		}
+	}
+
+	// The runs collection allows POST (phase 6, docs/RUN-CONTROL.md "POST
+	// /api/runs"); every other method still 405s there with the same Allow
+	// header, and a deeper path (/api/runs/<something>) has no write route at
+	// all — starting a run is exactly one action on exactly one path.
+	resp := doWrite(t, srv, http.MethodPost, "/api/runs", `{}`, map[string]string{"Content-Type": "application/json"})
+	resp.Body.Close()
+	if resp.StatusCode == http.StatusMethodNotAllowed {
+		t.Errorf("POST /api/runs: gate refused a permitted write")
+	}
+	for _, m := range []string{http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodOptions} {
+		req, err := http.NewRequest(m, srv.URL+"/api/runs", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("%s /api/runs: %v", m, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("%s /api/runs: got status %d, want 405", m, resp.StatusCode)
+		}
+		if got := resp.Header.Get("Allow"); got != "GET, HEAD, POST" {
+			t.Errorf("%s /api/runs: Allow = %q, want %q", m, got, "GET, HEAD, POST")
+		}
+	}
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/runs/extra", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("POST /api/runs/extra: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("POST /api/runs/extra: got status %d, want 405", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Allow"); got != "GET, HEAD" {
+		t.Errorf("POST /api/runs/extra: Allow = %q, want %q", got, "GET, HEAD")
 	}
 }
 
@@ -2797,5 +2899,973 @@ func TestLeaseWritesGuardsAndPreconditions(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("DELETE unknown lease: got status %d, want 404", resp.StatusCode)
+	}
+}
+
+// --- run control: stop (phase 4) ---
+
+// fakeRunController is the test double for RunController: a set of running
+// sessions, the Stop calls it received, and an optional error every Stop
+// returns. It stands in for *worker.Pool so these tests need no worker
+// package and no broker.
+type fakeRunController struct {
+	running map[string]bool
+	stops   []stopCall
+	err     error // when set, every Stop returns it
+}
+
+// stopCall is one recorded Stop(sessionID, reason) invocation.
+type stopCall struct {
+	sessionID string
+	reason    string
+}
+
+func (f *fakeRunController) Stop(sessionID, reason string) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.stops = append(f.stops, stopCall{sessionID, reason})
+	return nil
+}
+
+func (f *fakeRunController) Running(sessionID string) bool {
+	return f.running[sessionID]
+}
+
+// newControlTestServer builds a test server with the run-control bearer token
+// set and ctrl wired in — the server shape phase 4's stop endpoint needs.
+// The token is fixed for the test; the controller's running set drives the
+// preconditions.
+func newControlTestServer(t *testing.T, ctrl *fakeRunController) (*httptest.Server, *store.Store) {
+	t.Helper()
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "harness.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	api := &Server{
+		Store: st, Hub: hub.New(), Settings: settings.NewResolver(st),
+		Static: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprint(w, "static placeholder")
+		}),
+		Run: ctrl, ControlToken: "test-control-token",
+	}
+	srv := httptest.NewServer(api.Handler())
+	t.Cleanup(srv.Close)
+	return srv, st
+}
+
+// controlAuth is the header set a passing stop request carries: JSON content
+// type plus the test's bearer token.
+var controlAuth = map[string]string{"Content-Type": "application/json", "Authorization": "Bearer test-control-token"}
+
+// TestStopRequiresBearerToken pins the authentication on POST
+// /api/sessions/{id}/stop (docs/RUN-CONTROL.md "Authentication"): a missing
+// Authorization header is 401, a wrong token is 401, and only the configured
+// token reaches the controller. The constant-time comparison is the handler's
+// concern; here the wire behaviour is pinned.
+func TestStopRequiresBearerToken(t *testing.T) {
+	ctrl := &fakeRunController{running: map[string]bool{"sess-1": true}}
+	srv, st := newControlTestServer(t, ctrl)
+	mustCreateSession(t, st, "sess-1", time.Now())
+
+	for _, tc := range []struct {
+		name   string
+		header string
+		want   int
+	}{
+		{"missing", "", http.StatusUnauthorized},
+		{"wrong token", "Bearer not-the-token", http.StatusUnauthorized},
+		{"right token", "Bearer test-control-token", http.StatusAccepted},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			headers := map[string]string{"Content-Type": "application/json"}
+			if tc.header != "" {
+				headers["Authorization"] = tc.header
+			}
+			resp := doWrite(t, srv, http.MethodPost, "/api/sessions/sess-1/stop", `{"reason":"operator intervened"}`, headers)
+			defer resp.Body.Close()
+			if resp.StatusCode != tc.want {
+				t.Fatalf("got status %d, want %d", resp.StatusCode, tc.want)
+			}
+			if tc.want == http.StatusUnauthorized {
+				if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+					t.Fatalf("401 Content-Type = %q, want JSON", ct)
+				}
+			}
+		})
+	}
+
+	if len(ctrl.stops) != 1 || ctrl.stops[0].sessionID != "sess-1" || ctrl.stops[0].reason != "operator intervened" {
+		t.Fatalf("controller saw %+v, want one Stop(sess-1, operator intervened)", ctrl.stops)
+	}
+}
+
+// TestStopFailsClosedWithoutToken pins the fail-closed property: a Server
+// built without the startup token generation — every test that does not set
+// ControlToken — answers 503 to the stop endpoint. A missing credential must
+// not let the request through.
+func TestStopFailsClosedWithoutToken(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "harness.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	api := &Server{
+		Store: st, Hub: hub.New(), Settings: settings.NewResolver(st),
+		Static: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+		Run:    &fakeRunController{running: map[string]bool{"sess-1": true}},
+	}
+	srv := httptest.NewServer(api.Handler())
+	t.Cleanup(srv.Close)
+	mustCreateSession(t, st, "sess-1", time.Now())
+
+	resp := doWrite(t, srv, http.MethodPost, "/api/sessions/sess-1/stop", `{}`, map[string]string{
+		"Content-Type":  "application/json",
+		"Authorization": "Bearer test-control-token",
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("got status %d, want 503", resp.StatusCode)
+	}
+}
+
+// TestStopCarriesTheSharedWriteGuards pins that the stop endpoint runs the
+// same guards every other write carries — 415 without a JSON content type,
+// 403 cross-origin — before anything else, exactly like the settings and
+// session handlers (docs/DATA-API.md "The guards every write carries"), and
+// that a refused request never reaches the controller.
+func TestStopCarriesTheSharedWriteGuards(t *testing.T) {
+	ctrl := &fakeRunController{running: map[string]bool{"sess-1": true}}
+	srv, st := newControlTestServer(t, ctrl)
+	mustCreateSession(t, st, "sess-1", time.Now())
+
+	for _, tc := range []struct {
+		name    string
+		headers map[string]string
+		want    int
+	}{
+		{
+			name:    "missing content type",
+			headers: map[string]string{"Authorization": "Bearer test-control-token"},
+			want:    http.StatusUnsupportedMediaType,
+		},
+		{
+			name: "wrong content type",
+			headers: map[string]string{
+				"Content-Type": "text/plain", "Authorization": "Bearer test-control-token",
+			},
+			want: http.StatusUnsupportedMediaType,
+		},
+		{
+			name: "cross-origin",
+			headers: map[string]string{
+				"Content-Type": "application/json", "Authorization": "Bearer test-control-token",
+				"Origin": "https://evil.example",
+			},
+			want: http.StatusForbidden,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := doWrite(t, srv, http.MethodPost, "/api/sessions/sess-1/stop", `{}`, tc.headers)
+			defer resp.Body.Close()
+			if resp.StatusCode != tc.want {
+				t.Fatalf("got status %d, want %d", resp.StatusCode, tc.want)
+			}
+		})
+	}
+	if len(ctrl.stops) != 0 {
+		t.Fatalf("guarded requests must not reach the controller, got %+v", ctrl.stops)
+	}
+}
+
+// TestStopPreconditionsAndIdempotence pins the stop endpoint's preconditions
+// (docs/RUN-CONTROL.md "The HTTP surface"): 404 for a session that does not
+// exist in the store, 409 naming the session's actual status when this
+// process is not running it — the honest answer both for a session that
+// already finished and for one being run by nothing at all — and 202
+// {"session_id", "stopping": true} for an accepted stop, and again for a
+// repeat stop, because stopping is idempotent: a second stop for a run
+// already stopping is another 202, not a 409.
+func TestStopPreconditionsAndIdempotence(t *testing.T) {
+	ctrl := &fakeRunController{running: map[string]bool{"sess-1": true}}
+	srv, st := newControlTestServer(t, ctrl)
+	ctx := context.Background()
+	mustCreateSession(t, st, "sess-1", time.Now())
+	mustCreateSession(t, st, "finished", time.Now())
+	mustCreateSession(t, st, "stuck", time.Now()) // running in the store, run by nothing at all
+	finishedAt := time.Now().UTC()
+	if err := st.UpdateSessionStatus(ctx, "finished", store.StatusOK, &finishedAt); err != nil {
+		t.Fatalf("finish session: %v", err)
+	}
+
+	// 404: the session does not exist in the store, and no run owns it either.
+	resp := doWrite(t, srv, http.MethodPost, "/api/sessions/does-not-exist/stop", `{}`, controlAuth)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown session: got status %d, want 404", resp.StatusCode)
+	}
+
+	// 409 naming the session's actual status: one that already finished, and
+	// one being run by nothing at all.
+	for _, tc := range []struct {
+		sessionID string
+		status    string
+	}{
+		{"finished", store.StatusOK},
+		{"stuck", store.StatusRunning},
+	} {
+		resp := doWrite(t, srv, http.MethodPost, "/api/sessions/"+tc.sessionID+"/stop", `{}`, controlAuth)
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resp.StatusCode != http.StatusConflict {
+			t.Fatalf("%s: got status %d, want 409 (body %s)", tc.sessionID, resp.StatusCode, body)
+		}
+		if !strings.Contains(string(body), "status "+tc.status) {
+			t.Fatalf("%s: 409 must name the session's actual status, got %q", tc.sessionID, body)
+		}
+	}
+
+	// 202: accepted, with the session id and stopping flag.
+	resp = doWrite(t, srv, http.MethodPost, "/api/sessions/sess-1/stop", `{"reason":"enough"}`, controlAuth)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("accepted stop: got status %d, want 202", resp.StatusCode)
+	}
+	var got map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if got["session_id"] != "sess-1" || got["stopping"] != true {
+		t.Fatalf("202 body = %+v, want {\"session_id\":\"sess-1\",\"stopping\":true}", got)
+	}
+
+	// 202 again: a repeat stop is idempotent, not a conflict.
+	resp = doWrite(t, srv, http.MethodPost, "/api/sessions/sess-1/stop", `{}`, controlAuth)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("repeat stop: got status %d, want 202", resp.StatusCode)
+	}
+
+	if len(ctrl.stops) != 2 {
+		t.Fatalf("controller saw %d stops, want 2: %+v", len(ctrl.stops), ctrl.stops)
+	}
+	if ctrl.stops[0].reason != "enough" {
+		t.Fatalf("first stop reason = %q, want %q", ctrl.stops[0].reason, "enough")
+	}
+}
+
+// TestStopRunWithNoSessionRowYet is the case the registry is asked about
+// before the store: a run is registered before its workspace is prepared, and
+// its session row is not created until the session loop starts. So a run
+// wedged in a git clone is registered and stoppable while no row exists for
+// it — and looking the store up first would answer 404 for exactly the run an
+// operator most needs to end (docs/RUN-CONTROL.md "Half two").
+func TestStopRunWithNoSessionRowYet(t *testing.T) {
+	ctrl := &fakeRunController{running: map[string]bool{"sess-cloning": true}}
+	srv, _ := newControlTestServer(t, ctrl)
+
+	// No mustCreateSession: the store has never heard of this session.
+	resp := doWrite(t, srv, http.MethodPost, "/api/sessions/sess-cloning/stop", `{"reason":"clone is wedged"}`, controlAuth)
+	body, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("a registered run with no session row: got status %d, want 202 (body %s)", resp.StatusCode, body)
+	}
+	if len(ctrl.stops) != 1 || ctrl.stops[0].sessionID != "sess-cloning" {
+		t.Fatalf("expected one stop for sess-cloning, got %+v", ctrl.stops)
+	}
+	if ctrl.stops[0].reason != "clone is wedged" {
+		t.Fatalf("stop reason = %q, want %q", ctrl.stops[0].reason, "clone is wedged")
+	}
+}
+
+// TestStopSurfacesControllerFailure pins the one error path the handler owns
+// beyond the preconditions: a controller whose Stop fails is a 500 carrying
+// the error's message (docs/RUN-CONTROL.md). The handler never parses the
+// error's text to distinguish "no such run" — it asks Running first, so this
+// 500 is reserved for failures that are genuinely unexpected.
+func TestStopSurfacesControllerFailure(t *testing.T) {
+	ctrl := &fakeRunController{
+		running: map[string]bool{"sess-1": true},
+		err:     errors.New("pool is shutting down"),
+	}
+	srv, st := newControlTestServer(t, ctrl)
+	mustCreateSession(t, st, "sess-1", time.Now())
+
+	resp := doWrite(t, srv, http.MethodPost, "/api/sessions/sess-1/stop", `{}`, controlAuth)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("got status %d, want 500", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "pool is shutting down") {
+		t.Fatalf("500 must carry the controller's error message, got %q", body)
+	}
+}
+
+// TestGetControlTokenServesLoopbackOnly pins GET /api/control-token
+// (docs/RUN-CONTROL.md "Authentication"): the token is served to a loopback
+// RemoteAddr — the shape the browser and a same-host MCP server get it in —
+// and a non-loopback caller is 403.
+func TestGetControlTokenServesLoopbackOnly(t *testing.T) {
+	srv, _ := newControlTestServer(t, &fakeRunController{})
+
+	resp, err := http.Get(srv.URL + "/api/control-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("loopback GET: got status %d, want 200", resp.StatusCode)
+	}
+	var got map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got["token"] != "test-control-token" {
+		t.Fatalf("token = %q, want the configured token", got["token"])
+	}
+
+	// A non-loopback RemoteAddr is refused with 403.
+	api := &Server{
+		ControlToken: "test-control-token",
+		Static:       http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+	}
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/api/control-token", nil)
+	req.RemoteAddr = "192.0.2.1:4567"
+	rr := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("non-loopback GET: got status %d, want 403", rr.Code)
+	}
+}
+
+// --- run control: steer (phase 5) ---
+
+// TestSteerRequiresBearerToken pins the authentication on POST
+// /api/sessions/{id}/steer (docs/RUN-CONTROL.md "Authentication"): a missing
+// Authorization header is 401, a wrong token is 401, and only the configured
+// token reaches the store write.
+func TestSteerRequiresBearerToken(t *testing.T) {
+	srv, st := newControlTestServer(t, &fakeRunController{})
+	mustCreateSession(t, st, "sess-1", time.Now())
+
+	for _, tc := range []struct {
+		name   string
+		header string
+		want   int
+	}{
+		{"missing", "", http.StatusUnauthorized},
+		{"wrong token", "Bearer not-the-token", http.StatusUnauthorized},
+		{"right token", "Bearer test-control-token", http.StatusAccepted},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			headers := map[string]string{"Content-Type": "application/json"}
+			if tc.header != "" {
+				headers["Authorization"] = tc.header
+			}
+			resp := doWrite(t, srv, http.MethodPost, "/api/sessions/sess-1/steer", `{"text":"be terse"}`, headers)
+			defer resp.Body.Close()
+			if resp.StatusCode != tc.want {
+				t.Fatalf("got status %d, want %d", resp.StatusCode, tc.want)
+			}
+			if tc.want == http.StatusUnauthorized {
+				if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+					t.Fatalf("401 Content-Type = %q, want JSON", ct)
+				}
+			}
+		})
+	}
+}
+
+// TestSteerFailsClosedWithoutToken pins the fail-closed property for steer:
+// a Server built without the startup token generation answers 503, exactly
+// like stop — the run-control surface must never let a request through
+// without a credential.
+func TestSteerFailsClosedWithoutToken(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "harness.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	api := &Server{
+		Store: st, Hub: hub.New(), Settings: settings.NewResolver(st),
+		Static: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+	}
+	srv := httptest.NewServer(api.Handler())
+	t.Cleanup(srv.Close)
+	mustCreateSession(t, st, "sess-1", time.Now())
+
+	resp := doWrite(t, srv, http.MethodPost, "/api/sessions/sess-1/steer", `{"text":"be terse"}`, map[string]string{
+		"Content-Type":  "application/json",
+		"Authorization": "Bearer test-control-token",
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("got status %d, want 503", resp.StatusCode)
+	}
+}
+
+// TestSteerCarriesTheSharedWriteGuards pins that the steer endpoint runs the
+// same guards every other write carries — 415 without a JSON content type,
+// 403 cross-origin — before the bearer check, and that a refused request
+// never appends a steer_message event.
+func TestSteerCarriesTheSharedWriteGuards(t *testing.T) {
+	srv, st := newControlTestServer(t, &fakeRunController{})
+	mustCreateSession(t, st, "sess-1", time.Now())
+
+	for _, tc := range []struct {
+		name    string
+		headers map[string]string
+		want    int
+	}{
+		{
+			name:    "missing content type",
+			headers: map[string]string{"Authorization": "Bearer test-control-token"},
+			want:    http.StatusUnsupportedMediaType,
+		},
+		{
+			name: "wrong content type",
+			headers: map[string]string{
+				"Content-Type": "text/plain", "Authorization": "Bearer test-control-token",
+			},
+			want: http.StatusUnsupportedMediaType,
+		},
+		{
+			name: "cross-origin",
+			headers: map[string]string{
+				"Content-Type": "application/json", "Authorization": "Bearer test-control-token",
+				"Origin": "https://evil.example",
+			},
+			want: http.StatusForbidden,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := doWrite(t, srv, http.MethodPost, "/api/sessions/sess-1/steer", `{"text":"be terse"}`, tc.headers)
+			defer resp.Body.Close()
+			if resp.StatusCode != tc.want {
+				t.Fatalf("got status %d, want %d", resp.StatusCode, tc.want)
+			}
+		})
+	}
+
+	events, err := st.GetEvents(context.Background(), "sess-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range events {
+		if e.Kind == store.KindSteerMessage {
+			t.Fatalf("a guarded request appended a steer_message event: %+v", e)
+		}
+	}
+}
+
+// TestSteerPreconditions pins the steer endpoint's preconditions
+// (docs/RUN-CONTROL.md "The HTTP surface"): 400 for empty or whitespace-only
+// text, 404 for a session that does not exist, 409 naming the session's
+// status when it is not running — a steer for a finished run would sit in the
+// log forever, unapplied and unexplained — and 202 {"session_id", "seq"} for
+// an accepted steer. Two steers are two instructions, so the second gets its
+// own, higher seq rather than a duplicate of the first.
+func TestSteerPreconditions(t *testing.T) {
+	srv, st := newControlTestServer(t, &fakeRunController{})
+	ctx := context.Background()
+	mustCreateSession(t, st, "sess-1", time.Now()) // running by default
+	mustCreateSession(t, st, "finished", time.Now())
+	finishedAt := time.Now().UTC()
+	if err := st.UpdateSessionStatus(ctx, "finished", store.StatusOK, &finishedAt); err != nil {
+		t.Fatalf("finish session: %v", err)
+	}
+
+	// 400: empty and whitespace-only text.
+	for _, body := range []string{`{"text":""}`, `{"text":"   "}`} {
+		resp := doWrite(t, srv, http.MethodPost, "/api/sessions/sess-1/steer", body, controlAuth)
+		text, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("body %s: got status %d, want 400 (body %s)", body, resp.StatusCode, text)
+		}
+	}
+
+	// 404: the session does not exist.
+	resp := doWrite(t, srv, http.MethodPost, "/api/sessions/does-not-exist/steer", `{"text":"hi"}`, controlAuth)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown session: got status %d, want 404", resp.StatusCode)
+	}
+
+	// 409 naming the session's actual status: one that already finished.
+	resp = doWrite(t, srv, http.MethodPost, "/api/sessions/finished/steer", `{"text":"hi"}`, controlAuth)
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("finished session: got status %d, want 409 (body %s)", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "status ok") {
+		t.Fatalf("409 must name the session's actual status, got %q", body)
+	}
+
+	// 202 with the seq the text landed at; the second steer lands at a
+	// higher seq (steering is not idempotent — two steers, two instructions).
+	var firstSeq, secondSeq int64
+	for i, body := range []string{`{"text":"first steer"}`, `{"text":"second steer"}`} {
+		resp := doWrite(t, srv, http.MethodPost, "/api/sessions/sess-1/steer", body, controlAuth)
+		if resp.StatusCode != http.StatusAccepted {
+			t.Fatalf("steer %d: got status %d, want 202", i, resp.StatusCode)
+		}
+		var got map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if got["session_id"] != "sess-1" {
+			t.Fatalf("202 body = %+v, want session_id sess-1", got)
+		}
+		seq, ok := got["seq"].(float64)
+		if !ok || seq <= 0 {
+			t.Fatalf("202 body = %+v, want a positive seq", got)
+		}
+		if i == 0 {
+			firstSeq = int64(seq)
+		} else {
+			secondSeq = int64(seq)
+		}
+	}
+	if secondSeq <= firstSeq {
+		t.Fatalf("second steer seq %d must be higher than the first %d", secondSeq, firstSeq)
+	}
+
+	// The events landed in the store with the seqs the response named.
+	events, err := st.GetEvents(ctx, "sess-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	texts := map[int64]string{}
+	for _, e := range events {
+		if e.Kind != store.KindSteerMessage {
+			continue
+		}
+		var p store.SteerMessagePayload
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			t.Fatal(err)
+		}
+		texts[e.Seq] = p.Text
+	}
+	if texts[firstSeq] != "first steer" || texts[secondSeq] != "second steer" {
+		t.Fatalf("stored steer_message events by seq = %v, want %d->first steer, %d->second steer", texts, firstSeq, secondSeq)
+	}
+}
+
+// TestSteerAppendsEventAndPublishes pins the handler's two effects beyond
+// the 202: the steer_message event is committed to the store (the loop's one
+// read source) and fanned out to the session's SSE stream, so the transcript
+// shows the steer as pending the moment it is accepted rather than at the
+// next sub-turn (docs/RUN-CONTROL.md "How the loop picks one up").
+func TestSteerAppendsEventAndPublishes(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "harness.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	h := hub.New()
+	api := &Server{
+		Store: st, Hub: h, Settings: settings.NewResolver(st),
+		Static:       http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+		ControlToken: "test-control-token",
+	}
+	srv := httptest.NewServer(api.Handler())
+	t.Cleanup(srv.Close)
+	mustCreateSession(t, st, "sess-1", time.Now())
+
+	events, cancel := h.Subscribe("sess-1")
+	defer cancel()
+
+	resp := doWrite(t, srv, http.MethodPost, "/api/sessions/sess-1/steer", `{"text":"be terse","source":"mcp"}`, controlAuth)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("got status %d, want 202", resp.StatusCode)
+	}
+	var got map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	seq, ok := got["seq"].(float64)
+	if !ok || seq <= 0 {
+		t.Fatalf("202 body = %+v, want a positive seq", got)
+	}
+
+	select {
+	case ev := <-events:
+		if ev.Kind != store.KindSteerMessage || ev.Seq != int64(seq) {
+			t.Fatalf("hub event = %+v, want the steer_message at seq %d", ev, int64(seq))
+		}
+		var p store.SteerMessagePayload
+		if err := json.Unmarshal(ev.Payload, &p); err != nil {
+			t.Fatal(err)
+		}
+		if p.Text != "be terse" || p.Source != "mcp" {
+			t.Fatalf("steer payload = %+v, want text \"be terse\" from mcp", p)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the steer_message event was not published to the session's stream")
+	}
+
+	// The loop's read source: the committed event, text verbatim.
+	eventsList, err := st.GetEvents(context.Background(), "sess-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(eventsList) != 1 || eventsList[0].Seq != int64(seq) {
+		t.Fatalf("store events = %+v, want exactly the steer_message at seq %d", eventsList, int64(seq))
+	}
+}
+
+// --- run control: start (phase 6) ---
+
+// fakeRunPublisher is the test double for RunPublisher: records the requests
+// it was asked to publish, and an optional error every call returns. It
+// stands in for the adapter cmd/harness wires over the JetStream handle, so
+// these tests need no broker.
+type fakeRunPublisher struct {
+	requests []queue.Request
+	err      error // when set, every PublishRequest returns it
+}
+
+func (f *fakeRunPublisher) PublishRequest(_ context.Context, req queue.Request) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.requests = append(f.requests, req)
+	return nil
+}
+
+// newStartTestServer builds a test server with the run-control bearer token
+// set and pub wired in — the server shape phase 6's start endpoint needs. The
+// token is fixed for the test; the fake publisher records what the handler
+// asked it to publish.
+func newStartTestServer(t *testing.T, pub *fakeRunPublisher) (*httptest.Server, *store.Store) {
+	t.Helper()
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "harness.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	api := &Server{
+		Store: st, Hub: hub.New(), Settings: settings.NewResolver(st),
+		Static: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprint(w, "static placeholder")
+		}),
+		Publisher: pub, ControlToken: "test-control-token",
+	}
+	srv := httptest.NewServer(api.Handler())
+	t.Cleanup(srv.Close)
+	return srv, st
+}
+
+// aValidWorkRequest is a request body that passes queue.Request.Validate: the
+// browser form's minimum (prompt, one repo, a permission mode).
+const aValidWorkRequest = `{"prompt":"do the thing","repos":[{"url":"https://github.com/org/app.git"}],"permission_mode":"readonly"}`
+
+// TestStartRunRequiresBearerToken pins the authentication on POST /api/runs
+// (docs/RUN-CONTROL.md "Authentication"): a missing Authorization header is
+// 401, a wrong token is 401, and only the configured token reaches the
+// publisher.
+func TestStartRunRequiresBearerToken(t *testing.T) {
+	pub := &fakeRunPublisher{}
+	srv, _ := newStartTestServer(t, pub)
+
+	for _, tc := range []struct {
+		name   string
+		header string
+		want   int
+	}{
+		{"missing", "", http.StatusUnauthorized},
+		{"wrong token", "Bearer not-the-token", http.StatusUnauthorized},
+		{"right token", "Bearer test-control-token", http.StatusAccepted},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			headers := map[string]string{"Content-Type": "application/json"}
+			if tc.header != "" {
+				headers["Authorization"] = tc.header
+			}
+			resp := doWrite(t, srv, http.MethodPost, "/api/runs", aValidWorkRequest, headers)
+			defer resp.Body.Close()
+			if resp.StatusCode != tc.want {
+				t.Fatalf("got status %d, want %d", resp.StatusCode, tc.want)
+			}
+			if tc.want == http.StatusUnauthorized {
+				if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+					t.Fatalf("401 Content-Type = %q, want JSON", ct)
+				}
+			}
+		})
+	}
+
+	if len(pub.requests) != 1 {
+		t.Fatalf("publisher saw %d requests, want 1: %+v", len(pub.requests), pub.requests)
+	}
+}
+
+// TestStartRunFailsClosedWithoutToken pins the fail-closed property: a Server
+// built without the startup token generation answers 503 to the start
+// endpoint, exactly like stop and steer — the run-control surface must never
+// let a request through without a credential.
+func TestStartRunFailsClosedWithoutToken(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "harness.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	pub := &fakeRunPublisher{}
+	api := &Server{
+		Store: st, Hub: hub.New(), Settings: settings.NewResolver(st),
+		Static:    http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+		Publisher: pub,
+	}
+	srv := httptest.NewServer(api.Handler())
+	t.Cleanup(srv.Close)
+
+	resp := doWrite(t, srv, http.MethodPost, "/api/runs", aValidWorkRequest, map[string]string{
+		"Content-Type":  "application/json",
+		"Authorization": "Bearer test-control-token",
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("got status %d, want 503", resp.StatusCode)
+	}
+	if len(pub.requests) != 0 {
+		t.Fatalf("a refused request must not reach the publisher, got %+v", pub.requests)
+	}
+}
+
+// TestStartRunFailsClosedWithoutPublisher pins the other fail-closed shape:
+// a Server built with a token but no publisher wired — every test server that
+// does not set the field — answers 503 to the start endpoint. No publisher
+// means no run can be started, and that must look unavailable, not succeed
+// silently.
+func TestStartRunFailsClosedWithoutPublisher(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "harness.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	api := &Server{
+		Store: st, Hub: hub.New(), Settings: settings.NewResolver(st),
+		Static:       http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+		ControlToken: "test-control-token",
+	}
+	srv := httptest.NewServer(api.Handler())
+	t.Cleanup(srv.Close)
+
+	resp := doWrite(t, srv, http.MethodPost, "/api/runs", aValidWorkRequest, controlAuth)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("got status %d, want 503", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "no run publisher is wired") {
+		t.Fatalf("503 must say the publisher is not wired, got %q", body)
+	}
+}
+
+// TestStartRunCarriesTheSharedWriteGuards pins that the start endpoint runs
+// the same guards every other write carries — 415 without a JSON content
+// type, 403 cross-origin — before the bearer check, and that a refused
+// request never reaches the publisher.
+func TestStartRunCarriesTheSharedWriteGuards(t *testing.T) {
+	pub := &fakeRunPublisher{}
+	srv, _ := newStartTestServer(t, pub)
+
+	for _, tc := range []struct {
+		name    string
+		headers map[string]string
+		want    int
+	}{
+		{
+			name:    "missing content type",
+			headers: map[string]string{"Authorization": "Bearer test-control-token"},
+			want:    http.StatusUnsupportedMediaType,
+		},
+		{
+			name: "wrong content type",
+			headers: map[string]string{
+				"Content-Type": "text/plain", "Authorization": "Bearer test-control-token",
+			},
+			want: http.StatusUnsupportedMediaType,
+		},
+		{
+			name: "cross-origin",
+			headers: map[string]string{
+				"Content-Type": "application/json", "Authorization": "Bearer test-control-token",
+				"Origin": "https://evil.example",
+			},
+			want: http.StatusForbidden,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := doWrite(t, srv, http.MethodPost, "/api/runs", aValidWorkRequest, tc.headers)
+			defer resp.Body.Close()
+			if resp.StatusCode != tc.want {
+				t.Fatalf("got status %d, want %d", resp.StatusCode, tc.want)
+			}
+		})
+	}
+	if len(pub.requests) != 0 {
+		t.Fatalf("guarded requests must not reach the publisher, got %+v", pub.requests)
+	}
+}
+
+// TestStartRunValidationRejectsBadBody pins that POST /api/runs validates
+// with the queue's own rules, never a copy (docs/RUN-CONTROL.md "POST
+// /api/runs"): a body that fails queue.Request.Validate is a 400 carrying
+// the validator's message, and the publisher is never called. A malformed
+// JSON body is a 400 too.
+func TestStartRunValidationRejectsBadBody(t *testing.T) {
+	pub := &fakeRunPublisher{}
+	srv, _ := newStartTestServer(t, pub)
+
+	for _, tc := range []struct {
+		name   string
+		body   string
+		wantIn string
+	}{
+		{"not JSON", `{`, "invalid JSON body"},
+		{"empty prompt", `{"prompt":"","repos":[{"url":"https://github.com/org/app.git"}],"permission_mode":"readonly"}`, "queue: prompt is required"},
+		{"no repos", `{"prompt":"do it","repos":[],"permission_mode":"readonly"}`, "queue: repos is required"},
+		{"bad repo url", `{"prompt":"do it","repos":[{"url":"/etc/passwd"}],"permission_mode":"readonly"}`, "must be an http(s), ssh, git"},
+		{"no permission mode", `{"prompt":"do it","repos":[{"url":"https://github.com/org/app.git"}],"permission_mode":""}`, "queue: permission_mode is required"},
+		{"unknown permission mode", `{"prompt":"do it","repos":[{"url":"https://github.com/org/app.git"}],"permission_mode":"admin"}`, "must be readonly or full"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := doWrite(t, srv, http.MethodPost, "/api/runs", tc.body, controlAuth)
+			body, err := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("got status %d, want 400 (body %s)", resp.StatusCode, body)
+			}
+			if !strings.Contains(string(body), tc.wantIn) {
+				t.Fatalf("400 must carry the validator's message, got %q (want a mention of %q)", body, tc.wantIn)
+			}
+		})
+	}
+
+	if len(pub.requests) != 0 {
+		t.Fatalf("a rejected request must not reach the publisher, got %+v", pub.requests)
+	}
+}
+
+// TestStartRunGeneratesRequestID pins the idempotency-key story for a
+// browser start (docs/RUN-CONTROL.md "POST /api/runs"): request_id is
+// optional on this surface, and a body without one is accepted under a
+// generated "web-" id — the browser form has no idempotency key to offer,
+// but the published request must carry one, because the queue requires it.
+func TestStartRunGeneratesRequestID(t *testing.T) {
+	pub := &fakeRunPublisher{}
+	srv, _ := newStartTestServer(t, pub)
+
+	resp := doWrite(t, srv, http.MethodPost, "/api/runs", aValidWorkRequest, controlAuth)
+	if resp.StatusCode != http.StatusAccepted {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		t.Fatalf("got status %d, want 202 (body %s)", resp.StatusCode, body)
+	}
+	var got map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	id := got["request_id"]
+	if !strings.HasPrefix(id, "web-") {
+		t.Fatalf("202 request_id = %q, want a generated web- id", id)
+	}
+	if len(pub.requests) != 1 {
+		t.Fatalf("publisher saw %d requests, want 1", len(pub.requests))
+	}
+	if pub.requests[0].RequestID != id {
+		t.Fatalf("published RequestID = %q, want the id the 202 named (%q)", pub.requests[0].RequestID, id)
+	}
+}
+
+// TestStartRunAcceptsAndPublishes pins the happy path end to end: a full
+// work request (every optional field) is decoded, validated, and handed to
+// the publisher verbatim, and the 202 names the request_id the caller
+// supplied — which is how a caller that has an idempotency key gets the same
+// deduplication every other producer gets. A publisher failure is a 500.
+func TestStartRunAcceptsAndPublishes(t *testing.T) {
+	pub := &fakeRunPublisher{}
+	srv, _ := newStartTestServer(t, pub)
+
+	body := `{"request_id":"req-from-browser","prompt":"do it","repos":[{"url":"https://github.com/org/app.git","branch":"dev"}],"permission_mode":"full","model":"deepseek-v4-pro","effort":"max","deny":["git push"],"max_sub_turns":42,"deadline_ms":3600000,"job_type":"implementation","parent_agent_type":"user"}`
+	resp := doWrite(t, srv, http.MethodPost, "/api/runs", body, controlAuth)
+	if resp.StatusCode != http.StatusAccepted {
+		got, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		t.Fatalf("got status %d, want 202 (body %s)", resp.StatusCode, got)
+	}
+	var got map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if got["request_id"] != "req-from-browser" {
+		t.Fatalf("202 body = %+v, want the supplied request_id echoed back", got)
+	}
+
+	if len(pub.requests) != 1 {
+		t.Fatalf("publisher saw %d requests, want 1", len(pub.requests))
+	}
+	published := pub.requests[0]
+	want := queue.Request{
+		RequestID:       "req-from-browser",
+		Prompt:          "do it",
+		Repos:           []queue.Repo{{URL: "https://github.com/org/app.git", Branch: "dev"}},
+		PermissionMode:  "full",
+		Model:           "deepseek-v4-pro",
+		Effort:          "max",
+		Deny:            []string{"git push"},
+		MaxSubTurns:     42,
+		DeadlineMS:      3600000,
+		JobType:         "implementation",
+		ParentAgentType: "user",
+	}
+	if !reflect.DeepEqual(published, want) {
+		t.Fatalf("published request = %+v, want %+v", published, want)
+	}
+
+	// A publisher failure surfaces as a 500 carrying its message.
+	failing := &fakeRunPublisher{err: errors.New("stream is read-only")}
+	srv2, _ := newStartTestServer(t, failing)
+	resp2 := doWrite(t, srv2, http.MethodPost, "/api/runs", aValidWorkRequest, controlAuth)
+	gotBody, _ := io.ReadAll(resp2.Body)
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("publisher failure: got status %d, want 500 (body %s)", resp2.StatusCode, gotBody)
+	}
+	if !strings.Contains(string(gotBody), "stream is read-only") {
+		t.Fatalf("500 must carry the publisher's error message, got %q", gotBody)
 	}
 }

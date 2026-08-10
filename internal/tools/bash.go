@@ -34,12 +34,31 @@ func execBash(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", args.Command)
 	cmd.Dir = e.Workspace
 
-	var out bytes.Buffer
+	// A command that backgrounds a process without redirecting its output
+	// (node server.js &, inheriting the captured pipe) leaves that pipe open
+	// after /bin/sh exits, and cmd.Run() would block on the copy goroutines
+	// forever — past the tool timeout, past a cancelled context. WaitDelay
+	// bounds that wait, and the process group (bashGroup) is what lets the
+	// kill reach the pipe-holder instead of only the direct sh child
+	// (docs/TOOLS.md, "Bash").
+	waitDelay := e.bashWaitDelay(ctx)
+	cmd.WaitDelay = waitDelay
+	group := bashGroup(cmd)
+
+	var out capturedBuffer
 	live := &liveStdoutWriter{sink: stdoutSinkFromContext(ctx)}
 	cmd.Stdout = io.MultiWriter(&out, live)
 	cmd.Stderr = io.MultiWriter(&out, live)
 
 	runErr := cmd.Run()
+	if errors.Is(runErr, exec.ErrWaitDelay) {
+		// The command exited but a grandchild kept its output pipe open; Wait
+		// returned after WaitDelay and nothing has been cancelled — this path
+		// has no cancellation behind it. Finish the group off, or the orphan
+		// outlives the call, keeps whatever port it bound, and breaks the next
+		// run.
+		group.forceKill()
+	}
 	live.flush()
 
 	text, truncated := truncate(out.String(), e.outputCap(ctx))
@@ -47,6 +66,18 @@ func execBash(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		result.Content = fmt.Sprintf("command timed out\n\npartial output:\n%s", text)
+		result.IsError = true
+		return result
+	}
+	if errors.Is(runErr, exec.ErrWaitDelay) {
+		// Everything the command wrote before it wedged is kept, the way the
+		// timeout path above keeps it. A command that builds, prints its log,
+		// and only then backgrounds something would otherwise come back as the
+		// explanation alone, and the model would have lost the output it
+		// actually asked for.
+		result.Content = fmt.Sprintf(
+			"the command exited but left a process holding its output open; the harness stopped waiting after %s and killed the process group. Redirect output and detach (cmd >/tmp/x.log 2>&1 &) if you meant to leave something running\n\npartial output:\n%s",
+			waitDelay, text)
 		result.IsError = true
 		return result
 	}
@@ -64,6 +95,29 @@ func execBash(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 		result.Content = "(no output)"
 	}
 	return result
+}
+
+// capturedBuffer is the buffer a Bash call captures its command's stdout and
+// stderr into. cmd.Stdout and cmd.Stderr are distinct writer values, so the
+// two copy goroutines can call Write concurrently; and once WaitDelay can
+// make Wait return while a copy goroutine is still writing, the post-Wait read
+// of the buffer would race it. The mutex makes both safe
+// (docs/RUN-CONTROL.md, "Half one").
+type capturedBuffer struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (c *capturedBuffer) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.b.Write(p)
+}
+
+func (c *capturedBuffer) String() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.b.String()
 }
 
 // stdoutStreamInterval bounds how often liveStdoutWriter forwards buffered

@@ -141,6 +141,22 @@ func plainAnswerServer(t *testing.T, answer string, delay time.Duration, hits *h
 
 func newTestHarness(t *testing.T, serverURL string, poolSize int) *testHarness {
 	t.Helper()
+	return newTestHarnessWithRunner(t, serverURL, poolSize, func(st *store.Store) Runner {
+		return &session.Runner{
+			Store:      st,
+			Client:     deepseek.NewClient(serverURL, "test-key"),
+			Prices:     testPrices(),
+			FlashModel: "test-model",
+		}
+	})
+}
+
+// newTestHarnessWithRunner is newTestHarness with the pool's runner supplied
+// by the test: the run-control tests drive the pool with a fake runner (and
+// the fake PrepareWorkspace below) rather than calling an API, so a test can
+// wedge a run in a way no HTTP fake ever could.
+func newTestHarnessWithRunner(t *testing.T, serverURL string, poolSize int, newRunner func(*store.Store) Runner) *testHarness {
+	t.Helper()
 	nc, js := connectOrSkip(t)
 	_ = nc
 
@@ -172,16 +188,9 @@ func newTestHarness(t *testing.T, serverURL string, poolSize int) *testHarness {
 		t.Fatal(err)
 	}
 
-	runner := &session.Runner{
-		Store:      st,
-		Client:     deepseek.NewClient(serverURL, "test-key"),
-		Prices:     testPrices(),
-		FlashModel: "test-model",
-	}
-
 	pool := &Pool{
 		Store:             st,
-		Runner:            runner,
+		Runner:            newRunner(st),
 		JS:                js,
 		Consumer:          consumer,
 		WorkspaceRoot:     resolvedRoot,
@@ -498,7 +507,7 @@ func TestPoolHandleSpentRequestClosesSessionFailsAndTerms(t *testing.T) {
 		t.Fatal(err)
 	}
 	msg := &fakeMsg{data: reqBody, numDelivered: 2}
-	h.pool.handle(msg)
+	h.pool.handle(msg, func() {})
 
 	if !msg.wasTermed() {
 		t.Fatalf("expected the spent request's message to be termed; acked=%v termed=%v nakked=%v", msg.acked, msg.termed, msg.nakked)
@@ -590,7 +599,7 @@ func TestPoolHandleSpentRequestStillActiveLeavesRowAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	msg := &fakeMsg{data: reqBody, numDelivered: 2}
-	h.pool.handle(msg)
+	h.pool.handle(msg, func() {})
 
 	if !msg.wasNakked() {
 		t.Fatalf("expected the duplicate to be nakked for a later delivery after the wait deadline; acked=%v termed=%v nakked=%v",

@@ -2,6 +2,7 @@ package settings_test
 
 import (
 	"testing"
+	"time"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/session"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
@@ -24,9 +25,11 @@ func TestRegistryDefaultsMatchTheConstantsTheyReplaced(t *testing.T) {
 		{settings.KeyRunMaxSubTurns, "400"},
 		{settings.KeyRunDeadline, "1h"},
 		{settings.KeyRunCompactionThreshold, "786432"},
+		{settings.KeyRunStopGracePeriod, "30s"},
 		{settings.KeyToolOutputCap, "200000"},
 		{settings.KeyToolBashTimeout, "2m"},
 		{settings.KeyToolBashTimeoutMax, "10m"},
+		{settings.KeyToolBashWaitDelay, "2s"},
 		{settings.KeyToolTimeout, "30s"},
 		{settings.KeyToolWebFetchTimeout, "45s"},
 		{settings.KeyToolTaskTimeout, "10m"},
@@ -45,6 +48,9 @@ func TestRegistryDefaultsMatchTheConstantsTheyReplaced(t *testing.T) {
 		{settings.KeyQueueResultsMaxAge, "168h"},
 		{settings.KeyHTTPEventsLimitDefault, "500"},
 		{settings.KeyHTTPEventsLimitMax, "5000"},
+		// The control token defaults to empty: it is generated at startup when
+		// unset, which is run control's job (phase 4), not the registry's.
+		{settings.KeyHTTPControlToken, ""},
 	}
 	for _, tc := range cases {
 		d, ok := settings.Lookup(tc.key)
@@ -61,6 +67,9 @@ func TestRegistryDefaultsMatchTheConstantsTheyReplaced(t *testing.T) {
 	// settings resolver must equal the registry defaults.
 	if got := tools.DefaultOutputCap; got != 200_000 {
 		t.Errorf("tools.DefaultOutputCap = %d, want 200000", got)
+	}
+	if got := tools.DefaultBashWaitDelay; got != 2*time.Second {
+		t.Errorf("tools.DefaultBashWaitDelay = %s, want 2s", got)
 	}
 	if got := session.DefaultMaxSubTurns; got != 400 {
 		t.Errorf("session.DefaultMaxSubTurns = %d, want 400", got)

@@ -13,9 +13,13 @@ import {
   listLeases,
   listSessions,
   listWorkRequests,
+  parseRepoSpec,
   quietMs,
   releaseLease,
   SESSION_IDLE_THRESHOLD_MS,
+  startRun,
+  steerSession,
+  stopSession,
 } from "./operations";
 
 // The operations client is tested the way settings.test.ts tests its
@@ -399,6 +403,164 @@ describe("formatDuration", () => {
   it("clamps negatives and rounds down", () => {
     expect(formatDuration(-1000)).toBe("0s");
     expect(formatDuration(59_900)).toBe("59s");
+  });
+});
+
+describe("stopSession", () => {
+  it("POSTs /api/sessions/{id}/stop with the JSON content type, the bearer token, and the reason body, and parses the 202 acceptance", async () => {
+    const mock = stubFetch();
+    mock.mockResolvedValue(fakeResponse(202, { session_id: "sess-1", stopping: true }));
+
+    const out = await stopSession("sess-1", "tok-1", "operator intervened");
+
+    const [url, init] = mock.mock.calls[0];
+    expect(url).toBe("/api/sessions/sess-1/stop");
+    expect(init).toMatchObject({
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer tok-1" },
+      body: JSON.stringify({ reason: "operator intervened" }),
+    });
+    expect(out).toEqual({ session_id: "sess-1", stopping: true });
+  });
+
+  it("sends an empty body when there is no reason", async () => {
+    const mock = stubFetch();
+    mock.mockResolvedValue(fakeResponse(202, { session_id: "sess-1", stopping: true }));
+
+    await stopSession("sess-1", "tok-1");
+
+    const init = mock.mock.calls[0][1] as RequestInit;
+    expect(init.body).toBe("{}");
+  });
+
+  it("carries the server's 409 out as the Error — the session's actual status is named, not replaced", async () => {
+    stubFetch().mockResolvedValue(
+      fakeResponse(409, { error: "session sess-1 is not running in this process (status ok)" }),
+    );
+
+    await expect(stopSession("sess-1", "tok-1")).rejects.toThrow("not running in this process (status ok)");
+  });
+});
+
+describe("steerSession", () => {
+  it("POSTs /api/sessions/{id}/steer with the JSON content type, the bearer token, and the text body, and parses the 202 acceptance's seq", async () => {
+    const mock = stubFetch();
+    mock.mockResolvedValue(fakeResponse(202, { session_id: "sess-1", seq: 412 }));
+
+    const out = await steerSession("sess-1", "tok-1", "be terse");
+
+    const [url, init] = mock.mock.calls[0];
+    expect(url).toBe("/api/sessions/sess-1/steer");
+    expect(init).toMatchObject({
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer tok-1" },
+      body: JSON.stringify({ text: "be terse", source: "web" }),
+    });
+    expect(out).toEqual({ session_id: "sess-1", seq: 412 });
+  });
+
+  it("carries the server's 409 out as the Error — steering a finished run is refused with the session's status named", async () => {
+    stubFetch().mockResolvedValue(
+      fakeResponse(409, { error: "session sess-1 is not running (status ok); a steer needs a running run" }),
+    );
+
+    await expect(steerSession("sess-1", "tok-1", "be terse")).rejects.toThrow("not running (status ok)");
+  });
+});
+
+describe("startRun", () => {
+  it("POSTs /api/runs with the JSON content type, the bearer token, and the work-request body, and parses the 202 acceptance's request_id", async () => {
+    const mock = stubFetch();
+    mock.mockResolvedValue(fakeResponse(202, { request_id: "web-abc" }));
+
+    const body = {
+      prompt: "do the thing",
+      repos: [{ url: "https://github.com/org/app.git", branch: "dev" }],
+      permission_mode: "readonly",
+    };
+    const out = await startRun("tok-1", body);
+
+    const [url, init] = mock.mock.calls[0];
+    expect(url).toBe("/api/runs");
+    expect(init).toMatchObject({
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer tok-1" },
+      body: JSON.stringify(body),
+    });
+    expect(out).toEqual({ request_id: "web-abc" });
+  });
+
+  it("carries the server's 400 out as the Error — the validator's message is what the form shows", async () => {
+    stubFetch().mockResolvedValue(fakeResponse(400, { error: "queue: permission_mode \"admin\" must be readonly or full" }));
+
+    await expect(startRun("tok-1", { prompt: "x", repos: [{ url: "https://x/y.git" }], permission_mode: "admin" })).rejects.toThrow(
+      "must be readonly or full",
+    );
+  });
+});
+
+describe("parseRepoSpec", () => {
+  it("splits a spec on its last # into url and branch, the way harness publish's -repo flag does", () => {
+    expect(parseRepoSpec("https://github.com/org/app.git#dev")).toEqual({
+      url: "https://github.com/org/app.git",
+      branch: "dev",
+    });
+  });
+
+  it("returns just the url when there is no # — the default branch is cloned", () => {
+    expect(parseRepoSpec("https://github.com/org/app.git")).toEqual({ url: "https://github.com/org/app.git" });
+  });
+
+  it("trims whitespace and splits on the last # so a # inside a URL survives", () => {
+    expect(parseRepoSpec("  https://x/y#z.git#topic  ")).toEqual({ url: "https://x/y#z.git", branch: "topic" });
+  });
+});
+
+describe("controlToken", () => {
+  // controlToken caches its result at module scope ("fetched once and
+  // reused"), so each case reloads the module fresh rather than inheriting
+  // the previous case's cache.
+  async function freshControlToken() {
+    vi.resetModules();
+    const ops = await import("./operations");
+    return ops.controlToken();
+  }
+
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("GETs /api/control-token and returns the token", async () => {
+    const mock = stubFetch();
+    mock.mockResolvedValue(fakeResponse(200, { token: "tok-1" }));
+
+    expect(await freshControlToken()).toBe("tok-1");
+    expect(mock).toHaveBeenCalledWith("/api/control-token");
+  });
+
+  it("fetches once and reuses the result for the life of the module", async () => {
+    const mock = stubFetch();
+    mock.mockResolvedValue(fakeResponse(200, { token: "tok-1" }));
+    vi.resetModules();
+    const ops = await import("./operations");
+
+    expect(await ops.controlToken()).toBe("tok-1");
+    expect(await ops.controlToken()).toBe("tok-1");
+    expect(mock).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats an empty token as unavailable — a harness that never generated one, which must not get an empty bearer sent anyway", async () => {
+    const mock = stubFetch();
+    mock.mockResolvedValue(fakeResponse(200, { token: "" }));
+
+    expect(await freshControlToken()).toBeNull();
+    expect(mock).toHaveBeenCalledWith("/api/control-token");
+  });
+
+  it("returns null on a non-200 response, so an unconfigured or unreachable harness reads as unavailable", async () => {
+    stubFetch().mockResolvedValue(fakeResponse(403, { error: "the control token is only served to loopback callers" }));
+
+    expect(await freshControlToken()).toBeNull();
   });
 });
 

@@ -954,6 +954,36 @@ pre {
   padding: 4px 8px;
 }
 
+/* An operator steer (docs/RUN-CONTROL.md "The frontend"): a top-level block,
+   deliberately distinct from the model's own turns — the amber (gave-up)
+   family marks it as human input, and the two states are the point. Pending
+   (only the steer_message exists) is the operator's signal that the run is
+   wedged or still mid-tool-call; delivered (the steer_applied arrived) is
+   the loop having actually folded it in. */
+.block-steer {
+  border-left: 3px solid var(--status-gaveup);
+}
+
+.block-steer-pending {
+  border-style: dashed;
+  border-color: var(--status-gaveup);
+  background: var(--status-gaveup-bg);
+}
+
+.block-steer-pending .block-label {
+  color: var(--status-gaveup);
+  font-weight: 600;
+}
+
+.block-steer-delivered {
+  border-color: var(--border);
+  background: color-mix(in srgb, var(--muted) 40%, transparent);
+}
+
+.block-steer-delivered .block-label {
+  color: var(--status-done);
+}
+
 .churn-warning {
   color: var(--status-gaveup);
 }
@@ -1914,6 +1944,147 @@ pre {
   }
 }
 
+/* ---------- the start form (docs/RUN-CONTROL.md "The frontend") ----------
+   Phase 6's browser write path for starting a run: a card at the top of the
+   session list, opened by the trigger in the nav's right slot. It mirrors
+   harness publish's flags — prompt, repos (URL#branch), an explicit
+   permission mode, and the optional fields behind a disclosure — and the
+   permission mode carries the warning that must not be buried: full runs as
+   root in the workspace and the harness container has the host's docker
+   socket. */
+
+.nav-note {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
+.start-form-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card);
+  margin-bottom: calc(var(--space) * 2);
+}
+
+.start-form {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.start-form-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.start-title {
+  font-weight: 600;
+  flex: 1;
+}
+
+.start-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.start-field-wide {
+  grid-column: 1 / -1;
+}
+
+.start-label {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.start-prompt,
+.start-schema {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--input);
+  border-radius: calc(var(--radius) - 2px);
+  background: transparent;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+}
+
+.start-prompt:focus,
+.start-schema:focus {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent);
+}
+
+.start-input {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.start-repo-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.start-optional-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+  padding-top: 10px;
+}
+
+.start-select {
+  height: 36px;
+  border: 1px solid var(--input);
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--card);
+  color: var(--foreground);
+  padding: 0 8px;
+  font: inherit;
+  font-size: 0.8125rem;
+  outline: none;
+}
+
+.start-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.start-accepted {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--status-done);
+  background: var(--status-done-bg);
+  border-radius: calc(var(--radius) - 2px);
+  padding: 8px 12px;
+  font-size: 0.8125rem;
+}
+
+.start-accepted code {
+  font-family: var(--font-mono);
+  background: var(--muted);
+  padding: 0 4px;
+  border-radius: 4px;
+}
+
+@media (max-width: 700px) {
+  .start-optional-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ---------- operations screen ----------
 
    The first screen where the browser acts on the harness (docs/DATA-API.md
@@ -2024,6 +2195,52 @@ pre {
 .ops-confirm-buttons {
   display: flex;
   gap: 8px;
+}
+
+/* The stop control (docs/RUN-CONTROL.md "The frontend"): the hard-to-reverse
+   run control that ends a run an operator cannot get back, behind the same
+   inline confirm the operations screen gives a delete. Between the 202 and
+   the terminal event it shows *stopping…* (stop-pending); the terminal state
+   arrives over the SSE stream, never by polling. On the session card the
+   confirm uses the column shape above; in the transcript header it renders
+   inline so it fits the header row. */
+.stop-pending {
+  font-size: 0.8125rem;
+}
+
+/* In the nav's right slot since phase 9 retired the transcript's own
+   header (web/CLAUDE.md): a row, and the confirm lays out inline rather
+   than stacking, so arming it does not change the nav's height. */
+.stop-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stop-nav .ops-confirm {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+/* The steer control (docs/RUN-CONTROL.md "The frontend"): an input on the
+   transcript screen, visible only while the session is running, that appends
+   an instruction the loop picks up at the next sub-turn boundary. The write
+   is an acceptance, not a delivery — the transcript's steer block carries
+   the pending/delivered states, so this control only reports a refused
+   write, never a delivery. */
+.steer-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 14px 0 16px;
+}
+
+.steer-input {
+  flex: 1;
+  min-width: 240px;
 }
 
 .ops-error {

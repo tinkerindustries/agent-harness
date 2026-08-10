@@ -148,11 +148,6 @@ func (svc *Service) handleLaunch(ctx context.Context, _ *mcpsdk.CallToolRequest,
 		return errorResult("%s", err.Error()), nil, nil
 	}
 
-	data, err := json.Marshal(req)
-	if err != nil {
-		return errorResult("encode work request: %v", err), nil, nil
-	}
-
 	// Subscribe to the accepted subject before publishing (the way
 	// cmd/harness/publish.go does for the final subject), so a worker that
 	// picks this request up immediately cannot be missed.
@@ -166,7 +161,7 @@ func (svc *Service) handleLaunch(ctx context.Context, _ *mcpsdk.CallToolRequest,
 	}
 
 	pubCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	_, err = svc.JS.Publish(pubCtx, queue.RequestSubject(requestID), data)
+	err = queue.PublishRequest(pubCtx, svc.JS, req)
 	cancel()
 	if err != nil {
 		// The one genuine launch error (docs/DESIGN.md's three outcomes):
