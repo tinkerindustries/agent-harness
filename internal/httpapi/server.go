@@ -7,7 +7,9 @@
 // the session list and metadata from the store, a paged read of one session's
 // event log, two SSE streams — a per-session transcript and a quiet
 // session-level list feed — fed by the in-process hub package rather than
-// NATS, the settings table, and the work-request and workspace-lease rows.
+// NATS, the settings table, the work-request and workspace-lease rows, and a
+// read-only GitHub repo list (GET /api/github/repos) backing the start-run
+// form's repo picker (github.go).
 // The write surface is the data the harness manages: closing an abandoned
 // session, deleting a finished one, setting a key. Run control is a declared
 // seam, not an import: stopping goes through the RunController interface
@@ -35,6 +37,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
@@ -192,6 +195,17 @@ type Server struct {
 	PriceTableDate string
 	Settings       *settings.Resolver
 
+	// GitHubBaseURL overrides the GitHub REST API root GET /api/github/repos
+	// fetches from (github.go). Empty means the real api.github.com; tests
+	// set it to an httptest.Server standing in for GitHub. The cache fields
+	// below are guarded by githubMu and hold the last successful repo fetch
+	// and its time, so reopening the start-run dialog re-reads the cache for
+	// githubCacheTTL instead of re-hitting GitHub.
+	GitHubBaseURL   string
+	githubMu        sync.Mutex
+	githubRepos     []githubRepo
+	githubFetchedAt time.Time
+
 	// DefaultEventsLimit and MaxEventsLimit bound ?limit= on the events
 	// endpoint. They are resolved from http.events_limit_default and
 	// http.events_limit_max once at startup: a change needs a restart, which
@@ -246,6 +260,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/settings", s.handleGetSettings)
 	mux.HandleFunc("PUT /api/settings/{key}", s.handlePutSetting)
 	mux.HandleFunc("DELETE /api/settings/{key}", s.handleDeleteSetting)
+	mux.HandleFunc("GET /api/github/repos", s.handleListGithubRepos)
 	mux.Handle("/", s.Static)
 	return mux
 }

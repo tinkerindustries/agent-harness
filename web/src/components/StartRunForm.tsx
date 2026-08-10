@@ -1,5 +1,6 @@
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { errorMessage, parseRepoSpec, startRun, type WorkRequest } from "../api/operations";
+import { filterRepos, listGithubRepos, repoSpecFor, type GithubRepo } from "../api/github";
 import { sessionListStore } from "../api/sessionListStore";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -47,6 +48,40 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [accepted, setAccepted] = useState<string | null>(null);
 
+  // The repo picker's async state, fetched once on mount: the operator's
+  // GitHub repos for the searchable combobox, whether a github.token is
+  // configured at all, and the fetch error when the GitHub call failed. All
+  // three are non-blocking — a missing token or a failed fetch just
+  // suppresses suggestions, never the form (docs/DATA-API.md "github repos").
+  const [githubRepos, setGithubRepos] = useState<GithubRepo[]>([]);
+  const [githubConfigured, setGithubConfigured] = useState(false);
+  const [githubLoading, setGithubLoading] = useState(true);
+  const [githubError, setGithubError] = useState<string | null>(null);
+  // openRow is the repo row whose suggestion list is showing; activeIndex is
+  // the keyboard cursor inside it (ArrowUp/ArrowDown move it, Enter picks).
+  const [openRow, setOpenRow] = useState<number | null>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    listGithubRepos()
+      .then((res) => {
+        if (cancelled) return;
+        setGithubRepos(res.repos);
+        setGithubConfigured(res.configured);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setGithubError(errorMessage(err));
+      })
+      .finally(() => {
+        if (!cancelled) setGithubLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // The screen follows the new session from the list feed the screen is
   // already connected to: a session whose request_id matches what the 202
   // named is the one this form started. No polling, no placeholder row —
@@ -56,6 +91,51 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
 
   const setRepoAt = (i: number, v: string) => {
     setRepoSpecs((prev) => prev.map((spec, j) => (j === i ? v : spec)));
+  };
+
+  // matchesFor is row i's suggestions: the loaded repos whose full_name
+  // contains the row's current text, case-insensitively. Empty while the row
+  // is empty, while the picker is loading, or when the text matches nothing —
+  // a URL the operator is typing manually matches nothing by construction, so
+  // free-text entry keeps working exactly as before and the suggestions stay
+  // purely additive.
+  const matchesFor = (i: number): GithubRepo[] =>
+    githubConfigured && !githubLoading && !githubError ? filterRepos(githubRepos, repoSpecs[i]) : [];
+
+  // selectRepo fills row i with the suggestion's URL#branch spec — the exact
+  // format parseRepoSpec already reads — and closes that row's list.
+  const selectRepo = (i: number, repo: GithubRepo) => {
+    setRepoAt(i, repoSpecFor(repo));
+    setOpenRow(null);
+  };
+
+  // handleRepoKeyDown runs the picker's keyboard navigation on one repo row's
+  // input: ArrowDown/ArrowUp move the cursor through the open list (opening
+  // it on the first ArrowDown), Enter picks the highlighted suggestion, and
+  // Escape closes the list. Any other key falls through to the input.
+  const handleRepoKeyDown = (i: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    const matches = matchesFor(i);
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (openRow !== i) {
+        setOpenRow(i);
+        setActiveIndex(0);
+      } else if (matches.length > 0) {
+        setActiveIndex((a) => Math.min(a + 1, matches.length - 1));
+      }
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (openRow === i) {
+        setActiveIndex((a) => Math.max(a - 1, 0));
+      }
+    } else if (e.key === "Enter") {
+      if (openRow === i && matches.length > 0) {
+        e.preventDefault();
+        selectRepo(i, matches[Math.min(activeIndex, matches.length - 1)]);
+      }
+    } else if (e.key === "Escape") {
+      setOpenRow(null);
+    }
   };
 
   const reset = () => {
@@ -166,30 +246,84 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
 
         <div className="start-field start-field-wide">
           <span className="start-label">Repositories</span>
-          {repoSpecs.map((spec, i) => (
-            <div className="start-repo-row" key={i}>
-              <Input
-                className="start-input"
-                value={spec}
-                onChange={(e) => setRepoAt(i, e.target.value)}
-                placeholder="https://github.com/org/app.git#branch"
-                spellCheck={false}
-                aria-label={`Repository ${i + 1} (URL#branch)`}
-              />
-              {repoSpecs.length > 1 && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setRepoSpecs((prev) => prev.filter((_, j) => j !== i))}
-                >
-                  Remove
-                </Button>
-              )}
-            </div>
-          ))}
+          {repoSpecs.map((spec, i) => {
+            const matches = matchesFor(i);
+            return (
+              <div className="start-repo-row" key={i}>
+                <div className="start-repo-combobox">
+                  <Input
+                    className="start-input"
+                    value={spec}
+                    onChange={(e) => {
+                      setRepoAt(i, e.target.value);
+                      setActiveIndex(0);
+                      setOpenRow(i);
+                    }}
+                    onFocus={() => {
+                      setOpenRow(i);
+                      setActiveIndex(0);
+                    }}
+                    onBlur={() => setOpenRow(null)}
+                    onKeyDown={(e) => handleRepoKeyDown(i, e)}
+                    placeholder="https://github.com/org/app.git#branch"
+                    spellCheck={false}
+                    aria-label={`Repository ${i + 1} (URL#branch)`}
+                    aria-expanded={openRow === i && matches.length > 0}
+                    aria-controls={openRow === i && matches.length > 0 ? `repo-suggestions-${i}` : undefined}
+                  />
+                  {openRow === i && matches.length > 0 && (
+                    <div
+                      id={`repo-suggestions-${i}`}
+                      className="start-repo-suggestions"
+                      role="listbox"
+                      aria-label="Repository suggestions"
+                    >
+                      {matches.map((repo, j) => (
+                        <button
+                          key={repo.full_name}
+                          type="button"
+                          role="option"
+                          aria-selected={j === activeIndex}
+                          className={
+                            j === activeIndex
+                              ? "start-repo-suggestion start-repo-suggestion-active"
+                              : "start-repo-suggestion"
+                          }
+                          // mousedown preventDefault keeps the input focused,
+                          // so the input's onBlur cannot close the list
+                          // before the click lands.
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => selectRepo(i, repo)}
+                        >
+                          <span className="start-repo-suggestion-name">{repo.full_name}</span>
+                          <span className="start-repo-suggestion-meta">
+                            {repo.default_branch}
+                            {repo.private ? " · private" : ""}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {repoSpecs.length > 1 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setRepoSpecs((prev) => prev.filter((_, j) => j !== i))}
+                  >
+                    Remove
+                  </Button>
+                )}
+              </div>
+            );
+          })}
           <Button variant="outline" size="sm" onClick={() => setRepoSpecs((prev) => [...prev, ""])}>
             Add repository
           </Button>
+          {githubError && <p className="hint">{githubError}</p>}
+          {!githubConfigured && !githubLoading && !githubError && (
+            <p className="hint">Add a GitHub token in Settings to search your repositories.</p>
+          )}
         </div>
 
         <div className="start-field start-field-wide">

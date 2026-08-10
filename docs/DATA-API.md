@@ -143,6 +143,28 @@ JSON error body, `{"ok": true}` on success. Settings has no version column —
 it is a key/value table whose writes are last-write-wins by design — so it does
 not carry the concurrency mechanism; every *row* resource does.
 
+### github repos
+
+`GET /api/github/repos` — the operator's GitHub repositories, newest-updated
+first, for the start-run form's repo picker. It is not a store resource: the
+list is fetched live from the GitHub REST API (`/user/repos?sort=updated`,
+paginated via `Link: rel="next"`, capped at five pages) using the
+`github.token` setting's personal access token, and it is read-only like every
+GET here — no write guards, because there is nothing to guard.
+
+- No `github.token` set: `200 {"repos": [], "configured": false}`. The
+  unconfigured state is an expected answer, not an error, so the form can tell
+  "add a token in Settings" apart from "token set but GitHub failed".
+- Token set and the fetch succeeds: `200 {"repos": [{"full_name", "clone_url",
+  "default_branch", "private", "updated_at"}], "configured": true}`. GitHub
+  already returns the list ordered by `updated_at` desc, so the order is
+  preserved field-for-field.
+- Token set but GitHub refuses or is unreachable (bad/expired token, rate
+  limit, network error): `502 {"error": "<readable message>"}` naming the
+  GitHub side of the failure.
+- A successful fetch is cached in memory for 60 seconds, so reopening the
+  start-run dialog does not re-hit GitHub's rate-limited API on every open.
+
 ## Events are not writable
 
 The event log is the store's only record and reasoning cannot be reconstructed

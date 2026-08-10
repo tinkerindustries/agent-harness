@@ -2033,6 +2033,64 @@ pre {
   align-items: center;
 }
 
+/* The repo row's searchable combobox: the input plus its absolutely
+   positioned suggestion list. The list sits below the input, on top of
+   whatever the form draws beneath it, so typing in a repo row floats the
+   matching repos without reflowing the form. */
+
+.start-repo-combobox {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.start-repo-suggestions {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--card);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.15);
+}
+
+.start-repo-suggestion {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  border: none;
+  border-radius: calc(var(--radius) - 4px);
+  background: transparent;
+  color: var(--foreground);
+  padding: 5px 8px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.start-repo-suggestion:hover,
+.start-repo-suggestion-active {
+  background: var(--muted);
+}
+
+.start-repo-suggestion-name {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.start-repo-suggestion-meta {
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+}
+
 .start-optional-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

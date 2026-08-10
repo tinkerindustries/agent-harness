@@ -51,6 +51,7 @@ const (
 	KeyDeepSeekAPIKey    = "deepseek.api_key"
 	KeyGoogleAPIKey      = "google.api_key"
 	KeyGoogleVisionModel = "google.vision_model"
+	KeyGitHubToken       = "github.token"
 
 	KeyRunMaxTokens           = "run.max_tokens"
 	KeyRunMaxSubTurns         = "run.max_sub_turns"
@@ -123,6 +124,8 @@ var registry = []Descriptor{
 		"DeepSeek API key — the harness's own account", "", true, false),
 	stringSetting(KeyGoogleAPIKey, GroupCredentials,
 		"Google API key — sent to Gemini by ReviewScreenshot", "", true, false),
+	stringSetting(KeyGitHubToken, GroupCredentials,
+		"GitHub personal access token — used by the start-run form's repo search (GET /api/github/repos)", "", true, false),
 	stringSetting(KeyHTTPControlToken, GroupCredentials,
 		"Bearer token the run-control endpoints require (docs/RUN-CONTROL.md). Generated at startup when unset.", "", true, false),
 
