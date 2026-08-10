@@ -58,50 +58,52 @@ export function SessionListScreen({ onOpen, onSettings }: Props) {
         </button>
       </header>
       <QueueHealthBar health={queueHealth} />
-      <table className="session-table">
-        <thead>
-          <tr>
-            <th>Status</th>
-            <th>Model</th>
-            <th>Workspace</th>
-            <th>Elapsed</th>
-            <th>Sub-turns</th>
-            <th>Cache hit</th>
-            <th>Cost</th>
-            <th>Request</th>
-          </tr>
-        </thead>
-        <tbody>
-          {snapshot.sessions.map((sess) => (
-            <tr key={sess.id} className="session-row" onClick={() => onOpen(sess.id)}>
-              <td>
-                <span className={`status-badge status-${sess.status}`}>{sess.status}</span>
-              </td>
-              <td>
-                {sess.model} <span className="dim">({sess.effort})</span>
-                {sess.job_type && <span className="dim"> · {sess.job_type}</span>}
-              </td>
-              <td className="workspace-cell" title={sess.workspace}>
-                {sess.workspace}
-              </td>
-              <td>{formatElapsed(sess, now)}</td>
-              <td>{sess.sub_turns}</td>
-              <td className="dim" title={hitRateTitle(sess.usage)}>
-                {formatHitRate(sess.usage)}
-              </td>
-              <td title={costTitle(sess)}>{formatCost(sess.usage.cost_usd)}</td>
-              <td className="dim">{sess.request_id ?? "—"}</td>
-            </tr>
-          ))}
-          {snapshot.sessions.length === 0 && (
+      <div className="table-scroll">
+        <table className="session-table">
+          <thead>
             <tr>
-              <td colSpan={8} className="empty-row">
-                No sessions yet.
-              </td>
+              <th>Status</th>
+              <th>Model</th>
+              <th>Workspace</th>
+              <th>Elapsed</th>
+              <th>Sub-turns</th>
+              <th>Cache hit</th>
+              <th>Cost</th>
+              <th>Request</th>
             </tr>
-          )}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {snapshot.sessions.map((sess) => (
+              <tr key={sess.id} className="session-row" onClick={() => onOpen(sess.id)}>
+                <td>
+                  <span className={`status-badge status-${sess.status}`}>{sess.status}</span>
+                </td>
+                <td>
+                  {sess.model} <span className="dim">({sess.effort})</span>
+                  {sess.job_type && <span className="dim"> · {sess.job_type}</span>}
+                </td>
+                <td className="workspace-cell" title={sess.workspace}>
+                  {sess.workspace}
+                </td>
+                <td>{formatElapsed(sess, now)}</td>
+                <td>{sess.sub_turns}</td>
+                <td className="dim" title={hitRateTitle(sess.usage)}>
+                  {formatHitRate(sess.usage)}
+                </td>
+                <td title={costTitle(sess)}>{formatCost(sess.usage.cost_usd)}</td>
+                <td className="dim">{sess.request_id ?? "—"}</td>
+              </tr>
+            ))}
+            {snapshot.sessions.length === 0 && (
+              <tr>
+                <td colSpan={8} className="empty-row">
+                  No sessions yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
