@@ -82,9 +82,11 @@ func TestNonGetMethodsReturn405Everywhere(t *testing.T) {
 		"/api/sessions/sess-1",
 		"/api/sessions/sess-1/events",
 		"/api/sessions/sess-1/stream",
+		"/api/requests/req-1/status",
 		"/api/stream",
 		"/api/queue",
 		"/api/sessions/does-not-exist",
+		"/api/requests/does-not-exist/status",
 		"/totally/unregistered/path",
 	}
 	methods := []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodOptions}
@@ -203,6 +205,133 @@ func TestListSessionsIncludesUsageAndRequestID(t *testing.T) {
 func TestGetSessionNotFound(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	resp, err := http.Get(srv.URL + "/api/sessions/does-not-exist")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("got status %d, want 404", resp.StatusCode)
+	}
+}
+
+// --- request status ---
+
+func TestRequestStatusClaimedNoSession(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	ctx := context.Background()
+	if _, err := st.ClaimWorkRequest(ctx, "req-1", 1, time.Now().UTC().Add(-time.Minute)); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+
+	resp, err := http.Get(srv.URL + "/api/requests/req-1/status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("got status %d, want 200", resp.StatusCode)
+	}
+	var got requestStatus
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.RequestID != "req-1" || got.SessionID != "" || got.Status != "running" {
+		t.Fatalf("unexpected identity: %+v", got)
+	}
+	if got.SubTurn != 0 || len(got.Todos) != 0 || len(got.ToolCalls) != 0 || got.Usage != nil {
+		t.Fatalf("expected no event-derived state, got %+v", got)
+	}
+	if got.TranscriptURL != "" {
+		t.Fatalf("expected no transcript URL without a session, got %q", got.TranscriptURL)
+	}
+	if got.DurationMS < 0 {
+		t.Fatalf("expected a non-negative duration, got %d", got.DurationMS)
+	}
+}
+
+func TestRequestStatusSetupFailure(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	ctx := context.Background()
+	if _, err := st.ClaimWorkRequest(ctx, "req-1", 1, time.Now().UTC().Add(-time.Minute)); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if err := st.SetWorkRequestSession(ctx, "req-1", "sess-attempt"); err != nil {
+		t.Fatalf("set session: %v", err)
+	}
+	result := json.RawMessage(`{"request_id":"req-1","session_id":"sess-attempt","status":"failed",
+		"error":{"code":"workspace_setup","message":"clone refused"}}`)
+	if matched, err := st.FinishWorkRequest(ctx, "req-1", "sess-attempt", "failed", result, time.Now().UTC()); err != nil || !matched {
+		t.Fatalf("finish: matched=%v err=%v", matched, err)
+	}
+
+	resp, err := http.Get(srv.URL + "/api/requests/req-1/status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var got requestStatus
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "failed" {
+		t.Fatalf("expected status failed, got %q", got.Status)
+	}
+	if got.ErrorCode != "workspace_setup" || got.ErrorMessage != "clone refused" {
+		t.Fatalf("expected the stored failure to surface, got %q/%q", got.ErrorCode, got.ErrorMessage)
+	}
+}
+
+func TestRequestStatusMidFlight(t *testing.T) {
+	srv, st, h := newTestServer(t)
+	ctx := context.Background()
+	if _, err := st.ClaimWorkRequest(ctx, "req-1", 1, time.Now().UTC().Add(-time.Minute)); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	if err := st.SetWorkRequestSession(ctx, "req-1", "sess-1"); err != nil {
+		t.Fatalf("set session: %v", err)
+	}
+	mustCreateSession(t, st, "sess-1", time.Now().UTC().Add(-time.Minute))
+	appendAndPublish(t, st, h, "sess-1", []store.EventInput{
+		{Kind: store.KindTurnStarted, Payload: store.TurnStartedPayload{SubTurn: 3}},
+		{Kind: store.KindToolCall, Payload: store.ToolCallPayload{ID: "call-todo", Name: "TodoWrite",
+			Arguments: `{"todos":[{"content":"fix it","status":"in_progress","activeForm":"Fixing it"}]}`}},
+		{Kind: store.KindToolResult, Payload: store.ToolResultPayload{ToolCallID: "call-todo", Name: "TodoWrite", Content: "ok"}},
+		{Kind: store.KindToolCall, Payload: store.ToolCallPayload{ID: "call-bash", Name: "Bash", Arguments: `{"command":"go test ./..."}`}},
+		{Kind: store.KindUsage, Payload: store.UsagePayload{SubTurn: 3, PromptCacheMissTokens: 200, CompletionTokens: 10, CostUSD: 0.003}},
+	})
+
+	resp, err := http.Get(srv.URL + "/api/requests/req-1/status")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var got requestStatus
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.RequestID != "req-1" || got.SessionID != "sess-1" || got.Status != "running" {
+		t.Fatalf("unexpected identity: %+v", got)
+	}
+	if got.SubTurn != 3 {
+		t.Fatalf("expected sub-turn 3, got %d", got.SubTurn)
+	}
+	if len(got.Todos) != 1 || got.Todos[0].Content != "fix it" || got.ActiveForm != "Fixing it" {
+		t.Fatalf("unexpected todos: %+v (activeForm %q)", got.Todos, got.ActiveForm)
+	}
+	if len(got.ToolCalls) != 1 || got.ToolCalls[0].ID != "call-bash" {
+		t.Fatalf("expected the Bash call in flight, got %+v", got.ToolCalls)
+	}
+	if got.Usage == nil || got.Usage.CostUSD != 0.003 {
+		t.Fatalf("expected the latest usage event, got %+v", got.Usage)
+	}
+	if got.TranscriptURL != "/sessions/sess-1" {
+		t.Fatalf("expected the transcript path, got %q", got.TranscriptURL)
+	}
+}
+
+func TestRequestStatusNotFound(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	resp, err := http.Get(srv.URL + "/api/requests/does-not-exist/status")
 	if err != nil {
 		t.Fatal(err)
 	}

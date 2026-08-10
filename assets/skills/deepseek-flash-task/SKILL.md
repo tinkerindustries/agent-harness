@@ -229,12 +229,14 @@ has the URL can watch instead of waiting on you.
 
 ## Step 5 — collect
 
-Poll `deepseek_result` with `request_id` and `wait_ms: 60000` — the server caps
-the wait at 60 seconds by default, so a longer value buys nothing. Repeat while
-it reports queued or running, and pass on the progress line each time rather
-than polling in silence. After about ten minutes with no result, tell the user
-where it has got to and ask whether to keep waiting; the run continues either
-way, and `deepseek_result` will still find the result later, from any session.
+While the run is in flight, poll `deepseek_status` with `request_id` — it never
+blocks, and returns where the run is up to: what it is working on, its todo
+list, and cost so far. Pass on its status line each time rather than polling in
+silence. Once the run is done, call `deepseek_result` with the same
+`request_id` to collect the final outcome; it never blocks either, and finds a
+persisted result even long after the run finished, from any session. After
+about ten minutes with no result, tell the user where it has got to and ask
+whether to keep waiting; the run continues either way.
 
 ## Step 6 — read the outcome honestly
 

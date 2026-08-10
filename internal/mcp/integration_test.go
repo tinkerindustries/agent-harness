@@ -51,7 +51,6 @@ func newIntegrationService(t *testing.T, js jetstream.JetStream) *Service {
 			PermissionCeiling: "full",
 			FlashModel:        "test-flash",
 			AcceptedWaitMS:    300,
-			CollectWaitCapMS:  5000,
 			HarnessBaseURL:    "http://127.0.0.1:0",
 			HarnessPublicURL:  "http://127.0.0.1:8080",
 		},
@@ -274,7 +273,7 @@ func TestHandleCollectAfterTheFact(t *testing.T) {
 	_, freshJS := connectOrSkip(t)
 	svc := newIntegrationService(t, freshJS)
 
-	res, out, err := svc.handleCollect(context.Background(), nil, collectInput{RequestID: requestID, WaitMS: 500})
+	res, out, err := svc.handleCollect(context.Background(), nil, collectInput{RequestID: requestID})
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)
 	}
@@ -311,7 +310,7 @@ func TestHandleCollectIsRepeatable(t *testing.T) {
 	}
 
 	for i := 0; i < 2; i++ {
-		res, _, err := svc.handleCollect(context.Background(), nil, collectInput{RequestID: requestID, WaitMS: 500})
+		res, _, err := svc.handleCollect(context.Background(), nil, collectInput{RequestID: requestID})
 		if err != nil {
 			t.Fatalf("call %d: unexpected protocol error: %v", i, err)
 		}
@@ -321,18 +320,23 @@ func TestHandleCollectIsRepeatable(t *testing.T) {
 	}
 }
 
-// TestHandleCollectQueuedWhenNothingSeen is deepseek_result's answer for a
-// request_id nothing has published accepted, progress, or final for yet.
-func TestHandleCollectQueuedWhenNothingSeen(t *testing.T) {
+// TestHandleCollectPendingWhenNothingSeen is deepseek_result's answer for a
+// request_id nothing has published a final result for: a short pending line
+// pointing at deepseek_status, never an error.
+func TestHandleCollectPendingWhenNothingSeen(t *testing.T) {
 	_, js := connectOrSkip(t)
 	ensureTestStreams(t, js)
 	svc := newIntegrationService(t, js)
 
-	res, _, err := svc.handleCollect(context.Background(), nil, collectInput{RequestID: "never-published", WaitMS: 100})
+	res, _, err := svc.handleCollect(context.Background(), nil, collectInput{RequestID: "never-published"})
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)
 	}
 	if res.IsError {
 		t.Fatalf("unexpected error result for an unfinished request: %+v", res.Content)
+	}
+	text := res.Content[0].(*mcpsdk.TextContent).Text
+	if !strings.Contains(text, "deepseek_status") {
+		t.Fatalf("expected the pending line to point at deepseek_status, got: %s", text)
 	}
 }

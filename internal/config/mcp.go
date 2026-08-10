@@ -24,10 +24,6 @@ const (
 	// defaultMCPAcceptedWaitMS is how long the launch tool waits for an
 	// `accepted` message before reporting "queued" instead of "running".
 	defaultMCPAcceptedWaitMS = 3_000
-	// defaultMCPCollectWaitCapMS bounds the collect tool's wait_ms, so a
-	// caller cannot turn an MCP tool call into an unbounded hold on the
-	// HTTP response.
-	defaultMCPCollectWaitCapMS = 60_000
 	// defaultHarnessBaseURL matches defaultHTTPAddr: the harness's own
 	// read-only API, reachable on loopback when both processes run on one
 	// host outside compose.
@@ -71,8 +67,6 @@ type MCPConfig struct {
 	// `accepted` message before reporting the request as queued rather
 	// than running.
 	AcceptedWaitMS int
-	// CollectWaitCapMS caps the collect tool's wait_ms parameter.
-	CollectWaitCapMS int
 }
 
 // LoadMCP reads MCPConfig from the environment. Call config.LoadDotEnv
@@ -87,10 +81,6 @@ func LoadMCP() (MCPConfig, error) {
 	if err != nil {
 		return MCPConfig{}, err
 	}
-	collectWaitCapMS, err := envInt("DEEPSEEK_MCP_COLLECT_WAIT_CAP_MS", defaultMCPCollectWaitCapMS)
-	if err != nil {
-		return MCPConfig{}, err
-	}
 
 	base := envOr("DEEPSEEK_HARNESS_BASE_URL", defaultHarnessBaseURL)
 
@@ -102,6 +92,5 @@ func LoadMCP() (MCPConfig, error) {
 		PermissionCeiling: ceiling,
 		FlashModel:        envOr("DEEPSEEK_MCP_FLASH_MODEL", defaultMCPFlashModel),
 		AcceptedWaitMS:    acceptedWaitMS,
-		CollectWaitCapMS:  collectWaitCapMS,
 	}, nil
 }
