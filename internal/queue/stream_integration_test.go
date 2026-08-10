@@ -158,7 +158,8 @@ func TestPublishRequestLandsOnWorkStream(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if _, err := EnsureStreams(ctx, js, 4, DefaultResultsMaxAge, DefaultMaxDeliveryAttempts); err != nil {
+	consumer, err := EnsureStreams(ctx, js, 4, DefaultResultsMaxAge, DefaultMaxDeliveryAttempts)
+	if err != nil {
 		t.Fatalf("EnsureStreams: %v", err)
 	}
 	t.Cleanup(func() {
@@ -178,12 +179,10 @@ func TestPublishRequestLandsOnWorkStream(t *testing.T) {
 		t.Fatalf("PublishRequest: %v", err)
 	}
 
-	consumer, err := js.OrderedConsumer(ctx, StreamWork, jetstream.OrderedConsumerConfig{
-		FilterSubjects: []string{RequestSubject(req.RequestID)},
-	})
-	if err != nil {
-		t.Fatalf("ordered consumer: %v", err)
-	}
+	// The WORK stream is a work queue, so an OrderedConsumer will not work on
+	// it (JetStream refuses a pull consumer without an ack policy) — read back
+	// through the durable consumer EnsureStreams declared, which is the same
+	// path the worker pool reads.
 	batch, err := consumer.Fetch(1, jetstream.FetchMaxWait(3*time.Second))
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
@@ -198,6 +197,7 @@ func TestPublishRequestLandsOnWorkStream(t *testing.T) {
 		if !reflect.DeepEqual(got, req) {
 			t.Fatalf("published request = %+v, want %+v", got, req)
 		}
+		msg.Ack()
 	}
 	if count != 1 {
 		t.Fatalf("expected 1 message on the WORK stream, got %d", count)
