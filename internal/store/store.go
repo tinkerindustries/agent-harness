@@ -49,6 +49,22 @@ var ErrNotFound = errors.New("store: not found")
 // cancelled row anywhere else.
 var ErrSessionCancelled = errors.New("store: session is cancelled")
 
+// SessionFinishedError is returned when a stop reaches a session that already
+// reached a terminal status of its own — the run finished in the moment
+// between the operator asking and the stop landing. Status is what it
+// finished as, which is what the caller reports rather than overwriting:
+// "the run succeeded" and "an operator killed it" are the distinction
+// store.StatusCancelled exists to carry, and a timer must not decide it
+// (docs/RUN-CONTROL.md "Half two"). It surfaces as a 409 naming the status.
+type SessionFinishedError struct {
+	SessionID string
+	Status    string
+}
+
+func (e *SessionFinishedError) Error() string {
+	return fmt.Sprintf("store: session %s already finished as %q", e.SessionID, e.Status)
+}
+
 // SessionRunningError is returned when a mutating write targets a session
 // whose status is still "running": nothing may delete (or otherwise
 // overwrite) a row a live session goroutine is still appending events to.
@@ -679,8 +695,12 @@ func (s *Store) ResumeSession(ctx context.Context, id string) error {
 // to stop an operator closing a live row, while this writer is the run's own
 // owner and the row being live is the point. A distinct method rather than
 // CloseSession(..., minIdle: 0) so the intent is readable at the call site.
-// A second cancel lands as a version bump and nothing else: the row is
-// already cancelled, so finished_at is kept, the way a re-close keeps it.
+// A second cancel is a no-op: the row is already cancelled, and re-stamping
+// it would only move finished_at away from the moment the stop actually
+// landed. A session that reached any *other* terminal status refuses with
+// SessionFinishedError — it finished on its own in the gap between the
+// operator asking and the stop landing, and relabelling a completed run as
+// cancelled would destroy the one distinction the status carries.
 func (s *Store) CancelRunningSession(ctx context.Context, id string, now time.Time) error {
 	return s.submit(ctx, func(tx *sql.Tx) error {
 		var storedStatus string
@@ -690,10 +710,14 @@ func (s *Store) CancelRunningSession(ctx context.Context, id string, now time.Ti
 			}
 			return err
 		}
-		var fa sql.NullString
-		if storedStatus != StatusCancelled {
-			fa = sql.NullString{String: now.UTC().Format(time.RFC3339Nano), Valid: true}
+		switch storedStatus {
+		case StatusCancelled:
+			return nil
+		case StatusRunning:
+		default:
+			return &SessionFinishedError{SessionID: id, Status: storedStatus}
 		}
+		fa := sql.NullString{String: now.UTC().Format(time.RFC3339Nano), Valid: true}
 		_, err := tx.Exec(`UPDATE sessions SET status = ?, finished_at = COALESCE(?, finished_at), version = version + 1 WHERE id = ?`,
 			StatusCancelled, fa, id)
 		return err

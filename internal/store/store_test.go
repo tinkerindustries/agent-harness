@@ -870,7 +870,10 @@ func TestCancelRunningSessionIgnoresIdleness(t *testing.T) {
 		t.Fatalf("expected version 2 (create, cancel), got %d", got.Version)
 	}
 
-	// A second cancel is idempotent: a version bump and nothing else.
+	// A second cancel is a no-op: the row is already cancelled, and neither
+	// finished_at nor the version moves. A stop retried by an operator, or by
+	// a caller that did not see the first answer, must not shift the moment
+	// the stop actually landed.
 	again := now.Add(time.Minute)
 	if err := s.CancelRunningSession(ctx, "live", again); err != nil {
 		t.Fatalf("re-cancel: %v", err)
@@ -882,8 +885,42 @@ func TestCancelRunningSessionIgnoresIdleness(t *testing.T) {
 	if got.Status != StatusCancelled || !got.FinishedAt.Equal(now) {
 		t.Fatalf("a re-cancel must keep status and finished_at, got %+v", got)
 	}
-	if got.Version != 3 {
-		t.Fatalf("expected version 3 after a re-cancel, got %d", got.Version)
+	if got.Version != 2 {
+		t.Fatalf("expected the version to stay at 2 after a no-op re-cancel, got %d", got.Version)
+	}
+}
+
+// TestCancelRunningSessionRefusesAFinishedRun is the race a stop's grace
+// period creates: the run reaches a terminal status of its own in the moment
+// between the operator asking and the timer firing. Cancelling then would
+// relabel a completed run as one an operator killed, destroying the
+// distinction store.StatusCancelled exists to carry, so it refuses and names
+// what the session actually finished as.
+func TestCancelRunningSessionRefusesAFinishedRun(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	mustCreateSession(t, s, "finished-first")
+
+	finished := time.Now().UTC()
+	if err := s.FinishSession(ctx, "finished-first", StatusOK, "done", "all done", &finished); err != nil {
+		t.Fatal(err)
+	}
+
+	err := s.CancelRunningSession(ctx, "finished-first", finished.Add(time.Second))
+	var fin *SessionFinishedError
+	if !errors.As(err, &fin) {
+		t.Fatalf("expected SessionFinishedError, got %v", err)
+	}
+	if fin.Status != StatusOK {
+		t.Fatalf("expected the error to name the status it finished as, got %q", fin.Status)
+	}
+
+	got, err := s.GetSession(ctx, "finished-first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusOK || got.CompleteStatus != "done" {
+		t.Fatalf("the completed run must keep its own outcome, got %+v", got)
 	}
 }
 
