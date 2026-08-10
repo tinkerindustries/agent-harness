@@ -224,7 +224,7 @@ function InFlightCard({
   const calls = sess.recent_tool_calls ?? [];
 
   return (
-    <Card className="run-card gap-0 p-0">
+    <Card className="run-card">
       <Collapsible open={open} onOpenChange={onOpenChange}>
         <CollapsibleTrigger asChild>
           <button type="button" className={cn("run-summary", open && "run-summary-open")}>
@@ -266,7 +266,7 @@ function InFlightCard({
           </button>
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <div className="run-body">
+          <div className={cn("run-body", plan.length === 0 && "run-body-noplan")}>
             {plan.length > 0 && (
               <div className="run-plan">
                 <div className="panel-label">Plan</div>

@@ -375,6 +375,10 @@ pre {
 
 .run-card {
   overflow: hidden;
+  /* The Card component's default padding and gap are for its own
+     header/content parts; the disclosure inside owns the card's layout. */
+  padding: 0;
+  gap: 0;
 }
 
 .run-summary {
@@ -481,6 +485,16 @@ pre {
   grid-template-columns: minmax(0, 1fr) 320px;
 }
 
+/* A session that never wrote a plan has no plan column; the side panel is
+   the whole body, so its divider has nothing to divide. */
+.run-body-noplan {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.run-body-noplan .run-side {
+  border-left: none;
+}
+
 .run-plan {
   padding: 12px 14px 14px 34px;
 }
@@ -503,9 +517,10 @@ pre {
 /* The plan list as the in-flight card renders it: the same todo-item glyphs
    and status classes PlanList renders in the transcript panel, drawn at the
    card's density with the running item marked by a left rule and a tint
-   (design/sessions.html). The transcript keeps its own `.plan-panel ul`
-   rules — and its strikethrough, which the card deliberately drops. */
-.plan-list {
+   (design/sessions.html). Every rule is scoped under .run-plan so the
+   transcript's own `.plan-panel ul` rendering — and its strikethrough, which
+   the card deliberately drops — is untouched. */
+.run-plan .plan-list {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -514,7 +529,7 @@ pre {
   gap: 1px;
 }
 
-.plan-list .todo-item {
+.run-plan .plan-list .todo-item {
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr);
   gap: 8px;
@@ -524,30 +539,30 @@ pre {
   align-items: baseline;
 }
 
-.plan-list .todo-mark {
+.run-plan .plan-list .todo-mark {
   text-align: center;
   line-height: 1.5;
 }
 
-.plan-list li.todo-completed {
+.run-plan .plan-list li.todo-completed {
   color: var(--muted-foreground);
 }
 
-.plan-list li.todo-completed .todo-mark {
+.run-plan .plan-list li.todo-completed .todo-mark {
   color: var(--status-done);
 }
 
-.plan-list li.todo-in_progress {
+.run-plan .plan-list li.todo-in_progress {
   border-left-color: var(--status-running);
   background: var(--status-running-bg);
   font-weight: 500;
 }
 
-.plan-list li.todo-in_progress .todo-mark {
+.run-plan .plan-list li.todo-in_progress .todo-mark {
   color: var(--status-running);
 }
 
-.plan-list li.todo-pending {
+.run-plan .plan-list li.todo-pending {
   color: var(--foreground);
 }
 
