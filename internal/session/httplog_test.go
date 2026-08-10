@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -139,5 +142,96 @@ func TestRunWithNilRecorderRunsNormally(t *testing.T) {
 	}
 	if res.Status != store.StatusOK || res.Text != "all done" {
 		t.Fatalf("unexpected result: %+v", res)
+	}
+}
+
+// WebFetch makes its own completion call on the tool-execution context, so
+// the session id must reach it there: a run that calls WebFetch records
+// every exchange — the sub-turn streams and the flash summariser's
+// completion — under the session id.
+func TestWebFetchCompletionIsAttributedToSession(t *testing.T) {
+	var streamCall int32Counter
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/page" {
+			fmt.Fprint(w, "<html><body>the page says hello</body></html>")
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		var probe struct {
+			Stream bool `json:"stream"`
+		}
+		_ = json.Unmarshal(body, &probe)
+		if !probe.Stream {
+			resp := deepseek.ChatCompletionResponse{
+				Choices: []deepseek.Choice{{Message: deepseek.Message{Role: deepseek.RoleAssistant, Content: "the answer"}, FinishReason: deepseek.FinishStop}},
+				Usage:   &deepseek.Usage{PromptTokens: 50, CompletionTokens: 10},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		if streamCall.next() == 0 {
+			args := fmt.Sprintf(`{"url":%q,"prompt":"what does the page say?"}`, srv.URL+"/page")
+			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
+				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{
+					Role:      "assistant",
+					ToolCalls: []deepseek.ToolCallDelta{{Index: 0, ID: "call_00_webfetch", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "WebFetch", Arguments: args}}},
+				}}},
+			})
+			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
+				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishToolCalls)}},
+				Usage:   &deepseek.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
+			})
+		} else {
+			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
+				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{Role: "assistant", Content: strPtr("all done")}}},
+			})
+			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
+				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishStop)}},
+				Usage:   &deepseek.Usage{PromptTokens: 300, PromptCacheHitTokens: 100, PromptCacheMissTokens: 200, CompletionTokens: 5},
+			})
+		}
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		w.(http.Flusher).Flush()
+	}))
+	defer srv.Close()
+
+	root := t.TempDir()
+	rec := httplog.NewRecorder(root)
+	r := newWiredTestRunner(t, srv.URL, rec)
+
+	ws := t.TempDir()
+	res, err := r.Run(t.Context(), RunOptions{
+		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "fetch the page",
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Status != store.StatusOK || res.Text != "all done" {
+		t.Fatalf("unexpected result: %+v", res)
+	}
+
+	lines := readHTTPExchanges(t, sessionHTTPLog(root, res.SessionID))
+	if len(lines) < 3 {
+		t.Fatalf("got %d exchanges, want at least 3 (two streams plus the WebFetch completion)", len(lines))
+	}
+	for i, ex := range lines {
+		if ex.SessionID != res.SessionID {
+			t.Errorf("line %d has session_id %q, want %q", i, ex.SessionID, res.SessionID)
+		}
+	}
+	var webfetchCompletion bool
+	for _, ex := range lines {
+		if strings.Contains(ex.ReqBody, "Answer the question using only the page content") {
+			webfetchCompletion = true
+			break
+		}
+	}
+	if !webfetchCompletion {
+		t.Error("no exchange carries the WebFetch summariser's completion request")
 	}
 }
