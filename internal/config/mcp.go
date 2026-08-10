@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 )
@@ -67,6 +68,13 @@ type MCPConfig struct {
 	// `accepted` message before reporting the request as queued rather
 	// than running.
 	AcceptedWaitMS int
+	// ControlToken is the run-control bearer token, from
+	// DEEPSEEK_CONTROL_TOKEN (docs/RUN-CONTROL.md "Authentication"). Empty
+	// when unset: deepseek_stop then falls back to GET /api/control-token
+	// on HarnessBaseURL, which works because the MCP server normally runs
+	// on the same host as harness serve. An empty token from either source
+	// is an error, never a request sent without a bearer.
+	ControlToken string
 }
 
 // LoadMCP reads MCPConfig from the environment. Call config.LoadDotEnv
@@ -92,5 +100,6 @@ func LoadMCP() (MCPConfig, error) {
 		PermissionCeiling: ceiling,
 		FlashModel:        envOr("DEEPSEEK_MCP_FLASH_MODEL", defaultMCPFlashModel),
 		AcceptedWaitMS:    acceptedWaitMS,
+		ControlToken:      os.Getenv("DEEPSEEK_CONTROL_TOKEN"),
 	}, nil
 }

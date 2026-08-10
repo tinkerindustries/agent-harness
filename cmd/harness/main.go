@@ -34,6 +34,7 @@ commands:
   mcp                          run an MCP server that launches and collects harness runs over NATS
   publish -repo URL "..."      publish a work request to the queue "harness serve" reads
   resume <session-id> ["..."]  continue a finished, failed, or timed-out session
+  stop <session-id> ["reason"] ask the harness to stop a running session
   delete <session-id>          remove a session and its event log (refuses a running one)
   export <session-id>          rebuild a session's disk mirror from the database
   models                       list available models
@@ -71,6 +72,8 @@ func main() {
 		err = runPublish(ctx, os.Args[2:])
 	case "resume":
 		err = runResume(ctx, os.Args[2:])
+	case "stop":
+		err = runStop(ctx, os.Args[2:])
 	case "delete":
 		err = runDelete(ctx, os.Args[2:])
 	case "export":
