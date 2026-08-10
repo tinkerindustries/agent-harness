@@ -42,8 +42,13 @@ export function HeightHarness() {
   const [seeded, setSeeded] = useState(false);
   const [height, setHeight] = useState<number | null>(null);
   const [subTurns, setSubTurns] = useState(0);
+  // StrictMode double-invokes effects in dev; the guard makes seeding
+  // idempotent so the fold is not fed the history twice.
+  const seededRef = useRef(false);
 
   useEffect(() => {
+    if (seededRef.current) return;
+    seededRef.current = true;
     const seq = makeSeqSource();
     const events = buildSyntheticHistory(blocks, "perf-height", seq);
     for (const ev of events) store.ingest(ev);
@@ -78,8 +83,8 @@ function HeightMount({
   children: React.ReactNode;
 }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const [density] = useState<Density>("compact");
-  const [filter] = useState<TranscriptFilter>("all");
+  const [density, setDensity] = useState<Density>("compact");
+  const [filter, setFilter] = useState<TranscriptFilter>("all");
   const reported = useRef(false);
 
   useEffect(() => {
@@ -107,9 +112,9 @@ function HeightMount({
       {children}
       <TranscriptToolbar
         density={density}
-        onDensityChange={() => {}}
+        onDensityChange={setDensity}
         filter={filter}
-        onFilterChange={() => {}}
+        onFilterChange={setFilter}
         counts={snapshot.counts}
       />
       {snapshot.churnPoint && (
