@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSyncExternalStore } from "react";
 import { sessionListStore } from "../api/sessionListStore";
+import { listSettings } from "../api/settings";
 import type { QueueHealth, RecentToolCall, SessionState, Usage } from "../api/types";
 import { useNow, useQueueHealth } from "../hooks";
 import { cn } from "@/lib/utils";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
+import { Input } from "./ui/input";
 import {
   Collapsible,
   CollapsibleContent,
@@ -16,11 +18,19 @@ import { outcome } from "./statusBadge";
 import { PlanList } from "./PlanList";
 import { planProgress, splitVerb } from "./planProgress";
 import { StopControl } from "./StopControl";
+import { useNavRight } from "./TopNav";
 
 function formatElapsed(sess: SessionState, nowMs: number): string {
   const start = Date.parse(sess.created_at);
   const end = sess.finished_at ? Date.parse(sess.finished_at) : nowMs;
-  const totalSeconds = Math.max(0, Math.round((end - start) / 1000));
+  return formatMs(end - start);
+}
+
+// formatMs is the m:ss shape both the table's Elapsed column and the stat
+// strip's median use — the same granularity the elapsed figure has always
+// carried, rolled up to a day.
+function formatMs(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
   const m = Math.floor(totalSeconds / 60);
   const s = totalSeconds % 60;
   return `${m}:${s.toString().padStart(2, "0")}`;
@@ -92,13 +102,78 @@ function toolCallTarget(name: string, argumentsJSON: string): string {
   }
 }
 
-interface Props {
-  onOpen: (id: string) => void;
-  onSettings: () => void;
-  onOperations: () => void;
+// matchesQuery is the session list's own filter (design/sessions-v2.html's
+// search input): id, workspace, or request id, client-side over the snapshot
+// the table already holds — no backend field, no endpoint.
+function matchesQuery(s: SessionState, q: string): boolean {
+  if (q === "") return true;
+  return (
+    s.id.toLowerCase().includes(q) ||
+    s.workspace.toLowerCase().includes(q) ||
+    (s.request_id ?? "").toLowerCase().includes(q)
+  );
 }
 
-export function SessionListScreen({ onOpen, onSettings, onOperations }: Props) {
+interface DayStats {
+  running: number;
+  spendUsd: number;
+  medianMs: number | null;
+  medianCount: number;
+  done: number;
+  gaveUp: number;
+  priceTableDate: string | null;
+}
+
+// computeDayStats rolls the snapshot up into the stat strip's four numbers
+// (design/sessions-v2.html): Running, Spend today, Median duration today,
+// Done vs gave up today. "Today" is the current local calendar day, judged
+// by created_at. Nothing here is a new backend field — running and the
+// finished-today counts come straight from the list, spend and the median
+// are reductions over it — and the median covers only sessions that have a
+// finished_at (a running session's duration is not a duration yet).
+function computeDayStats(sessions: SessionState[], dayStartMs: number): DayStats {
+  let running = 0;
+  let spendUsd = 0;
+  const durations: number[] = [];
+  let done = 0;
+  let gaveUp = 0;
+  let priceTableDate: string | null = null;
+  for (const s of sessions) {
+    if (s.status === "running") running++;
+    const created = Date.parse(s.created_at);
+    if (Number.isNaN(created) || created < dayStartMs) continue;
+    spendUsd += s.usage.cost_usd;
+    if (s.finished_at) {
+      const end = Date.parse(s.finished_at);
+      if (!Number.isNaN(end)) durations.push(end - created);
+    }
+    if (s.complete_status === "done") done++;
+    else if (s.complete_status === "gave_up") gaveUp++;
+    if (!priceTableDate && s.price_table_date) priceTableDate = s.price_table_date;
+  }
+  return {
+    running,
+    spendUsd,
+    medianMs: median(durations),
+    medianCount: durations.length,
+    done,
+    gaveUp,
+    priceTableDate,
+  };
+}
+
+function median(nums: number[]): number | null {
+  if (nums.length === 0) return null;
+  const sorted = [...nums].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+interface Props {
+  onOpen: (id: string) => void;
+}
+
+export function SessionListScreen({ onOpen }: Props) {
   const snapshot = useSyncExternalStore(sessionListStore.subscribe, sessionListStore.getSnapshot);
   const now = useNow(1000);
   const queueHealth = useQueueHealth(5000);
@@ -118,24 +193,83 @@ export function SessionListScreen({ onOpen, onSettings, onOperations }: Props) {
     });
   };
 
-  const running = snapshot.sessions.filter((s) => s.status === "running");
-  const finished = snapshot.sessions.filter((s) => s.status !== "running");
+  // The list's own search (design/sessions-v2.html). The input lives in the
+  // shared nav's right slot (below); the filter runs over the snapshot the
+  // table already holds, client-side, so a keystroke never hits the network.
+  const [query, setQuery] = useState("");
+
+  // The stat strip's "of N slots" reads worker.pool_size off the same
+  // settings endpoint the settings screen calls. One fetch on mount — the
+  // pool size changes only with a restart — and if it is unreachable the
+  // strip renders the running count without the denominator rather than
+  // failing the screen.
+  const [poolSize, setPoolSize] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    listSettings()
+      .then((entries) => {
+        const entry = entries.find((e) => e.key === "worker.pool_size");
+        const raw = entry ? (entry.set ? entry.value : entry.default) : undefined;
+        if (!cancelled && raw !== undefined) {
+          const n = Number(raw);
+          if (Number.isFinite(n)) setPoolSize(n);
+        }
+      })
+      .catch(() => {
+        // Settings unreachable: omit "of N slots". The queue bar and the
+        // tables still work; this is a garnish, not the screen.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // The stats are "today"-scoped, so they recompute only when the list
+  // changes or the local calendar day rolls over — never on the second tick.
+  const dayStartMs = useMemo(() => {
+    const d = new Date(now);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  }, [now]);
+  const stats = useMemo(
+    () => computeDayStats(snapshot.sessions, dayStartMs),
+    [snapshot.sessions, dayStartMs],
+  );
+
+  const q = query.trim().toLowerCase();
+  const running = useMemo(
+    () => snapshot.sessions.filter((s) => s.status === "running" && matchesQuery(s, q)),
+    [snapshot.sessions, q],
+  );
+  const finished = useMemo(
+    () => snapshot.sessions.filter((s) => s.status !== "running" && matchesQuery(s, q)),
+    [snapshot.sessions, q],
+  );
   const showEmpty = snapshot.sessions.length === 0;
+
+  // The nav's right slot for this screen (design/nav.html's Sessions state):
+  // the search input and the LIVE badge. The dot pulses while the stream is
+  // open and goes still while EventSource reconnects.
+  useNavRight(
+    <>
+      <Input
+        type="search"
+        className="nav-search"
+        placeholder="Filter by id, workspace, request…"
+        value={query}
+        onChange={(ev) => setQuery(ev.target.value)}
+        spellCheck={false}
+      />
+      <Badge variant={snapshot.connection === "open" ? "running" : "outline"}>
+        <span className={cn("dot", snapshot.connection === "open" && "dot-pulse")} />
+        {snapshot.connection === "open" ? "LIVE" : "connecting"}
+      </Badge>
+    </>,
+  );
 
   return (
     <div className="screen">
-      <header className="screen-header">
-        <h1>Sessions</h1>
-        <Badge variant="outline" className={`connection-badge connection-${snapshot.connection}`}>
-          {snapshot.connection}
-        </Badge>
-        <Button variant="outline" size="sm" onClick={onSettings}>
-          settings
-        </Button>
-        <Button variant="outline" size="sm" onClick={onOperations}>
-          operations
-        </Button>
-      </header>
+      <StatStrip stats={stats} poolSize={poolSize} />
       <QueueHealthBar health={queueHealth} />
 
       {running.length > 0 && (
@@ -175,11 +309,11 @@ export function SessionListScreen({ onOpen, onSettings, onOperations }: Props) {
                 <tr>
                   <th>Status</th>
                   <th>Session</th>
-                  <th>Model</th>
                   <th>Elapsed</th>
-                  <th>Sub-turns</th>
-                  <th>Cache hit</th>
                   <th>Cost</th>
+                  <th>Model</th>
+                  <th>Sub-turns</th>
+                  <th>Cache</th>
                   <th>Request</th>
                 </tr>
               </thead>
@@ -199,6 +333,49 @@ export function SessionListScreen({ onOpen, onSettings, onOperations }: Props) {
           </div>
         </section>
       )}
+    </div>
+  );
+}
+
+// StatStrip is the four cards above the queue health bar
+// (design/sessions-v2.html): Running (of the pool's slots), Spend today,
+// Median duration today, Done vs gave up today. Each value carries the
+// qualifying small print under it — the denominator, the price table's
+// capture date, the count the median is over — the way the drawing's cards
+// do, so a rolled-up figure never floats free of what it is made of.
+function StatStrip({ stats, poolSize }: { stats: DayStats; poolSize: number | null }) {
+  const doneRatio =
+    stats.done + stats.gaveUp > 0 ? Math.round((stats.done / (stats.done + stats.gaveUp)) * 100) : null;
+  return (
+    <div className="stats">
+      <Card className="stat">
+        <span className="label">Running</span>
+        <span className="value">
+          {stats.running}
+          {poolSize !== null && <small>of {poolSize} slots</small>}
+        </span>
+      </Card>
+      <Card className="stat">
+        <span className="label">Spend today</span>
+        <span className="value">
+          {formatCost(stats.spendUsd)}
+          {stats.priceTableDate && <small>price table {stats.priceTableDate}</small>}
+        </span>
+      </Card>
+      <Card className="stat">
+        <span className="label">Median duration</span>
+        <span className="value">
+          {stats.medianMs !== null ? formatMs(stats.medianMs) : "—"}
+          {stats.medianCount > 0 && <small>{stats.medianCount} sessions today</small>}
+        </span>
+      </Card>
+      <Card className="stat">
+        <span className="label">Done vs gave up</span>
+        <span className="value">
+          {doneRatio !== null ? `${stats.done} / ${stats.gaveUp}` : "—"}
+          {doneRatio !== null && <small>{doneRatio}% done</small>}
+        </span>
+      </Card>
     </div>
   );
 }
@@ -241,14 +418,25 @@ function InFlightCard({
                 {sess.model} · {sess.effort}
                 {sess.job_type && <> · {sess.job_type}</>}
               </span>
+              {/* The four numbers a running session is judged by, with
+                  elapsed and cost as the two an operator scans for — full
+                  weight and a step larger, while sub-turns and cache sit
+                  dimmer (design/sessions-v2.html). All four were already
+                  computed; only which ones are loud changed. */}
               <span className="run-stats">
-                <span>
-                  <b>{formatElapsed(sess, now)}</b> elapsed
+                <span className="primary">
+                  {formatElapsed(sess, now)}
+                  <span className="unit">elapsed</span>
                 </span>
-                <span>
+                <span className="primary" title={costTitle(sess)}>
+                  {formatCost(sess.usage.cost_usd)}
+                </span>
+                <span className="secondary">
                   <b>{sess.sub_turns}</b> sub-turns
                 </span>
-                <span title={costTitle(sess)}>{formatCost(sess.usage.cost_usd)}</span>
+                <span className="secondary" title={hitRateTitle(sess.usage)}>
+                  <b>{formatHitRate(sess.usage)}</b> cache
+                </span>
               </span>
             </span>
             {plan.length > 0 && (
@@ -318,7 +506,12 @@ function RecentCalls({ calls }: { calls: RecentToolCall[] }) {
 // FinishedRow is one finished session in the dense table. The Session cell
 // gains a one-line subtitle: the plan ratio and the model's own summary
 // (docs/WEB-REDESIGN.md phase 3), so scanning the list does not require
-// opening each transcript.
+// opening each transcript. Column order is Status, Session, Elapsed, Cost,
+// Model, Sub-turns, Cache, Request (design/sessions-v2.html): the two
+// numbers the redesign asked to prioritise sit right after Session, where
+// they stay visible before any column the scroll container might still need
+// on a narrow viewport. Elapsed and Cost carry the same primary weight as
+// the in-flight card's stat row.
 function FinishedRow({
   sess,
   now,
@@ -344,16 +537,18 @@ function FinishedRow({
           {subtitle && <span className="sess-sub truncate">{subtitle}</span>}
         </div>
       </td>
+      <td className="primary">{formatElapsed(sess, now)}</td>
+      <td className="primary" title={costTitle(sess)}>
+        {formatCost(sess.usage.cost_usd)}
+      </td>
       <td>
         {sess.model} <span className="dim">({sess.effort})</span>
         {sess.job_type && <span className="dim"> · {sess.job_type}</span>}
       </td>
-      <td>{formatElapsed(sess, now)}</td>
       <td>{sess.sub_turns}</td>
       <td className="dim" title={hitRateTitle(sess.usage)}>
         {formatHitRate(sess.usage)}
       </td>
-      <td title={costTitle(sess)}>{formatCost(sess.usage.cost_usd)}</td>
       <td className="dim">{sess.request_id ?? "—"}</td>
     </tr>
   );

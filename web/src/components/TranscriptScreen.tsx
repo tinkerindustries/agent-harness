@@ -10,16 +10,15 @@ import { TranscriptToolbar } from "./TranscriptToolbar";
 import { StopControl } from "./StopControl";
 import { SteerControl } from "./SteerControl";
 import { Badge } from "./ui/badge";
-import { Button } from "./ui/button";
 import { outcome, type OutcomeSession } from "./statusBadge";
+import { useNavRight } from "./TopNav";
 import type { Density } from "./blocks/SubTurnCard";
 
 interface Props {
   sessionId: string;
-  onBack: () => void;
 }
 
-export function TranscriptScreen({ sessionId, onBack }: Props) {
+export function TranscriptScreen({ sessionId }: Props) {
   const store = useTranscriptStore(sessionId);
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   // Re-fetch metadata when the stream closes, so the status badge picks up
@@ -40,18 +39,26 @@ export function TranscriptScreen({ sessionId, onBack }: Props) {
   // watches for the current marker (docs/WEB-REDESIGN.md phase 6).
   const transcriptRef = useRef<HTMLDivElement>(null);
 
+  // The nav's right slot for this screen (design/nav.html's Session detail
+  // state): the connection badge, and the Stop control while the run is
+  // live. The crumb for the session id is the nav's own, rendered from the
+  // route.
+  //
+  // Stop lives here rather than in a screen header because phase 9 retired
+  // the transcript's own header into this slot; StopControl renders nothing
+  // once the session stops running, so the slot falls back to the badge
+  // alone without a conditional here.
+  useNavRight(
+    <>
+      <StopControl sessionId={sessionId} running={meta?.status === "running"} className="stop-nav" />
+      <Badge variant="outline" className={`connection-badge connection-${snapshot.connection}`}>
+        {snapshot.connection}
+      </Badge>
+    </>,
+  );
+
   return (
     <div className="screen screen-transcript">
-      <header className="screen-header">
-        <Button variant="outline" size="sm" onClick={onBack}>
-          ← sessions
-        </Button>
-        <h1>{sessionId}</h1>
-        <Badge variant="outline" className={`connection-badge connection-${snapshot.connection}`}>
-          {snapshot.connection}
-        </Badge>
-        <StopControl sessionId={sessionId} running={meta?.status === "running"} className="stop-header" />
-      </header>
       {meta && badge && (
         <div className="session-meta">
           <Badge variant={badge.variant}>{badge.label}</Badge>

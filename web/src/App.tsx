@@ -3,6 +3,7 @@ import { SessionListScreen } from "./components/SessionListScreen";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { OperationsScreen } from "./components/OperationsScreen";
 import { TranscriptScreen } from "./components/TranscriptScreen";
+import { TopNav } from "./components/TopNav";
 import { PerfHarnessScreen } from "./perf/PerfHarnessScreen";
 
 // Four screens, no router library (docs/DESIGN.md §5.7): plain pathname
@@ -20,8 +21,14 @@ import { PerfHarnessScreen } from "./perf/PerfHarnessScreen";
 // (web/src/perf) — a developer tool, not part of the read-only product
 // surface, but routed here rather than as a second Vite entry point so it
 // exercises the exact same build and component tree the real transcript does.
+//
+// Since the redesign's phase 9, the shared top nav wraps every product
+// screen (docs/WEB-REDESIGN.md): one TopNav mounted here around whichever
+// screen the route renders, not redeclared inside any of them. "/perf" does
+// not get the nav — it is a developer tool, not a product screen — and
+// renders exactly as before.
 
-type Route =
+export type Route =
   | { kind: "list" }
   | { kind: "session"; id: string }
   | { kind: "perf" }
@@ -50,23 +57,20 @@ export default function App() {
     setRoute(parseRoute(path));
   }
 
-  if (route.kind === "session") {
-    return <TranscriptScreen sessionId={route.id} onBack={() => navigate("/")} />;
-  }
   if (route.kind === "perf") {
     return <PerfHarnessScreen />;
   }
-  if (route.kind === "settings") {
-    return <SettingsScreen onBack={() => navigate("/")} />;
-  }
-  if (route.kind === "operations") {
-    return <OperationsScreen onBack={() => navigate("/")} />;
-  }
   return (
-    <SessionListScreen
-      onOpen={(id) => navigate(`/sessions/${encodeURIComponent(id)}`)}
-      onSettings={() => navigate("/settings")}
-      onOperations={() => navigate("/operations")}
-    />
+    <TopNav route={route} onNavigate={navigate}>
+      {route.kind === "session" ? (
+        <TranscriptScreen sessionId={route.id} />
+      ) : route.kind === "settings" ? (
+        <SettingsScreen />
+      ) : route.kind === "operations" ? (
+        <OperationsScreen />
+      ) : (
+        <SessionListScreen onOpen={(id) => navigate(`/sessions/${encodeURIComponent(id)}`)} />
+      )}
+    </TopNav>
   );
 }

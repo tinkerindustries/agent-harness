@@ -121,9 +121,10 @@ than loses. Owns acknowledgement discipline and idempotency against the
 `work_requests` table. §4.10.
 
 ### `internal/workspace`
-Prepares the per-session directory and clones the repositories a request names,
-including the remote-URL restrictions that keep `ext::` and local paths out.
-§4.10.
+Prepares the per-session directory — a `scratch/` subdirectory for files that
+are not part of the deliverable, and clones of the repositories a request
+names — including the remote-URL restrictions that keep `ext::` and local
+paths out. §4.10.
 
 ### `internal/skills`
 Scans each cloned repository for `.claude/skills/` and `.deepcode/skills/` and

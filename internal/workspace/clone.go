@@ -14,10 +14,10 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 )
 
-// Prepare creates root/sessionID and clones repos into it, returning the
-// absolute path the session runs against. The directory must not already
-// exist: a session id names exactly one run, so an existing folder means
-// something else owns it.
+// Prepare creates root/sessionID with a scratch/ subdirectory and clones
+// repos into it, returning the absolute path the session runs against. The
+// directory must not already exist: a session id names exactly one run, so an
+// existing folder means something else owns it.
 //
 // A partly built workspace is left on disk when a clone fails. The run is
 // over at that point and the directory is the only record of how far it got.
@@ -36,6 +36,17 @@ func Prepare(ctx context.Context, root, sessionID string, repos []queue.Repo) (s
 	dir := filepath.Join(absRoot, sessionID)
 	if err := os.Mkdir(dir, 0o755); err != nil {
 		return "", fmt.Errorf("workspace: create %q: %w", dir, err)
+	}
+
+	// scratch is where the model puts files that are not part of the
+	// deliverable — a screenshot for ReviewScreenshot, a scratch note, a
+	// temporary download (internal/session/prompt.go points it there). It sits
+	// beside the clones, never in /tmp (shared by every concurrent session in
+	// the container) and never inside a repository (risks being swept into a
+	// commit), and it lives and dies with the session directory exactly like a
+	// clone does.
+	if err := os.MkdirAll(filepath.Join(dir, "scratch"), 0o755); err != nil {
+		return "", fmt.Errorf("workspace: create scratch dir in %q: %w", dir, err)
 	}
 
 	for _, repo := range repos {

@@ -18,6 +18,7 @@ import type { WorkRequestRow, WorkspaceLeaseRow } from "../api/operations";
 import type { SessionState } from "../api/types";
 import { useNow } from "../hooks";
 import { Button } from "./ui/button";
+import { useNavRight } from "./TopNav";
 
 // The operations screen (docs/DATA-API.md phase 5): the one place the
 // browser acts on the harness. Three sections — stuck sessions, running
@@ -45,10 +46,6 @@ import { Button } from "./ui/button";
 // Stop is not offered here: it lives on the in-flight session card and the
 // transcript header, where an operator sees the run it would end
 // (docs/RUN-CONTROL.md "The frontend").
-
-interface Props {
-  onBack: () => void;
-}
 
 // RunningSession is one still-running session row plus the quiet signal the
 // row itself does not carry: its most recent event's time, read from the
@@ -96,7 +93,7 @@ function keyOf(row: RowKey): string {
   return row.kind === "lease" ? `lease:${row.workspace}` : `${row.kind}:${row.id}`;
 }
 
-export function OperationsScreen({ onBack }: Props) {
+export function OperationsScreen() {
   const [data, setData] = useState<OpsData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   // One write in flight at a time: the screen re-fetches after every write,
@@ -211,18 +208,17 @@ export function OperationsScreen({ onBack }: Props) {
     runWrite(keyOf({ kind: "lease", workspace: l.workspace }), () => releaseLease(l.workspace, l.version));
   }
 
+  // The nav's right slot for this screen (design/nav.html's Operations
+  // state): the refresh button, the same one the screen's own header used
+  // to carry.
+  useNavRight(
+    <Button variant="outline" size="sm" onClick={refresh} disabled={busy || data === null}>
+      refresh
+    </Button>,
+  );
+
   return (
     <div className="screen">
-      <header className="screen-header">
-        <Button variant="outline" size="sm" onClick={onBack}>
-          ← sessions
-        </Button>
-        <h1>Operations</h1>
-        <Button variant="outline" size="sm" onClick={refresh} disabled={busy || data === null}>
-          refresh
-        </Button>
-      </header>
-
       {loadError && (
         <div className="ops-error ops-error-banner">could not load operations: {loadError}</div>
       )}

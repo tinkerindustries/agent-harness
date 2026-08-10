@@ -153,6 +153,85 @@ a {
   flex: 1;
 }
 
+/* ---------- shared top nav (design pass phase 9) ----------
+   One header, identical on every screen: wordmark, the three sections as
+   real links with an active state, then whatever is page-specific (search,
+   a stream/connection badge) pinned right. Replaces each screen's own ad hoc
+   topbar — sessions.html's "Settings" link with no Operations link and no
+   active state, and settings.html / transcript.html's "← sessions" link,
+   which is the only way back and disappears the moment you're not on
+   sessions.html. See nav.html for the four states this renders in. */
+.topnav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+
+.topnav .wordmark {
+  margin-right: 10px;
+}
+
+.topnav-links {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.navlink {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: calc(var(--radius) - 2px);
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.navlink:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
+
+.navlink-active {
+  background: var(--secondary);
+  color: var(--foreground);
+}
+
+.topnav .spacer {
+  flex: 1;
+}
+
+.topnav-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The session-detail screen isn't one of the three sections, so nothing in
+   topnav-links is active for it; this crumb says where it hangs off
+   instead, in the same slot a page title would sit. */
+.nav-crumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+
+.nav-crumb .sep {
+  color: var(--border);
+}
+
+.nav-crumb .current {
+  color: var(--foreground);
+  font-family: var(--font-mono);
+}
+
 .section-head {
   display: flex;
   align-items: baseline;

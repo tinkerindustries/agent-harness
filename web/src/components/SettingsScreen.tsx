@@ -11,10 +11,7 @@ import {
 } from "./ui/collapsible";
 import { Input } from "./ui/input";
 import { ToggleGroup, ToggleGroupItem } from "./ui/toggle-group";
-
-interface Props {
-  onBack: () => void;
-}
+import { useNavRight } from "./TopNav";
 
 // RowState is one setting row's local UI state. draft is the value being
 // typed; it is never seeded from the server's display value, because for a
@@ -307,7 +304,7 @@ function SettingRow({
   );
 }
 
-export function SettingsScreen({ onBack }: Props) {
+export function SettingsScreen() {
   const [entries, setEntries] = useState<SettingEntry[] | null>(null);
   const [rows, setRows] = useState<Record<string, RowState>>({});
   // openKeys starts empty: the screen opens with every row closed, so nothing
@@ -315,6 +312,10 @@ export function SettingsScreen({ onBack }: Props) {
   const [openKeys, setOpenKeys] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<Filter>("all");
   const [loadError, setLoadError] = useState<string | null>(null);
+  // query is the nav's search input (design/nav.html's Settings state): a
+  // client-side filter over the list the screen already holds, key or
+  // description, combined with the chip filter below.
+  const [query, setQuery] = useState("");
 
   // refresh re-fetches the whole list and rebuilds the row bookkeeping on
   // the server's answer. After a successful write the screen shows whatever
@@ -354,11 +355,16 @@ export function SettingsScreen({ onBack }: Props) {
 
   const visibleEntries = useMemo(() => {
     if (!entries) return [];
-    if (filter === "all") return entries;
-    return entries.filter((e) =>
-      filter === "override" ? e.override : e.secret && !e.set,
+    const base =
+      filter === "all" ? entries : entries.filter((e) =>
+        filter === "override" ? e.override : e.secret && !e.set,
+      );
+    const q = query.trim().toLowerCase();
+    if (q === "") return base;
+    return base.filter(
+      (e) => e.key.toLowerCase().includes(q) || e.description.toLowerCase().includes(q),
     );
-  }, [entries, filter]);
+  }, [entries, filter, query]);
 
   const allOpen =
     visibleEntries.length > 0 && visibleEntries.every((e) => openKeys.has(e.key));
@@ -443,14 +449,21 @@ export function SettingsScreen({ onBack }: Props) {
     }
   }
 
+  // The nav's right slot for this screen (design/nav.html's Settings state):
+  // the key/description search input.
+  useNavRight(
+    <Input
+      type="search"
+      className="nav-search"
+      placeholder="Filter by key or description…"
+      value={query}
+      onChange={(ev) => setQuery(ev.target.value)}
+      spellCheck={false}
+    />,
+  );
+
   return (
     <div className="screen">
-      <header className="screen-header">
-        <Button variant="outline" size="sm" onClick={onBack}>
-          ← sessions
-        </Button>
-        <h1>Settings</h1>
-      </header>
       {loadError && (
         <div className="settings-error settings-error-banner">
           could not load settings: {loadError}
