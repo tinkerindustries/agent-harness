@@ -13,6 +13,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 )
@@ -24,13 +25,16 @@ import (
 // which is wrong for a field that must accept an arbitrary JSON Schema
 // object.
 type launchInput struct {
-	Description    string       `json:"description" jsonschema:"Short label for the run, shown in deepseek_runs."`
-	Prompt         string       `json:"prompt" jsonschema:"The task for the agent to perform."`
-	Repos          []launchRepo `json:"repos" jsonschema:"Repositories to clone into the run's workspace. At least one is required."`
-	Profile        string       `json:"profile,omitempty" jsonschema:"pro (default: the harness's main-loop model) or flash (deepseek-v4-flash, high effort)."`
-	PermissionMode string       `json:"permission_mode" jsonschema:"Required. readonly (Read, Glob, Grep, List, WebFetch only) or full (everything, as root, in the workspace). Refused if it exceeds this server's configured permission ceiling."`
-	ResultSchema   any          `json:"result_schema,omitempty" jsonschema:"JSON Schema the agent's Complete tool result must satisfy, if it calls Complete with a result."`
-	MaxSubTurns    int          `json:"max_sub_turns,omitempty" jsonschema:"Sub-turn budget for the run. Server default applies when omitted."`
+	Description     string       `json:"description" jsonschema:"Short label for the run, shown in deepseek_runs."`
+	Prompt          string       `json:"prompt" jsonschema:"The task for the agent to perform."`
+	Repos           []launchRepo `json:"repos" jsonschema:"Repositories to clone into the run's workspace. At least one is required."`
+	Profile         string       `json:"profile,omitempty" jsonschema:"pro (default: the harness's main-loop model) or flash (deepseek-v4-flash, high effort)."`
+	PermissionMode  string       `json:"permission_mode" jsonschema:"Required. readonly (Read, Glob, Grep, List, WebFetch only) or full (everything, as root, in the workspace). Refused if it exceeds this server's configured permission ceiling."`
+	ResultSchema    any          `json:"result_schema,omitempty" jsonschema:"JSON Schema the agent's Complete tool result must satisfy, if it calls Complete with a result."`
+	MaxSubTurns     int          `json:"max_sub_turns,omitempty" jsonschema:"Sub-turn budget for the run. Server default applies when omitted."`
+	JobType         string       `json:"job_type,omitempty" jsonschema:"Kind of job this run is: implementation (the agent performs the task itself, the default) or orchestration (the agent delegates the work to child sessions)."`
+	ParentAgentType string       `json:"parent_agent_type,omitempty" jsonschema:"Identify your own kind as a lowercase slug — claude-code, cursor, and so on — or user when a person asked for this run directly."`
+	ParentAgentID   string       `json:"parent_agent_id,omitempty" jsonschema:"Your own session id, so the run can be traced back to the conversation that asked for it. Must be empty when parent_agent_type is user."`
 }
 
 // launchRepo is one entry of deepseek_agent's repos array.
@@ -113,16 +117,29 @@ func (svc *Service) handleLaunch(ctx context.Context, _ *mcpsdk.CallToolRequest,
 		return errorResult("result_schema: %v", err), nil, nil
 	}
 
+	// Same vocabulary the queue and store validate (internal/agentmeta), so
+	// a caller gets a tool error it can read here rather than a run that
+	// fails validation downstream.
+	if err := agentmeta.ValidateJobType(in.JobType); err != nil {
+		return errorResult("job_type: %v", err), nil, nil
+	}
+	if err := agentmeta.ValidateParentAgent(in.ParentAgentType, in.ParentAgentID); err != nil {
+		return errorResult("parent_agent: %v", err), nil, nil
+	}
+
 	requestID := newRequestID()
 	req := queue.Request{
-		RequestID:      requestID,
-		Prompt:         in.Prompt,
-		Repos:          repos,
-		Model:          model,
-		Effort:         effort,
-		PermissionMode: string(mode),
-		ResultSchema:   resultSchema,
-		MaxSubTurns:    in.MaxSubTurns,
+		RequestID:       requestID,
+		Prompt:          in.Prompt,
+		Repos:           repos,
+		Model:           model,
+		Effort:          effort,
+		PermissionMode:  string(mode),
+		ResultSchema:    resultSchema,
+		MaxSubTurns:     in.MaxSubTurns,
+		JobType:         in.JobType,
+		ParentAgentType: in.ParentAgentType,
+		ParentAgentID:   in.ParentAgentID,
 	}
 	// Reuses the harness's own request validation (docs/DESIGN.md §4.10)
 	// rather than re-implementing it, so a request this accepts is
