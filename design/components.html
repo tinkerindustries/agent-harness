@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Vocabulary and components — harness design pass</title>
+    <link rel="stylesheet" href="tokens.css" />
+    <style>
+      .page {
+        max-width: 1080px;
+      }
+      h2 {
+        font-size: 1rem;
+        margin: 32px 0 4px;
+      }
+      h2:first-of-type {
+        margin-top: 12px;
+      }
+      p.lede {
+        margin: 0 0 14px;
+        color: var(--muted-foreground);
+        max-width: 76ch;
+      }
+      table.spec {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.8125rem;
+      }
+      table.spec th {
+        text-align: left;
+        font-weight: 500;
+        font-size: 0.6875rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted-foreground);
+        padding: 0 10px 8px;
+        border-bottom: 1px solid var(--border);
+        white-space: nowrap;
+      }
+      table.spec td {
+        padding: 9px 10px;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+      }
+      table.spec code {
+        background: var(--muted);
+        padding: 1px 5px;
+        border-radius: 4px;
+      }
+      .swatches {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 8px;
+      }
+      .swatch {
+        padding: 10px 12px;
+      }
+      .swatch .bar {
+        height: 22px;
+        border-radius: 4px;
+        margin-bottom: 8px;
+      }
+      .swatch .name {
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        color: var(--muted-foreground);
+      }
+      .specimen {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        padding: 14px;
+      }
+      .map {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        gap: 8px;
+      }
+      .map .card {
+        padding: 10px 12px;
+      }
+      .map h3 {
+        margin: 0 0 4px;
+        font-size: 0.8125rem;
+        font-family: var(--font-mono);
+      }
+      .map p {
+        margin: 0;
+        font-size: 0.8125rem;
+        color: var(--muted-foreground);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="topbar">
+        <a class="btn btn-ghost" href="index.html">← design pass</a>
+        <span class="wordmark">deepseek-harness</span>
+        <span class="spacer"></span>
+        <span class="badge badge-outline">vocabulary and components</span>
+      </div>
+
+      <h2>Session outcome vocabulary</h2>
+      <p class="lede">
+        The store already distinguishes these outcomes. The current UI renders every one of the first
+        three as a green <code>OK</code>, which is why a session list of runs that gave up, stopped
+        early, or finished cleanly all read as success.
+      </p>
+      <table class="spec">
+        <thead>
+          <tr>
+            <th style="width: 110px">Badge</th>
+            <th style="width: 120px">store status</th>
+            <th style="width: 150px">run_finished.reason</th>
+            <th style="width: 140px">run_finished.status</th>
+            <th>What happened</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="badge badge-running"><span class="dot dot-pulse"></span>RUNNING</span></td>
+            <td><code>running</code></td>
+            <td>—</td>
+            <td>—</td>
+            <td>In flight. The session list groups these above the table and gives them the collapsible plan card.</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-done">DONE</span></td>
+            <td><code>ok</code></td>
+            <td><code>complete</code></td>
+            <td><code>done</code></td>
+            <td>The model called <code>Complete(status: "done")</code>. This is the only outcome that means the model claims the task is finished.</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-gaveup">GAVE UP</span></td>
+            <td><code>ok</code></td>
+            <td><code>complete</code></td>
+            <td><code>gave_up</code></td>
+            <td>The model called <code>Complete(status: "gave_up")</code>. It stopped deliberately without finishing. The summary says why.</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-stopped">STOPPED</span></td>
+            <td><code>ok</code></td>
+            <td><code>no_tool_calls</code></td>
+            <td>absent</td>
+            <td>The model answered in prose and called no tool. Normal for a question; suspicious for a task. Thinking mode cannot be forced to call Complete (docs/DESIGN.md §4.6), so this is not an error.</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-gaveup">MAX TURNS</span></td>
+            <td><code>max_turns</code></td>
+            <td><code>max_sub_turns</code></td>
+            <td>absent</td>
+            <td>The loop hit the sub-turn ceiling. Whatever was in progress is unfinished.</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-failed">FAILED</span></td>
+            <td><code>failed</code></td>
+            <td>—</td>
+            <td>—</td>
+            <td>An <code>error</code> event ended the run. The message is the last block in the transcript.</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-stopped">TIMEOUT</span></td>
+            <td><code>timeout</code></td>
+            <td>—</td>
+            <td>—</td>
+            <td>The run exceeded its wall-clock budget.</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-stopped">CANCELLED</span></td>
+            <td><code>cancelled</code></td>
+            <td>—</td>
+            <td>—</td>
+            <td>The context was cancelled, usually a shutdown.</td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-outline">COMPACTED</span></td>
+            <td><code>compacted</code></td>
+            <td>—</td>
+            <td>—</td>
+            <td>A superseded row. Hidden from the list by default; reachable from the successor session's header.</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>Where each field comes from</h2>
+      <div class="map">
+        <div class="card">
+          <h3>transcript screen</h3>
+          <p>
+            Already has everything. The <code>run_finished</code> block carries <code>reason</code>
+            and <code>status</code>, so DONE / GAVE UP / STOPPED needs no backend change on this
+            screen.
+          </p>
+        </div>
+        <div class="card">
+          <h3>session list</h3>
+          <p>
+            Needs one new field. <code>hub.SessionState</code> carries only
+            <code>status</code>; add <code>complete_status</code> alongside it, persisted on
+            <code>store.Session</code> so it survives a restart.
+          </p>
+        </div>
+        <div class="card">
+          <h3>live plan</h3>
+          <p>
+            Needs a second new field. Todos are parsed client-side from the latest
+            <code>TodoWrite</code> arguments, which the list feed never sees. Publish the plan on
+            <code>SessionState</code>, or serve it from <code>GET /api/sessions/{id}/plan</code>.
+          </p>
+        </div>
+      </div>
+
+      <h2>Badges</h2>
+      <div class="card specimen">
+        <span class="badge badge-running"><span class="dot dot-pulse"></span>RUNNING</span>
+        <span class="badge badge-done">DONE</span>
+        <span class="badge badge-gaveup">GAVE UP</span>
+        <span class="badge badge-gaveup">MAX TURNS</span>
+        <span class="badge badge-stopped">STOPPED</span>
+        <span class="badge badge-failed">FAILED</span>
+        <span class="badge badge-outline">COMPACTED</span>
+        <span class="badge badge-outline">full permissions</span>
+        <span class="badge badge-failed">exit 2</span>
+      </div>
+
+      <h2>Controls</h2>
+      <div class="card specimen">
+        <div class="segmented" role="group">
+          <button type="button" aria-pressed="true">Compact</button>
+          <button type="button" aria-pressed="false">Full</button>
+        </div>
+        <button class="chip" type="button" aria-pressed="true">All 142</button>
+        <button class="chip" type="button" aria-pressed="false">Errors 4</button>
+        <button class="btn" type="button">Jump to end ↓</button>
+        <button class="btn btn-ghost" type="button">Copy id</button>
+        <input class="input" type="search" placeholder="Search transcript…" />
+        <span class="progress" style="width: 120px"><span style="width: 55%"></span></span>
+      </div>
+
+      <h2>Tool glyphs</h2>
+      <p class="lede">
+        One monospace letter per tool, coloured by family, so the timeline rail shows the shape of a
+        sub-turn without opening it. Writes are green, shell is blue, a failed result overrides with
+        red.
+      </p>
+      <div class="card specimen" style="font-family: var(--font-mono); font-size: 0.75rem">
+        <span style="display: inline-flex; align-items: center; gap: 5px">
+          <span class="g g-edit" style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:4px;background:var(--diff-add-bg);color:var(--diff-add-fg);font-weight:700">E</span> Edit
+        </span>
+        <span style="display: inline-flex; align-items: center; gap: 5px">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:4px;background:var(--diff-add-bg);color:var(--diff-add-fg);font-weight:700">W</span> Write
+        </span>
+        <span style="display: inline-flex; align-items: center; gap: 5px">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:4px;background:var(--status-running-bg);color:var(--status-running);font-weight:700">B</span> Bash
+        </span>
+        <span style="display: inline-flex; align-items: center; gap: 5px">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:4px;background:var(--secondary);color:var(--muted-foreground);font-weight:700">R</span> Read
+        </span>
+        <span style="display: inline-flex; align-items: center; gap: 5px">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:4px;background:var(--secondary);color:var(--muted-foreground);font-weight:700">G</span> Grep
+        </span>
+        <span style="display: inline-flex; align-items: center; gap: 5px">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:4px;background:var(--secondary);color:var(--muted-foreground);font-weight:700">T</span> Task
+        </span>
+        <span style="display: inline-flex; align-items: center; gap: 5px">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:4px;background:var(--secondary);color:var(--muted-foreground);font-weight:700">P</span> TodoWrite
+        </span>
+        <span style="display: inline-flex; align-items: center; gap: 5px">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:4px;background:var(--status-failed-bg);color:var(--status-failed);font-weight:700">!</span> failed result
+        </span>
+      </div>
+
+      <h2>Colour tokens</h2>
+      <p class="lede">
+        Variable names are shadcn/ui's, so these values drop into a real install unchanged. The
+        <code>--status-</code>, <code>--diff-</code> tokens are ours. Every one is redefined under
+        <code>prefers-color-scheme: dark</code>; view this page in a dark system theme to check it.
+      </p>
+      <div class="swatches">
+        <div class="card swatch"><div class="bar" style="background: var(--background); border: 1px solid var(--border)"></div><div class="name">--background</div></div>
+        <div class="card swatch"><div class="bar" style="background: var(--foreground)"></div><div class="name">--foreground</div></div>
+        <div class="card swatch"><div class="bar" style="background: var(--muted)"></div><div class="name">--muted</div></div>
+        <div class="card swatch"><div class="bar" style="background: var(--muted-foreground)"></div><div class="name">--muted-foreground</div></div>
+        <div class="card swatch"><div class="bar" style="background: var(--border)"></div><div class="name">--border</div></div>
+        <div class="card swatch"><div class="bar" style="background: var(--status-running)"></div><div class="name">--status-running</div></div>
+        <div class="card swatch"><div class="bar" style="background: var(--status-done)"></div><div class="name">--status-done</div></div>
+        <div class="card swatch"><div class="bar" style="background: var(--status-gaveup)"></div><div class="name">--status-gaveup</div></div>
+        <div class="card swatch"><div class="bar" style="background: var(--status-stopped)"></div><div class="name">--status-stopped</div></div>
+        <div class="card swatch"><div class="bar" style="background: var(--status-failed)"></div><div class="name">--status-failed</div></div>
+        <div class="card swatch"><div class="bar" style="background: var(--diff-add-bg)"></div><div class="name">--diff-add-bg</div></div>
+        <div class="card swatch"><div class="bar" style="background: var(--diff-remove-bg)"></div><div class="name">--diff-remove-bg</div></div>
+      </div>
+
+      <h2>shadcn component mapping</h2>
+      <table class="spec">
+        <thead>
+          <tr>
+            <th style="width: 200px">Mock class</th>
+            <th style="width: 220px">shadcn component</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><code>.card</code></td><td><code>Card</code></td><td>Used flat, without CardHeader/CardContent, in the dense rows.</td></tr>
+          <tr><td><code>.badge</code></td><td><code>Badge</code></td><td>New variants: running, done, gaveup, stopped, failed.</td></tr>
+          <tr><td><code>details.run</code>, <code>details.tool</code>, <code>details.reasoning</code></td><td><code>Collapsible</code></td><td>Radix. Independent open state, not an accordion.</td></tr>
+          <tr><td><code>details.rail-phase</code></td><td><code>Accordion</code> (type multiple)</td><td>Several phases open at once while browsing.</td></tr>
+          <tr><td><code>.segmented</code></td><td><code>ToggleGroup</code> (type single)</td><td>Density and expand-all.</td></tr>
+          <tr><td><code>.chip</code></td><td><code>Toggle</code></td><td>Filters. Counts computed from the folded blocks.</td></tr>
+          <tr><td><code>.input</code></td><td><code>Input</code></td><td>Search and filter.</td></tr>
+          <tr><td><code>.progress</code></td><td><code>Progress</code></td><td>Plan completion only. Never a token or time estimate.</td></tr>
+          <tr><td><code>[title]</code> attributes</td><td><code>Tooltip</code></td><td>Price-table date, full workspace path, cache hit/miss counts.</td></tr>
+          <tr><td><code>.sticky</code></td><td>plain CSS</td><td>Not <code>ScrollArea</code>. A custom scroll container costs a wrapper and a listener per column, and the rail is a scroll surface in a hot path.</td></tr>
+          <tr><td><code>table.diff</code>, <code>table.sessions</code></td><td>plain <code>&lt;table&gt;</code></td><td>Not <code>DataTable</code>. TanStack Table earns nothing here and the diff table is on the frame-budget path.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </body>
+</html>

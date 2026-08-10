@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Web UI design pass — deepseek-harness</title>
+    <link rel="stylesheet" href="tokens.css" />
+    <style>
+      .page {
+        max-width: 860px;
+      }
+      h1 {
+        font-size: 1.375rem;
+        margin: 8px 0 6px;
+        letter-spacing: -0.02em;
+      }
+      p.lede {
+        color: var(--muted-foreground);
+        margin: 0 0 24px;
+        max-width: 72ch;
+      }
+      h2 {
+        font-size: 0.8125rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted-foreground);
+        margin: 28px 0 10px;
+      }
+      a.mock {
+        display: block;
+        padding: 14px 16px;
+        text-decoration: none;
+      }
+      a.mock:hover {
+        background: var(--accent);
+      }
+      a.mock h3 {
+        margin: 0 0 4px;
+        font-size: 0.9375rem;
+      }
+      a.mock p {
+        margin: 0;
+        color: var(--muted-foreground);
+        font-size: 0.8125rem;
+      }
+      ul.facts {
+        margin: 0;
+        padding-left: 18px;
+        color: var(--muted-foreground);
+        max-width: 74ch;
+      }
+      ul.facts li + li {
+        margin-top: 6px;
+      }
+      ul.facts code {
+        background: var(--muted);
+        padding: 1px 5px;
+        border-radius: 4px;
+        color: var(--foreground);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="topbar">
+        <span class="wordmark">deepseek-harness</span>
+        <span class="spacer"></span>
+        <span class="badge badge-outline">design pass · 2026-08-10</span>
+      </div>
+
+      <h1>Web UI design pass</h1>
+      <p class="lede">
+        Flat HTML, no build, no JavaScript. Every collapsible is a <code>&lt;details&gt;</code> and
+        every token name is shadcn/ui's, so the mocks translate to components rather than needing a
+        re-decision. Open the files directly in a browser.
+      </p>
+
+      <h2>Mocks</h2>
+      <div class="card">
+        <a class="mock" href="sessions.html">
+          <h3>sessions.html — the main page</h3>
+          <p>
+            In-flight sessions become collapsible cards showing the live plan; finished sessions stay
+            a dense table. <code>OK</code> splits into DONE, GAVE UP and STOPPED.
+          </p>
+        </a>
+      </div>
+      <div class="card">
+        <a class="mock" href="transcript.html">
+          <h3>transcript.html — the session page</h3>
+          <p>
+            A sticky timeline rail grouped by plan item, one card per sub-turn, a density toggle, and
+            tool calls that show their target instead of their JSON.
+          </p>
+        </a>
+      </div>
+      <div class="card">
+        <a class="mock" href="components.html">
+          <h3>components.html — vocabulary and components</h3>
+          <p>
+            The outcome-to-badge mapping with the store fields each one reads, the colour tokens in
+            both themes, and which shadcn component each mock class becomes.
+          </p>
+        </a>
+      </div>
+
+      <h2>What the mocks are measured against</h2>
+      <ul class="facts">
+        <li>
+          The live session <code>sess-f93b37beb37098b5637832e829c37d92</code>: 142 sub-turns, 16:31,
+          99.3% cache hit, $0.0838. Its page is <b>86,674 pixels tall</b> and mounts
+          <b>974 block elements</b>. The plan, the numbers and the diffs in the mocks are that
+          session's.
+        </li>
+        <li>
+          Every session in the current list shows a green <code>OK</code>, including the ones that
+          gave up. The store distinguishes them already — see components.html.
+        </li>
+        <li>
+          Nothing proposed here starts, steers or stops a run. The server stays <code>GET</code> and
+          <code>HEAD</code>.
+        </li>
+      </ul>
+
+      <h2>Implementation plan</h2>
+      <ul class="facts">
+        <li>
+          <code>docs/WEB-REDESIGN.md</code> — six phases, each shippable on its own, with the two
+          backend fields the session list needs and the frame-budget checks that gate each one.
+        </li>
+      </ul>
+    </div>
+  </body>
+</html>
