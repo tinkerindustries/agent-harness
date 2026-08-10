@@ -17,7 +17,9 @@ after watching how much of one fitted into a single run: the endpoint and its
 authentication are one unit of thinking, and the three thin clients over it
 are another. Steps 4a and 4b have landed on the branch. Step 5 has landed on
 `deepseek/run-control-p5-steer`, the branch that merges into
-`deepseek/run-control` as this phase's pull request.
+`deepseek/run-control` as that phase's pull request. Step 6 — start from the
+browser — has landed on `deepseek/run-control-p6-start`, the branch that
+merges into `deepseek/run-control` as this phase's pull request.
 
 | Step | State |
 | --- | --- |
@@ -26,8 +28,8 @@ are another. Steps 4a and 4b have landed on the branch. Step 5 has landed on
 | 3 — The control seam | landed (`9c3178a`) |
 | 4a — Stop over HTTP, and the control token | landed |
 | 4b — Stop's three clients: MCP, CLI, browser | landed |
-| 5 — Steer, end to end | landed (this phase) |
-| 6 — Start from the browser | |
+| 5 — Steer, end to end | landed |
+| 6 — Start from the browser | landed (this phase) |
 
 Two guards in step 3 were not in this plan when it was written and are now in
 the design: the heartbeat closer must be shared through one `sync.Once` (a

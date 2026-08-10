@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 
@@ -144,6 +145,63 @@ func TestNatsMsgIDDeduplicates(t *testing.T) {
 		t.Fatalf("expected 2 stored messages (one deduplicated pair plus one distinct), got %d", count)
 	}
 	_ = info
+}
+
+// TestPublishRequestLandsOnWorkStream pins the one publish path every
+// producer shares — harness publish, deepseek_agent, and the browser's POST
+// /api/runs (docs/RUN-CONTROL.md "Starting is a publish"): the request is
+// marshalled and lands on the WORK stream under the request's own subject,
+// byte-identical to what the worker parses. A producer that published a
+// different shape than ParseRequest accepts would fail here.
+func TestPublishRequestLandsOnWorkStream(t *testing.T) {
+	_, js := connectOrSkip(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	consumer, err := EnsureStreams(ctx, js, 4, DefaultResultsMaxAge, DefaultMaxDeliveryAttempts)
+	if err != nil {
+		t.Fatalf("EnsureStreams: %v", err)
+	}
+	t.Cleanup(func() {
+		js.DeleteStream(context.Background(), StreamWork)
+		js.DeleteStream(context.Background(), StreamResults)
+	})
+
+	req := Request{
+		RequestID:      "publish-helper-test",
+		Prompt:         "do the thing",
+		Repos:          []Repo{{URL: "https://github.com/org/app.git", Branch: "dev"}},
+		PermissionMode: "readonly",
+		Model:          "deepseek-v4-pro",
+		Effort:         "high",
+	}
+	if err := PublishRequest(ctx, js, req); err != nil {
+		t.Fatalf("PublishRequest: %v", err)
+	}
+
+	// The WORK stream is a work queue, so an OrderedConsumer will not work on
+	// it (JetStream refuses a pull consumer without an ack policy) — read back
+	// through the durable consumer EnsureStreams declared, which is the same
+	// path the worker pool reads.
+	batch, err := consumer.Fetch(1, jetstream.FetchMaxWait(3*time.Second))
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	count := 0
+	for msg := range batch.Messages() {
+		count++
+		got, err := ParseRequest(msg.Data())
+		if err != nil {
+			t.Fatalf("parse published request: %v", err)
+		}
+		if !reflect.DeepEqual(got, req) {
+			t.Fatalf("published request = %+v, want %+v", got, req)
+		}
+		msg.Ack()
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 message on the WORK stream, got %d", count)
+	}
 }
 
 // TestEnsureStreamsBoundsRedelivery pins the ceiling on the consumer itself.

@@ -37,7 +37,10 @@ What the screens are, since the redesign (docs/WEB-REDESIGN.md):
   Elapsed, Cost, Model, Sub-turns, Cache, Request: the two numbers an operator
   scans for sit right after Session, where they stay visible before any column
   that still needs the scroll container. The nav's right slot carries the
-  search input (id/workspace/request, client-side) and the LIVE badge.
+  start-run trigger (docs/RUN-CONTROL.md phase 6 — it opens the start form as
+  a card above the stat strip, and a null control token replaces it with a
+  "run control not configured" note), the search input (id/workspace/request,
+  client-side) and the LIVE badge.
 - **Transcript.** The unit is the sub-turn, not the block: one card per
   sub-turn, reasoning, text, tool calls and results in one body and the usage
   block in the header (`src/api/groups.ts` builds the groups as a display-side
@@ -73,22 +76,23 @@ Don't change `build.outDir`.
 ## Rules
 
 The browser can write to the data the harness manages, and it can control a
-running session: no prompt box, no approve button, and two run-control
-actions on the transcript screen, visible only while the session is running —
-a **steer** input and a **stop**, the stop behind a confirmation
-(docs/RUN-CONTROL.md "The frontend"). The steer write is an acceptance, not
-a delivery: the text lands in the log and reaches the model at the next
-sub-turn boundary, and the transcript's steer block shows it as *pending*
-until the matching `steer_applied` arrives — a steer that sits pending for
-minutes is the operator's signal that the run is wedged, which is a feature
-of the display, not an accident of it. The stop is an acceptance, not an
-outcome: between the 202 and the terminal event the control shows
-*stopping…*, and the terminal state arrives over the SSE stream the screens
-are already connected to — the screen never polls for it and never
-optimistically marks the session cancelled. The approve button stays out —
-docs/DESIGN.md §4.6, and a loop that waits on a person is a loop that stalls
-when nobody is watching. The prompt box (start) is staged, not permanent —
-docs/RUN-CONTROL.md.
+running session — no approve button, and run control in full: a **start**
+form on the session list (prompt, repos, an explicit permission mode with the
+docker-socket warning stated next to the control, and the optional fields
+behind a disclosure), a **steer** input and a **stop** on the transcript
+screen, both visible only while the session is running, the stop behind a
+confirmation (docs/RUN-CONTROL.md "The frontend"). The steer write is an
+acceptance, not a delivery: the text lands in the log and reaches the model
+at the next sub-turn boundary, and the transcript's steer block shows it as
+*pending* until the matching `steer_applied` arrives — a steer that sits
+pending for minutes is the operator's signal that the run is wedged, which is
+a feature of the display, not an accident of it. The stop and the start are
+acceptances, not outcomes: the stop shows *stopping…* between the 202 and the
+terminal event, and a started run appears on the session list when the pool
+claims it — the screen never polls and never invents a row, because the SSE
+stream the screens are already connected to is what says a session started.
+The approve button stays out — docs/DESIGN.md §4.6, and a loop that waits on
+a person is a loop that stalls when nobody is watching.
 
 What that means for work here: a screen that writes is now ordinary, so the
 settings screen stops being a special case and becomes the pattern to follow.

@@ -272,6 +272,66 @@ export async function steerSession(id: string, token: string, text: string): Pro
   return (await res.json()) as SteerResponse;
 }
 
+// StartRunResponse is POST /api/runs's 202 body: the request_id the run was
+// accepted under. A start is not answered by the run's outcome — the session
+// appears on the existing GET /api/stream list feed once the pool claims the
+// request, and nothing here polls for it or invents a row (docs/RUN-CONTROL.md
+// "POST /api/runs").
+export interface StartRunResponse {
+  request_id: string;
+}
+
+// WorkRequest is the queue.Request wire shape POST /api/runs accepts,
+// mirroring internal/queue.Request: the required prompt, repos, and
+// permission_mode, plus the optional fields harness publish's flags set.
+// request_id is absent for a browser start — the server generates one, since
+// a browser form has no idempotency key to offer (docs/RUN-CONTROL.md "POST
+// /api/runs").
+export interface WorkRequest {
+  prompt: string;
+  repos: { url: string; branch?: string }[];
+  permission_mode: string;
+  model?: string;
+  effort?: string;
+  deny?: string[];
+  result_schema?: unknown;
+  max_sub_turns?: number;
+  deadline_ms?: number;
+  job_type?: string;
+  parent_agent_type?: string;
+  parent_agent_id?: string;
+}
+
+// startRun publishes a work request via POST /api/runs (docs/RUN-CONTROL.md
+// "POST /api/runs"). The 202 carries the request_id the run was accepted
+// under; the session itself appears on the session-list feed once the pool
+// claims it, and the screen follows it from there rather than polling. The
+// bearer token is required, exactly as for stopSession: callers hide the
+// form when controlToken() is null rather than sending a request that would
+// 503.
+export async function startRun(token: string, body: WorkRequest): Promise<StartRunResponse> {
+  const res = await fetch("/api/runs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as StartRunResponse;
+}
+
+// parseRepoSpec splits one repository spec on its last "#" into the url and
+// branch the wire shape carries, exactly as harness publish's -repo flag
+// does (cmd/harness/publish.go parseRepoFlags): "https://x/y.git#dev" →
+// {url, branch}, "https://x/y.git" → {url} with no branch. Splitting on the
+// last "#" keeps a "#" inside a URL intact, and a spec with none at all
+// clones the default branch.
+export function parseRepoSpec(spec: string): { url: string; branch?: string } {
+  const v = spec.trim();
+  const i = v.lastIndexOf("#");
+  if (i < 0) return { url: v };
+  return { url: v.slice(0, i), branch: v.slice(i + 1) };
+}
+
 // --- logic the screen is built from (tested without a DOM) ---
 
 // isStuckSession reports whether a session row counts as stuck: still

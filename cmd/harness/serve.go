@@ -11,6 +11,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/nats-io/nats.go/jetstream"
+
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/httpapi"
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
@@ -194,7 +196,7 @@ func runServe(ctx context.Context, args []string) error {
 	api := &httpapi.Server{
 		Store: st, Hub: eventHub, Static: static, Settings: res,
 		Consumer: consumer, Pool: pool, PriceTableDate: priceTable.CapturedAt,
-		Run: pool, ControlToken: controlToken,
+		Run: pool, Publisher: publishAdapter{js: js}, ControlToken: controlToken,
 		DefaultEventsLimit: eventsLimitDefault,
 		MaxEventsLimit:     eventsLimitMax,
 	}
@@ -217,6 +219,22 @@ func runServe(ctx context.Context, args []string) error {
 		cfg.NATSURL, workerPoolSize, defaultModel, defaultFlashModel, cfg.WorkspaceRoot)
 	log.Printf("harness serve: http listening on %s", cfg.HTTPAddr)
 	return pool.Run(ctx)
+}
+
+// publishAdapter is the RunPublisher implementation for harness serve: the
+// browser's POST /api/runs enqueues through the same JetStream handle the
+// pool reads, so a browser-started run is byte-identical in the store to one
+// started from MCP or the CLI — same event kinds, same validation, same
+// idempotency on a duplicate request_id (docs/RUN-CONTROL.md "Starting is a
+// publish, so the seam is a publisher"). The interface is declared in
+// internal/httpapi and implemented here, in cmd/, because composition
+// happens in cmd/ and nowhere else (ARCHITECTURE.md).
+type publishAdapter struct {
+	js jetstream.JetStream
+}
+
+func (a publishAdapter) PublishRequest(ctx context.Context, req queue.Request) error {
+	return queue.PublishRequest(ctx, a.js, req)
 }
 
 // generateControlToken returns a fresh http.control_token value: 32 bytes of

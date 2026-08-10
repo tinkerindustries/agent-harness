@@ -3,7 +3,7 @@
 // cannot reach the run loop. GET and HEAD are served on every path, including
 // ones that do not exist; the writing methods are allowed where a write route
 // exists — PUT and DELETE on a settings key, PATCH and DELETE on one session,
-// and POST on the run-control subresources (docs/RUN-CONTROL.md). It serves
+// and POST on the run-control endpoints (docs/RUN-CONTROL.md). It serves
 // the session list and metadata from the store, a paged read of one session's
 // event log, two SSE streams — a per-session transcript and a quiet
 // session-level list feed — fed by the in-process hub package rather than
@@ -12,15 +12,19 @@
 // session, deleting a finished one, setting a key. Run control is a declared
 // seam, not an import: stopping goes through the RunController interface
 // below, satisfied by *worker.Pool without this package knowing the package
-// exists, and nothing here starts a run. Steering is the one control that
-// needs no seam at all — it is a store write by the handler and a store read
-// by the loop, with the database as the boundary (docs/RUN-CONTROL.md
-// "Steering: augment, don't gate").
+// exists; starting goes through the RunPublisher interface, satisfied by
+// cmd/harness over the queue's own JetStream handle — so this package holds
+// no JetStream handle, only the narrow ability to enqueue one request.
+// Steering is the one control that needs no seam at all — it is a store
+// write by the handler and a store read by the loop, with the database as
+// the boundary (docs/RUN-CONTROL.md "Steering: augment, don't gate").
 package httpapi
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,6 +40,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
+	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
@@ -142,6 +147,18 @@ type RunController interface {
 	Running(sessionID string) bool
 }
 
+// RunPublisher is the subset of the queue a start endpoint needs: publish
+// one validated work request to the WORK stream. Declared here and
+// implemented in cmd/harness, so this package never holds a JetStream handle
+// — only the ability to enqueue one request (docs/RUN-CONTROL.md "Starting
+// is a publish, so the seam is a publisher"). It is deliberately an import
+// of internal/queue's Request and Validate rather than a copy of either: a
+// request body validated by a copy of the rules is a request body that
+// eventually disagrees with the queue's.
+type RunPublisher interface {
+	PublishRequest(ctx context.Context, req queue.Request) error
+}
+
 // Server holds the things every handler reads: the store, for everything
 // historical; the hub, for everything live; and, optionally, the queue's
 // consumer and pool, for /api/queue's consumer lag, in-flight count, and
@@ -149,15 +166,19 @@ type RunController interface {
 // harness manages (docs/DATA-API.md): the settings endpoints and the session
 // close/delete endpoints read and write through Store, and nothing else in
 // Server is mutated by a request — the run surface stays read-only except
-// for the two run-control endpoints: stop, which acts on a run through the
-// RunController seam, and steer, which is a plain store write the session
-// loop reads at its next sub-turn boundary and needs no seam at all
+// for the run-control endpoints: stop, which acts on a run through the
+// RunController seam; steer, which is a plain store write the session loop
+// reads at its next sub-turn boundary and needs no seam at all; and start,
+// which publishes a work request through the RunPublisher seam
 // (docs/RUN-CONTROL.md). Consumer and Pool are nil in any caller that has no
 // queue at all (a CLI-only harness never wires one up); the handler degrades
 // to reporting the queue as unavailable rather than panicking. Run is nil the
 // same way in a caller with no pool, and the stop handler then answers 409
-// for every existing session — this process is running nothing. ControlToken
-// is the process's copy of http.control_token; empty means run control is not
+// for every existing session — this process is running nothing. Publisher is
+// nil in any caller that has no queue, and the start handler then answers 503
+// — no publisher wired means no run can be started, and that must fail
+// closed, the same shape the missing token has. ControlToken is the
+// process's copy of http.control_token; empty means run control is not
 // configured and the run-control endpoints fail closed with 503.
 type Server struct {
 	Store          *store.Store
@@ -166,6 +187,7 @@ type Server struct {
 	Consumer       QueueConsumer
 	Pool           QueuePool
 	Run            RunController
+	Publisher      RunPublisher
 	ControlToken   string
 	PriceTableDate string
 	Settings       *settings.Resolver
@@ -204,6 +226,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("DELETE /api/sessions/{id}", s.handleDeleteSession)
 	mux.HandleFunc("POST /api/sessions/{id}/stop", s.handleStopSession)
 	mux.HandleFunc("POST /api/sessions/{id}/steer", s.handleSteerSession)
+	mux.HandleFunc("POST /api/runs", s.handleStartRun)
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.handleGetEvents)
 	mux.HandleFunc("GET /api/sessions/{id}/stream", s.handleSessionStream)
 	mux.HandleFunc("GET /api/control-token", s.handleGetControlToken)
@@ -277,6 +300,8 @@ func writeAllowed(method, path string) bool {
 		return method == http.MethodPost
 	case isSteerPath(path):
 		return method == http.MethodPost
+	case isRunsPath(path):
+		return method == http.MethodPost
 	default:
 		return false
 	}
@@ -340,6 +365,15 @@ func isSteerPath(path string) bool {
 	return ok && id != "" && tail == "steer"
 }
 
+// isRunsPath reports whether path is the runs collection — /api/runs, with
+// no further segments. POST may pass the gate here and nowhere else: starting
+// a run is an action, not a row edit, and the collection has no other write
+// route (docs/RUN-CONTROL.md "The HTTP surface"). A POST to any other path
+// stays a 405 with a correct Allow header.
+func isRunsPath(path string) bool {
+	return path == "/api/runs"
+}
+
 // isRequestPath reports whether path is exactly one work request's resource —
 // /api/requests/<request_id> with no further segments. The poll snapshot
 // subresource /api/requests/<request_id>/status is a read and carries its
@@ -383,6 +417,8 @@ func allowedMethods(path string) string {
 	case isStopPath(path):
 		return "GET, HEAD, POST"
 	case isSteerPath(path):
+		return "GET, HEAD, POST"
+	case isRunsPath(path):
 		return "GET, HEAD, POST"
 	default:
 		return "GET, HEAD"
@@ -720,6 +756,83 @@ func (s *Server) handleSteerSession(w http.ResponseWriter, r *http.Request) {
 	// moment the steer is accepted rather than at the next sub-turn.
 	s.Hub.PublishEvents(id, appended)
 	writeJSON(w, http.StatusAccepted, map[string]any{"session_id": id, "seq": appended[0].Seq})
+}
+
+// --- run control: start (phase 6) ---
+
+// handleStartRun serves POST /api/runs: accepts a work request in the
+// queue's own wire shape and publishes it to the WORK stream, making the
+// browser one more producer among the existing ones — harness publish and
+// deepseek_agent — so the claim/heartbeat/redelivery machinery stays the
+// only way a session ever starts, with no second code path to keep in sync
+// (docs/RUN-CONTROL.md "Starting is a publish, so the seam is a publisher").
+// The 202 is an acceptance, not an outcome: the session appears on the
+// existing GET /api/stream list feed once the pool claims the request, and
+// this handler never waits for, or answers with, the run's result.
+//
+// The guards and preconditions, in order: the content-type and origin guards
+// every write carries; the bearer token (401 missing or wrong, 503 when no
+// token is configured); a publisher wired in (503 — a Server built without
+// one cannot start anything, and a missing capability must fail closed, the
+// same shape the missing token has); a body that decodes to queue.Request
+// (400); validation by queue.Request.Validate — the queue's own rules, so a
+// body accepted here can never drift from what the worker checks (400
+// carrying the validator's message); and 202 {"request_id": "..."} once the
+// publish lands. request_id is optional on this surface and generated when
+// absent — a browser form has no idempotency key to offer — and a caller
+// that supplies one gets the same deduplication every other producer gets.
+//
+// No If-Match, for the same reason as stop and steer: this is not a mutation
+// of a row, and a work request has no row to mutate yet
+// (docs/RUN-CONTROL.md "The HTTP surface").
+func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
+	if !writeGuards(w, r) {
+		return
+	}
+	if !s.requireControlToken(w, r) {
+		return
+	}
+	if s.Publisher == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "run control is not configured: no run publisher is wired (start harness serve once)",
+		})
+		return
+	}
+	var req queue.Request
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body: expected a work request (prompt, repos, permission_mode, ...)"})
+		return
+	}
+	if req.RequestID == "" {
+		req.RequestID = randomRequestID()
+	}
+	if err := req.Validate(); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if err := s.Publisher.PublishRequest(r.Context(), req); err != nil {
+		// The one error path this handler owns beyond validation: the publish
+		// itself failed. The message goes to the wire the way the stop
+		// handler's controller failure does, so a browser sees why the start
+		// did not land rather than a bare "internal error".
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"request_id": req.RequestID})
+}
+
+// randomRequestID generates a work request's idempotency key for a browser
+// start — the browser form has no idempotency key to offer, and one is
+// generated here exactly as the other producers generate theirs
+// (docs/RUN-CONTROL.md "POST /api/runs"). The "web-" prefix makes the
+// browser's origin obvious in logs and transcripts alongside publish's
+// "req-" and deepseek_agent's "mcp-".
+func randomRequestID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic("httpapi: crypto/rand unavailable: " + err.Error())
+	}
+	return "web-" + hex.EncodeToString(b[:])
 }
 
 // requireControlToken enforces the bearer token the run-control endpoints

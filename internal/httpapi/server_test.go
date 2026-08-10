@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -22,6 +23,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
+	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
@@ -356,6 +358,48 @@ func TestNonGetMethodsReturn405EverywhereExceptWriteRoutes(t *testing.T) {
 				t.Errorf("%s %s: Allow = %q, want %q", m, steerPath, got, "GET, HEAD, POST")
 			}
 		}
+	}
+
+	// The runs collection allows POST (phase 6, docs/RUN-CONTROL.md "POST
+	// /api/runs"); every other method still 405s there with the same Allow
+	// header, and a deeper path (/api/runs/<something>) has no write route at
+	// all — starting a run is exactly one action on exactly one path.
+	resp := doWrite(t, srv, http.MethodPost, "/api/runs", `{}`, map[string]string{"Content-Type": "application/json"})
+	resp.Body.Close()
+	if resp.StatusCode == http.StatusMethodNotAllowed {
+		t.Errorf("POST /api/runs: gate refused a permitted write")
+	}
+	for _, m := range []string{http.MethodPut, http.MethodDelete, http.MethodPatch, http.MethodOptions} {
+		req, err := http.NewRequest(m, srv.URL+"/api/runs", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("%s /api/runs: %v", m, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusMethodNotAllowed {
+			t.Errorf("%s /api/runs: got status %d, want 405", m, resp.StatusCode)
+		}
+		if got := resp.Header.Get("Allow"); got != "GET, HEAD, POST" {
+			t.Errorf("%s /api/runs: Allow = %q, want %q", m, got, "GET, HEAD, POST")
+		}
+	}
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/runs/extra", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("POST /api/runs/extra: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("POST /api/runs/extra: got status %d, want 405", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Allow"); got != "GET, HEAD" {
+		t.Errorf("POST /api/runs/extra: Allow = %q, want %q", got, "GET, HEAD")
 	}
 }
 
@@ -3488,5 +3532,340 @@ func TestSteerAppendsEventAndPublishes(t *testing.T) {
 	}
 	if len(eventsList) != 1 || eventsList[0].Seq != int64(seq) {
 		t.Fatalf("store events = %+v, want exactly the steer_message at seq %d", eventsList, int64(seq))
+	}
+}
+
+// --- run control: start (phase 6) ---
+
+// fakeRunPublisher is the test double for RunPublisher: records the requests
+// it was asked to publish, and an optional error every call returns. It
+// stands in for the adapter cmd/harness wires over the JetStream handle, so
+// these tests need no broker.
+type fakeRunPublisher struct {
+	requests []queue.Request
+	err      error // when set, every PublishRequest returns it
+}
+
+func (f *fakeRunPublisher) PublishRequest(_ context.Context, req queue.Request) error {
+	if f.err != nil {
+		return f.err
+	}
+	f.requests = append(f.requests, req)
+	return nil
+}
+
+// newStartTestServer builds a test server with the run-control bearer token
+// set and pub wired in — the server shape phase 6's start endpoint needs. The
+// token is fixed for the test; the fake publisher records what the handler
+// asked it to publish.
+func newStartTestServer(t *testing.T, pub *fakeRunPublisher) (*httptest.Server, *store.Store) {
+	t.Helper()
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "harness.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	api := &Server{
+		Store: st, Hub: hub.New(), Settings: settings.NewResolver(st),
+		Static: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			fmt.Fprint(w, "static placeholder")
+		}),
+		Publisher: pub, ControlToken: "test-control-token",
+	}
+	srv := httptest.NewServer(api.Handler())
+	t.Cleanup(srv.Close)
+	return srv, st
+}
+
+// aValidWorkRequest is a request body that passes queue.Request.Validate: the
+// browser form's minimum (prompt, one repo, a permission mode).
+const aValidWorkRequest = `{"prompt":"do the thing","repos":[{"url":"https://github.com/org/app.git"}],"permission_mode":"readonly"}`
+
+// TestStartRunRequiresBearerToken pins the authentication on POST /api/runs
+// (docs/RUN-CONTROL.md "Authentication"): a missing Authorization header is
+// 401, a wrong token is 401, and only the configured token reaches the
+// publisher.
+func TestStartRunRequiresBearerToken(t *testing.T) {
+	pub := &fakeRunPublisher{}
+	srv, _ := newStartTestServer(t, pub)
+
+	for _, tc := range []struct {
+		name   string
+		header string
+		want   int
+	}{
+		{"missing", "", http.StatusUnauthorized},
+		{"wrong token", "Bearer not-the-token", http.StatusUnauthorized},
+		{"right token", "Bearer test-control-token", http.StatusAccepted},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			headers := map[string]string{"Content-Type": "application/json"}
+			if tc.header != "" {
+				headers["Authorization"] = tc.header
+			}
+			resp := doWrite(t, srv, http.MethodPost, "/api/runs", aValidWorkRequest, headers)
+			defer resp.Body.Close()
+			if resp.StatusCode != tc.want {
+				t.Fatalf("got status %d, want %d", resp.StatusCode, tc.want)
+			}
+			if tc.want == http.StatusUnauthorized {
+				if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+					t.Fatalf("401 Content-Type = %q, want JSON", ct)
+				}
+			}
+		})
+	}
+
+	if len(pub.requests) != 1 {
+		t.Fatalf("publisher saw %d requests, want 1: %+v", len(pub.requests), pub.requests)
+	}
+}
+
+// TestStartRunFailsClosedWithoutToken pins the fail-closed property: a Server
+// built without the startup token generation answers 503 to the start
+// endpoint, exactly like stop and steer — the run-control surface must never
+// let a request through without a credential.
+func TestStartRunFailsClosedWithoutToken(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "harness.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	pub := &fakeRunPublisher{}
+	api := &Server{
+		Store: st, Hub: hub.New(), Settings: settings.NewResolver(st),
+		Static:    http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+		Publisher: pub,
+	}
+	srv := httptest.NewServer(api.Handler())
+	t.Cleanup(srv.Close)
+
+	resp := doWrite(t, srv, http.MethodPost, "/api/runs", aValidWorkRequest, map[string]string{
+		"Content-Type":  "application/json",
+		"Authorization": "Bearer test-control-token",
+	})
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("got status %d, want 503", resp.StatusCode)
+	}
+	if len(pub.requests) != 0 {
+		t.Fatalf("a refused request must not reach the publisher, got %+v", pub.requests)
+	}
+}
+
+// TestStartRunFailsClosedWithoutPublisher pins the other fail-closed shape:
+// a Server built with a token but no publisher wired — every test server that
+// does not set the field — answers 503 to the start endpoint. No publisher
+// means no run can be started, and that must look unavailable, not succeed
+// silently.
+func TestStartRunFailsClosedWithoutPublisher(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "harness.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	api := &Server{
+		Store: st, Hub: hub.New(), Settings: settings.NewResolver(st),
+		Static:       http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+		ControlToken: "test-control-token",
+	}
+	srv := httptest.NewServer(api.Handler())
+	t.Cleanup(srv.Close)
+
+	resp := doWrite(t, srv, http.MethodPost, "/api/runs", aValidWorkRequest, controlAuth)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("got status %d, want 503", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "no run publisher is wired") {
+		t.Fatalf("503 must say the publisher is not wired, got %q", body)
+	}
+}
+
+// TestStartRunCarriesTheSharedWriteGuards pins that the start endpoint runs
+// the same guards every other write carries — 415 without a JSON content
+// type, 403 cross-origin — before the bearer check, and that a refused
+// request never reaches the publisher.
+func TestStartRunCarriesTheSharedWriteGuards(t *testing.T) {
+	pub := &fakeRunPublisher{}
+	srv, _ := newStartTestServer(t, pub)
+
+	for _, tc := range []struct {
+		name    string
+		headers map[string]string
+		want    int
+	}{
+		{
+			name:    "missing content type",
+			headers: map[string]string{"Authorization": "Bearer test-control-token"},
+			want:    http.StatusUnsupportedMediaType,
+		},
+		{
+			name: "wrong content type",
+			headers: map[string]string{
+				"Content-Type": "text/plain", "Authorization": "Bearer test-control-token",
+			},
+			want: http.StatusUnsupportedMediaType,
+		},
+		{
+			name: "cross-origin",
+			headers: map[string]string{
+				"Content-Type": "application/json", "Authorization": "Bearer test-control-token",
+				"Origin": "https://evil.example",
+			},
+			want: http.StatusForbidden,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := doWrite(t, srv, http.MethodPost, "/api/runs", aValidWorkRequest, tc.headers)
+			defer resp.Body.Close()
+			if resp.StatusCode != tc.want {
+				t.Fatalf("got status %d, want %d", resp.StatusCode, tc.want)
+			}
+		})
+	}
+	if len(pub.requests) != 0 {
+		t.Fatalf("guarded requests must not reach the publisher, got %+v", pub.requests)
+	}
+}
+
+// TestStartRunValidationRejectsBadBody pins that POST /api/runs validates
+// with the queue's own rules, never a copy (docs/RUN-CONTROL.md "POST
+// /api/runs"): a body that fails queue.Request.Validate is a 400 carrying
+// the validator's message, and the publisher is never called. A malformed
+// JSON body is a 400 too.
+func TestStartRunValidationRejectsBadBody(t *testing.T) {
+	pub := &fakeRunPublisher{}
+	srv, _ := newStartTestServer(t, pub)
+
+	for _, tc := range []struct {
+		name   string
+		body   string
+		wantIn string
+	}{
+		{"not JSON", `{`, "invalid JSON body"},
+		{"empty prompt", `{"prompt":"","repos":[{"url":"https://github.com/org/app.git"}],"permission_mode":"readonly"}`, "queue: prompt is required"},
+		{"no repos", `{"prompt":"do it","repos":[],"permission_mode":"readonly"}`, "queue: repos is required"},
+		{"bad repo url", `{"prompt":"do it","repos":[{"url":"/etc/passwd"}],"permission_mode":"readonly"}`, "must be an http(s), ssh, git"},
+		{"no permission mode", `{"prompt":"do it","repos":[{"url":"https://github.com/org/app.git"}],"permission_mode":""}`, "queue: permission_mode is required"},
+		{"unknown permission mode", `{"prompt":"do it","repos":[{"url":"https://github.com/org/app.git"}],"permission_mode":"admin"}`, "must be readonly or full"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := doWrite(t, srv, http.MethodPost, "/api/runs", tc.body, controlAuth)
+			body, err := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("got status %d, want 400 (body %s)", resp.StatusCode, body)
+			}
+			if !strings.Contains(string(body), tc.wantIn) {
+				t.Fatalf("400 must carry the validator's message, got %q (want a mention of %q)", body, tc.wantIn)
+			}
+		})
+	}
+
+	if len(pub.requests) != 0 {
+		t.Fatalf("a rejected request must not reach the publisher, got %+v", pub.requests)
+	}
+}
+
+// TestStartRunGeneratesRequestID pins the idempotency-key story for a
+// browser start (docs/RUN-CONTROL.md "POST /api/runs"): request_id is
+// optional on this surface, and a body without one is accepted under a
+// generated "web-" id — the browser form has no idempotency key to offer,
+// but the published request must carry one, because the queue requires it.
+func TestStartRunGeneratesRequestID(t *testing.T) {
+	pub := &fakeRunPublisher{}
+	srv, _ := newStartTestServer(t, pub)
+
+	resp := doWrite(t, srv, http.MethodPost, "/api/runs", aValidWorkRequest, controlAuth)
+	if resp.StatusCode != http.StatusAccepted {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		t.Fatalf("got status %d, want 202 (body %s)", resp.StatusCode, body)
+	}
+	var got map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	id := got["request_id"]
+	if !strings.HasPrefix(id, "web-") {
+		t.Fatalf("202 request_id = %q, want a generated web- id", id)
+	}
+	if len(pub.requests) != 1 {
+		t.Fatalf("publisher saw %d requests, want 1", len(pub.requests))
+	}
+	if pub.requests[0].RequestID != id {
+		t.Fatalf("published RequestID = %q, want the id the 202 named (%q)", pub.requests[0].RequestID, id)
+	}
+}
+
+// TestStartRunAcceptsAndPublishes pins the happy path end to end: a full
+// work request (every optional field) is decoded, validated, and handed to
+// the publisher verbatim, and the 202 names the request_id the caller
+// supplied — which is how a caller that has an idempotency key gets the same
+// deduplication every other producer gets. A publisher failure is a 500.
+func TestStartRunAcceptsAndPublishes(t *testing.T) {
+	pub := &fakeRunPublisher{}
+	srv, _ := newStartTestServer(t, pub)
+
+	body := `{"request_id":"req-from-browser","prompt":"do it","repos":[{"url":"https://github.com/org/app.git","branch":"dev"}],"permission_mode":"full","model":"deepseek-v4-pro","effort":"max","deny":["git push"],"max_sub_turns":42,"deadline_ms":3600000,"job_type":"implementation","parent_agent_type":"user"}`
+	resp := doWrite(t, srv, http.MethodPost, "/api/runs", body, controlAuth)
+	if resp.StatusCode != http.StatusAccepted {
+		got, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		t.Fatalf("got status %d, want 202 (body %s)", resp.StatusCode, got)
+	}
+	var got map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if got["request_id"] != "req-from-browser" {
+		t.Fatalf("202 body = %+v, want the supplied request_id echoed back", got)
+	}
+
+	if len(pub.requests) != 1 {
+		t.Fatalf("publisher saw %d requests, want 1", len(pub.requests))
+	}
+	published := pub.requests[0]
+	want := queue.Request{
+		RequestID:       "req-from-browser",
+		Prompt:          "do it",
+		Repos:           []queue.Repo{{URL: "https://github.com/org/app.git", Branch: "dev"}},
+		PermissionMode:  "full",
+		Model:           "deepseek-v4-pro",
+		Effort:          "max",
+		Deny:            []string{"git push"},
+		MaxSubTurns:     42,
+		DeadlineMS:      3600000,
+		JobType:         "implementation",
+		ParentAgentType: "user",
+	}
+	if !reflect.DeepEqual(published, want) {
+		t.Fatalf("published request = %+v, want %+v", published, want)
+	}
+
+	// A publisher failure surfaces as a 500 carrying its message.
+	failing := &fakeRunPublisher{err: errors.New("stream is read-only")}
+	srv2, _ := newStartTestServer(t, failing)
+	resp2 := doWrite(t, srv2, http.MethodPost, "/api/runs", aValidWorkRequest, controlAuth)
+	gotBody, _ := io.ReadAll(resp2.Body)
+	resp2.Body.Close()
+	if resp2.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("publisher failure: got status %d, want 500 (body %s)", resp2.StatusCode, gotBody)
+	}
+	if !strings.Contains(string(gotBody), "stream is read-only") {
+		t.Fatalf("500 must carry the publisher's error message, got %q", gotBody)
 	}
 }
