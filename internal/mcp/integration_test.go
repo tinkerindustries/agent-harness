@@ -60,15 +60,14 @@ func newIntegrationService(t *testing.T, js jetstream.JetStream) *Service {
 	return svc
 }
 
-// ensureTestStreams converges the WORK and RESULTS streams and leaves them
-// standing rather than deleting them on cleanup. `go test ./...` runs
-// packages concurrently, and internal/worker's own tests declare and use
-// the identical stream names against the same broker; a DeleteStream here
-// raced one of those tests' in-flight publishes often enough to fail them
-// with "no response from stream". Every test in this package addresses its
-// own unique request_id-scoped subjects, so a stream left populated by a
-// previous test (here or in another package) is inert noise, not a
-// correctness risk.
+// ensureTestStreams converges this package's WORK and RESULTS streams
+// (renamed by queue.IsolateForTest in TestMain, so they are this package's
+// own and never shared with internal/worker's pool). The streams are
+// deleted again in cleanup: with per-package names there is no other
+// package's in-flight publish to race, which is the reason an earlier
+// version left them standing. Every test addresses its own unique
+// request_id-scoped subjects, so messages left by a failed test are inert
+// noise, not a correctness risk.
 func ensureTestStreams(t *testing.T, js jetstream.JetStream) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -76,6 +75,10 @@ func ensureTestStreams(t *testing.T, js jetstream.JetStream) {
 	if _, err := queue.EnsureStreams(ctx, js, 4); err != nil {
 		t.Fatalf("EnsureStreams: %v", err)
 	}
+	t.Cleanup(func() {
+		js.DeleteStream(context.Background(), queue.StreamWork)
+		js.DeleteStream(context.Background(), queue.StreamResults)
+	})
 }
 
 // TestHandleLaunchQueuedOutcome is the first of the three launch outcomes

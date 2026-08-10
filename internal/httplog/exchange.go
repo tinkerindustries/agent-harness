@@ -42,10 +42,15 @@ func redactedHeaders(h http.Header) map[string]string {
 }
 
 // redactedHeader reports whether a header carries a credential or session
-// material that must never reach disk, matched case-insensitively.
+// material that must never reach disk, matched case-insensitively. This is
+// the single named set every client's credential header has to join: a new
+// API client that authenticates by header — DeepSeek's Authorization,
+// Gemini's x-goog-api-key, and whatever the third client uses — must add
+// its header name here, or its key is captured verbatim in every HTTP
+// exchange log.
 func redactedHeader(name string) bool {
 	switch strings.ToLower(name) {
-	case "authorization", "proxy-authorization", "cookie", "set-cookie":
+	case "authorization", "proxy-authorization", "cookie", "set-cookie", "x-goog-api-key":
 		return true
 	}
 	return false

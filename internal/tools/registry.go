@@ -49,6 +49,12 @@ type Result struct {
 	Truncated      bool
 	Diff           []store.DiffLine
 	ChildSessionID string
+	// GeminiUsage is the costed token accounting of a ReviewScreenshot
+	// call, set only when the tool made a successful request to Gemini. The
+	// runner commits it as its own usage event (internal/session/turn.go),
+	// so a Gemini call shows up in the session's cost total exactly the way
+	// a DeepSeek turn's usage does.
+	GeminiUsage *store.UsagePayload
 }
 
 func errorResult(format string, args ...any) Result {

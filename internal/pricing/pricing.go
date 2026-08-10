@@ -10,10 +10,17 @@ import (
 )
 
 // ModelPrices are USD rates per one million tokens for a single model.
+// Source and CapturedAt are optional per-model provenance for rates that
+// come from a different page or date than the table's own top-level fields
+// — the Gemini entries, whose prices come from Google's pricing page while
+// the table's top-level source names DeepSeek's. Absent per model, a cost
+// readout falls back to the table's top-level date.
 type ModelPrices struct {
 	InputCacheHitPerMillionUSD  float64 `json:"input_cache_hit_per_million_usd"`
 	InputCacheMissPerMillionUSD float64 `json:"input_cache_miss_per_million_usd"`
 	OutputPerMillionUSD         float64 `json:"output_per_million_usd"`
+	Source                      string  `json:"source,omitempty"`
+	CapturedAt                  string  `json:"captured_at,omitempty"`
 }
 
 // Table is a price table read from config. CapturedAt records when the

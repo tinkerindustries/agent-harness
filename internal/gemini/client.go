@@ -131,20 +131,27 @@ type Image struct {
 	Resolution string
 }
 
-// GenerateContent sends one interaction to model with the screenshots first
+// Interact sends one interaction to model with the screenshots first
 // and question last ("data first, question last", per the doc), plus
-// systemInstruction as the system instruction. It returns the model's text.
-// The key is resolved per request; an empty key fails before anything is
-// sent.
-func (c *Client) GenerateContent(ctx context.Context, model, systemInstruction, question string, images []Image) (string, error) {
+// systemInstruction as the system instruction. It returns the model's text
+// and, when the API reported one, the call's usage for cost accounting
+// (internal/session commits it as its own usage event, the same way a
+// DeepSeek turn's usage is). The key is resolved per request; an empty key
+// fails before anything is sent.
+func (c *Client) Interact(ctx context.Context, model, systemInstruction, question string, images []Image) (string, *Usage, error) {
 	if model == "" {
 		model = DefaultModel
 	}
-	req := GenerateContentRequest{
+	req := InteractionRequest{
 		Model:             model,
 		SystemInstruction: systemInstruction,
 		GenerationConfig:  &GenerationConfig{ThinkingLevel: ThinkingLevelMedium},
-		Input:             make([]Content, 0, len(images)+1),
+		// The system instruction already asks for a JSON list; asking the
+		// API for the same shape means the answer arrives as bare JSON, so
+		// no consumer has to strip a ```json fence (measured against the
+		// live API, item "response_format" in the follow-up brief).
+		ResponseFormat: &ResponseFormat{Type: "array"},
+		Input:          make([]Content, 0, len(images)+1),
 	}
 	for _, img := range images {
 		req.Input = append(req.Input, Content{
@@ -156,18 +163,18 @@ func (c *Client) GenerateContent(ctx context.Context, model, systemInstruction, 
 	}
 	req.Input = append(req.Input, Content{Type: ContentTypeText, Text: question})
 
-	resp, err := c.generateContent(ctx, req)
+	resp, err := c.interact(ctx, req)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	text := resp.Text()
 	if text == "" {
-		return "", fmt.Errorf("gemini: no text output in response (status %q, id %q)", resp.Status, resp.ID)
+		return "", nil, fmt.Errorf("gemini: no text output in response (status %q, id %q)", resp.Status, resp.ID)
 	}
-	return text, nil
+	return text, resp.Usage, nil
 }
 
-func (c *Client) generateContent(ctx context.Context, req GenerateContentRequest) (*GenerateContentResponse, error) {
+func (c *Client) interact(ctx context.Context, req InteractionRequest) (*InteractionResponse, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("gemini: encode request: %w", err)
@@ -187,7 +194,7 @@ func (c *Client) generateContent(ctx context.Context, req GenerateContentRequest
 	}
 	defer resp.Body.Close()
 
-	var out GenerateContentResponse
+	var out InteractionResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, fmt.Errorf("gemini: decode response: %w", err)
 	}

@@ -104,3 +104,33 @@ func TestCostUnknownModel(t *testing.T) {
 		t.Fatal("Cost of unknown model: want error, got nil")
 	}
 }
+
+// TestRepoTableCarriesGeminiModels pins that the repository's own price
+// table keeps the Gemini models the ReviewScreenshot tool costs against,
+// each with the per-model source and capture date the brief's convention
+// asks for. A typo in the table is the kind of failure that only shows up
+// as a silently zero Gemini cost, so it is pinned here instead.
+func TestRepoTableCarriesGeminiModels(t *testing.T) {
+	table, err := Load("../../configs/prices.json")
+	if err != nil {
+		t.Fatalf("Load ../../configs/prices.json: %v", err)
+	}
+	for _, model := range []string{"gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.6-flash"} {
+		p, ok := table.Models[model]
+		if !ok {
+			t.Errorf("table is missing %q", model)
+			continue
+		}
+		if p.Source != "https://ai.google.dev/gemini-api/docs/pricing" {
+			t.Errorf("%s source = %q, want Google's pricing page", model, p.Source)
+		}
+		if p.CapturedAt == "" {
+			t.Errorf("%s has no captured_at date", model)
+		}
+		for _, rate := range []float64{p.InputCacheHitPerMillionUSD, p.InputCacheMissPerMillionUSD, p.OutputPerMillionUSD} {
+			if rate <= 0 {
+				t.Errorf("%s has a non-positive rate: %v", model, rate)
+			}
+		}
+	}
+}

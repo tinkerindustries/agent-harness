@@ -52,7 +52,17 @@ func TestFinalMsgIDIsDerivedFromRequestID(t *testing.T) {
 	}
 }
 
+// TestSubjectHelpers pins the production subject contract of
+// docs/DESIGN.md §4.10. TestMain has by then renamed the package's subject
+// prefixes via IsolateForTest so the broker tests do not share subjects
+// with other packages, so this unit test restores the production prefixes
+// for its own assertions; the helpers' job is to build subjects, and the
+// contract they pin is the production one.
 func TestSubjectHelpers(t *testing.T) {
+	origReq, origRes := requestSubjectPrefix, resultSubjectPrefix
+	requestSubjectPrefix, resultSubjectPrefix = "harness.work.request.", "harness.work.result."
+	defer func() { requestSubjectPrefix, resultSubjectPrefix = origReq, origRes }()
+
 	if RequestSubject("req-1") != "harness.work.request.req-1" {
 		t.Fatalf("unexpected request subject: %s", RequestSubject("req-1"))
 	}

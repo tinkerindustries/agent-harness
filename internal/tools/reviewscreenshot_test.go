@@ -2,6 +2,7 @@ package tools
 
 import (
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
+	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 )
 
 // reviewScreenshotClient builds a Gemini client pointed at srv, so a test
@@ -248,5 +250,92 @@ func TestReviewScreenshotModelProviderIsConsulted(t *testing.T) {
 	}
 	if gotModel != "gemini-3.6-flash" {
 		t.Fatalf("model = %q, want gemini-3.6-flash from the provider", gotModel)
+	}
+}
+
+// TestGeminiUsagePayloadCostsAgainstThePriceTable pins the accounting a
+// ReviewScreenshot call contributes to the session: the verified usage
+// sample splits to 15 uncached input + 57 completion (thinking billed at
+// the output rate), and the cost comes out of the same price table
+// DeepSeek's turns use, keyed by the vision model. A nil table or an
+// unlisted model costs zero rather than failing the run.
+func TestGeminiUsagePayloadCostsAgainstThePriceTable(t *testing.T) {
+	prices := &pricing.Table{
+		CapturedAt: "2026-08-10",
+		Models: map[string]pricing.ModelPrices{
+			"gemini-3.5-flash": {InputCacheHitPerMillionUSD: 0.15, InputCacheMissPerMillionUSD: 1.5, OutputPerMillionUSD: 9.0},
+		},
+	}
+	usage := &gemini.Usage{
+		TotalTokens:        72,
+		TotalInputTokens:   15,
+		TotalCachedTokens:  0,
+		TotalOutputTokens:  1,
+		TotalThoughtTokens: 56,
+	}
+
+	payload := geminiUsagePayload(prices, "gemini-3.5-flash", usage)
+	if payload == nil {
+		t.Fatal("geminiUsagePayload returned nil for a non-nil usage")
+	}
+	if payload.PromptTokens != 15 || payload.PromptCacheHitTokens != 0 || payload.PromptCacheMissTokens != 15 {
+		t.Errorf("input split = %+v, want prompt 15, hit 0, miss 15", payload)
+	}
+	if payload.CompletionTokens != 57 || payload.ReasoningTokens != 56 {
+		t.Errorf("completion/reasoning = %d/%d, want 57/56", payload.CompletionTokens, payload.ReasoningTokens)
+	}
+	want := float64(15)/1e6*1.5 + float64(57)/1e6*9.0
+	if math.Abs(payload.CostUSD-want) > 1e-12 {
+		t.Errorf("CostUSD = %.12f, want %.12f", payload.CostUSD, want)
+	}
+
+	if p := geminiUsagePayload(nil, "gemini-3.5-flash", usage); p.CostUSD != 0 {
+		t.Errorf("CostUSD with a nil price table = %v, want 0", p.CostUSD)
+	}
+	if p := geminiUsagePayload(prices, "gemini-not-in-table", usage); p.CostUSD != 0 {
+		t.Errorf("CostUSD for an unlisted model = %v, want 0", p.CostUSD)
+	}
+}
+
+// TestReviewScreenshotResultCarriesUsage pins that a successful
+// ReviewScreenshot call returns its usage on the tool result, so the runner
+// can commit it as a usage event and the session cost total covers the
+// Gemini call.
+func TestReviewScreenshotResultCarriesUsage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"i-1","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"ok"}]}],"usage":{"total_tokens":72,"total_input_tokens":15,"total_cached_tokens":0,"total_output_tokens":1,"total_thought_tokens":56}}`))
+	}))
+	defer srv.Close()
+
+	root := t.TempDir()
+	e, err := NewExecutor(root, &Policy{Mode: ModeFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Gemini = reviewScreenshotClient(srv)
+	e.Prices = &pricing.Table{
+		CapturedAt: "2026-08-10",
+		Models: map[string]pricing.ModelPrices{
+			gemini.DefaultModel: {InputCacheHitPerMillionUSD: 0.15, InputCacheMissPerMillionUSD: 1.5, OutputPerMillionUSD: 9.0},
+		},
+	}
+	writeFile(t, root, "a.png", "x")
+
+	res := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ImagePaths: []string{"a.png"},
+		Question:   "what is wrong?",
+	})
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	if res.GeminiUsage == nil {
+		t.Fatal("a successful ReviewScreenshot call must carry its usage on the result")
+	}
+	if res.GeminiUsage.CostUSD <= 0 {
+		t.Errorf("expected a positive Gemini cost, got %v", res.GeminiUsage.CostUSD)
+	}
+	if res.GeminiUsage.SubTurn != 0 {
+		t.Errorf("SubTurn = %d, want 0 (the runner stamps the sub-turn)", res.GeminiUsage.SubTurn)
 	}
 }

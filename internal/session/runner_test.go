@@ -4,15 +4,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
+	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
@@ -23,6 +27,11 @@ func testPrices() *pricing.Table {
 		CapturedAt: "2026-08-09",
 		Models: map[string]pricing.ModelPrices{
 			"test-model": {InputCacheHitPerMillionUSD: 0.003625, InputCacheMissPerMillionUSD: 0.435, OutputPerMillionUSD: 0.87},
+			// The vision model the ReviewScreenshot tool uses by default,
+			// with the rates fetched from Google's pricing page on
+			// 2026-08-10, so the Gemini cost accounting test below has a
+			// real table to cost against.
+			"gemini-3.5-flash": {InputCacheHitPerMillionUSD: 0.15, InputCacheMissPerMillionUSD: 1.5, OutputPerMillionUSD: 9.0},
 		},
 	}
 }
@@ -418,4 +427,91 @@ func (c *int32Counter) next() int {
 	v := c.n
 	c.n++
 	return v
+}
+
+// TestRunGeminiCostShowsInSessionTotal drives a full run whose first
+// sub-turn calls ReviewScreenshot, then asserts the session's cost total
+// covers the Gemini call: the tool result carries its usage, the runner
+// commits it as its own usage event, and SessionUsageSummaries sums it into
+// the session cost exactly as it sums a DeepSeek turn's usage (docs/DESIGN.md
+// §4.9). The DeepSeek side bills 100 hit + 100 miss + 5 completion per
+// sub-turn; the Gemini side bills the verified sample: 15 uncached input +
+// 57 completion (output 1 + thought 56, thinking at the output rate).
+func TestRunGeminiCostShowsInSessionTotal(t *testing.T) {
+	geminiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"i-1","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"[{}]"}]}],"usage":{"total_tokens":72,"total_input_tokens":15,"total_cached_tokens":0,"total_output_tokens":1,"total_thought_tokens":56}}`))
+	}))
+	defer geminiSrv.Close()
+	geminiClient := gemini.NewClient(geminiSrv.URL, gemini.WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }))
+
+	var toolCallSent atomic.Bool
+	deepseekSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		if toolCallSent.CompareAndSwap(false, true) {
+			// First sub-turn: a ReviewScreenshot call.
+			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
+				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{
+					Role:      "assistant",
+					ToolCalls: []deepseek.ToolCallDelta{{Index: 0, ID: "call-review", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "ReviewScreenshot", Arguments: `{"image_paths":["shot.png"],"question":"what is wrong?"}`}}},
+				}}},
+			})
+			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
+				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishToolCalls)}},
+				Usage:   &deepseek.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
+			})
+		} else {
+			// Second sub-turn: a plain answer that ends the run.
+			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
+				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{Role: "assistant", Content: strPtr("all done")}}},
+			})
+			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
+				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishStop)}},
+				Usage:   &deepseek.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
+			})
+		}
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		w.(http.Flusher).Flush()
+	}))
+	defer deepseekSrv.Close()
+
+	r := newTestRunner(t, deepseekSrv.URL)
+	r.Gemini = geminiClient
+
+	ws := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ws, "shot.png"), []byte("not really a png"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := r.Run(t.Context(), RunOptions{
+		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "review the screenshot",
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Status != store.StatusOK {
+		t.Fatalf("expected status ok, got %s", res.Status)
+	}
+
+	summaries, err := r.Store.SessionUsageSummaries(t.Context(), []string{res.SessionID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := summaries[res.SessionID]
+
+	deepseekCost := 2 * (float64(100)/1e6*0.003625 + float64(100)/1e6*0.435 + float64(5)/1e6*0.87)
+	geminiCost := float64(15)/1e6*1.5 + float64(57)/1e6*9.0
+	if math.Abs(sum.CostUSD-(deepseekCost+geminiCost)) > 1e-9 {
+		t.Fatalf("session cost = %.9f, want %.9f (deepseek %.9f + gemini %.9f)", sum.CostUSD, deepseekCost+geminiCost, deepseekCost, geminiCost)
+	}
+	if sum.CompletionTokens != 2*5+57 {
+		t.Errorf("completion total = %d, want %d (2 deepseek turns of 5 + gemini 57)", sum.CompletionTokens, 2*5+57)
+	}
+	if sum.ReasoningTokens != 56 {
+		t.Errorf("reasoning total = %d, want 56 (the Gemini thought tokens)", sum.ReasoningTokens)
+	}
+	if sum.PromptCacheMissTokens != 2*100+15 {
+		t.Errorf("cache-miss total = %d, want %d", sum.PromptCacheMissTokens, 2*100+15)
+	}
 }
