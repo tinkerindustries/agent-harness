@@ -365,7 +365,8 @@ and cross-compiles. WAL mode, one writer goroutine (§4.5).
 Tables:
 
     sessions        id, parent_id, model, effort, workspace, permission_mode,
-                    system_prompt, tool_schema, status, created_at, finished_at
+                    system_prompt, tool_schema, status, created_at, finished_at,
+                    job_type, parent_agent_type, parent_agent_id
     events          session_id, seq, kind, payload, created_at   PK (session_id, seq)
     work_requests   request_id PK, session_id, status, result, received_at,
                     finished_at, delivery_count

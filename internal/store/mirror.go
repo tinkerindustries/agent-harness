@@ -39,37 +39,43 @@ func (m *Mirror) Dir(sess Session) string {
 }
 
 type sessionJSON struct {
-	ID             string          `json:"id"`
-	ParentID       string          `json:"parent_id,omitempty"`
-	Model          string          `json:"model"`
-	Effort         string          `json:"effort"`
-	Thinking       bool            `json:"thinking"`
-	Workspace      string          `json:"workspace"`
-	PermissionMode string          `json:"permission_mode"`
-	DenyPatterns   []string        `json:"deny_patterns"`
-	SystemPrompt   string          `json:"system_prompt"`
-	ToolSchema     json.RawMessage `json:"tool_schema"`
-	ResultSchema   json.RawMessage `json:"result_schema,omitempty"`
-	Status         string          `json:"status"`
-	CreatedAt      string          `json:"created_at"`
-	FinishedAt     string          `json:"finished_at,omitempty"`
+	ID              string          `json:"id"`
+	ParentID        string          `json:"parent_id,omitempty"`
+	JobType         string          `json:"job_type"`
+	ParentAgentType string          `json:"parent_agent_type,omitempty"`
+	ParentAgentID   string          `json:"parent_agent_id,omitempty"`
+	Model           string          `json:"model"`
+	Effort          string          `json:"effort"`
+	Thinking        bool            `json:"thinking"`
+	Workspace       string          `json:"workspace"`
+	PermissionMode  string          `json:"permission_mode"`
+	DenyPatterns    []string        `json:"deny_patterns"`
+	SystemPrompt    string          `json:"system_prompt"`
+	ToolSchema      json.RawMessage `json:"tool_schema"`
+	ResultSchema    json.RawMessage `json:"result_schema,omitempty"`
+	Status          string          `json:"status"`
+	CreatedAt       string          `json:"created_at"`
+	FinishedAt      string          `json:"finished_at,omitempty"`
 }
 
 func toSessionJSON(sess Session) sessionJSON {
 	sj := sessionJSON{
-		ID:             sess.ID,
-		ParentID:       sess.ParentID,
-		Model:          sess.Model,
-		Effort:         sess.Effort,
-		Thinking:       sess.Thinking,
-		Workspace:      sess.Workspace,
-		PermissionMode: sess.PermissionMode,
-		DenyPatterns:   sess.DenyPatterns,
-		SystemPrompt:   sess.SystemPrompt,
-		ToolSchema:     sess.ToolSchema,
-		ResultSchema:   sess.ResultSchema,
-		Status:         sess.Status,
-		CreatedAt:      sess.CreatedAt.UTC().Format("2006-01-02T15:04:05.000000000Z07:00"),
+		ID:              sess.ID,
+		ParentID:        sess.ParentID,
+		JobType:         sess.JobType,
+		ParentAgentType: sess.ParentAgentType,
+		ParentAgentID:   sess.ParentAgentID,
+		Model:           sess.Model,
+		Effort:          sess.Effort,
+		Thinking:        sess.Thinking,
+		Workspace:       sess.Workspace,
+		PermissionMode:  sess.PermissionMode,
+		DenyPatterns:    sess.DenyPatterns,
+		SystemPrompt:    sess.SystemPrompt,
+		ToolSchema:      sess.ToolSchema,
+		ResultSchema:    sess.ResultSchema,
+		Status:          sess.Status,
+		CreatedAt:       sess.CreatedAt.UTC().Format("2006-01-02T15:04:05.000000000Z07:00"),
 	}
 	if sess.FinishedAt != nil {
 		sj.FinishedAt = sess.FinishedAt.UTC().Format("2006-01-02T15:04:05.000000000Z07:00")

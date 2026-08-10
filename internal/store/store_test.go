@@ -2,11 +2,14 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 )
 
 func openTestStore(t *testing.T) *Store {
@@ -70,6 +73,122 @@ func TestGetSessionNotFound(t *testing.T) {
 	s := openTestStore(t)
 	if _, err := s.GetSession(context.Background(), "missing"); err != ErrNotFound {
 		t.Fatalf("expected ErrNotFound, got %v", err)
+	}
+}
+
+// TestSessionProvenanceRoundTrip pins the three provenance fields end to end:
+// a populated session comes back with all of them, and a zero-value session
+// comes back with the default implementation job type and no parent agent.
+func TestSessionProvenanceRoundTrip(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	populated := Session{
+		ID:              "sess-prov",
+		Model:           "deepseek-v4-pro",
+		Effort:          "high",
+		Workspace:       "/tmp/ws",
+		PermissionMode:  "default",
+		SystemPrompt:    "sys",
+		ToolSchema:      json.RawMessage(`[]`),
+		JobType:         agentmeta.JobTypeOrchestration,
+		ParentAgentType: "orchestrator",
+		ParentAgentID:   "orchestrator-1",
+	}
+	if err := s.CreateSession(ctx, populated); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	got, err := s.GetSession(ctx, populated.ID)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if got.JobType != agentmeta.JobTypeOrchestration || got.ParentAgentType != "orchestrator" || got.ParentAgentID != "orchestrator-1" {
+		t.Fatalf("provenance fields not preserved: %+v", got)
+	}
+
+	empty := Session{
+		ID:             "sess-plain",
+		Model:          "deepseek-v4-flash",
+		Effort:         "high",
+		Workspace:      "/tmp/plain",
+		PermissionMode: "default",
+		SystemPrompt:   "sys",
+		ToolSchema:     json.RawMessage(`[]`),
+	}
+	if err := s.CreateSession(ctx, empty); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	got, err = s.GetSession(ctx, empty.ID)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if got.JobType != agentmeta.JobTypeImplementation {
+		t.Fatalf("expected job type %q, got %q", agentmeta.JobTypeImplementation, got.JobType)
+	}
+	if got.ParentAgentType != "" || got.ParentAgentID != "" {
+		t.Fatalf("expected empty parent agent fields, got %+v", got)
+	}
+}
+
+// TestOpenMigratesLegacySessionsTable builds a database with the pre-change
+// sessions table, inserts a row, and proves Open adds the three columns,
+// backfilling the row, and that a second Open is a no-op.
+func TestOpenMigratesLegacySessionsTable(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "legacy.db")
+
+	// The sessions table as it existed before the provenance columns.
+	legacy := `
+CREATE TABLE sessions (
+	id              TEXT PRIMARY KEY,
+	parent_id       TEXT,
+	model           TEXT NOT NULL,
+	effort          TEXT NOT NULL,
+	thinking        INTEGER NOT NULL,
+	workspace       TEXT NOT NULL,
+	permission_mode TEXT NOT NULL,
+	deny_patterns   TEXT NOT NULL DEFAULT '[]',
+	system_prompt   TEXT NOT NULL,
+	tool_schema     TEXT NOT NULL,
+	result_schema   TEXT,
+	status          TEXT NOT NULL,
+	created_at      TEXT NOT NULL,
+	finished_at     TEXT
+);
+INSERT INTO sessions (id, model, effort, thinking, workspace, permission_mode,
+	system_prompt, tool_schema, status, created_at)
+VALUES ('legacy-1', 'deepseek-v4-pro', 'high', 1, '/tmp/ws', 'default',
+	'sys', '[]', 'ok', '2026-01-02T03:04:05Z');`
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(legacy); err != nil {
+		t.Fatalf("build legacy db: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	for attempt := 1; attempt <= 2; attempt++ {
+		s, err := Open(path)
+		if err != nil {
+			t.Fatalf("open %d: %v", attempt, err)
+		}
+		got, err := s.GetSession(ctx, "legacy-1")
+		if err != nil {
+			t.Fatalf("get session after open %d: %v", attempt, err)
+		}
+		if got.JobType != agentmeta.JobTypeImplementation {
+			t.Fatalf("open %d: expected job type %q, got %q", attempt, agentmeta.JobTypeImplementation, got.JobType)
+		}
+		if got.ParentAgentType != "" || got.ParentAgentID != "" {
+			t.Fatalf("open %d: expected empty parent agent fields, got %+v", attempt, got)
+		}
+		if err := s.Close(); err != nil {
+			t.Fatalf("close %d: %v", attempt, err)
+		}
 	}
 }
 
