@@ -206,12 +206,14 @@ were a shell on the box or a hand-written SQLite update against a live store.
 An API is the better answer, so the prohibition is retired and
 [DATA-API.md](DATA-API.md) is the surface that replaces it.
 
-Run control is the next stage rather than a permanent exclusion. The intent is
-an interactive frontend that can start, steer, and stop a run; it is not built,
-and until the seam it goes through is designed, the HTTP server holds no NATS
-handle and work enters over NATS or the CLI. The distinction while that is true
-is the target, not the verb: a write that closes an abandoned session row is
-data, and a write that publishes a work request is run control.
+Run control is being built in stages (docs/RUN-CONTROL.md), and the seam is
+chosen: stopping goes through the `RunController` interface declared in
+`internal/httpapi` and implemented by `*worker.Pool`, so the HTTP server still
+holds no NATS handle and work enters over NATS or the CLI. `POST
+/api/sessions/{id}/stop` is live, authenticated by the `http.control_token`
+bearer token; starting and steering are not built yet. The distinction while
+that is true is the target, not the verb: a write that closes an abandoned
+session row is data, and a write that publishes a work request is run control.
 
 Two things stage two has to answer, and stage one should not foreclose:
 
@@ -595,14 +597,18 @@ must not be read as failure. A caller that only checks `status: "ok"` cannot
 tell a finished task from one the model gave up on and reported as such;
 `complete_status: "gave_up"` is that distinction.
 
-There is no `cancelled`. Nothing can cancel a run: the browser cannot steer
-the loop (§4.2) and a graceful shutdown drains in-flight work rather than
-cutting it off, because an agent run costs minutes and a restart is not a
-reason to waste one. A process that dies outright leaves its message unacked,
-and redelivery covers it — for the request that never attached a session.
-Once a session exists, the request is single-use and a redelivery fails it
-rather than re-runs it (below), which is the price of a hard kill: graceful
-shutdown is the supported way out of a run, and it never wastes one.
+`cancelled` is an operator's stop, not a shutdown. `POST /api/sessions/{id}/stop`
+sets it (docs/RUN-CONTROL.md): a healthy run answers a cancelled context at its
+next check point, a wedged one is force-finished after the grace period, and
+the result carries `error.code: "cancelled"` with the operator's reason. It is
+distinct from `timeout`, which is deadline-driven with no operator involved. A
+graceful shutdown still drains in-flight work rather than cutting it off,
+because an agent run costs minutes and a restart is not a reason to waste one.
+A process that dies outright leaves its message unacked, and redelivery covers
+it — for the request that never attached a session. Once a session exists, the
+request is single-use and a redelivery fails it rather than re-runs it (below),
+which is the price of a hard kill: graceful shutdown is the supported way out
+of a run, and it never wastes one.
 
 `result_schema` is validated in Go against the `Complete` arguments. A failing
 payload returns a validation error through the tool result channel and the model

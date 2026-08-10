@@ -15,14 +15,14 @@ backend half of it".
 Steps 1 to 3 have landed on `deepseek/run-control`. Step 4 was split in two
 after watching how much of one fitted into a single run: the endpoint and its
 authentication are one unit of thinking, and the three thin clients over it
-are another.
+are another. Step 4a has landed on the branch.
 
 | Step | State |
 | --- | --- |
 | 1 — `Bash` survives a wedged child | landed (`ddc23c0`, plus `db1510e` keeping the partial output) |
 | 2 — Store, event, and settings foundations | landed (`0d0ae42`, plus `5ae461b` refusing to relabel a finished run) |
 | 3 — The control seam | landed (`9c3178a`) |
-| 4a — Stop over HTTP, and the control token | next |
+| 4a — Stop over HTTP, and the control token | landed |
 | 4b — Stop's three clients: MCP, CLI, browser | |
 | 5 — Steer, end to end | |
 | 6 — Start from the browser | |

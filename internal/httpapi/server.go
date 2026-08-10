@@ -2,25 +2,28 @@
 // docs/DATA-API.md): it reads and writes the data the harness manages and
 // cannot reach the run loop. GET and HEAD are served on every path, including
 // ones that do not exist; the writing methods are allowed where a write route
-// exists — PUT and DELETE on a settings key, PATCH and DELETE on one session.
-// It serves the session list and metadata from the store, a paged read of one
-// session's event log, two SSE streams — a per-session transcript and a
-// quiet session-level list feed — fed by the in-process hub package rather
-// than NATS, the settings table, and the work-request and workspace-lease
-// rows. The write surface is the data the
-// harness manages: closing an abandoned session, deleting a finished one,
-// setting a key. Nothing here starts, steers, or stops a run; that is the
-// whole point of the browser being read-only with respect to runs, and the
-// import boundary below is what makes it structural.
+// exists — PUT and DELETE on a settings key, PATCH and DELETE on one session,
+// and POST on the run-control subresources (docs/RUN-CONTROL.md). It serves
+// the session list and metadata from the store, a paged read of one session's
+// event log, two SSE streams — a per-session transcript and a quiet
+// session-level list feed — fed by the in-process hub package rather than
+// NATS, the settings table, and the work-request and workspace-lease rows.
+// The write surface is the data the harness manages: closing an abandoned
+// session, deleting a finished one, setting a key. Run control is a declared
+// seam, not an import: stopping goes through the RunController interface
+// below, satisfied by *worker.Pool without this package knowing the package
+// exists, and nothing here starts or steers a run.
 package httpapi
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -118,22 +121,47 @@ type QueuePool interface {
 	Halted() (bool, string)
 }
 
+// RunController is the subset of the worker pool that run control needs,
+// declared here rather than importing internal/worker — the same shape as
+// QueuePool above: a narrow interface named for what it does, implemented by
+// *worker.Pool without this package knowing the package exists, so the import
+// boundary ARCHITECTURE.md calls structural stays structural (docs/RUN-CONTROL.md
+// "Stopping is addressed at one goroutine, so the seam is a registry").
+type RunController interface {
+	// Stop begins ending sessionID and returns immediately: it cancels the
+	// run's context, and a stop already in progress is not an error (a second
+	// stop is another 202, not a 409). It reports ErrRunNotFound when no run
+	// in this process owns that session. The handler must not parse the
+	// error's text to tell those apart — it asks Running first and treats any
+	// error from Stop as a 500 carrying the message.
+	Stop(sessionID, reason string) error
+	// Running reports whether this process is running sessionID.
+	Running(sessionID string) bool
+}
+
 // Server holds the things every handler reads: the store, for everything
 // historical; the hub, for everything live; and, optionally, the queue's
 // consumer and pool, for /api/queue's consumer lag, in-flight count, and
 // redelivery count (docs/DESIGN.md §5.8). The write surface is the data the
 // harness manages (docs/DATA-API.md): the settings endpoints and the session
 // close/delete endpoints read and write through Store, and nothing else in
-// Server is mutated by a request — the run surface stays read-only
-// (docs/DESIGN.md §4.2). Consumer and Pool are nil in any caller that has no
+// Server is mutated by a request — the run surface stays read-only except
+// for the stop endpoint, which acts on a run through the RunController seam
+// (docs/RUN-CONTROL.md). Consumer and Pool are nil in any caller that has no
 // queue at all (a CLI-only harness never wires one up); the handler degrades
-// to reporting the queue as unavailable rather than panicking.
+// to reporting the queue as unavailable rather than panicking. Run is nil the
+// same way in a caller with no pool, and the stop handler then answers 409
+// for every existing session — this process is running nothing. ControlToken
+// is the process's copy of http.control_token; empty means run control is not
+// configured and the stop endpoint fails closed with 503.
 type Server struct {
 	Store          *store.Store
 	Hub            *hub.Hub
 	Static         http.Handler
 	Consumer       QueueConsumer
 	Pool           QueuePool
+	Run            RunController
+	ControlToken   string
 	PriceTableDate string
 	Settings       *settings.Resolver
 
@@ -150,8 +178,9 @@ type Server struct {
 // routing, so a request outside the method allowlist is rejected on every
 // path, including ones nothing here recognises: GET and HEAD everywhere, and
 // the writing methods where a write route exists — PUT and DELETE on a
-// settings key path, PATCH and DELETE on one session's path
-// (docs/DESIGN.md §4.2, docs/DATA-API.md).
+// settings key path, PATCH and DELETE on one session's path, and POST on the
+// run-control subresources (docs/DESIGN.md §4.2, docs/DATA-API.md,
+// docs/RUN-CONTROL.md).
 func (s *Server) Handler() http.Handler {
 	return methodGate(s.routes())
 }
@@ -168,8 +197,10 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/sessions/{id}", s.handleGetSession)
 	mux.HandleFunc("PATCH /api/sessions/{id}", s.handlePatchSession)
 	mux.HandleFunc("DELETE /api/sessions/{id}", s.handleDeleteSession)
+	mux.HandleFunc("POST /api/sessions/{id}/stop", s.handleStopSession)
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.handleGetEvents)
 	mux.HandleFunc("GET /api/sessions/{id}/stream", s.handleSessionStream)
+	mux.HandleFunc("GET /api/control-token", s.handleGetControlToken)
 	mux.HandleFunc("GET /api/requests", s.handleListWorkRequests)
 	mux.HandleFunc("GET /api/requests/{request_id}", s.handleGetWorkRequest)
 	mux.HandleFunc("PATCH /api/requests/{request_id}", s.handlePatchWorkRequest)
@@ -193,7 +224,8 @@ func (s *Server) routes() *http.ServeMux {
 // methodGate enforces the method allowlist ahead of any routing decision. GET
 // and HEAD pass on every path; the writing methods pass only where a write
 // route exists — PUT and DELETE on a settings key path, PATCH and DELETE on a
-// session or work-request path, DELETE on a lease path (docs/DATA-API.md). A
+// session or work-request path, DELETE on a lease path, and POST on the
+// run-control subresources (docs/DATA-API.md, docs/RUN-CONTROL.md). A
 // pattern registered with a method already 405s a wrong-method request that
 // matches its path (net/http's ServeMux does this since Go 1.22), but that
 // only covers paths this package recognises; the static handler's "/" pattern
@@ -235,6 +267,8 @@ func writeAllowed(method, path string) bool {
 		return method == http.MethodPatch || method == http.MethodDelete
 	case isLeasePath(path):
 		return method == http.MethodDelete
+	case isStopPath(path):
+		return method == http.MethodPost
 	default:
 		return false
 	}
@@ -264,6 +298,22 @@ func isSessionPath(path string) bool {
 	}
 	rest := strings.TrimPrefix(path, prefix)
 	return rest != "" && !strings.Contains(rest, "/")
+}
+
+// isStopPath reports whether path is one session's stop subresource —
+// /api/sessions/<id>/stop, exactly one id segment and the literal "stop".
+// POST may pass the gate here and nowhere else. It is deliberately separate
+// from isSessionPath, which requires no further segments and must keep PATCH
+// and DELETE scoped to the row: a stop is an action on a run, not an edit of
+// a row (docs/RUN-CONTROL.md "The HTTP surface").
+func isStopPath(path string) bool {
+	const prefix = "/api/sessions/"
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	rest := strings.TrimPrefix(path, prefix)
+	id, tail, ok := strings.Cut(rest, "/")
+	return ok && id != "" && tail == "stop"
 }
 
 // isRequestPath reports whether path is exactly one work request's resource —
@@ -306,6 +356,8 @@ func allowedMethods(path string) string {
 		return "GET, HEAD, PATCH, DELETE"
 	case isLeasePath(path):
 		return "GET, HEAD, DELETE"
+	case isStopPath(path):
+		return "GET, HEAD, POST"
 	default:
 		return "GET, HEAD"
 	}
@@ -481,6 +533,139 @@ func writeSessionWriteError(w http.ResponseWriter, err error) {
 	default:
 		writeInternalError(w, err)
 	}
+}
+
+// --- run control: stop (phase 4) ---
+
+// stopSessionBody is the JSON body POST /api/sessions/{id}/stop accepts: the
+// operator's reason, optional, carried verbatim as the message of the
+// cancelled result (docs/RUN-CONTROL.md "The HTTP surface").
+type stopSessionBody struct {
+	Reason string `json:"reason"`
+}
+
+// handleStopSession serves POST /api/sessions/{id}/stop: asks this process's
+// worker pool to end the run, whatever state it is in — a healthy run ends at
+// its next check point, a wedged one is force-finished after the grace period
+// (docs/RUN-CONTROL.md "Stopping"). The whole path is non-blocking: the 202 is
+// the acceptance, and the terminal state arrives over the session's own SSE
+// stream.
+//
+// The guards and preconditions, in order: the content-type and origin guards
+// every write carries; the bearer token (401 missing or wrong, 503 when no
+// token is configured — a missing credential fails closed); the session
+// existing in the store (404); this process running it (409 naming the
+// session's actual status — the honest answer for a session that already
+// finished, and for one being run by nothing at all); and 202
+// {"session_id", "stopping": true} otherwise. A second stop for a run already
+// stopping is another 202, not a 409: stopping is idempotent
+// (docs/RUN-CONTROL.md "The HTTP surface").
+//
+// No If-Match, deliberately: that rule (docs/DATA-API.md "Optimistic
+// concurrency") governs mutations of a row — it stops an operator's write
+// landing on a row that changed since they read it. A stop is an action on a
+// run, not an edit of a row, and a running session's version changes
+// continuously underneath the caller, so requiring a version echo would make
+// a correct stop racy by construction.
+func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
+	if !writeGuards(w, r) {
+		return
+	}
+	if !s.requireControlToken(w, r) {
+		return
+	}
+	var body stopSessionBody
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `invalid JSON body: expected {"reason": "..."}`})
+		return
+	}
+	sess, err := s.Store.GetSession(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeSessionLookupError(w, err)
+		return
+	}
+	// The controller is nil in any caller that has no pool; that caller is
+	// running nothing, so every existing session is "not running here" — the
+	// same honest answer as a session this process finished or never ran.
+	running := s.Run != nil && s.Run.Running(sess.ID)
+	if !running {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": fmt.Sprintf("session %s is not running in this process (status %s)", sess.ID, sess.Status),
+		})
+		return
+	}
+	if err := s.Run.Stop(sess.ID, body.Reason); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"session_id": sess.ID, "stopping": true})
+}
+
+// requireControlToken enforces the bearer token the run-control endpoints
+// carry (docs/RUN-CONTROL.md "Authentication"). The token is the process's
+// own copy of http.control_token, generated and stored at startup by serve
+// when the setting is empty; a Server built without that generation (every
+// test that does not set one) has an empty token and answers 503 — a missing
+// credential must fail closed, never let the request through.
+//
+// What the token buys and does not buy, plainly: nothing against another
+// process running as the same user, which can read the settings table;
+// everything on the day the port is exposed off loopback — deliberately, by a
+// `-addr 0.0.0.0`, or by a container port publish — which is the case
+// docs/DESIGN.md §4.2 names as the one stage two forces. The comparison is
+// constant time, so a timing side channel cannot probe the token byte by
+// byte.
+func (s *Server) requireControlToken(w http.ResponseWriter, r *http.Request) bool {
+	if s.ControlToken == "" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "run control is not configured: no control token has been generated (start harness serve once, or set http.control_token)",
+		})
+		return false
+	}
+	const prefix = "Bearer "
+	header := r.Header.Get("Authorization")
+	if !strings.HasPrefix(header, prefix) {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{
+			"error": "missing bearer token: run-control endpoints require Authorization: Bearer <token>",
+		})
+		return false
+	}
+	got := strings.TrimPrefix(header, prefix)
+	if subtle.ConstantTimeCompare([]byte(got), []byte(s.ControlToken)) != 1 {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid bearer token"})
+		return false
+	}
+	return true
+}
+
+// handleGetControlToken serves GET /api/control-token: the run-control bearer
+// token, to a loopback caller only (docs/RUN-CONTROL.md "Authentication").
+// This is how the browser and a same-host MCP server get the token in phase
+// 4b; a caller that is not on this machine has to be given it out of band,
+// which is the property that makes the token worth having. A non-loopback
+// caller is 403 with no hint about whether a token exists at all.
+func (s *Server) handleGetControlToken(w http.ResponseWriter, r *http.Request) {
+	if !isLoopbackAddr(r.RemoteAddr) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "the control token is only served to loopback callers"})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"token": s.ControlToken})
+}
+
+// isLoopbackAddr reports whether remoteAddr (an "ip:port" string from
+// http.Request.RemoteAddr) is a loopback address: 127.0.0.0/8 or ::1 by the
+// address, or the name "localhost". It is what gates GET /api/control-token:
+// the token must not leave this machine over the wire.
+func isLoopbackAddr(remoteAddr string) bool {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // --- work-request and workspace-lease writes (phase 3) ---
