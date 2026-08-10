@@ -153,6 +153,18 @@ function RailMount({
       await nextFrames(3);
       if (cancelled) return;
 
+      // The rail's accordion mounts while the store is still empty, so its
+      // default (first phase open) never applies and every phase renders
+      // closed. Radix unmounts a closed phase's rows, so the .rail-turn
+      // count below would read 0 while the rail holds all 142 entries —
+      // a reporting bug in this harness, not in the rail. Open every closed
+      // phase before counting so the DOM count is the real one.
+      for (const trigger of document.querySelectorAll<HTMLElement>(".rail-phase-trigger[data-state=\"closed\"]")) {
+        trigger.click();
+      }
+      await nextFrames(2);
+      if (cancelled) return;
+
       const railNav = document.querySelector<HTMLElement>(".timeline-rail");
       const entries = document.querySelectorAll(".rail-turn").length;
       const phases = document.querySelectorAll(".rail-phase").length;

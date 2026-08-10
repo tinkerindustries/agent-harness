@@ -13,6 +13,10 @@ Nothing in this plan touches the system prompt, the tool array, or the request
 path, so the cache invariant in [DESIGN.md](DESIGN.md) §3.2 is not in play. Every
 new endpoint is `GET`. The browser still observes and does not act.
 
+All eight phases have landed. Each phase below carries a **Status** line
+recording the outcome — and, where the outcome diverged from the intent, the
+gap. The numbers live in [DESIGN.md](DESIGN.md) §5.9–§5.11.
+
 ## What the current UI does and where it hurts
 
 Measured against `sess-f93b37beb37098b5637832e829c37d92` on 2026-08-10 — 142
@@ -65,6 +69,10 @@ binary, so record the delta in the commit.
 **Risk.** Tailwind's preflight resets margins the current CSS relies on. Expect
 a pass of small layout corrections in the transcript blocks.
 
+**Status.** Landed (commit `de32e2a`, PR #21). The measured bundle growth,
+8.44 → 46.71 kB of CSS and 376.28 → 478.92 kB of JS (gzip 2.38 → 9.71 kB and
+119.31 → 150.27 kB) across phases 1–6, is in DESIGN.md §5.11.
+
 ## Phase 2 — Outcome vocabulary
 
 **Goal.** `OK` becomes `DONE`, `GAVE UP`, or `STOPPED`. The mapping table is in
@@ -89,6 +97,8 @@ variant. Both screens call it. Add the badge variants from `tokens.css`.
 **Exit.** A session that called `Complete(status: "gave_up")` shows `GAVE UP` in
 the list and in the transcript header. A pre-migration row shows `OK`. Add a
 store test for the migration backfill and a `fold.ts` test for the mapping.
+
+**Status.** Landed (commit `295389b`, PR #22).
 
 ## Phase 3 — In-flight sessions on the main page
 
@@ -116,6 +126,8 @@ The finished table gains a subtitle row: the plan ratio and the model's summary.
 that never wrote a plan shows the card without a plan section rather than an
 empty one.
 
+**Status.** Landed (commit `64412b6`, PR #25). §5.8 describes the split list.
+
 ## Phase 4 — The sub-turn becomes the unit
 
 **Goal.** Reasoning, assistant text, tool calls, and their results render as one
@@ -140,6 +152,11 @@ absorbed into its group's header. `run_finished` and `error` stay top-level.
 **Exit.** Re-measure with `src/perf` before and after. The claim to test is that
 delta commits stay flat in group count, the same property §5.5 measured for
 blocks. Do not ship this on the argument that fewer DOM nodes must be faster.
+
+**Status.** Landed (commit `38ba276`, PR #24). The re-measurement the exit
+clause demanded is in DESIGN.md §5.9: delta commits stay flat in group count
+(means 0.02–0.24 ms before and after), and at 2000 blocks the append mean
+dropped 6.66 → 1.43 ms and the max 8.9 → 2.3 ms.
 
 ## Phase 5 — Density, tool headers, and filters
 
@@ -166,6 +183,15 @@ than its arguments JSON.
 **Exit.** The session page's scroll height in Compact mode, measured on the same
 session, recorded in the commit against the 86,674-pixel baseline.
 
+**Status.** Landed (commit `16f1755`, PR #26) — with one exit clause not met
+literally, and phase 8 is here to say so. The 6,973 px figure was taken on the
+**synthetic** feed from `web/src/perf`, not on the real session, and the commit
+read it as "about 8% of the old baseline", which compared two different
+sessions. The honest record: on the synthetic 142-sub-turn feed, Compact is
+6,973 px against Full's 7,880 px — about 12% shorter on the same feed. The
+86,674 px baseline was measured on a real session and has not been re-measured
+against the new UI; the two are not comparable (DESIGN.md §5.9).
+
 ## Phase 6 — The timeline rail
 
 **Goal.** Browsing 142 sub-turns without the scrollbar.
@@ -181,6 +207,13 @@ a failed result overriding to red. Clicking scrolls to the card; an
 scrolling without a measurable frame cost. Phases collapse and expand
 independently. The observer is one instance over the group containers, not one
 per block.
+
+**Status.** Landed (commit `7322d6e`, PR #27). The measurements are in DESIGN.md
+§5.10: one IntersectionObserver for 142 sub-turns in a production build, 8
+phases / 142 entries, and scrolling stayed under frame budget. One harness bug
+was left for this phase and is fixed here: the perf harness printed "0 entries"
+while the rail rendered 142, because the rail's accordion mounted with every
+phase closed and Radix unmounts a closed phase's rows.
 
 ## Phase 7 — The settings screen
 
@@ -214,6 +247,8 @@ the disclosures; the four overridden keys are findable without reading a badge o
 every row; `model.effort` cannot be set to a value the registry rejects; and a
 rejected write still shows the server's own message under the field.
 
+**Status.** Landed (commit `06c9626`, PR #23).
+
 ## Phase 8 — Measure and record
 
 **Goal.** Leave the next person the numbers rather than the argument.
@@ -226,6 +261,10 @@ corrections to them.
 
 **Exit.** Someone reading DESIGN.md §5 can tell what the frontend does now
 without reading the diff.
+
+**Status.** This phase. DESIGN.md §5.8–§5.11 rewritten to describe the shipped
+frontend and carry the measurements; web/CLAUDE.md brought in line; the status
+lines above added; and the rail harness's entries counter fixed.
 
 ## What is deliberately not here
 
