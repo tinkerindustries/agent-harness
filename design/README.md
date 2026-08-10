@@ -19,7 +19,8 @@ design decision at build time. `components.html` has the mapping table.
 The plan items, diffs, token counts and costs are from
 `sess-f93b37beb37098b5637832e829c37d92` — 142 sub-turns, 16:31, 99.3% cache hit,
 $0.0838, an 86,674-pixel page mounting 974 block elements. The settings rows are
-the registry in `internal/settings` — all 27 entries, in registry order, with the
+the registry in `internal/settings` as it stood at the design pass — 27 entries
+then, in registry order, with the
 real defaults and bounds.
 
 These are drawings, not a prototype. The implementation plan is
