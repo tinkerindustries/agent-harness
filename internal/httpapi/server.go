@@ -873,24 +873,32 @@ func (s *Server) requireControlToken(w http.ResponseWriter, r *http.Request) boo
 }
 
 // handleGetControlToken serves GET /api/control-token: the run-control bearer
-// token, to a loopback caller only (docs/RUN-CONTROL.md "Authentication").
-// This is how the browser and a same-host MCP server get the token in phase
-// 4b; a caller that is not on this machine has to be given it out of band,
-// which is the property that makes the token worth having. A non-loopback
-// caller is 403 with no hint about whether a token exists at all.
+// token, to a local caller only (docs/RUN-CONTROL.md "Authentication"). This
+// is how the browser and a same-host MCP server get the token in phase 4b; a
+// caller that is not on this machine has to be given it out of band, which is
+// the property that makes the token worth having. A non-local caller is 403
+// with no hint about whether a token exists at all.
 func (s *Server) handleGetControlToken(w http.ResponseWriter, r *http.Request) {
-	if !isLoopbackAddr(r.RemoteAddr) {
-		writeJSON(w, http.StatusForbidden, map[string]string{"error": "the control token is only served to loopback callers"})
+	if !isLocalCallerAddr(r.RemoteAddr) {
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "the control token is only served to local callers"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"token": s.ControlToken})
 }
 
-// isLoopbackAddr reports whether remoteAddr (an "ip:port" string from
-// http.Request.RemoteAddr) is a loopback address: 127.0.0.0/8 or ::1 by the
-// address, or the name "localhost". It is what gates GET /api/control-token:
-// the token must not leave this machine over the wire.
-func isLoopbackAddr(remoteAddr string) bool {
+// isLocalCallerAddr reports whether remoteAddr (an "ip:port" string from
+// http.Request.RemoteAddr) belongs to a caller close enough to this machine
+// to trust with the control token: loopback (127.0.0.0/8, ::1, the name
+// "localhost") or a private address (RFC 1918 / RFC 4193, via IP.IsPrivate).
+// The private-range allowance exists because the harness runs behind
+// docker-compose's published ports (docker-compose.prod.yml): a browser on
+// the host hitting 127.0.0.1:8180 arrives inside the container NAT'd through
+// the compose network's gateway, not as 127.0.0.1, so a loopback-only check
+// rejects genuinely local traffic. The real boundary is still that gateway's
+// port publish being loopback-only on the host — nothing outside this machine
+// can reach the published port to begin with — so trusting the private range
+// on top of it does not admit a caller that could not already reach here.
+func isLocalCallerAddr(remoteAddr string) bool {
 	host, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
 		host = remoteAddr
@@ -899,7 +907,7 @@ func isLoopbackAddr(remoteAddr string) bool {
 		return true
 	}
 	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	return ip != nil && (ip.IsLoopback() || ip.IsPrivate())
 }
 
 // --- work-request and workspace-lease writes (phase 3) ---

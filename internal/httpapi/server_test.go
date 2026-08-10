@@ -3218,7 +3218,7 @@ func TestStopSurfacesControllerFailure(t *testing.T) {
 // TestGetControlTokenServesLoopbackOnly pins GET /api/control-token
 // (docs/RUN-CONTROL.md "Authentication"): the token is served to a loopback
 // RemoteAddr — the shape the browser and a same-host MCP server get it in —
-// and a non-loopback caller is 403.
+// and a non-local caller is 403.
 func TestGetControlTokenServesLoopbackOnly(t *testing.T) {
 	srv, _ := newControlTestServer(t, &fakeRunController{})
 
@@ -3238,7 +3238,7 @@ func TestGetControlTokenServesLoopbackOnly(t *testing.T) {
 		t.Fatalf("token = %q, want the configured token", got["token"])
 	}
 
-	// A non-loopback RemoteAddr is refused with 403.
+	// A non-local (public) RemoteAddr is refused with 403.
 	api := &Server{
 		ControlToken: "test-control-token",
 		Static:       http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
@@ -3248,7 +3248,35 @@ func TestGetControlTokenServesLoopbackOnly(t *testing.T) {
 	rr := httptest.NewRecorder()
 	api.Handler().ServeHTTP(rr, req)
 	if rr.Code != http.StatusForbidden {
-		t.Fatalf("non-loopback GET: got status %d, want 403", rr.Code)
+		t.Fatalf("non-local GET: got status %d, want 403", rr.Code)
+	}
+}
+
+// TestGetControlTokenServesDockerNATedCaller pins the reason
+// isLocalCallerAddr also trusts private-range addresses, not just loopback:
+// docker-compose publishes the harness's port as 127.0.0.1:8180, but a
+// browser on the host hitting that address arrives inside the container
+// NAT'd through the compose network's gateway (e.g. 172.22.0.1), not as
+// 127.0.0.1. Rejecting that RemoteAddr is what produced "run control not
+// configured" for a genuinely local caller.
+func TestGetControlTokenServesDockerNATedCaller(t *testing.T) {
+	api := &Server{
+		ControlToken: "test-control-token",
+		Static:       http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+	}
+	req := httptest.NewRequest(http.MethodGet, "http://example.com/api/control-token", nil)
+	req.RemoteAddr = "172.22.0.1:54321"
+	rr := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("docker-gateway GET: got status %d, want 200", rr.Code)
+	}
+	var got map[string]string
+	if err := json.NewDecoder(rr.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got["token"] != "test-control-token" {
+		t.Fatalf("token = %q, want the configured token", got["token"])
 	}
 }
 

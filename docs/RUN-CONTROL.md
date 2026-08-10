@@ -543,12 +543,20 @@ world-readable-to-your-own-uid SQLite file is easy to over-sell:
   case it is for, and it is the case §4.2 says stage two forces.
 
 Distribution follows from that. `GET /api/control-token` returns the token
-**only to a loopback `RemoteAddr`**, so the frontend fetches it at startup and
-a remote caller must be given it out of band. `harness stop` and `harness
-steer` read it from the settings table directly, the way every other CLI
-subcommand reads configuration. `harness mcp` takes it from
-`DEEPSEEK_CONTROL_TOKEN`, falling back to the loopback endpoint, since it is
-normally the same host.
+**only to a local `RemoteAddr`** — loopback, or a private (RFC 1918 / RFC
+4193) address — so the frontend fetches it at startup and a remote caller must
+be given it out of band. The private-range allowance exists because
+`docker-compose.prod.yml` publishes the port as `127.0.0.1:8180`, and a
+browser on the host hitting that address arrives inside the container NAT'd
+through the compose network's gateway rather than as `127.0.0.1`; a
+loopback-only check rejected that genuinely local traffic with a 403 the
+frontend rendered as "run control not configured". The real boundary is still
+the published port being loopback-only on the host, so trusting the private
+range on top of it does not admit a caller that could not already reach here.
+`harness stop` and `harness steer` read it from the settings table directly,
+the way every other CLI subcommand reads configuration. `harness mcp` takes it
+from `DEEPSEEK_CONTROL_TOKEN`, falling back to the loopback endpoint, since it
+is normally the same host.
 
 This is a floor, not an answer to §4.2's larger question about exposing the
 port at all. It does mean that the day someone does expose it, the control
