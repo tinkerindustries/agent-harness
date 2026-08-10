@@ -20,6 +20,22 @@ type GenerateContentRequest struct {
 	SystemInstruction string            `json:"system_instruction,omitempty"`
 	Input             []Content         `json:"input"`
 	GenerationConfig  *GenerationConfig `json:"generation_config,omitempty"`
+	// ResponseFormat asks for structured output. It is a top-level request
+	// field, not part of generation_config (generation_config has no
+	// response_mime_type), and it is optional: a caller that wants prose
+	// omits it. ReviewScreenshot sets {"type":"array"} so the model's
+	// answer comes back as bare JSON rather than inside a ```json fence
+	// (measured against the live API: the fence disappears when the type is
+	// set).
+	ResponseFormat *ResponseFormat `json:"response_format,omitempty"`
+}
+
+// ResponseFormat is the top-level response_format request field. The only
+// value this harness sends is Type "array", for ReviewScreenshot's JSON
+// list; the API also accepts 'video', 'text', 'image', 'integer', 'string',
+// 'number', 'object', 'boolean', and 'audio'.
+type ResponseFormat struct {
+	Type string `json:"type"`
 }
 
 // Content is one item of an interaction's input: a text part or an image

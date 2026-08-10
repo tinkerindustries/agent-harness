@@ -76,6 +76,57 @@ func TestRequestShapePinsTheDoc(t *testing.T) {
 			t.Errorf("request body carries %q; the doc forbids it for Gemini 3.x", forbidden)
 		}
 	}
+	if got.ResponseFormat == nil || got.ResponseFormat.Type != "array" {
+		t.Errorf("response_format = %+v, want {\"type\":\"array\"}", got.ResponseFormat)
+	}
+	if !strings.Contains(string(raw), `"response_format":{"type":"array"}`) {
+		t.Errorf("request body does not carry top-level response_format, got: %s", raw)
+	}
+}
+
+// TestResponseFormatIsTopLevelAndOptional pins two things about the field:
+// it is a top-level request key, not a member of generation_config (the
+// API 400s on generation_config.response_mime_type), and it is a request
+// option rather than a fixed part of every request — a caller that wants
+// prose simply omits it, and the serialised body then contains no
+// response_format at all.
+func TestResponseFormatIsTopLevelAndOptional(t *testing.T) {
+	withFormat := GenerateContentRequest{
+		Model:            "gemini-3.5-flash",
+		Input:            []Content{{Type: ContentTypeText, Text: "hello"}},
+		GenerationConfig: &GenerationConfig{ThinkingLevel: ThinkingLevelMedium},
+		ResponseFormat:   &ResponseFormat{Type: "array"},
+	}
+	raw, err := json.Marshal(withFormat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := decoded["response_format"]; !ok {
+		t.Errorf("response_format is not a top-level request key, got: %s", raw)
+	}
+	var gen map[string]json.RawMessage
+	if err := json.Unmarshal(decoded["generation_config"], &gen); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := gen["response_format"]; ok {
+		t.Errorf("response_format must not live inside generation_config, got: %s", raw)
+	}
+
+	withoutFormat := GenerateContentRequest{
+		Model: "gemini-3.5-flash",
+		Input: []Content{{Type: ContentTypeText, Text: "hello"}},
+	}
+	raw, err = json.Marshal(withoutFormat)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "response_format") {
+		t.Errorf("an omitted ResponseFormat must not serialise, got: %s", raw)
+	}
 }
 
 // TestAPIKeyRidesInHeader pins that the key is sent in the x-goog-api-key

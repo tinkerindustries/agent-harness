@@ -144,7 +144,12 @@ func (c *Client) GenerateContent(ctx context.Context, model, systemInstruction, 
 		Model:             model,
 		SystemInstruction: systemInstruction,
 		GenerationConfig:  &GenerationConfig{ThinkingLevel: ThinkingLevelMedium},
-		Input:             make([]Content, 0, len(images)+1),
+		// The system instruction already asks for a JSON list; asking the
+		// API for the same shape means the answer arrives as bare JSON, so
+		// no consumer has to strip a ```json fence (measured against the
+		// live API, item "response_format" in the follow-up brief).
+		ResponseFormat: &ResponseFormat{Type: "array"},
+		Input:          make([]Content, 0, len(images)+1),
 	}
 	for _, img := range images {
 		req.Input = append(req.Input, Content{
