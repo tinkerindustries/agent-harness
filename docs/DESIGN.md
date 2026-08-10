@@ -447,17 +447,20 @@ needing a setup script.
 Request body:
 
     {
-      "request_id":      "uuid",              required, the idempotency key
-      "prompt":          "...",               required
-      "repos":           [ { "url": "https://github.com/org/app.git",
-                             "branch": "main" } ],   required, at least one
-      "model":           "deepseek-v4-pro",   optional, config default otherwise
-      "effort":          "max",               optional
-      "permission_mode": "readonly" | "full",   required
-      "deny":            ["git push", "..."], optional, added to the mode's denials
-      "result_schema":   { },                 optional JSON Schema for Complete
-      "max_sub_turns":   100,                 optional
-      "deadline_ms":     1800000              optional
+      "request_id":        "uuid",              required, the idempotency key
+      "prompt":            "...",               required
+      "repos":             [ { "url": "https://github.com/org/app.git",
+                               "branch": "main" } ],   required, at least one
+      "model":             "deepseek-v4-pro",   optional, config default otherwise
+      "effort":            "max",               optional
+      "permission_mode":   "readonly" | "full",   required
+      "deny":              ["git push", "..."], optional, added to the mode's denials
+      "result_schema":     { },                 optional JSON Schema for Complete
+      "max_sub_turns":     100,                 optional
+      "deadline_ms":       1800000              optional
+      "job_type":          "implementation",    optional, implementation (default) or orchestration
+      "parent_agent_type": "claude-code",       optional, the launching agent's kind, or "user"
+      "parent_agent_id":   "abc123",            optional, the launching agent's session id
     }
 
 Result body:
