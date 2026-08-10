@@ -3,6 +3,9 @@ import type { SessionState } from "../api/types";
 import { useTranscriptStore } from "../hooks";
 import { BlockList } from "./BlockList";
 import { PlanPanel } from "./PlanPanel";
+import { Badge } from "./ui/badge";
+import { Button } from "./ui/button";
+import { statusVariant } from "./statusBadge";
 
 interface Props {
   sessionId: string;
@@ -21,15 +24,17 @@ export function TranscriptScreen({ sessionId, onBack }: Props) {
   return (
     <div className="screen screen-transcript">
       <header className="screen-header">
-        <button className="back-button" onClick={onBack}>
+        <Button variant="outline" size="sm" onClick={onBack}>
           ← sessions
-        </button>
+        </Button>
         <h1>{sessionId}</h1>
-        <span className={`connection-badge connection-${snapshot.connection}`}>{snapshot.connection}</span>
+        <Badge variant="outline" className={`connection-badge connection-${snapshot.connection}`}>
+          {snapshot.connection}
+        </Badge>
       </header>
       {meta && (
         <div className="session-meta">
-          <span className={`status-badge status-${meta.status}`}>{meta.status}</span>
+          <Badge variant={statusVariant(meta.status)}>{meta.status}</Badge>
           <span>
             {meta.model} ({meta.effort})
           </span>
