@@ -25,13 +25,20 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/workspace"
 )
 
+// Runner runs one session to a terminal result. *session.Runner implements
+// it; the interface exists so the pool's tests can drive a run that ignores
+// its context entirely — a genuinely wedged run — without calling an API.
+type Runner interface {
+	Run(ctx context.Context, opts session.RunOptions) (*session.RunResult, error)
+}
+
 // Pool pulls from Consumer and dispatches each message to a session
 // goroutine, bounded by Size. Nothing here holds per-request state outside
 // the handler for that request — the property docs/DESIGN.md §4.5 asks
 // every caller of session.Runner to preserve.
 type Pool struct {
 	Store    *store.Store
-	Runner   *session.Runner
+	Runner   Runner
 	JS       jetstream.JetStream
 	Consumer jetstream.Consumer
 
@@ -79,7 +86,15 @@ type Pool struct {
 	// without cloning over the network.
 	PrepareWorkspace func(ctx context.Context, root, sessionID string, repos []queue.Repo) (string, error)
 
+	// StopGracePeriod overrides run.stop_grace_period for a stop's
+	// force-finish escalation. Zero (the production default) resolves the
+	// setting through Settings; tests set it so they do not wait 30 seconds.
+	StopGracePeriod time.Duration
+
 	wg sync.WaitGroup
+
+	ctrl     *Controller
+	ctrlOnce sync.Once
 
 	haltMu     sync.Mutex
 	stopPull   func()
@@ -187,8 +202,15 @@ func (p *Pool) Run(ctx context.Context) error {
 		p.wg.Add(1)
 		go func() {
 			defer p.wg.Done()
-			defer func() { <-sem }()
-			p.handle(msg)
+			// The release is an idempotent closure (sync.Once over <-sem)
+			// rather than a plain defer, so the stop escalation can free the
+			// pool slot for a run whose own goroutine is wedged and whose
+			// deferred release would otherwise never run (docs/RUN-CONTROL.md
+			// "Half two"). The run goroutine's own deferred call becomes a
+			// no-op once the escalation has released the slot.
+			release := sync.OnceFunc(func() { <-sem })
+			defer release()
+			p.handle(msg, release)
 		}()
 	}, jetstream.PullMaxMessages(p.size()))
 	if err != nil {
@@ -290,8 +312,11 @@ func deliveryCount(msg jetstream.Msg) uint64 {
 
 // handle is one message's whole lifecycle: parse, claim the idempotency
 // row, and either run a session, record a validation failure, republish a
-// terminal row, or defer to a later delivery.
-func (p *Pool) handle(msg jetstream.Msg) {
+// terminal row, or defer to a later delivery. releaseSlot is the run's
+// idempotent pool-slot release, threaded down to the run path so the stop
+// escalation can free the slot of a run that wedges (docs/RUN-CONTROL.md
+// "Half two"); the other paths never register and never release.
+func (p *Pool) handle(msg jetstream.Msg, releaseSlot func()) {
 	defer p.recoverPanic(msg)
 
 	numDelivered := deliveryCount(msg)
@@ -353,7 +378,7 @@ func (p *Pool) handle(msg jetstream.Msg) {
 		return
 	}
 
-	p.run(msg, req)
+	p.run(msg, req, releaseSlot)
 }
 
 // abandonedSessionIdleThreshold is how long a running session must have
@@ -526,13 +551,15 @@ func (p *Pool) recordValidationFailure(ctx context.Context, msg jetstream.Msg, r
 
 // run drives one claimed, valid request through workspace preparation and
 // the session loop to a terminal result.
-func (p *Pool) run(msg jetstream.Msg, req queue.Request) {
+func (p *Pool) run(msg jetstream.Msg, req queue.Request, releaseSlot func()) {
 	started := time.Now().UTC()
 	sessionID := session.NewSessionID()
 
 	hbDone := make(chan struct{})
+	var hbOnce sync.Once
+	stopHeartbeat := func() { hbOnce.Do(func() { close(hbDone) }) }
 	go p.heartbeat(msg, hbDone)
-	defer close(hbDone)
+	defer stopHeartbeat()
 
 	deadline := p.defaultDeadline(context.Background())
 	if req.DeadlineMS > 0 {
@@ -540,6 +567,24 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request) {
 	}
 	runCtx, cancel := context.WithTimeout(context.Background(), deadline)
 	defer cancel()
+
+	// Register before workspace preparation, so a run wedged in a git clone
+	// is stoppable too. Deregistration happens where the message is disposed
+	// of (finish), not where Runner.Run returns, so the entry outlives the
+	// run by exactly as long as its disposal takes (docs/RUN-CONTROL-PLAN.md
+	// "Step 3 — The control seam").
+	rec := &inflight{
+		requestID:     req.RequestID,
+		sessionID:     sessionID,
+		msg:           msg,
+		cancel:        cancel,
+		done:          make(chan struct{}),
+		releaseSlot:   releaseSlot,
+		stopHeartbeat: stopHeartbeat,
+		started:       started,
+	}
+	p.controller().add(rec)
+	defer close(rec.done)
 
 	if err := p.Store.SetWorkRequestSession(runCtx, req.RequestID, sessionID); err != nil {
 		log.Printf("worker: attach session for %s: %v", req.RequestID, err)
@@ -551,6 +596,12 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request) {
 	// attempt that died before its session existed.
 	ws, err := p.prepareWorkspace()(runCtx, p.WorkspaceRoot, sessionID, req.Repos)
 	if err != nil {
+		if !rec.answer() {
+			// A stop force-finished this run while preparation was wedged;
+			// the cancelled result is already on the stream.
+			log.Printf("worker: %s: message for session %s already answered; dropping the setup failure", req.RequestID, sessionID)
+			return
+		}
 		result := setupFailedResult(req.RequestID, sessionID, started, err)
 		p.finish(msg, req.RequestID, sessionID, result, false)
 		return
@@ -601,6 +652,11 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request) {
 	// request's row still carries the session id and every later delivery
 	// goes through the spent-request path.
 	if runErr != nil && deepseek.IsInsufficientBalance(runErr) {
+		if !rec.answer() {
+			// A stop already answered this message; there is nothing to
+			// defer to a later delivery.
+			return
+		}
 		p.Halt("account balance exhausted (402 from DeepSeek)")
 		log.Printf("worker: %s failed on an empty account; left unacked for retry after the pool restarts", req.RequestID)
 		// One delivery is spent per pool restart that still finds the
@@ -609,10 +665,22 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request) {
 		// account was empty instead of the request disappearing.
 		p.retryLater(msg, req.RequestID, "insufficient_balance",
 			fmt.Sprintf("the DeepSeek account had no balance on each of %d delivery attempts", p.maxDeliveryAttempts()))
+		// The run is over; the registry entry goes with it, like any other
+		// message answered outside finish.
+		p.controller().remove(sessionID)
 		return
 	}
 
-	result := p.classify(req.RequestID, sessionID, started, runResult, runErr, runCtx.Err())
+	if !rec.answer() {
+		// A stop force-finished this run while it was wedged; the cancelled
+		// result is already on the stream and the message already acked. A
+		// wedged goroutine that wakes now must log and drop its own result,
+		// not publish a second, contradictory one over the top of the first
+		// (docs/RUN-CONTROL.md "Half two").
+		log.Printf("worker: %s: message for session %s already answered; dropping the run's own result", req.RequestID, sessionID)
+		return
+	}
+	result := p.classify(req.RequestID, sessionID, started, runResult, runErr, runCtx.Err(), rec.stopping.Load(), rec.stopReason())
 	p.finish(msg, req.RequestID, sessionID, result, false)
 }
 
@@ -634,8 +702,13 @@ func (p *Pool) heartbeat(msg jetstream.Msg, done <-chan struct{}) {
 // classify turns a session run's outcome into a queue.Result. A timeout is
 // distinguished from an ordinary failure by checking runCtx's own error
 // rather than parsing runErr's text, since the context that actually
-// expired is the authoritative signal.
-func (p *Pool) classify(requestID, sessionID string, started time.Time, runResult *session.RunResult, runErr, ctxErr error) queue.Result {
+// expired is the authoritative signal. A stop is distinguished from a
+// timeout by the registry's stopping flag, not the context error: a stop
+// and a deadline both leave runCtx cancelled, and only the flag can tell
+// an operator's decision from a budget running out (docs/RUN-CONTROL.md
+// "Half two"). stopped and reason are the run's record's, read by the run
+// goroutine.
+func (p *Pool) classify(requestID, sessionID string, started time.Time, runResult *session.RunResult, runErr, ctxErr error, stopped bool, reason string) queue.Result {
 	res := queue.Result{RequestID: requestID, SessionID: sessionID, StartedAt: started, FinishedAt: time.Now().UTC()}
 
 	if runResult != nil {
@@ -662,6 +735,9 @@ func (p *Pool) classify(requestID, sessionID string, started time.Time, runResul
 		res.Error = &queue.ResultError{Code: "max_sub_turns", Message: "run stopped at the sub-turn limit without calling Complete"}
 	case runErr == nil:
 		res.Status = queue.StatusOK
+	case stopped:
+		res.Status = queue.StatusCancelled
+		res.Error = &queue.ResultError{Code: "cancelled", Message: reason}
 	case errors.Is(ctxErr, context.DeadlineExceeded):
 		res.Status = queue.StatusTimeout
 		res.Error = &queue.ResultError{Code: "deadline_exceeded", Message: runErr.Error()}
@@ -691,7 +767,16 @@ func setupFailedResult(requestID, sessionID string, started time.Time, err error
 // result instead of running the whole session again. The publish happens
 // before the ack (or Term) so a crash between those two redelivers the
 // request rather than losing the result docs/DESIGN.md §4.10 asks for.
+//
+// finish is also where a registered run's registry entry is torn down: the
+// entry lives exactly as long as the message does, so a stop arriving while
+// finish is still running still finds the run in the registry. The message
+// itself is disposed of exactly once by whichever path won the record's
+// disposed CompareAndSwap — the run finishing, or the stop escalation —
+// which is why finish itself carries no guard of its own.
 func (p *Pool) finish(msg jetstream.Msg, requestID, sessionID string, result queue.Result, term bool) {
+	defer p.controller().remove(sessionID)
+
 	data, err := json.Marshal(result)
 	if err != nil {
 		log.Printf("worker: encode result for %s: %v", requestID, err)
