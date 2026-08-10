@@ -123,7 +123,7 @@ func runServe(ctx context.Context, args []string) error {
 		return err
 	}
 	api := &httpapi.Server{
-		Store: st, Hub: eventHub, Static: static,
+		Store: st, Hub: eventHub, Static: static, Settings: res,
 		Consumer: consumer, Pool: pool, PriceTableDate: priceTable.CapturedAt,
 	}
 	httpSrv := &http.Server{Addr: cfg.HTTPAddr, Handler: api.Handler()}

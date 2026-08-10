@@ -6,8 +6,8 @@ commands, and iterates until a task is done. Go owns the loop and the tools.
 The harness runs as a service. Work requests arrive on a NATS JetStream queue,
 execute as one of several concurrent agent sessions inside a single Go process,
 and return a result to a JetStream results stream (§4.10). A CLI drives the same
-loop for interactive use. A read-only React frontend shows what the sessions are
-doing.
+loop for interactive use. A React frontend shows what the sessions are doing
+and, on the settings screen, configures the harness's keys (§4.2).
 
 One DeepSeek behaviour drives most of the decisions below: the prompt cache is
 worth 50–120× on input tokens, and hits are blocked at 128 tokens of common
@@ -38,9 +38,11 @@ deepseek-harness runs by publishing to the WORK stream below. It is a
 separate process (`harness mcp`) that never touches the system prompt or the
 tool array DeepSeek sees.
 
-The read-only browser is the constraint with the widest reach. No control in the
-UI can approve a tool call, so approval cannot be a question the loop asks a
-human and waits on. Section 4.6 covers what replaces it.
+The browser's inability to control a run is the constraint with the widest
+reach. No control in the UI can approve a tool call — the run surface is
+read-only (§4.2), settings being the one write and not a run control — so
+approval cannot be a question the loop asks a human and waits on. Section 4.6
+covers what replaces it.
 
 ## 2. Which API surface
 
@@ -181,18 +183,37 @@ blocks on a human.
 
 SSE down, nothing up. The browser subscribes to
 `GET /api/sessions/{id}/events` and to a session-list stream, and that is the
-whole surface. Traffic is one-way — a firehose down, no clicks up — so SSE fits,
-and `Last-Event-ID` gives replay without extra protocol.
+whole session surface. Traffic on it is one-way — a firehose down, no clicks up —
+so SSE fits, and `Last-Event-ID` gives replay without extra protocol. The
+settings endpoints below are the one place a click goes up, and they are plain
+fetch calls, not SSE.
 
-The v1 HTTP API is read-only in the strict sense: it serves `GET` and `HEAD`,
-and every other method returns 405. Nothing a browser does can start, steer, or
-stop a run. Work enters over NATS or the CLI.
+The v1 HTTP API is read-only with respect to runs: no endpoint starts, steers,
+or stops a run, and nothing a browser does can reach the loop. Work enters over
+NATS or the CLI. Settings are the single exception — an operator configures the
+harness's keys from the same browser surface — and the run surface stays
+untouchable from a browser.
 
     GET /api/sessions                    list, newest first, with status and cost
     GET /api/sessions/{id}               metadata
     GET /api/sessions/{id}/events        historical page, ?from=<seq>&limit=
     GET /api/sessions/{id}/stream        SSE, honours Last-Event-ID
     GET /api/stream                      SSE of session-level state changes
+    GET /api/settings                    every known key, with set state and display value
+    PUT /api/settings/{key}              set a key, JSON body {"value": "..."}
+    DELETE /api/settings/{key}           unset a key
+
+`GET` and `HEAD` are served on every path. The writing methods are allowed on
+the settings endpoints only: a POST to `/api/sessions` still 405s with an
+`Allow` header naming what the path actually permits, and the settings
+collection path itself (`/api/settings` without a key) has no write route.
+Secret keys are masked in `GET /api/settings` to at most their last four
+characters, exactly as `harness config list` masks them, and the full value
+never leaves the process over HTTP — there is no reveal parameter. The writing
+methods demand `Content-Type: application/json` (415 otherwise) and refuse a
+request whose `Origin` does not match the request's own `Host` (403), so a
+page open in the operator's own browser cannot overwrite keys on the loopback
+port.
 
 Two different recoveries share one endpoint. A dropped connection is
 `EventSource`'s own reconnect, which sends `Last-Event-ID` and resumes at the
@@ -208,11 +229,14 @@ the stream ends on session status rather than on an event kind.
 The run lives in Go and is driven by NATS, so closing the tab has never had any
 bearing on it.
 
-Read-only removes CSRF and command-injection surface, and it does not make the
-service safe to expose. Transcripts carry workspace paths, file contents, and
-command output. Treat the port as sensitive and bind it to loopback by default.
+Read-only-with-respect-to-runs shrinks the CSRF and command-injection surface,
+and the settings writes carry the origin and content-type guards above, but
+none of that makes the service safe to expose. Transcripts carry workspace
+paths, file contents, and command output. Treat the port as sensitive and bind
+it to loopback by default.
 
-WebSocket buys nothing here; the client never sends at all.
+WebSocket buys nothing here; the session surface is a one-way stream and the
+settings writes are ordinary fetch calls.
 
 ### 4.3 Streaming from DeepSeek
 
@@ -354,8 +378,8 @@ Points that bear on the rest of this design:
   which keeps the main prefix stable and avoids mixing per-model caches.
 - Model and effort are chosen at session creation, from the work request or the
   CLI flags, and fixed for the session's life. Switching mid-session is a full
-  cache miss, and with a read-only UI there is nobody to price that choice for.
-  A caller who wants a different model sends a different request.
+  cache miss, and no UI control exists to price that choice — a caller who
+  wants a different model sends a different request.
 - The effort mapping is not identity and pro is due to change during August
   2026. Read the vendored thinking-mode guide rather than a compiled-in table.
 - Thinking mode silently ignores `temperature` and `top_p`. The harness rejects
@@ -513,11 +537,11 @@ must not be read as failure. A caller that only checks `status: "ok"` cannot
 tell a finished task from one the model gave up on and reported as such;
 `complete_status: "gave_up"` is that distinction.
 
-There is no `cancelled`. Nothing can cancel a run: the browser is read-only
-(§4.2) and a graceful shutdown drains in-flight work rather than cutting it
-off, because an agent run costs minutes and a restart is not a reason to waste
-one. A process that dies outright leaves its message unacked, and redelivery
-covers it.
+There is no `cancelled`. Nothing can cancel a run: the browser cannot steer
+the loop (§4.2) and a graceful shutdown drains in-flight work rather than
+cutting it off, because an agent run costs minutes and a restart is not a
+reason to waste one. A process that dies outright leaves its message unacked,
+and redelivery covers it.
 
 `result_schema` is validated in Go against the `Complete` arguments. A failing
 payload returns a validation error through the tool result channel and the model
@@ -583,10 +607,11 @@ number and type together.
 
 ## 5. Frontend
 
-The browser observes and does not act. It has no prompt box, no approve button,
-and no cancel control, and the server would reject them anyway (§4.2). What it
-shows is a list of sessions and the transcript of any one of them, live or
-historical.
+The browser observes and, where runs are concerned, does not act — its one
+write is the settings screen, and that cannot reach a run. It has no prompt
+box, no approve button, and no cancel control, and the server would reject
+them anyway (§4.2). What it shows is a list of sessions and the transcript of
+any one of them, live or historical.
 
 That subtraction removes most of the usual frontend work — no optimistic
 updates, no command queue, no reconciliation between local intent and server

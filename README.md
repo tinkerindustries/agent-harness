@@ -6,7 +6,8 @@ DeepSeek's own API rather than a provider-agnostic abstraction.
 
 Work arrives on a NATS JetStream queue, runs as one of several concurrent agent
 sessions in a single Go process, and returns a result to a results stream. A
-read-only web UI shows what the sessions are doing. An MCP server lets another
+web UI shows what the sessions are doing and lets an operator set the
+harness's API keys. An MCP server lets another
 agent harness — Claude Code, Cursor — launch runs here and collect them later.
 
 ## What you need
