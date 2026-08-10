@@ -1794,6 +1794,29 @@ pre {
   gap: 8px;
 }
 
+/* The stop control (docs/RUN-CONTROL.md "The frontend"): the hard-to-reverse
+   run control that ends a run an operator cannot get back, behind the same
+   inline confirm the operations screen gives a delete. Between the 202 and
+   the terminal event it shows *stopping…* (stop-pending); the terminal state
+   arrives over the SSE stream, never by polling. On the session card the
+   confirm uses the column shape above; in the transcript header it renders
+   inline so it fits the header row. */
+.stop-pending {
+  font-size: 0.8125rem;
+}
+
+.stop-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stop-header .ops-confirm {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
 .ops-error {
   color: var(--status-failed);
   font-size: 0.85rem;

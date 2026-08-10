@@ -7,6 +7,7 @@ import { BlockList } from "./BlockList";
 import { PlanPanel } from "./PlanPanel";
 import { TimelineRail } from "./TimelineRail";
 import { TranscriptToolbar } from "./TranscriptToolbar";
+import { StopControl } from "./StopControl";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { outcome, type OutcomeSession } from "./statusBadge";
@@ -48,6 +49,7 @@ export function TranscriptScreen({ sessionId, onBack }: Props) {
         <Badge variant="outline" className={`connection-badge connection-${snapshot.connection}`}>
           {snapshot.connection}
         </Badge>
+        <StopControl sessionId={sessionId} running={meta?.status === "running"} className="stop-header" />
       </header>
       {meta && badge && (
         <div className="session-meta">

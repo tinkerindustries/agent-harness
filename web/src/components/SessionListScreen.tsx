@@ -15,6 +15,7 @@ import {
 import { outcome } from "./statusBadge";
 import { PlanList } from "./PlanList";
 import { planProgress, splitVerb } from "./planProgress";
+import { StopControl } from "./StopControl";
 
 function formatElapsed(sess: SessionState, nowMs: number): string {
   const start = Date.parse(sess.created_at);
@@ -284,6 +285,7 @@ function InFlightCard({
                 <Button variant="outline" size="sm" onClick={() => onOpen(sess.id)}>
                   Open transcript
                 </Button>
+                <StopControl sessionId={sess.id} running={true} />
               </div>
             </div>
           </div>
