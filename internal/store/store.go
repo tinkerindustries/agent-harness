@@ -1,5 +1,5 @@
 // Package store is the harness's SQLite persistence: sessions, their event
-// logs, work requests, and workspace leases (docs/DESIGN.md §4.8).
+// logs, work requests, workspace leases, and settings (docs/DESIGN.md §4.8).
 //
 // All writes funnel through one goroutine fed by a channel, so SQLITE_BUSY
 // never arises from our own concurrency (docs/DESIGN.md §4.5). Reads use a
@@ -142,6 +142,12 @@ CREATE TABLE IF NOT EXISTS workspace_leases (
 	session_id   TEXT NOT NULL,
 	acquired_at  TEXT NOT NULL,
 	heartbeat_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+	key        TEXT PRIMARY KEY,
+	value      TEXT NOT NULL,
+	updated_at TEXT NOT NULL
 );
 
 -- Read paths: the session list's usage summary filters events down to two
