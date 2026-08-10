@@ -99,6 +99,7 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 	r.mirrorUpdateSession(curSess)
 	r.publishState(ctx, curSess)
 
+	r.openLog(curSess)
 	return r.runLoop(ctx, curSess, allEvents, runOpts, executor, detector, startSubTurn)
 }
 

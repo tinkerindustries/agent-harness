@@ -8,6 +8,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/cache"
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/fold"
+	"github.com/mrgeoffrich/deepseek-harness/internal/httplog"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 )
@@ -45,7 +46,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 		messages = cache.Mutate(messages, 1)
 	}
 
-	reasoning, content, assembler, finishReason, usage, err := r.stream(ctx, sess.Model, messages, opts.Effort, opts.Thinking, opts.MaxTokens)
+	reasoning, content, assembler, finishReason, usage, err := r.stream(httplog.WithSessionID(ctx, sess.ID), sess.Model, messages, opts.Effort, opts.Thinking, opts.MaxTokens)
 	if err != nil {
 		return subTurnOutcome{}, fmt.Errorf("session: sub-turn %d: %w", subTurn, err)
 	}
