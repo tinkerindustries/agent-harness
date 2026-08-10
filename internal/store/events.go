@@ -126,10 +126,15 @@ type UsagePayload struct {
 	ChurnPointIndex       *int    `json:"churn_point_index,omitempty"`
 }
 
-// TurnFinishedPayload closes out a sub-turn's assistant message.
+// TurnFinishedPayload closes out a sub-turn's assistant message. ElapsedMs is
+// the wall time the sub-turn's request(s) took, measured in the runner around
+// the stream calls; created_at cannot carry it because AppendEvents stamps one
+// instant across the whole batch. Absent on sessions committed before this
+// field existed.
 type TurnFinishedPayload struct {
 	SubTurn      int    `json:"sub_turn"`
 	FinishReason string `json:"finish_reason"`
+	ElapsedMs    int64  `json:"elapsed_ms,omitempty"`
 }
 
 // RunFinishedPayload is the terminal event of a session.

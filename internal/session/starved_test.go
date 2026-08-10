@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
@@ -112,6 +113,105 @@ func TestStarvedRetryRecordsBothAttempts(t *testing.T) {
 	if second.ExpectedMissTokens == 0 {
 		t.Fatal("expected the final attempt to carry the churn report")
 	}
+}
+
+// The turn_finished event's elapsed_ms is the wall time of the request(s)
+// the run waited on, measured around r.stream — created_at cannot carry it,
+// because AppendEvents stamps one instant across the whole batch.
+func TestTurnFinishedCarriesElapsedMs(t *testing.T) {
+	const sleep = 20 * time.Millisecond
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(sleep)
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
+			Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{Role: "assistant", Content: strPtr("done")}}},
+		})
+		writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
+			Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishStop)}},
+			Usage:   &deepseek.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
+		})
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		w.(http.Flusher).Flush()
+	}))
+	defer srv.Close()
+	r := newTestRunner(t, srv.URL)
+
+	res, err := r.Run(t.Context(), RunOptions{
+		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Workspace: t.TempDir(), PermissionMode: tools.ModeFull, Prompt: "say something",
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if elapsed := turnFinishedElapsedMs(t, r, res.SessionID); elapsed < sleep.Milliseconds() {
+		t.Fatalf("expected elapsed_ms to cover the request's %v, got %dms", sleep, elapsed)
+	}
+}
+
+// On the reasoning-starved path the same sub-turn sends a second request,
+// so the single elapsed_ms figure must cover both of them.
+func TestTurnFinishedElapsedCoversBothStarvedAttempts(t *testing.T) {
+	const sleep = 20 * time.Millisecond
+	var mu sync.Mutex
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(sleep)
+		mu.Lock()
+		calls++
+		n := calls
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		if n == 1 {
+			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
+				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{Role: "assistant"}, FinishReason: strPtr(deepseek.FinishLength)}},
+				Usage:   &deepseek.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 4000},
+			})
+		} else {
+			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
+				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{Role: "assistant", Content: strPtr("recovered")}}},
+			})
+			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
+				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishStop)}},
+				Usage:   &deepseek.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 7},
+			})
+		}
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		w.(http.Flusher).Flush()
+	}))
+	defer srv.Close()
+	r := newTestRunner(t, srv.URL)
+
+	res, err := r.Run(t.Context(), RunOptions{
+		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Workspace: t.TempDir(), PermissionMode: tools.ModeFull, Prompt: "think hard",
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if elapsed := turnFinishedElapsedMs(t, r, res.SessionID); elapsed < 2*sleep.Milliseconds() {
+		t.Fatalf("expected elapsed_ms to cover both requests' %v, got %dms", 2*sleep, elapsed)
+	}
+}
+
+func turnFinishedElapsedMs(t *testing.T, r *Runner, sessionID string) int64 {
+	t.Helper()
+	events, err := r.Store.GetEvents(t.Context(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range events {
+		if e.Kind != store.KindTurnFinished {
+			continue
+		}
+		var p store.TurnFinishedPayload
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			t.Fatal(err)
+		}
+		return p.ElapsedMs
+	}
+	t.Fatal("no turn_finished event found")
+	return 0
 }
 
 // turn_started carried sub_turn and turn_finished and usage did not, so a

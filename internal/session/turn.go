@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/cache"
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
@@ -46,6 +47,10 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 		messages = cache.Mutate(messages, 1)
 	}
 
+	// streamStart brackets the request(s) below. The elapsed figure is the
+	// wall time the run waited on the API, which created_at cannot express:
+	// AppendEvents stamps one instant across the whole batch.
+	streamStart := time.Now()
 	reasoning, content, assembler, finishReason, usage, err := r.stream(httplog.WithSessionID(ctx, sess.ID), sess.Model, messages, opts.Effort, opts.Thinking, opts.MaxTokens)
 	if err != nil {
 		return subTurnOutcome{}, fmt.Errorf("session: sub-turn %d: %w", subTurn, err)
@@ -68,6 +73,8 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 			return subTurnOutcome{}, fmt.Errorf("session: sub-turn %d retry: %w", subTurn, err)
 		}
 	}
+	// Elapsed covers the retry too; the run waited on both requests.
+	elapsedMs := time.Since(streamStart).Milliseconds()
 
 	toolCalls := assembler.Finalize()
 
@@ -92,7 +99,9 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 			Index: i, ID: tc.ID, Name: tc.Name, Arguments: tc.Arguments,
 		}})
 	}
-	inputs = append(inputs, store.EventInput{Kind: store.KindTurnFinished, Payload: store.TurnFinishedPayload{SubTurn: subTurn, FinishReason: finishReason}})
+	inputs = append(inputs, store.EventInput{Kind: store.KindTurnFinished, Payload: store.TurnFinishedPayload{
+		SubTurn: subTurn, FinishReason: finishReason, ElapsedMs: elapsedMs,
+	}})
 
 	// Attempt stays 0 unless the retry above ran, so an ordinary sub-turn's
 	// usage event is unchanged but for its new SubTurn.
