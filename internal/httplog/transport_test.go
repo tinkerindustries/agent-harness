@@ -149,6 +149,10 @@ func TestExchangeRoundTrip(t *testing.T) {
 // The Authorization header carries the API key and must never reach disk,
 // in the record or in the raw file bytes, no matter how the deflate stream
 // chooses to encode them. The outbound request keeps its real values.
+// Gemini's x-goog-api-key is the second credential header this harness
+// sends, so it is pinned here too: redaction is by the named set in
+// exchange.go, matched case-insensitively, and a new client's credential
+// header failing to join that set fails this test verbatim.
 func TestTransportRedactsCredentials(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("Authorization"); got != "Bearer sk-test-secret" {
@@ -156,6 +160,9 @@ func TestTransportRedactsCredentials(t *testing.T) {
 		}
 		if got := r.Header.Get("Cookie"); got != "session=abc123" {
 			t.Errorf("outbound Cookie = %q, want the real value", got)
+		}
+		if got := r.Header.Get("X-Goog-Api-Key"); got != "AIzaSy-test-secret" {
+			t.Errorf("outbound X-Goog-Api-Key = %q, want the real value", got)
 		}
 		w.Header().Set("Set-Cookie", "session=abc123")
 		w.WriteHeader(http.StatusOK)
@@ -173,6 +180,10 @@ func TestTransportRedactsCredentials(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer sk-test-secret")
 	req.Header.Set("Proxy-Authorization", "Basic c2VjcmV0")
 	req.Header.Set("Cookie", "session=abc123")
+	// Mixed case on purpose: redaction is matched case-insensitively, the
+	// way the Gemini client's lowercase "x-goog-api-key" still has to be
+	// caught.
+	req.Header.Set("X-Goog-Api-Key", "AIzaSy-test-secret")
 	resp := doRequest(t, client, req)
 	io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
@@ -181,7 +192,7 @@ func TestTransportRedactsCredentials(t *testing.T) {
 	}
 
 	ex := readExchanges(t, sessionLogPath(root, "sess-redact"))[0]
-	for _, name := range []string{"Authorization", "Proxy-Authorization", "Cookie"} {
+	for _, name := range []string{"Authorization", "Proxy-Authorization", "Cookie", "X-Goog-Api-Key"} {
 		if got := ex.ReqHeaders[name]; got != "[redacted]" {
 			t.Errorf("ReqHeaders[%s] = %q, want [redacted]", name, got)
 		}
@@ -194,7 +205,7 @@ func TestTransportRedactsCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read raw log: %v", err)
 	}
-	for _, needle := range []string{"sk-test-secret", "sk-", "abc123"} {
+	for _, needle := range []string{"sk-test-secret", "sk-", "abc123", "AIzaSy-test-secret", "AIzaSy"} {
 		if bytes.Contains(raw, []byte(needle)) {
 			t.Errorf("raw log bytes contain %q", needle)
 		}
