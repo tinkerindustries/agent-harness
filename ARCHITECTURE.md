@@ -94,9 +94,9 @@ JetStream — the browser reads the store and the hub, never NATS. §4.2, §5.8.
 
 ### `internal/httpapi`
 The HTTP surface and the static file server for the embedded frontend. `GET`
-and `HEAD` on every path; `PUT` and `DELETE` on the settings key path only —
-the surface's one write. Serves the store and the hub, and reaches settings
-through the store; it cannot reach a running loop. §4.2.
+and `HEAD` on every path, plus the write endpoints over the data the harness
+manages (docs/DATA-API.md). Serves the store and the hub and writes through the
+store; it cannot reach a running loop. §4.2.
 
 ### `internal/webassets`
 `go:embed` of the built frontend, so the binary ships with no runtime assets.
@@ -167,8 +167,8 @@ Depends on: nothing internal. §4.9.
 
 ### `web/`
 The React frontend — three screens: the session list, one session's
-transcript, and the settings screen, which is the browser's one write (key
-management only, no run control; §4.2). Its own build and test cycle; see
+transcript, and the settings screen. It reads and writes the harness's data and
+does not yet control runs (§4.2). Its own build and test cycle; see
 [`web/CLAUDE.md`](web/CLAUDE.md) for the constraints on changing it. §5.
 
 ## How the pieces relate
@@ -192,11 +192,13 @@ workspace          session ─────┘        │        │
 
 The edges that matter:
 
-- **`internal/httpapi` imports neither `session` nor `worker`.** Its read path
-  reaches the store and the hub, and its one write path — settings — reaches
-  the store; neither reaches session or worker. Keeping it that way is what
-  makes "no endpoint can start or steer a run" a structural fact rather than a
-  policy.
+- **`internal/httpapi` imports neither `session` nor `worker`.** It reaches the
+  store and the hub, for both reads and writes, and neither of those reaches
+  session or worker. That import boundary — not the absence of write endpoints
+  — is what makes "no endpoint can start or steer a run" a structural fact
+  rather than a policy, and it is why the boundary survived the read-only rule
+  being retired. Run control, when it comes, goes through a seam declared here
+  deliberately rather than by an import appearing.
 - **`internal/session` is the only package that speaks to both the API client
   and the tools.** A change that needs both belongs there.
 - **`internal/worker` is the only package that acks a JetStream message.**

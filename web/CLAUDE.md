@@ -52,11 +52,16 @@ Don't change `build.outDir`.
 
 ## Rules
 
-The browser observes and, where runs are concerned, does not act. No prompt
-box, no approve button, no cancel control — the server serves `GET` and
-`HEAD` everywhere and the settings writes (`PUT`/`DELETE /api/settings/{key}`)
-are the only writes it allows; the settings screen is the browser's one write
-and it cannot reach a run (docs/DESIGN.md §4.2).
+The browser can write to the data the harness manages and cannot yet control a
+run: no prompt box, no approve button, no cancel control. That second half is
+intended and staged, not permanent — docs/DESIGN.md §4.2 and docs/DATA-API.md.
+
+What that means for work here: a screen that writes is now ordinary, so the
+settings screen stops being a special case and becomes the pattern to follow.
+It re-fetches after every write rather than guessing at the new value, which is
+the right default while a screen has one write in flight at a time. A screen
+with several concurrent writes needs more than that, and it is the point to
+stop and design rather than to spread the re-fetch.
 
 Everything below is about frame budget, which is the only hard problem here. Two
 text channels arrive as deltas and a long session accumulates hundreds of
