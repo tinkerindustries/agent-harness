@@ -32,9 +32,13 @@ const (
 	DefaultOutputCap   = 200_000
 	DefaultBashTimeout = 2 * time.Minute
 	MaxBashTimeout     = 10 * time.Minute
-	DefaultToolTimeout = 30 * time.Second
-	WebFetchTimeout    = 45 * time.Second
-	TaskTimeout        = 10 * time.Minute
+	// DefaultBashWaitDelay bounds how long Bash waits for a command's output
+	// pipes to close after the command exits or is cancelled, before it stops
+	// waiting and kills the process group (docs/TOOLS.md, "Bash").
+	DefaultBashWaitDelay = 2 * time.Second
+	DefaultToolTimeout   = 30 * time.Second
+	WebFetchTimeout      = 45 * time.Second
+	TaskTimeout          = 10 * time.Minute
 	// ReviewScreenshotTimeout bounds one Gemini call: generating a diagnosis
 	// of up to four screenshots routinely takes longer than the 30-second
 	// default tool timeout, so it gets its own (docs/TOOLS.md,
@@ -113,6 +117,7 @@ type Outcome struct {
 type Timeouts struct {
 	BashDefault      time.Duration
 	BashMax          time.Duration
+	BashWaitDelay    time.Duration
 	Tool             time.Duration
 	WebFetch         time.Duration
 	Task             time.Duration
@@ -269,6 +274,24 @@ func (e *Executor) bashTimeouts(ctx context.Context) (def, max time.Duration) {
 		}
 	}
 	return def, max
+}
+
+// bashWaitDelay returns how long Bash keeps waiting for a command's output
+// pipes to close after the command exits or is cancelled before it gives up,
+// honours an explicit Timeouts field first, then the settings, then the
+// constant. The registry enforces the bounds on write, so like the timeout
+// resolvers above this one does not clamp.
+func (e *Executor) bashWaitDelay(ctx context.Context) time.Duration {
+	delay := DefaultBashWaitDelay
+	if e.Timeouts.BashWaitDelay > 0 {
+		delay = e.Timeouts.BashWaitDelay
+	}
+	if e.Settings != nil {
+		if v, err := e.Settings.Duration(ctx, settings.KeyToolBashWaitDelay); err == nil {
+			delay = v
+		}
+	}
+	return delay
 }
 
 // markRead records that path (already workspace-resolved) has been read

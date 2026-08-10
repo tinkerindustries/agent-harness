@@ -99,6 +99,25 @@ tool call picks the change up without a restart.
 Foreground only in v1. Background shells with separate output-polling and kill
 tools are a named follow-up, and they matter for dev servers and test watchers.
 
+A command that backgrounds a process without redirecting its output —
+`node server.js &`, inheriting the captured pipe — leaves that pipe open after
+the shell exits, which used to wedge the call forever: `Wait` blocked on the
+copy goroutines past the tool timeout, past a cancelled context. That wait is
+now bounded by `tools.bash_wait_delay` (default 2s). When it fires, the harness
+stops waiting, kills the process group the command ran in, and returns an error
+naming the mistake and the fix — the model is the one who has to route around
+it:
+
+> the command exited but left a process holding its output open; the harness
+> stopped waiting after 2s and killed the process group. Redirect output and
+> detach (`cmd >/tmp/x.log 2>&1 &`) if you meant to leave something running.
+
+The kill reaches the whole group, not just the `/bin/sh` child, so the orphan
+that held the pipe dies with the call instead of outliving it and keeping
+whatever port it bound. A command that detaches with its output redirected is
+untouched: the pipes close with the shell, `Wait` returns normally, and nothing
+is killed.
+
 ### Grep and Glob
 
 Backed by ripgrep where available, with a Go fallback. `Grep` defaults to
