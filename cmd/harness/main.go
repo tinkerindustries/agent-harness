@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/config"
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
@@ -105,7 +106,16 @@ func runAsk(ctx context.Context, args []string) error {
 	thinking := fs.Bool("thinking", true, "enable thinking mode")
 	maxTokens := fs.Int("max-tokens", 0, "override max_tokens (default from config)")
 	system := fs.String("system", "", "optional system message")
+	jobType := fs.String("job-type", agentmeta.JobTypeImplementation, "implementation or orchestration (default implementation)")
+	parentAgentType := fs.String("parent-agent-type", agentmeta.ParentAgentUser, "the agent that owns this session, or \"user\"")
+	parentAgentID := fs.String("parent-agent-id", "", "that agent's session id; must be empty when the type is user")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := agentmeta.ValidateJobType(*jobType); err != nil {
+		return err
+	}
+	if err := agentmeta.ValidateParentAgent(*parentAgentType, *parentAgentID); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {

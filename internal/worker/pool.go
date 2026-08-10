@@ -367,18 +367,21 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, outcome store.ClaimOutc
 
 	progressLimiter := queue.NewProgressLimiter(time.Second)
 	runResult, runErr := p.Runner.Run(runCtx, session.RunOptions{
-		SessionID:      sessionID,
-		Model:          model,
-		Effort:         effort,
-		Thinking:       p.DefaultThinking,
-		MaxTokens:      p.defaultMaxTokens(),
-		Workspace:      ws,
-		PermissionMode: mode,
-		Deny:           req.Deny,
-		Prompt:         req.Prompt,
-		ResultSchema:   req.ResultSchema,
-		MaxSubTurns:    req.MaxSubTurns,
-		ParentID:       previousSessionID,
+		SessionID:       sessionID,
+		Model:           model,
+		Effort:          effort,
+		Thinking:        p.DefaultThinking,
+		MaxTokens:       p.defaultMaxTokens(),
+		Workspace:       ws,
+		PermissionMode:  mode,
+		Deny:            req.Deny,
+		Prompt:          req.Prompt,
+		ResultSchema:    req.ResultSchema,
+		MaxSubTurns:     req.MaxSubTurns,
+		ParentID:        previousSessionID,
+		JobType:         req.JobType,
+		ParentAgentType: req.ParentAgentType,
+		ParentAgentID:   req.ParentAgentID,
 		Progress: func(sp session.SubTurnProgress) {
 			if progressLimiter.Allow(time.Now()) {
 				p.publishProgress(req.RequestID, sp)

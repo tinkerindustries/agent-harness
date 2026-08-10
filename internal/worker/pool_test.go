@@ -19,6 +19,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/config"
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
@@ -396,6 +397,36 @@ func TestPoolDuplicateRequestIDRunsOnce(t *testing.T) {
 
 	if n := h.countFinalResults(t, requestID, 2*time.Second); n != 1 {
 		t.Fatalf("expected exactly 1 final result on the RESULTS stream, got %d", n)
+	}
+}
+
+// TestPoolCarriesProvenanceFromRequestToSession proves the request's job
+// type and parent agent reach the RunOptions the pool builds: the session
+// row that comes out of the run must carry them.
+func TestPoolCarriesProvenanceFromRequestToSession(t *testing.T) {
+	srv := plainAnswerServer(t, "done", 0, nil)
+	defer srv.Close()
+
+	h := newTestHarness(t, srv.URL, 4)
+	defer h.startPool(t)()
+
+	requestID := uniqueID("req-provenance")
+	h.publish(t, queue.Request{
+		RequestID: requestID, Prompt: "do it", Repos: testRepos(), PermissionMode: "full",
+		JobType: agentmeta.JobTypeOrchestration, ParentAgentType: "orchestrator", ParentAgentID: "orch-1",
+	})
+
+	res := h.fetchFinalResult(t, requestID, 15*time.Second)
+	if res.Status != queue.StatusOK {
+		t.Fatalf("unexpected result: %+v", res)
+	}
+	sess, err := h.pool.Store.GetSession(context.Background(), res.SessionID)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if sess.JobType != agentmeta.JobTypeOrchestration ||
+		sess.ParentAgentType != "orchestrator" || sess.ParentAgentID != "orch-1" {
+		t.Fatalf("unexpected provenance on the session row: %+v", sess)
 	}
 }
 
