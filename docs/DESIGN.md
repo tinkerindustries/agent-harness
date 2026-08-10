@@ -610,8 +610,9 @@ number and type together.
 The browser observes and, where runs are concerned, does not act — its one
 write is the settings screen, and that cannot reach a run. It has no prompt
 box, no approve button, and no cancel control, and the server would reject
-them anyway (§4.2). What it shows is a list of sessions and the transcript of
-any one of them, live or historical.
+them anyway (§4.2). What it shows is a list of sessions, the transcript of any
+one of them — live or historical — and the settings screen for the harness's
+keys.
 
 That subtraction removes most of the usual frontend work — no optimistic
 updates, no command queue, no reconciliation between local intent and server
@@ -704,8 +705,12 @@ because it goes back to the API.
 ### 5.7 Stack
 
 Vite, React, TypeScript. No component framework. Plain CSS with custom
-properties. Two screens and no write path, so no router library and no data
-layer beyond the SSE client and the store.
+properties. Three screens and one write path, so no router library — `App.tsx`
+parses the pathname (`/`, `/sessions/:id`, `/settings`) and navigates with
+`history.pushState`/`popstate`, and the static handler falls back to
+`index.html` so a direct link or reload lands on the right screen — and no
+data layer beyond the SSE client, the store, and the settings fetch calls
+(§4.2).
 
 ### 5.8 Session list
 

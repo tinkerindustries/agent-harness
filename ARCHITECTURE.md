@@ -158,8 +158,10 @@ The price table, loaded from JSON at runtime and carrying its own capture date.
 Depends on: nothing internal. §4.9.
 
 ### `web/`
-The React frontend — two screens, no write path. Its own build and test cycle;
-see [`web/CLAUDE.md`](web/CLAUDE.md) for the constraints on changing it. §5.
+The React frontend — three screens: the session list, one session's
+transcript, and the settings screen, which is the browser's one write (key
+management only, no run control; §4.2). Its own build and test cycle; see
+[`web/CLAUDE.md`](web/CLAUDE.md) for the constraints on changing it. §5.
 
 ## How the pieces relate
 

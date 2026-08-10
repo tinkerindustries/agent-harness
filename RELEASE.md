@@ -97,12 +97,33 @@ unacked and is redelivered to the new container. The `harness-data` and
 `nats-data` volumes are untouched by a deploy, so sessions and any queue backlog
 survive it.
 
+**One-off, the first deploy of the settings-screen change: set the DeepSeek
+key in the database.** Since the settings table landed, the harness reads its
+DeepSeek key from SQLite rather than the environment, and `DEEPSEEK_API_KEY` in
+`.env.prod` (and in `.env` on the dev stack) no longer does anything — an
+operator who sees it there should not be misled into thinking it is live. The
+new image starts with no key stored. On the first deploy that includes this
+change, set the key once inside the running container, following the same
+`exec` pattern as the balance check below:
+
+```sh
+scripts/prod.sh exec -T harness harness config set deepseek.api_key <key>
+```
+
+This is a one-off, not a permanent step in every deploy: the `harness-data`
+volume survives a deploy, so a key set once persists and later deploys do not
+need to touch it. Skip it and the stack still comes up and serves the UI, but
+every run fails with `no DeepSeek API key configured` until the key is set.
+(`google.api_key` and `google.vision_model` can stay unset — the loop runs
+without them; only the DeepSeek key is required.)
+
 Then confirm it landed:
 
 ```sh
 scripts/prod.sh status                      # the prod tag points at the new image
 curl -sf localhost:8180/api/queue           # {"available":true,"halted":false}
-scripts/prod.sh exec -T harness harness balance
+scripts/prod.sh exec -T harness harness config list    # deepseek.api_key shows set and masked
+scripts/prod.sh exec -T harness harness balance        # the existing check; a good balance confirms the key works
 ```
 
 Open <http://localhost:8180> for the session list, and re-run a real work
