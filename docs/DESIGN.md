@@ -385,7 +385,6 @@ shoulder, so each session also writes a directory:
     <data_dir>/sessions/<yyyy-mm-dd>/<session_id>/
       session.json      metadata, including the frozen system prompt and tools
       events.jsonl      one JSON object per event, appended in seq order
-      transcript.md     rendered for reading, rewritten at turn boundaries
       request.json      the originating work request, when there was one
 
 The mirror is derived, not a second source of truth. Write to SQLite inside the
