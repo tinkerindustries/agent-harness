@@ -8,20 +8,36 @@ with shadcn/ui on Tailwind v4 as the component layer — `accordion`, `badge`,
 deliberately out, because the rail and the plan column are plain sticky
 elements and the diff table renders inside the transcript
 (docs/WEB-REDESIGN.md phase 1). The theme variables are ported from
-`design/tokens.css`, and everything shadcn has no opinion about — the
-transcript block styles, the diff table, and the status and diff tokens — is
-plain CSS in `src/styles.css`. No router, no data layer beyond the SSE client,
-the store, and the settings fetch calls. `docs/DESIGN.md` §5 is the reference
-for the reasoning behind all of it.
+`design/tokens.css`, and everything shadcn has no opinion about — the shared
+top nav, the transcript block styles, the diff table, and the status and diff
+tokens — is plain CSS in `src/styles.css`. No router, no data layer beyond the
+SSE client, the store, and the settings fetch calls. `docs/DESIGN.md` §5 is
+the reference for the reasoning behind all of it.
+
+One shared top nav (docs/WEB-REDESIGN.md phase 9, `components/TopNav.tsx`) is
+mounted once by `App.tsx` around whichever screen the route renders. It is not
+redeclared inside the screens; each screen registers its page-specific
+right-hand content — a search input, a LIVE/connection badge, a refresh button
+— into the nav's right slot with `useNavRight`, so the slot stays owned by the
+screen that holds its state. The `/perf` harness route renders no nav.
 
 What the screens are, since the redesign (docs/WEB-REDESIGN.md):
 
 - **Session list.** In-flight sessions are collapsible plan cards — collapsed,
   the trigger shows the `in_progress` item's activeForm and the completed
-  ratio; expanded, the whole plan and the last few tool calls. Finished
-  sessions are a dense table whose Session cell carries a one-line subtitle:
-  the plan ratio and the model's summary. Outcomes render as
-  `DONE` / `GAVE UP` / `STOPPED` (`statusBadge.ts`), not one green OK.
+  ratio; expanded, the whole plan and the last few tool calls. The card's stat
+  row leads with elapsed and cost in primary weight, sub-turns and cache
+  dimmer (phase 9). Finished sessions are a dense table whose Session cell
+  carries a one-line subtitle: the plan ratio and the model's summary.
+  Outcomes render as `DONE` / `GAVE UP` / `STOPPED` (`statusBadge.ts`), not one
+  green OK. A stat strip above the queue health bar — Running (of the pool's
+  slots, from `worker.pool_size`), Spend today, Median duration today, Done vs
+  gave up today — is a client-side reduction over the same session list, with
+  no backend field behind it. The finished table's columns run Status, Session,
+  Elapsed, Cost, Model, Sub-turns, Cache, Request: the two numbers an operator
+  scans for sit right after Session, where they stay visible before any column
+  that still needs the scroll container. The nav's right slot carries the
+  search input (id/workspace/request, client-side) and the LIVE badge.
 - **Transcript.** The unit is the sub-turn, not the block: one card per
   sub-turn, reasoning, text, tool calls and results in one body and the usage
   block in the header (`src/api/groups.ts` builds the groups as a display-side
@@ -32,11 +48,15 @@ What the screens are, since the redesign (docs/WEB-REDESIGN.md):
   collapses to one summary line; a cache-churn banner links to the first
   sub-turn that churned. The sticky left rail lists every sub-turn under the
   plan item that was `in_progress`, one glyph per tool call, with a single
-  IntersectionObserver marking the current entry.
+  IntersectionObserver marking the current entry. The screen's own header is
+  gone: the nav's crumb shows the session id and its right slot carries the
+  connection badge (phase 9).
 - **Settings.** One collapsible row per registry entry: closed is key, value
   and description; open is the write controls with the bounds the registry
   validates against. A closed set renders a `ToggleGroup`; only overrides and
-  unset secrets are badged.
+  unset secrets are badged. The nav's right slot carries the key/description
+  search input, which filters the rows client-side on top of the chip filter
+  (phase 9).
 
 Build output lands in `../internal/webassets/dist`, which the Go binary embeds.
 Don't change `build.outDir`.

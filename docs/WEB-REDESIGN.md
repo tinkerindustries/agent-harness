@@ -2,18 +2,19 @@
 
 The mockups are in [`design/`](../design/). This is the order to build them in.
 
-Eight phases. Each one ships on its own and leaves the UI working; nothing here
+Nine phases. Each one ships on its own and leaves the UI working; nothing here
 needs a big-bang cutover. Phases 2 and 3 are the two the design pass was asked
 for — the DONE status and the in-flight plan on the main page — and they come
 early because they carry most of the value. Phase 7, the settings screen, is
 independent of the six before it and can be taken out of order; it is late only
-because it is the one screen that was already working.
+because it is the one screen that was already working. Phase 9, the shared top
+nav and the front-page rollup, is layout and client-side arithmetic only.
 
 Nothing in this plan touches the system prompt, the tool array, or the request
 path, so the cache invariant in [DESIGN.md](DESIGN.md) §3.2 is not in play. Every
 new endpoint is `GET`. The browser still observes and does not act.
 
-All eight phases have landed. Each phase below carries a **Status** line
+All nine phases have landed. Each phase below carries a **Status** line
 recording the outcome — and, where the outcome diverged from the intent, the
 gap. The numbers live in [DESIGN.md](DESIGN.md) §5.9–§5.11.
 
@@ -265,6 +266,56 @@ without reading the diff.
 **Status.** This phase. DESIGN.md §5.8–§5.11 rewritten to describe the shipped
 frontend and carry the measurements; web/CLAUDE.md brought in line; the status
 lines above added; and the rail harness's entries counter fixed.
+
+## Phase 9 — Shared top nav and front-page rollup
+
+**Goal.** One header on every product screen, and a front page that answers
+"how is the harness doing right now" at a glance. The mocks are
+`design/nav.html` (the four nav states) and `design/sessions-v2.html` (the
+redesigned list).
+
+**Changes.**
+
+- `web/src/components/TopNav.tsx`, mounted once by `App.tsx` around whichever
+  screen the route renders — not redeclared inside any screen. Wordmark, the
+  three sections as real links with an active state (`"list"` and `"session"`
+  both count as the Sessions section; only `"session"` adds the session-id
+  crumb), and a right slot the screen itself fills through `useNavRight`: the
+  session list's search input and LIVE badge, the settings screen's search
+  input, the operations screen's refresh button, the transcript's connection
+  badge. That is all the nav replaces — each screen's own "← sessions" back
+  link and the list's ad hoc settings/operations buttons are gone, and
+  `/perf` keeps its own header and renders no nav at all.
+- A stat strip above the queue health bar: Running (of the pool's slots —
+  `worker.pool_size` off the settings the settings screen already fetches),
+  Spend today, Median duration today, and Done vs gave up today. "Today" is
+  the current local calendar day, judged by `created_at`; all four are plain
+  client-side reductions over the session list the screen already holds, so
+  there is no backend field and no endpoint. The reductions recompute only
+  when the list changes or the day rolls over, never on the second tick.
+- The in-flight card's stat row now weights Elapsed and Cost as the primary
+  numbers — bold, a step larger — and demotes Sub-turns and Cache to the
+  dimmer secondary weight (`.run-stats .primary` / `.secondary`). The same
+  four figures as the phase 3 design, with cache back in the card; only which
+  ones are loud changed.
+- The finished table's real overflow bug: `.sess-cell` had no `max-width`, so
+  a long plan summary stretched the Session column until Model, Elapsed,
+  Sub-turns, Cache, Cost and Request all scrolled off the right edge
+  (measured live at 1600px — only Status and Session visible). The cell now
+  caps at 360px and the subtitle ellipses instead of pushing, and the columns
+  reorder to Status, Session, Elapsed, Cost, Model, Sub-turns, Cache, Request
+  — Elapsed and Cost sit right after Session, so the two numbers this pass
+  was asked to prioritise are visible before any column that still needs
+  `.table-scroll`'s horizontal scroll on a narrow viewport. Elapsed and Cost
+  cells carry the same primary weight as the in-flight card.
+
+**Exit.** The four nav states in `design/nav.html` render as designed, with
+each screen's right-hand content in place; the stat strip's four numbers match
+a hand reduction over the same list; at 1600px the finished table shows
+Elapsed and Cost without scrolling; the in-flight card keeps all four stats
+visible by letting the run-meta line ellipsize first.
+
+**Status.** Landed (commit `4bdc31a`, PR #43).
 
 ## What is deliberately not here
 
