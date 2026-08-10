@@ -4,7 +4,7 @@ import "strings"
 
 // Mode is the permission mode a session holds for its whole life
 // (docs/TOOLS.md, "Permissions"). Modes gate execution, never the tool
-// array sent to the model: all eleven tools ship in every mode, and a
+// array sent to the model: all twelve tools ship in every mode, and a
 // disallowed call is refused at execution time.
 type Mode string
 
@@ -49,15 +49,18 @@ type Policy struct {
 }
 
 // alwaysAllowed tools have no side effects outside the session's own
-// bookkeeping and run in every mode.
+// bookkeeping and run in every mode. ReviewScreenshot reads a file and sends
+// it over the network without changing anything on disk — the same reasoning
+// that puts WebFetch in read-only mode.
 var alwaysAllowed = map[string]bool{
-	"Read":      true,
-	"Glob":      true,
-	"Grep":      true,
-	"List":      true,
-	"WebFetch":  true,
-	"TodoWrite": true,
-	"Complete":  true,
+	"Read":             true,
+	"Glob":             true,
+	"Grep":             true,
+	"List":             true,
+	"WebFetch":         true,
+	"ReviewScreenshot": true,
+	"TodoWrite":        true,
+	"Complete":         true,
 }
 
 // Check evaluates one tool call. descriptor is what a deny pattern matches

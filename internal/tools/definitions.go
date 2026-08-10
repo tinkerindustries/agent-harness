@@ -111,6 +111,15 @@ var definitions = []deepseek.Tool{
 		},
 		"required": ["url", "prompt"]
 	}`),
+	function("ReviewScreenshot", "Send one to four screenshots to Google Gemini's vision model and return its diagnosis of the question. The first image gets high resolution and the rest medium, so put the screenshot that needs the closest scrutiny first. Screenshots are PNG, JPEG, or WebP files, workspace-relative or absolute paths, at most 5 MB each. Returns Gemini's findings as the tool result.", `{
+		"type": "object",
+		"properties": {
+			"image_paths": {"type": "array", "items": {"type": "string"}, "description": "Absolute or workspace-relative paths to PNG, JPEG, or WebP screenshot files. At most 4, each at most 5 MB. The first image is reviewed at high resolution and the rest at medium, so put the screenshot you care about most first."},
+			"question": {"type": "string", "description": "What to diagnose about the screenshots"},
+			"spec": {"type": "string", "description": "Optional design spec or target CSS to compare the screenshots against"}
+		},
+		"required": ["image_paths", "question"]
+	}`),
 	function("Complete", "End the run and report its outcome. summary is prose for a human; result is the machine-readable payload, validated against the schema given in the opening message if one was supplied.", `{
 		"type": "object",
 		"properties": {
