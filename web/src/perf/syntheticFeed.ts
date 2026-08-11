@@ -54,11 +54,15 @@ const PLAN_ITEMS = [
 // planTodos is the plan as of a phase boundary: everything up to `boundary`
 // completed, the boundary item in_progress, the rest pending. Only boundary 0
 // is materialized by a TaskCreate (below); later boundaries advance the same
-// items by id with TaskUpdate pairs, so the ids TaskCreate mints (1..7, in
-// call order) are exactly the ids those updates name.
+// items by taskId with TaskUpdate pairs, so the ids TaskCreate mints (1..7,
+// in call order) are exactly the ids those updates name. The payload speaks
+// the fold's vocabulary — subject/description/activeForm — because
+// applyTaskEvent validates those fields and a payload that does not name
+// them would be silently dropped, leaving the plan (and the plan rail) empty.
 function planTodos(boundary: number): unknown {
   return PLAN_ITEMS.map((content, i) => ({
-    content,
+    subject: content,
+    description: content,
     status: i < boundary ? "completed" : i === boundary ? "in_progress" : "pending",
     activeForm: i === boundary ? `working on ${content}` : content,
   }));
@@ -115,14 +119,14 @@ export function buildSyntheticHistory(targetBlocks: number, sessionId: string, s
           index: callIndex++,
           id: `plan_${turn}_a`,
           name: "TaskUpdate",
-          arguments: JSON.stringify({ id: String(boundary), status: "completed" }),
+          arguments: JSON.stringify({ taskId: String(boundary), status: "completed" }),
         });
         if (boundary < PLAN_ITEMS.length) {
           push("tool_call", {
             index: callIndex++,
             id: `plan_${turn}_b`,
             name: "TaskUpdate",
-            arguments: JSON.stringify({ id: String(boundary + 1), status: "in_progress" }),
+            arguments: JSON.stringify({ taskId: String(boundary + 1), status: "in_progress" }),
           });
         }
       }

@@ -1,5 +1,6 @@
 import type { Block } from "../../api/fold";
-import { diffCounts, exitCode } from "../blocks/toolArgs";
+import type { TranscriptItem } from "../../api/groups";
+import { diffCounts, exitCode, formatCost } from "../blocks/toolArgs";
 
 // turnHelpers is the pure, testable logic of the turn renderer
 // (design/session-chat.html's .turn): choosing a tool row's single most
@@ -102,4 +103,82 @@ export function cachePercent(hitTokens: number, missTokens: number): string {
   if (total <= 0) return "0";
   const pct = (hitTokens / total) * 100;
   return Number.isInteger(pct) ? String(pct) : pct.toFixed(1);
+}
+
+// --- the chat page's steer messages and finished band (session pages
+// phase 3, design/session-states.html) ---
+
+// steerDeliveredSubTurn names the sub-turn a delivered steer landed in
+// (docs/RUN-CONTROL.md "Two event kinds, not one": steer_applied's sub_turn
+// is the boundary the message became a user message at). The fold's steer
+// block does not carry that number — it records only pending/delivered — so
+// it is derived from the transcript order: the steer lands in the first
+// sub-turn whose turn starts after the steer_message was committed, which is
+// the first group after the steer block in the items. When the landed
+// sub-turn is still streaming it has no group yet, and the live turn's
+// number is the answer; null only when neither exists (a delivered steer
+// whose landed turn never ran — stopped at the boundary — cannot be named).
+export function steerDeliveredSubTurn(
+  steerSeq: number,
+  items: TranscriptItem[],
+  liveSubTurn: number | null,
+): number | null {
+  let after = false;
+  for (const item of items) {
+    if (!after) {
+      if (item.kind === "block" && item.block.type === "steer" && item.block.seq === steerSeq) after = true;
+      continue;
+    }
+    if (item.kind === "group") return item.group.subTurn;
+  }
+  return liveSubTurn;
+}
+
+// pendingWaitLabel says what a pending steer is waiting on, from the live
+// view (design/session-states.html: "waiting for the current tool call to
+// finish"). The three cases are exactly what the stream can be doing at a
+// sub-turn boundary: a tool call still running, a turn streaming, or the
+// loop between turns. The run never pauses for the message either way.
+export function pendingWaitLabel(hasToolRound: boolean, liveSubTurn: number | null): string {
+  if (hasToolRound) return "waiting for the current tool call to finish";
+  if (liveSubTurn !== null) return "waiting for this sub-turn to finish";
+  return "waiting for the next sub-turn boundary";
+}
+
+// formatRunDuration renders a finished run's wall time the way the .box-done
+// band states it (design/session-states.html: "16m 31s", "4m 12s") — seconds
+// under a minute, minutes with the seconds, hours rounded to the minute. The
+// seconds matter at these scales because a stop confirmation is about how
+// far in the run is.
+export function formatRunDuration(ms: number): string {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+// finishedBandText is the .box-done band's sentence (design/session-states
+// html): the outcome in the badge, the duration and cost in the prose. A
+// cancelled run says who stopped it and how far in — "during sub-turn N",
+// or "before it started" when the stop landed before the first sub-turn; a
+// run that ended any other way says how long it took, how many sub-turns it
+// spanned, and what it cost. outcomeLabel is the statusBadge label ("DONE",
+// "CANCELLED", ...) the badge next to the sentence already carries.
+export function finishedBandText(
+  status: string,
+  durationMs: number,
+  subTurns: number,
+  costUsd: number,
+  outcomeLabel: string,
+): string {
+  const duration = formatRunDuration(durationMs);
+  if (status === "cancelled") {
+    const at = subTurns > 0 ? `, during sub-turn ${subTurns}` : ", before it started";
+    return `You stopped this run at ${duration}${at}.`;
+  }
+  const verb = status === "ok" ? "Finished" : outcomeLabel;
+  return `${verb} in ${duration} over ${subTurns} sub-turn${subTurns === 1 ? "" : "s"} for $${formatCost(costUsd)}.`;
 }
