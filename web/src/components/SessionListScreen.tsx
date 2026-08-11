@@ -448,24 +448,16 @@ function InFlightCard({
                 {sess.model} · {sess.effort}
                 {sess.job_type && <> · {sess.job_type}</>}
               </span>
-              {/* The four numbers a running session is judged by, with
-                  elapsed and cost as the two an operator scans for — full
-                  weight and a step larger, while sub-turns and cache sit
-                  dimmer (design/sessions-v2.html). All four were already
-                  computed; only which ones are loud changed. */}
+              {/* The two figures a running session is judged by — elapsed
+                  in full weight, sub-turns dimmer — the finished table's
+                  columns minus Cost and Cache (design/sessions-v2.html). */}
               <span className="run-stats">
                 <span className="primary">
                   {formatElapsed(sess, now)}
                   <span className="unit">elapsed</span>
                 </span>
-                <span className="primary" title={costTitle(sess)}>
-                  {formatCost(sess.usage.cost_usd)}
-                </span>
                 <span className="secondary">
                   <b>{sess.sub_turns}</b> sub-turns
-                </span>
-                <span className="secondary" title={hitRateTitle(sess.usage)}>
-                  <b>{formatHitRate(sess.usage)}</b> cache
                 </span>
               </span>
             </span>
