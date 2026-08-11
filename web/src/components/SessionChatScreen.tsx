@@ -12,6 +12,7 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { ChatComposer, type ComposerStatus, type FinishedBand } from "./ChatComposer";
 import { ChatRail } from "./ChatRail";
+import { DroppedStreamBanner } from "./DroppedStreamBanner";
 import { outcome, type OutcomeSession } from "./statusBadge";
 import { toolDetail } from "./blocks/toolArgs";
 import { useNavRight } from "./TopNav";
@@ -27,6 +28,9 @@ interface Props {
   // The app's navigate, for the finished band's follow-up run (back to the
   // session list with the start form open).
   onNavigate: (path: string) => void;
+  // Whether this session's stream has opened since the page loaded
+  // (SessionScreen's per-session flag, for the dropped-stream banner).
+  everOpen: boolean;
 }
 
 // The interactive session page (design/session-chat.html): a run a person
@@ -37,7 +41,7 @@ interface Props {
 // (empty before the first message, the finished band after), the inline stop
 // confirmation, and the nav slot the design's header draws. The watch page
 // is phase 4's; this screen owns none of its rail, chips, or timeline.
-export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate }: Props) {
+export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everOpen }: Props) {
   const now = useNow(1000);
   // The run is live until the row says otherwise — and when the row never
   // arrived, the safe default is live, so the composer stays steerable.
@@ -343,6 +347,7 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate }: Pro
 
   return (
     <>
+      <DroppedStreamBanner connection={snapshot.connection} everOpen={everOpen} />
       {planMini && (
         <div className="plan-mini">
           <span className="mark" aria-hidden>
