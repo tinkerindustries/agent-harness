@@ -69,6 +69,16 @@ type SessionStartedPayload struct {
 	// when there are none. It is stored separately the way SkillCatalogue is,
 	// so a consumer can lift it out without parsing the message text.
 	ClaudeMDBlock string `json:"claude_md_block,omitempty"`
+	// Task is the exact substring of OpeningMessage that is the task
+	// instruction — the "Task:\n..." tail of the rendered message, which is
+	// the launching agent's own instruction for an agent-started run — empty
+	// when the run was created with none (a browser start waits for its
+	// first message). Stored separately the way SkillCatalogue is, so the
+	// watch page can render the launcher's instruction as its own message
+	// without parsing the message text (design/session-watch.html). Only the
+	// run-creating session_started carries it: a resume instruction is a
+	// continuation, not the launch instruction.
+	Task string `json:"task,omitempty"`
 }
 
 // TurnStartedPayload marks the start of one sub-turn.

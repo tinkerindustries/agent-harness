@@ -1,7 +1,9 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -13,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
@@ -134,6 +137,179 @@ func TestRunCompletesWithNoToolCalls(t *testing.T) {
 	wantSequence := []string{"session_started", "turn_started", "content_delta", "turn_finished", "usage", "run_finished"}
 	if strings.Join(kinds, ",") != strings.Join(wantSequence, ",") {
 		t.Fatalf("unexpected event sequence: %v", kinds)
+	}
+}
+
+// recordingAnswerServer answers every request like plainAnswerServer but
+// records each request body, so a test can assert what the model was sent.
+func recordingAnswerServer(t *testing.T, answer string, bodies *[]string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		*bodies = append(*bodies, string(body))
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
+			Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{Role: "assistant", Content: strPtr(answer)}}},
+		})
+		writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
+			Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishStop)}},
+			Usage:   &deepseek.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
+		})
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		w.(http.Flusher).Flush()
+	}))
+}
+
+// TestRunWithEmptyPromptWaitsForFirstSteer pins the browser-start contract
+// (docs/RUN-CONTROL.md "The frontend"): POST /api/runs creates the run with
+// no prompt, and the loop must not send anything to the model until the
+// operator's first message lands as a steer_message. Before this wait
+// existed, an empty task went to the model, which answered "what would you
+// like me to do?" and ended the run (no_tool_calls) before the operator
+// could type — the live phase 5 run that exposed it. The test: Run with an
+// empty prompt sends no request while waiting; appending a steer_message
+// the way the HTTP handler does makes it proceed, and the request the model
+// then sees carries the steer text as a user message.
+func TestRunWithEmptyPromptWaitsForFirstSteer(t *testing.T) {
+	var bodies []string
+	srv := recordingAnswerServer(t, "all done", &bodies)
+	defer srv.Close()
+	r := newTestRunner(t, srv.URL)
+
+	ws := t.TempDir()
+	done := make(chan *RunResult, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		res, err := r.Run(t.Context(), RunOptions{
+			SessionID: "sess-wait", Model: "test-model", Effort: deepseek.EffortHigh,
+			Thinking: true, MaxTokens: 4000,
+			Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "",
+		})
+		if err != nil {
+			errCh <- err
+			return
+		}
+		done <- res
+	}()
+
+	// Give the loop time to reach the wait, then assert nothing went to the
+	// model — the whole point of the wait.
+	time.Sleep(400 * time.Millisecond)
+	if len(bodies) != 0 {
+		t.Fatalf("sent %d request(s) to the model while the prompt was empty; the run must wait for the first steer", len(bodies))
+	}
+
+	// The steer the browser's POST would have committed (docs/RUN-CONTROL.md
+	// "The HTTP surface").
+	if _, err := r.Store.AppendEvents(t.Context(), "sess-wait", []store.EventInput{
+		{Kind: store.KindSteerMessage, Payload: store.SteerMessagePayload{Text: "do the thing", Source: "web"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case res := <-done:
+		if res.Status != store.StatusOK {
+			t.Fatalf("expected status ok, got %s", res.Status)
+		}
+		if res.SubTurns != 1 {
+			t.Fatalf("expected 1 sub-turn, got %d", res.SubTurns)
+		}
+	case err := <-errCh:
+		t.Fatalf("Run: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("run did not proceed after the first steer arrived")
+	}
+
+	if len(bodies) != 1 {
+		t.Fatalf("expected exactly one request after the steer, got %d", len(bodies))
+	}
+	if !strings.Contains(bodies[0], "do the thing") {
+		t.Fatalf("the model's request does not carry the first message: %s", bodies[0])
+	}
+
+	events, err := r.Store.GetEvents(t.Context(), "sess-wait")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := false
+	for _, e := range events {
+		if e.Kind == store.KindSteerApplied {
+			var p store.SteerAppliedPayload
+			if err := json.Unmarshal(e.Payload, &p); err != nil {
+				t.Fatal(err)
+			}
+			if p.SubTurn != 1 || p.Text != "do the thing" {
+				t.Fatalf("steer_applied = %+v, want sub-turn 1", p)
+			}
+			seen = true
+		}
+	}
+	if !seen {
+		t.Fatal("no steer_applied event in the log; the first message was never delivered")
+	}
+}
+
+// TestRunCancelMarksSessionCancelled pins the soft-stop terminal path (the
+// live phase 5 stop test that exposed it): when a stop cancels the run's
+// context mid-request, the runner's fail() must still land its terminal
+// bookkeeping — on a fresh context, because the run's own is cancelled — and
+// mark the row cancelled (the status the CANCELLED badge and the stop
+// escalation use), not leave it running forever while the queue result says
+// cancelled. The deadline case is pinned to timeout by the same switch.
+func TestRunCancelMarksSessionCancelled(t *testing.T) {
+	started := make(chan struct{})
+	block := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-started:
+		default:
+			close(started)
+		}
+		<-block // hold the request open until the test cancels the run
+	}))
+	defer srv.Close()
+	defer close(block)
+	r := newTestRunner(t, srv.URL)
+
+	ws := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := r.Run(ctx, RunOptions{
+			SessionID: "sess-stop", Model: "test-model", Effort: deepseek.EffortHigh,
+			Thinking: true, MaxTokens: 4000,
+			Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "do the thing",
+		})
+		errCh <- err
+	}()
+
+	// Wait until the run's request is in flight, then cancel the context the
+	// way a stop does (the worker's soft stop cancels runCtx).
+	select {
+	case <-started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the run's request never reached the server")
+	}
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run error = %v, want context.Canceled", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("run did not return after the cancel")
+	}
+
+	sess, err := r.Store.GetSession(context.Background(), "sess-stop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.Status != store.StatusCancelled {
+		t.Fatalf("session status = %q, want %q — the soft stop must terminal the row", sess.Status, store.StatusCancelled)
+	}
+	if sess.FinishedAt == nil {
+		t.Fatal("session finished_at not set by the soft stop")
 	}
 }
 
