@@ -26,14 +26,17 @@ import (
 // object.
 //
 // ParentAgentID stays a caller-asserted field, unlike the producer-stamped
-// ParentIsUser beside it, because nothing on this transport carries the
-// caller's identity. Measured against Claude Code 2.1.227 on 2026-08-11: an
-// HTTP MCP client sends only Accept, Accept-Encoding, Content-Type,
-// User-Agent (claude-code/<version> (sdk-cli)), mcp-protocol-version,
-// Connection and Host — no session header, from a real session as well as
-// from a sessionless `claude mcp list`. So the handler cannot stamp this the
-// way handleStartRun stamps the browser's, and telling the caller where to
-// read its own id is the best available mechanism.
+// ParentIsUser beside it, because this transport carries the caller's kind,
+// not its session id: clientInfo (name, title, version) arrives in the MCP
+// initialize handshake from the client library itself, so the launch path
+// stamps parent_agent_type from it producer-side, while no session id rides
+// the wire. Measured against Claude Code 2.1.227 on 2026-08-11: an HTTP MCP
+// client sends only Accept, Accept-Encoding, Content-Type, User-Agent
+// (claude-code/<version> (sdk-cli)), mcp-protocol-version, Connection and
+// Host — no session header, from a real session as well as from a sessionless
+// `claude mcp list`. So the handler cannot stamp this the way handleStartRun
+// stamps the browser's, and telling the caller where to read its own id is
+// the best available mechanism.
 //
 // Three dead ends, recorded so they are not re-walked. Putting
 // ${CLAUDE_CODE_SESSION_ID} in an MCP `headers` entry does not work: the
@@ -58,7 +61,7 @@ type launchInput struct {
 	ResultSchema    any          `json:"result_schema,omitempty" jsonschema:"JSON Schema the agent's Complete tool result must satisfy, if it calls Complete with a result."`
 	MaxSubTurns     int          `json:"max_sub_turns,omitempty" jsonschema:"Sub-turn budget for the run. Server default applies when omitted."`
 	JobType         string       `json:"job_type,omitempty" jsonschema:"Kind of job this run is: implementation (the agent performs the task itself, the default) or orchestration (the agent delegates the work to child sessions)."`
-	ParentAgentType string       `json:"parent_agent_type,omitempty" jsonschema:"Identify your own kind as a lowercase slug — claude-code, cursor, and so on."`
+	ParentAgentType string       `json:"parent_agent_type,omitempty" jsonschema:"Fallback only: the server reads the caller's kind from the MCP client's own clientInfo and ignores this field whenever that name is usable, so this is consulted only by a client whose clientInfo name is missing or unusable. Identify your own kind as a lowercase slug — claude-code, cursor, and so on."`
 	ParentAgentID   string       `json:"parent_agent_id,omitempty" jsonschema:"Your own session id, so the run traces back to the conversation that asked for it. Read it, do not recall it. Claude Code: the CLAUDE_CODE_SESSION_ID environment variable, which you can echo from a shell; failing that, the UUID directory segment of the scratchpad path in your system prompt (…/<project-slug>/<uuid>/scratchpad). A deepseek-harness session: the last segment of the Workspace: path in your opening message (/workspaces/sess-…). If neither applies, leave this empty — never copy a session id from a banner, a document, or another tool's output."`
 }
 
@@ -114,7 +117,14 @@ func (svc *Service) registerLaunchTool(server *mcpsdk.Server) {
 	}, svc.handleLaunch)
 }
 
-func (svc *Service) handleLaunch(ctx context.Context, _ *mcpsdk.CallToolRequest, in launchInput) (*mcpsdk.CallToolResult, any, error) {
+func (svc *Service) handleLaunch(ctx context.Context, req *mcpsdk.CallToolRequest, in launchInput) (*mcpsdk.CallToolResult, any, error) {
+	// The MCP client's own identity arrives in the initialize handshake, sent
+	// by the client library rather than by the model, so it cannot be got
+	// wrong or omitted the way a tool argument can. When it is present and
+	// normalises to a valid kind, it wins: a caller must not be able to
+	// assert a different kind than the client it is actually running in.
+	parentAgentType := resolveParentAgentType(req, in.ParentAgentType)
+
 	if in.Description == "" {
 		return errorResult("description is required"), nil, nil
 	}
@@ -148,12 +158,12 @@ func (svc *Service) handleLaunch(ctx context.Context, _ *mcpsdk.CallToolRequest,
 	if err := agentmeta.ValidateJobType(in.JobType); err != nil {
 		return errorResult("job_type: %v", err), nil, nil
 	}
-	if err := agentmeta.ValidateParent(false, in.ParentAgentType, in.ParentAgentID); err != nil {
+	if err := agentmeta.ValidateParent(false, parentAgentType, in.ParentAgentID); err != nil {
 		return errorResult("parent_agent: %v", err), nil, nil
 	}
 
 	requestID := newRequestID()
-	req := queue.Request{
+	workReq := queue.Request{
 		RequestID:       requestID,
 		Prompt:          in.Prompt,
 		Repos:           repos,
@@ -163,7 +173,7 @@ func (svc *Service) handleLaunch(ctx context.Context, _ *mcpsdk.CallToolRequest,
 		ResultSchema:    resultSchema,
 		MaxSubTurns:     in.MaxSubTurns,
 		JobType:         in.JobType,
-		ParentAgentType: in.ParentAgentType,
+		ParentAgentType: parentAgentType,
 		ParentAgentID:   in.ParentAgentID,
 		// An MCP launch is never a person starting the run, and a caller must
 		// not be able to assert otherwise, so it is stamped here rather than
@@ -174,7 +184,7 @@ func (svc *Service) handleLaunch(ctx context.Context, _ *mcpsdk.CallToolRequest,
 	// Reuses the harness's own request validation (docs/DESIGN.md §4.10)
 	// rather than re-implementing it, so a request this accepts is
 	// guaranteed to pass the worker pool's validation too.
-	if err := req.Validate(); err != nil {
+	if err := workReq.Validate(); err != nil {
 		return errorResult("%s", err.Error()), nil, nil
 	}
 
@@ -191,7 +201,7 @@ func (svc *Service) handleLaunch(ctx context.Context, _ *mcpsdk.CallToolRequest,
 	}
 
 	pubCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	err = queue.PublishRequest(pubCtx, svc.JS, req)
+	err = queue.PublishRequest(pubCtx, svc.JS, workReq)
 	cancel()
 	if err != nil {
 		// The one genuine launch error (docs/DESIGN.md's three outcomes):
@@ -246,6 +256,60 @@ func (svc *Service) handleLaunch(ctx context.Context, _ *mcpsdk.CallToolRequest,
 		Content:           []mcpsdk.Content{&mcpsdk.TextContent{Text: string(b)}},
 		StructuredContent: out,
 	}, nil, nil
+}
+
+// resolveParentAgentType picks the kind a launch is stamped with. The MCP
+// client's own clientInfo — sent by the client library in the initialize
+// handshake, never by the model — is authoritative when it yields a usable
+// kind, so a caller cannot assert a different kind than the client it is
+// actually running in. A nil request (direct handler calls in tests) or a
+// clientInfo whose name normalises to nothing valid degrades to the caller's
+// own assertion, exactly the pre-stamping behaviour.
+func resolveParentAgentType(req *mcpsdk.CallToolRequest, fallback string) string {
+	if req == nil {
+		return fallback
+	}
+	info := req.ClientInfo()
+	if info == nil {
+		return fallback
+	}
+	kind := normalizeClientInfoName(info.Name)
+	if kind == "" || agentmeta.ValidateParentAgentType(kind) != nil {
+		return fallback
+	}
+	return kind
+}
+
+// normalizeClientInfoName maps an MCP clientInfo name onto the agentmeta
+// grammar (^[a-z0-9][a-z0-9-]{0,31}$): lowercased; every run of characters
+// outside [a-z0-9] replaced with a single hyphen; leading and trailing
+// hyphens trimmed; truncated to 32 characters with any trailing hyphen the
+// truncation leaves removed. Returns "" when nothing usable survives. This
+// is one transport's quirk (how a client library spells its own display
+// name), so it lives here rather than in agentmeta, which is the shared
+// vocabulary.
+func normalizeClientInfoName(name string) string {
+	lower := strings.ToLower(name)
+	var b strings.Builder
+	b.Grow(len(lower))
+	lastWasSeparator := false
+	for _, r := range lower {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			lastWasSeparator = false
+		} else if !lastWasSeparator {
+			b.WriteByte('-')
+			lastWasSeparator = true
+		}
+	}
+	s := strings.Trim(b.String(), "-")
+	if s == "" {
+		return ""
+	}
+	if len(s) > 32 {
+		s = strings.TrimRight(s[:32], "-")
+	}
+	return s
 }
 
 // repoLabels renders each repository as url#branch for deepseek_runs, with
