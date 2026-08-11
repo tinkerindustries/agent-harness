@@ -35,6 +35,7 @@ func (r *Runner) compact(ctx context.Context, sess store.Session, allEvents []st
 		JobType:         sess.JobType,
 		ParentAgentType: sess.ParentAgentType,
 		ParentAgentID:   sess.ParentAgentID,
+		ParentIsUser:    sess.ParentIsUser,
 		Model:           sess.Model,
 		Effort:          sess.Effort,
 		Thinking:        sess.Thinking,

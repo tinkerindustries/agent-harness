@@ -76,7 +76,8 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 		ResultSchema: sess.ResultSchema, MaxSubTurns: opts.MaxSubTurns,
 		Resolver: opts.Resolver, ParentID: sess.ParentID,
 		JobType: sess.JobType, ParentAgentType: sess.ParentAgentType, ParentAgentID: sess.ParentAgentID,
-		SessionID: sess.ID, Progress: opts.Progress,
+		ParentIsUser: sess.ParentIsUser,
+		SessionID:    sess.ID, Progress: opts.Progress,
 	}
 	executor.RunSubagent = r.subagentRunner(sess.ID, runOpts, executor.Workspace)
 

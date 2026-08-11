@@ -138,8 +138,8 @@ func TestRunCompletesWithNoToolCalls(t *testing.T) {
 }
 
 // TestRunWritesProvenanceOntoSessionRow proves Run carries JobType,
-// ParentAgentType, and ParentAgentID from RunOptions onto the session row
-// it creates.
+// ParentAgentType, ParentAgentID, and ParentIsUser from RunOptions onto the
+// session row it creates.
 func TestRunWritesProvenanceOntoSessionRow(t *testing.T) {
 	srv := plainAnswerServer(t, "all done")
 	defer srv.Close()
@@ -150,6 +150,7 @@ func TestRunWritesProvenanceOntoSessionRow(t *testing.T) {
 		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "say something",
 		JobType: agentmeta.JobTypeOrchestration, ParentAgentType: "orchestrator", ParentAgentID: "orch-1",
+		ParentIsUser: true,
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -160,7 +161,7 @@ func TestRunWritesProvenanceOntoSessionRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	if sess.JobType != agentmeta.JobTypeOrchestration ||
-		sess.ParentAgentType != "orchestrator" || sess.ParentAgentID != "orch-1" {
+		sess.ParentAgentType != "orchestrator" || sess.ParentAgentID != "orch-1" || !sess.ParentIsUser {
 		t.Fatalf("unexpected provenance on the session row: %+v", sess)
 	}
 }
@@ -376,6 +377,7 @@ func TestCompactionForksNewSession(t *testing.T) {
 		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "a task that will need compaction",
 		JobType: agentmeta.JobTypeOrchestration, ParentAgentType: "orchestrator", ParentAgentID: "orch-1",
+		ParentIsUser: true,
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -409,7 +411,7 @@ func TestCompactionForksNewSession(t *testing.T) {
 		t.Fatalf("expected the child's system prompt to carry the summary, got: %s", child.SystemPrompt)
 	}
 	if child.JobType != agentmeta.JobTypeOrchestration ||
-		child.ParentAgentType != "orchestrator" || child.ParentAgentID != "orch-1" {
+		child.ParentAgentType != "orchestrator" || child.ParentAgentID != "orch-1" || !child.ParentIsUser {
 		t.Fatalf("expected the compacted child to inherit the parent's provenance, got: %+v", child)
 	}
 }

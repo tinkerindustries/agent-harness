@@ -416,8 +416,10 @@ func TestPoolDuplicateRequestIDRunsOnce(t *testing.T) {
 }
 
 // TestPoolCarriesProvenanceFromRequestToSession proves the request's job
-// type and parent agent reach the RunOptions the pool builds: the session
-// row that comes out of the run must carry them.
+// type and parent provenance reach the RunOptions the pool builds: the
+// session row that comes out of the run must carry them. A user-started
+// request (parent_is_user set, no parent agent type) is the coherent triple
+// the new validation admits.
 func TestPoolCarriesProvenanceFromRequestToSession(t *testing.T) {
 	srv := plainAnswerServer(t, "done", 0, nil)
 	defer srv.Close()
@@ -428,7 +430,8 @@ func TestPoolCarriesProvenanceFromRequestToSession(t *testing.T) {
 	requestID := uniqueID("req-provenance")
 	h.publish(t, queue.Request{
 		RequestID: requestID, Prompt: "do it", Repos: testRepos(), PermissionMode: "full",
-		JobType: agentmeta.JobTypeOrchestration, ParentAgentType: "orchestrator", ParentAgentID: "orch-1",
+		JobType:      agentmeta.JobTypeOrchestration,
+		ParentIsUser: true,
 	})
 
 	res := h.fetchFinalResult(t, requestID, 15*time.Second)
@@ -439,8 +442,7 @@ func TestPoolCarriesProvenanceFromRequestToSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get session: %v", err)
 	}
-	if sess.JobType != agentmeta.JobTypeOrchestration ||
-		sess.ParentAgentType != "orchestrator" || sess.ParentAgentID != "orch-1" {
+	if sess.JobType != agentmeta.JobTypeOrchestration || !sess.ParentIsUser {
 		t.Fatalf("unexpected provenance on the session row: %+v", sess)
 	}
 }
