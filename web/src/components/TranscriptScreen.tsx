@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import type { SessionState } from "../api/types";
 import type { Block } from "../api/fold";
 import type { TranscriptFilter } from "../api/groups";
-import { useTranscriptStore } from "../hooks";
+import { useSessionMeta, useTranscriptStore } from "../hooks";
 import { BlockList } from "./BlockList";
 import { PlanPanel } from "./PlanPanel";
 import { TimelineRail } from "./TimelineRail";
@@ -137,28 +137,4 @@ function lastRunFinishedReason(blocks: Block[]): string | undefined {
     if (b.type === "run_finished") return b.reason;
   }
   return undefined;
-}
-
-function useSessionMeta(sessionId: string, refreshOn: unknown): SessionState | null {
-  const [meta, setMeta] = useState<SessionState | null>(null);
-
-  // Clear on a genuine session switch only, so a refreshOn change (the
-  // stream opening or closing) re-fetches without a visible blank flicker
-  // in between.
-  useEffect(() => setMeta(null), [sessionId]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { signal: controller.signal })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => data && setMeta(data))
-      .catch(() => {
-        // A transient fetch failure just leaves the header showing
-        // whatever it last had; the transcript itself still streams from
-        // the SSE connection regardless.
-      });
-    return () => controller.abort();
-  }, [sessionId, refreshOn]);
-
-  return meta;
 }

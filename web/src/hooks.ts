@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { QueueHealth } from "./api/types";
+import type { QueueHealth, SessionState } from "./api/types";
 import { TranscriptStore } from "./api/transcriptStore";
 
 // useNow re-renders its caller on an interval — used only for the session
@@ -63,4 +63,38 @@ export function useTranscriptStore(sessionID: string): TranscriptStore {
     return () => store.close();
   }, [sessionID]);
   return ref.current.store;
+}
+
+// useSessionMeta fetches GET /api/sessions/{id} and returns the metadata
+// row. Re-fetches when refreshOn changes (the stream connection opening or
+// closing), so the status badge picks up the terminal status the
+// transcript's own run_finished/error block already shows, rather than
+// freezing on whatever the first fetch returned. Clears only on a genuine
+// session switch — a refreshOn change re-fetches without a visible blank
+// flicker in between — and swallows a transient fetch failure, which just
+// leaves the caller showing whatever it last had. Moved here verbatim from
+// TranscriptScreen.tsx when the session route's fork needed it too; the
+// fork extends it with a settled flag in the next change.
+export function useSessionMeta(sessionId: string, refreshOn: unknown): SessionState | null {
+  const [meta, setMeta] = useState<SessionState | null>(null);
+
+  // Clear on a genuine session switch only, so a refreshOn change (the
+  // stream opening or closing) re-fetches without a visible blank flicker
+  // in between.
+  useEffect(() => setMeta(null), [sessionId]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => data && setMeta(data))
+      .catch(() => {
+        // A transient fetch failure just leaves the header showing
+        // whatever it last had; the transcript itself still streams from
+        // the SSE connection regardless.
+      });
+    return () => controller.abort();
+  }, [sessionId, refreshOn]);
+
+  return meta;
 }
