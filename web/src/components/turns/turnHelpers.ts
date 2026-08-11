@@ -1,5 +1,4 @@
 import type { Block } from "../../api/fold";
-import type { TranscriptItem } from "../../api/groups";
 import { diffCounts, exitCode, formatCost } from "../blocks/toolArgs";
 
 // turnHelpers is the pure, testable logic of the turn renderer
@@ -107,32 +106,6 @@ export function cachePercent(hitTokens: number, missTokens: number): string {
 
 // --- the chat page's steer messages and finished band (session pages
 // phase 3, design/session-states.html) ---
-
-// steerDeliveredSubTurn names the sub-turn a delivered steer landed in
-// (docs/RUN-CONTROL.md "Two event kinds, not one": steer_applied's sub_turn
-// is the boundary the message became a user message at). The fold's steer
-// block does not carry that number — it records only pending/delivered — so
-// it is derived from the transcript order: the steer lands in the first
-// sub-turn whose turn starts after the steer_message was committed, which is
-// the first group after the steer block in the items. When the landed
-// sub-turn is still streaming it has no group yet, and the live turn's
-// number is the answer; null only when neither exists (a delivered steer
-// whose landed turn never ran — stopped at the boundary — cannot be named).
-export function steerDeliveredSubTurn(
-  steerSeq: number,
-  items: TranscriptItem[],
-  liveSubTurn: number | null,
-): number | null {
-  let after = false;
-  for (const item of items) {
-    if (!after) {
-      if (item.kind === "block" && item.block.type === "steer" && item.block.seq === steerSeq) after = true;
-      continue;
-    }
-    if (item.kind === "group") return item.group.subTurn;
-  }
-  return liveSubTurn;
-}
 
 // pendingWaitLabel says what a pending steer is waiting on, from the live
 // view (design/session-states.html: "waiting for the current tool call to

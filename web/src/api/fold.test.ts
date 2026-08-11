@@ -412,7 +412,7 @@ describe("steer block", () => {
     state.ingest(ev(3, "steer_applied", { source_seq: 2, text: "be terse", sub_turn: 1 }));
     expect(state.blocks).toEqual([
       { type: "opening", seq: 1, text: "x" },
-      { type: "steer", seq: 2, text: "be terse", state: "delivered" },
+      { type: "steer", seq: 2, text: "be terse", state: "delivered", appliedSubTurn: 1 },
     ]);
   });
 
@@ -423,7 +423,7 @@ describe("steer block", () => {
     state.ingest(ev(3, "steer_applied", { source_seq: 2, text: "second", sub_turn: 1 }));
     expect(state.blocks).toEqual([
       { type: "steer", seq: 1, text: "first", state: "pending" },
-      { type: "steer", seq: 2, text: "second", state: "delivered" },
+      { type: "steer", seq: 2, text: "second", state: "delivered", appliedSubTurn: 1 },
     ]);
   });
 
@@ -436,8 +436,25 @@ describe("steer block", () => {
     state.ingest(ev(5, "steer_applied", { source_seq: 2, text: "be terse", sub_turn: 1 }));
 
     const steer = state.blocks.find((b) => b.type === "steer");
-    expect(steer).toEqual({ type: "steer", seq: 2, text: "be terse", state: "delivered" });
+    expect(steer).toEqual({ type: "steer", seq: 2, text: "be terse", state: "delivered", appliedSubTurn: 1 });
     expect(state.blocks.map((b) => b.type)).toEqual(["opening", "steer", "assistant"]);
+  });
+
+  it("stamps the producer's own sub_turn onto the delivered block, not a derived one", () => {
+    // The boundary the message became a user message at is steer_applied's
+    // sub_turn, stamped by the producer: a steer sent while a turn was
+    // streaming lands in the turn that was already running, which counting
+    // groups after the steer block cannot recover. The display reads the
+    // block's appliedSubTurn instead of deriving it.
+    const state = new FoldState();
+    state.ingest(ev(1, "session_started", { opening_message: "x" }));
+    state.ingest(ev(2, "turn_started", { sub_turn: 1 }));
+    state.ingest(ev(3, "steer_message", { text: "be terse" }));
+    state.ingest(ev(4, "turn_finished", { sub_turn: 1, finish_reason: "stop" }));
+    state.ingest(ev(5, "steer_applied", { source_seq: 3, text: "be terse", sub_turn: 2 }));
+
+    const steer = state.blocks.find((b) => b.type === "steer");
+    expect(steer).toEqual({ type: "steer", seq: 3, text: "be terse", state: "delivered", appliedSubTurn: 2 });
   });
 
   it("is the one deliberate divergence from the append-only property", () => {
@@ -453,7 +470,7 @@ describe("steer block", () => {
     const prefix = foldEvents(events.slice(0, 2));
     const full = foldEvents(events);
     expect(prefix[1]).toEqual({ type: "steer", seq: 2, text: "be terse", state: "pending" });
-    expect(full[1]).toEqual({ type: "steer", seq: 2, text: "be terse", state: "delivered" });
+    expect(full[1]).toEqual({ type: "steer", seq: 2, text: "be terse", state: "delivered", appliedSubTurn: 1 });
     // Everything else still agrees: the opening block is untouched.
     expect(prefix[0]).toEqual(full[0]);
   });

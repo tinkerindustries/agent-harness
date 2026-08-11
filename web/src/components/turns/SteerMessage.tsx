@@ -8,7 +8,7 @@ import { pendingWaitLabel } from "./turnHelpers";
 // states): the text in mono behind the running-colour left rule, and a state
 // line under it. It replaces the old steer block card on the interactive page
 // — a message is a message, not a block — while the watch page keeps the
-// block rendering (phase 3 does not touch it).
+// block rendering.
 //
 // Two of the three states come from the fold's steer block:
 //
@@ -22,7 +22,12 @@ import { pendingWaitLabel } from "./turnHelpers";
 //   another client (or before a reload) has no local time and the count is
 //   omitted rather than fabricated.
 // - delivered — the matching steer_applied arrived; the line names the
-//   sub-turn it landed in (turnHelpers.steerDeliveredSubTurn).
+//   sub-turn it landed in, straight from the block's own appliedSubTurn —
+//   the producer-stamped boundary the message became a user message at
+//   (docs/RUN-CONTROL.md "Two event kinds, not one"), never derived from
+//   transcript order. A delivered block folded before that field existed
+//   renders without naming a sub-turn: the fallback is a plain "delivered",
+//   so an old log still renders.
 //
 // The third state — not sent, a POST that failed so nothing is in the log —
 // is composer-local and never becomes a block; the chat screen renders those
@@ -44,9 +49,6 @@ interface Props {
   // 202, so the pending count-up has a start. Absent for a steer this page
   // did not send.
   sentAt?: number;
-  // The sub-turn the steer landed in once delivered; null while pending or
-  // when the landed turn cannot be named.
-  deliveredSubTurn: number | null;
   // What the pending message is waiting on, from the live view.
   wait: SteerWait;
 }
@@ -55,14 +57,16 @@ interface Props {
 // showing. It is deliberately NOT memoised — the ticking is the whole point
 // — but its parent (the memoised TurnList) bails out on every live-only
 // delta, so the tick never re-renders the conversation, only this message.
-export function SteerMessage({ block, sentAt, deliveredSubTurn, wait }: Props) {
+export function SteerMessage({ block, sentAt, wait }: Props) {
   const now = useNow(1000);
 
   if (block.state === "delivered") {
     return (
       <div className="msg msg-user">
         <div className="body">{block.text}</div>
-        <div className="state">delivered{deliveredSubTurn !== null ? ` · sub-turn ${deliveredSubTurn}` : ""}</div>
+        <div className="state">
+          delivered{block.appliedSubTurn != null ? ` · sub-turn ${block.appliedSubTurn}` : ""}
+        </div>
       </div>
     );
   }

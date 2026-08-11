@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { DiffLine, ToolDeniedPayload, ToolResultPayload } from "../../api/types";
-import type { TranscriptItem } from "../../api/groups";
 import {
   cachePercent,
   elideLines,
   finishedBandText,
   formatRunDuration,
   pendingWaitLabel,
-  steerDeliveredSubTurn,
   toolStat,
   type ToolResultLike,
 } from "./turnHelpers";
@@ -120,47 +118,6 @@ describe("cachePercent", () => {
 
   it("renders a zero token total as 0", () => {
     expect(cachePercent(0, 0)).toBe("0");
-  });
-});
-
-describe("steerDeliveredSubTurn", () => {
-  // A steer block stays at the position where the operator sent it; the
-  // first group after it is the sub-turn the message landed in.
-  const steer = (seq: number): TranscriptItem => ({ kind: "block", block: { type: "steer", seq, text: "hi", state: "delivered" } });
-  const group = (subTurn: number, seq: number): TranscriptItem => ({
-    kind: "group",
-    group: {
-      subTurn,
-      seq,
-      blocks: [{ type: "assistant", seq, subTurn, reasoning: "", content: "", toolCalls: [], finishReason: "stop" }],
-      tags: { edits: 0, bash: 0, errors: 0, churn: false },
-      phase: { id: 1, index: 0, label: "" },
-    },
-  });
-
-  it("names the first group after the steer block", () => {
-    const items = [group(1, 10), steer(15), group(2, 20), group(3, 30)];
-    expect(steerDeliveredSubTurn(15, items, null)).toBe(2);
-  });
-
-  it("ignores an earlier steer's own block when walking", () => {
-    const items = [steer(5), group(1, 10), steer(15), group(2, 20)];
-    expect(steerDeliveredSubTurn(15, items, null)).toBe(2);
-    expect(steerDeliveredSubTurn(5, items, null)).toBe(1);
-  });
-
-  it("falls back to the live turn when the landed sub-turn is still streaming", () => {
-    const items = [group(1, 10), steer(15)];
-    expect(steerDeliveredSubTurn(15, items, 2)).toBe(2);
-  });
-
-  it("returns null when no group follows and there is no live turn", () => {
-    const items = [group(1, 10), steer(15)];
-    expect(steerDeliveredSubTurn(15, items, null)).toBeNull();
-  });
-
-  it("returns null for a seq no steer block carries", () => {
-    expect(steerDeliveredSubTurn(99, [group(1, 10)], null)).toBeNull();
   });
 });
 

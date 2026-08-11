@@ -4,7 +4,7 @@ import type { Block } from "../api/fold";
 import type { TranscriptSnapshot } from "../api/transcriptStore";
 import { TurnTranscript } from "./turns/TurnTranscript";
 import { SteerMessage, type SteerBlock, type SteerWait } from "./turns/SteerMessage";
-import { finishedBandText, formatRunDuration, steerDeliveredSubTurn } from "./turns/turnHelpers";
+import { finishedBandText, formatRunDuration } from "./turns/turnHelpers";
 import { controlToken, errorMessage, steerSession, stopSession } from "../api/operations";
 import { isUserStarted } from "../api/provenance";
 import { useNow } from "../hooks";
@@ -189,19 +189,12 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate }: Pro
     };
   }, [meta, snapshot.live.turn?.subTurn, snapshot.items]);
 
-  // The delivered sub-turn per steer block, derived from transcript order
-  // (turnHelpers.steerDeliveredSubTurn) — computed once per items change and
-  // memoised on primitives so the token-rate hot path never recomputes it.
-  const deliveredSubTurns = useMemo(() => {
-    const liveSubTurn = snapshot.live.turn?.subTurn ?? null;
-    const m = new Map<number, number | null>();
-    for (const item of snapshot.items) {
-      if (item.kind === "block" && item.block.type === "steer" && item.block.state === "delivered") {
-        m.set(item.block.seq, steerDeliveredSubTurn(item.block.seq, snapshot.items, liveSubTurn));
-      }
-    }
-    return m;
-  }, [snapshot.items, snapshot.live.turn?.subTurn]);
+  // The delivered sub-turn per steer block lives on the block itself
+  // (fold.ts: steer_applied stamps appliedSubTurn when the block flips to
+  // delivered), so the chat screen carries nothing derived from transcript
+  // order — the number the producer stamped is the boundary the message
+  // became a user message at, which counting groups cannot recover when the
+  // steer was sent mid-turn.
 
   // What pending steers are waiting on, as primitives (turnHelpers
   // pendingWaitLabel): reference-stable across live-only deltas, so the
@@ -220,20 +213,12 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate }: Pro
   );
 
   // renderSteer is reference-stable across live-only deltas — it changes
-  // only when the ledger, the delivered map, or the wait primitives do — so
-  // the memoised TurnList bails out on every token (web/CLAUDE.md: preserve
-  // the group-granularity memoisation).
+  // only when the ledger or the wait primitives do — so the memoised
+  // TurnList bails out on every token (web/CLAUDE.md: preserve the
+  // group-granularity memoisation).
   const renderSteer = useCallback(
-    (block: SteerBlock) => (
-      <SteerMessage
-        key={block.seq}
-        block={block}
-        sentAt={sentAt.get(block.seq)}
-        deliveredSubTurn={deliveredSubTurns.get(block.seq) ?? null}
-        wait={wait}
-      />
-    ),
-    [sentAt, deliveredSubTurns, wait],
+    (block: SteerBlock) => <SteerMessage key={block.seq} block={block} sentAt={sentAt.get(block.seq)} wait={wait} />,
+    [sentAt, wait],
   );
 
   // What the run is doing right now, for the confirm strip's sentence
