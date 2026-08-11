@@ -123,7 +123,7 @@ intent of the prompt.
 | thinking disabled | forced call | forced call |
 
 Consequences. The main loop runs thinking-on permanently, so it can never
-guarantee a tool call — no forced `TodoWrite` at plan time, and no way to stop
+guarantee a tool call — no forced `TaskCreate` at plan time, and no way to stop
 the model answering in prose when action was wanted. Prompt wording is the only
 lever there.
 

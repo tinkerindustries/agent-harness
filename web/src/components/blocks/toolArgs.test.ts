@@ -43,7 +43,7 @@ describe("toolDetail", () => {
   });
 
   it("returns an empty string for a tool with no special-cased detail, or no call at all", () => {
-    expect(toolDetail(call("TodoWrite", { todos: [] }))).toBe("");
+    expect(toolDetail(call("TaskList", {}))).toBe("");
     expect(toolDetail(undefined)).toBe("");
   });
 });
@@ -100,7 +100,14 @@ describe("toolGlyph", () => {
     expect(toolGlyph("Read")).toEqual({ letter: "R", family: "other" });
     expect(toolGlyph("Grep")).toEqual({ letter: "G", family: "other" });
     expect(toolGlyph("Task")).toEqual({ letter: "T", family: "other" });
-    expect(toolGlyph("TodoWrite")).toEqual({ letter: "P", family: "other" });
+  });
+
+  it("gives all four plan tools the same plan glyph, so the rail never falls back to clashing first letters", () => {
+    // TaskGet's first letter would collide with Grep's G and TaskList's with
+    // List's L; the shared P keeps the plan family recognizable.
+    for (const name of ["TaskCreate", "TaskGet", "TaskList", "TaskUpdate"]) {
+      expect(toolGlyph(name)).toEqual({ letter: "P", family: "other" });
+    }
   });
 
   it("falls back to the tool's first letter, neutral family, for tools the table does not name", () => {

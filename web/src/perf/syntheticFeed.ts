@@ -37,10 +37,10 @@ const READ_OUTPUT = Array.from({ length: 220 }, (_, i) => `${String(i + 1).padSt
 type TurnKind = "plain" | "bash" | "edit" | "read";
 const TURN_KINDS: TurnKind[] = ["plain", "bash", "edit", "read"];
 
-// The synthetic session's plan, for the TodoWrite calls that phase the
-// history (docs/WEB-REDESIGN.md phase 6 needs plan boundaries to group the
-// rail's sub-turns under). Seven items, the shape of the measured session's
-// plan in design/transcript.html.
+// The synthetic session's plan, for the TaskCreate/TaskUpdate calls that
+// phase the history (docs/WEB-REDESIGN.md phase 6 needs plan boundaries to
+// group the rail's sub-turns under). Seven items, the shape of the measured
+// session's plan in design/transcript.html.
 const PLAN_ITEMS = [
   "Fix retained-body leak",
   "Add httplog test",
@@ -52,7 +52,10 @@ const PLAN_ITEMS = [
 ];
 
 // planTodos is the plan as of a phase boundary: everything up to `boundary`
-// completed, the boundary item in_progress, the rest pending.
+// completed, the boundary item in_progress, the rest pending. Only boundary 0
+// is materialized by a TaskCreate (below); later boundaries advance the same
+// items by id with TaskUpdate pairs, so the ids TaskCreate mints (1..7, in
+// call order) are exactly the ids those updates name.
 function planTodos(boundary: number): unknown {
   return PLAN_ITEMS.map((content, i) => ({
     content,
@@ -64,11 +67,12 @@ function planTodos(boundary: number): unknown {
 // buildSyntheticHistory generates events for roughly targetBlocks frozen
 // blocks, cycling through plain answers and Bash/Edit/Read tool calls so the
 // mix looks like a real session: sizable Bash output, a real diff, and a
-// large enough Read to trigger the collapse threshold. A TodoWrite call
-// opens sub-turn 1 and every twentieth sub-turn after it, so the fold's
-// latestTodos — and therefore the timeline rail's phase groups — have real
-// plan boundaries to work with. This is the "few hundred blocks mounted"
-// half of the measurement. seq is shared with whatever live feed follows it
+// large enough Read to trigger the collapse threshold. A TaskCreate call
+// opens sub-turn 1 (minting the seven plan ids) and TaskUpdate pairs advance
+// the plan every twentieth sub-turn after it, so the fold's latestTodos — and
+// therefore the timeline rail's phase groups — have real plan boundaries to
+// work with. This is the "few hundred blocks mounted" half of the
+// measurement. seq is shared with whatever live feed follows it
 // (PerfHarnessScreen passes the same source to both) so seq numbers — which
 // double as React keys — stay unique across the whole synthetic session
 // instead of each phase restarting its own count.
@@ -90,30 +94,53 @@ export function buildSyntheticHistory(targetBlocks: number, sessionId: string, s
     if (kind === "plain") push("content_delta", { text: words(20) });
 
     let callId: string | null = null;
+    let callIndex = 0;
     if (turn === 1 || turn % 20 === 1) {
-      // Every TodoWrite call in the event stream marks a rail phase boundary
-      // (docs/WEB-REDESIGN.md phase 6). The first marks the plan itself.
-      push("tool_call", {
-        index: 0,
-        id: `plan_${turn}`,
-        name: "TodoWrite",
-        arguments: JSON.stringify({ todos: planTodos(Math.floor((turn - 1) / 20)) }),
-      });
+      // Every plan-mutating call in the event stream marks a rail phase
+      // boundary (docs/WEB-REDESIGN.md phase 6). The first marks the plan
+      // itself: TaskCreate mints ids 1..7 in call order. Later boundaries
+      // advance the plan with TaskUpdate pairs — the item that was
+      // in_progress completes and the next one starts — so both mutating
+      // tools exercise the boundary logic.
+      const boundary = Math.floor((turn - 1) / 20);
+      if (boundary === 0) {
+        push("tool_call", {
+          index: callIndex++,
+          id: `plan_${turn}`,
+          name: "TaskCreate",
+          arguments: JSON.stringify({ tasks: planTodos(0) }),
+        });
+      } else {
+        push("tool_call", {
+          index: callIndex++,
+          id: `plan_${turn}_a`,
+          name: "TaskUpdate",
+          arguments: JSON.stringify({ id: String(boundary), status: "completed" }),
+        });
+        if (boundary < PLAN_ITEMS.length) {
+          push("tool_call", {
+            index: callIndex++,
+            id: `plan_${turn}_b`,
+            name: "TaskUpdate",
+            arguments: JSON.stringify({ id: String(boundary + 1), status: "in_progress" }),
+          });
+        }
+      }
     }
     if (kind === "bash") {
       callId = `call_${turn}`;
-      push("tool_call", { index: 0, id: callId, name: "Bash", arguments: JSON.stringify({ command: "npm test" }) });
+      push("tool_call", { index: callIndex, id: callId, name: "Bash", arguments: JSON.stringify({ command: "npm test" }) });
     } else if (kind === "edit") {
       callId = `call_${turn}`;
       push("tool_call", {
-        index: 0,
+        index: callIndex,
         id: callId,
         name: "Edit",
         arguments: JSON.stringify({ file_path: "src/app.ts", old_string: "const a = 1", new_string: "const a = 2" }),
       });
     } else if (kind === "read") {
       callId = `call_${turn}`;
-      push("tool_call", { index: 0, id: callId, name: "Read", arguments: JSON.stringify({ file_path: "src/big.ts" }) });
+      push("tool_call", { index: callIndex, id: callId, name: "Read", arguments: JSON.stringify({ file_path: "src/big.ts" }) });
     }
     push("turn_finished", { finish_reason: callId ? "tool_calls" : "stop" });
     blockCount++; // the assistant block
@@ -175,19 +202,29 @@ export function liveEventGenerator(sessionId: string, seq: SeqSource): Generator
       for (let i = 0; i < 20; i++) yield push("reasoning_delta", { text: words(3) });
       for (let i = 0; i < 8; i++) yield push("content_delta", { text: words(3) });
 
-      // Every live sub-turn writes the plan, so the rail's phase grouping is
+      // Every live sub-turn mutates the plan, so the rail's phase grouping is
       // exercised on the live append path too — each live turn opens its own
-      // phase in the rail.
+      // phase in the rail. TaskCreate appends the next batch (fresh ids the
+      // fold mints in call order), and a TaskUpdate re-marks the session's
+      // first plan item, so both mutating tools run on the live path; the
+      // update names a history item, never a minted id, so the generator
+      // needs no knowledge of the fold's counter.
       yield push("tool_call", {
         index: 0,
         id: `live_plan_${turn}`,
-        name: "TodoWrite",
+        name: "TaskCreate",
         arguments: JSON.stringify({
-          todos: [
+          tasks: [
             { content: `live item ${turn % 3}`, status: "in_progress", activeForm: "working" },
             { content: "next", status: "pending", activeForm: "next" },
           ],
         }),
+      });
+      yield push("tool_call", {
+        index: 1,
+        id: `live_update_${turn}`,
+        name: "TaskUpdate",
+        arguments: JSON.stringify({ id: "1", status: "in_progress" }),
       });
       const callId = `live_call_${turn}`;
       yield push("tool_call", { index: 0, id: callId, name: "Bash", arguments: JSON.stringify({ command: "npm run build" }) });

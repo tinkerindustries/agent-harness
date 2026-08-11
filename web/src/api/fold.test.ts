@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FoldState, foldEvents } from "./fold";
+import { applyTaskEvent, FoldState, foldEvents } from "./fold";
 import type { StoreEvent } from "./types";
 
 function ev(seq: number, kind: StoreEvent["kind"], payload: unknown): StoreEvent {
@@ -98,6 +98,49 @@ describe("reasoning panel figures", () => {
   });
 });
 
+// The exported pure reducer mirrors internal/store/status.go's applyTaskEvent
+// one for one — the same patch semantics the store replay applies, so the
+// fold's live plan can never drift from the backend's recovered one.
+describe("applyTaskEvent", () => {
+  it("appends TaskCreate tasks with minted ids, status defaulting to pending", () => {
+    const { todos, nextId } = applyTaskEvent([], 0, "TaskCreate", JSON.stringify({ tasks: [{ content: "a", activeForm: "doing a" }] }));
+    expect(todos).toEqual([{ id: "1", content: "a", status: "pending", activeForm: "doing a" }]);
+    expect(nextId).toBe(1);
+  });
+
+  it("patches one task by id and removes it on delete", () => {
+    const seed = [
+      { id: "1", content: "a", status: "pending" as const, activeForm: "doing a" },
+      { id: "2", content: "b", status: "pending" as const, activeForm: "doing b" },
+    ];
+    const patched = applyTaskEvent(seed, 2, "TaskUpdate", JSON.stringify({ id: "2", status: "completed", content: "done" }));
+    expect(patched.todos[1]).toEqual({ id: "2", content: "done", status: "completed", activeForm: "doing b" });
+    expect(patched.nextId).toBe(2);
+
+    const deleted = applyTaskEvent(seed, 2, "TaskUpdate", JSON.stringify({ id: "1", delete: true }));
+    expect(deleted.todos).toEqual([seed[1]]);
+  });
+
+  it("returns the input unchanged for any other tool name, malformed JSON, or a rejected update", () => {
+    const seed = [{ id: "1", content: "a", status: "pending" as const, activeForm: "doing a" }];
+    expect(applyTaskEvent(seed, 1, "TaskGet", JSON.stringify({ id: "1" }))).toEqual({ todos: seed, nextId: 1 });
+    expect(applyTaskEvent(seed, 1, "TaskList", JSON.stringify({}))).toEqual({ todos: seed, nextId: 1 });
+    expect(applyTaskEvent(seed, 1, "TaskCreate", '{"tasks":[{"content":')).toEqual({ todos: seed, nextId: 1 });
+    expect(applyTaskEvent(seed, 1, "TaskUpdate", '{"id":"1","status":')).toEqual({ todos: seed, nextId: 1 });
+    expect(applyTaskEvent(seed, 1, "TaskUpdate", JSON.stringify({ id: "99", status: "completed" }))).toEqual({ todos: seed, nextId: 1 });
+    // No-op update (nothing to set) and delete combined with a patch.
+    expect(applyTaskEvent(seed, 1, "TaskUpdate", JSON.stringify({ id: "1" }))).toEqual({ todos: seed, nextId: 1 });
+    expect(applyTaskEvent(seed, 1, "TaskUpdate", JSON.stringify({ id: "1", delete: true, status: "completed" }))).toEqual({ todos: seed, nextId: 1 });
+    // Invalid create items: empty content, missing activeForm, bad status.
+    expect(applyTaskEvent([], 0, "TaskCreate", JSON.stringify({ tasks: [{ content: "", activeForm: "x" }] }))).toEqual({ todos: [], nextId: 0 });
+    expect(applyTaskEvent([], 0, "TaskCreate", JSON.stringify({ tasks: [{ content: "a" }] }))).toEqual({ todos: [], nextId: 0 });
+    expect(applyTaskEvent([], 0, "TaskCreate", JSON.stringify({ tasks: [{ content: "a", activeForm: "x", status: "bogus" }] }))).toEqual({ todos: [], nextId: 0 });
+    // A JSON literal is not a task payload and must not throw.
+    expect(applyTaskEvent(seed, 1, "TaskCreate", "null")).toEqual({ todos: seed, nextId: 1 });
+    expect(applyTaskEvent(seed, 1, "TaskUpdate", "42")).toEqual({ todos: seed, nextId: 1 });
+  });
+});
+
 describe("foldEvents", () => {
   it("produces one block per completed unit: opening, assistant, tool_result, usage, run_finished", () => {
     const blocks = foldEvents(sampleEvents());
@@ -191,26 +234,152 @@ describe("FoldState live view", () => {
     expect(state.blocks).not.toBe(afterOpening);
   });
 
-  it("parses the latest TodoWrite call's arguments into latestTodos", () => {
+  it("applies TaskCreate in call order, minting string ids from the fold's counter", () => {
     const state = new FoldState();
     state.ingest(ev(1, "session_started", { opening_message: "x" }));
     state.ingest(ev(2, "turn_started", { sub_turn: 1 }));
     state.ingest(
       ev(3, "tool_call", {
         index: 0,
-        id: "call_t",
-        name: "TodoWrite",
-        arguments: JSON.stringify({ todos: [{ content: "a", status: "pending", activeForm: "doing a" }] }),
+        id: "call_c1",
+        name: "TaskCreate",
+        arguments: JSON.stringify({ tasks: [{ content: "a", activeForm: "doing a" }] }),
       }),
     );
-    expect(state.latestTodos).toEqual([{ content: "a", status: "pending", activeForm: "doing a" }]);
+    expect(state.latestTodos).toEqual([{ id: "1", content: "a", status: "pending", activeForm: "doing a" }]);
+
+    // A second call mints the next id in call order, and an explicit status
+    // is kept rather than defaulted.
+    state.ingest(
+      ev(4, "tool_call", {
+        index: 0,
+        id: "call_c2",
+        name: "TaskCreate",
+        arguments: JSON.stringify({ tasks: [{ content: "b", activeForm: "doing b", status: "in_progress" }] }),
+      }),
+    );
+    expect(state.latestTodos).toEqual([
+      { id: "1", content: "a", status: "pending", activeForm: "doing a" },
+      { id: "2", content: "b", status: "in_progress", activeForm: "doing b" },
+    ]);
   });
 
-  it("leaves latestTodos unchanged when a TodoWrite call's arguments are not yet valid JSON", () => {
+  it("applies TaskUpdate by id: patches only the fields present, and deletes when delete is true", () => {
     const state = new FoldState();
     state.ingest(ev(1, "turn_started", { sub_turn: 1 }));
-    state.ingest(ev(2, "tool_call", { index: 0, id: "call_t", name: "TodoWrite", arguments: '{"todos":[{"content":' }));
+    state.ingest(
+      ev(2, "tool_call", {
+        index: 0,
+        id: "call_c",
+        name: "TaskCreate",
+        arguments: JSON.stringify({
+          tasks: [
+            { content: "a", activeForm: "doing a" },
+            { content: "b", activeForm: "doing b" },
+          ],
+        }),
+      }),
+    );
+    state.ingest(
+      ev(3, "tool_call", {
+        index: 0,
+        id: "call_u",
+        name: "TaskUpdate",
+        arguments: JSON.stringify({ id: "2", status: "in_progress" }),
+      }),
+    );
+    expect(state.latestTodos).toEqual([
+      { id: "1", content: "a", status: "pending", activeForm: "doing a" },
+      { id: "2", content: "b", status: "in_progress", activeForm: "doing b" },
+    ]);
+
+    // Patch content only — the other fields stay.
+    state.ingest(
+      ev(4, "tool_call", {
+        index: 0,
+        id: "call_u2",
+        name: "TaskUpdate",
+        arguments: JSON.stringify({ id: "1", content: "renamed" }),
+      }),
+    );
+    expect(state.latestTodos[0]).toEqual({ id: "1", content: "renamed", status: "pending", activeForm: "doing a" });
+
+    // Delete the other one.
+    state.ingest(
+      ev(5, "tool_call", {
+        index: 0,
+        id: "call_d",
+        name: "TaskUpdate",
+        arguments: JSON.stringify({ id: "2", delete: true }),
+      }),
+    );
+    expect(state.latestTodos).toEqual([{ id: "1", content: "renamed", status: "pending", activeForm: "doing a" }]);
+  });
+
+  it("leaves latestTodos unchanged when a TaskCreate call's arguments are not yet valid JSON", () => {
+    const state = new FoldState();
+    state.ingest(ev(1, "turn_started", { sub_turn: 1 }));
+    state.ingest(ev(2, "tool_call", { index: 0, id: "call_t", name: "TaskCreate", arguments: '{"tasks":[{"content":' }));
     expect(state.latestTodos).toEqual([]);
+  });
+
+  it("leaves latestTodos unchanged when a TaskUpdate call's arguments are not yet valid JSON", () => {
+    const state = new FoldState();
+    state.ingest(ev(1, "turn_started", { sub_turn: 1 }));
+    state.ingest(
+      ev(2, "tool_call", {
+        index: 0,
+        id: "call_c",
+        name: "TaskCreate",
+        arguments: JSON.stringify({ tasks: [{ content: "a", activeForm: "doing a" }] }),
+      }),
+    );
+    state.ingest(ev(3, "tool_call", { index: 0, id: "call_u", name: "TaskUpdate", arguments: '{"id":"1","status":' }));
+    expect(state.latestTodos).toEqual([{ id: "1", content: "a", status: "pending", activeForm: "doing a" }]);
+  });
+
+  it("leaves latestTodos unchanged when a plan mutation would have been rejected", () => {
+    const state = new FoldState();
+    state.ingest(ev(1, "turn_started", { sub_turn: 1 }));
+    state.ingest(
+      ev(2, "tool_call", {
+        index: 0,
+        id: "call_c",
+        name: "TaskCreate",
+        arguments: JSON.stringify({ tasks: [{ content: "a", activeForm: "doing a" }] }),
+      }),
+    );
+    const before = state.latestTodos;
+
+    // Unknown id: no-op. Delete combined with a patch: no-op. Invalid status
+    // on create: no-op, and the counter must not advance.
+    state.ingest(ev(3, "tool_call", { index: 0, id: "u1", name: "TaskUpdate", arguments: JSON.stringify({ id: "99", status: "completed" }) }));
+    state.ingest(ev(4, "tool_call", { index: 0, id: "u2", name: "TaskUpdate", arguments: JSON.stringify({ id: "1", delete: true, status: "completed" }) }));
+    state.ingest(ev(5, "tool_call", { index: 0, id: "u3", name: "TaskUpdate", arguments: JSON.stringify({ id: "1", status: "bogus" }) }));
+    state.ingest(ev(6, "tool_call", { index: 0, id: "c2", name: "TaskCreate", arguments: JSON.stringify({ tasks: [{ content: "", activeForm: "x" }] }) }));
+    expect(state.latestTodos).toEqual(before);
+
+    // A later valid create still mints the id one past the last minted one —
+    // rejected events never advanced the counter.
+    state.ingest(ev(7, "tool_call", { index: 0, id: "c3", name: "TaskCreate", arguments: JSON.stringify({ tasks: [{ content: "b", activeForm: "doing b" }] }) }));
+    expect(state.latestTodos.map((t) => t.id)).toEqual(["1", "2"]);
+  });
+
+  it("never lets TaskGet or TaskList mutate latestTodos", () => {
+    const state = new FoldState();
+    state.ingest(ev(1, "turn_started", { sub_turn: 1 }));
+    state.ingest(
+      ev(2, "tool_call", {
+        index: 0,
+        id: "call_c",
+        name: "TaskCreate",
+        arguments: JSON.stringify({ tasks: [{ content: "a", activeForm: "doing a" }] }),
+      }),
+    );
+    const before = state.latestTodos;
+    state.ingest(ev(3, "tool_call", { index: 0, id: "call_g", name: "TaskGet", arguments: JSON.stringify({ id: "1" }) }));
+    state.ingest(ev(4, "tool_call", { index: 0, id: "call_l", name: "TaskList", arguments: JSON.stringify({}) }));
+    expect(state.latestTodos).toEqual(before);
   });
 });
 

@@ -17,11 +17,11 @@ docs present as mandatory and which measurement shows is not.
 ## 1. Scope
 
 In scope for v1: concurrent agent sessions in one process, NATS JetStream
-ingress and result publication, the twelve tools in [TOOLS.md](TOOLS.md), a
+ingress and result publication, the fifteen tools in [TOOLS.md](TOOLS.md), a
 declarative per-request permission policy, flash-backed subagents via `Task`, an
 append-only event log in SQLite mirrored to disk for review, cost and cache
-accounting, a read-only browser transcript with a live plan panel driven by
-`TodoWrite`, and session resume.
+accounting, a read-only browser transcript with a live plan panel driven by the
+plan tools (`TaskCreate`/`TaskUpdate`), and session resume.
 
 Out of scope for v1: run control from the browser, auth and multi-user
 identity, remote or containerised workspaces, an editor pane, FIM inline
@@ -405,10 +405,11 @@ every one of them will hit the same wall.
 ### 4.6 Tools and permission policy
 
 Specified in [TOOLS.md](TOOLS.md). The set is `Read`, `Write`, `Edit`, `Bash`,
-`Glob`, `Grep`, `List`, `TodoWrite`, `Task`, and `WebFetch` — the vocabulary of
-the harnesses DeepSeek names as its V4 agent optimisation targets — plus
-`Complete`, which is ours, and `ReviewScreenshot`, which sends screenshots to
-Gemini because DeepSeek cannot see images.
+`Glob`, `Grep`, `List`, `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`,
+`Task`, and `WebFetch` — the vocabulary of the harnesses DeepSeek names as its
+V4 agent optimisation targets — plus `Complete`, which is ours, and
+`ReviewScreenshot`, which sends screenshots to Gemini because DeepSeek cannot
+see images.
 
 Four points from that document bear on the rest of this design:
 
@@ -726,7 +727,7 @@ opening user message ahead of the task. The model reads a skill's body with
 
 Three consequences follow from §3.2. The catalogue goes in the opening message,
 never the system prompt, so a repository's skills cannot disturb the cached
-head. No `Skill` tool exists, because a thirteenth tool definition would enlarge
+head. No `Skill` tool exists, because a sixteenth tool definition would enlarge
 that head for every session to duplicate what `Read` already does. An empty
 catalogue renders to nothing, leaving the opening message byte-identical to a
 run with no skills.
@@ -895,9 +896,10 @@ subtitle, model, elapsed time, sub-turn count, cache-hit rate, running cost,
 and the originating request id where there is one. The subtitle carries the
 plan ratio ("11 of 11 plan items") and the model's own summary, so scanning the
 list does not require opening each transcript. The plan is persisted with the
-session — a `plan` column on the sessions table, written whenever `TodoWrite`
-executes and carried on `hub.SessionState` — so the finished table's ratio
-survives the run and the list never re-walks the event log to derive it.
+session — a `plan` column on the sessions table, written whenever `TaskCreate`
+or `TaskUpdate` executes and carried on `hub.SessionState` — so the finished
+table's ratio survives the run and the list never re-walks the event log to
+derive it.
 
 ### 5.9 The sub-turn is the unit
 
@@ -962,10 +964,10 @@ Phase 6 added a sticky left column to the transcript screen
 (docs/WEB-REDESIGN.md phase 6): one entry per sub-turn — the number and one
 glyph per tool call, coloured by family, a failed result or a denial
 overriding to red — grouped under the plan item that was `in_progress` when
-the sub-turn ran. The boundary is free: every `TodoWrite` call in the event
-stream starts a phase, and the fold already parses those calls, so the rail
-groups sub-turns without walking the session's history itself. Each entry is an
-anchor to its card; one `IntersectionObserver` watches the group containers and
+the sub-turn ran. The boundary is free: every `TaskCreate` or `TaskUpdate`
+call in the event stream starts a phase, and the fold already applies those
+calls, so the rail groups sub-turns without walking the session's history
+itself. Each entry is an anchor to its card; one `IntersectionObserver` watches the group containers and
 marks the current entry. The column is plain sticky CSS — `ScrollArea` stays
 out, phase 1's deliberate omission — scrolling its own content with `overflow`.
 
