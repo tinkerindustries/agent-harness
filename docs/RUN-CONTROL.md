@@ -504,13 +504,16 @@ the response carries the `seq` the caller's text landed at.
 
 ### `POST /api/runs`
 
-Body is `queue.Request` verbatim: `prompt`, `repos`, `permission_mode`, and
-the optional `model`, `effort`, `deny`, `result_schema`, `max_sub_turns`,
-`deadline_ms`, `job_type`, `parent_agent_type`, `parent_agent_id` — the same
-fields `harness publish` sets from flags and `deepseek_agent` sets from tool
-arguments. `request_id` is optional on this surface and generated when absent,
-because a browser form has no idempotency key to offer; supplying one gets the
-same deduplication every other producer gets.
+Body is `queue.Request` verbatim: `repos`, `permission_mode`, the optional
+`prompt` — a browser start may omit it and create the run empty, with the
+operator's first message typed into the session once it appears ("Start"
+below) — and the optional `model`, `effort`, `deny`, `result_schema`,
+`max_sub_turns`, `deadline_ms`, `job_type`, `parent_agent_type`,
+`parent_agent_id` — the same fields `harness publish` sets from flags and
+`deepseek_agent` sets from tool arguments. `request_id` is optional on this
+surface and generated when absent, because a browser form has no idempotency
+key to offer; supplying one gets the same deduplication every other producer
+gets.
 
 Validation is `req.Validate()` — the queue's own, not a copy. A browser-started
 run is byte-identical in the store to one started from MCP or the CLI: same
@@ -616,10 +619,12 @@ emitted, which is fine because display blocks carry no cache invariant. The Go
 fold and this one still agree in shape: both know both kinds, and each does
 with them what its own consumer needs.
 
-**Start** is a form: prompt, repos, permission mode, and the optional fields,
-mirroring what `publish`'s flags accept. Submitting returns a `request_id`;
-the screen follows the session from the existing `GET /api/stream` list feed
-as soon as one exists.
+**Start** is a form: repos, a permission mode defaulting to full, and the
+optional fields, mirroring what `publish`'s flags accept — with no prompt
+field. The run is created empty; submitting returns a `request_id`, the screen
+follows the session from the existing `GET /api/stream` list feed as soon as
+one exists, and once it does the form opens that session's transcript, where
+the operator types the first message into the steer input.
 
 ## The new result status
 

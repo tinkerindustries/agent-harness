@@ -12,14 +12,16 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "./ui/toggle-group";
 
 // StartRunForm is the browser's start form (docs/RUN-CONTROL.md "The
-// frontend"): prompt, repos (URL#branch, repeatable), an explicit permission
-// mode, and the optional fields behind a disclosure so the common case stays
-// short. Submitting POSTs the work request and gets a request_id back; the
-// session itself appears on the session-list feed once the pool claims it,
-// and this form follows that feed — it never polls and never invents a
-// placeholder row. The permission mode carries the one warning this surface
-// must not bury: full runs as root in the workspace, and the harness
-// container has the host's docker socket, so a full run has the host daemon.
+// frontend"): repos (URL#branch, repeatable), a permission mode defaulting to
+// full, and the optional fields behind a disclosure so the common case stays
+// short. There is no prompt field: the run is created empty and the operator
+// types the first message into the session once it appears, which is why
+// submitting both POSTs the work request and — once the pool claims it and
+// the session shows up on the list feed — opens that session's transcript
+// (docs/RUN-CONTROL.md "Start"). The permission mode carries the one warning
+// this surface must not bury: full runs as root in the workspace, and the
+// harness container has the host's docker socket, so a full run has the host
+// daemon.
 //
 // The write is an acceptance, not an outcome: the 202 only means the request
 // landed on the WORK stream. The operator's token is passed in from the
@@ -32,9 +34,8 @@ interface StartRunFormProps {
 }
 
 export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
-  const [prompt, setPrompt] = useState("");
   const [repoSpecs, setRepoSpecs] = useState<string[]>([""]);
-  const [permission, setPermission] = useState("");
+  const [permission, setPermission] = useState("full");
   const [model, setModel] = useState("");
   const [effort, setEffort] = useState("");
   const [deny, setDeny] = useState("");
@@ -89,6 +90,17 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
   const snapshot = useSyncExternalStore(sessionListStore.subscribe, sessionListStore.getSnapshot);
   const started = accepted ? snapshot.sessions.find((s) => s.request_id === accepted) : undefined;
 
+  // Once the pool claims the request and the session appears on the feed,
+  // take the operator straight to it: with no prompt field there is nothing
+  // left to do on this form, and the session's own transcript is where the
+  // first message gets typed. The 202 branch below covers the moments before
+  // the feed sees the session.
+  useEffect(() => {
+    if (!started) return;
+    onOpen(started.id);
+    onClose();
+  }, [started?.id, onOpen, onClose]);
+
   const setRepoAt = (i: number, v: string) => {
     setRepoSpecs((prev) => prev.map((spec, j) => (j === i ? v : spec)));
   };
@@ -139,9 +151,8 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
   };
 
   const reset = () => {
-    setPrompt("");
     setRepoSpecs([""]);
-    setPermission("");
+    setPermission("full");
     setModel("");
     setEffort("");
     setDeny("");
@@ -157,17 +168,9 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
     if (sending) return;
     setError(null);
 
-    if (prompt.trim() === "") {
-      setError("Prompt is required.");
-      return;
-    }
     const specs = repoSpecs.map((s) => s.trim()).filter((s) => s !== "");
     if (specs.length === 0) {
       setError("Name at least one repository to clone (URL#branch).");
-      return;
-    }
-    if (permission === "") {
-      setError("Choose a permission mode — there is no default.");
       return;
     }
 
@@ -195,7 +198,6 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
     }
 
     const body: WorkRequest = {
-      prompt: prompt.trim(),
       repos: specs.map(parseRepoSpec),
       permission_mode: permission,
     };
@@ -231,18 +233,6 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
             Close
           </Button>
         </div>
-
-        <label className="start-field start-field-wide">
-          <span className="start-label">Prompt</span>
-          <textarea
-            className="start-prompt"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="The task for the agent to perform."
-            rows={3}
-            spellCheck={false}
-          />
-        </label>
 
         <div className="start-field start-field-wide">
           <span className="start-label">Repositories</span>
@@ -333,9 +323,8 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
             <ToggleGroupItem value="full">full</ToggleGroupItem>
           </ToggleGroup>
           <p className="hint">
-            An explicit choice — there is no default. readonly: read-only tools only. full: everything,
-            as root, in the workspace — and the harness container has the host&rsquo;s docker socket, so a
-            full run has the host daemon.
+            Defaults to full. full: everything, as root, in the workspace — and the harness container has
+            the host&rsquo;s docker socket, so a full run has the host daemon. readonly: read-only tools only.
           </p>
         </div>
 

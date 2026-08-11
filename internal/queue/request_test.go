@@ -87,7 +87,6 @@ func TestValidateAcceptsRepos(t *testing.T) {
 func TestValidateRejectsMissingFields(t *testing.T) {
 	cases := []Request{
 		{Prompt: "go", Repos: testRepos(), PermissionMode: "full"},
-		{RequestID: "req-1", Repos: testRepos(), PermissionMode: "full"},
 		{RequestID: "req-1", Prompt: "go", PermissionMode: "full"},
 		{RequestID: "req-1", Prompt: "go", Repos: testRepos()},
 	}
@@ -95,6 +94,16 @@ func TestValidateRejectsMissingFields(t *testing.T) {
 		if err := req.Validate(); err == nil {
 			t.Fatalf("expected validation to fail for %+v", req)
 		}
+	}
+}
+
+// The prompt is optional: a browser start may create the run first and let
+// the operator type the first message into the session, so an empty prompt
+// is valid as long as everything the run actually needs is present.
+func TestValidateAcceptsEmptyPrompt(t *testing.T) {
+	req := Request{RequestID: "req-1", Repos: testRepos(), PermissionMode: "full"}
+	if err := req.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
 	}
 }
 

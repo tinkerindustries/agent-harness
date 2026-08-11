@@ -557,7 +557,10 @@ Request body:
 
     {
       "request_id":        "uuid",              required, the idempotency key
-      "prompt":            "...",               required
+      "prompt":            "...",               optional; a browser start may
+                                                omit it and let the operator
+                                                type the first message into
+                                                the session (docs/RUN-CONTROL.md)
       "repos":             [ { "url": "https://github.com/org/app.git",
                                "branch": "main" } ],   required, at least one
       "model":             "deepseek-v4-pro",   optional, config default otherwise

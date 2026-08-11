@@ -282,13 +282,14 @@ export interface StartRunResponse {
 }
 
 // WorkRequest is the queue.Request wire shape POST /api/runs accepts,
-// mirroring internal/queue.Request: the required prompt, repos, and
-// permission_mode, plus the optional fields harness publish's flags set.
-// request_id is absent for a browser start — the server generates one, since
-// a browser form has no idempotency key to offer (docs/RUN-CONTROL.md "POST
-// /api/runs").
+// mirroring internal/queue.Request: the required repos and permission_mode,
+// plus the optional prompt — a browser start may create the run first and
+// let the operator type the first message into the session (docs/RUN-CONTROL.md
+// "Start") — and the optional fields harness publish's flags set. request_id
+// is absent for a browser start — the server generates one, since a browser
+// form has no idempotency key to offer (docs/RUN-CONTROL.md "POST /api/runs").
 export interface WorkRequest {
-  prompt: string;
+  prompt?: string;
   repos: { url: string; branch?: string }[];
   permission_mode: string;
   model?: string;
