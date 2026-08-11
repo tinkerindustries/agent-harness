@@ -621,13 +621,32 @@ func (r *Runner) fail(ctx context.Context, sess store.Session, allEvents []store
 // executeToolCalls runs every call concurrently and returns outcomes in the
 // same order as calls, regardless of completion order — the appender is
 // what must preserve tool_calls order, not the execution itself
-// (docs/TOOLS.md). A Bash call gets a live stdout sink wired through its
-// context so the browser can show output as it happens instead of only on
-// completion (docs/DESIGN.md §5.2); every other tool runs exactly as before.
+// (docs/TOOLS.md). The four Task tools are the exception and run
+// synchronously, in calls order, interleaved with the goroutine spawning:
+// TaskCreate mints ids from a counter in execution order, and the store's
+// plan replay (internal/store/status.go) and the frontend both reconstruct
+// those ids by walking the event log in the same calls order, so letting
+// two TaskCreate calls race for the executor's lock would hand the model
+// ids nobody else can reconstruct. A Bash call gets a live stdout sink
+// wired through its context so the browser can show output as it happens
+// instead of only on completion (docs/DESIGN.md §5.2); every other tool
+// runs exactly as before.
 func (r *Runner) executeToolCalls(ctx context.Context, sess store.Session, executor *tools.Executor, calls []deepseek.AssembledToolCall) []tools.Outcome {
 	outcomes := make([]tools.Outcome, len(calls))
 	var wg sync.WaitGroup
 	for i, c := range calls {
+		if isTaskFamily(c.Name) {
+			call := deepseek.ToolCall{
+				ID:   c.ID,
+				Type: "function",
+				Function: deepseek.ToolCallFunc{
+					Name:      c.Name,
+					Arguments: c.Arguments,
+				},
+			}
+			outcomes[i] = executor.Execute(httplog.WithSessionID(ctx, sess.ID), call)
+			continue
+		}
 		wg.Add(1)
 		go func(i int, c deepseek.AssembledToolCall) {
 			defer wg.Done()
@@ -650,25 +669,33 @@ func (r *Runner) executeToolCalls(ctx context.Context, sess store.Session, execu
 	return outcomes
 }
 
-// persistLiveState writes this sub-turn's plan and recent-tool-call roll to
-// the session row (docs/WEB-REDESIGN.md phase 3). The runner calls it where
-// it already appends the tool_call events — the one component that sees
-// every tool call and already holds the store handle — rather than inside
-// tools.Executor, which deliberately does not import internal/store.
-// TodoWrite's todos array is stored verbatim (via store.StatusTodo, the
-// same parse the status endpoint uses) so the session list carries the live
-// plan without re-walking the event log on every publish, and finished
-// sessions keep their last plan for the finished table's plan-ratio
-// subtitle. TodoWrite itself is not rolled into the recent calls: the plan
-// panel already says what it said.
+// isTaskFamily reports whether name is one of the four Task tools that
+// execute synchronously in calls order rather than in a goroutine, so the
+// ids TaskCreate mints never diverge from what the event-log replay
+// reconstructs (see executeToolCalls).
+func isTaskFamily(name string) bool {
+	switch name {
+	case "TaskCreate", "TaskGet", "TaskList", "TaskUpdate":
+		return true
+	}
+	return false
+}
+
+// persistLiveState writes this sub-turn's recent-tool-call roll to the
+// session row (docs/WEB-REDESIGN.md phase 3). The runner calls it where it
+// already appends the tool_call events — the one component that sees every
+// tool call and already holds the store handle — rather than inside
+// tools.Executor, which deliberately does not import internal/store. The
+// plan column is written separately by persistTaskState, after the tool
+// calls have run, because a TaskCreate/TaskUpdate's effect (minted ids,
+// patched fields) only exists once the handler actually executes.
+// TaskCreate and TaskUpdate themselves are not rolled into the recent
+// calls: the plan panel already says what they said. TaskGet and TaskList
+// are non-mutating reads, so they roll like any other tool.
 func (r *Runner) persistLiveState(ctx context.Context, sess store.Session, calls []deepseek.AssembledToolCall) {
-	var plan string
 	var recent []store.RecentToolCall
 	for _, c := range calls {
-		if c.Name == "TodoWrite" {
-			if p := planJSON(c.Arguments); p != "" {
-				plan = p
-			}
+		if c.Name == "TaskCreate" || c.Name == "TaskUpdate" {
 			continue
 		}
 		recent = append(recent, store.RecentToolCall{
@@ -677,26 +704,57 @@ func (r *Runner) persistLiveState(ctx context.Context, sess store.Session, calls
 			CreatedAt: time.Now().UTC(),
 		})
 	}
-	if plan == "" && len(recent) == 0 {
+	if len(recent) == 0 {
 		return
 	}
-	if err := r.Store.UpdateSessionLiveState(ctx, sess.ID, plan, recent); err != nil {
+	if err := r.Store.UpdateSessionLiveState(ctx, sess.ID, "", recent); err != nil {
 		log.Printf("session: persist live state for %s: %v", sess.ID, err)
 	}
 }
 
-// planJSON extracts the todos array of a TodoWrite call's arguments as the
-// JSON text to persist on the session row, or "" when the arguments do not
-// parse or carry no todos array. The field names are store.StatusTodo's, so
-// the stored plan survives the trip unchanged.
-func planJSON(arguments string) string {
-	var args struct {
-		Todos []store.StatusTodo `json:"todos"`
+// persistTaskState writes this sub-turn's plan to the session row, once the
+// tool calls have actually run. It is a no-op unless the sub-turn carried a
+// TaskCreate or TaskUpdate — the only two tools that mutate the plan — so a
+// TaskGet/TaskList-only sub-turn never clobbers the row, and the
+// recent-tool-call roll for this sub-turn was already handled by
+// persistLiveState. The snapshot comes from executor.Todos() after
+// execution, the only source of truth for minted ids and applied patches;
+// UpdateSessionLiveState is called with a nil calls argument so this write
+// touches the plan column only.
+func (r *Runner) persistTaskState(ctx context.Context, sess store.Session, executor *tools.Executor, calls []deepseek.AssembledToolCall) {
+	mutates := false
+	for _, c := range calls {
+		if c.Name == "TaskCreate" || c.Name == "TaskUpdate" {
+			mutates = true
+			break
+		}
 	}
-	if json.Unmarshal([]byte(arguments), &args) != nil || args.Todos == nil {
-		return ""
+	if !mutates {
+		return
 	}
-	b, err := json.Marshal(args.Todos)
+	if err := r.Store.UpdateSessionLiveState(ctx, sess.ID, planSnapshot(executor.Todos()), nil); err != nil {
+		log.Printf("session: persist task state for %s: %v", sess.ID, err)
+		return
+	}
+	r.publishState(ctx, sess)
+}
+
+// planSnapshot renders the executor's current plan as the JSON todos array
+// the session row's plan column stores — store.StatusTodo, the same shape
+// the status endpoint replays. The conversion is explicit field by field
+// because there is no single raw-arguments source of truth anymore: the
+// plan lives in the executor, mutated by TaskCreate and TaskUpdate.
+func planSnapshot(todos []tools.Todo) string {
+	out := make([]store.StatusTodo, len(todos))
+	for i, t := range todos {
+		out[i] = store.StatusTodo{
+			ID:         t.ID,
+			Content:    t.Content,
+			Status:     t.Status,
+			ActiveForm: t.ActiveForm,
+		}
+	}
+	b, err := json.Marshal(out)
 	if err != nil {
 		return ""
 	}
