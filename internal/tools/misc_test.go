@@ -60,21 +60,163 @@ func TestListShowsEntriesAndRespectsIgnore(t *testing.T) {
 	}
 }
 
-func TestTodoWriteValidatesAndStores(t *testing.T) {
+func TestTaskCreateValidatesBeforeMutating(t *testing.T) {
 	e, _ := newTestExecutor(t)
-	bad := execTodoWrite(t.Context(), e, mustJSON(t, todoWriteArgs{Todos: []Todo{{Content: "x", Status: "bogus", ActiveForm: "Xing"}}}))
+
+	// Validation happens before any mutation: a bad item anywhere rejects the
+	// whole call and nothing is stored.
+	bad := execTaskCreate(t.Context(), e, mustJSON(t, taskCreateArgs{Tasks: []taskCreateItem{{Subject: "x", Description: "y", Status: "bogus", ActiveForm: "Xing"}}}))
 	if !bad.IsError {
 		t.Fatal("expected an error for an invalid status")
 	}
+	if len(e.Todos()) != 0 {
+		t.Fatalf("a rejected call must not mutate the plan, got %d tasks", len(e.Todos()))
+	}
+	badSubject := execTaskCreate(t.Context(), e, mustJSON(t, taskCreateArgs{Tasks: []taskCreateItem{
+		{Subject: "ok", Description: "d", ActiveForm: "Oking"},
+		{Subject: "", Description: "d2", ActiveForm: "Eing"},
+	}}))
+	if !badSubject.IsError {
+		t.Fatal("expected an error for an empty subject")
+	}
+	badDescription := execTaskCreate(t.Context(), e, mustJSON(t, taskCreateArgs{Tasks: []taskCreateItem{
+		{Subject: "ok", Description: "d", ActiveForm: "Oking"},
+		{Subject: "fine", Description: "", ActiveForm: "Eing"},
+	}}))
+	if !badDescription.IsError {
+		t.Fatal("expected an error for an empty description")
+	}
+	if len(e.Todos()) != 0 {
+		t.Fatalf("a rejected call must not mutate the plan, got %d tasks", len(e.Todos()))
+	}
 
-	good := execTodoWrite(t.Context(), e, mustJSON(t, todoWriteArgs{Todos: []Todo{
-		{Content: "Run tests", Status: "in_progress", ActiveForm: "Running tests"},
+	good := execTaskCreate(t.Context(), e, mustJSON(t, taskCreateArgs{Tasks: []taskCreateItem{
+		{Subject: "Run tests", Description: "Run the whole suite", ActiveForm: "Running tests"},
+		{Subject: "Push", Description: "Push the branch", Status: "completed", ActiveForm: "Pushing"},
 	}}))
 	if good.IsError {
 		t.Fatalf("unexpected error: %s", good.Content)
 	}
+	todos := e.Todos()
+	if len(todos) != 2 {
+		t.Fatalf("expected 2 tasks, got %d", len(todos))
+	}
+	if todos[0].TaskID != "1" || todos[1].TaskID != "2" {
+		t.Fatalf("expected ids minted in array order, got %q and %q", todos[0].TaskID, todos[1].TaskID)
+	}
+	if todos[0].Status != "pending" {
+		t.Fatalf("expected an omitted status to default to pending, got %q", todos[0].Status)
+	}
+	if todos[0].Subject != "Run tests" || todos[0].Description != "Run the whole suite" {
+		t.Fatalf("expected subject and description stored, got %+v", todos[0])
+	}
+	if !strings.Contains(good.Content, "[ ] #1 Run tests") || !strings.Contains(good.Content, "[x] #2 Push") {
+		t.Fatalf("expected a rendered checklist with ids, got: %s", good.Content)
+	}
+}
+
+func TestTaskGetFindsById(t *testing.T) {
+	e, _ := newTestExecutor(t)
+	execTaskCreate(t.Context(), e, mustJSON(t, taskCreateArgs{Tasks: []taskCreateItem{{Subject: "Fix bug", Description: "Find and fix the leak", ActiveForm: "Fixing bug"}}}))
+
+	got := execTaskGet(t.Context(), e, mustJSON(t, taskGetArgs{TaskID: "1"}))
+	if got.IsError {
+		t.Fatalf("unexpected error: %s", got.Content)
+	}
+	if !strings.Contains(got.Content, "[ ] #1 Fix bug") {
+		t.Fatalf("expected the rendered task, got: %s", got.Content)
+	}
+	if !strings.Contains(got.Content, "Description: Find and fix the leak") {
+		t.Fatalf("expected the task's description in the result, got: %s", got.Content)
+	}
+
+	missing := execTaskGet(t.Context(), e, mustJSON(t, taskGetArgs{TaskID: "99"}))
+	if !missing.IsError || !strings.Contains(missing.Content, "99") {
+		t.Fatalf("expected an error naming the missing id, got: %+v", missing)
+	}
+}
+
+func TestTaskListFiltersByStatus(t *testing.T) {
+	e, _ := newTestExecutor(t)
+	execTaskCreate(t.Context(), e, mustJSON(t, taskCreateArgs{Tasks: []taskCreateItem{
+		{Subject: "Read spec", Description: "Read the spec", ActiveForm: "Reading spec"},
+		{Subject: "Wire it", Description: "Wire it up", Status: "in_progress", ActiveForm: "Wiring"},
+		{Subject: "Push", Description: "Push the branch", ActiveForm: "Pushing"},
+	}}))
+
+	all := execTaskList(t.Context(), e, mustJSON(t, taskListArgs{}))
+	if all.IsError {
+		t.Fatalf("unexpected error: %s", all.Content)
+	}
+	if !strings.Contains(all.Content, "#1 Read spec") || !strings.Contains(all.Content, "#2 Wire it") || !strings.Contains(all.Content, "#3 Push") {
+		t.Fatalf("expected the whole checklist, got: %s", all.Content)
+	}
+
+	inProgress := execTaskList(t.Context(), e, mustJSON(t, taskListArgs{Status: "in_progress"}))
+	if inProgress.IsError || !strings.Contains(inProgress.Content, "#2 Wire it") || strings.Contains(inProgress.Content, "#1 Read spec") {
+		t.Fatalf("expected only the in_progress task, got: %s", inProgress.Content)
+	}
+
+	none := execTaskList(t.Context(), e, mustJSON(t, taskListArgs{Status: "completed"}))
+	if none.IsError || none.Content != "No tasks." {
+		t.Fatalf("expected No tasks., got: %q", none.Content)
+	}
+}
+
+func TestTaskUpdatePatchesAndDeletes(t *testing.T) {
+	e, _ := newTestExecutor(t)
+	execTaskCreate(t.Context(), e, mustJSON(t, taskCreateArgs{Tasks: []taskCreateItem{
+		{Subject: "Fix bug", Description: "Fix the leak", ActiveForm: "Fixing bug"},
+		{Subject: "Push", Description: "Push the branch", ActiveForm: "Pushing"},
+	}}))
+
+	updated := execTaskUpdate(t.Context(), e, mustJSON(t, taskUpdateArgs{TaskID: "1", Status: "in_progress", Subject: "Fix the bug", Description: "Find and fix the leak"}))
+	if updated.IsError {
+		t.Fatalf("unexpected error: %s", updated.Content)
+	}
+	if !strings.Contains(updated.Content, "[~] #1 Fix the bug") {
+		t.Fatalf("expected the patched line, got: %s", updated.Content)
+	}
+	todos := e.Todos()
+	if todos[0].Status != "in_progress" || todos[0].Subject != "Fix the bug" || todos[0].Description != "Find and fix the leak" || todos[0].ActiveForm != "Fixing bug" {
+		t.Fatalf("expected only the present fields patched, got %+v", todos[0])
+	}
+
+	// status: "deleted" removes the task exactly as the old delete flag did.
+	deleted := execTaskUpdate(t.Context(), e, mustJSON(t, taskUpdateArgs{TaskID: "1", Status: "deleted"}))
+	if deleted.IsError {
+		t.Fatalf("unexpected error: %s", deleted.Content)
+	}
+	if deleted.Content != "Task #1 deleted." {
+		t.Fatalf("expected the delete message, got: %s", deleted.Content)
+	}
+	todos = e.Todos()
+	if len(todos) != 1 || todos[0].TaskID != "2" {
+		t.Fatalf("expected the remaining task to keep its id and order, got %+v", todos)
+	}
+}
+
+func TestTaskUpdateRejectsBadArgs(t *testing.T) {
+	e, _ := newTestExecutor(t)
+	execTaskCreate(t.Context(), e, mustJSON(t, taskCreateArgs{Tasks: []taskCreateItem{{Subject: "Fix bug", Description: "Fix the leak", ActiveForm: "Fixing bug"}}}))
+
+	if res := execTaskUpdate(t.Context(), e, mustJSON(t, taskUpdateArgs{TaskID: "1", Status: "deleted", Subject: "renamed"})); !res.IsError {
+		t.Fatal("expected status \"deleted\" combined with a subject to be rejected")
+	}
+	if res := execTaskUpdate(t.Context(), e, mustJSON(t, taskUpdateArgs{TaskID: "1", Status: "deleted", Description: "changed"})); !res.IsError {
+		t.Fatal("expected status \"deleted\" combined with a description to be rejected")
+	}
+	if res := execTaskUpdate(t.Context(), e, mustJSON(t, taskUpdateArgs{TaskID: "1", Status: "deleted", ActiveForm: "Renaming"})); !res.IsError {
+		t.Fatal("expected status \"deleted\" combined with activeForm to be rejected")
+	}
+	if res := execTaskUpdate(t.Context(), e, mustJSON(t, taskUpdateArgs{TaskID: "1"})); !res.IsError {
+		t.Fatal("expected an update with nothing to set to be rejected")
+	}
+	if res := execTaskUpdate(t.Context(), e, mustJSON(t, taskUpdateArgs{TaskID: "99", Status: "completed"})); !res.IsError || !strings.Contains(res.Content, "99") {
+		t.Fatal("expected an unknown id to be rejected and named")
+	}
 	if len(e.Todos()) != 1 {
-		t.Fatalf("expected the todo to be stored, got %d", len(e.Todos()))
+		t.Fatalf("rejected calls must not mutate the plan, got %d tasks", len(e.Todos()))
 	}
 }
 

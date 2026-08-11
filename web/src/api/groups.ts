@@ -60,17 +60,19 @@ export interface SubTurnGroup {
   // phase is the plan item the sub-turn ran under (docs/WEB-REDESIGN.md
   // phase 6): captured the moment the group is created, so every group but
   // the tail one carries the same ref forever, and the rail can group the
-  // sub-turns without walking the session's TodoWrite history itself.
+  // sub-turns without walking the session's TaskCreate/TaskUpdate history
+  // itself.
   phase: RailPhaseRef;
 }
 
 // RailPhaseRef is a sub-turn's phase membership for the timeline rail
 // (docs/WEB-REDESIGN.md phase 6): the plan item that was in_progress when
-// the sub-turn ran. A new phase starts on every TodoWrite call in the event
-// stream — the boundary the fold already parses (its latestTodos is the plan
-// as of the last TodoWrite), so SubTurnGroupState only has to notice the
-// call in the group's own assistant block. The label/index are captured from
-// the fold's latestTodos at that moment, never re-parsed here.
+// the sub-turn ran. A new phase starts on every TaskCreate or TaskUpdate
+// call in the event stream — the plan mutations the fold already applies
+// (its latestTodos is the plan as of the last such call), so
+// SubTurnGroupState only has to notice the call in the group's own assistant
+// block. The label/index are captured from the fold's latestTodos at that
+// moment, never re-parsed here.
 export interface RailPhaseRef {
   // id is a monotonically increasing phase identifier, stable for the
   // session; the rail's Accordion items and the observer's current marker
@@ -78,9 +80,9 @@ export interface RailPhaseRef {
   id: number;
   // index is the 1-based position in the plan of the item that was
   // in_progress ("1 · Fix retained-body leak"). 0 when the plan at the
-  // boundary had no usable item (no TodoWrite yet, or an empty plan).
+  // boundary had no usable item (no plan mutation yet, or an empty plan).
   index: number;
-  // label is that plan item's content, without the "1 · " prefix the rail
+  // label is that plan item's subject, without the "1 · " prefix the rail
   // renders. Empty when there was no plan yet or no usable item.
   label: string;
 }
@@ -91,11 +93,11 @@ export interface RailPhaseRef {
 // everything pending). Empty when the plan had no item to name the phase.
 export function phaseFromTodos(todos: Todo[], id: number): RailPhaseRef {
   let index = -1;
-  let content = "";
+  let subject = "";
   for (let i = 0; i < todos.length; i++) {
     if (todos[i].status === "in_progress") {
       index = i;
-      content = todos[i].content;
+      subject = todos[i].subject;
       break;
     }
   }
@@ -103,12 +105,12 @@ export function phaseFromTodos(todos: Todo[], id: number): RailPhaseRef {
     for (let i = 0; i < todos.length; i++) {
       if (todos[i].status !== "completed") {
         index = i;
-        content = todos[i].content;
+        subject = todos[i].subject;
         break;
       }
     }
   }
-  return index < 0 ? { id, index: 0, label: "" } : { id, index: index + 1, label: content };
+  return index < 0 ? { id, index: 0, label: "" } : { id, index: index + 1, label: subject };
 }
 
 // ChurnPoint is the first sub-turn whose usage carried a cache-churn
@@ -195,15 +197,17 @@ export class SubTurnGroupState {
   counts: GroupCounts = { total: 0, edits: 0, bash: 0, errors: 0, churn: 0 };
   churnPoint: ChurnPoint | null = null;
   // The phase timeline (docs/WEB-REDESIGN.md phase 6): currentPhase is the
-  // plan item the next group to freeze ran under, bumped on every TodoWrite
-  // call in a frozen assistant's own toolCalls. The phase's name comes from
-  // the fold's already-parsed plan, passed in per sync — so nothing here
-  // parses a TodoWrite's arguments. latestTodos is the fallback plan (the
-  // one the store held at flush time); todosAtBlock is the plan as of each
-  // block index, recorded by the store while it folded the events, which is
-  // what names a phase correctly when a flush folds a whole batch of blocks
-  // at once (a replay burst): with only the batch-end plan, every phase in
-  // the batch would be named from the last TodoWrite in it.
+  // plan item the next group to freeze ran under, bumped on every TaskCreate
+  // or TaskUpdate call in a frozen assistant's own toolCalls (the two plan
+  // mutations — TaskGet/TaskList are reads and never start a phase). The
+  // phase's name comes from the fold's already-applied plan, passed in per
+  // sync — so nothing here parses a plan tool's arguments. latestTodos is
+  // the fallback plan (the one the store held at flush time); todosAtBlock
+  // is the plan as of each block index, recorded by the store while it
+  // folded the events, which is what names a phase correctly when a flush
+  // folds a whole batch of blocks at once (a replay burst): with only the
+  // batch-end plan, every phase in the batch would be named from the last
+  // plan mutation in it.
   private phaseSeq = 0;
   private currentPhase: RailPhaseRef = { id: 0, index: 0, label: "" };
   private latestTodos: Todo[] = [];
@@ -245,12 +249,13 @@ export class SubTurnGroupState {
   private pushBlock(block: Block, blocks: Block[], blockIndex: number): void {
     switch (block.type) {
       case "assistant":
-        // A TodoWrite in the sub-turn's own calls marks a new phase
-        // (docs/WEB-REDESIGN.md phase 6): the boundary is free — every
-        // TodoWrite call in the event stream starts one — and the fold's
-        // already-parsed plan, as of this block (todosAtBlock), names it.
-        // The group below freezes with that phase forever.
-        if (block.toolCalls.some((c) => c.name === "TodoWrite")) {
+        // A TaskCreate or TaskUpdate in the sub-turn's own calls marks a new
+        // phase (docs/WEB-REDESIGN.md phase 6): the boundary is free — every
+        // plan-mutating call in the event stream starts one, while the
+        // TaskGet/TaskList reads do not — and the fold's already-applied
+        // plan, as of this block (todosAtBlock), names it. The group below
+        // freezes with that phase forever.
+        if (block.toolCalls.some((c) => c.name === "TaskCreate" || c.name === "TaskUpdate")) {
           this.phaseSeq++;
           this.currentPhase = phaseFromTodos(this.todosAt(blockIndex), this.phaseSeq);
         }

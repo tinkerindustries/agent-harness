@@ -334,19 +334,31 @@ describe("filter counts", () => {
 });
 
 // The timeline rail's phase grouping (docs/WEB-REDESIGN.md phase 6): every
-// TodoWrite call in the event stream starts a phase, and the phase is named
-// after the plan item that was in_progress when it ran — read from the fold's
-// latestTodos, which the store records per block (TranscriptStore.ingest)
-// and passes into sync. foldedItems below folds one event at a time, which
-// exercises the same naming the store's per-block record produces; the
+// TaskCreate or TaskUpdate call in the event stream starts a phase, and the
+// phase is named after the plan item that was in_progress when it ran — read
+// from the fold's latestTodos, which the store records per block
+// (TranscriptStore.ingest) and passes into sync. TaskGet/TaskList are reads
+// and never start a phase. foldedItems below folds one event at a time,
+// which exercises the same naming the store's per-block record produces; the
 // batch test further down checks the all-at-once flush path the store
 // actually uses for a burst.
-function todoWrite(seq: number, id: string, todos: Todo[]): StoreEvent {
-  return ev(seq, "tool_call", { index: 0, id, name: "TodoWrite", arguments: JSON.stringify({ todos }) });
+type CreateTask = { subject: string; description: string; activeForm: string; status?: Todo["status"] };
+
+function taskCreate(seq: number, id: string, tasks: Todo[]): StoreEvent {
+  const stripped: CreateTask[] = tasks.map(({ subject, description, status, activeForm }) => ({ subject, description, activeForm, status }));
+  return ev(seq, "tool_call", { index: 0, id, name: "TaskCreate", arguments: JSON.stringify({ tasks: stripped }) });
 }
 
-function todo(content: string, status: Todo["status"]): Todo {
-  return { content, status, activeForm: `working on ${content}` };
+function taskUpdate(
+  seq: number,
+  id: string,
+  args: { taskId: string; status?: Todo["status"] | "deleted"; subject?: string; description?: string; activeForm?: string },
+): StoreEvent {
+  return ev(seq, "tool_call", { index: 0, id, name: "TaskUpdate", arguments: JSON.stringify(args) });
+}
+
+function todo(id: string, subject: string, status: Todo["status"]): Todo {
+  return { taskId: id, subject, description: `${subject} in detail`, status, activeForm: `working on ${subject}` };
 }
 
 // foldedItems runs the store's exact pipeline — fold each event, then sync
@@ -371,24 +383,24 @@ function groupsByTurn(items: TranscriptItem[]): Map<number, SubTurnGroup> {
 }
 
 describe("rail phase assignment", () => {
-  it("starts a phase on every TodoWrite call and names it from the fold's latestTodos at that moment", () => {
-    const plan1 = [todo("Fix retained-body leak", "in_progress"), todo("Add httplog test", "pending")];
-    const plan2 = [todo("Fix retained-body leak", "completed"), todo("Add httplog test", "in_progress")];
+  it("starts a phase on every TaskCreate/TaskUpdate call and names it from the fold's latestTodos at that moment", () => {
+    const plan1 = [todo("1", "Fix retained-body leak", "in_progress"), todo("2", "Add httplog test", "pending")];
     const events = [
       ev(1, "session_started", { opening_message: "x" }),
-      // turn 1 writes the plan: phase 1 = item 1
+      // turn 1 creates the plan: phase 1 = item 1
       ev(2, "turn_started", { sub_turn: 1 }),
-      todoWrite(3, "p1", plan1),
+      taskCreate(3, "p1", plan1),
       ev(4, "turn_finished", { finish_reason: "stop" }),
       usage(1),
-      // turn 2 makes no TodoWrite: still phase 1
+      // turn 2 makes no plan mutation: still phase 1
       ev(5, "turn_started", { sub_turn: 2 }),
       ev(6, "turn_finished", { finish_reason: "stop" }),
       usage(2),
-      // turn 3 writes the next plan: phase 2 = item 2
+      // turn 3 advances the plan by id (TaskUpdate pairs): phase 2 = item 2
       ev(7, "turn_started", { sub_turn: 3 }),
-      todoWrite(8, "p2", plan2),
-      ev(9, "turn_finished", { finish_reason: "stop" }),
+      taskUpdate(8, "u1", { taskId: "1", status: "completed" }),
+      taskUpdate(9, "u2", { taskId: "2", status: "in_progress" }),
+      ev(10, "turn_finished", { finish_reason: "stop" }),
       usage(3),
     ];
     const byTurn = groupsByTurn(foldedItems(events));
@@ -401,8 +413,39 @@ describe("rail phase assignment", () => {
     expect(byTurn.get(3)!.phase).not.toBe(byTurn.get(1)!.phase);
   });
 
-  it("names the first phase from the first TodoWrite even when it arrives after earlier sub-turns", () => {
-    const plan = [todo("Survey", "in_progress")];
+  it("does not start a phase on TaskGet or TaskList — reads are not plan mutations", () => {
+    const events = [
+      ev(1, "session_started", { opening_message: "x" }),
+      // turn 1 creates the plan: phase 1
+      ev(2, "turn_started", { sub_turn: 1 }),
+      taskCreate(3, "p1", [todo("1", "Fix the leak", "in_progress"), todo("2", "Add the test", "pending")]),
+      ev(4, "turn_finished", { finish_reason: "stop" }),
+      usage(1),
+      // turn 2 only reads the plan: TaskGet and TaskList must not move the
+      // boundary, so the sub-turn stays in phase 1
+      ev(5, "turn_started", { sub_turn: 2 }),
+      ev(6, "tool_call", { index: 0, id: "g1", name: "TaskGet", arguments: JSON.stringify({ taskId: "1" }) }),
+      ev(7, "tool_call", { index: 1, id: "l1", name: "TaskList", arguments: JSON.stringify({}) }),
+      ev(8, "turn_finished", { finish_reason: "tool_calls" }),
+      usage(2),
+      // turn 3 mutates the plan: phase 2
+      ev(9, "turn_started", { sub_turn: 3 }),
+      taskUpdate(10, "u1", { taskId: "1", status: "completed" }),
+      taskUpdate(11, "u2", { taskId: "2", status: "in_progress" }),
+      ev(12, "turn_finished", { finish_reason: "stop" }),
+      usage(3),
+    ];
+    const byTurn = groupsByTurn(foldedItems(events));
+    expect(byTurn.get(1)!.phase).toEqual({ id: 1, index: 1, label: "Fix the leak" });
+    // The reads left the boundary exactly where it was: turn 2 shares phase
+    // 1's ref object, unchanged.
+    expect(byTurn.get(2)!.phase).toBe(byTurn.get(1)!.phase);
+    expect(byTurn.get(2)!.phase).toEqual({ id: 1, index: 1, label: "Fix the leak" });
+    expect(byTurn.get(3)!.phase).toEqual({ id: 2, index: 2, label: "Add the test" });
+  });
+
+  it("names the first phase from the first TaskCreate even when it arrives after earlier sub-turns", () => {
+    const plan = [todo("1", "Survey", "in_progress")];
     const events = [
       ev(1, "session_started", { opening_message: "x" }),
       // sub-turns 1-2 ran before any plan existed: phase 0, no label
@@ -412,10 +455,10 @@ describe("rail phase assignment", () => {
       ev(4, "turn_started", { sub_turn: 2 }),
       ev(5, "turn_finished", { finish_reason: "stop" }),
       usage(2),
-      // sub-turn 3 writes the first plan: the boundary sub-turn belongs to
-      // the phase its own TodoWrite opens
+      // sub-turn 3 creates the first plan: the boundary sub-turn belongs to
+      // the phase its own TaskCreate opens
       ev(6, "turn_started", { sub_turn: 3 }),
-      todoWrite(7, "p1", plan),
+      taskCreate(7, "p1", plan),
       ev(8, "turn_finished", { finish_reason: "stop" }),
       usage(3),
     ];
@@ -426,27 +469,27 @@ describe("rail phase assignment", () => {
   });
 
   it("names each phase from the boundary sub-turn's own plan when a flush folds a whole batch at once", () => {
-    const plan1 = [todo("Fix retained-body leak", "in_progress"), todo("Add httplog test", "pending")];
-    const plan2 = [todo("Fix retained-body leak", "completed"), todo("Add httplog test", "in_progress")];
+    const plan1 = [todo("1", "Fix retained-body leak", "in_progress"), todo("2", "Add httplog test", "pending")];
     const events = [
       ev(1, "session_started", { opening_message: "x" }),
       // phase 1 = item 1, phase 2 = item 2 — the same history the per-event
       // test above uses, but folded in ONE sync call as the store does when
       // a burst (a replay, or the perf harness seeding) lands in one flush.
       ev(2, "turn_started", { sub_turn: 1 }),
-      todoWrite(3, "p1", plan1),
+      taskCreate(3, "p1", plan1),
       ev(4, "turn_finished", { finish_reason: "stop" }),
       usage(1),
       ev(5, "turn_started", { sub_turn: 2 }),
       ev(6, "turn_finished", { finish_reason: "stop" }),
       usage(2),
       ev(7, "turn_started", { sub_turn: 3 }),
-      todoWrite(8, "p2", plan2),
-      ev(9, "turn_finished", { finish_reason: "stop" }),
+      taskUpdate(8, "u1", { taskId: "1", status: "completed" }),
+      taskUpdate(9, "u2", { taskId: "2", status: "in_progress" }),
+      ev(10, "turn_finished", { finish_reason: "stop" }),
       usage(3),
     ];
     // What TranscriptStore.ingest records: the fold's latestTodos as of each
-    // block it froze — never a re-parse of the TodoWrite arguments.
+    // block it froze — never a re-parse of the plan tools' arguments.
     const fold = new FoldState();
     const todosAtBlock: Todo[][] = [];
     for (const event of events) {
@@ -466,11 +509,11 @@ describe("rail phase assignment", () => {
   });
 
   it("keeps a group's phase through its own tool-result append (the tail-group replacement path)", () => {
-    const plan = [todo("Edit config", "in_progress")];
+    const plan = [todo("1", "Edit config", "in_progress")];
     const events = [
       ev(1, "session_started", { opening_message: "x" }),
       ev(2, "turn_started", { sub_turn: 1 }),
-      todoWrite(3, "p1", plan),
+      taskCreate(3, "p1", plan),
       ev(4, "tool_call", { index: 1, id: "c1", name: "Edit", arguments: '{"file_path":"a.go"}' }),
       ev(5, "turn_finished", { finish_reason: "tool_calls" }),
       ev(6, "tool_result", { tool_call_id: "c1", name: "Edit", content: "edited" }),
@@ -485,8 +528,8 @@ describe("rail phase assignment", () => {
   });
 
   it("falls back to the first non-completed item when nothing is in_progress, and to empty when the plan is empty", () => {
-    expect(phaseFromTodos([todo("a", "pending"), todo("b", "completed")], 3)).toEqual({ id: 3, index: 1, label: "a" });
-    expect(phaseFromTodos([todo("a", "completed"), todo("b", "completed")], 3)).toEqual({ id: 3, index: 0, label: "" });
+    expect(phaseFromTodos([todo("1", "a", "pending"), todo("2", "b", "completed")], 3)).toEqual({ id: 3, index: 1, label: "a" });
+    expect(phaseFromTodos([todo("1", "a", "completed"), todo("2", "b", "completed")], 3)).toEqual({ id: 3, index: 0, label: "" });
     expect(phaseFromTodos([], 3)).toEqual({ id: 3, index: 0, label: "" });
   });
 });

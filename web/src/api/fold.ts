@@ -84,21 +84,96 @@ export interface LiveView {
   pendingTools: Map<string, PendingTool>;
 }
 
-function parseTodos(argumentsJSON: string): Todo[] | null {
+// applyTaskEvent patches a plan with one TaskCreate or TaskUpdate tool-call
+// event, mirroring internal/store/status.go's applyTaskEvent (the same
+// replay the store runs over the event log to recover RequestStatus.Todos):
+// TaskCreate mints ids from nextId (increment then use, decimal string) and
+// appends, with status defaulting to "pending"; TaskUpdate finds by taskId
+// and patches only the fields present, or removes the task when status is
+// "deleted". Events the live handler would have rejected — malformed JSON (an
+// arguments payload can arrive mid-assembly while streaming), an empty
+// subject, description, or activeForm, an invalid status, a "deleted"
+// combined with a patch, an update with nothing to set, an unknown id — leave
+// the plan unchanged. This folds a live event stream and must never throw, so
+// nothing here raises.
+export function applyTaskEvent(
+  todos: Todo[],
+  nextId: number,
+  name: string,
+  argumentsJSON: string,
+): { todos: Todo[]; nextId: number } {
+  let args: unknown;
   try {
-    const parsed = JSON.parse(argumentsJSON) as { todos?: unknown };
-    if (Array.isArray(parsed.todos)) return parsed.todos as Todo[];
+    args = JSON.parse(argumentsJSON);
   } catch {
-    // Arguments can still be mid-assembly when this fires; the panel just
-    // keeps showing the last plan it successfully parsed.
+    return { todos, nextId };
   }
-  return null;
+  // A JSON literal (null, a number, a string) is never a valid task payload;
+  // the property reads below would throw on null, so reject it up front.
+  if (typeof args !== "object" || args === null) return { todos, nextId };
+  switch (name) {
+    case "TaskCreate": {
+      const tasks = (args as { tasks?: unknown }).tasks;
+      if (!Array.isArray(tasks) || tasks.length === 0) return { todos, nextId };
+      const items = tasks as Partial<Todo>[];
+      for (const t of items) {
+        if (!t || typeof t !== "object" || !t.subject?.trim() || !t.description?.trim() || !t.activeForm?.trim()) return { todos, nextId };
+        if (t.status && !isValidTaskStatus(t.status)) return { todos, nextId };
+      }
+      let n = nextId;
+      const out = [...todos];
+      for (const t of items) {
+        n++;
+        out.push({
+          taskId: String(n),
+          subject: t.subject as string,
+          description: t.description as string,
+          status: (t.status ?? "pending") as Todo["status"],
+          activeForm: t.activeForm as string,
+        });
+      }
+      return { todos: out, nextId: n };
+    }
+    case "TaskUpdate": {
+      const a = args as { taskId?: unknown; status?: unknown; subject?: unknown; description?: unknown; activeForm?: unknown };
+      if (typeof a.taskId !== "string" || a.taskId === "") return { todos, nextId };
+      const status = typeof a.status === "string" ? a.status : "";
+      const subject = typeof a.subject === "string" ? a.subject : "";
+      const description = typeof a.description === "string" ? a.description : "";
+      const activeForm = typeof a.activeForm === "string" ? a.activeForm : "";
+      if (status === "deleted" && (subject !== "" || description !== "" || activeForm !== "")) return { todos, nextId };
+      if (status === "" && subject === "" && description === "" && activeForm === "") return { todos, nextId };
+      if (status !== "" && status !== "deleted" && !isValidTaskStatus(status)) return { todos, nextId };
+      const idx = todos.findIndex((t) => t.taskId === a.taskId);
+      if (idx < 0) return { todos, nextId };
+      if (status === "deleted") return { todos: todos.filter((_, i) => i !== idx), nextId };
+      const out = [...todos];
+      if (status !== "") out[idx] = { ...out[idx], status: status as Todo["status"] };
+      if (subject !== "") out[idx] = { ...out[idx], subject };
+      if (description !== "") out[idx] = { ...out[idx], description };
+      if (activeForm !== "") out[idx] = { ...out[idx], activeForm };
+      return { todos: out, nextId };
+    }
+    default:
+      return { todos, nextId };
+  }
+}
+
+// isValidTaskStatus mirrors internal/tools' status enum, the same check
+// internal/store/status.go's validTaskStatus applies in its replay.
+function isValidTaskStatus(status: string): boolean {
+  return status === "pending" || status === "in_progress" || status === "completed";
 }
 
 export class FoldState {
   blocks: Block[] = [];
   live: LiveView = { turn: null, pendingTools: new Map() };
   latestTodos: Todo[] = [];
+  // nextTaskId is the counter TaskCreate mints ids from, in call order,
+  // mirroring the executor's nextTaskID so the fold's plan matches the
+  // backend's (internal/store/status.go applyTaskEvent replays the same
+  // counter over the event log).
+  private nextTaskId = 0;
 
   // toolCallsById is kept for the session's whole life, not cleared on
   // result, so a frozen tool_result block can still be shaped by the
@@ -186,9 +261,14 @@ export class FoldState {
         const p = ev.payload as ToolCallPayload;
         if (this.live.turn) this.live.turn.toolCalls.push(p);
         this.toolCallsById.set(p.id, p);
-        if (p.name === "TodoWrite") {
-          const todos = parseTodos(p.arguments);
-          if (todos) this.latestTodos = todos;
+        // The plan tools' calls are the event-stream source of latestTodos
+        // (docs/DESIGN.md §5.8): TaskCreate and TaskUpdate mutate the plan,
+        // patched in call order exactly as the backend replay does; the
+        // TaskGet/TaskList reads never touch it.
+        if (p.name === "TaskCreate" || p.name === "TaskUpdate") {
+          const next = applyTaskEvent(this.latestTodos, this.nextTaskId, p.name, p.arguments);
+          this.latestTodos = next.todos;
+          this.nextTaskId = next.nextId;
         }
         break;
       }

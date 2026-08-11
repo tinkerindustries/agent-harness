@@ -1,4 +1,4 @@
-// Package tools implements the twelve tools in docs/TOOLS.md: schemas that
+// Package tools implements the fifteen tools in docs/TOOLS.md: schemas that
 // match the trained-in shape, argument validation in Go, workspace
 // confinement, per-tool timeouts and output caps, and the permission policy
 // that gates execution without ever changing which tools are on offer
@@ -169,8 +169,9 @@ type Executor struct {
 	readsMu sync.Mutex
 	reads   map[string]bool
 
-	todosMu sync.Mutex
-	todos   []Todo
+	todosMu    sync.Mutex
+	todos      []Todo
+	nextTaskID int
 }
 
 // NewExecutor returns an Executor rooted at workspace (resolved to an
@@ -319,7 +320,10 @@ var toolFuncs = map[string]toolFunc{
 	"Glob":             execGlob,
 	"Grep":             execGrep,
 	"List":             execList,
-	"TodoWrite":        execTodoWrite,
+	"TaskCreate":       execTaskCreate,
+	"TaskGet":          execTaskGet,
+	"TaskList":         execTaskList,
+	"TaskUpdate":       execTaskUpdate,
 	"Task":             execTask,
 	"WebFetch":         execWebFetch,
 	"ReviewScreenshot": execReviewScreenshot,

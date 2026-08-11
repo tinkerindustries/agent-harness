@@ -18,8 +18,8 @@ import { buildSyntheticHistory, liveEventGenerator, makeSeqSource, type SeqSourc
 // answer with numbers rather than arguments —
 //
 //   - the rail renders one entry per sub-turn (142), grouped under the plan
-//     items the synthetic feed's TodoWrite calls mark, with exactly one
-//     IntersectionObserver watching the cards;
+//     items the synthetic feed's TaskCreate/TaskUpdate calls mark, with
+//     exactly one IntersectionObserver watching the cards;
 //   - scrolling the whole transcript updates the current marker without a
 //     measurable frame cost: every marker update is a React commit the
 //     Profiler times, and frame-to-frame time is recorded as rAF deltas

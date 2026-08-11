@@ -172,11 +172,12 @@ explains the apparent conflict.
 This section is the point of the exercise.
 
 **The specific tool names.** TOOLS.md builds on Claude Code's vocabulary being
-`Read`, `Write`, `Edit`, `Bash`, `Glob`, `Grep`, `TodoWrite`, `Task`,
-`WebFetch`. Those names appear nowhere in the vendored docs. What the docs
-establish is that DeepSeek optimised V4 for Claude Code, OpenClaw, and OpenCode
-— not what those harnesses call their tools. The vocabulary comes from outside
-this repo and is the weakest load-bearing assumption in the design.
+`Read`, `Write`, `Edit`, `Bash`, `Glob`, `Grep`, `TaskCreate`, `TaskGet`,
+`TaskList`, `TaskUpdate`, `Task`, `WebFetch`. Those names appear nowhere in the
+vendored docs. What the docs establish is that DeepSeek optimised V4 for Claude
+Code, OpenClaw, and OpenCode — not what those harnesses call their tools. The
+vocabulary comes from outside this repo and is the weakest load-bearing
+assumption in the design.
 
 It is also cheap to be wrong about. Names are a rename away, and the argument
 shapes are conventional.

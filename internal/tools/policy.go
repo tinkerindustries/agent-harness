@@ -4,7 +4,7 @@ import "strings"
 
 // Mode is the permission mode a session holds for its whole life
 // (docs/TOOLS.md, "Permissions"). Modes gate execution, never the tool
-// array sent to the model: all twelve tools ship in every mode, and a
+// array sent to the model: all fifteen tools ship in every mode, and a
 // disallowed call is refused at execution time.
 type Mode string
 
@@ -51,7 +51,9 @@ type Policy struct {
 // alwaysAllowed tools have no side effects outside the session's own
 // bookkeeping and run in every mode. ReviewScreenshot reads a file and sends
 // it over the network without changing anything on disk — the same reasoning
-// that puts WebFetch in read-only mode.
+// that puts WebFetch in read-only mode. The four task tools carry the same
+// "the plan is the session's own bookkeeping" reasoning TodoWrite had, so
+// read-only-mode sessions keep full plan tracking.
 var alwaysAllowed = map[string]bool{
 	"Read":             true,
 	"Glob":             true,
@@ -59,7 +61,10 @@ var alwaysAllowed = map[string]bool{
 	"List":             true,
 	"WebFetch":         true,
 	"ReviewScreenshot": true,
-	"TodoWrite":        true,
+	"TaskCreate":       true,
+	"TaskGet":          true,
+	"TaskList":         true,
+	"TaskUpdate":       true,
 	"Complete":         true,
 }
 

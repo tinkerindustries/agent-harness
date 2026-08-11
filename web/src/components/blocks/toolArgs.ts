@@ -132,6 +132,9 @@ export interface ToolGlyph {
 
 // The design table's letters for the tools it names; anything else falls
 // back to its first letter (Glob → G, Complete → C, ...), neutral family.
+// All four plan tools share one "P" glyph so the timeline rail keeps one
+// recognizable plan marker instead of four first-letter glyphs that would
+// clash with each other and with Grep's G (TaskGet → G, TaskList → L, ...).
 const GLYPH_BY_NAME: Record<string, ToolGlyph> = {
   Edit: { letter: "E", family: "write" },
   Write: { letter: "W", family: "write" },
@@ -139,7 +142,10 @@ const GLYPH_BY_NAME: Record<string, ToolGlyph> = {
   Read: { letter: "R", family: "other" },
   Grep: { letter: "G", family: "other" },
   Task: { letter: "T", family: "other" },
-  TodoWrite: { letter: "P", family: "other" },
+  TaskCreate: { letter: "P", family: "other" },
+  TaskGet: { letter: "P", family: "other" },
+  TaskList: { letter: "P", family: "other" },
+  TaskUpdate: { letter: "P", family: "other" },
 };
 
 export function toolGlyph(name: string): ToolGlyph {

@@ -51,7 +51,11 @@ export function ToolResultBody({ block }: { block: ToolResultData }) {
     case "WebFetch":
       return <Markdown text={block.content} />;
 
-    case "TodoWrite":
+    case "TaskCreate":
+    case "TaskUpdate":
+      // The plan mutations' result (the rendered checklist / the patched
+      // line) is exactly what the plan panel shows, so the transcript keeps
+      // a dim one-liner rather than echoing the whole list.
       return <p className="block-text dim">Plan updated — see the panel.</p>;
 
     case "Task":
@@ -66,7 +70,12 @@ export function ToolResultBody({ block }: { block: ToolResultData }) {
     case "Glob":
     case "Grep":
     case "List":
+    case "TaskGet":
+    case "TaskList":
     default:
+      // TaskGet/TaskList are reads whose output (one task or the checklist)
+      // is worth reading in the transcript, so they fall through to the same
+      // verbatim rendering every other tool's result gets.
       return <CollapsibleOutput text={block.content} />;
   }
 }

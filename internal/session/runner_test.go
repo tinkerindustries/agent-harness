@@ -345,7 +345,7 @@ func TestCompactionForksNewSession(t *testing.T) {
 			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
 				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []deepseek.ToolCallDelta{{Index: 0, ID: "call_00_a", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "TodoWrite", Arguments: `{"todos":[]}`}}},
+					ToolCalls: []deepseek.ToolCallDelta{{Index: 0, ID: "call_00_a", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}}},
 				}}},
 			})
 			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
@@ -513,5 +513,35 @@ func TestRunGeminiCostShowsInSessionTotal(t *testing.T) {
 	}
 	if sum.PromptCacheMissTokens != 2*100+15 {
 		t.Errorf("cache-miss total = %d, want %d", sum.PromptCacheMissTokens, 2*100+15)
+	}
+}
+
+// TestTaskCreateOrderingWithinSubTurn is the concurrency fix's own test: two
+// TaskCreate calls in one sub-turn must mint ids in the order the calls
+// appear in the array, because the store's plan replay
+// (internal/store/status.go RequestStatus) and the frontend both reconstruct
+// ids by walking the event log in that same order. If the two calls raced
+// for the executor's lock, whichever goroutine won would mint the lower id
+// and the model would hold ids nobody else can reconstruct. Run with -race.
+func TestTaskCreateOrderingWithinSubTurn(t *testing.T) {
+	r := newTestRunner(t, "http://127.0.0.1:1") // no request is ever made
+	executor, err := tools.NewExecutor(t.TempDir(), &tools.Policy{Mode: tools.ModeFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := []deepseek.AssembledToolCall{
+		{ID: "call_00_first", Name: "TaskCreate", Arguments: `{"tasks":[{"subject":"First task","description":"First thing","activeForm":"Firsting"}]}`},
+		{ID: "call_01_second", Name: "TaskCreate", Arguments: `{"tasks":[{"subject":"Second task","description":"Second thing","activeForm":"Seconding"}]}`},
+	}
+	outcomes := r.executeToolCalls(t.Context(), store.Session{ID: "sess-order"}, executor, calls)
+
+	// Each TaskCreate renders the whole checklist, so the first outcome
+	// carries only its own task — the lower id — and the second outcome
+	// carries both, with its new task under a higher id.
+	if first := outcomes[0].Result.Content; !strings.Contains(first, "#1 First task") || strings.Contains(first, "#2") {
+		t.Fatalf("first TaskCreate rendered %q, want its own task with the lower id only", first)
+	}
+	if second := outcomes[1].Result.Content; !strings.Contains(second, "#1 First task") || !strings.Contains(second, "#2 Second task") {
+		t.Fatalf("second TaskCreate rendered %q, want both tasks with the second's id higher", second)
 	}
 }
