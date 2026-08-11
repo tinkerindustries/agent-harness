@@ -2,8 +2,13 @@ import { describe, expect, it } from "vitest";
 import { planProgress, splitVerb } from "./planProgress";
 import type { Todo } from "../api/types";
 
+let nextId = 0;
+
 function todo(partial: Partial<Todo> & Pick<Todo, "content">): Todo {
-  return { status: "pending", activeForm: "", ...partial };
+  nextId++;
+  // The fixtures never assert on ids — planProgress reads content/status —
+  // so mint them from a counter, the same shape TaskCreate produces.
+  return { id: String(nextId), status: "pending", activeForm: "", ...partial };
 }
 
 // The collapsed in-flight line and the finished table's subtitle both read
