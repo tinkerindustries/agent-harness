@@ -217,6 +217,11 @@ describe("FoldState live view", () => {
     for (const e of sampleEvents().slice(0, 7)) state.ingest(e); // through turn_finished
     expect(state.live.pendingTools.has("call_1")).toBe(true);
     expect(state.live.pendingTools.get("call_1")?.stdout).toBe("");
+    // The pending tool's start stamp is the turn_finished event's
+    // created_at — the moment the turn froze and its calls began running —
+    // which is what the watch page's footer ages the running tool from
+    // (design/session-watch.html's "1m 04s" under the tool name).
+    expect(state.live.pendingTools.get("call_1")?.startedAt).toBe("2026-01-01T00:00:07Z");
 
     state.ingest(ev(8, "tool_stdout", { tool_call_id: "call_1", text: "hi\n" }));
     expect(state.live.pendingTools.get("call_1")?.stdout).toBe("hi\n");
@@ -504,5 +509,41 @@ describe("skills catalogue", () => {
     expect(blocks.map((b) => b.type)).toEqual(["opening"]);
     const openingBlock = blocks[0];
     expect("text" in openingBlock && openingBlock.text).toEqual(opening);
+  });
+});
+
+// The launching agent's instruction (design/session-watch.html's .msg-user):
+// the task tail of the opening message, carried separately by
+// session_started so the watch page renders it as its own message without
+// parsing the message text.
+describe("launching instruction block", () => {
+  it("pushes an instruction block after the opening when the run was created with a task", () => {
+    const blocks = foldEvents([
+      ev(1, "session_started", {
+        opening_message: "Workspace: /ws\n\nTask:\nFlip Stateless to false\n",
+        task: "Flip Stateless to false",
+      }),
+    ]);
+    expect(blocks.map((b) => b.type)).toEqual(["opening", "instruction"]);
+    const instruction = blocks.find((b) => b.type === "instruction");
+    expect(instruction).toMatchObject({ seq: 1, text: "Flip Stateless to false" });
+  });
+
+  it("pushes no instruction block when the run was created without a task", () => {
+    const blocks = foldEvents([
+      ev(1, "session_started", { opening_message: "Workspace: /ws\n\nTask:\n" }),
+    ]);
+    expect(blocks.map((b) => b.type)).toEqual(["opening"]);
+  });
+
+  it("sits after the skills catalogue when both exist", () => {
+    const blocks = foldEvents([
+      ev(1, "session_started", {
+        opening_message: "Workspace: /ws\n\nskills here\nTask:\ndo it\n",
+        skill_catalogue: "skills here",
+        task: "do it",
+      }),
+    ]);
+    expect(blocks.map((b) => b.type)).toEqual(["skills", "opening", "instruction"]);
   });
 });
