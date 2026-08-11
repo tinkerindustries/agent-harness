@@ -1,4 +1,4 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore, useState } from "react";
 import { isUserStarted } from "../api/provenance";
 import { useSessionMeta, useTranscriptStore } from "../hooks";
 import { SessionChatScreen } from "./SessionChatScreen";
@@ -23,6 +23,21 @@ export function SessionScreen({ sessionId, onNavigate }: Props) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { meta, settled } = useSessionMeta(sessionId, snapshot.connection);
 
+  // Whether this session's stream has opened since the page loaded, for the
+  // dropped-stream banner (DroppedStreamBanner). It lives HERE rather than
+  // in the banner or the screens because useSessionMeta refetches on every
+  // connection change — its refreshOn is the connection state — and each
+  // refetch flips settled, remounting the screen the fork renders (and any
+  // local state it holds). This component survives those remounts; the flag
+  // resets only on a genuine session switch.
+  const [everOpen, setEverOpen] = useState(false);
+  useEffect(() => {
+    if (snapshot.connection === "open") setEverOpen(true);
+  }, [snapshot.connection]);
+  useEffect(() => {
+    setEverOpen(false);
+  }, [sessionId]);
+
   // The app shell: the page stops scrolling and the conversation column
   // scrolls instead (design/session.css "app shell"). Only this route
   // carries body.app; the session list, settings and operations screens
@@ -45,7 +60,23 @@ export function SessionScreen({ sessionId, onNavigate }: Props) {
     );
   }
   if (meta === null || isUserStarted(meta)) {
-    return <SessionChatScreen sessionId={sessionId} meta={meta} snapshot={snapshot} onNavigate={onNavigate} />;
+    return (
+      <SessionChatScreen
+        sessionId={sessionId}
+        meta={meta}
+        snapshot={snapshot}
+        onNavigate={onNavigate}
+        everOpen={everOpen}
+      />
+    );
   }
-  return <SessionWatchScreen sessionId={sessionId} meta={meta} snapshot={snapshot} />;
+  return (
+    <SessionWatchScreen
+      sessionId={sessionId}
+      meta={meta}
+      snapshot={snapshot}
+      onNavigate={onNavigate}
+      everOpen={everOpen}
+    />
+  );
 }
