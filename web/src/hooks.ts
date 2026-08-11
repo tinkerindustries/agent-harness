@@ -72,29 +72,46 @@ export function useTranscriptStore(sessionID: string): TranscriptStore {
 // freezing on whatever the first fetch returned. Clears only on a genuine
 // session switch — a refreshOn change re-fetches without a visible blank
 // flicker in between — and swallows a transient fetch failure, which just
-// leaves the caller showing whatever it last had. Moved here verbatim from
-// TranscriptScreen.tsx when the session route's fork needed it too; the
-// fork extends it with a settled flag in the next change.
-export function useSessionMeta(sessionId: string, refreshOn: unknown): SessionState | null {
+// leaves the caller showing whatever it last had.
+//
+// settled is whether the current fetch has completed, successfully or not.
+// The session route needs it to tell "row not here yet" (render the shell
+// with an empty stream) from "row will never arrive" (keep the chat screen,
+// the safe default for a fetch-failed run). meta and settled reset together
+// on a session switch, and a re-fetch after a failure retries the row.
+export function useSessionMeta(
+  sessionId: string,
+  refreshOn: unknown,
+): { meta: SessionState | null; settled: boolean } {
   const [meta, setMeta] = useState<SessionState | null>(null);
+  const [settled, setSettled] = useState(false);
 
   // Clear on a genuine session switch only, so a refreshOn change (the
   // stream opening or closing) re-fetches without a visible blank flicker
   // in between.
-  useEffect(() => setMeta(null), [sessionId]);
+  useEffect(() => {
+    setMeta(null);
+    setSettled(false);
+  }, [sessionId]);
 
   useEffect(() => {
     const controller = new AbortController();
+    setSettled(false);
     fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { signal: controller.signal })
       .then((r) => (r.ok ? r.json() : null))
-      .then((data) => data && setMeta(data))
+      .then((data) => {
+        if (data) setMeta(data);
+      })
       .catch(() => {
-        // A transient fetch failure just leaves the header showing
+        // A transient fetch failure just leaves the caller showing
         // whatever it last had; the transcript itself still streams from
         // the SSE connection regardless.
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setSettled(true);
       });
     return () => controller.abort();
   }, [sessionId, refreshOn]);
 
-  return meta;
+  return { meta, settled };
 }

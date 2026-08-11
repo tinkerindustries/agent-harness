@@ -1,8 +1,8 @@
-import { useRef, useState, useSyncExternalStore } from "react";
+import { useRef, useState } from "react";
 import type { SessionState } from "../api/types";
 import type { Block } from "../api/fold";
 import type { TranscriptFilter } from "../api/groups";
-import { useSessionMeta, useTranscriptStore } from "../hooks";
+import type { TranscriptSnapshot } from "../api/transcriptStore";
 import { BlockList } from "./BlockList";
 import { PlanPanel } from "./PlanPanel";
 import { TimelineRail } from "./TimelineRail";
@@ -17,16 +17,20 @@ import type { Density } from "./blocks/SubTurnCard";
 
 interface Props {
   sessionId: string;
+  // The metadata row the fork read before choosing this screen — null only
+  // when the row's fetch failed and the fork kept this screen as the safe
+  // default (SessionScreen).
+  meta: SessionState | null;
+  snapshot: TranscriptSnapshot;
 }
 
-export function TranscriptScreen({ sessionId }: Props) {
-  const store = useTranscriptStore(sessionId);
-  const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  // Re-fetch metadata when the stream closes, so the status badge picks up
-  // the terminal status the transcript's own run_finished/error block
-  // already shows below it, rather than freezing on whatever GET
-  // /api/sessions/{id} returned back when the screen first mounted.
-  const meta = useSessionMeta(sessionId, snapshot.connection);
+// The interactive session page (design/session-chat.html): a run a person
+// started, inside the full-height app shell the two session pages share
+// (design/session.css). Phase 1 renders today's transcript body unchanged
+// inside the shell — the toolbar, the timeline rail, the block list, the
+// plan panel, the stop and steer controls, the churn banner; phases 2 and 3
+// build the turn rendering and this page's chrome on top of the shell.
+export function SessionChatScreen({ sessionId, meta, snapshot }: Props) {
   const badge = meta ? outcome(headerOutcomeSession(meta, snapshot.blocks)) : null;
   // The one-line provenance label ("started by geoff", "started by
   // claude-code (sess-1)"), rendered only when the row carries provenance at
@@ -63,59 +67,63 @@ export function TranscriptScreen({ sessionId }: Props) {
   );
 
   return (
-    <div className="screen screen-transcript">
-      {meta && badge && (
-        <div className="session-meta">
-          <Badge variant={badge.variant}>{badge.label}</Badge>
-          <span>
-            {meta.model} ({meta.effort})
-          </span>
-          <span className="dim">{meta.workspace}</span>
-          <span className="dim">{meta.permission_mode}</span>
-          {meta.job_type && <span className="dim">{meta.job_type}</span>}
-          {startedByLabel && <span className="dim">{startedByLabel}</span>}
-          {meta.parent_id && (
-            <span className="dim">
-              forked from <code>{meta.parent_id}</code>
-            </span>
+    <div className="work">
+      <main className="stream">
+        <div className="screen screen-transcript">
+          {meta && badge && (
+            <div className="session-meta">
+              <Badge variant={badge.variant}>{badge.label}</Badge>
+              <span>
+                {meta.model} ({meta.effort})
+              </span>
+              <span className="dim">{meta.workspace}</span>
+              <span className="dim">{meta.permission_mode}</span>
+              {meta.job_type && <span className="dim">{meta.job_type}</span>}
+              {startedByLabel && <span className="dim">{startedByLabel}</span>}
+              {meta.parent_id && (
+                <span className="dim">
+                  forked from <code>{meta.parent_id}</code>
+                </span>
+              )}
+            </div>
           )}
-        </div>
-      )}
-      <TranscriptToolbar
-        density={density}
-        onDensityChange={setDensity}
-        filter={filter}
-        onFilterChange={setFilter}
-        counts={snapshot.counts}
-      />
-      <SteerControl sessionId={sessionId} running={meta?.status === "running"} className="steer-inline" />
-      {snapshot.churnPoint && (
-        <div className="notice churn-banner">
-          <b>
-            Cache churn at sub-turn {snapshot.churnPoint.subTurn}: {snapshot.churnPoint.excessTokens.toLocaleString("en-US")} tokens
-            re-sent above the expected miss.
-          </b>{" "}
-          The prefix moved — see docs/CACHE.md. <a href={`#sub-turn-${snapshot.churnPoint.subTurn}`}>Jump to it →</a>
-        </div>
-      )}
-      <div className="transcript-layout">
-        <TimelineRail
-          items={snapshot.items}
-          getToolCall={snapshot.getToolCall}
-          filter={filter}
-          containerRef={transcriptRef}
-        />
-        <div ref={transcriptRef} className="transcript-col">
-          <BlockList
-            items={snapshot.items}
-            live={snapshot.live}
+          <TranscriptToolbar
             density={density}
+            onDensityChange={setDensity}
             filter={filter}
-            getToolCall={snapshot.getToolCall}
+            onFilterChange={setFilter}
+            counts={snapshot.counts}
           />
+          <SteerControl sessionId={sessionId} running={meta?.status === "running"} className="steer-inline" />
+          {snapshot.churnPoint && (
+            <div className="notice churn-banner">
+              <b>
+                Cache churn at sub-turn {snapshot.churnPoint.subTurn}: {snapshot.churnPoint.excessTokens.toLocaleString("en-US")} tokens
+                re-sent above the expected miss.
+              </b>{" "}
+              The prefix moved — see docs/CACHE.md. <a href={`#sub-turn-${snapshot.churnPoint.subTurn}`}>Jump to it →</a>
+            </div>
+          )}
+          <div className="transcript-layout">
+            <TimelineRail
+              items={snapshot.items}
+              getToolCall={snapshot.getToolCall}
+              filter={filter}
+              containerRef={transcriptRef}
+            />
+            <div ref={transcriptRef} className="transcript-col">
+              <BlockList
+                items={snapshot.items}
+                live={snapshot.live}
+                density={density}
+                filter={filter}
+                getToolCall={snapshot.getToolCall}
+              />
+            </div>
+            <PlanPanel todos={snapshot.todos} />
+          </div>
         </div>
-        <PlanPanel todos={snapshot.todos} />
-      </div>
+      </main>
     </div>
   );
 }
