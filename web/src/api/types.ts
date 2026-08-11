@@ -21,11 +21,11 @@ export interface SessionState {
   // the badge renders it as the plain terminal status rather than guessing
   // (docs/WEB-REDESIGN.md phase 2).
   complete_status?: string;
-  // plan is the session's working plan: the todos array of the most recent
-  // TodoWrite call, verbatim, mirroring internal/hub's SessionState
-  // (docs/WEB-REDESIGN.md phase 3). Absent covers a pre-migration row and a
-  // session that never called TodoWrite; the in-flight card renders no plan
-  // section rather than an empty one.
+  // plan is the session's working plan: the todos array as of the most
+  // recent TaskCreate/TaskUpdate call, verbatim, mirroring internal/hub's
+  // SessionState (docs/WEB-REDESIGN.md phase 3). Absent covers a
+  // pre-migration row and a session that never wrote a plan; the in-flight
+  // card renders no plan section rather than an empty one.
   plan?: Todo[];
   // recent_tool_calls is the last few tool calls the session made, for the
   // in-flight card's activity panel (docs/WEB-REDESIGN.md phase 3). Absent
@@ -236,9 +236,13 @@ export interface QueueHealth {
 }
 
 // Todo mirrors internal/tools.Todo: one entry of the model's working plan,
-// parsed client-side from the arguments of the latest TodoWrite call rather
-// than carried on its own event (docs/TOOLS.md "TodoWrite").
+// kept client-side by folding TaskCreate/TaskUpdate tool-call events in call
+// order (web/src/api/fold.ts applyTaskEvent), the same replay the store runs
+// over the event log (internal/store/status.go). id is minted by TaskCreate
+// in call order and stable for the task's whole life, so a later TaskUpdate
+// can name one task cheaply.
 export interface Todo {
+  id: string;
   content: string;
   status: "pending" | "in_progress" | "completed";
   activeForm: string;

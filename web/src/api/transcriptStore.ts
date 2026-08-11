@@ -119,13 +119,14 @@ export class TranscriptStore {
   ingest(ev: StoreEvent): void {
     const before = this.fold.blocks.length;
     this.fold.ingest(ev);
-    // Record the fold's already-parsed plan as of the moment each block
+    // Record the fold's already-applied plan as of the moment each block
     // froze (docs/WEB-REDESIGN.md phase 6, the rail's phase grouping): a
     // flush folds whatever blocks arrived since the last one, so without a
     // per-block record every phase in a burst — a finished session's replay,
     // or the perf harness seeding at once — would be named from the plan at
-    // the END of the burst (its last TodoWrite). Nothing is re-parsed here;
-    // latestTodos is the fold's own parse of the TodoWrite arguments.
+    // the END of the burst (its last TaskCreate/TaskUpdate). Nothing is
+    // re-parsed here; latestTodos is the fold's own application of the plan
+    // tools' calls.
     for (let i = before; i < this.fold.blocks.length; i++) this.todosAtBlock.push(this.fold.latestTodos);
     this.markDirty();
   }
