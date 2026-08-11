@@ -732,10 +732,18 @@ func (r *Runner) persistTaskState(ctx context.Context, sess store.Session, execu
 	if !mutates {
 		return
 	}
-	if err := r.Store.UpdateSessionLiveState(ctx, sess.ID, planSnapshot(executor.Todos()), nil); err != nil {
+	plan := planSnapshot(executor.Todos())
+	if err := r.Store.UpdateSessionLiveState(ctx, sess.ID, plan, nil); err != nil {
 		log.Printf("session: persist task state for %s: %v", sess.ID, err)
 		return
 	}
+	// sess is a copy passed in by the caller; its Plan field predates the
+	// write above (it was reloaded, if at all, before this sub-turn's
+	// TaskCreate/TaskUpdate ran). Set it directly from the value just
+	// written rather than reloading from the store again — publishState
+	// only reads this copy, so mutating it here is enough to avoid the same
+	// stale-publish bug turn.go's reload fixes for the roll.
+	sess.Plan = plan
 	r.publishState(ctx, sess)
 }
 
