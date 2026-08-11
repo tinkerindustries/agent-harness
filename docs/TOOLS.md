@@ -44,14 +44,17 @@ trying against `Edit` if exact-match replacement underperforms.
 | `Glob` | `pattern`, `path?` | Path matching by pattern |
 | `Grep` | `pattern`, `path?`, `glob?`, `output_mode?` | Content search, ripgrep-backed |
 | `List` | `path`, `ignore?` | Directory listing |
-| `TodoWrite` | `todos[]` | The model's working plan |
+| `TaskCreate` | `tasks[]` | Append tasks to the working plan |
+| `TaskGet` | `id` | Fetch one task by id |
+| `TaskList` | `status?` | List the working plan (optionally one status) |
+| `TaskUpdate` | `id`, `status?`, `content?`, `activeForm?`, `delete?` | Patch or delete one task by id |
 | `Task` | `description`, `prompt`, `subagent_type` | Delegate to a flash-backed subagent |
 | `WebFetch` | `url`, `prompt` | Fetch a URL and extract against a question |
 | `ReviewScreenshot` | `image_paths[]`, `question`, `spec?` | Send screenshots to Gemini's vision model and return its diagnosis |
 | `Complete` | `summary`, `result?`, `status?` | Emit the run's machine-readable result |
 
-Twelve tools. The first ten have a trained-in analogue in at least two of the
-three named harnesses. `ReviewScreenshot` and `Complete` do not. The former
+Fifteen tools. The first thirteen have a trained-in analogue in at least two of
+the three named harnesses. `ReviewScreenshot` and `Complete` do not. The former
 exists because DeepSeek cannot see images, so vision is a Gemini call this
 harness builds itself; the trained-vocabulary argument above says nothing
 about either, and each is named for what it does.
@@ -126,12 +129,27 @@ returning matching file paths; content and count modes are selected by
 to orient and would otherwise pull large content into a context that gets
 re-sent every sub-turn.
 
-### TodoWrite
+### TaskCreate, TaskGet, TaskList, TaskUpdate
 
-The target harnesses all carry a todo tool, so V4 will reach for one. A terminal
-harness renders it as a checklist that scrolls away. A web UI can pin it as a
-live plan panel beside the transcript, which is one of the clearer wins the
-browser buys us.
+The target harnesses all carry a todo tool, so V4 will reach for one. Where
+they write the whole plan array on every change, this harness splits that
+into a CRUD family: `TaskCreate` appends tasks (ids minted in call order and
+stable for each task's whole life), `TaskUpdate` patches or deletes one task
+by id, and `TaskGet`/`TaskList` read one task or the whole plan back.
+
+The split exists so a per-item update is cheap enough that an agent does not
+skip it mid-run. Rewriting the whole plan on every status change costs the
+model the full checklist to produce and the session a bigger message to
+append; naming one id in a short `TaskUpdate` call makes keeping the plan
+current the obvious move. A terminal harness renders the list as a checklist
+that scrolls away. A web UI can pin it as a live plan panel beside the
+transcript, which is one of the clearer wins the browser buys us.
+
+`TaskUpdate` patches only the fields present. A `delete` combined with a
+patch, an update with nothing to set, an unknown id, or an invalid status are
+all errors and mutate nothing — the same validation the event-log replay
+applies (`internal/store/status.go`), so a session's recovered plan can never
+drift from what the loop actually did.
 
 ### Task
 
@@ -244,7 +262,7 @@ So the choice is:
   go without trained-in web search.
 - Move to `/anthropic` for server-side search and lose all four.
 
-Recommendation: stay native. Search is one tool among eleven, our own `WebFetch`
+Recommendation: stay native. Search is one tool among fifteen, our own `WebFetch`
 covers the documentation-lookup case that a coding harness actually needs, and
 DeepSeek's own note says its web search bills extra tokens for summarisation
 anyway. The decision is reversible per-session if it proves wrong, since the
@@ -279,8 +297,8 @@ later. The browser is read-only, so there is nobody there to ask.
 Two modes, fixed for the life of a session and required on every request:
 
 - Read-only. `Read`, `Glob`, `Grep`, `List`, `WebFetch`, `ReviewScreenshot`,
-  `TodoWrite`, and `Complete` run. `Write`, `Edit`, `Bash`, and `Task` are
-  denied.
+  `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`, and `Complete` run.
+  `Write`, `Edit`, `Bash`, and `Task` are denied.
 - Full access. Everything runs, as root, inside the workspace mount.
 
 There is no third mode between them and no default. Every ingress — a work
@@ -302,7 +320,7 @@ changing nothing on disk.
 A work request may add `deny` patterns on top of its mode. They only ever
 subtract; a request cannot widen the mode it asked for.
 
-Modes gate execution, never availability. All twelve tools are sent on every
+Modes gate execution, never availability. All fifteen tools are sent on every
 request in every mode, and a call the mode disallows is refused at execution
 with an error result the model can read and route around. Removing tools per
 mode would give each mode a different prefix and make every mode switch a cold
