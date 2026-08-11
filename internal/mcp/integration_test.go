@@ -171,6 +171,9 @@ func TestHandleLaunchCarriesProvenance(t *testing.T) {
 	if got.ParentAgentType != "claude-code" || got.ParentAgentID != "sess-parent-1" {
 		t.Fatalf("expected parent agent claude-code/sess-parent-1 on the published request, got %q/%q", got.ParentAgentType, got.ParentAgentID)
 	}
+	if got.ParentIsUser {
+		t.Fatal("expected parent_is_user to be false on the published request: an MCP launch is never a person starting the run")
+	}
 }
 
 // TestHandleLaunchRunningOutcome is the second outcome: an `accepted`

@@ -130,22 +130,22 @@ func TestHandleLaunchRejectsUnknownJobType(t *testing.T) {
 	}
 }
 
-// TestHandleLaunchRejectsUserParentAgentWithID checks the same pre-publish
-// validation for the parent agent pair: the reserved type "user" must not
-// carry an id, because there is no agent session to trace back to.
-func TestHandleLaunchRejectsUserParentAgentWithID(t *testing.T) {
+// TestHandleLaunchRejectsRetiredUserParentAgentType checks the pre-publish
+// validation for the parent agent pair: the type "user" is retired — the
+// producer sets parent_is_user instead — so a caller sending it gets a tool
+// error even with no id.
+func TestHandleLaunchRejectsRetiredUserParentAgentType(t *testing.T) {
 	svc := newValidationService(t)
 	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{
 		PermissionMode: "full",
 		Description:    "task", Prompt: "do it", Repos: testLaunchRepos(),
 		ParentAgentType: "user",
-		ParentAgentID:   "sess-1",
 	})
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)
 	}
 	if !res.IsError {
-		t.Fatal("expected an error result for a user parent agent carrying an id")
+		t.Fatal("expected an error result for the retired parent_agent_type \"user\"")
 	}
 }
 
