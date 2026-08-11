@@ -691,6 +691,50 @@ func TestGetEventsPagingRanges(t *testing.T) {
 	}
 }
 
+// A session's tool output is whatever its commands printed, so a run that
+// needs a token in its container can put one straight into the log — the
+// phase 5 run did, with `head -2 .env`
+// (docs/reviews/sess-bb6c0ed564ddae573c3b1832cb3981f4.md). The port must not
+// serve it back, over either transport.
+func TestEventsRedactCredentialsOnBothTransports(t *testing.T) {
+	srv, st, h := newTestServer(t)
+	mustCreateSession(t, st, "sess-1", time.Now())
+
+	token := "ghp_" + strings.Repeat("a", 36)
+	appendAndPublish(t, st, h, "sess-1", []store.EventInput{{
+		Kind:    store.KindToolResult,
+		Payload: store.ToolResultPayload{ToolCallID: "call_1", Name: "Bash", Content: "GITHUB_TOKEN=" + token},
+	}})
+
+	page := fetchEventsPage(t, srv, "/api/sessions/sess-1/events")
+	body, err := json.Marshal(page)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), token) {
+		t.Fatalf("the events endpoint served the token: %s", body)
+	}
+	if !strings.Contains(string(body), "[redacted]") {
+		t.Fatalf("expected the placeholder in the page: %s", body)
+	}
+	// The rest of the payload must survive: redaction that swallowed the
+	// surrounding output would make the transcript useless.
+	if !strings.Contains(string(body), "GITHUB_TOKEN=") {
+		t.Fatalf("redaction ate the surrounding output: %s", body)
+	}
+
+	resp, err := http.Get(srv.URL + "/api/sessions/sess-1/stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	buf := make([]byte, 4096)
+	n, _ := resp.Body.Read(buf)
+	if strings.Contains(string(buf[:n]), token) {
+		t.Fatalf("the stream served the token: %s", buf[:n])
+	}
+}
+
 func TestGetEventsUnknownSession(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	resp, err := http.Get(srv.URL + "/api/sessions/does-not-exist/events")

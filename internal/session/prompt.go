@@ -3,6 +3,7 @@ package session
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -28,6 +29,11 @@ Rules:
   line-number prefix Read shows you is for your reference only and must
   never appear inside old_string.
 - Prefer Grep and Glob to orient before reading whole files.
+- The shell is busybox ash in an Alpine container. Search from Bash with rg,
+  which is installed: /bin/grep is busybox's and rejects GNU flags like
+  --include, printing a usage banner instead of matching — and a 2>/dev/null
+  hides the banner, so the empty output looks like a genuine no-match. There
+  is no curl either; use WebFetch, or wget -qO- for a URL.
 - A task that takes three or more steps gets a plan. Call TaskCreate once, at
   the start, with one entry per step. Every entry needs all three of: subject,
   a short title like "Run the test suite"; description, what the step
@@ -98,9 +104,57 @@ func RenderOpeningMessage(workspace, task string, resultSchema json.RawMessage, 
 	if len(resultSchema) > 0 {
 		b.WriteString("\nWhen you call Complete, its result argument must validate against this JSON Schema:\n")
 		b.WriteString(string(resultSchema))
+		b.WriteString("\nThe schema describes the value of result, not Complete's own arguments. " +
+			"Complete takes exactly three: summary, result, status. Every field named above " +
+			"goes inside result:\n")
+		b.WriteString(completeExample(resultSchema))
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// completeExample renders the call shape that goes with resultSchema, using
+// that schema's own field names so the example is about this run's payload
+// rather than a generic one. A live run put the schema's fields at the top
+// level beside status, read the resulting "result: expected object, got
+// null" as a harness fault, and burned eleven sub-turns on it
+// (docs/reviews/sess-bb6c0ed564ddae573c3b1832cb3981f4.md); the schema alone
+// evidently does not convey the nesting. A schema with no usable properties
+// falls back to an elided example, which still shows the nesting.
+func completeExample(resultSchema json.RawMessage) string {
+	var s struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+		Required   []string                   `json:"required"`
+	}
+	if err := json.Unmarshal(resultSchema, &s); err != nil {
+		return `Complete(summary="…", status="done", result={…})`
+	}
+	// Required fields first and in the schema's own order, then whatever
+	// else is defined, sorted so the example is stable across runs.
+	var fields []string
+	seen := map[string]bool{}
+	for _, r := range s.Required {
+		if _, ok := s.Properties[r]; ok && !seen[r] {
+			fields = append(fields, r)
+			seen[r] = true
+		}
+	}
+	var rest []string
+	for k := range s.Properties {
+		if !seen[k] {
+			rest = append(rest, k)
+		}
+	}
+	sort.Strings(rest)
+	fields = append(fields, rest...)
+	if len(fields) == 0 {
+		return `Complete(summary="…", status="done", result={…})`
+	}
+	inner := make([]string, len(fields))
+	for i, f := range fields {
+		inner[i] = fmt.Sprintf("%q: …", f)
+	}
+	return fmt.Sprintf(`Complete(summary="…", status="done", result={%s})`, strings.Join(inner, ", "))
 }
 
 // RenderCompactionSummarySystemPrompt seeds a session forked by compaction:

@@ -23,6 +23,11 @@ type subTurnOutcome struct {
 	completed    bool
 	payload      tools.CompletePayload
 	text         string
+	// completeError is the message a rejected Complete came back with, and
+	// "" when this sub-turn had no rejected Complete. The loop in Run
+	// compares it across sub-turns to notice a model retrying an identical
+	// rejection rather than correcting it (see maxCompleteRejections).
+	completeError string
 }
 
 // steerBatchSize caps how many pending steers one sub-turn boundary applies.
@@ -248,6 +253,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	toolInputs := make([]store.EventInput, 0, len(outcomes))
 	var completePayload tools.CompletePayload
 	completed := false
+	completeError := ""
 	for i, oc := range outcomes {
 		switch {
 		case oc.Denied:
@@ -277,6 +283,9 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 			completed = true
 			completePayload = oc.CompletePayload
 		}
+		if oc.Name == "Complete" && !oc.IsComplete && oc.Result.IsError && completeError == "" {
+			completeError = oc.Result.Content
+		}
 	}
 
 	appended2, err := r.Store.AppendEvents(ctx, sess.ID, toolInputs)
@@ -288,11 +297,12 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	*allEvents = append(*allEvents, appended2...)
 
 	return subTurnOutcome{
-		usagePayload: usagePayload,
-		hasToolCalls: true,
-		completed:    completed,
-		payload:      completePayload,
-		text:         content,
+		usagePayload:  usagePayload,
+		hasToolCalls:  true,
+		completed:     completed,
+		payload:       completePayload,
+		text:          content,
+		completeError: completeError,
 	}, nil
 }
 

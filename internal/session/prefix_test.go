@@ -3,6 +3,8 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -56,6 +58,70 @@ func TestPerRequestDataStaysOutOfTheSystemPrompt(t *testing.T) {
 		if strings.Contains(sys, needle) {
 			t.Errorf("system prompt carries per-request value %q; it must stay in the opening message", needle)
 		}
+	}
+}
+
+// A run given a result schema must be shown the call shape, not just the
+// schema: the phase 5 review traced eleven wasted sub-turns to a model that
+// read the schema and put its fields at the top level of the Complete call
+// (docs/reviews/sess-bb6c0ed564ddae573c3b1832cb3981f4.md).
+func TestOpeningMessageShowsTheCompleteCallShape(t *testing.T) {
+	schema := json.RawMessage(`{"type":"object","properties":{"branch":{"type":"string"},` +
+		`"files_changed":{"type":"array"}},"required":["branch"]}`)
+	opening := RenderOpeningMessage("/ws", "do the thing", schema, "", "")
+
+	if !strings.Contains(opening, `result={"branch": …, "files_changed": …}`) {
+		t.Errorf("opening message should show the nested call shape with the schema's own fields:\n%s", opening)
+	}
+	if !strings.Contains(opening, "goes inside result") {
+		t.Errorf("opening message should say the schema's fields nest inside result:\n%s", opening)
+	}
+}
+
+// The example is built from the schema, so a schema that names no properties
+// must still produce a valid message rather than a broken one.
+func TestOpeningMessageHandlesSchemaWithoutProperties(t *testing.T) {
+	for _, schema := range []json.RawMessage{
+		json.RawMessage(`{"type":"object"}`),
+		json.RawMessage(`{"type":"array","items":{"type":"string"}}`),
+		json.RawMessage(`not json at all`),
+	} {
+		opening := RenderOpeningMessage("/ws", "do the thing", schema, "", "")
+		if !strings.Contains(opening, "result={…}") {
+			t.Errorf("schema %s should fall back to an elided example:\n%s", schema, opening)
+		}
+	}
+}
+
+// A run without a result schema never sees any of this. The opening message
+// for those runs must stay byte-identical to what it was.
+func TestOpeningMessageUnchangedWithoutAResultSchema(t *testing.T) {
+	opening := RenderOpeningMessage("/ws", "do the thing", nil, "", "")
+	if opening != "Workspace: /ws\n\nTask:\ndo the thing\n" {
+		t.Errorf("no-schema opening message changed shape: %q", opening)
+	}
+}
+
+// The system prompt tells sessions to search with rg rather than grep,
+// because busybox's grep silently no-matches on GNU flags
+// (docs/reviews/sess-bb6c0ed564ddae573c3b1832cb3981f4.md). That advice is
+// only true while the image installs it, so the two are asserted together —
+// a Dockerfile that drops ripgrep fails here rather than at run time, in a
+// session that has no way to tell it was misinformed.
+func TestSystemPromptPointsAtRipgrepAndTheImageShipsIt(t *testing.T) {
+	sys := RenderSystemPrompt()
+	for _, needle := range []string{"rg", "busybox", "--include", "curl"} {
+		if !strings.Contains(sys, needle) {
+			t.Errorf("system prompt should mention %q, it does not", needle)
+		}
+	}
+
+	dockerfile, err := os.ReadFile(filepath.Join("..", "..", "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(dockerfile), "ripgrep") {
+		t.Error("the system prompt tells sessions rg is installed; the Dockerfile does not install it")
 	}
 }
 

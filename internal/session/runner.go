@@ -128,6 +128,11 @@ type RunResult struct {
 	// called, which is a normal outcome — thinking mode cannot force a
 	// tool call (docs/DESIGN.md §4.6) — not a sign of anything wrong.
 	CompleteStatus string
+	// Reason is run_finished's reason for the run ending: "complete",
+	// "no_tool_calls", "max_sub_turns", "complete_rejected". Status alone
+	// does not separate the ways a run can end without a valid result, and
+	// the queue result's error code is derived from this.
+	Reason string
 }
 
 // SubTurnProgress is reported to Runner.Progress, when set, once per
@@ -425,6 +430,10 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 		}
 	}
 
+	// Consecutive Complete rejections carrying the same message: see
+	// maxCompleteRejections.
+	lastCompleteError, completeRejections := "", 0
+
 	for subTurn := startSubTurn; subTurn <= maxTurns; subTurn++ {
 		outcome, err := r.runSubTurn(ctx, curSess, &allEvents, opts, executor, detector, subTurn, &appliedSeq)
 		if err != nil {
@@ -440,6 +449,20 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 		if !outcome.hasToolCalls {
 			return r.finishRun(ctx, curSess, allEvents, "no_tool_calls", store.StatusOK,
 				outcome.text, nil, "", "", agg, subTurn)
+		}
+
+		switch {
+		case outcome.completeError == "":
+			// Anything other than a rejected Complete is progress by
+			// definition: the model is doing something else.
+			lastCompleteError, completeRejections = "", 0
+		case outcome.completeError == lastCompleteError:
+			completeRejections++
+		default:
+			lastCompleteError, completeRejections = outcome.completeError, 1
+		}
+		if completeRejections >= maxCompleteRejections {
+			return r.abandonRun(ctx, curSess, allEvents, agg, subTurn, lastText, lastCompleteError)
 		}
 
 		if outcome.usagePayload.PromptTokens >= r.compactionThreshold(ctx) {
@@ -590,6 +613,48 @@ func (r *Runner) priceTableDate() string {
 	return r.Prices.CapturedAt
 }
 
+// maxCompleteRejections is how many consecutive Complete calls may come back
+// with the same validation error before the run ends on that error instead of
+// letting the model keep rephrasing. Complete's schema failure deliberately
+// does not end the run — the model gets to correct it (docs/TOOLS.md) — but a
+// model that has not corrected it in three identical attempts is not
+// correcting it at all: the phase 5 live run spent eleven consecutive
+// sub-turns, 7% of its budget and 18% of everything it wrote all session,
+// varying the payload's size rather than its shape, then ended on
+// no_tool_calls asserting a harness bug that did not exist
+// (docs/reviews/sess-bb6c0ed564ddae573c3b1832cb3981f4.md). Three is the point
+// where the loop stops being a correction opportunity and starts being a
+// budget leak. Only an identical message counts: a different error is the
+// model making progress toward a different failure, and the count restarts.
+const maxCompleteRejections = 3
+
+// abandonRun ends a run that cannot get its Complete result past the schema.
+// The rejection is recorded as an error event so the transcript says why the
+// run stopped where it did, and the session is marked failed rather than ok:
+// the requester asked for a schema-validated payload and there is none, which
+// is not the same outcome as a run that simply never called Complete.
+func (r *Runner) abandonRun(ctx context.Context, sess store.Session, allEvents []store.Event,
+	agg Usage, subTurn int, lastText, completeError string) (*RunResult, error) {
+
+	msg := fmt.Sprintf("session: Complete rejected %d times running with the same error, ending the run: %s",
+		maxCompleteRejections, completeError)
+	appended, err := r.Store.AppendEvents(ctx, sess.ID, []store.EventInput{
+		{Kind: store.KindError, Payload: store.ErrorPayload{Message: msg}},
+	})
+	if err == nil {
+		r.mirrorAppend(sess, appended)
+		r.publishEvents(sess, appended)
+		allEvents = append(allEvents, appended...)
+	}
+	return r.finishRun(ctx, sess, allEvents, ReasonCompleteRejected, store.StatusFailed,
+		lastText, nil, "", "", agg, subTurn)
+}
+
+// ReasonCompleteRejected is run_finished's reason for a run abandonRun ended.
+// The worker pool reads it off RunResult to classify the queue result, so it
+// is named rather than a literal in two packages.
+const ReasonCompleteRejected = "complete_rejected"
+
 // finishRun records run_finished, updates the session's terminal status and
 // complete_status, and rewrites the mirror's session.json one last time.
 func (r *Runner) finishRun(ctx context.Context, sess store.Session, allEvents []store.Event,
@@ -599,7 +664,7 @@ func (r *Runner) finishRun(ctx context.Context, sess store.Session, allEvents []
 	payload := store.RunFinishedPayload{Reason: reason, Text: text, Result: result, Summary: summary, Status: completeStatus}
 	appended, err := r.Store.AppendEvents(ctx, sess.ID, []store.EventInput{{Kind: store.KindRunFinished, Payload: payload}})
 	if err != nil {
-		return &RunResult{SessionID: sess.ID, Status: store.StatusFailed, SubTurns: subTurns, Usage: agg, CompleteStatus: completeStatus}, err
+		return &RunResult{SessionID: sess.ID, Status: store.StatusFailed, SubTurns: subTurns, Usage: agg, CompleteStatus: completeStatus, Reason: reason}, err
 	}
 	r.mirrorAppend(sess, appended)
 	r.publishEvents(sess, appended)
@@ -607,7 +672,7 @@ func (r *Runner) finishRun(ctx context.Context, sess store.Session, allEvents []
 
 	finished := time.Now().UTC()
 	if err := r.Store.FinishSession(ctx, sess.ID, sessionStatus, completeStatus, summary, &finished); err != nil {
-		return &RunResult{SessionID: sess.ID, Status: sessionStatus, SubTurns: subTurns, Usage: agg, CompleteStatus: completeStatus}, err
+		return &RunResult{SessionID: sess.ID, Status: sessionStatus, SubTurns: subTurns, Usage: agg, CompleteStatus: completeStatus, Reason: reason}, err
 	}
 	r.closeLog(sess.ID)
 	if updated, err := r.Store.GetSession(ctx, sess.ID); err == nil {
@@ -617,7 +682,7 @@ func (r *Runner) finishRun(ctx context.Context, sess store.Session, allEvents []
 
 	return &RunResult{
 		SessionID: sess.ID, Status: sessionStatus, Text: text, Result: result, Summary: summary,
-		SubTurns: subTurns, Usage: agg, CompleteStatus: completeStatus,
+		SubTurns: subTurns, Usage: agg, CompleteStatus: completeStatus, Reason: reason,
 	}, nil
 }
 

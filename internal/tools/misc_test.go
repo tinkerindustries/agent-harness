@@ -246,6 +246,62 @@ func TestCompleteValidatesAgainstResultSchema(t *testing.T) {
 	}
 }
 
+// The failure this covers is the one from the phase 5 review: the schema's
+// fields sent as top-level arguments beside status, with no result at all.
+// The validator's own message is accurate but describes what is absent, so
+// the hint has to name what is present.
+func TestCompleteNamesFlattenedResultFields(t *testing.T) {
+	e, _ := newTestExecutor(t)
+	e.ResultSchema = json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"summary": {"type": "string"},
+			"branch": {"type": "string"},
+			"files_changed": {"type": "array", "items": {"type": "string"}}
+		},
+		"required": ["summary", "branch"]
+	}`)
+
+	res, _, ok := e.execComplete(json.RawMessage(
+		`{"summary": "did the thing", "status": "done", "branch": "feat/x", "files_changed": ["a.go"]}`))
+	if ok {
+		t.Fatal("expected the flattened call to be rejected")
+	}
+	if !strings.Contains(res.Content, "expected object, got null") {
+		t.Fatalf("the schema error must survive alongside the hint, got: %s", res.Content)
+	}
+	for _, want := range []string{`"branch"`, `"files_changed"`, "nest those fields inside result"} {
+		if !strings.Contains(res.Content, want) {
+			t.Fatalf("hint must contain %s, got: %s", want, res.Content)
+		}
+	}
+	// summary is one of Complete's own arguments, so its presence at the top
+	// level is correct and must not be reported as a stray.
+	if strings.Contains(res.Content, `"summary" and`) || strings.Contains(res.Content, `"summary",`) {
+		t.Fatalf("summary is a Complete argument, not a stray: %s", res.Content)
+	}
+}
+
+// A result that is present but wrong is a different mistake, and the hint
+// would be actively misleading about it.
+func TestCompleteHintOnlyFiresOnMissingResult(t *testing.T) {
+	e, _ := newTestExecutor(t)
+	e.ResultSchema = json.RawMessage(`{
+		"type": "object",
+		"properties": {"branch": {"type": "string"}},
+		"required": ["branch"]
+	}`)
+
+	res, _, ok := e.execComplete(json.RawMessage(
+		`{"summary": "s", "result": {"branch": 7}, "branch": "feat/x"}`))
+	if ok {
+		t.Fatal("expected schema validation to fail")
+	}
+	if strings.Contains(res.Content, "nest those fields inside result") {
+		t.Fatalf("hint must not fire when result was sent: %s", res.Content)
+	}
+}
+
 func mustMkdirAll(t *testing.T, root, name string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(root, name), 0o755); err != nil {

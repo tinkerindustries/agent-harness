@@ -234,7 +234,24 @@ schema goes in the opening user message and validation happens in Go against the
 stored copy. Putting it in the tool definition would give every request a
 different tool array and cost the whole shared prefix ([CACHE.md](CACHE.md)). A
 payload that fails validation returns the errors through the tool result channel
-and the run continues, so the model gets to correct it.
+and the run continues, so the model gets to correct it — but only three times.
+Three consecutive rejections carrying the *same* message end the run:
+`run_finished` reason `complete_rejected`, session status `failed`, queue result
+`failed` with code `complete_rejected`, and an `error` event carrying the
+validation message. A correction opportunity the model is not taking is a budget
+leak, and one live run spent eleven sub-turns and 7% of its cost re-sending a
+payload whose shape it never varied. A rejection whose message *differs* from
+the last one is progress and restarts the count; the sub-turn limit remains the
+backstop for a model cycling between several wrong shapes.
+
+Because the schema lives in the opening message rather than the tool definition,
+that message also carries a worked example of the call built from the schema's
+own field names — `Complete(summary="…", status="done", result={"branch": …})`.
+The schema alone does not say where its fields go, and the failure it invites is
+sending them as top-level arguments beside `status`, which produces `result:
+expected object, got null` — an accurate message about what is missing that says
+nothing about what was sent. `execComplete` detects that specific case and names
+the stray arguments.
 
 `Complete` ships in every session including CLI ones that will never call it.
 One tool array across every caller is what keeps the stable head shared.

@@ -415,6 +415,109 @@ func TestRunDoneSetsCompleteStatus(t *testing.T) {
 	}
 }
 
+// A model that keeps re-sending a Complete the schema keeps rejecting is not
+// correcting anything, and the loop must stop paying for it: the phase 5 run
+// spent eleven sub-turns and 7% of its budget on identical rejections
+// (docs/reviews/sess-bb6c0ed564ddae573c3b1832cb3981f4.md). The server here
+// answers every request with the same schema-failing Complete, so an unbounded
+// loop would run to the sub-turn limit.
+func TestRepeatedCompleteRejectionsEndTheRun(t *testing.T) {
+	srv := completeToolServer(t, "done", "fixed it")
+	defer srv.Close()
+	r := newTestRunner(t, srv.URL)
+
+	ws := t.TempDir()
+	res, err := r.Run(t.Context(), RunOptions{
+		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "fix the bug",
+		MaxSubTurns:  50,
+		ResultSchema: json.RawMessage(`{"type":"object","properties":{"count":{"type":"integer"}},"required":["count"]}`),
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Reason != ReasonCompleteRejected {
+		t.Fatalf("expected reason %q, got %q", ReasonCompleteRejected, res.Reason)
+	}
+	if res.Status != store.StatusFailed {
+		t.Fatalf("a run with no valid result must not be ok, got %s", res.Status)
+	}
+	if res.SubTurns != maxCompleteRejections {
+		t.Fatalf("expected the run to stop at %d sub-turns, got %d", maxCompleteRejections, res.SubTurns)
+	}
+	if len(res.Result) != 0 {
+		t.Fatalf("a rejected result must not reach the requester, got %s", res.Result)
+	}
+
+	// The transcript has to say why the run stopped where it did, or the
+	// operator sees a run that ended three sub-turns in for no stated reason.
+	events, err := r.Store.GetEvents(t.Context(), res.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var errText string
+	for _, ev := range events {
+		if ev.Kind == store.KindError {
+			errText = string(ev.Payload)
+		}
+	}
+	if !strings.Contains(errText, "Complete rejected") || !strings.Contains(errText, "expected object, got null") {
+		t.Fatalf("expected an error event naming the rejection, got %q", errText)
+	}
+}
+
+// The counter is for a model stuck on one error, not for a model working
+// through several. A rejection that differs from the last one restarts it.
+func TestDifferingCompleteRejectionsDoNotAccumulate(t *testing.T) {
+	var n int
+	var mu sync.Mutex
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		n++
+		i := n
+		mu.Unlock()
+		// Alternating between a wrong type and a missing property means no
+		// two consecutive rejections carry the same message, so the run
+		// should keep going and exhaust its sub-turn budget instead.
+		result := `{"count":"not a number"}`
+		if i%2 == 0 {
+			result = `{}`
+		}
+		args := fmt.Sprintf(`{"summary":"s","status":"done","result":%s}`, result)
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
+			Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{
+				Role:      "assistant",
+				ToolCalls: []deepseek.ToolCallDelta{{Index: 0, ID: "call_00_complete", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "Complete", Arguments: args}}},
+			}}},
+		})
+		writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
+			Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishToolCalls)}},
+			Usage:   &deepseek.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
+		})
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		w.(http.Flusher).Flush()
+	}))
+	defer srv.Close()
+	r := newTestRunner(t, srv.URL)
+
+	res, err := r.Run(t.Context(), RunOptions{
+		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Workspace: t.TempDir(), PermissionMode: tools.ModeFull, Prompt: "fix the bug",
+		MaxSubTurns:  5,
+		ResultSchema: json.RawMessage(`{"type":"object","properties":{"count":{"type":"integer"}},"required":["count"]}`),
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Reason == ReasonCompleteRejected {
+		t.Fatal("distinct rejections must not be counted as one stuck loop")
+	}
+	if res.SubTurns != 5 {
+		t.Fatalf("expected the run to reach its sub-turn limit, got %d", res.SubTurns)
+	}
+}
+
 // TestConcurrentSessionsAreIsolated runs two sessions at once against
 // different workspaces on a shared Runner (shared Store, shared Client) and
 // asserts neither one's event log leaks into the other's. This is the

@@ -728,6 +728,17 @@ func (p *Pool) classify(requestID, sessionID string, started time.Time, runResul
 	}
 
 	switch {
+	case runErr == nil && runResult != nil && runResult.Reason == session.ReasonCompleteRejected:
+		// The run ended because Complete could not get its result past the
+		// schema (session.maxCompleteRejections). The work may well have been
+		// done, but the payload the requester asked for does not exist, and
+		// reporting ok would hand back a null result as though the model had
+		// simply chosen not to call Complete.
+		res.Status = queue.StatusFailed
+		res.Error = &queue.ResultError{
+			Code:    "complete_rejected",
+			Message: "run ended after repeated Complete calls failed result_schema validation",
+		}
 	case runErr == nil && runResult != nil && runResult.Status == store.StatusMaxTurns:
 		// Exhausting the sub-turn budget is not an error, but it is not a
 		// finished task either. Reporting it as ok would hand the requester a

@@ -45,6 +45,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
+	"github.com/mrgeoffrich/deepseek-harness/internal/redact"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
@@ -1575,12 +1576,42 @@ func (s *Server) handleGetEvents(w http.ResponseWriter, r *http.Request) {
 		events = []store.Event{}
 	}
 
-	page := eventsPage{Events: events, From: from, Limit: limit, HasMore: hasMore}
+	page := eventsPage{Events: redactEvents(events), From: from, Limit: limit, HasMore: hasMore}
 	if hasMore {
 		next := events[len(events)-1].Seq + 1
 		page.Next = &next
 	}
 	writeJSON(w, http.StatusOK, page)
+}
+
+// redactEvent masks credential-shaped strings in an event's payload before
+// it is served (internal/redact). The port serves whatever a session's
+// commands printed, and a run that needed a token in its container put a
+// full github_pat_ value in a tool result with one `head -2 .env`
+// (docs/reviews/sess-bb6c0ed564ddae573c3b1832cb3981f4.md).
+//
+// The boundary is this package, not the store: the mirror on disk keeps the
+// literal bytes, because it sits beside the workspace that holds the .env
+// the token came from and redacting one while the other is readable is
+// false comfort. What is different about the HTTP surface is that it is
+// reachable — loopback today, and the first thing anyone will want to
+// expose (docs/RUN-CONTROL.md). It is also not applied on the write path:
+// the fold rebuilds the model's own conversation from these same events and
+// must see what the command actually printed.
+func redactEvent(ev store.Event) store.Event {
+	ev.Payload = redact.Bytes(ev.Payload)
+	return ev
+}
+
+// redactEvents is redactEvent over a page, returning a new slice so the
+// caller's events — the ones handleGetEvents still reads Seq off for the
+// next-page cursor — are untouched.
+func redactEvents(events []store.Event) []store.Event {
+	out := make([]store.Event, len(events))
+	for i, ev := range events {
+		out[i] = redactEvent(ev)
+	}
+	return out
 }
 
 // eventKindNames is every kind the event log can hold, as strings, in store
@@ -1790,8 +1821,12 @@ func setSSEHeaders(w http.ResponseWriter) {
 
 // writeSSEEvent writes one store.Event as an SSE frame, seq as the id so
 // the browser's EventSource resumes from it automatically on reconnect.
+// writeSSEEvent writes one transcript event as an SSE frame. It redacts on
+// the way out, exactly as handleGetEvents does — the stream and the page are
+// the same data over two transports, and a secret masked on one and served
+// on the other would be no masking at all.
 func writeSSEEvent(w io.Writer, ev store.Event) {
-	b, err := json.Marshal(ev)
+	b, err := json.Marshal(redactEvent(ev))
 	if err != nil {
 		return
 	}

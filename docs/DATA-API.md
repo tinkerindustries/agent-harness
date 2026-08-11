@@ -102,6 +102,30 @@ kind filtering:
 
 Plus the SSE transcript stream.
 
+**Both transports redact credential shapes on the way out** (`internal/redact`,
+applied in `internal/httpapi`). A session's tool output is whatever its commands
+printed, and an agent that needs a token in its container will read one back:
+the phase 5 run put a full `github_pat_` value in a tool result with `head -2
+.env`. Values matching a recognisable credential format — GitHub, GitLab,
+`sk-`, Google, Slack, AWS, npm tokens and PEM private key blocks — are replaced
+with `[redacted]`; the surrounding output is untouched.
+
+Three boundaries this draws deliberately:
+
+- **Not on the write path.** The event log keeps the literal bytes. The fold
+  rebuilds the model's own conversation from the same log, and a model that
+  cannot see what its command actually printed cannot verify the file it just
+  wrote.
+- **Not in the mirror.** `workspaces/<id>/events.jsonl` keeps the literal bytes
+  too. It sits beside the workspace holding the `.env` the token came from, so
+  redacting one while the other is readable is false comfort. What is different
+  about HTTP is that it is *reachable*.
+- **Not a guarantee.** Shape matching catches tokens with a distinctive prefix.
+  A password or a bare hex key passes straight through. This raises the cost of
+  a leak; it does not close it, and it is not a substitute for the
+  authentication [RUN-CONTROL.md](RUN-CONTROL.md) names as the open question for
+  a surface anyone exposes beyond loopback.
+
 ### work_requests
 
 A work request is the idempotency row for one queued job: request id, the
