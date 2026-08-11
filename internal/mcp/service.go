@@ -2,15 +2,17 @@
 // harness (Claude Code, Cursor) start and collect deepseek-harness runs by
 // publishing work requests to the WORK stream and reading results back over
 // the RESULTS stream and the harness's read-only HTTP API
-// (docs/DESIGN.md §4.10). It holds a NATS connection and nothing else — no
-// SQLite handle, since `harness serve` is the single writer.
+// (docs/DESIGN.md §4.10). `harness serve` mounts it at /mcp on its own HTTP
+// server, handing it serve's own JetStream handle and run-control token
+// directly; it never opens a SQLite handle, since `harness serve` is the
+// single writer.
 //
 // This is the opposite direction from the MCP integration docs/DESIGN.md §1
 // lists as out of scope for v1. That entry is about the harness *consuming*
 // MCP tools inside its own agent loop, which would put a variable,
 // request-dependent tool array in front of the frozen cached prefix (§3.2).
 // This package never touches the system prompt or the tool array DeepSeek
-// sees; it runs as its own process (`harness mcp`) on its own port.
+// sees.
 package mcp
 
 import (

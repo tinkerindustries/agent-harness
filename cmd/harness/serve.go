@@ -7,15 +7,18 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/config"
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/httpapi"
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
+	harnessmcp "github.com/mrgeoffrich/deepseek-harness/internal/mcp"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 	"github.com/mrgeoffrich/deepseek-harness/internal/session"
@@ -26,9 +29,10 @@ import (
 
 // runServe starts the harness as a service: a durable pull consumer on the
 // WORK stream, a worker pool sized from config, and results published back
-// to the RESULTS stream (docs/DESIGN.md §4.10). It runs until ctx is
-// cancelled (SIGINT/SIGTERM, wired in main), draining in-flight runs rather
-// than cutting them off.
+// to the RESULTS stream (docs/DESIGN.md §4.10). One process serves the web
+// UI, the /api/... HTTP API, and the MCP launch server at /mcp on the same
+// *http.Server. It runs until ctx is cancelled (SIGINT/SIGTERM, wired in
+// main), draining in-flight runs rather than cutting them off.
 func runServe(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	poolSize := fs.Int("pool-size", 0, "override worker pool size (default: the worker.pool_size setting)")
@@ -39,6 +43,10 @@ func runServe(ctx context.Context, args []string) error {
 	}
 
 	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	mcpCfg, err := config.LoadMCP()
 	if err != nil {
 		return err
 	}
@@ -94,6 +102,11 @@ func runServe(ctx context.Context, args []string) error {
 		}
 		log.Printf("harness serve: generated a new %s (the run-control bearer token)", settings.KeyHTTPControlToken)
 	}
+	// The embedded MCP service gets the same token serve itself holds, so
+	// deepseek_stop / deepseek_steer authenticate without an HTTP round-trip
+	// to GET /api/control-token (that loopback fetch stays as defensive code
+	// in internal/mcp/control.go for a Service built without this step).
+	mcpCfg.ControlToken = controlToken
 
 	// Restart-required settings, resolved once at startup: the worker pool
 	// size, the two model-concurrency ceilings, the RESULTS stream
@@ -176,6 +189,18 @@ func runServe(ctx context.Context, args []string) error {
 		return fmt.Errorf("declare streams: %w", err)
 	}
 
+	// The MCP service reaches the harness's own API over loopback HTTP (the
+	// documented internal/mcp → hub/store boundary; it opens no SQLite
+	// handle). With no DEEPSEEK_HARNESS_BASE_URL set, derive it from the
+	// address serve is about to bind — correct in every deployment, because
+	// the MCP mount now lives on this very server rather than a second
+	// process a compose file had to point at by service name.
+	if os.Getenv("DEEPSEEK_HARNESS_BASE_URL") == "" {
+		if _, port, err := net.SplitHostPort(cfg.HTTPAddr); err == nil {
+			mcpCfg.HarnessBaseURL = "http://127.0.0.1:" + port
+		}
+	}
+
 	pool := &worker.Pool{
 		Store:               st,
 		Runner:              runner,
@@ -200,7 +225,24 @@ func runServe(ctx context.Context, args []string) error {
 		DefaultEventsLimit: eventsLimitDefault,
 		MaxEventsLimit:     eventsLimitMax,
 	}
-	httpSrv := &http.Server{Addr: cfg.HTTPAddr, Handler: api.Handler()}
+	// The MCP launch server mounts on the same *http.Server as /api/... and
+	// the web UI: one process, one port. It reuses serve's own JetStream
+	// handle and control token rather than dialing NATS a second time or
+	// round-tripping to GET /api/control-token, and keeps calling /api/...
+	// over loopback HTTP so internal/mcp never opens a SQLite handle
+	// (ARCHITECTURE.md). The outer mux lives here in cmd/, not inside
+	// internal/httpapi, because api.Handler() is methodGate(s.routes()) and
+	// its allowlist would 405 a path it has not been taught.
+	mcpSvc := &harnessmcp.Service{
+		JS:         js,
+		Cfg:        mcpCfg,
+		HTTPClient: &http.Client{Timeout: 30 * time.Second},
+		Registry:   harnessmcp.NewRegistry(),
+	}
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", mcpSvc.Handler())
+	mux.Handle("/", api.Handler())
+	httpSrv := &http.Server{Addr: cfg.HTTPAddr, Handler: mux}
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -218,6 +260,8 @@ func runServe(ctx context.Context, args []string) error {
 	log.Printf("harness serve: connected to %s, pool size %d, model %s (flash %s), workspace root %s",
 		cfg.NATSURL, workerPoolSize, defaultModel, defaultFlashModel, cfg.WorkspaceRoot)
 	log.Printf("harness serve: http listening on %s", cfg.HTTPAddr)
+	log.Printf("harness serve: MCP launch server mounted at %s/mcp (permission ceiling %s)",
+		cfg.HTTPAddr, mcpCfg.PermissionCeiling)
 	return pool.Run(ctx)
 }
 
