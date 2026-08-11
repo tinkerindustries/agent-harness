@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Session, watching — harness design pass</title>
+    <link rel="stylesheet" href="tokens.css" />
+    <link rel="stylesheet" href="session.css" />
+    <style>
+      /* The read-only session page: a run another agent started
+         (SessionState.parent_is_user is false, and the row carries
+         parent_agent_type / parent_agent_id). You may stop it. You may not
+         talk to it — its instructions come from the agent that launched it.
+
+         The two session pages are told apart before you read a word on them,
+         by their shape: the interactive page puts its rail on the right and
+         a composer along the bottom; this one puts its rail on the left and
+         has no composer at all. Same turn vocabulary, opposite silhouette.
+         A greyed-out input would have been worse than no input — a disabled
+         control invites you to look for the way to enable it. */
+      .work {
+        grid-template-columns: 244px minmax(0, 1fr);
+      }
+      .stream-inner {
+        max-width: 840px;
+      }
+
+      /* ---------- provenance strip ----------
+         For an agent-launched run this is the first question a person has:
+         who started this, and on whose behalf. It is a quiet strip, not an
+         alert — this is the normal state for these sessions, not a fault. */
+      .prov {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        padding: 7px 20px;
+        background: var(--muted);
+        border-bottom: 1px solid var(--border);
+        font-size: 0.75rem;
+        color: var(--muted-foreground);
+      }
+      .prov .who {
+        color: var(--foreground);
+        font-weight: 500;
+      }
+      .prov code {
+        font-size: 0.6875rem;
+        color: var(--muted-foreground);
+      }
+      .prov .sep {
+        color: var(--border);
+      }
+      .prov .spacer {
+        flex: 1;
+      }
+      .prov .ro {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .prov a {
+        color: var(--status-running);
+        text-decoration: none;
+      }
+      .prov a:hover {
+        text-decoration: underline;
+      }
+
+      /* ---------- the navigator rail ----------
+         A watcher's job is to find things: the error among 78 sub-turns, the
+         edit that touched a file, the churn point. So the filters and the
+         find box live at the top of the left rail with the timeline rather
+         than in a bar of their own — one column that answers "where in this
+         run", which is what lets this page drop the chat page's second rail.
+
+         An earlier draft put them in a sticky toolbar above the stream. It
+         needed a third full-width bar under the nav and the provenance
+         strip, and the sticky element bled the turn behind it on scroll. The
+         rail already exists; it costs nothing to put them there, and the
+         shared top nav's right slot is spoken for by the run controls.
+
+         (web/CLAUDE.md: each screen registers its own page-specific nav
+         content — here that slot carries Stop, so search comes down here.) */
+      .rail .input {
+        width: 100%;
+        min-width: 0;
+        height: 28px;
+        font-size: 0.75rem;
+        margin-bottom: 10px;
+      }
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+      }
+      .chips .chip {
+        height: 24px;
+        padding: 0 8px;
+        font-size: 0.6875rem;
+      }
+
+      /* ---------- left rail: the timeline ----------
+         Sub-turns grouped under the plan item that was in progress when they
+         ran — plan and navigation in one column, which is what lets this
+         page drop the second rail. */
+      .phase {
+        margin-bottom: 4px;
+      }
+      .phase > summary {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        padding: 5px 6px;
+        border-radius: calc(var(--radius) - 3px);
+        font-size: 0.8125rem;
+        line-height: 1.35;
+      }
+      .phase > summary:hover {
+        background: var(--accent);
+      }
+      .phase > summary:focus-visible {
+        outline: 2px solid var(--ring);
+        outline-offset: -2px;
+      }
+      .phase .idx {
+        flex: none;
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        color: var(--muted-foreground);
+      }
+      .phase-done > summary {
+        color: var(--muted-foreground);
+      }
+      .phase-now > summary {
+        background: var(--status-running-bg);
+        font-weight: 500;
+      }
+      .ticks {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 3px;
+        padding: 4px 6px 8px 24px;
+      }
+      /* One tick per sub-turn, coloured by what happened in it. A row of
+         these is a shape you learn to read: a wall of green with one red is a
+         run that hit one snag, alternating amber is a run going in circles. */
+      .tick {
+        width: 13px;
+        height: 13px;
+        border-radius: 3px;
+        background: var(--secondary);
+        border: 1px solid var(--border);
+        display: block;
+      }
+      .tick-edit {
+        background: var(--diff-add-bg);
+        border-color: var(--diff-add-fg);
+      }
+      .tick-err {
+        background: var(--status-failed-bg);
+        border-color: var(--status-failed);
+      }
+      .tick-churn {
+        background: var(--status-gaveup-bg);
+        border-color: var(--status-gaveup);
+      }
+      .tick-now {
+        background: var(--status-running);
+        border-color: var(--status-running);
+        animation: pulse 1.6s ease-in-out infinite;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .tick-now {
+          animation: none;
+        }
+      }
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 10px;
+        font-size: 0.6875rem;
+        color: var(--muted-foreground);
+      }
+      .legend span {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .legend .tick {
+        width: 9px;
+        height: 9px;
+      }
+
+      /* ---------- footer: what it is doing right now ----------
+         The chat page's footer is a composer. This page's footer is the
+         answer to the only question a spectator has while the run is live,
+         kept visible even when they have scrolled back through history. */
+      .footer-inner {
+        max-width: none;
+      }
+      .nowline {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.8125rem;
+        margin-bottom: 6px;
+      }
+      .nowline .name {
+        font-family: var(--font-mono);
+        font-weight: 600;
+        font-size: 0.75rem;
+      }
+      .nowline .arg {
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        color: var(--muted-foreground);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .nowline .under {
+        color: var(--muted-foreground);
+        font-size: 0.75rem;
+        flex: none;
+      }
+      .nowline .spacer {
+        flex: 1;
+      }
+      .follow {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 26px;
+        padding: 0 10px;
+        border-radius: 999px;
+        border: 1px solid var(--ring);
+        background: var(--secondary);
+        color: var(--foreground);
+        font: inherit;
+        font-size: 0.75rem;
+        cursor: pointer;
+      }
+
+      /* ---------- the result ----------
+         For a run an agent launched, the result payload is the point: it is
+         what the parent gets back. It renders at the end of the stream,
+         where the run ended, not in a panel off to the side. */
+      .result {
+        border: 1px solid var(--status-done);
+        border-radius: var(--radius);
+        background: var(--status-done-bg);
+        padding: 12px 14px;
+        margin: 4px 0 24px 40px;
+      }
+      .result h4 {
+        margin: 0 0 6px;
+        font-size: 0.75rem;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        color: var(--status-done);
+      }
+      .result p {
+        margin: 0 0 10px;
+        font-size: 0.875rem;
+        line-height: 1.6;
+      }
+      .result pre {
+        margin: 0;
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        line-height: 1.55;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        color: var(--muted-foreground);
+      }
+    </style>
+  </head>
+  <body class="app">
+    <!-- ============ nav ============ -->
+    <header class="topnav">
+      <span class="wordmark">deepseek&#8209;harness</span>
+      <nav class="topnav-links">
+        <a class="navlink" href="sessions-v2.html">Sessions</a>
+        <a class="navlink" href="#">Operations</a>
+        <a class="navlink" href="settings.html">Settings</a>
+      </nav>
+      <span class="nav-crumb"><span class="sep">/</span> <span class="current">sess&#8209;5feb25c7</span></span>
+      <span class="spacer"></span>
+      <div class="topnav-right">
+        <span class="badge badge-running"><span class="dot dot-pulse"></span> RUNNING</span>
+        <span>4m 12s</span>
+        <span class="badge badge-outline badge-perm" title="This run can reach the host docker socket">full</span>
+        <button class="btn">Stop</button>
+      </div>
+    </header>
+
+    <!-- ============ provenance ============ -->
+    <div class="prov">
+      <span class="badge badge-outline">WATCHING</span>
+      <span class="sep">·</span>
+      <span>started by <b class="who">claude-code</b></span>
+      <span><code>agent 2a5374ab</code></span>
+      <span class="sep">·</span>
+      <span>request <code>mcp-b94754b7</code></span>
+      <span class="sep">·</span>
+      <span>job <code>implementation</code></span>
+      <span class="spacer"></span>
+      <span>This run takes its instructions from claude-code. You can stop it, but not message it.</span>
+      <a href="#">Session row →</a>
+    </div>
+
+    <!-- ============ body ============ -->
+    <div class="plan-mini">
+      <span class="mark">▸</span>
+      <span class="truncate">Implement clientInfo stamping in handleLaunch</span>
+      <span class="count">2/4</span>
+    </div>
+
+    <div class="work">
+      <!-- ---------- left rail ---------- -->
+      <aside class="rail rail-left">
+        <div class="railsec">
+          <h3>Find</h3>
+          <input class="input" type="search" placeholder="Search this transcript…" />
+          <div class="chips">
+            <button class="chip" aria-pressed="true">All 13</button>
+            <button class="chip">Edits 4</button>
+            <button class="chip">Bash 5</button>
+            <button class="chip">Errors 1</button>
+            <button class="chip">Churn 1</button>
+          </div>
+        </div>
+
+        <div class="railsec">
+          <h3>Plan</h3>
+          <div class="planhead">
+            <span class="progress"><span style="width: 50%"></span></span>
+            <span class="count">2/4</span>
+          </div>
+
+          <details class="phase phase-done">
+            <summary><span class="caret">▸</span><span class="idx">1</span><span>Read the SDK docs and current MCP code</span></summary>
+            <div class="ticks">
+              <a class="tick" href="#" title="Sub-turn 1 · TaskCreate"></a>
+              <a class="tick" href="#" title="Sub-turn 2 · 3 reads"></a>
+              <a class="tick" href="#" title="Sub-turn 3 · 2 reads"></a>
+              <a class="tick" href="#" title="Sub-turn 4 · Read"></a>
+            </div>
+          </details>
+
+          <details class="phase phase-done">
+            <summary><span class="caret">▸</span><span class="idx">2</span><span>Change service.go: Stateless false, version bump</span></summary>
+            <div class="ticks">
+              <a class="tick tick-edit" href="#" title="Sub-turn 5 · Edit service.go"></a>
+              <a class="tick tick-edit" href="#" title="Sub-turn 6 · Edit service.go"></a>
+              <a class="tick tick-churn" href="#" title="Sub-turn 7 · cache churn"></a>
+            </div>
+          </details>
+
+          <details class="phase phase-now" open>
+            <summary><span class="caret">▸</span><span class="idx">3</span><span>Implement clientInfo stamping in handleLaunch</span></summary>
+            <div class="ticks">
+              <a class="tick tick-edit" href="#" title="Sub-turn 8 · Edit launch.go"></a>
+              <a class="tick" href="#" title="Sub-turn 9 · Read"></a>
+              <a class="tick tick-err" href="#" title="Sub-turn 10 · go build failed"></a>
+              <a class="tick tick-edit" href="#" title="Sub-turn 11 · Edit launch.go"></a>
+              <a class="tick" href="#" title="Sub-turn 12 · Bash go vet"></a>
+              <a class="tick tick-now" href="#sub-turn-13" title="Sub-turn 13 · running now"></a>
+            </div>
+          </details>
+
+          <details class="phase">
+            <summary><span class="caret">▸</span><span class="idx">4</span><span>Fix launchInput comments and add unit tests</span></summary>
+            <div class="ticks"><span class="muted" style="font-size: 0.6875rem">not started</span></div>
+          </details>
+        </div>
+
+        <div class="railsec">
+          <h3>Legend</h3>
+          <div class="legend">
+            <span><i class="tick"></i> read / run</span>
+            <span><i class="tick tick-edit"></i> edit</span>
+            <span><i class="tick tick-err"></i> error</span>
+            <span><i class="tick tick-churn"></i> churn</span>
+          </div>
+        </div>
+
+        <div class="railsec">
+          <h3>Session</h3>
+          <div class="facts">
+            <div><span>model</span><span class="v">deepseek-v4-flash</span></div>
+            <div><span>effort</span><span class="v">max</span></div>
+            <div><span>workspace</span><span class="v" title="/workspaces/sess-5feb25c704277ac028aa3d24aba86946">/workspaces/sess-5feb…</span></div>
+            <div><span>cost</span><span class="v">$0.0214</span></div>
+            <div><span>cache hit</span><span class="v">98.9%</span></div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- ---------- stream ---------- -->
+      <main class="stream">
+        <div class="stream-inner">
+          <details class="think" style="margin-bottom: 22px">
+            <summary><span class="caret">▸</span> Opening message · 1,320 words · 1 repo · 4 skills offered</summary>
+            <div class="thought">Workspace: /workspaces/sess-5feb25c704277ac028aa3d24aba86946
+
+The repositories you have been given are checked out under the workspace root…</div>
+          </details>
+
+          <!-- The launching agent's instruction. Same block as an operator
+               message on the interactive page, attributed to the agent. -->
+          <div class="msg msg-user">
+            <div class="body">Flip Stateless to false in internal/mcp/service.go, stamp parent_agent_type from the client's clientInfo in handleLaunch, and add unit tests for the normalisation helper.</div>
+            <div class="state">from claude-code · delivered · sub-turn 1</div>
+          </div>
+
+          <div class="turn" id="sub-turn-8">
+            <a class="gutter" href="#sub-turn-8" title="Sub-turn 8">8</a>
+            <div class="turnmeta"><span>5.2s</span><span>98.7% cache</span><span>158 out</span><span>$0.000487</span></div>
+            <details class="think">
+              <summary><span class="caret">▸</span> Thought for 5.2s · 88 tokens</summary>
+              <div class="thought">handleLaunch needs the request parameter named so clientInfo is reachable. I'll add a normalisation helper next to it…</div>
+            </details>
+            <div class="say"><p>Naming the request parameter and resolving <code>parent_agent_type</code> from <code>clientInfo</code>, with the existing explicit field still winning.</p></div>
+            <details class="tool">
+              <summary>
+                <span class="glyph">±</span><span class="name">Edit</span><span class="target">internal/mcp/launch.go</span>
+                <span class="timing diffstat"><span class="add">+22</span> <span class="del">−4</span></span>
+              </summary>
+              <pre class="tool-out">   64  func (s *Service) handleLaunch(
+   65 -    ctx context.Context, _ *mcp.CallToolRequest, in launchInput,
+   65 +    ctx context.Context, req *mcp.CallToolRequest, in launchInput,
+   66  ) (*mcp.CallToolResult, any, error) {
+   67 +    parentType := normaliseAgentType(clientName(req))</pre>
+            </details>
+          </div>
+
+          <div class="turn" id="sub-turn-10">
+            <a class="gutter" href="#sub-turn-10" title="Sub-turn 10">10</a>
+            <div class="turnmeta"><span>11.4s</span><span>99.1% cache</span><span>204 out</span><span>$0.000612</span></div>
+            <div class="say"><p>Build's unhappy — <code>clientName</code> isn't defined yet. Adding it.</p></div>
+            <details class="tool tool-err" open>
+              <summary><span class="glyph">✗</span><span class="name">Bash</span><span class="target">go build ./...</span><span class="timing">exit 1 · 8.9s</span></summary>
+              <pre class="tool-out">internal/mcp/launch.go:67:31: undefined: clientName
+internal/mcp/launch.go:67:18: undefined: normaliseAgentType</pre>
+            </details>
+          </div>
+
+          <div class="turn" id="sub-turn-12">
+            <a class="gutter" href="#sub-turn-12" title="Sub-turn 12">12</a>
+            <div class="turnmeta"><span>6.0s</span><span>99.3% cache</span><span>141 out</span><span>$0.000398</span></div>
+            <div class="say"><p>Both helpers are in and it builds. Running vet before the tests.</p></div>
+            <details class="tool tool-ok">
+              <summary><span class="glyph">✓</span><span class="name">Bash</span><span class="target">gofmt -l cmd internal &amp;&amp; go vet ./...</span><span class="timing">exit 0 · 12.4s</span></summary>
+              <pre class="tool-out">(no output)</pre>
+            </details>
+          </div>
+
+          <div class="turn live" id="sub-turn-13">
+            <a class="gutter" href="#sub-turn-13" title="Sub-turn 13">13</a>
+            <details class="think" open>
+              <summary><span class="caret">▸</span> Thinking… 2.4s</summary>
+              <div class="thought">Now the unit tests for normaliseAgentType — table-driven, covering the empty client name, a name with<span class="cursor"></span></div>
+            </details>
+            <details class="tool tool-live" open>
+              <summary>
+                <span class="glyph"><span class="dot dot-pulse"></span></span>
+                <span class="name">Bash</span>
+                <span class="target">scripts/test.sh ./internal/mcp/...</span>
+                <span class="timing">running · 1m 04s</span>
+              </summary>
+              <pre class="tool-out">=== RUN   TestNormaliseAgentType
+--- PASS: TestNormaliseAgentType (0.00s)
+=== RUN   TestHandleLaunchStampsClientInfo<span class="cursor"></span></pre>
+            </details>
+          </div>
+        </div>
+
+        <div class="jumpwrap"><button class="jump">↓ 3 new sub-turns</button></div>
+      </main>
+    </div>
+
+    <!-- ============ footer ============ -->
+    <div class="footer">
+      <div class="footer-inner">
+        <div class="nowline">
+          <span class="dot dot-pulse" style="color: var(--status-running)"></span>
+          <span class="name">Bash</span>
+          <span class="arg">scripts/test.sh ./internal/mcp/...</span>
+          <span class="under">1m 04s · under “Implement clientInfo stamping in handleLaunch”</span>
+          <span class="spacer"></span>
+          <button class="follow"><span class="dot"></span> Following live</button>
+        </div>
+        <div class="statusline">
+          <span>sub-turn 13</span><span class="sep">·</span>
+          <span>98.9% cache</span><span class="sep">·</span>
+          <span title="Price table captured 2026-07-28">$0.0214</span><span class="sep">·</span>
+          <span>2,410 out</span><span class="sep">·</span>
+          <span>4m 12s elapsed</span>
+          <span class="spacer"></span>
+          <span>read-only — no steering on an agent-launched run</span>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

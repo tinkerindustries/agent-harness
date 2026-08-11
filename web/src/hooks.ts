@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { QueueHealth } from "./api/types";
+import type { QueueHealth, SessionState } from "./api/types";
 import { TranscriptStore } from "./api/transcriptStore";
 
 // useNow re-renders its caller on an interval — used only for the session
@@ -63,4 +63,55 @@ export function useTranscriptStore(sessionID: string): TranscriptStore {
     return () => store.close();
   }, [sessionID]);
   return ref.current.store;
+}
+
+// useSessionMeta fetches GET /api/sessions/{id} and returns the metadata
+// row. Re-fetches when refreshOn changes (the stream connection opening or
+// closing), so the status badge picks up the terminal status the
+// transcript's own run_finished/error block already shows, rather than
+// freezing on whatever the first fetch returned. Clears only on a genuine
+// session switch — a refreshOn change re-fetches without a visible blank
+// flicker in between — and swallows a transient fetch failure, which just
+// leaves the caller showing whatever it last had.
+//
+// settled is whether the current fetch has completed, successfully or not.
+// The session route needs it to tell "row not here yet" (render the shell
+// with an empty stream) from "row will never arrive" (keep the chat screen,
+// the safe default for a fetch-failed run). meta and settled reset together
+// on a session switch, and a re-fetch after a failure retries the row.
+export function useSessionMeta(
+  sessionId: string,
+  refreshOn: unknown,
+): { meta: SessionState | null; settled: boolean } {
+  const [meta, setMeta] = useState<SessionState | null>(null);
+  const [settled, setSettled] = useState(false);
+
+  // Clear on a genuine session switch only, so a refreshOn change (the
+  // stream opening or closing) re-fetches without a visible blank flicker
+  // in between.
+  useEffect(() => {
+    setMeta(null);
+    setSettled(false);
+  }, [sessionId]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setSettled(false);
+    fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data) setMeta(data);
+      })
+      .catch(() => {
+        // A transient fetch failure just leaves the caller showing
+        // whatever it last had; the transcript itself still streams from
+        // the SSE connection regardless.
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setSettled(true);
+      });
+    return () => controller.abort();
+  }, [sessionId, refreshOn]);
+
+  return { meta, settled };
 }

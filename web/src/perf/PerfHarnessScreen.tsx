@@ -1,7 +1,7 @@
 import { Profiler, useEffect, useRef, useState, useSyncExternalStore, type ProfilerOnRenderCallback } from "react";
 import { flushSync } from "react-dom";
 import { TranscriptStore, type TranscriptStoreOptions } from "../api/transcriptStore";
-import { BlockList } from "../components/BlockList";
+import { TurnTranscript } from "../components/turns/TurnTranscript";
 import { computeFrameStats, type FrameStats } from "./frameStats";
 import { buildSyntheticHistory, liveEventGenerator, makeSeqSource } from "./syntheticFeed";
 import { HeightHarness } from "./HeightHarness";
@@ -406,5 +406,7 @@ export function PerfHarnessScreen() {
 
 function PerfMount({ store }: { store: TranscriptStore }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  return <BlockList items={snapshot.items} live={snapshot.live} />;
+  // The mount measures the turn renderer the session screens ship — the
+  // point of this harness is that it keeps measuring what actually ships.
+  return <TurnTranscript items={snapshot.items} live={snapshot.live} filter="all" getToolCall={snapshot.getToolCall} />;
 }

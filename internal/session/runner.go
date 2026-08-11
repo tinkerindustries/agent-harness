@@ -365,6 +365,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 			OpeningMessage: opening,
 			SkillCatalogue: catalogue,
 			ClaudeMDBlock:  claudeMD,
+			Task:           opts.Prompt,
 		}},
 	})
 	if err != nil {
@@ -404,6 +405,24 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 	appliedSeq, err := r.Store.LastAppliedSteerSeq(ctx, curSess.ID)
 	if err != nil {
 		return r.fail(ctx, curSess, allEvents, startSubTurn-1, agg, fmt.Errorf("session: derive applied steer seq: %w", err))
+	}
+
+	// A browser-started run is created with no prompt: the operator types
+	// the first message into the session page's composer, and the page's
+	// empty state promises that nothing has been sent to the model until
+	// then (docs/RUN-CONTROL.md "The frontend"). So a fresh run with an
+	// empty task waits for that first steer before the first request —
+	// sending "Task:" with no task burns sub-turns asking what to do and
+	// ends the run (no_tool_calls) before the operator can type, which the
+	// live phase 5 run exposed. Only the empty-prompt start waits: every
+	// other ingress (publish, MCP, subagents, resume) names a task. The
+	// wait is bounded by the run's own budget — ctx carries the request
+	// deadline and the stop cancellation — so an abandoned empty run
+	// expires at its deadline and a stop ends it immediately.
+	if startSubTurn == 1 && opts.Prompt == "" {
+		if err := r.waitForFirstSteer(ctx, curSess.ID); err != nil {
+			return r.fail(ctx, curSess, allEvents, startSubTurn-1, agg, err)
+		}
 	}
 
 	for subTurn := startSubTurn; subTurn <= maxTurns; subTurn++ {
@@ -602,10 +621,22 @@ func (r *Runner) finishRun(ctx context.Context, sess store.Session, allEvents []
 	}, nil
 }
 
-// fail records an error event and marks the session failed. It always
+// fail records an error event and marks the session terminal. It always
 // returns a non-nil error alongside a best-effort RunResult.
+//
+// The terminal bookkeeping runs on a fresh, bounded context rather than the
+// run's own: a stop or a deadline is exactly what often ends a run this way,
+// and the run's ctx is then already cancelled — a row update made through it
+// failed silently before phase 5's live stop test, leaving the session
+// running forever with the page stuck on RUNNING while the queue result
+// already said cancelled. A run ended by a cancellation is marked cancelled
+// (the status the stop escalation and the session list both use); any other
+// failure marks the session failed.
 func (r *Runner) fail(ctx context.Context, sess store.Session, allEvents []store.Event, subTurns int, agg Usage, cause error) (*RunResult, error) {
-	appended, appendErr := r.Store.AppendEvents(ctx, sess.ID, []store.EventInput{
+	terminalCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	appended, appendErr := r.Store.AppendEvents(terminalCtx, sess.ID, []store.EventInput{
 		{Kind: store.KindError, Payload: store.ErrorPayload{Message: cause.Error()}},
 	})
 	if appendErr == nil {
@@ -614,15 +645,27 @@ func (r *Runner) fail(ctx context.Context, sess store.Session, allEvents []store
 		allEvents = append(allEvents, appended...)
 	}
 
+	status := store.StatusFailed
+	switch ctx.Err() {
+	case context.Canceled:
+		// An operator's stop: the same status the force-finish escalation
+		// writes, so a soft stop and a hard one agree on the row.
+		status = store.StatusCancelled
+	case context.DeadlineExceeded:
+		// The run's own deadline expired: the queue result classifies the
+		// same way (pool.classify's deadline_exceeded), and the session list
+		// has a TIMEOUT badge for it.
+		status = store.StatusTimeout
+	}
 	finished := time.Now().UTC()
-	_ = r.Store.UpdateSessionStatus(ctx, sess.ID, store.StatusFailed, &finished)
+	_ = r.Store.UpdateSessionStatus(terminalCtx, sess.ID, status, &finished)
 	r.closeLog(sess.ID)
-	if updated, err := r.Store.GetSession(ctx, sess.ID); err == nil {
+	if updated, err := r.Store.GetSession(terminalCtx, sess.ID); err == nil {
 		r.mirrorUpdateSession(updated)
-		r.publishState(ctx, updated)
+		r.publishState(terminalCtx, updated)
 	}
 
-	return &RunResult{SessionID: sess.ID, Status: store.StatusFailed, SubTurns: subTurns, Usage: agg}, cause
+	return &RunResult{SessionID: sess.ID, Status: status, SubTurns: subTurns, Usage: agg}, cause
 }
 
 // executeToolCalls runs every call concurrently and returns outcomes in the

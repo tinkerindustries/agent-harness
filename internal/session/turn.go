@@ -32,6 +32,38 @@ type subTurnOutcome struct {
 // and the per-sub-turn store read is bounded.
 const steerBatchSize = 8
 
+// steerPollInterval is how often the first-steer wait re-checks the log.
+// The wait is for a person typing a first message, so a one-second poll is
+// the human scale the feature is built for — nothing sub-second is gained.
+const steerPollInterval = time.Second
+
+// waitForFirstSteer blocks until at least one steer_message exists past seq
+// 0 — the first sub-turn boundary will then apply it — or ctx ends. It is
+// the whole "the browser-created run sits claimed with zero sub-turns until
+// the operator types the first message" mechanism (docs/RUN-CONTROL.md "The
+// frontend"): the steer is committed by the HTTP handler into the same
+// store this polls, so there is no channel to wire and no coupling to
+// httpapi. ctx carries the request deadline and the stop cancellation, so
+// the wait is bounded and stoppable exactly like any other part of the run.
+func (r *Runner) waitForFirstSteer(ctx context.Context, sessionID string) error {
+	ticker := time.NewTicker(steerPollInterval)
+	defer ticker.Stop()
+	for {
+		steers, err := r.Store.SteerMessagesAfter(ctx, sessionID, 0, 1)
+		if err != nil {
+			return fmt.Errorf("session: wait for first steer: %w", err)
+		}
+		if len(steers) > 0 {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
 // pickUpSteers is the whole steering mechanism (docs/RUN-CONTROL.md "How the
 // loop picks one up"): one store read at a sub-turn boundary — nothing
 // mid-tool-call, nothing that blocks, no polling. It reads the steer_message

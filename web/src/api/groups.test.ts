@@ -232,9 +232,10 @@ describe("SubTurnGroupState incremental sync", () => {
     // The steer_applied arrives on a later event: the fold flips the steer
     // block in place (same array length, new block reference) and sync must
     // hand back items carrying the delivered block, in the same position.
+    // The block also picks up the producer-stamped sub-turn it landed in.
     items = ingest(ev(5, "steer_applied", { source_seq: 4, text: "be terse", sub_turn: 1 }));
     const delivered = items[2].kind === "block" ? items[2].block : null;
-    expect(delivered).toEqual({ type: "steer", seq: 4, text: "be terse", state: "delivered" });
+    expect(delivered).toEqual({ type: "steer", seq: 4, text: "be terse", state: "delivered", appliedSubTurn: 1 });
     expect(typesOf(items)).toEqual(["block", "group:1", "block"]);
   });
 });

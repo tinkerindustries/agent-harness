@@ -217,6 +217,11 @@ describe("FoldState live view", () => {
     for (const e of sampleEvents().slice(0, 7)) state.ingest(e); // through turn_finished
     expect(state.live.pendingTools.has("call_1")).toBe(true);
     expect(state.live.pendingTools.get("call_1")?.stdout).toBe("");
+    // The pending tool's start stamp is the turn_finished event's
+    // created_at — the moment the turn froze and its calls began running —
+    // which is what the watch page's footer ages the running tool from
+    // (design/session-watch.html's "1m 04s" under the tool name).
+    expect(state.live.pendingTools.get("call_1")?.startedAt).toBe("2026-01-01T00:00:07Z");
 
     state.ingest(ev(8, "tool_stdout", { tool_call_id: "call_1", text: "hi\n" }));
     expect(state.live.pendingTools.get("call_1")?.stdout).toBe("hi\n");
@@ -412,7 +417,7 @@ describe("steer block", () => {
     state.ingest(ev(3, "steer_applied", { source_seq: 2, text: "be terse", sub_turn: 1 }));
     expect(state.blocks).toEqual([
       { type: "opening", seq: 1, text: "x" },
-      { type: "steer", seq: 2, text: "be terse", state: "delivered" },
+      { type: "steer", seq: 2, text: "be terse", state: "delivered", appliedSubTurn: 1 },
     ]);
   });
 
@@ -423,7 +428,7 @@ describe("steer block", () => {
     state.ingest(ev(3, "steer_applied", { source_seq: 2, text: "second", sub_turn: 1 }));
     expect(state.blocks).toEqual([
       { type: "steer", seq: 1, text: "first", state: "pending" },
-      { type: "steer", seq: 2, text: "second", state: "delivered" },
+      { type: "steer", seq: 2, text: "second", state: "delivered", appliedSubTurn: 1 },
     ]);
   });
 
@@ -436,8 +441,25 @@ describe("steer block", () => {
     state.ingest(ev(5, "steer_applied", { source_seq: 2, text: "be terse", sub_turn: 1 }));
 
     const steer = state.blocks.find((b) => b.type === "steer");
-    expect(steer).toEqual({ type: "steer", seq: 2, text: "be terse", state: "delivered" });
+    expect(steer).toEqual({ type: "steer", seq: 2, text: "be terse", state: "delivered", appliedSubTurn: 1 });
     expect(state.blocks.map((b) => b.type)).toEqual(["opening", "steer", "assistant"]);
+  });
+
+  it("stamps the producer's own sub_turn onto the delivered block, not a derived one", () => {
+    // The boundary the message became a user message at is steer_applied's
+    // sub_turn, stamped by the producer: a steer sent while a turn was
+    // streaming lands in the turn that was already running, which counting
+    // groups after the steer block cannot recover. The display reads the
+    // block's appliedSubTurn instead of deriving it.
+    const state = new FoldState();
+    state.ingest(ev(1, "session_started", { opening_message: "x" }));
+    state.ingest(ev(2, "turn_started", { sub_turn: 1 }));
+    state.ingest(ev(3, "steer_message", { text: "be terse" }));
+    state.ingest(ev(4, "turn_finished", { sub_turn: 1, finish_reason: "stop" }));
+    state.ingest(ev(5, "steer_applied", { source_seq: 3, text: "be terse", sub_turn: 2 }));
+
+    const steer = state.blocks.find((b) => b.type === "steer");
+    expect(steer).toEqual({ type: "steer", seq: 3, text: "be terse", state: "delivered", appliedSubTurn: 2 });
   });
 
   it("is the one deliberate divergence from the append-only property", () => {
@@ -453,7 +475,7 @@ describe("steer block", () => {
     const prefix = foldEvents(events.slice(0, 2));
     const full = foldEvents(events);
     expect(prefix[1]).toEqual({ type: "steer", seq: 2, text: "be terse", state: "pending" });
-    expect(full[1]).toEqual({ type: "steer", seq: 2, text: "be terse", state: "delivered" });
+    expect(full[1]).toEqual({ type: "steer", seq: 2, text: "be terse", state: "delivered", appliedSubTurn: 1 });
     // Everything else still agrees: the opening block is untouched.
     expect(prefix[0]).toEqual(full[0]);
   });
@@ -487,5 +509,41 @@ describe("skills catalogue", () => {
     expect(blocks.map((b) => b.type)).toEqual(["opening"]);
     const openingBlock = blocks[0];
     expect("text" in openingBlock && openingBlock.text).toEqual(opening);
+  });
+});
+
+// The launching agent's instruction (design/session-watch.html's .msg-user):
+// the task tail of the opening message, carried separately by
+// session_started so the watch page renders it as its own message without
+// parsing the message text.
+describe("launching instruction block", () => {
+  it("pushes an instruction block after the opening when the run was created with a task", () => {
+    const blocks = foldEvents([
+      ev(1, "session_started", {
+        opening_message: "Workspace: /ws\n\nTask:\nFlip Stateless to false\n",
+        task: "Flip Stateless to false",
+      }),
+    ]);
+    expect(blocks.map((b) => b.type)).toEqual(["opening", "instruction"]);
+    const instruction = blocks.find((b) => b.type === "instruction");
+    expect(instruction).toMatchObject({ seq: 1, text: "Flip Stateless to false" });
+  });
+
+  it("pushes no instruction block when the run was created without a task", () => {
+    const blocks = foldEvents([
+      ev(1, "session_started", { opening_message: "Workspace: /ws\n\nTask:\n" }),
+    ]);
+    expect(blocks.map((b) => b.type)).toEqual(["opening"]);
+  });
+
+  it("sits after the skills catalogue when both exist", () => {
+    const blocks = foldEvents([
+      ev(1, "session_started", {
+        opening_message: "Workspace: /ws\n\nskills here\nTask:\ndo it\n",
+        skill_catalogue: "skills here",
+        task: "do it",
+      }),
+    ]);
+    expect(blocks.map((b) => b.type)).toEqual(["skills", "opening", "instruction"]);
   });
 });

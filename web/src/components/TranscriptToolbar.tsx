@@ -1,19 +1,18 @@
 import { Toggle } from "./ui/toggle";
-import { ToggleGroup, ToggleGroupItem } from "./ui/toggle-group";
 import { cn } from "@/lib/utils";
 import type { GroupCounts, TranscriptFilter } from "../api/groups";
-import type { Density } from "./blocks/SubTurnCard";
 
-// TranscriptToolbar is the transcript's control strip (design/transcript.html's
-// .toolbar, docs/WEB-REDESIGN.md phase 5): the Compact/Full density toggle on
-// the left, then one filter chip per family with its card count. The counts
-// come straight off the snapshot's GroupCounts — the same pass that builds
-// the cards — so the toolbar never walks the blocks itself. This is display
-// state only: the run-control stop lives in the screen header (StopControl),
-// and nothing here starts, steers, or stops a run.
+// TranscriptToolbar is the transcript's filter chip row (docs/WEB-REDESIGN.md
+// phase 5): one chip per filter family with its card count. The Compact/Full
+// density toggle is gone with the session redesign — a turn is always full,
+// and the collapsing happens per tool row instead (design/README.md "The two
+// session pages"). The counts come straight off the snapshot's GroupCounts —
+// the same pass that builds the turns — so the toolbar never walks the blocks
+// itself. This is display state only: the run-control stop lives in the
+// screen header (StopControl), and nothing here starts, steers, or stops a
+// run. Phase 4 moves the chips into the watch page's rail; until then the
+// toolbar stays mounted where it is.
 interface Props {
-  density: Density;
-  onDensityChange: (density: Density) => void;
   filter: TranscriptFilter;
   onFilterChange: (filter: TranscriptFilter) => void;
   counts: GroupCounts;
@@ -27,23 +26,9 @@ const FILTERS: { key: TranscriptFilter; label: string }[] = [
   { key: "churn", label: "Churn" },
 ];
 
-export function TranscriptToolbar({ density, onDensityChange, filter, onFilterChange, counts }: Props) {
+export function TranscriptToolbar({ filter, onFilterChange, counts }: Props) {
   return (
     <div className="transcript-toolbar" role="toolbar" aria-label="Transcript">
-      <ToggleGroup
-        type="single"
-        variant="outline"
-        size="sm"
-        value={density}
-        onValueChange={(value) => {
-          if (value === "compact" || value === "full") onDensityChange(value);
-        }}
-        aria-label="Density"
-      >
-        <ToggleGroupItem value="compact">Compact</ToggleGroupItem>
-        <ToggleGroupItem value="full">Full</ToggleGroupItem>
-      </ToggleGroup>
-      <span className="toolbar-sep" aria-hidden />
       {FILTERS.map(({ key, label }) => (
         <Toggle
           key={key}

@@ -1,0 +1,359 @@
+import { memo, useMemo } from "react";
+import type { LiveView } from "../api/fold";
+import type { GroupCounts, SubTurnGroup, TranscriptFilter, TranscriptItem } from "../api/groups";
+import type { SessionState, Todo, ToolCallPayload } from "../api/types";
+import { cachePercent } from "./turns/turnHelpers";
+import { formatCost, toolDetail } from "./blocks/toolArgs";
+import { Toggle } from "./ui/toggle";
+import { cn } from "@/lib/utils";
+
+// WatchRail is the watch page's left-hand navigator (design/session-watch
+// .html): one column that answers "where in this run" — the find box and
+// the filter chips on top, then the plan as phases with one tick per
+// sub-turn, then the legend and the session facts. It replaces the
+// transcript's old toolbar/rail/plan-panel trio, which the chat page
+// already dropped; the two session pages now differ in silhouette (rail
+// left, rail right) and this rail carries everything a watcher hunts for:
+// the error among 78 sub-turns, the edit that touched a file, the churn
+// point.
+//
+// The phases are built from the groups' own phase refs (groups.ts:
+// RailPhaseRef, captured the moment each group froze) — never by walking
+// the TaskCreate/TaskUpdate history again. Each disclosure holds one tick
+// per sub-turn that ran under it, coloured by what happened in that
+// sub-turn; the running sub-turn pulses. A tick links to its turn, which
+// carries id="sub-turn-N".
+export function WatchRail({
+  items,
+  live,
+  todos,
+  counts,
+  filter,
+  onFilterChange,
+  query,
+  onQueryChange,
+  meta,
+  getToolCall,
+}: {
+  items: TranscriptItem[];
+  live: LiveView;
+  todos: Todo[];
+  counts: GroupCounts;
+  filter: TranscriptFilter;
+  onFilterChange: (filter: TranscriptFilter) => void;
+  // The find box's text, owned by the screen: it filters the transcript
+  // (TurnTranscript), so the rail only renders the input.
+  query: string;
+  onQueryChange: (query: string) => void;
+  meta: SessionState;
+  getToolCall: (id: string) => ToolCallPayload | undefined;
+}) {
+  // The run is live until the row says otherwise; the phase containing the
+  // tail group is the one the next sub-turn continues. The builder depends
+  // on primitives only (the live turn's number, not the live view object),
+  // so the token-rate hot path — a live-only delta that leaves items
+  // reference-identical — bails out instead of rebuilding the phases.
+  const runLive = meta.status === "running";
+  const liveSubTurn = live.turn?.subTurn ?? null;
+  const view = useMemo(
+    () => buildWatchPhases(items, liveSubTurn, todos, runLive, getToolCall),
+    [items, liveSubTurn, todos, runLive, getToolCall],
+  );
+
+  return (
+    <aside className="rail rail-left" aria-label="Navigator">
+      <div className="railsec">
+        <h3>Find</h3>
+        <input
+          type="search"
+          className="input"
+          placeholder="Search this transcript…"
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          aria-label="Search this transcript"
+        />
+        <div className="chips" role="toolbar" aria-label="Transcript filters">
+          {FILTERS.map(({ key, label }) => (
+            <Toggle
+              key={key}
+              pressed={filter === key}
+              onPressedChange={() => onFilterChange(key)}
+              className={cn("chip-toggle", filter === key && "chip-toggle-active")}
+            >
+              {label} {filterCount(counts, key)}
+            </Toggle>
+          ))}
+        </div>
+      </div>
+
+      <div className="railsec">
+        <h3>Plan</h3>
+        {todos.length === 0 ? (
+          // A run that never wrote a plan (design/session-states.html "a run
+          // with no plan"): no empty plan card with a 0/0 bar — one line and
+          // the flat list of sub-turns, which is all the navigation such a
+          // run needs.
+          <>
+            <p className="rail-note">No plan — this run never wrote one.</p>
+            {view.flatTicks.length > 0 && (
+              <div className="ticks">
+                {view.flatTicks.map((tick) => (
+                  <TickLink key={`${tick.subTurn}-${tick.cls}`} tick={tick} />
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <PlanHead todos={todos} />
+            {view.phases.map((phase) => (
+              <details
+                key={phase.id}
+                className={`phase${phase.id === view.nowPhaseId ? " phase-now" : " phase-done"}`}
+                open={phase.id === view.nowPhaseId}
+              >
+                <summary>
+                  <span className="caret" aria-hidden>
+                    ▸
+                  </span>
+                  <span className="idx">{phase.index > 0 ? phase.index : "·"}</span>
+                  <span>{phase.label || "…"}</span>
+                </summary>
+                <div className="ticks">
+                  {phase.ticks.map((tick) => (
+                    <TickLink key={`${tick.subTurn}-${tick.cls}`} tick={tick} />
+                  ))}
+                </div>
+              </details>
+            ))}
+            {view.notStarted.map((item) => (
+              <details key={item.index} className="phase">
+                <summary>
+                  <span className="caret" aria-hidden>
+                    ▸
+                  </span>
+                  <span className="idx">{item.index}</span>
+                  <span>{item.label}</span>
+                </summary>
+                <div className="ticks">
+                  <span className="not-started">not started</span>
+                </div>
+              </details>
+            ))}
+          </>
+        )}
+      </div>
+
+      <div className="railsec">
+        <h3>Legend</h3>
+        <div className="legend">
+          <span>
+            <i className="tick" /> read / run
+          </span>
+          <span>
+            <i className="tick tick-edit" /> edit
+          </span>
+          <span>
+            <i className="tick tick-err" /> error
+          </span>
+          <span>
+            <i className="tick tick-churn" /> churn
+          </span>
+        </div>
+      </div>
+
+      <div className="railsec">
+        <h3>Session</h3>
+        <div className="facts">
+          <div>
+            <span>model</span>
+            <span className="v">{meta.model}</span>
+          </div>
+          <div>
+            <span>effort</span>
+            <span className="v">{meta.effort}</span>
+          </div>
+          <div>
+            <span>workspace</span>
+            <span className="v" title={meta.workspace}>
+              {meta.workspace}
+            </span>
+          </div>
+          <div>
+            <span>cost</span>
+            <span className="v">${formatCost(meta.usage.cost_usd)}</span>
+          </div>
+          <div>
+            <span>cache hit</span>
+            <span className="v">
+              {cachePercent(meta.usage.cache_hit_tokens, meta.usage.cache_miss_tokens)}%
+            </span>
+          </div>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+const FILTERS: { key: TranscriptFilter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "edits", label: "Edits" },
+  { key: "bash", label: "Bash" },
+  { key: "errors", label: "Errors" },
+  { key: "churn", label: "Churn" },
+];
+
+function filterCount(counts: GroupCounts, key: TranscriptFilter): number {
+  switch (key) {
+    case "all":
+      return counts.total;
+    case "edits":
+      return counts.edits;
+    case "bash":
+      return counts.bash;
+    case "errors":
+      return counts.errors;
+    case "churn":
+      return counts.churn;
+  }
+}
+
+// PlanHead is the plan section's progress bar with the completed ratio
+// (design/session-watch.html's .planhead), the same markup the chat rail
+// uses.
+function PlanHead({ todos }: { todos: Todo[] }) {
+  const done = todos.filter((t) => t.status === "completed").length;
+  const pct = Math.round((done / todos.length) * 100);
+  return (
+    <div className="planhead">
+      <span className="progress" aria-hidden>
+        <span style={{ width: `${pct}%` }} />
+      </span>
+      <span className="count">
+        {done}/{todos.length}
+      </span>
+    </div>
+  );
+}
+
+// --- the phases view model, pure and unit-tested (TESTING.md: test the
+// helpers, not the components) ---
+
+// WatchTick is one sub-turn's tick: the anchor to its turn and the colour
+// class for what happened in it. cls is "" for a plain sub-turn.
+export interface WatchTick {
+  subTurn: number;
+  cls: "tick-edit" | "tick-err" | "tick-churn" | "tick-now" | "";
+  title: string;
+}
+
+export interface WatchPhase {
+  // The group phase ref (groups.ts RailPhaseRef): stable ids for keys, the
+  // 1-based plan position and subject as captured when the sub-turn froze.
+  id: number;
+  index: number;
+  label: string;
+  ticks: WatchTick[];
+}
+
+export interface WatchPhasesView {
+  phases: WatchPhase[];
+  // The plan items the run never reached — the current plan beyond the
+  // last phase's position — drawn as "not started" disclosures.
+  notStarted: { index: number; label: string }[];
+  // The phase the running sub-turn (or the pending tool round) continues,
+  // highlighted; null when the run is over or nothing has run yet.
+  nowPhaseId: number | null;
+  // Every tick in order, for the no-plan fallback's flat row.
+  flatTicks: WatchTick[];
+}
+
+// buildWatchPhases is the rail's view over the grouped transcript: groups
+// under the same phase ref become one phase whose ticks carry the sub-turn
+// numbers and colours, built from the groups' own tags and phase refs —
+// never by walking the TaskCreate/TaskUpdate history again. The running
+// sub-turn's tick pulses inside the tail phase, which is the one the next
+// sub-turn continues while the run is live. liveSubTurn is the streaming
+// turn's number, or null between turns — the only part of the live view
+// this view needs, so callers can memoise on primitives.
+export function buildWatchPhases(
+  items: TranscriptItem[],
+  liveSubTurn: number | null,
+  todos: Todo[],
+  runLive: boolean,
+  getToolCall: (id: string) => ToolCallPayload | undefined,
+): WatchPhasesView {
+  const phases: WatchPhase[] = [];
+  let current: WatchPhase | null = null;
+  for (const item of items) {
+    if (item.kind !== "group") continue;
+    const group = item.group;
+    if (!current || current.id !== group.phase.id) {
+      current = { id: group.phase.id, index: group.phase.index, label: group.phase.label, ticks: [] };
+      phases.push(current);
+    }
+    current.ticks.push({
+      subTurn: group.subTurn,
+      cls: tickCls(group),
+      title: tickTitle(group, getToolCall),
+    });
+  }
+
+  // The sub-turn still streaming has no group yet; it continues the tail
+  // phase, and its tick is the pulsing one (design/session-watch.html's
+  // sub-turn 13).
+  if (liveSubTurn !== null && current) {
+    current.ticks.push({
+      subTurn: liveSubTurn,
+      cls: "tick-now",
+      title: `Sub-turn ${liveSubTurn} · running now`,
+    });
+  }
+
+  const nowPhaseId = runLive && phases.length > 0 ? phases[phases.length - 1].id : null;
+
+  // Plan items the run never reached: the current plan beyond the last
+  // phase's 1-based position. The plan only ever grows at the end, so a
+  // phase's captured position stays valid.
+  const lastIndex = phases.length > 0 ? phases[phases.length - 1].index : 0;
+  const notStarted: { index: number; label: string }[] = [];
+  for (let i = lastIndex; i < todos.length; i++) {
+    notStarted.push({ index: i + 1, label: todos[i].subject });
+  }
+
+  return { phases, notStarted, nowPhaseId, flatTicks: phases.flatMap((p) => p.ticks) };
+}
+
+// tickCls is the colour rule (design/session-watch.html's .tick-*): an
+// error sub-turn is red — the thing a watcher hunts for — then churn amber,
+// then an edit green; everything else plain.
+function tickCls(group: SubTurnGroup): WatchTick["cls"] {
+  if (group.tags.errors > 0) return "tick-err";
+  if (group.tags.churn) return "tick-churn";
+  if (group.tags.edits > 0) return "tick-edit";
+  return "";
+}
+
+// tickTitle is the tick's hover text (design: "Sub-turn 8 · Edit launch.go",
+// "Sub-turn 10 · go build failed"): the number plus the last tool call's
+// one-line target, read from the fold's registry.
+function tickTitle(group: SubTurnGroup, getToolCall: (id: string) => ToolCallPayload | undefined): string {
+  const assistant = group.blocks[0];
+  let detail = "";
+  if (assistant.type === "assistant" && assistant.toolCalls.length > 0) {
+    const call = assistant.toolCalls[assistant.toolCalls.length - 1];
+    const full = getToolCall(call.id) ?? call;
+    detail = toolDetail(full) || full.name;
+  }
+  return `Sub-turn ${group.subTurn}${detail ? ` · ${detail}` : ""}`;
+}
+
+// TickLink is one tick: a plain anchor to its turn's id="sub-turn-N"
+// (phase 2), carrying the title and the colour.
+const TickLink = memo(function TickLink({ tick }: { tick: WatchTick }) {
+  return (
+    <a className={cn("tick", tick.cls)} href={`#sub-turn-${tick.subTurn}`} title={tick.title}>
+      <span className="sr-only">{tick.title}</span>
+    </a>
+  );
+});
