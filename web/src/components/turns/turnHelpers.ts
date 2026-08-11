@@ -151,7 +151,8 @@ export function pendingWaitLabel(hasToolRound: boolean, liveSubTurn: number | nu
 // seconds matter at these scales because a stop confirmation is about how
 // far in the run is.
 export function formatRunDuration(ms: number): string {
-  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  if (!Number.isFinite(ms) || ms < 0) return "0s";
+  const totalSeconds = Math.round(ms / 1000);
   const hours = Math.floor(totalSeconds / 3600);
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;

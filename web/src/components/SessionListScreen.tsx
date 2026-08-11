@@ -214,6 +214,14 @@ export function SessionListScreen({ onOpen }: Props) {
     };
   }, []);
 
+  // A follow-up run from a finished session's chat page lands here with
+  // "#start" in the hash (SessionChatScreen's finished band navigates to
+  // "/#start"): open the start form without the operator hunting for the
+  // trigger, exactly as if they had clicked it.
+  useEffect(() => {
+    if (window.location.hash === "#start") setStartOpen(true);
+  }, []);
+
   // The stat strip's "of N slots" reads worker.pool_size off the same
   // settings endpoint the settings screen calls. One fetch on mount — the
   // pool size changes only with a restart — and if it is unreachable the

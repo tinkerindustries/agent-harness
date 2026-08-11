@@ -6,6 +6,9 @@ import { SessionWatchScreen } from "./SessionWatchScreen";
 
 interface Props {
   sessionId: string;
+  // The app's navigate, passed down for the chat page's follow-up run
+  // control (the finished band sends the reader back to the start form).
+  onNavigate: (path: string) => void;
 }
 
 // The session route's fork (design/README.md): which of the two session
@@ -15,7 +18,7 @@ interface Props {
 // the single provenance predicate (web/src/api/provenance.ts), the same one
 // the "started by" label renders from, so the fork and the label can never
 // disagree about the same row.
-export function SessionScreen({ sessionId }: Props) {
+export function SessionScreen({ sessionId, onNavigate }: Props) {
   const store = useTranscriptStore(sessionId);
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const { meta, settled } = useSessionMeta(sessionId, snapshot.connection);
@@ -42,7 +45,7 @@ export function SessionScreen({ sessionId }: Props) {
     );
   }
   if (meta === null || isUserStarted(meta)) {
-    return <SessionChatScreen sessionId={sessionId} meta={meta} snapshot={snapshot} />;
+    return <SessionChatScreen sessionId={sessionId} meta={meta} snapshot={snapshot} onNavigate={onNavigate} />;
   }
   return <SessionWatchScreen sessionId={sessionId} meta={meta} snapshot={snapshot} />;
 }

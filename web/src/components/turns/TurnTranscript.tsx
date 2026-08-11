@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, type ReactNode } from "react";
 import type { LiveView } from "../../api/fold";
 import type { TranscriptFilter, TranscriptItem } from "../../api/groups";
 import type { ToolCallPayload } from "../../api/types";
@@ -6,6 +6,7 @@ import { FrozenBlock } from "../blocks/FrozenBlock";
 import { groupMatchesFilter } from "../../api/groups";
 import { Turn } from "./Turn";
 import { LiveTurnSection } from "./LiveTurn";
+import type { SteerBlock } from "./SteerMessage";
 
 // TurnTranscript is the session pages' conversation (design/session-chat.html
 // and design/session-watch.html share it): one .turn per sub-turn group, the
@@ -20,16 +21,24 @@ export function TurnTranscript({
   live,
   filter,
   getToolCall,
+  renderSteer,
 }: {
   items: TranscriptItem[];
   live: LiveView;
   filter: TranscriptFilter;
   getToolCall: (id: string) => ToolCallPayload | undefined;
+  // renderSteer replaces the steer block card with the chat page's .msg-user
+  // rendering (phase 3): a sent message is a message, not a block. Absent —
+  // the watch page and the perf harnesses — steer blocks keep the FrozenBlock
+  // rendering. The callback must be reference-stable across live-only deltas
+  // (the chat screen memoises it), or the memoised TurnList below would
+  // re-render the whole conversation on every token.
+  renderSteer?: (block: SteerBlock) => ReactNode;
 }) {
   const empty = items.length === 0 && !live.turn && live.pendingTools.size === 0;
   return (
     <div className="turn-list">
-      <TurnList items={items} filter={filter} getToolCall={getToolCall} />
+      <TurnList items={items} filter={filter} getToolCall={getToolCall} renderSteer={renderSteer} />
       <LiveTurnSection turn={live.turn} pendingTools={live.pendingTools} />
       {empty && <p className="empty-row">Waiting for the run to start…</p>}
     </div>
@@ -48,10 +57,12 @@ export const TurnList = memo(function TurnList({
   items,
   filter,
   getToolCall,
+  renderSteer,
 }: {
   items: TranscriptItem[];
   filter: TranscriptFilter;
   getToolCall: (id: string) => ToolCallPayload | undefined;
+  renderSteer?: (block: SteerBlock) => ReactNode;
 }) {
   return (
     <>
@@ -60,12 +71,14 @@ export const TurnList = memo(function TurnList({
           groupMatchesFilter(item.group, filter) ? (
             <Turn key={item.group.seq} group={item.group} getToolCall={getToolCall} />
           ) : null
+        ) : item.block.type === "steer" && renderSteer ? (
+          // The chat page's sent-message rendering; the watch page and the
+          // perf harnesses keep the block below.
+          renderSteer(item.block)
         ) : (
           // Top-level blocks are outside the chips' subject matter: the
           // filters choose which turns to show, and opening / skills /
-          // run_finished / error / steer stay no matter what. Steer keeps
-          // rendering through SteerBlock until phase 3 restyles it as
-          // .msg-user.
+          // run_finished / error / steer stay no matter what.
           <FrozenBlock key={`${item.block.seq}-${item.block.type}`} block={item.block} />
         ),
       )}
