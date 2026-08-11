@@ -11,6 +11,7 @@ import { StopControl } from "./StopControl";
 import { SteerControl } from "./SteerControl";
 import { Badge } from "./ui/badge";
 import { outcome, type OutcomeSession } from "./statusBadge";
+import { startedBy } from "../api/provenance";
 import { useNavRight } from "./TopNav";
 import type { Density } from "./blocks/SubTurnCard";
 
@@ -27,6 +28,10 @@ export function TranscriptScreen({ sessionId }: Props) {
   // /api/sessions/{id} returned back when the screen first mounted.
   const meta = useSessionMeta(sessionId, snapshot.connection);
   const badge = meta ? outcome(headerOutcomeSession(meta, snapshot.blocks)) : null;
+  // The one-line provenance label ("started by geoff", "started by
+  // claude-code (sess-1)"), rendered only when the row carries provenance at
+  // all (web/src/api/provenance.ts owns the legacy fallback).
+  const startedByLabel = meta ? startedBy(meta) : null;
 
   // Phase 5 display state (docs/WEB-REDESIGN.md): density starts Compact so
   // a long session opens readable, and the filter starts at All. Both are
@@ -68,15 +73,7 @@ export function TranscriptScreen({ sessionId }: Props) {
           <span className="dim">{meta.workspace}</span>
           <span className="dim">{meta.permission_mode}</span>
           {meta.job_type && <span className="dim">{meta.job_type}</span>}
-          {meta.parent_agent_type &&
-            (meta.parent_agent_type === "user" ? (
-              <span className="dim">started by a person</span>
-            ) : (
-              <span className="dim">
-                started by {meta.parent_agent_type}
-                {meta.parent_agent_id && ` (${meta.parent_agent_id})`}
-              </span>
-            ))}
+          {startedByLabel && <span className="dim">{startedByLabel}</span>}
           {meta.parent_id && (
             <span className="dim">
               forked from <code>{meta.parent_id}</code>
