@@ -75,7 +75,7 @@ var definitions = []deepseek.Tool{
 		},
 		"required": ["path"]
 	}`),
-	function("TaskCreate", "Add one or more tasks to the working plan. Takes an array so seeding a whole plan is still one call; each task is minted its own id for later TaskGet/TaskList/TaskUpdate calls. State only; no side effects outside the session.", `{
+	function("TaskCreate", "Add one or more tasks to the working plan. Takes an array so seeding a whole plan is still one call; each task is minted its own taskId for later TaskGet/TaskList/TaskUpdate calls. State only; no side effects outside the session.", `{
 		"type": "object",
 		"properties": {
 			"tasks": {
@@ -84,22 +84,23 @@ var definitions = []deepseek.Tool{
 				"items": {
 					"type": "object",
 					"properties": {
-						"content": {"type": "string", "description": "Imperative task description, e.g. \"Run the test suite\""},
+						"subject": {"type": "string", "description": "A brief, actionable title, e.g. \"Run the test suite\""},
+						"description": {"type": "string", "description": "What needs to be done"},
 						"activeForm": {"type": "string", "description": "Present-continuous form shown while in progress, e.g. \"Running the test suite\""},
 						"status": {"type": "string", "enum": ["pending", "in_progress", "completed"], "description": "Defaults to pending"}
 					},
-					"required": ["content", "activeForm"]
+					"required": ["subject", "description", "activeForm"]
 				}
 			}
 		},
 		"required": ["tasks"]
 	}`),
-	function("TaskGet", "Fetch one task from the working plan by id.", `{
+	function("TaskGet", "Fetch one task from the working plan by taskId.", `{
 		"type": "object",
 		"properties": {
-			"id": {"type": "string", "description": "The task id to fetch"}
+			"taskId": {"type": "string", "description": "The taskId to fetch"}
 		},
-		"required": ["id"]
+		"required": ["taskId"]
 	}`),
 	function("TaskList", "List tasks in the working plan, optionally filtered by status. A fully optional call: no arguments lists the whole plan.", `{
 		"type": "object",
@@ -107,16 +108,16 @@ var definitions = []deepseek.Tool{
 			"status": {"type": "string", "enum": ["pending", "in_progress", "completed"], "description": "Only list tasks with this status; omit for all"}
 		}
 	}`),
-	function("TaskUpdate", "Patch one task's status, content, or activeForm by id, or delete it. A small, targeted call keeps the plan current without rewriting the whole list. State only; no side effects outside the session.", `{
+	function("TaskUpdate", "Patch one task's status, subject, description, or activeForm by taskId, or remove it with status \"deleted\". A small, targeted call keeps the plan current without rewriting the whole list. State only; no side effects outside the session.", `{
 		"type": "object",
 		"properties": {
-			"id": {"type": "string", "description": "The task id to update or delete"},
-			"status": {"type": "string", "enum": ["pending", "in_progress", "completed"]},
-			"content": {"type": "string", "description": "Imperative task description, e.g. \"Run the test suite\""},
-			"activeForm": {"type": "string", "description": "Present-continuous form shown while in progress, e.g. \"Running the test suite\""},
-			"delete": {"type": "boolean", "description": "Remove the task instead of patching it"}
+			"taskId": {"type": "string", "description": "The taskId to update or delete"},
+			"status": {"type": "string", "enum": ["pending", "in_progress", "completed", "deleted"], "description": "pending, in_progress, or completed patch the task; deleted removes it"},
+			"subject": {"type": "string", "description": "A brief, actionable title, e.g. \"Run the test suite\""},
+			"description": {"type": "string", "description": "What needs to be done"},
+			"activeForm": {"type": "string", "description": "Present-continuous form shown while in progress, e.g. \"Running the test suite\""}
 		},
-		"required": ["id"]
+		"required": ["taskId"]
 	}`),
 	function("Task", "Delegate a self-contained task to a subagent. The subagent runs in its own conversation; only its final result joins this one.", `{
 		"type": "object",

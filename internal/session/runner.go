@@ -748,10 +748,11 @@ func planSnapshot(todos []tools.Todo) string {
 	out := make([]store.StatusTodo, len(todos))
 	for i, t := range todos {
 		out[i] = store.StatusTodo{
-			ID:         t.ID,
-			Content:    t.Content,
-			Status:     t.Status,
-			ActiveForm: t.ActiveForm,
+			TaskID:      t.TaskID,
+			Subject:     t.Subject,
+			Description: t.Description,
+			Status:      t.Status,
+			ActiveForm:  t.ActiveForm,
 		}
 	}
 	b, err := json.Marshal(out)

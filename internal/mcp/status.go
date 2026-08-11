@@ -82,7 +82,7 @@ func renderStatus(publicBaseURL string, st statusResponse) *mcpsdk.CallToolResul
 		case "in_progress":
 			mark = "[~]"
 		}
-		fmt.Fprintf(&b, "%s %s\n", mark, t.Content)
+		fmt.Fprintf(&b, "%s %s\n", mark, t.Subject)
 	}
 	for _, c := range st.ToolCalls {
 		fmt.Fprintf(&b, "tool in flight: %s(%s)\n", c.Name, c.Arguments)
