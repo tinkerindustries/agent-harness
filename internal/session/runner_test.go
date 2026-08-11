@@ -530,8 +530,8 @@ func TestTaskCreateOrderingWithinSubTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := []deepseek.AssembledToolCall{
-		{ID: "call_00_first", Name: "TaskCreate", Arguments: `{"tasks":[{"content":"First task","activeForm":"Firsting"}]}`},
-		{ID: "call_01_second", Name: "TaskCreate", Arguments: `{"tasks":[{"content":"Second task","activeForm":"Seconding"}]}`},
+		{ID: "call_00_first", Name: "TaskCreate", Arguments: `{"tasks":[{"subject":"First task","description":"First thing","activeForm":"Firsting"}]}`},
+		{ID: "call_01_second", Name: "TaskCreate", Arguments: `{"tasks":[{"subject":"Second task","description":"Second thing","activeForm":"Seconding"}]}`},
 	}
 	outcomes := r.executeToolCalls(t.Context(), store.Session{ID: "sess-order"}, executor, calls)
 
