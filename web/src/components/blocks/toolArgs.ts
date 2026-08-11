@@ -66,18 +66,26 @@ export function formatCost(cost: number): string {
   return cost.toFixed(6).replace(/\.?0+$/, "");
 }
 
+// diffCounts counts the added and removed lines of a computed diff — the raw
+// figures behind the +n −n stat. Shared by diffStat (the string form, used
+// by the old tool headers) and the turn renderer's coloured diffstat parts
+// (design/session-chat.html sub-turn 7), so the counting lives in one place.
+export function diffCounts(diff: DiffLine[] | undefined): { adds: number; removes: number } {
+  let adds = 0;
+  let removes = 0;
+  for (const line of diff ?? []) {
+    if (line.kind === "add") adds++;
+    else if (line.kind === "remove") removes++;
+  }
+  return { adds, removes };
+}
+
 // diffStat is the +n −n figure an Edit/Write tool header carries, counted
 // from the result's diff. A zero side is suppressed rather than printed as
 // "+0" or "−0" (docs/WEB-REDESIGN.md phase 5), and an empty diff yields an
 // empty stat.
 export function diffStat(diff: DiffLine[] | undefined): string {
-  if (!diff) return "";
-  let adds = 0;
-  let removes = 0;
-  for (const line of diff) {
-    if (line.kind === "add") adds++;
-    else if (line.kind === "remove") removes++;
-  }
+  const { adds, removes } = diffCounts(diff);
   const parts: string[] = [];
   if (adds > 0) parts.push(`+${adds}`);
   if (removes > 0) parts.push(`−${removes}`);
