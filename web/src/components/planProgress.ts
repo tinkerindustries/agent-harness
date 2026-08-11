@@ -4,7 +4,7 @@ import type { Todo } from "../api/types";
 // (docs/WEB-REDESIGN.md phase 3: "Collapsed, a card answers what the
 // session is doing and how far in it is"): how many plan items are done of
 // how many, and the activeForm of the item in progress — or, before any
-// item is in progress, the content of the first pending one, so the line
+// item is in progress, the subject of the first pending one, so the line
 // has something to say from the moment a plan is written.
 export interface PlanProgress {
   done: number;
@@ -19,17 +19,17 @@ export interface PlanProgress {
 export function planProgress(todos: Todo[]): PlanProgress {
   let done = 0;
   let activeForm = "";
-  let nextContent = "";
+  let nextSubject = "";
   for (const t of todos) {
     if (t.status === "completed") {
       done++;
     } else if (t.status === "in_progress" && activeForm === "") {
       activeForm = t.activeForm;
-    } else if (t.status === "pending" && nextContent === "") {
-      nextContent = t.content;
+    } else if (t.status === "pending" && nextSubject === "") {
+      nextSubject = t.subject;
     }
   }
-  return { done, total: todos.length, activeForm: activeForm || nextContent };
+  return { done, total: todos.length, activeForm: activeForm || nextSubject };
 }
 
 // splitVerb splits the collapsed line's "what it is doing" text into the

@@ -45,7 +45,7 @@ func TestTaskCallsPersistPlanToSessionRow(t *testing.T) {
 				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{
 					Role: "assistant",
 					ToolCalls: []deepseek.ToolCallDelta{
-						{Index: 0, ID: "call_00_create", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "TaskCreate", Arguments: `{"tasks":[{"content":"Read the spec","activeForm":"Reading"},{"content":"Wire it up","activeForm":"Wiring"}]}`}},
+						{Index: 0, ID: "call_00_create", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "TaskCreate", Arguments: `{"tasks":[{"subject":"Read the spec","description":"Read it","activeForm":"Reading"},{"subject":"Wire it up","description":"Wire it","activeForm":"Wiring"}]}`}},
 						{Index: 1, ID: "call_01_bash", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "Bash", Arguments: `{"command":"echo hi"}`}},
 					},
 				}}},
@@ -58,7 +58,7 @@ func TestTaskCallsPersistPlanToSessionRow(t *testing.T) {
 			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
 				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []deepseek.ToolCallDelta{{Index: 0, ID: "call_10_update", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "TaskUpdate", Arguments: `{"id":"1","status":"completed"}`}}},
+					ToolCalls: []deepseek.ToolCallDelta{{Index: 0, ID: "call_10_update", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "TaskUpdate", Arguments: `{"taskId":"1","status":"completed"}`}}},
 				}}},
 			})
 			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
@@ -106,13 +106,13 @@ func TestTaskCallsPersistPlanToSessionRow(t *testing.T) {
 	if err := json.Unmarshal([]byte(sess.Plan), &todos); err != nil {
 		t.Fatalf("decode stored plan %q: %v", sess.Plan, err)
 	}
-	if len(todos) != 2 || todos[0].ID != "1" || todos[1].ID != "2" {
+	if len(todos) != 2 || todos[0].TaskID != "1" || todos[1].TaskID != "2" {
 		t.Fatalf("expected two tasks with ids 1 and 2, got %+v", todos)
 	}
-	if todos[0].Content != "Read the spec" || todos[0].Status != "completed" || todos[0].ActiveForm != "Reading" {
+	if todos[0].Subject != "Read the spec" || todos[0].Status != "completed" || todos[0].ActiveForm != "Reading" {
 		t.Fatalf("unexpected first task: %+v", todos[0])
 	}
-	if todos[1].Content != "Wire it up" || todos[1].Status != "pending" || todos[1].ActiveForm != "Wiring" {
+	if todos[1].Subject != "Wire it up" || todos[1].Status != "pending" || todos[1].ActiveForm != "Wiring" {
 		t.Fatalf("unexpected second task: %+v", todos[1])
 	}
 
@@ -157,7 +157,7 @@ func TestTaskReadsDoNotWritePlan(t *testing.T) {
 					Role: "assistant",
 					ToolCalls: []deepseek.ToolCallDelta{
 						{Index: 0, ID: "call_00_list", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}},
-						{Index: 1, ID: "call_01_get", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "TaskGet", Arguments: `{"id":"1"}`}},
+						{Index: 1, ID: "call_01_get", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "TaskGet", Arguments: `{"taskId":"1"}`}},
 					},
 				}}},
 			})

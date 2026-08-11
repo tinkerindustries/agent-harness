@@ -4,11 +4,11 @@ import type { Todo } from "../api/types";
 
 let nextId = 0;
 
-function todo(partial: Partial<Todo> & Pick<Todo, "content">): Todo {
+function todo(partial: Partial<Todo> & Pick<Todo, "subject">): Todo {
   nextId++;
-  // The fixtures never assert on ids — planProgress reads content/status —
+  // The fixtures never assert on ids — planProgress reads subject/status —
   // so mint them from a counter, the same shape TaskCreate produces.
-  return { id: String(nextId), status: "pending", activeForm: "", ...partial };
+  return { taskId: String(nextId), description: "details", status: "pending", activeForm: "", ...partial };
 }
 
 // The collapsed in-flight line and the finished table's subtitle both read
@@ -18,25 +18,25 @@ function todo(partial: Partial<Todo> & Pick<Todo, "content">): Todo {
 describe("planProgress", () => {
   it("counts completed items over the whole plan", () => {
     const todos = [
-      todo({ content: "a", status: "completed" }),
-      todo({ content: "b", status: "completed" }),
-      todo({ content: "c", status: "in_progress", activeForm: "Wiring c" }),
-      todo({ content: "d" }),
-      todo({ content: "e" }),
+      todo({ subject: "a", status: "completed" }),
+      todo({ subject: "b", status: "completed" }),
+      todo({ subject: "c", status: "in_progress", activeForm: "Wiring c" }),
+      todo({ subject: "d" }),
+      todo({ subject: "e" }),
     ];
     expect(planProgress(todos)).toEqual({ done: 2, total: 5, activeForm: "Wiring c" });
   });
 
   it("prefers the in_progress activeForm over an earlier pending item", () => {
     const todos = [
-      todo({ content: "first, read" }),
-      todo({ content: "then wire", status: "in_progress", activeForm: "Wiring call sites" }),
+      todo({ subject: "first, read" }),
+      todo({ subject: "then wire", status: "in_progress", activeForm: "Wiring call sites" }),
     ];
     expect(planProgress(todos).activeForm).toBe("Wiring call sites");
   });
 
   it("falls back to the first pending item before any is in progress", () => {
-    const todos = [todo({ content: "read the spec" }), todo({ content: "wire it up" })];
+    const todos = [todo({ subject: "read the spec" }), todo({ subject: "wire it up" })];
     expect(planProgress(todos)).toEqual({ done: 0, total: 2, activeForm: "read the spec" });
   });
 
@@ -45,7 +45,7 @@ describe("planProgress", () => {
   });
 
   it("a plan with every item done has an empty active form", () => {
-    const todos = [todo({ content: "a", status: "completed" })];
+    const todos = [todo({ subject: "a", status: "completed" })];
     expect(planProgress(todos)).toEqual({ done: 1, total: 1, activeForm: "" });
   });
 });

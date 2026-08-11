@@ -342,23 +342,23 @@ describe("filter counts", () => {
 // which exercises the same naming the store's per-block record produces; the
 // batch test further down checks the all-at-once flush path the store
 // actually uses for a burst.
-type CreateTask = { content: string; activeForm: string; status?: Todo["status"] };
+type CreateTask = { subject: string; description: string; activeForm: string; status?: Todo["status"] };
 
 function taskCreate(seq: number, id: string, tasks: Todo[]): StoreEvent {
-  const stripped: CreateTask[] = tasks.map(({ content, status, activeForm }) => ({ content, activeForm, status }));
+  const stripped: CreateTask[] = tasks.map(({ subject, description, status, activeForm }) => ({ subject, description, activeForm, status }));
   return ev(seq, "tool_call", { index: 0, id, name: "TaskCreate", arguments: JSON.stringify({ tasks: stripped }) });
 }
 
 function taskUpdate(
   seq: number,
   id: string,
-  args: { id: string; status?: Todo["status"]; content?: string; activeForm?: string; delete?: boolean },
+  args: { taskId: string; status?: Todo["status"] | "deleted"; subject?: string; description?: string; activeForm?: string },
 ): StoreEvent {
   return ev(seq, "tool_call", { index: 0, id, name: "TaskUpdate", arguments: JSON.stringify(args) });
 }
 
-function todo(id: string, content: string, status: Todo["status"]): Todo {
-  return { id, content, status, activeForm: `working on ${content}` };
+function todo(id: string, subject: string, status: Todo["status"]): Todo {
+  return { taskId: id, subject, description: `${subject} in detail`, status, activeForm: `working on ${subject}` };
 }
 
 // foldedItems runs the store's exact pipeline — fold each event, then sync
@@ -398,8 +398,8 @@ describe("rail phase assignment", () => {
       usage(2),
       // turn 3 advances the plan by id (TaskUpdate pairs): phase 2 = item 2
       ev(7, "turn_started", { sub_turn: 3 }),
-      taskUpdate(8, "u1", { id: "1", status: "completed" }),
-      taskUpdate(9, "u2", { id: "2", status: "in_progress" }),
+      taskUpdate(8, "u1", { taskId: "1", status: "completed" }),
+      taskUpdate(9, "u2", { taskId: "2", status: "in_progress" }),
       ev(10, "turn_finished", { finish_reason: "stop" }),
       usage(3),
     ];
@@ -424,14 +424,14 @@ describe("rail phase assignment", () => {
       // turn 2 only reads the plan: TaskGet and TaskList must not move the
       // boundary, so the sub-turn stays in phase 1
       ev(5, "turn_started", { sub_turn: 2 }),
-      ev(6, "tool_call", { index: 0, id: "g1", name: "TaskGet", arguments: JSON.stringify({ id: "1" }) }),
+      ev(6, "tool_call", { index: 0, id: "g1", name: "TaskGet", arguments: JSON.stringify({ taskId: "1" }) }),
       ev(7, "tool_call", { index: 1, id: "l1", name: "TaskList", arguments: JSON.stringify({}) }),
       ev(8, "turn_finished", { finish_reason: "tool_calls" }),
       usage(2),
       // turn 3 mutates the plan: phase 2
       ev(9, "turn_started", { sub_turn: 3 }),
-      taskUpdate(10, "u1", { id: "1", status: "completed" }),
-      taskUpdate(11, "u2", { id: "2", status: "in_progress" }),
+      taskUpdate(10, "u1", { taskId: "1", status: "completed" }),
+      taskUpdate(11, "u2", { taskId: "2", status: "in_progress" }),
       ev(12, "turn_finished", { finish_reason: "stop" }),
       usage(3),
     ];
@@ -483,8 +483,8 @@ describe("rail phase assignment", () => {
       ev(6, "turn_finished", { finish_reason: "stop" }),
       usage(2),
       ev(7, "turn_started", { sub_turn: 3 }),
-      taskUpdate(8, "u1", { id: "1", status: "completed" }),
-      taskUpdate(9, "u2", { id: "2", status: "in_progress" }),
+      taskUpdate(8, "u1", { taskId: "1", status: "completed" }),
+      taskUpdate(9, "u2", { taskId: "2", status: "in_progress" }),
       ev(10, "turn_finished", { finish_reason: "stop" }),
       usage(3),
     ];

@@ -104,11 +104,11 @@ func TestRequestStatusMidFlight(t *testing.T) {
 		{Kind: KindTurnFinished, Payload: TurnFinishedPayload{SubTurn: 1, FinishReason: "tool_calls"}},
 		{Kind: KindTurnStarted, Payload: TurnStartedPayload{SubTurn: 2}},
 		{Kind: KindToolCall, Payload: ToolCallPayload{ID: "call-create", Name: "TaskCreate", Arguments: `{"tasks":[
-			{"content":"read the task","status":"completed","activeForm":"Reading the task"},
-			{"content":"fix the bug","activeForm":"Fixing the bug"},
-			{"content":"push","activeForm":"Pushing"}]}`}},
+			{"subject":"read the task","description":"read it","status":"completed","activeForm":"Reading the task"},
+			{"subject":"fix the bug","description":"fix it","activeForm":"Fixing the bug"},
+			{"subject":"push","description":"push it","activeForm":"Pushing"}]}`}},
 		{Kind: KindToolResult, Payload: ToolResultPayload{ToolCallID: "call-create", Name: "TaskCreate", Content: "[ ] #1 read the task\n[ ] #2 fix the bug\n[ ] #3 push\n"}},
-		{Kind: KindToolCall, Payload: ToolCallPayload{ID: "call-update", Name: "TaskUpdate", Arguments: `{"id":"2","status":"in_progress"}`}},
+		{Kind: KindToolCall, Payload: ToolCallPayload{ID: "call-update", Name: "TaskUpdate", Arguments: `{"taskId":"2","status":"in_progress"}`}},
 		{Kind: KindToolResult, Payload: ToolResultPayload{ToolCallID: "call-update", Name: "TaskUpdate", Content: "[~] #2 fix the bug"}},
 		{Kind: KindToolCall, Payload: ToolCallPayload{ID: "call-bash", Name: "Bash", Arguments: `{"command":"go test ./..."}`}},
 		{Kind: KindUsage, Payload: UsagePayload{SubTurn: 2, PromptCacheHitTokens: 100, PromptCacheMissTokens: 20, CompletionTokens: 30, ReasoningTokens: 5, CostUSD: 0.0012}},
@@ -129,7 +129,7 @@ func TestRequestStatusMidFlight(t *testing.T) {
 	if len(st.Todos) != 3 {
 		t.Fatalf("expected the 3 tasks created by TaskCreate, got %+v", st.Todos)
 	}
-	if st.Todos[0].ID != "1" || st.Todos[1].ID != "2" || st.Todos[2].ID != "3" {
+	if st.Todos[0].TaskID != "1" || st.Todos[1].TaskID != "2" || st.Todos[2].TaskID != "3" {
 		t.Fatalf("expected ids minted in event order, got %+v", st.Todos)
 	}
 	if st.Todos[1].Status != "in_progress" || st.ActiveForm != "Fixing the bug" {
@@ -156,7 +156,7 @@ func TestRequestStatusFinishedRun(t *testing.T) {
 	mustCreateSession(t, s, "sess-1")
 	if _, err := s.AppendEvents(ctx, "sess-1", []EventInput{
 		{Kind: KindTurnStarted, Payload: TurnStartedPayload{SubTurn: 1}},
-		{Kind: KindToolCall, Payload: ToolCallPayload{ID: "call-1", Name: "TaskCreate", Arguments: `{"tasks":[{"content":"do it","status":"completed","activeForm":"Doing it"}]}`}},
+		{Kind: KindToolCall, Payload: ToolCallPayload{ID: "call-1", Name: "TaskCreate", Arguments: `{"tasks":[{"subject":"do it","description":"do the thing","status":"completed","activeForm":"Doing it"}]}`}},
 		{Kind: KindToolResult, Payload: ToolResultPayload{ToolCallID: "call-1", Name: "TaskCreate", Content: "[x] #1 do it"}},
 		{Kind: KindUsage, Payload: UsagePayload{SubTurn: 1, PromptCacheMissTokens: 500, CompletionTokens: 40, CostUSD: 0.01}},
 	}); err != nil {
@@ -198,19 +198,23 @@ func TestRequestStatusUnknownRequest(t *testing.T) {
 // TestApplyTaskEventReplaysCreateUpdateDeleteInOrder pins applyTaskEvent
 // against the live handlers' behaviour: TaskCreate mints ids from nextID in
 // event order (defaulting an omitted status to pending), TaskUpdate patches
-// only the fields present or deletes, and anything the live handler would
-// have rejected — malformed JSON, invalid status, empty content, delete
-// combined with a patch, nothing to set, an unknown id — is skipped with the
-// list unchanged and no id burned.
+// only the fields present or removes the task with status "deleted", and
+// anything the live handler would have rejected — malformed JSON, invalid
+// status, empty subject or description, "deleted" combined with a patch,
+// nothing to set, an unknown id — is skipped with the list unchanged and no
+// id burned.
 func TestApplyTaskEventReplaysCreateUpdateDeleteInOrder(t *testing.T) {
 	nextID := 0
 	var todos []StatusTodo
 
 	todos = applyTaskEvent(todos, &nextID, "TaskCreate", `{"tasks":[
-		{"content":"read the task","activeForm":"Reading the task"},
-		{"content":"fix the bug","activeForm":"Fixing the bug"}]}`)
-	if len(todos) != 2 || todos[0].ID != "1" || todos[1].ID != "2" || todos[0].Status != "pending" {
+		{"subject":"read the task","description":"read it","activeForm":"Reading the task"},
+		{"subject":"fix the bug","description":"fix it","activeForm":"Fixing the bug"}]}`)
+	if len(todos) != 2 || todos[0].TaskID != "1" || todos[1].TaskID != "2" || todos[0].Status != "pending" {
 		t.Fatalf("unexpected create result: %+v", todos)
+	}
+	if todos[0].Subject != "read the task" || todos[0].Description != "read it" {
+		t.Fatalf("expected subject and description carried through replay, got %+v", todos[0])
 	}
 	if nextID != 2 {
 		t.Fatalf("expected nextID 2 after two creates, got %d", nextID)
@@ -219,15 +223,18 @@ func TestApplyTaskEventReplaysCreateUpdateDeleteInOrder(t *testing.T) {
 	// An event the live handler would have rejected leaves the plan untouched
 	// and must not burn an id.
 	rejected := []struct{ name, args string }{
-		{"TaskCreate", `{"tasks":[{"content":"bad","status":"bogus","activeForm":"Badding"}]}`},
-		{"TaskCreate", `{"tasks":[{"content":"","activeForm":"Eing"}]}`},
+		{"TaskCreate", `{"tasks":[{"subject":"bad","description":"d","status":"bogus","activeForm":"Badding"}]}`},
+		{"TaskCreate", `{"tasks":[{"subject":"","description":"d","activeForm":"Eing"}]}`},
+		{"TaskCreate", `{"tasks":[{"subject":"fine","description":"","activeForm":"Eing"}]}`},
 		{"TaskCreate", `{"tasks":[]}`},
 		{"TaskCreate", `not json`},
 		{"TaskUpdate", `not json`},
-		{"TaskUpdate", `{"id":"2","delete":true,"status":"completed"}`},
-		{"TaskUpdate", `{"id":"2"}`},
-		{"TaskUpdate", `{"id":"99","delete":true}`},
-		{"TaskUpdate", `{"id":"2","status":"bogus"}`},
+		{"TaskUpdate", `{"taskId":"2","status":"deleted","subject":"renamed"}`},
+		{"TaskUpdate", `{"taskId":"2","status":"deleted","description":"changed"}`},
+		{"TaskUpdate", `{"taskId":"2","status":"deleted","activeForm":"Renaming"}`},
+		{"TaskUpdate", `{"taskId":"2"}`},
+		{"TaskUpdate", `{"taskId":"99","status":"deleted"}`},
+		{"TaskUpdate", `{"taskId":"2","status":"bogus"}`},
 		{"TaskList", `{}`},
 		{"Bash", `{"command":"ls"}`},
 	}
@@ -242,20 +249,21 @@ func TestApplyTaskEventReplaysCreateUpdateDeleteInOrder(t *testing.T) {
 		t.Fatalf("rejected events must not burn ids, nextID = %d", nextID)
 	}
 
-	todos = applyTaskEvent(todos, &nextID, "TaskUpdate", `{"id":"2","status":"in_progress","content":"fix the bug"}`)
-	if len(todos) != 2 || todos[1].Status != "in_progress" || todos[1].Content != "fix the bug" || todos[1].ActiveForm != "Fixing the bug" {
+	todos = applyTaskEvent(todos, &nextID, "TaskUpdate", `{"taskId":"2","status":"in_progress","subject":"fix the bug","description":"fix it better"}`)
+	if len(todos) != 2 || todos[1].Status != "in_progress" || todos[1].Subject != "fix the bug" || todos[1].Description != "fix it better" || todos[1].ActiveForm != "Fixing the bug" {
 		t.Fatalf("unexpected patch result: %+v", todos)
 	}
 
-	// Delete preserves the order of the rest and leaves the id counter alone.
-	todos = applyTaskEvent(todos, &nextID, "TaskUpdate", `{"id":"1","delete":true}`)
-	if len(todos) != 1 || todos[0].ID != "2" {
+	// "deleted" removes the task, preserving the order of the rest and
+	// leaving the id counter alone.
+	todos = applyTaskEvent(todos, &nextID, "TaskUpdate", `{"taskId":"1","status":"deleted"}`)
+	if len(todos) != 1 || todos[0].TaskID != "2" {
 		t.Fatalf("unexpected delete result: %+v", todos)
 	}
 
 	// A create after a delete mints the next id in sequence.
-	todos = applyTaskEvent(todos, &nextID, "TaskCreate", `{"tasks":[{"content":"push","activeForm":"Pushing"}]}`)
-	if len(todos) != 2 || todos[1].ID != "3" {
+	todos = applyTaskEvent(todos, &nextID, "TaskCreate", `{"tasks":[{"subject":"push","description":"push it","activeForm":"Pushing"}]}`)
+	if len(todos) != 2 || todos[1].TaskID != "3" {
 		t.Fatalf("unexpected append after delete: %+v", todos)
 	}
 	if nextID != 3 {

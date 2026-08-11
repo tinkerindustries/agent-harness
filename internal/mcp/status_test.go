@@ -54,8 +54,8 @@ func TestHandleStatusRendersFromEndpoint(t *testing.T) {
 			"status": "running",
 			"sub_turn": 4,
 			"todos": [
-				{"content": "read the task", "status": "completed", "activeForm": "Reading the task"},
-				{"content": "fix the bug", "status": "in_progress", "activeForm": "Fixing the bug"}
+				{"taskId": "1", "subject": "read the task", "description": "read it", "status": "completed", "activeForm": "Reading the task"},
+				{"taskId": "2", "subject": "fix the bug", "description": "fix it", "status": "in_progress", "activeForm": "Fixing the bug"}
 			],
 			"active_form": "Fixing the bug",
 			"tool_calls": [{"id": "call-9", "name": "Bash", "arguments": "{\"command\":\"go test ./...\"}"}],

@@ -12,21 +12,23 @@ import (
 // TaskCreate/TaskUpdate tool-call events in event order. The field names
 // mirror internal/tools.Todo so a todo survives the trip unchanged.
 type StatusTodo struct {
-	ID         string `json:"id"`
-	Content    string `json:"content"`
-	Status     string `json:"status"`
-	ActiveForm string `json:"activeForm"`
+	TaskID      string `json:"taskId"`
+	Subject     string `json:"subject"`
+	Description string `json:"description"`
+	Status      string `json:"status"`
+	ActiveForm  string `json:"activeForm"`
 }
 
 // applyTaskEvent patches current with one TaskCreate or TaskUpdate tool-call
 // event in event order, the way the live handlers mutate the executor's plan:
 // TaskCreate mints ids from *nextID (increment then use, decimal string) and
-// appends; TaskUpdate finds by id and patches the fields present or removes
-// the task. Events that the live handler would have rejected — malformed
-// JSON, an invalid status, an empty content, a delete combined with a patch,
-// an unknown id — are skipped with current returned unchanged. This replay
-// runs over already-committed data and must never fail loudly, so nothing
-// here produces an error.
+// appends; TaskUpdate finds by taskId and patches the fields present or
+// removes the task with status "deleted". Events that the live handler would
+// have rejected — malformed JSON, an invalid status, an empty subject or
+// description, a "deleted" combined with a patch, an update with nothing to
+// set, an unknown id — are skipped with current returned unchanged. This
+// replay runs over already-committed data and must never fail loudly, so
+// nothing here produces an error.
 func applyTaskEvent(current []StatusTodo, nextID *int, name, argsJSON string) []StatusTodo {
 	switch name {
 	case "TaskCreate":
@@ -37,7 +39,7 @@ func applyTaskEvent(current []StatusTodo, nextID *int, name, argsJSON string) []
 			return current
 		}
 		for _, t := range args.Tasks {
-			if strings.TrimSpace(t.Content) == "" || strings.TrimSpace(t.ActiveForm) == "" {
+			if strings.TrimSpace(t.Subject) == "" || strings.TrimSpace(t.Description) == "" || strings.TrimSpace(t.ActiveForm) == "" {
 				return current
 			}
 			if t.Status != "" && !validTaskStatus(t.Status) {
@@ -53,38 +55,39 @@ func applyTaskEvent(current []StatusTodo, nextID *int, name, argsJSON string) []
 				status = "pending"
 			}
 			out = append(out, StatusTodo{
-				ID:         strconv.Itoa(*nextID),
-				Content:    t.Content,
-				Status:     status,
-				ActiveForm: t.ActiveForm,
+				TaskID:      strconv.Itoa(*nextID),
+				Subject:     t.Subject,
+				Description: t.Description,
+				Status:      status,
+				ActiveForm:  t.ActiveForm,
 			})
 		}
 		return out
 	case "TaskUpdate":
 		var args struct {
-			ID         string `json:"id"`
-			Status     string `json:"status"`
-			Content    string `json:"content"`
-			ActiveForm string `json:"activeForm"`
-			Delete     bool   `json:"delete"`
+			TaskID      string `json:"taskId"`
+			Status      string `json:"status"`
+			Subject     string `json:"subject"`
+			Description string `json:"description"`
+			ActiveForm  string `json:"activeForm"`
 		}
-		if json.Unmarshal([]byte(argsJSON), &args) != nil || args.ID == "" {
+		if json.Unmarshal([]byte(argsJSON), &args) != nil || args.TaskID == "" {
 			return current
 		}
-		if args.Delete && (args.Status != "" || args.Content != "" || args.ActiveForm != "") {
+		if args.Status == "deleted" && (args.Subject != "" || args.Description != "" || args.ActiveForm != "") {
 			return current
 		}
-		if !args.Delete && args.Status == "" && args.Content == "" && args.ActiveForm == "" {
+		if args.Status == "" && args.Subject == "" && args.Description == "" && args.ActiveForm == "" {
 			return current
 		}
-		if args.Status != "" && !validTaskStatus(args.Status) {
+		if args.Status != "" && args.Status != "deleted" && !validTaskStatus(args.Status) {
 			return current
 		}
 		for i, t := range current {
-			if t.ID != args.ID {
+			if t.TaskID != args.TaskID {
 				continue
 			}
-			if args.Delete {
+			if args.Status == "deleted" {
 				out := make([]StatusTodo, 0, len(current)-1)
 				out = append(out, current[:i]...)
 				out = append(out, current[i+1:]...)
@@ -95,8 +98,11 @@ func applyTaskEvent(current []StatusTodo, nextID *int, name, argsJSON string) []
 			if args.Status != "" {
 				out[i].Status = args.Status
 			}
-			if args.Content != "" {
-				out[i].Content = args.Content
+			if args.Subject != "" {
+				out[i].Subject = args.Subject
+			}
+			if args.Description != "" {
+				out[i].Description = args.Description
 			}
 			if args.ActiveForm != "" {
 				out[i].ActiveForm = args.ActiveForm
