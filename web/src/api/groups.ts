@@ -82,7 +82,7 @@ export interface RailPhaseRef {
   // in_progress ("1 · Fix retained-body leak"). 0 when the plan at the
   // boundary had no usable item (no plan mutation yet, or an empty plan).
   index: number;
-  // label is that plan item's content, without the "1 · " prefix the rail
+  // label is that plan item's subject, without the "1 · " prefix the rail
   // renders. Empty when there was no plan yet or no usable item.
   label: string;
 }
@@ -93,11 +93,11 @@ export interface RailPhaseRef {
 // everything pending). Empty when the plan had no item to name the phase.
 export function phaseFromTodos(todos: Todo[], id: number): RailPhaseRef {
   let index = -1;
-  let content = "";
+  let subject = "";
   for (let i = 0; i < todos.length; i++) {
     if (todos[i].status === "in_progress") {
       index = i;
-      content = todos[i].content;
+      subject = todos[i].subject;
       break;
     }
   }
@@ -105,12 +105,12 @@ export function phaseFromTodos(todos: Todo[], id: number): RailPhaseRef {
     for (let i = 0; i < todos.length; i++) {
       if (todos[i].status !== "completed") {
         index = i;
-        content = todos[i].content;
+        subject = todos[i].subject;
         break;
       }
     }
   }
-  return index < 0 ? { id, index: 0, label: "" } : { id, index: index + 1, label: content };
+  return index < 0 ? { id, index: 0, label: "" } : { id, index: index + 1, label: subject };
 }
 
 // ChurnPoint is the first sub-turn whose usage carried a cache-churn

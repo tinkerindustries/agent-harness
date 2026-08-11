@@ -238,12 +238,15 @@ export interface QueueHealth {
 // Todo mirrors internal/tools.Todo: one entry of the model's working plan,
 // kept client-side by folding TaskCreate/TaskUpdate tool-call events in call
 // order (web/src/api/fold.ts applyTaskEvent), the same replay the store runs
-// over the event log (internal/store/status.go). id is minted by TaskCreate
-// in call order and stable for the task's whole life, so a later TaskUpdate
-// can name one task cheaply.
+// over the event log (internal/store/status.go). taskId is minted by
+// TaskCreate in call order and stable for the task's whole life, so a later
+// TaskUpdate can name one task cheaply. subject is the brief actionable
+// title and description the longer explanation, matching Claude Code's own
+// Task tools.
 export interface Todo {
-  id: string;
-  content: string;
+  taskId: string;
+  subject: string;
+  description: string;
   status: "pending" | "in_progress" | "completed";
   activeForm: string;
 }
