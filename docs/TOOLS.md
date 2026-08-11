@@ -45,9 +45,9 @@ trying against `Edit` if exact-match replacement underperforms.
 | `Grep` | `pattern`, `path?`, `glob?`, `output_mode?` | Content search, ripgrep-backed |
 | `List` | `path`, `ignore?` | Directory listing |
 | `TaskCreate` | `tasks[]` | Append tasks to the working plan |
-| `TaskGet` | `id` | Fetch one task by id |
+| `TaskGet` | `taskId` | Fetch one task by taskId |
 | `TaskList` | `status?` | List the working plan (optionally one status) |
-| `TaskUpdate` | `id`, `status?`, `content?`, `activeForm?`, `delete?` | Patch or delete one task by id |
+| `TaskUpdate` | `taskId`, `status?`, `subject?`, `description?`, `activeForm?` | Patch one task by taskId, or remove it with `status: "deleted"` |
 | `Task` | `description`, `prompt`, `subagent_type` | Delegate to a flash-backed subagent |
 | `WebFetch` | `url`, `prompt` | Fetch a URL and extract against a question |
 | `ReviewScreenshot` | `image_paths[]`, `question`, `spec?` | Send screenshots to Gemini's vision model and return its diagnosis |
@@ -134,22 +134,32 @@ re-sent every sub-turn.
 The target harnesses all carry a todo tool, so V4 will reach for one. Where
 they write the whole plan array on every change, this harness splits that
 into a CRUD family: `TaskCreate` appends tasks (ids minted in call order and
-stable for each task's whole life), `TaskUpdate` patches or deletes one task
-by id, and `TaskGet`/`TaskList` read one task or the whole plan back.
+stable for each task's whole life), `TaskUpdate` patches or removes one task
+by taskId, and `TaskGet`/`TaskList` read one task or the whole plan back.
+The field names match Claude Code's own Task tools — each item carries
+`subject` ("a brief, actionable title"), `description` ("what needs to be
+done"), and `activeForm`, and the task identifier is `taskId` — with the
+deliberate deviations that `TaskCreate` keeps its batch-array shape
+(`{"tasks": [...]}`) so seeding a whole plan is one call, and `TaskList`
+keeps its optional `status` filter. No dependencies, `owner`, or `metadata`:
+a harness session is a single agent, not a team with tasks to claim.
 
 The split exists so a per-item update is cheap enough that an agent does not
 skip it mid-run. Rewriting the whole plan on every status change costs the
 model the full checklist to produce and the session a bigger message to
-append; naming one id in a short `TaskUpdate` call makes keeping the plan
-current the obvious move. A terminal harness renders the list as a checklist
-that scrolls away. A web UI can pin it as a live plan panel beside the
-transcript, which is one of the clearer wins the browser buys us.
+append; naming one taskId in a short `TaskUpdate` call makes keeping the
+plan current the obvious move. A terminal harness renders the list as a
+checklist that scrolls away. A web UI can pin it as a live plan panel beside
+the transcript, which is one of the clearer wins the browser buys us.
 
-`TaskUpdate` patches only the fields present. A `delete` combined with a
-patch, an update with nothing to set, an unknown id, or an invalid status are
-all errors and mutate nothing — the same validation the event-log replay
-applies (`internal/store/status.go`), so a session's recovered plan can never
-drift from what the loop actually did.
+`TaskUpdate` patches only the fields present. `status: "deleted"` removes the
+task — it is only ever an input trigger, never a stored status, so a
+"deleted" combined with a patch, an update with nothing to set, an unknown
+taskId, or an invalid status are all errors and mutate nothing — the same
+validation the event-log replay applies (`internal/store/status.go`), so a
+session's recovered plan can never drift from what the loop actually did.
+`TaskGet`'s single-item result shows the task's `description` too, which the
+compact checklist line deliberately leaves out.
 
 ### Task
 
