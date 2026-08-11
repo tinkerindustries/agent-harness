@@ -120,24 +120,23 @@ interface DayStats {
   running: number;
   spendUsd: number;
   medianMs: number | null;
-  medianCount: number;
-  done: number;
-  gaveUp: number;
+  count: number;
+  totalMs: number | null;
 }
 
 // computeDayStats rolls the snapshot up into the stat strip's four numbers
 // (design/sessions-v2.html): Running, Spend today, Median duration today,
-// Done vs gave up today. "Today" is the current local calendar day, judged
+// Total time today. "Today" is the current local calendar day, judged
 // by created_at. Nothing here is a new backend field — running and the
-// finished-today counts come straight from the list, spend and the median
-// are reductions over it — and the median covers only sessions that have a
-// finished_at (a running session's duration is not a duration yet).
+// finished-today count come straight from the list, spend, the median and
+// the total are reductions over it — and the duration figures cover only
+// sessions that have a finished_at (a running session's duration is not a
+// duration yet). The median and the total are over the same set, so one
+// count serves both cards' small print.
 function computeDayStats(sessions: SessionState[], dayStartMs: number): DayStats {
   let running = 0;
   let spendUsd = 0;
   const durations: number[] = [];
-  let done = 0;
-  let gaveUp = 0;
   for (const s of sessions) {
     if (s.status === "running") running++;
     const created = Date.parse(s.created_at);
@@ -147,16 +146,13 @@ function computeDayStats(sessions: SessionState[], dayStartMs: number): DayStats
       const end = Date.parse(s.finished_at);
       if (!Number.isNaN(end)) durations.push(end - created);
     }
-    if (s.complete_status === "done") done++;
-    else if (s.complete_status === "gave_up") gaveUp++;
   }
   return {
     running,
     spendUsd,
     medianMs: median(durations),
-    medianCount: durations.length,
-    done,
-    gaveUp,
+    count: durations.length,
+    totalMs: durations.length > 0 ? durations.reduce((a, b) => a + b, 0) : null,
   };
 }
 
@@ -378,13 +374,11 @@ export function SessionListScreen({ onOpen }: Props) {
 
 // StatStrip is the four cards above the queue health bar
 // (design/sessions-v2.html): Running (of the pool's slots), Spend today,
-// Median duration today, Done vs gave up today. Each value carries the
-// qualifying small print under it — the denominator, the count the median
-// is over — the way the drawing's cards do, so a rolled-up figure never
-// floats free of what it is made of.
+// Median duration today, Total time today. Each value carries the
+// qualifying small print under it — the denominator, the count the
+// duration figures are over — the way the drawing's cards do, so a
+// rolled-up figure never floats free of what it is made of.
 function StatStrip({ stats, poolSize }: { stats: DayStats; poolSize: number | null }) {
-  const doneRatio =
-    stats.done + stats.gaveUp > 0 ? Math.round((stats.done / (stats.done + stats.gaveUp)) * 100) : null;
   return (
     <div className="stats">
       <Card className="stat">
@@ -402,14 +396,14 @@ function StatStrip({ stats, poolSize }: { stats: DayStats; poolSize: number | nu
         <span className="label">Median duration</span>
         <span className="value">
           {stats.medianMs !== null ? formatMs(stats.medianMs) : "—"}
-          {stats.medianCount > 0 && <small>{stats.medianCount} sessions today</small>}
+          {stats.count > 0 && <small>{stats.count} sessions today</small>}
         </span>
       </Card>
       <Card className="stat">
-        <span className="label">Done vs gave up</span>
+        <span className="label">Total time today</span>
         <span className="value">
-          {doneRatio !== null ? `${stats.done} / ${stats.gaveUp}` : "—"}
-          {doneRatio !== null && <small>{doneRatio}% done</small>}
+          {stats.totalMs !== null ? formatMs(stats.totalMs) : "—"}
+          {stats.totalMs !== null && <small>{stats.count} sessions today</small>}
         </span>
       </Card>
     </div>
