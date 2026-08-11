@@ -220,15 +220,16 @@ func runAsk(ctx context.Context, args []string) error {
 	maxTokens := fs.Int("max-tokens", 0, "override max_tokens (default from config)")
 	system := fs.String("system", "", "optional system message")
 	jobType := fs.String("job-type", agentmeta.JobTypeImplementation, "implementation or orchestration (default implementation)")
-	parentAgentType := fs.String("parent-agent-type", agentmeta.ParentAgentUser, "the agent that owns this session, or \"user\"")
-	parentAgentID := fs.String("parent-agent-id", "", "that agent's session id; must be empty when the type is user")
+	parentAgentType := fs.String("parent-agent-type", "", "the launching agent's kind, as a lowercase slug (claude-code, cursor, ...)")
+	parentAgentID := fs.String("parent-agent-id", "", "the launching agent's session id, or the operator's name with -parent-is-user")
+	parentIsUser := fs.Bool("parent-is-user", true, "record this conversation as started by a person, which is the default because harness ask is interactive — pass -parent-is-user=false when scripting it")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if err := agentmeta.ValidateJobType(*jobType); err != nil {
 		return err
 	}
-	if err := agentmeta.ValidateParentAgent(*parentAgentType, *parentAgentID); err != nil {
+	if err := agentmeta.ValidateParent(*parentIsUser, *parentAgentType, *parentAgentID); err != nil {
 		return err
 	}
 	if fs.NArg() < 1 {

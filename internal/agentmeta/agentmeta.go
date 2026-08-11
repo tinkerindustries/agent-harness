@@ -71,24 +71,6 @@ func ValidateParentAgentID(s string) error {
 	return nil
 }
 
-// ValidateParentAgent validates the pair as a whole. An id with no type is an
-// error, and the reserved type "user" must not carry an id.
-func ValidateParentAgent(agentType, agentID string) error {
-	if err := ValidateParentAgentType(agentType); err != nil {
-		return err
-	}
-	if err := ValidateParentAgentID(agentID); err != nil {
-		return err
-	}
-	if agentID != "" && agentType == "" {
-		return fmt.Errorf("agentmeta: parent agent id %q has no type", agentID)
-	}
-	if agentType == ParentAgentUser && agentID != "" {
-		return fmt.Errorf("agentmeta: user sessions carry no parent agent id")
-	}
-	return nil
-}
-
 // ValidateParent validates the full provenance triple as a whole: whether a
 // person started the run directly, the launching agent's kind, and the
 // launching agent's own session id (or the operator's name when parentIsUser

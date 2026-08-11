@@ -39,15 +39,16 @@ func runPublish(ctx context.Context, args []string) error {
 	wait := fs.Bool("wait", false, "block until the final result is published, then print it")
 	waitTimeout := fs.Duration("wait-timeout", 0, "how long -wait blocks for (default: the request's own deadline, or the config default deadline)")
 	jobType := fs.String("job-type", "", "implementation or orchestration (default implementation)")
-	parentAgentType := fs.String("parent-agent-type", "", "the agent that owns this session, or \"user\"")
-	parentAgentID := fs.String("parent-agent-id", "", "that agent's session id; must be empty when the type is user")
+	parentAgentType := fs.String("parent-agent-type", "", "the launching agent's kind, as a lowercase slug (claude-code, cursor, ...)")
+	parentAgentID := fs.String("parent-agent-id", "", "the launching agent's session id")
+	parentIsUser := fs.Bool("parent-is-user", false, "record this run as started by a person rather than an agent; the -parent-agent-id is then that person's name")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if err := agentmeta.ValidateJobType(*jobType); err != nil {
 		return err
 	}
-	if err := agentmeta.ValidateParentAgent(*parentAgentType, *parentAgentID); err != nil {
+	if err := agentmeta.ValidateParent(*parentIsUser, *parentAgentType, *parentAgentID); err != nil {
 		return err
 	}
 	if len(repoFlags) == 0 {
@@ -93,6 +94,7 @@ func runPublish(ctx context.Context, args []string) error {
 		JobType:         *jobType,
 		ParentAgentType: *parentAgentType,
 		ParentAgentID:   *parentAgentID,
+		ParentIsUser:    *parentIsUser,
 	}
 
 	cfg, err := loadConfig()
