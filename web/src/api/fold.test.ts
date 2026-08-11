@@ -135,6 +135,9 @@ describe("applyTaskEvent", () => {
     expect(applyTaskEvent([], 0, "TaskCreate", JSON.stringify({ tasks: [{ content: "", activeForm: "x" }] }))).toEqual({ todos: [], nextId: 0 });
     expect(applyTaskEvent([], 0, "TaskCreate", JSON.stringify({ tasks: [{ content: "a" }] }))).toEqual({ todos: [], nextId: 0 });
     expect(applyTaskEvent([], 0, "TaskCreate", JSON.stringify({ tasks: [{ content: "a", activeForm: "x", status: "bogus" }] }))).toEqual({ todos: [], nextId: 0 });
+    // A JSON literal is not a task payload and must not throw.
+    expect(applyTaskEvent(seed, 1, "TaskCreate", "null")).toEqual({ todos: seed, nextId: 1 });
+    expect(applyTaskEvent(seed, 1, "TaskUpdate", "42")).toEqual({ todos: seed, nextId: 1 });
   });
 });
 

@@ -107,6 +107,9 @@ export function applyTaskEvent(
   } catch {
     return { todos, nextId };
   }
+  // A JSON literal (null, a number, a string) is never a valid task payload;
+  // the property reads below would throw on null, so reject it up front.
+  if (typeof args !== "object" || args === null) return { todos, nextId };
   switch (name) {
     case "TaskCreate": {
       const tasks = (args as { tasks?: unknown }).tasks;
