@@ -123,7 +123,6 @@ interface DayStats {
   medianCount: number;
   done: number;
   gaveUp: number;
-  priceTableDate: string | null;
 }
 
 // computeDayStats rolls the snapshot up into the stat strip's four numbers
@@ -139,7 +138,6 @@ function computeDayStats(sessions: SessionState[], dayStartMs: number): DayStats
   const durations: number[] = [];
   let done = 0;
   let gaveUp = 0;
-  let priceTableDate: string | null = null;
   for (const s of sessions) {
     if (s.status === "running") running++;
     const created = Date.parse(s.created_at);
@@ -151,7 +149,6 @@ function computeDayStats(sessions: SessionState[], dayStartMs: number): DayStats
     }
     if (s.complete_status === "done") done++;
     else if (s.complete_status === "gave_up") gaveUp++;
-    if (!priceTableDate && s.price_table_date) priceTableDate = s.price_table_date;
   }
   return {
     running,
@@ -160,7 +157,6 @@ function computeDayStats(sessions: SessionState[], dayStartMs: number): DayStats
     medianCount: durations.length,
     done,
     gaveUp,
-    priceTableDate,
   };
 }
 
@@ -383,9 +379,9 @@ export function SessionListScreen({ onOpen }: Props) {
 // StatStrip is the four cards above the queue health bar
 // (design/sessions-v2.html): Running (of the pool's slots), Spend today,
 // Median duration today, Done vs gave up today. Each value carries the
-// qualifying small print under it — the denominator, the price table's
-// capture date, the count the median is over — the way the drawing's cards
-// do, so a rolled-up figure never floats free of what it is made of.
+// qualifying small print under it — the denominator, the count the median
+// is over — the way the drawing's cards do, so a rolled-up figure never
+// floats free of what it is made of.
 function StatStrip({ stats, poolSize }: { stats: DayStats; poolSize: number | null }) {
   const doneRatio =
     stats.done + stats.gaveUp > 0 ? Math.round((stats.done / (stats.done + stats.gaveUp)) * 100) : null;
@@ -400,10 +396,7 @@ function StatStrip({ stats, poolSize }: { stats: DayStats; poolSize: number | nu
       </Card>
       <Card className="stat">
         <span className="label">Spend today</span>
-        <span className="value">
-          {formatCost(stats.spendUsd)}
-          {stats.priceTableDate && <small>price table {stats.priceTableDate}</small>}
-        </span>
+        <span className="value">{formatCost(stats.spendUsd)}</span>
       </Card>
       <Card className="stat">
         <span className="label">Median duration</span>
