@@ -20,11 +20,16 @@ type SessionState struct {
 	JobType         string `json:"job_type,omitempty"`
 	ParentAgentType string `json:"parent_agent_type,omitempty"`
 	ParentAgentID   string `json:"parent_agent_id,omitempty"`
-	Model           string `json:"model"`
-	Effort          string `json:"effort"`
-	Workspace       string `json:"workspace"`
-	PermissionMode  string `json:"permission_mode"`
-	Status          string `json:"status"`
+	// ParentIsUser records that a person started this session directly. It is
+	// producer-stamped on the request; absent or false covers a pre-migration
+	// row, and the browser falls back to the legacy parent_agent_type "user"
+	// encoding when rendering.
+	ParentIsUser   bool   `json:"parent_is_user,omitempty"`
+	Model          string `json:"model"`
+	Effort         string `json:"effort"`
+	Workspace      string `json:"workspace"`
+	PermissionMode string `json:"permission_mode"`
+	Status         string `json:"status"`
 	// CompleteStatus is the status argument the model gave Complete ("done"
 	// or "gave_up"), so the session list can tell a finished task from one
 	// the model gave up on (docs/WEB-REDESIGN.md phase 2). Empty covers a
@@ -89,6 +94,7 @@ func BuildSessionState(sess store.Session, summary store.SessionUsageSummary, re
 		JobType:         sess.JobType,
 		ParentAgentType: sess.ParentAgentType,
 		ParentAgentID:   sess.ParentAgentID,
+		ParentIsUser:    sess.ParentIsUser,
 		Model:           sess.Model,
 		Effort:          sess.Effort,
 		Workspace:       sess.Workspace,
