@@ -19,16 +19,16 @@ JetStream handle, publishes a validated work request to the WORK stream; and
 a store write by the handler and a store read by the loop, with the database
 as the boundary.
 
-One binary, `harness`, is every entry point. Two subcommands are long-running
-services and the rest are one-shot CLI:
+One binary, `harness`, is every entry point. One subcommand is a long-running
+service and the rest are one-shot CLI:
 
-- **`harness serve`** — the worker pool, the SQLite store, and the HTTP
-  surface, in a single process. Concurrent sessions are goroutines, not
-  child processes (§4.5).
-- **`harness mcp`** — a separate process on its own port, letting an external
-  agent harness launch and collect runs. It publishes to the same streams and
-  reads the same HTTP API. It holds no database handle, because `serve` is the
-  single writer.
+- **`harness serve`** — the worker pool, the SQLite store, the HTTP
+  surface, and the MCP launch server, in a single process. It serves the web
+  UI, `/api/...`, and `/mcp` on one HTTP port; the embedded MCP service lets
+  an external agent harness launch and collect runs on the same streams and
+  the same HTTP API. It holds no database handle of its own — `serve` is the
+  single writer. Concurrent sessions are goroutines, not child processes
+  (§4.5).
 
 ```mermaid
 flowchart LR
@@ -146,10 +146,12 @@ catalogue and the task, capped per file and in total. Discovery never fails a
 run. Depends on: nothing internal.
 
 ### `internal/mcp`
-The MCP launch server: tools and resources over streamable HTTP, backed by the
-WORK and RESULTS streams and the harness's HTTP API. Imports `store` and
-`hub` for their types only — it renders transcripts fetched over HTTP and opens
-no database. It never touches the system prompt or the tool array.
+The MCP launch server: tools and resources over streamable HTTP, mounted at
+`/mcp` by `harness serve` on its own HTTP server and handed serve's own
+JetStream handle and control token. Backed by the WORK and RESULTS streams and
+the harness's HTTP API. Imports `store` and `hub` for their types only — it
+renders transcripts fetched over HTTP and opens no database. It never touches
+the system prompt or the tool array.
 
 ### `internal/cache`
 The prompt-cache churn diagnostic from [`docs/CACHE.md`](docs/CACHE.md):

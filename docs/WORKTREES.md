@@ -8,7 +8,7 @@ name. `harness worktree` gives each worktree its own slot, and everything
 else in this document is that slot turned into ports and names.
 
 There is only one production stack — `deepseek-harness-prod`, fixed on ports
-8180/8190/4522/8522 (CLAUDE.md). This tooling never allocates a worktree
+8180/4522/8522 (CLAUDE.md). This tooling never allocates a worktree
 onto those ports and never touches that stack.
 
 ## The workflow
@@ -52,8 +52,7 @@ init`, run from inside a linked worktree, allocates the lowest free slot in
 | --- | --- | --- |
 | NATS client port | 4222 | 4600 + N |
 | NATS monitor port | 8222 | 8600 + N |
-| Harness HTTP port | 8080 | 8700 + N |
-| Harness MCP port | 8090 | 8800 + N |
+| Harness HTTP port (web UI, /api/..., and /mcp) | 8080 | 8700 + N |
 | Test broker port | 4422 | 4700 + N |
 | Vite dev server port | 5173 | 5700 + N |
 | Dev compose project | `deepseek-harness` (directory basename) | `deepseek-harness-<slug>` |
@@ -75,8 +74,8 @@ all end in `07` — readable straight out of `docker ps` or `lsof`.
   (including hand edits) alone. Everything below it flows from `.env`
   through the normal channels: `docker-compose.yml`'s and
   `docker-compose.test.yml`'s `${VAR:-default}` substitutions for the
-  compose path, and `config.LoadDotEnv` for `harness serve`/`harness mcp`
-  run directly on the host.
+  compose path, and `config.LoadDotEnv` for `harness serve` (which also
+  mounts /mcp on that same address) run directly on the host.
 
 Nothing else needed a code change to become worktree-aware **except**:
 

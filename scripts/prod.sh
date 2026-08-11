@@ -97,8 +97,9 @@ status)
 	echo "  harness  $(curl -sf --max-time 3 localhost:8180/api/queue || echo unreachable)"
 	# A bare GET of /mcp is a 405 — the endpoint takes POST. Any status code
 	# at all means the server answered, so -f would report a live server as
-	# unreachable.
-	echo "  mcp      HTTP $(curl -so /dev/null --max-time 3 -w '%{http_code}' localhost:8190/mcp || echo unreachable)"
+	# unreachable. /mcp lives on the harness service's own port since the
+	# merge of the MCP launch server into `harness serve`.
+	echo "  mcp      HTTP $(curl -so /dev/null --max-time 3 -w '%{http_code}' localhost:8180/mcp || echo unreachable)"
 	;;
 
 rollback)

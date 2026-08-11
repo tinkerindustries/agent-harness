@@ -2,17 +2,11 @@ package config
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 )
 
 const (
-	// defaultMCPAddr binds loopback only, same reasoning as
-	// defaultHTTPAddr: this port starts sessions that run Bash as root
-	// inside the workspace mount, so it is sensitive even before anyone
-	// reads a transcript through it.
-	defaultMCPAddr = "127.0.0.1:8090"
 	// defaultMCPPermissionCeiling imposes no restriction. permission_mode
 	// is mandatory on every launch, so a caller cannot reach "full" without
 	// naming it; the ceiling is an operator's opt-in limit on top of that.
@@ -26,20 +20,18 @@ const (
 	// `accepted` message before reporting "queued" instead of "running".
 	defaultMCPAcceptedWaitMS = 3_000
 	// defaultHarnessBaseURL matches defaultHTTPAddr: the harness's own
-	// read-only API, reachable on loopback when both processes run on one
-	// host outside compose.
+	// read-only API, reachable on loopback when serve runs outside compose.
 	defaultHarnessBaseURL = "http://127.0.0.1:8080"
 )
 
-// MCPConfig is harness mcp's runtime configuration (docs/DESIGN.md's MCP
-// launch server). It is loaded separately from Config because the two
-// processes are deployed separately — harness mcp holds a NATS connection
-// and nothing else, never the SQLite handle serve owns — and share only
-// NATS_URL.
+// MCPConfig configures the /mcp mount `harness serve` serves on its own HTTP
+// server (docs/DESIGN.md's MCP launch server). It is loaded separately from
+// Config because it is the profile `harness serve` loads to configure its
+// embedded MCP service — there is no standalone MCP process anymore. The MCP
+// service never opens the SQLite handle serve owns; it reaches the store
+// through serve's HTTP API, which is why its base URL defaults to serve's own
+// loopback address.
 type MCPConfig struct {
-	// NATSURL is the JetStream server to publish work requests to and read
-	// results from.
-	NATSURL string
 	// HarnessBaseURL is the harness's read-only HTTP API, used for GETs
 	// this package makes on the caller's behalf (session list, events).
 	// Inside compose this is the harness service's internal address; it is
@@ -51,9 +43,6 @@ type MCPConfig struct {
 	// and wrong inside it (HarnessBaseURL is an internal service name a
 	// browser cannot resolve) — set it explicitly there.
 	HarnessPublicURL string
-	// Addr is where harness mcp's streamable HTTP endpoint listens.
-	// Loopback by default (see defaultMCPAddr).
-	Addr string
 	// PermissionCeiling clamps every launched run's permission mode,
 	// regardless of what a caller requests: a request for "full" against a
 	// ceiling of "default" runs as "default". This is a ceiling, not just
@@ -68,12 +57,13 @@ type MCPConfig struct {
 	// `accepted` message before reporting the request as queued rather
 	// than running.
 	AcceptedWaitMS int
-	// ControlToken is the run-control bearer token, from
-	// DEEPSEEK_CONTROL_TOKEN (docs/RUN-CONTROL.md "Authentication"). Empty
-	// when unset: deepseek_stop then falls back to GET /api/control-token
-	// on HarnessBaseURL, which works because the MCP server normally runs
-	// on the same host as harness serve. An empty token from either source
-	// is an error, never a request sent without a bearer.
+	// ControlToken is the run-control bearer token, handed to the MCP
+	// service directly by `harness serve` at startup — the same value the
+	// HTTP server itself holds (docs/RUN-CONTROL.md "Authentication").
+	// Empty only when set programmatically from a process that skipped the
+	// resolution; deepseek_stop then falls back to GET /api/control-token
+	// on HarnessBaseURL as defensive code. An empty token from either
+	// source is an error, never a request sent without a bearer.
 	ControlToken string
 }
 
@@ -93,13 +83,10 @@ func LoadMCP() (MCPConfig, error) {
 	base := envOr("DEEPSEEK_HARNESS_BASE_URL", defaultHarnessBaseURL)
 
 	return MCPConfig{
-		NATSURL:           envOr("NATS_URL", defaultNATSURL),
 		HarnessBaseURL:    base,
 		HarnessPublicURL:  envOr("DEEPSEEK_HARNESS_PUBLIC_URL", base),
-		Addr:              envOr("DEEPSEEK_MCP_ADDR", defaultMCPAddr),
 		PermissionCeiling: ceiling,
 		FlashModel:        envOr("DEEPSEEK_MCP_FLASH_MODEL", defaultMCPFlashModel),
 		AcceptedWaitMS:    acceptedWaitMS,
-		ControlToken:      os.Getenv("DEEPSEEK_CONTROL_TOKEN"),
 	}, nil
 }

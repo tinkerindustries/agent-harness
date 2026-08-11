@@ -74,9 +74,10 @@ Then:
 docker compose up -d --build
 ```
 
-Three services come up: NATS with JetStream, the harness itself, and the MCP
-launch server. The harness declares its streams and consumer at startup, so
-there is no setup script and an empty broker converges on its own.
+Two services come up: NATS with JetStream and the harness itself. The harness
+declares its streams and consumer at startup, serves the web UI and the
+`/api/...` API, and mounts the MCP launch server at `/mcp` on the same HTTP
+port — there is no setup script and an empty broker converges on its own.
 
 ### Check it worked
 
@@ -90,7 +91,8 @@ you send some work.
 
 Both ports bind to loopback only. Transcripts carry workspace paths, file
 contents, and command output, so treat them as sensitive — and note that the
-MCP port starts sessions that run commands as root inside the workspace mount.
+HTTP port also serves `/mcp`, which starts sessions that run commands as root
+inside the workspace mount.
 
 ## Sending work
 
@@ -119,13 +121,14 @@ in [`docs/DESIGN.md`](docs/DESIGN.md) §4.10.
 
 ### From another agent harness
 
-The MCP server at `http://127.0.0.1:8090/mcp` speaks streamable HTTP and exposes
+The MCP server at `http://127.0.0.1:8080/mcp` — the same HTTP port as the web
+UI and the API — speaks streamable HTTP and exposes
 `deepseek_agent` to launch a run, `deepseek_result` to collect it, and
 `deepseek_runs` to list. Launching returns immediately; collection is safe to
 retry. In Claude Code:
 
 ```sh
-claude mcp add --transport http deepseek-harness http://127.0.0.1:8090/mcp
+claude mcp add --transport http deepseek-harness http://127.0.0.1:8080/mcp
 ```
 
 Set `DEEPSEEK_MCP_PERMISSION_CEILING=readonly` in `.env` to refuse `full` runs
@@ -182,7 +185,7 @@ containers, network and volumes, on separate ports.
 | --- | --- | --- |
 | Compose project | `deepseek-harness` | `deepseek-harness-prod` |
 | Web UI | <http://localhost:8080> | <http://localhost:8180> |
-| MCP | `http://127.0.0.1:8090/mcp` | `http://127.0.0.1:8190/mcp` |
+| MCP | `http://127.0.0.1:8080/mcp` | `http://127.0.0.1:8180/mcp` |
 | NATS client / monitor | 4322 / 8322 | 4522 / 8522 |
 | Workspaces | `workspaces/` | `workspaces-prod/` |
 | Environment | `.env` | `.env.prod` |
@@ -246,8 +249,8 @@ bin/harness serve -dev-frontend http://127.0.0.1:5173
 ## Troubleshooting
 
 **A port is already in use.** NATS on 4222 is a normal thing for a machine to
-have. Set `NATS_CLIENT_PORT`, `NATS_MONITOR_PORT`, `HARNESS_HTTP_PORT`, or
-`HARNESS_MCP_PORT` in `.env` and bring the stack back up.
+have. Set `NATS_CLIENT_PORT`, `NATS_MONITOR_PORT`, or `HARNESS_HTTP_PORT`
+(which serves `/mcp` too) in `.env` and bring the stack back up.
 
 **`{"halted":true}` from `/api/queue`.** The account balance ran out. The pool
 stops taking work rather than burning through redeliveries; top up and restart.

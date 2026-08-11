@@ -23,7 +23,7 @@ shaped that way.
 | Frontend dev server | `npm --prefix web run dev`, against `harness serve -dev-frontend http://127.0.0.1:5173` |
 | Production stack | `scripts/prod.sh promote && scripts/prod.sh deploy` — see [RELEASE.md](RELEASE.md) and the rule below |
 
-Subcommands: `ask`, `run`, `serve`, `mcp`, `publish`, `resume`, `delete`,
+Subcommands: `ask`, `run`, `serve`, `publish`, `resume`, `delete`,
 `export`, `models`, `balance`, `worktree`. `harness help` lists them with
 their arguments.
 
@@ -65,7 +65,7 @@ cutting a version and deploying it to the production stack.
   the surface is something a person leaves open.
 - **A production stack runs on this machine and must not be disturbed.** It is
   the `deepseek-harness-prod` compose project from `docker-compose.prod.yml`,
-  on ports 8180 / 8190 / 4522, and it is very likely mid-run. A bare
+  on ports 8180 / 4522, and it is very likely mid-run. A bare
   `docker compose ...` in this directory only ever touches the dev project, so
   keep it that way: never pass `-f docker-compose.prod.yml`, never
   `docker rmi`/`docker tag` `deepseek-harness:prod`, and leave `.env.prod` and
