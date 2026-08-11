@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { DiffLine, ToolDeniedPayload, ToolResultPayload } from "../../api/types";
+import type { SubTurnGroup } from "../../api/groups";
 import {
   cachePercent,
   elideLines,
   finishedBandText,
   formatRunDuration,
+  groupMatchesQuery,
   pendingWaitLabel,
   toolStat,
   type ToolResultLike,
@@ -118,6 +120,72 @@ describe("cachePercent", () => {
 
   it("renders a zero token total as 0", () => {
     expect(cachePercent(0, 0)).toBe("0");
+  });
+});
+
+describe("groupMatchesQuery", () => {
+  // A group with an assistant block, an Edit call and a Bash result, the
+  // shape the find box searches over.
+  const group = (overrides: Partial<SubTurnGroup> = {}): SubTurnGroup => ({
+    subTurn: 1,
+    seq: 10,
+    blocks: [
+      {
+        type: "assistant",
+        seq: 10,
+        subTurn: 1,
+        reasoning: "the reasoning text",
+        content: "the prose text",
+        toolCalls: [
+          { index: 0, id: "e1", name: "Edit", arguments: '{"file_path":"internal/mcp/launch.go"}' },
+          { index: 1, id: "b1", name: "Bash", arguments: '{"command":"go vet ./..."}' },
+        ],
+        finishReason: "tool_calls",
+      },
+      { type: "tool_result", seq: 11, tool_call_id: "b1", name: "Bash", content: "build output text" },
+    ],
+    tags: { edits: 1, bash: 1, errors: 0, churn: false },
+    phase: { id: 1, index: 1, label: "Do the thing" },
+    ...overrides,
+  });
+  // getToolCall returns the same calls the fold keeps.
+  const assistant = (): Extract<SubTurnGroup["blocks"][number], { type: "assistant" }> => {
+    const a = group().blocks[0];
+    if (a.type !== "assistant") throw new Error("test group must open with an assistant block");
+    return a;
+  };
+  const getToolCall = (id: string) =>
+    id === "e1" ? assistant().toolCalls[0] : id === "b1" ? assistant().toolCalls[1] : undefined;
+
+  it("matches a blank query against everything", () => {
+    expect(groupMatchesQuery(group(), "", getToolCall)).toBe(true);
+    expect(groupMatchesQuery(group(), "   ", getToolCall)).toBe(true);
+  });
+
+  it("searches the assistant's prose and reasoning, case-insensitively", () => {
+    expect(groupMatchesQuery(group(), "PROSE", getToolCall)).toBe(true);
+    expect(groupMatchesQuery(group(), "reasoning", getToolCall)).toBe(true);
+    expect(groupMatchesQuery(group(), "absent", getToolCall)).toBe(false);
+  });
+
+  it("searches the tool call's name and one-line target, not its arguments JSON", () => {
+    // "launch.go" is the Edit's target; "file_path" exists only in the raw
+    // arguments and must not match.
+    expect(groupMatchesQuery(group(), "launch.go", getToolCall)).toBe(true);
+    expect(groupMatchesQuery(group(), "Edit", getToolCall)).toBe(true);
+    expect(groupMatchesQuery(group(), "file_path", getToolCall)).toBe(false);
+  });
+
+  it("searches the tool results, including a denial's rule", () => {
+    expect(groupMatchesQuery(group(), "build output", getToolCall)).toBe(true);
+    const denied: SubTurnGroup = {
+      ...group(),
+      blocks: [
+        group().blocks[0],
+        { type: "tool_denied", seq: 11, tool_call_id: "b1", name: "Bash", rule: "readonly", content: "denied" },
+      ],
+    };
+    expect(groupMatchesQuery(denied, "readonly", getToolCall)).toBe(true);
   });
 });
 
