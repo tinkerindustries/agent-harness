@@ -109,18 +109,18 @@ const requestIDDisallowed = ". \t\n\r*>"
 
 // Validate checks the fields docs/DESIGN.md §4.10 calls out: the
 // repositories to clone, permission_mode, and
-// result_schema as a well-formed schema. A failing request gets a "failed"
-// result and a Term, never a retry — it will never parse or authorize
-// itself into something valid by being redelivered.
+// result_schema as a well-formed schema. The prompt is deliberately not
+// required: a browser start may create the run first and let the operator
+// type the first message into the session (docs/RUN-CONTROL.md "Start").
+// A failing request gets a "failed" result and a Term, never a retry — it
+// will never parse or authorize itself into something valid by being
+// redelivered.
 func (r Request) Validate() error {
 	if r.RequestID == "" {
 		return errors.New("queue: request_id is required")
 	}
 	if strings.ContainsAny(r.RequestID, requestIDDisallowed) {
 		return fmt.Errorf("queue: request_id %q contains a character not allowed in a NATS subject token", r.RequestID)
-	}
-	if strings.TrimSpace(r.Prompt) == "" {
-		return errors.New("queue: prompt is required")
 	}
 	if err := validateRepos(r.Repos); err != nil {
 		return err

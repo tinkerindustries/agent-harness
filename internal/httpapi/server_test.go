@@ -3779,7 +3779,6 @@ func TestStartRunValidationRejectsBadBody(t *testing.T) {
 		wantIn string
 	}{
 		{"not JSON", `{`, "invalid JSON body"},
-		{"empty prompt", `{"prompt":"","repos":[{"url":"https://github.com/org/app.git"}],"permission_mode":"readonly"}`, "queue: prompt is required"},
 		{"no repos", `{"prompt":"do it","repos":[],"permission_mode":"readonly"}`, "queue: repos is required"},
 		{"bad repo url", `{"prompt":"do it","repos":[{"url":"/etc/passwd"}],"permission_mode":"readonly"}`, "must be an http(s), ssh, git"},
 		{"no permission mode", `{"prompt":"do it","repos":[{"url":"https://github.com/org/app.git"}],"permission_mode":""}`, "queue: permission_mode is required"},
@@ -3835,6 +3834,38 @@ func TestStartRunGeneratesRequestID(t *testing.T) {
 	}
 	if pub.requests[0].RequestID != id {
 		t.Fatalf("published RequestID = %q, want the id the 202 named (%q)", pub.requests[0].RequestID, id)
+	}
+}
+
+// TestStartRunAcceptsWithoutPrompt pins that a browser start may create the
+// run without an initial prompt (docs/RUN-CONTROL.md "Start"): the prompt is
+// optional on this surface, so a body that is otherwise complete is accepted
+// and published with an empty Prompt, and the operator types the first
+// message into the session once it appears.
+func TestStartRunAcceptsWithoutPrompt(t *testing.T) {
+	pub := &fakeRunPublisher{}
+	srv, _ := newStartTestServer(t, pub)
+
+	body := `{"repos":[{"url":"https://github.com/org/app.git"}],"permission_mode":"full"}`
+	resp := doWrite(t, srv, http.MethodPost, "/api/runs", body, controlAuth)
+	if resp.StatusCode != http.StatusAccepted {
+		got, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		t.Fatalf("got status %d, want 202 (body %s)", resp.StatusCode, got)
+	}
+	resp.Body.Close()
+	if len(pub.requests) != 1 {
+		t.Fatalf("publisher saw %d requests, want 1", len(pub.requests))
+	}
+	published := pub.requests[0]
+	if published.Prompt != "" {
+		t.Fatalf("published Prompt = %q, want empty for a promptless start", published.Prompt)
+	}
+	if len(published.Repos) != 1 || published.Repos[0].URL != "https://github.com/org/app.git" {
+		t.Fatalf("published repos = %+v, want the submitted repo", published.Repos)
+	}
+	if published.PermissionMode != "full" {
+		t.Fatalf("published PermissionMode = %q, want full", published.PermissionMode)
 	}
 }
 
