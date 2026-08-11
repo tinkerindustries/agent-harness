@@ -2006,7 +2006,6 @@ pre {
   text-transform: uppercase;
 }
 
-.start-prompt,
 .start-schema {
   width: 100%;
   min-width: 0;
@@ -2021,7 +2020,6 @@ pre {
   outline: none;
 }
 
-.start-prompt:focus,
 .start-schema:focus {
   border-color: var(--ring);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent);
