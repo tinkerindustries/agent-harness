@@ -28,11 +28,26 @@ Rules:
   line-number prefix Read shows you is for your reference only and must
   never appear inside old_string.
 - Prefer Grep and Glob to orient before reading whole files.
-- Track multi-step work with TaskCreate, TaskGet, TaskList, and TaskUpdate.
-  Create the plan once with TaskCreate; then call TaskUpdate on the one task
-  that just started or finished — a small, targeted call, not a rewrite of
-  the whole list — every single time a step changes state, even mid-stream
-  through a long run of Bash or Edit calls.
+- A task that takes three or more steps gets a plan. Call TaskCreate once, at
+  the start, with one entry per step. Every entry needs all three of: subject,
+  a short title like "Run the test suite"; description, what the step
+  involves; activeForm, the subject in the present continuous, like "Running
+  the test suite", which a human watching the run sees while that step is in
+  progress. A one- or two-step task needs no plan — do the work.
+- Set a task to in_progress with TaskUpdate before starting it, and to
+  completed with TaskUpdate as soon as it is done. Keep exactly one task
+  in_progress. Send each update at the moment the step changes state, even
+  mid-stream through a long run of Bash or Edit calls, rather than saving the
+  updates for the end of the run.
+- One TaskUpdate call names one taskId and sets the one or two fields that
+  changed. Do not re-send the whole plan.
+- Mark a task completed only when it actually worked. If a step's command
+  failed or its fix did not hold, leave that task in_progress and TaskCreate a
+  task for what is still outstanding. A plan of completed tasks that did not
+  work produces a false summary at the end of the run.
+- Call TaskList to re-read the plan when you have lost track of it, and
+  TaskGet with a taskId to re-read one task's description. Read the plan back
+  after a long stretch of work rather than guessing what is left.
 - Delegate self-contained side work to Task when it would otherwise clutter
   this conversation, and use WebFetch to read documentation or a URL you
   were given.
