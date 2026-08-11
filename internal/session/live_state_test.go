@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
+	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 )
@@ -107,5 +108,121 @@ func TestTodoWritePersistsPlanToSessionRow(t *testing.T) {
 
 	if sess.Summary != "wired it up" {
 		t.Fatalf("expected the Complete summary on the row, got %q", sess.Summary)
+	}
+}
+
+// TestSubTurnPublishesFreshPlanAndRecentToolCalls proves the session_state
+// event runSubTurn publishes after a sub-turn carries that same sub-turn's
+// TodoWrite plan and tool-call roll, not the stale value sess held when
+// runSubTurn was called. persistLiveState writes the fresh roll to the
+// store; publishState used to publish the sess parameter as received,
+// which never picked that write up in memory, so every sub-turn's live
+// push to the browser silently reverted the in-flight card's plan and
+// "Last calls" panel to empty until the next full reconnect re-read the
+// row from the store (docs/WEB-REDESIGN.md phase 3's promise that "the
+// state publish that follows carries the new plan on the same sub-turn").
+func TestSubTurnPublishesFreshPlanAndRecentToolCalls(t *testing.T) {
+	const planArgs = `{"todos":[{"content":"Wire it up","status":"in_progress","activeForm":"Wiring"}]}`
+	var streamCall int32Counter
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var probe struct {
+			Stream bool `json:"stream"`
+		}
+		_ = json.Unmarshal(body, &probe)
+		if !probe.Stream {
+			resp := deepseek.ChatCompletionResponse{
+				Choices: []deepseek.Choice{{Message: deepseek.Message{Role: deepseek.RoleAssistant, Content: "n/a"}, FinishReason: deepseek.FinishStop}},
+			}
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		idx := streamCall.next()
+		w.Header().Set("Content-Type", "text/event-stream")
+		switch idx {
+		case 0:
+			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
+				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{
+					Role: "assistant",
+					ToolCalls: []deepseek.ToolCallDelta{
+						{Index: 0, ID: "call_00_todo", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "TodoWrite", Arguments: planArgs}},
+						{Index: 1, ID: "call_01_bash", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "Bash", Arguments: `{"command":"echo hi"}`}},
+					},
+				}}},
+			})
+			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
+				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishToolCalls)}},
+				Usage:   &deepseek.Usage{PromptTokens: 300, PromptCacheMissTokens: 300, CompletionTokens: 5},
+			})
+		default:
+			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
+				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{
+					Role:      "assistant",
+					ToolCalls: []deepseek.ToolCallDelta{{Index: 0, ID: "call_10_complete", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "Complete", Arguments: `{"summary":"wired it up","status":"done"}`}}},
+				}}},
+			})
+			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
+				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishToolCalls)}},
+				Usage:   &deepseek.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
+			})
+		}
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		w.(http.Flusher).Flush()
+	}))
+	defer srv.Close()
+
+	r := newTestRunner(t, srv.URL)
+	r.Hub = hub.New()
+	statesCh, cancel := r.Hub.SubscribeList()
+
+	var published []hub.SessionState
+	drained := make(chan struct{})
+	go func() {
+		for s := range statesCh {
+			published = append(published, s)
+		}
+		close(drained)
+	}()
+
+	ws := t.TempDir()
+	res, err := r.Run(t.Context(), RunOptions{
+		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "wire it up",
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Status != store.StatusOK {
+		t.Fatalf("unexpected status: %s", res.Status)
+	}
+	// Run only returns once every sub-turn's publishState call for this
+	// session has already happened, so every event is in statesCh by now.
+	cancel()
+	<-drained
+
+	// The first sub-turn's publish (right after the TodoWrite+Bash sub-turn
+	// committed, before Complete's sub-turn) must already carry the plan
+	// and the Bash call — not empty, and not the finished row's own later
+	// state, which this asserts against by checking the still-running one.
+	var sawLiveWithPlan bool
+	for _, s := range published {
+		if s.ID != res.SessionID || s.Status != store.StatusRunning {
+			continue
+		}
+		if len(s.Plan) == 0 || len(s.RecentToolCalls) == 0 {
+			continue
+		}
+		var todos []store.StatusTodo
+		if err := json.Unmarshal(s.Plan, &todos); err != nil {
+			t.Fatalf("decode published plan %q: %v", s.Plan, err)
+		}
+		if len(todos) == 1 && todos[0].Content == "Wire it up" &&
+			len(s.RecentToolCalls) == 1 && s.RecentToolCalls[0].Name == "Bash" {
+			sawLiveWithPlan = true
+		}
+	}
+	if !sawLiveWithPlan {
+		t.Fatalf("no running-status session_state publish carried the sub-turn's plan and tool-call roll: %+v", published)
 	}
 }

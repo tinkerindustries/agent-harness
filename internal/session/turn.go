@@ -184,6 +184,15 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	// runner sees every tool call and holds the store handle; tools.Executor
 	// never does.
 	r.persistLiveState(ctx, sess, toolCalls)
+	// sess is the value runSubTurn was called with and was never updated
+	// in memory with the plan/roll persistLiveState just wrote, so
+	// publishing it as-is would push a session_state event that reverts
+	// the browser's in-flight card to whatever it looked like before this
+	// sub-turn. Reload it, the same way finishRun/fail/compact do before
+	// their own publishState calls.
+	if updated, err := r.Store.GetSession(ctx, sess.ID); err == nil {
+		sess = updated
+	}
 	r.publishState(ctx, sess)
 
 	if progress := progressFunc(r, opts); progress != nil {
