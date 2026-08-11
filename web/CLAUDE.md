@@ -31,8 +31,8 @@ What the screens are, since the redesign (docs/WEB-REDESIGN.md):
   carries a one-line subtitle: the plan ratio and the model's summary.
   Outcomes render as `DONE` / `GAVE UP` / `STOPPED` (`statusBadge.ts`), not one
   green OK. A stat strip above the queue health bar — Running (of the pool's
-  slots, from `worker.pool_size`), Spend today, Median duration today, Done vs
-  gave up today — is a client-side reduction over the same session list, with
+  slots, from `worker.pool_size`), Spend today, Median duration today, Total
+  time today — is a client-side reduction over the same session list, with
   no backend field behind it. The finished table's columns run Status, Session,
   Elapsed, Cost, Model, Sub-turns, Cache: the two numbers an operator
   scans for sit right after Session, where they stay visible before any column
