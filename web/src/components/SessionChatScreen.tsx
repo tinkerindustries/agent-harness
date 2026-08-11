@@ -219,10 +219,15 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
   // renderSteer is reference-stable across live-only deltas — it changes
   // only when the ledger or the wait primitives do — so the memoised
   // TurnList bails out on every token (web/CLAUDE.md: preserve the
-  // group-granularity memoisation).
+  // group-granularity memoisation). runEnded joins the deps: a steer still
+  // pending when the run ends will never be applied, and the message's
+  // state line must stop claiming it is waiting (the live phase 5 run
+  // exposed a forever-pending steer on a finished run).
   const renderSteer = useCallback(
-    (block: SteerBlock) => <SteerMessage key={block.seq} block={block} sentAt={sentAt.get(block.seq)} wait={wait} />,
-    [sentAt, wait],
+    (block: SteerBlock) => (
+      <SteerMessage key={block.seq} block={block} sentAt={sentAt.get(block.seq)} wait={wait} runEnded={!running} />
+    ),
+    [sentAt, wait, running],
   );
 
   // What the run is doing right now, for the confirm strip's sentence

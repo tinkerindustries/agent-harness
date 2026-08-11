@@ -152,3 +152,88 @@ change to the agent loop, publish a run and watch it: `harness publish -repo
 browser. That costs
 tokens, so it is the check for changes that could not fail any other way —
 prompt wording, tool descriptions, the fold.
+
+## The browser pass over the session pages (phase 5)
+
+The session pages were built against mockups and fabricated sessions; the
+phase 5 pass drives them against a **live run** — a real session, streaming
+over SSE, that you type into and watch respond — and it is the only check
+that exercises the steer/stop flows end to end. It costs real tokens and
+needs a real DeepSeek key in the harness's settings table
+(`harness config set deepseek.api_key <key>`), so it is a manual, occasional
+pass rather than part of the suites.
+
+### Standing the stack up
+
+1. Isolate: `harness worktree init -slug <slug> -standalone`, then
+   `docker compose up -d --build`. The image bakes the frontend and the
+   binary, so a plain `up -d` restarts the old code.
+2. Set the key into the isolated stack's settings table:
+   `docker compose exec harness harness config set deepseek.api_key <key>`.
+   The resolver reads it per request, so no restart is needed.
+3. The harness container is reachable at `http://<container-ip>:8080` from
+   the machine driving the browser (or at the worktree's published port on
+   the host). `docker inspect` for the IP, or `docker compose port harness
+   8080` for the host side.
+
+### The two traps
+
+- **Vite's dev server does not stream SSE.** `web/vite.config.ts`'s `/api`
+  proxy buffers the response, so the transcript never loads past the initial
+  fetch on a page served by `npm run dev`. Drive the browser against the
+  **built image** (step 1's `--build`), never the dev server.
+- **`scripts/test.sh`'s broker port is unreachable from inside a container.**
+  The test broker publishes onto the host's loopback, which a container that
+  shares the docker socket does not share. When running `go test ./...` from
+  such a container, start a `nats-server` locally on the test broker port
+  (`HARNESS_TEST_NATS_PORT`, default 4422) instead, and run the suite
+  directly — `scripts/test.sh` itself will just fail to reach its broker.
+
+### The sequence
+
+The interactive page, against a run you start from the browser:
+
+1. Start a run from the session list's **start form** (never the CLI or MCP —
+   the fork decision is `parent_is_user`, producer-stamped). Give it a task
+   long enough to steer, and a permission mode you are comfortable with.
+2. The form opens the session page. Confirm it is the **chat** page: plan
+   rail on the right, composer along the bottom, no provenance strip.
+3. Watch the first turns stream in — reasoning appearing, a tool call
+   opening, output arriving — and confirm the stream stays pinned to the
+   tail. Note: sub-turns commit atomically, so turns appear at batch
+   granularity; only a running Bash call's stdout streams token by token.
+4. Type a message into the composer and send it with Enter.
+5. Confirm it appears immediately as a sent message in the **pending** state,
+   and that the queued line above the composer says so.
+6. Keep watching until the matching `steer_applied` arrives, and confirm the
+   message flips to **delivered** and names a sub-turn.
+7. Confirm the sub-turn it names is the one the run actually applied it in —
+   through the API, not just the screen:
+   `GET /api/sessions/{id}/events` — the `steer_applied` event (matched to
+   your `steer_message` by `source_seq`) must sit after the previous
+   sub-turn's tool results and before the named sub-turn's `turn_started`.
+8. Scroll up mid-run: following stops and the jump pill appears; click it
+   and confirm following resumes (the view glides to the tail and stays).
+9. Stop the run from the page: the confirmation strip, then *stopping…*,
+   then the terminal badge (CANCELLED) and the finished band. Check the
+   session row too: `GET /api/sessions/{id}` must read `"status":
+   "cancelled"` with a `finished_at` — a stop that leaves the row running is
+   a bug (phase 5 found and fixed exactly that).
+
+The watch page, against a run another agent started:
+
+1. Launch a run the way an agent would — `harness publish -repo <url>
+   -permission-mode readonly -parent-agent-type claude-code
+   -parent-agent-id <id> "task"` — so `parent_is_user` is false.
+2. Open it while it is running. Confirm the watch page renders: provenance
+   strip naming the launcher, navigator rail on the left with the find box,
+   filters and the plan-as-phases with one tick per sub-turn, the footer
+   saying what the run is doing, and **no way to send it a message** (not
+   even a disabled composer).
+3. Confirm the launching agent's instruction renders as its own message at
+   the top of the stream: `.msg-user` reading "from claude-code · delivered
+   · sub-turn 1".
+4. Stop it from the page and confirm the CANCELLED terminal state.
+
+Tear the stack down afterwards: stop any run still going, then
+`harness worktree rm <slug>`.

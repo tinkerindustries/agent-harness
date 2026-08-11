@@ -51,13 +51,23 @@ interface Props {
   sentAt?: number;
   // What the pending message is waiting on, from the live view.
   wait: SteerWait;
+  // The run is over. A still-pending steer will never be applied — the loop
+  // delivers at the next sub-turn boundary, and there is no next boundary —
+  // so the pending vocabulary ("waiting for the current tool call to
+  // finish") would claim a boundary is coming that is not, and a forever
+  // pulsing dot would read as a wedged run. The live phase 5 run exposed
+  // exactly this: a steer sent while the final sub-turn's request was in
+  // flight sat pending on a finished run. The state line then says the one
+  // true thing — the message was accepted, and the run ended before it
+  // reached the model.
+  runEnded: boolean;
 }
 
 // SteerMessage re-renders once a second while a pending steer's count is
 // showing. It is deliberately NOT memoised — the ticking is the whole point
 // — but its parent (the memoised TurnList) bails out on every live-only
 // delta, so the tick never re-renders the conversation, only this message.
-export function SteerMessage({ block, sentAt, wait }: Props) {
+export function SteerMessage({ block, sentAt, wait, runEnded }: Props) {
   const now = useNow(1000);
 
   if (block.state === "delivered") {
@@ -72,6 +82,16 @@ export function SteerMessage({ block, sentAt, wait }: Props) {
   }
 
   const age = sentAt !== undefined ? `sent ${formatDuration(Math.max(0, now - sentAt))} ago` : null;
+  if (runEnded) {
+    return (
+      <div className="msg msg-user">
+        <div className="body">{block.text}</div>
+        <div className="state state-undelivered">
+          {age ? `${age} · ` : ""}not delivered — the run ended before this message reached the model
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="msg msg-user">
       <div className="body">{block.text}</div>

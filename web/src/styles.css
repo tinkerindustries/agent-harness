@@ -2571,6 +2571,15 @@ body.app #root {
 .state-pending {
   color: var(--status-gaveup);
 }
+/* A steer the run never applied because it ended first (phase 5's live
+   finding: a steer sent while the final sub-turn's request was in flight).
+   The pending vocabulary — "waiting for the current tool call to finish" —
+   would claim a boundary is coming that is not. The gaveup colour stays
+   (the message was accepted, not delivered) but the pulse dot goes, because
+   nothing is in motion. */
+.state-undelivered {
+  color: var(--status-gaveup);
+}
 /* A sent message whose POST itself failed (design/session-states.html "the
    POST itself failed — nothing landed in the log"): the failed left rule and
    state colour, the server's error in the state line, and the Retry and

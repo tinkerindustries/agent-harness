@@ -30,6 +30,21 @@ export const ErrorBlock = memo(function ErrorBlock({ block }: { block: Extract<B
   );
 });
 
+// InstructionBlock renders the launching agent's instruction as a plain
+// top-level block — the default, used where no page has a message-shaped
+// rendering of it (the chat page and the perf harnesses). The watch page
+// replaces it with its .msg-user rendering through TurnTranscript's
+// renderInstruction (design/session-watch.html: "from claude-code ·
+// delivered · sub-turn 1").
+export const InstructionBlock = memo(function InstructionBlock({ block }: { block: Extract<Block, { type: "instruction" }> }) {
+  return (
+    <section className="block block-instruction">
+      <div className="block-label">instruction</div>
+      <p className="block-text">{block.text}</p>
+    </section>
+  );
+});
+
 // SteerBlock renders an operator steer (docs/RUN-CONTROL.md "The frontend"):
 // an operator instruction the loop will fold into the model's next request.
 // It is deliberately styled distinctly from the model's own turns — a

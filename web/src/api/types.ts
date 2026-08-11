@@ -101,6 +101,15 @@ export interface SessionStartedPayload {
   // any. Sent separately so the fold can lift it into its own block without
   // parsing the message text.
   skill_catalogue?: string;
+  // task is the launching agent's own instruction — the "Task:\n..." tail of
+  // opening_message — when the run was created with one (an agent-started
+  // run; a browser start is created empty and waits for its first message).
+  // Carried separately, the way skill_catalogue is, so the watch page can
+  // render the launcher's instruction as its own message without parsing
+  // the message text (design/session-watch.html). Only the run-creating
+  // session_started carries it; a resume instruction is a continuation, not
+  // the launch instruction.
+  task?: string;
 }
 
 export interface TurnStartedPayload {

@@ -23,6 +23,7 @@ export function TurnTranscript({
   filter,
   getToolCall,
   renderSteer,
+  renderInstruction,
   renderRunFinished,
   textQuery,
 }: {
@@ -37,6 +38,13 @@ export function TurnTranscript({
   // (the chat screen memoises it), or the memoised TurnList below would
   // re-render the whole conversation on every token.
   renderSteer?: (block: SteerBlock) => ReactNode;
+  // renderInstruction replaces the instruction block card with the watch
+  // page's .msg-user rendering (phase 5, design/session-watch.html: the
+  // launching agent's instruction attributed to the launcher, "from
+  // claude-code · delivered · sub-turn 1"). Absent — the chat page and the
+  // perf harnesses — the block keeps its FrozenBlock rendering. Same
+  // reference-stability rule as renderSteer.
+  renderInstruction?: (block: Extract<Block, { type: "instruction" }>) => ReactNode;
   // renderRunFinished replaces the run_finished block card with the watch
   // page's result panel (phase 4): for a run another agent launched, the
   // result payload is what the parent gets back, rendered at the end of the
@@ -57,6 +65,7 @@ export function TurnTranscript({
         filter={filter}
         getToolCall={getToolCall}
         renderSteer={renderSteer}
+        renderInstruction={renderInstruction}
         renderRunFinished={renderRunFinished}
         textQuery={textQuery}
       />
@@ -81,6 +90,7 @@ export const TurnList = memo(function TurnList({
   filter,
   getToolCall,
   renderSteer,
+  renderInstruction,
   renderRunFinished,
   textQuery,
 }: {
@@ -88,6 +98,7 @@ export const TurnList = memo(function TurnList({
   filter: TranscriptFilter;
   getToolCall: (id: string) => ToolCallPayload | undefined;
   renderSteer?: (block: SteerBlock) => ReactNode;
+  renderInstruction?: (block: Extract<Block, { type: "instruction" }>) => ReactNode;
   renderRunFinished?: (block: Extract<Block, { type: "run_finished" }>) => ReactNode;
   textQuery?: string;
 }) {
@@ -102,6 +113,10 @@ export const TurnList = memo(function TurnList({
           // The chat page's sent-message rendering; the watch page and the
           // perf harnesses keep the block below.
           renderSteer(item.block)
+        ) : item.block.type === "instruction" && renderInstruction ? (
+          // The watch page's launcher-instruction rendering (phase 5); the
+          // chat page and the perf harnesses keep the block below.
+          renderInstruction(item.block)
         ) : item.block.type === "run_finished" && renderRunFinished ? (
           // The watch page's result panel; the chat page and the perf
           // harnesses keep the block below.
@@ -109,7 +124,7 @@ export const TurnList = memo(function TurnList({
         ) : (
           // Top-level blocks are outside the chips' subject matter: the
           // filters choose which turns to show, and opening / skills /
-          // run_finished / error / steer stay no matter what.
+          // run_finished / error / steer / instruction stay no matter what.
           <FrozenBlock key={`${item.block.seq}-${item.block.type}`} block={item.block} />
         ),
       )}

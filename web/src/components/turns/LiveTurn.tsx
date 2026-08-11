@@ -66,11 +66,15 @@ function LiveTurn({ turn }: { turn: LiveTurn }) {
 
 // toolRows renders tool rows with the live vocabulary — a pulsing dot for
 // the glyph and a "running" timing, the design's sub-turn 43. pendingTools,
-// when given, supplies the streamed stdout for the calls it knows; a
+// when given, supplies the streamed stdout for the calls it knows — and the
+// call's own start stamp, so a running row can count its own age ("running
+// · 42s", design/session-watch.html) the way the footer's nowline does. A
 // streaming turn's announced calls have not started running yet and carry
-// none. Two or more rows read as a set, wrapped in a .toolset.
+// neither. Two or more rows read as a set, wrapped in a .toolset.
 function toolRows(calls: ToolCallPayload[], pendingTools: Map<string, PendingTool> | null): React.ReactNode {
-  const rows = calls.map((call) => <LiveToolRow key={call.id} call={call} stdout={pendingTools?.get(call.id)?.stdout ?? ""} />);
+  const rows = calls.map((call) => (
+    <LiveToolRow key={call.id} call={call} pending={pendingTools?.get(call.id)} />
+  ));
   if (rows.length >= 2) {
     return (
       <div className="toolset">
@@ -83,10 +87,12 @@ function toolRows(calls: ToolCallPayload[], pendingTools: Map<string, PendingToo
 }
 
 // LiveToolRow is one running tool call (design/session-chat.html's
-// .tool.tool-live): open by default, pulsing dot, target, "running", and the
+// .tool.tool-live): open by default, pulsing dot, target, "running" plus
+// the wall time so far when the fold knows when the call started, and the
 // streamed stdout as plain preformatted text when there is any.
-function LiveToolRow({ call, stdout }: { call: ToolCallPayload; stdout: string }) {
+function LiveToolRow({ call, pending }: { call: ToolCallPayload; pending?: PendingTool }) {
   const target = toolDetail(call);
+  const age = pending?.startedAt ? formatElapsed(Date.now() - Date.parse(pending.startedAt)) : "";
   return (
     <details className="tool tool-live" open>
       <summary>
@@ -95,11 +101,11 @@ function LiveToolRow({ call, stdout }: { call: ToolCallPayload; stdout: string }
         </span>
         <span className="name">{call.name}</span>
         {target && <span className="target">{target}</span>}
-        <span className="timing">running</span>
+        <span className="timing">running{age ? ` · ${age}` : ""}</span>
       </summary>
-      {stdout && (
+      {pending?.stdout && (
         <pre className="tool-out">
-          {stdout}
+          {pending.stdout}
           <span className="cursor" />
         </pre>
       )}

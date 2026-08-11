@@ -32,6 +32,14 @@ import type {
 export type Block =
   | { type: "opening"; seq: number; text: string }
   | { type: "skills"; seq: number; text: string }
+  // The launching agent's own instruction (design/session-watch.html's
+  // .msg-user "from claude-code · delivered · sub-turn 1"): the task tail of
+  // the opening message, carried separately by session_started so the watch
+  // page can render it as its own message attributed to the launcher without
+  // parsing the message text. Absent for a run created without a task (a
+  // browser start waits for its first message) and for a resume
+  // continuation.
+  | { type: "instruction"; seq: number; text: string }
   | {
       type: "assistant";
       seq: number;
@@ -83,6 +91,15 @@ export interface LiveTurn {
 export interface PendingTool {
   call: ToolCallPayload;
   stdout: string;
+  // startedAt is when the call began running: the created_at of the
+  // turn_finished event that moved the call from the streaming turn into
+  // the pending set — the closest the log gets to the moment the tool
+  // started executing (the calls run right after the turn froze). The
+  // watch page's footer counts the running tool's own age from it
+  // (design/session-watch.html's "1m 04s" under the tool name); the
+  // tool_call event's created_at cannot express that, because a whole
+  // batch of events shares one instant and the calls run after it.
+  startedAt: string;
 }
 
 export interface LiveView {
@@ -246,6 +263,11 @@ export class FoldState {
           ? p.opening_message.replace(catalogue + "\n", "").replace(catalogue, "")
           : p.opening_message;
         this.pushBlock({ type: "opening", seq: ev.seq, text });
+        // The launching agent's instruction, when the run was created with
+        // one: its own block after the opening message, exactly where the
+        // design draws it (design/session-watch.html) — the launcher's words
+        // rendered as a message, not a summary line inside the opening card.
+        if (p.task) this.pushBlock({ type: "instruction", seq: ev.seq, text: p.task });
         break;
       }
       case "turn_started": {
@@ -296,7 +318,7 @@ export class FoldState {
             reasoningElapsedMs: p.elapsed_ms,
           });
           for (const call of turn.toolCalls) {
-            this.live.pendingTools.set(call.id, { call, stdout: "" });
+            this.live.pendingTools.set(call.id, { call, stdout: "", startedAt: ev.created_at });
           }
           this.live.turn = null;
         }

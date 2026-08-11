@@ -77,18 +77,26 @@ export function WatchFooter({
   // What is running right now (design/session-watch.html's .nowline): the
   // last pending tool call, the streaming turn's thinking, or the loop
   // between turns. The plan item it sits under is the tail phase's label —
-  // the same phase ref the rail builds its disclosures from.
+  // the same phase ref the rail builds its disclosures from. ageMs is the
+  // running thing's OWN age — the pending tool's start stamp from the fold,
+  // or the streaming turn's — never the run's elapsed, which the status
+  // line below owns (design/session-watch.html: "1m 04s" under the tool,
+  // "4m 12s elapsed" in the status line). Null between sub-turns, where
+  // there is nothing to age.
   const activity = useMemo(() => {
     let name = "";
     let arg = "";
+    let ageMs: number | null = null;
     if (live.pendingTools.size > 0) {
-      const calls = [...live.pendingTools.values()].map((p) => p.call);
-      const last = calls[calls.length - 1];
+      const pending = [...live.pendingTools.values()];
+      const last = pending[pending.length - 1].call;
       const full = getToolCall(last.id) ?? last;
       name = full.name;
       arg = toolDetail(full);
+      ageMs = now - Date.parse(pending[pending.length - 1].startedAt);
     } else if (live.turn) {
       name = "Thinking";
+      ageMs = now - Date.parse(live.turn.startedAt);
     } else {
       name = "Between sub-turns";
     }
@@ -100,8 +108,8 @@ export function WatchFooter({
         break;
       }
     }
-    return { name, arg, phaseLabel };
-  }, [live.pendingTools, live.turn, items, getToolCall]);
+    return { name, arg, phaseLabel, ageMs };
+  }, [live.pendingTools, live.turn, items, getToolCall, now]);
 
   return (
     <div className="footer footer-watch">
@@ -136,8 +144,8 @@ export function WatchFooter({
             <span className="name">{activity.name}</span>
             {activity.arg && <span className="arg">{activity.arg}</span>}
             <span className="under">
-              {formatRunDuration(elapsedMs)}
-              {activity.phaseLabel ? ` · under “${activity.phaseLabel}”` : ""}
+              {activity.ageMs !== null ? formatRunDuration(activity.ageMs) : ""}
+              {activity.phaseLabel ? `${activity.ageMs !== null ? " · " : ""}under “${activity.phaseLabel}”` : ""}
             </span>
             <span className="spacer" />
             <button type="button" className={`follow${following ? "" : " follow-off"}`} onClick={onToggleFollow}>

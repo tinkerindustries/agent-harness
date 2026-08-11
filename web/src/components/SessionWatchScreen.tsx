@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionState } from "../api/types";
+import type { Block } from "../api/fold";
 import type { TranscriptFilter } from "../api/groups";
 import type { TranscriptSnapshot } from "../api/transcriptStore";
 import { TurnTranscript } from "./turns/TurnTranscript";
@@ -146,6 +147,27 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
     [who],
   );
 
+  // --- the launching agent's instruction (design/session-watch.html's
+  // .msg-user) ---
+  // The instruction that started this run renders as its own message at the
+  // top of the stream, attributed to the launcher: the same block shape the
+  // chat page gives an operator's sent message, with the "from <agent>"
+  // attribution in the state line (the fold's instruction block carries the
+  // text; the launch is always the first user message, so it is delivered
+  // at sub-turn 1). Reference-stable across live-only deltas, like the
+  // result panel above.
+  const renderInstruction = useCallback(
+    (block: Extract<Block, { type: "instruction" }>) => (
+      <div className="msg msg-user" key={`${block.seq}-instruction`}>
+        <div className="body">{block.text}</div>
+        <div className="state">
+          from {who} · delivered · sub-turn 1
+        </div>
+      </div>
+    ),
+    [who],
+  );
+
   // The plan-mini band (design/session-watch.html's narrow-width fallback):
   // which plan item is running, in one line above the stream, shown only
   // when the rail itself is hidden at narrow widths.
@@ -281,6 +303,7 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
               live={snapshot.live}
               filter={filter}
               getToolCall={snapshot.getToolCall}
+              renderInstruction={renderInstruction}
               renderRunFinished={renderRunFinished}
               textQuery={query}
             />
