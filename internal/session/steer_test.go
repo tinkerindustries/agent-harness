@@ -15,7 +15,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 )
 
-// runSteerScenario drives a two-sub-turn run — sub-turn 1 makes a TodoWrite
+// runSteerScenario drives a two-sub-turn run — sub-turn 1 makes a TaskList
 // call so the loop continues, sub-turn 2 answers plainly and ends the run —
 // against a fake API that appends the given steer_message events while the
 // first request is still in flight, the exact shape a mid-run steer takes
@@ -59,7 +59,7 @@ func runSteerScenario(t *testing.T, sessionID string, steers []store.SteerMessag
 			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
 				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []deepseek.ToolCallDelta{{Index: 0, ID: "call_steer_0", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "TodoWrite", Arguments: `{"todos":[]}`}}},
+					ToolCalls: []deepseek.ToolCallDelta{{Index: 0, ID: "call_steer_0", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}}},
 				}}},
 			})
 			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{

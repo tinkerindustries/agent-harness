@@ -732,7 +732,7 @@ func alwaysToolCallServer(t *testing.T) *httptest.Server {
 		}
 		writeChunk(deepseek.ChatCompletionChunk{Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{
 			Role:      "assistant",
-			ToolCalls: []deepseek.ToolCallDelta{{Index: 0, ID: "call-1", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "TodoWrite", Arguments: `{"todos":[]}`}}},
+			ToolCalls: []deepseek.ToolCallDelta{{Index: 0, ID: "call-1", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}}},
 		}}}})
 		finish := deepseek.FinishToolCalls
 		writeChunk(deepseek.ChatCompletionChunk{

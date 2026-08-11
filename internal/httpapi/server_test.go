@@ -583,9 +583,9 @@ func TestRequestStatusMidFlight(t *testing.T) {
 	mustCreateSession(t, st, "sess-1", time.Now().UTC().Add(-time.Minute))
 	appendAndPublish(t, st, h, "sess-1", []store.EventInput{
 		{Kind: store.KindTurnStarted, Payload: store.TurnStartedPayload{SubTurn: 3}},
-		{Kind: store.KindToolCall, Payload: store.ToolCallPayload{ID: "call-todo", Name: "TodoWrite",
-			Arguments: `{"todos":[{"content":"fix it","status":"in_progress","activeForm":"Fixing it"}]}`}},
-		{Kind: store.KindToolResult, Payload: store.ToolResultPayload{ToolCallID: "call-todo", Name: "TodoWrite", Content: "ok"}},
+		{Kind: store.KindToolCall, Payload: store.ToolCallPayload{ID: "call-create", Name: "TaskCreate",
+			Arguments: `{"tasks":[{"content":"fix it","status":"in_progress","activeForm":"Fixing it"}]}`}},
+		{Kind: store.KindToolResult, Payload: store.ToolResultPayload{ToolCallID: "call-create", Name: "TaskCreate", Content: "[~] #1 fix it"}},
 		{Kind: store.KindToolCall, Payload: store.ToolCallPayload{ID: "call-bash", Name: "Bash", Arguments: `{"command":"go test ./..."}`}},
 		{Kind: store.KindUsage, Payload: store.UsagePayload{SubTurn: 3, PromptCacheMissTokens: 200, CompletionTokens: 10, CostUSD: 0.003}},
 	})
