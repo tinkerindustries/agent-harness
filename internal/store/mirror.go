@@ -42,6 +42,7 @@ type sessionJSON struct {
 	JobType         string          `json:"job_type"`
 	ParentAgentType string          `json:"parent_agent_type,omitempty"`
 	ParentAgentID   string          `json:"parent_agent_id,omitempty"`
+	ParentIsUser    bool            `json:"parent_is_user,omitempty"`
 	Model           string          `json:"model"`
 	Effort          string          `json:"effort"`
 	Thinking        bool            `json:"thinking"`
@@ -69,6 +70,7 @@ func toSessionJSON(sess Session) sessionJSON {
 		JobType:         sess.JobType,
 		ParentAgentType: sess.ParentAgentType,
 		ParentAgentID:   sess.ParentAgentID,
+		ParentIsUser:    sess.ParentIsUser,
 		Model:           sess.Model,
 		Effort:          sess.Effort,
 		Thinking:        sess.Thinking,
