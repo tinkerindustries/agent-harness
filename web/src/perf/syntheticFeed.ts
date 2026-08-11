@@ -142,7 +142,7 @@ export function buildSyntheticHistory(targetBlocks: number, sessionId: string, s
       callId = `call_${turn}`;
       push("tool_call", { index: callIndex, id: callId, name: "Read", arguments: JSON.stringify({ file_path: "src/big.ts" }) });
     }
-    push("turn_finished", { finish_reason: callId ? "tool_calls" : "stop" });
+    push("turn_finished", { finish_reason: callId ? "tool_calls" : "stop", elapsed_ms: 9900 });
     blockCount++; // the assistant block
 
     if (callId) {
@@ -228,7 +228,7 @@ export function liveEventGenerator(sessionId: string, seq: SeqSource): Generator
       });
       const callId = `live_call_${turn}`;
       yield push("tool_call", { index: 0, id: callId, name: "Bash", arguments: JSON.stringify({ command: "npm run build" }) });
-      yield push("turn_finished", { finish_reason: "tool_calls" });
+      yield push("turn_finished", { finish_reason: "tool_calls", elapsed_ms: 4200 });
       for (let i = 0; i < 15; i++) yield push("tool_stdout", { tool_call_id: callId, text: `build output line ${i}\n` });
       yield push("tool_result", { tool_call_id: callId, name: "Bash", content: BASH_OUTPUT });
       yield push("usage", {

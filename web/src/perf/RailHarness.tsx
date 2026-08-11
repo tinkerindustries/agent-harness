@@ -1,13 +1,12 @@
 import { Profiler, useEffect, useRef, useState, useSyncExternalStore, type ProfilerOnRenderCallback } from "react";
 import { flushSync } from "react-dom";
 import { TranscriptStore, type TranscriptStoreOptions } from "../api/transcriptStore";
-import { BlockList } from "../components/BlockList";
+import { TurnTranscript } from "../components/turns/TurnTranscript";
 import { PlanPanel } from "../components/PlanPanel";
 import { TimelineRail } from "../components/TimelineRail";
 import { TranscriptToolbar } from "../components/TranscriptToolbar";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
-import type { Density } from "../components/blocks/SubTurnCard";
 import type { TranscriptFilter } from "../api/groups";
 import { computeFrameStats, type FrameStats } from "./frameStats";
 import { buildSyntheticHistory, liveEventGenerator, makeSeqSource, type SeqSource } from "./syntheticFeed";
@@ -129,7 +128,6 @@ function RailMount({
   seqRef: React.RefObject<SeqSource | null>;
 }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const [density, setDensity] = useState<Density>("compact");
   const [filter, setFilter] = useState<TranscriptFilter>("all");
   const containerRef = useRef<HTMLDivElement>(null);
   const [measure, setMeasure] = useState<RailMeasure | null>(null);
@@ -261,13 +259,13 @@ function RailMount({
       <div className="session-meta">
         <Badge variant="done">DONE</Badge>
         <span className="dim">synthetic feed</span>
-        <span className="dim">compact mode</span>
+        <span className="dim">turn renderer</span>
       </div>
       <p className="perf-height-result" data-testid="rail-result" data-measure={measure ? JSON.stringify(measure) : ""}>
         {measure ? (
           <>
             Rail: <strong>{measure.entries} entries</strong> · {measure.phases} phases ·{" "}
-            <strong>{measure.observers} IntersectionObserver</strong> · compact scroll height{" "}
+            <strong>{measure.observers} IntersectionObserver</strong> · scroll height{" "}
             {measure.scrollHeight.toLocaleString("en-US")} px · {measure.subTurns} sub-turns
             <br />
             Scroll: {measure.markerUpdates} marker updates · {measure.scrollCommitCount} commits · mean{" "}
@@ -282,13 +280,7 @@ function RailMount({
           <>seeding {subTurns || "…"} sub-turns…</>
         )}
       </p>
-      <TranscriptToolbar
-        density={density}
-        onDensityChange={setDensity}
-        filter={filter}
-        onFilterChange={setFilter}
-        counts={snapshot.counts}
-      />
+      <TranscriptToolbar filter={filter} onFilterChange={setFilter} counts={snapshot.counts} />
       <Profiler id="rail-measure" onRender={onRender}>
         <div className="transcript-layout">
           <TimelineRail
@@ -298,10 +290,9 @@ function RailMount({
             containerRef={containerRef}
           />
           <div ref={containerRef} className="transcript-col">
-            <BlockList
+            <TurnTranscript
               items={snapshot.items}
               live={snapshot.live}
-              density={density}
               filter={filter}
               getToolCall={snapshot.getToolCall}
             />

@@ -1087,8 +1087,11 @@ pre {
   gap: var(--space);
 }
 
-/* Anchors for the churn banner's "Jump to it" link and, later, the phase 6
-   rail: keep the target clear of the sticky toolbar. */
+/* Anchors for the churn banner's "Jump to it" link and the rail: keep the
+   target clear of the sticky toolbar. The session pages' turns carry the
+   anchors now (design/session-chat.html's .turn id), the child transcript's
+   cards keep their own. */
+.turn,
 .subturn {
   scroll-margin-top: 46px;
 }
@@ -1507,8 +1510,8 @@ pre {
   padding-bottom: 2px;
 }
 
-/* One sub-turn entry: number and the glyph row, an anchor to the card (the
-   .subturn scroll-margin-top keeps the target clear of the sticky toolbar).
+/* One sub-turn entry: number and the glyph row, an anchor to the turn (the
+   .turn scroll-margin-top keeps the target clear of the sticky toolbar).
    The current entry is marked by aria-current and the observer's marker. */
 .rail-turn {
   display: flex;
@@ -2611,6 +2614,14 @@ body.app #root {
   border-radius: 4px;
   padding: 1px 4px;
   margin-left: -4px;
+  /* The design draws its own caret (the <span class="caret">▸</span> the
+     markup carries); the native disclosure triangle is hidden so the closed
+     line reads as drawn. */
+  list-style: none;
+  cursor: pointer;
+}
+.think > summary::-webkit-details-marker {
+  display: none;
 }
 .think > summary:hover {
   color: var(--foreground);
@@ -2648,6 +2659,13 @@ body.app #root {
   padding: 7px 10px;
   font-size: 0.8125rem;
   border-radius: calc(var(--radius) - 3px);
+  /* Same drawn-caret treatment as .think: the native disclosure triangle
+     stays hidden (see the .think rule's comment). */
+  list-style: none;
+  cursor: pointer;
+}
+.tool > summary::-webkit-details-marker {
+  display: none;
 }
 .tool > summary:hover {
   background: var(--accent);
@@ -2719,6 +2737,12 @@ body.app #root {
 }
 .elided:hover {
   color: var(--foreground);
+}
+/* The tail half of an elided output sits directly under the elision row,
+   whose dashed bottom border already draws the separator — the design's
+   sub-turn 2 (its tail pre carries no border-top of its own). */
+.elided + .tool-out {
+  border-top: 0;
 }
 .tool-err {
   border-color: var(--status-failed);
@@ -2800,6 +2824,16 @@ body.app #root {
   border-left: 2px solid var(--status-running);
   padding-left: 13px;
 }
+/* The streaming prose is plain preformatted text (docs/DESIGN.md §5.3 — no
+   markdown parse while the text is still growing), on the same measure as
+   the completed prose; the .live .say rule above gives it the running-state
+   left rule. */
+.live .say pre {
+  margin: 0;
+  font: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .cursor {
   display: inline-block;
   width: 7px;
@@ -2807,6 +2841,29 @@ body.app #root {
   background: var(--status-running);
   vertical-align: -2px;
   animation: pulse 1.1s steps(2, start) infinite;
+}
+
+/* The turn list (components/turns/TurnTranscript) is the design's stream
+   content: the .turn rule's own 24px bottom margin is the rhythm, so a
+   top-level block — opening, skills, run_finished, error, steer — that
+   sits between turns is a card that gets the same margin. Direct children
+   only: a child transcript nested inside a tool result keeps its own
+   compact card rhythm. flex: 1 / min-width: 0 are the same flex-item rules
+   the old .transcript wrapper carried — without min-width: 0 the list
+   refuses to shrink below its content's min-content width and shoves the
+   plan column off the viewport. */
+.turn-list {
+  flex: 1;
+  min-width: 0;
+}
+.turn-list > .block {
+  margin: 0 0 24px;
+}
+/* Live tool rows (a frozen turn awaiting its results) sit after the turn
+   they belong to; the wrapper carries the same bottom margin so the next
+   turn starts on the rhythm. */
+.pending-live {
+  margin-bottom: 24px;
 }
 
 /* Jump-to-tail, shown only when the stream is scrolled off the bottom.

@@ -3,7 +3,7 @@ import type { SessionState } from "../api/types";
 import type { Block } from "../api/fold";
 import type { TranscriptFilter } from "../api/groups";
 import type { TranscriptSnapshot } from "../api/transcriptStore";
-import { BlockList } from "./BlockList";
+import { TurnTranscript } from "./turns/TurnTranscript";
 import { PlanPanel } from "./PlanPanel";
 import { TimelineRail } from "./TimelineRail";
 import { TranscriptToolbar } from "./TranscriptToolbar";
@@ -12,7 +12,6 @@ import { Badge } from "./ui/badge";
 import { outcome, type OutcomeSession } from "./statusBadge";
 import { startedBy } from "../api/provenance";
 import { useNavRight } from "./TopNav";
-import type { Density } from "./blocks/SubTurnCard";
 
 interface Props {
   sessionId: string;
@@ -23,11 +22,12 @@ interface Props {
 // The read-only session page (design/session-watch.html): a run another
 // agent started, inside the full-height app shell the two session pages
 // share (design/session.css). You may stop it; you may not talk to it — its
-// instructions come from the agent that launched it. Phase 1 renders today's
-// transcript body unchanged inside the shell; the only difference from the
-// chat page is that the steer control is not mounted here (a greyed-out
-// input would invite you to look for the way to enable it). Phase 4 builds
-// this page's provenance strip, navigator rail and live footer.
+// instructions come from the agent that launched it. Phase 2 renders the
+// conversation as turns, exactly as the chat page does — the two pages share
+// a turn vocabulary and differ in silhouette; the only difference here is
+// that the steer control is not mounted (a greyed-out input would invite you
+// to look for the way to enable it). Phase 4 builds this page's provenance
+// strip, navigator rail (the chips move into it) and live footer.
 export function SessionWatchScreen({ sessionId, meta, snapshot }: Props) {
   const badge = outcome(headerOutcomeSession(meta, snapshot.blocks));
   // The one-line provenance label ("started by geoff", "started by
@@ -35,12 +35,9 @@ export function SessionWatchScreen({ sessionId, meta, snapshot }: Props) {
   // all (web/src/api/provenance.ts owns the legacy fallback).
   const startedByLabel = startedBy(meta);
 
-  // Phase 5 display state (docs/WEB-REDESIGN.md): density starts Compact so
-  // a long session opens readable, and the filter starts at All. Both are
-  // plain strings, so the memoised card/list components compare them by
-  // value and still bail out on every live-only delta; toggling one is the
-  // one deliberate re-render.
-  const [density, setDensity] = useState<Density>("compact");
+  // The filter starts at All; it is a plain string, so the memoised turn
+  // list compares it by value and still bails out on every live-only delta;
+  // toggling a chip is the one deliberate re-render.
   const [filter, setFilter] = useState<TranscriptFilter>("all");
   // The transcript column the phase 6 rail's single IntersectionObserver
   // watches for the current marker (docs/WEB-REDESIGN.md phase 6).
@@ -78,13 +75,7 @@ export function SessionWatchScreen({ sessionId, meta, snapshot }: Props) {
               </span>
             )}
           </div>
-          <TranscriptToolbar
-            density={density}
-            onDensityChange={setDensity}
-            filter={filter}
-            onFilterChange={setFilter}
-            counts={snapshot.counts}
-          />
+          <TranscriptToolbar filter={filter} onFilterChange={setFilter} counts={snapshot.counts} />
           {snapshot.churnPoint && (
             <div className="notice churn-banner">
               <b>
@@ -102,10 +93,9 @@ export function SessionWatchScreen({ sessionId, meta, snapshot }: Props) {
               containerRef={transcriptRef}
             />
             <div ref={transcriptRef} className="transcript-col">
-              <BlockList
+              <TurnTranscript
                 items={snapshot.items}
                 live={snapshot.live}
-                density={density}
                 filter={filter}
                 getToolCall={snapshot.getToolCall}
               />
