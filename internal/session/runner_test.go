@@ -345,7 +345,7 @@ func TestCompactionForksNewSession(t *testing.T) {
 			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
 				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []deepseek.ToolCallDelta{{Index: 0, ID: "call_00_a", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "TodoWrite", Arguments: `{"todos":[]}`}}},
+					ToolCalls: []deepseek.ToolCallDelta{{Index: 0, ID: "call_00_a", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}}},
 				}}},
 			})
 			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{

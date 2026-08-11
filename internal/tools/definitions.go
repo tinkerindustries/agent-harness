@@ -75,24 +75,48 @@ var definitions = []deepseek.Tool{
 		},
 		"required": ["path"]
 	}`),
-	function("TodoWrite", "Replace the working plan with the given list of todos. State only; no side effects outside the session.", `{
+	function("TaskCreate", "Add one or more tasks to the working plan. Takes an array so seeding a whole plan is still one call; each task is minted its own id for later TaskGet/TaskList/TaskUpdate calls. State only; no side effects outside the session.", `{
 		"type": "object",
 		"properties": {
-			"todos": {
+			"tasks": {
 				"type": "array",
-				"description": "The full current todo list, replacing whatever was there before",
+				"description": "The tasks to add, in plan order",
 				"items": {
 					"type": "object",
 					"properties": {
 						"content": {"type": "string", "description": "Imperative task description, e.g. \"Run the test suite\""},
-						"status": {"type": "string", "enum": ["pending", "in_progress", "completed"]},
-						"activeForm": {"type": "string", "description": "Present-continuous form shown while in progress, e.g. \"Running the test suite\""}
+						"activeForm": {"type": "string", "description": "Present-continuous form shown while in progress, e.g. \"Running the test suite\""},
+						"status": {"type": "string", "enum": ["pending", "in_progress", "completed"], "description": "Defaults to pending"}
 					},
-					"required": ["content", "status", "activeForm"]
+					"required": ["content", "activeForm"]
 				}
 			}
 		},
-		"required": ["todos"]
+		"required": ["tasks"]
+	}`),
+	function("TaskGet", "Fetch one task from the working plan by id.", `{
+		"type": "object",
+		"properties": {
+			"id": {"type": "string", "description": "The task id to fetch"}
+		},
+		"required": ["id"]
+	}`),
+	function("TaskList", "List tasks in the working plan, optionally filtered by status. A fully optional call: no arguments lists the whole plan.", `{
+		"type": "object",
+		"properties": {
+			"status": {"type": "string", "enum": ["pending", "in_progress", "completed"], "description": "Only list tasks with this status; omit for all"}
+		}
+	}`),
+	function("TaskUpdate", "Patch one task's status, content, or activeForm by id, or delete it. A small, targeted call keeps the plan current without rewriting the whole list. State only; no side effects outside the session.", `{
+		"type": "object",
+		"properties": {
+			"id": {"type": "string", "description": "The task id to update or delete"},
+			"status": {"type": "string", "enum": ["pending", "in_progress", "completed"]},
+			"content": {"type": "string", "description": "Imperative task description, e.g. \"Run the test suite\""},
+			"activeForm": {"type": "string", "description": "Present-continuous form shown while in progress, e.g. \"Running the test suite\""},
+			"delete": {"type": "boolean", "description": "Remove the task instead of patching it"}
+		},
+		"required": ["id"]
 	}`),
 	function("Task", "Delegate a self-contained task to a subagent. The subagent runs in its own conversation; only its final result joins this one.", `{
 		"type": "object",
