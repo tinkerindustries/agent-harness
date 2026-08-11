@@ -16,7 +16,7 @@ func resolveProfile(profile, flashModel string) (model, effort string, err error
 	case "", "pro":
 		return "", "", nil
 	case "flash":
-		return flashModel, "high", nil
+		return flashModel, "max", nil
 	default:
 		return "", "", fmt.Errorf(`profile must be "pro" or "flash", got %q`, profile)
 	}

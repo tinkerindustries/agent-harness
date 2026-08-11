@@ -453,7 +453,7 @@ func (r *Runner) subagentRunner(parentID string, parentOpts RunOptions, workspac
 		// records the lineage.
 		res, err := r.Run(ctx, RunOptions{
 			Model:           r.flashModel(ctx),
-			Effort:          deepseek.EffortHigh,
+			Effort:          deepseek.EffortMax,
 			Thinking:        true,
 			MaxTokens:       20000,
 			Workspace:       workspace,

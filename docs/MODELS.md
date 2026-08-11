@@ -141,7 +141,7 @@ its documented failure mode is occasional empty content.
 | Main loop | pro | enabled | high | 48000 |
 | Main loop, quality-first | pro | enabled | max | 48000 |
 | Main loop, cost-conscious | flash | enabled | max | 24000 |
-| `Task` subagent | flash | enabled | high | 20000 |
+| `Task` subagent | flash | enabled | max | 20000 |
 | `WebFetch` extraction | flash | disabled | — | 4000 |
 | Compaction summary | flash | disabled | — | 8000 |
 | Session title | flash | disabled | — | 200 |

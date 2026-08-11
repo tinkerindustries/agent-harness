@@ -545,3 +545,35 @@ func TestTaskCreateOrderingWithinSubTurn(t *testing.T) {
 		t.Fatalf("second TaskCreate rendered %q, want both tasks with the second's id higher", second)
 	}
 }
+
+// TestTaskSubagentRunsAtMaxEffort pins the subagent's hardcoded effort:
+// subagentRunner launches its nested flash session at max effort, matching
+// docs/MODELS.md's `Task` subagent row. The child session row stores the
+// RunOptions effort verbatim, so a regression shows up as the wrong value on
+// the child rather than passing silently.
+func TestTaskSubagentRunsAtMaxEffort(t *testing.T) {
+	srv := plainAnswerServer(t, "subagent answer")
+	defer srv.Close()
+	r := newTestRunner(t, srv.URL)
+
+	ws := t.TempDir()
+	run := r.subagentRunner("parent-sess", RunOptions{PermissionMode: tools.ModeFull}, ws)
+	text, childID, err := run(t.Context(), "look something up", "find it", "general")
+	if err != nil {
+		t.Fatalf("subagent run: %v", err)
+	}
+	if text != "subagent answer" {
+		t.Fatalf("expected the subagent's answer text, got %q", text)
+	}
+
+	child, err := r.Store.GetSession(t.Context(), childID)
+	if err != nil {
+		t.Fatalf("expected the child session to exist in the store: %v", err)
+	}
+	if child.Effort != deepseek.EffortMax {
+		t.Fatalf("expected the subagent to run at effort %q, got %q", deepseek.EffortMax, child.Effort)
+	}
+	if child.Model != "test-model" {
+		t.Fatalf("expected the subagent to run the flash model, got %q", child.Model)
+	}
+}
