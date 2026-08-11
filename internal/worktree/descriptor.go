@@ -50,7 +50,7 @@ type Descriptor struct {
 func sharedResources() []SharedResource {
 	return []SharedResource{
 		{Name: "host docker socket", Impact: "mounted into every harness container regardless of worktree; a session in full permission mode controls the one host daemon — see CLAUDE.md's docker socket rule"},
-		{Name: "deepseek-harness-prod stack", Impact: "fixed ports 8180/8190/4522/8522, never allocated to a worktree and never touched by this tool"},
+		{Name: "deepseek-harness-prod stack", Impact: "fixed ports 8180/4522/8522, never allocated to a worktree and never touched by this tool"},
 		{Name: "GITHUB_TOKEN / DeepSeek API key", Impact: "copied into this worktree's .env from the main checkout at init time; same account, safe to use concurrently"},
 		{Name: "go module cache, npm cache", Impact: "content-addressed and read-mostly; shared on purpose"},
 	}

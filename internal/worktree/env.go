@@ -23,9 +23,9 @@ const (
 var managedKeys = []string{
 	"COMPOSE_PROJECT_NAME",
 	"NATS_CLIENT_PORT", "NATS_MONITOR_PORT", "NATS_URL",
-	"HARNESS_HTTP_PORT", "HARNESS_MCP_PORT",
+	"HARNESS_HTTP_PORT",
 	"HARNESS_TEST_NATS_PORT", "HARNESS_TEST_NATS_URL",
-	"DEEPSEEK_HTTP_ADDR", "DEEPSEEK_MCP_ADDR",
+	"DEEPSEEK_HTTP_ADDR",
 	"DEEPSEEK_HARNESS_BASE_URL", "DEEPSEEK_HARNESS_PUBLIC_URL",
 	"DEEPSEEK_WORKSPACE_ROOT", "HARNESS_VITE_PORT",
 }
@@ -62,15 +62,14 @@ func managedBlock(d Descriptor) string {
 	fmt.Fprintf(&b, "NATS_URL=nats://127.0.0.1:%d\n", d.Ports.NATSClient)
 	fmt.Fprintln(&b)
 	fmt.Fprintf(&b, "HARNESS_HTTP_PORT=%d\n", d.Ports.HarnessHTTP)
-	fmt.Fprintf(&b, "HARNESS_MCP_PORT=%d\n", d.Ports.HarnessMCP)
 	fmt.Fprintln(&b)
 	fmt.Fprintf(&b, "HARNESS_TEST_NATS_PORT=%d\n", d.Ports.TestNATS)
 	fmt.Fprintf(&b, "HARNESS_TEST_NATS_URL=nats://127.0.0.1:%d\n", d.Ports.TestNATS)
 	fmt.Fprintln(&b)
-	fmt.Fprintln(&b, "# For `harness serve` / `harness mcp` run directly on the host (not through")
-	fmt.Fprintln(&b, "# docker compose) from inside this worktree.")
+	fmt.Fprintln(&b, "# For `harness serve` run directly on the host (not through")
+	fmt.Fprintln(&b, "# docker compose) from inside this worktree. serve also mounts /mcp")
+	fmt.Fprintln(&b, "# on this same address.")
 	fmt.Fprintf(&b, "DEEPSEEK_HTTP_ADDR=127.0.0.1:%d\n", d.Ports.HarnessHTTP)
-	fmt.Fprintf(&b, "DEEPSEEK_MCP_ADDR=127.0.0.1:%d\n", d.Ports.HarnessMCP)
 	fmt.Fprintf(&b, "DEEPSEEK_HARNESS_BASE_URL=http://127.0.0.1:%d\n", d.Ports.HarnessHTTP)
 	fmt.Fprintf(&b, "DEEPSEEK_HARNESS_PUBLIC_URL=http://127.0.0.1:%d\n", d.Ports.HarnessHTTP)
 	fmt.Fprintf(&b, "DEEPSEEK_WORKSPACE_ROOT=%s\n", filepath.Join(d.Identity.Path, "workspaces"))

@@ -60,6 +60,10 @@ services:
       DEEPSEEK_HTTP_ADDR: 0.0.0.0:8080
       DEEPSEEK_DATA_DIR: /data
       DEEPSEEK_WORKSPACE_ROOT: /workspaces
+      # The harness service also serves /mcp on the published port below;
+      # transcript links the MCP tools return point at what a browser on the
+      # host can actually reach.
+      DEEPSEEK_HARNESS_PUBLIC_URL: http://localhost:8180
     ports:
       - "127.0.0.1:8180:8080"
     volumes:
@@ -80,35 +84,6 @@ services:
       start_period: 5s
     # serve drains in-flight runs on SIGTERM rather than cutting them off.
     stop_grace_period: 60s
-    restart: unless-stopped
-
-  mcp:
-    image: deepseek-harness:prod
-    command: ["mcp"]
-    depends_on:
-      nats:
-        condition: service_healthy
-      # Not a hard requirement to start — see cmd/harness/mcp.go's own
-      # startup check — but the streams and the read-only API this service
-      # depends on both come from harness, so there is nothing useful for
-      # it to do before harness is healthy.
-      harness:
-        condition: service_healthy
-    env_file:
-      - path: .env.prod
-        required: true
-    environment:
-      NATS_URL: nats://nats:4222
-      # The harness service by name, reachable inside this project's network.
-      DEEPSEEK_HARNESS_BASE_URL: http://harness:8080
-      # What a browser on the host needs, which the name above is not.
-      DEEPSEEK_HARNESS_PUBLIC_URL: http://localhost:8180
-      DEEPSEEK_MCP_ADDR: 0.0.0.0:8090
-    ports:
-      # This port starts sessions that run Bash as root inside the
-      # workspace mount (docs/DESIGN.md's MCP launch server, "Safety").
-      # Loopback only, same reasoning as the harness service's own port.
-      - "127.0.0.1:8190:8090"
     restart: unless-stopped
 
 volumes:
