@@ -127,7 +127,7 @@ scripts/prod.sh exec -T harness harness balance        # the existing check; a g
 ```
 
 Open <http://localhost:8180> for the session list, and re-run a real work
-request through the MCP server on `http://127.0.0.1:8190/mcp` if the change
+request through the MCP server on `http://127.0.0.1:8180/mcp` if the change
 touched the agent loop.
 
 ## Changelog

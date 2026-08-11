@@ -154,8 +154,8 @@ reaching into `worker`'s internals wholesale, which is the actual thing
 ARCHITECTURE.md was protecting against. The import graph gains
 `httpapi → queue` and nothing else; `worker` and `session` stay out of it.
 
-`harness mcp` stays a separate process with no database handle and no pool
-reference, exactly as designed. Its new `deepseek_stop` and `deepseek_steer`
+The embedded MCP service stays as designed — no database handle and no pool
+reference. Its `deepseek_stop` and `deepseek_steer`
 tools are thin wrappers over the HTTP endpoints below — the same pattern
 `deepseek_result` already uses to read the store without touching it directly.
 
@@ -554,9 +554,13 @@ frontend rendered as "run control not configured". The real boundary is still
 the published port being loopback-only on the host, so trusting the private
 range on top of it does not admit a caller that could not already reach here.
 `harness stop` and `harness steer` read it from the settings table directly,
-the way every other CLI subcommand reads configuration. `harness mcp` takes it
-from `DEEPSEEK_CONTROL_TOKEN`, falling back to the loopback endpoint, since it
-is normally the same host.
+the way every other CLI subcommand reads configuration. The embedded MCP
+service gets the token handed to it directly at startup by `harness serve` —
+the same value the HTTP server itself holds — so `deepseek_stop` and
+`deepseek_steer` authenticate without a round-trip; the `GET
+/api/control-token` loopback fetch in `internal/mcp/control.go` stays as
+defensive code for a `Service` built without that step, but is no longer the
+primary path.
 
 This is a floor, not an answer to §4.2's larger question about exposing the
 port at all. It does mean that the day someone does expose it, the control
