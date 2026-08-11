@@ -10,10 +10,12 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/user"
 	"time"
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/config"
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/httpapi"
@@ -107,6 +109,16 @@ func runServe(ctx context.Context, args []string) error {
 	// to GET /api/control-token (that loopback fetch stays as defensive code
 	// in internal/mcp/control.go for a Service built without this step).
 	mcpCfg.ControlToken = controlToken
+
+	// The operator name, when unset: a bare-metal `harness serve` names
+	// itself from the login user, so runs started from the web UI record who
+	// started them without a deliberate `harness config set
+	// identity.operator geoff`. Inside Docker serve runs as root, where
+	// os/user is useless, so this never fires there. Any failure is logged
+	// and ignored — a convenience, never a startup failure (D7).
+	if err := selfNameOperator(ctx, res); err != nil {
+		log.Printf("harness serve: self-name identity.operator: %v", err)
+	}
 
 	// Restart-required settings, resolved once at startup: the worker pool
 	// size, the two model-concurrency ceilings, the RESULTS stream
@@ -292,6 +304,32 @@ func generateControlToken() (string, error) {
 		return "", fmt.Errorf("generate %s: %w", settings.KeyHTTPControlToken, err)
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// selfNameOperator stores the login user's name as identity.operator when
+// the setting is unset and the name is usable: not empty, not "root" (the
+// user inside Docker, where os/user is useless anyway), and valid as a
+// parent agent id. The caller logs and ignores any error — this is a
+// convenience for a bare-metal serve, never a startup failure (D7).
+func selfNameOperator(ctx context.Context, res *settings.Resolver) error {
+	existing, err := res.String(ctx, settings.KeyIdentityOperator)
+	if err != nil {
+		return err
+	}
+	if existing != "" {
+		return nil
+	}
+	cur, err := user.Current()
+	if err != nil {
+		return err
+	}
+	if cur.Username == "" || cur.Username == "root" {
+		return nil
+	}
+	if err := agentmeta.ValidateParentAgentID(cur.Username); err != nil {
+		return err
+	}
+	return res.Set(ctx, settings.KeyIdentityOperator, cur.Username)
 }
 
 // logStartupBalance refreshes the account balance once at startup
