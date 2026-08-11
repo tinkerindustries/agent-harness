@@ -33,8 +33,21 @@ import (
 // Connection and Host — no session header, from a real session as well as
 // from a sessionless `claude mcp list`. So the handler cannot stamp this the
 // way handleStartRun stamps the browser's, and telling the caller where to
-// read its own id is the best available mechanism. Two things would change
-// that and neither is free: a stdio server, which would have a `claude`
+// read its own id is the best available mechanism.
+//
+// Three dead ends, recorded so they are not re-walked. Putting
+// ${CLAUDE_CODE_SESSION_ID} in an MCP `headers` entry does not work: the
+// documented expansion reads Claude Code's own process environment, while
+// that variable is set in the environment of spawned subprocesses, and an
+// unset variable is documented to arrive as the literal "${VAR}" text — which
+// is what a server then stores as an id unless it rejects the placeholder.
+// The variable itself is undocumented (absent from the settings env-var list
+// and the hooks page), so the tool description above treats it as measured
+// behaviour rather than a contract. What is documented is the hook payload:
+// session_id, transcript_path and cwd, on every hook event.
+//
+// So the two mechanisms that would make this producer-stamped are a stdio
+// server, which inherits the subprocess environment and has a `claude`
 // process tree to walk, or a SessionStart hook posting the id in.
 type launchInput struct {
 	Description     string       `json:"description" jsonschema:"Short label for the run, shown in deepseek_runs."`
