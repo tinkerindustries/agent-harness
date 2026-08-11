@@ -112,3 +112,26 @@ func TestValidateParentAgent(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateParent(t *testing.T) {
+	cases := []struct {
+		parentIsUser bool
+		agentType    string
+		agentID      string
+		want         bool
+	}{
+		{true, "", "", true},
+		{true, "", "geoff", true},
+		{true, "claude-code", "x", false},
+		{false, "claude-code", "sess-1", true},
+		{false, "", "sess-1", false},
+		{false, "user", "", false},
+		{false, "user", "x", false},
+	}
+	for _, c := range cases {
+		err := ValidateParent(c.parentIsUser, c.agentType, c.agentID)
+		if (err == nil) != c.want {
+			t.Errorf("ValidateParent(%v, %q, %q) error = %v, want error = %v", c.parentIsUser, c.agentType, c.agentID, err, c.want)
+		}
+	}
+}

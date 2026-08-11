@@ -17,8 +17,10 @@ const (
 	JobTypeOrchestration  = "orchestration"
 )
 
-// ParentAgentUser is the reserved parent agent type meaning a person started
-// the session rather than another agent.
+// ParentAgentUser is a legacy stored value only: it was the reserved parent
+// agent type meaning a person started the session rather than another agent.
+// New requests reject it — the producer sets parent_is_user instead — but it
+// is retained so a pre-existing row still reads as started by a person.
 const ParentAgentUser = "user"
 
 // parentAgentTypeRE is the parent agent type grammar: a lowercase letter or
@@ -83,6 +85,30 @@ func ValidateParentAgent(agentType, agentID string) error {
 	}
 	if agentType == ParentAgentUser && agentID != "" {
 		return fmt.Errorf("agentmeta: user sessions carry no parent agent id")
+	}
+	return nil
+}
+
+// ValidateParent validates the full provenance triple as a whole: whether a
+// person started the run directly, the launching agent's kind, and the
+// launching agent's own session id (or the operator's name when parentIsUser
+// is true). A user-started run carries no parent agent type, the retired type
+// "user" is rejected in new requests, and an id with no type remains an error.
+func ValidateParent(parentIsUser bool, agentType, agentID string) error {
+	if err := ValidateParentAgentType(agentType); err != nil {
+		return err
+	}
+	if err := ValidateParentAgentID(agentID); err != nil {
+		return err
+	}
+	if parentIsUser && agentType != "" {
+		return fmt.Errorf("agentmeta: a user-started run carries no parent agent type")
+	}
+	if !parentIsUser && agentType == ParentAgentUser {
+		return fmt.Errorf("agentmeta: parent_agent_type \"user\" is retired: the producer sets parent_is_user instead")
+	}
+	if !parentIsUser && agentID != "" && agentType == "" {
+		return fmt.Errorf("agentmeta: parent agent id %q has no type", agentID)
 	}
 	return nil
 }
