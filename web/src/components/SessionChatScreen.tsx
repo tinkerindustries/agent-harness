@@ -3,7 +3,7 @@ import type { SessionState } from "../api/types";
 import type { Block } from "../api/fold";
 import type { TranscriptFilter } from "../api/groups";
 import type { TranscriptSnapshot } from "../api/transcriptStore";
-import { BlockList } from "./BlockList";
+import { TurnTranscript } from "./turns/TurnTranscript";
 import { PlanPanel } from "./PlanPanel";
 import { TimelineRail } from "./TimelineRail";
 import { TranscriptToolbar } from "./TranscriptToolbar";
@@ -13,7 +13,6 @@ import { Badge } from "./ui/badge";
 import { outcome, type OutcomeSession } from "./statusBadge";
 import { startedBy } from "../api/provenance";
 import { useNavRight } from "./TopNav";
-import type { Density } from "./blocks/SubTurnCard";
 
 interface Props {
   sessionId: string;
@@ -26,10 +25,11 @@ interface Props {
 
 // The interactive session page (design/session-chat.html): a run a person
 // started, inside the full-height app shell the two session pages share
-// (design/session.css). Phase 1 renders today's transcript body unchanged
-// inside the shell — the toolbar, the timeline rail, the block list, the
-// plan panel, the stop and steer controls, the churn banner; phases 2 and 3
-// build the turn rendering and this page's chrome on top of the shell.
+// (design/session.css). Phase 2 renders the conversation as turns — one
+// .turn per sub-turn, tool rows that collapse individually, no density
+// mode — with the filter chips, the timeline rail and the plan panel still
+// mounted where they were; phase 3 builds the composer and the plan rail,
+// phase 4 moves the chips into the watch page's rail.
 export function SessionChatScreen({ sessionId, meta, snapshot }: Props) {
   const badge = meta ? outcome(headerOutcomeSession(meta, snapshot.blocks)) : null;
   // The one-line provenance label ("started by geoff", "started by
@@ -37,12 +37,9 @@ export function SessionChatScreen({ sessionId, meta, snapshot }: Props) {
   // all (web/src/api/provenance.ts owns the legacy fallback).
   const startedByLabel = meta ? startedBy(meta) : null;
 
-  // Phase 5 display state (docs/WEB-REDESIGN.md): density starts Compact so
-  // a long session opens readable, and the filter starts at All. Both are
-  // plain strings, so the memoised card/list components compare them by
-  // value and still bail out on every live-only delta; toggling one is the
-  // one deliberate re-render.
-  const [density, setDensity] = useState<Density>("compact");
+  // The filter starts at All; it is a plain string, so the memoised turn
+  // list compares it by value and still bails out on every live-only delta;
+  // toggling a chip is the one deliberate re-render.
   const [filter, setFilter] = useState<TranscriptFilter>("all");
   // The transcript column the phase 6 rail's single IntersectionObserver
   // watches for the current marker (docs/WEB-REDESIGN.md phase 6).
@@ -87,13 +84,7 @@ export function SessionChatScreen({ sessionId, meta, snapshot }: Props) {
               )}
             </div>
           )}
-          <TranscriptToolbar
-            density={density}
-            onDensityChange={setDensity}
-            filter={filter}
-            onFilterChange={setFilter}
-            counts={snapshot.counts}
-          />
+          <TranscriptToolbar filter={filter} onFilterChange={setFilter} counts={snapshot.counts} />
           <SteerControl sessionId={sessionId} running={meta?.status === "running"} className="steer-inline" />
           {snapshot.churnPoint && (
             <div className="notice churn-banner">
@@ -112,10 +103,9 @@ export function SessionChatScreen({ sessionId, meta, snapshot }: Props) {
               containerRef={transcriptRef}
             />
             <div ref={transcriptRef} className="transcript-col">
-              <BlockList
+              <TurnTranscript
                 items={snapshot.items}
                 live={snapshot.live}
-                density={density}
                 filter={filter}
                 getToolCall={snapshot.getToolCall}
               />

@@ -145,17 +145,17 @@ export const TimelineRail = memo(function TimelineRail({ items, getToolCall, fil
     };
   }, []);
 
-  // Re-scan the mounted cards whenever the set can have changed. observe()
+  // Re-scan the mounted turns whenever the set can have changed. observe()
   // on an already-observed target is a no-op, so an append costs a
-  // querySelectorAll plus no-op calls — nothing per frame. A card that left
+  // querySelectorAll plus no-op calls — nothing per frame. A turn that left
   // the DOM (filtered out) can no longer be current; clear the marker so
-  // the next intersecting card owns it.
+  // the next intersecting turn owns it.
   useEffect(() => {
     const container = containerRef.current;
     const observer = observerRef.current;
     if (!container || !observer) return;
-    for (const el of container.querySelectorAll<HTMLElement>(".subturn")) observer.observe(el);
-    if (currentSeqRef.current !== null && !container.querySelector(`.subturn[data-seq="${currentSeqRef.current}"]`)) {
+    for (const el of container.querySelectorAll<HTMLElement>("[data-seq]")) observer.observe(el);
+    if (currentSeqRef.current !== null && !container.querySelector(`[data-seq="${currentSeqRef.current}"]`)) {
       currentSeqRef.current = null;
       setCurrentSeq(null);
     }

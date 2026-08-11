@@ -3,7 +3,6 @@ import type { SubTurnGroup, UsageBlock } from "../../api/groups";
 import type { Block } from "../../api/fold";
 import type { SessionState, ToolCallPayload } from "../../api/types";
 import { Card } from "../ui/card";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible";
 import { Badge } from "../ui/badge";
 import { Markdown } from "../../render/Markdown";
 import { FrozenBlock } from "./FrozenBlock";
@@ -11,36 +10,27 @@ import { ReasoningPanel, formatElapsed } from "./ReasoningPanel";
 import { ToolResultBody } from "./ToolResultBlock";
 import { childStat, exitCode, formatCost, toolHeader } from "./toolArgs";
 
-// Density is the transcript's compact/full setting (design/transcript.html's
-// .segmented toolbar control). Compact collapses every sub-turn card to its
-// header line; Full shows every body.
-export type Density = "compact" | "full";
-
-// SubTurnCard renders one sub-turn as a single card (design/transcript.html):
-// reasoning, assistant text, tool calls and their results in one body, with
-// the sub-turn's usage figures in the header instead of a sibling usage
-// block. It is memoised on the group object, which SubTurnGroupState only
-// replaces when the group's own children or usage change — so every group
-// but the tail one renders once and never again (docs/DESIGN.md §5.2's
-// freeze, at group granularity). density and getToolCall are stable across a
-// live-only delta (both are strings/references the parent keeps), so the
-// memo bailout survives the token-rate hot path; toggling density is the
-// one deliberate all-cards re-render (docs/WEB-REDESIGN.md phase 5).
+// SubTurnCard renders one sub-turn as a single card, always full
+// (design/transcript.html): reasoning, assistant text, tool calls and their
+// results in one body, with the sub-turn's usage figures in the header
+// instead of a sibling usage block. The session redesign retired the
+// Compact/Full toggle (design/README.md "The two session pages" — a turn is
+// always full, and collapsing happens per tool row instead), so this card —
+// now only used for a child transcript nested inside a Task tool result,
+// where the design does not cover a turn rendering — is always expanded.
+// It is memoised on the group object, which SubTurnGroupState only replaces
+// when the group's own children or usage change — so every group but the
+// tail one renders once and never again (docs/DESIGN.md §5.2's freeze, at
+// group granularity). getToolCall is stable across a live-only delta, so the
+// memo bailout survives the token-rate hot path.
 export const SubTurnCard = memo(function SubTurnCard({
   group,
-  density,
   getToolCall,
 }: {
   group: SubTurnGroup;
-  density: Density;
   getToolCall: (id: string) => ToolCallPayload | undefined;
 }) {
   const assistant = group.blocks[0];
-  // A card containing a failed result or a denial stays open in both modes —
-  // an error you have to expand to find is an error you miss.
-  const forcedOpen = group.tags.errors > 0;
-  const [userOpen, setUserOpen] = useState(false);
-  const expanded = density === "full" || forcedOpen || userOpen;
 
   return (
     <Card
@@ -52,32 +42,19 @@ export const SubTurnCard = memo(function SubTurnCard({
       data-seq={group.seq}
       className="subturn gap-0 py-0 shadow-none overflow-hidden rounded-lg"
     >
-      <Collapsible
-        open={expanded}
-        onOpenChange={(open) => {
-          // Full density and failure cards are not user-collapsible: Full is
-          // the "everything visible" mode and a failure must never be hidden.
-          if (density === "compact" && !forcedOpen) setUserOpen(open);
-        }}
-      >
-        <CollapsibleTrigger asChild>
-          <button type="button" className="subturn-header">
-            <span className="caret" aria-hidden>
-              ▸
-            </span>
-            <span className="subturn-n">SUB-TURN {group.subTurn}</span>
-            <span className="subturn-sum">{turnSummary(group)}</span>
-            {group.usage && (
-              <UsageHeader usage={group.usage} elapsedMs={assistant.type === "assistant" ? assistant.reasoningElapsedMs : undefined} />
-            )}
-          </button>
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <div className="subturn-body">
-            <SubTurnBody group={group} getToolCall={getToolCall} />
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
+      <div className="subturn-header">
+        <span className="caret" aria-hidden>
+          ▸
+        </span>
+        <span className="subturn-n">SUB-TURN {group.subTurn}</span>
+        <span className="subturn-sum">{turnSummary(group)}</span>
+        {group.usage && (
+          <UsageHeader usage={group.usage} elapsedMs={assistant.type === "assistant" ? assistant.reasoningElapsedMs : undefined} />
+        )}
+      </div>
+      <div className="subturn-body">
+        <SubTurnBody group={group} getToolCall={getToolCall} />
+      </div>
     </Card>
   );
 });
