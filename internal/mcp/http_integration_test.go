@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,21 +10,33 @@ import (
 	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 )
 
 // startTestServer wires svc.Handler() into a real *httptest.Server at
 // /mcp, the same path cmd/harness/mcp.go mounts it at, and returns a
 // connected MCP client session against it — proving the tool and resource
 // registrations actually work over the streamable HTTP transport the go-sdk
-// provides, not just as direct Go calls to the handler methods.
+// provides, not just as direct Go calls to the handler methods. The client
+// identifies itself as test-client; tests that need to control the client's
+// clientInfo use startTestServerWithClient.
 func startTestServer(t *testing.T, svc *Service) *mcpsdk.ClientSession {
+	t.Helper()
+	return startTestServerWithClient(t, svc, &mcpsdk.Implementation{Name: "test-client", Version: "0.0.1"})
+}
+
+// startTestServerWithClient is startTestServer with a caller-chosen client
+// implementation, so a test controls exactly what clientInfo the server's
+// initialize handshake receives.
+func startTestServerWithClient(t *testing.T, svc *Service, impl *mcpsdk.Implementation) *mcpsdk.ClientSession {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", svc.Handler())
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test-client", Version: "0.0.1"}, nil)
+	client := mcpsdk.NewClient(impl, nil)
 	transport := &mcpsdk.StreamableClientTransport{Endpoint: srv.URL + "/mcp"}
 	cs, err := client.Connect(context.Background(), transport, nil)
 	if err != nil {
@@ -103,6 +116,56 @@ func TestMCPServerCallToolLaunchOverHTTP(t *testing.T) {
 	text, ok := res.Content[0].(*mcpsdk.TextContent)
 	if !ok || !strings.Contains(text.Text, "queued") {
 		t.Fatalf("expected queued status in the tool result text, got %+v", res.Content)
+	}
+}
+
+// TestMCPServerLaunchStampsParentAgentTypeFromClientInfo is the behaviour
+// this change exists for, proven over the real streamable HTTP transport: a
+// client whose clientInfo.Name is "Claude Code" calls deepseek_agent asking
+// for parent_agent_type "cursor", and the published work request must carry
+// the normalised clientInfo name ("claude-code") — the tool input loses to
+// the identity the client library itself sent in the initialize handshake.
+// ParentAgentID stays whatever the caller asserted, and parent_is_user stays
+// false.
+func TestMCPServerLaunchStampsParentAgentTypeFromClientInfo(t *testing.T) {
+	_, js := connectOrSkip(t)
+	ensureTestStreams(t, js)
+	svc := newIntegrationService(t, js)
+	captured := &capturingJS{JetStream: js}
+	svc.JS = captured
+
+	cs := startTestServerWithClient(t, svc, &mcpsdk.Implementation{Name: "Claude Code", Title: "Claude Code", Version: "2.1.227"})
+
+	res, err := cs.CallTool(context.Background(), &mcpsdk.CallToolParams{
+		Name: "deepseek_agent",
+		Arguments: map[string]any{
+			"description":       "clientinfo stamp test",
+			"prompt":            "do nothing",
+			"repos":             []any{map[string]any{"url": "https://example.com/org/app.git"}},
+			"permission_mode":   "readonly",
+			"parent_agent_type": "cursor", // the caller's assertion must lose to clientInfo
+			"parent_agent_id":   "sess-caller-1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected error result: %s", contentText(res.Content))
+	}
+
+	var got queue.Request
+	if err := json.Unmarshal(captured.published, &got); err != nil {
+		t.Fatalf("parse published work request: %v", err)
+	}
+	if got.ParentAgentType != "claude-code" {
+		t.Fatalf("expected parent_agent_type %q stamped from clientInfo, got %q", "claude-code", got.ParentAgentType)
+	}
+	if got.ParentAgentID != "sess-caller-1" {
+		t.Fatalf("expected the caller-asserted parent_agent_id to pass through, got %q", got.ParentAgentID)
+	}
+	if got.ParentIsUser {
+		t.Fatal("expected parent_is_user to stay false on the published request")
 	}
 }
 

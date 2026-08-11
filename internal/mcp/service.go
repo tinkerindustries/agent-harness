@@ -73,13 +73,18 @@ func (svc *Service) NewServer() *mcpsdk.Server {
 }
 
 // Handler returns the streamable-HTTP handler for this service's MCP
-// server. Stateless mode is used because every tool call here is a
-// self-contained request/response — the launch/collect split (rather than a
-// long-held connection) is what carries a multi-minute run, not an MCP
-// session — so there is nothing worth keeping session state for.
+// server. The session is kept (Stateless: false) because initialize is the
+// only place the client's own identity arrives: clientInfo is sent by the
+// client library itself, not by the model, so it is what makes
+// parent_agent_type producer-stamped rather than caller-asserted. The
+// launch/collect split (rather than a long-held connection) is still what
+// carries a multi-minute run — statefulness buys identity, not run
+// continuity. The flip also lets GET and DELETE through (session
+// termination) and permits server-to-client requests, which this package
+// does not use yet.
 func (svc *Service) Handler() http.Handler {
 	server := svc.NewServer()
 	return mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server {
 		return server
-	}, &mcpsdk.StreamableHTTPOptions{Stateless: true})
+	}, &mcpsdk.StreamableHTTPOptions{Stateless: false})
 }
