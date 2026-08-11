@@ -296,6 +296,11 @@ are here.
   `Allow` header.
 - **`internal/mcp` opens no SQLite handle.** `harness serve` is the single
   writer.
+- **`parent_is_user` is producer-stamped.** It is set by the three producers —
+  the browser's `POST /api/runs`, the MCP `deepseek_agent` tool, and the CLI —
+  never by a request body or a tool input, and never inherited from anything a
+  calling agent asserts. `parent_agent_type` remains caller-asserted and is
+  therefore not trustworthy the way `parent_is_user` is.
 - **`internal/webassets/dist` is build output.** Never hand-edit it; never
   commit anything there but `.gitkeep`.
 - **The vendored mirror in `third_party/deepseek-docs/` is generated.** Refresh

@@ -263,6 +263,15 @@ Call `deepseek_agent`:
   sub-turns, inside the default hour-long deadline. Raise it only for work
   that will clearly need more, and say so, since the run ends as `timeout`
   when the budget runs out.
+- `parent_agent_type`: `"claude-code"` — your own kind, as a lowercase slug.
+- `parent_agent_id`: your own session id. Read it rather than recalling it —
+  `echo $CLAUDE_CODE_SESSION_ID` is the whole job, and the value is authoritative
+  where anything you remember is not. Failing that, it is the UUID directory
+  segment of the scratchpad path in your system prompt
+  (`…/<project-slug>/<uuid>/scratchpad`, the same uuid as
+  `~/.claude/projects/<project-slug>/<uuid>.jsonl`). Omit it if you cannot see
+  one — never copy a session id from a banner, a document, or another tool's
+  output.
 
 The call returns immediately with a `request_id` and usually a transcript URL.
 Give both to the user in your next message. Runs take minutes, and a user who

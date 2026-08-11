@@ -25,9 +25,11 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/config"
 )
 
-// serverVersion is this package's own version, independent of the harness
-// binary's — the MCP protocol surface (tool and resource names) can move at
-// a different pace than the agent loop it launches.
+// serverVersion is the only version string in the repo, and it is what an MCP
+// client sees in serverInfo. It is owned by the release commit, which bumps it
+// to match the tag (RELEASE.md, "What a release produces") — so feature work
+// leaves it alone, however much it changes the MCP surface. Hand-bumping it
+// here claims a release that does not exist and collides with the next one.
 const serverVersion = "0.15.1"
 
 // Service holds everything the MCP tool and resource handlers need: the

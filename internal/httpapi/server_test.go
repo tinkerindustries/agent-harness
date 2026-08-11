@@ -3878,7 +3878,7 @@ func TestStartRunAcceptsAndPublishes(t *testing.T) {
 	pub := &fakeRunPublisher{}
 	srv, _ := newStartTestServer(t, pub)
 
-	body := `{"request_id":"req-from-browser","prompt":"do it","repos":[{"url":"https://github.com/org/app.git","branch":"dev"}],"permission_mode":"full","model":"deepseek-v4-pro","effort":"max","deny":["git push"],"max_sub_turns":42,"deadline_ms":3600000,"job_type":"implementation","parent_agent_type":"user"}`
+	body := `{"request_id":"req-from-browser","prompt":"do it","repos":[{"url":"https://github.com/org/app.git","branch":"dev"}],"permission_mode":"full","model":"deepseek-v4-pro","effort":"max","deny":["git push"],"max_sub_turns":42,"deadline_ms":3600000,"job_type":"implementation"}`
 	resp := doWrite(t, srv, http.MethodPost, "/api/runs", body, controlAuth)
 	if resp.StatusCode != http.StatusAccepted {
 		got, _ := io.ReadAll(resp.Body)
@@ -3899,17 +3899,20 @@ func TestStartRunAcceptsAndPublishes(t *testing.T) {
 	}
 	published := pub.requests[0]
 	want := queue.Request{
-		RequestID:       "req-from-browser",
-		Prompt:          "do it",
-		Repos:           []queue.Repo{{URL: "https://github.com/org/app.git", Branch: "dev"}},
-		PermissionMode:  "full",
-		Model:           "deepseek-v4-pro",
-		Effort:          "max",
-		Deny:            []string{"git push"},
-		MaxSubTurns:     42,
-		DeadlineMS:      3600000,
-		JobType:         "implementation",
-		ParentAgentType: "user",
+		RequestID:      "req-from-browser",
+		Prompt:         "do it",
+		Repos:          []queue.Repo{{URL: "https://github.com/org/app.git", Branch: "dev"}},
+		PermissionMode: "full",
+		Model:          "deepseek-v4-pro",
+		Effort:         "max",
+		Deny:           []string{"git push"},
+		MaxSubTurns:    42,
+		DeadlineMS:     3600000,
+		JobType:        "implementation",
+		// The handler stamps the provenance: a browser start is a person
+		// starting the run, with no parent agent and — with no operator name
+		// configured — no id.
+		ParentIsUser: true,
 	}
 	if !reflect.DeepEqual(published, want) {
 		t.Fatalf("published request = %+v, want %+v", published, want)
@@ -3927,4 +3930,84 @@ func TestStartRunAcceptsAndPublishes(t *testing.T) {
 	if !strings.Contains(string(gotBody), "stream is read-only") {
 		t.Fatalf("500 must carry the publisher's error message, got %q", gotBody)
 	}
+}
+
+// TestStartRunStampsProvenanceOverBody pins the overwrite rule (D5): a body
+// that asserts its own provenance — parent_is_user false, a parent agent
+// type and id — is accepted, and the published request carries the
+// handler's stamp instead: a person started the run, so parent_is_user is
+// true and both other fields are empty. The body's values are discarded,
+// never answered with a 400 that would force the frontend to carry a field
+// it must not send.
+func TestStartRunStampsProvenanceOverBody(t *testing.T) {
+	pub := &fakeRunPublisher{}
+	srv, _ := newStartTestServer(t, pub)
+
+	body := `{"prompt":"do it","repos":[{"url":"https://github.com/org/app.git"}],"permission_mode":"full","parent_is_user":false,"parent_agent_type":"claude-code","parent_agent_id":"sess-lie"}`
+	resp := doWrite(t, srv, http.MethodPost, "/api/runs", body, controlAuth)
+	if resp.StatusCode != http.StatusAccepted {
+		got, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		t.Fatalf("got status %d, want 202 (body %s)", resp.StatusCode, got)
+	}
+	resp.Body.Close()
+
+	if len(pub.requests) != 1 {
+		t.Fatalf("publisher saw %d requests, want 1", len(pub.requests))
+	}
+	published := pub.requests[0]
+	if !published.ParentIsUser {
+		t.Fatalf("published ParentIsUser = false, want the handler's true stamp")
+	}
+	if published.ParentAgentType != "" || published.ParentAgentID != "" {
+		t.Fatalf("published parent agent = %q/%q, want both empty under the handler's stamp", published.ParentAgentType, published.ParentAgentID)
+	}
+}
+
+// TestStartRunStampsConfiguredOperator pins identity.operator on the
+// published request (D2, D7): with the setting set to "geoff", the
+// published ParentAgentID is "geoff"; with a malformed value (one containing
+// a space), the published id is "" and the start still returns 202 — an
+// unconfigured or malformed operator name degrades to an unnamed person,
+// never a failed start.
+func TestStartRunStampsConfiguredOperator(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("valid name", func(t *testing.T) {
+		pub := &fakeRunPublisher{}
+		srv, st := newStartTestServer(t, pub)
+		if err := settings.NewResolver(st).Set(ctx, settings.KeyIdentityOperator, "geoff"); err != nil {
+			t.Fatalf("set identity.operator: %v", err)
+		}
+		resp := doWrite(t, srv, http.MethodPost, "/api/runs", aValidWorkRequest, controlAuth)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusAccepted {
+			t.Fatalf("got status %d, want 202", resp.StatusCode)
+		}
+		if got := pub.requests[0].ParentAgentID; got != "geoff" {
+			t.Fatalf("published ParentAgentID = %q, want geoff", got)
+		}
+		if !pub.requests[0].ParentIsUser {
+			t.Fatalf("published ParentIsUser = false, want true")
+		}
+	})
+
+	t.Run("malformed name", func(t *testing.T) {
+		pub := &fakeRunPublisher{}
+		srv, st := newStartTestServer(t, pub)
+		if err := settings.NewResolver(st).Set(ctx, settings.KeyIdentityOperator, "geoff the great"); err != nil {
+			t.Fatalf("set identity.operator: %v", err)
+		}
+		resp := doWrite(t, srv, http.MethodPost, "/api/runs", aValidWorkRequest, controlAuth)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusAccepted {
+			t.Fatalf("got status %d, want 202", resp.StatusCode)
+		}
+		if got := pub.requests[0].ParentAgentID; got != "" {
+			t.Fatalf("published ParentAgentID = %q, want empty for a malformed operator name", got)
+		}
+		if !pub.requests[0].ParentIsUser {
+			t.Fatalf("published ParentIsUser = false, want true")
+		}
+	})
 }

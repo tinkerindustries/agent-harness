@@ -53,6 +53,9 @@ A session is the frozen metadata row for one agent run — model, effort,
 workspace, permission mode, the rendered system prompt and tool schema, status,
 `created_at`, `finished_at` — plus its event log (the fold, the transcript, and
 resume all read it as an append-only log; [DESIGN.md §4.1](DESIGN.md#41-event-sourced-session)).
+A row also carries the provenance triple — `job_type`, `parent_agent_type`,
+`parent_agent_id`, and `parent_is_user` (producer-stamped: true when a person
+started the run, false on a pre-migration row).
 
 - `GET /api/sessions` — list, newest first, each row with status, cost, and the
   originating request id.

@@ -18,7 +18,11 @@ func TestParseRequestRoundTrips(t *testing.T) {
 		"deny": ["git push"],
 		"result_schema": {"type": "object"},
 		"max_sub_turns": 10,
-		"deadline_ms": 60000
+		"deadline_ms": 60000,
+		"job_type": "implementation",
+		"parent_agent_type": "claude-code",
+		"parent_agent_id": "sess-1",
+		"parent_is_user": true
 	}`
 	req, err := ParseRequest([]byte(body))
 	if err != nil {
@@ -38,6 +42,9 @@ func TestParseRequestRoundTrips(t *testing.T) {
 	}
 	if req.MaxSubTurns != 10 || req.DeadlineMS != 60000 {
 		t.Fatalf("unexpected limits: %+v", req)
+	}
+	if req.JobType != "implementation" || req.ParentAgentType != "claude-code" || req.ParentAgentID != "sess-1" || !req.ParentIsUser {
+		t.Fatalf("unexpected provenance: %+v", req)
 	}
 }
 
@@ -240,12 +247,16 @@ func TestValidateRejectsNegativeLimits(t *testing.T) {
 
 // The provenance fields are optional: a request that knows nothing about
 // them, and one that names a valid job type and parent agent, both pass.
+// parent_is_user is producer-stamped, so a user-started request carries it
+// and never a parent agent type.
 func TestValidateAcceptsProvenanceFields(t *testing.T) {
 	cases := []Request{
 		{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: "full",
 			JobType: agentmeta.JobTypeOrchestration, ParentAgentType: "orchestrator", ParentAgentID: "orch-1"},
 		{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: "full",
-			JobType: agentmeta.JobTypeImplementation, ParentAgentType: agentmeta.ParentAgentUser},
+			JobType: agentmeta.JobTypeImplementation, ParentIsUser: true},
+		{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: "full",
+			ParentIsUser: true, ParentAgentID: "geoff"},
 		{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: "full"},
 	}
 	for _, req := range cases {
@@ -256,13 +267,16 @@ func TestValidateAcceptsProvenanceFields(t *testing.T) {
 }
 
 // A present-but-malformed provenance field fails validation; an absent one
-// never does.
+// never does. The retired type "user" is rejected even without an id, and a
+// user-started run must not carry a parent agent type.
 func TestValidateRejectsMalformedProvenanceFields(t *testing.T) {
 	cases := []Request{
 		{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: "full", JobType: "orchestrator"},
 		{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: "full", ParentAgentID: "id-with-no-type"},
 		{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: "full",
-			ParentAgentType: agentmeta.ParentAgentUser, ParentAgentID: "someone"},
+			ParentAgentType: agentmeta.ParentAgentUser},
+		{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: "full",
+			ParentIsUser: true, ParentAgentType: "claude-code"},
 	}
 	for _, req := range cases {
 		if err := req.Validate(); err == nil {

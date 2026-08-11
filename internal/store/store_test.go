@@ -100,6 +100,7 @@ func TestSessionProvenanceRoundTrip(t *testing.T) {
 		JobType:         agentmeta.JobTypeOrchestration,
 		ParentAgentType: "orchestrator",
 		ParentAgentID:   "orchestrator-1",
+		ParentIsUser:    true,
 	}
 	if err := s.CreateSession(ctx, populated); err != nil {
 		t.Fatalf("create session: %v", err)
@@ -108,7 +109,7 @@ func TestSessionProvenanceRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get session: %v", err)
 	}
-	if got.JobType != agentmeta.JobTypeOrchestration || got.ParentAgentType != "orchestrator" || got.ParentAgentID != "orchestrator-1" {
+	if got.JobType != agentmeta.JobTypeOrchestration || got.ParentAgentType != "orchestrator" || got.ParentAgentID != "orchestrator-1" || !got.ParentIsUser {
 		t.Fatalf("provenance fields not preserved: %+v", got)
 	}
 
@@ -131,7 +132,7 @@ func TestSessionProvenanceRoundTrip(t *testing.T) {
 	if got.JobType != agentmeta.JobTypeImplementation {
 		t.Fatalf("expected job type %q, got %q", agentmeta.JobTypeImplementation, got.JobType)
 	}
-	if got.ParentAgentType != "" || got.ParentAgentID != "" {
+	if got.ParentAgentType != "" || got.ParentAgentID != "" || got.ParentIsUser {
 		t.Fatalf("expected empty parent agent fields, got %+v", got)
 	}
 }
@@ -189,7 +190,7 @@ VALUES ('legacy-1', 'deepseek-v4-pro', 'high', 1, '/tmp/ws', 'default',
 		if got.JobType != agentmeta.JobTypeImplementation {
 			t.Fatalf("open %d: expected job type %q, got %q", attempt, agentmeta.JobTypeImplementation, got.JobType)
 		}
-		if got.ParentAgentType != "" || got.ParentAgentID != "" {
+		if got.ParentAgentType != "" || got.ParentAgentID != "" || got.ParentIsUser {
 			t.Fatalf("open %d: expected empty parent agent fields, got %+v", attempt, got)
 		}
 		// The migration backfill rule (docs/WEB-REDESIGN.md phase 2): a row

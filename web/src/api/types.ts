@@ -10,6 +10,11 @@ export interface SessionState {
   job_type?: string;
   parent_agent_type?: string;
   parent_agent_id?: string;
+  // parent_is_user records that a person started this session directly,
+  // mirroring internal/hub's SessionState. Absent or false covers a
+  // pre-migration row; the display helper falls back to the legacy
+  // parent_agent_type === "user" encoding when rendering.
+  parent_is_user?: boolean;
   model: string;
   effort: string;
   workspace: string;

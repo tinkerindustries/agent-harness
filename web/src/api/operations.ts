@@ -288,6 +288,10 @@ export interface StartRunResponse {
 // "Start") — and the optional fields harness publish's flags set. request_id
 // is absent for a browser start — the server generates one, since a browser
 // form has no idempotency key to offer (docs/RUN-CONTROL.md "POST /api/runs").
+// Provenance is deliberately absent: the server stamps parent_is_user,
+// parent_agent_type, and parent_agent_id on POST /api/runs and ignores
+// anything the body sends, so the browser must not carry the fields at all
+// (docs/RUN-CONTROL.md "POST /api/runs").
 export interface WorkRequest {
   prompt?: string;
   repos: { url: string; branch?: string }[];
@@ -299,8 +303,6 @@ export interface WorkRequest {
   max_sub_turns?: number;
   deadline_ms?: number;
   job_type?: string;
-  parent_agent_type?: string;
-  parent_agent_id?: string;
 }
 
 // startRun publishes a work request via POST /api/runs (docs/RUN-CONTROL.md

@@ -156,16 +156,20 @@ type Session struct {
 	JobType         string
 	ParentAgentType string
 	ParentAgentID   string
-	Model           string
-	Effort          string
-	Thinking        bool
-	Workspace       string
-	PermissionMode  string
-	DenyPatterns    []string
-	SystemPrompt    string
-	ToolSchema      json.RawMessage
-	ResultSchema    json.RawMessage
-	Status          string
+	// ParentIsUser records that a person started this session directly. It is
+	// producer-stamped on the request and inherited by child sessions; false
+	// on a pre-migration row is correct for essentially every historical row.
+	ParentIsUser   bool
+	Model          string
+	Effort         string
+	Thinking       bool
+	Workspace      string
+	PermissionMode string
+	DenyPatterns   []string
+	SystemPrompt   string
+	ToolSchema     json.RawMessage
+	ResultSchema   json.RawMessage
+	Status         string
 	// CompleteStatus is the status argument the model gave Complete ("done"
 	// or "gave_up"), when it called the tool at all. Empty covers both a
 	// pre-migration row and a session that ended without calling Complete
@@ -460,6 +464,10 @@ var sessionMigrationColumns = []migrationColumn{
 	// checks and bumps (docs/DATA-API.md). Older rows default to 1, which is
 	// also the version a freshly created row starts at.
 	{"version", "INTEGER NOT NULL DEFAULT 1"},
+	// parent_is_user: producer-stamped provenance; older rows default to 0,
+	// which is correct for essentially every historical row (the few "user"
+	// rows predate the operator-name era and read as an unnamed person).
+	{"parent_is_user", "INTEGER NOT NULL DEFAULT 0"},
 }
 
 // workRequestMigrationColumns are the columns migrateTableColumns adds to a
@@ -564,11 +572,12 @@ func (s *Store) CreateSession(ctx context.Context, sess Session) error {
 		_, err := tx.Exec(`
 			INSERT INTO sessions (id, parent_id, job_type, parent_agent_type, parent_agent_id,
 				model, effort, thinking, workspace, permission_mode, deny_patterns, system_prompt,
-				tool_schema, result_schema, status, created_at, finished_at, version)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1)`,
+				tool_schema, result_schema, status, created_at, finished_at, version, parent_is_user)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, ?)`,
 			sess.ID, parentID, sess.JobType, sess.ParentAgentType, sess.ParentAgentID,
 			sess.Model, sess.Effort, sess.Thinking, sess.Workspace, sess.PermissionMode,
-			deny, sess.SystemPrompt, toolSchema, resultSchema, sess.Status, createdAt.Format(time.RFC3339Nano))
+			deny, sess.SystemPrompt, toolSchema, resultSchema, sess.Status, createdAt.Format(time.RFC3339Nano),
+			sess.ParentIsUser)
 		return err
 	})
 }
@@ -854,17 +863,19 @@ func scanSession(row interface {
 	var sess Session
 	var parentID, resultSchema, finishedAt sql.NullString
 	var thinking int
+	var parentIsUser int
 	var denyJSON, createdAt, recentCalls string
 	err := row.Scan(&sess.ID, &parentID, &sess.JobType, &sess.ParentAgentType, &sess.ParentAgentID,
 		&sess.Model, &sess.Effort, &thinking, &sess.Workspace,
 		&sess.PermissionMode, &denyJSON, &sess.SystemPrompt, (*sqlText)(&sess.ToolSchema), &resultSchema,
 		&sess.Status, &createdAt, &finishedAt, &sess.CompleteStatus, &sess.Plan, &recentCalls, &sess.Summary,
-		&sess.Version)
+		&sess.Version, &parentIsUser)
 	if err != nil {
 		return Session{}, err
 	}
 	sess.ParentID = parentID.String
 	sess.Thinking = thinking != 0
+	sess.ParentIsUser = parentIsUser != 0
 	if resultSchema.Valid {
 		sess.ResultSchema = json.RawMessage(resultSchema.String)
 	}
@@ -911,7 +922,7 @@ func (t *sqlText) Scan(src any) error {
 
 const sessionColumns = `id, parent_id, job_type, parent_agent_type, parent_agent_id, model, effort,
 	thinking, workspace, permission_mode, deny_patterns, system_prompt, tool_schema,
-	result_schema, status, created_at, finished_at, complete_status, plan, recent_tool_calls, summary, version`
+	result_schema, status, created_at, finished_at, complete_status, plan, recent_tool_calls, summary, version, parent_is_user`
 
 // GetSession reads one session by id.
 func (s *Store) GetSession(ctx context.Context, id string) (Session, error) {

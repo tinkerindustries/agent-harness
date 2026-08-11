@@ -63,6 +63,10 @@ type RunOptions struct {
 	JobType         string
 	ParentAgentType string
 	ParentAgentID   string
+	// ParentIsUser records that a person started this run directly. It is
+	// producer-stamped and inherited by child sessions, like the rest of the
+	// provenance triple.
+	ParentIsUser bool
 
 	// SessionID, when set, is used instead of generating a fresh one. A
 	// caller that must know the id before the session row exists — the
@@ -323,6 +327,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 		JobType:         opts.JobType,
 		ParentAgentType: opts.ParentAgentType,
 		ParentAgentID:   opts.ParentAgentID,
+		ParentIsUser:    opts.ParentIsUser,
 		Model:           opts.Model,
 		Effort:          opts.Effort,
 		Thinking:        opts.Thinking,
@@ -450,7 +455,8 @@ func (r *Runner) subagentRunner(parentID string, parentOpts RunOptions, workspac
 		// A subagent does work rather than orchestrating it, so its job type
 		// is always implementation. It inherits the parent's owner, because
 		// delegation does not change who owns the work and ParentID already
-		// records the lineage.
+		// records the lineage — and that inheritance includes whether the
+		// owner was a person.
 		res, err := r.Run(ctx, RunOptions{
 			Model:           r.flashModel(ctx),
 			Effort:          deepseek.EffortMax,
@@ -465,6 +471,7 @@ func (r *Runner) subagentRunner(parentID string, parentOpts RunOptions, workspac
 			JobType:         agentmeta.JobTypeImplementation,
 			ParentAgentType: parentOpts.ParentAgentType,
 			ParentAgentID:   parentOpts.ParentAgentID,
+			ParentIsUser:    parentOpts.ParentIsUser,
 		})
 		if err != nil {
 			if res != nil {

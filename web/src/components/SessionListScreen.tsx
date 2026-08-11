@@ -3,6 +3,7 @@ import { useSyncExternalStore } from "react";
 import { sessionListStore } from "../api/sessionListStore";
 import { listSettings } from "../api/settings";
 import { controlToken } from "../api/operations";
+import { startedBy } from "../api/provenance";
 import type { QueueHealth, RecentToolCall, SessionState, Usage } from "../api/types";
 import { useNow, useQueueHealth } from "../hooks";
 import { cn } from "@/lib/utils";
@@ -447,6 +448,7 @@ function InFlightCard({
               <span className="run-meta">
                 {sess.model} · {sess.effort}
                 {sess.job_type && <> · {sess.job_type}</>}
+                {startedBy(sess) && <> · {startedBy(sess)}</>}
               </span>
               {/* The two figures a running session is judged by — elapsed
                   in full weight, sub-turns dimmer — the finished table's
@@ -568,6 +570,7 @@ function FinishedRow({
       <td>
         {sess.model} <span className="dim">({sess.effort})</span>
         {sess.job_type && <span className="dim"> · {sess.job_type}</span>}
+        {startedBy(sess) && <span className="dim"> · {startedBy(sess)}</span>}
       </td>
       <td>{sess.sub_turns}</td>
       <td className="dim" title={hitRateTitle(sess.usage)}>

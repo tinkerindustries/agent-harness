@@ -209,8 +209,6 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
     if (maxSubTurns.trim() !== "") body.max_sub_turns = Number(maxSubTurns);
     if (deadlineMs.trim() !== "") body.deadline_ms = Number(deadlineMs);
     if (jobType !== "") body.job_type = jobType;
-    if (parentAgentType.trim() !== "") body.parent_agent_type = parentAgentType.trim();
-    if (parentAgentID.trim() !== "") body.parent_agent_id = parentAgentID.trim();
 
     setSending(true);
     try {

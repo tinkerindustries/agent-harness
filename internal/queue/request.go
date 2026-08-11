@@ -35,6 +35,11 @@ type Request struct {
 	JobType         string          `json:"job_type,omitempty"`
 	ParentAgentType string          `json:"parent_agent_type,omitempty"`
 	ParentAgentID   string          `json:"parent_agent_id,omitempty"`
+	// ParentIsUser records that a person started this run directly. It is set
+	// by the producer — a browser start, the MCP tool, or the CLI — and never
+	// by the calling agent, which is what makes it trustworthy where
+	// parent_agent_type is not.
+	ParentIsUser bool `json:"parent_is_user,omitempty"`
 }
 
 // Repo is one checkout a request asks for. The worker clones each one into
@@ -146,7 +151,7 @@ func (r Request) Validate() error {
 	if err := agentmeta.ValidateJobType(r.JobType); err != nil {
 		return fmt.Errorf("queue: %w", err)
 	}
-	if err := agentmeta.ValidateParentAgent(r.ParentAgentType, r.ParentAgentID); err != nil {
+	if err := agentmeta.ValidateParent(r.ParentIsUser, r.ParentAgentType, r.ParentAgentID); err != nil {
 		return fmt.Errorf("queue: %w", err)
 	}
 

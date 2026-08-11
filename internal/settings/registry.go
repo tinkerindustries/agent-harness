@@ -39,6 +39,7 @@ func (t Type) String() string {
 // per group, and harness config list prints the same grouping.
 const (
 	GroupCredentials     = "Credentials"
+	GroupIdentity        = "Identity"
 	GroupRunBudget       = "Run budget"
 	GroupToolLimits      = "Tool limits"
 	GroupModels          = "Models"
@@ -84,6 +85,7 @@ const (
 	KeyHTTPEventsLimitDefault    = "http.events_limit_default"
 	KeyHTTPEventsLimitMax        = "http.events_limit_max"
 	KeyHTTPControlToken          = "http.control_token"
+	KeyIdentityOperator          = "identity.operator"
 )
 
 // Descriptor is one registry entry: everything the harness knows about a
@@ -128,6 +130,10 @@ var registry = []Descriptor{
 		"GitHub personal access token — used by the start-run form's repo search (GET /api/github/repos)", "", true, false),
 	stringSetting(KeyHTTPControlToken, GroupCredentials,
 		"Bearer token the run-control endpoints require (docs/RUN-CONTROL.md). Generated at startup when unset.", "", true, false),
+
+	// --- Identity ---
+	stringSetting(KeyIdentityOperator, GroupIdentity,
+		"Name recorded as the parent of a run started from the web UI — stamped into parent_agent_id by POST /api/runs. Empty means the run is recorded as started by an unnamed person.", "", false, false),
 
 	// --- Run budget ---
 	intSetting(KeyRunMaxTokens, GroupRunBudget, 48000, 1, 1_000_000,

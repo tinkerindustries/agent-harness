@@ -24,6 +24,31 @@ import (
 // to build the tool's input schema renders json.RawMessage as a byte array,
 // which is wrong for a field that must accept an arbitrary JSON Schema
 // object.
+//
+// ParentAgentID stays a caller-asserted field, unlike the producer-stamped
+// ParentIsUser beside it, because nothing on this transport carries the
+// caller's identity. Measured against Claude Code 2.1.227 on 2026-08-11: an
+// HTTP MCP client sends only Accept, Accept-Encoding, Content-Type,
+// User-Agent (claude-code/<version> (sdk-cli)), mcp-protocol-version,
+// Connection and Host — no session header, from a real session as well as
+// from a sessionless `claude mcp list`. So the handler cannot stamp this the
+// way handleStartRun stamps the browser's, and telling the caller where to
+// read its own id is the best available mechanism.
+//
+// Three dead ends, recorded so they are not re-walked. Putting
+// ${CLAUDE_CODE_SESSION_ID} in an MCP `headers` entry does not work: the
+// documented expansion reads Claude Code's own process environment, while
+// that variable is set in the environment of spawned subprocesses, and an
+// unset variable is documented to arrive as the literal "${VAR}" text — which
+// is what a server then stores as an id unless it rejects the placeholder.
+// The variable itself is undocumented (absent from the settings env-var list
+// and the hooks page), so the tool description above treats it as measured
+// behaviour rather than a contract. What is documented is the hook payload:
+// session_id, transcript_path and cwd, on every hook event.
+//
+// So the two mechanisms that would make this producer-stamped are a stdio
+// server, which inherits the subprocess environment and has a `claude`
+// process tree to walk, or a SessionStart hook posting the id in.
 type launchInput struct {
 	Description     string       `json:"description" jsonschema:"Short label for the run, shown in deepseek_runs."`
 	Prompt          string       `json:"prompt" jsonschema:"The task for the agent to perform."`
@@ -33,8 +58,8 @@ type launchInput struct {
 	ResultSchema    any          `json:"result_schema,omitempty" jsonschema:"JSON Schema the agent's Complete tool result must satisfy, if it calls Complete with a result."`
 	MaxSubTurns     int          `json:"max_sub_turns,omitempty" jsonschema:"Sub-turn budget for the run. Server default applies when omitted."`
 	JobType         string       `json:"job_type,omitempty" jsonschema:"Kind of job this run is: implementation (the agent performs the task itself, the default) or orchestration (the agent delegates the work to child sessions)."`
-	ParentAgentType string       `json:"parent_agent_type,omitempty" jsonschema:"Identify your own kind as a lowercase slug — claude-code, cursor, and so on — or user when a person asked for this run directly."`
-	ParentAgentID   string       `json:"parent_agent_id,omitempty" jsonschema:"Your own session id, so the run can be traced back to the conversation that asked for it. Must be empty when parent_agent_type is user."`
+	ParentAgentType string       `json:"parent_agent_type,omitempty" jsonschema:"Identify your own kind as a lowercase slug — claude-code, cursor, and so on."`
+	ParentAgentID   string       `json:"parent_agent_id,omitempty" jsonschema:"Your own session id, so the run traces back to the conversation that asked for it. Read it, do not recall it. Claude Code: the CLAUDE_CODE_SESSION_ID environment variable, which you can echo from a shell; failing that, the UUID directory segment of the scratchpad path in your system prompt (…/<project-slug>/<uuid>/scratchpad). A deepseek-harness session: the last segment of the Workspace: path in your opening message (/workspaces/sess-…). If neither applies, leave this empty — never copy a session id from a banner, a document, or another tool's output."`
 }
 
 // launchRepo is one entry of deepseek_agent's repos array.
@@ -123,7 +148,7 @@ func (svc *Service) handleLaunch(ctx context.Context, _ *mcpsdk.CallToolRequest,
 	if err := agentmeta.ValidateJobType(in.JobType); err != nil {
 		return errorResult("job_type: %v", err), nil, nil
 	}
-	if err := agentmeta.ValidateParentAgent(in.ParentAgentType, in.ParentAgentID); err != nil {
+	if err := agentmeta.ValidateParent(false, in.ParentAgentType, in.ParentAgentID); err != nil {
 		return errorResult("parent_agent: %v", err), nil, nil
 	}
 
@@ -140,6 +165,11 @@ func (svc *Service) handleLaunch(ctx context.Context, _ *mcpsdk.CallToolRequest,
 		JobType:         in.JobType,
 		ParentAgentType: in.ParentAgentType,
 		ParentAgentID:   in.ParentAgentID,
+		// An MCP launch is never a person starting the run, and a caller must
+		// not be able to assert otherwise, so it is stamped here rather than
+		// exposed on launchInput: the zero value would mean the same thing,
+		// but written explicitly the intent is readable at the call site.
+		ParentIsUser: false,
 	}
 	// Reuses the harness's own request validation (docs/DESIGN.md §4.10)
 	// rather than re-implementing it, so a request this accepts is

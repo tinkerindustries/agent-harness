@@ -51,6 +51,9 @@ func TestRegistryDefaultsMatchTheConstantsTheyReplaced(t *testing.T) {
 		// The control token defaults to empty: it is generated at startup when
 		// unset, which is run control's job (phase 4), not the registry's.
 		{settings.KeyHTTPControlToken, ""},
+		// The operator name defaults to empty: unset means runs from the web
+		// UI are recorded as started by an unnamed person (D7).
+		{settings.KeyIdentityOperator, ""},
 	}
 	for _, tc := range cases {
 		d, ok := settings.Lookup(tc.key)

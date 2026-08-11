@@ -144,14 +144,15 @@ func TestBuildSessionStateCarriesProvenance(t *testing.T) {
 		JobType:         agentmeta.JobTypeOrchestration,
 		ParentAgentType: "claude-code",
 		ParentAgentID:   "sess-parent-1",
+		ParentIsUser:    true,
 		CompleteStatus:  "gave_up",
 	}
 	st := BuildSessionState(sess, store.SessionUsageSummary{}, "req-1", "")
 	if st.JobType != agentmeta.JobTypeOrchestration {
 		t.Fatalf("expected job type %q on the wire row, got %q", agentmeta.JobTypeOrchestration, st.JobType)
 	}
-	if st.ParentAgentType != "claude-code" || st.ParentAgentID != "sess-parent-1" {
-		t.Fatalf("expected parent agent claude-code/sess-parent-1 on the wire row, got %q/%q", st.ParentAgentType, st.ParentAgentID)
+	if st.ParentAgentType != "claude-code" || st.ParentAgentID != "sess-parent-1" || !st.ParentIsUser {
+		t.Fatalf("expected parent agent claude-code/sess-parent-1 (user) on the wire row, got %q/%q (user=%v)", st.ParentAgentType, st.ParentAgentID, st.ParentIsUser)
 	}
 	if st.CompleteStatus != "gave_up" {
 		t.Fatalf("expected complete_status %q on the wire row, got %q", "gave_up", st.CompleteStatus)

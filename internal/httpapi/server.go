@@ -42,6 +42,7 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
@@ -797,6 +798,15 @@ func (s *Server) handleSteerSession(w http.ResponseWriter, r *http.Request) {
 // absent — a browser form has no idempotency key to offer — and a caller
 // that supplies one gets the same deduplication every other producer gets.
 //
+// The handler overwrites the three provenance fields — parent_is_user,
+// parent_agent_type, parent_agent_id — before validation: a person started
+// this run directly, so parent_is_user is true and the parent agent fields
+// are empty (parent_agent_id carries the identity.operator name when one is
+// configured). The overwrite is what makes parent_is_user trustworthy,
+// because a caller cannot assert its own provenance on this endpoint; the
+// value it sent is discarded either way, never answered with a 400 that
+// would force the frontend to carry a field it must not send (D5, D7).
+//
 // No If-Match, for the same reason as stop and steer: this is not a mutation
 // of a row, and a work request has no row to mutate yet
 // (docs/RUN-CONTROL.md "The HTTP surface").
@@ -821,6 +831,9 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	if req.RequestID == "" {
 		req.RequestID = randomRequestID()
 	}
+	req.ParentIsUser = true
+	req.ParentAgentType = ""
+	req.ParentAgentID = s.operatorName(r.Context())
 	if err := req.Validate(); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -834,6 +847,32 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"request_id": req.RequestID})
+}
+
+// operatorName resolves identity.operator for stamping into parent_agent_id
+// on a browser start. There is no login system (docs/RUN-CONTROL.md
+// "Authentication"): this is a label the operator configures once, read
+// server-side so a request header — free text the browser asserts — cannot
+// name it. A server with no settings resolver, a read error, a value that
+// trims to empty, or one that fails ValidateParentAgentID all resolve to "":
+// an unconfigured or malformed operator name degrades to an unnamed person,
+// never a failed start (D7).
+func (s *Server) operatorName(ctx context.Context) string {
+	if s.Settings == nil {
+		return ""
+	}
+	name, err := s.Settings.String(ctx, settings.KeyIdentityOperator)
+	if err != nil {
+		return ""
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	if err := agentmeta.ValidateParentAgentID(name); err != nil {
+		return ""
+	}
+	return name
 }
 
 // randomRequestID generates a work request's idempotency key for a browser
