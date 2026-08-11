@@ -11,6 +11,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/fold"
 	"github.com/mrgeoffrich/deepseek-harness/internal/httplog"
+	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 )
@@ -41,6 +42,77 @@ const steerBatchSize = 8
 // The wait is for a person typing a first message, so a one-second poll is
 // the human scale the feature is built for — nothing sub-second is gained.
 const steerPollInterval = time.Second
+
+// liveFlushInterval is how long text accumulates before the sink publishes
+// it. Reading is the consumer, so this is a legibility figure rather than a
+// latency one: ten frames a second already looks continuous, and publishing
+// per token would put thousands of frames through a hub whose subscriber
+// buffer is 256 and whose overflow rule is to drop the subscriber
+// (internal/hub). Coalescing is what keeps a watching tab attached.
+const liveFlushInterval = 100 * time.Millisecond
+
+// liveSink publishes model output to the hub as it streams, coalesced into
+// at most one frame per channel per liveFlushInterval. Nothing it sends is
+// stored: the sub-turn's real reasoning_delta and content_delta events are
+// committed with the rest of the batch when the response completes, and a
+// browser that reconnects rebuilds from those. See hub.LiveDelta for why
+// this exists at all.
+//
+// A nil *liveSink is a working no-op, which is what a Runner with no Hub
+// gets — the CLI, and every test that does not assert on streaming.
+type liveSink struct {
+	hub       *hub.Hub
+	sessionID string
+	subTurn   int
+
+	// Only the stream goroutine touches these: one liveSink belongs to one
+	// r.stream call, and the deltas it coalesces arrive on that one
+	// goroutine's range over the event channel.
+	reasoning strings.Builder
+	content   strings.Builder
+	lastFlush time.Time
+}
+
+func newLiveSink(h *hub.Hub, sessionID string, subTurn int) *liveSink {
+	if h == nil {
+		return nil
+	}
+	return &liveSink{hub: h, sessionID: sessionID, subTurn: subTurn, lastFlush: time.Now()}
+}
+
+// add buffers one delta and publishes if the interval has elapsed.
+func (s *liveSink) add(channel, text string) {
+	if s == nil || text == "" {
+		return
+	}
+	switch channel {
+	case hub.ChannelReasoning:
+		s.reasoning.WriteString(text)
+	case hub.ChannelContent:
+		s.content.WriteString(text)
+	}
+	if time.Since(s.lastFlush) >= liveFlushInterval {
+		s.flush()
+	}
+}
+
+// flush publishes whatever has accumulated. Reasoning goes first: the model
+// thinks before it answers, so that is the order the text was produced in
+// and the order a reader expects to watch it appear.
+func (s *liveSink) flush() {
+	if s == nil {
+		return
+	}
+	if text := s.reasoning.String(); text != "" {
+		s.hub.PublishLive(s.sessionID, hub.LiveDelta{SubTurn: s.subTurn, Channel: hub.ChannelReasoning, Text: text})
+		s.reasoning.Reset()
+	}
+	if text := s.content.String(); text != "" {
+		s.hub.PublishLive(s.sessionID, hub.LiveDelta{SubTurn: s.subTurn, Channel: hub.ChannelContent, Text: text})
+		s.content.Reset()
+	}
+	s.lastFlush = time.Now()
+}
 
 // waitForFirstSteer blocks until at least one steer_message exists past seq
 // 0 — the first sub-turn boundary will then apply it — or ctx ends. It is
@@ -143,11 +215,36 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 		messages = cache.Mutate(messages, 1)
 	}
 
+	// turn_started is committed on its own, before the request, and not with
+	// the batch that follows. AppendEvents stamps one instant across a batch,
+	// so committing it with the rest gave it the time the model *finished* —
+	// a reader had to know that to date anything in a sub-turn, and the
+	// transcript's live turn measured its own age from it and always got
+	// ~0 (docs/reviews/sess-bb6c0ed564ddae573c3b1832cb3981f4.md). Its own
+	// append costs one transaction per sub-turn and makes the timestamp mean
+	// what it says. It also tells a watching browser the sub-turn is in
+	// flight, which is what the live states render against.
+	//
+	// The consequence to know: a sub-turn whose request fails leaves a
+	// turn_started with no turn_finished. The fold treats it as a marker, the
+	// sub-turn count includes it, and the transcript shows a live turn until
+	// the run's terminal event lands — which fail() and finishRun() always
+	// append.
+	started, err := r.Store.AppendEvents(ctx, sess.ID, []store.EventInput{
+		{Kind: store.KindTurnStarted, Payload: store.TurnStartedPayload{SubTurn: subTurn}},
+	})
+	if err != nil {
+		return subTurnOutcome{}, fmt.Errorf("session: commit turn_started for sub-turn %d: %w", subTurn, err)
+	}
+	r.mirrorAppend(sess, started)
+	r.publishEvents(sess, started)
+	*allEvents = append(*allEvents, started...)
+
 	// streamStart brackets the request(s) below. The elapsed figure is the
-	// wall time the run waited on the API, which created_at cannot express:
-	// AppendEvents stamps one instant across the whole batch.
+	// wall time the run waited on the API.
 	streamStart := time.Now()
-	reasoning, content, assembler, finishReason, usage, err := r.stream(httplog.WithSessionID(ctx, sess.ID), sess.Model, messages, opts.Effort, opts.Thinking, opts.MaxTokens)
+	live := newLiveSink(r.Hub, sess.ID, subTurn)
+	reasoning, content, assembler, finishReason, usage, err := r.stream(httplog.WithSessionID(ctx, sess.ID), sess.Model, messages, opts.Effort, opts.Thinking, opts.MaxTokens, live)
 	if err != nil {
 		return subTurnOutcome{}, fmt.Errorf("session: sub-turn %d: %w", subTurn, err)
 	}
@@ -164,7 +261,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	var starved *deepseek.Usage
 	if deepseek.IsReasoningStarved(finishReason, content) && len(assembler.Finalize()) == 0 {
 		starved = usage
-		reasoning, content, assembler, finishReason, usage, err = r.stream(ctx, sess.Model, messages, opts.Effort, opts.Thinking, opts.MaxTokens*2)
+		reasoning, content, assembler, finishReason, usage, err = r.stream(ctx, sess.Model, messages, opts.Effort, opts.Thinking, opts.MaxTokens*2, live)
 		if err != nil {
 			return subTurnOutcome{}, fmt.Errorf("session: sub-turn %d retry: %w", subTurn, err)
 		}
@@ -174,7 +271,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 
 	toolCalls := assembler.Finalize()
 
-	inputs := []store.EventInput{{Kind: store.KindTurnStarted, Payload: store.TurnStartedPayload{SubTurn: subTurn}}}
+	var inputs []store.EventInput
 	// The discarded attempt is committed ahead of everything the retry
 	// produced, which is the order the two requests happened in. It carries
 	// no churn report: the detector observes the request whose prefix the
@@ -351,7 +448,7 @@ func (r *Runner) buildUsagePayload(model string, usage *deepseek.Usage, requestM
 // channel. Serialisation happens once inside Client.StreamChatCompletion
 // and any HTTP-level retry resends those identical bytes
 // (docs/CACHE.md); this function does not re-serialise between attempts.
-func (r *Runner) stream(ctx context.Context, model string, messages []deepseek.Message, effort string, thinking bool, maxTokens int) (
+func (r *Runner) stream(ctx context.Context, model string, messages []deepseek.Message, effort string, thinking bool, maxTokens int, live *liveSink) (
 	reasoning, content string, assembler *deepseek.ToolCallAssembler, finishReason string, usage *deepseek.Usage, err error) {
 
 	thinkingType := deepseek.ThinkingDisabled
@@ -381,12 +478,20 @@ func (r *Runner) stream(ctx context.Context, model string, messages []deepseek.M
 	var reasoningBuf, contentBuf strings.Builder
 	assembler = deepseek.NewToolCallAssembler()
 	var streamErr error
+	// Whatever this loop accumulates is committed as one batch by the
+	// caller; the sink is what a watching browser sees in the meantime.
+	// Flushed unconditionally on the way out so the tail of the response is
+	// not left sitting in the builder — including on the error paths, where
+	// the text streamed so far is all anyone will get.
+	defer live.flush()
 	for ev := range events {
 		switch ev.Type {
 		case deepseek.EventReasoningDelta:
 			reasoningBuf.WriteString(ev.Reasoning)
+			live.add(hub.ChannelReasoning, ev.Reasoning)
 		case deepseek.EventContentDelta:
 			contentBuf.WriteString(ev.Content)
+			live.add(hub.ChannelContent, ev.Content)
 		case deepseek.EventToolCallDelta:
 			assembler.Add(ev.ToolCall)
 		case deepseek.EventFinish:

@@ -32,12 +32,20 @@ export function LiveTurnSection({ turn, pendingTools }: { turn: LiveTurn | null;
 // turn_finished freezes the group.
 function LiveTurn({ turn }: { turn: LiveTurn }) {
   const elapsed = turn.startedAt ? formatElapsed(Date.now() - Date.parse(turn.startedAt)) : "";
+  // The live pair is what actually streams: turn_started commits before the
+  // request, then `live` frames carry the text, and the committed
+  // reasoning_delta/content_delta events arrive in the same batch as the
+  // turn_finished that freezes this component away. The committed pair is
+  // the fallback for the one frame where a batch is half-ingested, and for
+  // any path that replays a log without live frames.
+  const reasoning = turn.liveReasoning || turn.reasoning;
+  const content = turn.liveContent || turn.content;
   return (
     <div className="turn live" id={`sub-turn-${turn.subTurn}`}>
       <a className="gutter" href={`#sub-turn-${turn.subTurn}`} title={`Sub-turn ${turn.subTurn}`}>
         {turn.subTurn}
       </a>
-      {turn.reasoning && (
+      {reasoning && (
         <details className="think" open>
           <summary>
             <span className="caret" aria-hidden>
@@ -46,15 +54,15 @@ function LiveTurn({ turn }: { turn: LiveTurn }) {
             Thinking…{elapsed && ` ${elapsed}`}
           </summary>
           <div className="thought">
-            {turn.reasoning}
+            {reasoning}
             <span className="cursor" />
           </div>
         </details>
       )}
-      {turn.content && (
+      {content && (
         <div className="say">
           <pre>
-            {turn.content}
+            {content}
             <span className="cursor" />
           </pre>
         </div>

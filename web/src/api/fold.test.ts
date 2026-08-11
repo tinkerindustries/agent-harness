@@ -547,3 +547,57 @@ describe("launching instruction block", () => {
     expect(blocks.map((b) => b.type)).toEqual(["skills", "opening", "instruction"]);
   });
 });
+
+// Live deltas are model output the backend has not committed yet
+// (hub.LiveDelta): they stream ahead of the sub-turn's commit so a watching
+// operator sees the text being written, and the committed
+// reasoning_delta/content_delta events carry the same text moments later.
+// Keeping the two in separate fields is what stops that from doubling — the
+// hazard that decides this whole design.
+describe("live deltas", () => {
+  it("accumulates into the live pair, leaving the committed pair alone", () => {
+    const state = new FoldState();
+    state.ingest(ev(1, "session_started", { opening_message: "x" }));
+    state.ingest(ev(2, "turn_started", { sub_turn: 1 }));
+
+    state.ingestLive({ sub_turn: 1, channel: "reasoning", text: "weigh" });
+    state.ingestLive({ sub_turn: 1, channel: "reasoning", text: "ing it" });
+    state.ingestLive({ sub_turn: 1, channel: "content", text: "the answer" });
+
+    expect(state.live.turn?.liveReasoning).toBe("weighing it");
+    expect(state.live.turn?.liveContent).toBe("the answer");
+    expect(state.live.turn?.reasoning).toBe("");
+    expect(state.live.turn?.content).toBe("");
+  });
+
+  it("freezes the block from the committed text, not the streamed preview", () => {
+    const state = new FoldState();
+    state.ingest(ev(1, "session_started", { opening_message: "x" }));
+    state.ingest(ev(2, "turn_started", { sub_turn: 1 }));
+    state.ingestLive({ sub_turn: 1, channel: "reasoning", text: "weighing it" });
+    state.ingestLive({ sub_turn: 1, channel: "content", text: "the answer" });
+    // The same text arrives again, now as committed events.
+    state.ingest(ev(3, "reasoning_delta", { text: "weighing it" }));
+    state.ingest(ev(4, "content_delta", { text: "the answer" }));
+    state.ingest(ev(5, "turn_finished", { sub_turn: 1, finish_reason: "stop" }));
+
+    const assistant = state.blocks.find((b) => b.type === "assistant");
+    expect(assistant && "reasoning" in assistant ? assistant.reasoning : "").toBe("weighing it");
+    expect(assistant && "content" in assistant ? assistant.content : "").toBe("the answer");
+  });
+
+  it("drops a delta for a sub-turn that is not the one in flight", () => {
+    const state = new FoldState();
+    state.ingest(ev(1, "session_started", { opening_message: "x" }));
+    state.ingest(ev(2, "turn_started", { sub_turn: 2 }));
+    state.ingestLive({ sub_turn: 1, channel: "reasoning", text: "from the frozen turn" });
+    expect(state.live.turn?.liveReasoning).toBe("");
+  });
+
+  it("drops a delta that arrives before any turn is live", () => {
+    const state = new FoldState();
+    state.ingest(ev(1, "session_started", { opening_message: "x" }));
+    expect(() => state.ingestLive({ sub_turn: 1, channel: "reasoning", text: "early" })).not.toThrow();
+    expect(state.live.turn).toBeNull();
+  });
+});

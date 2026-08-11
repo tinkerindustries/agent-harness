@@ -100,7 +100,34 @@ kind filtering:
   SQL: a page of tool traffic never pulls the transcript's reasoning and
   content deltas off the disk.
 
-Plus the SSE transcript stream.
+Plus the SSE transcript stream, which carries two kinds of frame:
+
+- **Committed events**, as `id: <seq>` plus `data:` — the resumable log. A
+  client resumes with `Last-Event-ID` and the server replays from there.
+- **Live deltas**, as `event: live` plus `data:`, with **no id**. These are
+  model output the backend has not committed yet: the same text arrives again,
+  moments later, as ordinary `reasoning_delta` and `content_delta` events in the
+  sub-turn's commit batch.
+
+  ```
+  event: live
+  data: {"sub_turn": 4, "channel": "reasoning", "text": "weighing it"}
+  ```
+
+  Both halves of that shape are load-bearing. The **name** keeps it off the
+  browser's default `onmessage` handler, which folds committed events — a client
+  that folded both into one field would double the text of every streamed
+  sub-turn. The **missing id** keeps it out of `Last-Event-ID`, which must only
+  ever name a committed seq, or a reconnect would skip whatever was committed in
+  between. A client that ignores `event: live` entirely is correct and loses
+  nothing durable.
+
+  Deltas are coalesced to about ten frames a second rather than one per token,
+  because a lagging subscriber is dropped rather than blocking the session
+  goroutine. They exist because a sub-turn's events commit in one batch when the
+  response completes, so `turn_started` and `turn_finished` reach a browser in
+  the same instant and the transcript's live states were otherwise unreachable
+  on a real run.
 
 **Both transports redact credential shapes on the way out** (`internal/redact`,
 applied in `internal/httpapi`). A session's tool output is whatever its commands

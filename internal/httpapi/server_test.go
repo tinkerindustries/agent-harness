@@ -735,6 +735,76 @@ func TestEventsRedactCredentialsOnBothTransports(t *testing.T) {
 	}
 }
 
+// A live delta must reach the stream as a *named* event with no id. The
+// name keeps it off the browser's onmessage handler, which folds committed
+// events and would double the text when the real reasoning_delta arrives;
+// the missing id keeps it out of Last-Event-ID, which must only ever name a
+// committed seq or a reconnect would skip whatever came in between.
+func TestSessionStreamWritesLiveDeltasAsNamedEventsWithoutIDs(t *testing.T) {
+	srv, st, h := newTestServer(t)
+	mustCreateSession(t, st, "sess-1", time.Now())
+
+	resp, err := http.Get(srv.URL + "/api/sessions/sess-1/stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	// Give the handler time to subscribe before publishing, or the delta
+	// races the subscription and the read below blocks.
+	time.Sleep(100 * time.Millisecond)
+	h.PublishLive("sess-1", hub.LiveDelta{SubTurn: 2, Channel: hub.ChannelReasoning, Text: "weighing it"})
+
+	buf := make([]byte, 4096)
+	n, err := resp.Body.Read(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame := string(buf[:n])
+	if !strings.Contains(frame, "event: live\n") {
+		t.Fatalf("live delta must be a named SSE event, got: %q", frame)
+	}
+	if strings.Contains(frame, "id:") {
+		t.Fatalf("live delta must carry no id, got: %q", frame)
+	}
+	for _, want := range []string{`"sub_turn":2`, `"channel":"reasoning"`, `"text":"weighing it"`} {
+		if !strings.Contains(frame, want) {
+			t.Fatalf("live frame missing %s, got: %q", want, frame)
+		}
+	}
+}
+
+// Live deltas are the same model output as the committed events, arriving
+// earlier, so they get the same masking. A secret redacted in the log but
+// streamed in the clear here would be no redaction at all.
+func TestSessionStreamRedactsLiveDeltas(t *testing.T) {
+	srv, st, h := newTestServer(t)
+	mustCreateSession(t, st, "sess-1", time.Now())
+
+	resp, err := http.Get(srv.URL + "/api/sessions/sess-1/stream")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	time.Sleep(100 * time.Millisecond)
+	token := "ghp_" + strings.Repeat("q", 36)
+	h.PublishLive("sess-1", hub.LiveDelta{SubTurn: 1, Channel: hub.ChannelContent, Text: "the token is " + token})
+
+	buf := make([]byte, 4096)
+	n, err := resp.Body.Read(buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame := string(buf[:n])
+	if strings.Contains(frame, token) {
+		t.Fatalf("the live stream served the token: %q", frame)
+	}
+	if !strings.Contains(frame, "[redacted]") {
+		t.Fatalf("expected the placeholder in the live frame: %q", frame)
+	}
+}
+
 func TestGetEventsUnknownSession(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	resp, err := http.Get(srv.URL + "/api/sessions/does-not-exist/events")
@@ -3582,7 +3652,8 @@ func TestSteerAppendsEventAndPublishes(t *testing.T) {
 	}
 
 	select {
-	case ev := <-events:
+	case frame := <-events:
+		ev := frame.Event
 		if ev.Kind != store.KindSteerMessage || ev.Seq != int64(seq) {
 			t.Fatalf("hub event = %+v, want the steer_message at seq %d", ev, int64(seq))
 		}

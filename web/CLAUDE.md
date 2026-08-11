@@ -129,6 +129,13 @@ blocks; the naive shape re-parses the whole transcript tens of times a second.
   display blocks. A new event kind needs both. The sub-turn grouping and the
   rail (`src/api/groups.ts`, `components/TimelineRail.tsx`) are display-side
   views over the fold's output and never add a `Block` variant.
+- **A `live` SSE frame is not an event.** `ingestLive` takes model output the
+  backend has not committed yet and appends it to `LiveTurn.liveReasoning` /
+  `liveContent` — never to `reasoning` / `content`, which belong to the
+  committed `reasoning_delta` and `content_delta` events that arrive moments
+  later carrying the same text. One field for both would double every streamed
+  sub-turn. The frozen block is always built from the committed pair; the live
+  pair is a preview that gets discarded.
 
 Virtualisation is out, and the measurements that decided it are in §5.5: delta
 commits are flat in block count, appending a block is linear and no amount of

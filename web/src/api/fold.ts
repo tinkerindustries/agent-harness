@@ -71,17 +71,33 @@ export type Block =
   // naming a sub-turn rather than guessing.
   | { type: "steer"; seq: number; text: string; state: "pending" | "delivered"; appliedSubTurn?: number };
 
-// LiveTurn is the sub-turn currently streaming: reasoning and content grow
-// by concatenation as reasoning_delta/content_delta events arrive, and the
-// whole thing is discarded (folded into a frozen Block) the moment
-// turn_finished lands.
+// LiveTurn is the sub-turn currently streaming, discarded (folded into a
+// frozen Block) the moment turn_finished lands.
+//
+// It has two sources, and keeping them apart is what makes the streaming
+// display safe. reasoning/content come from committed reasoning_delta and
+// content_delta events. liveReasoning/liveContent come from `live` SSE
+// frames, which are model output the backend has not committed yet
+// (hub.LiveDelta) and which are followed by real events carrying the same
+// text. Folding both into one field would double every streamed sub-turn;
+// the live pair is a preview that the committed pair supersedes.
 export interface LiveTurn {
   seq: number;
   subTurn: number;
   reasoning: string;
   content: string;
+  liveReasoning: string;
+  liveContent: string;
   toolCalls: ToolCallPayload[];
   startedAt: string;
+}
+
+// LiveDelta is one uncommitted chunk of model output, the payload of a
+// `live` SSE frame. It mirrors hub.LiveDelta in internal/hub.
+export interface LiveDelta {
+  sub_turn: number;
+  channel: "reasoning" | "content";
+  text: string;
 }
 
 // PendingTool is a tool call whose turn has frozen but whose result hasn't
@@ -244,6 +260,20 @@ export class FoldState {
     }
   }
 
+  // ingestLive folds one uncommitted model-output delta into the streaming
+  // turn. It appends to the live pair only — never to reasoning/content,
+  // which belong to committed events and which turn_finished freezes the
+  // block from. A delta for a sub-turn other than the one in flight is
+  // dropped: it is either a straggler from a turn that has already frozen
+  // or a frame that arrived before its turn_started, and in both cases the
+  // committed events carry the text anyway.
+  ingestLive(d: LiveDelta): void {
+    const turn = this.live.turn;
+    if (!turn || turn.subTurn !== d.sub_turn) return;
+    if (d.channel === "reasoning") turn.liveReasoning += d.text;
+    else turn.liveContent += d.text;
+  }
+
   ingest(ev: StoreEvent): void {
     switch (ev.kind) {
       case "session_started": {
@@ -272,7 +302,10 @@ export class FoldState {
       }
       case "turn_started": {
         const p = ev.payload as TurnStartedPayload;
-        this.live.turn = { seq: ev.seq, subTurn: p.sub_turn, reasoning: "", content: "", toolCalls: [], startedAt: ev.created_at };
+        this.live.turn = {
+          seq: ev.seq, subTurn: p.sub_turn, reasoning: "", content: "",
+          liveReasoning: "", liveContent: "", toolCalls: [], startedAt: ev.created_at,
+        };
         break;
       }
       case "reasoning_delta": {

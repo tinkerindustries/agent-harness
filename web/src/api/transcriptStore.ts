@@ -1,4 +1,4 @@
-import { FoldState, type Block, type LiveView } from "./fold";
+import { FoldState, type Block, type LiveDelta, type LiveView } from "./fold";
 import { SubTurnGroupState, type ChurnPoint, type GroupCounts, type TranscriptItem } from "./groups";
 import type { StoreEvent, Todo, ToolCallPayload } from "./types";
 
@@ -101,6 +101,16 @@ export class TranscriptStore {
     this.es.onerror = () => {
       if (this.connection !== "closed") this.setConnection("connecting");
     };
+    // `live` frames are model output the backend has not committed yet
+    // (hub.LiveDelta). They arrive as a *named* SSE event, so onmessage —
+    // which folds committed events — never sees them, and they carry no id,
+    // so they cannot move the EventSource's Last-Event-ID cursor. Both
+    // properties are what let the transcript show streaming text without
+    // the resume path having to know this feature exists.
+    this.es.addEventListener("live", (m) => {
+      this.fold.ingestLive(JSON.parse((m as MessageEvent).data) as LiveDelta);
+      this.markDirty();
+    });
     this.es.onmessage = (m) => {
       const ev = JSON.parse(m.data) as StoreEvent;
       this.ingest(ev);

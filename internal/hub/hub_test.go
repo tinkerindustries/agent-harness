@@ -20,8 +20,8 @@ func TestSubscribePublishReceivesInOrder(t *testing.T) {
 	for _, want := range events {
 		select {
 		case got := <-ch:
-			if got.Seq != want.Seq {
-				t.Fatalf("got seq %d, want %d", got.Seq, want.Seq)
+			if got.Event.Seq != want.Seq {
+				t.Fatalf("got seq %d, want %d", got.Event.Seq, want.Seq)
 			}
 		case <-time.After(time.Second):
 			t.Fatal("timed out waiting for event")
@@ -44,7 +44,7 @@ func TestPublishIsIsolatedPerSession(t *testing.T) {
 
 	select {
 	case ev := <-chA:
-		if ev.SessionID != "sess-a" {
+		if ev.Event.SessionID != "sess-a" {
 			t.Fatalf("unexpected event on sess-a channel: %+v", ev)
 		}
 	case <-time.After(time.Second):

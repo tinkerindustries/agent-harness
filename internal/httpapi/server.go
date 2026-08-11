@@ -1703,7 +1703,7 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 	defer keepalive.Stop()
 	for {
 		select {
-		case ev, ok := <-live:
+		case frame, ok := <-live:
 			if !ok {
 				// The hub dropped this subscriber for lagging. Ending the
 				// response here is what makes that safe: the browser's
@@ -1711,6 +1711,17 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 				// id it saw, and the replay above fills the gap exactly.
 				return
 			}
+			// A live delta is model output that has not been committed yet
+			// (hub.LiveDelta). It carries no seq, so it is neither deduped
+			// against the history replay nor allowed to move `sent`: the
+			// resume cursor must only ever name a real event, or a
+			// reconnect would skip whatever was committed in between.
+			if frame.Live != nil {
+				writeSSELive(w, *frame.Live)
+				flusher.Flush()
+				continue
+			}
+			ev := frame.Event
 			if ev.Seq <= sent {
 				continue // already sent from history; the subscribe/read overlap window
 			}
@@ -1831,6 +1842,24 @@ func writeSSEEvent(w io.Writer, ev store.Event) {
 		return
 	}
 	fmt.Fprintf(w, "id: %d\ndata: %s\n\n", ev.Seq, b)
+}
+
+// writeSSELive writes one uncommitted model-output delta as a *named* SSE
+// event with no id. Both halves of that shape are load-bearing. The name
+// keeps it off the browser's onmessage handler, which folds committed
+// events into the transcript and would be corrupted by text that is about
+// to arrive again in a real event; the missing id keeps it out of
+// Last-Event-ID, which must only ever name a committed seq.
+//
+// It redacts on the same terms writeSSEEvent does: this is the same model
+// output, arriving earlier, and a secret masked in the log but streamed in
+// the clear here would be no masking at all.
+func writeSSELive(w io.Writer, d hub.LiveDelta) {
+	b, err := json.Marshal(d)
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(w, "event: live\ndata: %s\n\n", redact.Bytes(b))
 }
 
 // writeSSEData writes v as a plain SSE frame with no id — the shape the

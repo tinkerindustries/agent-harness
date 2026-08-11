@@ -390,6 +390,23 @@ writer goroutine fed by a channel, so `SQLITE_BUSY` never arises from our own
 concurrency; readers use a separate read-only connection pool. Event appends are
 batched per turn where they arrive faster than a transaction per event is worth.
 
+Two deliberate exceptions to that batching, both about what a person watching a
+run can see:
+
+- **`turn_started` is committed on its own, before the request goes out.** A
+  batch is stamped with one instant, so committing it with the rest gave it the
+  time the model *finished* — every timestamp in a sub-turn was then off by the
+  duration of the model call, and the transcript's live turn had nothing to
+  measure its age from. One extra transaction per sub-turn buys a timestamp that
+  means what it says.
+- **Model output is streamed to the SSE hub without being stored** (`hub.Frame`,
+  `hub.LiveDelta`). The sub-turn's `reasoning_delta` and `content_delta` events
+  are still committed once, in the batch, when the response completes; the hub
+  additionally carries the same text as it arrives, coalesced to ~10 frames a
+  second, so the browser can render it live. The log's shape is unchanged and a
+  reconnect rebuilds from it alone — see [DATA-API.md](DATA-API.md)'s events
+  section for the frame contract and why it carries no id.
+
 A per-model semaphore sits under the account limits: 500 concurrent for pro,
 2500 for flash, counted account-wide rather than per key. The queue makes these
 reachable in a way a single-user harness never did. Size the worker pool from
