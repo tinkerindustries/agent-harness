@@ -563,15 +563,20 @@ pre {
   font-weight: 600;
   font-size: 0.8125rem;
   white-space: nowrap;
+  /* The id and the meta line are the description that owns the middle of
+     the card; each ellipsizes only when the card is too narrow for both. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .run-meta {
   color: var(--muted-foreground);
   font-size: 0.8125rem;
   white-space: nowrap;
-  /* The stat row is the card's headline; on a narrow column the meta
-     (model · effort · job type) gives up its space first so all four
-     run-stats stay visible. */
+  /* The stat row is two figures now, so the id and the meta keep the width
+     it no longer takes; the meta clips only after the stats have yielded
+     theirs. */
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -585,13 +590,17 @@ pre {
   font-size: 0.8125rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  /* The stat row is the card's garnish now — elapsed and sub-turns — so on
+     a card too narrow for everything, the stats yield their width before
+     the id or the meta line clips. */
+  min-width: 0;
+  overflow: hidden;
+  flex-shrink: 2;
 }
 
-/* The four numbers a running session is judged by, in the priority the phase
-   9 design asked for (design/sessions-v2.html): elapsed and cost are the two
-   an operator scans for, so they are full weight and a step larger, while
-   sub-turns and cache sit dimmer. All four were already shown; only which
-   ones are loud changed. */
+/* The two figures a running session is judged by, matching the finished
+   table's columns minus Cost and Cache (design/sessions-v2.html): elapsed
+   in full weight, sub-turns dimmer. */
 .run-stats .primary {
   color: var(--foreground);
   font-weight: 600;
@@ -624,6 +633,10 @@ pre {
 .run-now {
   font-size: 0.8125rem;
   min-width: 0;
+  /* The activeForm is the card's "what is it doing": it wraps rather than
+     ellipsizing (overriding the truncate utility), so the description line
+     never clips while the ratio keeps its corner. */
+  white-space: normal;
 }
 
 .run-now .verb {

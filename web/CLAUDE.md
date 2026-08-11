@@ -26,13 +26,14 @@ What the screens are, since the redesign (docs/WEB-REDESIGN.md):
 - **Session list.** In-flight sessions are collapsible plan cards — collapsed,
   the trigger shows the `in_progress` item's activeForm and the completed
   ratio; expanded, the whole plan and the last few tool calls. The card's stat
-  row leads with elapsed and cost in primary weight, sub-turns and cache
-  dimmer (phase 9). Finished sessions are a dense table whose Session cell
-  carries a one-line subtitle: the plan ratio and the model's summary.
+  row carries elapsed in primary weight and sub-turns dimmer — the finished
+  table's columns minus Cost and Cache (phase 9). Finished sessions are a dense
+  table whose Session cell carries a one-line subtitle: the plan ratio and the
+  model's summary.
   Outcomes render as `DONE` / `GAVE UP` / `STOPPED` (`statusBadge.ts`), not one
   green OK. A stat strip above the queue health bar — Running (of the pool's
-  slots, from `worker.pool_size`), Spend today, Median duration today, Done vs
-  gave up today — is a client-side reduction over the same session list, with
+  slots, from `worker.pool_size`), Spend today, Median duration today, Total
+  time today — is a client-side reduction over the same session list, with
   no backend field behind it. The finished table's columns run Status, Session,
   Elapsed, Cost, Model, Sub-turns, Cache: the two numbers an operator
   scans for sit right after Session, where they stay visible before any column
