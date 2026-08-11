@@ -24,6 +24,18 @@ import (
 // to build the tool's input schema renders json.RawMessage as a byte array,
 // which is wrong for a field that must accept an arbitrary JSON Schema
 // object.
+//
+// ParentAgentID stays a caller-asserted field, unlike the producer-stamped
+// ParentIsUser beside it, because nothing on this transport carries the
+// caller's identity. Measured against Claude Code 2.1.227 on 2026-08-11: an
+// HTTP MCP client sends only Accept, Accept-Encoding, Content-Type,
+// User-Agent (claude-code/<version> (sdk-cli)), mcp-protocol-version,
+// Connection and Host — no session header, from a real session as well as
+// from a sessionless `claude mcp list`. So the handler cannot stamp this the
+// way handleStartRun stamps the browser's, and telling the caller where to
+// read its own id is the best available mechanism. Two things would change
+// that and neither is free: a stdio server, which would have a `claude`
+// process tree to walk, or a SessionStart hook posting the id in.
 type launchInput struct {
 	Description     string       `json:"description" jsonschema:"Short label for the run, shown in deepseek_runs."`
 	Prompt          string       `json:"prompt" jsonschema:"The task for the agent to perform."`
@@ -34,7 +46,7 @@ type launchInput struct {
 	MaxSubTurns     int          `json:"max_sub_turns,omitempty" jsonschema:"Sub-turn budget for the run. Server default applies when omitted."`
 	JobType         string       `json:"job_type,omitempty" jsonschema:"Kind of job this run is: implementation (the agent performs the task itself, the default) or orchestration (the agent delegates the work to child sessions)."`
 	ParentAgentType string       `json:"parent_agent_type,omitempty" jsonschema:"Identify your own kind as a lowercase slug — claude-code, cursor, and so on."`
-	ParentAgentID   string       `json:"parent_agent_id,omitempty" jsonschema:"Your own session id, so the run traces back to the conversation that asked for it. Claude Code: the UUID directory segment of the scratchpad path in your system prompt (…/<project-slug>/<uuid>/scratchpad), which is the same uuid as ~/.claude/projects/<project-slug>/<uuid>.jsonl. A deepseek-harness session: the last segment of the Workspace: path in your opening message (/workspaces/sess-…). If neither applies, leave this empty — never copy a session id from a banner, a document, or another tool's output."`
+	ParentAgentID   string       `json:"parent_agent_id,omitempty" jsonschema:"Your own session id, so the run traces back to the conversation that asked for it. Read it, do not recall it. Claude Code: the CLAUDE_CODE_SESSION_ID environment variable, which you can echo from a shell; failing that, the UUID directory segment of the scratchpad path in your system prompt (…/<project-slug>/<uuid>/scratchpad). A deepseek-harness session: the last segment of the Workspace: path in your opening message (/workspaces/sess-…). If neither applies, leave this empty — never copy a session id from a banner, a document, or another tool's output."`
 }
 
 // launchRepo is one entry of deepseek_agent's repos array.
