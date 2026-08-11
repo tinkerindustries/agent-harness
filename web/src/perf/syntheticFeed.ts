@@ -215,8 +215,8 @@ export function liveEventGenerator(sessionId: string, seq: SeqSource): Generator
         name: "TaskCreate",
         arguments: JSON.stringify({
           tasks: [
-            { content: `live item ${turn % 3}`, status: "in_progress", activeForm: "working" },
-            { content: "next", status: "pending", activeForm: "next" },
+            { subject: `live item ${turn % 3}`, description: "live item detail", status: "in_progress", activeForm: "working" },
+            { subject: "next", description: "next detail", status: "pending", activeForm: "next" },
           ],
         }),
       });
@@ -224,7 +224,7 @@ export function liveEventGenerator(sessionId: string, seq: SeqSource): Generator
         index: 1,
         id: `live_update_${turn}`,
         name: "TaskUpdate",
-        arguments: JSON.stringify({ id: "1", status: "in_progress" }),
+        arguments: JSON.stringify({ taskId: "1", status: "in_progress" }),
       });
       const callId = `live_call_${turn}`;
       yield push("tool_call", { index: 0, id: callId, name: "Bash", arguments: JSON.stringify({ command: "npm run build" }) });

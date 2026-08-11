@@ -26,23 +26,23 @@ function usage(subTurn: number): StoreEvent {
   });
 }
 
-type CreateTask = { content: string; activeForm: string; status?: Todo["status"] };
+type CreateTask = { subject: string; description: string; activeForm: string; status?: Todo["status"] };
 
 function taskCreate(seq: number, id: string, tasks: Todo[]): StoreEvent {
-  const stripped: CreateTask[] = tasks.map(({ content, status, activeForm }) => ({ content, activeForm, status }));
+  const stripped: CreateTask[] = tasks.map(({ subject, description, status, activeForm }) => ({ subject, description, activeForm, status }));
   return ev(seq, "tool_call", { index: 0, id, name: "TaskCreate", arguments: JSON.stringify({ tasks: stripped }) });
 }
 
 function taskUpdate(
   seq: number,
   id: string,
-  args: { id: string; status?: Todo["status"]; content?: string; activeForm?: string; delete?: boolean },
+  args: { taskId: string; status?: Todo["status"] | "deleted"; subject?: string; description?: string; activeForm?: string },
 ): StoreEvent {
   return ev(seq, "tool_call", { index: 0, id, name: "TaskUpdate", arguments: JSON.stringify(args) });
 }
 
-function todo(id: string, content: string, status: Todo["status"]): Todo {
-  return { id, content, status, activeForm: `working on ${content}` };
+function todo(id: string, subject: string, status: Todo["status"]): Todo {
+  return { taskId: id, subject, description: `${subject} in detail`, status, activeForm: `working on ${subject}` };
 }
 
 // foldedItems runs the store's pipeline (fold each event, sync groups with
@@ -76,7 +76,7 @@ describe("buildRail", () => {
       usage(2),
       // phase 2: sub-turn 3
       ev(7, "turn_started", { sub_turn: 3 }),
-      taskUpdate(8, "u1", { id: "1", status: "completed" }),
+      taskUpdate(8, "u1", { taskId: "1", status: "completed" }),
       taskCreate(9, "p2", [todo("2", "Add httplog test", "in_progress")]),
       ev(10, "turn_finished", { finish_reason: "stop" }),
       usage(3),
