@@ -75,34 +75,52 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate }: Pro
   const [failed, setFailed] = useState<FailedSend[]>([]);
   const failedId = useRef(0);
 
-  const send = useCallback(
-    async (text: string): Promise<boolean> => {
-      if (token === null) return false;
+  // postSteer is the one steer POST, shared by the composer's send and the
+  // failed message's Retry: on acceptance it records the 202's seq and local
+  // time in the ledger; on refusal it reports the server's own words. The
+  // acceptance is not a delivery — the text appears in the transcript as a
+  // pending steer block via the SSE stream the moment the steer_message
+  // event lands, and flips to delivered when the loop applies it. Nothing
+  // here polls or guesses at that.
+  const postSteer = useCallback(
+    async (text: string): Promise<{ ok: boolean; error: string | null }> => {
+      if (token === null) return { ok: false, error: "run control is not configured" };
       try {
-        // The 202 is the acceptance, not the delivery: the text appears in
-        // the transcript as a pending steer block via the SSE stream the
-        // moment the steer_message event lands, and flips to delivered when
-        // the loop applies it. Nothing here polls or guesses at that.
         const res = await steerSession(sessionId, token, text);
         setSentAt((prev) => {
           const m = new Map(prev);
           m.set(res.seq, Date.now());
           return m;
         });
-        return true;
+        return { ok: true, error: null };
       } catch (err) {
-        setFailed((prev) => [...prev, { id: failedId.current++, text, error: errorMessage(err) }]);
-        return false;
+        return { ok: false, error: errorMessage(err) };
       }
     },
     [sessionId, token],
   );
 
+  const send = useCallback(
+    async (text: string): Promise<boolean> => {
+      const res = await postSteer(text);
+      if (!res.ok) {
+        setFailed((prev) => [...prev, { id: failedId.current++, text, error: res.error ?? "send failed" }]);
+        return false;
+      }
+      return true;
+    },
+    [postSteer],
+  );
+
   const retryFailed = useCallback(
     async (id: number, text: string) => {
-      if (await send(text)) setFailed((prev) => prev.filter((f) => f.id !== id));
+      // A retry is the same POST, not a fresh send: only its own entry
+      // disappears on success, and a second refusal keeps the entry rather
+      // than stacking a duplicate failed message.
+      const res = await postSteer(text);
+      if (res.ok) setFailed((prev) => prev.filter((f) => f.id !== id));
     },
-    [send],
+    [postSteer],
   );
 
   const dismissFailed = useCallback((id: number) => {

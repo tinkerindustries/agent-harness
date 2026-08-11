@@ -3002,18 +3002,22 @@ body.app #root {
   color: var(--status-running);
 }
 
-/* ---------- fact list ---------- */
-.facts {
+/* ---------- fact list ----------
+   Scoped under .rail because the settings screen's own .facts (a flex-wrap
+   row of inline facts, above) claims the bare class name; the session rail's
+   facts are one stacked row per fact, label left, value right. */
+.rail .facts {
+  display: block;
   font-size: 0.75rem;
   color: var(--muted-foreground);
 }
-.facts div {
+.rail .facts div {
   display: flex;
   justify-content: space-between;
   gap: 10px;
   padding: 3px 0;
 }
-.facts .v {
+.rail .facts .v {
   color: var(--foreground);
   font-family: var(--font-mono);
   font-size: 0.6875rem;
@@ -3021,17 +3025,29 @@ body.app #root {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* A flex item's min-width: auto would refuse to shrink below its content
+     and push the overflow past the rail's own clip, truncating without the
+     ellipsis — the row must let the value shrink. */
+  min-width: 0;
 }
 
 /* ---------- footer ---------- */
+/* The band is a grid with the same two columns as the work band above it
+   (design/session-chat.html): the composer's 800px measure centres inside
+   the conversation column, not across the whole page — the footer sits under
+   the conversation, never under the rail. */
 .footer {
   border-top: 1px solid var(--border);
   background: var(--background);
   padding: 10px 24px 9px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 288px;
 }
 .footer-inner {
+  grid-column: 1;
   max-width: 800px;
   margin: 0 auto;
+  width: 100%;
 }
 .statusline {
   display: flex;
@@ -3233,6 +3249,9 @@ kbd {
     display: none;
   }
   .work {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+  .footer {
     grid-template-columns: minmax(0, 1fr) !important;
   }
   /* Its own band between the nav and the stream, not a sticky element
