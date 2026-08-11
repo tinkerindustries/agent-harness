@@ -2481,6 +2481,19 @@ body.app #root {
 .work-chat {
   grid-template-columns: minmax(0, 1fr) 288px;
 }
+/* The watch page's work band (design/session-watch.html): the 244px
+   navigator rail on the left and the conversation column. Same silhouette
+   rule as the chat page — the rail is a peer pane — with the rail on the
+   other side, so the two pages are told apart before reading a word. */
+.work-watch {
+  grid-template-columns: 244px minmax(0, 1fr);
+}
+/* The watch page's stream measure is a touch wider than the chat page's:
+   the reader here is a spectator hunting through history, not a typist, and
+   the extra 40px buys room for the provenance strip's longer lines. */
+.work-watch .stream-inner {
+  max-width: 840px;
+}
 .stream {
   overflow-y: auto;
   padding: 20px 24px 0;
@@ -3235,6 +3248,299 @@ kbd {
   color: var(--foreground);
 }
 
+/* ---------- the watch page (design/session-watch.html) ----------
+   The read-only session page: a run another agent started
+   (SessionState.parent_is_user is false, and the row carries
+   parent_agent_type / parent_agent_id). You may stop it. You may not talk
+   to it — its instructions come from the agent that launched it. Same turn
+   vocabulary as the chat page, opposite silhouette: rail left, no composer.
+   A greyed-out input would have been worse than no input — a disabled
+   control invites you to look for the way to enable it. */
+
+/* ---------- provenance strip ----------
+   For an agent-launched run this is the first question a person has: who
+   started this, and on whose behalf. It is a quiet strip, not an alert —
+   this is the normal state for these sessions, not a fault. */
+.prov {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 7px 20px;
+  background: var(--muted);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+.prov .who {
+  color: var(--foreground);
+  font-weight: 500;
+}
+.prov code {
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+}
+.prov .sep {
+  color: var(--border);
+}
+.prov .spacer {
+  flex: 1;
+}
+.prov a {
+  color: var(--status-running);
+  text-decoration: none;
+}
+.prov a:hover {
+  text-decoration: underline;
+}
+
+/* ---------- the navigator rail ----------
+   A watcher's job is to find things: the error among 78 sub-turns, the edit
+   that touched a file, the churn point. So the filters and the find box
+   live at the top of the left rail with the timeline rather than in a bar
+   of their own — one column that answers "where in this run". The shared
+   top nav's right slot is spoken for by the run controls, so search comes
+   down here (web/CLAUDE.md: each screen registers its own page-specific
+   nav content). */
+.rail .input {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  font-size: 0.75rem;
+  margin-bottom: 10px;
+}
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.rail .chips .chip-toggle {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 0.6875rem;
+}
+
+/* ---------- the left rail's timeline ----------
+   Sub-turns grouped under the plan item that was in progress when they ran
+   — plan and navigation in one column, one disclosure per phase, one tick
+   per sub-turn. */
+.phase {
+  margin-bottom: 4px;
+}
+.phase > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 6px;
+  border-radius: calc(var(--radius) - 3px);
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  cursor: pointer;
+  list-style: none;
+}
+.phase > summary::-webkit-details-marker {
+  display: none;
+}
+.phase > summary:hover {
+  background: var(--accent);
+}
+.phase > summary:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+.phase > summary .caret {
+  transition: transform 0.15s ease;
+}
+.phase[open] > summary .caret {
+  transform: rotate(90deg);
+}
+.phase .idx {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+}
+.phase-done > summary {
+  color: var(--muted-foreground);
+}
+.phase-now > summary {
+  background: var(--status-running-bg);
+  font-weight: 500;
+}
+.ticks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 4px 6px 8px 24px;
+}
+/* A plan item the run has not reached yet (design/session-watch.html's
+   phase 4 "not started"): a quiet line inside the ticks row. */
+.ticks .not-started {
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+}
+/* One tick per sub-turn, coloured by what happened in it. A row of these is
+   a shape you learn to read: a wall of green with one red is a run that hit
+   one snag, alternating amber is a run going in circles. */
+.tick {
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  background: var(--secondary);
+  border: 1px solid var(--border);
+  display: block;
+}
+.tick-edit {
+  background: var(--diff-add-bg);
+  border-color: var(--diff-add-fg);
+}
+.tick-err {
+  background: var(--status-failed-bg);
+  border-color: var(--status-failed);
+}
+.tick-churn {
+  background: var(--status-gaveup-bg);
+  border-color: var(--status-gaveup);
+}
+.tick-now {
+  background: var(--status-running);
+  border-color: var(--status-running);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tick-now {
+    animation: none;
+  }
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 0.6875rem;
+  color: var(--muted-foreground);
+}
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.legend .tick {
+  width: 9px;
+  height: 9px;
+}
+
+/* ---------- footer: what it is doing right now ----------
+   The chat page's footer is a composer. This page's footer is the answer to
+   the only question a spectator has while the run is live, kept visible
+   even when they have scrolled back through history — that is the point of
+   it. The band lines up under the conversation column, exactly as the
+   chat page's does. */
+.footer-watch {
+  grid-template-columns: 244px minmax(0, 1fr);
+}
+.footer-watch .footer-inner {
+  grid-column: 2;
+  max-width: none;
+}
+.nowline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+  margin-bottom: 6px;
+}
+.nowline .name {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: 0.75rem;
+}
+.nowline .arg {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.nowline .under {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nowline .spacer {
+  flex: 1;
+}
+.follow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--ring);
+  background: var(--secondary);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.follow .dot {
+  background: var(--status-running);
+}
+.follow-off .dot {
+  background: var(--muted-foreground);
+}
+
+/* ---------- the result ----------
+   For a run an agent launched, the result payload is the point: it is what
+   the parent gets back. It renders at the end of the stream, where the run
+   ended, not in a panel off to the side. */
+.result {
+  border: 1px solid var(--status-done);
+  border-radius: var(--radius);
+  background: var(--status-done-bg);
+  padding: 12px 14px;
+  margin: 4px 0 24px 40px;
+}
+.result-gaveup {
+  border-color: var(--status-gaveup);
+  background: var(--status-gaveup-bg);
+}
+.result h4 {
+  margin: 0 0 6px;
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--status-done);
+}
+.result-gaveup h4 {
+  color: var(--status-gaveup);
+}
+.result p {
+  margin: 0 0 10px;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--foreground);
+}
+.result pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--muted-foreground);
+}
+.result .copy {
+  float: right;
+}
+
 /* ---------- narrow ----------
    The rail is the first thing to go: at this width it is squeezing the prose
    measure, and the one thing it carries that you cannot do without — which
@@ -3253,6 +3559,14 @@ kbd {
   }
   .footer {
     grid-template-columns: minmax(0, 1fr) !important;
+  }
+  /* The watch footer's inner band is normally anchored to the second grid
+     column (the conversation column); collapsed to one column, column 2 no
+     longer exists and the anchor would strand the band in an implicit
+     zero-width track (the media rule's !important overrides the template,
+     not the child's grid-column). */
+  .footer-watch .footer-inner {
+    grid-column: 1;
   }
   /* Its own band between the nav and the stream, not a sticky element
      inside it: a sticky row has to repaint a background over the turn

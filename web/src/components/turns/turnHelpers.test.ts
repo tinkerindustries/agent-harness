@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { DiffLine, ToolDeniedPayload, ToolResultPayload } from "../../api/types";
-import type { TranscriptItem } from "../../api/groups";
+import type { SubTurnGroup } from "../../api/groups";
 import {
   cachePercent,
   elideLines,
   finishedBandText,
   formatRunDuration,
+  groupMatchesQuery,
   pendingWaitLabel,
-  steerDeliveredSubTurn,
   toolStat,
   type ToolResultLike,
 } from "./turnHelpers";
@@ -123,44 +123,69 @@ describe("cachePercent", () => {
   });
 });
 
-describe("steerDeliveredSubTurn", () => {
-  // A steer block stays at the position where the operator sent it; the
-  // first group after it is the sub-turn the message landed in.
-  const steer = (seq: number): TranscriptItem => ({ kind: "block", block: { type: "steer", seq, text: "hi", state: "delivered" } });
-  const group = (subTurn: number, seq: number): TranscriptItem => ({
-    kind: "group",
-    group: {
-      subTurn,
-      seq,
-      blocks: [{ type: "assistant", seq, subTurn, reasoning: "", content: "", toolCalls: [], finishReason: "stop" }],
-      tags: { edits: 0, bash: 0, errors: 0, churn: false },
-      phase: { id: 1, index: 0, label: "" },
-    },
+describe("groupMatchesQuery", () => {
+  // A group with an assistant block, an Edit call and a Bash result, the
+  // shape the find box searches over.
+  const group = (overrides: Partial<SubTurnGroup> = {}): SubTurnGroup => ({
+    subTurn: 1,
+    seq: 10,
+    blocks: [
+      {
+        type: "assistant",
+        seq: 10,
+        subTurn: 1,
+        reasoning: "the reasoning text",
+        content: "the prose text",
+        toolCalls: [
+          { index: 0, id: "e1", name: "Edit", arguments: '{"file_path":"internal/mcp/launch.go"}' },
+          { index: 1, id: "b1", name: "Bash", arguments: '{"command":"go vet ./..."}' },
+        ],
+        finishReason: "tool_calls",
+      },
+      { type: "tool_result", seq: 11, tool_call_id: "b1", name: "Bash", content: "build output text" },
+    ],
+    tags: { edits: 1, bash: 1, errors: 0, churn: false },
+    phase: { id: 1, index: 1, label: "Do the thing" },
+    ...overrides,
+  });
+  // getToolCall returns the same calls the fold keeps.
+  const assistant = (): Extract<SubTurnGroup["blocks"][number], { type: "assistant" }> => {
+    const a = group().blocks[0];
+    if (a.type !== "assistant") throw new Error("test group must open with an assistant block");
+    return a;
+  };
+  const getToolCall = (id: string) =>
+    id === "e1" ? assistant().toolCalls[0] : id === "b1" ? assistant().toolCalls[1] : undefined;
+
+  it("matches a blank query against everything", () => {
+    expect(groupMatchesQuery(group(), "", getToolCall)).toBe(true);
+    expect(groupMatchesQuery(group(), "   ", getToolCall)).toBe(true);
   });
 
-  it("names the first group after the steer block", () => {
-    const items = [group(1, 10), steer(15), group(2, 20), group(3, 30)];
-    expect(steerDeliveredSubTurn(15, items, null)).toBe(2);
+  it("searches the assistant's prose and reasoning, case-insensitively", () => {
+    expect(groupMatchesQuery(group(), "PROSE", getToolCall)).toBe(true);
+    expect(groupMatchesQuery(group(), "reasoning", getToolCall)).toBe(true);
+    expect(groupMatchesQuery(group(), "absent", getToolCall)).toBe(false);
   });
 
-  it("ignores an earlier steer's own block when walking", () => {
-    const items = [steer(5), group(1, 10), steer(15), group(2, 20)];
-    expect(steerDeliveredSubTurn(15, items, null)).toBe(2);
-    expect(steerDeliveredSubTurn(5, items, null)).toBe(1);
+  it("searches the tool call's name and one-line target, not its arguments JSON", () => {
+    // "launch.go" is the Edit's target; "file_path" exists only in the raw
+    // arguments and must not match.
+    expect(groupMatchesQuery(group(), "launch.go", getToolCall)).toBe(true);
+    expect(groupMatchesQuery(group(), "Edit", getToolCall)).toBe(true);
+    expect(groupMatchesQuery(group(), "file_path", getToolCall)).toBe(false);
   });
 
-  it("falls back to the live turn when the landed sub-turn is still streaming", () => {
-    const items = [group(1, 10), steer(15)];
-    expect(steerDeliveredSubTurn(15, items, 2)).toBe(2);
-  });
-
-  it("returns null when no group follows and there is no live turn", () => {
-    const items = [group(1, 10), steer(15)];
-    expect(steerDeliveredSubTurn(15, items, null)).toBeNull();
-  });
-
-  it("returns null for a seq no steer block carries", () => {
-    expect(steerDeliveredSubTurn(99, [group(1, 10)], null)).toBeNull();
+  it("searches the tool results, including a denial's rule", () => {
+    expect(groupMatchesQuery(group(), "build output", getToolCall)).toBe(true);
+    const denied: SubTurnGroup = {
+      ...group(),
+      blocks: [
+        group().blocks[0],
+        { type: "tool_denied", seq: 11, tool_call_id: "b1", name: "Bash", rule: "readonly", content: "denied" },
+      ],
+    };
+    expect(groupMatchesQuery(denied, "readonly", getToolCall)).toBe(true);
   });
 });
 

@@ -1,6 +1,7 @@
 import type { Block } from "../../api/fold";
-import type { TranscriptItem } from "../../api/groups";
-import { diffCounts, exitCode, formatCost } from "../blocks/toolArgs";
+import type { SubTurnGroup } from "../../api/groups";
+import type { ToolCallPayload } from "../../api/types";
+import { diffCounts, exitCode, formatCost, toolDetail } from "../blocks/toolArgs";
 
 // turnHelpers is the pure, testable logic of the turn renderer
 // (design/session-chat.html's .turn): choosing a tool row's single most
@@ -108,30 +109,33 @@ export function cachePercent(hitTokens: number, missTokens: number): string {
 // --- the chat page's steer messages and finished band (session pages
 // phase 3, design/session-states.html) ---
 
-// steerDeliveredSubTurn names the sub-turn a delivered steer landed in
-// (docs/RUN-CONTROL.md "Two event kinds, not one": steer_applied's sub_turn
-// is the boundary the message became a user message at). The fold's steer
-// block does not carry that number — it records only pending/delivered — so
-// it is derived from the transcript order: the steer lands in the first
-// sub-turn whose turn starts after the steer_message was committed, which is
-// the first group after the steer block in the items. When the landed
-// sub-turn is still streaming it has no group yet, and the live turn's
-// number is the answer; null only when neither exists (a delivered steer
-// whose landed turn never ran — stopped at the boundary — cannot be named).
-export function steerDeliveredSubTurn(
-  steerSeq: number,
-  items: TranscriptItem[],
-  liveSubTurn: number | null,
-): number | null {
-  let after = false;
-  for (const item of items) {
-    if (!after) {
-      if (item.kind === "block" && item.block.type === "steer" && item.block.seq === steerSeq) after = true;
-      continue;
+// groupMatchesQuery is the watch page's find box (design/session-watch
+// .html's "Search this transcript…"): whether a sub-turn's visible text —
+// the assistant's reasoning and prose, the tool calls' names and targets,
+// and the tool results — contains the query, case-insensitively. A blank
+// query matches everything. It reads the call the fold keeps (getToolCall)
+// so the target is the one-line descriptor the turn renders, never the raw
+// arguments JSON.
+export function groupMatchesQuery(
+  group: SubTurnGroup,
+  query: string,
+  getToolCall: (id: string) => ToolCallPayload | undefined,
+): boolean {
+  const q = query.trim().toLowerCase();
+  if (q === "") return true;
+  const assistant = group.blocks[0];
+  if (assistant.type === "assistant") {
+    if (assistant.content.toLowerCase().includes(q) || assistant.reasoning.toLowerCase().includes(q)) return true;
+    for (const call of assistant.toolCalls) {
+      const full = getToolCall(call.id) ?? call;
+      if (full.name.toLowerCase().includes(q) || toolDetail(full).toLowerCase().includes(q)) return true;
     }
-    if (item.kind === "group") return item.group.subTurn;
   }
-  return liveSubTurn;
+  for (const block of group.blocks.slice(1)) {
+    if (block.type === "tool_result" && block.content.toLowerCase().includes(q)) return true;
+    if (block.type === "tool_denied" && `${block.rule} ${block.content}`.toLowerCase().includes(q)) return true;
+  }
+  return false;
 }
 
 // pendingWaitLabel says what a pending steer is waiting on, from the live
