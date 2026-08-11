@@ -592,14 +592,21 @@ cannot be trusted to report its own provenance:
   in `parent_agent_id` (an unset or malformed name degrades to an unnamed
   person, never a failed start); any provenance the body sent is overwritten
   before validation, not rejected.
-- `deepseek_agent` — `parent_is_user: false`; `parent_agent_type` and
-  `parent_agent_id` stay whatever the calling agent asserted, best-effort.
+- `deepseek_agent` — `parent_is_user: false`; `parent_agent_type` is
+  producer-stamped from the MCP client's own `clientInfo` — the name the
+  client library itself sends in the initialize handshake, normalised to the
+  agentmeta grammar — and whatever kind the tool input asserted is ignored;
+  `parent_agent_id` stays whatever the calling agent asserted, best-effort.
 - `harness publish` — `parent_is_user` defaults to `false` (scripted);
   `harness run` defaults to `true` (interactive); both override with
-  `-parent-is-user`.
+  `-parent-is-user`, and on these CLI paths `parent_agent_type` remains a
+  flag the operator passes.
 
 `parent_is_user` is producer-set and therefore trustworthy; `parent_agent_type`
-is caller-asserted and therefore not.
+is producer-stamped on the MCP path (from the client's `clientInfo`) and a
+caller-passed flag on the CLI paths, and `POST /api/runs` clears it entirely.
+Only `parent_agent_id` stays caller-asserted, which is why it is the one
+field a caller can get wrong.
 
 Result body:
 
