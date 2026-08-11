@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Session, interactive — harness design pass</title>
+    <link rel="stylesheet" href="tokens.css" />
+    <link rel="stylesheet" href="session.css" />
+    <style>
+      /* The interactive session page: a run a person started
+         (SessionState.parent_is_user). Everything structural lives in
+         session.css; what is here is the composer, which is the only thing
+         this page has that the watch page must not. */
+      .work {
+        grid-template-columns: minmax(0, 1fr) 288px;
+      }
+
+      /* The one thing this page must not lie about: a message is accepted
+         now and delivered at the next sub-turn boundary. The run does not
+         pause to read it, so the composer never implies a reply is owed. */
+      .queued {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.6875rem;
+        color: var(--status-gaveup);
+        margin-bottom: 6px;
+      }
+      .box {
+        display: flex;
+        align-items: flex-end;
+        gap: 8px;
+        border: 1px solid var(--input);
+        border-radius: var(--radius);
+        padding: 8px 8px 8px 10px;
+        background: var(--card);
+      }
+      .box:focus-within {
+        border-color: var(--ring);
+        box-shadow: 0 0 0 3px hsl(217 91% 48% / 0.09);
+      }
+      .box .prompt {
+        font-family: var(--font-mono);
+        color: var(--status-running);
+        font-weight: 600;
+        line-height: 1.55;
+        flex: none;
+        align-self: flex-start;
+      }
+      .box textarea {
+        flex: 1;
+        border: 0;
+        background: transparent;
+        color: var(--foreground);
+        font-family: var(--font-mono);
+        font-size: 0.8125rem;
+        line-height: 1.55;
+        resize: none;
+        outline: none;
+        min-height: 38px;
+        padding: 0;
+      }
+      .box textarea::placeholder {
+        color: var(--muted-foreground);
+      }
+      /* A send button as well as the Enter binding: the keyboard path is the
+         fast one, but a control you can see is how a first-time user learns
+         the page has one. */
+      .send {
+        flex: none;
+        height: 26px;
+        padding: 0 10px;
+        border-radius: calc(var(--radius) - 3px);
+        border: 1px solid var(--border);
+        background: var(--secondary);
+        color: var(--secondary-foreground);
+        font: inherit;
+        font-size: 0.75rem;
+        cursor: pointer;
+      }
+      .send:hover {
+        background: var(--accent);
+      }
+      .footer .statusline {
+        margin-top: 7px;
+      }
+    </style>
+  </head>
+  <body class="app">
+    <!-- ============ nav ============ -->
+    <header class="topnav">
+      <span class="wordmark">deepseek&#8209;harness</span>
+      <nav class="topnav-links">
+        <a class="navlink" href="sessions-v2.html">Sessions</a>
+        <a class="navlink" href="#">Operations</a>
+        <a class="navlink" href="settings.html">Settings</a>
+      </nav>
+      <span class="nav-crumb"><span class="sep">/</span> <span class="current">sess&#8209;46a6e634</span></span>
+      <span class="spacer"></span>
+      <div class="topnav-right">
+        <span class="badge badge-running"><span class="dot dot-pulse"></span> RUNNING</span>
+        <span>16m 31s</span>
+        <span class="badge badge-outline badge-perm" title="This run can reach the host docker socket">full</span>
+        <button class="btn">Stop</button>
+      </div>
+    </header>
+
+    <!-- ============ body ============ -->
+    <div class="plan-mini">
+      <span class="mark">▸</span>
+      <span class="truncate">Setting configuration values for mixed state</span>
+      <span class="count">3/10</span>
+    </div>
+
+    <div class="work">
+      <main class="stream">
+        <div class="stream-inner">
+          <details class="think" style="margin-bottom: 22px">
+            <summary><span class="caret">▸</span> Opening message · 1,585 words · 3 repos · 2 skills offered</summary>
+            <div class="thought">Workspace: /workspaces/sess-46a6e634804f91450df84ec43e77124f
+
+The repositories you have been given are checked out under the workspace root…</div>
+          </details>
+
+          <div class="msg msg-user">
+            <div class="body">Take a screenshot of the settings page and the session list at desktop and narrow widths, review them, and fix anything that looks wrong.</div>
+            <div class="state">delivered · sub-turn 1</div>
+          </div>
+
+          <div class="turn" id="sub-turn-1">
+            <a class="gutter" href="#sub-turn-1" title="Sub-turn 1">1</a>
+            <div class="turnmeta"><span>9.9s</span><span>0% cache</span><span>429 out</span><span>$0.002554</span></div>
+            <details class="think">
+              <summary><span class="caret">▸</span> Thought for 9.9s · 429 tokens</summary>
+              <div class="thought">I need to build the frontend and the binary first, then start a NATS broker so the harness can serve…</div>
+            </details>
+            <div class="say"><p>I'll build the app, bring up a broker, then drive the browser. Writing the plan first.</p></div>
+            <details class="tool tool-ok">
+              <summary>
+                <span class="glyph">✓</span><span class="name">TaskCreate</span>
+                <span class="target">10 tasks — Read skill files → Final report</span>
+                <span class="timing">0.1s</span>
+              </summary>
+              <pre class="tool-out">[~] Read skill files and understand project structure
+[ ] Build binary and web assets
+[ ] Start NATS broker and serve the app
+[ ] Set configuration values for mixed state
+[ ] Screenshot settings page at desktop and narrow widths</pre>
+            </details>
+          </div>
+
+          <div class="turn" id="sub-turn-2">
+            <a class="gutter" href="#sub-turn-2" title="Sub-turn 2">2</a>
+            <div class="turnmeta"><span>4.3s</span><span>90.7% cache</span><span>227 out</span><span>$0.000439</span></div>
+            <details class="think">
+              <summary><span class="caret">▸</span> Thought for 4.3s · 227 tokens</summary>
+              <div class="thought">Let me read the skill files and understand the project better first.</div>
+            </details>
+            <div class="say"><p>Reading the architecture and design notes before I touch anything.</p></div>
+            <div class="toolset">
+              <div class="setlabel">3 calls in parallel</div>
+              <details class="tool tool-ok">
+                <summary><span class="glyph">✓</span><span class="name">Read</span><span class="target">.claude/skills/playwright-cli/SKILL.md</span><span class="timing">312 lines</span></summary>
+                <pre class="tool-out">     1	---
+     2	name: playwright-cli
+     3	description: Automates browser interactions, test web pages…</pre>
+              </details>
+              <details class="tool tool-ok">
+                <summary><span class="glyph">✓</span><span class="name">Read</span><span class="target">ARCHITECTURE.md</span><span class="timing">204 lines</span></summary>
+                <pre class="tool-out">     1	# Architecture
+     2
+     3	Where things live and what they may depend on.</pre>
+              </details>
+              <details class="tool tool-ok" open>
+                <summary><span class="glyph">✓</span><span class="name">Read</span><span class="target">docs/DESIGN.md</span><span class="timing">1,842 lines</span></summary>
+                <pre class="tool-out">     1	# deepseek-harness — technical design
+     2
+     3	A coding harness: an agent loop against DeepSeek's own API, work arriving
+     4	on a NATS JetStream queue, sessions event-sourced to SQLite.</pre>
+                <button class="elided">⋯ 1,836 lines hidden — show all</button>
+                <pre class="tool-out" style="border-top: 0">  1841	Re-measure with the harness in web/src/perf rather than arguing from
+  1842	first principles.</pre>
+              </details>
+            </div>
+          </div>
+
+          <div class="turn" id="sub-turn-7">
+            <a class="gutter" href="#sub-turn-7" title="Sub-turn 7">7<span class="warn" title="Cache churn: 4,631 tokens re-sent above the expected miss">⚠</span></a>
+            <div class="turnmeta"><span class="warn">churn · 4,631 re-sent</span><span>7.1s</span><span>86.9% cache</span><span>$0.002478</span></div>
+            <div class="say"><p>Frontend built. Applying the settings change now.</p></div>
+            <details class="tool tool-edit">
+              <summary>
+                <span class="glyph">±</span><span class="name">Edit</span><span class="target">web/src/components/SettingsScreen.tsx</span>
+                <span class="timing diffstat"><span class="add">+14</span> <span class="del">−3</span></span>
+              </summary>
+              <pre class="tool-out">   211    const [filter, setFilter] = useState&lt;Chip&gt;("all");
+   212 +  const [query, setQuery] = useState("");
+   213 +  const rows = useMemo(() =&gt; match(entries, query), [entries, query]);</pre>
+            </details>
+          </div>
+
+          <div class="turn" id="sub-turn-16">
+            <a class="gutter" href="#sub-turn-16" title="Sub-turn 16">16</a>
+            <div class="turnmeta"><span>4.1s</span><span>97.8% cache</span><span>146 out</span><span>$0.000644</span></div>
+            <div class="say"><p>Health check didn't answer. Checking whether the container is actually up.</p></div>
+            <details class="tool tool-err" open>
+              <summary><span class="glyph">✗</span><span class="name">Bash</span><span class="target">curl -s http://localhost:18222/healthz 2&gt;&amp;1</span><span class="timing">exit 127 · 0.2s</span></summary>
+              <pre class="tool-out">/bin/sh: curl: not found</pre>
+            </details>
+          </div>
+
+          <div class="msg msg-user">
+            <div class="body">Use wget instead — curl isn't in the image.</div>
+            <div class="state state-pending"><span class="dot dot-pulse"></span> pending · sent 14s ago · waiting for the current tool call to finish</div>
+          </div>
+
+          <div class="turn live" id="sub-turn-43">
+            <a class="gutter" href="#sub-turn-43" title="Sub-turn 43">43</a>
+            <details class="think" open>
+              <summary><span class="caret">▸</span> Thinking… 3.1s</summary>
+              <div class="thought">The image has wget. I'll poll the health endpoint with wget -qO- and give it a few<span class="cursor"></span></div>
+            </details>
+            <details class="tool tool-live" open>
+              <summary>
+                <span class="glyph"><span class="dot dot-pulse"></span></span>
+                <span class="name">Bash</span>
+                <span class="target">npm --prefix web run build</span>
+                <span class="timing">running · 42s</span>
+              </summary>
+              <pre class="tool-out">&gt; deepseek-harness-web@0.0.0 build
+&gt; tsc -b &amp;&amp; vite build
+
+vite v6.0.7 building for production...
+transforming (218) node_modules/react-dom/…<span class="cursor"></span></pre>
+            </details>
+          </div>
+        </div>
+
+        <div class="jumpwrap"><button class="jump">↓ Jump to live</button></div>
+      </main>
+
+      <!-- ============ rail ============ -->
+      <aside class="rail rail-right">
+        <div class="railsec">
+          <h3>Plan</h3>
+          <div class="planhead">
+            <span class="progress"><span style="width: 30%"></span></span>
+            <span class="count">3/10</span>
+          </div>
+          <div class="planrow plan-done"><span class="mark">✓</span><span>Read skill files and understand project structure</span></div>
+          <div class="planrow plan-done"><span class="mark">✓</span><span>Build binary and web assets</span></div>
+          <div class="planrow plan-done"><span class="mark">✓</span><span>Start NATS broker and serve the app</span></div>
+          <div class="planrow plan-now"><span class="mark">▸</span><span>Setting configuration values for mixed state</span></div>
+          <div class="planrow"><span class="mark">○</span><span>Screenshot settings page at desktop and narrow widths</span></div>
+          <div class="planrow"><span class="mark">○</span><span>Screenshot session list at desktop and narrow widths</span></div>
+          <div class="planrow"><span class="mark">○</span><span>Run ReviewScreenshot on all screenshots</span></div>
+          <div class="planrow"><span class="mark">○</span><span>Judge findings, confirm or reject each</span></div>
+          <div class="planrow"><span class="mark">○</span><span>Fix confirmed issues if any, re-screenshot</span></div>
+          <div class="planrow"><span class="mark">○</span><span>Final report</span></div>
+        </div>
+
+        <div class="railsec">
+          <h3>Session</h3>
+          <div class="facts">
+            <div><span>model</span><span class="v">deepseek-v4-pro</span></div>
+            <div><span>effort</span><span class="v">high</span></div>
+            <div><span>started by</span><span class="v">you</span></div>
+            <div><span>workspace</span><span class="v" title="/workspaces/sess-46a6e634804f91450df84ec43e77124f">/workspaces/sess-46a6…</span></div>
+            <div><span>request</span><span class="v">web-3f1c9a02</span></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- ============ composer ============ -->
+    <div class="footer">
+      <div class="footer-inner">
+        <div class="queued"><span class="dot dot-pulse"></span> 1 message waiting — it reaches the model at the next sub-turn boundary. The run does not pause.</div>
+        <div class="box">
+          <span class="prompt">&gt;</span>
+          <textarea placeholder="Send a message to the run…" rows="2"></textarea>
+          <button class="send">Send</button>
+        </div>
+        <div class="statusline">
+          <span>sub-turn 43</span><span class="sep">·</span>
+          <span>99.3% cache</span><span class="sep">·</span>
+          <span title="Price table captured 2026-07-28">$0.0838</span><span class="sep">·</span>
+          <span>18,204 out</span>
+          <span class="spacer"></span>
+          <span><kbd>⏎</kbd> send</span>
+          <span><kbd>⇧⏎</kbd> newline</span>
+          <span><kbd>esc</kbd><kbd>esc</kbd> stop run</span>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
