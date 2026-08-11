@@ -504,16 +504,28 @@ the response carries the `seq` the caller's text landed at.
 
 ### `POST /api/runs`
 
-Body is `queue.Request` verbatim: `repos`, `permission_mode`, the optional
-`prompt` — a browser start may omit it and create the run empty, with the
-operator's first message typed into the session once it appears ("Start"
-below) — and the optional `model`, `effort`, `deny`, `result_schema`,
-`max_sub_turns`, `deadline_ms`, `job_type`, `parent_agent_type`,
-`parent_agent_id` — the same fields `harness publish` sets from flags and
-`deepseek_agent` sets from tool arguments. `request_id` is optional on this
-surface and generated when absent, because a browser form has no idempotency
-key to offer; supplying one gets the same deduplication every other producer
-gets.
+Body is `queue.Request` verbatim minus the provenance fields: `repos`,
+`permission_mode`, the optional `prompt` — a browser start may omit it and
+create the run empty, with the operator's first message typed into the session
+once it appears ("Start" below) — and the optional `model`, `effort`, `deny`,
+`result_schema`, `max_sub_turns`, `deadline_ms`, `job_type` — the same fields
+`harness publish` sets from flags and `deepseek_agent` sets from tool
+arguments. `parent_is_user`, `parent_agent_type`, and `parent_agent_id` are
+**not** accepted from the body: the handler stamps them itself — `true`,
+empty, and the `identity.operator` name — before validation, and ignores
+anything the body sent (an overwrite, not a 400, so the browser never has to
+know the fields exist). `request_id` is optional on this surface and generated
+when absent, because a browser form has no idempotency key to offer; supplying
+one gets the same deduplication every other producer gets.
+
+The operator name comes from the **`identity.operator`** setting
+(`GroupIdentity`, string, not secret): the name recorded as the parent of a
+run started from the web UI. There is no login system, so this is a label the
+operator configures once — `harness config set identity.operator geoff` — read
+server-side on every start. An unset or malformed name (one that fails the
+parent-agent-id validation) degrades to an unnamed person rather than failing
+the start; on a bare-metal `serve` that has never set it, the login user's
+name is stored automatically when it is usable.
 
 Validation is `req.Validate()` — the queue's own, not a copy. A browser-started
 run is byte-identical in the store to one started from MCP or the CLI: same
@@ -533,6 +545,14 @@ stored through the ordinary settings path. Required as
 wrong token is 401 with the standard `{"error": …}` body. Stage-one's existing
 endpoints are unaffected — their blast radius is a database row; this
 surface's is a running command.
+
+Beside it sits the second run-control-adjacent setting: **`identity.operator`**
+(`GroupIdentity`, string, not secret) — the name stamped into
+`parent_agent_id` on a browser start. To be plain about what it is and is not:
+it is a *label*, not a credential. It names who the operator says they are on
+a surface that has no login; it authenticates nothing, grants nothing, and is
+not required by any endpoint. An unset or malformed value degrades to an
+unnamed person rather than failing the start.
 
 The honest accounting of what that buys, because a token in a
 world-readable-to-your-own-uid SQLite file is easy to over-sell:

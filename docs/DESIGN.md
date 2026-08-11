@@ -467,7 +467,7 @@ Tables:
 
     sessions        id, parent_id, model, effort, workspace, permission_mode,
                     system_prompt, tool_schema, status, created_at, finished_at,
-                    job_type, parent_agent_type, parent_agent_id
+                    job_type, parent_agent_type, parent_agent_id, parent_is_user
     events          session_id, seq, kind, payload, created_at   PK (session_id, seq)
     work_requests   request_id PK, session_id, status, result, received_at,
                     finished_at, delivery_count
@@ -571,8 +571,9 @@ Request body:
       "max_sub_turns":     400,                 optional
       "deadline_ms":       3600000              optional
       "job_type":          "implementation",    optional, implementation (default) or orchestration
-      "parent_agent_type": "claude-code",       optional, the launching agent's kind, or "user"
-      "parent_agent_id":   "abc123",            optional, the launching agent's session id
+      "parent_is_user":    true,                set by the producer, never by a caller
+      "parent_agent_type": "claude-code",       optional, the launching agent's kind; empty when parent_is_user
+      "parent_agent_id":   "abc123",            optional, the launching agent's session id, or the operator's name when parent_is_user
     }
 
 The browser is one producer among several. `POST /api/runs` (docs/RUN-CONTROL.md)
@@ -583,6 +584,22 @@ through the `RunPublisher` seam; a caller that supplies a `request_id` gets
 the same deduplication every other producer gets. `harness publish` and
 `deepseek_agent` are the other two producers, and all three share the one
 marshal-and-publish path, `queue.PublishRequest`.
+
+What each producer stamps onto the provenance fields, because a calling agent
+cannot be trusted to report its own provenance:
+
+- `POST /api/runs` — `parent_is_user: true` plus the `identity.operator` name
+  in `parent_agent_id` (an unset or malformed name degrades to an unnamed
+  person, never a failed start); any provenance the body sent is overwritten
+  before validation, not rejected.
+- `deepseek_agent` — `parent_is_user: false`; `parent_agent_type` and
+  `parent_agent_id` stay whatever the calling agent asserted, best-effort.
+- `harness publish` — `parent_is_user` defaults to `false` (scripted);
+  `harness run` defaults to `true` (interactive); both override with
+  `-parent-is-user`.
+
+`parent_is_user` is producer-set and therefore trustworthy; `parent_agent_type`
+is caller-asserted and therefore not.
 
 Result body:
 
