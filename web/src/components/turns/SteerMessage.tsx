@@ -1,0 +1,80 @@
+import type { Block } from "../../api/fold";
+import { formatDuration } from "../../api/operations";
+import { useNow } from "../../hooks";
+import { pendingWaitLabel } from "./turnHelpers";
+
+// SteerMessage is a sent operator message on the chat page
+// (design/session-chat.html's .msg-user, design/session-states.html's three
+// states): the text in mono behind the running-colour left rule, and a state
+// line under it. It replaces the old steer block card on the interactive page
+// — a message is a message, not a block — while the watch page keeps the
+// block rendering (phase 3 does not touch it).
+//
+// Two of the three states come from the fold's steer block:
+//
+// - pending — steer_message is in the log, the matching steer_applied has
+//   not arrived. The line counts up from when this browser's POST was
+//   accepted and says what the message is waiting on, because a steer that
+//   sits pending is the operator's signal that the run is wedged
+//   (docs/RUN-CONTROL.md "Two event kinds, not one") — the count-up, not an
+//   indeterminate spinner, is the point. The sent time is the 202's local
+//   timestamp, passed in by the chat screen's ledger; a steer sent by
+//   another client (or before a reload) has no local time and the count is
+//   omitted rather than fabricated.
+// - delivered — the matching steer_applied arrived; the line names the
+//   sub-turn it landed in (turnHelpers.steerDeliveredSubTurn).
+//
+// The third state — not sent, a POST that failed so nothing is in the log —
+// is composer-local and never becomes a block; the chat screen renders those
+// from its own failed-send ledger (see SessionChatScreen), not through this
+// component.
+export type SteerBlock = Extract<Block, { type: "steer" }>;
+
+export interface SteerWait {
+  // Whether a tool call is still running (live.pendingTools non-empty) —
+  // the boundary a pending steer waits on is the end of the tool round.
+  hasToolRound: boolean;
+  // The sub-turn currently streaming, or null between turns.
+  liveSubTurn: number | null;
+}
+
+interface Props {
+  block: SteerBlock;
+  // When this browser's own POST accepted the steer: the local time of the
+  // 202, so the pending count-up has a start. Absent for a steer this page
+  // did not send.
+  sentAt?: number;
+  // The sub-turn the steer landed in once delivered; null while pending or
+  // when the landed turn cannot be named.
+  deliveredSubTurn: number | null;
+  // What the pending message is waiting on, from the live view.
+  wait: SteerWait;
+}
+
+// SteerMessage re-renders once a second while a pending steer's count is
+// showing. It is deliberately NOT memoised — the ticking is the whole point
+// — but its parent (the memoised TurnList) bails out on every live-only
+// delta, so the tick never re-renders the conversation, only this message.
+export function SteerMessage({ block, sentAt, deliveredSubTurn, wait }: Props) {
+  const now = useNow(1000);
+
+  if (block.state === "delivered") {
+    return (
+      <div className="msg msg-user">
+        <div className="body">{block.text}</div>
+        <div className="state">delivered{deliveredSubTurn !== null ? ` · sub-turn ${deliveredSubTurn}` : ""}</div>
+      </div>
+    );
+  }
+
+  const age = sentAt !== undefined ? `sent ${formatDuration(Math.max(0, now - sentAt))} ago` : null;
+  return (
+    <div className="msg msg-user">
+      <div className="body">{block.text}</div>
+      <div className="state state-pending">
+        <span className="dot dot-pulse" aria-hidden />
+        pending{age ? ` · ${age}` : ""} · {pendingWaitLabel(wait.hasToolRound, wait.liveSubTurn)}
+      </div>
+    </div>
+  );
+}

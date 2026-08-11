@@ -67,7 +67,7 @@ export default function App() {
   return (
     <TopNav route={route} onNavigate={navigate}>
       {route.kind === "session" ? (
-        <SessionScreen sessionId={route.id} />
+        <SessionScreen sessionId={route.id} onNavigate={navigate} />
       ) : route.kind === "settings" ? (
         <SettingsScreen />
       ) : route.kind === "operations" ? (

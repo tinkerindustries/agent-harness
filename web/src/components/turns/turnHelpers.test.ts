@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { DiffLine, ToolDeniedPayload, ToolResultPayload } from "../../api/types";
-import { cachePercent, elideLines, toolStat, type ToolResultLike } from "./turnHelpers";
+import type { TranscriptItem } from "../../api/groups";
+import {
+  cachePercent,
+  elideLines,
+  finishedBandText,
+  formatRunDuration,
+  pendingWaitLabel,
+  steerDeliveredSubTurn,
+  toolStat,
+  type ToolResultLike,
+} from "./turnHelpers";
 
 // The turn renderer's helpers are the one part of the redesign that has
 // edges (TESTING.md: no DOM harness, so the logic that is not JSX gets the
@@ -110,5 +120,113 @@ describe("cachePercent", () => {
 
   it("renders a zero token total as 0", () => {
     expect(cachePercent(0, 0)).toBe("0");
+  });
+});
+
+describe("steerDeliveredSubTurn", () => {
+  // A steer block stays at the position where the operator sent it; the
+  // first group after it is the sub-turn the message landed in.
+  const steer = (seq: number): TranscriptItem => ({ kind: "block", block: { type: "steer", seq, text: "hi", state: "delivered" } });
+  const group = (subTurn: number, seq: number): TranscriptItem => ({
+    kind: "group",
+    group: {
+      subTurn,
+      seq,
+      blocks: [{ type: "assistant", seq, subTurn, reasoning: "", content: "", toolCalls: [], finishReason: "stop" }],
+      tags: { edits: 0, bash: 0, errors: 0, churn: false },
+      phase: { id: 1, index: 0, label: "" },
+    },
+  });
+
+  it("names the first group after the steer block", () => {
+    const items = [group(1, 10), steer(15), group(2, 20), group(3, 30)];
+    expect(steerDeliveredSubTurn(15, items, null)).toBe(2);
+  });
+
+  it("ignores an earlier steer's own block when walking", () => {
+    const items = [steer(5), group(1, 10), steer(15), group(2, 20)];
+    expect(steerDeliveredSubTurn(15, items, null)).toBe(2);
+    expect(steerDeliveredSubTurn(5, items, null)).toBe(1);
+  });
+
+  it("falls back to the live turn when the landed sub-turn is still streaming", () => {
+    const items = [group(1, 10), steer(15)];
+    expect(steerDeliveredSubTurn(15, items, 2)).toBe(2);
+  });
+
+  it("returns null when no group follows and there is no live turn", () => {
+    const items = [group(1, 10), steer(15)];
+    expect(steerDeliveredSubTurn(15, items, null)).toBeNull();
+  });
+
+  it("returns null for a seq no steer block carries", () => {
+    expect(steerDeliveredSubTurn(99, [group(1, 10)], null)).toBeNull();
+  });
+});
+
+describe("pendingWaitLabel", () => {
+  it("names the tool round when a tool call is running", () => {
+    expect(pendingWaitLabel(true, null)).toBe("waiting for the current tool call to finish");
+    expect(pendingWaitLabel(true, 7)).toBe("waiting for the current tool call to finish");
+  });
+
+  it("names the streaming turn when one is live", () => {
+    expect(pendingWaitLabel(false, 7)).toBe("waiting for this sub-turn to finish");
+  });
+
+  it("names the boundary when the loop is between turns", () => {
+    expect(pendingWaitLabel(false, null)).toBe("waiting for the next sub-turn boundary");
+  });
+});
+
+describe("formatRunDuration", () => {
+  it("renders seconds under a minute", () => {
+    expect(formatRunDuration(0)).toBe("0s");
+    expect(formatRunDuration(42_000)).toBe("42s");
+    expect(formatRunDuration(9_940)).toBe("10s");
+  });
+
+  it("renders minutes with the seconds", () => {
+    expect(formatRunDuration(991_000)).toBe("16m 31s");
+    expect(formatRunDuration(252_000)).toBe("4m 12s");
+  });
+
+  it("renders hours rounded to the minute", () => {
+    expect(formatRunDuration(3_660_000)).toBe("1h 1m");
+    expect(formatRunDuration(3_631_000)).toBe("1h 0m");
+  });
+
+  it("clamps a negative duration to zero", () => {
+    expect(formatRunDuration(-5)).toBe("0s");
+  });
+});
+
+describe("finishedBandText", () => {
+  it("states a finished run's duration, sub-turns, and cost", () => {
+    expect(finishedBandText("ok", 991_000, 78, 0.0838, "DONE")).toBe(
+      "Finished in 16m 31s over 78 sub-turns for $0.0838.",
+    );
+  });
+
+  it("pluralises one sub-turn", () => {
+    expect(finishedBandText("ok", 42_000, 1, 0.001, "DONE")).toBe("Finished in 42s over 1 sub-turn for $0.001.");
+  });
+
+  it("says a cancelled run was stopped by you, at the sub-turn it was in", () => {
+    expect(finishedBandText("cancelled", 252_000, 13, 0.0042, "CANCELLED")).toBe(
+      "You stopped this run at 4m 12s, during sub-turn 13.",
+    );
+  });
+
+  it("says a cancelled run stopped before it started", () => {
+    expect(finishedBandText("cancelled", 2_000, 0, 0, "CANCELLED")).toBe(
+      "You stopped this run at 2s, before it started.",
+    );
+  });
+
+  it("leads a non-ok, non-cancelled end with its outcome label", () => {
+    expect(finishedBandText("failed", 60_000, 3, 0.01, "FAILED")).toBe(
+      "FAILED in 1m 0s over 3 sub-turns for $0.01.",
+    );
   });
 });
