@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionState } from "../api/types";
 import type { Block } from "../api/fold";
-import type { TranscriptFilter } from "../api/groups";
+import { countMatching, type TranscriptFilter } from "../api/groups";
 import type { TranscriptSnapshot } from "../api/transcriptStore";
 import { TurnTranscript } from "./turns/TurnTranscript";
 import { WatchRail } from "./WatchRail";
@@ -13,8 +13,8 @@ import { startedBy } from "../api/provenance";
 import { useNow } from "../hooks";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { outcome } from "./statusBadge";
-import { cachePercent, formatRunDuration, watchStatusFigures } from "./turns/turnHelpers";
+import { outcome, watchBadge } from "./statusBadge";
+import { cachePercent, formatRunDuration, groupMatchesQuery, watchStatusFigures } from "./turns/turnHelpers";
 import { formatCost } from "./blocks/toolArgs";
 import { useNavRight } from "./TopNav";
 
@@ -63,6 +63,20 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
   // re-render.
   const [filter, setFilter] = useState<TranscriptFilter>("all");
   const [query, setQuery] = useState("");
+
+  // The chip counts follow the find box (design/session-watch.html): a
+  // search that narrows 273 turns to 12 must not keep the chips reading
+  // 273, so with a non-blank query the counts are recomputed over the
+  // sub-turns the search leaves on screen (countMatching walks the items
+  // with the same text predicate TurnTranscript renders with). A blank
+  // query keeps the snapshot's incremental counts — the hot path, no walk.
+  const counts = useMemo(
+    () =>
+      query.trim() === ""
+        ? snapshot.counts
+        : countMatching(snapshot.items, (group) => groupMatchesQuery(group, query, snapshot.getToolCall)),
+    [query, snapshot.counts, snapshot.items, snapshot.getToolCall],
+  );
 
   // --- the stop flow (design/session-states.html "stopping") ---
   // The nav's Stop arms the same inline confirm strip the chat page uses —
@@ -267,7 +281,11 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
           sentence that says what a spectator may do — a quiet strip, not an
           alert, because this is the normal state for these sessions. */}
       <div className="prov">
-        <Badge variant="outline">WATCHING</Badge>
+        {/* The spectator badge follows the run's life: WATCHING while it is
+            live, FINISHED once it is over — the sentence beside it says the
+            run ended and could not be messaged, so the badge must not keep
+            claiming it is being watched. */}
+        <Badge variant="outline">{watchBadge(running).label}</Badge>
         {startedByLabel && (
           <>
             <span className="sep">·</span>
@@ -322,7 +340,7 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
           items={snapshot.items}
           live={snapshot.live}
           todos={snapshot.todos}
-          counts={snapshot.counts}
+          counts={counts}
           filter={filter}
           onFilterChange={setFilter}
           query={query}

@@ -70,3 +70,12 @@ export function outcome(session: OutcomeSession): Outcome {
       return { label: session.status, variant: "outline" };
   }
 }
+
+// watchBadge is the provenance strip's spectator badge
+// (design/session-watch.html's .prov): WATCHING while the run is live, and
+// FINISHED once it is over. The strip's own sentence beside the badge says
+// a finished run "could not be messaged" — so the badge must not keep
+// claiming the operator is watching a run that has ended.
+export function watchBadge(running: boolean): Outcome {
+  return running ? { label: "WATCHING", variant: "outline" } : { label: "FINISHED", variant: "outline" };
+}
