@@ -4,10 +4,8 @@ import type { TranscriptItem } from "../api/groups";
 import type { LiveView } from "../api/fold";
 import type { ToolCallPayload } from "../api/types";
 import { useNow } from "../hooks";
-import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { outcome } from "./statusBadge";
-import { cachePercent, formatRunDuration } from "./turns/turnHelpers";
+import { cachePercent, formatRunDuration, watchStatusFigures } from "./turns/turnHelpers";
 import { formatCost, toolDetail } from "./blocks/toolArgs";
 
 // WatchFooter is the watch page's footer band (design/session-watch.html's
@@ -19,9 +17,10 @@ import { formatCost, toolDetail } from "./blocks/toolArgs";
 // follow toggle, and the status line of sub-turn, cache, cost, output and
 // elapsed. It carries the stop flow too — the nav's Stop arms the same
 // inline confirm strip the chat page uses, because the strip belongs where
-// the run's controls live, not in a modal over the transcript.
+// the run's controls live, not in a modal over the transcript. It renders
+// only while the run is live — the screen gates it — because a finished run
+// is an ordinary page with the footer's figures in the nav instead.
 export function WatchFooter({
-  running,
   meta,
   items,
   live,
@@ -30,7 +29,6 @@ export function WatchFooter({
   stop,
   getToolCall,
 }: {
-  running: boolean;
   meta: SessionState;
   items: TranscriptItem[];
   live: LiveView;
@@ -51,33 +49,11 @@ export function WatchFooter({
 
   // The status line's numbers: the sub-turn the footer names — the live
   // turn, or the last frozen one — and the run's totals from the row.
-  const status = useMemo(() => {
-    let subTurn: number | null = live.turn?.subTurn ?? null;
-    if (subTurn === null) {
-      for (let i = items.length - 1; i >= 0; i--) {
-        const item = items[i];
-        if (item.kind === "group") {
-          subTurn = item.group.subTurn;
-          break;
-        }
-      }
-    }
-    return {
-      subTurn,
-      cacheHitTokens: meta.usage.cache_hit_tokens,
-      cacheMissTokens: meta.usage.cache_miss_tokens,
-      costUsd: meta.usage.cost_usd,
-      completionTokens: meta.usage.completion_tokens,
-    };
-  }, [meta, live.turn?.subTurn, items]);
+  const status = useMemo(() => watchStatusFigures(meta, items, live), [meta, items, live]);
 
-  // The elapsed figure is the run's wall time: finished_at − created_at once
-  // the row says the run is over, so a finished session's clock stops. The
-  // live case stays on the ticking now.
-  const elapsedMs = meta.finished_at
-    ? Date.parse(meta.finished_at) - Date.parse(meta.created_at)
-    : now - Date.parse(meta.created_at);
-  const finishedOutcome = running ? null : outcome(meta);
+  // The elapsed figure is the run's wall time on the ticking now; the run
+  // is live by construction (the screen renders this footer only then).
+  const elapsedMs = now - Date.parse(meta.created_at);
 
   // What is running right now (design/session-watch.html's .nowline): the
   // last pending tool call, the streaming turn's thinking, or the loop
@@ -123,7 +99,7 @@ export function WatchFooter({
           <div className="confirm">
             <b>Stop this run?</b>
             <span className="muted">
-              {running ? `It is ${formatRunDuration(elapsedMs)} in${activity.name === "Between sub-turns" ? "" : `, mid ${activity.name}${activity.arg ? ` ${activity.arg}` : ""}`}. The work it has done stays in the workspace.` : "The work it has done stays in the workspace."}
+              It is {formatRunDuration(elapsedMs)} in{activity.name === "Between sub-turns" ? "" : `, mid ${activity.name}${activity.arg ? ` ${activity.arg}` : ""}`}. The work it has done stays in the workspace.
             </span>
             <span className="spacer" />
             <Button variant="outline" size="sm" onClick={stop.onCancelStop} disabled={stop.stopping}>
@@ -143,22 +119,20 @@ export function WatchFooter({
           </div>
         )}
         {stop.error && <span className="field-error">{stop.error}</span>}
-        {running && (
-          <div className="nowline">
-            <span className="dot dot-pulse" style={{ color: "var(--status-running)" }} aria-hidden />
-            <span className="name">{activity.name}</span>
-            {activity.arg && <span className="arg">{activity.arg}</span>}
-            <span className="under">
-              {activity.ageMs !== null ? formatRunDuration(activity.ageMs) : ""}
-              {activity.phaseLabel ? `${activity.ageMs !== null ? " · " : ""}under “${activity.phaseLabel}”` : ""}
-            </span>
-            <span className="spacer" />
-            <button type="button" className={`follow${following ? "" : " follow-off"}`} onClick={onToggleFollow}>
-              <span className="dot" aria-hidden />
-              {following ? "Following live" : "Follow live"}
-            </button>
-          </div>
-        )}
+        <div className="nowline">
+          <span className="dot dot-pulse" style={{ color: "var(--status-running)" }} aria-hidden />
+          <span className="name">{activity.name}</span>
+          {activity.arg && <span className="arg">{activity.arg}</span>}
+          <span className="under">
+            {activity.ageMs !== null ? formatRunDuration(activity.ageMs) : ""}
+            {activity.phaseLabel ? `${activity.ageMs !== null ? " · " : ""}under “${activity.phaseLabel}”` : ""}
+          </span>
+          <span className="spacer" />
+          <button type="button" className={`follow${following ? "" : " follow-off"}`} onClick={onToggleFollow}>
+            <span className="dot" aria-hidden />
+            {following ? "Following live" : "Follow live"}
+          </button>
+        </div>
         <div className="statusline">
           {status.subTurn !== null ? (
             <>
@@ -180,11 +154,7 @@ export function WatchFooter({
             </>
           )}
           <span className="spacer" />
-          {running ? (
-            <span>read-only — no steering on an agent-launched run</span>
-          ) : (
-            finishedOutcome && <Badge variant={finishedOutcome.variant}>{finishedOutcome.label}</Badge>
-          )}
+          <span>read-only — no steering on an agent-launched run</span>
         </div>
       </div>
     </div>

@@ -1,6 +1,6 @@
-import type { Block } from "../../api/fold";
-import type { SubTurnGroup } from "../../api/groups";
-import type { ToolCallPayload } from "../../api/types";
+import type { Block, LiveView } from "../../api/fold";
+import type { SubTurnGroup, TranscriptItem } from "../../api/groups";
+import type { SessionState, ToolCallPayload } from "../../api/types";
 import { diffCounts, exitCode, formatCost, toolDetail } from "../blocks/toolArgs";
 
 // turnHelpers is the pure, testable logic of the turn renderer
@@ -104,6 +104,42 @@ export function cachePercent(hitTokens: number, missTokens: number): string {
   if (total <= 0) return "0";
   const pct = (hitTokens / total) * 100;
   return Number.isInteger(pct) ? String(pct) : pct.toFixed(1);
+}
+
+// --- the watch page's status line (design/session-watch.html) ---
+
+// watchStatusFigures is the watch page's status line's numbers: the
+// sub-turn the line names — the live turn, or the last frozen one — and
+// the run's totals from the row. Shared by the live footer and the
+// finished run's nav slot, so the two places cannot drift.
+export function watchStatusFigures(
+  meta: SessionState,
+  items: TranscriptItem[],
+  live: LiveView,
+): {
+  subTurn: number | null;
+  cacheHitTokens: number;
+  cacheMissTokens: number;
+  costUsd: number;
+  completionTokens: number;
+} {
+  let subTurn: number | null = live.turn?.subTurn ?? null;
+  if (subTurn === null) {
+    for (let i = items.length - 1; i >= 0; i--) {
+      const item = items[i];
+      if (item.kind === "group") {
+        subTurn = item.group.subTurn;
+        break;
+      }
+    }
+  }
+  return {
+    subTurn,
+    cacheHitTokens: meta.usage.cache_hit_tokens,
+    cacheMissTokens: meta.usage.cache_miss_tokens,
+    costUsd: meta.usage.cost_usd,
+    completionTokens: meta.usage.completion_tokens,
+  };
 }
 
 // --- the chat page's steer messages and finished band (session pages
