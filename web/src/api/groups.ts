@@ -90,7 +90,10 @@ export interface RailPhaseRef {
 // phaseFromTodos picks the plan item a new phase is named after: the item
 // that was in_progress, falling back to the first non-completed one when the
 // plan marked nothing in_progress (a freshly written plan commonly leaves
-// everything pending). Empty when the plan had no item to name the phase.
+// everything pending). A plan whose every item is completed names the phase
+// after its last item — the final TaskUpdate leaves nothing in_progress, but
+// the sub-turns that follow still belong to the plan. Empty only when the
+// plan had no item to name the phase.
 export function phaseFromTodos(todos: Todo[], id: number): RailPhaseRef {
   let index = -1;
   let subject = "";
@@ -109,6 +112,10 @@ export function phaseFromTodos(todos: Todo[], id: number): RailPhaseRef {
         break;
       }
     }
+  }
+  if (index < 0 && todos.length > 0) {
+    index = todos.length - 1;
+    subject = todos[index].subject;
   }
   return index < 0 ? { id, index: 0, label: "" } : { id, index: index + 1, label: subject };
 }
