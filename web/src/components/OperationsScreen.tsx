@@ -213,7 +213,7 @@ export function OperationsScreen() {
   // to carry.
   useNavRight(
     <Button variant="outline" size="sm" onClick={refresh} disabled={busy || data === null}>
-      refresh
+      Refresh
     </Button>,
   );
 
