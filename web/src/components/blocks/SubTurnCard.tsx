@@ -40,7 +40,10 @@ export const SubTurnCard = memo(function SubTurnCard({
       // them back to rail entries by this attribute (docs/WEB-REDESIGN.md
       // phase 6, "the group is what the observer watches").
       data-seq={group.seq}
-      className="subturn gap-0 py-0 shadow-none overflow-hidden rounded-lg"
+      // .anim-stream-in rides the memoised card, which renders exactly once
+      // when its group freezes — never the live buffer, where the tail would
+      // re-animate on every rAF flush (docs/DESIGN.md §5.3, web/CLAUDE.md).
+      className="subturn gap-0 py-0 shadow-none overflow-hidden rounded-lg anim-stream-in"
     >
       <div className="subturn-header">
         <span className="caret" aria-hidden>

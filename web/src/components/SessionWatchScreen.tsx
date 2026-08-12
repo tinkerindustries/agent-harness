@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowDown, StopCircle } from "@phosphor-icons/react";
 import type { SessionState } from "../api/types";
 import type { Block } from "../api/fold";
 import { countMatching, type TranscriptFilter } from "../api/groups";
@@ -10,7 +11,7 @@ import { ResultPanel, type RunFinishedBlock } from "./ResultPanel";
 import { DroppedStreamBanner } from "./DroppedStreamBanner";
 import { controlToken, errorMessage, stopSession } from "../api/operations";
 import { startedBy } from "../api/provenance";
-import { useNow } from "../hooks";
+import { useLabelFlip, useNow } from "../hooks";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { outcome, watchBadge } from "./statusBadge";
@@ -216,11 +217,16 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
         status: watchStatusFigures(meta, snapshot.items, snapshot.live),
         elapsedMs: meta.finished_at ? Date.parse(meta.finished_at) - Date.parse(meta.created_at) : 0,
       };
+  // The nav slot is where an outcome genuinely flips in place on this screen:
+  // the RUNNING badge is replaced by the finished outcome while the page stays
+  // open. The gate keeps a run that had already ended when the page loaded from
+  // flipping in (hooks.ts useLabelFlip).
+  const navOutcomeFlip = useLabelFlip(running ? "RUNNING" : finishedNav?.outcome.label ?? "RUNNING");
   useNavRight(
     <>
       {running && (
         <>
-          <Badge variant="running">
+          <Badge key="running" variant="running" className={navOutcomeFlip}>
             <span className="dot dot-pulse" aria-hidden />
             RUNNING
           </Badge>
@@ -236,6 +242,7 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
               disabled={stopping}
               aria-expanded={confirmingStop}
             >
+              <StopCircle />
               {stopping ? "Stopping…" : "Stop"}
             </Button>
           )}
@@ -243,7 +250,9 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
       )}
       {finishedNav && (
         <>
-          <Badge variant={finishedNav.outcome.variant}>{finishedNav.outcome.label}</Badge>
+          <Badge key={finishedNav.outcome.label} variant={finishedNav.outcome.variant} className={navOutcomeFlip}>
+            {finishedNav.outcome.label}
+          </Badge>
           <span className="statusline">
             {finishedNav.status.subTurn !== null ? (
               <>
@@ -374,7 +383,8 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
           {running && !following && (
             <div className="jumpwrap">
               <button type="button" className="jump" onClick={toggleFollow}>
-                ↓ Jump to live
+                <ArrowDown aria-hidden />
+                Jump to live
               </button>
             </div>
           )}

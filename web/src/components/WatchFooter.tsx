@@ -1,10 +1,12 @@
 import { useMemo } from "react";
+import { HourglassMedium } from "@phosphor-icons/react";
 import type { SessionState } from "../api/types";
 import type { TranscriptItem } from "../api/groups";
 import type { LiveView } from "../api/fold";
 import type { ToolCallPayload } from "../api/types";
 import { useNow } from "../hooks";
 import { Button } from "./ui/button";
+import { Ticker } from "./ui/Ticker";
 import { cachePercent, formatRunDuration, watchStatusFigures } from "./turns/turnHelpers";
 import { formatCost, toolDetail } from "./blocks/toolArgs";
 
@@ -112,7 +114,9 @@ export function WatchFooter({
         )}
         {stop.stopping && (
           <div className="banner">
-            <span className="dot dot-pulse" style={{ color: "var(--status-gaveup)" }} aria-hidden />
+            {/* The hourglass takes the pulse the dot carried: waiting is what
+                the banner is about, and the mark now says so. */}
+            <HourglassMedium className="dot-pulse" style={{ color: "var(--status-gaveup)" }} aria-hidden />
             <span>
               <b>Stopping…</b> waiting for the current tool call to return. The run ends at the next boundary.
             </span>
@@ -138,9 +142,14 @@ export function WatchFooter({
             <>
               <span>sub-turn {status.subTurn}</span>
               <span className="sep">·</span>
-              <span>{cachePercent(status.cacheHitTokens, status.cacheMissTokens)}% cache</span>
+              {/* Cost and cache rate move while the run is live, so they roll;
+                  the rest of the line is either static or ticking too fast to
+                  be worth a gesture. */}
+              <Ticker value={cachePercent(status.cacheHitTokens, status.cacheMissTokens)} suffix="% cache" />
               <span className="sep">·</span>
-              <span title="Price table captured by the server's pricing config">${formatCost(status.costUsd)}</span>
+              <span title="Price table captured by the server's pricing config">
+                <Ticker value={formatCost(status.costUsd)} prefix="$" />
+              </span>
               <span className="sep">·</span>
               <span>{status.completionTokens.toLocaleString("en-US")} out</span>
               <span className="sep">·</span>

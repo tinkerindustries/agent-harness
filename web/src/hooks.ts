@@ -16,6 +16,24 @@ export function useNow(intervalMs: number): number {
   return now;
 }
 
+// useLabelFlip is the gate on .anim-badge-in: it returns the animation class
+// only after the label it watches has changed at least once in this mount, and
+// the empty string until then. Without it a session list of 38 finished rows
+// flips every badge on load — an outcome that was already DONE when the page
+// opened did not just happen, and the whole point of the flip is that it did.
+// The caller keys the badge on the same label, so a second flip remounts the
+// element and replays the 220ms gesture rather than sitting on a class that is
+// already applied.
+export function useLabelFlip(label: string): string {
+  const seen = useRef(label);
+  const flipped = useRef(false);
+  if (label !== seen.current) {
+    seen.current = label;
+    flipped.current = true;
+  }
+  return flipped.current ? "anim-badge-in" : "";
+}
+
 // useQueueHealth polls GET /api/queue on an interval. A plain poll rather
 // than the external-store/SSE shape the rest of this app uses: queue health
 // changes at human timescales (a redelivery, a halt), not token rate, so

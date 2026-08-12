@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { ArrowsClockwise, LockOpen, Trash } from "@phosphor-icons/react";
 import {
   closeSession,
   closeWorkRequest,
@@ -213,6 +214,7 @@ export function OperationsScreen() {
   // to carry.
   useNavRight(
     <Button variant="outline" size="sm" onClick={refresh} disabled={busy || data === null}>
+      <ArrowsClockwise />
       Refresh
     </Button>,
   );
@@ -437,6 +439,7 @@ function StuckSessionRow({
             </span>
             <div className="ops-confirm-buttons">
               <Button variant="destructive" size="sm" onClick={onConfirmDelete} disabled={busy}>
+                <Trash />
                 Delete
               </Button>
               <Button variant="outline" size="sm" onClick={onCancel} disabled={busy}>
@@ -450,6 +453,7 @@ function StuckSessionRow({
               Close
             </Button>
             <Button variant="destructive" size="sm" onClick={onDelete} disabled={busy}>
+              <Trash />
               Delete
             </Button>
           </div>
@@ -495,6 +499,7 @@ function WorkRequestRowView({
             </span>
             <div className="ops-confirm-buttons">
               <Button variant="destructive" size="sm" onClick={onConfirmDelete} disabled={busy}>
+                <Trash />
                 Delete
               </Button>
               <Button variant="outline" size="sm" onClick={onCancel} disabled={busy}>
@@ -508,6 +513,7 @@ function WorkRequestRowView({
               Close
             </Button>
             <Button variant="destructive" size="sm" onClick={onDelete} disabled={busy}>
+              <Trash />
               Delete
             </Button>
           </div>
@@ -545,6 +551,7 @@ function LeaseRow({ row, now, busy, confirming, error, onRelease, onConfirmRelea
             </span>
             <div className="ops-confirm-buttons">
               <Button variant="destructive" size="sm" onClick={onConfirmRelease} disabled={busy}>
+                <LockOpen />
                 Release
               </Button>
               <Button variant="outline" size="sm" onClick={onCancel} disabled={busy}>
@@ -555,6 +562,7 @@ function LeaseRow({ row, now, busy, confirming, error, onRelease, onConfirmRelea
         ) : (
           <div className="ops-actions">
             <Button variant="destructive" size="sm" onClick={onRelease} disabled={busy}>
+              <LockOpen />
               Release
             </Button>
           </div>
