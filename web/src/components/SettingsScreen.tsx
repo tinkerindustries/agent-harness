@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { deleteSetting, listSettings, setSetting } from "../api/settings";
+import { deleteSetting, listSettings, secretMask, setSetting } from "../api/settings";
 import type { SettingEntry } from "../api/settings";
 import { cn } from "@/lib/utils";
 import { Badge } from "./ui/badge";
@@ -73,9 +73,11 @@ function rowBadge(
 // displayValue is the closed row's value column: a set key shows the server's
 // value (the mask for a secret), an unset secret says "not set" rather than
 // rendering with a hole, and an unset ordinary key shows the default it
-// resolves to.
+// resolves to. A set secret's mask is re-rendered at a fixed width
+// (secretMask), so the row never reports how long the stored secret is.
 function displayValue(entry: SettingEntry): string {
   if (entry.secret && !entry.set) return "not set";
+  if (entry.secret) return secretMask(entry.value ?? "");
   return entry.set ? (entry.value ?? "") : entry.default;
 }
 
@@ -181,7 +183,10 @@ function SettingRow({
           <span className={cn("caret", open && "caret-open")}>▸</span>
           <span className="settings-key">{entry.key}</span>
           <span className={cn("settings-val", valueClass(entry))}>{displayValue(entry)}</span>
-          <span className="settings-desc truncate">{entry.description}</span>
+          {/* The truncated description stays in the closed header line only;
+              the expanded body repeats it in full below, so an open row must
+              not show it twice. */}
+          {!open && <span className="settings-desc truncate">{entry.description}</span>}
           <span className="settings-flags">
             {badge && <Badge variant={badge.variant}>{badge.label}</Badge>}
           </span>
@@ -202,7 +207,8 @@ function SettingRow({
             </span>
             {entry.set && (
               <span>
-                <span className="k">Stored</span> <code>{entry.value}</code>
+                <span className="k">Stored</span>{" "}
+                <code>{entry.secret ? secretMask(entry.value ?? "") : entry.value}</code>
               </span>
             )}
             {(!entry.secret || !entry.set) && (
@@ -474,7 +480,7 @@ export function SettingsScreen() {
         <>
           <div className="settings-strip">
             <span>
-              <b>{counts.total}</b> settings
+              <b>{counts.total}</b> setting{counts.total === 1 ? "" : "s"}
             </span>
             <span className="sep">·</span>
             <span>
@@ -482,11 +488,13 @@ export function SettingsScreen() {
             </span>
             <span className="sep">·</span>
             <span>
-              <b>{counts.restart}</b> take effect on the next start
+              <b>{counts.restart}</b> take{counts.restart === 1 ? "s" : ""} effect on the next start
             </span>
             <span className="sep">·</span>
-            <span className="settings-summary-warn">
-              <b>{counts.notSet}</b> credential not set
+            {/* A zero count is good news: it renders neutral like the counts
+                beside it, and only a non-zero count carries the amber. */}
+            <span className={counts.notSet > 0 ? "settings-summary-warn" : undefined}>
+              <b>{counts.notSet}</b> credential{counts.notSet === 1 ? "" : "s"} not set
             </span>
             <span className="spacer" />
             <span>rows without a badge are at their default</span>
@@ -528,7 +536,7 @@ export function SettingsScreen() {
               <div className="settings-group-head">
                 <h2>{group}</h2>
                 <span className="settings-group-count">
-                  {groupEntries.length} settings
+                  {groupEntries.length} setting{groupEntries.length === 1 ? "" : "s"}
                 </span>
                 {groupEntries.some((e) => e.restart) && (
                   <>

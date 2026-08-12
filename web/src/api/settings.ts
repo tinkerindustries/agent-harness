@@ -8,7 +8,21 @@
 // google.api_key) is masked to at most its last four characters and an
 // unset key omits value, so the full value never leaves the process. This
 // module deliberately has no way to read one back — the settings screen
-// re-fetches rather than guessing, and there is no reveal path.
+// re-fetches rather than guessing, and there is no reveal path. The screen
+// renders the server's mask at a fixed width (secretMask below), so even
+// the mask's length stays on the server.
+
+// secretMask renders a stored secret's masked value at a fixed width: four
+// asterisks plus the last four characters the server's mask reveals
+// (internal/httpapi.server.go maskSecret, the same mask the CLI applies).
+// The server's own mask grows with the secret — a long key like
+// github.token spans nearly the whole row, and every row's mask width
+// reports how long its secret is — so the screen re-renders it fixed.
+// A secret of four characters or fewer reveals nothing (the server sends
+// only asterisks) and still renders at the same width.
+export function secretMask(masked: string): string {
+  return `****${masked.slice(-4)}`.padEnd(8, "*");
+}
 
 // SettingEntry is one row of GET /api/settings, mirroring
 // internal/httpapi.settingEntry: the registry descriptor (group, type,
