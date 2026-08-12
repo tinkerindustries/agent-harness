@@ -218,6 +218,66 @@ func TestReviewScreenshotSendsAndReturns(t *testing.T) {
 	}
 }
 
+// TestReviewScreenshotInstructionDependsOnSpec pins which standard the
+// review is held to: a call carrying a spec is told the spec is the only
+// standard of correctness, and a call without one is told it cannot know the
+// intended design and must report only defects visible on their own terms.
+// Both must say an empty list is an answer, and both must ask for the
+// confidence field.
+func TestReviewScreenshotInstructionDependsOnSpec(t *testing.T) {
+	var instruction string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			SystemInstruction string `json:"system_instruction"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		instruction = req.SystemInstruction
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"i","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"[]"}]}]}`))
+	}))
+	defer srv.Close()
+
+	root := t.TempDir()
+	e, err := NewExecutor(root, &Policy{Mode: ModeFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Gemini = reviewScreenshotClient(srv)
+	writeFile(t, root, "shot.png", "image bytes")
+
+	for _, tc := range []struct {
+		name string
+		spec string
+		want string
+	}{
+		{name: "with spec", spec: "the rail is 244px wide", want: "The spec is the only standard of correctness."},
+		{name: "without spec", spec: "", want: "No design spec was sent with it"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			instruction = ""
+			res := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+				ImagePaths: []string{"shot.png"},
+				Question:   "what is wrong?",
+				Spec:       tc.spec,
+			})
+			if res.IsError {
+				t.Fatalf("unexpected error: %s", res.Content)
+			}
+			if !strings.Contains(instruction, tc.want) {
+				t.Errorf("instruction should contain %q, got: %s", tc.want, instruction)
+			}
+			if !strings.Contains(instruction, "empty list is a valid and expected answer") {
+				t.Errorf("instruction should state that an empty list is an answer, got: %s", instruction)
+			}
+			if !strings.Contains(instruction, `"confidence"`) {
+				t.Errorf("instruction should ask for a confidence per finding, got: %s", instruction)
+			}
+		})
+	}
+}
+
 // TestReviewScreenshotModelProviderIsConsulted pins that the model comes
 // from the per-call provider rather than a frozen value, so a model changed
 // with harness config set google.vision_model takes effect without a

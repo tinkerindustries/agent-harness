@@ -49,14 +49,29 @@ func (e *Executor) reviewScreenshotMaxBytes(ctx context.Context) int {
 	return reviewScreenshotMaxBytes
 }
 
-// reviewScreenshotSystemInstruction is the fixed system instruction from the
-// prompt skeleton in docs/gemini-3.5-flash-ui-review-prompting.md: the
-// consistency rules that replace temperature/top_p/top_k (which must not be
-// set for Gemini 3.x), and the JSON element/issue/expected/actual shape the
-// answer must take.
-const reviewScreenshotSystemInstruction = `You are reviewing a web page screenshot against its intended design.
-Be precise and concise — flag concrete issues (element name, expected vs actual position/size/color/spacing), not general impressions.
-Output as a JSON list: [{ "element": "", "issue": "", "expected": "", "actual": "" }]`
+// The system instruction, in two forms, built on the prompt skeleton in
+// docs/gemini-3.5-flash-ui-review-prompting.md: the consistency rules that
+// replace temperature/top_p/top_k (which must not be set for Gemini 3.x),
+// and the JSON shape the answer must take. A vision model with no stated
+// standard judges the page against general web-design convention and reports
+// deliberate choices as breakage, so a call carrying a spec is told the spec
+// is the only standard, and a call without one is held to defects visible on
+// their own terms. Both carry a confidence the caller can weigh, and both
+// state that an empty list is an answer
+// (docs/reviews/sess-b949743ff7766606eb210ae59f2c1bcd.md).
+const reviewScreenshotSpecInstruction = `You are reviewing a web page screenshot against the design spec sent with it.
+The spec is the only standard of correctness. Report a discrepancy only where the screenshot contradicts it; anything the spec does not cover is intentional, so do not flag it against general web-design convention.
+Be precise and concise — name the element and what differs (position, size, colour, spacing), not general impressions.
+Returning an empty list is a valid and expected answer: [] means the screenshot matches the spec.
+Output as a JSON list: [{ "element": "", "issue": "", "expected": "", "actual": "", "confidence": "high" }]
+Set confidence to high only when the spec states the expectation you are measuring against, medium when you are inferring it, and low when the element is too small or the image too ambiguous to be sure.`
+
+const reviewScreenshotNoSpecInstruction = `You are reviewing a web page screenshot for defects.
+No design spec was sent with it, so you cannot know what the page is meant to look like: report only what is broken on its own terms — overlapping text, content clipped or overflowing its container, elements outside the viewport, unreadable contrast. Do not report stylistic choices, layout you would have made differently, or anything you are only guessing is wrong.
+Be precise and concise — name the element and what is wrong, not general impressions.
+Returning an empty list is a valid and expected answer: [] means you found no defect.
+Output as a JSON list: [{ "element": "", "issue": "", "expected": "", "actual": "", "confidence": "high" }]
+Set confidence to high only when the defect is unmistakable in the image, medium when it is likely, and low when the element is too small or the image too ambiguous to be sure.`
 
 // execReviewScreenshot implements ReviewScreenshot: send one to four
 // screenshots to Google Gemini's vision model and return its diagnosis of
@@ -136,13 +151,15 @@ func execReviewScreenshot(ctx context.Context, e *Executor, argsRaw json.RawMess
 	}
 
 	question := args.Question
+	instruction := reviewScreenshotNoSpecInstruction
 	if args.Spec != "" {
+		instruction = reviewScreenshotSpecInstruction
 		// The spec is data, so it precedes the question ("data first,
 		// question last", docs/gemini-3.5-flash-ui-review-prompting.md).
 		question = "Design spec / target CSS:\n" + args.Spec + "\n\n" + question
 	}
 
-	answer, usage, err := e.Gemini.Interact(ctx, model, reviewScreenshotSystemInstruction, question, images)
+	answer, usage, err := e.Gemini.Interact(ctx, model, instruction, question, images)
 	if err != nil {
 		return errorResult("%v", err)
 	}

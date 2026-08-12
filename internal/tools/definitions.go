@@ -144,12 +144,12 @@ var definitions = []deepseek.Tool{
 	// prompt cache. The model discovers a bound from the refusal message,
 	// which states the actual limit — the same shape the other tools' caps
 	// use.
-	function("ReviewScreenshot", "Send the screenshots to Google Gemini's vision model and return its diagnosis of the question. The first image gets high resolution and the rest medium, so put the screenshot that needs the closest scrutiny first. Screenshots are PNG, JPEG, or WebP files, workspace-relative or absolute paths. Returns Gemini's findings as the tool result.", `{
+	function("ReviewScreenshot", "Send the screenshots to Google Gemini's vision model and return its diagnosis of the question. Pass the design spec, target CSS, or mock markup in spec whenever one exists: it is the only standard the reviewer is told to judge against, and without it deliberate design choices get reported as breakage. The first image gets high resolution and the rest medium, so put the screenshot that needs the closest scrutiny first — and when the question is about one small control, screenshot that element rather than the whole page, because a full-page capture is downscaled until small detail is unreadable. Screenshots are PNG, JPEG, or WebP files, workspace-relative or absolute paths. Returns Gemini's findings as a JSON list, each with a confidence; an empty list means it found nothing to report, which is an answer rather than a call to repeat.", `{
 		"type": "object",
 		"properties": {
-			"image_paths": {"type": "array", "items": {"type": "string"}, "description": "Absolute or workspace-relative paths to PNG, JPEG, or WebP screenshot files. The first image is reviewed at high resolution and the rest at medium, so put the screenshot you care about most first."},
-			"question": {"type": "string", "description": "What to diagnose about the screenshots"},
-			"spec": {"type": "string", "description": "Optional design spec or target CSS to compare the screenshots against"}
+			"image_paths": {"type": "array", "items": {"type": "string"}, "description": "Absolute or workspace-relative paths to PNG, JPEG, or WebP screenshot files. The first image is reviewed at high resolution and the rest at medium, so put the screenshot you care about most first. Capture the element itself rather than the whole page when the question is about a small control."},
+			"question": {"type": "string", "description": "What to diagnose about the screenshots — name the area you are unsure about rather than listing points to confirm, which turns the review into a checklist and misses what you did not think to ask."},
+			"spec": {"type": "string", "description": "The design spec, target CSS, or mock markup to judge the screenshots against — the only standard the reviewer treats as authoritative. Supply it whenever one exists: without it the review falls back to defects visible on their own terms, and anything intentional but unconventional reads as a bug."}
 		},
 		"required": ["image_paths", "question"]
 	}`),

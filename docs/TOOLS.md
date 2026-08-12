@@ -197,7 +197,22 @@ the image needing scrutiny should be high — the model is told to put the
 screenshot it cares about first
 ([`docs/gemini-3.5-flash-ui-review-prompting.md`](gemini-3.5-flash-ui-review-prompting.md)
 has the request-shape rationale: no temperature/top_p/top_k, `thinking_level`,
-"data first, question last").
+"data first, question last"). A full-page capture is downscaled to roughly a
+thousand image tokens, which leaves a small control unreadable, so the
+description tells the model to screenshot the element itself when the question
+is about one.
+
+`spec` decides which system instruction the call carries. With a spec, the
+model is told the spec is the only standard of correctness and that anything
+it does not cover is intentional; without one, it is held to defects visible
+on their own terms — overlap, clipping, overflow, contrast — and told not to
+report stylistic judgements. A vision model given no standard falls back on
+general web-design convention and returns deliberate choices as breakage,
+which is why the tool description urges a spec on every call. Both forms ask
+for the same JSON list, each finding carrying a `confidence`, and both state
+that an empty list is a valid answer rather than a failure to retry
+([`docs/reviews/sess-b949743ff7766606eb210ae59f2c1bcd.md`](reviews/sess-b949743ff7766606eb210ae59f2c1bcd.md)
+measures what the earlier single instruction cost).
 
 The model comes from the `google.vision_model` setting (default
 `gemini-3.5-flash`) and the key from `google.api_key`, both read through the
@@ -205,9 +220,13 @@ settings table on every call, so either can change without a restart. The call
 has its own timeout (default 60s, `tools.reviewscreenshot_timeout`) rather than
 the 30-second tool default.
 
-Known limitation: Gemini calls do not appear in a session's cost accounting —
-`configs/prices.json` and `internal/pricing` cover DeepSeek only, and phase 2
-deliberately does not extend them.
+A Gemini call bills separately from the sub-turn that made it. Its usage rides
+home on the tool result, and the runner stamps the sub-turn it happened in and
+commits it as its own usage event, priced against `configs/prices.json` under
+the vision model that ran — so a session's cost total covers Gemini the same
+way it covers DeepSeek (docs/DESIGN.md §4.9). A model with no entry in the
+price table leaves the cost at zero rather than failing the call: the run
+succeeded, and the operator's price table is the incomplete thing.
 
 ### Complete
 
