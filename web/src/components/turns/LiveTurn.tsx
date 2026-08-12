@@ -1,5 +1,6 @@
 import type { LiveTurn, PendingTool } from "../../api/fold";
 import type { ToolCallPayload } from "../../api/types";
+import { useNow } from "../../hooks";
 import { formatElapsed } from "../blocks/ReasoningPanel";
 import { toolDetail } from "../blocks/toolArgs";
 
@@ -98,9 +99,23 @@ function toolRows(calls: ToolCallPayload[], pendingTools: Map<string, PendingToo
 // .tool.tool-live): open by default, pulsing dot, target, "running" plus
 // the wall time so far when the fold knows when the call started, and the
 // streamed stdout as plain preformatted text when there is any.
+//
+// The age ticks on its own clock rather than riding the flush loop, which is
+// the difference between a counter and a timestamp: the section around it
+// re-renders when an event arrives, and a tool that produces no output —
+// exactly the long `sleep`, the slow test run, the wedged clone an operator
+// is watching this row to judge — produces none for as long as it runs. Read
+// off Date.now() at render, "running · 8s" froze at 8s until the result
+// landed, which reads as a stalled tool rather than a working one. The watch
+// footer's nowline already counts the same call from the same stamp against
+// a ticking clock (WatchFooter's useNow), and the two disagreeing on screen
+// is worse than either being wrong alone. A handful of rows ticking once a
+// second is the case useNow's own comment sanctions — this is not the
+// per-token frame budget web/CLAUDE.md is about.
 function LiveToolRow({ call, pending }: { call: ToolCallPayload; pending?: PendingTool }) {
+  const now = useNow(1000);
   const target = toolDetail(call);
-  const age = pending?.startedAt ? formatElapsed(Date.now() - Date.parse(pending.startedAt)) : "";
+  const age = pending?.startedAt ? formatElapsed(now - Date.parse(pending.startedAt)) : "";
   return (
     <details className="tool tool-live" open>
       <summary>
