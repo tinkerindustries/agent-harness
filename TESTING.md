@@ -31,9 +31,16 @@ equivalent is the manual smoke check below.
 | One frontend file | `npm --prefix web run test -- src/api/fold.test.ts` |
 | Frontend watch mode | `npm --prefix web exec -- vitest` |
 
-`scripts/test.sh` brings the test broker up, runs `go test ./...`, and takes the
+`scripts/test.sh` brings the test broker up, runs the suite, and takes the
 broker down again however the run ends. Flags after the script name pass through
 to `go test`.
+
+It runs `go list ./...` minus anything under a `workspaces` path rather than a
+bare `./...`, because agent workspaces live inside this checkout and their Go
+files are part of this module — see the smoke sequence below. Filtering the
+listed packages rather than hardcoding `./cmd/... ./internal/...` is deliberate:
+a hardcoded pair of roots would silently stop covering a new top-level package,
+and tests that quietly do not run are worse than a build error.
 
 To iterate on one package without paying the broker's start-up on every run,
 start it yourself:
@@ -130,9 +137,16 @@ Cheapest first.
 1. `gofmt -l cmd internal` — no output. No linter is configured; `gofmt` and
    `go vet` are the bar. (Scoped to the source directories, because
    `workspaces/` holds clones whose formatting is not ours.)
-2. `go vet ./...` — clean.
-3. `go build ./...` — compiles. (A binary built this way serves no UI; see
-   [`ARCHITECTURE.md`](ARCHITECTURE.md) gotchas.)
+2. `go vet ./cmd/... ./internal/...` — clean.
+3. `go build ./cmd/... ./internal/...` — compiles. (A binary built this way
+   serves no UI; see [`ARCHITECTURE.md`](ARCHITECTURE.md) gotchas.)
+
+   Steps 2 and 3 name the source roots for the same reason step 1 does, and
+   it is not cosmetic: a session's workspace lives inside this checkout, so
+   any Go a run leaves in `workspaces/` or `workspaces-prod/` joins this
+   module. `./...` then tries to build it and fails on code that was never
+   ours — today, a prod session's `scratch/` with two `main` declarations in
+   it.
 4. `scripts/test.sh` — all pass. Seconds for the unit tests, under a minute
    including the broker's start-up.
 5. Frontend, if you touched `web/`: `npm --prefix web run build` then
@@ -184,7 +198,7 @@ pass rather than part of the suites.
   **built image** (step 1's `--build`), never the dev server.
 - **`scripts/test.sh`'s broker port is unreachable from inside a container.**
   The test broker publishes onto the host's loopback, which a container that
-  shares the docker socket does not share. When running `go test ./...` from
+  shares the docker socket does not share. When running `go test` from
   such a container, start a `nats-server` locally on the test broker port
   (`HARNESS_TEST_NATS_PORT`, default 4422) instead, and run the suite
   directly — `scripts/test.sh` itself will just fail to reach its broker.

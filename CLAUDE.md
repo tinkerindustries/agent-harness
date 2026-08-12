@@ -19,7 +19,7 @@ shaped that way.
 | Build the binary | `npm --prefix web run build && go build -o bin/harness ./cmd/harness` |
 | Test, Go | `scripts/test.sh` |
 | Test, frontend | `npm --prefix web run test` |
-| Format and vet | `gofmt -l cmd internal && go vet ./...` |
+| Format and vet | `gofmt -l cmd internal && go vet ./cmd/... ./internal/...` |
 | Frontend dev server | `npm --prefix web run dev`, against `harness serve -dev-frontend http://127.0.0.1:5173` |
 | Production stack | `scripts/prod.sh promote && scripts/prod.sh deploy` — see [RELEASE.md](RELEASE.md) and the rule below |
 

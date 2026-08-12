@@ -42,7 +42,10 @@ store loses the rollback targets — see "If a deploy goes wrong".
 
 ## Before releasing
 
-- [ ] `gofmt -l cmd internal` is silent and `go vet ./...` is clean.
+- [ ] `gofmt -l cmd internal` is silent and `go vet ./cmd/... ./internal/...`
+      is clean. All three name the source roots: agent workspaces live inside
+      this checkout, so a bare `./...` builds whatever Go a session left there
+      ([TESTING.md](TESTING.md)).
 - [ ] `scripts/test.sh` passes, and `npm --prefix web run test` if `web/`
       changed. The full sequence, cheapest first, is
       [TESTING.md](TESTING.md)'s "Smoke test after a change".
