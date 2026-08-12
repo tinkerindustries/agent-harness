@@ -1075,12 +1075,14 @@ pre {
 }
 
 /* Anchors for the churn banner's "Jump to it" link and the rail: keep the
-   target clear of the sticky toolbar. The session pages' turns carry the
-   anchors now (design/session-chat.html's .turn id), the child transcript's
+   target clear of the sticky header. On a session page the header is the
+   shared top nav, which sticks to the top of the viewport in page mode
+   (body.page .topnav) at exactly --nav-height — the anchor margin must equal
+   that height, or the named sub-turn lands under it. The child transcript's
    cards keep their own. */
 .turn,
 .subturn {
-  scroll-margin-top: 46px;
+  scroll-margin-top: var(--nav-height);
 }
 
 /* A tool card inside a sub-turn body (design/transcript.html's .tool):
@@ -2195,6 +2197,11 @@ pre {
   border-radius: calc(var(--radius) - 2px);
   font-size: 0.8125rem;
   color: var(--muted-foreground);
+  /* The first section ("Stuck sessions") sits right under this strip and
+     must get the same gap the sections give each other
+     (.list-section + .list-section's 2.5 × space) — without this the
+     heading used to sit flush against the strip. */
+  margin-bottom: calc(var(--space) * 2.5);
 }
 
 .ops-strip b {
@@ -3655,6 +3662,33 @@ kbd {
   }
 }
 @media (max-width: 720px) {
+  /* The shared nav wraps at this width: its right-hand group (the start-run
+     trigger, the search input, the LIVE badge — and on a session page the
+     crumb and the finished run's statusline figures) is wider than the
+     viewport on its own, and a non-wrapping row pushed the page's scrollWidth
+     past clientWidth at 420px with no way to reach the overflow. Wrapping
+     lets the groups reflow onto their own rows, where everything stays
+     reachable by vertical scroll. */
+  .topnav {
+    flex-wrap: wrap;
+    row-gap: 6px;
+  }
+  .topnav-right {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+  /* The finished watch run's statusline (sub-turn, cache %, cost, output
+     tokens, elapsed) rides in the nav's right slot; it must wrap inside the
+     slot rather than push the page wider. */
+  .topnav-right .statusline {
+    flex-wrap: wrap;
+  }
+  /* Four stat cards across a ~388px content box leave ~90px cards whose
+     small print ("0 of 4 slots", "9 sessions today") breaks over three
+     lines; two columns keeps both the value and its qualifier on one line. */
+  .stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .stream,
   .footer {
     padding-left: 14px;

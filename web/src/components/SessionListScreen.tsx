@@ -4,6 +4,8 @@ import { sessionListStore } from "../api/sessionListStore";
 import { listSettings } from "../api/settings";
 import { controlToken } from "../api/operations";
 import { startedBy } from "../api/provenance";
+import { startedByShort } from "./sessionListLabel";
+import { tableEmptyState } from "./sessionListEmpty";
 import type { QueueHealth, SessionState, Usage } from "../api/types";
 import { useNow, useQueueHealth } from "../hooks";
 import { cn } from "@/lib/utils";
@@ -229,7 +231,10 @@ export function SessionListScreen({ onOpen }: Props) {
     () => snapshot.sessions.filter((s) => s.status !== "running" && matchesQuery(s, q)),
     [snapshot.sessions, q],
   );
-  const showEmpty = snapshot.sessions.length === 0;
+  // The empty-row state (sessionListEmpty.ts): "no-sessions" for a genuinely
+  // empty harness, "no-match" when sessions exist but the filter matched none
+  // — a distinct state, so a blank page never reads as an empty harness.
+  const emptyState = tableEmptyState(snapshot.sessions.length, running.length + finished.length);
 
   // The nav's right slot for this screen (design/nav.html's Sessions state):
   // the start-run trigger (phase 6, docs/RUN-CONTROL.md "The frontend"), the
@@ -258,7 +263,16 @@ export function SessionListScreen({ onOpen }: Props) {
         type="search"
         className="nav-search"
         placeholder="Filter by id, workspace, request…"
-        value={query}
+        // Uncontrolled on purpose: the input is rendered into the shared
+        // nav's right slot through useNavRight, so a controlled value would
+        // round-trip a render behind the keystrokes — the slot's node is
+        // replaced on every screen render — and a keystroke landing inside
+        // that window got overwritten when the stale value was written back
+        // (typing abcdefghij at zero delay left aceghj). The DOM input always
+        // holds exactly what was typed; onChange feeds the filter state, so
+        // the list filtering still runs per keystroke, just never through the
+        // input's own value.
+        defaultValue=""
         onChange={(ev) => setQuery(ev.target.value)}
         spellCheck={false}
       />
@@ -300,7 +314,7 @@ export function SessionListScreen({ onOpen }: Props) {
         </section>
       )}
 
-      {(finished.length > 0 || showEmpty) && (
+      {(finished.length > 0 || emptyState !== "none") && (
         <section className="list-section">
           <div className="section-head">
             <h2>Finished</h2>
@@ -325,10 +339,10 @@ export function SessionListScreen({ onOpen }: Props) {
                 {finished.map((sess) => (
                   <FinishedRow key={sess.id} sess={sess} now={now} onOpen={onOpen} />
                 ))}
-                {showEmpty && (
+                {emptyState !== "none" && (
                   <tr>
                     <td colSpan={7} className="empty-row">
-                      No sessions yet.
+                      {emptyState === "no-sessions" ? "No sessions yet." : "No sessions match this query."}
                     </td>
                   </tr>
                 )}
@@ -509,6 +523,13 @@ function FinishedRow({
   const prog = planProgress(plan);
   const ratio = plan.length > 0 ? `${prog.done} of ${prog.total} plan items` : "";
   const subtitle = [ratio, sess.summary].filter(Boolean).join(" · ");
+  // The Model cell shows the provenance label short — the parent agent's type
+  // without its id — because the full label's UUID wrapped the cell to three
+  // lines and pushed the Sub-turns and Cache columns out of the table's
+  // container (sessionListLabel.ts). The full label, id included, rides on
+  // the cell's title so it is still reachable on hover.
+  const provenanceLabel = startedBy(sess);
+  const provenanceShort = startedByShort(sess);
   return (
     <tr className="session-row" onClick={() => onOpen(sess.id)}>
       <td>
@@ -523,10 +544,10 @@ function FinishedRow({
       <td className="primary" title={costTitle(sess)}>
         {formatCost(sess.usage.cost_usd)}
       </td>
-      <td>
+      <td title={provenanceLabel ?? undefined}>
         {sess.model} <span className="dim">({sess.effort})</span>
         {sess.job_type && <span className="dim"> · {sess.job_type}</span>}
-        {startedBy(sess) && <span className="dim"> · {startedBy(sess)}</span>}
+        {provenanceShort && <span className="dim"> · {provenanceShort}</span>}
       </td>
       <td>{sess.sub_turns}</td>
       <td className="dim" title={hitRateTitle(sess.usage)}>
