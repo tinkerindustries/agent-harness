@@ -522,11 +522,35 @@ pre {
   gap: 0;
 }
 
+/* The card's summary row is two sibling interactive elements: the caret
+   button (CollapsibleTrigger) and the summary button that opens the session
+   page. Siblings, never nested — each is reachable by keyboard, and
+   toggling the plan never navigates. */
+.run-head {
+  display: flex;
+  align-items: stretch;
+}
+
+.caret-btn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 4px 0 14px;
+  background: transparent;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.caret-btn:hover .caret {
+  color: var(--foreground);
+}
+
 .run-summary {
-  display: block;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   text-align: left;
-  padding: 12px 14px;
+  padding: 12px 14px 12px 8px;
   cursor: pointer;
   background: transparent;
   border: none;
@@ -536,10 +560,6 @@ pre {
 
 .run-summary:hover {
   background: color-mix(in srgb, var(--accent) 55%, transparent);
-}
-
-.run-summary-open {
-  border-bottom: 1px solid var(--border);
 }
 
 .run-line1 {
@@ -558,14 +578,18 @@ pre {
   transform: rotate(90deg);
 }
 
-.run-id {
-  font-family: var(--font-mono);
-  font-weight: 600;
+/* The task is the card's description, the middle of the row where the id
+   used to sit. It wraps normally and only a description still too long
+   after three lines is ellipsized — the same -webkit-box line clamp
+   .sess-sub uses — with the full text on the element's title, never the
+   old id's single-line truncation. */
+.run-desc {
   font-size: 0.8125rem;
-  white-space: nowrap;
-  /* The id and the meta line are the description that owns the middle of
-     the card; each ellipsizes only when the card is too narrow for both. */
+  flex: 1 1 0;
   min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -574,9 +598,9 @@ pre {
   color: var(--muted-foreground);
   font-size: 0.8125rem;
   white-space: nowrap;
-  /* The stat row is two figures now, so the id and the meta keep the width
-     it no longer takes; the meta clips only after the stats have yielded
-     theirs. */
+  /* The description takes the middle of the row now, so the meta and the
+     stats keep their natural widths; the meta clips only after the stats
+     have yielded theirs. */
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -592,7 +616,7 @@ pre {
   white-space: nowrap;
   /* The stat row is the card's garnish now — elapsed and sub-turns — so on
      a card too narrow for everything, the stats yield their width before
-     the id or the meta line clips. */
+     the description or the meta line clips. */
   min-width: 0;
   overflow: hidden;
   flex-shrink: 2;
@@ -627,7 +651,9 @@ pre {
   align-items: center;
   gap: 10px;
   margin-top: 7px;
-  padding-left: 20px;
+  /* The summary's own padding now carries the indent the caret used to
+     occupy, so the activeForm line starts level with line1's badge. */
+  padding-left: 0;
 }
 
 .run-now {
@@ -659,31 +685,16 @@ pre {
   white-space: nowrap;
 }
 
+/* The expanded body is one full-width column: the plan list when there is
+   one, then the actions row. No side panel — the card itself is the
+   affordance that opens the transcript now, and a session with no plan
+   still expands to the actions row so Stop stays reachable from the list. */
 .run-body {
   border-top: 1px solid var(--border);
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-}
-
-/* A session that never wrote a plan has no plan column; the side panel is
-   the whole body, so its divider has nothing to divide. */
-.run-body-noplan {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.run-body-noplan .run-side {
-  border-left: none;
 }
 
 .run-plan {
   padding: 12px 14px 14px 34px;
-}
-
-.run-side {
-  padding: 12px 14px;
-  border-left: 1px solid var(--border);
-  background: color-mix(in srgb, var(--muted) 40%, transparent);
-  border-radius: 0 0 var(--radius) 0;
 }
 
 .panel-label {
@@ -750,47 +761,16 @@ pre {
   text-decoration: none;
 }
 
-.activity {
-  display: grid;
-  gap: 6px;
-  font-size: 0.75rem;
-  font-family: var(--font-mono);
-}
-
-.activity .row {
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-  min-width: 0;
-}
-
-.activity .t {
-  color: var(--muted-foreground);
-  flex: none;
-}
-
-.tool-tag {
-  display: inline-block;
-  padding: 0 5px;
-  border-radius: 3px;
-  background: var(--secondary);
-  font-size: 0.6875rem;
-  font-weight: 600;
-  flex: none;
-}
-
-.activity .target {
-  min-width: 0;
-}
-
-.activity-empty {
-  font-size: 0.75rem;
-}
-
 .run-actions {
   display: flex;
   gap: 8px;
-  margin-top: 14px;
+  padding: 12px 14px;
+}
+
+/* The divider between the plan and the actions row; with no plan the body's
+   own top border already separates the actions from the summary. */
+.run-plan + .run-actions {
+  border-top: 1px solid var(--border);
 }
 
 .sess-cell {

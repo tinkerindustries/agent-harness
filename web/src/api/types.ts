@@ -26,6 +26,13 @@ export interface SessionState {
   // the badge renders it as the plain terminal status rather than guessing
   // (docs/WEB-REDESIGN.md phase 2).
   complete_status?: string;
+  // task is the job's description — the launching instruction of the run,
+  // frozen on the row at creation (the same value the session_started
+  // payload carries), mirroring internal/hub's SessionState. Absent covers a
+  // pre-migration row and a run created with no prompt (a browser start
+  // waits for its first message); the in-flight card renders no description
+  // rather than an empty one.
+  task?: string;
   // plan is the session's working plan: the todos array as of the most
   // recent TaskCreate/TaskUpdate call, verbatim, mirroring internal/hub's
   // SessionState (docs/WEB-REDESIGN.md phase 3). Absent covers a

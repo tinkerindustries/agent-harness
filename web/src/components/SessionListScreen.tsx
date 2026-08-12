@@ -4,7 +4,7 @@ import { sessionListStore } from "../api/sessionListStore";
 import { listSettings } from "../api/settings";
 import { controlToken } from "../api/operations";
 import { startedBy } from "../api/provenance";
-import type { QueueHealth, RecentToolCall, SessionState, Usage } from "../api/types";
+import type { QueueHealth, SessionState, Usage } from "../api/types";
 import { useNow, useQueueHealth } from "../hooks";
 import { cn } from "@/lib/utils";
 import { Badge } from "./ui/badge";
@@ -63,46 +63,6 @@ function formatHitRate(usage: Usage): string {
 
 function hitRateTitle(usage: Usage): string {
   return `cache hit ${usage.cache_hit_tokens} / miss ${usage.cache_miss_tokens} tokens`;
-}
-
-// formatCallTime is the activity panel's timestamp: the local HH:MM of the
-// call, the granularity the drawing's "Last five calls" rows carry
-// (design/sessions.html).
-function formatCallTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toTimeString().slice(0, 5);
-}
-
-// toolCallTarget is the activity panel's one-line answer to "what did the
-// call touch": the file_path for Edit/Write/Read, the pattern for Grep, the
-// command for Bash, the description for Task. Shaped from the raw arguments
-// the model produced, exactly as the transcript's tool headers do
-// (docs/WEB-REDESIGN.md phase 5); arguments that do not parse render
-// nothing after the tool tag.
-function toolCallTarget(name: string, argumentsJSON: string): string {
-  if (!argumentsJSON) return "";
-  let args: Record<string, unknown>;
-  try {
-    args = JSON.parse(argumentsJSON) as Record<string, unknown>;
-  } catch {
-    return "";
-  }
-  const str = (v: unknown) => (typeof v === "string" ? v : "");
-  switch (name) {
-    case "Edit":
-    case "Write":
-    case "Read":
-      return str(args.file_path);
-    case "Grep":
-      return str(args.pattern);
-    case "Bash":
-      return str(args.command);
-    case "Task":
-      return str(args.description);
-    default:
-      return "";
-  }
 }
 
 // matchesQuery is the session list's own filter (design/sessions-v2.html's
@@ -421,10 +381,14 @@ function StatStrip({ stats, poolSize }: { stats: DayStats; poolSize: number | nu
 
 // InFlightCard is one running session as a collapsible plan card
 // (docs/WEB-REDESIGN.md phase 3, design/sessions.html). Collapsed, its
-// trigger answers what the session is doing (the in_progress item's
-// activeForm) and how far in it is (the completed ratio); expanded, it shows
-// the whole plan and the last few tool calls. A session that never wrote a
-// plan shows no plan section at all, neither collapsed nor expanded.
+// summary answers what the session is about — the job's description (sess.task)
+// — and what it is doing (the in_progress item's activeForm) and how far in
+// it is (the completed ratio); expanded, it shows the whole plan and the
+// actions row. The caret is its own small toggle button (sibling of the
+// summary, each keyboard-reachable): it toggles the plan disclosure, while
+// clicking anywhere else on the summary opens the session page. A session
+// that never wrote a plan shows no plan section at all, neither collapsed
+// nor expanded, and a session with no task shows no description line.
 function InFlightCard({
   sess,
   now,
@@ -442,17 +406,28 @@ function InFlightCard({
   const plan = sess.plan ?? [];
   const prog = planProgress(plan);
   const { verb, rest } = splitVerb(prog.activeForm);
-  const calls = sess.recent_tool_calls ?? [];
 
   return (
     <Card className="run-card">
       <Collapsible open={open} onOpenChange={onOpenChange}>
-        <CollapsibleTrigger asChild>
-          <button type="button" className={cn("run-summary", open && "run-summary-open")}>
-            <span className="run-line1">
+        <div className="run-head">
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              className="caret-btn"
+              aria-label={open ? "Collapse the plan" : "Expand the plan"}
+            >
               <span className={cn("caret", open && "caret-open")}>▸</span>
+            </button>
+          </CollapsibleTrigger>
+          <button type="button" className="run-summary" onClick={() => onOpen(sess.id)}>
+            <span className="run-line1">
               <Badge variant={badge.variant}>{badge.label}</Badge>
-              <span className="run-id">{sess.id}</span>
+              {sess.task && (
+                <span className="run-desc" title={sess.task}>
+                  {sess.task}
+                </span>
+              )}
               <span className="run-meta">
                 {sess.model} · {sess.effort}
                 {sess.job_type && <> · {sess.job_type}</>}
@@ -489,49 +464,22 @@ function InFlightCard({
               </span>
             )}
           </button>
-        </CollapsibleTrigger>
+        </div>
         <CollapsibleContent>
-          <div className={cn("run-body", plan.length === 0 && "run-body-noplan")}>
+          <div className="run-body">
             {plan.length > 0 && (
               <div className="run-plan">
                 <div className="panel-label">Plan</div>
                 <PlanList todos={plan} />
               </div>
             )}
-            <div className="run-side">
-              <div className="panel-label">Last calls</div>
-              <RecentCalls calls={calls} />
-              <div className="run-actions">
-                <Button variant="outline" size="sm" onClick={() => onOpen(sess.id)}>
-                  Open transcript
-                </Button>
-                <StopControl sessionId={sess.id} running={true} />
-              </div>
+            <div className="run-actions">
+              <StopControl sessionId={sess.id} running={true} />
             </div>
           </div>
         </CollapsibleContent>
       </Collapsible>
     </Card>
-  );
-}
-
-// RecentCalls is the card's activity panel: the last few tool calls as one
-// line each — time, tool tag, and the target the call worked on
-// (design/sessions.html's "Last five calls").
-function RecentCalls({ calls }: { calls: RecentToolCall[] }) {
-  if (calls.length === 0) {
-    return <div className="activity-empty dim">No tool calls yet.</div>;
-  }
-  return (
-    <div className="activity">
-      {calls.map((c, i) => (
-        <div className="row" key={i}>
-          <span className="t">{formatCallTime(c.created_at)}</span>
-          <span className="tool-tag">{c.name}</span>
-          <span className="target truncate">{toolCallTarget(c.name, c.arguments)}</span>
-        </div>
-      ))}
-    </div>
   );
 }
 
