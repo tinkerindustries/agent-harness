@@ -13,7 +13,9 @@ import { startedBy } from "../api/provenance";
 import { useNow } from "../hooks";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { formatRunDuration } from "./turns/turnHelpers";
+import { outcome } from "./statusBadge";
+import { cachePercent, formatRunDuration, watchStatusFigures } from "./turns/turnHelpers";
+import { formatCost } from "./blocks/toolArgs";
 import { useNavRight } from "./TopNav";
 
 interface Props {
@@ -34,14 +36,16 @@ interface Props {
 
 // The read-only session page (design/session-watch.html): a run another
 // agent started, inside the full-height app shell the two session pages
-// share. You may stop it; you may not talk to it — its instructions come
-// from the agent that launched it, and the page shows no way to send a
-// message, not even a disabled one (a greyed-out input invites you to look
-// for the way to enable it). Phase 4 is this page: the provenance strip
-// under the nav, the navigator rail on the left (find, chips, the plan as
-// phases with one tick per sub-turn), the live footer answering what the
-// run is doing right now, the result the parent gets back at the end of the
-// stream, and the dropped-stream banner both pages share.
+// share while the run is live. You may stop it; you may not talk to it —
+// its instructions come from the agent that launched it, and the page shows
+// no way to send a message, not even a disabled one (a greyed-out input
+// invites you to look for the way to enable it). A finished run drops the
+// shell: one page scroll, the sticky rail, the footer's figures in the nav
+// (SessionScreen decides the mode). Phase 4 is this page: the provenance
+// strip under the nav, the navigator rail on the left (find, chips, the
+// plan as phases with one tick per sub-turn), the live footer answering
+// what the run is doing right now, the result the parent gets back at the
+// end of the stream, and the dropped-stream banner both pages share.
 export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, everOpen }: Props) {
   const now = useNow(1000);
   const running = meta.status === "running";
@@ -185,8 +189,19 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
   // a safety fact, stated next to the stop button — and the Stop control,
   // which arms the inline confirm strip in the footer. The connection badge
   // stays: it is the only thing on this screen that says the stream is (or
-  // is not) still telling the page what happens next.
+  // is not) still telling the page what happens next. On a finished run the
+  // footer is gone, so the slot carries what the footer's status line
+  // carried — the outcome badge and the same five figures through the same
+  // helpers, in the same order — and the run's wall time is frozen at
+  // finished_at, as the footer's clock was.
   const navElapsed = running ? formatRunDuration(now - Date.parse(meta.created_at)) : null;
+  const finishedNav = running
+    ? null
+    : {
+        outcome: outcome(meta),
+        status: watchStatusFigures(meta, snapshot.items, snapshot.live),
+        elapsedMs: meta.finished_at ? Date.parse(meta.finished_at) - Date.parse(meta.created_at) : 0,
+      };
   useNavRight(
     <>
       {running && (
@@ -210,6 +225,32 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
               {stopping ? "Stopping…" : "Stop"}
             </Button>
           )}
+        </>
+      )}
+      {finishedNav && (
+        <>
+          <Badge variant={finishedNav.outcome.variant}>{finishedNav.outcome.label}</Badge>
+          <span className="statusline">
+            {finishedNav.status.subTurn !== null ? (
+              <>
+                <span>sub-turn {finishedNav.status.subTurn}</span>
+                <span className="sep">·</span>
+                <span>{cachePercent(finishedNav.status.cacheHitTokens, finishedNav.status.cacheMissTokens)}% cache</span>
+                <span className="sep">·</span>
+                <span title="Price table captured by the server's pricing config">${formatCost(finishedNav.status.costUsd)}</span>
+                <span className="sep">·</span>
+                <span>{finishedNav.status.completionTokens.toLocaleString("en-US")} out</span>
+                <span className="sep">·</span>
+                <span>{formatRunDuration(finishedNav.elapsedMs)} elapsed</span>
+              </>
+            ) : (
+              <>
+                <span>{meta.model}</span>
+                <span className="sep">·</span>
+                <span>effort {meta.effort}</span>
+              </>
+            )}
+          </span>
         </>
       )}
       <Badge variant="outline" className={`connection-badge connection-${snapshot.connection}`}>
@@ -276,7 +317,7 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
           </span>
         </div>
       )}
-      <div className="work work-watch">
+      <div className={`work work-watch${running ? "" : " work-watch-page"}`}>
         <WatchRail
           items={snapshot.items}
           live={snapshot.live}
@@ -321,22 +362,27 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
           )}
         </main>
       </div>
-      <WatchFooter
-        running={running}
-        meta={meta}
-        items={snapshot.items}
-        live={snapshot.live}
-        following={following}
-        onToggleFollow={toggleFollow}
-        stop={{
-          confirming: confirmingStop,
-          stopping,
-          error: stopError,
-          onCancelStop: cancelStop,
-          onConfirmStop: () => void confirmStop(),
-        }}
-        getToolCall={snapshot.getToolCall}
-      />
+      {/* The footer is the live run's status bar — what it is doing right
+          now, and the stop flow — and renders only while the run is live. A
+          finished run is an ordinary page: no footer, the figures in the
+          nav's right slot (SessionScreen drops the app shell for it). */}
+      {running && (
+        <WatchFooter
+          meta={meta}
+          items={snapshot.items}
+          live={snapshot.live}
+          following={following}
+          onToggleFollow={toggleFollow}
+          stop={{
+            confirming: confirmingStop,
+            stopping,
+            error: stopError,
+            onCancelStop: cancelStop,
+            onConfirmStop: () => void confirmStop(),
+          }}
+          getToolCall={snapshot.getToolCall}
+        />
+      )}
     </>
   );
 }

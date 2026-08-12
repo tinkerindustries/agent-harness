@@ -251,6 +251,10 @@ html {
 
 :root {
   --space: 8px;
+  /* The nav's height: 10px padding above and below the 28px links, plus
+     the 1px bottom border. The sticky page-mode rail clears the nav by
+     this much. */
+  --nav-height: 49px;
 }
 
 /* ---------- layout ---------- */
@@ -2460,6 +2464,19 @@ body.app #root {
   color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
 }
+/* A finished watch run is an ordinary scrolling page again, so the nav
+   sticks to the top of the viewport and keeps the crumb, the outcome badge
+   and the status line in view over the transcript. The base rule's margins
+   are page-scrolling breathing room; a stuck nav needs them gone, or the
+   transcript shows through the gaps above and below it. */
+body.page .topnav {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  margin-top: 0;
+  margin-bottom: 0;
+  background: var(--background);
+}
 
 /* Permission mode is a safety fact, so it is stated next to the stop button
    rather than filed in a rail with the workspace path: "full" means this run
@@ -2488,6 +2505,17 @@ body.app #root {
 .work-watch {
   grid-template-columns: 244px minmax(0, 1fr);
 }
+/* A finished watch run is an ordinary page: the rail stays beside the
+   transcript, pinned below the sticky nav while the page scrolls, with a
+   max-height that keeps it inside the viewport and its own scroll for a
+   long plan. */
+.work-watch-page .rail {
+  position: sticky;
+  top: var(--nav-height);
+  align-self: start;
+  max-height: calc(100vh - var(--nav-height));
+  overflow-y: auto;
+}
 /* The watch page's stream measure is a touch wider than the chat page's:
    the reader here is a spectator hunting through history, not a typist, and
    the extra 40px buys room for the provenance strip's longer lines. */
@@ -2495,10 +2523,14 @@ body.app #root {
   max-width: 840px;
 }
 .stream {
-  overflow-y: auto;
   padding: 20px 24px 0;
   scrollbar-gutter: stable;
   position: relative;
+}
+/* The conversation column scrolls only in the shell; a page-mode stream
+   grows and the page scrolls instead. */
+.app .stream {
+  overflow-y: auto;
 }
 .stream-inner {
   max-width: 800px;
@@ -2510,8 +2542,12 @@ body.app #root {
    only when its own content is longer than the viewport, and the wheel over
    the conversation never lands in it. */
 .rail {
-  overflow-y: auto;
   padding: 16px 16px 24px;
+}
+/* The rail's own scroll belongs to the shell; a page-mode rail is sticky
+   with its own max-height instead. */
+.app .rail {
+  overflow-y: auto;
 }
 .rail-right {
   border-left: 1px solid var(--border);
@@ -3071,6 +3107,8 @@ body.app #root {
   margin: 0 auto;
   width: 100%;
 }
+/* The status line's figures, shared by the footers and a finished watch
+   run's nav slot, so the numbers look the same in both places. */
 .statusline {
   display: flex;
   align-items: center;
