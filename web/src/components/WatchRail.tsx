@@ -1,9 +1,11 @@
 import { memo, useMemo } from "react";
+import { MagnifyingGlass } from "@phosphor-icons/react";
 import type { LiveView } from "../api/fold";
 import type { GroupCounts, SubTurnGroup, TranscriptFilter, TranscriptItem } from "../api/groups";
 import type { SessionState, Todo, ToolCallPayload } from "../api/types";
 import { cachePercent } from "./turns/turnHelpers";
 import { formatCost, toolDetail } from "./blocks/toolArgs";
+import { Input } from "./ui/input";
 import { Toggle } from "./ui/toggle";
 import { cn } from "@/lib/utils";
 
@@ -64,8 +66,9 @@ export function WatchRail({
     <aside className="rail rail-left" aria-label="Navigator">
       <div className="railsec">
         <h3>Find</h3>
-        <input
+        <Input
           type="search"
+          icon={<MagnifyingGlass />}
           className="input"
           placeholder="Search this transcript…"
           value={query}

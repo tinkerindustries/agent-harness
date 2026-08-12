@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { StopCircle } from "@phosphor-icons/react";
 import { controlToken, errorMessage, stopSession } from "../api/operations";
 import { Button } from "./ui/button";
 
@@ -98,6 +99,7 @@ export function StopControl({ sessionId, running, className }: StopControlProps)
         <span className="stop-pending dim">stopping…</span>
       ) : (
         <Button variant="destructive" size="sm" onClick={() => setConfirming(true)}>
+          <StopCircle />
           Stop
         </Button>
       )}

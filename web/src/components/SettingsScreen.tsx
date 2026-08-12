@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { CaretRight, MagnifyingGlass } from "@phosphor-icons/react";
 import { deleteSetting, listSettings, secretMask, setSetting } from "../api/settings";
 import type { SettingEntry } from "../api/settings";
 import { cn } from "@/lib/utils";
@@ -180,7 +181,7 @@ function SettingRow({
           type="button"
           className={cn("settings-summary", open && "settings-summary-open")}
         >
-          <span className={cn("caret", open && "caret-open")}>▸</span>
+          <CaretRight className={cn("caret", open && "caret-open")} />
           <span className="settings-key">{entry.key}</span>
           <span className={cn("settings-val", valueClass(entry))}>{displayValue(entry)}</span>
           {/* The truncated description stays in the closed header line only;
@@ -193,7 +194,11 @@ function SettingRow({
         </button>
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="settings-body">
+        {/* The body mounts when the row opens, so .anim-stream-in fires on the
+            open and never on load — the same "it just arrived" gesture the
+            transcript's committed prose gets. Height is not animated: the row
+            below moves once, when the content appears. */}
+        <div className="settings-body anim-stream-in">
           <p className="settings-desc-full">{entry.description}</p>
           {notice && (
             <div className="notice">
@@ -460,6 +465,7 @@ export function SettingsScreen() {
   useNavRight(
     <Input
       type="search"
+      icon={<MagnifyingGlass />}
       className="nav-search"
       placeholder="Filter by key or description…"
       value={query}

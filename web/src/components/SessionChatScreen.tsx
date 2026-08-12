@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowDown, StopCircle } from "@phosphor-icons/react";
 import type { SessionState } from "../api/types";
 import type { Block } from "../api/fold";
 import type { TranscriptSnapshot } from "../api/transcriptStore";
@@ -303,6 +304,7 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
           )}
           {token !== null && (
             <Button variant="outline" size="sm" onClick={toggleStopConfirm} disabled={stopping} aria-expanded={confirmingStop}>
+              <StopCircle />
               {stopping ? "Stopping…" : "Stop"}
             </Button>
           )}
@@ -410,7 +412,8 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
           {!following && (
             <div className="jumpwrap">
               <button type="button" className="jump" onClick={jumpToTail}>
-                ↓ Jump to live
+                <ArrowDown aria-hidden />
+                Jump to live
               </button>
             </div>
           )}

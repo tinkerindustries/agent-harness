@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { HourglassMedium } from "@phosphor-icons/react";
 import { formatCost } from "./blocks/toolArgs";
+import { useLabelFlip } from "../hooks";
 import type { Outcome } from "./statusBadge";
 import { cachePercent, formatRunDuration } from "./turns/turnHelpers";
 import { Badge } from "./ui/badge";
@@ -155,6 +157,11 @@ export function ChatComposer({
     return () => window.removeEventListener("keydown", onKey);
   }, [running]);
 
+  // The outcome badge's flip gate: "RUNNING" until the band arrives, then the
+  // outcome's own label, so .anim-badge-in fires on the change and never on
+  // first paint (hooks.ts useLabelFlip).
+  const outcomeFlip = useLabelFlip(finished?.label ?? "RUNNING");
+
   // Before the session row arrives AND run control is unconfigured the band
   // would be empty — no box, no numbers, no facts — so it stays off the page
   // rather than drawing a bare strip above nothing.
@@ -165,7 +172,14 @@ export function ChatComposer({
       <div className="footer-inner">
         {finished ? (
           <div className="box-done">
-            <Badge variant={finished.variant}>{finished.label}</Badge>
+            {/* The one badge on this page that genuinely flips in place: the
+                composer stays mounted and the band replaces it when the run
+                ends, so the outcome arrives rather than having always been
+                there. The gate keeps a run that was already finished when the
+                page opened from flipping on load. */}
+            <Badge key={finished.label} variant={finished.variant} className={outcomeFlip}>
+              {finished.label}
+            </Badge>
             <span>{finished.text}</span>
             <span className="spacer" />
             {token !== null && (
@@ -195,7 +209,9 @@ export function ChatComposer({
             )}
             {stop.stopping && (
               <div className="banner">
-                <span className="dot dot-pulse" style={{ color: "var(--status-gaveup)" }} aria-hidden />
+                {/* The hourglass takes the pulse the dot carried: waiting is
+                    what the banner is about, and the mark now says so. */}
+                <HourglassMedium className="dot-pulse" style={{ color: "var(--status-gaveup)" }} aria-hidden />
                 <span>
                   <b>Stopping…</b> waiting for the current tool call to return. The run ends at the next boundary.
                 </span>

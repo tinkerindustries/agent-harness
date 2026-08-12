@@ -2,12 +2,19 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-function Card({ className, ...props }: React.ComponentProps<"div">) {
+// `interactive` is for a card that is itself a link — the in-flight run card is
+// the only one. It gains an edge on hover and nothing else: no lift, no scale.
+function Card({
+  className,
+  interactive = false,
+  ...props
+}: React.ComponentProps<"div"> & { interactive?: boolean }) {
   return (
     <div
       data-slot="card"
       className={cn(
         "flex flex-col gap-6 rounded-xl border bg-card py-6 text-card-foreground shadow-sm",
+        interactive && "transition-colors duration-100 hover:border-ring",
         className
       )}
       {...props}

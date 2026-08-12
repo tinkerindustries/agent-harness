@@ -47,7 +47,6 @@
   --border: hsl(240 6% 90%);
   --input: hsl(240 6% 90%);
   --ring: hsl(240 5% 65%);
-  --radius: 0.5rem;
 
   /* Session outcome vocabulary. One colour per meaning; the meanings are
      defined in design/components.html. */
@@ -68,8 +67,28 @@
   --diff-remove-fg: hsl(0 65% 36%);
   --diff-gutter: hsl(240 4% 62%);
 
-  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  /* Semantic aliases. The base names above are what the product writes; these
+     say what each one is for when a new surface needs to choose. */
+  --text-body: var(--foreground);
+  --text-dim: var(--muted-foreground);
+  --text-inverse: var(--primary-foreground);
+  --surface-page: var(--background);
+  --surface-card: var(--card);
+  --surface-sunken: var(--muted);
+  --surface-raised: var(--secondary);
+  --line-hairline: var(--border);
+  --line-focus: var(--ring);
+  --accent-live: var(--status-running);
+  --accent-good: var(--status-done);
+  --accent-warn: var(--status-gaveup);
+  --accent-bad: var(--status-failed);
+
+  /* Interaction surfaces, so a hover reads at the same strength in both
+     schemes instead of each screen mixing its own. */
+  --surface-hover: color-mix(in srgb, var(--accent) 55%, transparent);
+  --surface-active: color-mix(in srgb, var(--accent) 80%, transparent);
+  --overlay: hsl(240 10% 4% / 0.45);
+  --focus-ring: color-mix(in srgb, var(--ring) 50%, transparent);
 
   /* shadcn's generated defaults for what the app has no opinion about. */
   --chart-1: oklch(0.87 0 0);
@@ -117,6 +136,160 @@
     --diff-remove-fg: hsl(0 60% 70%);
     --diff-gutter: hsl(240 5% 45%);
   }
+}
+
+/* ---------- type ---------- */
+
+:root {
+  /* Sans is a system stack (minus the Inter fallback the app never shipped and
+     could not guarantee). Mono is JetBrains Mono, self-hosted through
+     @fontsource (the imports are in main.tsx), over the product's own stack as
+     the fallback chain. */
+  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Sizes, as used in the product. */
+  --text-micro: 0.6875rem;  /* 11px — telemetry, gutter numbers, kbd, legends */
+  --text-xs: 0.75rem;       /* 12px — labels, chips, glyphs, tool timings */
+  --text-sm: 0.8125rem;     /* 13px — the workhorse: rows, buttons, mono ids */
+  --text-base: 0.875rem;    /* 14px — body default */
+  --text-md: 0.9375rem;     /* 15px — agent prose on a session page */
+  --text-lg: 1.375rem;      /* 22px — a stat card's figure */
+
+  --leading-tight: 1.35;
+  --leading-ui: 1.5;
+  --leading-mono: 1.55;
+  --leading-prose: 1.65;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* An uppercase section label: 11px, semibold, tracked out. */
+  --label-tracking: 0.06em;
+  --tracking-badge: 0.04em;
+
+  /* The prose measure on a session page, and the widest a paragraph of
+     settings copy is allowed to run. */
+  --measure-prose: 800px;
+  --measure-copy: 78ch;
+}
+
+/* ---------- space, radii, layout ---------- */
+
+:root {
+  --space: 8px;
+  --space-half: 4px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 32px;
+
+  --radius: 0.5rem;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-pill: 999px;
+
+  /* Control heights. Density is the point: nothing in the harness is 44px. */
+  --control-h: 30px;      /* .btn, .input on a nav row */
+  --control-h-sm: 26px;   /* chips, segmented buttons, the send button */
+  --control-h-xs: 24px;   /* a chip inside a rail */
+  --badge-h: 20px;
+  --navlink-h: 28px;
+
+  /* Layout. The nav's height is 10px padding above and below the 28px links,
+     plus the 1px bottom border; the sticky page-mode rail clears the nav by
+     this much. */
+  --nav-height: 49px;
+  --screen: 960px;
+  --screen-wide: 1200px;
+  --stream: 800px;
+  --stream-watch: 840px;
+  --rail-right: 288px;     /* chat page: plan rail, right */
+  --rail-left: 244px;      /* watch page: navigator rail, left */
+  --rail-timeline: 220px;
+  --plan-panel: 240px;
+
+  /* Borders and shadows. The system is hairline-first: one 1px border in
+     --border, and shadow only where an element floats. */
+  --border-hairline: 1px;
+  --rule-accent: 3px;      /* a notice's left rule */
+  --rule-quote: 2px;       /* an operator message, a live turn */
+  --shadow-raised: 0 1px 2px hsl(240 6% 10% / 0.08);   /* a pressed segment */
+  --shadow-float: 0 2px 8px hsl(240 6% 10% / 0.12);    /* jump-to-tail pill */
+  --shadow-pop: 0 4px 12px rgb(0 0 0 / 0.15);          /* a suggestion list */
+  /* A hairline drawn as a ring rather than a border, for anything that must not
+     change size when it gains an edge (a badge, a pressed chip, a card the
+     cursor is over). */
+  --ring-inset: inset 0 0 0 1px hsl(240 6% 10% / 0.06);
+}
+
+/* ---------- icon sizes ---------- */
+
+:root {
+  --icon-xs: 13px;  /* inline with 11–12px text */
+  --icon-sm: 16px;  /* the default: buttons, rows, nav */
+  --icon-md: 20px;  /* an empty state's mark, a section affordance */
+  --icon-lg: 28px;  /* the largest the product ever needs */
+}
+
+/* ---------- terminal scope ---------- */
+/* Opt-in per subtree. NOT a theme switcher (docs/WEB-REDESIGN.md "What is
+ * deliberately not here"), and nothing in the product sets it.
+ *
+ * The :root[data-theme="terminal"] selector is load-bearing: at (0,1,0) the bare
+ * attribute selector loses to any :root block that comes later in the cascade,
+ * which silently kills every type override below. */
+:root[data-theme="terminal"],
+[data-theme="terminal"] {
+  --font-sans: "JetBrains Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  --text-md: 0.875rem;
+  --text-base: 0.8125rem;
+  --leading-prose: 1.6;
+  --label-tracking: 0.1em;
+  --tracking-badge: 0.06em;
+
+  --background: hsl(150 10% 3%);
+  --foreground: hsl(150 12% 90%);
+  --card: hsl(150 10% 6%);
+  --card-foreground: hsl(150 12% 90%);
+  --popover: hsl(150 10% 6%);
+  --popover-foreground: hsl(150 12% 90%);
+  --primary: hsl(150 60% 62%);
+  --primary-foreground: hsl(150 20% 5%);
+  --secondary: hsl(150 10% 12%);
+  --secondary-foreground: hsl(150 12% 90%);
+  --muted: hsl(150 10% 10%);
+  --muted-foreground: hsl(150 8% 55%);
+  --accent: hsl(150 12% 14%);
+  --accent-foreground: hsl(150 12% 90%);
+  --destructive: hsl(2 78% 58%);
+  --border: hsl(150 12% 15%);
+  --input: hsl(150 12% 18%);
+  --ring: hsl(150 45% 42%);
+
+  --status-running: hsl(190 92% 62%);
+  --status-running-bg: hsl(190 60% 11%);
+  --status-done: hsl(150 65% 55%);
+  --status-done-bg: hsl(150 50% 9%);
+  --status-gaveup: hsl(42 95% 60%);
+  --status-gaveup-bg: hsl(42 55% 11%);
+  --status-stopped: hsl(150 8% 55%);
+  --status-stopped-bg: hsl(150 10% 12%);
+  --status-failed: hsl(2 85% 63%);
+  --status-failed-bg: hsl(2 45% 12%);
+
+  --diff-add-bg: hsl(150 45% 10%);
+  --diff-add-fg: hsl(150 60% 62%);
+  --diff-remove-bg: hsl(2 40% 12%);
+  --diff-remove-fg: hsl(2 70% 68%);
+  --diff-gutter: hsl(150 8% 40%);
+
+  --surface-hover: color-mix(in srgb, var(--accent) 70%, transparent);
+  --surface-active: color-mix(in srgb, var(--accent) 90%, transparent);
+  --overlay: hsl(150 20% 2% / 0.55);
+  --focus-ring: color-mix(in srgb, var(--ring) 55%, transparent);
 }
 
 @theme inline {
@@ -249,12 +422,155 @@ html {
    phase 1); the component styles (badge, button, input) live in
    src/components/ui. */
 
+/* ---------- motion ----------
+   Seven animations, each tied to a fact changing on screen. Nothing animates
+   height, nothing animates per character, and nothing animates on mount that
+   was already true — the gating for that last one lives in the components.
+   One media query at the bottom turns all of them off. */
+
 :root {
-  --space: 8px;
-  /* The nav's height: 10px padding above and below the 28px links, plus
-     the 1px bottom border. The sticky page-mode rail clears the nav by
-     this much. */
-  --nav-height: 49px;
+  --dur-instant: 0.08s;
+  --dur-fast: 0.1s;
+  --dur-caret: 0.12s;
+  --dur-turn: 0.15s;
+  --dur-swap: 0.22s;
+  --dur-reveal: 0.32s;
+
+  --ease: ease;
+  /* --dur-swap: a badge flipping, a figure rolling. --dur-reveal: streamed text
+     landing, a turn arriving.
+     Out-quart: fast start, long settle. Everything that arrives uses it. */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Symmetric, for something leaving and arriving in the same gesture. */
+  --ease-inout: cubic-bezier(0.4, 0, 0.2, 1);
+
+  --pulse-period: 1.6s;
+  --cursor-period: 1.1s;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* Streamed text: the line lands dim and slightly nearer, then settles. Applied
+   per block as it commits — never per character, which turns a transcript into
+   a slot machine. */
+@keyframes stream-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+    filter: blur(1.5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
+/* A status badge flipping to its terminal value: the old label leaves upward,
+   the new one arrives from below, in the same 220ms. */
+@keyframes badge-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* A figure that changed: the new digits roll up into place. The old value
+   leaves with roll-out so the two never overlap mid-flight. */
+@keyframes roll-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.55em);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes roll-out {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-0.55em);
+  }
+}
+
+/* A plan item completing: the mark pops once and the row's tint drains away. */
+@keyframes mark-done {
+  0% {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.18);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* A row arriving in a list that was already on screen (a new sub-turn, a new
+   session). Height is not animated — only the content settles. */
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.dot-pulse {
+  animation: pulse var(--pulse-period) ease-in-out infinite;
+}
+.anim-stream-in {
+  animation: stream-in var(--dur-reveal) var(--ease-out) both;
+}
+.anim-badge-in {
+  animation: badge-in var(--dur-swap) var(--ease-out) both;
+}
+.anim-roll-in {
+  animation: roll-in var(--dur-swap) var(--ease-out) both;
+}
+.anim-roll-out {
+  animation: roll-out var(--dur-swap) var(--ease-out) both;
+}
+.anim-mark-done {
+  animation: mark-done var(--dur-swap) var(--ease-out) both;
+}
+.anim-row-in {
+  animation: row-in var(--dur-turn) var(--ease-out) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot-pulse,
+  .anim-stream-in,
+  .anim-badge-in,
+  .anim-roll-in,
+  .anim-roll-out,
+  .anim-mark-done,
+  .anim-row-in {
+    animation: none;
+  }
 }
 
 /* ---------- layout ---------- */
@@ -406,25 +722,8 @@ html {
   flex: none;
 }
 
-.dot-pulse {
-  animation: pulse 1.6s ease-in-out infinite;
-}
-
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.25;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .dot-pulse {
-    animation: none;
-  }
-}
+/* .dot-pulse, @keyframes pulse and the reduced-motion cutout for both live in
+   the motion layer at the top of this section. */
 
 .dim {
   color: var(--muted-foreground);
@@ -577,7 +876,7 @@ pre {
 .caret {
   color: var(--muted-foreground);
   flex: none;
-  transition: transform 0.15s ease;
+  transition: transform var(--dur-turn) var(--ease);
 }
 
 .caret-open {
@@ -859,11 +1158,17 @@ pre {
   margin-top: 2px;
 }
 
+/* The qualifying note — the denominator, the count the duration figures are
+   over — goes under the figure rather than trailing it. Beside a 22px number a
+   12px note reads as part of the value; under it, it reads as what it is, and
+   the figure keeps the card's baseline to itself. */
 .stat .value small {
+  display: block;
   font-size: 0.75rem;
   font-weight: 400;
+  letter-spacing: 0;
   color: var(--muted-foreground);
-  margin-left: 4px;
+  margin-top: 1px;
 }
 
 .connection-badge {
@@ -1633,12 +1938,21 @@ pre {
 /* ---------- queue health on the session list ---------- */
 
 .queue-health {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 0.8rem;
   color: var(--muted-foreground);
   border: 1px solid var(--border);
   border-radius: calc(var(--radius) - 4px);
   padding: 4px 8px;
   margin-bottom: var(--space);
+}
+
+.queue-health svg {
+  flex: none;
+  width: var(--icon-xs);
+  height: var(--icon-xs);
 }
 
 .queue-health-halted {
@@ -1836,7 +2150,7 @@ pre {
 
 .caret {
   color: var(--muted-foreground);
-  transition: transform 0.12s ease;
+  transition: transform var(--dur-caret) var(--ease);
 }
 
 .caret-open {
@@ -2960,7 +3274,12 @@ body.page .topnav {
   height: 14px;
   background: var(--status-running);
   vertical-align: -2px;
-  animation: pulse 1.1s steps(2, start) infinite;
+  animation: pulse var(--cursor-period) steps(2, start) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cursor {
+    animation: none;
+  }
 }
 
 /* The turn list (components/turns/TurnTranscript) is the design's stream
@@ -3007,11 +3326,19 @@ body.page .topnav {
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--card);
-  box-shadow: 0 2px 8px hsl(240 6% 10% / 0.12);
+  box-shadow: var(--shadow-float);
   font-size: 0.75rem;
   cursor: pointer;
   color: var(--foreground);
   transform: translateY(-6px);
+}
+
+/* 13px beside 12px text: the pill's arrow sits inline with the label rather
+   than over it (--icon-xs). */
+.jump svg {
+  width: var(--icon-xs);
+  height: var(--icon-xs);
+  flex: none;
 }
 
 /* ---------- plan ---------- */
@@ -3377,6 +3704,13 @@ kbd {
   font-size: 0.75rem;
   margin-bottom: 10px;
 }
+
+/* The Input primitive's icon wrapper is inline-flex, sized to a nav row's
+   fixed-width field; in the rail the find box owns the column. */
+.rail [data-slot="input-wrapper"] {
+  display: flex;
+  width: 100%;
+}
 .chips {
   display: flex;
   flex-wrap: wrap;
@@ -3473,7 +3807,7 @@ kbd {
 .tick-now {
   background: var(--status-running);
   border-color: var(--status-running);
-  animation: pulse 1.6s ease-in-out infinite;
+  animation: pulse var(--pulse-period) ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) {
   .tick-now {

@@ -12,9 +12,12 @@ import { toolDetail } from "./toolArgs";
 // labelled rendering used for loose blocks; inside a sub-turn card
 // (SubTurnCard) the same content renders bare via AssistantBody, where the
 // card header already carries the sub-turn number (design/transcript.html).
+// .anim-stream-in rides the frozen block, which by construction renders once:
+// the loose-block path's equivalent of Turn's .say. The live pair never
+// comes through here (docs/DESIGN.md §5.2).
 export const AssistantBlock = memo(function AssistantBlock({ block }: { block: Extract<Block, { type: "assistant" }> }) {
   return (
-    <section className="block block-assistant">
+    <section className="block block-assistant anim-stream-in">
       <div className="block-label">sub-turn {block.subTurn}</div>
       <AssistantBody block={block} />
     </section>

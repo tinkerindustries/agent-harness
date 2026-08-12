@@ -52,7 +52,12 @@ export const Turn = memo(function Turn({
         </details>
       )}
       {assistant.content && (
-        <div className="say">
+        // .anim-stream-in goes here — on the committed block, not the live
+        // buffer. Turn is memoised on the group and renders exactly once, the
+        // moment the sub-turn freezes, so the prose settles in as it lands. On
+        // the live element the tail would re-animate on every rAF flush
+        // (docs/DESIGN.md §5.3, web/CLAUDE.md).
+        <div className="say anim-stream-in">
           {/* Prose parses once, on completion, memoised inside Markdown on
               the block's own immutable text (docs/DESIGN.md §5.3). */}
           <Markdown text={assistant.content} />

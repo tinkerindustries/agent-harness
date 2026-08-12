@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSyncExternalStore } from "react";
+import { CaretRight, Copy, MagnifyingGlass, Play, Queue, X } from "@phosphor-icons/react";
 import { sessionListStore } from "../api/sessionListStore";
 import { listSettings } from "../api/settings";
 import { controlToken } from "../api/operations";
@@ -7,12 +8,13 @@ import { startedBy } from "../api/provenance";
 import { startedByShort } from "./sessionListLabel";
 import { tableEmptyState } from "./sessionListEmpty";
 import type { QueueHealth, SessionState, Usage } from "../api/types";
-import { useNow, useQueueHealth } from "../hooks";
+import { useLabelFlip, useNow, useQueueHealth } from "../hooks";
 import { cn } from "@/lib/utils";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Input } from "./ui/input";
+import { Ticker } from "./ui/Ticker";
 import {
   Collapsible,
   CollapsibleContent,
@@ -256,11 +258,13 @@ export function SessionListScreen({ onOpen }: Props) {
           disabled={!startTokenReady}
           aria-expanded={startOpen}
         >
+          {startOpen ? <X /> : <Play />}
           {startOpen ? "Close" : "Start run"}
         </Button>
       )}
       <Input
         type="search"
+        icon={<MagnifyingGlass />}
         className="nav-search"
         placeholder="Filter by id, workspace, request…"
         // Uncontrolled on purpose: the input is rendered into the shared
@@ -361,31 +365,38 @@ export function SessionListScreen({ onOpen }: Props) {
 // qualifying small print under it — the denominator, the count the
 // duration figures are over — the way the drawing's cards do, so a
 // rolled-up figure never floats free of what it is made of.
+// Every figure here is a Ticker: these four move while an operator watches the
+// list — a run claims a slot, a sub-turn adds to the day's spend — and a number
+// that moved should be noticeable without the row twitching. The finished table
+// below deliberately gets none: those figures are final and a roll there is
+// noise.
 function StatStrip({ stats, poolSize }: { stats: DayStats; poolSize: number | null }) {
   return (
     <div className="stats">
       <Card className="stat">
         <span className="label">Running</span>
         <span className="value">
-          {stats.running}
+          <Ticker value={stats.running} />
           {poolSize !== null && <small>of {poolSize} slots</small>}
         </span>
       </Card>
       <Card className="stat">
         <span className="label">Spend today</span>
-        <span className="value">{formatCost(stats.spendUsd)}</span>
+        <span className="value">
+          <Ticker value={formatCost(stats.spendUsd)} />
+        </span>
       </Card>
       <Card className="stat">
         <span className="label">Median duration</span>
         <span className="value">
-          {stats.medianMs !== null ? formatMs(stats.medianMs) : "—"}
+          <Ticker value={stats.medianMs !== null ? formatMs(stats.medianMs) : "—"} />
           {stats.count > 0 && <small>{stats.count} sessions today</small>}
         </span>
       </Card>
       <Card className="stat">
         <span className="label">Total time today</span>
         <span className="value">
-          {stats.totalMs !== null ? formatMs(stats.totalMs) : "—"}
+          <Ticker value={stats.totalMs !== null ? formatMs(stats.totalMs) : "—"} />
           {stats.totalMs !== null && <small>{stats.count} sessions today</small>}
         </span>
       </Card>
@@ -417,12 +428,13 @@ function InFlightCard({
   onOpen: (id: string) => void;
 }) {
   const badge = outcome(sess);
+  const flip = useLabelFlip(badge.label);
   const plan = sess.plan ?? [];
   const prog = planProgress(plan);
   const { verb, rest } = splitVerb(prog.activeForm);
 
   return (
-    <Card className="run-card">
+    <Card className="run-card" interactive>
       <Collapsible open={open} onOpenChange={onOpenChange}>
         <div className="run-head">
           <CollapsibleTrigger asChild>
@@ -431,12 +443,17 @@ function InFlightCard({
               className="caret-btn"
               aria-label={open ? "Collapse the plan" : "Expand the plan"}
             >
-              <span className={cn("caret", open && "caret-open")}>▸</span>
+              {/* The one place the design's ▸ caret becomes an icon: it is an
+                  affordance here, a button of its own, not the plan and rail
+                  vocabulary the text glyph carries elsewhere. */}
+              <CaretRight className={cn("caret", open && "caret-open")} />
             </button>
           </CollapsibleTrigger>
           <button type="button" className="run-summary" onClick={() => onOpen(sess.id)}>
             <span className="run-line1">
-              <Badge variant={badge.variant}>{badge.label}</Badge>
+              <Badge key={badge.label} variant={badge.variant} className={flip}>
+                {badge.label}
+              </Badge>
               <span className="run-meta">
                 {sess.model} · {sess.effort}
                 {sess.job_type && <> · {sess.job_type}</>}
@@ -447,7 +464,9 @@ function InFlightCard({
                   columns minus Cost and Cache (design/sessions-v2.html). */}
               <span className="run-stats">
                 <span className="primary">
-                  {formatElapsed(sess, now)}
+                  {/* Elapsed is the one figure on this card that moves every
+                      second, so it rolls; sub-turns beside it does not. */}
+                  <Ticker value={formatElapsed(sess, now)} />
                   <span className="unit">elapsed</span>
                 </span>
                 <span className="secondary">
@@ -489,11 +508,33 @@ function InFlightCard({
             )}
             <div className="run-actions">
               <StopControl sessionId={sess.id} running={true} />
+              <CopyIdButton sessionId={sess.id} />
             </div>
           </div>
         </CollapsibleContent>
       </Collapsible>
     </Card>
+  );
+}
+
+// CopyIdButton puts the session id on the clipboard — the id is what every
+// other tool in the harness takes as its argument (`harness export`, the MCP
+// tools, a URL), and reading it off the screen to retype it is the one thing
+// the card asked an operator to do by hand. It confirms itself the way the
+// result panel's copy control does, rather than saying nothing.
+function CopyIdButton({ sessionId }: { sessionId: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    void navigator.clipboard?.writeText(sessionId).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    });
+  };
+  return (
+    <Button variant="outline" size="sm" onClick={copy} title={sessionId}>
+      <Copy />
+      {copied ? "Copied" : "Copy id"}
+    </Button>
   );
 }
 
@@ -568,6 +609,7 @@ function QueueHealthBar({ health }: { health: QueueHealth | null }) {
   if (!health || (!health.available && !health.halted)) return null;
   return (
     <div className={`queue-health${health.halted ? " queue-health-halted" : ""}`}>
+      <Queue aria-hidden />
       {health.halted ? (
         <span>
           queue halted — {health.halt_reason || "reason unknown"}
