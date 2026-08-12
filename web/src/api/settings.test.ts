@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { deleteSetting, listSettings, setSetting } from "./settings";
+import { deleteSetting, listSettings, secretMask, setSetting } from "./settings";
 
 // The settings client is tested the way fold.test.ts tests its module: a
 // stubbed fetch asserting the wire shape (method, path, content type, body)
@@ -205,5 +205,30 @@ describe("deleteSetting", () => {
     stubFetch().mockResolvedValue(fakeResponse(403, { error: "cross-origin write refused" }));
 
     await expect(deleteSetting("deepseek.api_key")).rejects.toThrow("cross-origin write refused");
+  });
+});
+
+// secretMask is the screen's fixed-width rendering of the server's mask: the
+// wire value grows with the secret (****abcd for 8 characters, **********abcd
+// for 12), so the row's mask width would report how long the secret is. The
+// fixed rendering must not.
+describe("secretMask", () => {
+  it("keeps the last four revealed characters and a fixed four-asterisk head", () => {
+    expect(secretMask("****abcd")).toBe("****abcd");
+    expect(secretMask("**********abcd")).toBe("****abcd");
+    expect(secretMask("**********abcdefgh")).toBe("****efgh");
+  });
+
+  it("reveals nothing for a secret of four characters or fewer and still renders at full width", () => {
+    // The server's mask for a short secret is asterisks only; the fixed
+    // rendering pads to the same eight characters without revealing a thing.
+    expect(secretMask("****")).toBe("********");
+    expect(secretMask("***")).toBe("********");
+    expect(secretMask("**")).toBe("********");
+    expect(secretMask("*")).toBe("********");
+  });
+
+  it("renders an empty mask at the same fixed width", () => {
+    expect(secretMask("")).toBe("********");
   });
 });

@@ -143,6 +143,40 @@ export interface GroupCounts {
 // shows. "all" is the no-filter state.
 export type TranscriptFilter = "all" | "edits" | "bash" | "errors" | "churn";
 
+// groupMembership is one group's contribution to the chip counts: the filter
+// families are per-card (does this card contain an edit?), so a card with two
+// Edits counts once for the edits chip, matching what the filter shows.
+export function groupMembership(tags: GroupTags): GroupCounts {
+  return {
+    total: 1,
+    edits: tags.edits > 0 ? 1 : 0,
+    bash: tags.bash > 0 ? 1 : 0,
+    errors: tags.errors > 0 ? 1 : 0,
+    churn: tags.churn ? 1 : 0,
+  };
+}
+
+// countMatching is the chip row's numbers for a narrowed transcript: how
+// many sub-turn cards match each filter family among the groups that pass
+// match. The watch page's find box hides every sub-turn that does not
+// contain the query, so the chips must count the narrowed set — a query that
+// leaves 12 of 273 turns on screen must not keep saying 273. Top-level
+// blocks never count: the chips count sub-turn cards, exactly like the
+// incremental counts SubTurnGroupState maintains.
+export function countMatching(items: TranscriptItem[], match: (group: SubTurnGroup) => boolean): GroupCounts {
+  const counts: GroupCounts = { total: 0, edits: 0, bash: 0, errors: 0, churn: 0 };
+  for (const item of items) {
+    if (item.kind !== "group" || !match(item.group)) continue;
+    const m = groupMembership(item.group.tags);
+    counts.total += m.total;
+    counts.edits += m.edits;
+    counts.bash += m.bash;
+    counts.errors += m.errors;
+    counts.churn += m.churn;
+  }
+  return counts;
+}
+
 const ZERO_TAGS: GroupTags = { edits: 0, bash: 0, errors: 0, churn: false };
 
 // computeTags classifies a group from its own blocks and usage.
@@ -356,13 +390,7 @@ export class SubTurnGroupState {
   // per-card (does this card contain an edit?), so a card with two Edits
   // counts once for the edits chip, matching what the filter shows.
   private static membership(tags: GroupTags): GroupCounts {
-    return {
-      total: 1,
-      edits: tags.edits > 0 ? 1 : 0,
-      bash: tags.bash > 0 ? 1 : 0,
-      errors: tags.errors > 0 ? 1 : 0,
-      churn: tags.churn ? 1 : 0,
-    };
+    return groupMembership(tags);
   }
 
   private addCounts(tags: GroupTags): void {

@@ -2058,12 +2058,18 @@ pre {
 }
 
 .start-repo-suggestions {
+  /* The list ends at a row boundary: --repo-row is the one row height, and
+     the max-height is exactly five rows plus the 2px gaps between them and
+     the container's 4px padding. A taller list scrolls, and the sixth row
+     hides whole behind the fold — the scroll affordance — instead of being
+     cut through the middle. */
+  --repo-row: 48px;
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
   right: 0;
   z-index: 20;
-  max-height: 220px;
+  max-height: calc(var(--repo-row) * 5 + 2px * 4 + 4px * 2);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
@@ -2078,8 +2084,10 @@ pre {
 .start-repo-suggestion {
   display: flex;
   flex-direction: column;
+  justify-content: center;
   gap: 1px;
   width: 100%;
+  height: var(--repo-row);
   border: none;
   border-radius: calc(var(--radius) - 4px);
   background: transparent;
@@ -2097,11 +2105,19 @@ pre {
 .start-repo-suggestion-name {
   font-family: var(--font-mono);
   font-size: 0.8125rem;
+  /* One line per row, ellipsised — the row height above is fixed so the
+     list ends at a row boundary, and a wrapped name would break that. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .start-repo-suggestion-meta {
   font-size: 0.6875rem;
   color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .start-optional-grid {
@@ -3321,8 +3337,12 @@ kbd {
   font-size: 0.6875rem;
   color: var(--muted-foreground);
 }
+/* The separators sit on the strip's muted background, where --border is
+   nearly the same colour as the surface (about 1.1:1) — invisible. The
+   strip's own secondary text colour is the separator's colour: visible in
+   both schemes, and lighter than the foreground who/code it divides. */
 .prov .sep {
-  color: var(--border);
+  color: var(--muted-foreground);
 }
 .prov .spacer {
   flex: 1;

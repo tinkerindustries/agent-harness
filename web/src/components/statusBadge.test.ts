@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { outcome, statusVariant } from "./statusBadge";
+import { outcome, statusVariant, watchBadge } from "./statusBadge";
 
 // The session outcome vocabulary, pinned to design/components.html's mapping
 // table (docs/WEB-REDESIGN.md phase 2): one badge per meaning, with status ok
@@ -47,5 +47,18 @@ describe("outcome", () => {
     for (const status of ["running", "ok", "failed", "timeout", "max_turns", "cancelled", "compacted"]) {
       expect(statusVariant(status)).toBe(outcome({ status }).variant);
     }
+  });
+});
+
+// The provenance strip's spectator badge: WATCHING only while the run is
+// live, because a finished run's own sentence beside it says the run ended
+// and could not be messaged.
+describe("watchBadge", () => {
+  it("says WATCHING while the run is live", () => {
+    expect(watchBadge(true)).toEqual({ label: "WATCHING", variant: "outline" });
+  });
+
+  it("says FINISHED once the run is over", () => {
+    expect(watchBadge(false)).toEqual({ label: "FINISHED", variant: "outline" });
   });
 });
