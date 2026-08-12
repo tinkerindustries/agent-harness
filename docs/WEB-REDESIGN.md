@@ -104,8 +104,9 @@ store test for the migration backfill and a `fold.ts` test for the mapping.
 ## Phase 3 — In-flight sessions on the main page
 
 **Goal.** Running sessions leave the table and become collapsible cards showing
-the live plan. Collapsed, a card answers what the session is doing and how far
-in it is; expanded, it shows the whole plan and the last few tool calls.
+the live plan. Collapsed, a card answers what the session is about — the job's
+description — and what it is doing and how far in it is; expanded, it shows the
+whole plan and the run's actions.
 See `design/sessions.html`.
 
 **Backend.** The list feed has no plan. Todos are parsed client-side from the
@@ -128,6 +129,12 @@ that never wrote a plan shows the card without a plan section rather than an
 empty one.
 
 **Status.** Landed (commit `64412b6`, PR #25). §5.8 describes the split list.
+The card has since moved on: the summary carries the job's description (a
+`task` column on the sessions table, written at creation) and opens the
+session page, the caret is its own small toggle button so toggling the plan
+never navigates, and the expanded body is the plan plus the actions row —
+the "Last calls" panel is gone. §5.8 and web/CLAUDE.md describe the current
+card.
 
 ## Phase 4 — The sub-turn becomes the unit
 

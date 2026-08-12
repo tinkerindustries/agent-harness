@@ -928,9 +928,12 @@ Several sessions run at once, so the list is a first-class screen rather than a
 drawer. It subscribes to `GET /api/stream`, which carries session-level state
 changes only and stays quiet while transcripts are loud. The screen splits the
 list in two (docs/WEB-REDESIGN.md phase 3). In-flight sessions render as
-collapsible plan cards: collapsed, the trigger answers what the session is
-doing — the `in_progress` item's activeForm — and how far in it is, the
-completed ratio; expanded, it shows the whole plan and the last few tool calls.
+collapsible plan cards: the summary carries the job's description — the
+session's `task`, clamped to three lines — and the trigger answers what the
+session is doing, the `in_progress` item's activeForm, and how far in it is,
+the completed ratio; expanded, it shows the whole plan and the actions row
+(Stop). The summary itself opens the session page; the caret is its own small
+toggle button, sibling of the summary, so toggling the plan never navigates.
 A session that never wrote a plan shows a card with no plan section rather than
 an empty one, and the disclosure state lives above the cards so it survives a
 list update.
@@ -943,7 +946,12 @@ list does not require opening each transcript. The plan is persisted with the
 session — a `plan` column on the sessions table, written whenever `TaskCreate`
 or `TaskUpdate` executes and carried on `hub.SessionState` — so the finished
 table's ratio survives the run and the list never re-walks the event log to
-derive it.
+derive it. The description rides the same way: a `task` column on the sessions
+table, written once at creation from the run's prompt (the same value the
+`session_started` payload's `Task` field carries), so the in-flight card can
+say what the job is without reading the event log either. A row written before
+the column existed reads back with the empty string and the card renders no
+description.
 
 ### 5.9 The sub-turn is the unit
 

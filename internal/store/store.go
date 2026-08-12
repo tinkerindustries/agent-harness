@@ -190,8 +190,10 @@ type Session struct {
 	// rather than an empty list.
 	Plan string
 	// RecentToolCalls is the rolling roll of the last few tool calls the
-	// session made, for the in-flight card's activity panel
-	// (docs/WEB-REDESIGN.md phase 3). Nil when the session made none yet.
+	// session made, written alongside the plan in the same store write. The
+	// in-flight card no longer renders it (the card's activity panel is
+	// gone); it is kept because it rides that write, and dropping it would
+	// save nothing. Nil when the session made none yet.
 	RecentToolCalls []RecentToolCall
 	// Summary is the summary argument the model gave Complete, its own
 	// one-line account of what the run did, shown under the finished table's
@@ -210,12 +212,11 @@ type Session struct {
 }
 
 // RecentToolCall is one entry of the session row's rolling roll of the last
-// few tool calls, carried on the session list so an in-flight card can show
-// what a running session is doing without opening its transcript
-// (docs/WEB-REDESIGN.md phase 3, design/sessions.html's "Last five calls").
-// Arguments is the raw text the model produced; it is not guaranteed to be
-// valid JSON and is kept only so the browser can shape a one-line target
-// (file path, command, pattern) out of it.
+// few tool calls. The roll used to feed the in-flight card's activity panel;
+// the card no longer renders it, and the roll is kept because it rides the
+// same store write as the plan. Arguments is the raw text the model produced;
+// it is not guaranteed to be valid JSON and is kept only so a consumer can
+// shape a one-line target (file path, command, pattern) out of it.
 type RecentToolCall struct {
 	Name      string    `json:"name"`
 	Arguments string    `json:"arguments"`
@@ -465,8 +466,9 @@ var sessionMigrationColumns = []migrationColumn{
 	// Older rows default to the empty string, which the browser renders as
 	// "no plan section" rather than an empty list.
 	{"plan", "TEXT NOT NULL DEFAULT ''"},
-	// recent_tool_calls: the rolling roll of the last few tool calls, for
-	// the in-flight card's activity panel (docs/WEB-REDESIGN.md phase 3).
+	// recent_tool_calls: the rolling roll of the last few tool calls. The
+	// in-flight card no longer renders it; the column is kept because it is
+	// written in the same store write as the plan.
 	{"recent_tool_calls", "TEXT NOT NULL DEFAULT ''"},
 	// summary: the summary argument the model gave Complete, its own
 	// one-line account of the run, shown under the finished table's session
@@ -654,8 +656,9 @@ func (s *Store) FinishSession(ctx context.Context, id, status, completeStatus, s
 }
 
 // maxRecentToolCalls is how many tool calls the session row's rolling roll
-// keeps for the in-flight card's activity panel (docs/WEB-REDESIGN.md phase
-// 3, design/sessions.html's "Last five calls").
+// keeps. The roll no longer feeds a panel — the in-flight card's activity
+// panel is gone — but the trimming rule stays because the roll is still
+// written alongside the plan.
 const maxRecentToolCalls = 5
 
 // UpdateSessionLiveState atomically rewrites the session row's live plan

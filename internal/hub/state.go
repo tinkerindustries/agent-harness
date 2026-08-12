@@ -50,9 +50,10 @@ type SessionState struct {
 	// TodoWrite; the browser renders the card without a plan section rather
 	// than an empty one.
 	Plan json.RawMessage `json:"plan,omitempty"`
-	// RecentToolCalls is the last few tool calls the session made, for the
-	// in-flight card's activity panel (docs/WEB-REDESIGN.md phase 3).
-	// Absent when the session made none yet.
+	// RecentToolCalls is the rolling roll of the last few tool calls the
+	// session made, carried on the wire for the same reason it is stored:
+	// it rides the plan's store write. The in-flight card no longer renders
+	// it. Absent when the session made none yet.
 	RecentToolCalls []store.RecentToolCall `json:"recent_tool_calls,omitempty"`
 	// Summary is the summary argument the model gave Complete, its own
 	// one-line account of the run, shown under the finished table's session
