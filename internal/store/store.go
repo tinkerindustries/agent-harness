@@ -151,9 +151,16 @@ func (e *ActiveLeaseError) Error() string {
 // running binary, so a harness upgrade cannot change the prefix of a
 // resumable session (docs/CACHE.md).
 type Session struct {
-	ID              string
-	ParentID        string
-	JobType         string
+	ID       string
+	ParentID string
+	JobType  string
+	// Task is the job's description: the launching instruction of the run,
+	// the same value the session_started payload's Task field carries
+	// (internal/store/events.go), frozen on the row so the session list can
+	// say what a session is about without reading the event log. Empty when
+	// the run was created with no prompt (a browser start waits for its
+	// first message).
+	Task            string
 	ParentAgentType string
 	ParentAgentID   string
 	// ParentIsUser records that a person started this session directly. It is
@@ -252,6 +259,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 	id                TEXT PRIMARY KEY,
 	parent_id         TEXT,
 	job_type          TEXT NOT NULL DEFAULT 'implementation',
+	task              TEXT NOT NULL DEFAULT '',
 	parent_agent_type TEXT NOT NULL DEFAULT '',
 	parent_agent_id   TEXT NOT NULL DEFAULT '',
 	model             TEXT NOT NULL,
@@ -438,6 +446,11 @@ type migrationColumn struct {
 // sessions table created by an older binary.
 var sessionMigrationColumns = []migrationColumn{
 	{"job_type", "TEXT NOT NULL DEFAULT 'implementation'"},
+	// task: the job's description, the launching instruction of the run, so
+	// the session list can say what a session is about without reading the
+	// event log. Older rows default to the empty string, which the browser
+	// renders as no description rather than guessing.
+	{"task", "TEXT NOT NULL DEFAULT ''"},
 	{"parent_agent_type", "TEXT NOT NULL DEFAULT ''"},
 	{"parent_agent_id", "TEXT NOT NULL DEFAULT ''"},
 	// complete_status: the status argument to Complete, kept alongside the
@@ -570,11 +583,11 @@ func (s *Store) CreateSession(ctx context.Context, sess Session) error {
 
 	return s.submit(ctx, func(tx *sql.Tx) error {
 		_, err := tx.Exec(`
-			INSERT INTO sessions (id, parent_id, job_type, parent_agent_type, parent_agent_id,
+			INSERT INTO sessions (id, parent_id, job_type, task, parent_agent_type, parent_agent_id,
 				model, effort, thinking, workspace, permission_mode, deny_patterns, system_prompt,
 				tool_schema, result_schema, status, created_at, finished_at, version, parent_is_user)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, ?)`,
-			sess.ID, parentID, sess.JobType, sess.ParentAgentType, sess.ParentAgentID,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, ?)`,
+			sess.ID, parentID, sess.JobType, sess.Task, sess.ParentAgentType, sess.ParentAgentID,
 			sess.Model, sess.Effort, sess.Thinking, sess.Workspace, sess.PermissionMode,
 			deny, sess.SystemPrompt, toolSchema, resultSchema, sess.Status, createdAt.Format(time.RFC3339Nano),
 			sess.ParentIsUser)
@@ -865,7 +878,7 @@ func scanSession(row interface {
 	var thinking int
 	var parentIsUser int
 	var denyJSON, createdAt, recentCalls string
-	err := row.Scan(&sess.ID, &parentID, &sess.JobType, &sess.ParentAgentType, &sess.ParentAgentID,
+	err := row.Scan(&sess.ID, &parentID, &sess.JobType, &sess.Task, &sess.ParentAgentType, &sess.ParentAgentID,
 		&sess.Model, &sess.Effort, &thinking, &sess.Workspace,
 		&sess.PermissionMode, &denyJSON, &sess.SystemPrompt, (*sqlText)(&sess.ToolSchema), &resultSchema,
 		&sess.Status, &createdAt, &finishedAt, &sess.CompleteStatus, &sess.Plan, &recentCalls, &sess.Summary,
@@ -920,7 +933,7 @@ func (t *sqlText) Scan(src any) error {
 	return nil
 }
 
-const sessionColumns = `id, parent_id, job_type, parent_agent_type, parent_agent_id, model, effort,
+const sessionColumns = `id, parent_id, job_type, task, parent_agent_type, parent_agent_id, model, effort,
 	thinking, workspace, permission_mode, deny_patterns, system_prompt, tool_schema,
 	result_schema, status, created_at, finished_at, complete_status, plan, recent_tool_calls, summary, version, parent_is_user`
 

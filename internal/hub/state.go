@@ -37,6 +37,13 @@ type SessionState struct {
 	// the browser renders it as the plain terminal status rather than
 	// guessing.
 	CompleteStatus string `json:"complete_status,omitempty"`
+	// Task is the job's description — the launching instruction of the run,
+	// frozen on the row at creation (the same value the session_started
+	// payload carries). The in-flight card renders it as its description.
+	// Absent covers a pre-migration row and a run created with no prompt (a
+	// browser start waits for its first message); the card renders no
+	// description rather than an empty one.
+	Task string `json:"task,omitempty"`
 	// Plan is the session's working plan: the todos array of the most
 	// recent TodoWrite call, verbatim (docs/WEB-REDESIGN.md phase 3).
 	// Absent covers a pre-migration row and a session that never called
@@ -101,6 +108,7 @@ func BuildSessionState(sess store.Session, summary store.SessionUsageSummary, re
 		PermissionMode:  sess.PermissionMode,
 		Status:          sess.Status,
 		CompleteStatus:  sess.CompleteStatus,
+		Task:            sess.Task,
 		Plan:            json.RawMessage(sess.Plan),
 		RecentToolCalls: sess.RecentToolCalls,
 		Summary:         sess.Summary,

@@ -330,6 +330,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 		ID:              sessID,
 		ParentID:        opts.ParentID,
 		JobType:         opts.JobType,
+		Task:            opts.Prompt,
 		ParentAgentType: opts.ParentAgentType,
 		ParentAgentID:   opts.ParentAgentID,
 		ParentIsUser:    opts.ParentIsUser,
