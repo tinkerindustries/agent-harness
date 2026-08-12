@@ -639,9 +639,9 @@ emitted, which is fine because display blocks carry no cache invariant. The Go
 fold and this one still agree in shape: both know both kinds, and each does
 with them what its own consumer needs.
 
-**Start** is a form: repos, a permission mode defaulting to full, and the
-optional fields, mirroring what `publish`'s flags accept — with no prompt
-field. The run is created empty; submitting returns a `request_id`, the screen
+**Start** is a form: repos, a model, a thinking effort, a permission mode
+defaulting to full, and the optional fields, mirroring what `publish`'s flags
+accept — with no prompt field. The run is created empty; submitting returns a `request_id`, the screen
 follows the session from the existing `GET /api/stream` list feed as soon as
 one exists, and once it does the form opens that session's transcript, where
 the operator types the first message into the steer input.

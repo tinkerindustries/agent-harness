@@ -78,9 +78,10 @@ Don't change `build.outDir`.
 
 The browser can write to the data the harness manages, and it can control a
 running session — no approve button, and run control in full: a **start**
-form on the session list (prompt, repos, an explicit permission mode with the
-docker-socket warning stated next to the control, and the optional fields
-behind a disclosure), a **steer** input and a **stop** on the transcript
+form on the session list (prompt, repos, a model, a thinking effort, an
+explicit permission mode with the docker-socket warning stated next to the
+control, and the optional fields behind a disclosure), a **steer** input and a
+**stop** on the transcript
 screen, both visible only while the session is running, the stop behind a
 confirmation (docs/RUN-CONTROL.md "The frontend"). The steer write is an
 acceptance, not a delivery: the text lands in the log and reaches the model
