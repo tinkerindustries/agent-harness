@@ -1075,12 +1075,14 @@ pre {
 }
 
 /* Anchors for the churn banner's "Jump to it" link and the rail: keep the
-   target clear of the sticky toolbar. The session pages' turns carry the
-   anchors now (design/session-chat.html's .turn id), the child transcript's
+   target clear of the sticky header. On a session page the header is the
+   shared top nav, which sticks to the top of the viewport in page mode
+   (body.page .topnav) at exactly --nav-height — the anchor margin must equal
+   that height, or the named sub-turn lands under it. The child transcript's
    cards keep their own. */
 .turn,
 .subturn {
-  scroll-margin-top: 46px;
+  scroll-margin-top: var(--nav-height);
 }
 
 /* A tool card inside a sub-turn body (design/transcript.html's .tool):
@@ -2179,6 +2181,11 @@ pre {
   border-radius: calc(var(--radius) - 2px);
   font-size: 0.8125rem;
   color: var(--muted-foreground);
+  /* The first section ("Stuck sessions") sits right under this strip and
+     must get the same gap the sections give each other
+     (.list-section + .list-section's 2.5 × space) — without this the
+     heading used to sit flush against the strip. */
+  margin-bottom: calc(var(--space) * 2.5);
 }
 
 .ops-strip b {
