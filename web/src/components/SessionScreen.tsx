@@ -44,13 +44,20 @@ export function SessionScreen({ sessionId, onNavigate }: Props) {
   // keep scrolling the page as they always have. Within the route, the
   // shell belongs to the chat page and to a live watch run (the pinned
   // footer answers "what is it doing right now"); a finished watch run is
-  // an ordinary page again — one scroll, no footer — so the class depends
-  // on the mode and follows the run to its end.
+  // an ordinary page again — one scroll, no footer. The mode lives on body
+  // as body.app or the page companion body.page (the sticky nav and rail
+  // hang off it in styles.css), and follows the run to its end.
   const shell = !settled || meta === null || isUserStarted(meta) || meta.status === "running";
   useEffect(() => {
-    if (!shell) return;
-    document.body.classList.add("app");
-    return () => document.body.classList.remove("app");
+    if (shell) {
+      document.body.classList.add("app");
+    } else {
+      document.body.classList.add("page");
+    }
+    return () => {
+      document.body.classList.remove("app");
+      document.body.classList.remove("page");
+    };
   }, [shell]);
 
   // Before the row arrives the shell renders with the nav and an empty

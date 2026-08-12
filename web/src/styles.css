@@ -251,6 +251,10 @@ html {
 
 :root {
   --space: 8px;
+  /* The nav's height: 10px padding above and below the 28px links, plus
+     the 1px bottom border. The sticky page-mode rail clears the nav by
+     this much. */
+  --nav-height: 49px;
 }
 
 /* ---------- layout ---------- */
@@ -2460,6 +2464,19 @@ body.app #root {
   color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
 }
+/* A finished watch run is an ordinary scrolling page again, so the nav
+   sticks to the top of the viewport and keeps the crumb, the outcome badge
+   and the status line in view over the transcript. The base rule's margins
+   are page-scrolling breathing room; a stuck nav needs them gone, or the
+   transcript shows through the gaps above and below it. */
+body.page .topnav {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  margin-top: 0;
+  margin-bottom: 0;
+  background: var(--background);
+}
 
 /* Permission mode is a safety fact, so it is stated next to the stop button
    rather than filed in a rail with the workspace path: "full" means this run
@@ -2489,14 +2506,14 @@ body.app #root {
   grid-template-columns: 244px minmax(0, 1fr);
 }
 /* A finished watch run is an ordinary page: the rail stays beside the
-   transcript, pinned to the viewport while the page scrolls, with a
+   transcript, pinned below the sticky nav while the page scrolls, with a
    max-height that keeps it inside the viewport and its own scroll for a
    long plan. */
 .work-watch-page .rail {
   position: sticky;
-  top: 0;
+  top: var(--nav-height);
   align-self: start;
-  max-height: 100vh;
+  max-height: calc(100vh - var(--nav-height));
   overflow-y: auto;
 }
 /* The watch page's stream measure is a touch wider than the chat page's:
