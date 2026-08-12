@@ -409,7 +409,10 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
               </div>
             ))}
           </div>
-          {!following && (
+          {/* The jump pill is for a live run; a finished session's stream has
+              no tail left to jump to, and the pill offered to follow a run
+              that had already ended. Same guard the watch page carries. */}
+          {running && !following && (
             <div className="jumpwrap">
               <button type="button" className="jump" onClick={jumpToTail}>
                 <ArrowDown aria-hidden />

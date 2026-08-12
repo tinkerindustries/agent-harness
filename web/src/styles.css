@@ -2042,11 +2042,22 @@ pre {
   margin-top: 20px;
 }
 
+/* The restart badge is shrink-0 and nowrap (it is one phrase, and breaking
+   "takes effect on the next start" mid-sentence reads as two facts), so the
+   head has to wrap instead: on a narrow viewport the badge drops to its own
+   line rather than running past the column and giving the page a horizontal
+   scrollbar. The spacer earns its flex here, as it does in the nav and the
+   settings strip — it is what pins the badge right once there is room. */
 .settings-group-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 10px;
   margin: 0 0 8px;
+}
+
+.settings-group-head .spacer {
+  flex: 1;
 }
 
 .settings-group-head h2 {
@@ -3308,10 +3319,16 @@ body.page .topnav {
 /* Jump-to-tail, shown only when the stream is scrolled off the bottom.
    Sticky inside the scroll container so it floats above the last turn without
    a fixed overlay that would sit over the rail. */
+/* align-items: flex-end is load-bearing. The wrapper is a zero-height sticky
+   line, so a 28px pill laid out from its top edge hangs 28px BELOW the line and
+   disappears under the composer band; ending the item on the line instead
+   floats it above the last turn, which is where a control that says "jump
+   down" has to be to be clickable. */
 .jumpwrap {
   position: sticky;
   bottom: 10px;
   display: flex;
+  align-items: flex-end;
   justify-content: center;
   pointer-events: none;
   height: 0;
@@ -3330,7 +3347,6 @@ body.page .topnav {
   font-size: 0.75rem;
   cursor: pointer;
   color: var(--foreground);
-  transform: translateY(-6px);
 }
 
 /* 13px beside 12px text: the pill's arrow sits inline with the label rather
