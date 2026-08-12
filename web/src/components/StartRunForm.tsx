@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { errorMessage, parseRepoSpec, startRun, type WorkRequest } from "../api/operations";
 import { filterRepos, listGithubRepos, repoSpecFor, type GithubRepo } from "../api/github";
 import { sessionListStore } from "../api/sessionListStore";
@@ -12,16 +12,11 @@ import {
 import { ToggleGroup, ToggleGroupItem } from "./ui/toggle-group";
 
 // StartRunForm is the browser's start form (docs/RUN-CONTROL.md "The
-// frontend"): repos (URL#branch, repeatable), a permission mode defaulting to
-// full, and the optional fields behind a disclosure so the common case stays
-// short. There is no prompt field: the run is created empty and the operator
-// types the first message into the session once it appears, which is why
-// submitting both POSTs the work request and — once the pool claims it and
-// the session shows up on the list feed — opens that session's transcript
-// (docs/RUN-CONTROL.md "Start"). The permission mode carries the one warning
-// this surface must not bury: full runs as root in the workspace, and the
-// harness container has the host's docker socket, so a full run has the host
-// daemon.
+// frontend"): repos (URL#branch, repeatable), a model, a thinking effort, a
+// permission mode defaulting to full, and the optional fields behind a
+// disclosure. The permission mode carries the one warning this surface must
+// not bury: full runs as root in the workspace, and the harness container has
+// the host's docker socket, so a full run has the host daemon.
 //
 // The write is an acceptance, not an outcome: the 202 only means the request
 // landed on the WORK stream. The operator's token is passed in from the
@@ -36,8 +31,8 @@ interface StartRunFormProps {
 export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
   const [repoSpecs, setRepoSpecs] = useState<string[]>([""]);
   const [permission, setPermission] = useState("full");
-  const [model, setModel] = useState("");
-  const [effort, setEffort] = useState("");
+  const [model, setModel] = useState("deepseek-v4-pro");
+  const [effort, setEffort] = useState("max");
   const [deny, setDeny] = useState("");
   const [resultSchema, setResultSchema] = useState("");
   const [maxSubTurns, setMaxSubTurns] = useState("");
@@ -62,6 +57,17 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
   // the keyboard cursor inside it (ArrowUp/ArrowDown move it, Enter picks).
   const [openRow, setOpenRow] = useState<number | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  // firstRepoInputRef targets the first repo row's input so mount can focus
+  // it and open its suggestion list.
+  const firstRepoInputRef = useRef<HTMLInputElement>(null);
+
+  // Mount is the hook that puts the cursor in the first repo row with its
+  // suggestion list already open; the list renders once the repo fetch lands.
+  useEffect(() => {
+    firstRepoInputRef.current?.focus();
+    setOpenRow(0);
+    setActiveIndex(0);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -105,12 +111,12 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
     setRepoSpecs((prev) => prev.map((spec, j) => (j === i ? v : spec)));
   };
 
-  // matchesFor is row i's suggestions: the loaded repos whose full_name
-  // contains the row's current text, case-insensitively. Empty while the row
-  // is empty, while the picker is loading, or when the text matches nothing —
-  // a URL the operator is typing manually matches nothing by construction, so
-  // free-text entry keeps working exactly as before and the suggestions stay
-  // purely additive.
+  // matchesFor is row i's suggestions: every loaded repo while the row is
+  // empty (focusing the row opens the picker), narrowed to those whose
+  // full_name contains the row's text, case-insensitively. Empty while the
+  // picker is loading or when the text matches nothing — a URL the operator
+  // is typing manually matches nothing by construction, so free-text entry
+  // keeps working exactly as before and the suggestions stay purely additive.
   const matchesFor = (i: number): GithubRepo[] =>
     githubConfigured && !githubLoading && !githubError ? filterRepos(githubRepos, repoSpecs[i]) : [];
 
@@ -153,8 +159,8 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
   const reset = () => {
     setRepoSpecs([""]);
     setPermission("full");
-    setModel("");
-    setEffort("");
+    setModel("deepseek-v4-pro");
+    setEffort("max");
     setDeny("");
     setResultSchema("");
     setMaxSubTurns("");
@@ -200,9 +206,9 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
     const body: WorkRequest = {
       repos: specs.map(parseRepoSpec),
       permission_mode: permission,
+      model: model.trim(),
+      effort,
     };
-    if (model.trim() !== "") body.model = model.trim();
-    if (effort !== "") body.effort = effort;
     const denyList = deny.split(",").map((d) => d.trim()).filter((d) => d !== "");
     if (denyList.length > 0) body.deny = denyList;
     if (schema !== undefined) body.result_schema = schema;
@@ -240,6 +246,7 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
               <div className="start-repo-row" key={i}>
                 <div className="start-repo-combobox">
                   <Input
+                    ref={i === 0 ? firstRepoInputRef : undefined}
                     className="start-input"
                     value={spec}
                     onChange={(e) => {
@@ -306,7 +313,7 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
             );
           })}
           <Button variant="outline" size="sm" onClick={() => setRepoSpecs((prev) => [...prev, ""])}>
-            Add repository
+            Add another repository
           </Button>
           {githubError && <p className="hint">{githubError}</p>}
           {!githubConfigured && !githubLoading && !githubError && (
@@ -314,16 +321,33 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
           )}
         </div>
 
-        <div className="start-field start-field-wide">
-          <span className="start-label">Permission mode</span>
-          <ToggleGroup type="single" value={permission} onValueChange={(v) => v && setPermission(v)}>
-            <ToggleGroupItem value="readonly">readonly</ToggleGroupItem>
-            <ToggleGroupItem value="full">full</ToggleGroupItem>
-          </ToggleGroup>
-          <p className="hint">
-            Defaults to full. full: everything, as root, in the workspace — and the harness container has
-            the host&rsquo;s docker socket, so a full run has the host daemon. readonly: read-only tools only.
-          </p>
+        <div className="start-primary-row start-field-wide">
+          <label className="start-field">
+            <span className="start-label">Model</span>
+            <select className="start-select" value={model} onChange={(e) => setModel(e.target.value)}>
+              <option value="deepseek-v4-pro">deepseek-v4-pro</option>
+              <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+            </select>
+          </label>
+          <label className="start-field">
+            <span className="start-label">Thinking</span>
+            <select className="start-select" value={effort} onChange={(e) => setEffort(e.target.value)}>
+              <option value="max">max</option>
+              <option value="high">high</option>
+              <option value="low">low</option>
+            </select>
+          </label>
+          <div className="start-field">
+            <span className="start-label">Permission mode</span>
+            <ToggleGroup type="single" value={permission} onValueChange={(v) => v && setPermission(v)}>
+              <ToggleGroupItem value="readonly">readonly</ToggleGroupItem>
+              <ToggleGroupItem value="full">full</ToggleGroupItem>
+            </ToggleGroup>
+            <p className="hint">
+              Defaults to full. full: everything, as root, in the workspace — and the harness container has
+              the host&rsquo;s docker socket, so a full run has the host daemon. readonly: read-only tools only.
+            </p>
+          </div>
         </div>
 
         <Collapsible className="start-optional">
@@ -334,19 +358,6 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
           </CollapsibleTrigger>
           <CollapsibleContent>
             <div className="start-optional-grid">
-              <label className="start-field">
-                <span className="start-label">Model</span>
-                <Input className="start-input" value={model} onChange={(e) => setModel(e.target.value)} placeholder="deepseek-v4-pro" spellCheck={false} />
-              </label>
-              <label className="start-field">
-                <span className="start-label">Effort</span>
-                <select className="start-select" value={effort} onChange={(e) => setEffort(e.target.value)}>
-                  <option value="">(config default)</option>
-                  <option value="low">low</option>
-                  <option value="high">high</option>
-                  <option value="max">max</option>
-                </select>
-              </label>
               <label className="start-field">
                 <span className="start-label">Deny patterns</span>
                 <Input className="start-input" value={deny} onChange={(e) => setDeny(e.target.value)} placeholder="comma-separated substrings, e.g. git push" spellCheck={false} />

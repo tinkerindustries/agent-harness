@@ -48,15 +48,12 @@ export async function listGithubRepos(): Promise<GithubReposResponse> {
 
 // filterRepos returns the repos whose full_name contains query,
 // case-insensitively, in the server's updated-at order. An empty or
-// whitespace-only query matches nothing — typing in the repo row is what
-// opens the picker, and a picker full of every repo would drown the input it
-// is meant to replace. Substring matching keeps it a search over what the
-// operator typed: "deepseek" finds deepseek-harness and org/deepseek-tools
-// alike, and a URL the operator is typing manually matches nothing, which is
-// exactly how the suggestions stay purely additive.
+// whitespace-only query returns every repo — focusing the row is what opens
+// the list — while a non-empty query narrows by substring, so a git URL typed
+// by hand still matches nothing and the suggestions stay additive.
 export function filterRepos(repos: GithubRepo[], query: string): GithubRepo[] {
   const q = query.trim().toLowerCase();
-  if (q === "") return [];
+  if (q === "") return repos;
   return repos.filter((r) => r.full_name.toLowerCase().includes(q));
 }
 

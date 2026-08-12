@@ -2026,6 +2026,13 @@ pre {
   text-transform: uppercase;
 }
 
+.start-primary-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
 .start-schema {
   width: 100%;
   min-width: 0;
@@ -2163,6 +2170,10 @@ pre {
 @media (max-width: 700px) {
   .start-optional-grid {
     grid-template-columns: 1fr;
+  }
+  .start-primary-row {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 

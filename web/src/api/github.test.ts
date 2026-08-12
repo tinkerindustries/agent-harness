@@ -100,9 +100,9 @@ describe("filterRepos", () => {
     expect(filterRepos(repos, "other").map((r) => r.full_name)).toEqual(["org/OTHER"]);
   });
 
-  it("matches an empty query nothing, so the picker opens only as the operator types", () => {
-    expect(filterRepos(repos, "")).toEqual([]);
-    expect(filterRepos(repos, "   ")).toEqual([]);
+  it("returns every repo, in order, for an empty or whitespace-only query, so focusing the row opens the picker", () => {
+    expect(filterRepos(repos, "")).toEqual(repos);
+    expect(filterRepos(repos, "   ")).toEqual(repos);
   });
 
   it("matches a URL the operator is typing manually nothing, keeping suggestions additive", () => {
