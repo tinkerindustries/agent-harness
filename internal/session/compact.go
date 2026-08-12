@@ -33,6 +33,7 @@ func (r *Runner) compact(ctx context.Context, sess store.Session, allEvents []st
 		ID:              newID("sess"),
 		ParentID:        sess.ID,
 		JobType:         sess.JobType,
+		Task:            sess.Task,
 		ParentAgentType: sess.ParentAgentType,
 		ParentAgentID:   sess.ParentAgentID,
 		ParentIsUser:    sess.ParentIsUser,

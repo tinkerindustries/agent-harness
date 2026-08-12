@@ -151,9 +151,16 @@ func (e *ActiveLeaseError) Error() string {
 // running binary, so a harness upgrade cannot change the prefix of a
 // resumable session (docs/CACHE.md).
 type Session struct {
-	ID              string
-	ParentID        string
-	JobType         string
+	ID       string
+	ParentID string
+	JobType  string
+	// Task is the job's description: the launching instruction of the run,
+	// the same value the session_started payload's Task field carries
+	// (internal/store/events.go), frozen on the row so the session list can
+	// say what a session is about without reading the event log. Empty when
+	// the run was created with no prompt (a browser start waits for its
+	// first message).
+	Task            string
 	ParentAgentType string
 	ParentAgentID   string
 	// ParentIsUser records that a person started this session directly. It is
@@ -183,8 +190,10 @@ type Session struct {
 	// rather than an empty list.
 	Plan string
 	// RecentToolCalls is the rolling roll of the last few tool calls the
-	// session made, for the in-flight card's activity panel
-	// (docs/WEB-REDESIGN.md phase 3). Nil when the session made none yet.
+	// session made, written alongside the plan in the same store write. The
+	// in-flight card no longer renders it (the card's activity panel is
+	// gone); it is kept because it rides that write, and dropping it would
+	// save nothing. Nil when the session made none yet.
 	RecentToolCalls []RecentToolCall
 	// Summary is the summary argument the model gave Complete, its own
 	// one-line account of what the run did, shown under the finished table's
@@ -203,12 +212,11 @@ type Session struct {
 }
 
 // RecentToolCall is one entry of the session row's rolling roll of the last
-// few tool calls, carried on the session list so an in-flight card can show
-// what a running session is doing without opening its transcript
-// (docs/WEB-REDESIGN.md phase 3, design/sessions.html's "Last five calls").
-// Arguments is the raw text the model produced; it is not guaranteed to be
-// valid JSON and is kept only so the browser can shape a one-line target
-// (file path, command, pattern) out of it.
+// few tool calls. The roll used to feed the in-flight card's activity panel;
+// the card no longer renders it, and the roll is kept because it rides the
+// same store write as the plan. Arguments is the raw text the model produced;
+// it is not guaranteed to be valid JSON and is kept only so a consumer can
+// shape a one-line target (file path, command, pattern) out of it.
 type RecentToolCall struct {
 	Name      string    `json:"name"`
 	Arguments string    `json:"arguments"`
@@ -252,6 +260,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 	id                TEXT PRIMARY KEY,
 	parent_id         TEXT,
 	job_type          TEXT NOT NULL DEFAULT 'implementation',
+	task              TEXT NOT NULL DEFAULT '',
 	parent_agent_type TEXT NOT NULL DEFAULT '',
 	parent_agent_id   TEXT NOT NULL DEFAULT '',
 	model             TEXT NOT NULL,
@@ -438,6 +447,11 @@ type migrationColumn struct {
 // sessions table created by an older binary.
 var sessionMigrationColumns = []migrationColumn{
 	{"job_type", "TEXT NOT NULL DEFAULT 'implementation'"},
+	// task: the job's description, the launching instruction of the run, so
+	// the session list can say what a session is about without reading the
+	// event log. Older rows default to the empty string, which the browser
+	// renders as no description rather than guessing.
+	{"task", "TEXT NOT NULL DEFAULT ''"},
 	{"parent_agent_type", "TEXT NOT NULL DEFAULT ''"},
 	{"parent_agent_id", "TEXT NOT NULL DEFAULT ''"},
 	// complete_status: the status argument to Complete, kept alongside the
@@ -452,8 +466,9 @@ var sessionMigrationColumns = []migrationColumn{
 	// Older rows default to the empty string, which the browser renders as
 	// "no plan section" rather than an empty list.
 	{"plan", "TEXT NOT NULL DEFAULT ''"},
-	// recent_tool_calls: the rolling roll of the last few tool calls, for
-	// the in-flight card's activity panel (docs/WEB-REDESIGN.md phase 3).
+	// recent_tool_calls: the rolling roll of the last few tool calls. The
+	// in-flight card no longer renders it; the column is kept because it is
+	// written in the same store write as the plan.
 	{"recent_tool_calls", "TEXT NOT NULL DEFAULT ''"},
 	// summary: the summary argument the model gave Complete, its own
 	// one-line account of the run, shown under the finished table's session
@@ -570,11 +585,11 @@ func (s *Store) CreateSession(ctx context.Context, sess Session) error {
 
 	return s.submit(ctx, func(tx *sql.Tx) error {
 		_, err := tx.Exec(`
-			INSERT INTO sessions (id, parent_id, job_type, parent_agent_type, parent_agent_id,
+			INSERT INTO sessions (id, parent_id, job_type, task, parent_agent_type, parent_agent_id,
 				model, effort, thinking, workspace, permission_mode, deny_patterns, system_prompt,
 				tool_schema, result_schema, status, created_at, finished_at, version, parent_is_user)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, ?)`,
-			sess.ID, parentID, sess.JobType, sess.ParentAgentType, sess.ParentAgentID,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, ?)`,
+			sess.ID, parentID, sess.JobType, sess.Task, sess.ParentAgentType, sess.ParentAgentID,
 			sess.Model, sess.Effort, sess.Thinking, sess.Workspace, sess.PermissionMode,
 			deny, sess.SystemPrompt, toolSchema, resultSchema, sess.Status, createdAt.Format(time.RFC3339Nano),
 			sess.ParentIsUser)
@@ -641,8 +656,9 @@ func (s *Store) FinishSession(ctx context.Context, id, status, completeStatus, s
 }
 
 // maxRecentToolCalls is how many tool calls the session row's rolling roll
-// keeps for the in-flight card's activity panel (docs/WEB-REDESIGN.md phase
-// 3, design/sessions.html's "Last five calls").
+// keeps. The roll no longer feeds a panel — the in-flight card's activity
+// panel is gone — but the trimming rule stays because the roll is still
+// written alongside the plan.
 const maxRecentToolCalls = 5
 
 // UpdateSessionLiveState atomically rewrites the session row's live plan
@@ -865,7 +881,7 @@ func scanSession(row interface {
 	var thinking int
 	var parentIsUser int
 	var denyJSON, createdAt, recentCalls string
-	err := row.Scan(&sess.ID, &parentID, &sess.JobType, &sess.ParentAgentType, &sess.ParentAgentID,
+	err := row.Scan(&sess.ID, &parentID, &sess.JobType, &sess.Task, &sess.ParentAgentType, &sess.ParentAgentID,
 		&sess.Model, &sess.Effort, &thinking, &sess.Workspace,
 		&sess.PermissionMode, &denyJSON, &sess.SystemPrompt, (*sqlText)(&sess.ToolSchema), &resultSchema,
 		&sess.Status, &createdAt, &finishedAt, &sess.CompleteStatus, &sess.Plan, &recentCalls, &sess.Summary,
@@ -920,7 +936,7 @@ func (t *sqlText) Scan(src any) error {
 	return nil
 }
 
-const sessionColumns = `id, parent_id, job_type, parent_agent_type, parent_agent_id, model, effort,
+const sessionColumns = `id, parent_id, job_type, task, parent_agent_type, parent_agent_id, model, effort,
 	thinking, workspace, permission_mode, deny_patterns, system_prompt, tool_schema,
 	result_schema, status, created_at, finished_at, complete_status, plan, recent_tool_calls, summary, version, parent_is_user`
 

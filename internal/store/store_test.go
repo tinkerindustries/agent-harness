@@ -200,6 +200,12 @@ VALUES ('legacy-1', 'deepseek-v4-pro', 'high', 1, '/tmp/ws', 'default',
 		if got.CompleteStatus != "" {
 			t.Fatalf("open %d: expected complete_status to default to empty on a pre-migration row, got %q", attempt, got.CompleteStatus)
 		}
+		// Same rule for task: a row written before the task column existed
+		// reads back empty, and the in-flight card renders no description
+		// rather than inventing one.
+		if got.Task != "" {
+			t.Fatalf("open %d: expected task to default to empty on a pre-migration row, got %q", attempt, got.Task)
+		}
 		if err := s.Close(); err != nil {
 			t.Fatalf("close %d: %v", attempt, err)
 		}
@@ -387,6 +393,45 @@ func TestPlanColumnRoundTrips(t *testing.T) {
 		if c.Name != "Grep" {
 			t.Fatalf("expected the roll to hold only the newest calls, got %+v", got.RecentToolCalls)
 		}
+	}
+}
+
+// TestTaskColumnRoundTrips pins the task column: the job's description set at
+// creation comes back through both read paths — GetSession and ListSessions —
+// so the session list can say what a session is about without reading the
+// event log.
+func TestTaskColumnRoundTrips(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	sess := Session{
+		ID:             "sess-1",
+		Model:          "deepseek-v4-pro",
+		Effort:         "high",
+		Workspace:      "/tmp/ws",
+		PermissionMode: "default",
+		SystemPrompt:   "sys",
+		ToolSchema:     json.RawMessage(`[]`),
+		Task:           "carry the job's description onto the session row",
+	}
+	if err := s.CreateSession(ctx, sess); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+
+	got, err := s.GetSession(ctx, "sess-1")
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if got.Task != sess.Task {
+		t.Fatalf("expected task %q via GetSession, got %q", sess.Task, got.Task)
+	}
+
+	all, err := s.ListSessions(ctx)
+	if err != nil {
+		t.Fatalf("list sessions: %v", err)
+	}
+	if len(all) != 1 || all[0].Task != sess.Task {
+		t.Fatalf("expected task %q via ListSessions, got %+v", sess.Task, all)
 	}
 }
 

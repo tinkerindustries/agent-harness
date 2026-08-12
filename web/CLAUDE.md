@@ -24,8 +24,12 @@ screen that holds its state. The `/perf` harness route renders no nav.
 What the screens are, since the redesign (docs/WEB-REDESIGN.md):
 
 - **Session list.** In-flight sessions are collapsible plan cards — collapsed,
-  the trigger shows the `in_progress` item's activeForm and the completed
-  ratio; expanded, the whole plan and the last few tool calls. The card's stat
+  the summary carries the job's description (the session's `task`, clamped to
+  three lines) and the trigger line shows the `in_progress` item's activeForm
+  and the completed ratio; expanded, the whole plan and the actions row (Stop).
+  The card's summary itself opens the session page — the caret is its own
+  small toggle button, sibling of the summary, so toggling the plan never
+  navigates. The card's stat
   row carries elapsed in primary weight and sub-turns dimmer — the finished
   table's columns minus Cost and Cache (phase 9). Finished sessions are a dense
   table whose Session cell carries a one-line subtitle: the plan ratio and the
