@@ -2488,6 +2488,17 @@ body.app #root {
 .work-watch {
   grid-template-columns: 244px minmax(0, 1fr);
 }
+/* A finished watch run is an ordinary page: the rail stays beside the
+   transcript, pinned to the viewport while the page scrolls, with a
+   max-height that keeps it inside the viewport and its own scroll for a
+   long plan. */
+.work-watch-page .rail {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  max-height: 100vh;
+  overflow-y: auto;
+}
 /* The watch page's stream measure is a touch wider than the chat page's:
    the reader here is a spectator hunting through history, not a typist, and
    the extra 40px buys room for the provenance strip's longer lines. */
@@ -2495,10 +2506,14 @@ body.app #root {
   max-width: 840px;
 }
 .stream {
-  overflow-y: auto;
   padding: 20px 24px 0;
   scrollbar-gutter: stable;
   position: relative;
+}
+/* The conversation column scrolls only in the shell; a page-mode stream
+   grows and the page scrolls instead. */
+.app .stream {
+  overflow-y: auto;
 }
 .stream-inner {
   max-width: 800px;
@@ -2510,8 +2525,12 @@ body.app #root {
    only when its own content is longer than the viewport, and the wheel over
    the conversation never lands in it. */
 .rail {
-  overflow-y: auto;
   padding: 16px 16px 24px;
+}
+/* The rail's own scroll belongs to the shell; a page-mode rail is sticky
+   with its own max-height instead. */
+.app .rail {
+  overflow-y: auto;
 }
 .rail-right {
   border-left: 1px solid var(--border);
@@ -3071,6 +3090,8 @@ body.app #root {
   margin: 0 auto;
   width: 100%;
 }
+/* The status line's figures, shared by the footers and a finished watch
+   run's nav slot, so the numbers look the same in both places. */
 .statusline {
   display: flex;
   align-items: center;

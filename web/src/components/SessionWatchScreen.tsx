@@ -227,7 +227,7 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
           )}
         </>
       )}
-      {!running && finishedNav && (
+      {finishedNav && (
         <>
           <Badge variant={finishedNav.outcome.variant}>{finishedNav.outcome.label}</Badge>
           <span className="statusline">
