@@ -248,8 +248,9 @@ export interface WatchTick {
 }
 
 export interface WatchPhase {
-  // The group phase ref (groups.ts RailPhaseRef): stable ids for keys, the
-  // 1-based plan position and subject as captured when the sub-turn froze.
+  // The first group's phase ref (groups.ts RailPhaseRef): a stable id for
+  // the disclosure's key and now-marker, plus the 1-based plan position and
+  // subject as captured when the sub-turn froze.
   id: number;
   index: number;
   label: string;
@@ -269,13 +270,15 @@ export interface WatchPhasesView {
 }
 
 // buildWatchPhases is the rail's view over the grouped transcript: groups
-// under the same phase ref become one phase whose ticks carry the sub-turn
-// numbers and colours, built from the groups' own tags and phase refs —
-// never by walking the TaskCreate/TaskUpdate history again. The running
-// sub-turn's tick pulses inside the tail phase, which is the one the next
-// sub-turn continues while the run is live. liveSubTurn is the streaming
-// turn's number, or null between turns — the only part of the live view
-// this view needs, so callers can memoise on primitives.
+// under the same phase ref become one phase, and so do consecutive groups
+// whose phase refs name the same plan item — a new id is minted on every
+// TaskCreate or TaskUpdate, even when the item did not change. The ticks
+// carry the sub-turn numbers and colours, built from the groups' own tags
+// and phase refs — never by walking the TaskCreate/TaskUpdate history
+// again. The running sub-turn's tick pulses inside the tail phase, which is
+// the one the next sub-turn continues while the run is live. liveSubTurn is
+// the streaming turn's number, or null between turns — the only part of the
+// live view this view needs, so callers can memoise on primitives.
 export function buildWatchPhases(
   items: TranscriptItem[],
   liveSubTurn: number | null,
@@ -288,7 +291,11 @@ export function buildWatchPhases(
   for (const item of items) {
     if (item.kind !== "group") continue;
     const group = item.group;
-    if (!current || current.id !== group.phase.id) {
+    // A new phase id is minted on every TaskCreate or TaskUpdate, so the
+    // common create-then-mark-in_progress pair names two phases after the
+    // same plan item; merge on the captured name, keeping the first phase's
+    // id for the disclosure keys and the now-marker.
+    if (!current || current.index !== group.phase.index || current.label !== group.phase.label) {
       current = { id: group.phase.id, index: group.phase.index, label: group.phase.label, ticks: [] };
       phases.push(current);
     }
@@ -312,12 +319,16 @@ export function buildWatchPhases(
 
   const nowPhaseId = runLive && phases.length > 0 ? phases[phases.length - 1].id : null;
 
-  // Plan items the run never reached: the current plan beyond the last
-  // phase's 1-based position. The plan only ever grows at the end, so a
-  // phase's captured position stays valid.
-  const lastIndex = phases.length > 0 ? phases[phases.length - 1].index : 0;
+  // Plan items the run never reached: the current plan beyond the highest
+  // 1-based position any phase reached, minus completed items. A phase with
+  // index 0 (no plan item when it ran) must not reset the anchor.
+  let lastIndex = 0;
+  for (const phase of phases) {
+    if (phase.index > lastIndex) lastIndex = phase.index;
+  }
   const notStarted: { index: number; label: string }[] = [];
   for (let i = lastIndex; i < todos.length; i++) {
+    if (todos[i].status === "completed") continue;
     notStarted.push({ index: i + 1, label: todos[i].subject });
   }
 

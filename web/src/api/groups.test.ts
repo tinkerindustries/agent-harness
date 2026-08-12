@@ -528,9 +528,9 @@ describe("rail phase assignment", () => {
     expect(group.blocks.map((b) => b.type)).toEqual(["assistant", "tool_result"]);
   });
 
-  it("falls back to the first non-completed item when nothing is in_progress, and to empty when the plan is empty", () => {
+  it("falls back to the first non-completed item when nothing is in_progress, names the last item when every item is completed, and stays empty when the plan is empty", () => {
     expect(phaseFromTodos([todo("1", "a", "pending"), todo("2", "b", "completed")], 3)).toEqual({ id: 3, index: 1, label: "a" });
-    expect(phaseFromTodos([todo("1", "a", "completed"), todo("2", "b", "completed")], 3)).toEqual({ id: 3, index: 0, label: "" });
+    expect(phaseFromTodos([todo("1", "a", "completed"), todo("2", "b", "completed")], 3)).toEqual({ id: 3, index: 2, label: "b" });
     expect(phaseFromTodos([], 3)).toEqual({ id: 3, index: 0, label: "" });
   });
 });

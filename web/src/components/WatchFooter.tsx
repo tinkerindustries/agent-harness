@@ -71,7 +71,12 @@ export function WatchFooter({
     };
   }, [meta, live.turn?.subTurn, items]);
 
-  const elapsedMs = now - Date.parse(meta.created_at);
+  // The elapsed figure is the run's wall time: finished_at − created_at once
+  // the row says the run is over, so a finished session's clock stops. The
+  // live case stays on the ticking now.
+  const elapsedMs = meta.finished_at
+    ? Date.parse(meta.finished_at) - Date.parse(meta.created_at)
+    : now - Date.parse(meta.created_at);
   const finishedOutcome = running ? null : outcome(meta);
 
   // What is running right now (design/session-watch.html's .nowline): the

@@ -251,7 +251,9 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
         )}
         <span className="spacer" />
         <span>
-          This run takes its instructions from {who}. You can stop it, but not message it.
+          {running
+            ? `This run takes its instructions from ${who}. You can stop it, but not message it.`
+            : `This run took its instructions from ${who}. It is finished, and could not be messaged.`}
         </span>
         <a
           href="/"
@@ -308,7 +310,9 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
               textQuery={query}
             />
           </div>
-          {!following && (
+          {/* The jump pill is for a live run; a finished session's stream has
+              no tail left to jump to. */}
+          {running && !following && (
             <div className="jumpwrap">
               <button type="button" className="jump" onClick={toggleFollow}>
                 ↓ Jump to live

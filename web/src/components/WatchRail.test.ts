@@ -182,4 +182,51 @@ describe("buildWatchPhases", () => {
     expect(view.phases).toHaveLength(1);
     expect(view.phases[0].ticks).toHaveLength(1);
   });
+
+  it("lists no not-started rows when every plan item is completed", () => {
+    // The observed 7/7 session: each item completed by its own TaskUpdate,
+    // the last one leaving the plan with nothing in_progress. Every item
+    // ran, so none of them may reappear as "not started".
+    const plan = [todo("1", "a", "completed"), todo("2", "b", "completed")];
+    const events = [
+      ev(1, "session_started", { opening_message: "x" }),
+      ...turn(2, 1, [taskCreate(3, "p1", [todo("1", "a", "in_progress"), todo("2", "b", "pending")])]),
+      ...turn(6, 2, [taskUpdate(7, "u1", { taskId: "1", status: "completed" })]),
+      ...turn(9, 3, [taskUpdate(10, "u2", { taskId: "2", status: "completed" })]),
+    ];
+    const view = buildWatchPhases(foldedItems(events), null, plan, false, NOOP_GET_TOOL_CALL);
+    expect(view.notStarted).toEqual([]);
+  });
+
+  it("names the trailing phase after the last plan item once every item is completed", () => {
+    // The final TaskUpdate leaves the plan with nothing in_progress and
+    // nothing non-completed; the phase the following sub-turns land in is
+    // still the last item's, not an unlabelled one.
+    const plan = [todo("1", "a", "completed")];
+    const events = [
+      ev(1, "session_started", { opening_message: "x" }),
+      ...turn(2, 1, [taskCreate(3, "p1", [todo("1", "a", "pending")])]),
+      ...turn(6, 2, [taskUpdate(7, "u1", { taskId: "1", status: "completed" })]),
+    ];
+    const view = buildWatchPhases(foldedItems(events), null, plan, false, NOOP_GET_TOOL_CALL);
+    const tail = view.phases[view.phases.length - 1];
+    expect(tail).toMatchObject({ index: 1, label: "a" });
+    expect(tail.ticks.map((t) => t.subTurn)).toEqual([1, 2]);
+  });
+
+  it("merges consecutive phases that name the same plan item even when their phase ids differ", () => {
+    // The create-then-mark-in_progress pair mints two phase ids naming the
+    // same item; the groups collapse into one phase keyed on the first id,
+    // carrying both sub-turns' ticks.
+    const plan = [todo("1", "a", "in_progress"), todo("2", "b", "pending")];
+    const events = [
+      ev(1, "session_started", { opening_message: "x" }),
+      ...turn(2, 1, [taskCreate(3, "p1", [todo("1", "a", "pending"), todo("2", "b", "pending")])]),
+      ...turn(6, 2, [taskUpdate(7, "u1", { taskId: "1", status: "in_progress" })]),
+    ];
+    const view = buildWatchPhases(foldedItems(events), null, plan, false, NOOP_GET_TOOL_CALL);
+    expect(view.phases).toHaveLength(1);
+    expect(view.phases[0]).toMatchObject({ id: 1, index: 1, label: "a" });
+    expect(view.phases[0].ticks.map((t) => t.subTurn)).toEqual([1, 2]);
+  });
 });
