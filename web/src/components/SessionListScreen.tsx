@@ -423,11 +423,6 @@ function InFlightCard({
           <button type="button" className="run-summary" onClick={() => onOpen(sess.id)}>
             <span className="run-line1">
               <Badge variant={badge.variant}>{badge.label}</Badge>
-              {sess.task && (
-                <span className="run-desc" title={sess.task}>
-                  {sess.task}
-                </span>
-              )}
               <span className="run-meta">
                 {sess.model} · {sess.effort}
                 {sess.job_type && <> · {sess.job_type}</>}
@@ -446,6 +441,11 @@ function InFlightCard({
                 </span>
               </span>
             </span>
+            {sess.task && (
+              <span className="run-desc" title={sess.task}>
+                {sess.task}
+              </span>
+            )}
             {plan.length > 0 && (
               <span className="run-line2">
                 <span className="run-now truncate">

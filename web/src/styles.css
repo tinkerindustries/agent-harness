@@ -534,8 +534,10 @@ pre {
 .caret-btn {
   flex: none;
   display: flex;
-  align-items: center;
-  padding: 0 4px 0 14px;
+  /* Level with line1's badge, not with the middle of a card whose height
+     now depends on how long the description is. */
+  align-items: flex-start;
+  padding: 13px 4px 0 14px;
   background: transparent;
   border: none;
   font: inherit;
@@ -578,15 +580,16 @@ pre {
   transform: rotate(90deg);
 }
 
-/* The task is the card's description, the middle of the row where the id
-   used to sit. It wraps normally and only a description still too long
-   after three lines is ellipsized — the same -webkit-box line clamp
-   .sess-sub uses — with the full text on the element's title, never the
-   old id's single-line truncation. */
+/* The task is the card's description, on a line of its own under the badge
+   row. It wraps normally and only a description still too long after three
+   lines is ellipsized — the same -webkit-box line clamp .sess-sub uses —
+   with the full text on the element's title, never the old id's single-line
+   truncation. It gets its own line rather than a share of line1 because the
+   meta beside it is nowrap: as a flex sibling it was squeezed to zero width
+   on every card whose meta line carried a started-by, which is all of them. */
 .run-desc {
   font-size: 0.8125rem;
-  flex: 1 1 0;
-  min-width: 0;
+  margin-top: 7px;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
