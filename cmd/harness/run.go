@@ -153,10 +153,16 @@ func runRun(ctx context.Context, args []string) error {
 		resolver = newInteractiveResolver()
 	}
 
+	// The Runner serves whichever provider resolvedModel belongs to, via the
+	// same per-model resolver serve uses (clientForModel).
+	deepSeekClient := withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res))
+	kimiClient := withKimiHTTPLog(cfg, rec, kimiAPIKeyProvider(res))
+
 	r := &session.Runner{
 		Store:       st,
 		Mirror:      store.NewMirror(cfg.DataDir),
-		Client:      withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res)),
+		Client:      deepSeekClient,
+		ClientFor:   func(model string) session.Client { return clientForModel(model, deepSeekClient, kimiClient) },
 		Recorder:    rec,
 		Prices:      priceTable,
 		Gemini:      withGeminiHTTPLog(cfg, rec, googleAPIKeyProvider(res)),

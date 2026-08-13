@@ -176,12 +176,24 @@ type Runner struct {
 	Store  *store.Store
 	Mirror *store.Mirror
 	// Client is the provider seam the loop speaks through: it states intent
-	// (wire.ChatIntent) and the implementation — *deepseek.Client today —
-	// turns that into its provider's request shape, maps usage onto cache
-	// hit and miss, and repairs its own response quirks. Declared in this
-	// package, implemented in the provider packages, chosen by cmd/harness
-	// when the Runner is built (client.go, docs/KIMI-INTEGRATION.md §4.1).
-	Client     Client
+	// (wire.ChatIntent) and the implementation — *deepseek.Client today,
+	// *kimi.Client next — turns that into its provider's request shape, maps
+	// usage onto cache hit and miss, and repairs its own response quirks.
+	// Declared in this package, implemented in the provider packages, chosen
+	// by cmd/harness when the Runner is built (client.go,
+	// docs/KIMI-INTEGRATION.md §4.1).
+	Client Client
+
+	// ClientFor, when set, resolves the provider client for a model name.
+	// The pool serves mixed-model requests from one shared Runner, so the
+	// loop routes every request by the model it is about to speak to —
+	// deepseek-v4-* to the DeepSeek client, kimi-k3 to the Kimi client —
+	// rather than the Runner being pinned to one provider at construction.
+	// The closure is built in cmd/harness, where the provider clients live;
+	// nil falls back to Client for every model, which is the CLI and test
+	// path (docs/KIMI-INTEGRATION.md §4.3).
+	ClientFor func(model string) Client
+
 	Prices     *pricing.Table
 	FlashModel string
 
@@ -233,6 +245,21 @@ type Runner struct {
 
 	semsMu sync.Mutex
 	sems   map[string]chan struct{}
+}
+
+// clientFor returns the provider client a request to model should use:
+// ClientFor's answer when a resolver is set, otherwise the Runner's single
+// Client. Every request path in the loop resolves through here, so the same
+// Runner can serve deepseek-v4-* and kimi-k3 requests from the pool without
+// either provider's dialect leaking into the loop
+// (docs/KIMI-INTEGRATION.md §4.3).
+func (r *Runner) clientFor(model string) Client {
+	if r.ClientFor != nil {
+		if c := r.ClientFor(model); c != nil {
+			return c
+		}
+	}
+	return r.Client
 }
 
 // acquireModelSlot blocks until a concurrent-request slot for model is
@@ -332,7 +359,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	executor.Client = r.Client
+	executor.Client = r.clientFor(r.flashModel(ctx))
 	executor.Prices = r.Prices
 	executor.FlashModel = r.flashModel(ctx)
 	executor.Gemini = r.Gemini

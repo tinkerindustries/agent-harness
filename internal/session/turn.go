@@ -264,7 +264,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	// by however much reasoning it burned — which, this failure mode being
 	// what it is, is the whole of an exhausted max_tokens budget.
 	var starved *wire.Usage
-	if r.Client.IsReasoningStarved(finishReason, content) && len(assembler.Finalize()) == 0 {
+	if r.clientFor(sess.Model).IsReasoningStarved(finishReason, content) && len(assembler.Finalize()) == 0 {
 		starved = usage
 		reasoning, content, assembler, finishReason, usage, err = r.stream(ctx, sess.Model, messages, opts.Effort, opts.Thinking, opts.MaxTokens*2, live)
 		if err != nil {
@@ -283,7 +283,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	// what ran. The model's own bytes are still on disk in the HTTP log,
 	// which is where a question about what it actually emitted belongs.
 	for i := range toolCalls {
-		repaired, ok := r.Client.RepairArguments(finishReason, toolCalls[i].Arguments)
+		repaired, ok := r.clientFor(sess.Model).RepairArguments(finishReason, toolCalls[i].Arguments)
 		if !ok {
 			continue
 		}
@@ -445,7 +445,7 @@ func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestMessa
 	// decision — DeepSeek reports the two figures separately, Kimi K3 a
 	// single cached_tokens — so the split comes through the seam
 	// (client.go, docs/KIMI-INTEGRATION.md §2).
-	cacheHit, cacheMiss := r.Client.UsageSplit(usage)
+	cacheHit, cacheMiss := r.clientFor(model).UsageSplit(usage)
 	cost := 0.0
 	if r.Prices != nil {
 		if c, err := r.Prices.Cost(model, cacheHit, cacheMiss, usage.CompletionTokens); err == nil {
@@ -495,7 +495,7 @@ func (r *Runner) stream(ctx context.Context, model string, messages []wire.Messa
 	}
 	defer release()
 
-	events, err := r.Client.StreamChatCompletion(ctx, intent)
+	events, err := r.clientFor(model).StreamChatCompletion(ctx, intent)
 	if err != nil {
 		return "", "", nil, "", nil, err
 	}

@@ -134,3 +134,29 @@ func TestRepoTableCarriesGeminiModels(t *testing.T) {
 		}
 	}
 }
+
+// TestRepoTableCarriesKimiK3 pins the repository's own price table keeping
+// kimi-k3 with the exact rates from Moonshot's pricing page — 0.30 cache
+// hit, 3.00 cache miss, 15.00 output per million tokens — and its own
+// per-model source and capture date (third_party/kimi-docs/pricing/chat-k3.md).
+// A typo here shows up as a silently wrong Kimi cost, so it is pinned.
+func TestRepoTableCarriesKimiK3(t *testing.T) {
+	table, err := Load("../../configs/prices.json")
+	if err != nil {
+		t.Fatalf("Load ../../configs/prices.json: %v", err)
+	}
+	p, ok := table.Models["kimi-k3"]
+	if !ok {
+		t.Fatalf("table is missing kimi-k3")
+	}
+	if p.InputCacheHitPerMillionUSD != 0.30 || p.InputCacheMissPerMillionUSD != 3.00 || p.OutputPerMillionUSD != 15.00 {
+		t.Errorf("kimi-k3 rates = (%v, %v, %v), want (0.30, 3.00, 15.00)",
+			p.InputCacheHitPerMillionUSD, p.InputCacheMissPerMillionUSD, p.OutputPerMillionUSD)
+	}
+	if p.Source != "https://platform.kimi.ai/docs/pricing/chat-k3" {
+		t.Errorf("kimi-k3 source = %q, want Moonshot's K3 pricing page", p.Source)
+	}
+	if p.CapturedAt != "2026-08-13" {
+		t.Errorf("kimi-k3 captured_at = %q, want 2026-08-13", p.CapturedAt)
+	}
+}

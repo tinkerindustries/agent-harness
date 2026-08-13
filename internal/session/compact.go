@@ -115,7 +115,7 @@ func (r *Runner) summarize(ctx context.Context, messages []wire.Message) (string
 		return "", err
 	}
 	defer release()
-	resp, err := r.Client.CreateChatCompletion(ctx, intent)
+	resp, err := r.clientFor(intent.Model).CreateChatCompletion(ctx, intent)
 	if err != nil {
 		return "", err
 	}

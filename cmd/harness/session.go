@@ -79,10 +79,16 @@ func runResume(ctx context.Context, args []string) error {
 		resolver = newInteractiveResolver()
 	}
 
+	// A resumed session speaks to the provider its model belongs to, the
+	// same per-model resolver serve and run use (clientForModel).
+	deepSeekClient := withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(settingsRes))
+	kimiClient := withKimiHTTPLog(cfg, rec, kimiAPIKeyProvider(settingsRes))
+
 	r := &session.Runner{
 		Store:       st,
 		Mirror:      store.NewMirror(cfg.DataDir),
-		Client:      withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(settingsRes)),
+		Client:      deepSeekClient,
+		ClientFor:   func(model string) session.Client { return clientForModel(model, deepSeekClient, kimiClient) },
 		Recorder:    rec,
 		Prices:      priceTable,
 		Gemini:      withGeminiHTTPLog(cfg, rec, googleAPIKeyProvider(settingsRes)),
