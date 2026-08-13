@@ -7,6 +7,7 @@ import { formatElapsed } from "../blocks/ReasoningPanel";
 import { ScreenshotGallery } from "../blocks/ScreenshotGallery";
 import { formatCost, screenshotPaths, toolDetail } from "../blocks/toolArgs";
 import { cachePercent, deniedBody, elideLines, toolStat, type ToolResultLike } from "./turnHelpers";
+import { cn } from "@/lib/utils";
 
 // Turn renders one frozen sub-turn as a turn (.turn), not a card: the
 // gutter anchor with the sub-turn number, the hover
@@ -21,9 +22,15 @@ import { cachePercent, deniedBody, elideLines, toolStat, type ToolResultLike } f
 export const Turn = memo(function Turn({
   group,
   getToolCall,
+  arrived = false,
 }: {
   group: SubTurnGroup;
   getToolCall: (id: string) => ToolCallPayload | undefined;
+  // Whether this sub-turn appeared in a transcript that was already on screen,
+  // rather than being part of the history the page loaded with (hooks.ts
+  // useArrivals). A boolean, so the memo above still bails out on it; it is
+  // false for every turn in the backlog and never changes for a given turn.
+  arrived?: boolean;
 }) {
   const assistant = group.blocks[0];
   // The fold always opens a group with its assistant block; the guard is
@@ -31,7 +38,11 @@ export const Turn = memo(function Turn({
   if (assistant.type !== "assistant") return null;
 
   return (
-    <div className="turn" id={`sub-turn-${group.subTurn}`} data-seq={group.seq}>
+    <div
+      className={cn("turn", arrived && "anim-row-in")}
+      id={`sub-turn-${group.subTurn}`}
+      data-seq={group.seq}
+    >
       <a className="gutter" href={`#sub-turn-${group.subTurn}`} title={`Sub-turn ${group.subTurn}`}>
         {group.subTurn}
         {group.usage && <ChurnWarn usage={group.usage} />}
@@ -58,7 +69,15 @@ export const Turn = memo(function Turn({
         // moment the sub-turn freezes, so the prose settles in as it lands. On
         // the live element the tail would re-animate on every rAF flush
         // (docs/DESIGN.md §5.3, web/CLAUDE.md).
-        <div className="say anim-stream-in">
+        //
+        // One gesture per thing that arrives: a turn that came in while the
+        // page was open animates as a row and its prose does not animate
+        // separately. They are not additive — row-in brings the parent down
+        // from -8px while stream-in takes the child up from +8px, so run
+        // together they cancel at the start and the text sits still through
+        // the part of the curve where all the movement is. Backlog prose,
+        // which no row-in touches, keeps the reveal.
+        <div className={cn("say", !arrived && "anim-stream-in")}>
           {/* Prose parses once, on completion, memoised inside Markdown on
               the block's own immutable text (docs/DESIGN.md §5.3). */}
           <Markdown text={assistant.content} />

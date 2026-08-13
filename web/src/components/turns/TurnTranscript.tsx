@@ -4,6 +4,7 @@ import type { TranscriptFilter, TranscriptItem } from "../../api/groups";
 import type { ToolCallPayload } from "../../api/types";
 import { FrozenBlock } from "../blocks/FrozenBlock";
 import { groupMatchesFilter } from "../../api/groups";
+import { useArrivals } from "../../hooks";
 import { Turn } from "./Turn";
 import { LiveTurnSection } from "./LiveTurn";
 import type { SteerBlock } from "./SteerMessage";
@@ -24,11 +25,17 @@ export function TurnTranscript({
   renderSteer,
   renderInstruction,
   renderRunFinished,
+  replayed = false,
 }: {
   items: TranscriptItem[];
   live: LiveView;
   filter: TranscriptFilter;
   getToolCall: (id: string) => ToolCallPayload | undefined;
+  // Whether the server has finished replaying this session's history
+  // (api/transcriptStore.ts). Until it has, no turn counts as an arrival and
+  // nothing animates — which is the safe default, so a caller that cannot
+  // answer simply leaves it out.
+  replayed?: boolean;
   // renderSteer replaces the steer block card with the chat page's .msg-user
   // rendering: a sent message is a message, not a block. Absent — the watch
   // page and the perf harnesses — steer blocks keep the FrozenBlock
@@ -55,6 +62,7 @@ export function TurnTranscript({
     <div className="turn-list">
       <TurnList
         items={items}
+        replayed={replayed}
         filter={filter}
         getToolCall={getToolCall}
         renderSteer={renderSteer}
@@ -67,6 +75,15 @@ export function TurnTranscript({
   );
 }
 
+// itemKey is one transcript item's identity, in the same terms the list keys
+// on: a group by its seq, a top-level block by seq and type. Kept in one place
+// because the arrivals gate and the React keys have to agree — a key the gate
+// does not recognise reads as new, and would animate a row that was always
+// there.
+function itemKey(item: TranscriptItem): string {
+  return item.kind === "group" ? `g${item.group.seq}` : `b${item.block.seq}-${item.block.type}`;
+}
+
 // TurnList is the frozen half of the conversation, memoised on the items
 // array itself — the same second layer of memoisation SubTurnList had on
 // top of the per-group Turn memo: a live-only delta (a reasoning/content
@@ -77,6 +94,7 @@ export function TurnTranscript({
 // transcript (§5.2's freeze, at group granularity).
 export const TurnList = memo(function TurnList({
   items,
+  replayed,
   filter,
   getToolCall,
   renderSteer,
@@ -84,18 +102,33 @@ export const TurnList = memo(function TurnList({
   renderRunFinished,
 }: {
   items: TranscriptItem[];
+  replayed: boolean;
   filter: TranscriptFilter;
   getToolCall: (id: string) => ToolCallPayload | undefined;
   renderSteer?: (block: SteerBlock) => ReactNode;
   renderInstruction?: (block: Extract<Block, { type: "instruction" }>) => ReactNode;
   renderRunFinished?: (block: Extract<Block, { type: "run_finished" }>) => ReactNode;
 }) {
+  // Which turns arrived while this transcript was already on screen, keyed by
+  // the same group seq the list keys on (hooks.ts useArrivals). A sub-turn is
+  // the only thing in the body that reliably arrives — most sessions here
+  // never emit assistant prose at all, so without this a run being watched
+  // grows in complete silence.
+  const arrived = useArrivals(
+    items.map(itemKey),
+    replayed,
+  );
   return (
     <>
       {items.map((item) =>
         item.kind === "group" ? (
           groupMatchesFilter(item.group, filter) ? (
-            <Turn key={item.group.seq} group={item.group} getToolCall={getToolCall} />
+            <Turn
+              key={item.group.seq}
+              group={item.group}
+              getToolCall={getToolCall}
+              arrived={arrived(itemKey(item))}
+            />
           ) : null
         ) : item.block.type === "steer" && renderSteer ? (
           // The chat page's sent-message rendering; the watch page and the

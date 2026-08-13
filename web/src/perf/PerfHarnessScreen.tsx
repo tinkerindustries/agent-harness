@@ -33,6 +33,27 @@ import { RailHarness } from "./RailHarness";
 //                                                       count — the sweep is
 //                                                       what shows whether
 //                                                       cost scales with N.
+//   &live=1                                           interleave `live` SSE
+//                                                       frames with the
+//                                                       committed feed, so
+//                                                       the streaming reveal
+//                                                       (StreamText) renders
+//                                                       and its per-flush
+//                                                       cost is measured. Off
+//                                                       by default: the
+//                                                       sweeps recorded in
+//                                                       docs/DESIGN.md §5.5
+//                                                       were taken without it.
+//   &liveburst=N                                       frames per emitting
+//                                                       event, default 1.
+//                                                       Raising it is how the
+//                                                       chunk count reaches
+//                                                       what a long prose turn
+//                                                       would; the synthetic
+//                                                       turn is only 32 events
+//                                                       long, so at the real
+//                                                       cadence it never holds
+//                                                       more than a handful.
 //   &fast=1                                            drive the store's
 //                                                       flush with a
 //                                                       microtask scheduler
@@ -55,7 +76,30 @@ interface RunConfig {
   ratePerSec: number;
   durationMs: number;
   fast: boolean;
+  // liveText interleaves `live` SSE frames with the committed events, which
+  // is what grows LiveTurn.liveContentChunks and so what makes the streaming
+  // reveal (components/ui/StreamText.tsx) render at all. Off by default: it
+  // adds a per-flush cost the recorded sweeps in docs/DESIGN.md §5.5 were
+  // measured without, and a run that silently changed what it measures could
+  // not be compared against them.
+  liveText: boolean;
+  // How many frames each emitting event pushes. 1 is the realistic cadence;
+  // raising it is how the sweep reaches the chunk counts a long prose turn
+  // would, which the synthetic feed's own turn length (32 events between
+  // turn_started and turn_finished) otherwise caps at a handful.
+  liveBurst: number;
 }
+
+// One `live` frame's worth of prose. The server coalesces live output into at
+// most one frame per channel per 100ms (internal/session/turn.go
+// liveFlushInterval), so a frame is a clause or two rather than a token.
+const LIVE_CHUNK = "and then the measured span settles into place, ";
+
+// How many committed events pass per live frame emitted. At the default rate
+// of 60 events/sec this puts frames at roughly the 10/sec the server actually
+// publishes, so the chunk array grows at a realistic pace rather than one
+// entry per event.
+const EVENTS_PER_LIVE_FRAME = 6;
 
 interface RunResult extends FrameStats {
   blocks: number;
@@ -94,10 +138,12 @@ function parseParams(): RunConfig[] {
   const rate = Number(url.searchParams.get("rate") ?? 60);
   const duration = Number(url.searchParams.get("duration") ?? 6) * 1000;
   const fast = url.searchParams.get("fast") === "1";
+  const liveText = url.searchParams.get("live") === "1";
+  const liveBurst = Math.max(1, Number(url.searchParams.get("liveburst") ?? 1) || 1);
   const sweep = url.searchParams.get("sweep");
   const single = url.searchParams.get("blocks");
 
-  if (single) return [{ blocks: Number(single), ratePerSec: rate, durationMs: duration, fast }];
+  if (single) return [{ blocks: Number(single), ratePerSec: rate, durationMs: duration, fast, liveText, liveBurst }];
 
   const blockCounts = sweep
     ? sweep
@@ -105,7 +151,7 @@ function parseParams(): RunConfig[] {
         .map((s) => Number(s.trim()))
         .filter((n) => n > 0)
     : DEFAULT_SWEEP;
-  return blockCounts.map((blocks) => ({ blocks, ratePerSec: rate, durationMs: duration, fast }));
+  return blockCounts.map((blocks) => ({ blocks, ratePerSec: rate, durationMs: duration, fast, liveText, liveBurst }));
 }
 
 function microtaskScheduler(): TranscriptStoreOptions {
@@ -127,6 +173,20 @@ function microtaskScheduler(): TranscriptStoreOptions {
 
 async function yieldMicrotask(): Promise<void> {
   await new Promise<void>((resolve) => queueMicrotask(resolve));
+}
+
+// emitLiveFrame pushes one uncommitted frame at the sub-turn currently in
+// flight, which the store reports in its own snapshot — the harness does not
+// have to track the generator's turn numbering to stay in step with it, and a
+// frame aimed at a turn that has already frozen would be dropped by the fold
+// anyway.
+function emitLiveFrame(store: TranscriptStore, cfg: RunConfig, index: number): void {
+  if (!cfg.liveText || index % EVENTS_PER_LIVE_FRAME !== 0) return;
+  const turn = store.getSnapshot().live.turn;
+  if (!turn) return;
+  for (let i = 0; i < cfg.liveBurst; i++) {
+    store.ingestLive({ sub_turn: turn.subTurn, channel: "content", text: LIVE_CHUNK });
+  }
 }
 
 async function nextTwoFrames(fast: boolean): Promise<void> {
@@ -182,6 +242,11 @@ async function runOne(cfg: RunConfig, hooks: RunHooks): Promise<RunResult> {
   const seq = makeSeqSource();
   const history = buildSyntheticHistory(cfg.blocks, "perf", seq);
   for (const ev of history) store.ingest(ev);
+  // The synthetic history is this run's backlog: close the replay by hand,
+  // the way the server's own `replayed` frame closes a real one, so the live
+  // turns appended below are the only thing the transcript treats as having
+  // arrived (web/src/hooks.ts useArrivals).
+  store.markReplayed();
   await nextTwoFrames(cfg.fast); // let React actually paint every block before measuring
   const mountMs = performance.now() - mountStart;
   const mountCommitMeanMs = mean(hooks.takeSamples("mount").map((s) => s.ms));
@@ -212,7 +277,10 @@ async function runOne(cfg: RunConfig, hooks: RunHooks): Promise<RunResult> {
     // be scheduled frames — see the module comment.
     const batchSize = 5;
     for (let sent = 0; sent < targetEvents; sent += batchSize) {
-      for (let i = 0; i < batchSize && sent + i < targetEvents; i++) store.ingest(gen.next().value);
+      for (let i = 0; i < batchSize && sent + i < targetEvents; i++) {
+        store.ingest(gen.next().value);
+        emitLiveFrame(store, cfg, sent + i);
+      }
       await yieldMicrotask();
     }
   } else {
@@ -230,6 +298,7 @@ async function runOne(cfg: RunConfig, hooks: RunHooks): Promise<RunResult> {
       const due = Math.floor((elapsed / 1000) * cfg.ratePerSec);
       while (delivered < due) {
         store.ingest(gen.next().value);
+        emitLiveFrame(store, cfg, delivered);
         delivered++;
       }
       await new Promise((resolve) => setTimeout(resolve, 20));
@@ -408,5 +477,13 @@ function PerfMount({ store }: { store: TranscriptStore }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
   // The mount measures the turn renderer the session screens ship — the
   // point of this harness is that it keeps measuring what actually ships.
-  return <TurnTranscript items={snapshot.items} live={snapshot.live} filter="all" getToolCall={snapshot.getToolCall} />;
+  return (
+    <TurnTranscript
+      items={snapshot.items}
+      live={snapshot.live}
+      replayed={snapshot.replayed}
+      filter="all"
+      getToolCall={snapshot.getToolCall}
+    />
+  );
 }

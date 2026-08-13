@@ -93,6 +93,18 @@ export interface LiveTurn {
   content: string;
   liveReasoning: string;
   liveContent: string;
+  // The same text as liveContent, kept as the frames it arrived in rather
+  // than one accumulated string, so the display can reveal each frame where
+  // it landed (components/ui/StreamText.tsx). Append-only and never rewritten:
+  // an entry already in this array is immutable, which is the whole property
+  // the reveal depends on — React keeps the DOM node for an unchanged entry,
+  // so its animation runs once when the frame arrives and never again.
+  //
+  // The server coalesces live output into at most one frame per channel per
+  // 100ms (internal/session/turn.go liveFlushInterval), so this grows about
+  // ten entries a second while prose is streaming, not once per token and not
+  // once per animation frame.
+  liveContentChunks: string[];
   toolCalls: ToolCallPayload[];
   startedAt: string;
 }
@@ -275,8 +287,16 @@ export class FoldState {
   ingestLive(d: LiveDelta): void {
     const turn = this.live.turn;
     if (!turn || turn.subTurn !== d.sub_turn) return;
-    if (d.channel === "reasoning") turn.liveReasoning += d.text;
-    else turn.liveContent += d.text;
+    if (d.channel === "reasoning") {
+      turn.liveReasoning += d.text;
+      return;
+    }
+    turn.liveContent += d.text;
+    // A new entry, never an edit to the last one: the reveal keys on position
+    // and an entry that changed in place would replay its animation on the
+    // next flush. An empty frame would mount a span that reveals nothing, so
+    // it is dropped rather than appended.
+    if (d.text !== "") turn.liveContentChunks.push(d.text);
   }
 
   ingest(ev: StoreEvent): void {
@@ -310,7 +330,8 @@ export class FoldState {
         const p = ev.payload as TurnStartedPayload;
         this.live.turn = {
           seq: ev.seq, subTurn: p.sub_turn, reasoning: "", content: "",
-          liveReasoning: "", liveContent: "", toolCalls: [], startedAt: ev.created_at,
+          liveReasoning: "", liveContent: "", liveContentChunks: [],
+          toolCalls: [], startedAt: ev.created_at,
         };
         break;
       }

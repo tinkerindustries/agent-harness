@@ -1,22 +1,29 @@
 import { cn } from "@/lib/utils";
 
-// Model output as it lands: each committed chunk fades and settles in (320ms,
-// out-quart), so a reader can see where the text grew, with a blinking block
-// cursor at the tail while the turn is live.
+// Model output as it lands: each chunk fades and settles in (--dur-reveal,
+// out-quart), so a reader can see where the text grew.
 //
-// READ THIS BEFORE WIRING IT (docs/DESIGN.md §5.3, web/CLAUDE.md):
+// READ THIS BEFORE FEEDING IT ANYTHING NEW (docs/DESIGN.md §5.3, web/CLAUDE.md):
 //
-// Streaming text deliberately lives OUTSIDE React state — deltas append to a
-// mutable buffer and a requestAnimationFrame loop flushes it, so React sees at
-// most one update per frame. If this component renders the live buffer, the tail
-// chunk re-animates on every flush: 60 animations a second on the one element a
-// reader is looking at.
+// The one and only safe input is an APPEND-ONLY array of immutable strings —
+// today LiveTurn.liveContentChunks, one entry per `live` SSE frame. Append to
+// it; never rewrite, re-key, or reorder an entry that is already in it.
 //
-// So: chunks must be committed, immutable values — the same ones the memoised
-// FrozenBlock / SubTurnCard render, keyed by block id and never re-rendered. The
-// live pair (LiveTurn.liveContent) stays plain preformatted text with the
-// existing .live .say treatment; it does not come through here. Append to the
-// array; never re-key or reorder existing entries, or the whole block replays.
+// The reason is the whole design of the streaming path. Text deliberately
+// lives outside React state: deltas land in a mutable buffer and a
+// requestAnimationFrame loop flushes it, so React sees at most one update per
+// frame. This component is rendered from inside that loop, so it re-renders
+// ~60 times a second. What keeps it from animating 60 times a second is that
+// an unchanged entry keeps its position and its DOM node, and a CSS animation
+// only runs when its element mounts. Mutate the tail entry in place instead of
+// pushing a new one and every flush replays the animation on the element a
+// reader is actually looking at.
+//
+// Note what this is NOT fed: the committed content_delta events. Those are
+// written in one batch with the turn_finished that freezes this component
+// away (internal/session/turn.go), so they would arrive as one lump, animate
+// a whole turn's prose in a single frame, and then be replaced by the frozen
+// block's markdown. The frames are the only thing that streams.
 export function StreamText({
   chunks,
   live = false,

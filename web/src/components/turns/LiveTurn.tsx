@@ -3,6 +3,7 @@ import type { ToolCallPayload } from "../../api/types";
 import { useNow } from "../../hooks";
 import { formatElapsed } from "../blocks/ReasoningPanel";
 import { toolDetail } from "../blocks/toolArgs";
+import { StreamText } from "../ui/StreamText";
 
 // LiveTurnSection is the tail of the conversation that has not frozen yet
 // (.turn.live): the in-progress sub-turn as a live turn, and any tool
@@ -63,7 +64,17 @@ function LiveTurn({ turn }: { turn: LiveTurn }) {
       {content && (
         <div className="say">
           <pre>
-            {content}
+            {/* The reveal rides the live frames, which is the only text here
+                that actually arrives a piece at a time: the committed
+                content_delta events are written in one batch with the
+                turn_finished that freezes this component away
+                (internal/session/turn.go), so revealing those would animate a
+                whole turn's prose for one frame and then throw it away.
+                turn.liveContentChunks is append-only, which is what keeps the
+                already-revealed text still — see StreamText. The committed
+                fallback has no frames to speak of and renders as it always
+                did. */}
+            {turn.liveContent ? <StreamText chunks={turn.liveContentChunks} /> : content}
             <span className="cursor" />
           </pre>
         </div>

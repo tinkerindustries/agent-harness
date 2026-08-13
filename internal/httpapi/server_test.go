@@ -755,22 +755,85 @@ func TestSessionStreamWritesLiveDeltasAsNamedEventsWithoutIDs(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 	h.PublishLive("sess-1", hub.LiveDelta{SubTurn: 2, Channel: hub.ChannelReasoning, Text: "weighing it"})
 
-	buf := make([]byte, 4096)
-	n, err := resp.Body.Read(buf)
+	sr := newSSEReader(resp.Body)
+	frame, err := sr.next()
 	if err != nil {
 		t.Fatal(err)
 	}
-	frame := string(buf[:n])
-	if !strings.Contains(frame, "event: live\n") {
-		t.Fatalf("live delta must be a named SSE event, got: %q", frame)
+	if frame.event != "live" {
+		t.Fatalf("live delta must be a named SSE event, got event %q", frame.event)
 	}
-	if strings.Contains(frame, "id:") {
-		t.Fatalf("live delta must carry no id, got: %q", frame)
+	if frame.id != "" {
+		t.Fatalf("live delta must carry no id, got: %q", frame.id)
 	}
 	for _, want := range []string{`"sub_turn":2`, `"channel":"reasoning"`, `"text":"weighing it"`} {
-		if !strings.Contains(frame, want) {
-			t.Fatalf("live frame missing %s, got: %q", want, frame)
+		if !strings.Contains(frame.data, want) {
+			t.Fatalf("live frame missing %s, got: %q", want, frame.data)
 		}
+	}
+}
+
+// The `replayed` marker names the seam between a session's history and its
+// live tail. The browser cannot work that seam out for itself — a long replay
+// arrives across several reads, so "the first events I saw" is a fraction of
+// the backlog — and the frontend animates only what arrived after it
+// (web/src/hooks.ts useArrivals). It is shaped like a live delta for the same
+// two reasons: named, so it never reaches onmessage and cannot be mistaken
+// for a committed event, and without an id, so it cannot move Last-Event-ID
+// and make a reconnect skip whatever came after it.
+func TestSessionStreamMarksTheEndOfTheHistoryReplay(t *testing.T) {
+	srv, st, h := newTestServer(t)
+	mustCreateSession(t, st, "sess-1", time.Now())
+	appendAndPublish(t, st, h, "sess-1", []store.EventInput{
+		{Kind: store.KindSessionStarted, Payload: store.SessionStartedPayload{OpeningMessage: "go"}},
+		{Kind: store.KindTurnStarted, Payload: store.TurnStartedPayload{SubTurn: 1}},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/sessions/sess-1/stream", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	// Every historical event first, then the marker: a frame that arrived
+	// before it is backlog, and the ordering is the whole contract.
+	sr := newSSEReader(resp.Body)
+	var ids []string
+	for {
+		frame, err := sr.nextFrame()
+		if err != nil {
+			t.Fatalf("read frame: %v", err)
+		}
+		if frame.event == "replayed" {
+			if frame.id != "" {
+				t.Fatalf("the marker must carry no id, got %q", frame.id)
+			}
+			break
+		}
+		ids = append(ids, frame.id)
+	}
+	if len(ids) != 2 || ids[0] != "1" || ids[1] != "2" {
+		t.Fatalf("expected the whole history before the marker, got %v", ids)
+	}
+
+	// And an event committed afterwards still arrives, on the same
+	// connection: the marker separates the two halves, it does not end the
+	// stream.
+	appendAndPublish(t, st, h, "sess-1", []store.EventInput{
+		{Kind: store.KindContentDelta, Payload: store.ContentDeltaPayload{Text: "hi"}},
+	})
+	frame, err := sr.next()
+	if err != nil {
+		t.Fatalf("read live frame: %v", err)
+	}
+	if frame.id != "3" {
+		t.Fatalf("expected seq 3 after the marker, got id %q", frame.id)
 	}
 }
 
@@ -791,17 +854,16 @@ func TestSessionStreamRedactsLiveDeltas(t *testing.T) {
 	token := "ghp_" + strings.Repeat("q", 36)
 	h.PublishLive("sess-1", hub.LiveDelta{SubTurn: 1, Channel: hub.ChannelContent, Text: "the token is " + token})
 
-	buf := make([]byte, 4096)
-	n, err := resp.Body.Read(buf)
+	sr := newSSEReader(resp.Body)
+	frame, err := sr.next()
 	if err != nil {
 		t.Fatal(err)
 	}
-	frame := string(buf[:n])
-	if strings.Contains(frame, token) {
-		t.Fatalf("the live stream served the token: %q", frame)
+	if strings.Contains(frame.data, token) {
+		t.Fatalf("the live stream served the token: %q", frame.data)
 	}
-	if !strings.Contains(frame, "[redacted]") {
-		t.Fatalf("expected the placeholder in the live frame: %q", frame)
+	if !strings.Contains(frame.data, "[redacted]") {
+		t.Fatalf("expected the placeholder in the live frame: %q", frame.data)
 	}
 }
 
@@ -1067,15 +1129,32 @@ type sseReader struct {
 }
 
 type sseFrame struct {
-	id   string
-	data string
+	id    string
+	event string
+	data  string
 }
 
 func newSSEReader(body io.Reader) *sseReader {
 	return &sseReader{r: bufio.NewReader(body)}
 }
 
+// next returns the next frame that carries transcript content, skipping the
+// `replayed` marker that separates the history replay from the live tail.
+// Tests that assert on positions in the stream are about the events, not the
+// seam; nextFrame is what a test asserting on the marker itself uses.
 func (s *sseReader) next() (sseFrame, error) {
+	for {
+		frame, err := s.nextFrame()
+		if err != nil {
+			return sseFrame{}, err
+		}
+		if frame.event != "replayed" {
+			return frame, nil
+		}
+	}
+}
+
+func (s *sseReader) nextFrame() (sseFrame, error) {
 	var frame sseFrame
 	for {
 		line, err := s.r.ReadString('\n')
@@ -1094,6 +1173,8 @@ func (s *sseReader) next() (sseFrame, error) {
 			// comment / keep-alive, ignore
 		case strings.HasPrefix(line, "id: "):
 			frame.id = strings.TrimPrefix(line, "id: ")
+		case strings.HasPrefix(line, "event: "):
+			frame.event = strings.TrimPrefix(line, "event: ")
 		case strings.HasPrefix(line, "data: "):
 			frame.data = strings.TrimPrefix(line, "data: ")
 		}
