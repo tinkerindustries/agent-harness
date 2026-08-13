@@ -1,4 +1,4 @@
-# deepseek-harness — technical design
+# agent-harness — technical design
 
 A coding harness: an agent loop that reads and writes files in a workspace, runs
 commands, and iterates until a task is done. Go owns the loop and the tools.
@@ -34,7 +34,7 @@ harness *consuming* MCP tools as part of its own DeepSeek tool array, which
 would put a variable, request-dependent set of tool definitions in front of
 the frozen cached prefix (§3.2). The other direction is in scope and shipped:
 an MCP server that lets an external agent harness launch and collect
-deepseek-harness runs by publishing to the WORK stream below. It is a
+agent-harness runs by publishing to the WORK stream below. It is a
 separate process (`harness mcp`) that never touches the system prompt or the
 tool array DeepSeek sees.
 
