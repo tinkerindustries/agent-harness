@@ -30,7 +30,7 @@ import (
 // to match the tag (RELEASE.md, "What a release produces") — so feature work
 // leaves it alone, however much it changes the MCP surface. Hand-bumping it
 // here claims a release that does not exist and collides with the next one.
-const serverVersion = "0.22.0"
+const serverVersion = "0.23.0"
 
 // Service holds everything the MCP tool and resource handlers need: the
 // JetStream context to publish work requests and read results, an HTTP
