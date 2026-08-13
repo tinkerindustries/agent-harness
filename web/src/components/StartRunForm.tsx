@@ -394,7 +394,7 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
           {!attachmentCaps && !attachmentCapsError && (
             <p className="hint">Loading attachment limits…</p>
           )}
-          {attachmentCaps && chosen.length === 0 && (
+          {attachmentCaps && (
             <p className="hint">
               Mockups the agent reviews against, e.g. the page it should match. PNG, JPEG or WebP, up to{" "}
               {attachmentCaps.maxCount} files of {formatFileSize(attachmentCaps.maxBytes)} each.
