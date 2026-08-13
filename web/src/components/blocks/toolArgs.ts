@@ -68,8 +68,8 @@ export function formatCost(cost: number): string {
 
 // diffCounts counts the added and removed lines of a computed diff — the raw
 // figures behind the +n −n stat. Shared by diffStat (the string form, used
-// by the old tool headers) and the turn renderer's coloured diffstat parts
-// (design/session-chat.html sub-turn 7), so the counting lives in one place.
+// by the old tool headers) and the turn renderer's coloured diffstat
+// parts, so the counting lives in one place.
 export function diffCounts(diff: DiffLine[] | undefined): { adds: number; removes: number } {
   let adds = 0;
   let removes = 0;
@@ -103,8 +103,8 @@ export function childStat(subTurns: number, costUsd: number): string {
   return details.length > 0 ? `child · ${details.join(" · ")}` : "child";
 }
 
-// ToolHeader is a tool call's one-line summary (design/transcript.html's
-// .tool > summary): the tool name, the target the call acts on rather than
+// ToolHeader is a tool call's one-line summary (.tool > summary): the
+// tool name, the target the call acts on rather than
 // its raw arguments JSON, and the trailing stat — the +n −n from the diff
 // for Edit/Write, the child session's figures for a Task.
 export interface ToolHeader {
@@ -128,9 +128,9 @@ export function toolHeader(
   return { name: call.name, target: toolDetail(call), stat };
 }
 
-// ToolGlyph is one timeline-rail glyph (design/components.html "Tool
-// glyphs"): a monospace letter per tool, coloured by family — writes green,
-// shell blue, everything else neutral. "err" is never produced here; the
+// ToolGlyph is one timeline-rail glyph: a monospace letter per tool,
+// coloured by family — writes green, shell blue, everything else
+// neutral. "err" is never produced here; the
 // rail overrides a glyph whose result failed with { letter: "!", family:
 // "err" }.
 export interface ToolGlyph {

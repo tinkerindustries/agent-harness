@@ -1,8 +1,8 @@
 import type { Todo } from "../api/types";
 
-// ChatRail is the chat page's right-hand rail (design/session-chat.html's
-// .rail.rail-right): the plan with its progress bar and the in-progress item
-// highlighted, then the session facts. The watch page's rail is phase 4's;
+// ChatRail is the chat page's right-hand rail (.rail.rail-right): the
+// plan with its progress bar and the in-progress item highlighted, then
+// the session facts. The watch page's rail is phase 4's;
 // this one is the chat page's only rail, and it deliberately replaces the
 // filter chips, the timeline rail, and the plan panel — the design drops all
 // three from the interactive page and lets the plan carry the navigation.
@@ -60,8 +60,8 @@ export function ChatRail({
   );
 }
 
-// PlanProgress is the plan section (design/session-chat.html): the progress
-// bar with the completed ratio, then one .planrow per item — the done items
+// PlanProgress is the plan section: the progress bar with the completed
+// ratio, then one .planrow per item — the done items
 // dimmed with a ✓, the in-progress item highlighted with its activeForm, the
 // rest pending. The fold's own plan (snapshot.todos) is the only source;
 // nothing here re-parses a TaskCreate call.

@@ -34,7 +34,7 @@ export function planProgress(todos: Todo[]): PlanProgress {
 
 // splitVerb splits the collapsed line's "what it is doing" text into the
 // leading verb, which the drawing colours with the running tint, and the
-// rest of the sentence (design/sessions.html's .run-now .verb).
+// rest of the sentence (.run-now .verb).
 export function splitVerb(text: string): { verb: string; rest: string } {
   const i = text.indexOf(" ");
   if (i === -1) return { verb: text, rest: "" };

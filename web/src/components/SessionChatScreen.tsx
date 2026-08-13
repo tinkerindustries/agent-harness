@@ -34,10 +34,10 @@ interface Props {
   everOpen: boolean;
 }
 
-// The interactive session page (design/session-chat.html): a run a person
-// started, inside the full-height app shell the two session pages share
-// (design/session.css). Phase 3 is the page a person talks to: the composer
-// footer that never moves, sent messages rendered as .msg-user in the
+// The interactive session page: a run a person started, inside the
+// full-height app shell the two session pages share. Phase 3 is the
+// page a person talks to: the composer footer that never moves, sent
+// messages rendered as .msg-user in the
 // conversation, the plan rail on the right, the states around the run
 // (empty before the first message, the finished band after), the inline stop
 // confirmation, and the nav slot the design's header draws. The watch page
@@ -64,7 +64,7 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
     };
   }, []);
 
-  // --- the sent-message ledger (design/session-states.html's three states)
+  // --- the sent-message ledger (three states)
   // Two of the three states live in the fold's steer blocks; the ledger
   // completes them with what the fold cannot know. sentAt holds the local
   // time of each 202 this page accepted, so a pending message can count up
@@ -132,7 +132,7 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
     setFailed((prev) => prev.filter((f) => f.id !== id));
   }, []);
 
-  // --- the stop flow (design/session-states.html "stopping") ---
+  // --- the stop flow ---
   // Stop is behind a confirmation because a run you cannot get back is hard
   // to reverse; the strip is inline in the footer, not a modal over the
   // transcript. Between the 202 and the terminal event the banner says
@@ -232,7 +232,7 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
   );
 
   // What the run is doing right now, for the confirm strip's sentence
-  // (design/session-states.html: "It is 4m 12s in, mid `scripts/test.sh`").
+  // ("It is 4m 12s in, mid `scripts/test.sh`").
   const activity = useMemo(() => {
     if (!meta || !running) return null;
     let detail = "between sub-turns";
@@ -247,8 +247,8 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
     return { elapsedMs: now - Date.parse(meta.created_at), detail };
   }, [meta, running, snapshot.live.pendingTools, snapshot.live.turn, now]);
 
-  // The finished band (design/session-states.html "the run is over"): the
-  // composer is removed rather than disabled, and the outcome, duration and
+  // The finished band ("the run is over"): the composer is removed
+  // rather than disabled, and the outcome, duration and
   // cost take its place. The duration is the row's own finished_at −
   // created_at — the wall time the run actually ran, not a guess.
   const finished: FinishedBand | null = useMemo(() => {
@@ -263,8 +263,8 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
     };
   }, [meta, running, snapshot.blocks]);
 
-  // The plan-mini band (design/session-chat.html's narrow-width fallback):
-  // which plan item is running, in one line above the stream, shown only
+  // The plan-mini band (the narrow-width fallback): which plan item is
+  // running, in one line above the stream, shown only
   // when the rail itself is hidden at narrow widths.
   const planMini = useMemo(() => {
     if (snapshot.todos.length === 0) return null;
@@ -275,14 +275,14 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
     return { label, done, total: snapshot.todos.length };
   }, [snapshot.todos]);
 
-  // The empty state (design/session-states.html "before the first message"):
-  // POST /api/runs creates a run with no prompt, so a claimed session with
+  // The empty state ("before the first message"): POST /api/runs creates
+  // a run with no prompt, so a claimed session with
   // zero sub-turns is normal, not an error.
   const hasTurns = snapshot.counts.total > 0 || snapshot.live.turn !== null;
   const showEmpty = running && !hasTurns;
 
-  // The nav's right slot for this screen (design/session-chat.html's
-  // header): the RUNNING badge with its pulse dot, the elapsed time, the
+  // The nav's right slot for this screen: the RUNNING badge with its
+  // pulse dot, the elapsed time, the
   // permission-mode badge — a safety fact, stated next to the stop button —
   // and the Stop control, which arms the inline confirm strip in the footer.
   // The connection badge stays: it is the only thing on this screen that
@@ -316,7 +316,7 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
     </>,
   );
 
-  // --- follow the tail (design/session-chat.html's .jump) ---
+  // --- follow the tail (.jump) ---
   // The stream opens pinned to the newest turn and stays pinned while new
   // turns arrive; scrolling up stops the following and shows the jump pill;
   // clicking it (or scrolling back to the bottom by hand) resumes it.
@@ -454,8 +454,8 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
   );
 }
 
-// chatStartedBy is the rail's "started by" value (design/session-chat.html's
-// "you"): the bare identity, without the "started by " prefix the one-line
+// chatStartedBy is the rail's "started by" value ("you"): the bare
+// identity, without the "started by " prefix the one-line
 // provenance label carries — the fact row already says what the field is.
 function chatStartedBy(meta: SessionState): string {
   if (isUserStarted(meta)) return meta.parent_agent_id || "you";
@@ -467,8 +467,7 @@ function chatStartedBy(meta: SessionState): string {
 // metadata row plus the run_finished block's reason, when the fold has one.
 // The metadata endpoint carries complete_status but not run_finished's
 // reason, so STOPPED (answered in prose, no Complete call) is only
-// distinguishable on this screen, straight from the folded event log
-// (design/components.html).
+// distinguishable on this screen, straight from the folded event log.
 function headerOutcomeSession(meta: SessionState, blocks: Block[]): OutcomeSession {
   return { status: meta.status, complete_status: meta.complete_status, reason: lastRunFinishedReason(blocks) };
 }

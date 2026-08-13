@@ -7,8 +7,8 @@ import { formatElapsed } from "../blocks/ReasoningPanel";
 import { formatCost, toolDetail } from "../blocks/toolArgs";
 import { cachePercent, elideLines, toolStat, type ToolResultLike } from "./turnHelpers";
 
-// Turn renders one frozen sub-turn as a turn (design/session-chat.html's
-// .turn), not a card: the gutter anchor with the sub-turn number, the hover
+// Turn renders one frozen sub-turn as a turn (.turn), not a card: the
+// gutter anchor with the sub-turn number, the hover
 // telemetry line, a think disclosure, the assistant's prose, and one tool
 // row per call. It is memoised on the group object exactly the way SubTurnCard
 // was — SubTurnGroupState only replaces a group when its own blocks or usage
@@ -75,9 +75,8 @@ function churnExcess(usage: UsageBlock): number {
   return Math.max(0, usage.prompt_cache_miss_tokens - usage.expected_miss_tokens);
 }
 
-// ChurnWarn is the gutter's amber warn glyph (design/session-chat.html
-// sub-turn 7): a churn point is the one thing on this page that states
-// itself without being asked.
+// ChurnWarn is the gutter's amber warn glyph: a churn point is the one
+// thing on this page that states itself without being asked.
 function ChurnWarn({ usage }: { usage: UsageBlock }) {
   if (usage.churn_point_index === undefined) return null;
   const excess = churnExcess(usage);
@@ -88,8 +87,8 @@ function ChurnWarn({ usage }: { usage: UsageBlock }) {
   );
 }
 
-// TurnMeta is the per-turn telemetry line (design/session-chat.html's
-// .turnmeta): elapsed, cache hit, output tokens, cost — churn first when the
+// TurnMeta is the per-turn telemetry line (.turnmeta): elapsed, cache
+// hit, output tokens, cost — churn first when the
 // usage carried a churn point. Every figure comes from data the fold already
 // carries; nothing here parses or re-derives.
 function TurnMeta({ usage, elapsedMs }: { usage: UsageBlock; elapsedMs?: number }) {
@@ -113,9 +112,9 @@ function TurnMeta({ usage, elapsedMs }: { usage: UsageBlock; elapsedMs?: number 
 
 // ToolRows is a frozen group's tool calls, one .tool disclosure per call in
 // the order the model made them. Two or more calls in one turn read as a
-// set, wrapped in a .toolset with the "N calls in parallel" label
-// (design/session-chat.html sub-turn 2). A call whose result has not landed
-// is deliberately absent here — the live section below the list is what
+// set, wrapped in a .toolset with the "N calls in parallel" label. A
+// call whose result has not landed is deliberately absent here — the
+// live section below the list is what
 // shows it while it runs.
 function ToolRows({
   group,
@@ -161,8 +160,8 @@ function ToolRows({
   return rowsEl;
 }
 
-// ToolRow is one frozen tool call (design/session-chat.html's .tool): closed
-// it is glyph, name, target, and the single most useful number for that
+// ToolRow is one frozen tool call (.tool): closed it is glyph, name,
+// target, and the single most useful number for that
 // tool; open it shows the result. A failed call is .tool-err and open by
 // default — an error you have to click to see is an error you will miss.
 function ToolRow({ call, result }: { call: ToolCallPayload | undefined; result: ToolResultLike }) {
@@ -196,8 +195,7 @@ function ToolRow({ call, result }: { call: ToolCallPayload | undefined; result: 
 
 // ToolBody is a frozen tool result's body: the computed diff table for an
 // edit, the raw output for everything else. Long output truncates to a head
-// and a tail with an elided row — no scroll container inside the turn list
-// (design/README.md).
+// and a tail with an elided row — no scroll container inside the turn list.
 function ToolBody({ result }: { result: ToolResultLike }) {
   if (result.type === "tool_denied") {
     return <pre className="tool-out">{`rule: ${result.rule}${result.content ? `\n${result.content}` : ""}`}</pre>;
@@ -214,10 +212,9 @@ function ToolBody({ result }: { result: ToolResultLike }) {
   return <ElidedOutput text={result.content} />;
 }
 
-// ElidedOutput renders a tool result's text whole when it is short, and as
-// head, elided row, tail when it is long (design/session-chat.html sub-turn
-// 2). Expanding grows the page — the elided row is a button, never a
-// scroll container.
+// ElidedOutput renders a tool result's text whole when it is short, and
+// as head, elided row, tail when it is long. Expanding grows the page —
+// the elided row is a button, never a scroll container.
 function ElidedOutput({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
   const split = useMemo(() => elideLines(text), [text]);

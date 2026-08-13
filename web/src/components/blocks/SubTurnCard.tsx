@@ -10,13 +10,13 @@ import { ReasoningPanel, formatElapsed } from "./ReasoningPanel";
 import { ToolResultBody } from "./ToolResultBlock";
 import { childStat, exitCode, formatCost, toolHeader } from "./toolArgs";
 
-// SubTurnCard renders one sub-turn as a single card, always full
-// (design/transcript.html): reasoning, assistant text, tool calls and their
-// results in one body, with the sub-turn's usage figures in the header
-// instead of a sibling usage block. The session redesign retired the
-// Compact/Full toggle (design/README.md "The two session pages" — a turn is
-// always full, and collapsing happens per tool row instead), so this card —
-// now only used for a child transcript nested inside a Task tool result,
+// SubTurnCard renders one sub-turn as a single card, always full:
+// reasoning, assistant text, tool calls and their results in one body,
+// with the sub-turn's usage figures in the header instead of a sibling
+// usage block. The session redesign retired the Compact/Full toggle (a
+// turn is always full, and collapsing happens per tool row instead), so
+// this card — now only used for a child transcript nested inside a Task
+// tool result,
 // where the design does not cover a turn rendering — is always expanded.
 // It is memoised on the group object, which SubTurnGroupState only replaces
 // when the group's own children or usage change — so every group but the
@@ -145,8 +145,8 @@ function SubTurnBody({ group, getToolCall }: { group: SubTurnGroup; getToolCall:
   );
 }
 
-// ToolCallCard is one tool call inside a sub-turn card (design/transcript.html's
-// .tool): a header row with the tool's name, the target it acts on, and the
+// ToolCallCard is one tool call inside a sub-turn card (.tool): a header
+// row with the tool's name, the target it acts on, and the
 // trailing stat — the +n −n from the diff, the child session's figures, or an
 // exit badge for a failed call — over the result body. The header is built
 // from the call the fold keeps in toolCallsById, read through the store's

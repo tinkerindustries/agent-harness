@@ -220,7 +220,7 @@ describe("FoldState live view", () => {
     // The pending tool's start stamp is the turn_finished event's
     // created_at — the moment the turn froze and its calls began running —
     // which is what the watch page's footer ages the running tool from
-    // (design/session-watch.html's "1m 04s" under the tool name).
+    // ("1m 04s" under the tool name).
     expect(state.live.pendingTools.get("call_1")?.startedAt).toBe("2026-01-01T00:00:07Z");
 
     state.ingest(ev(8, "tool_stdout", { tool_call_id: "call_1", text: "hi\n" }));
@@ -512,8 +512,8 @@ describe("skills catalogue", () => {
   });
 });
 
-// The launching agent's instruction (design/session-watch.html's .msg-user):
-// the task tail of the opening message, carried separately by
+// The launching agent's instruction (.msg-user): the task tail of the
+// opening message, carried separately by
 // session_started so the watch page renders it as its own message without
 // parsing the message text.
 describe("launching instruction block", () => {

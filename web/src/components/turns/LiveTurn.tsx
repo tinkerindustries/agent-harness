@@ -5,8 +5,8 @@ import { formatElapsed } from "../blocks/ReasoningPanel";
 import { toolDetail } from "../blocks/toolArgs";
 
 // LiveTurnSection is the tail of the conversation that has not frozen yet
-// (design/session-chat.html's .turn.live): the in-progress sub-turn as a
-// live turn, and any tool call awaiting its result as tool-live rows. It is
+// (.turn.live): the in-progress sub-turn as a live turn, and any tool
+// call awaiting its result as tool-live rows. It is
 // deliberately NOT memoised — it re-renders on every flush, which is the
 // point (docs/DESIGN.md §5.3: streaming content renders as plain
 // preformatted text — no markdown parse, no highlighting, no diff — and the
@@ -76,8 +76,8 @@ function LiveTurn({ turn }: { turn: LiveTurn }) {
 // toolRows renders tool rows with the live vocabulary — a pulsing dot for
 // the glyph and a "running" timing, the design's sub-turn 43. pendingTools,
 // when given, supplies the streamed stdout for the calls it knows — and the
-// call's own start stamp, so a running row can count its own age ("running
-// · 42s", design/session-watch.html) the way the footer's nowline does. A
+// call's own start stamp, so a running row can count its own age
+// ("running · 42s") the way the footer's nowline does. A
 // streaming turn's announced calls have not started running yet and carry
 // neither. Two or more rows read as a set, wrapped in a .toolset.
 function toolRows(calls: ToolCallPayload[], pendingTools: Map<string, PendingTool> | null): React.ReactNode {
@@ -95,8 +95,8 @@ function toolRows(calls: ToolCallPayload[], pendingTools: Map<string, PendingToo
   return rows;
 }
 
-// LiveToolRow is one running tool call (design/session-chat.html's
-// .tool.tool-live): open by default, pulsing dot, target, "running" plus
+// LiveToolRow is one running tool call (.tool.tool-live): open by
+// default, pulsing dot, target, "running" plus
 // the wall time so far when the fold knows when the call started, and the
 // streamed stdout as plain preformatted text when there is any.
 //

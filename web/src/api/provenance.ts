@@ -3,8 +3,8 @@ import type { SessionState } from "./types";
 // isUserStarted is the single predicate behind both the "started by" label
 // and the session-route fork: True means a person started this run and can
 // talk to it; false means another agent did, and the person looking at it is
-// a spectator who may stop it but not steer it (design/README.md). It is the
-// only place the legacy encoding lives: a pre-migration row carries
+// a spectator who may stop it but not steer it. It is the only place
+// the legacy encoding lives: a pre-migration row carries
 // parent_agent_type === "user" and no parent_is_user, and must read exactly
 // like a producer-stamped user start. The fork and the label both call this,
 // so they can never disagree about the same row.

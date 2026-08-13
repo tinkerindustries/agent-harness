@@ -909,8 +909,8 @@ because it goes back to the API.
 Vite, React, TypeScript, shadcn/ui on Tailwind v4. The component layer is
 `accordion`, `badge`, `button`, `card`, `collapsible`, `input`, `toggle`,
 `toggle-group`, and `tooltip` (in `web/src/components/ui/`), themed from
-`design/tokens.css` with the variables ported into the theme block in
-`web/src/styles.css`. `ScrollArea` and `DataTable` are deliberately absent —
+the token set ported into the theme block in `web/src/styles.css`.
+`ScrollArea` and `DataTable` are deliberately absent —
 the rail and the plan column are plain sticky elements, and the diff table
 renders inside the transcript (docs/WEB-REDESIGN.md phase 1). Everything
 shadcn has no opinion about — the transcript block styles, the diff table,

@@ -4,7 +4,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/colla
 
 // OpeningBlock renders the run's opening message collapsed to one summary
 // line — the workspace line, the word count, and the files it names
-// (design/transcript.html's .fold card, docs/WEB-REDESIGN.md phase 5). A
+// (.fold card, docs/WEB-REDESIGN.md phase 5). A
 // task that runs about 3,000 words before its first sub-turn was pushing the
 // transcript's start off the first screen; the full text stays one disclosure
 // away.

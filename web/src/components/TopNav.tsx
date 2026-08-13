@@ -2,9 +2,9 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 import type { Route } from "../App";
 import { cn } from "@/lib/utils";
 
-// The shared top nav (docs/WEB-REDESIGN.md phase 9, design/nav.html): the
-// wordmark, the three sections as real links with an active state, and — on
-// a session detail — a crumb for the session id. One component, mounted once
+// The shared top nav (docs/WEB-REDESIGN.md phase 9): the wordmark, the
+// three sections as real links with an active state, and — on a session
+// detail — a crumb for the session id. One component, mounted once
 // by App around whichever screen the route renders; the screens never
 // redeclare it. What the design keeps page-specific — the session list's
 // search input and LIVE badge, the settings screen's search input, the
@@ -28,9 +28,9 @@ export function useNavRight(node: ReactNode): void {
 }
 
 // section is which of the three links the current route belongs to: the
-// session list and a session's transcript are both the Sessions section
-// (design/nav.html), and only the transcript additionally renders the crumb
-// below, in the slot a page title would otherwise sit in.
+// session list and a session's transcript are both the Sessions section,
+// and only the transcript additionally renders the crumb below, in the
+// slot a page title would otherwise sit in.
 function sectionOf(route: Route): "sessions" | "evals" | "operations" | "settings" {
   if (route.kind === "list" || route.kind === "session") return "sessions";
   if (route.kind === "evals" || route.kind === "evalRun") return "evals";

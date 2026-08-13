@@ -11,9 +11,9 @@ interface Props {
   onNavigate: (path: string) => void;
 }
 
-// The session route's fork (design/README.md): which of the two session
-// pages a run gets is decided by SessionState.parent_is_user — true means a
-// person started this run and can talk to it (the interactive chat page),
+// The session route's fork: which of the two session pages a run gets
+// is decided by SessionState.parent_is_user — true means a person
+// started this run and can talk to it (the interactive chat page),
 // false means another agent did (the read-only watch page). The decision is
 // the single provenance predicate (web/src/api/provenance.ts), the same one
 // the "started by" label renders from, so the fork and the label can never
@@ -39,8 +39,8 @@ export function SessionScreen({ sessionId, onNavigate }: Props) {
   }, [sessionId]);
 
   // The app shell: the page stops scrolling and the conversation column
-  // scrolls instead (design/session.css "app shell"). Only this route
-  // carries body.app; the session list, settings and operations screens
+  // scrolls instead. Only this route carries body.app; the session
+  // list, settings and operations screens
   // keep scrolling the page as they always have. Within the route, the
   // shell belongs to the chat page and to a live watch run (the pinned
   // footer answers "what is it doing right now"); a finished watch run is

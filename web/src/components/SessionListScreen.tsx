@@ -69,9 +69,9 @@ function hitRateTitle(usage: Usage): string {
   return `cache hit ${usage.cache_hit_tokens} / miss ${usage.cache_miss_tokens} tokens`;
 }
 
-// matchesQuery is the session list's own filter (design/sessions-v2.html's
-// search input): id, workspace, or request id, client-side over the snapshot
-// the table already holds — no backend field, no endpoint.
+// matchesQuery is the session list's own filter: id, workspace, or
+// request id, client-side over the snapshot the table already holds —
+// no backend field, no endpoint.
 function matchesQuery(s: SessionState, q: string): boolean {
   if (q === "") return true;
   return (
@@ -89,9 +89,9 @@ interface DayStats {
   totalMs: number | null;
 }
 
-// computeDayStats rolls the snapshot up into the stat strip's four numbers
-// (design/sessions-v2.html): Running, Spend today, Median duration today,
-// Total time today. "Today" is the current local calendar day, judged
+// computeDayStats rolls the snapshot up into the stat strip's four
+// numbers: Running, Spend today, Median duration today, Total time
+// today. "Today" is the current local calendar day, judged
 // by created_at. Nothing here is a new backend field — running and the
 // finished-today count come straight from the list, spend, the median and
 // the total are reductions over it — and the duration figures cover only
@@ -152,9 +152,9 @@ export function SessionListScreen({ onOpen }: Props) {
     });
   };
 
-  // The list's own search (design/sessions-v2.html). The input lives in the
-  // shared nav's right slot (below); the filter runs over the snapshot the
-  // table already holds, client-side, so a keystroke never hits the network.
+  // The list's own search. The input lives in the shared nav's right
+  // slot (below); the filter runs over the snapshot the table already
+  // holds, client-side, so a keystroke never hits the network.
   const [query, setQuery] = useState("");
 
   // The start form (docs/RUN-CONTROL.md "The frontend"): the trigger lives
@@ -238,10 +238,10 @@ export function SessionListScreen({ onOpen }: Props) {
   // — a distinct state, so a blank page never reads as an empty harness.
   const emptyState = tableEmptyState(snapshot.sessions.length, running.length + finished.length);
 
-  // The nav's right slot for this screen (design/nav.html's Sessions state):
-  // the start-run trigger (phase 6, docs/RUN-CONTROL.md "The frontend"), the
-  // search input, and the LIVE badge. The dot pulses while the stream is
-  // open and goes still while EventSource reconnects. When run control is
+  // The nav's right slot for this screen: the start-run trigger (phase 6,
+  // docs/RUN-CONTROL.md "The frontend"), the search input, and the LIVE
+  // badge. The dot pulses while the stream is open and goes still while
+  // EventSource reconnects. When run control is
   // not configured the trigger is replaced by a note saying so — a form
   // whose submit would 503 must not be offered as a button.
   useNavRight(
@@ -359,10 +359,10 @@ export function SessionListScreen({ onOpen }: Props) {
   );
 }
 
-// StatStrip is the four cards above the queue health bar
-// (design/sessions-v2.html): Running (of the pool's slots), Spend today,
-// Median duration today, Total time today. Each value carries the
-// qualifying small print under it — the denominator, the count the
+// StatStrip is the four cards above the queue health bar: Running (of
+// the pool's slots), Spend today, Median duration today, Total time
+// today. Each value carries the qualifying small print under it — the
+// denominator, the count the
 // duration figures are over — the way the drawing's cards do, so a
 // rolled-up figure never floats free of what it is made of.
 // Every figure here is a Ticker: these four move while an operator watches the
@@ -405,9 +405,9 @@ function StatStrip({ stats, poolSize }: { stats: DayStats; poolSize: number | nu
 }
 
 // InFlightCard is one running session as a collapsible plan card
-// (docs/WEB-REDESIGN.md phase 3, design/sessions.html). Collapsed, its
-// summary answers what the session is about — the job's description (sess.task)
-// — and what it is doing (the in_progress item's activeForm) and how far in
+// (docs/WEB-REDESIGN.md phase 3). Collapsed, its summary answers what the
+// session is about — the job's description (sess.task) — and what it is
+// doing (the in_progress item's activeForm) and how far in
 // it is (the completed ratio); expanded, it shows the whole plan and the
 // actions row. The caret is its own small toggle button (sibling of the
 // summary, each keyboard-reachable): it toggles the plan disclosure, while
@@ -461,7 +461,7 @@ function InFlightCard({
               </span>
               {/* The two figures a running session is judged by — elapsed
                   in full weight, sub-turns dimmer — the finished table's
-                  columns minus Cost and Cache (design/sessions-v2.html). */}
+                  columns minus Cost and Cache. */}
               <span className="run-stats">
                 <span className="primary">
                   {/* Elapsed is the one figure on this card that moves every
@@ -544,10 +544,10 @@ function CopyIdButton({ sessionId }: { sessionId: string }) {
 // .sess-sub line clamp), so scanning the list does not require opening each
 // transcript. The row itself is clickable (onOpen, on the <tr>) — the cell
 // holds no id any more, and the click target never lived on the id span.
-// Column order is Status, Session, Elapsed, Cost, Model, Sub-turns, Cache
-// (design/sessions-v2.html): the two numbers the redesign asked to
-// prioritise sit right after Session, where they stay visible before any
-// column the scroll container might still need on a narrow viewport.
+// Column order is Status, Session, Elapsed, Cost, Model, Sub-turns, Cache:
+// the two numbers the redesign asked to prioritise sit right after
+// Session, where they stay visible before any column the scroll
+// container might still need on a narrow viewport.
 // Elapsed and Cost carry the same primary weight as the in-flight card's
 // stat row.
 function FinishedRow({

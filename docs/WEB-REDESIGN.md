@@ -1,7 +1,5 @@
 # Web UI redesign
 
-The mockups are in [`design/`](../design/). This is the order to build them in.
-
 Nine phases. Each one ships on its own and leaves the UI working; nothing here
 needs a big-bang cutover. Phases 2 and 3 are the two the design pass was asked
 for — the DONE status and the in-flight plan on the main page — and they come
@@ -45,8 +43,8 @@ beyond colour.
 **Changes.** Add Tailwind v4, `tailwindcss-animate`, `clsx`,
 `tailwind-merge`, and the Radix primitives shadcn wraps. Run `shadcn init` with
 the neutral base, then add only what the mocks use: `badge`, `button`, `card`,
-`collapsible`, `input`, `toggle`, `toggle-group`, `tooltip`. Port
-`design/tokens.css` into the generated theme block, keeping the variable names.
+`collapsible`, `input`, `toggle`, `toggle-group`, `tooltip`. Port the design
+tokens into the generated theme block, keeping the variable names.
 Rewrite `web/src/styles.css` as the layer that remains: the transcript block
 styles, the diff table, and the status and diff tokens shadcn has no opinion
 about.
@@ -76,8 +74,7 @@ a pass of small layout corrections in the transcript blocks.
 
 ## Phase 2 — Outcome vocabulary
 
-**Goal.** `OK` becomes `DONE`, `GAVE UP`, or `STOPPED`. The mapping table is in
-`design/components.html`.
+**Goal.** `OK` becomes `DONE`, `GAVE UP`, or `STOPPED`.
 
 The three outcomes are already distinct in the store. `run_finished` carries
 `reason` (`complete`, `no_tool_calls`, `max_sub_turns`) and `status` (the
@@ -107,7 +104,6 @@ store test for the migration backfill and a `fold.ts` test for the mapping.
 the live plan. Collapsed, a card answers what the session is about — the job's
 description — and what it is doing and how far in it is; expanded, it shows the
 whole plan and the run's actions.
-See `design/sessions.html`.
 
 **Backend.** The list feed has no plan. Todos are parsed client-side from the
 latest `TodoWrite` arguments, which only the transcript stream carries.
@@ -225,8 +221,7 @@ phase closed and Radix unmounts a closed phase's rows.
 
 ## Phase 7 — The settings screen
 
-**Goal.** The registry reads as a list rather than a wall of write controls. The
-mock is `design/settings.html`.
+**Goal.** The registry reads as a list rather than a wall of write controls.
 
 The screen renders all 27 registry entries with a text input and two buttons on
 every row, so a screen an operator visits to change one key opens with 27 fields
@@ -277,9 +272,7 @@ lines above added; and the rail harness's entries counter fixed.
 ## Phase 9 — Shared top nav and front-page rollup
 
 **Goal.** One header on every product screen, and a front page that answers
-"how is the harness doing right now" at a glance. The mocks are
-`design/nav.html` (the four nav states) and `design/sessions-v2.html` (the
-redesigned list).
+"how is the harness doing right now" at a glance.
 
 **Changes.**
 
@@ -316,11 +309,11 @@ redesigned list).
   `.table-scroll`'s horizontal scroll on a narrow viewport. Elapsed and Cost
   cells carry the same primary weight as the in-flight card.
 
-**Exit.** The four nav states in `design/nav.html` render as designed, with
-each screen's right-hand content in place; the stat strip's four numbers match
-a hand reduction over the same list; at 1600px the finished table shows
-Elapsed and Cost without scrolling; the in-flight card keeps all four stats
-visible by letting the run-meta line ellipsize first.
+**Exit.** The four nav states render as designed, with each screen's
+right-hand content in place; the stat strip's four numbers match a hand
+reduction over the same list; at 1600px the finished table shows Elapsed and
+Cost without scrolling; the in-flight card keeps all four stats visible by
+letting the run-meta line ellipsize first.
 
 **Status.** Landed (commit `ef406cf`, PR #46).
 

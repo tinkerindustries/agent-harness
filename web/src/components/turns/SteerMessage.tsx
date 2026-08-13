@@ -3,10 +3,10 @@ import { formatDuration } from "../../api/operations";
 import { useNow } from "../../hooks";
 import { pendingWaitLabel } from "./turnHelpers";
 
-// SteerMessage is a sent operator message on the chat page
-// (design/session-chat.html's .msg-user, design/session-states.html's three
-// states): the text in mono behind the running-colour left rule, and a state
-// line under it. It replaces the old steer block card on the interactive page
+// SteerMessage is a sent operator message on the chat page (.msg-user,
+// three states): the text in mono behind the running-colour left rule,
+// and a state line under it. It replaces the old steer block card on
+// the interactive page
 // — a message is a message, not a block — while the watch page keeps the
 // block rendering.
 //

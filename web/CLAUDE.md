@@ -7,8 +7,8 @@ with shadcn/ui on Tailwind v4 as the component layer — `accordion`, `badge`,
 `tooltip` are in (in `src/components/ui/`); `ScrollArea` and `DataTable` are
 deliberately out, because the rail and the plan column are plain sticky
 elements and the diff table renders inside the transcript
-(docs/WEB-REDESIGN.md phase 1). The theme variables are ported from
-`design/tokens.css`, and everything shadcn has no opinion about — the shared
+(docs/WEB-REDESIGN.md phase 1). The theme variables are ported from the
+design token set, and everything shadcn has no opinion about — the shared
 top nav, the transcript block styles, the diff table, and the status and diff
 tokens — is plain CSS in `src/styles.css`. No router, no data layer beyond the
 SSE client, the store, and the settings fetch calls. `docs/DESIGN.md` §5 is

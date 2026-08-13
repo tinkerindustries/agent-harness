@@ -1,9 +1,9 @@
 /* The frontend's stylesheet, in three layers.
  *
  * 1. The shadcn/ui layer: Tailwind v4 plus the theme block below. The
- *    variable values are ported verbatim from design/tokens.css — shadcn's
- *    names carry shadcn's values, and the --status- / --diff- names survive
- *    unchanged as the vocabulary on top that shadcn has no opinion about.
+ *    variable values are ported verbatim — shadcn's names carry shadcn's
+ *    values, and the --status- / --diff- names survive unchanged as the
+ *    vocabulary on top that shadcn has no opinion about.
  *    The dark block responds to prefers-color-scheme (no theme switcher;
  *    docs/WEB-REDESIGN.md "What is deliberately not here").
  * 2. The base layer: preflight plus the app's default body styling.
@@ -18,14 +18,14 @@
 @import "shadcn/tailwind.css";
 
 /* The tokens respond to prefers-color-scheme rather than a .dark class, so
-   the `dark:` variant follows the media query too (design/tokens.css). */
+   the `dark:` variant follows the media query too. */
 @custom-variant dark {
   @media (prefers-color-scheme: dark) {
     @slot;
   }
 }
 
-/* ---------- theme: the design token set (design/tokens.css) ---------- */
+/* ---------- theme: the design token set ---------- */
 
 :root {
   --background: hsl(0 0% 100%);
@@ -48,8 +48,7 @@
   --input: hsl(240 6% 90%);
   --ring: hsl(240 5% 65%);
 
-  /* Session outcome vocabulary. One colour per meaning; the meanings are
-     defined in design/components.html. */
+  /* Session outcome vocabulary. One colour per meaning. */
   --status-running: hsl(217 91% 48%);
   --status-running-bg: hsl(217 91% 96%);
   --status-done: hsl(142 66% 32%);
@@ -606,7 +605,7 @@ html {
    One header, identical on every product screen: the wordmark, the three
    sections as real links with an active state, then whatever is page-specific
    (the search inputs, the LIVE/connection badge, the refresh button) pinned
-   right via the nav's right slot. Ported from design/tokens.css, adapted to
+   right via the nav's right slot. Ported from the mock, adapted to
    the app's own column: the mock's .page was 1360px wide, the real screens
    are the .screen column (960px, 1200px for the transcript), so the nav rides
    in the same centered column as the screen below it with the same horizontal
@@ -711,9 +710,9 @@ html {
   min-width: 0;
 }
 
-/* The LIVE badge's pulse dot (design/tokens.css). The dot takes its colour
-   from the badge's currentColor, so it reads blue on the running badge and
-   goes still while the stream reconnects. */
+/* The LIVE badge's pulse dot. The dot takes its colour from the badge's
+   currentColor, so it reads blue on the running badge and goes still
+   while the stream reconnects. */
 .dot {
   width: 6px;
   height: 6px;
@@ -786,8 +785,7 @@ pre {
 /* ---------- session list: in-flight cards and the finished table ----------
    Running sessions leave the table and become collapsible plan cards;
    finished sessions keep the dense table, whose Session cell gains a
-   one-line subtitle per row (docs/WEB-REDESIGN.md phase 3,
-   design/sessions.html). */
+   one-line subtitle per row (docs/WEB-REDESIGN.md phase 3). */
 
 .list-section + .list-section {
   margin-top: calc(var(--space) * 2.5);
@@ -929,8 +927,8 @@ pre {
 }
 
 /* The two figures a running session is judged by, matching the finished
-   table's columns minus Cost and Cache (design/sessions-v2.html): elapsed
-   in full weight, sub-turns dimmer. */
+   table's columns minus Cost and Cache: elapsed in full weight,
+   sub-turns dimmer. */
 .run-stats .primary {
   color: var(--foreground);
   font-weight: 600;
@@ -1013,10 +1011,10 @@ pre {
 
 /* The plan list as the in-flight card renders it: the same todo-item glyphs
    and status classes PlanList renders in the transcript panel, drawn at the
-   card's density with the running item marked by a left rule and a tint
-   (design/sessions.html). Every rule is scoped under .run-plan so the
-   transcript's own `.plan-panel ul` rendering — and its strikethrough, which
-   the card deliberately drops — is untouched. */
+   card's density with the running item marked by a left rule and a tint.
+   Every rule is scoped under .run-plan so the transcript's own
+   `.plan-panel ul` rendering — and its strikethrough, which the card
+   deliberately drops — is untouched. */
 .run-plan .plan-list {
   list-style: none;
   margin: 0;
@@ -1087,9 +1085,8 @@ pre {
      max-width a long plan summary stretched the Session column until every
      column after it scrolled off the right edge (measured live at 1600px —
      only Status and Session visible). The subtitle now ellipses instead of
-     pushing (design/sessions-v2.html), and Elapsed/Cost sit right after
-     Session so the two prioritised numbers are never the ones that scroll
-     away. */
+     pushing, and Elapsed/Cost sit right after Session so the two
+     prioritised numbers are never the ones that scroll away. */
   max-width: 360px;
   min-width: 0;
 }
@@ -1113,7 +1110,7 @@ pre {
 }
 
 /* The finished table's Elapsed and Cost cells carry the same primary weight
-   as the in-flight card's stat row (design/sessions-v2.html). */
+   as the in-flight card's stat row. */
 .session-table .primary {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -1121,11 +1118,11 @@ pre {
 }
 
 /* ---------- session list: the stat strip (docs/WEB-REDESIGN.md phase 9) ---
-   The four cards above the queue health bar (design/sessions-v2.html):
-   Running (of the pool's slots), Spend today, Median duration today, Done vs
-   gave up today. All four are computed client-side over the session list the
-   screen already holds, plus worker.pool_size off the settings endpoint —
-   no new backend field, no new endpoint. */
+   The four cards above the queue health bar: Running (of the pool's
+   slots), Spend today, Median duration today, Done vs gave up today. All
+   four are computed client-side over the session list the screen already
+   holds, plus worker.pool_size off the settings endpoint — no new backend
+   field, no new endpoint. */
 
 .stats {
   display: grid;
@@ -1390,8 +1387,8 @@ pre {
   scroll-margin-top: var(--nav-height);
 }
 
-/* A tool card inside a sub-turn body (design/transcript.html's .tool):
-   header row of name, target, and trailing stat over the result body. */
+/* A tool card inside a sub-turn body: header row of name, target, and
+   trailing stat over the result body. */
 .tool-card {
   border: 1px solid var(--border);
   border-radius: calc(var(--radius) - 2px);
@@ -1481,8 +1478,8 @@ pre {
   margin: 2px 2px;
 }
 
-/* The filter chips: a pill Toggle in the same vocabulary as design/tokens.css
-   .chip, on top of the shadcn Toggle's pressed state. */
+/* The filter chips: a pill Toggle in the same vocabulary as .chip,
+   on top of the shadcn Toggle's pressed state. */
 .chip-toggle {
   height: 26px;
   min-width: 0;
@@ -1705,8 +1702,8 @@ pre {
 
 /* ---------- the timeline rail (docs/WEB-REDESIGN.md phase 6) ----------
    The sticky left column that lists every sub-turn under the plan item that
-   was in_progress when it ran (design/transcript.html). The column sticks
-   below the toolbar and scrolls its own content with plain overflow — NOT
+   was in_progress when it ran. The column sticks below the toolbar and
+   scrolls its own content with plain overflow — NOT
    ScrollArea (phase 1's deliberate omission: a custom scroll container costs
    a wrapper and a listener per column on a screen that is already
    frame-budget sensitive). */
@@ -1749,7 +1746,7 @@ pre {
 }
 
 /* A phase is one AccordionItem (type multiple — several open at once while
-   browsing); the summary row is the trigger, styled as design/transcript.html's
+   browsing); the summary row is the trigger, styled as
    .rail-phase > summary. */
 .rail-phase {
   border-bottom: 0;
@@ -1840,9 +1837,8 @@ pre {
   color: var(--foreground);
 }
 
-/* The glyph row: one monospace letter per tool call, coloured by family
-   (design/components.html "Tool glyphs" — writes green, shell blue, failed
-   results red). */
+/* The glyph row: one monospace letter per tool call, coloured by family —
+   writes green, shell blue, failed results red. */
 .glyphs {
   display: flex;
   gap: 3px;
@@ -1964,9 +1960,9 @@ pre {
 /* ---------- settings screen ---------- */
 
 /* The screen reads as a list: one registry entry per collapsible row, closed
-   to a single grid line (design/settings.html). Reading is the default state
-   and writing is an act, so a freshly opened screen has nothing in the tab
-   order but the disclosures, the filter chips, and the expand-all button. */
+   to a single grid line. Reading is the default state and writing is an
+   act, so a freshly opened screen has nothing in the tab order but the
+   disclosures, the filter chips, and the expand-all button. */
 
 .settings-strip {
   display: flex;
@@ -2011,8 +2007,7 @@ pre {
   flex: 1;
 }
 
-/* The filter chips: a pill toggle in the same vocabulary as design/tokens.css
-   .chip. */
+/* The filter chips: a pill toggle in the same vocabulary as .chip. */
 .chip {
   display: inline-flex;
   align-items: center;
@@ -2094,7 +2089,7 @@ pre {
    below it. The value column is the one an operator scans: a stored value at
    full weight, a default muted, a missing credential in the gave-up colour —
    so the rows this installation has changed are findable without reading a
-   badge on every row (design/settings.html, components.html). */
+   badge on every row. */
 .settings-row {
   background: var(--card);
 }
@@ -2237,7 +2232,7 @@ pre {
 }
 
 /* The notices: .notice for "this breaks until you fix it", .notice-quiet for
-   the restart caveat that colours nothing (design/settings.html). */
+   the restart caveat that colours nothing. */
 .notice {
   border: 1px solid var(--border);
   border-left: 3px solid var(--status-gaveup);
@@ -2680,7 +2675,7 @@ pre {
 
 /* ---------- status and diff tokens on the shadcn Badge ----------
    The badge itself is the component; these are the harness's own vocabulary
-   tints on top of it, straight from design/tokens.css. */
+   tints on top of it. */
 
 .badge-running {
   background: var(--status-running-bg);
@@ -2731,17 +2726,13 @@ pre {
   font-family: var(--font-mono);
 }
 
-/* ---------- the two session pages' shared layer (design/session.css) ----------
-   Ported wholesale from design/session.css, which the flat mockups share:
-   design/session-chat.html is the interactive page (a run a person started),
-   design/session-watch.html the read-only page (a run an agent started). The
-   vocabulary lands here so the two screens only write markup; phases 2-4 of
-   the session-pages work build on it.
+/* ---------- the two session pages' shared layer ----------
+   Ported wholesale from the flat mockups' shared layer: the interactive
+   page (a run a person started) and the read-only page (a run an agent
+   started) both draw on it. The vocabulary lands here so the two screens
+   only write markup; phases 2-4 of the session-pages work build on it.
 
 /* Session-screen layer, shared by the two session pages.
- *
- * design/session-chat.html  — the interactive page, for a run a person started
- * design/session-watch.html — the read-only page, for a run an agent started
  *
  * Which page a session gets is decided by one field on the row:
  * SessionState.parent_is_user (internal/hub, producer-stamped). True means a
@@ -2835,15 +2826,15 @@ body.page .topnav {
   flex: 1;
   min-height: 0;
 }
-/* The chat page's work band (design/session-chat.html): the conversation
-   column and the 288px plan rail. The watch page's columns are phase 4's. */
+/* The chat page's work band: the conversation column and the 288px plan
+   rail. The watch page's columns are phase 4's. */
 .work-chat {
   grid-template-columns: minmax(0, 1fr) 288px;
 }
-/* The watch page's work band (design/session-watch.html): the 244px
-   navigator rail on the left and the conversation column. Same silhouette
-   rule as the chat page — the rail is a peer pane — with the rail on the
-   other side, so the two pages are told apart before reading a word. */
+/* The watch page's work band: the 244px navigator rail on the left and
+   the conversation column. Same silhouette rule as the chat page — the
+   rail is a peer pane — with the rail on the other side, so the two
+   pages are told apart before reading a word. */
 .work-watch {
   grid-template-columns: 244px minmax(0, 1fr);
 }
@@ -2911,8 +2902,7 @@ body.page .topnav {
   color: var(--muted-foreground);
 }
 /* A rail section with nothing to show (a plan the run never wrote) states
-   so in one line rather than drawing an empty card (design/session-states
-   html "a run with no plan"). */
+   so in one line rather than drawing an empty card. */
 .rail-note {
   margin: 0;
   font-size: 0.75rem;
@@ -2958,10 +2948,10 @@ body.page .topnav {
 .state-undelivered {
   color: var(--status-gaveup);
 }
-/* A sent message whose POST itself failed (design/session-states.html "the
-   POST itself failed — nothing landed in the log"): the failed left rule and
-   state colour, the server's error in the state line, and the Retry and
-   dismiss controls. This state is composer-local — nothing is in the log, so
+/* A sent message whose POST itself failed ("the POST itself failed —
+   nothing landed in the log"): the failed left rule and state colour, the
+   server's error in the state line, and the Retry and dismiss controls.
+   This state is composer-local — nothing is in the log, so
    nothing the fold knows can flip it; the chat screen holds it until the
    send is retried or dismissed. */
 .msg-user-failed {
@@ -3372,9 +3362,9 @@ body.page .topnav {
   color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
 }
-/* The plan's progress bar (design/session-chat.html's .planhead): a 4px
-   track with the running-colour fill at the completed ratio. The fill is an
-   inline width, set by the rail from the plan's completed count. */
+/* The plan's progress bar: a 4px track with the running-colour fill at
+   the completed ratio. The fill is an inline width, set by the rail from
+   the plan's completed count. */
 .progress {
   height: 4px;
   border-radius: 999px;
@@ -3450,10 +3440,10 @@ body.page .topnav {
 }
 
 /* ---------- footer ---------- */
-/* The band is a grid with the same two columns as the work band above it
-   (design/session-chat.html): the composer's 800px measure centres inside
-   the conversation column, not across the whole page — the footer sits under
-   the conversation, never under the rail. */
+/* The band is a grid with the same two columns as the work band above it:
+   the composer's 800px measure centres inside the conversation column,
+   not across the whole page — the footer sits under the conversation,
+   never under the rail. */
 .footer {
   border-top: 1px solid var(--border);
   background: var(--background);
@@ -3493,7 +3483,7 @@ kbd {
   color: var(--muted-foreground);
 }
 
-/* ---------- the composer (design/session-chat.html) ----------
+/* ---------- the composer ----------
    The chat page's footer band: the queued line, the .box with the >
    prompt, the auto-growing textarea and the Send button, and the status
    line of live numbers under it. The footer never moves — the page does
@@ -3570,10 +3560,10 @@ kbd {
   margin-top: 7px;
 }
 
-/* The empty state (design/session-states.html "before the first message"):
-   POST /api/runs creates a run with no prompt, so a claimed session with
-   zero sub-turns is normal, not an error — the composer below is where the
-   first message goes. */
+/* The empty state ("before the first message"): POST /api/runs creates a
+   run with no prompt, so a claimed session with zero sub-turns is
+   normal, not an error — the composer below is where the first message
+   goes. */
 .empty {
   text-align: center;
   padding: 40px 20px 28px;
@@ -3592,9 +3582,8 @@ kbd {
   line-height: 1.6;
 }
 
-/* The stop confirmation (design/session-states.html "stopping"), inline
-   where the stop lives — a strip in the footer band, not a modal over the
-   transcript. */
+/* The stop confirmation, inline where the stop lives — a strip in the
+   footer band, not a modal over the transcript. */
 .confirm {
   display: flex;
   align-items: center;
@@ -3613,9 +3602,9 @@ kbd {
   color: var(--muted-foreground);
 }
 
-/* The stopping banner (design/session-states.html): between the 202 and the
-   terminal event, the control says *stopping…* — the loop finishes its
-   current tool call first, and the stream delivers the terminal state. */
+/* The stopping banner: between the 202 and the terminal event, the
+   control says *stopping…* — the loop finishes its current tool call
+   first, and the stream delivers the terminal state. */
 .banner {
   display: flex;
   align-items: center;
@@ -3631,11 +3620,11 @@ kbd {
   flex: 1;
 }
 
-/* The finished composer (design/session-states.html "the run is over"):
-   the composer is removed rather than disabled — a greyed-out box invites
-   the reader to hunt for the way to enable it, and the endpoint refuses a
-   steer on a finished run anyway. In its place, the outcome, the duration
-   and cost, and the action the reader actually wants. */
+/* The finished composer ("the run is over"): the composer is removed
+   rather than disabled — a greyed-out box invites the reader to hunt for
+   the way to enable it, and the endpoint refuses a steer on a finished
+   run anyway. In its place, the outcome, the duration and cost, and the
+   action the reader actually wants. */
 .box-done {
   display: flex;
   align-items: center;
@@ -3655,7 +3644,7 @@ kbd {
   color: var(--foreground);
 }
 
-/* ---------- the watch page (design/session-watch.html) ----------
+/* ---------- the watch page ----------
    The read-only session page: a run another agent started
    (SessionState.parent_is_user is false, and the row carries
    parent_agent_type / parent_agent_id). You may stop it. You may not talk
@@ -3791,8 +3780,8 @@ kbd {
   gap: 3px;
   padding: 4px 6px 8px 24px;
 }
-/* A plan item the run has not reached yet (design/session-watch.html's
-   phase 4 "not started"): a quiet line inside the ticks row. */
+/* A plan item the run has not reached yet ("not started"): a quiet line
+   inside the ticks row. */
 .ticks .not-started {
   font-size: 0.6875rem;
   color: var(--muted-foreground);

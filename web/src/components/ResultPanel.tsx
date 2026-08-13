@@ -5,9 +5,9 @@ import { Button } from "./ui/button";
 export type RunFinishedBlock = Extract<Block, { type: "run_finished" }>;
 
 // ResultPanel is the watch page's rendering of the run_finished block
-// (design/session-states.html "Watching · the result the parent gets back"):
-// for a run another agent launched, the result payload is the point — it is
-// what gets returned to the caller — so it renders at the end of the stream,
+// ("Watching · the result the parent gets back"): for a run another
+// agent launched, the result payload is the point — it is what gets
+// returned to the caller — so it renders at the end of the stream,
 // where the run actually ended, rather than in a panel off to one side. It
 // carries a copy control because the next thing a person does with a payload
 // is paste it somewhere.
@@ -36,9 +36,9 @@ export function ResultPanel({ block, parentAgent }: { block: RunFinishedBlock; p
   );
 }
 
-// CopyButton is the panel's copy control (design/session-states.html's
-// .result .copy): it floats in the corner and confirms itself — "Copied"
-// for a beat — rather than making the reader wonder whether anything
+// CopyButton is the panel's copy control (.result .copy): it floats in
+// the corner and confirms itself — "Copied" for a beat — rather than
+// making the reader wonder whether anything
 // happened. A clipboard that refuses (a non-secure context) just leaves the
 // button at its label; the JSON is right there to select by hand.
 function CopyButton({ json }: { json: string }) {

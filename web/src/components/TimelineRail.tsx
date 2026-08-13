@@ -5,13 +5,12 @@ import type { ToolCallPayload } from "../api/types";
 import { toolGlyph, type ToolGlyph } from "./blocks/toolArgs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion";
 
-// TimelineRail is the phase 6 browsing affordance (docs/WEB-REDESIGN.md,
-// design/transcript.html's left column): every sub-turn as one entry, grouped
-// under the plan item that was in_progress when it ran. Each entry shows the
-// sub-turn number and one glyph per tool call, coloured by family, a failed
-// result overriding to red (design/components.html "Tool glyphs"). Clicking
-// an entry scrolls to its card; an IntersectionObserver marks the current
-// entry.
+// TimelineRail is the phase 6 browsing affordance (docs/WEB-REDESIGN.md):
+// every sub-turn as one entry, grouped under the plan item that was
+// in_progress when it ran. Each entry shows the sub-turn number and one
+// glyph per tool call, coloured by family, a failed result overriding
+// to red. Clicking an entry scrolls to its card; an IntersectionObserver
+// marks the current entry.
 //
 // Two constraints from the plan matter here:
 //
@@ -71,7 +70,7 @@ export function buildRail(
 // glyphsFor is one sub-turn's glyph row: one glyph per tool call in the
 // order the model made them, read from the call the fold keeps (getToolCall
 // — never re-parsed here), with a failed result (is_error) or a denial
-// overriding that call's glyph to the red "!" (design/components.html).
+// overriding that call's glyph to the red "!".
 function glyphsFor(group: SubTurnGroup, getToolCall: (id: string) => ToolCallPayload | undefined): ToolGlyph[] {
   const assistant = group.blocks[0];
   if (assistant.type !== "assistant") return [];

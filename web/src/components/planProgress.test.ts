@@ -14,7 +14,7 @@ function todo(partial: Partial<Todo> & Pick<Todo, "subject">): Todo {
 // The collapsed in-flight line and the finished table's subtitle both read
 // the plan through planProgress (docs/WEB-REDESIGN.md phase 3): done counts
 // completed items only, and the active form is the in_progress item's — the
-// "6 / 11" and "Wiring six call sites…" of design/sessions.html.
+// "6 / 11" and "Wiring six call sites…" pattern.
 describe("planProgress", () => {
   it("counts completed items over the whole plan", () => {
     const todos = [

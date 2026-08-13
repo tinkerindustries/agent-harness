@@ -34,8 +34,7 @@ export const ErrorBlock = memo(function ErrorBlock({ block }: { block: Extract<B
 // top-level block — the default, used where no page has a message-shaped
 // rendering of it (the chat page and the perf harnesses). The watch page
 // replaces it with its .msg-user rendering through TurnTranscript's
-// renderInstruction (design/session-watch.html: "from claude-code ·
-// delivered · sub-turn 1").
+// renderInstruction ("from claude-code · delivered · sub-turn 1").
 export const InstructionBlock = memo(function InstructionBlock({ block }: { block: Extract<Block, { type: "instruction" }> }) {
   return (
     <section className="block block-instruction">

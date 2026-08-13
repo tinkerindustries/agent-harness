@@ -36,9 +36,9 @@ interface Props {
   everOpen: boolean;
 }
 
-// The read-only session page (design/session-watch.html): a run another
-// agent started, inside the full-height app shell the two session pages
-// share while the run is live. You may stop it; you may not talk to it —
+// The read-only session page: a run another agent started, inside the
+// full-height app shell the two session pages share while the run is
+// live. You may stop it; you may not talk to it —
 // its instructions come from the agent that launched it, and the page shows
 // no way to send a message, not even a disabled one (a greyed-out input
 // invites you to look for the way to enable it). A finished run drops the
@@ -86,9 +86,9 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
   const [filter, setFilter] = useState<TranscriptFilter>("all");
   const [query, setQuery] = useState("");
 
-  // The chip counts follow the find box (design/session-watch.html): a
-  // search that narrows 273 turns to 12 must not keep the chips reading
-  // 273, so with a non-blank query the counts are recomputed over the
+  // The chip counts follow the find box: a search that narrows 273 turns
+  // to 12 must not keep the chips reading 273, so with a non-blank query
+  // the counts are recomputed over the
   // sub-turns the search leaves on screen (countMatching walks the items
   // with the same text predicate TurnTranscript renders with). A blank
   // query keeps the snapshot's incremental counts — the hot path, no walk.
@@ -100,7 +100,7 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
     [query, snapshot.counts, snapshot.items, snapshot.getToolCall],
   );
 
-  // --- the stop flow (design/session-states.html "stopping") ---
+  // --- the stop flow ---
   // The nav's Stop arms the same inline confirm strip the chat page uses —
   // in the footer band, not a modal over the transcript — and the banner
   // says *stopping…* between the 202 and the terminal event. A session that
@@ -141,7 +141,7 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
     }
   }, [sessionId, token, stopping]);
 
-  // --- follow the tail (design/session-watch.html's .follow) ---
+  // --- follow the tail (.follow) ---
   // The stream opens pinned to the newest turn and stays pinned while new
   // turns arrive; scrolling up stops the following, the footer's toggle (and
   // the jump pill) resumes it. Same machinery as the chat page's jump pill.
@@ -175,8 +175,7 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
     }
   };
 
-  // --- the result (design/session-states.html "the result the parent gets
-  // back") ---
+  // --- the result ("the result the parent gets back") ---
   // The run_finished block renders as the result panel at the end of the
   // stream, through the same seam the chat page's sent messages use: the
   // watch page is the page the caller's payload comes back to, so the block
@@ -187,8 +186,7 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
     [who],
   );
 
-  // --- the launching agent's instruction (design/session-watch.html's
-  // .msg-user) ---
+  // --- the launching agent's instruction (.msg-user) ---
   // The instruction that started this run renders as its own message at the
   // top of the stream, attributed to the launcher: the same block shape the
   // chat page gives an operator's sent message, with the "from <agent>"
@@ -208,8 +206,8 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
     [who],
   );
 
-  // The plan-mini band (design/session-watch.html's narrow-width fallback):
-  // which plan item is running, in one line above the stream, shown only
+  // The plan-mini band (the narrow-width fallback): which plan item is
+  // running, in one line above the stream, shown only
   // when the rail itself is hidden at narrow widths.
   const planMini = useMemo(() => {
     if (snapshot.todos.length === 0) return null;
@@ -220,9 +218,9 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
     return { label, done, total: snapshot.todos.length };
   }, [snapshot.todos]);
 
-  // The nav's right slot (design/session-watch.html's header): the RUNNING
-  // badge with its pulse dot, the elapsed time, the permission-mode badge —
-  // a safety fact, stated next to the stop button — and the Stop control,
+  // The nav's right slot: the RUNNING badge with its pulse dot, the
+  // elapsed time, the permission-mode badge — a safety fact, stated next
+  // to the stop button — and the Stop control,
   // which arms the inline confirm strip in the footer. The connection badge
   // stays: it is the only thing on this screen that says the stream is (or
   // is not) still telling the page what happens next. On a finished run the
@@ -306,10 +304,10 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
   return (
     <>
       <DroppedStreamBanner connection={snapshot.connection} everOpen={everOpen} />
-      {/* The provenance strip (design/session-watch.html's .prov): who
-          started this run, the originating request and job, and the one
-          sentence that says what a spectator may do — a quiet strip, not an
-          alert, because this is the normal state for these sessions. */}
+      {/* The provenance strip (.prov): who started this run, the
+          originating request and job, and the one sentence that says
+          what a spectator may do — a quiet strip, not an alert, because
+          this is the normal state for these sessions. */}
       <div className="prov">
         {/* The spectator badge follows the run's life: WATCHING while it is
             live, FINISHED once it is over — the sentence beside it says the

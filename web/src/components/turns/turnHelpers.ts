@@ -3,9 +3,9 @@ import type { SubTurnGroup, TranscriptItem } from "../../api/groups";
 import type { SessionState, ToolCallPayload } from "../../api/types";
 import { diffCounts, exitCode, formatCost, toolDetail } from "../blocks/toolArgs";
 
-// turnHelpers is the pure, testable logic of the turn renderer
-// (design/session-chat.html's .turn): choosing a tool row's single most
-// useful number, and splitting a long tool output into a head and a tail.
+// turnHelpers is the pure, testable logic of the turn renderer (.turn):
+// choosing a tool row's single most useful number, and splitting a long
+// tool output into a head and a tail.
 // TESTING.md's rule is "test the helpers, not the components" — there is no
 // DOM harness and the components are JSX only, so every edge lives here
 // instead.
@@ -15,18 +15,18 @@ import { diffCounts, exitCode, formatCost, toolDetail } from "../blocks/toolArgs
 // so the map the turn builds over a group's blocks is these two kinds only.
 export type ToolResultLike = Extract<Block, { type: "tool_result" }> | Extract<Block, { type: "tool_denied" }>;
 
-// ToolStatPart is one piece of a tool row's trailing figure
-// (design/session-chat.html's .tool .timing): a string, plus the diffstat
-// marker for an edit's coloured +n/−n spans.
+// ToolStatPart is one piece of a tool row's trailing figure (.tool
+// .timing): a string, plus the diffstat marker for an edit's coloured
+// +n/−n spans.
 export interface ToolStatPart {
   text: string;
   // "add"/"del" marks a +n/−n figure of an edit's diffstat, which the turn
-  // CSS colours (design/session-chat.html sub-turn 7; .diffstat .add/.del).
+  // CSS colours (.diffstat .add/.del).
   cls?: "add" | "del";
 }
 
-// toolStat is the "single most useful number for that tool" rule
-// (design/session-chat.html): lines for a read, exit code for a command,
+// toolStat is the "single most useful number for that tool" rule: lines
+// for a read, exit code for a command,
 // +n −n for an edit, nothing for tools with no useful single figure (a plan
 // mutation, a fetch, a denial). It reads the result alone — the diff, the
 // failure trailer, the output — never the call's arguments, and a zero side
@@ -63,8 +63,8 @@ function lineCount(text: string): number {
   return text.split("\n").length;
 }
 
-// The collapse policy for long tool output (design/README.md: "no scroll
-// container inside the turn list"): below the threshold the whole output
+// The collapse policy for long tool output ("no scroll container inside
+// the turn list"): below the threshold the whole output
 // renders; above it, head lines, an elided row, and tail lines, and
 // expanding grows the page. The same numbers the old CollapsibleOutput used,
 // so the policy does not change with the markup.
@@ -93,9 +93,9 @@ export function elideLines(text: string): ElidedSplit | null {
   };
 }
 
-// cachePercent is the turn meta line's cache-hit figure
-// (design/session-chat.html's .turnmeta: "0% cache", "90.7% cache"): one
-// decimal, with a whole-number result rendered without the ".0" (0 and 100
+// cachePercent is the turn meta line's cache-hit figure (.turnmeta: "0%
+// cache", "90.7% cache"): one decimal, with a whole-number result
+// rendered without the ".0" (0 and 100
 // read as "0%" and "100%", not "0.0%" and "100.0%"). A zero total (no prompt
 // tokens at all) renders as "0" — the caller decides whether to show the
 // figure at all.
@@ -106,7 +106,7 @@ export function cachePercent(hitTokens: number, missTokens: number): string {
   return Number.isInteger(pct) ? String(pct) : pct.toFixed(1);
 }
 
-// --- the watch page's status line (design/session-watch.html) ---
+// --- the watch page's status line ---
 
 // watchStatusFigures is the watch page's status line's numbers: the
 // sub-turn the line names — the live turn, or the last frozen one — and
@@ -143,10 +143,10 @@ export function watchStatusFigures(
 }
 
 // --- the chat page's steer messages and finished band (session pages
-// phase 3, design/session-states.html) ---
+// phase 3) ---
 
-// groupMatchesQuery is the watch page's find box (design/session-watch
-// .html's "Search this transcript…"): whether a sub-turn's visible text —
+// groupMatchesQuery is the watch page's find box ("Search this
+// transcript…"): whether a sub-turn's visible text —
 // the assistant's reasoning and prose, the tool calls' names and targets,
 // and the tool results — contains the query, case-insensitively. A blank
 // query matches everything. It reads the call the fold keeps (getToolCall)
@@ -174,9 +174,9 @@ export function groupMatchesQuery(
   return false;
 }
 
-// pendingWaitLabel says what a pending steer is waiting on, from the live
-// view (design/session-states.html: "waiting for the current tool call to
-// finish"). The three cases are exactly what the stream can be doing at a
+// pendingWaitLabel says what a pending steer is waiting on, from the
+// live view ("waiting for the current tool call to finish"). The three
+// cases are exactly what the stream can be doing at a
 // sub-turn boundary: a tool call still running, a turn streaming, or the
 // loop between turns. The run never pauses for the message either way.
 export function pendingWaitLabel(hasToolRound: boolean, liveSubTurn: number | null): string {
@@ -185,9 +185,9 @@ export function pendingWaitLabel(hasToolRound: boolean, liveSubTurn: number | nu
   return "waiting for the next sub-turn boundary";
 }
 
-// formatRunDuration renders a finished run's wall time the way the .box-done
-// band states it (design/session-states.html: "16m 31s", "4m 12s") — seconds
-// under a minute, minutes with the seconds, hours rounded to the minute. The
+// formatRunDuration renders a finished run's wall time the way the
+// .box-done band states it ("16m 31s", "4m 12s") — seconds under a
+// minute, minutes with the seconds, hours rounded to the minute. The
 // seconds matter at these scales because a stop confirmation is about how
 // far in the run is.
 export function formatRunDuration(ms: number): string {
@@ -201,8 +201,8 @@ export function formatRunDuration(ms: number): string {
   return `${seconds}s`;
 }
 
-// finishedBandText is the .box-done band's sentence (design/session-states
-// html): the outcome in the badge, the duration and cost in the prose. A
+// finishedBandText is the .box-done band's sentence: the outcome in the
+// badge, the duration and cost in the prose. A
 // cancelled run says who stopped it and how far in — "during sub-turn N",
 // or "before it started" when the stop landed before the first sub-turn; a
 // run that ended any other way says how long it took, how many sub-turns it

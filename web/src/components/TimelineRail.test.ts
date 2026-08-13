@@ -106,7 +106,7 @@ describe("buildRail", () => {
     const phases = buildRail(foldedItems(events), NOOP_GET_TOOL_CALL);
     expect(phases[0].entries[0].glyphs).toEqual([
       // The TaskCreate that opened the phase is a tool call too — its P
-      // stands beside the turn's own calls (design/components.html).
+      // stands beside the turn's own calls.
       { letter: "P", family: "other" },
       { letter: "E", family: "write" },
       { letter: "!", family: "err" },

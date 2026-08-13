@@ -54,8 +54,8 @@ function inputType(entry: SettingEntry): "number" | "password" | "text" {
   return "text";
 }
 
-// rowBadge is the badge vocabulary from design/components.html: only the
-// exceptions are badged. A secret that is set says SET (its default is the
+// rowBadge is the badge vocabulary: only the exceptions are badged. A
+// secret that is set says SET (its default is the
 // empty string, so "override" would be technically true and say nothing), a
 // missing credential says NOT SET, a stored value that differs from its
 // default says OVERRIDE, and a row sitting at its default carries no badge
@@ -82,9 +82,9 @@ function displayValue(entry: SettingEntry): string {
   return entry.set ? (entry.value ?? "") : entry.default;
 }
 
-// valueClass carries the state by weight (design/settings.html): a stored
-// value at full weight, a missing credential in the gave-up colour, and a
-// value that is only the registry default muted.
+// valueClass carries the state by weight: a stored value at full weight,
+// a missing credential in the gave-up colour, and a value that is only
+// the registry default muted.
 function valueClass(entry: SettingEntry): string | null {
   if (entry.secret && !entry.set) return "settings-val-unset";
   return entry.set ? "settings-val-set" : null;
@@ -103,9 +103,8 @@ function typeLabel(entry: SettingEntry): string {
 // UnsetNotice is the sentence that says what stops working when a credential
 // is missing. A secret's registry default is the empty string, so the old
 // "not set — default  applies" rendered with a hole in it and understated
-// the case; the true sentence is per-credential (design/settings.html). The
-// two credentials today have one consumer each: the harness itself, and
-// ReviewScreenshot.
+// the case; the true sentence is per-credential. The two credentials
+// today have one consumer each: the harness itself, and ReviewScreenshot.
 interface UnsetNotice {
   lead: string;
   rest: string;
@@ -323,9 +322,9 @@ export function SettingsScreen() {
   const [openKeys, setOpenKeys] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<Filter>("all");
   const [loadError, setLoadError] = useState<string | null>(null);
-  // query is the nav's search input (design/nav.html's Settings state): a
-  // client-side filter over the list the screen already holds, key or
-  // description, combined with the chip filter below.
+  // query is the nav's search input: a client-side filter over the list
+  // the screen already holds, key or description, combined with the
+  // chip filter below.
   const [query, setQuery] = useState("");
 
   // refresh re-fetches the whole list and rebuilds the row bookkeeping on
@@ -460,8 +459,8 @@ export function SettingsScreen() {
     }
   }
 
-  // The nav's right slot for this screen (design/nav.html's Settings state):
-  // the key/description search input.
+  // The nav's right slot for this screen: the key/description search
+  // input.
   useNavRight(
     <Input
       type="search"

@@ -114,9 +114,8 @@ export interface SessionStartedPayload {
   // run; a browser start is created empty and waits for its first message).
   // Carried separately, the way skill_catalogue is, so the watch page can
   // render the launcher's instruction as its own message without parsing
-  // the message text (design/session-watch.html). Only the run-creating
-  // session_started carries it; a resume instruction is a continuation, not
-  // the launch instruction.
+  // the message text. Only the run-creating session_started carries it;
+  // a resume instruction is a continuation, not the launch instruction.
   task?: string;
 }
 

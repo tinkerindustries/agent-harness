@@ -10,9 +10,9 @@ import { Ticker } from "./ui/Ticker";
 import { cachePercent, formatRunDuration, watchStatusFigures } from "./turns/turnHelpers";
 import { formatCost, toolDetail } from "./blocks/toolArgs";
 
-// WatchFooter is the watch page's footer band (design/session-watch.html's
-// .footer): the answer to the only question a spectator has while the run is
-// live — what is it doing right now — kept visible even when they have
+// WatchFooter is the watch page's footer band (.footer): the answer to
+// the only question a spectator has while the run is live — what is it
+// doing right now — kept visible even when they have
 // scrolled back through history, which is the point of it. The chat page's
 // footer is a composer; this one is a status bar: the running tool and its
 // argument, how long it has been running, the plan item it sits under, the
@@ -57,15 +57,14 @@ export function WatchFooter({
   // is live by construction (the screen renders this footer only then).
   const elapsedMs = now - Date.parse(meta.created_at);
 
-  // What is running right now (design/session-watch.html's .nowline): the
-  // last pending tool call, the streaming turn's thinking, or the loop
-  // between turns. The plan item it sits under is the tail phase's label —
-  // the same phase ref the rail builds its disclosures from. ageMs is the
-  // running thing's OWN age — the pending tool's start stamp from the fold,
-  // or the streaming turn's — never the run's elapsed, which the status
-  // line below owns (design/session-watch.html: "1m 04s" under the tool,
-  // "4m 12s elapsed" in the status line). Null between sub-turns, where
-  // there is nothing to age.
+  // What is running right now (.nowline): the last pending tool call,
+  // the streaming turn's thinking, or the loop between turns. The plan
+  // item it sits under is the tail phase's label — the same phase ref
+  // the rail builds its disclosures from. ageMs is the running thing's
+  // OWN age — the pending tool's start stamp from the fold, or the
+  // streaming turn's — never the run's elapsed, which the status
+  // line below owns ("1m 04s" under the tool, "4m 12s elapsed" in the
+  // status line). Null between sub-turns, where there is nothing to age.
   const activity = useMemo(() => {
     let name = "";
     let arg = "";

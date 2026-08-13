@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils"
 // is exactly what type="multiple" gives; the trigger/content/header
 // primitives are styled in the bespoke layer (styles.css) rather than here,
 // because the rail's summary row is its own layout (caret, phase name,
-// sub-turn range) — see design/transcript.html's .rail-phase.
+// sub-turn range) — see .rail-phase.
 //
 // Deliberately no chevron icon: the rail's phases draw the design's ▸ caret
 // themselves.

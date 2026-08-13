@@ -1,7 +1,6 @@
 import type { ConnectionState } from "../api/transcriptStore";
 
-// DroppedStreamBanner is the "this page stopped receiving updates" banner
-// (design/session-states.html "Both pages · the stream stopped arriving"),
+// DroppedStreamBanner is the "this page stopped receiving updates" banner,
 // mounted by both session screens above the work band. The SSE connection
 // dropping is not the run failing, and the page must not imply that it is:
 // the transcript already shown stays exactly as it is, and the banner says

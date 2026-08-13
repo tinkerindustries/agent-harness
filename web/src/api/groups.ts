@@ -27,8 +27,7 @@ export type UsageBlock = Extract<Block, { type: "usage" }>;
 // sub-turn's blocks.
 export interface GroupTags {
   // edits counts Edit and Write tool results in the group — the "edits"
-  // filter family (design/transcript.html groups both under one glyph
-  // colour).
+  // filter family (both grouped under one glyph colour).
   edits: number;
   // bash counts Bash tool results.
   bash: number;

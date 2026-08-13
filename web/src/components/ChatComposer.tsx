@@ -7,11 +7,11 @@ import { cachePercent, formatRunDuration } from "./turns/turnHelpers";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 
-// ChatComposer is the chat page's footer band (design/session-chat.html's
-// .footer): the queued line, the .box with the > prompt, the auto-growing
-// textarea and the Send button, and the status line of live numbers under
-// it. The band never moves — the page does not scroll, the conversation
-// column does — so the composer is always where the eye last was.
+// ChatComposer is the chat page's footer band (.footer): the queued line,
+// the .box with the > prompt, the auto-growing textarea and the Send
+// button, and the status line of live numbers under it. The band never
+// moves — the page does not scroll, the conversation column does — so
+// the composer is always where the eye last was.
 //
 // Its semantics are SteerControl's, kept exactly (docs/RUN-CONTROL.md "The
 // frontend"): the POST is an acceptance, not a delivery — the 202 only means
@@ -28,9 +28,9 @@ import { Button } from "./ui/button";
 // unavailable, not broken (docs/RUN-CONTROL.md "Authentication": a missing
 // credential fails closed). The status line is not a control and stays.
 //
-// The band also carries the states around the run (design/session-states
-// html): the inline stop confirmation and the *stopping…* banner between the
-// 202 and the terminal event, and — once the run is over — the .box-done
+// The band also carries the states around the run: the inline stop
+// confirmation and the *stopping…* banner between the 202 and the
+// terminal event, and — once the run is over — the .box-done
 // band in the composer's place. The composer is removed rather than disabled:
 // a greyed-out box invites the reader to hunt for the way to enable it, and
 // the endpoint refuses a steer on a finished run anyway.
@@ -80,8 +80,8 @@ interface ChatComposerProps {
   activity: { elapsedMs: number; detail: string } | null;
   // The status line's live numbers. Null before the session row arrives.
   status: ComposerStatus | null;
-  // The facts the empty status line shows instead of live numbers (design/
-  // session-states.html: "deepseek-v4-pro · effort high · permission full").
+  // The facts the empty status line shows instead of live numbers
+  // ("deepseek-v4-pro · effort high · permission full").
   facts: { model: string; effort: string; permission: string };
   // The run is over: the finished band replaces the composer. Null while
   // the run is live (or before the row arrives).
@@ -259,9 +259,9 @@ export function ChatComposer({
   );
 }
 
-// StatusLine is the footer's bottom row (design/session-chat.html): the live
-// numbers — sub-turn, cache hit, cost, output tokens — then the keyboard
-// hints on the right. Before the first message there are no numbers yet, so
+// StatusLine is the footer's bottom row: the live numbers — sub-turn,
+// cache hit, cost, output tokens — then the keyboard hints on the
+// right. Before the first message there are no numbers yet, so
 // the line states the session facts instead, the way the design's empty
 // state draws it. The hints are drawn only while the composer is live: they
 // describe the composer and the stop shortcut, and a finished run's band

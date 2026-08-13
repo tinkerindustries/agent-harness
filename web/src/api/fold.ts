@@ -32,10 +32,10 @@ import type {
 export type Block =
   | { type: "opening"; seq: number; text: string }
   | { type: "skills"; seq: number; text: string }
-  // The launching agent's own instruction (design/session-watch.html's
-  // .msg-user "from claude-code · delivered · sub-turn 1"): the task tail of
-  // the opening message, carried separately by session_started so the watch
-  // page can render it as its own message attributed to the launcher without
+  // The launching agent's own instruction (.msg-user "from claude-code ·
+  // delivered · sub-turn 1"): the task tail of the opening message,
+  // carried separately by session_started so the watch page can render
+  // it as its own message attributed to the launcher without
   // parsing the message text. Absent for a run created without a task (a
   // browser start waits for its first message) and for a resume
   // continuation.
@@ -112,9 +112,9 @@ export interface PendingTool {
   // the pending set — the closest the log gets to the moment the tool
   // started executing (the calls run right after the turn froze). The
   // watch page's footer counts the running tool's own age from it
-  // (design/session-watch.html's "1m 04s" under the tool name); the
-  // tool_call event's created_at cannot express that, because a whole
-  // batch of events shares one instant and the calls run after it.
+  // ("1m 04s" under the tool name); the tool_call event's created_at
+  // cannot express that, because a whole batch of events shares one
+  // instant and the calls run after it.
   startedAt: string;
 }
 
@@ -295,8 +295,8 @@ export class FoldState {
         this.pushBlock({ type: "opening", seq: ev.seq, text });
         // The launching agent's instruction, when the run was created with
         // one: its own block after the opening message, exactly where the
-        // design draws it (design/session-watch.html) — the launcher's words
-        // rendered as a message, not a summary line inside the opening card.
+        // design draws it — the launcher's words rendered as a message,
+        // not a summary line inside the opening card.
         if (p.task) this.pushBlock({ type: "instruction", seq: ev.seq, text: p.task });
         break;
       }

@@ -1,9 +1,9 @@
 import type { VariantProps } from "class-variance-authority";
 import { badgeVariants } from "./ui/badge";
 
-// The session outcome vocabulary (docs/WEB-REDESIGN.md phase 2,
-// design/components.html): one badge label and colour per meaning. The
-// store already distinguishes every row in the table below; the old UI
+// The session outcome vocabulary (docs/WEB-REDESIGN.md phase 2): one
+// badge label and colour per meaning. The store already distinguishes
+// every row in the table below; the old UI
 // rendered the first three as one green OK. complete_status is the status
 // argument the model gave Complete ("done" or "gave_up"), empty when it
 // never called the tool; reason is run_finished's reason ("complete",
@@ -38,7 +38,7 @@ export interface Outcome {
 
 // outcome maps one session row onto the badge it should carry. Both the
 // session list and the transcript header call it — one function, so the two
-// screens cannot drift apart. The mapping is design/components.html's table:
+// screens cannot drift apart. The mapping:
 // status ok splits on complete_status (done / gave_up) and, where the
 // transcript's run_finished block is available, on reason (no_tool_calls →
 // STOPPED). A status ok with neither signal is the pre-migration fallback:
@@ -71,11 +71,11 @@ export function outcome(session: OutcomeSession): Outcome {
   }
 }
 
-// watchBadge is the provenance strip's spectator badge
-// (design/session-watch.html's .prov): WATCHING while the run is live, and
-// FINISHED once it is over. The strip's own sentence beside the badge says
-// a finished run "could not be messaged" — so the badge must not keep
-// claiming the operator is watching a run that has ended.
+// watchBadge is the provenance strip's spectator badge (.prov): WATCHING
+// while the run is live, and FINISHED once it is over. The strip's own
+// sentence beside the badge says a finished run "could not be messaged"
+// — so the badge must not keep claiming the operator is watching a run
+// that has ended.
 export function watchBadge(running: boolean): Outcome {
   return running ? { label: "WATCHING", variant: "outline" } : { label: "FINISHED", variant: "outline" };
 }

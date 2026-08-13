@@ -39,8 +39,8 @@ const TURN_KINDS: TurnKind[] = ["plain", "bash", "edit", "read"];
 
 // The synthetic session's plan, for the TaskCreate/TaskUpdate calls that
 // phase the history (docs/WEB-REDESIGN.md phase 6 needs plan boundaries to
-// group the rail's sub-turns under). Seven items, the shape of the measured
-// session's plan in design/transcript.html.
+// group the rail's sub-turns under). Seven items, the shape of the
+// measured session's plan.
 const PLAN_ITEMS = [
   "Fix retained-body leak",
   "Add httplog test",

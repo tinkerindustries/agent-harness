@@ -14,9 +14,9 @@ import {
 
 // The turn renderer's helpers are the one part of the redesign that has
 // edges (TESTING.md: no DOM harness, so the logic that is not JSX gets the
-// unit tests). toolStat pins the "single most useful number" rule of
-// design/session-chat.html; elideLines pins the head/tail collapse of
-// design/README.md's "no scroll container inside the turn list".
+// unit tests). toolStat pins the "single most useful number" rule;
+// elideLines pins the head/tail collapse of "no scroll container inside
+// the turn list".
 
 function ok(name: string, content: string, extra: Partial<ToolResultPayload> = {}): ToolResultLike {
   return { type: "tool_result", seq: 1, tool_call_id: "c1", name, content, ...extra };

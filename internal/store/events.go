@@ -75,9 +75,9 @@ type SessionStartedPayload struct {
 	// when the run was created with none (a browser start waits for its
 	// first message). Stored separately the way SkillCatalogue is, so the
 	// watch page can render the launcher's instruction as its own message
-	// without parsing the message text (design/session-watch.html). Only the
-	// run-creating session_started carries it: a resume instruction is a
-	// continuation, not the launch instruction.
+	// without parsing the message text. Only the run-creating
+	// session_started carries it: a resume instruction is a continuation,
+	// not the launch instruction.
 	Task string `json:"task,omitempty"`
 }
 

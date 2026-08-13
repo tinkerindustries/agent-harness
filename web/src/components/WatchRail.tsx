@@ -9,10 +9,10 @@ import { Input } from "./ui/input";
 import { Toggle } from "./ui/toggle";
 import { cn } from "@/lib/utils";
 
-// WatchRail is the watch page's left-hand navigator (design/session-watch
-// .html): one column that answers "where in this run" — the find box and
-// the filter chips on top, then the plan as phases with one tick per
-// sub-turn, then the legend and the session facts. It replaces the
+// WatchRail is the watch page's left-hand navigator: one column that
+// answers "where in this run" — the find box and the filter chips on
+// top, then the plan as phases with one tick per sub-turn, then the
+// legend and the session facts. It replaces the
 // transcript's old toolbar/rail/plan-panel trio, which the chat page
 // already dropped; the two session pages now differ in silhouette (rail
 // left, rail right) and this rail carries everything a watcher hunts for:
@@ -92,8 +92,8 @@ export function WatchRail({
       <div className="railsec">
         <h3>Plan</h3>
         {todos.length === 0 ? (
-          // A run that never wrote a plan (design/session-states.html "a run
-          // with no plan"): no empty plan card with a 0/0 bar — one line and
+          // A run that never wrote a plan ("a run with no plan"): no
+          // empty plan card with a 0/0 bar — one line and
           // the flat list of sub-turns, which is all the navigation such a
           // run needs.
           <>
@@ -222,8 +222,7 @@ function filterCount(counts: GroupCounts, key: TranscriptFilter): number {
 }
 
 // PlanHead is the plan section's progress bar with the completed ratio
-// (design/session-watch.html's .planhead), the same markup the chat rail
-// uses.
+// (.planhead), the same markup the chat rail uses.
 function PlanHead({ todos }: { todos: Todo[] }) {
   const done = todos.filter((t) => t.status === "completed").length;
   const pct = Math.round((done / todos.length) * 100);
@@ -310,8 +309,7 @@ export function buildWatchPhases(
   }
 
   // The sub-turn still streaming has no group yet; it continues the tail
-  // phase, and its tick is the pulsing one (design/session-watch.html's
-  // sub-turn 13).
+  // phase, and its tick is the pulsing one.
   if (liveSubTurn !== null && current) {
     current.ticks.push({
       subTurn: liveSubTurn,
@@ -338,9 +336,9 @@ export function buildWatchPhases(
   return { phases, notStarted, nowPhaseId, flatTicks: phases.flatMap((p) => p.ticks) };
 }
 
-// tickCls is the colour rule (design/session-watch.html's .tick-*): an
-// error sub-turn is red — the thing a watcher hunts for — then churn amber,
-// then an edit green; everything else plain.
+// tickCls is the colour rule (.tick-*): an error sub-turn is red — the
+// thing a watcher hunts for — then churn amber, then an edit green;
+// everything else plain.
 function tickCls(group: SubTurnGroup): WatchTick["cls"] {
   if (group.tags.errors > 0) return "tick-err";
   if (group.tags.churn) return "tick-churn";

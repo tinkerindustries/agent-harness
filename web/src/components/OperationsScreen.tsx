@@ -209,9 +209,8 @@ export function OperationsScreen() {
     runWrite(keyOf({ kind: "lease", workspace: l.workspace }), () => releaseLease(l.workspace, l.version));
   }
 
-  // The nav's right slot for this screen (design/nav.html's Operations
-  // state): the refresh button, the same one the screen's own header used
-  // to carry.
+  // The nav's right slot for this screen: the refresh button, the same
+  // one the screen's own header used to carry.
   useNavRight(
     <Button variant="outline" size="sm" onClick={refresh} disabled={busy || data === null}>
       <ArrowsClockwise />

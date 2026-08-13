@@ -93,7 +93,7 @@ describe("childStat", () => {
 });
 
 describe("toolGlyph", () => {
-  it("maps the design table's letters and families (design/components.html)", () => {
+  it("maps the design table's letters and families", () => {
     expect(toolGlyph("Edit")).toEqual({ letter: "E", family: "write" });
     expect(toolGlyph("Write")).toEqual({ letter: "W", family: "write" });
     expect(toolGlyph("Bash")).toEqual({ letter: "B", family: "shell" });

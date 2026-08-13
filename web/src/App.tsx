@@ -11,11 +11,11 @@ import { PerfHarnessScreen } from "./perf/PerfHarnessScreen";
 // Four screens, no router library (docs/DESIGN.md §5.7): plain pathname
 // parsing plus history.pushState/popstate. "/" is the session list;
 // "/sessions/:id" is one session's page — SessionScreen reads the row and
-// forks on SessionState.parent_is_user (design/README.md): a run a person
-// started renders the interactive chat page, a run another agent started the
-// read-only watch page, both inside the full-height session shell
-// (design/session.css); "/settings" is the settings screen; "/operations" is
-// the operations screen — the place the browser writes operational state
+// forks on SessionState.parent_is_user: a run a person started renders the
+// interactive chat page, a run another agent started the read-only watch
+// page, both inside the full-height session shell; "/settings" is the
+// settings screen; "/operations" is the operations screen — the place the
+// browser writes operational state
 // (closing stuck sessions, closing dead work requests, releasing stranded
 // leases; docs/DATA-API.md phase 5). Run control is complete on the session
 // surface: start (the form on the session list, docs/RUN-CONTROL.md phase 6),

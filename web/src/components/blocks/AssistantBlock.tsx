@@ -11,7 +11,7 @@ import { toolDetail } from "./toolArgs";
 // (docs/DESIGN.md §5.2, "399 of 400 blocks are inert"). It is the boxed,
 // labelled rendering used for loose blocks; inside a sub-turn card
 // (SubTurnCard) the same content renders bare via AssistantBody, where the
-// card header already carries the sub-turn number (design/transcript.html).
+// card header already carries the sub-turn number.
 // .anim-stream-in rides the frozen block, which by construction renders once:
 // the loose-block path's equivalent of Turn's .say. The live pair never
 // comes through here (docs/DESIGN.md §5.2).

@@ -9,8 +9,8 @@ import { Turn } from "./Turn";
 import { LiveTurnSection } from "./LiveTurn";
 import type { SteerBlock } from "./SteerMessage";
 
-// TurnTranscript is the session pages' conversation (design/session-chat.html
-// and design/session-watch.html share it): one .turn per sub-turn group, the
+// TurnTranscript is the session pages' conversation (both pages share
+// it): one .turn per sub-turn group, the
 // top-level blocks unchanged (opening, skills, run_finished, error, steer),
 // and the still-streaming tail. It replaces BlockList on the session screens
 // and the perf harnesses, so the harness keeps measuring what actually ships;
@@ -39,8 +39,8 @@ export function TurnTranscript({
   // re-render the whole conversation on every token.
   renderSteer?: (block: SteerBlock) => ReactNode;
   // renderInstruction replaces the instruction block card with the watch
-  // page's .msg-user rendering (phase 5, design/session-watch.html: the
-  // launching agent's instruction attributed to the launcher, "from
+  // page's .msg-user rendering (phase 5: the launching agent's
+  // instruction attributed to the launcher, "from
   // claude-code · delivered · sub-turn 1"). Absent — the chat page and the
   // perf harnesses — the block keeps its FrozenBlock rendering. Same
   // reference-stability rule as renderSteer.
@@ -52,9 +52,9 @@ export function TurnTranscript({
   // harnesses — the block keeps its FrozenBlock rendering. Reference-stable
   // across live-only deltas, like renderSteer.
   renderRunFinished?: (block: Extract<Block, { type: "run_finished" }>) => ReactNode;
-  // textQuery is the watch page's find box (design/session-watch.html): a
-  // non-blank query hides every sub-turn whose visible text does not contain
-  // it. Blank — the chat page and the perf harnesses — matches everything.
+  // textQuery is the watch page's find box: a non-blank query hides
+  // every sub-turn whose visible text does not contain it. Blank — the
+  // chat page and the perf harnesses — matches everything.
   textQuery?: string;
 }) {
   const empty = items.length === 0 && !live.turn && live.pendingTools.size === 0;

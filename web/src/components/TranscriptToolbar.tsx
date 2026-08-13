@@ -5,10 +5,10 @@ import type { GroupCounts, TranscriptFilter } from "../api/groups";
 // TranscriptToolbar is the transcript's filter chip row (docs/WEB-REDESIGN.md
 // phase 5): one chip per filter family with its card count. The Compact/Full
 // density toggle is gone with the session redesign — a turn is always full,
-// and the collapsing happens per tool row instead (design/README.md "The two
-// session pages"). The counts come straight off the snapshot's GroupCounts —
-// the same pass that builds the turns — so the toolbar never walks the blocks
-// itself. This is display state only: the run-control stop lives in the
+// and the collapsing happens per tool row instead. The counts come
+// straight off the snapshot's GroupCounts — the same pass that builds
+// the turns — so the toolbar never walks the blocks itself. This is
+// display state only: the run-control stop lives in the
 // screen header (StopControl), and nothing here starts, steers, or stops a
 // run. Phase 4 moves the chips into the watch page's rail; until then the
 // toolbar stays mounted where it is.
