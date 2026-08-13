@@ -50,6 +50,12 @@ type variant struct {
 // 1802 shell greps against 263 Grep calls and 19 Glob calls.
 const searchToolsRule = "- Prefer Grep and Glob to orient before reading whole files."
 
+// planRule is the base prompt's opening of the plan rule, present in both
+// provider heads. The kimi-steps variant extends it, so its anchor is a
+// complete sentence pair rather than a partial line.
+const planRule = "- A task that takes three or more steps gets a plan. Call TaskCreate once, at\n" +
+	"  the start, with one entry per step."
+
 var variants = map[string]variant{
 	Base: {description: "the shipped prompt, unchanged"},
 
@@ -85,6 +91,22 @@ var variants = map[string]variant{
 			searchToolsRule: "- Search with the Grep and Glob tools rather than shelling out. They\n" +
 				"  return the same answer in one call, already scoped to the workspace, and\n" +
 				"  they cannot fail on a flag the shell's own grep does not have.",
+		},
+	},
+
+	// kimi-steps is the wording arm of the Kimi prompt A/B
+	// (docs/KIMI-INTEGRATION.md §4.4, Phase 9). The other arm is base on
+	// kimi-k3: a Kimi session's shipped head now carries the corrected
+	// fourteen-tool inventory (internal/session), and this variant adds
+	// step-by-step execution wording drawn from Kimi's own prompt guidance
+	// (third_party/kimi-docs/guide/prompt-best-practice.md, "Clearly Define
+	// the Steps Needed to Complete the Task"). Running the same suite under
+	// base and kimi-steps on kimi-k3 isolates the wording from the
+	// inventory correction, which is not what the eval measures.
+	"kimi-steps": {
+		description: "the corrected Kimi prompt plus a step-by-step execution rule from Kimi's own prompt guidance; compare with base on kimi-k3 to isolate the wording",
+		replacements: map[string]string{
+			planRule: planRule + " Then execute the plan step by step: finish one step and check its result before starting the next.",
 		},
 	},
 }
