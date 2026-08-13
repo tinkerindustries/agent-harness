@@ -105,6 +105,11 @@ Files with an `.en.` in the name are our English translations rather than
 upstream content. DeepSeek's prompt library is published in Chinese only;
 `_data/prompts.en.json` mirrors its structure and works as a drop-in substitute.
 
+`third_party/kimi-docs/` mirrors <https://platform.kimi.ai/docs> the same way,
+for Moonshot AI's Kimi models. Start at its `README.md`. That site publishes
+Markdown at `<url>.md` and an OpenAPI 3.1.0 spec, so a refresh needs no headless
+browser; its `sitemap.xml` is incomplete, so crawl links to closure.
+
 ## Generated skills
 
 `.claude/skills/playwright-cli/` is emitted by the tool it documents, not
