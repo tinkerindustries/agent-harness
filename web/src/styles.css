@@ -435,9 +435,10 @@ html {
 
 /* ---------- motion ----------
    Seven animations, each tied to a fact changing on screen. Nothing animates
-   height, nothing animates per character, and nothing animates on mount that
-   was already true — the gating for that last one lives in the components.
-   One media query at the bottom turns all of them off. */
+   height, nothing animates on mount that was already true, and the one
+   animation that runs per character — the ticker's roll — runs only on the
+   characters that changed; the gating for both of those lives in the
+   components. One media query at the bottom turns all of them off. */
 
 :root {
   --dur-instant: 0.08s;
@@ -446,9 +447,13 @@ html {
   --dur-turn: 0.15s;
   --dur-swap: 0.22s;
   --dur-reveal: 0.32s;
+  --dur-roll: 0.34s;
 
   --ease: ease;
-  /* --dur-swap: a badge flipping, a figure rolling. --dur-reveal: streamed text
+  /* --dur-swap: a badge flipping, a plan item's mark landing. --dur-roll: a
+     digit of a figure rolling — its own duration rather than --dur-swap's,
+     because a roll travels a whole line where a badge flip barely moves, and
+     at swap speed it read as a twitch. --dur-reveal: streamed text
      landing, a turn arriving.
      Out-quart: fast start, long settle. Everything that arrives uses it. */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -498,12 +503,15 @@ html {
   }
 }
 
-/* A figure that changed: the new digits roll up into place. The old value
-   leaves with roll-out so the two never overlap mid-flight. */
+/* A character of a figure that changed: the new one rolls up into place while
+   the one it replaced leaves upward with roll-out, so the two never overlap
+   mid-flight. The travel is close to the line box the character sits in
+   (components/ui/Ticker.tsx clips it), so it reads as a digit turning over
+   rather than a nudge. */
 @keyframes roll-in {
   from {
     opacity: 0;
-    transform: translateY(0.55em);
+    transform: translateY(0.8em);
   }
   to {
     opacity: 1;
@@ -517,7 +525,7 @@ html {
   }
   to {
     opacity: 0;
-    transform: translateY(-0.55em);
+    transform: translateY(-0.8em);
   }
 }
 
@@ -560,10 +568,10 @@ html {
   animation: badge-in var(--dur-swap) var(--ease-out) both;
 }
 .anim-roll-in {
-  animation: roll-in var(--dur-swap) var(--ease-out) both;
+  animation: roll-in var(--dur-roll) var(--ease-out) both;
 }
 .anim-roll-out {
-  animation: roll-out var(--dur-swap) var(--ease-out) both;
+  animation: roll-out var(--dur-roll) var(--ease-out) both;
 }
 .anim-mark-done {
   animation: mark-done var(--dur-swap) var(--ease-out) both;
@@ -581,6 +589,13 @@ html {
   .anim-mark-done,
   .anim-row-in {
     animation: none;
+  }
+  /* The outgoing character is only invisible because roll-out ends at opacity
+     0 and holds it with `both`. With the animation off it would paint at full
+     strength on top of the character that replaced it, for as long as the
+     Ticker holds it — so pin the same end state by hand. */
+  .anim-roll-out {
+    opacity: 0;
   }
 }
 
