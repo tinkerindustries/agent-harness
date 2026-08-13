@@ -119,6 +119,13 @@ type ToolCallPayload struct {
 // ChildSessionID are populated only for the tools that produce them (Edit
 // and Task respectively); every other tool leaves them empty, and the
 // frontend's per-tool block shaping reads them opt-in.
+//
+// ImageURL is the base64 data URI of an image Read returned as an image_url
+// part (docs/KIMI-INTEGRATION.md §4.5). It is populated only for that case
+// and lives in the event payload rather than on disk: the fold rebuilds the
+// parts array from Content and ImageURL, so replaying the log reproduces
+// the exact bytes regardless of what happened to the file since
+// (internal/fold/fold.go, docs/DESIGN.md §4.1).
 type ToolResultPayload struct {
 	ToolCallID     string     `json:"tool_call_id"`
 	Name           string     `json:"name"`
@@ -127,6 +134,7 @@ type ToolResultPayload struct {
 	Truncated      bool       `json:"truncated,omitempty"`
 	Diff           []DiffLine `json:"diff,omitempty"`
 	ChildSessionID string     `json:"child_session_id,omitempty"`
+	ImageURL       string     `json:"image_url,omitempty"`
 }
 
 // ToolDeniedPayload is a tool call refused by permission policy. It folds

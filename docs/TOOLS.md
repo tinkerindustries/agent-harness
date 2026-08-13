@@ -61,12 +61,38 @@ builds the whole visual path itself — a capture it controls, and a diagnosis
 from Gemini; the trained-vocabulary argument above says nothing about any of
 them, and each is named for what it does.
 
+The array is per-provider (docs/KIMI-INTEGRATION.md §4.5, decision 5). A Kimi
+K3 session gets the fourteen tools that remain when `Screenshot` and
+`ReviewScreenshot` are dropped — K3 reads images natively, so both are
+redundant for it, and capture happens through Bash and the `playwright-cli`
+skill instead. DeepSeek's array is the full sixteen, unchanged byte for byte.
+Each array is a frozen request head shared by every session on its provider,
+pinned by its own golden file (`internal/tools/testdata/tools_*.golden.json`,
+asserted by `TestToolArrayGolden`); the `Read` section below covers how an
+image reaches the model on the provider that can see one.
+
 ## Per-tool notes
 
 ### Read
 
 Returns line-numbered content, `cat -n` style, because that is the shape the
 target harnesses return and the model reads offsets out of it.
+
+On a provider that sees images (Kimi K3), a `Read` of a PNG, JPEG, or WebP
+path returns the file as an `image_url` part — the bytes base64-encoded into a
+`data:image/<fmt>;base64,...` data URI, the exact shape the Kimi guide
+prescribes (third_party/kimi-docs/guide/use-kimi-vision-model.md), with a
+short text label naming the file alongside. The encoded size is capped by the
+existing screenshot cap setting (`tools.reviewscreenshot_max_bytes`, the same
+5 MB default ReviewScreenshot enforces per file), and an over-cap image is
+refused with a result naming the limit and suggesting a resize — a refusal
+the model can act on, never a failed run. The image bytes are stored on the
+`tool_result` event, so the fold replays them identically
+(docs/KIMI-INTEGRATION.md §4.5). An SVG reads as text even on a vision
+provider — it is XML, and the API prescribes sending the source as text — and
+any other binary type is refused with a message that says so. On DeepSeek the
+behaviour is unchanged: an image is a binary file and is refused like any
+other.
 
 This creates a known friction with `Edit`: the line-number prefix is display
 only and must not appear in `old_string`. Detect a leading line-number pattern
@@ -495,11 +521,14 @@ changing nothing on disk.
 A work request may add `deny` patterns on top of its mode. They only ever
 subtract; a request cannot widen the mode it asked for.
 
-Modes gate execution, never availability. All sixteen tools are sent on every
-request in every mode, and a call the mode disallows is refused at execution
-with an error result the model can read and route around. Removing tools per
-mode would give each mode a different prefix and make every mode switch a cold
-cache ([CACHE.md](CACHE.md)).
+Modes gate execution, never availability. All of a provider's tools are sent
+on every request in every mode, and a call the mode disallows is refused at
+execution with an error result the model can read and route around. Removing
+tools per mode would give each mode a different prefix and make every mode
+switch a cold cache ([CACHE.md](CACHE.md)). The one thing that does vary the
+array is the provider — DeepSeek's sixteen, Kimi's fourteen — and that is a
+per-session property, fixed at creation and never changed mid-session, so it
+never varies within a provider's sessions ([CACHE.md](CACHE.md)).
 
 A denial is not an error. It returns as a tool result naming the rule that
 refused it, which is the shape the model recovers from — it picks a different

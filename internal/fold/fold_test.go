@@ -289,6 +289,116 @@ func TestFoldTwoSteersInOneBatch(t *testing.T) {
 	requireEqualMessages(t, got, want)
 }
 
+// TestFoldImageToolResult covers the new tool-result shape: a Read on a
+// vision provider stored the image as ImageURL on the event, and the fold
+// must rebuild the parts array the model sees — a text label part then the
+// image_url part, exactly as the tool produced them
+// (docs/KIMI-INTEGRATION.md §4.5). The bytes come entirely from the event
+// payload, so replaying the log reproduces them identically regardless of
+// what happened to the image file since.
+func TestFoldImageToolResult(t *testing.T) {
+	b := &eventBuilder{}
+	uri := "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+	events := []store.Event{
+		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "look at the screenshot"}),
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
+		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 0, ID: "call_00_a", Name: "Read", Arguments: `{"file_path":"shot.png"}`}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "tool_calls"}),
+		b.ev(store.KindToolResult, store.ToolResultPayload{ToolCallID: "call_00_a", Name: "Read", Content: "Image: shot.png", ImageURL: uri}),
+	}
+
+	got, err := Fold(testSession(), events)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []wire.Message{
+		wire.SystemMessage("you are a coding agent"),
+		wire.UserMessage("look at the screenshot"),
+		{
+			Role:    wire.RoleAssistant,
+			Content: wire.TextContent(""),
+			ToolCalls: []wire.ToolCall{
+				{ID: "call_00_a", Type: "function", Function: wire.ToolCallFunc{Name: "Read", Arguments: `{"file_path":"shot.png"}`}},
+			},
+		},
+		{
+			Role:       wire.RoleTool,
+			ToolCallID: "call_00_a",
+			Content: wire.Content{Parts: []wire.Part{
+				{Type: wire.PartTypeText, Text: "Image: shot.png"},
+				{Type: wire.PartTypeImageURL, ImageURL: &wire.ImageURL{URL: uri}},
+			}},
+		},
+	}
+	requireEqualMessages(t, got, want)
+
+	// The parts array must serialise as the array form on the wire — the
+	// shape the Kimi API expects on a tool message
+	// (third_party/kimi-docs/openapi.json "Message").
+	raw, err := json.Marshal(got[3])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !jsonContains(raw, `"content":[`) {
+		t.Fatalf("image tool result content is not the parts array: %s", raw)
+	}
+	if !jsonContains(raw, `"type":"image_url"`) || !jsonContains(raw, `"type":"text"`) {
+		t.Fatalf("parts array missing the text or image_url part: %s", raw)
+	}
+	if !jsonContains(raw, uri) {
+		t.Fatalf("parts array does not carry the data URI verbatim: %s", raw)
+	}
+}
+
+// TestFoldImageToolResultAppendOnly pins the load-bearing property for the
+// new shape: folding the log up to the tool_result event and past it must
+// not disagree on the image message — the event payload is immutable, so
+// the image part is identical on every replay (docs/DESIGN.md §4.1).
+func TestFoldImageToolResultAppendOnly(t *testing.T) {
+	b := &eventBuilder{}
+	uri := "data:image/png;base64,iVBORw0KGgo="
+	events := []store.Event{
+		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "look"}),
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
+		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 0, ID: "call_00_a", Name: "Read", Arguments: `{"file_path":"shot.png"}`}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "tool_calls"}),
+		b.ev(store.KindToolResult, store.ToolResultPayload{ToolCallID: "call_00_a", Name: "Read", Content: "Image: shot.png", ImageURL: uri}),
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 2}),
+		b.ev(store.KindContentDelta, store.ContentDeltaPayload{Text: "the button is misaligned"}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "stop"}),
+	}
+
+	sess := testSession()
+	full, err := Fold(sess, events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fullJSON := make([]string, len(full))
+	for i, m := range full {
+		raw, err := json.Marshal(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fullJSON[i] = string(raw)
+	}
+	for n := 0; n <= len(events); n++ {
+		partial, err := Fold(sess, events[:n])
+		if err != nil {
+			t.Fatalf("fold events[:%d]: %v", n, err)
+		}
+		for i, m := range partial {
+			raw, err := json.Marshal(m)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(raw) != fullJSON[i] {
+				t.Fatalf("fold events[:%d] message %d differs from the full fold:\n partial: %s\n   full: %s", n, i, raw, fullJSON[i])
+			}
+		}
+	}
+}
+
 // TestAppendOnly is the load-bearing property: folding events[:n] for every
 // n must be a strict prefix, message for message, of folding the full log.
 // Breaking this breaks the prompt cache (docs/CACHE.md).

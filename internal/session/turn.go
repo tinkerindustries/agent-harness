@@ -383,6 +383,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 				ToolCallID: toolCalls[i].ID, Name: oc.Name, Content: oc.Result.Content,
 				IsError: oc.Result.IsError, Truncated: oc.Result.Truncated,
 				Diff: oc.Result.Diff, ChildSessionID: oc.Result.ChildSessionID,
+				ImageURL: oc.Result.ImageURL,
 			}})
 			// A ReviewScreenshot call bills separately from this sub-turn's
 			// DeepSeek request; its usage rides home on the tool result and
@@ -499,7 +500,7 @@ func (r *Runner) stream(ctx context.Context, model string, messages []wire.Messa
 		Effort:    effort,
 		Thinking:  thinking,
 		MaxTokens: maxTokens,
-		Tools:     tools.Definitions(),
+		Tools:     tools.DefinitionsFor(model),
 	}
 
 	release, err := r.acquireModelSlot(ctx, model)
