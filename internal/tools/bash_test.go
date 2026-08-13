@@ -27,6 +27,31 @@ func TestBashRunsAndCapturesOutput(t *testing.T) {
 	}
 }
 
+// Sessions write bash whatever the shell is. Under busybox ash these come
+// back as "syntax error: bad substitution" and the command never runs, so the
+// tool resolves bash when the machine has one.
+func TestBashRunsBashSyntax(t *testing.T) {
+	if !strings.HasSuffix(shellPath(), "bash") {
+		t.Skipf("no bash on this machine; the shell resolved to %s", shellPath())
+	}
+	e, _ := newTestExecutor(t)
+	for _, tc := range []struct{ name, command, want string }{
+		{"pipestatus", "true | false; echo ${PIPESTATUS[0]}", "0"},
+		{"double bracket", `[[ ab == a* ]] && echo matched`, "matched"},
+		{"array", "xs=(a b c); echo ${#xs[@]}", "3"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res := execBash(t.Context(), e, mustJSON(t, bashArgs{Command: tc.command}))
+			if res.IsError {
+				t.Fatalf("unexpected error: %s", res.Content)
+			}
+			if !strings.Contains(res.Content, tc.want) {
+				t.Errorf("expected %q in the output, got: %q", tc.want, res.Content)
+			}
+		})
+	}
+}
+
 func TestBashReportsNonZeroExit(t *testing.T) {
 	e, _ := newTestExecutor(t)
 	res := execBash(t.Context(), e, mustJSON(t, bashArgs{Command: "exit 3"}))

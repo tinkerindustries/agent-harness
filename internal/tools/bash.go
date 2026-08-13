@@ -19,6 +19,17 @@ type bashArgs struct {
 	Description string `json:"description"`
 }
 
+// shellPath is the shell every Bash call runs through: bash where it exists,
+// /bin/sh otherwise. The tool is named Bash and models write bash — arrays,
+// [[ ]], ${PIPESTATUS[0]} — which busybox ash rejects as a syntax error.
+// Resolved once, since PATH does not change under a running process.
+var shellPath = sync.OnceValue(func() string {
+	if path, err := exec.LookPath("bash"); err == nil {
+		return path
+	}
+	return "/bin/sh"
+})
+
 // execBash implements Bash: foreground only, wall-clock timeout from ctx
 // (set in Executor.timeoutFor), output capped and labelled on truncation
 // (docs/TOOLS.md).
@@ -31,15 +42,15 @@ func execBash(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 		return errorResult("command is required")
 	}
 
-	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", args.Command)
+	cmd := exec.CommandContext(ctx, shellPath(), "-c", args.Command)
 	cmd.Dir = e.Workspace
 
 	// A command that backgrounds a process without redirecting its output
 	// (node server.js &, inheriting the captured pipe) leaves that pipe open
-	// after /bin/sh exits, and cmd.Run() would block on the copy goroutines
+	// after the shell exits, and cmd.Run() would block on the copy goroutines
 	// forever — past the tool timeout, past a cancelled context. WaitDelay
 	// bounds that wait, and the process group (bashGroup) is what lets the
-	// kill reach the pipe-holder instead of only the direct sh child
+	// kill reach the pipe-holder instead of only the direct shell child
 	// (docs/TOOLS.md, "Bash").
 	waitDelay := e.bashWaitDelay(ctx)
 	cmd.WaitDelay = waitDelay

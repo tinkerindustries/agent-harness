@@ -31,16 +31,18 @@ FROM golang:1.26-alpine AS go-toolchain
 FROM python:3.14-alpine AS python-toolchain
 
 FROM alpine:3.21
-# ca-certificates for TLS to api.deepseek.com; the Bash tool runs commands
-# through /bin/sh, and agent sessions expect git on the path.
+# ca-certificates for TLS to api.deepseek.com, and agent sessions expect git
+# on the path.
 RUN apk add --no-cache ca-certificates git
 
 # Sessions reach for GNU flags that busybox's applets reject, and a rejection
 # swallowed by the 2>/dev/null they tend to add reads as a genuine no-match
 # (docs/reviews/sess-bb6c0ed564ddae573c3b1832cb3981f4.md). grep and procps
 # replace the two applets that get hit, curl is absent from busybox entirely,
-# and ripgrep stays for the searches that suit it.
-RUN apk add --no-cache grep curl procps ripgrep
+# and ripgrep stays for the searches that suit it. bash is what the Bash tool
+# runs commands through when it is present (internal/tools/bash.go); without
+# it the shell is busybox ash, which rejects the bash syntax models write.
+RUN apk add --no-cache bash grep curl procps ripgrep
 
 # A C toolchain for the sessions' own builds: cgo, node-gyp, and Python
 # packages that ship no musl wheel all compile from source. linux-headers

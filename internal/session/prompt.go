@@ -29,8 +29,8 @@ Rules:
   line-number prefix Read shows you is for your reference only and must
   never appear inside old_string.
 - Prefer Grep and Glob to orient before reading whole files.
-- The shell is busybox ash in an Alpine container. GNU grep, rg, curl, ps and
-  the git, Go, Node and Python toolchains are installed; anything else may be
+- The shell is bash in an Alpine container. GNU grep, rg, curl, ps and the
+  git, Go, Node and Python toolchains are installed; anything else may be
   busybox's applet, which rejects GNU flags.
 - A task that takes three or more steps gets a plan. Call TaskCreate once, at
   the start, with one entry per step. Every entry needs all three of: subject,

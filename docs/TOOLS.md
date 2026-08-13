@@ -99,6 +99,11 @@ changes them with `harness config set tools.bash_timeout` (and
 and `tools.output_cap` — the whole `tools.` group of settings — and the next
 tool call picks the change up without a restart.
 
+Commands run through `bash` where the machine has one and `/bin/sh` otherwise,
+resolved once at first use. The image installs bash, so a session gets it;
+models write `${PIPESTATUS[0]}`, `[[ ]]` and arrays regardless of what the
+shell is, and busybox ash answers those with a syntax error.
+
 Foreground only in v1. Background shells with separate output-polling and kill
 tools are a named follow-up, and they matter for dev servers and test watchers.
 
@@ -115,7 +120,7 @@ it:
 > stopped waiting after 2s and killed the process group. Redirect output and
 > detach (`cmd >/tmp/x.log 2>&1 &`) if you meant to leave something running.
 
-The kill reaches the whole group, not just the `/bin/sh` child, so the orphan
+The kill reaches the whole group, not just the direct shell child, so the orphan
 that held the pipe dies with the call instead of outliving it and keeping
 whatever port it bound. A command that detaches with its output redirected is
 untouched: the pipes close with the shell, `Wait` returns normally, and nothing

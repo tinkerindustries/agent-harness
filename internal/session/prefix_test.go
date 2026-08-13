@@ -113,6 +113,7 @@ func TestSystemPromptNamesBinariesTheImageInstalls(t *testing.T) {
 	installed := apkPackages(t)
 	// Prompt wording to apk package, where the two differ.
 	for _, c := range []struct{ named, pkg string }{
+		{"bash", "bash"},
 		{"grep", "grep"},
 		{"rg", "ripgrep"},
 		{"curl", "curl"},
