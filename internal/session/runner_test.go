@@ -20,6 +20,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
+	"github.com/mrgeoffrich/deepseek-harness/internal/kimi"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
@@ -857,5 +858,111 @@ func TestTaskSubagentRunsAtMaxEffort(t *testing.T) {
 	}
 	if child.Model != "test-model" {
 		t.Fatalf("expected the subagent to run the flash model, got %q", child.Model)
+	}
+}
+
+// kimiAnswerServer answers like Kimi K3 for one run: streaming
+// reasoning_content then content, and a usage frame carrying Kimi's single
+// cached_tokens figure instead of DeepSeek's hit/miss pair
+// (third_party/kimi-docs/api/chat.md). The request body must not carry a
+// thinking field — sending it to kimi-k3 is an error
+// (third_party/kimi-docs/api/models-overview.md).
+func kimiAnswerServer(t *testing.T, answer string, kimiRequests *atomic.Int64) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		kimiRequests.Add(1)
+		body, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(body), `"thinking"`) {
+			t.Errorf("kimi-k3 request body carries a thinking field: %s", body)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEChunk(t, w, wire.ChatCompletionChunk{
+			Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{Content: strPtr(""), ReasoningContent: strPtr("thinking hard")}}},
+		})
+		writeSSEChunk(t, w, wire.ChatCompletionChunk{
+			Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{Content: strPtr(answer)}}},
+		})
+		writeSSEChunk(t, w, wire.ChatCompletionChunk{
+			Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishStop)}},
+			Usage:   &wire.Usage{PromptTokens: 200, CachedTokens: 100, CompletionTokens: 5},
+		})
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		w.(http.Flusher).Flush()
+	}))
+}
+
+// TestClientForRoutesByModel pins the per-model client wiring: a Runner
+// with ClientFor serves whichever provider the request's model belongs to.
+// A kimi-k3 run must reach the Kimi client — whose request carries no
+// thinking field and whose cached_tokens splits into the stored usage event
+// as hit 100 / miss 100 — and never the DeepSeek client
+// (docs/KIMI-INTEGRATION.md §4.3).
+func TestClientForRoutesByModel(t *testing.T) {
+	var deepSeekRequests atomic.Int64
+	deepSeekSrv := plainAnswerServer(t, "from deepseek")
+	defer deepSeekSrv.Close()
+	var kimiRequests atomic.Int64
+	kimiSrv := kimiAnswerServer(t, "from kimi", &kimiRequests)
+	defer kimiSrv.Close()
+
+	deepSeekClient := deepseek.NewClient(deepSeekSrv.URL, "test-key")
+	kimiClient := kimi.NewClient(kimiSrv.URL, "test-key")
+
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "harness.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	r := &Runner{
+		Store:  st,
+		Mirror: store.NewMirror(filepath.Join(dir, "mirror")),
+		Client: deepSeekClient,
+		ClientFor: func(model string) Client {
+			if model == "kimi-k3" {
+				return kimiClient
+			}
+			return deepSeekClient
+		},
+		Prices:     testPrices(),
+		FlashModel: "deepseek-v4-flash",
+	}
+
+	ws := t.TempDir()
+	res, err := r.Run(t.Context(), RunOptions{
+		Model: "kimi-k3", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "say something",
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Text != "from kimi" {
+		t.Fatalf("answer = %q, want %q (the Kimi client's)", res.Text, "from kimi")
+	}
+	if kimiRequests.Load() != 1 {
+		t.Errorf("Kimi server saw %d requests, want 1", kimiRequests.Load())
+	}
+	if deepSeekRequests.Load() != 0 {
+		t.Errorf("DeepSeek server saw %d requests, want 0 (kimi-k3 must not reach the DeepSeek client)", deepSeekRequests.Load())
+	}
+
+	// The usage event's cache split must come from Kimi's cached_tokens:
+	// prompt 200, cached 100 → hit 100, miss 100.
+	events, err := st.GetEvents(t.Context(), res.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range events {
+		if e.Kind != store.KindUsage {
+			continue
+		}
+		var u store.UsagePayload
+		if err := json.Unmarshal(e.Payload, &u); err != nil {
+			t.Fatalf("decode usage payload: %v", err)
+		}
+		if u.PromptCacheHitTokens != 100 || u.PromptCacheMissTokens != 100 {
+			t.Errorf("usage split = hit %d miss %d, want 100/100 from cached_tokens 100 of prompt 200", u.PromptCacheHitTokens, u.PromptCacheMissTokens)
+		}
 	}
 }
