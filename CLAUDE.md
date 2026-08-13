@@ -85,7 +85,7 @@ of them drifted apart before.
 - Base URL, Anthropic format: `https://api.deepseek.com/anthropic`
 - Models: `deepseek-v4-flash` and `deepseek-v4-pro`. Both default to thinking
   mode and support non-thinking mode.
-- The Responses API supports `deepseek-v4-flash` only.
+- The Responses API supports both models.
 
 Pricing, rate limits, and context/output limits change; read
 `third_party/deepseek-docs/quick_start/pricing.md` rather than quoting numbers from

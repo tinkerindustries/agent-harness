@@ -1,23 +1,20 @@
 import { memo, useMemo } from "react";
-import { MagnifyingGlass } from "@phosphor-icons/react";
 import type { LiveView } from "../api/fold";
-import type { GroupCounts, SubTurnGroup, TranscriptFilter, TranscriptItem } from "../api/groups";
+import type { SubTurnGroup, TranscriptItem } from "../api/groups";
 import type { SessionState, Todo, ToolCallPayload } from "../api/types";
 import { cachePercent } from "./turns/turnHelpers";
 import { formatCost, toolDetail } from "./blocks/toolArgs";
-import { Input } from "./ui/input";
-import { Toggle } from "./ui/toggle";
 import { cn } from "@/lib/utils";
 
 // WatchRail is the watch page's left-hand navigator: one column that
-// answers "where in this run" — the find box and the filter chips on
-// top, then the plan as phases with one tick per sub-turn, then the
-// legend and the session facts. It replaces the
+// answers "where in this run" — the plan as phases with one tick per
+// sub-turn, then the legend and the session facts. It replaces the
 // transcript's old toolbar/rail/plan-panel trio, which the chat page
 // already dropped; the two session pages now differ in silhouette (rail
-// left, rail right) and this rail carries everything a watcher hunts for:
-// the error among 78 sub-turns, the edit that touched a file, the churn
-// point.
+// left, rail right) and this rail is how a watcher finds the thing they
+// came for: the error among 78 sub-turns, the edit that touched a file,
+// the churn point. The ticks' colours are the whole index — there is no
+// find box and no filter chips above them.
 //
 // The phases are built from the groups' own phase refs (groups.ts:
 // RailPhaseRef, captured the moment each group froze) — never by walking
@@ -29,24 +26,12 @@ export function WatchRail({
   items,
   live,
   todos,
-  counts,
-  filter,
-  onFilterChange,
-  query,
-  onQueryChange,
   meta,
   getToolCall,
 }: {
   items: TranscriptItem[];
   live: LiveView;
   todos: Todo[];
-  counts: GroupCounts;
-  filter: TranscriptFilter;
-  onFilterChange: (filter: TranscriptFilter) => void;
-  // The find box's text, owned by the screen: it filters the transcript
-  // (TurnTranscript), so the rail only renders the input.
-  query: string;
-  onQueryChange: (query: string) => void;
   meta: SessionState;
   getToolCall: (id: string) => ToolCallPayload | undefined;
 }) {
@@ -64,31 +49,6 @@ export function WatchRail({
 
   return (
     <aside className="rail rail-left" aria-label="Navigator">
-      <div className="railsec">
-        <h3>Find</h3>
-        <Input
-          type="search"
-          icon={<MagnifyingGlass />}
-          className="input"
-          placeholder="Search this transcript…"
-          value={query}
-          onChange={(e) => onQueryChange(e.target.value)}
-          aria-label="Search this transcript"
-        />
-        <div className="chips" role="toolbar" aria-label="Transcript filters">
-          {FILTERS.map(({ key, label }) => (
-            <Toggle
-              key={key}
-              pressed={filter === key}
-              onPressedChange={() => onFilterChange(key)}
-              className={cn("chip-toggle", filter === key && "chip-toggle-active")}
-            >
-              {label} {filterCount(counts, key)}
-            </Toggle>
-          ))}
-        </div>
-      </div>
-
       <div className="railsec">
         <h3>Plan</h3>
         {todos.length === 0 ? (
@@ -151,16 +111,22 @@ export function WatchRail({
         <h3>Legend</h3>
         <div className="legend">
           <span>
-            <i className="tick" /> read / run
+            <i className="tick tick-edit" /> edit
           </span>
           <span>
-            <i className="tick tick-edit" /> edit
+            <i className="tick tick-bash" /> bash
+          </span>
+          <span>
+            <i className="tick tick-read" /> read
           </span>
           <span>
             <i className="tick tick-err" /> error
           </span>
           <span>
             <i className="tick tick-churn" /> churn
+          </span>
+          <span>
+            <i className="tick" /> other
           </span>
         </div>
       </div>
@@ -198,29 +164,6 @@ export function WatchRail({
   );
 }
 
-const FILTERS: { key: TranscriptFilter; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "edits", label: "Edits" },
-  { key: "bash", label: "Bash" },
-  { key: "errors", label: "Errors" },
-  { key: "churn", label: "Churn" },
-];
-
-function filterCount(counts: GroupCounts, key: TranscriptFilter): number {
-  switch (key) {
-    case "all":
-      return counts.total;
-    case "edits":
-      return counts.edits;
-    case "bash":
-      return counts.bash;
-    case "errors":
-      return counts.errors;
-    case "churn":
-      return counts.churn;
-  }
-}
-
 // PlanHead is the plan section's progress bar with the completed ratio
 // (.planhead), the same markup the chat rail uses.
 function PlanHead({ todos }: { todos: Todo[] }) {
@@ -245,7 +188,7 @@ function PlanHead({ todos }: { todos: Todo[] }) {
 // class for what happened in it. cls is "" for a plain sub-turn.
 export interface WatchTick {
   subTurn: number;
-  cls: "tick-edit" | "tick-err" | "tick-churn" | "tick-now" | "";
+  cls: "tick-edit" | "tick-bash" | "tick-read" | "tick-err" | "tick-churn" | "tick-now" | "";
   title: string;
 }
 
@@ -336,13 +279,19 @@ export function buildWatchPhases(
   return { phases, notStarted, nowPhaseId, flatTicks: phases.flatMap((p) => p.ticks) };
 }
 
-// tickCls is the colour rule (.tick-*): an error sub-turn is red — the
-// thing a watcher hunts for — then churn amber, then an edit green;
-// everything else plain.
+// tickCls is the colour rule (.tick-*), in priority order: an error
+// sub-turn is red — the thing a watcher hunts for — then churn amber,
+// then what the sub-turn did, most consequential first: an edit green, a
+// shell command blue, a file read violet. A sub-turn that did none of
+// those (a search, a plan call, thinking alone) stays plain. The families
+// are the timeline rail's glyph families (toolArgs.ts), so one colour
+// means the same thing in both rails.
 function tickCls(group: SubTurnGroup): WatchTick["cls"] {
   if (group.tags.errors > 0) return "tick-err";
   if (group.tags.churn) return "tick-churn";
   if (group.tags.edits > 0) return "tick-edit";
+  if (group.tags.bash > 0) return "tick-bash";
+  if (group.tags.reads > 0) return "tick-read";
   return "";
 }
 

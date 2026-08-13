@@ -72,25 +72,25 @@ treat the turn as suspect rather than surfacing markup to the user. What we
 actually see go wrong in assembled tool calls is a misplaced brace, which
 [OBSERVED.md](OBSERVED.md) measures and `deepseek.RepairArguments` handles.
 
-## Effort mapping wastes two of four levels
+## Effort mapping wastes two of five levels
 
-Measured. `guides/thinking_mode.md` gives the mapping; our runs confirm the pro
-half of it.
+`guides/thinking_mode.md` gives the mapping. The 2026-08-13 GA release made it
+one table for both models:
 
-| Requested | flash actual | pro actual |
-| --- | --- | --- |
-| low | low | high |
-| high | high | high |
-| xhigh | high | max |
-| max | max | max |
+| Requested | Actual |
+| --- | --- |
+| low | low |
+| medium | high |
+| high | high |
+| xhigh | high |
+| max | max |
 
-On flash, `xhigh` buys nothing over `high`. On pro, `low` buys nothing over
-`high` — measured at 12397 against 12196 total tokens, inside 1%
-([OBSERVED.md](OBSERVED.md)). Pro cannot be made cheap by lowering effort. The
-only way down is flash.
+`medium` and `xhigh` both land on `high`, so three settings out of five reach it.
 
-DeepSeek said the pro mapping would change in early August 2026. It had not as
-of 2026-08-09.
+Our own measurement predates this. On the preview build, pro collapsed `low`
+into `high` — 12397 against 12196 total tokens, inside 1%
+([OBSERVED.md](OBSERVED.md)) — which is the behaviour the new table drops. Lowering
+effort on pro should now buy something, but we have not measured it.
 
 ## Flash against pro
 

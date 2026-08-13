@@ -113,7 +113,9 @@ the 768K compaction threshold.
 ### 3.2 The message array is append-only, or the cache dies
 
 Cache-hit input costs $0.0028/M against $0.14/M on a miss for flash, and
-$0.003625/M against $0.435/M for pro. That is 50× and 120×.
+$0.003625/M against $0.435/M for pro. That is 50× and 120×. Under the rates
+taking effect 2026-08-16 the ratio narrows to about 31× and 30×, which changes
+none of what follows.
 
 An agent loop re-sends the whole conversation every sub-turn. A byte-stable
 prefix means nearly all of it hits cache. Any change to the prefix means
@@ -455,8 +457,8 @@ Points that bear on the rest of this design:
   CLI flags, and fixed for the session's life. Switching mid-session is a full
   cache miss, and no UI control exists to price that choice — a caller who
   wants a different model sends a different request.
-- The effort mapping is not identity and pro is due to change during August
-  2026. Read the vendored thinking-mode guide rather than a compiled-in table.
+- The effort mapping is not identity: `medium` and `xhigh` both run as `high`.
+  Read the vendored thinking-mode guide rather than a compiled-in table.
 - Thinking mode silently ignores `temperature` and `top_p`. The harness rejects
   them at request validation rather than sending values that do nothing.
 
@@ -507,18 +509,21 @@ The React build embeds through `embed.FS`. One binary, no runtime assets.
 
 ### 4.9 Cost accounting
 
-Prices load from config, never from code. The pricing page carries an explicit
-notice that rates are about to rise significantly, so a compiled-in table goes
-stale on their schedule rather than ours.
+Prices load from config, never from code, because they change on DeepSeek's
+schedule rather than ours. That was the argument in the abstract on 2026-08-06,
+when DeepSeek warned of a significant increase without naming a rate or a date.
 
-That rise stopped being hypothetical on 2026-08-06, when DeepSeek formally
-warned of a significant API price increase without naming a rate or a date.
-Rates verified against the live pricing page on 2026-08-09 still match the
-figures in MODELS.md, so the change had not landed as of then.
+The 2026-08-13 GA release named both. From 16:00 UTC on 2026-08-16, billing
+splits into peak and off-peak, peak being 01:00-04:00 and 06:00-10:00 UTC, with
+off-peak at half the peak rate. Every rate rises: pro output goes from $0.87/M
+to $1.98/M off-peak and $3.96/M at peak, and cache hits rise six to twelve fold
+on both models. `quick_start/pricing.md` carries both tables.
 
-The price table therefore carries its own capture date, and the cost readout
-shows it. A cost figure computed from a stale table is worse than no figure,
-because it looks authoritative.
+The current table has no concept of time of day, so it prices every token at the
+pre-16-August flat rate. It carries its own capture date and the cost readout
+shows it, which is what keeps a stale figure from looking authoritative — but a
+capture date does not make a wrong figure right. Supporting the split needs a
+schema change and a UTC clock on the cost path.
 
 Track per turn and per session: cache-hit input tokens, cache-miss input tokens,
 output tokens, reasoning tokens, and derived cost. A work request's result

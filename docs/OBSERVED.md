@@ -284,9 +284,12 @@ a 40000 ceiling did:
 | `high` | 10537 | 1659 | 12196 | 277s |
 | `max` | 25777 | 2364 | 28141 | 583s |
 
-`low` and `high` land within 1% of each other, so pro still collapses `low` into
-`high` exactly as `guides/thinking_mode.md` describes. The change DeepSeek
-promised for early August 2026 had not landed as of 2026-08-09.
+`low` and `high` land within 1% of each other, so pro collapses `low` into
+`high` exactly as `guides/thinking_mode.md` described at the time.
+
+These numbers were taken against the preview build. Pro went GA as V4-Pro-0813
+on 2026-08-13 and the mapping table now gives `low` its own level on both
+models, so this row needs re-measuring before it can be quoted again.
 
 `max` is 2.4× the reasoning and 2.1× the wall-clock. That is what moved the
 harness default to `high` ([MODELS.md](MODELS.md)).

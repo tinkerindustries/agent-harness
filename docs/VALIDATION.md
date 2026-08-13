@@ -1,12 +1,13 @@
 # Validation against the vendored docs
 
 Every decision in DESIGN.md, TOOLS.md, and MODELS.md checked against
-`third_party/deepseek-docs/`. Mirror fetched 2026-08-09.
+`third_party/deepseek-docs/`. Mirror last compared against upstream 2026-08-13.
 
 The 26 pages cited below are pinned at
 [`sources/2026-08-09/`](sources/2026-08-09/MANIFEST.md), because the mirror is
 regenerated on refresh and several of these facts were already marked as due to
-change. Cite the snapshot when the wording matters.
+change. The 2026-08-13 refresh changed eight of them, so cite the snapshot when
+the wording matters.
 
 Three categories: confirmed, corrected, and unvalidated. The last one matters
 most — it lists what we are relying on that the local docs do not establish.
@@ -123,31 +124,22 @@ replaces `input_image` parts with placeholder text.
 No screenshots, no image paste, no visual diffing. Worth stating in scope rather
 than discovering later.
 
-## Contested — the pro default
+## Resolved — the pro default
 
 MODELS.md defaults the main loop to `deepseek-v4-pro`, following DeepSeek's
-recommended Claude Code configuration. The change log complicates that.
+recommended Claude Code configuration. The change log contested that for two
+weeks and then settled it.
 
-`updates.md` for 2026-07-31 announces V4-Flash-0731 with "significantly enhanced
-agent capabilities, with benchmark results far exceeding V4-Pro-Preview":
-Terminal Bench 2.1 at 82.7, NL2Repo 54.2, DeepSWE 54.4, Toolathlon verified
-70.3. The same entry says the update "only upgrades the DeepSeek-V4-Flash API.
-The DeepSeek-V4-Pro API and the APP/WEB models are unchanged", and that "the
-official release of DeepSeek-V4-Pro will follow soon."
+`updates.md` for 2026-07-31 announced V4-Flash-0731 as "far exceeding
+V4-Pro-Preview" while leaving the pro endpoint untouched, which meant the
+cheaper model was beating the one pro actually served. The 2026-08-13 entry
+released pro as V4-Pro-0813, with numbers above flash-0731 on every shared
+benchmark — Terminal Bench 2.1 at 87.9 against 82.7, DeepSWE 62.7 against 54.4,
+NL2Repo 61.5 against 54.2.
 
-Read plainly: as of 2026-07-31, the pro endpoint still served the preview-era
-model, and the current flash beat it on agentic coding benchmarks while costing
-roughly a third as much with five times the concurrency.
-
-Against that, `quick_start/pricing.md` lists pro's version as "DeepSeek-V4-Pro"
-rather than "-Preview", and DeepSeek's Claude Code configuration still names pro
-as the main model. Those two are not dated, so we cannot tell whether they
-predate the flash update.
-
-This is unresolved from local docs alone. The harness lets you switch, so the
-cost of the wrong default is one click. MODELS.md now records the tension and
-keeps pro as the default while flagging flash as the benchmark-backed
-alternative for agentic coding.
+Both figure sets are DeepSeek's own and neither was independently reproduced, so
+what this establishes is an ordering between the two models rather than either
+one's absolute standing. That is enough for a default. Pro stays.
 
 ## DeepSeek's own effort advice is inconsistent
 
@@ -186,7 +178,7 @@ One adjacent fact the docs do supply: DeepSeek accepts
 `{"type": "custom", "name": "apply_patch"}` on the Responses API and returns 400
 for any other custom tool name. That is direct evidence of tuning against
 Codex's patch-application format, and it is the only concrete coding tool name
-DeepSeek documents. It is flash-only and Responses-API-only, so it does not
+DeepSeek documents. It is Responses-API-only, so it does not
 apply to our endpoint, but it is a signal that patch-format editing is
 trained-in.
 

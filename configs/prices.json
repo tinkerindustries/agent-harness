@@ -1,6 +1,34 @@
 {
-  "captured_at": "2026-08-09",
+  "captured_at": "2026-08-13",
   "source": "https://api-docs.deepseek.com/quick_start/pricing",
+  "pending_change": {
+    "effective_at": "2026-08-16T16:00:00Z",
+    "note": "DeepSeek splits billing into peak and off-peak. Peak is 01:00-04:00 and 06:00-10:00 UTC; off-peak is half the peak rate. The loader ignores this block: Cost() has no clock, so it prices every token at the flat rates above and will be wrong from effective_at until the split is implemented. docs/DESIGN.md section 4.9.",
+    "peak": {
+      "deepseek-v4-flash": {
+        "input_cache_hit_per_million_usd": 0.014,
+        "input_cache_miss_per_million_usd": 0.44,
+        "output_per_million_usd": 1.32
+      },
+      "deepseek-v4-pro": {
+        "input_cache_hit_per_million_usd": 0.044,
+        "input_cache_miss_per_million_usd": 1.32,
+        "output_per_million_usd": 3.96
+      }
+    },
+    "off_peak": {
+      "deepseek-v4-flash": {
+        "input_cache_hit_per_million_usd": 0.007,
+        "input_cache_miss_per_million_usd": 0.22,
+        "output_per_million_usd": 0.66
+      },
+      "deepseek-v4-pro": {
+        "input_cache_hit_per_million_usd": 0.022,
+        "input_cache_miss_per_million_usd": 0.66,
+        "output_per_million_usd": 1.98
+      }
+    }
+  },
   "models": {
     "deepseek-v4-flash": {
       "input_cache_hit_per_million_usd": 0.0028,

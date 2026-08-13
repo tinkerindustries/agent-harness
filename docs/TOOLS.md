@@ -29,7 +29,7 @@ rename is the whole fix.
 The one concrete coding tool name DeepSeek does document is `apply_patch`:
 `{"type": "custom", "name": "apply_patch"}` is accepted on the Responses API and
 any other custom name returns 400. That is direct evidence of tuning against
-Codex's patch format. It is flash-only and Responses-API-only, so it does not
+Codex's patch format. It is Responses-API-only, so it does not
 reach our endpoint, but it suggests patch-shaped editing is trained in and worth
 trying against `Edit` if exact-match replacement underperforms.
 

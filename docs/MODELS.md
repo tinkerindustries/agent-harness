@@ -24,27 +24,31 @@ published benchmark runs used max. So max is the more common recommendation and
 the benchmarked one, which is why it took a measurement to move off it — see
 "Why the main loop defaults to high, not max" below.
 
-## The pro default is contested
+## The pro default, settled by the GA release
 
-`updates.md` for 2026-07-31 announces V4-Flash-0731 with "significantly enhanced
-agent capabilities, with benchmark results far exceeding V4-Pro-Preview" —
-Terminal Bench 2.1 at 82.7, NL2Repo 54.2, DeepSWE 54.4, Toolathlon verified
-70.3. The same entry says that update "only upgrades the DeepSeek-V4-Flash API.
-The DeepSeek-V4-Pro API and the APP/WEB models are unchanged", and that "the
-official release of DeepSeek-V4-Pro will follow soon."
+For most of the preview window this was genuinely contested. `updates.md` for
+2026-07-31 announced V4-Flash-0731 with "benchmark results far exceeding
+V4-Pro-Preview", and said the same update left the pro endpoint untouched. On
+those numbers flash beat the model pro was actually serving, at a third of the
+cost and five times the concurrency.
 
-Read plainly: as of 2026-07-31 the pro endpoint still served the preview-era
-model, and the current flash beat it on agentic coding benchmarks at roughly a
-third of the cost with five times the concurrency.
+The 2026-08-13 entry ends that. Pro left preview as V4-Pro-0813, and its
+published numbers beat flash-0731 on every benchmark the two entries share:
 
-Against that, the pricing page names pro's version "DeepSeek-V4-Pro" rather than
-"-Preview", and the Claude Code configuration still puts pro in the main slot.
-Neither is dated, so we cannot tell whether they predate the flash update.
+| | flash-0731 | pro-0813 |
+| --- | --- | --- |
+| Terminal Bench 2.1 | 82.7 | 87.9 |
+| NL2Repo | 54.2 | 61.5 |
+| Cybergym | 76.7 | 83.3 |
+| DeepSWE | 54.4 | 62.7 |
+| Toolathlon verified | 70.3 | 74.1 |
+| DSBench-FullStack | 68.7 | 71.1 |
+| DSBench-Hard | 59.6 | 67.2 |
 
-Unresolved from local docs. Pro stays the default because that is what DeepSeek
-recommends for a coding agent, but flash is the benchmark-backed alternative and
-the switch is one click. Worth measuring on real work rather than settling from
-documents.
+Both sets are DeepSeek's own, so they establish an ordering rather than an
+absolute. Pro stays the default and now has a benchmark argument behind it as
+well as DeepSeek's recommendation. Flash remains the cheaper alternative and the
+switch is still one click.
 
 ## The parameters
 
@@ -58,45 +62,37 @@ format spells effort as `output_config.effort`, and the Responses API spells it
 as `reasoning.effort` with an extra `none` value that disables thinking. Neither
 applies to us.
 
-## The effort mapping is not identity
+## The effort mapping, one table for both models
 
-Current as of the doc mirror, fetched 2026-08-09:
+The 2026-08-13 GA release unified it. As of the doc mirror fetched that day:
 
-| Requested | flash runs at | pro runs at |
-| --- | --- | --- |
-| `low` | low | high |
-| `high` | high | high |
-| `xhigh` | high | max |
-| `max` | max | max |
+| Requested | Runs at |
+| --- | --- |
+| `low` | low |
+| `medium` | high |
+| `high` | high |
+| `xhigh` | high |
+| `max` | max |
 
-Three things fall out of this table.
+Two things fall out. `low` now buys a genuinely cheaper run on pro, which it did
+not during the preview — the old table collapsed pro's `low` into `high`, and
+[OBSERVED.md](OBSERVED.md) measured that collapse at under 1%. And `xhigh`
+remains a step down from `max` on both models, so asking for the ceiling means
+asking for `max`.
 
-On pro, `low` buys nothing — it runs as `high`. The only real lever on pro today
-is high against max.
-
-On flash, `xhigh` is a step down from `max`, not up. Asking for flash's ceiling
-means asking for `max`.
-
-`xhigh` is the only single value that means "max on pro, high on flash". That is
-useful if one effort setting is broadcast to both models, and misleading if
-someone reads it as a level above high.
-
-DeepSeek says pro gains all three levels in early August 2026. The mirror was
-fetched on 2026-08-09 and still carries that as future tense, so the table is
-live as of today — but this is precisely the window in which it changes. Read
+We have not re-measured against pro-0813. The claim above is DeepSeek's, and
+OBSERVED.md's numbers were taken against the preview build. Read
 `third_party/deepseek-docs/guides/thinking_mode.md` rather than trusting a table
 compiled into the binary.
 
-The Codex model catalogue DeepSeek publishes muddies this: it declares
-`supported_reasoning_levels` of low, high, and max for pro as well as flash.
-That file tells a client what to offer in its picker, not what the server
-honours.
+The Codex model catalogue DeepSeek publishes declared `supported_reasoning_levels`
+of low, high, and max for pro throughout the preview, before the server honoured
+them. Measurement on 2026-08-09 disagreed with it: on one coding task, pro
+produced 10635 reasoning tokens at `low` and 10537 at `high` — within 1% —
+against 25777 at `max`. The catalogue described the picker, not the server.
 
-Measurement settles it in the table's favour. On one coding task, pro produced
-10635 reasoning tokens at `low` and 10537 at `high` — within 1% — against 25777
-at `max`. Pro still collapses `low` into `high`, so the only real lever there is
-high against max, and the change DeepSeek promised for early August 2026 had not
-landed as of 2026-08-09.
+The GA table has since caught the server up to the catalogue. Whether pro's
+`low` now runs cheaper than its `high` is unmeasured on our side.
 
 ## Parameters that do nothing under thinking
 
@@ -240,10 +236,13 @@ Chat Completions `model` enum both list plain `deepseek-v4-pro` and
 catalogue DeepSeek publishes uses the plain slugs with
 `"context_window": 1048576`.
 
-Settled by observation on 2026-08-09. `GET /models` against the live API returns
-exactly two entries, `deepseek-v4-flash` and `deepseek-v4-pro`, both
-`owned_by: deepseek`. No suffixed variant exists. The suffix is shim convention;
-send plain IDs.
+Settled by observation on 2026-08-09 and re-checked on 2026-08-13. `GET /models`
+against the live API returns exactly two entries, `deepseek-v4-flash` and
+`deepseek-v4-pro`, both `owned_by: deepseek`. No suffixed variant exists. The
+suffix is shim convention; send plain IDs.
+
+The dated build names are not model IDs either. `deepseek-v4-pro-0813` is
+rejected with a 400 naming the two accepted IDs; the alias serves the 0813 build.
 
 ### Switching mid-session costs the cache
 
