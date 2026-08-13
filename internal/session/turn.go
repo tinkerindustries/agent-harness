@@ -444,8 +444,11 @@ func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestMessa
 	// How usage becomes cache-hit and cache-miss counts is the provider's
 	// decision — DeepSeek reports the two figures separately, Kimi K3 a
 	// single cached_tokens — so the split comes through the seam
-	// (client.go, docs/KIMI-INTEGRATION.md §2).
-	cacheHit, cacheMiss := r.clientFor(model).UsageSplit(usage)
+	// (client.go, docs/KIMI-INTEGRATION.md §2). The churn tolerance rides
+	// the same seam: CacheSlack is an empirical bound on the provider's
+	// over-prediction, not a property of its cache (docs/OBSERVED.md).
+	client := r.clientFor(model)
+	cacheHit, cacheMiss := client.UsageSplit(usage)
 	cost := 0.0
 	if r.Prices != nil {
 		if c, err := r.Prices.Cost(model, cacheHit, cacheMiss, usage.CompletionTokens); err == nil {
@@ -463,6 +466,7 @@ func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestMessa
 			CacheHitTokens:   cacheHit,
 			CacheMissTokens:  cacheMiss,
 			CompletionTokens: usage.CompletionTokens,
+			Slack:            client.CacheSlack(),
 		})
 	}
 	return store.UsagePayload{
