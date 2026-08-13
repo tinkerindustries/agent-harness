@@ -41,6 +41,14 @@ type Client interface {
 	// (docs/KIMI-INTEGRATION.md §2).
 	UsageSplit(usage *wire.Usage) (cacheHit, cacheMiss int)
 
+	// CacheSlack is the churn detector's tolerance for this provider: the
+	// largest miss over its prediction a healthy sub-turn may show before a
+	// churn report fires (internal/cache/churn.go). It is an empirical bound
+	// on the provider's over-prediction, not a property of its cache —
+	// DeepSeek's 127 is the trailing partial 128-token block, Kimi K3's 512
+	// the largest over-prediction measured so far (docs/OBSERVED.md).
+	CacheSlack() int
+
 	// IsReasoningStarved reports whether a completion hit its max_tokens
 	// ceiling before producing any answer text — DeepSeek's quirk, and the
 	// reason the loop retries at double the budget (docs/OBSERVED.md).

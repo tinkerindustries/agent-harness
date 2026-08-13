@@ -228,6 +228,12 @@ func (c *Client) UsageSplit(usage *wire.Usage) (cacheHit, cacheMiss int) {
 	return usage.CachedTokens, usage.PromptTokens - usage.CachedTokens
 }
 
+// CacheSlack is the churn detector's tolerance for Kimi K3: the largest
+// over-prediction observed across thirteen sub-turns in three live sessions
+// (docs/OBSERVED.md). It is an empirical bound, not a property of Kimi's
+// cache, and a later run at different prompt sizes could exceed it.
+func (c *Client) CacheSlack() int { return 512 }
+
 // ListModels calls GET /models.
 func (c *Client) ListModels(ctx context.Context) (*ModelsResponse, error) {
 	resp, err := c.do(ctx, http.MethodGet, "/models", nil)

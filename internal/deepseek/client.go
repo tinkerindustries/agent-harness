@@ -213,6 +213,11 @@ func (c *Client) UsageSplit(usage *wire.Usage) (cacheHit, cacheMiss int) {
 	return usage.PromptCacheHitTokens, usage.PromptCacheMissTokens
 }
 
+// CacheSlack is the churn detector's tolerance for DeepSeek: the trailing
+// partial 128-token block, always under one block (internal/cache/churn.go,
+// docs/OBSERVED.md).
+func (c *Client) CacheSlack() int { return 127 }
+
 // ListModels calls GET /models.
 func (c *Client) ListModels(ctx context.Context) (*ModelsResponse, error) {
 	resp, err := c.do(ctx, http.MethodGet, "/models", nil)
