@@ -88,6 +88,29 @@ export interface EvalVariantRow {
   reminder?: string;
 }
 
+export interface EvalSuiteRow {
+  name: string;
+  description?: string;
+  rubric?: string;
+  task_ids: string[];
+}
+
+// EvalSpec is what POST /api/evals takes, mirroring evals.Spec. suite names a
+// built-in; a suite from a file is the CLI's business and is posted inline
+// there, so the browser only ever names one this build already has.
+export interface EvalSpec {
+  suite: string;
+  variants: string[];
+  replicates: number;
+  concurrency?: number;
+  max_sub_turns?: number;
+  model?: string;
+  effort?: string;
+  judge?: boolean;
+  judge_model?: string;
+  note?: string;
+}
+
 // --- reads ---
 
 export async function listEvalRuns(): Promise<EvalRunRow[]> {
@@ -106,6 +129,42 @@ export async function listEvalVariants(): Promise<EvalVariantRow[]> {
   const res = await fetch("/api/evals/variants");
   if (!res.ok) throw new Error(await res.text());
   return (await res.json()) as EvalVariantRow[];
+}
+
+export async function listEvalSuites(): Promise<EvalSuiteRow[]> {
+  const res = await fetch("/api/evals/suites");
+  if (!res.ok) throw new Error(await res.text());
+  return (await res.json()) as EvalSuiteRow[];
+}
+
+// --- writes ---
+//
+// Starting and cancelling are run control and carry the bearer token, the
+// rule docs/RUN-CONTROL.md sets for anything that spends money. The server's
+// own message is what a refusal shows: a 409 says an eval is already in
+// flight, and the screen renders that rather than a generic failure.
+
+export async function startEval(token: string, spec: EvalSpec): Promise<string> {
+  const res = await fetch("/api/evals", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(spec),
+  });
+  const body = (await res.json().catch(() => ({}))) as { eval_run_id?: string; error?: string };
+  if (!res.ok) throw new Error(body.error ?? res.statusText);
+  return body.eval_run_id ?? "";
+}
+
+export async function cancelEval(token: string, id: string): Promise<void> {
+  const res = await fetch(`/api/evals/${encodeURIComponent(id)}/cancel`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: "{}",
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? res.statusText);
+  }
 }
 
 // getSessionEval answers "which eval does this session belong to?". A session
@@ -228,6 +287,17 @@ export function groupMembersByTask(members: EvalMemberRow[]): { taskId: string; 
 export function evalRunProgress(run: EvalRunRow): number {
   if (run.total === 0) return 1;
   return run.finished / run.total;
+}
+
+// estimateCost is what a start is about to spend, from the mean cost of the
+// runs already recorded. It is an estimate and says so: a suite nobody has
+// run yet has nothing to estimate from and returns null rather than a
+// confident zero.
+export function estimateCost(totalRuns: number, priorRuns: EvalRunRow[]): number | null {
+  const finished = priorRuns.filter((r) => r.finished > 0);
+  if (finished.length === 0) return null;
+  const perRun = finished.reduce((sum, r) => sum + r.cost_usd / r.finished, 0) / finished.length;
+  return perRun * totalRuns;
 }
 
 // isRunning says whether a run is still going, which is what makes the detail

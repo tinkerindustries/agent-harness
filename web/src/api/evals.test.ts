@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildComparison,
+  estimateCost,
   evalRunProgress,
   formatDelta,
   formatMetric,
@@ -141,5 +142,25 @@ describe("isRunning", () => {
     for (const status of ["ok", "failed", "cancelled"]) {
       expect(isRunning({ status })).toBe(false);
     }
+  });
+});
+
+describe("estimateCost", () => {
+  // The estimate comes from what earlier runs actually cost per finished
+  // member, so it tracks whichever model the operator has been using.
+  it("scales the mean per-run cost of earlier runs", () => {
+    const prior = [
+      { finished: 4, cost_usd: 0.08 },
+      { finished: 2, cost_usd: 0.06 },
+    ] as never as EvalRunDetail[];
+    // (0.02 + 0.03) / 2 = 0.025 per run.
+    expect(estimateCost(24, prior)).toBeCloseTo(0.6);
+  });
+
+  // A suite nobody has run yet has nothing to estimate from, and must say so
+  // rather than promise a confident zero before spending real money.
+  it("is null with no finished runs to learn from", () => {
+    expect(estimateCost(24, [])).toBeNull();
+    expect(estimateCost(24, [{ finished: 0, cost_usd: 0 }] as never as EvalRunDetail[])).toBeNull();
   });
 });

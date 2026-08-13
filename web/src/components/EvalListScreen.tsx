@@ -9,7 +9,8 @@ import {
   metricLabel,
   type EvalRunRow,
 } from "../api/evals";
-import { formatDuration } from "../api/operations";
+import { controlToken, formatDuration } from "../api/operations";
+import { EvalStartForm } from "./EvalStartForm";
 import { useNow } from "../hooks";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -30,6 +31,25 @@ const POLL_MS = 3000;
 export function EvalListScreen({ onOpen }: { onOpen: (id: string) => void }) {
   const [runs, setRuns] = useState<EvalRunRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // The start trigger lives in the nav's right slot and the form opens as a
+  // card above the table, the shape the session list's start uses. A null
+  // token means run control is not configured, and the nav says so rather
+  // than offering a button that would 503.
+  const [startOpen, setStartOpen] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
+  const [tokenReady, setTokenReady] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    controlToken().then((t) => {
+      if (cancelled) return;
+      setToken(t);
+      setTokenReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const refresh = useCallback(async () => {
     try {
@@ -54,27 +74,55 @@ export function EvalListScreen({ onOpen }: { onOpen: (id: string) => void }) {
   useNavRight(
     useMemo(
       () => (
-        <Button variant="ghost" size="sm" onClick={() => void refresh()} aria-label="Refresh">
-          <ArrowsClockwise size={16} />
-          Refresh
-        </Button>
+        <>
+          {tokenReady &&
+            (token === null ? (
+              <span className="eval-absent">run control is not configured</span>
+            ) : (
+              <Button size="sm" onClick={() => setStartOpen((open) => !open)}>
+                Start an eval
+              </Button>
+            ))}
+          <Button variant="ghost" size="sm" onClick={() => void refresh()} aria-label="Refresh">
+            <ArrowsClockwise size={16} />
+            Refresh
+          </Button>
+        </>
       ),
-      [refresh],
+      [refresh, token, tokenReady],
     ),
+  );
+
+  const form = startOpen && token !== null && (
+    <EvalStartForm
+      token={token}
+      priorRuns={runs ?? []}
+      onClose={() => setStartOpen(false)}
+      onStarted={(id) => {
+        setStartOpen(false);
+        void refresh();
+        onOpen(id);
+      }}
+    />
   );
 
   if (error) return <p className="eval-error">{error}</p>;
   if (runs === null) return <p className="eval-empty">Loading…</p>;
   if (runs.length === 0) {
     return (
-      <p className="eval-empty">
-        No eval runs yet. Start one with <code>harness eval run -suite search -variants base,search-first</code>.
-      </p>
+      <div className="eval-list">
+        {form}
+        <p className="eval-empty">
+          No eval runs yet. Start one above, or with{" "}
+          <code>harness eval run -suite search -variants base,search-first</code>.
+        </p>
+      </div>
     );
   }
 
   return (
     <div className="eval-list">
+      {form}
       <table className="session-table">
         <thead>
           <tr>

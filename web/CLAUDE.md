@@ -66,9 +66,15 @@ What the screens are, since the redesign (docs/WEB-REDESIGN.md):
   code the CLI's table uses, and decides significance, so `src/api/evals.ts`
   formats and arranges and nothing else. A metric with nothing to measure
   renders as a dash and never as a zero. Both screens poll while a run is
-  going — the only polling in the frontend, because the orchestrator lives in
-  the CLI process and the hub has nothing to push; it goes when orchestration
-  moves into serve.
+  going — the only polling in the frontend, and it goes when the hub learns to
+  push eval state. The nav's right slot carries the start trigger, which opens
+  a form card above the table; a null control token replaces it with a "run
+  control is not configured" note, the same shape the session list's start
+  uses. The form names only suites and variants the build already has, both
+  fed by the server's own lists, so no browser can introduce a system prompt
+  this build does not know. It states the run count and an estimated cost —
+  derived from what earlier runs actually cost per member, and absent rather
+  than zero when there are none — before the confirm.
 - **Settings.** One collapsible row per registry entry: closed is key, value
   and description; open is the write controls with the bounds the registry
   validates against. A closed set renders a `ToggleGroup`; only overrides and
