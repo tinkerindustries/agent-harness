@@ -68,6 +68,10 @@ type RunOptions struct {
 	// provenance triple.
 	ParentIsUser bool
 
+	// PromptVariant names the system prompt this run uses. Empty is the
+	// shipped prompt; anything else is an eval run (variants.go).
+	PromptVariant string
+
 	// SessionID, when set, is used instead of generating a fresh one. A
 	// caller that must know the id before the session row exists — the
 	// worker pool acquiring a workspace lease under it before calling Run,
@@ -320,6 +324,11 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 		return nil, fmt.Errorf("session: encode tool schema: %w", err)
 	}
 
+	sysPrompt, err := RenderSystemPromptVariant(opts.PromptVariant)
+	if err != nil {
+		return nil, err
+	}
+
 	sessID := opts.SessionID
 	if sessID == "" {
 		sessID = newID("sess")
@@ -340,7 +349,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 		Workspace:       executor.Workspace,
 		PermissionMode:  string(opts.PermissionMode),
 		DenyPatterns:    opts.Deny,
-		SystemPrompt:    RenderSystemPrompt(),
+		SystemPrompt:    sysPrompt,
 		ToolSchema:      toolSchema,
 		ResultSchema:    opts.ResultSchema,
 		Status:          store.StatusRunning,

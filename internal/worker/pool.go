@@ -635,6 +635,7 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, releaseSlot func()) {
 		ParentAgentType: req.ParentAgentType,
 		ParentAgentID:   req.ParentAgentID,
 		ParentIsUser:    req.ParentIsUser,
+		PromptVariant:   req.PromptVariant,
 		Progress: func(sp session.SubTurnProgress) {
 			if progressLimiter.Allow(time.Now()) {
 				p.publishProgress(req.RequestID, sp)

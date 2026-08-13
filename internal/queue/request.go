@@ -16,6 +16,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
+	"github.com/mrgeoffrich/deepseek-harness/internal/session"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 )
 
@@ -40,6 +41,10 @@ type Request struct {
 	// by the calling agent, which is what makes it trustworthy where
 	// parent_agent_type is not.
 	ParentIsUser bool `json:"parent_is_user,omitempty"`
+	// PromptVariant names an alternative system prompt for an eval run
+	// (internal/session/variants.go). Empty is the shipped prompt, which is
+	// what every production request sends.
+	PromptVariant string `json:"prompt_variant,omitempty"`
 }
 
 // Repo is one checkout a request asks for. The worker clones each one into
@@ -152,6 +157,9 @@ func (r Request) Validate() error {
 		return fmt.Errorf("queue: %w", err)
 	}
 	if err := agentmeta.ValidateParent(r.ParentIsUser, r.ParentAgentType, r.ParentAgentID); err != nil {
+		return fmt.Errorf("queue: %w", err)
+	}
+	if err := session.ValidateVariant(r.PromptVariant); err != nil {
 		return fmt.Errorf("queue: %w", err)
 	}
 

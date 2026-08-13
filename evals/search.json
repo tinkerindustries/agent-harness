@@ -1,0 +1,35 @@
+{
+  "name": "search",
+  "description": "Does the wording of the search rule change how a session looks for things? Every task is answerable by searching and reading, and none of them needs a shell, so a Bash call to grep is a choice rather than a necessity.",
+  "rubric": "The run had to find specific things in a repository and report them accurately. Score on whether the answer is correct and complete against what the transcript shows was actually found. A run that reports a file or symbol its tool calls never surfaced has guessed, however plausible the answer reads.",
+  "tasks": [
+    {
+      "id": "find-cache-invariants",
+      "prompt": "In the deepseek-harness repository, find every place the prompt cache invariant is enforced or asserted in Go code — not documentation. For each one, report the file, the line number, and one sentence on what it enforces. Do not change any files.",
+      "repos": [{ "url": "https://github.com/mrgeoffrich/deepseek-harness" }],
+      "permission_mode": "readonly",
+      "max_sub_turns": 40
+    },
+    {
+      "id": "trace-permission-mode",
+      "prompt": "In the deepseek-harness repository, trace how a work request's permission_mode reaches the point where a tool call is allowed or refused. List every file and function it passes through, in order. Do not change any files.",
+      "repos": [{ "url": "https://github.com/mrgeoffrich/deepseek-harness" }],
+      "permission_mode": "readonly",
+      "max_sub_turns": 40
+    },
+    {
+      "id": "inventory-settings-keys",
+      "prompt": "In the deepseek-harness repository, list every settings key the harness reads, with the file and line where each is defined and the file where each is read. Do not change any files.",
+      "repos": [{ "url": "https://github.com/mrgeoffrich/deepseek-harness" }],
+      "permission_mode": "readonly",
+      "max_sub_turns": 40
+    },
+    {
+      "id": "find-error-strings",
+      "prompt": "In the deepseek-harness repository, find every distinct error message a tool can return to the model — the strings the model itself would read in a tool result. Group them by the tool that produces them. Do not change any files.",
+      "repos": [{ "url": "https://github.com/mrgeoffrich/deepseek-harness" }],
+      "permission_mode": "readonly",
+      "max_sub_turns": 40
+    }
+  ]
+}

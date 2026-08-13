@@ -40,7 +40,9 @@ cutting a version and deploying it to the production stack.
   [`docs/PROMPTING.md`](docs/PROMPTING.md) covers how to word the system prompt
   and tool descriptions. Thinking mode ignores the sampling parameters and
   rejects the coercive `tool_choice` values, so wording is the main loop's only
-  lever.
+  lever. Measure a wording change before shipping it:
+  [`docs/EVALS.md`](docs/EVALS.md) covers `harness eval`, which runs a suite
+  under two named prompt variants and compares what the sessions did.
 - **The HTTP API is becoming the harness's real interface, in stages.** The
   read-only rule is retired. Stage one is the data the harness manages —
   sessions, events, work requests, settings — and it is specified in

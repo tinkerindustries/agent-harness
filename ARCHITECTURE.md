@@ -136,6 +136,12 @@ paths out. Each clone then gets its Node dependencies installed, with the
 lockfile choosing the package manager; the install is best-effort and never
 fails a run. §4.10.
 
+### `internal/evals`
+Measures a prompt change. Publishes a suite of tasks under two or more prompt
+variants through the WORK stream, scores each run from its stored events, and
+compares the arms. Depends on: `internal/queue` to publish, `internal/store` to
+read, `internal/deepseek` for the optional judge. [docs/EVALS.md](docs/EVALS.md).
+
 ### `internal/skills`
 Scans each cloned repository for `.claude/skills/` and `.deepcode/skills/` and
 renders what it finds into a catalogue. Discovery never fails a run. Depends on:
