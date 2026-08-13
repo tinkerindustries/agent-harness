@@ -92,19 +92,22 @@ func TestValidateVariantsNeedsTwoDistinctKnownNames(t *testing.T) {
 	}
 }
 
-// The suite shipped in the repository must load, or the first thing anyone
-// runs fails.
-func TestShippedSuitesLoad(t *testing.T) {
-	paths, err := filepath.Glob(filepath.Join("..", "..", "evals", "*.json"))
-	if err != nil {
-		t.Fatal(err)
+// Every embedded suite must parse, or the first thing anyone runs fails and
+// the HTTP surface cannot list what this build can do.
+func TestEmbeddedSuitesLoad(t *testing.T) {
+	suites := EmbeddedSuites()
+	if len(suites) == 0 {
+		t.Fatal("no suites embedded")
 	}
-	if len(paths) == 0 {
-		t.Fatal("no suites found in evals/")
-	}
-	for _, path := range paths {
-		if _, err := LoadSuite(path); err != nil {
-			t.Errorf("%s: %v", filepath.Base(path), err)
+	for _, suite := range suites {
+		if err := suite.validate(); err != nil {
+			t.Errorf("%s: %v", suite.Name, err)
 		}
+	}
+	if _, err := EmbeddedSuite("search"); err != nil {
+		t.Errorf("the search suite is not embedded: %v", err)
+	}
+	if _, err := EmbeddedSuite("no-such-suite"); err == nil {
+		t.Error("expected an unknown suite name to fail")
 	}
 }

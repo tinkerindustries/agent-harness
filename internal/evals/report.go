@@ -135,6 +135,7 @@ func WriteTable(w io.Writer, r *Report) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w)
 
+	deltas := Deltas(r)
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	header := "metric"
 	for _, v := range r.Variants {
@@ -143,7 +144,6 @@ func WriteTable(w io.Writer, r *Report) {
 	fmt.Fprintln(tw, header+"\tdelta")
 	for _, metric := range order {
 		row := metric
-		base, hasBase := byMetric[metric][r.Variants[0]]
 		for _, v := range r.Variants {
 			s, ok := byMetric[metric][v]
 			if !ok {
@@ -152,7 +152,7 @@ func WriteTable(w io.Writer, r *Report) {
 			}
 			row += fmt.Sprintf("\t%s ±%s (n=%d)", format(metric, s.Mean), format(metric, s.Stderr), s.N)
 		}
-		row += "\t" + delta(metric, hasBase, base, byMetric[metric], r.Variants)
+		row += "\t" + deltaCell(metric, deltas)
 		fmt.Fprintln(tw, row)
 	}
 	tw.Flush()
@@ -167,23 +167,67 @@ func WriteTable(w io.Writer, r *Report) {
 	}
 }
 
-// delta describes the last variant against the first, which is the comparison
-// a two-arm run is asking for.
-func delta(metric string, hasBase bool, base Summary, row map[string]Summary, variants []string) string {
-	if !hasBase || len(variants) < 2 {
-		return ""
+// A Delta is one metric's comparison of the last variant against the first,
+// which is the comparison a two-arm run is asking for. Significant is decided
+// here rather than by each consumer, so the CLI's table and the HTTP surface
+// cannot disagree about when a difference is worth looking at.
+type Delta struct {
+	Metric          string  `json:"metric"`
+	BaselineVariant string  `json:"baseline_variant"`
+	Variant         string  `json:"variant"`
+	Diff            float64 `json:"diff"`
+	CombinedStderr  float64 `json:"combined_stderr"`
+	Significant     bool    `json:"significant"`
+}
+
+// Deltas compares the last variant to the first, one entry per metric, in
+// report order.
+func Deltas(r *Report) []Delta {
+	if len(r.Variants) < 2 {
+		return nil
 	}
-	last, ok := row[variants[len(variants)-1]]
-	if !ok {
-		return ""
+	baseline, variant := r.Variants[0], r.Variants[len(r.Variants)-1]
+	byMetric := map[string]map[string]Summary{}
+	var order []string
+	for _, s := range Summarise(r) {
+		if _, ok := byMetric[s.Metric]; !ok {
+			byMetric[s.Metric] = map[string]Summary{}
+			order = append(order, s.Metric)
+		}
+		byMetric[s.Metric][s.Variant] = s
 	}
-	diff := last.Mean - base.Mean
-	combined := math.Hypot(base.Stderr, last.Stderr)
-	marker := ""
-	if combined > 0 && math.Abs(diff) > 2*combined {
-		marker = " *"
+
+	var out []Delta
+	for _, metric := range order {
+		base, hasBase := byMetric[metric][baseline]
+		last, hasLast := byMetric[metric][variant]
+		if !hasBase || !hasLast {
+			continue
+		}
+		diff := last.Mean - base.Mean
+		combined := math.Hypot(base.Stderr, last.Stderr)
+		out = append(out, Delta{
+			Metric: metric, BaselineVariant: baseline, Variant: variant,
+			Diff: diff, CombinedStderr: combined,
+			Significant: combined > 0 && math.Abs(diff) > 2*combined,
+		})
 	}
-	return fmt.Sprintf("%+s%s", format(metric, diff), marker)
+	return out
+}
+
+// deltaCell renders one metric's delta for the CLI table.
+func deltaCell(metric string, deltas []Delta) string {
+	for _, d := range deltas {
+		if d.Metric != metric {
+			continue
+		}
+		marker := ""
+		if d.Significant {
+			marker = " *"
+		}
+		return fmt.Sprintf("%+s%s", format(metric, d.Diff), marker)
+	}
+	return ""
 }
 
 // format prints a metric the way it reads: shares as percentages, money to

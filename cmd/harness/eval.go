@@ -23,6 +23,7 @@ const evalUsage = `harness eval — measure what a prompt change does to a run
   harness eval run -suite FILE -variants a,b [-n 3] [-judge] [-out report.json]
   harness eval score -report FILE          re-score a finished report from stored events
   harness eval variants                    list the prompt variants this build knows
+  harness eval suites                      list the suites built into this binary
 
 An eval publishes each task once per variant per replicate onto the WORK
 stream, so runs are claimed by the same workers serving everything else, and
@@ -40,6 +41,8 @@ func runEval(ctx context.Context, args []string) error {
 		return runEvalScore(ctx, args[1:])
 	case "variants":
 		return runEvalVariants()
+	case "suites":
+		return runEvalSuites()
 	case "-h", "-help", "--help", "help":
 		fmt.Println(evalUsage)
 		return nil
@@ -58,9 +61,16 @@ func runEvalVariants() error {
 	return nil
 }
 
+func runEvalSuites() error {
+	for _, suite := range evals.EmbeddedSuites() {
+		fmt.Printf("%-12s %d tasks  %s\n", suite.Name, len(suite.Tasks), suite.Description)
+	}
+	return nil
+}
+
 func runEvalRun(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("eval run", flag.ContinueOnError)
-	suitePath := fs.String("suite", "", "path to the suite's JSON file (required)")
+	suitePath := fs.String("suite", "", "a built-in suite's name, or a path to a suite JSON file (required)")
 	variantList := fs.String("variants", "", "comma-separated prompt variants to compare, baseline first (required)")
 	replicates := fs.Int("n", 3, "runs per task per variant")
 	concurrency := fs.Int("concurrency", 2, "runs in flight at once")
@@ -79,7 +89,7 @@ func runEvalRun(ctx context.Context, args []string) error {
 		return errors.New("usage: harness eval run -suite FILE -variants a,b [flags]")
 	}
 
-	suite, err := evals.LoadSuite(*suitePath)
+	suite, err := resolveSuite(*suitePath)
 	if err != nil {
 		return err
 	}
@@ -230,6 +240,16 @@ func runEvalScore(ctx context.Context, args []string) error {
 		dest = *reportPath
 	}
 	return writeReport(dest, &report)
+}
+
+// resolveSuite takes a built-in suite's name or a path to one. A name is
+// tried first so `-suite search` works inside the container, where the repo's
+// files are not present.
+func resolveSuite(nameOrPath string) (*evals.Suite, error) {
+	if suite, err := evals.EmbeddedSuite(nameOrPath); err == nil {
+		return suite, nil
+	}
+	return evals.LoadSuite(nameOrPath)
 }
 
 func writeReport(path string, report *evals.Report) error {

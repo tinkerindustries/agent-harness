@@ -45,14 +45,20 @@ func LoadSuite(path string) (*Suite, error) {
 	if err != nil {
 		return nil, fmt.Errorf("evals: read suite: %w", err)
 	}
+	return parseSuite(b, path)
+}
+
+// parseSuite decodes a suite, rejecting unknown fields so a misspelled key
+// fails rather than being dropped in silence.
+func parseSuite(b []byte, name string) (*Suite, error) {
 	var s Suite
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&s); err != nil {
-		return nil, fmt.Errorf("evals: parse suite %s: %w", path, err)
+		return nil, fmt.Errorf("evals: parse suite %s: %w", name, err)
 	}
 	if err := s.validate(); err != nil {
-		return nil, fmt.Errorf("evals: suite %s: %w", path, err)
+		return nil, fmt.Errorf("evals: suite %s: %w", name, err)
 	}
 	return &s, nil
 }
