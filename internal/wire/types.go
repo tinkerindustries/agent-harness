@@ -130,12 +130,21 @@ type ChatCompletionRequest struct {
 // billed as output; it already includes reasoning tokens, which are broken
 // out separately for display in CompletionTokensDetails but are not an
 // additional charge.
+//
+// How prefix caching is reported is a provider decision: DeepSeek splits it
+// into PromptCacheHitTokens and PromptCacheMissTokens, while Kimi K3 reports
+// a single CachedTokens and derives the split itself
+// (docs/KIMI-INTEGRATION.md §2, third_party/kimi-docs/api/chat.md). CachedTokens
+// is decoded for any provider and left at zero for the one that never sends
+// it, so the same struct round-trips both bodies; it is omitempty because a
+// zero value must not appear in any re-serialised DeepSeek body.
 type Usage struct {
 	PromptTokens            int                      `json:"prompt_tokens"`
 	PromptCacheHitTokens    int                      `json:"prompt_cache_hit_tokens"`
 	PromptCacheMissTokens   int                      `json:"prompt_cache_miss_tokens"`
 	CompletionTokens        int                      `json:"completion_tokens"`
 	TotalTokens             int                      `json:"total_tokens"`
+	CachedTokens            int                      `json:"cached_tokens,omitempty"`
 	CompletionTokensDetails *CompletionTokensDetails `json:"completion_tokens_details,omitempty"`
 }
 
