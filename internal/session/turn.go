@@ -15,6 +15,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // subTurnOutcome is what runSubTurn learned, folded down to what the loop
@@ -263,7 +264,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	// requests are billed, so dropping the first understates the run's cost
 	// by however much reasoning it burned — which, this failure mode being
 	// what it is, is the whole of an exhausted max_tokens budget.
-	var starved *deepseek.Usage
+	var starved *wire.Usage
 	if deepseek.IsReasoningStarved(finishReason, content) && len(assembler.Finalize()) == 0 {
 		starved = usage
 		reasoning, content, assembler, finishReason, usage, err = r.stream(ctx, sess.Model, messages, opts.Effort, opts.Thinking, opts.MaxTokens*2, live)
@@ -431,7 +432,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 // buildUsagePayload turns one request's usage into its store event. A nil
 // detector skips the churn report, for an attempt whose prefix the next turn
 // will not build on.
-func (r *Runner) buildUsagePayload(model string, usage *deepseek.Usage, requestMessages []deepseek.Message,
+func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestMessages []wire.Message,
 	detector *cache.Detector, subTurn, attempt int) store.UsagePayload {
 
 	if usage == nil {
@@ -469,17 +470,17 @@ func (r *Runner) buildUsagePayload(model string, usage *deepseek.Usage, requestM
 // channel. Serialisation happens once inside Client.StreamChatCompletion
 // and any HTTP-level retry resends those identical bytes
 // (docs/CACHE.md); this function does not re-serialise between attempts.
-func (r *Runner) stream(ctx context.Context, model string, messages []deepseek.Message, effort string, thinking bool, maxTokens int, live *liveSink) (
-	reasoning, content string, assembler *deepseek.ToolCallAssembler, finishReason string, usage *deepseek.Usage, err error) {
+func (r *Runner) stream(ctx context.Context, model string, messages []wire.Message, effort string, thinking bool, maxTokens int, live *liveSink) (
+	reasoning, content string, assembler *wire.ToolCallAssembler, finishReason string, usage *wire.Usage, err error) {
 
-	thinkingType := deepseek.ThinkingDisabled
+	thinkingType := wire.ThinkingDisabled
 	if thinking {
-		thinkingType = deepseek.ThinkingEnabled
+		thinkingType = wire.ThinkingEnabled
 	}
-	req := deepseek.ChatCompletionRequest{
+	req := wire.ChatCompletionRequest{
 		Model:           model,
 		Messages:        messages,
-		Thinking:        &deepseek.ThinkingConfig{Type: thinkingType},
+		Thinking:        &wire.ThinkingConfig{Type: thinkingType},
 		ReasoningEffort: effort,
 		MaxTokens:       maxTokens,
 		Tools:           tools.Definitions(),
@@ -497,7 +498,7 @@ func (r *Runner) stream(ctx context.Context, model string, messages []deepseek.M
 	}
 
 	var reasoningBuf, contentBuf strings.Builder
-	assembler = deepseek.NewToolCallAssembler()
+	assembler = wire.NewToolCallAssembler()
 	var streamErr error
 	// Whatever this loop accumulates is committed as one batch by the
 	// caller; the sink is what a watching browser sees in the meantime.
@@ -507,19 +508,19 @@ func (r *Runner) stream(ctx context.Context, model string, messages []deepseek.M
 	defer live.flush()
 	for ev := range events {
 		switch ev.Type {
-		case deepseek.EventReasoningDelta:
+		case wire.EventReasoningDelta:
 			reasoningBuf.WriteString(ev.Reasoning)
 			live.add(hub.ChannelReasoning, ev.Reasoning)
-		case deepseek.EventContentDelta:
+		case wire.EventContentDelta:
 			contentBuf.WriteString(ev.Content)
 			live.add(hub.ChannelContent, ev.Content)
-		case deepseek.EventToolCallDelta:
+		case wire.EventToolCallDelta:
 			assembler.Add(ev.ToolCall)
-		case deepseek.EventFinish:
+		case wire.EventFinish:
 			finishReason = ev.FinishReason
-		case deepseek.EventUsage:
+		case wire.EventUsage:
 			usage = ev.Usage
-		case deepseek.EventError:
+		case wire.EventError:
 			streamErr = ev.Err
 		}
 	}

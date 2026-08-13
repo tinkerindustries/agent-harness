@@ -8,31 +8,9 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
-
-// EventType tags the payload carried by an Event.
-type EventType int
-
-const (
-	EventReasoningDelta EventType = iota
-	EventContentDelta
-	EventToolCallDelta
-	EventUsage
-	EventFinish
-	EventError
-)
-
-// Event is one item on the channel returned by StreamChatCompletion. Only
-// the field matching Type is meaningful.
-type Event struct {
-	Type         EventType
-	Reasoning    string
-	Content      string
-	ToolCall     ToolCallDelta
-	FinishReason string
-	Usage        *Usage
-	Err          error
-}
 
 // ErrIdleTimeout is sent when no SSE frame, including a keep-alive comment,
 // arrives within the idle window. It is not a request timeout: DeepSeek can
@@ -44,9 +22,9 @@ var ErrIdleTimeout = errors.New("deepseek: stream idle timeout")
 // channel of typed deltas. The channel closes when the stream ends,
 // normally or by error; a terminal Event with Type EventError is always
 // the last event sent before it closes.
-func (c *Client) StreamChatCompletion(ctx context.Context, req ChatCompletionRequest) (<-chan Event, error) {
+func (c *Client) StreamChatCompletion(ctx context.Context, req wire.ChatCompletionRequest) (<-chan wire.Event, error) {
 	req.Stream = true
-	req.StreamOptions = &StreamOptions{IncludeUsage: true}
+	req.StreamOptions = &wire.StreamOptions{IncludeUsage: true}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("deepseek: encode request: %w", err)
@@ -60,19 +38,19 @@ func (c *Client) StreamChatCompletion(ctx context.Context, req ChatCompletionReq
 		return nil, parseAPIError(resp)
 	}
 
-	events := make(chan Event)
+	events := make(chan wire.Event)
 	go c.pumpStream(ctx, resp.Body, events)
 	return events, nil
 }
 
-func (c *Client) pumpStream(ctx context.Context, body io.ReadCloser, events chan<- Event) {
+func (c *Client) pumpStream(ctx context.Context, body io.ReadCloser, events chan<- wire.Event) {
 	defer close(events)
 	defer body.Close()
 
 	// Every send is guarded by ctx so a caller that cancels and stops reading
 	// cannot strand this goroutine and the response body on an unbuffered
 	// send. send reports whether the value was delivered.
-	send := func(e Event) bool {
+	send := func(e wire.Event) bool {
 		select {
 		case events <- e:
 			return true
@@ -85,7 +63,7 @@ func (c *Client) pumpStream(ctx context.Context, body io.ReadCloser, events chan
 	lineErrs := make(chan error, 1)
 	go func() {
 		defer close(lines)
-		scanner := newSSEScanner(body)
+		scanner := wire.NewSSEScanner(body)
 		for {
 			line, err := scanner.Scan()
 			if err != nil {
@@ -108,15 +86,15 @@ func (c *Client) pumpStream(ctx context.Context, body io.ReadCloser, events chan
 	for {
 		select {
 		case <-ctx.Done():
-			send(Event{Type: EventError, Err: ctx.Err()})
+			send(wire.Event{Type: wire.EventError, Err: ctx.Err()})
 			return
 
 		case err := <-lineErrs:
-			send(Event{Type: EventError, Err: fmt.Errorf("deepseek: stream read: %w", err)})
+			send(wire.Event{Type: wire.EventError, Err: fmt.Errorf("deepseek: stream read: %w", err)})
 			return
 
 		case <-idle.C:
-			send(Event{Type: EventError, Err: ErrIdleTimeout})
+			send(wire.Event{Type: wire.EventError, Err: ErrIdleTimeout})
 			return
 
 		case line, ok := <-lines:
@@ -128,17 +106,17 @@ func (c *Client) pumpStream(ctx context.Context, body io.ReadCloser, events chan
 			}
 			idle.Reset(c.idleTimeout)
 
-			f := classifySSELine(line)
-			switch f.kind {
-			case frameComment, frameBlank, frameOther:
+			f := wire.ClassifySSELine(line)
+			switch f.Kind {
+			case wire.FrameComment, wire.FrameBlank, wire.FrameOther:
 				continue
-			case frameData:
-				if f.data == "[DONE]" {
+			case wire.FrameData:
+				if f.Data == "[DONE]" {
 					return
 				}
-				var chunk ChatCompletionChunk
-				if err := json.Unmarshal([]byte(f.data), &chunk); err != nil {
-					send(Event{Type: EventError, Err: fmt.Errorf("deepseek: decode chunk: %w", err)})
+				var chunk wire.ChatCompletionChunk
+				if err := json.Unmarshal([]byte(f.Data), &chunk); err != nil {
+					send(wire.Event{Type: wire.EventError, Err: fmt.Errorf("deepseek: decode chunk: %w", err)})
 					return
 				}
 				for _, e := range chunkToEvents(chunk) {
@@ -154,26 +132,26 @@ func (c *Client) pumpStream(ctx context.Context, body io.ReadCloser, events chan
 // chunkToEvents translates one decoded SSE frame into zero or more typed
 // events. Reasoning-only frames carry a nil or empty Content, per
 // docs/OBSERVED.md, and never produce an EventContentDelta.
-func chunkToEvents(chunk ChatCompletionChunk) []Event {
-	var events []Event
+func chunkToEvents(chunk wire.ChatCompletionChunk) []wire.Event {
+	var events []wire.Event
 	if len(chunk.Choices) > 0 {
 		choice := chunk.Choices[0]
 		d := choice.Delta
 		if d.ReasoningContent != nil && *d.ReasoningContent != "" {
-			events = append(events, Event{Type: EventReasoningDelta, Reasoning: *d.ReasoningContent})
+			events = append(events, wire.Event{Type: wire.EventReasoningDelta, Reasoning: *d.ReasoningContent})
 		}
 		if d.Content != nil && *d.Content != "" {
-			events = append(events, Event{Type: EventContentDelta, Content: *d.Content})
+			events = append(events, wire.Event{Type: wire.EventContentDelta, Content: *d.Content})
 		}
 		for _, tc := range d.ToolCalls {
-			events = append(events, Event{Type: EventToolCallDelta, ToolCall: tc})
+			events = append(events, wire.Event{Type: wire.EventToolCallDelta, ToolCall: tc})
 		}
 		if choice.FinishReason != nil {
-			events = append(events, Event{Type: EventFinish, FinishReason: *choice.FinishReason})
+			events = append(events, wire.Event{Type: wire.EventFinish, FinishReason: *choice.FinishReason})
 		}
 	}
 	if chunk.Usage != nil {
-		events = append(events, Event{Type: EventUsage, Usage: chunk.Usage})
+		events = append(events, wire.Event{Type: wire.EventUsage, Usage: chunk.Usage})
 	}
 	return events
 }
@@ -184,5 +162,5 @@ func chunkToEvents(chunk ChatCompletionChunk) []Event {
 // in full while returning nothing usable; this is a distinct condition from
 // an answer that was truncated mid-sentence (docs/OBSERVED.md).
 func IsReasoningStarved(finishReason, content string) bool {
-	return finishReason == FinishLength && content == ""
+	return finishReason == wire.FinishLength && content == ""
 }

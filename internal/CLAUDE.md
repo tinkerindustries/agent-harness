@@ -23,12 +23,24 @@ Composition happens here and nowhere else; no `internal` package constructs
 another's dependencies.
 
 ### `internal/deepseek`
-The API client. Request and response types as structs rather than maps, so
-serialisation is byte-stable; SSE reading with an idle watchdog; the tool-call
-assembler keyed by call index, and the narrow repair for the misplaced brace
-the model occasionally puts in a large arguments object (docs/OBSERVED.md);
-retry classification. Knows nothing of sessions, tools, or storage. Depends on:
-nothing internal. §4.3, §4.4.
+The DeepSeek API client: base URL, per-request API key, the non-streaming and
+streaming completions calls, the auxiliary endpoints (`/models`,
+`/user/balance`), the error body, retry classification, and the narrow
+repairs for the quirks recorded in docs/OBSERVED.md (the misplaced brace in
+large arguments objects, and reasoning starvation under a small max_tokens
+budget) — a later phase decides where those repairs belong. Speaks the
+shared vocabulary of `internal/wire`; knows nothing of sessions, tools, or
+storage. Depends on: `internal/wire`. §4.3, §4.4.
+
+### `internal/wire`
+The provider-neutral wire vocabulary every request path speaks: the message
+and tool types, the request and response bodies, the streaming chunk types,
+the role, finish-reason, effort, and thinking constants, the SSE scanner,
+the tool-call assembler, and the stream event vocabulary. Both providers
+produce and consume these unchanged — DeepSeek today, Kimi next
+(docs/KIMI-INTEGRATION.md §4.1). Field order is the byte-stability contract
+the prompt cache depends on (docs/DESIGN.md §3.2), pinned by the golden
+request-body test. Depends on: nothing internal. §3.2, §4.3, §4.4.
 
 ### `internal/session`
 The agent loop: sub-turn iteration, the system prompt, tool dispatch, ordering
@@ -44,7 +56,8 @@ definitions the request head carries. The catalogue and its wording are
 [`../docs/TOOLS.md`](../docs/TOOLS.md); a change here is a cache-prefix change.
 
 ### `internal/fold`
-Folds the event log into the DeepSeek `messages` array. Pure, append-only, a
+Folds the event log into the wire `messages` array (`internal/wire`'s
+`Message`, the shape both providers send). Pure, append-only, a
 switch on event kind. Its counterpart is the frontend's own fold in
 `web/src/api`, which walks the same log to produce display blocks. §4.1.
 
@@ -101,7 +114,7 @@ fails a run. §4.10.
 
 ### `internal/promptvariant`
 The named alternatives to the shipped system prompt, and the reminder cadences
-that go with them. Imports nothing internal but the wire vocabulary, which is
+that go with them. Imports nothing internal but `internal/wire`, which is
 what lets `internal/queue` validate a variant name on a work request without
 pulling the agent loop in behind it — a boundary
 `internal/httpapi/boundary_test.go` pins. `internal/session` owns the prompt

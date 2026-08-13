@@ -3,7 +3,7 @@ package tools
 import (
 	"encoding/json"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // definitions is the fixed, ordered tool array sent on every request in
@@ -12,7 +12,7 @@ import (
 // (docs/CACHE.md). Schemas are non-strict: optional arguments are simply
 // absent from "required" rather than encoded as anyOf-null, matching the
 // trained-in shape the target harnesses use (docs/TOOLS.md).
-var definitions = []deepseek.Tool{
+var definitions = []wire.Tool{
 	function("Read", "Read a file from the workspace. Returns content with line numbers, cat -n style.", `{
 		"type": "object",
 		"properties": {
@@ -185,10 +185,10 @@ var definitions = []deepseek.Tool{
 	}`),
 }
 
-func function(name, description, parameters string) deepseek.Tool {
-	return deepseek.Tool{
+func function(name, description, parameters string) wire.Tool {
+	return wire.Tool{
 		Type: "function",
-		Function: deepseek.ToolFunction{
+		Function: wire.ToolFunction{
 			Name:        name,
 			Description: description,
 			Parameters:  json.RawMessage(parameters),
@@ -197,6 +197,6 @@ func function(name, description, parameters string) deepseek.Tool {
 }
 
 // Definitions returns the fixed tool array. Callers must not mutate it.
-func Definitions() []deepseek.Tool {
+func Definitions() []wire.Tool {
 	return definitions
 }

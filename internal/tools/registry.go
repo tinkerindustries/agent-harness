@@ -18,6 +18,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // Output and timeout limits, the built-in defaults when no settings resolver
@@ -349,7 +350,7 @@ var toolFuncs = map[string]toolFunc{
 
 // Execute evaluates permission for call, then runs it (or Complete's
 // validation) under a per-tool timeout derived from ctx.
-func (e *Executor) Execute(ctx context.Context, call deepseek.ToolCall) Outcome {
+func (e *Executor) Execute(ctx context.Context, call wire.ToolCall) Outcome {
 	name := call.Function.Name
 	argsRaw := json.RawMessage(call.Function.Arguments)
 	descriptor := descriptorFor(name, argsRaw)

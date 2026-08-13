@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // TestToolArrayIdenticalAcrossModes is the invariant docs/CACHE.md names
@@ -113,10 +113,10 @@ func TestExecuteDenialProducesReadableToolResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	call := deepseek.ToolCall{
+	call := wire.ToolCall{
 		ID:   "call_00_x",
 		Type: "function",
-		Function: deepseek.ToolCallFunc{
+		Function: wire.ToolCallFunc{
 			Name:      "Bash",
 			Arguments: `{"command":"ls"}`,
 		},

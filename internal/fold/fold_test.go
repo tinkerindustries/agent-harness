@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 func testSession() store.Session {
@@ -33,7 +33,7 @@ func (b *eventBuilder) ev(kind store.EventKind, payload any) store.Event {
 	return store.Event{SessionID: "sess-1", Seq: b.seq, Kind: kind, Payload: p, CreatedAt: time.Unix(0, b.seq).UTC()}
 }
 
-func requireEqualMessages(t *testing.T, got, want []deepseek.Message) {
+func requireEqualMessages(t *testing.T, got, want []wire.Message) {
 	t.Helper()
 	gj, err := json.Marshal(got)
 	if err != nil {
@@ -71,10 +71,10 @@ func TestFoldPlainTurn(t *testing.T) {
 	}
 
 	reasoning := "let me think. ok, done thinking."
-	want := []deepseek.Message{
-		deepseek.SystemMessage("you are a coding agent"),
-		deepseek.UserMessage("fix the bug"),
-		{Role: deepseek.RoleAssistant, Content: "The bug is fixed.", ReasoningContent: &reasoning},
+	want := []wire.Message{
+		wire.SystemMessage("you are a coding agent"),
+		wire.UserMessage("fix the bug"),
+		{Role: wire.RoleAssistant, Content: "The bug is fixed.", ReasoningContent: &reasoning},
 	}
 	requireEqualMessages(t, got, want)
 }
@@ -98,18 +98,18 @@ func TestFoldToolCallTurn(t *testing.T) {
 	}
 
 	reasoning := "I should use List."
-	want := []deepseek.Message{
-		deepseek.SystemMessage("you are a coding agent"),
-		deepseek.UserMessage("list the files"),
+	want := []wire.Message{
+		wire.SystemMessage("you are a coding agent"),
+		wire.UserMessage("list the files"),
 		{
-			Role:             deepseek.RoleAssistant,
+			Role:             wire.RoleAssistant,
 			Content:          "",
 			ReasoningContent: &reasoning,
-			ToolCalls: []deepseek.ToolCall{
-				{ID: "call_00_abc", Type: "function", Function: deepseek.ToolCallFunc{Name: "List", Arguments: `{"path":"."}`}},
+			ToolCalls: []wire.ToolCall{
+				{ID: "call_00_abc", Type: "function", Function: wire.ToolCallFunc{Name: "List", Arguments: `{"path":"."}`}},
 			},
 		},
-		{Role: deepseek.RoleTool, Content: "a.go\nb.go", ToolCallID: "call_00_abc"},
+		{Role: wire.RoleTool, Content: "a.go\nb.go", ToolCallID: "call_00_abc"},
 	}
 	requireEqualMessages(t, got, want)
 
@@ -161,19 +161,19 @@ func TestFoldParallelToolCallTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := []deepseek.Message{
-		deepseek.SystemMessage("you are a coding agent"),
-		deepseek.UserMessage("check the weather in two cities"),
+	want := []wire.Message{
+		wire.SystemMessage("you are a coding agent"),
+		wire.UserMessage("check the weather in two cities"),
 		{
-			Role:    deepseek.RoleAssistant,
+			Role:    wire.RoleAssistant,
 			Content: "",
-			ToolCalls: []deepseek.ToolCall{
-				{ID: "call_00_a", Type: "function", Function: deepseek.ToolCallFunc{Name: "get_weather", Arguments: `{"location":"Hobart"}`}},
-				{ID: "call_01_b", Type: "function", Function: deepseek.ToolCallFunc{Name: "get_weather", Arguments: `{"location":"Perth"}`}},
+			ToolCalls: []wire.ToolCall{
+				{ID: "call_00_a", Type: "function", Function: wire.ToolCallFunc{Name: "get_weather", Arguments: `{"location":"Hobart"}`}},
+				{ID: "call_01_b", Type: "function", Function: wire.ToolCallFunc{Name: "get_weather", Arguments: `{"location":"Perth"}`}},
 			},
 		},
-		{Role: deepseek.RoleTool, Content: "18C", ToolCallID: "call_00_a"},
-		{Role: deepseek.RoleTool, Content: "24C", ToolCallID: "call_01_b"},
+		{Role: wire.RoleTool, Content: "18C", ToolCallID: "call_00_a"},
+		{Role: wire.RoleTool, Content: "24C", ToolCallID: "call_01_b"},
 	}
 	requireEqualMessages(t, got, want)
 }
@@ -206,19 +206,19 @@ func TestFoldMultiTurnCarriesReasoning(t *testing.T) {
 
 	turn1Reasoning := "turn one reasoning"
 	turn2Reasoning := "turn two reasoning"
-	want := []deepseek.Message{
-		deepseek.SystemMessage("you are a coding agent"),
-		deepseek.UserMessage("add a test"),
+	want := []wire.Message{
+		wire.SystemMessage("you are a coding agent"),
+		wire.UserMessage("add a test"),
 		{
-			Role:             deepseek.RoleAssistant,
+			Role:             wire.RoleAssistant,
 			Content:          "",
 			ReasoningContent: &turn1Reasoning,
-			ToolCalls: []deepseek.ToolCall{
-				{ID: "call_00_x", Type: "function", Function: deepseek.ToolCallFunc{Name: "Read", Arguments: `{"file_path":"a.go"}`}},
+			ToolCalls: []wire.ToolCall{
+				{ID: "call_00_x", Type: "function", Function: wire.ToolCallFunc{Name: "Read", Arguments: `{"file_path":"a.go"}`}},
 			},
 		},
-		{Role: deepseek.RoleTool, Content: "1\tpackage a", ToolCallID: "call_00_x"},
-		{Role: deepseek.RoleAssistant, Content: "done", ReasoningContent: &turn2Reasoning},
+		{Role: wire.RoleTool, Content: "1\tpackage a", ToolCallID: "call_00_x"},
+		{Role: wire.RoleAssistant, Content: "done", ReasoningContent: &turn2Reasoning},
 	}
 	requireEqualMessages(t, got, want)
 }
@@ -241,10 +241,10 @@ func TestFoldSteer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []deepseek.Message{
-		deepseek.SystemMessage("you are a coding agent"),
-		deepseek.UserMessage("do it"),
-		{Role: deepseek.RoleAssistant, Content: "done"},
+	want := []wire.Message{
+		wire.SystemMessage("you are a coding agent"),
+		wire.UserMessage("do it"),
+		{Role: wire.RoleAssistant, Content: "done"},
 	}
 	requireEqualMessages(t, got, want)
 
@@ -256,7 +256,7 @@ func TestFoldSteer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want = append(want, deepseek.UserMessage("be terse"))
+	want = append(want, wire.UserMessage("be terse"))
 	requireEqualMessages(t, got, want)
 }
 
@@ -279,12 +279,12 @@ func TestFoldTwoSteersInOneBatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []deepseek.Message{
-		deepseek.SystemMessage("you are a coding agent"),
-		deepseek.UserMessage("do it"),
-		{Role: deepseek.RoleAssistant, Content: "done"},
-		deepseek.UserMessage("first"),
-		deepseek.UserMessage("second"),
+	want := []wire.Message{
+		wire.SystemMessage("you are a coding agent"),
+		wire.UserMessage("do it"),
+		{Role: wire.RoleAssistant, Content: "done"},
+		wire.UserMessage("first"),
+		wire.UserMessage("second"),
 	}
 	requireEqualMessages(t, got, want)
 }

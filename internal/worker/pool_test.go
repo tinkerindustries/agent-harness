@@ -26,6 +26,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 	"github.com/mrgeoffrich/deepseek-harness/internal/session"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 	"github.com/mrgeoffrich/deepseek-harness/internal/workspace"
 )
 
@@ -110,9 +111,9 @@ func plainAnswerServer(t *testing.T, answer string, delay time.Duration, hits *h
 		_ = json.Unmarshal(body, &probe)
 
 		if !probe.Stream {
-			resp := deepseek.ChatCompletionResponse{
-				Choices: []deepseek.Choice{{Message: deepseek.Message{Role: deepseek.RoleAssistant, Content: answer}, FinishReason: deepseek.FinishStop}},
-				Usage:   &deepseek.Usage{PromptTokens: 50, CompletionTokens: 10},
+			resp := wire.ChatCompletionResponse{
+				Choices: []wire.Choice{{Message: wire.Message{Role: wire.RoleAssistant, Content: answer}, FinishReason: wire.FinishStop}},
+				Usage:   &wire.Usage{PromptTokens: 50, CompletionTokens: 10},
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
@@ -121,19 +122,19 @@ func plainAnswerServer(t *testing.T, answer string, delay time.Duration, hits *h
 
 		w.Header().Set("Content-Type", "text/event-stream")
 		flusher := w.(http.Flusher)
-		writeChunk := func(c deepseek.ChatCompletionChunk) {
+		writeChunk := func(c wire.ChatCompletionChunk) {
 			b, _ := json.Marshal(c)
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			flusher.Flush()
 		}
 		content := answer
-		writeChunk(deepseek.ChatCompletionChunk{
-			Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{Role: "assistant", Content: &content}}},
+		writeChunk(wire.ChatCompletionChunk{
+			Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{Role: "assistant", Content: &content}}},
 		})
-		finish := deepseek.FinishStop
-		writeChunk(deepseek.ChatCompletionChunk{
-			Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: &finish}},
-			Usage:   &deepseek.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
+		finish := wire.FinishStop
+		writeChunk(wire.ChatCompletionChunk{
+			Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: &finish}},
+			Usage:   &wire.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
 		})
 		fmt.Fprint(w, "data: [DONE]\n\n")
 		flusher.Flush()
@@ -197,7 +198,7 @@ func newTestHarnessWithRunner(t *testing.T, serverURL string, poolSize int, newR
 		WorkspaceRoot:     resolvedRoot,
 		PrepareWorkspace:  fakePrepareWorkspace,
 		DefaultModel:      "test-model",
-		DefaultEffort:     deepseek.EffortHigh,
+		DefaultEffort:     wire.EffortHigh,
 		DefaultThinking:   true,
 		DefaultMaxTokens:  4000,
 		DefaultDeadline:   20 * time.Second,
@@ -741,19 +742,19 @@ func alwaysToolCallServer(t *testing.T) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		flusher := w.(http.Flusher)
-		writeChunk := func(c deepseek.ChatCompletionChunk) {
+		writeChunk := func(c wire.ChatCompletionChunk) {
 			b, _ := json.Marshal(c)
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			flusher.Flush()
 		}
-		writeChunk(deepseek.ChatCompletionChunk{Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{
+		writeChunk(wire.ChatCompletionChunk{Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 			Role:      "assistant",
-			ToolCalls: []deepseek.ToolCallDelta{{Index: 0, ID: "call-1", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}}},
+			ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call-1", Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}}},
 		}}}})
-		finish := deepseek.FinishToolCalls
-		writeChunk(deepseek.ChatCompletionChunk{
-			Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: &finish}},
-			Usage:   &deepseek.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
+		finish := wire.FinishToolCalls
+		writeChunk(wire.ChatCompletionChunk{
+			Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: &finish}},
+			Usage:   &wire.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
 		})
 		fmt.Fprint(w, "data: [DONE]\n\n")
 		flusher.Flush()
@@ -888,19 +889,19 @@ func gaveUpCompleteServer(t *testing.T) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		flusher := w.(http.Flusher)
-		writeChunk := func(c deepseek.ChatCompletionChunk) {
+		writeChunk := func(c wire.ChatCompletionChunk) {
 			b, _ := json.Marshal(c)
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			flusher.Flush()
 		}
-		writeChunk(deepseek.ChatCompletionChunk{Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{
+		writeChunk(wire.ChatCompletionChunk{Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 			Role:      "assistant",
-			ToolCalls: []deepseek.ToolCallDelta{{Index: 0, ID: "call-1", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "Complete", Arguments: `{"summary":"could not do it","status":"gave_up"}`}}},
+			ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call-1", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Complete", Arguments: `{"summary":"could not do it","status":"gave_up"}`}}},
 		}}}})
-		finish := deepseek.FinishToolCalls
-		writeChunk(deepseek.ChatCompletionChunk{
-			Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: &finish}},
-			Usage:   &deepseek.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
+		finish := wire.FinishToolCalls
+		writeChunk(wire.ChatCompletionChunk{
+			Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: &finish}},
+			Usage:   &wire.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
 		})
 		fmt.Fprint(w, "data: [DONE]\n\n")
 		flusher.Flush()

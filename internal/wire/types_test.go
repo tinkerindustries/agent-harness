@@ -1,4 +1,4 @@
-package deepseek
+package wire
 
 import (
 	"encoding/json"

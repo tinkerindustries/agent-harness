@@ -69,17 +69,25 @@ Dependencies run one way, and Go's own `internal` visibility plus the absence of
 cycles is the only enforcement — there is no import linter.
 
 ```
-deepseek  pricing  skills   claudemd store    webassets     (no internal dependencies)
-      ↑       ↑        ↑        ↑        ↑        ↑
-   tools ─────┘        │        │        │        │
-      ↑                │        │     fold        │
-   queue               │        │        ↑        │       httpapi ← hub
-      ↑                │        │        │        │
-workspace          session ─────┘        │        │
-      ↑                ↑                 │        │
-   worker ─────────────┘                 │        │
-                                         │        │
-   mcp ──────────────────────────────────┘        │  (types only)
+wire     pricing  skills   claudemd store    webassets     (no internal dependencies)
+  ↑          ↑        ↑        ↑        ↑        ↑
+deepseek    │        │        │        │        │
+  ↑         │        │     fold        │        │
+ tools ─────┘        │        │        │        │
+  ↑                  │        │        │        │
+ queue               │        │        │        │       httpapi ← hub
+  ↑                  │        │        │        │
+workspace       session ──────┘        │        │
+  ↑                  ↑                 │        │
+ worker ─────────────┘                 │        │
+                                       │        │
+ mcp ──────────────────────────────────┘        │  (types only)
+```
+
+`deepseek`, `tools`, `session`, and `fold` all read their vocabulary from
+`wire` — the rows above are the client, the tool array, the agent loop, and
+the fold, each one level above the shared types. `cache`, `evals`, and
+`promptvariant` import it directly as well.
 ```
 
 The edges that matter:

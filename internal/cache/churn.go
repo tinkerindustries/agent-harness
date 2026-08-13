@@ -10,7 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // blockSize is the measured cache persistence interval (docs/OBSERVED.md):
@@ -57,7 +57,7 @@ func NewDetector() *Detector {
 // Resuming a session uses this so the churn check on the first sub-turn
 // after resume compares against the session's real prior request instead of
 // silently skipping it the way a fresh Detector would (docs/CACHE.md).
-func NewDetectorFrom(prevCacheableTokens int, prevMessages []deepseek.Message) *Detector {
+func NewDetectorFrom(prevCacheableTokens int, prevMessages []wire.Message) *Detector {
 	return &Detector{
 		have:                true,
 		prevCacheableTokens: prevCacheableTokens,
@@ -69,7 +69,7 @@ func NewDetectorFrom(prevCacheableTokens int, prevMessages []deepseek.Message) *
 // diagnostic against whatever the previous call to Observe recorded. The
 // first call on a fresh Detector has nothing to compare against, so it
 // reports the actual miss as fully expected.
-func (d *Detector) Observe(messages []deepseek.Message, usage deepseek.Usage) Report {
+func (d *Detector) Observe(messages []wire.Message, usage wire.Usage) Report {
 	hashes := hashMessages(messages)
 
 	var report Report
@@ -95,7 +95,7 @@ func (d *Detector) Observe(messages []deepseek.Message, usage deepseek.Usage) Re
 	return report
 }
 
-func hashMessages(messages []deepseek.Message) []string {
+func hashMessages(messages []wire.Message) []string {
 	out := make([]string, len(messages))
 	for i, m := range messages {
 		b, err := json.Marshal(m)

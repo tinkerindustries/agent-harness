@@ -1,4 +1,4 @@
-package deepseek
+package wire
 
 import (
 	"io"
@@ -8,7 +8,7 @@ import (
 
 func TestSSEScannerBasicLines(t *testing.T) {
 	input := "data: {\"a\":1}\n\ndata: {\"a\":2}\n"
-	s := newSSEScanner(strings.NewReader(input))
+	s := NewSSEScanner(strings.NewReader(input))
 
 	want := []string{`data: {"a":1}`, "", `data: {"a":2}`}
 	for i, w := range want {
@@ -30,7 +30,7 @@ func TestSSEScannerLineOverScannerLimit(t *testing.T) {
 	// can exceed it; the scanner must return it intact regardless.
 	huge := strings.Repeat("x", 200*1024)
 	input := "data: " + huge + "\n"
-	s := newSSEScanner(strings.NewReader(input))
+	s := NewSSEScanner(strings.NewReader(input))
 
 	line, err := s.Scan()
 	if err != nil {
@@ -43,7 +43,7 @@ func TestSSEScannerLineOverScannerLimit(t *testing.T) {
 }
 
 func TestSSEScannerNoTrailingNewline(t *testing.T) {
-	s := newSSEScanner(strings.NewReader("data: [DONE]"))
+	s := NewSSEScanner(strings.NewReader("data: [DONE]"))
 	line, err := s.Scan()
 	if err != nil {
 		t.Fatalf("Scan(): unexpected error: %v", err)
@@ -57,7 +57,7 @@ func TestSSEScannerNoTrailingNewline(t *testing.T) {
 }
 
 func TestSSEScannerEmptyInput(t *testing.T) {
-	s := newSSEScanner(strings.NewReader(""))
+	s := NewSSEScanner(strings.NewReader(""))
 	if _, err := s.Scan(); err != io.EOF {
 		t.Errorf("Scan() of empty input error = %v, want io.EOF", err)
 	}
@@ -66,24 +66,24 @@ func TestSSEScannerEmptyInput(t *testing.T) {
 func TestClassifySSELine(t *testing.T) {
 	cases := []struct {
 		line     string
-		wantKind frameKind
+		wantKind FrameKind
 		wantData string
 	}{
-		{"", frameBlank, ""},
-		{": keep-alive", frameComment, ""},
-		{":", frameComment, ""},
-		{"data: {\"a\":1}", frameData, `{"a":1}`},
-		{"data: [DONE]", frameData, "[DONE]"},
-		{"data:{\"a\":1}", frameData, `{"a":1}`},
-		{"event: message", frameOther, ""},
+		{"", FrameBlank, ""},
+		{": keep-alive", FrameComment, ""},
+		{":", FrameComment, ""},
+		{"data: {\"a\":1}", FrameData, `{"a":1}`},
+		{"data: [DONE]", FrameData, "[DONE]"},
+		{"data:{\"a\":1}", FrameData, `{"a":1}`},
+		{"event: message", FrameOther, ""},
 	}
 	for _, c := range cases {
-		f := classifySSELine(c.line)
-		if f.kind != c.wantKind {
-			t.Errorf("classifySSELine(%q).kind = %v, want %v", c.line, f.kind, c.wantKind)
+		f := ClassifySSELine(c.line)
+		if f.Kind != c.wantKind {
+			t.Errorf("ClassifySSELine(%q).Kind = %v, want %v", c.line, f.Kind, c.wantKind)
 		}
-		if f.data != c.wantData {
-			t.Errorf("classifySSELine(%q).data = %q, want %q", c.line, f.data, c.wantData)
+		if f.Data != c.wantData {
+			t.Errorf("ClassifySSELine(%q).Data = %q, want %q", c.line, f.Data, c.wantData)
 		}
 	}
 }
