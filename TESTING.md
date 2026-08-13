@@ -211,12 +211,16 @@ pass rather than part of the suites.
   proxy buffers the response, so the transcript never loads past the initial
   fetch on a page served by `npm run dev`. Drive the browser against the
   **built image** (step 1's `--build`), never the dev server.
-- **`scripts/test.sh`'s broker port is unreachable from inside a container.**
-  The test broker publishes onto the host's loopback, which a container that
-  shares the docker socket does not share. When running `go test` from
-  such a container, start a `nats-server` locally on the test broker port
-  (`HARNESS_TEST_NATS_PORT`, default 4422) instead, and run the suite
-  directly — `scripts/test.sh` itself will just fail to reach its broker.
+- **`scripts/test.sh` works from inside a container that shares the docker
+  socket.** The test broker publishes onto the host's loopback, which such
+  a container does not share — so after bringing the compose broker up the
+  script probes the suite's URL and, when the port is not reachable from
+  where it runs, falls back to a local `nats-server` (pinned in the
+  Dockerfile, `ARG NATS_SERVER_VERSION`) on the same port with JetStream
+  on, and tears it down along with the compose broker however the run
+  ends. A host run still exercises the compose broker; the identical
+  `scripts/test.sh` command works in both places with nothing passed and
+  nothing configured.
 
 ### The sequence
 
