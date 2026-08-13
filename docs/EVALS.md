@@ -58,7 +58,8 @@ and every session's first request misses regardless (`docs/CACHE.md`).
 ## Reminders
 
 A rule stated once in the system prompt decays as the context grows. Measured
-over 85 production sessions:
+over 85 production sessions — 81 of them `deepseek-v4-flash`, all under the
+prompt as it stood at v0.21.0:
 
 | Context | Searches | Via the search tools | Edits | Refused for want of a read |
 | --- | --- | --- | --- | --- |
@@ -72,6 +73,13 @@ Both rules decay monotonically. The association is confounded — a session
 orienting in a fresh repository searches differently from one running builds
 an hour in — which is what an eval is for: the task is held constant and only
 the context length varies.
+
+Read the search column with its cause in mind. That prompt told the model to
+"search from Bash with rg", two lines under "prefer Grep and Glob"; removing
+the contradiction moved flash from 12.5% tool use to 99.5%, measured by the
+`search` suite. The decay may be a property of the window or of that
+instruction losing to habit; the run that would separate them has not been
+done.
 
 A reminder re-states a rule further down the conversation. Cadence is in
 context tokens rather than sub-turns, because tokens are the variable the

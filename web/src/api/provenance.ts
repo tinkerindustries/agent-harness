@@ -14,6 +14,24 @@ export function isUserStarted(
   return sess.parent_is_user === true || sess.parent_agent_type === "user";
 }
 
+// An eval stamps parent_agent_type "eval" and puts the member's request id in
+// parent_agent_id (internal/evals/suite.go), so a session says on its face
+// that it is part of a comparison and cannot be steered.
+export const EVAL_AGENT_TYPE = "eval";
+
+// evalRunLink is the path a session's provenance label links to, when the
+// session belongs to an eval and nothing else. The label is only a hint: the
+// authoritative membership is GET /api/sessions/{id}/eval, which the session
+// page fetches. This exists so the list's label is clickable without a second
+// request per row.
+export function evalRunLink(
+  sess: Pick<SessionState, "parent_is_user" | "parent_agent_type">,
+  membership: { eval_run_id: string } | null,
+): string | null {
+  if (isUserStarted(sess) || sess.parent_agent_type !== EVAL_AGENT_TYPE) return null;
+  return membership ? `/evals/${encodeURIComponent(membership.eval_run_id)}` : null;
+}
+
 // startedBy renders a session row's provenance as the one-line label both
 // screens show ("started by geoff", "started by claude-code (sess-1)").
 export function startedBy(

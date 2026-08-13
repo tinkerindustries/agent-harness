@@ -31,8 +31,9 @@ export function useNavRight(node: ReactNode): void {
 // session list and a session's transcript are both the Sessions section
 // (design/nav.html), and only the transcript additionally renders the crumb
 // below, in the slot a page title would otherwise sit in.
-function sectionOf(route: Route): "sessions" | "operations" | "settings" {
+function sectionOf(route: Route): "sessions" | "evals" | "operations" | "settings" {
   if (route.kind === "list" || route.kind === "session") return "sessions";
+  if (route.kind === "evals" || route.kind === "evalRun") return "evals";
   if (route.kind === "operations") return "operations";
   return "settings";
 }
@@ -53,10 +54,11 @@ export function TopNav({ route, onNavigate, children }: TopNavProps) {
 
   return (
     <NavRightContext.Provider value={setRight}>
-      <header className={cn("topnav", route.kind === "session" && "topnav-wide")}>
+      <header className={cn("topnav", (route.kind === "session" || route.kind === "evalRun") && "topnav-wide")}>
         <span className="wordmark">deepseek-harness</span>
         <nav className="topnav-links">
           <NavLink label="Sessions" href="/" active={section === "sessions"} onNavigate={onNavigate} />
+          <NavLink label="Evals" href="/evals" active={section === "evals"} onNavigate={onNavigate} />
           <NavLink
             label="Operations"
             href="/operations"
@@ -70,7 +72,7 @@ export function TopNav({ route, onNavigate, children }: TopNavProps) {
             onNavigate={onNavigate}
           />
         </nav>
-        {route.kind === "session" && (
+        {(route.kind === "session" || route.kind === "evalRun") && (
           <span className="nav-crumb">
             <span className="sep">/</span>
             <span className="current">{route.id}</span>

@@ -16,6 +16,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/promptvariant"
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
+	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
 
 const evalUsage = `harness eval — measure what a prompt change does to a run
@@ -24,6 +25,7 @@ const evalUsage = `harness eval — measure what a prompt change does to a run
   harness eval score -report FILE          re-score a finished report from stored events
   harness eval variants                    list the prompt variants this build knows
   harness eval suites                      list the suites built into this binary
+  harness eval close <id> [status]         close out a run stranded by a dead orchestrator
 
 An eval publishes each task once per variant per replicate onto the WORK
 stream, so runs are claimed by the same workers serving everything else, and
@@ -43,6 +45,8 @@ func runEval(ctx context.Context, args []string) error {
 		return runEvalVariants()
 	case "suites":
 		return runEvalSuites()
+	case "close":
+		return runEvalClose(ctx, args[1:])
 	case "-h", "-help", "--help", "help":
 		fmt.Println(evalUsage)
 		return nil
@@ -65,6 +69,41 @@ func runEvalSuites() error {
 	for _, suite := range evals.EmbeddedSuites() {
 		fmt.Printf("%-12s %d tasks  %s\n", suite.Name, len(suite.Tasks), suite.Description)
 	}
+	return nil
+}
+
+// runEvalClose finishes a run whose orchestrator died — the terminal was
+// closed, or the container was rebuilt under it. The members it did finish
+// keep their scores; only the run's own status is stale.
+func runEvalClose(ctx context.Context, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: harness eval close <eval-run-id> [status]")
+	}
+	status := store.EvalStatusCancelled
+	if len(args) > 1 {
+		status = args[1]
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	st, err := openStore(cfg)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	run, err := st.GetEvalRun(ctx, args[0])
+	if err != nil {
+		return err
+	}
+	if run.FinishedAt != nil {
+		return fmt.Errorf("eval run %s already finished as %q", run.ID, run.Status)
+	}
+	if err := st.FinishEvalRun(ctx, run.ID, status, time.Now().UTC()); err != nil {
+		return err
+	}
+	fmt.Printf("closed %s as %s\n", run.ID, status)
 	return nil
 }
 

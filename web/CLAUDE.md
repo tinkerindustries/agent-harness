@@ -59,6 +59,16 @@ What the screens are, since the redesign (docs/WEB-REDESIGN.md):
   IntersectionObserver marking the current entry. The screen's own header is
   gone: the nav's crumb shows the session id and its right slot carries the
   connection badge (phase 9).
+- **Evals.** The eval list is every run over time — what it compared, where it
+  got to, and a headline delta; the run page is the comparison table, then the
+  runs it is built from (docs/EVALS.md). No statistics happen in the browser:
+  the server computes every mean, standard error and delta through the same
+  code the CLI's table uses, and decides significance, so `src/api/evals.ts`
+  formats and arranges and nothing else. A metric with nothing to measure
+  renders as a dash and never as a zero. Both screens poll while a run is
+  going — the only polling in the frontend, because the orchestrator lives in
+  the CLI process and the hub has nothing to push; it goes when orchestration
+  moves into serve.
 - **Settings.** One collapsible row per registry entry: closed is key, value
   and description; open is the write controls with the bounds the registry
   validates against. A closed set renders a `ToggleGroup`; only overrides and

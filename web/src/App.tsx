@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { SessionListScreen } from "./components/SessionListScreen";
 import { SettingsScreen } from "./components/SettingsScreen";
+import { EvalListScreen } from "./components/EvalListScreen";
+import { EvalRunScreen } from "./components/EvalRunScreen";
 import { OperationsScreen } from "./components/OperationsScreen";
 import { SessionScreen } from "./components/SessionScreen";
 import { TopNav } from "./components/TopNav";
@@ -37,12 +39,17 @@ export type Route =
   | { kind: "session"; id: string }
   | { kind: "perf" }
   | { kind: "settings" }
-  | { kind: "operations" };
+  | { kind: "operations" }
+  | { kind: "evals" }
+  | { kind: "evalRun"; id: string };
 
 function parseRoute(pathname: string): Route {
   if (pathname.replace(/\/$/, "") === "/perf") return { kind: "perf" };
   if (pathname.replace(/\/$/, "") === "/settings") return { kind: "settings" };
   if (pathname.replace(/\/$/, "") === "/operations") return { kind: "operations" };
+  if (pathname.replace(/\/$/, "") === "/evals") return { kind: "evals" };
+  const e = pathname.match(/^\/evals\/([^/]+)\/?$/);
+  if (e) return { kind: "evalRun", id: decodeURIComponent(e[1]) };
   const m = pathname.match(/^\/sessions\/([^/]+)\/?$/);
   return m ? { kind: "session", id: decodeURIComponent(m[1]) } : { kind: "list" };
 }
@@ -72,6 +79,13 @@ export default function App() {
         <SettingsScreen />
       ) : route.kind === "operations" ? (
         <OperationsScreen />
+      ) : route.kind === "evals" ? (
+        <EvalListScreen onOpen={(id) => navigate(`/evals/${encodeURIComponent(id)}`)} />
+      ) : route.kind === "evalRun" ? (
+        <EvalRunScreen
+          id={route.id}
+          onOpenSession={(id) => navigate(`/sessions/${encodeURIComponent(id)}`)}
+        />
       ) : (
         <SessionListScreen onOpen={(id) => navigate(`/sessions/${encodeURIComponent(id)}`)} />
       )}

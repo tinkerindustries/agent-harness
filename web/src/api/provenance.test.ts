@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isUserStarted, startedBy } from "./provenance";
+import { evalRunLink, isUserStarted, startedBy } from "./provenance";
 
 describe("isUserStarted", () => {
   it("is true for a producer-stamped user start", () => {
@@ -75,5 +75,29 @@ describe("startedBy", () => {
 
   it("returns null for a row with no provenance", () => {
     expect(startedBy({})).toBeNull();
+  });
+});
+
+describe("evalRunLink", () => {
+  // An eval session says on its face that it is part of a comparison. The
+  // link needs the membership, which the session page fetches; without it
+  // there is nothing to point at and the label stays plain text.
+  it("links an eval session to its run", () => {
+    expect(
+      evalRunLink({ parent_is_user: false, parent_agent_type: "eval" }, { eval_run_id: "evr-1" }),
+    ).toBe("/evals/evr-1");
+  });
+
+  it("links nothing without a membership", () => {
+    expect(evalRunLink({ parent_is_user: false, parent_agent_type: "eval" }, null)).toBeNull();
+  });
+
+  it("links nothing for an ordinary session", () => {
+    expect(
+      evalRunLink({ parent_is_user: false, parent_agent_type: "claude-code" }, { eval_run_id: "evr-1" }),
+    ).toBeNull();
+    expect(
+      evalRunLink({ parent_is_user: true, parent_agent_type: "" }, { eval_run_id: "evr-1" }),
+    ).toBeNull();
   });
 });

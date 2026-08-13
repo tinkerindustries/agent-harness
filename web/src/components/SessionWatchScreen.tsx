@@ -10,6 +10,7 @@ import { WatchFooter } from "./WatchFooter";
 import { ResultPanel, type RunFinishedBlock } from "./ResultPanel";
 import { DroppedStreamBanner } from "./DroppedStreamBanner";
 import { controlToken, errorMessage, stopSession } from "../api/operations";
+import { getSessionEval, type EvalMembership } from "../api/evals";
 import { startedBy } from "../api/provenance";
 import { useLabelFlip, useNow } from "../hooks";
 import { Badge } from "./ui/badge";
@@ -57,6 +58,26 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
   // legacy fallback; the strip never re-formats the fields itself.
   const startedByLabel = startedBy(meta);
   const who = meta.parent_agent_type || meta.parent_agent_id || "the launching agent";
+
+  // An eval session is an ordinary session that belongs to a comparison. The
+  // membership is its own fetch rather than a field on the session row: it is
+  // one extra request on a screen that already makes several, and it keeps an
+  // eval lookup off the commit path that builds hub.SessionState. A 404 — an
+  // ordinary session — renders nothing.
+  const [membership, setMembership] = useState<EvalMembership | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getSessionEval(sessionId)
+      .then((m) => {
+        if (!cancelled) setMembership(m);
+      })
+      .catch(() => {
+        if (!cancelled) setMembership(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
 
   // The filter starts at All and the find box blank; both are plain values,
   // so the memoised turn list compares them by value and still bails out on
@@ -314,6 +335,25 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
             <span className="sep">·</span>
             <span>
               job <code>{meta.job_type}</code>
+            </span>
+          </>
+        )}
+        {membership && (
+          <>
+            <span className="sep">·</span>
+            <span className="session-eval-strip">
+              eval{" "}
+              <a
+                href={`/evals/${encodeURIComponent(membership.eval_run_id)}`}
+                onClick={(e) => {
+                  e.preventDefault();
+                  onNavigate(`/evals/${encodeURIComponent(membership.eval_run_id)}`);
+                }}
+              >
+                {membership.suite}
+              </a>{" "}
+              · variant <code>{membership.variant}</code> · task <code>{membership.task_id}</code> ·
+              replicate {membership.replicate}
             </span>
           </>
         )}

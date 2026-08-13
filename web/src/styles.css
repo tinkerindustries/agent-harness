@@ -4061,3 +4061,182 @@ kbd {
   }
 }
 
+
+/* --- Evals (docs/EVALS.md) ------------------------------------------------
+   The comparison table is the one layout here with no existing analogue: a
+   mean and its spread in every cell, and a delta column whose marker is the
+   server's own significance decision. Everything else reuses the session
+   table. */
+
+.eval-list,
+.eval-run {
+  padding: var(--space-6) 0;
+}
+
+.eval-empty,
+.eval-error {
+  padding: var(--space-6) 0;
+  color: var(--muted-foreground);
+}
+
+.eval-error {
+  color: var(--destructive);
+}
+
+.eval-row {
+  cursor: pointer;
+}
+
+.eval-suite {
+  display: block;
+  font-weight: 500;
+}
+
+.eval-note {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 0.85em;
+}
+
+.eval-variants {
+  display: inline-flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.eval-failed {
+  color: var(--destructive);
+}
+
+/* A thin bar under the counter while a run is going. */
+.eval-progress {
+  display: block;
+  height: 2px;
+  margin-top: 4px;
+  background: var(--border);
+}
+
+.eval-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+}
+
+.eval-header h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.eval-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-5);
+  margin: var(--space-4) 0 0;
+}
+
+.eval-fact dt {
+  color: var(--muted-foreground);
+  font-size: 0.8em;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.eval-fact dd {
+  margin: 2px 0 0;
+}
+
+.eval-section {
+  margin-top: var(--space-7);
+}
+
+.eval-section h2 {
+  font-size: 1rem;
+  margin: 0 0 var(--space-3);
+}
+
+/* Wide content scrolls inside its own container; the page never scrolls
+   sideways. */
+.eval-table-scroll {
+  overflow-x: auto;
+}
+
+.eval-comparison .eval-metric {
+  text-align: left;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.eval-mean {
+  display: block;
+}
+
+.eval-spread {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 0.8em;
+}
+
+.eval-delta,
+.eval-headline {
+  font-variant-numeric: tabular-nums;
+}
+
+.eval-delta.is-significant,
+.eval-headline.is-significant {
+  font-weight: 600;
+}
+
+.eval-star {
+  color: var(--primary);
+}
+
+/* An absent measurement is a dash, never a zero. */
+.eval-absent {
+  color: var(--muted-foreground);
+}
+
+.eval-caption,
+.eval-warning {
+  margin: var(--space-3) 0 0;
+  color: var(--muted-foreground);
+  font-size: 0.85em;
+  max-width: 62ch;
+}
+
+.eval-warning {
+  color: var(--destructive);
+}
+
+.eval-task {
+  font-weight: 500;
+}
+
+.eval-error-row td {
+  color: var(--destructive);
+  font-size: 0.85em;
+  padding-top: 0;
+}
+
+.eval-session-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--primary);
+  cursor: pointer;
+  font: inherit;
+  text-decoration: underline;
+}
+
+/* The strip on a session that belongs to an eval. */
+.session-eval-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  font-size: 0.85em;
+  color: var(--muted-foreground);
+}
+
+.session-eval-strip a {
+  color: var(--primary);
+}
