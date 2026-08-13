@@ -132,6 +132,57 @@ describe("buildWatchPhases", () => {
     expect(view.nowPhaseId).toBe(view.phases[0].id);
   });
 
+  it("gives a finished run no pulsing tick, even when the live view still names its last sub-turn", () => {
+    const plan = [todo("1", "Fix retained-body leak", "in_progress")];
+    const events = [
+      ev(1, "session_started", { opening_message: "x" }),
+      ...turn(2, 1, [taskCreate(3, "p1", plan)]),
+    ];
+    // The run is over (runLive false) but the live view still carries the
+    // last sub-turn's number, which is what a finished session's replay
+    // leaves behind. The rail must not append a second, pulsing tick for a
+    // sub-turn that already has a group.
+    const view = buildWatchPhases(foldedItems(events), 1, plan, false, NOOP_GET_TOOL_CALL);
+    expect(view.phases[0].ticks.map((t) => [t.subTurn, t.cls])).toEqual([[1, ""]]);
+    expect(view.nowPhaseId).toBeNull();
+  });
+
+  it("colours a sub-turn by what it did: edit over bash over read, all under an error", () => {
+    const plan = [todo("1", "Do the thing", "in_progress")];
+    const result = (seq: number, id: string, name: string, extra: Record<string, unknown> = {}) =>
+      ev(seq, "tool_result", { tool_call_id: id, name, content: "out", ...extra });
+    const subTurn = (seq: number, n: number, calls: { id: string; name: string }[], results: StoreEvent[]): StoreEvent[] => [
+      ev(seq, "turn_started", { sub_turn: n }),
+      ...calls.map((c, i) => ev(seq, "tool_call", { index: i, id: c.id, name: c.name, arguments: "{}" })),
+      ev(seq + 1, "turn_finished", { sub_turn: n, finish_reason: "tool_calls" }),
+      ...results,
+      usage(n),
+    ];
+    const events = [
+      ev(1, "session_started", { opening_message: "x" }),
+      ...turn(2, 1, [taskCreate(3, "p1", plan)]),
+      // A read alone is violet.
+      ...subTurn(5, 2, [{ id: "r1", name: "Read" }], [result(7, "r1", "Read")]),
+      // A read and a command together are blue: bash outranks read.
+      ...subTurn(8, 3, [{ id: "r2", name: "Read" }, { id: "b1", name: "Bash" }], [result(10, "r2", "Read"), result(11, "b1", "Bash")]),
+      // An edit outranks both.
+      ...subTurn(12, 4, [{ id: "e1", name: "Edit" }, { id: "b2", name: "Bash" }], [result(14, "e1", "Edit"), result(15, "b2", "Bash")]),
+      // A failure anywhere in the sub-turn wins over all of them.
+      ...subTurn(16, 5, [{ id: "e2", name: "Edit" }, { id: "b3", name: "Bash" }], [result(18, "e2", "Edit"), result(19, "b3", "Bash", { is_error: true })]),
+      // A tool in none of the families stays plain.
+      ...subTurn(20, 6, [{ id: "g1", name: "Grep" }], [result(22, "g1", "Grep")]),
+    ];
+    const view = buildWatchPhases(foldedItems(events), null, plan, false, NOOP_GET_TOOL_CALL);
+    expect(view.flatTicks.map((t) => [t.subTurn, t.cls])).toEqual([
+      [1, ""],
+      [2, "tick-read"],
+      [3, "tick-bash"],
+      [4, "tick-edit"],
+      [5, "tick-err"],
+      [6, ""],
+    ]);
+  });
+
   it("renders plan items the run never reached as not-started, past the last phase's position", () => {
     // The plan at the first TaskCreate already has its second item
     // in_progress, so the one phase is named "Fix the bug" at position 2;

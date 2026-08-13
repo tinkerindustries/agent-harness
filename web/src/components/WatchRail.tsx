@@ -252,8 +252,12 @@ export function buildWatchPhases(
   }
 
   // The sub-turn still streaming has no group yet; it continues the tail
-  // phase, and its tick is the pulsing one.
-  if (liveSubTurn !== null && current) {
+  // phase, and its tick is the pulsing one. Only while the run is live: a
+  // finished run's live view can still name its last sub-turn (the fold
+  // clears the live turn's text, not the turn), and without the gate the
+  // rail ends every finished run with a second, pulsing copy of the last
+  // sub-turn claiming to be running now.
+  if (runLive && liveSubTurn !== null && current) {
     current.ticks.push({
       subTurn: liveSubTurn,
       cls: "tick-now",
