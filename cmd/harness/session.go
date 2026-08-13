@@ -58,17 +58,20 @@ func runResume(ctx context.Context, args []string) error {
 	if *maxTokens != 0 {
 		resolvedMaxTokens = *maxTokens
 	}
-	resolvedMaxSubTurns, err := settingsRes.Int(ctx, settings.KeyRunMaxSubTurns)
+
+	// The session's model is resolved before the sub-turn budget: a resumed
+	// kimi-k3 session gets K3's own ceiling, every other model the global
+	// one (resolveMaxSubTurns, docs/KIMI-INTEGRATION.md §3).
+	sess, err := st.GetSession(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	resolvedMaxSubTurns, err := resolveMaxSubTurns(ctx, settingsRes, sess.Model)
 	if err != nil {
 		return err
 	}
 	if *maxSubTurns != 0 {
 		resolvedMaxSubTurns = *maxSubTurns
-	}
-
-	sess, err := st.GetSession(ctx, sessionID)
-	if err != nil {
-		return err
 	}
 
 	rec := newHTTPLogRecorder(cfg)

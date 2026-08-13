@@ -454,7 +454,16 @@ func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestMessa
 	}
 	var report cache.Report
 	if detector != nil {
-		report = detector.Observe(requestMessages, *usage)
+		// The detector gets the same split the cost model does, never the
+		// raw usage: DeepSeek reports a hit/miss pair, Kimi K3 a single
+		// cached_tokens, so a detector fed the raw usage would compare its
+		// prediction against a field Kimi never populates (internal/cache/churn.go).
+		report = detector.Observe(requestMessages, cache.Split{
+			PromptTokens:     usage.PromptTokens,
+			CacheHitTokens:   cacheHit,
+			CacheMissTokens:  cacheMiss,
+			CompletionTokens: usage.CompletionTokens,
+		})
 	}
 	return store.UsagePayload{
 		SubTurn:               subTurn,

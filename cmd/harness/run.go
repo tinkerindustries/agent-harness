@@ -120,7 +120,7 @@ func runRun(ctx context.Context, args []string) error {
 	if *maxTokens != 0 {
 		resolvedMaxTokens = *maxTokens
 	}
-	resolvedMaxSubTurns, err := res.Int(ctx, settings.KeyRunMaxSubTurns)
+	resolvedMaxSubTurns, err := resolveMaxSubTurns(ctx, res, resolvedModel)
 	if err != nil {
 		return err
 	}
@@ -170,7 +170,7 @@ func runRun(ctx context.Context, args []string) error {
 		Settings:    res,
 	}
 
-	fmt.Printf("model %s (effort %s, thinking %v), permission mode %s, %d job(s)\n\n", resolvedModel, resolvedEffort, cfg.Thinking, mode, len(workspaces))
+	fmt.Printf("model %s (effort %s, %s), permission mode %s, %d job(s)\n\n", resolvedModel, resolvedEffort, reasoningClaim(resolvedModel, *thinking), mode, len(workspaces))
 	if *debugChurnAt > 0 {
 		fmt.Printf("debug: deliberately churning the prefix before sub-turn %d (docs/CACHE.md demonstration)\n\n", *debugChurnAt)
 	}
@@ -226,6 +226,19 @@ func runRun(ctx context.Context, args []string) error {
 		return errors.New("one or more jobs failed")
 	}
 	return nil
+}
+
+// resolveMaxSubTurns resolves the sub-turn budget a run on model gets when
+// its caller omits -max-sub-turns: the model's own ceiling when it has one
+// (run.max_sub_turns_kimi_k3 for kimi-k3), otherwise the global
+// run.max_sub_turns — the same per-model resolution the Runner applies on
+// the queue path (internal/session/runner.go,
+// docs/KIMI-INTEGRATION.md §3).
+func resolveMaxSubTurns(ctx context.Context, res *settings.Resolver, model string) (int, error) {
+	if key, _, ok := settings.RunBudgetKeysForModel(model); ok {
+		return res.Int(ctx, key)
+	}
+	return res.Int(ctx, settings.KeyRunMaxSubTurns)
 }
 
 func printResult(res *session.RunResult, priceTable *pricing.Table) {
