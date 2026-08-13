@@ -31,6 +31,22 @@ type Report struct {
 	ChurnPointIndex *int
 }
 
+// Split is one request's token accounting resolved onto the cache-hit and
+// cache-miss counts by the provider seam — the same split the cost model
+// and the stored usage payload use (internal/session/client.go,
+// docs/KIMI-INTEGRATION.md §2). The Detector reads its inputs from this,
+// never from wire.Usage: the raw usage's cache fields are provider-shaped —
+// DeepSeek reports a hit/miss pair, Kimi K3 a single cached_tokens with the
+// miss derived — so a detector that read them directly would compare its
+// prediction against a field Kimi never populates (always zero) and every
+// K3 verdict would be meaningless (docs/CACHE.md).
+type Split struct {
+	PromptTokens     int
+	CacheHitTokens   int
+	CacheMissTokens  int
+	CompletionTokens int
+}
+
 // Detector tracks one session's previous sub-turn so it can predict the
 // next one's cache miss. It holds no state outside the session it belongs
 // to; sharing a Detector across sessions would name the wrong message on a
@@ -66,23 +82,25 @@ func NewDetectorFrom(prevCacheableTokens int, prevMessages []wire.Message) *Dete
 }
 
 // Observe records this sub-turn's request and usage, returning the
-// diagnostic against whatever the previous call to Observe recorded. The
-// first call on a fresh Detector has nothing to compare against, so it
-// reports the actual miss as fully expected.
-func (d *Detector) Observe(messages []wire.Message, usage wire.Usage) Report {
+// diagnostic against whatever the previous call to Observe recorded. split
+// is the provider seam's cache-hit/cache-miss split for the request, never
+// the raw wire.Usage (see Split). The first call on a fresh Detector has
+// nothing to compare against, so it reports the actual miss as fully
+// expected.
+func (d *Detector) Observe(messages []wire.Message, split Split) Report {
 	hashes := hashMessages(messages)
 
 	var report Report
 	if !d.have {
-		report = Report{ExpectedMissTokens: usage.PromptCacheMissTokens, ActualMissTokens: usage.PromptCacheMissTokens}
+		report = Report{ExpectedMissTokens: split.CacheMissTokens, ActualMissTokens: split.CacheMissTokens}
 	} else {
 		expectedHit := (d.prevCacheableTokens / blockSize) * blockSize
-		expectedMiss := usage.PromptTokens - expectedHit
+		expectedMiss := split.PromptTokens - expectedHit
 		if expectedMiss < 0 {
 			expectedMiss = 0
 		}
-		report = Report{ExpectedMissTokens: expectedMiss, ActualMissTokens: usage.PromptCacheMissTokens}
-		if usage.PromptCacheMissTokens > expectedMiss+blockSlack {
+		report = Report{ExpectedMissTokens: expectedMiss, ActualMissTokens: split.CacheMissTokens}
+		if split.CacheMissTokens > expectedMiss+blockSlack {
 			report.Churned = true
 			idx := firstDivergence(d.prevHashes, hashes)
 			report.ChurnPointIndex = &idx
@@ -90,7 +108,7 @@ func (d *Detector) Observe(messages []wire.Message, usage wire.Usage) Report {
 	}
 
 	d.have = true
-	d.prevCacheableTokens = usage.PromptTokens + usage.CompletionTokens
+	d.prevCacheableTokens = split.PromptTokens + split.CompletionTokens
 	d.prevHashes = hashes
 	return report
 }
