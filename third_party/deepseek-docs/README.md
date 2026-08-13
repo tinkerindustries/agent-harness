@@ -2,9 +2,14 @@
 
 Local mirror of <https://api-docs.deepseek.com/>, converted to Markdown.
 
-- Fetched: 2026-08-09
+- Fetched: 2026-08-13
 - Pages: 63 (every URL in the site's `sitemap.xml`)
 - Each file carries `source:` frontmatter pointing at the page it came from.
+
+On the 2026-08-13 refresh every page was re-fetched and compared; the eight that
+had changed were edited by hand rather than re-converted, so the rest keep their
+original wording. The `fetched:` date is the date of the last comparison, not of
+the last edit.
 
 DeepSeek publishes no OpenAPI spec and no docs source repository, so this is
 converted from the rendered site. Internal links are rewritten to relative

@@ -1,14 +1,10 @@
 ---
 title: Integrate with Codex
 source: https://api-docs.deepseek.com/quick_start/agent_integrations/codex
-fetched: 2026-08-09
+fetched: 2026-08-13
 ---
 
 # Integrate with Codex
-
-Note
-
-Currently, only `deepseek-v4-flash` supports integrating with Codex. `deepseek-v4-pro` is expected to support Codex in early August 2026.
 
 Codex is an AI coding assistant from OpenAI. It talks to models via the [Responses API](../../guides/responses_api.md), which the DeepSeek API natively supports.
 

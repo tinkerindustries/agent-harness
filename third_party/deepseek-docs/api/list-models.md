@@ -1,7 +1,7 @@
 ---
 title: Lists Models
 source: https://api-docs.deepseek.com/api/list-models
-fetched: 2026-08-09
+fetched: 2026-08-13
 ---
 
 # Lists Models

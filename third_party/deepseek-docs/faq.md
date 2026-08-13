@@ -1,7 +1,7 @@
 ---
 title: FAQ
 source: https://api-docs.deepseek.com/faq
-fetched: 2026-08-09
+fetched: 2026-08-13
 ---
 
 # FAQ

@@ -1,7 +1,7 @@
 ---
 title: Integrating nanobot
 source: https://api-docs.deepseek.com/quick_start/agent_integrations/nanobot
-fetched: 2026-08-09
+fetched: 2026-08-13
 ---
 
 # Integrating nanobot

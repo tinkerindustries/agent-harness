@@ -1,7 +1,7 @@
 ---
 title: Integrate with Langcli
 source: https://api-docs.deepseek.com/quick_start/agent_integrations/langcli
-fetched: 2026-08-09
+fetched: 2026-08-13
 ---
 
 # Integrate with Langcli

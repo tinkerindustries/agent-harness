@@ -1,7 +1,7 @@
 ---
 title: Using the Anthropic API
 source: https://api-docs.deepseek.com/guides/anthropic_api
-fetched: 2026-08-09
+fetched: 2026-08-13
 ---
 
 # Using the Anthropic API

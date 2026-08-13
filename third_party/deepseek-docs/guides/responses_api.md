@@ -1,14 +1,10 @@
 ---
 title: Using the Responses API
 source: https://api-docs.deepseek.com/guides/responses_api
-fetched: 2026-08-09
+fetched: 2026-08-13
 ---
 
 # Using the Responses API
-
-Supported Models
-
-The Responses API currently only supports the `deepseek-v4-flash` model, and does not yet support the `deepseek-v4-pro` model. We will add support for the `deepseek-v4-pro` model in early August 2026.
 
 To meet the demand for Codex, our API now supports the Responses API format, with the base_url `https://api.deepseek.com`.
 
@@ -77,7 +73,7 @@ This section lists the compatibility details of the DeepSeek API with the Respon
 
 | Parameter | Support Status |
 | --- | --- |
-| `model` | Supported. Currently only `deepseek-v4-flash` (`deepseek-v4-pro` is not supported yet), see [Models & Pricing](../quick_start/pricing.md) |
+| `model` | Supported. `deepseek-v4-flash` / `deepseek-v4-pro`, see [Models & Pricing](../quick_start/pricing.md) |
 | `input` | Supported. String or input item list; at least one of `input` and `instructions` is required |
 | `instructions` | Supported. Inserted as the first system message |
 | `stream` | Supported |

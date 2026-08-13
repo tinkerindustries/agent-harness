@@ -1,7 +1,7 @@
 ---
 title: Thinking Mode
 source: https://api-docs.deepseek.com/guides/thinking_mode
-fetched: 2026-08-09
+fetched: 2026-08-13
 ---
 
 # Thinking Mode
@@ -17,17 +17,16 @@ The DeepSeek model supports the thinking mode: before outputting the final answe
 | Thinking Effort Control(2) | `{"reasoning_effort": "low/high/max"}` | `{"output_config": {"effort": "low/high/max"}}` |
 
 (1) Thinking mode is enabled by default, with the default effort being `high`  
-(2) The mapping between the effort set by the user and the model's actual reasoning effort is as follows:
+(2) The mapping between the effort set by the user and the model's actual reasoning effort is as follows (identical for `deepseek-v4-flash` and `deepseek-v4-pro`):
 
-|  |  |  |
-| --- | --- | --- |
-| Requested effort | deepseek-v4-flash actual mapped effort | deepseek-v4-pro actual mapped effort(3) |
-| low | low | high |
-| high | high | high |
-| xhigh | high | max |
-| max | max | max |
-
-(3) We will update the actual mapped effort of deepseek-v4-pro in early August 2026
+|  |  |
+| --- | --- |
+| Requested effort | Actual mapped effort |
+| low | low |
+| medium | high |
+| high | high |
+| xhigh | high |
+| max | max |
 
 When using Chat Completion with the OpenAI SDK to set the `thinking` parameter, you need to pass the `thinking` parameter within `extra_body`:
 

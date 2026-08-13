@@ -1,7 +1,7 @@
 ---
 title: Your First API Call
 source: https://api-docs.deepseek.com/
-fetched: 2026-08-09
+fetched: 2026-08-13
 ---
 
 # Your First API Call
@@ -15,7 +15,7 @@ The DeepSeek API uses an API format compatible with OpenAI/Anthropic. By modifyi
 | api_key | apply for an [API key](https://platform.deepseek.com/api_keys) |
 | model(1) | `deepseek-v4-flash` `deepseek-v4-pro` |
 
-(1) The `deepseek-v4-flash` model has been updated to DeepSeek-V4-Flash-0731. The calling method remains unchanged — simply use `deepseek-v4-flash` to access the latest version.
+(1) The `deepseek-v4-flash` model has been updated to DeepSeek-V4-Flash-0731, and the `deepseek-v4-pro` model has been updated to DeepSeek-V4-Pro-0813. The calling method remains unchanged — simply use `deepseek-v4-flash` or `deepseek-v4-pro` to access the latest version.
 
 ## Integrate with Agent Tools
 

@@ -1,7 +1,7 @@
 ---
 title: Responses API
 source: https://api-docs.deepseek.com/api/create-response
-fetched: 2026-08-09
+fetched: 2026-08-13
 ---
 
 # Responses API
@@ -24,9 +24,9 @@ The API is **stateless**: responses and conversations are not stored on the serv
 
 **model** stringrequired
 
-**Possible values:** [`deepseek-v4-flash`]
+**Possible values:** [`deepseek-v4-flash`, `deepseek-v4-pro`]
 
-ID of the model to use. The Responses API currently only supports `deepseek-v4-flash` (`deepseek-v4-pro` is not supported yet).
+ID of the model to use.
 
 **input**
 

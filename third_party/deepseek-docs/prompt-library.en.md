@@ -1,7 +1,7 @@
 ---
 title: Prompt Library (English translation)
 source: https://api-docs.deepseek.com/prompt-library
-fetched: 2026-08-09
+fetched: 2026-08-13
 ---
 
 # Prompt Library — English translation

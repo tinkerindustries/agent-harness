@@ -1,7 +1,7 @@
 ---
 title: thinking_mode_api_example_non_streaming
 source: https://api-docs.deepseek.com/api_samples/thinking_mode_api_example_non_streaming
-fetched: 2026-08-09
+fetched: 2026-08-13
 ---
 
 # thinking_mode_api_example_non_streaming

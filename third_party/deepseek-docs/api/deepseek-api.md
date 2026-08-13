@@ -1,7 +1,7 @@
 ---
 title: DeepSeek API
 source: https://api-docs.deepseek.com/api/deepseek-api
-fetched: 2026-08-09
+fetched: 2026-08-13
 ---
 
 # DeepSeek API
