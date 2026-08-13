@@ -24,12 +24,25 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/promptvariant"
+	"github.com/mrgeoffrich/deepseek-harness/internal/provider"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/skills"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
+
+// seesImages reports whether the provider serving model reads images
+// natively — true only for Kimi K3 today (docs/KIMI-INTEGRATION.md §4.5).
+// It drives both halves of the vision split: which tool array the session
+// sends (internal/tools.DefinitionsFor) and whether Read returns an image
+// part (tools.Executor.SeeImages). An unknown model resolves to false, the
+// DeepSeek default; queue validation rejects unknown models before a session
+// exists, so nothing real can land here.
+func seesImages(model string) bool {
+	p, err := provider.ModelFor(model)
+	return err == nil && p == provider.Kimi
+}
 
 // DefaultMaxSubTurns and CompactionThresholdTokens are the built-in run
 // budget defaults when the Runner has no settings resolver attached (the
@@ -404,12 +417,13 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	executor.Client = r.clientFor(r.flashModel(ctx))
 	executor.Prices = r.Prices
 	executor.FlashModel = r.flashModel(ctx)
+	executor.SeeImages = seesImages(opts.Model)
 	executor.Gemini = r.Gemini
 	executor.GeminiModel = r.GeminiModel
 	executor.Settings = r.Settings
 	executor.ResultSchema = opts.ResultSchema
 
-	toolSchema, err := json.Marshal(tools.Definitions())
+	toolSchema, err := json.Marshal(tools.DefinitionsFor(opts.Model))
 	if err != nil {
 		return nil, fmt.Errorf("session: encode tool schema: %w", err)
 	}
