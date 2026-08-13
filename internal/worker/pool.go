@@ -17,6 +17,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
+	"github.com/mrgeoffrich/deepseek-harness/internal/kimi"
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 	"github.com/mrgeoffrich/deepseek-harness/internal/session"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
@@ -254,10 +255,11 @@ func (p *Pool) Run(ctx context.Context) error {
 }
 
 // Halt stops the pool from pulling any further work; runs already in flight
-// keep going and still publish their results normally. A 402 from DeepSeek
-// means the account balance is gone, and every other queued request would
-// hit the identical wall, so the pool stops instead of failing them one at a
-// time (docs/DESIGN.md §4.5, §4.10). Calling Halt more than once, or before
+// keep going and still publish their results normally. An empty account —
+// DeepSeek's 402, Kimi's 429 with error type exceeded_current_quota_error —
+// means the balance is gone and every other queued request would hit the
+// identical wall, so the pool stops instead of failing them one at a time
+// (docs/DESIGN.md §4.5, §4.10). Calling Halt more than once, or before
 // Run has started pulling, is safe; only the first call's reason sticks.
 func (p *Pool) Halt(reason string) {
 	if !p.halted.CompareAndSwap(false, true) {
@@ -694,20 +696,25 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, releaseSlot func()) {
 	// balance restored — the one retry this phase keeps, because the
 	// request's row still carries the session id and every later delivery
 	// goes through the spent-request path.
-	if runErr != nil && deepseek.IsInsufficientBalance(runErr) {
+	//
+	// Which error means "empty account" is provider-specific: DeepSeek
+	// answers 402, Kimi answers 429 with error type
+	// exceeded_current_quota_error (third_party/kimi-docs/api/errors.md,
+	// api/balance.md), and either halts the pool the same way.
+	if runErr != nil && (deepseek.IsInsufficientBalance(runErr) || kimi.IsInsufficientBalance(runErr)) {
 		if !rec.answer() {
 			// A stop already answered this message; there is nothing to
 			// defer to a later delivery.
 			return
 		}
-		p.Halt("account balance exhausted (402 from DeepSeek)")
+		p.Halt(fmt.Sprintf("account balance exhausted: %v", runErr))
 		log.Printf("worker: %s failed on an empty account; left unacked for retry after the pool restarts", req.RequestID)
 		// One delivery is spent per pool restart that still finds the
 		// account empty, so this waits for balance across restarts as
 		// before — but within the ceiling, and the last attempt says the
 		// account was empty instead of the request disappearing.
 		p.retryLater(msg, req.RequestID, "insufficient_balance",
-			fmt.Sprintf("the DeepSeek account had no balance on each of %d delivery attempts", p.maxDeliveryAttempts()))
+			fmt.Sprintf("the model account had no balance on each of %d delivery attempts", p.maxDeliveryAttempts()))
 		// The run is over; the registry entry goes with it, like any other
 		// message answered outside finish.
 		p.controller().remove(sessionID)

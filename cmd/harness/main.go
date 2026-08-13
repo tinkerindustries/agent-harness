@@ -20,9 +20,13 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
 	"github.com/mrgeoffrich/deepseek-harness/internal/httplog"
+	"github.com/mrgeoffrich/deepseek-harness/internal/kimi"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
+	"github.com/mrgeoffrich/deepseek-harness/internal/provider"
+	"github.com/mrgeoffrich/deepseek-harness/internal/session"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 const usage = `usage: harness <command> [flags]
@@ -162,6 +166,16 @@ func deepSeekAPIKeyProvider(res *settings.Resolver) func() (string, error) {
 	}
 }
 
+// kimiAPIKeyProvider returns the key provider the kimi client calls before
+// every request: a read of kimi.api_key through the store, made on every
+// call, so a key set while a process is running takes effect on the next
+// request without a restart.
+func kimiAPIKeyProvider(res *settings.Resolver) func() (string, error) {
+	return func() (string, error) {
+		return res.KimiAPIKey(context.Background())
+	}
+}
+
 // withHTTPLog wraps a fresh client's transport so every exchange is
 // captured by rec. A nil rec (capture off) leaves the request path
 // untouched. The client reads its API key from provider before every
@@ -173,6 +187,45 @@ func withHTTPLog(cfg config.Config, rec *httplog.Recorder, provider func() (stri
 	return deepseek.NewClient(cfg.BaseURL, "", deepseek.WithAPIKeyProvider(provider), deepseek.WithTransportWrapper(func(next http.RoundTripper) http.RoundTripper {
 		return httplog.NewTransport(next, rec)
 	}))
+}
+
+// withKimiHTTPLog mirrors withHTTPLog for the Kimi client: every exchange is
+// captured by rec, or the request path is untouched when capture is off. The
+// base URL is Moonshot's own (third_party/kimi-docs/api/overview.md); the
+// client reads its API key from provider before every request.
+func withKimiHTTPLog(cfg config.Config, rec *httplog.Recorder, provider func() (string, error)) *kimi.Client {
+	if rec == nil {
+		return kimi.NewClient(kimi.DefaultBaseURL, "", kimi.WithAPIKeyProvider(provider))
+	}
+	return kimi.NewClient(kimi.DefaultBaseURL, "", kimi.WithAPIKeyProvider(provider), kimi.WithTransportWrapper(func(next http.RoundTripper) http.RoundTripper {
+		return httplog.NewTransport(next, rec)
+	}))
+}
+
+// providerFor returns the provider that serves model. A name absent from the
+// model→provider table is an operator typo or a retired model; request
+// validation rejects it before any of these call sites run, so here the
+// DeepSeek fallback keeps the auxiliary commands and the startup logs
+// working on the default rather than failing on a stale setting
+// (internal/provider, docs/KIMI-INTEGRATION.md §4.3).
+func providerFor(model string) provider.Name {
+	p, err := provider.ModelFor(model)
+	if err != nil {
+		return provider.DeepSeek
+	}
+	return p
+}
+
+// clientForModel is the composition point the architecture names: cmd/harness
+// builds both provider clients and resolves which one a model speaks to, so
+// a shared Runner (or a CLI command) serves whichever provider the request's
+// model belongs to without the loop knowing (internal/session/client.go,
+// docs/KIMI-INTEGRATION.md §4.3).
+func clientForModel(model string, deepSeekClient *deepseek.Client, kimiClient *kimi.Client) session.Client {
+	if providerFor(model) == provider.Kimi {
+		return kimiClient
+	}
+	return deepSeekClient
 }
 
 // googleAPIKeyProvider returns the key provider the gemini client calls
@@ -209,9 +262,13 @@ func withGeminiHTTPLog(cfg config.Config, rec *httplog.Recorder, provider func()
 	}))
 }
 
+// explainError names an empty account when the error says so, whichever
+// provider reported it: DeepSeek answers 402, Kimi answers 429 with error
+// type exceeded_current_quota_error (third_party/kimi-docs/api/errors.md,
+// api/balance.md) — both mean the operator's fix is a top-up, not a retry.
 func explainError(err error) error {
-	if deepseek.IsInsufficientBalance(err) {
-		return fmt.Errorf("account balance is exhausted (HTTP 402): %w", err)
+	if deepseek.IsInsufficientBalance(err) || kimi.IsInsufficientBalance(err) {
+		return fmt.Errorf("account balance is exhausted: %w", err)
 	}
 	return err
 }
@@ -284,29 +341,34 @@ func runAsk(ctx context.Context, args []string) error {
 
 	rec := newHTTPLogRecorder(cfg)
 	defer closeHTTPLog(rec)
-	client := withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res))
+	deepSeekClient := withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res))
+	kimiClient := withKimiHTTPLog(cfg, rec, kimiAPIKeyProvider(res))
+	// ask speaks to whichever provider the resolved model belongs to, the
+	// same per-model routing the Runner uses (clientForModel).
+	client := clientForModel(resolvedModel, deepSeekClient, kimiClient)
 
-	var messages []deepseek.Message
+	var messages []wire.Message
 	if *system != "" {
-		messages = append(messages, deepseek.SystemMessage(*system))
+		messages = append(messages, wire.SystemMessage(*system))
 	}
-	messages = append(messages, deepseek.UserMessage(prompt))
+	messages = append(messages, wire.UserMessage(prompt))
 
-	thinkingType := deepseek.ThinkingDisabled
+	thinkingType := wire.ThinkingDisabled
 	if *thinking {
-		thinkingType = deepseek.ThinkingEnabled
+		thinkingType = wire.ThinkingEnabled
 	}
 
-	req := deepseek.ChatCompletionRequest{
-		Model:           resolvedModel,
-		Messages:        messages,
-		Thinking:        &deepseek.ThinkingConfig{Type: thinkingType},
-		ReasoningEffort: resolvedEffort,
-		MaxTokens:       resolvedMaxTokens,
-	}
-
+	// ask states intent and lets the client spell the provider's reasoning
+	// control, the same seam the agent loop uses (internal/session/client.go,
+	// docs/KIMI-INTEGRATION.md §4.1).
 	start := time.Now()
-	events, err := client.StreamChatCompletion(ctx, req)
+	events, err := client.StreamChatCompletion(ctx, wire.ChatIntent{
+		Model:     resolvedModel,
+		Messages:  messages,
+		Effort:    resolvedEffort,
+		Thinking:  *thinking,
+		MaxTokens: resolvedMaxTokens,
+	})
 	if err != nil {
 		return explainError(err)
 	}
@@ -314,18 +376,18 @@ func runAsk(ctx context.Context, args []string) error {
 	var reasoningOpen, contentOpen bool
 	var contentBuf strings.Builder
 	var finishReason string
-	var usage *deepseek.Usage
+	var usage *wire.Usage
 	var streamErr error
 
 	for ev := range events {
 		switch ev.Type {
-		case deepseek.EventReasoningDelta:
+		case wire.EventReasoningDelta:
 			if !reasoningOpen {
 				fmt.Println("== reasoning ==")
 				reasoningOpen = true
 			}
 			fmt.Print(ev.Reasoning)
-		case deepseek.EventContentDelta:
+		case wire.EventContentDelta:
 			if !contentOpen {
 				if reasoningOpen {
 					fmt.Println()
@@ -335,14 +397,14 @@ func runAsk(ctx context.Context, args []string) error {
 			}
 			fmt.Print(ev.Content)
 			contentBuf.WriteString(ev.Content)
-		case deepseek.EventToolCallDelta:
+		case wire.EventToolCallDelta:
 			// `ask` sends no tools, so this should never fire.
 			fmt.Printf("\n[unexpected tool call delta: index=%d name=%s]\n", ev.ToolCall.Index, ev.ToolCall.Function.Name)
-		case deepseek.EventFinish:
+		case wire.EventFinish:
 			finishReason = ev.FinishReason
-		case deepseek.EventUsage:
+		case wire.EventUsage:
 			usage = ev.Usage
-		case deepseek.EventError:
+		case wire.EventError:
 			streamErr = ev.Err
 		}
 	}
@@ -353,7 +415,7 @@ func runAsk(ctx context.Context, args []string) error {
 		return explainError(fmt.Errorf("stream: %w", streamErr))
 	}
 
-	if deepseek.IsReasoningStarved(finishReason, contentBuf.String()) {
+	if client.IsReasoningStarved(finishReason, contentBuf.String()) {
 		fmt.Fprintln(os.Stderr, "\nreasoning exhausted max_tokens before producing an answer; retry with a larger -max-tokens")
 	}
 
@@ -369,10 +431,14 @@ func runAsk(ctx context.Context, args []string) error {
 	}
 	answerTokens := usage.CompletionTokens - reasoningTokens
 
-	cost, costErr := priceTable.Cost(resolvedModel, usage.PromptCacheHitTokens, usage.PromptCacheMissTokens, usage.CompletionTokens)
+	// How usage splits into cache hit and miss is the provider's decision —
+	// DeepSeek reports the two figures, Kimi a single cached_tokens — so the
+	// split comes through the seam (internal/session/client.go).
+	cacheHit, cacheMiss := client.UsageSplit(usage)
+	cost, costErr := priceTable.Cost(resolvedModel, cacheHit, cacheMiss, usage.CompletionTokens)
 
 	fmt.Printf("model          %s (effort %s, thinking %s)\n", resolvedModel, resolvedEffort, thinkingType)
-	fmt.Printf("prompt tokens  %d (cache hit %d / cache miss %d, %s)\n", usage.PromptTokens, usage.PromptCacheHitTokens, usage.PromptCacheMissTokens, cacheHitRate(usage.PromptCacheHitTokens, usage.PromptCacheMissTokens))
+	fmt.Printf("prompt tokens  %d (cache hit %d / cache miss %d, %s)\n", usage.PromptTokens, cacheHit, cacheMiss, cacheHitRate(cacheHit, cacheMiss))
 	fmt.Printf("completion     %d (reasoning %d / answer %d)\n", usage.CompletionTokens, reasoningTokens, answerTokens)
 	if costErr == nil {
 		fmt.Printf("cost           $%.6f USD (price table captured %s)\n", cost, priceTable.CapturedAt)
@@ -401,9 +467,27 @@ func runModels(ctx context.Context, args []string) error {
 	res := settings.NewResolver(st)
 	rec := newHTTPLogRecorder(cfg)
 	defer closeHTTPLog(rec)
-	client := withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res))
+	deepSeekClient := withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res))
+	kimiClient := withKimiHTTPLog(cfg, rec, kimiAPIKeyProvider(res))
 
-	resp, err := client.ListModels(ctx)
+	// The command lists whichever provider the configured default model
+	// belongs to: a Kimi installation lists Moonshot's models, a DeepSeek
+	// one lists DeepSeek's (docs/KIMI-INTEGRATION.md §5).
+	model, err := res.String(ctx, settings.KeyDefaultModel)
+	if err != nil {
+		return err
+	}
+	if providerFor(model) == provider.Kimi {
+		resp, err := kimiClient.ListModels(ctx)
+		if err != nil {
+			return explainError(err)
+		}
+		for _, m := range resp.Data {
+			fmt.Printf("%s (owned by %s)\n", m.ID, m.OwnedBy)
+		}
+		return nil
+	}
+	resp, err := deepSeekClient.ListModels(ctx)
 	if err != nil {
 		return explainError(err)
 	}
@@ -430,9 +514,27 @@ func runBalance(ctx context.Context, args []string) error {
 	res := settings.NewResolver(st)
 	rec := newHTTPLogRecorder(cfg)
 	defer closeHTTPLog(rec)
-	client := withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res))
+	deepSeekClient := withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res))
+	kimiClient := withKimiHTTPLog(cfg, rec, kimiAPIKeyProvider(res))
 
-	resp, err := client.GetBalance(ctx)
+	// Same routing as models: the balance shown is the provider the
+	// configured default model runs on, and each provider's response shape
+	// differs (DeepSeek's is_available/balance_infos, Kimi's code/data with
+	// available/voucher/cash — third_party/kimi-docs/api/balance.md).
+	model, err := res.String(ctx, settings.KeyDefaultModel)
+	if err != nil {
+		return err
+	}
+	if providerFor(model) == provider.Kimi {
+		resp, err := kimiClient.GetBalance(ctx)
+		if err != nil {
+			return explainError(err)
+		}
+		fmt.Printf("available: $%.4f (voucher $%.4f, cash $%.4f)\n",
+			resp.Data.AvailableBalance, resp.Data.VoucherBalance, resp.Data.CashBalance)
+		return nil
+	}
+	resp, err := deepSeekClient.GetBalance(ctx)
 	if err != nil {
 		return explainError(err)
 	}

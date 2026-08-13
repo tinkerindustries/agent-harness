@@ -9,12 +9,12 @@ import (
 	"time"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/cache"
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/fold"
 	"github.com/mrgeoffrich/deepseek-harness/internal/httplog"
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // subTurnOutcome is what runSubTurn learned, folded down to what the loop
@@ -263,8 +263,8 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	// requests are billed, so dropping the first understates the run's cost
 	// by however much reasoning it burned — which, this failure mode being
 	// what it is, is the whole of an exhausted max_tokens budget.
-	var starved *deepseek.Usage
-	if deepseek.IsReasoningStarved(finishReason, content) && len(assembler.Finalize()) == 0 {
+	var starved *wire.Usage
+	if r.clientFor(sess.Model).IsReasoningStarved(finishReason, content) && len(assembler.Finalize()) == 0 {
 		starved = usage
 		reasoning, content, assembler, finishReason, usage, err = r.stream(ctx, sess.Model, messages, opts.Effort, opts.Thinking, opts.MaxTokens*2, live)
 		if err != nil {
@@ -283,7 +283,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	// what ran. The model's own bytes are still on disk in the HTTP log,
 	// which is where a question about what it actually emitted belongs.
 	for i := range toolCalls {
-		repaired, ok := deepseek.RepairArguments(finishReason, toolCalls[i].Arguments)
+		repaired, ok := r.clientFor(sess.Model).RepairArguments(finishReason, toolCalls[i].Arguments)
 		if !ok {
 			continue
 		}
@@ -431,7 +431,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 // buildUsagePayload turns one request's usage into its store event. A nil
 // detector skips the churn report, for an attempt whose prefix the next turn
 // will not build on.
-func (r *Runner) buildUsagePayload(model string, usage *deepseek.Usage, requestMessages []deepseek.Message,
+func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestMessages []wire.Message,
 	detector *cache.Detector, subTurn, attempt int) store.UsagePayload {
 
 	if usage == nil {
@@ -441,9 +441,14 @@ func (r *Runner) buildUsagePayload(model string, usage *deepseek.Usage, requestM
 	if usage.CompletionTokensDetails != nil {
 		reasoningTokens = usage.CompletionTokensDetails.ReasoningTokens
 	}
+	// How usage becomes cache-hit and cache-miss counts is the provider's
+	// decision — DeepSeek reports the two figures separately, Kimi K3 a
+	// single cached_tokens — so the split comes through the seam
+	// (client.go, docs/KIMI-INTEGRATION.md §2).
+	cacheHit, cacheMiss := r.clientFor(model).UsageSplit(usage)
 	cost := 0.0
 	if r.Prices != nil {
-		if c, err := r.Prices.Cost(model, usage.PromptCacheHitTokens, usage.PromptCacheMissTokens, usage.CompletionTokens); err == nil {
+		if c, err := r.Prices.Cost(model, cacheHit, cacheMiss, usage.CompletionTokens); err == nil {
 			cost = c
 		}
 	}
@@ -455,8 +460,8 @@ func (r *Runner) buildUsagePayload(model string, usage *deepseek.Usage, requestM
 		SubTurn:               subTurn,
 		Attempt:               attempt,
 		PromptTokens:          usage.PromptTokens,
-		PromptCacheHitTokens:  usage.PromptCacheHitTokens,
-		PromptCacheMissTokens: usage.PromptCacheMissTokens,
+		PromptCacheHitTokens:  cacheHit,
+		PromptCacheMissTokens: cacheMiss,
 		CompletionTokens:      usage.CompletionTokens,
 		ReasoningTokens:       reasoningTokens,
 		CostUSD:               cost,
@@ -466,23 +471,22 @@ func (r *Runner) buildUsagePayload(model string, usage *deepseek.Usage, requestM
 }
 
 // stream sends one request and collects the full response from the event
-// channel. Serialisation happens once inside Client.StreamChatCompletion
-// and any HTTP-level retry resends those identical bytes
-// (docs/CACHE.md); this function does not re-serialise between attempts.
-func (r *Runner) stream(ctx context.Context, model string, messages []deepseek.Message, effort string, thinking bool, maxTokens int, live *liveSink) (
-	reasoning, content string, assembler *deepseek.ToolCallAssembler, finishReason string, usage *deepseek.Usage, err error) {
+// channel. The loop states its intent — model, messages, effort, whether to
+// think, the token ceiling, the tools — and the Client implementation turns
+// that into its provider's request shape; serialisation happens once inside
+// that implementation and any HTTP-level retry resends those identical
+// bytes (docs/CACHE.md). This function does not re-serialise between
+// attempts.
+func (r *Runner) stream(ctx context.Context, model string, messages []wire.Message, effort string, thinking bool, maxTokens int, live *liveSink) (
+	reasoning, content string, assembler *wire.ToolCallAssembler, finishReason string, usage *wire.Usage, err error) {
 
-	thinkingType := deepseek.ThinkingDisabled
-	if thinking {
-		thinkingType = deepseek.ThinkingEnabled
-	}
-	req := deepseek.ChatCompletionRequest{
-		Model:           model,
-		Messages:        messages,
-		Thinking:        &deepseek.ThinkingConfig{Type: thinkingType},
-		ReasoningEffort: effort,
-		MaxTokens:       maxTokens,
-		Tools:           tools.Definitions(),
+	intent := wire.ChatIntent{
+		Model:     model,
+		Messages:  messages,
+		Effort:    effort,
+		Thinking:  thinking,
+		MaxTokens: maxTokens,
+		Tools:     tools.Definitions(),
 	}
 
 	release, err := r.acquireModelSlot(ctx, model)
@@ -491,13 +495,13 @@ func (r *Runner) stream(ctx context.Context, model string, messages []deepseek.M
 	}
 	defer release()
 
-	events, err := r.Client.StreamChatCompletion(ctx, req)
+	events, err := r.clientFor(model).StreamChatCompletion(ctx, intent)
 	if err != nil {
 		return "", "", nil, "", nil, err
 	}
 
 	var reasoningBuf, contentBuf strings.Builder
-	assembler = deepseek.NewToolCallAssembler()
+	assembler = wire.NewToolCallAssembler()
 	var streamErr error
 	// Whatever this loop accumulates is committed as one batch by the
 	// caller; the sink is what a watching browser sees in the meantime.
@@ -507,19 +511,19 @@ func (r *Runner) stream(ctx context.Context, model string, messages []deepseek.M
 	defer live.flush()
 	for ev := range events {
 		switch ev.Type {
-		case deepseek.EventReasoningDelta:
+		case wire.EventReasoningDelta:
 			reasoningBuf.WriteString(ev.Reasoning)
 			live.add(hub.ChannelReasoning, ev.Reasoning)
-		case deepseek.EventContentDelta:
+		case wire.EventContentDelta:
 			contentBuf.WriteString(ev.Content)
 			live.add(hub.ChannelContent, ev.Content)
-		case deepseek.EventToolCallDelta:
+		case wire.EventToolCallDelta:
 			assembler.Add(ev.ToolCall)
-		case deepseek.EventFinish:
+		case wire.EventFinish:
 			finishReason = ev.FinishReason
-		case deepseek.EventUsage:
+		case wire.EventUsage:
 			usage = ev.Usage
-		case deepseek.EventError:
+		case wire.EventError:
 			streamErr = ev.Err
 		}
 	}

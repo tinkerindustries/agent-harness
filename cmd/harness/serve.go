@@ -21,8 +21,10 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/evals"
 	"github.com/mrgeoffrich/deepseek-harness/internal/httpapi"
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
+	"github.com/mrgeoffrich/deepseek-harness/internal/kimi"
 	harnessmcp "github.com/mrgeoffrich/deepseek-harness/internal/mcp"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
+	"github.com/mrgeoffrich/deepseek-harness/internal/provider"
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 	"github.com/mrgeoffrich/deepseek-harness/internal/session"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
@@ -168,15 +170,29 @@ func runServe(ctx context.Context, args []string) error {
 		return fmt.Errorf("resolve %s: %w", settings.KeyDefaultFlashModel, err)
 	}
 
-	client := withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res))
-	logStartupBalance(ctx, client)
-	logStartupModels(ctx, client, defaultModel, defaultFlashModel)
+	deepSeekClient := withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res))
+	kimiClient := withKimiHTTPLog(cfg, rec, kimiAPIKeyProvider(res))
+	// The pool serves whichever model a request names, so the Runner routes
+	// by model through a resolver built here — the one place both provider
+	// clients exist (docs/KIMI-INTEGRATION.md §4.3).
+	clientFor := func(model string) session.Client {
+		return clientForModel(model, deepSeekClient, kimiClient)
+	}
+	switch providerFor(defaultModel) {
+	case provider.Kimi:
+		logStartupKimiBalance(ctx, kimiClient)
+		logStartupKimiModels(ctx, kimiClient, defaultModel)
+	default:
+		logStartupBalance(ctx, deepSeekClient)
+		logStartupModels(ctx, deepSeekClient, defaultModel, defaultFlashModel)
+	}
 
 	eventHub := hub.New()
 	runner := &session.Runner{
 		Store:       st,
 		Mirror:      store.NewMirror(cfg.DataDir),
-		Client:      client,
+		Client:      deepSeekClient,
+		ClientFor:   clientFor,
 		Recorder:    rec,
 		Prices:      priceTable,
 		Gemini:      withGeminiHTTPLog(cfg, rec, googleAPIKeyProvider(res)),
@@ -248,7 +264,7 @@ func runServe(ctx context.Context, args []string) error {
 				}
 				model = resolved
 			}
-			return &evals.Judge{Client: client, Model: model}
+			return &evals.Judge{Client: deepSeekClient, Model: model}
 		},
 	}
 
@@ -432,5 +448,47 @@ func logStartupModels(ctx context.Context, client *deepseek.Client, model, flash
 		if !live[want] {
 			log.Printf("harness serve: warning: configured model %q was not in GET /models' live list", want)
 		}
+	}
+}
+
+// logStartupKimiBalance refreshes the Kimi account balance once at startup,
+// the Kimi counterpart to logStartupBalance: the same warn-only contract,
+// against Kimi's own balance endpoint and response shape
+// (third_party/kimi-docs/api/balance.md).
+func logStartupKimiBalance(ctx context.Context, client *kimi.Client) {
+	balCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	bal, err := client.GetBalance(balCtx)
+	if err != nil {
+		log.Printf("harness serve: could not check Kimi account balance at startup: %v", err)
+		return
+	}
+	if bal.Data.AvailableBalance <= 0 {
+		log.Printf("harness serve: warning: Kimi available balance is $%.4f (<= 0); kimi-k3 work will fail with exceeded_current_quota_error until it is topped up", bal.Data.AvailableBalance)
+		return
+	}
+	log.Printf("harness serve: Kimi balance available: $%.4f (voucher $%.4f, cash $%.4f)",
+		bal.Data.AvailableBalance, bal.Data.VoucherBalance, bal.Data.CashBalance)
+}
+
+// logStartupKimiModels fetches the live Kimi model list once at startup and
+// warns if the configured model is not on it — the Kimi counterpart to
+// logStartupModels, checking only the one model that belongs to Kimi (the
+// flash model stays a DeepSeek name and is checked against DeepSeek's list
+// by logStartupModels when the default provider is DeepSeek).
+func logStartupKimiModels(ctx context.Context, client *kimi.Client, model string) {
+	modelsCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	resp, err := client.ListModels(modelsCtx)
+	if err != nil {
+		log.Printf("harness serve: could not fetch the live Kimi model list at startup: %v", err)
+		return
+	}
+	live := make(map[string]bool, len(resp.Data))
+	for _, m := range resp.Data {
+		live[m.ID] = true
+	}
+	if !live[model] {
+		log.Printf("harness serve: warning: configured model %q was not in Kimi GET /models' live list", model)
 	}
 }

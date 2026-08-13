@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // slowDeltaServer answers with reasoning and content split into chunks,
@@ -23,22 +23,22 @@ func slowDeltaServer(t *testing.T, reasoning, content []string, gap time.Duratio
 		w.Header().Set("Content-Type", "text/event-stream")
 		flusher := w.(http.Flusher)
 		for _, chunk := range reasoning {
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{Role: "assistant", ReasoningContent: strPtr(chunk)}}},
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{Role: "assistant", ReasoningContent: strPtr(chunk)}}},
 			})
 			flusher.Flush()
 			time.Sleep(gap)
 		}
 		for _, chunk := range content {
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{Content: strPtr(chunk)}}},
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{Content: strPtr(chunk)}}},
 			})
 			flusher.Flush()
 			time.Sleep(gap)
 		}
-		writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-			Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishStop)}},
-			Usage:   &deepseek.Usage{PromptTokens: 100, PromptCacheHitTokens: 50, PromptCacheMissTokens: 50, CompletionTokens: 5},
+		writeSSEChunk(t, w, wire.ChatCompletionChunk{
+			Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishStop)}},
+			Usage:   &wire.Usage{PromptTokens: 100, PromptCacheHitTokens: 50, PromptCacheMissTokens: 50, CompletionTokens: 5},
 		})
 		fmt.Fprint(w, "data: [DONE]\n\n")
 		flusher.Flush()
@@ -57,7 +57,7 @@ func TestTurnStartedIsStampedBeforeTheModelResponds(t *testing.T) {
 	r := newTestRunner(t, srv.URL)
 
 	res, err := r.Run(t.Context(), RunOptions{
-		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: t.TempDir(), PermissionMode: tools.ModeFull, Prompt: "go",
 	})
 	if err != nil {
@@ -112,7 +112,7 @@ func TestLiveStreamingLeavesTheCommittedLogIntact(t *testing.T) {
 	r.Hub = hub.New()
 
 	res, err := r.Run(t.Context(), RunOptions{
-		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: t.TempDir(), PermissionMode: tools.ModeFull, Prompt: "think out loud",
 	})
 	if err != nil {

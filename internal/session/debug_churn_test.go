@@ -9,9 +9,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // TestDebugChurnAtSubTurnIsCaughtAndNamed drives RunOptions.DebugChurnAtSubTurn
@@ -33,8 +33,8 @@ func TestDebugChurnAtSubTurnIsCaughtAndNamed(t *testing.T) {
 		n := calls.Add(1)
 
 		if !probe.Stream {
-			resp := deepseek.ChatCompletionResponse{
-				Choices: []deepseek.Choice{{Message: deepseek.Message{Role: deepseek.RoleAssistant, Content: "n/a"}, FinishReason: deepseek.FinishStop}},
+			resp := wire.ChatCompletionResponse{
+				Choices: []wire.Choice{{Message: wire.Message{Role: wire.RoleAssistant, Content: "n/a"}, FinishReason: wire.FinishStop}},
 			}
 			_ = json.NewEncoder(w).Encode(resp)
 			return
@@ -45,15 +45,15 @@ func TestDebugChurnAtSubTurnIsCaughtAndNamed(t *testing.T) {
 		case 1:
 			// Sub-turn 1: a tool call, healthy usage — nothing to compare
 			// against yet, so this one can never be reported as churn.
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []deepseek.ToolCallDelta{{Index: 0, ID: "call_0", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_0", Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}}},
 				}}},
 			})
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishToolCalls)}},
-				Usage:   &deepseek.Usage{PromptTokens: 1000, PromptCacheHitTokens: 0, PromptCacheMissTokens: 1000, CompletionTokens: 20},
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishToolCalls)}},
+				Usage:   &wire.Usage{PromptTokens: 1000, PromptCacheHitTokens: 0, PromptCacheMissTokens: 1000, CompletionTokens: 20},
 			})
 		case 2:
 			// Sub-turn 2: this is the one turn.go mutates before sending
@@ -61,23 +61,23 @@ func TestDebugChurnAtSubTurnIsCaughtAndNamed(t *testing.T) {
 			// would for a request whose common prefix collapsed: almost
 			// nothing hits, far more than the 127-token slack over what an
 			// honest append would predict.
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []deepseek.ToolCallDelta{{Index: 0, ID: "call_1", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_1", Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}}},
 				}}},
 			})
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishToolCalls)}},
-				Usage:   &deepseek.Usage{PromptTokens: 1100, PromptCacheHitTokens: 0, PromptCacheMissTokens: 1100, CompletionTokens: 20},
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishToolCalls)}},
+				Usage:   &wire.Usage{PromptTokens: 1100, PromptCacheHitTokens: 0, PromptCacheMissTokens: 1100, CompletionTokens: 20},
 			})
 		default:
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{Role: "assistant", Content: strPtr("done")}}},
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{Role: "assistant", Content: strPtr("done")}}},
 			})
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishStop)}},
-				Usage:   &deepseek.Usage{PromptTokens: 1300, PromptCacheHitTokens: 1024, PromptCacheMissTokens: 276, CompletionTokens: 5},
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishStop)}},
+				Usage:   &wire.Usage{PromptTokens: 1300, PromptCacheHitTokens: 1024, PromptCacheMissTokens: 276, CompletionTokens: 5},
 			})
 		}
 		fmt.Fprint(w, "data: [DONE]\n\n")
@@ -88,7 +88,7 @@ func TestDebugChurnAtSubTurnIsCaughtAndNamed(t *testing.T) {
 	r := newTestRunner(t, srv.URL)
 	ws := t.TempDir()
 	res, err := r.Run(t.Context(), RunOptions{
-		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "a task with several sub-turns",
 		DebugChurnAtSubTurn: 2,
 	})

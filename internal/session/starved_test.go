@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // starvedThenAnswerServer exhausts the budget on reasoning for the first
@@ -30,17 +30,17 @@ func starvedThenAnswerServer(t *testing.T) *httptest.Server {
 
 		w.Header().Set("Content-Type", "text/event-stream")
 		if n == 1 {
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{Role: "assistant"}, FinishReason: strPtr(deepseek.FinishLength)}},
-				Usage:   &deepseek.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 4000},
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{Role: "assistant"}, FinishReason: strPtr(wire.FinishLength)}},
+				Usage:   &wire.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 4000},
 			})
 		} else {
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{Role: "assistant", Content: strPtr("recovered")}}},
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{Role: "assistant", Content: strPtr("recovered")}}},
 			})
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishStop)}},
-				Usage:   &deepseek.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 7},
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishStop)}},
+				Usage:   &wire.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 7},
 			})
 		}
 		fmt.Fprint(w, "data: [DONE]\n\n")
@@ -73,7 +73,7 @@ func TestStarvedRetryRecordsBothAttempts(t *testing.T) {
 	r := newTestRunner(t, srv.URL)
 
 	res, err := r.Run(t.Context(), RunOptions{
-		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: t.TempDir(), PermissionMode: tools.ModeFull, Prompt: "think hard",
 	})
 	if err != nil {
@@ -123,12 +123,12 @@ func TestTurnFinishedCarriesElapsedMs(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(sleep)
 		w.Header().Set("Content-Type", "text/event-stream")
-		writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-			Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{Role: "assistant", Content: strPtr("done")}}},
+		writeSSEChunk(t, w, wire.ChatCompletionChunk{
+			Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{Role: "assistant", Content: strPtr("done")}}},
 		})
-		writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-			Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishStop)}},
-			Usage:   &deepseek.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
+		writeSSEChunk(t, w, wire.ChatCompletionChunk{
+			Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishStop)}},
+			Usage:   &wire.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
 		})
 		fmt.Fprint(w, "data: [DONE]\n\n")
 		w.(http.Flusher).Flush()
@@ -137,7 +137,7 @@ func TestTurnFinishedCarriesElapsedMs(t *testing.T) {
 	r := newTestRunner(t, srv.URL)
 
 	res, err := r.Run(t.Context(), RunOptions{
-		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: t.TempDir(), PermissionMode: tools.ModeFull, Prompt: "say something",
 	})
 	if err != nil {
@@ -163,17 +163,17 @@ func TestTurnFinishedElapsedCoversBothStarvedAttempts(t *testing.T) {
 
 		w.Header().Set("Content-Type", "text/event-stream")
 		if n == 1 {
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{Role: "assistant"}, FinishReason: strPtr(deepseek.FinishLength)}},
-				Usage:   &deepseek.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 4000},
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{Role: "assistant"}, FinishReason: strPtr(wire.FinishLength)}},
+				Usage:   &wire.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 4000},
 			})
 		} else {
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{Role: "assistant", Content: strPtr("recovered")}}},
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{Role: "assistant", Content: strPtr("recovered")}}},
 			})
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishStop)}},
-				Usage:   &deepseek.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 7},
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishStop)}},
+				Usage:   &wire.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 7},
 			})
 		}
 		fmt.Fprint(w, "data: [DONE]\n\n")
@@ -183,7 +183,7 @@ func TestTurnFinishedElapsedCoversBothStarvedAttempts(t *testing.T) {
 	r := newTestRunner(t, srv.URL)
 
 	res, err := r.Run(t.Context(), RunOptions{
-		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: t.TempDir(), PermissionMode: tools.ModeFull, Prompt: "think hard",
 	})
 	if err != nil {
@@ -223,7 +223,7 @@ func TestTurnScopedEventsCarryTheirSubTurn(t *testing.T) {
 	r := newTestRunner(t, srv.URL)
 
 	res, err := r.Run(t.Context(), RunOptions{
-		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: t.TempDir(), PermissionMode: tools.ModeFull, Prompt: "run it",
 	})
 	if err != nil {
@@ -280,7 +280,7 @@ func TestStarvedRetryCostReachesTheSessionSummary(t *testing.T) {
 	r := newTestRunner(t, srv.URL)
 
 	res, err := r.Run(t.Context(), RunOptions{
-		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: t.TempDir(), PermissionMode: tools.ModeFull, Prompt: "think hard",
 	})
 	if err != nil {

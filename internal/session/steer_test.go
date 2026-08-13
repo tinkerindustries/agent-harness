@@ -13,6 +13,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // runSteerScenario drives a two-sub-turn run — sub-turn 1 makes a TaskList
@@ -22,10 +23,10 @@ import (
 // (docs/RUN-CONTROL.md "How the loop picks one up"). It returns the messages
 // arrays of the two requests the fake API received, in order, for the prefix
 // and ordering assertions.
-func runSteerScenario(t *testing.T, sessionID string, steers []store.SteerMessagePayload) [][]deepseek.Message {
+func runSteerScenario(t *testing.T, sessionID string, steers []store.SteerMessagePayload) [][]wire.Message {
 	t.Helper()
 	var mu sync.Mutex
-	var requests [][]deepseek.Message
+	var requests [][]wire.Message
 
 	dir := t.TempDir()
 	st, err := store.Open(filepath.Join(dir, "harness.db"))
@@ -36,7 +37,7 @@ func runSteerScenario(t *testing.T, sessionID string, steers []store.SteerMessag
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		var req deepseek.ChatCompletionRequest
+		var req wire.ChatCompletionRequest
 		if err := json.Unmarshal(body, &req); err != nil {
 			t.Errorf("decode request: %v", err)
 		}
@@ -56,23 +57,23 @@ func runSteerScenario(t *testing.T, sessionID string, steers []store.SteerMessag
 			if _, err := st.AppendEvents(r.Context(), sessionID, inputs); err != nil {
 				t.Errorf("append steer: %v", err)
 			}
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []deepseek.ToolCallDelta{{Index: 0, ID: "call_steer_0", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_steer_0", Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}}},
 				}}},
 			})
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishToolCalls)}},
-				Usage:   &deepseek.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishToolCalls)}},
+				Usage:   &wire.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
 			})
 		} else {
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{Role: "assistant", Content: strPtr("all done")}}},
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{Role: "assistant", Content: strPtr("all done")}}},
 			})
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishStop)}},
-				Usage:   &deepseek.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishStop)}},
+				Usage:   &wire.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
 			})
 		}
 		fmt.Fprint(w, "data: [DONE]\n\n")
@@ -88,7 +89,7 @@ func runSteerScenario(t *testing.T, sessionID string, steers []store.SteerMessag
 		FlashModel: "test-model",
 	}
 	res, err := r.Run(t.Context(), RunOptions{
-		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: t.TempDir(), PermissionMode: tools.ModeFull, Prompt: "do the task",
 		SessionID: sessionID,
 	})
@@ -106,7 +107,7 @@ func runSteerScenario(t *testing.T, sessionID string, steers []store.SteerMessag
 
 // requireMessageJSON marshals m the way the wire serialises it, so two
 // messages are "byte-identical" exactly when they would serialise the same.
-func requireMessageJSON(t *testing.T, m deepseek.Message) string {
+func requireMessageJSON(t *testing.T, m wire.Message) string {
 	t.Helper()
 	raw, err := json.Marshal(m)
 	if err != nil {
@@ -131,7 +132,7 @@ func TestSteerAppearsAsNextUserMessage(t *testing.T) {
 
 	// The steer is the new request's final message, verbatim, as a user role.
 	last := requests[1][len(requests[1])-1]
-	if last.Role != deepseek.RoleUser || last.Content != "be terse now" {
+	if last.Role != wire.RoleUser || last.Content != "be terse now" {
 		t.Fatalf("final message = %+v, want user \"be terse now\" verbatim", last)
 	}
 
@@ -149,11 +150,11 @@ func TestSteerAppearsAsNextUserMessage(t *testing.T) {
 	// The tool round the steer arrived during is intact: assistant with tool
 	// calls, then the tool result, then the steer at the tail.
 	mid := requests[1][len(requests[1])-2]
-	if mid.Role != deepseek.RoleTool || mid.ToolCallID != "call_steer_0" {
+	if mid.Role != wire.RoleTool || mid.ToolCallID != "call_steer_0" {
 		t.Fatalf("message before the steer = %+v, want the tool result of the round", mid)
 	}
 	assistant := requests[1][len(requests[1])-3]
-	if assistant.Role != deepseek.RoleAssistant || len(assistant.ToolCalls) != 1 || assistant.ToolCalls[0].ID != "call_steer_0" {
+	if assistant.Role != wire.RoleAssistant || len(assistant.ToolCalls) != 1 || assistant.ToolCalls[0].ID != "call_steer_0" {
 		t.Fatalf("message before the tool result = %+v, want the assistant's tool call", assistant)
 	}
 }
@@ -173,7 +174,7 @@ func TestTwoSteersArriveInOrder(t *testing.T) {
 	tail := requests[1][len(requests[1])-2:]
 	for i, want := range []string{"first instruction", "second instruction"} {
 		m := tail[i]
-		if m.Role != deepseek.RoleUser || m.Content != want {
+		if m.Role != wire.RoleUser || m.Content != want {
 			t.Fatalf("tail message %d = %+v, want user %q in send order", i, m, want)
 		}
 	}
@@ -182,13 +183,13 @@ func TestTwoSteersArriveInOrder(t *testing.T) {
 // recordingPlainAnswerServer answers every stream request with a plain
 // answer that ends the run, recording each request's messages array. It is
 // the fake API the resume steer test runs the resumed session against.
-func recordingPlainAnswerServer(t *testing.T, answer string) (*httptest.Server, func() [][]deepseek.Message) {
+func recordingPlainAnswerServer(t *testing.T, answer string) (*httptest.Server, func() [][]wire.Message) {
 	t.Helper()
 	var mu sync.Mutex
-	var requests [][]deepseek.Message
+	var requests [][]wire.Message
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
-		var req deepseek.ChatCompletionRequest
+		var req wire.ChatCompletionRequest
 		if err := json.Unmarshal(body, &req); err != nil {
 			t.Errorf("decode request: %v", err)
 		}
@@ -197,17 +198,17 @@ func recordingPlainAnswerServer(t *testing.T, answer string) (*httptest.Server, 
 		mu.Unlock()
 
 		w.Header().Set("Content-Type", "text/event-stream")
-		writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-			Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{Role: "assistant", Content: strPtr(answer)}}},
+		writeSSEChunk(t, w, wire.ChatCompletionChunk{
+			Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{Role: "assistant", Content: strPtr(answer)}}},
 		})
-		writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-			Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishStop)}},
-			Usage:   &deepseek.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
+		writeSSEChunk(t, w, wire.ChatCompletionChunk{
+			Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishStop)}},
+			Usage:   &wire.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
 		})
 		fmt.Fprint(w, "data: [DONE]\n\n")
 		w.(http.Flusher).Flush()
 	}))
-	return srv, func() [][]deepseek.Message {
+	return srv, func() [][]wire.Message {
 		mu.Lock()
 		defer mu.Unlock()
 		return requests
@@ -238,7 +239,7 @@ func TestSteerHighWaterSurvivesResume(t *testing.T) {
 	}
 	ws := t.TempDir()
 	first, err := r1.Run(t.Context(), RunOptions{
-		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "start a task",
 	})
 	if err != nil {
@@ -293,7 +294,7 @@ func TestSteerHighWaterSurvivesResume(t *testing.T) {
 		t.Fatalf("resumed request has %d messages, want the fold tail to end with the unapplied steer", n)
 	}
 	last := messages[len(messages)-1]
-	if last.Role != deepseek.RoleUser || last.Content != "only this one is new" {
+	if last.Role != wire.RoleUser || last.Content != "only this one is new" {
 		t.Fatalf("final message = %+v, want the unapplied steer verbatim", last)
 	}
 	for _, tc := range []struct {
@@ -305,7 +306,7 @@ func TestSteerHighWaterSurvivesResume(t *testing.T) {
 	} {
 		got := 0
 		for _, m := range messages {
-			if m.Role == deepseek.RoleUser && m.Content == tc.text {
+			if m.Role == wire.RoleUser && m.Content == tc.text {
 				got++
 			}
 		}

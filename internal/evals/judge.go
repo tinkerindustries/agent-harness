@@ -8,6 +8,7 @@ import (
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // The judge scores what the mechanical metrics cannot: whether the run
@@ -55,7 +56,7 @@ Reply with a JSON object and nothing else:
 // content rather than a worse verdict. It is a ceiling, not a reservation: a
 // request is billed for what it generates.
 //
-// Every request sends max_tokens explicitly (internal/deepseek/types_test.go),
+// Every request sends max_tokens explicitly (internal/wire/types_test.go),
 // so this is a number rather than an omission.
 const JudgeMaxTokens = 384 * 1024
 
@@ -80,16 +81,16 @@ func (j Judge) Score(ctx context.Context, rubric string, events []store.Event) (
 	if maxTokens <= 0 {
 		maxTokens = JudgeMaxTokens
 	}
-	resp, err := j.Client.CreateChatCompletion(ctx, deepseek.ChatCompletionRequest{
+	resp, err := j.Client.CreateChatCompletion(ctx, wire.ChatIntent{
 		Model: j.Model,
 		// Thinking mode is on. Scoring a transcript against a rubric is a
 		// judgement, and the reasoning is where it is made; the earlier
 		// failure was a 1024-token budget that reasoning exhausted before any
 		// content, not thinking itself.
-		Thinking:  &deepseek.ThinkingConfig{Type: deepseek.ThinkingEnabled},
+		Thinking:  true,
 		MaxTokens: maxTokens,
-		Messages: []deepseek.Message{
-			deepseek.SystemMessage(judgeSystemPrompt),
+		Messages: []wire.Message{
+			wire.SystemMessage(judgeSystemPrompt),
 			{Role: "user", Content: "Rubric:\n" + rubric + "\n\nTranscript:\n" + transcript},
 		},
 	})

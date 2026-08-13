@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // startedPayloadOf runs one session against srvURL in ws and returns the
@@ -18,7 +18,7 @@ func startedPayloadOf(t *testing.T, srvURL, ws string) store.SessionStartedPaylo
 	t.Helper()
 	r := newTestRunner(t, srvURL)
 	res, err := r.Run(t.Context(), RunOptions{
-		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "say something",
 	})
 	if err != nil {

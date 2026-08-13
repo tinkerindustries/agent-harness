@@ -17,6 +17,7 @@ import (
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/promptvariant"
+	"github.com/mrgeoffrich/deepseek-harness/internal/provider"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 )
 
@@ -153,6 +154,17 @@ func (r Request) Validate() error {
 	}
 	if !tools.Mode(r.PermissionMode).Valid() {
 		return fmt.Errorf("queue: permission_mode %q must be readonly or full", r.PermissionMode)
+	}
+
+	// A named model must be in the model→provider table: an unknown model
+	// fails loudly at validation rather than reaching the provider and
+	// failing there, and rather than silently defaulting to a provider
+	// (internal/provider, docs/KIMI-INTEGRATION.md §4.3). Empty means "the
+	// default model" and is resolved by the worker.
+	if r.Model != "" {
+		if _, err := provider.ModelFor(r.Model); err != nil {
+			return fmt.Errorf("queue: %w", err)
+		}
 	}
 
 	if len(r.ResultSchema) > 0 && !isWellFormedSchema(r.ResultSchema) {

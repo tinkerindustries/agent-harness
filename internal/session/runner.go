@@ -1,6 +1,9 @@
-// Package session implements the agent loop: sub-turn iteration against
-// DeepSeek, tool execution, and the session-runner interface that holds no
-// state outside the session it is running (docs/DESIGN.md §4.5).
+// Package session implements the agent loop: sub-turn iteration against a
+// model provider's API through the narrow Client seam, tool execution, and
+// the session-runner interface that holds no state outside the session it is
+// running (docs/DESIGN.md §4.5). The loop states intent (wire.ChatIntent)
+// and never names a provider; cmd/harness chooses which provider's client
+// the Runner gets (docs/KIMI-INTEGRATION.md §4.1).
 package session
 
 import (
@@ -16,7 +19,6 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/cache"
 	"github.com/mrgeoffrich/deepseek-harness/internal/claudemd"
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
 	"github.com/mrgeoffrich/deepseek-harness/internal/httplog"
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
@@ -26,6 +28,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/skills"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // DefaultMaxSubTurns and CompactionThresholdTokens are the built-in run
@@ -170,9 +173,27 @@ type SubTurnProgress struct {
 // That is what lets the worker pool wrap this type without changing it
 // (docs/DESIGN.md §4.5).
 type Runner struct {
-	Store      *store.Store
-	Mirror     *store.Mirror
-	Client     *deepseek.Client
+	Store  *store.Store
+	Mirror *store.Mirror
+	// Client is the provider seam the loop speaks through: it states intent
+	// (wire.ChatIntent) and the implementation — *deepseek.Client today,
+	// *kimi.Client next — turns that into its provider's request shape, maps
+	// usage onto cache hit and miss, and repairs its own response quirks.
+	// Declared in this package, implemented in the provider packages, chosen
+	// by cmd/harness when the Runner is built (client.go,
+	// docs/KIMI-INTEGRATION.md §4.1).
+	Client Client
+
+	// ClientFor, when set, resolves the provider client for a model name.
+	// The pool serves mixed-model requests from one shared Runner, so the
+	// loop routes every request by the model it is about to speak to —
+	// deepseek-v4-* to the DeepSeek client, kimi-k3 to the Kimi client —
+	// rather than the Runner being pinned to one provider at construction.
+	// The closure is built in cmd/harness, where the provider clients live;
+	// nil falls back to Client for every model, which is the CLI and test
+	// path (docs/KIMI-INTEGRATION.md §4.3).
+	ClientFor func(model string) Client
+
 	Prices     *pricing.Table
 	FlashModel string
 
@@ -224,6 +245,21 @@ type Runner struct {
 
 	semsMu sync.Mutex
 	sems   map[string]chan struct{}
+}
+
+// clientFor returns the provider client a request to model should use:
+// ClientFor's answer when a resolver is set, otherwise the Runner's single
+// Client. Every request path in the loop resolves through here, so the same
+// Runner can serve deepseek-v4-* and kimi-k3 requests from the pool without
+// either provider's dialect leaking into the loop
+// (docs/KIMI-INTEGRATION.md §4.3).
+func (r *Runner) clientFor(model string) Client {
+	if r.ClientFor != nil {
+		if c := r.ClientFor(model); c != nil {
+			return c
+		}
+	}
+	return r.Client
 }
 
 // acquireModelSlot blocks until a concurrent-request slot for model is
@@ -323,7 +359,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	executor.Client = r.Client
+	executor.Client = r.clientFor(r.flashModel(ctx))
 	executor.Prices = r.Prices
 	executor.FlashModel = r.flashModel(ctx)
 	executor.Gemini = r.Gemini
@@ -532,7 +568,7 @@ func (r *Runner) subagentRunner(parentID string, parentOpts RunOptions, workspac
 		// owner was a person.
 		res, err := r.Run(ctx, RunOptions{
 			Model:           r.flashModel(ctx),
-			Effort:          deepseek.EffortMax,
+			Effort:          wire.EffortMax,
 			Thinking:        true,
 			MaxTokens:       20000,
 			Workspace:       workspace,
@@ -777,15 +813,15 @@ func (r *Runner) fail(ctx context.Context, sess store.Session, allEvents []store
 // wired through its context so the browser can show output as it happens
 // instead of only on completion (docs/DESIGN.md §5.2); every other tool
 // runs exactly as before.
-func (r *Runner) executeToolCalls(ctx context.Context, sess store.Session, executor *tools.Executor, calls []deepseek.AssembledToolCall) []tools.Outcome {
+func (r *Runner) executeToolCalls(ctx context.Context, sess store.Session, executor *tools.Executor, calls []wire.AssembledToolCall) []tools.Outcome {
 	outcomes := make([]tools.Outcome, len(calls))
 	var wg sync.WaitGroup
 	for i, c := range calls {
 		if isTaskFamily(c.Name) {
-			call := deepseek.ToolCall{
+			call := wire.ToolCall{
 				ID:   c.ID,
 				Type: "function",
-				Function: deepseek.ToolCallFunc{
+				Function: wire.ToolCallFunc{
 					Name:      c.Name,
 					Arguments: c.Arguments,
 				},
@@ -794,12 +830,12 @@ func (r *Runner) executeToolCalls(ctx context.Context, sess store.Session, execu
 			continue
 		}
 		wg.Add(1)
-		go func(i int, c deepseek.AssembledToolCall) {
+		go func(i int, c wire.AssembledToolCall) {
 			defer wg.Done()
-			call := deepseek.ToolCall{
+			call := wire.ToolCall{
 				ID:   c.ID,
 				Type: "function",
-				Function: deepseek.ToolCallFunc{
+				Function: wire.ToolCallFunc{
 					Name:      c.Name,
 					Arguments: c.Arguments,
 				},
@@ -838,7 +874,7 @@ func isTaskFamily(name string) bool {
 // TaskCreate and TaskUpdate themselves are not rolled into the recent
 // calls: the plan panel already says what they said. TaskGet and TaskList
 // are non-mutating reads, so they roll like any other tool.
-func (r *Runner) persistLiveState(ctx context.Context, sess store.Session, calls []deepseek.AssembledToolCall) {
+func (r *Runner) persistLiveState(ctx context.Context, sess store.Session, calls []wire.AssembledToolCall) {
 	var recent []store.RecentToolCall
 	for _, c := range calls {
 		if c.Name == "TaskCreate" || c.Name == "TaskUpdate" {
@@ -867,7 +903,7 @@ func (r *Runner) persistLiveState(ctx context.Context, sess store.Session, calls
 // execution, the only source of truth for minted ids and applied patches;
 // UpdateSessionLiveState is called with a nil calls argument so this write
 // touches the plan column only.
-func (r *Runner) persistTaskState(ctx context.Context, sess store.Session, executor *tools.Executor, calls []deepseek.AssembledToolCall) {
+func (r *Runner) persistTaskState(ctx context.Context, sess store.Session, executor *tools.Executor, calls []wire.AssembledToolCall) {
 	mutates := false
 	for _, c := range calls {
 		if c.Name == "TaskCreate" || c.Name == "TaskUpdate" {
@@ -938,7 +974,7 @@ func (r *Runner) stdoutSink(ctx context.Context, sess store.Session, toolCallID 
 	}
 }
 
-func toolCallNames(calls []deepseek.AssembledToolCall) []string {
+func toolCallNames(calls []wire.AssembledToolCall) []string {
 	out := make([]string, len(calls))
 	for i, c := range calls {
 		out[i] = c.Name

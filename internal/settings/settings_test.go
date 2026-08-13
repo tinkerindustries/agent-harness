@@ -97,7 +97,7 @@ func TestResolverRejectsUnknownKeys(t *testing.T) {
 			t.Fatalf("error = %v, want UnknownKeyError", err)
 		}
 		msg := ue.Error()
-		for _, want := range []string{`unknown setting "deepsek.api_key"`, "valid settings: deepseek.api_key, google.api_key", "worker.pool_size"} {
+		for _, want := range []string{`unknown setting "deepsek.api_key"`, "valid settings: deepseek.api_key, kimi.api_key, google.api_key", "worker.pool_size"} {
 			if !strings.Contains(msg, want) {
 				t.Errorf("error text %q does not contain %q", msg, want)
 			}
@@ -142,6 +142,9 @@ func TestIsSecretKey(t *testing.T) {
 	if !IsSecretKey(KeyDeepSeekAPIKey) {
 		t.Error("deepseek.api_key must be treated as a secret")
 	}
+	if !IsSecretKey(KeyKimiAPIKey) {
+		t.Error("kimi.api_key must be treated as a secret")
+	}
 	if !IsSecretKey(KeyGoogleAPIKey) {
 		t.Error("google.api_key must be treated as a secret")
 	}
@@ -152,6 +155,27 @@ func TestIsSecretKey(t *testing.T) {
 		if IsSecretKey(key) {
 			t.Errorf("%s is not a credential and must not be masked", key)
 		}
+	}
+}
+
+// TestKimiAPIKey pins the phase-5 resolver method: KimiAPIKey reads the
+// stored key and returns "" when unset — the exact shape the kimi client's
+// per-request key provider needs.
+func TestKimiAPIKey(t *testing.T) {
+	r := NewResolver(&fakeStore{values: map[string]string{}})
+	ctx := context.Background()
+
+	key, err := r.KimiAPIKey(ctx)
+	if err != nil || key != "" {
+		t.Fatalf("KimiAPIKey on empty store = %q err=%v, want \"\" nil", key, err)
+	}
+
+	if err := r.Set(ctx, KeyKimiAPIKey, "sk-kimi-abc"); err != nil {
+		t.Fatalf("Set kimi.api_key: %v", err)
+	}
+	key, err = r.KimiAPIKey(ctx)
+	if err != nil || key != "sk-kimi-abc" {
+		t.Fatalf("KimiAPIKey = %q err=%v, want sk-kimi-abc nil", key, err)
 	}
 }
 

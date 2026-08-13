@@ -61,7 +61,7 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 	if err != nil {
 		return nil, err
 	}
-	executor.Client = r.Client
+	executor.Client = r.clientFor(r.flashModel(ctx))
 	executor.Prices = r.Prices
 	executor.FlashModel = r.flashModel(ctx)
 	executor.Gemini = r.Gemini

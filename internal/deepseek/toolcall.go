@@ -3,77 +3,16 @@ package deepseek
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
-
-// ToolCallAssembler reconstructs complete tool calls from streamed deltas.
-// Deltas are keyed by index; id, type, and name arrive once on the opening
-// frame for that index, and arguments arrive as fragments that must be
-// concatenated in arrival order, mid-token and mid-string
-// (docs/OBSERVED.md).
-type ToolCallAssembler struct {
-	order []int
-	calls map[int]*assembledCall
-}
-
-type assembledCall struct {
-	id, typ, name string
-	arguments     []byte
-}
-
-// AssembledToolCall is a tool call with its arguments fully concatenated.
-// Arguments is the raw text the model produced; it is not guaranteed to be
-// valid JSON and must be validated before use.
-type AssembledToolCall struct {
-	ID        string
-	Type      string
-	Name      string
-	Arguments string
-}
-
-// NewToolCallAssembler returns an empty assembler.
-func NewToolCallAssembler() *ToolCallAssembler {
-	return &ToolCallAssembler{calls: make(map[int]*assembledCall)}
-}
-
-// Add folds one streamed delta into the assembler.
-func (a *ToolCallAssembler) Add(d ToolCallDelta) {
-	c, ok := a.calls[d.Index]
-	if !ok {
-		c = &assembledCall{}
-		a.calls[d.Index] = c
-		a.order = append(a.order, d.Index)
-	}
-	if d.ID != "" {
-		c.id = d.ID
-	}
-	if d.Type != "" {
-		c.typ = d.Type
-	}
-	if d.Function.Name != "" {
-		c.name = d.Function.Name
-	}
-	c.arguments = append(c.arguments, d.Function.Arguments...)
-}
-
-// Finalize returns the assembled calls in the order their index first
-// appeared.
-func (a *ToolCallAssembler) Finalize() []AssembledToolCall {
-	out := make([]AssembledToolCall, 0, len(a.order))
-	for _, idx := range a.order {
-		c := a.calls[idx]
-		out = append(out, AssembledToolCall{
-			ID:        c.id,
-			Type:      c.typ,
-			Name:      c.name,
-			Arguments: string(c.arguments),
-		})
-	}
-	return out
-}
 
 // RepairArguments corrects a single misplaced brace in assembled tool-call
 // arguments. It returns the repaired text and true when it changed
 // something, and args unchanged and false otherwise (docs/OBSERVED.md).
+// It is DeepSeek's quirk — how the loop applies it lives behind the session
+// seam, and Kimi's implementation is free to do nothing
+// (docs/KIMI-INTEGRATION.md §4.1).
 //
 // Two shapes are repaired, both unambiguous — there is exactly one object
 // the bytes can have meant:
@@ -105,8 +44,8 @@ func (a *ToolCallAssembler) Finalize() []AssembledToolCall {
 // by name and property. Anything not repaired here is left for the
 // executor to reject, which is the behaviour this supplements and remains
 // the fallback.
-func RepairArguments(finishReason, args string) (string, bool) {
-	if finishReason != FinishToolCalls {
+func (c *Client) RepairArguments(finishReason, args string) (string, bool) {
+	if finishReason != wire.FinishToolCalls {
 		return args, false
 	}
 	s := strings.TrimSpace(args)

@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // runTool drives one tool call the way the executor does — through
@@ -20,10 +20,10 @@ func runTool(t *testing.T, e *Executor, name string, args any) Result {
 	if err != nil {
 		t.Fatal(err)
 	}
-	outcome := e.Execute(t.Context(), deepseek.ToolCall{
+	outcome := e.Execute(t.Context(), wire.ToolCall{
 		ID:   "call_test",
 		Type: "function",
-		Function: deepseek.ToolCallFunc{
+		Function: wire.ToolCallFunc{
 			Name:      name,
 			Arguments: string(raw),
 		},

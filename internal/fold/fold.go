@@ -15,24 +15,24 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // Fold reconstructs the messages array for sess from events: the frozen
 // system prompt, the opening user message, and every completed sub-turn.
 // Events past an incomplete sub-turn (deltas seen but no turn_finished yet)
 // contribute nothing, which is what keeps the fold append-only.
-func Fold(sess store.Session, events []store.Event) ([]deepseek.Message, error) {
-	messages := []deepseek.Message{deepseek.SystemMessage(sess.SystemPrompt)}
+func Fold(sess store.Session, events []store.Event) ([]wire.Message, error) {
+	messages := []wire.Message{wire.SystemMessage(sess.SystemPrompt)}
 
 	var reasoning, content strings.Builder
-	var toolCalls []deepseek.ToolCall
+	var toolCalls []wire.ToolCall
 	inTurn := false
 
 	flushAssistant := func() {
-		msg := deepseek.Message{
-			Role:      deepseek.RoleAssistant,
+		msg := wire.Message{
+			Role:      wire.RoleAssistant,
 			Content:   content.String(),
 			ToolCalls: toolCalls,
 		}
@@ -54,7 +54,7 @@ func Fold(sess store.Session, events []store.Event) ([]deepseek.Message, error) 
 			if err := json.Unmarshal(e.Payload, &p); err != nil {
 				return nil, fmt.Errorf("fold: session_started at seq %d: %w", e.Seq, err)
 			}
-			messages = append(messages, deepseek.UserMessage(p.OpeningMessage))
+			messages = append(messages, wire.UserMessage(p.OpeningMessage))
 
 		case store.KindTurnStarted:
 			inTurn = true
@@ -78,10 +78,10 @@ func Fold(sess store.Session, events []store.Event) ([]deepseek.Message, error) 
 			if err := json.Unmarshal(e.Payload, &p); err != nil {
 				return nil, fmt.Errorf("fold: tool_call at seq %d: %w", e.Seq, err)
 			}
-			toolCalls = append(toolCalls, deepseek.ToolCall{
+			toolCalls = append(toolCalls, wire.ToolCall{
 				ID:   p.ID,
 				Type: "function",
-				Function: deepseek.ToolCallFunc{
+				Function: wire.ToolCallFunc{
 					Name:      p.Name,
 					Arguments: p.Arguments,
 				},
@@ -97,8 +97,8 @@ func Fold(sess store.Session, events []store.Event) ([]deepseek.Message, error) 
 			if err := json.Unmarshal(e.Payload, &p); err != nil {
 				return nil, fmt.Errorf("fold: tool_result at seq %d: %w", e.Seq, err)
 			}
-			messages = append(messages, deepseek.Message{
-				Role:       deepseek.RoleTool,
+			messages = append(messages, wire.Message{
+				Role:       wire.RoleTool,
 				Content:    p.Content,
 				ToolCallID: p.ToolCallID,
 			})
@@ -108,8 +108,8 @@ func Fold(sess store.Session, events []store.Event) ([]deepseek.Message, error) 
 			if err := json.Unmarshal(e.Payload, &p); err != nil {
 				return nil, fmt.Errorf("fold: tool_denied at seq %d: %w", e.Seq, err)
 			}
-			messages = append(messages, deepseek.Message{
-				Role:       deepseek.RoleTool,
+			messages = append(messages, wire.Message{
+				Role:       wire.RoleTool,
 				Content:    p.Content,
 				ToolCallID: p.ToolCallID,
 			})
@@ -119,10 +119,10 @@ func Fold(sess store.Session, events []store.Event) ([]deepseek.Message, error) 
 			if err := json.Unmarshal(e.Payload, &p); err != nil {
 				return nil, fmt.Errorf("fold: steer_applied at seq %d: %w", e.Seq, err)
 			}
-			if p.Role == deepseek.RoleSystem {
-				messages = append(messages, deepseek.SystemMessage(p.Text))
+			if p.Role == wire.RoleSystem {
+				messages = append(messages, wire.SystemMessage(p.Text))
 			} else {
-				messages = append(messages, deepseek.UserMessage(p.Text))
+				messages = append(messages, wire.UserMessage(p.Text))
 			}
 
 		case store.KindToolStdout, store.KindUsage, store.KindRunFinished, store.KindError, store.KindSteerMessage:
