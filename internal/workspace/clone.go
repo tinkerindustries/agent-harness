@@ -33,8 +33,10 @@ type Attachment struct {
 // Attachments — images the request carried, e.g. a mockup the task asks the
 // agent to match — are materialised into scratch/attachments/ so the model
 // finds them next to the clones, named in the opening message
-// (internal/session/prompt.go). The name is written as-is: the producers
-// already rejected a name that is not a plain file name.
+// (internal/session/prompt.go). A name that is not a plain file name — one
+// containing a separator or ".." — is rejected here, so an attachment can
+// never escape the attachments directory; the producers enforce the same
+// rule first, and this is the second line of defence.
 //
 // A partly built workspace is left on disk when a clone fails. The run is
 // over at that point and the directory is the only record of how far it got.
