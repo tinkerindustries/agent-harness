@@ -22,9 +22,9 @@ export const STATUS_MARK: Record<Todo["status"], string> = {
 export function PlanList({ todos }: { todos: Todo[] }) {
   // .anim-mark-done fires on the item whose status changed, and on no other:
   // the previous statuses are compared by index, so one item completing does
-  // not pop the whole plan. The set clears after the 220ms gesture (260ms, the
-  // same margin Ticker holds its outgoing value for) so a later completion in
-  // the same list animates again.
+  // not pop the whole plan. The set clears after the 220ms gesture (260ms, a
+  // margin past the end of it — the same shape as the hold Ticker keeps on its
+  // own, longer roll) so a later completion in the same list animates again.
   const prevStatuses = useRef<Todo["status"][]>(todos.map((t) => t.status));
   const [justDone, setJustDone] = useState<ReadonlySet<number>>(() => new Set());
 
