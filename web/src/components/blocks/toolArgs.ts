@@ -20,6 +20,24 @@ function str(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
 
+// Every path a session touches lives under its own workspace root
+// (/workspaces/<session id>/), so an absolute path spends its first fifty
+// characters saying what the Session panel already says — the same prefix on
+// every row of a 34-sub-turn run, pushing the part that differs off the end
+// of the line. trimWorkspace drops it, leaving the path as the model would
+// have written it in the repo. Display only: the tool row's expanded body
+// and the arguments the run actually made are untouched, and a path outside
+// a workspace (an absolute path elsewhere on the box) is left alone, because
+// there the leading slash is the fact.
+const WORKSPACE_ROOT = /^\/workspaces\/[^/]+(\/|$)/;
+
+export function trimWorkspace(path: string): string {
+  if (!WORKSPACE_ROOT.test(path)) return path;
+  const rest = path.replace(WORKSPACE_ROOT, "");
+  // The workspace root itself, named rather than left as an empty string.
+  return rest === "" ? "workspace root" : rest;
+}
+
 // toolDetail is the one-line descriptor shown next to a tool's name in its
 // block label — the same idea as internal/tools/descriptor.go's
 // descriptorFor, kept independent since the browser only needs it for
@@ -29,13 +47,15 @@ export function toolDetail(call: ToolCallPayload | undefined): string {
   const args = parseToolArgs(call);
   switch (call.name) {
     case "Bash":
+      // A command is a literal the operator may want to run themselves, so it
+      // keeps its absolute paths.
       return str(args.command);
     case "Read":
     case "Write":
     case "List":
-      return str(args.file_path) || str(args.path);
+      return trimWorkspace(str(args.file_path) || str(args.path));
     case "Edit":
-      return str(args.file_path);
+      return trimWorkspace(str(args.file_path));
     case "Glob":
     case "Grep":
       return str(args.pattern);

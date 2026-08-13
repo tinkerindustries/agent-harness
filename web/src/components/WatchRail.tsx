@@ -73,14 +73,21 @@ export function WatchRail({
               <details
                 key={phase.id}
                 className={`phase${phase.id === view.nowPhaseId ? " phase-now" : " phase-done"}`}
-                open={phase.id === view.nowPhaseId}
+                // While the run is live only the phase it is in matters, so
+                // the rest stay shut. Once it is over the rail is a review
+                // instrument and the ticks are the whole of it — a column of
+                // collapsed rows hides the one thing the reader came for.
+                open={runLive ? phase.id === view.nowPhaseId : true}
               >
                 <summary>
                   <span className="caret" aria-hidden>
                     ▸
                   </span>
                   <span className="idx">{phase.index > 0 ? phase.index : "·"}</span>
-                  <span>{phase.label || "…"}</span>
+                  {/* A phase that ran before the plan existed has no item to
+                      name it after — say so rather than trailing an ellipsis
+                      that reads like a truncation. */}
+                  <span className={phase.label ? undefined : "phase-unnamed"}>{phase.label || "before the plan"}</span>
                 </summary>
                 <div className="ticks">
                   {phase.ticks.map((tick) => (
@@ -252,8 +259,12 @@ export function buildWatchPhases(
   }
 
   // The sub-turn still streaming has no group yet; it continues the tail
-  // phase, and its tick is the pulsing one.
-  if (liveSubTurn !== null && current) {
+  // phase, and its tick is the pulsing one. Only while the run is live: a
+  // finished run's live view can still name its last sub-turn (the fold
+  // clears the live turn's text, not the turn), and without the gate the
+  // rail ends every finished run with a second, pulsing copy of the last
+  // sub-turn claiming to be running now.
+  if (runLive && liveSubTurn !== null && current) {
     current.ticks.push({
       subTurn: liveSubTurn,
       cls: "tick-now",

@@ -58,7 +58,15 @@ export function TopNav({ route, onNavigate, children }: TopNavProps) {
 
   return (
     <NavRightContext.Provider value={setRight}>
-      <header className={cn("topnav", (route.kind === "session" || route.kind === "evalRun") && "topnav-wide")}>
+      <header
+        className={cn(
+          "topnav",
+          (route.kind === "session" || route.kind === "evalRun") && "topnav-wide",
+          // A session page runs its bands to the viewport's edges; the nav
+          // has to do the same or its rule stops short of them.
+          route.kind === "session" && "topnav-flush",
+        )}
+      >
         <span className="wordmark">deepseek-harness</span>
         {route.kind === "session" ? (
           <nav className="topnav-links">

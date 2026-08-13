@@ -17,28 +17,43 @@ export type RunFinishedBlock = Extract<Block, { type: "run_finished" }>;
 // summary and the result JSON; the gave-up variant (Complete("gave_up"))
 // states the outcome in its own colour. Whatever the shape, the panel says
 // only what the log says — the summary, the result, nothing invented.
+// A payload of more than this many lines opens collapsed: the summary above
+// it is the answer a reader wants first, and a 300-line JSON dump between
+// the run's last sub-turn and the end of the page buries it. Anything
+// shorter is quicker to read than to click.
+const COLLAPSE_OVER_LINES = 16;
+
 export function ResultPanel({ block, parentAgent }: { block: RunFinishedBlock; parentAgent?: string }) {
   const gaveUp = block.status === "gave_up";
   const summary = block.summary || block.text;
   const json = block.result !== undefined ? JSON.stringify(block.result, null, 2) : null;
+  const lines = json === null ? 0 : json.split("\n").length;
 
   return (
     <section className={`result${gaveUp ? " result-gaveup" : ""}`}>
-      <h4>{gaveUp ? "Result · gave up" : `Result${parentAgent ? ` · returned to ${parentAgent}` : ""}`}</h4>
+      <div className="result-head">
+        <h4>{gaveUp ? "Result · gave up" : `Result${parentAgent ? ` · returned to ${parentAgent}` : ""}`}</h4>
+        {json !== null && <CopyButton json={json} />}
+      </div>
       {summary && <p>{summary}</p>}
       {json !== null && (
-        <>
-          <CopyButton json={json} />
+        <details className="result-json" open={lines <= COLLAPSE_OVER_LINES}>
+          <summary>
+            <span className="caret" aria-hidden>
+              ▸
+            </span>
+            payload · {lines.toLocaleString("en-US")} line{lines === 1 ? "" : "s"}
+          </summary>
           <pre>{json}</pre>
-        </>
+        </details>
       )}
     </section>
   );
 }
 
-// CopyButton is the panel's copy control (.result .copy): it floats in
-// the corner and confirms itself — "Copied" for a beat — rather than
-// making the reader wonder whether anything
+// CopyButton is the panel's copy control (.result .copy): it sits in the
+// panel's header row, beside the heading, and confirms itself — "Copied" for
+// a beat — rather than making the reader wonder whether anything
 // happened. A clipboard that refuses (a non-secure context) just leaves the
 // button at its label; the JSON is right there to select by hand.
 function CopyButton({ json }: { json: string }) {

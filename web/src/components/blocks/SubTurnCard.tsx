@@ -9,6 +9,7 @@ import { FrozenBlock } from "./FrozenBlock";
 import { ReasoningPanel, formatElapsed } from "./ReasoningPanel";
 import { ToolResultBody } from "./ToolResultBlock";
 import { childStat, exitCode, formatCost, toolHeader } from "./toolArgs";
+import { deniedBody } from "../turns/turnHelpers";
 
 // SubTurnCard renders one sub-turn as a single card, always full:
 // reasoning, assistant text, tool calls and their results in one body,
@@ -184,12 +185,7 @@ function ToolCallCard({
       {result.type === "tool_result" ? (
         <ToolResultBody block={result} />
       ) : (
-        <div className="tool-body">
-          <p className="block-text">
-            rule: <code>{result.rule}</code>
-          </p>
-          <p className="block-text">{result.content}</p>
-        </div>
+        <DeniedBody rule={result.rule} content={result.content} />
       )}
     </div>
   );
@@ -198,6 +194,23 @@ function ToolCallCard({
 // TaskChildStat fetches the Task call's child session metadata and renders
 // the header's "child · n sub-turns · $cost" figure. No network call is made
 // for a Task call without a child session id; a failed fetch (child session
+// DeniedBody is the denial's two lines, minus the duplication: the content
+// internal/tools writes already quotes the rule it matched, so the rule line
+// only renders when it adds something (turnHelpers.deniedBody).
+function DeniedBody({ rule, content }: { rule: string; content: string }) {
+  const body = deniedBody(rule, content);
+  return (
+    <div className="tool-body">
+      {body.rule !== null && (
+        <p className="block-text">
+          rule: <code>{body.rule}</code>
+        </p>
+      )}
+      {body.content && <p className="block-text">{body.content}</p>}
+    </div>
+  );
+}
+
 // gone, or the measurement harness with no backend) leaves the stat empty
 // rather than blocking the header.
 function TaskChildStat({ sessionId }: { sessionId: string }) {

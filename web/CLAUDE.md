@@ -54,7 +54,9 @@ What the screens are:
   block in the header (`src/api/groups.ts` builds the groups as a display-side
   view over the fold's `blocks`; the `Block` union is untouched). A
   Compact/Full toggle collapses every card to its header line; tool
-  call headers show the target, not the arguments JSON; the opening block
+  call headers show the target, not the arguments JSON, and a path target is
+  relative to the session's workspace root (`toolArgs.ts` `trimWorkspace`);
+  the opening block
   collapses to one summary line; a cache-churn banner links to the first
   sub-turn that churned. Neither session page filters or searches its own
   transcript — the filter chips (All/Edits/Bash/Errors/Churn) survive only in

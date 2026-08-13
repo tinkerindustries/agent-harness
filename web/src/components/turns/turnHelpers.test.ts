@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { DiffLine, ToolDeniedPayload, ToolResultPayload } from "../../api/types";
 import {
   cachePercent,
+  deniedBody,
   elideLines,
   finishedBandText,
   formatRunDuration,
@@ -133,6 +134,27 @@ describe("pendingWaitLabel", () => {
 
   it("names the boundary when the loop is between turns", () => {
     expect(pendingWaitLabel(false, null)).toBe("waiting for the next sub-turn boundary");
+  });
+});
+
+describe("deniedBody", () => {
+  // The shape internal/tools/registry.go actually writes.
+  const rule = "Bash is not permitted in read-only mode";
+  const content = `Denied by permission policy (readonly mode): ${rule}`;
+
+  it("drops the rule line when the content already quotes it", () => {
+    expect(deniedBody(rule, content)).toEqual({ rule: null, content });
+  });
+
+  it("keeps both when the content says something the rule does not", () => {
+    expect(deniedBody("deny:Bash(rm *)", "The operator's policy refused this call.")).toEqual({
+      rule: "deny:Bash(rm *)",
+      content: "The operator's policy refused this call.",
+    });
+  });
+
+  it("keeps the rule when there is no content to carry it", () => {
+    expect(deniedBody(rule, "")).toEqual({ rule, content: "" });
   });
 });
 

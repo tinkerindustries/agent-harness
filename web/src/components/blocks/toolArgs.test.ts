@@ -32,6 +32,28 @@ describe("toolDetail", () => {
     expect(toolDetail(call("List", { path: "src/" }))).toBe("src/");
   });
 
+  it("drops the workspace root from a path, so a row leads with what differs", () => {
+    const p = "/workspaces/sess-c3d7233a8a4eaba7e64d2a5ef4ee1890/deepseek-harness/internal/tools/descriptor.go";
+    expect(toolDetail(call("Read", { file_path: p }))).toBe("deepseek-harness/internal/tools/descriptor.go");
+    expect(toolDetail(call("Edit", { file_path: p }))).toBe("deepseek-harness/internal/tools/descriptor.go");
+    expect(toolDetail(call("List", { path: "/workspaces/sess-abc/deepseek-harness/internal" }))).toBe(
+      "deepseek-harness/internal",
+    );
+  });
+
+  it("names the workspace root rather than rendering it as an empty target", () => {
+    expect(toolDetail(call("List", { path: "/workspaces/sess-abc" }))).toBe("workspace root");
+    expect(toolDetail(call("List", { path: "/workspaces/sess-abc/" }))).toBe("workspace root");
+  });
+
+  it("leaves paths outside a workspace, and Bash commands, exactly as they are", () => {
+    expect(toolDetail(call("Read", { file_path: "/etc/hosts" }))).toBe("/etc/hosts");
+    expect(toolDetail(call("Read", { file_path: "relative/path.go" }))).toBe("relative/path.go");
+    expect(toolDetail(call("Bash", { command: "cd /workspaces/sess-abc/repo && git status" }))).toBe(
+      "cd /workspaces/sess-abc/repo && git status",
+    );
+  });
+
   it("shows the pattern for Glob and Grep", () => {
     expect(toolDetail(call("Grep", { pattern: "TODO" }))).toBe("TODO");
     expect(toolDetail(call("Glob", { pattern: "**/*.go" }))).toBe("**/*.go");

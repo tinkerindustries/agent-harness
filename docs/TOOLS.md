@@ -299,25 +299,33 @@ recovers — that channel exists for exactly this. Reserve strict mode for tools
 where a malformed argument is dangerous rather than merely wrong. Strict is also
 still Beta.
 
-### Web search is only on the endpoint we are not using
+### Web search is not on the endpoint we use
 
-DeepSeek serves a native, server-side web search tool, and Claude Code gets it
-for free. The Anthropic compatibility table supports `server_tool_use` and
-`web_search_tool_result` content blocks. The OpenAI-format Chat Completions API
-supports `type: "function"` and nothing else.
+DeepSeek serves a native, server-side web search tool on two of its three
+endpoints. The Anthropic compatibility table supports `server_tool_use` and
+`web_search_tool_result` content blocks, and the Responses API accepts
+`web_search` and `web_search_2025_08_26` as tool types. The OpenAI-format Chat
+Completions API, which is the one we use, supports `type: "function"` and
+nothing else.
 
 So the choice is:
 
-- Stay on the native endpoint (`DESIGN.md` §2) and keep strict mode, FIM, prefix
-  completion, and native cache accounting — but build `WebFetch` ourselves and
-  go without trained-in web search.
-- Move to `/anthropic` for server-side search and lose all four.
+- Stay on Chat Completions (`DESIGN.md` §2) and keep strict mode and the
+  `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` split — but build
+  `WebFetch` ourselves and go without trained-in web search.
+- Move to `/responses` for server-side search. Cache accounting narrows to a
+  single `input_tokens_details.cached_tokens`, and the compatibility table does
+  not say whether a function tool's `strict` flag is honoured.
+- Move to `/anthropic` for server-side search and lose both.
 
-Recommendation: stay native. Search is one tool among fifteen, our own `WebFetch`
-covers the documentation-lookup case that a coding harness actually needs, and
-DeepSeek's own note says its web search bills extra tokens for summarisation
-anyway. The decision is reversible per-session if it proves wrong, since the
-endpoint is already config.
+FIM and prefix completion sit on the `/beta` base URL and are unaffected by
+this choice.
+
+Recommendation: stay on Chat Completions. Search is one tool among fifteen, our
+own `WebFetch` covers the documentation-lookup case that a coding harness
+actually needs, and DeepSeek's own note says its web search bills extra tokens
+for summarisation anyway. The decision is reversible per-session if it proves
+wrong, since the endpoint is already config.
 
 ## Execution rules
 

@@ -645,6 +645,22 @@ html {
   max-width: 1200px;
 }
 
+/* A session page is full-bleed below the nav — the provenance strip, the
+   rail and the stream all run to the viewport's edges — so a nav centred in
+   a 1200px column drew its bottom rule stopping short of both edges with a
+   full-width band butting against it. Flush, and the wordmark lines up with
+   the rail's headings instead of floating in from nowhere. */
+.topnav-flush {
+  max-width: none;
+  margin-left: 0;
+  margin-right: 0;
+}
+.app .topnav-flush,
+body.page .topnav-flush {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
 .topnav .wordmark {
   margin-right: 10px;
 }
@@ -2888,9 +2904,22 @@ body.page .topnav {
 }
 /* The watch page's stream measure is a touch wider than the chat page's:
    the reader here is a spectator hunting through history, not a typist, and
-   the extra 40px buys room for the provenance strip's longer lines. */
+   the extra 40px buys room for the provenance strip's longer lines.
+
+   It hangs off the rail rather than floating in the middle of what is left.
+   Centred, an 840px measure in a 1196px column put ~180px of nothing between
+   the rail and the first character of every line, so the two panes read as
+   unrelated and the sub-turn numbers — which the rail's ticks link to — sat
+   marooned in the gap. Left-anchored with a 40px gutter, the eye goes rail →
+   transcript, and the slack all collects on the outside edge where nothing
+   needs it. */
 .work-watch .stream-inner {
   max-width: 840px;
+  margin-left: 0;
+  margin-right: auto;
+}
+.work-watch .stream {
+  padding-left: 40px;
 }
 .stream {
   padding: 20px 24px 0;
@@ -3035,6 +3064,11 @@ body.page .topnav {
 .turn > * + * {
   margin-top: 8px;
 }
+/* The sub-turn number is the transcript's only coordinate — it is what the
+   rail's ticks link to and what a person quotes when they say where
+   something went wrong — so it is legible at rest rather than a hover
+   reveal. Quiet, not hidden: muted at full opacity, and it comes up to the
+   foreground with its turn. */
 .gutter {
   position: absolute;
   left: 0;
@@ -3044,13 +3078,12 @@ body.page .topnav {
   font-family: var(--font-mono);
   font-size: 0.6875rem;
   color: var(--muted-foreground);
-  opacity: 0.65;
   font-variant-numeric: tabular-nums;
   text-decoration: none;
 }
 .turn:hover .gutter,
 .gutter:focus-visible {
-  opacity: 1;
+  color: var(--foreground);
 }
 .gutter .warn {
   display: block;
@@ -3504,8 +3537,12 @@ body.page .topnav {
   color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
 }
+/* A separator coloured --border is invisible: on these surfaces the border
+   token is within a shade of the background (about 1.1:1), so the figures
+   ran together as one string. Half the secondary text colour is visible in
+   both schemes and still subordinate to the figures it divides. */
 .statusline .sep {
-  color: var(--border);
+  color: color-mix(in srgb, var(--muted-foreground) 50%, transparent);
 }
 .statusline .spacer {
   flex: 1;
@@ -3709,15 +3746,45 @@ kbd {
   color: var(--foreground);
   font-weight: 500;
 }
+
+/* The facts, as key/value chips rather than a dot-separated sentence: the
+   dim key names what the value is, the value sits in its own chip against
+   the strip's muted band, and the gap between chips does the separating a
+   row of "·" used to do badly. */
+.prov-facts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  min-width: 0;
+}
+.prov .fact {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.prov .fact .k {
+  color: var(--muted-foreground);
+  letter-spacing: var(--label-tracking);
+  font-size: 0.625rem;
+  text-transform: uppercase;
+}
 .prov code {
   font-size: 0.6875rem;
-  color: var(--muted-foreground);
+  color: var(--foreground);
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
+  padding: 1px 5px;
+  max-width: 26ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-/* The separators sit on the strip's muted background, where --border is
-   nearly the same colour as the surface (about 1.1:1) — invisible. The
-   strip's own secondary text colour is the separator's colour: visible in
-   both schemes, and lighter than the foreground who/code it divides. */
-.prov .sep {
+/* The sentence is the least urgent thing on the strip — it says the same
+   thing on every run of this kind — so it never competes with the facts. */
+.prov-note {
   color: var(--muted-foreground);
 }
 .prov .spacer {
@@ -3774,6 +3841,10 @@ kbd {
 .phase-done > summary {
   color: var(--muted-foreground);
 }
+.phase-unnamed {
+  font-style: italic;
+  color: var(--muted-foreground);
+}
 .phase-now > summary {
   background: var(--status-running-bg);
   font-weight: 500;
@@ -3796,32 +3867,37 @@ kbd {
    is a model still reading its way in. Edit green, bash blue and error red
    are the timeline rail's glyph families (.g-write, .g-bash, .g-err), so a
    colour means the same thing in both rails. */
+/* Each tick is the family's colour mixed down over its own tint, not the
+   tint with a hairline round it: at 13px a pale fill with a 1px border reads
+   as an empty box, and a row of empty boxes is not a shape you can learn to
+   read across a rail. The mix keeps the hue unmistakable while staying under
+   the prose beside it. */
 .tick {
   width: 13px;
   height: 13px;
   border-radius: 3px;
-  background: var(--secondary);
-  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--muted-foreground) 28%, var(--secondary));
+  border: 1px solid color-mix(in srgb, var(--muted-foreground) 45%, transparent);
   display: block;
 }
 .tick-edit {
-  background: var(--diff-add-bg);
+  background: color-mix(in srgb, var(--diff-add-fg) 55%, var(--diff-add-bg));
   border-color: var(--diff-add-fg);
 }
 .tick-bash {
-  background: var(--status-running-bg);
+  background: color-mix(in srgb, var(--status-running) 55%, var(--status-running-bg));
   border-color: var(--status-running);
 }
 .tick-read {
-  background: var(--tick-read-bg);
+  background: color-mix(in srgb, var(--tick-read) 55%, var(--tick-read-bg));
   border-color: var(--tick-read);
 }
 .tick-err {
-  background: var(--status-failed-bg);
+  background: color-mix(in srgb, var(--status-failed) 55%, var(--status-failed-bg));
   border-color: var(--status-failed);
 }
 .tick-churn {
-  background: var(--status-gaveup-bg);
+  background: color-mix(in srgb, var(--status-gaveup) 55%, var(--status-gaveup-bg));
   border-color: var(--status-gaveup);
 }
 .tick-now {
@@ -3860,9 +3936,14 @@ kbd {
 .footer-watch {
   grid-template-columns: 244px minmax(0, 1fr);
 }
+/* The live footer's band sits under the same measure as the stream above
+   it, and on the same left edge: the band's own 24px padding puts column 2
+   at 268px where the stream's first character is at 284px, so the 16px
+   makes up the difference. */
 .footer-watch .footer-inner {
   grid-column: 2;
-  max-width: none;
+  max-width: 840px;
+  margin-left: 16px;
 }
 .nowline {
   display: flex;
@@ -3934,8 +4015,17 @@ kbd {
   border-color: var(--status-gaveup);
   background: var(--status-gaveup-bg);
 }
+/* The heading and the copy control share a row. The control used to float
+   over the payload's first lines, which is where a reader's eye lands. */
+.result-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 6px;
+}
 .result h4 {
-  margin: 0 0 6px;
+  margin: 0;
   font-size: 0.75rem;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -3950,17 +4040,41 @@ kbd {
   line-height: 1.6;
   color: var(--foreground);
 }
+/* The payload is a disclosure: a long one is a reference the reader opens
+   when they want it, not a wall between the run's last sub-turn and the end
+   of the page. The summary line states its size so the choice is informed. */
+.result-json > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  list-style: none;
+}
+.result-json > summary::-webkit-details-marker {
+  display: none;
+}
+.result-json > summary:hover {
+  color: var(--foreground);
+}
+.result-json > summary .caret {
+  transition: transform 0.15s ease;
+}
+.result-json[open] > summary .caret {
+  transform: rotate(90deg);
+}
 .result pre {
-  margin: 0;
+  margin: 6px 0 0;
+  max-height: 420px;
+  overflow: auto;
   font-family: var(--font-mono);
   font-size: 0.75rem;
   line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--muted-foreground);
-}
-.result .copy {
-  float: right;
 }
 
 /* ---------- narrow ----------
@@ -3976,6 +4090,14 @@ kbd {
   .rail {
     display: none;
   }
+  /* The stream hangs off the rail on the watch page; with no rail it goes
+     back to the band's own gutter and centres like the chat page's. */
+  .work-watch .stream {
+    padding-left: 24px;
+  }
+  .work-watch .stream-inner {
+    margin-left: auto;
+  }
   .work {
     grid-template-columns: minmax(0, 1fr) !important;
   }
@@ -3989,6 +4111,9 @@ kbd {
      not the child's grid-column). */
   .footer-watch .footer-inner {
     grid-column: 1;
+    /* No rail to hang off at this width, so the band goes back to the
+       column's own edge. */
+    margin-left: 0;
   }
   /* Its own band between the nav and the stream, not a sticky element
      inside it: a sticky row has to repaint a background over the turn
@@ -4234,20 +4359,6 @@ kbd {
   cursor: pointer;
   font: inherit;
   text-decoration: underline;
-}
-
-/* The strip on a session that belongs to an eval. */
-.session-eval-strip {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-  font-size: 0.85em;
-  color: var(--muted-foreground);
-}
-
-.session-eval-strip a {
-  color: var(--primary);
 }
 
 /* The start form: a card above the eval list, the shape the start-run form
