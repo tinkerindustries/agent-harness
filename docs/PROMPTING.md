@@ -54,13 +54,23 @@ reasoning round-trip rule: once tools exist, history is retained in full.
 
 ## DSML can leak into content
 
-Reported. Tool calls sometimes arrive as DSML markup inside the assistant
-`content` string rather than parsed into `tool_calls`
+Reported, and not on our build. Tool calls sometimes arrive as DSML markup
+inside the assistant `content` string rather than parsed into `tool_calls`
 ([HF discussion 209][hf209], [OpenCode 24566][oc24566]). Neither report pins a
-server build, and we have not seen it in our own runs.
+server build.
 
-Worth a cheap guard in the stream assembler: if `content` contains
-`<｜DSML｜`, treat the turn as suspect rather than surfacing markup to the user.
+Ours does not do it. Searched on 2026-08-13 across every production response
+body for 10–13 August — 83 sessions, 10,542 exchanges, 11,766 tool calls — for
+`DSML` in both its fullwidth and ASCII-pipe forms, for the older
+`<｜tool▁calls▁begin｜>` special-token run, and for leaked chat-template markers
+(`<｜User｜>`, `<｜Assistant｜>`, `<｜end▁of▁sentence｜>`, `<think>`). No response
+contained any of them; every tool call arrived structured. Re-check if the
+server build in [OBSERVED.md](OBSERVED.md) changes.
+
+A guard is still cheap if it ever appears: if `content` contains `<｜DSML｜`,
+treat the turn as suspect rather than surfacing markup to the user. What we
+actually see go wrong in assembled tool calls is a misplaced brace, which
+[OBSERVED.md](OBSERVED.md) measures and `deepseek.RepairArguments` handles.
 
 ## Effort mapping wastes two of four levels
 

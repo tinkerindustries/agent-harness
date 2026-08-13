@@ -77,6 +77,44 @@ once the call completes.
 The vendored streaming schema lists only `content`, `reasoning_content`, and
 `role` in the delta. It is incomplete: `tool_calls` is present.
 
+## Assembled arguments are occasionally one brace out
+
+Measured on 2026-08-13, over the production HTTP logs for 10–13 August: 83
+sessions, 10,542 recorded exchanges, 11,766 assembled tool calls, all but two
+sessions on flash.
+
+Five calls — 0.04% — assembled into arguments that are not valid JSON. Every
+one of them was `Complete`, on flash, on an arguments object between 7.5 kB and
+11 kB, and every one stopped with `finish_reason: "tool_calls"`. None was
+truncation: a run out of `max_tokens` reports `length`, and none of these did.
+Each is a single brace in the wrong place.
+
+| Shape | Seen | Repairable |
+| --- | --- | --- |
+| One closing brace short at the end | 2 | Yes, by appending it |
+| One closing brace too many after a complete object | 1 | Yes, by dropping it |
+| Object closed one key early, then another key follows | 2 | No — see below |
+
+The third shape is `{"result":{…},"error":""},"summary":"…"}`. Deleting either
+brace produces valid JSON, and the two readings disagree about whether `error`
+belongs inside `result` or beside it. Nothing in the bytes decides it; only the
+tool's schema does. `deepseek.RepairArguments` therefore repairs the first two
+shapes and leaves the third, on the grounds that a wrong guess is worse than a
+rejection — a rejected call costs a sub-turn, an accepted call carrying a shape
+the model never wrote is a wrong answer.
+
+The repair is gated on `finish_reason`, because truncated arguments are also
+one brace short and balancing them would present a partial result as a complete
+one.
+
+What it buys is a better error rather than a saved sub-turn. All five of these
+calls had a second problem underneath the brace — fields nested wrongly, or a
+required property missing — so the executor would have rejected them anyway.
+The difference is what the model is told: `invalid arguments: unexpected end of
+JSON input` names a position in a byte stream it cannot see, whereas `result:
+missing required property "error"` names the fix. In the one session where the
+model received that second message, it corrected itself on the next call.
+
 ## Usage does not arrive on its own chunk
 
 The API reference says `stream_options.include_usage` adds "an additional chunk

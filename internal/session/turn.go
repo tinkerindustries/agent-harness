@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -274,6 +275,22 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	elapsedMs := time.Since(streamStart).Milliseconds()
 
 	toolCalls := assembler.Finalize()
+	// A misplaced brace in a large arguments object costs a whole sub-turn
+	// otherwise, and the repair is a single character (docs/OBSERVED.md).
+	// It happens here, before the events are appended, so the event log,
+	// the browser, the history the next request replays, and the executor
+	// all see one set of arguments rather than the store disagreeing with
+	// what ran. The model's own bytes are still on disk in the HTTP log,
+	// which is where a question about what it actually emitted belongs.
+	for i := range toolCalls {
+		repaired, ok := deepseek.RepairArguments(finishReason, toolCalls[i].Arguments)
+		if !ok {
+			continue
+		}
+		log.Printf("session: repaired malformed arguments for %s in %s sub-turn %d",
+			toolCalls[i].Name, sess.ID, subTurn)
+		toolCalls[i].Arguments = repaired
+	}
 
 	var inputs []store.EventInput
 	// The discarded attempt is committed ahead of everything the retry

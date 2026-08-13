@@ -25,8 +25,10 @@ another's dependencies.
 ### `internal/deepseek`
 The API client. Request and response types as structs rather than maps, so
 serialisation is byte-stable; SSE reading with an idle watchdog; the tool-call
-assembler keyed by call index; retry classification. Knows nothing of sessions,
-tools, or storage. Depends on: nothing internal. §4.3, §4.4.
+assembler keyed by call index, and the narrow repair for the misplaced brace
+the model occasionally puts in a large arguments object (docs/OBSERVED.md);
+retry classification. Knows nothing of sessions, tools, or storage. Depends on:
+nothing internal. §4.3, §4.4.
 
 ### `internal/session`
 The agent loop: sub-turn iteration, the system prompt, tool dispatch, ordering
