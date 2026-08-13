@@ -21,10 +21,12 @@ harness eval score -report report.json      # re-score from stored events
 and `-concurrency` (default 2) bounds how many are in flight, so an eval does
 not fill every worker slot.
 
-`-max-sub-turns` overrides every task's own budget. It applies to all arms at
-once, which is the only safe way to give a run more room: extending only the
-arm that keeps running out hands extra budget to whichever variant is less
-efficient, hiding the difference the eval exists to measure. When runs do hit
+`-model` and `-effort` override what every task runs on, and `-max-sub-turns`
+overrides every task's own budget. It applies to all arms at
+All three apply to every arm at once. That is the only safe way to change what
+a run gets: extending only the arm that keeps running out hands extra budget to
+whichever variant is less efficient, hiding the difference the eval exists to
+measure, and a comparison across two models is not a comparison of two prompts. When runs do hit
 the cap, the table says how many, because their metrics stop where the run
 stopped rather than where the work did — raise the budget and run it again
 instead of reading those numbers.
@@ -126,6 +128,13 @@ and answers wrongly. The judge is stochastic and its numbers carry noise the
 counters do not, so read the counters first and treat a judge difference
 smaller than its spread as no difference. It never sees which variant produced
 a transcript.
+
+The judge defaults to `model.default` and is overridden with `-judge-model`.
+Keep it off the model under test: a model scoring its own transcripts rates
+work that reasons the way it does more highly, and the arms of a prompt eval
+differ precisely in how the model was told to work. Running sessions on flash
+with a pro judge is the current arrangement; a judge from outside the family
+would be better still.
 
 A metric with nothing to measure is absent rather than zero. A run that never
 searched has no search share, and averaging a zero in would report a behaviour

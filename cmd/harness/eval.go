@@ -67,6 +67,8 @@ func runEvalRun(ctx context.Context, args []string) error {
 	useJudge := fs.Bool("judge", false, "score each transcript with a model as well as the counters")
 	judgeModel := fs.String("judge-model", "", "model the judge uses (config default otherwise)")
 	maxSubTurns := fs.Int("max-sub-turns", 0, "override every task's sub-turn budget; applies to all arms at once")
+	model := fs.String("model", "", "override the model every task runs on; applies to all arms at once")
+	effort := fs.String("effort", "", "override the reasoning effort every task runs at; applies to all arms at once")
 	note := fs.String("note", "", "one line on what this run is asking, shown beside it later")
 	timeout := fs.Duration("timeout", 30*time.Minute, "how long one run may take")
 	out := fs.String("out", "", "write the full report as JSON to this path")
@@ -108,6 +110,8 @@ func runEvalRun(ctx context.Context, args []string) error {
 		Replicates:  *replicates,
 		Concurrency: *concurrency,
 		MaxSubTurns: *maxSubTurns,
+		Model:       *model,
+		Effort:      *effort,
 		Timeout:     *timeout,
 		Recorder:    st,
 		Note:        *note,
@@ -137,8 +141,15 @@ func runEvalRun(ctx context.Context, args []string) error {
 	}
 
 	total := *replicates * len(suite.Tasks) * len(variants)
-	fmt.Printf("suite %s: %d runs (%d tasks × %d variants × %d replicates), %d at a time\n\n",
+	fmt.Printf("suite %s: %d runs (%d tasks × %d variants × %d replicates), %d at a time\n",
 		suite.Name, total, len(suite.Tasks), len(variants), *replicates, *concurrency)
+	if *model != "" {
+		fmt.Printf("sessions on %s\n", *model)
+	}
+	if opts.Judge != nil {
+		fmt.Printf("judged by %s\n", opts.Judge.Model)
+	}
+	fmt.Println()
 
 	report, err := evals.Execute(ctx, publisher{js}, st, opts)
 	if err != nil {

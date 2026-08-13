@@ -84,6 +84,11 @@ type Options struct {
 	// whichever variant is less efficient, hiding the difference the eval
 	// exists to measure.
 	MaxSubTurns int
+	// Model and Effort override every task's, for the same reason and with
+	// the same rule: they apply to all arms at once. A comparison across two
+	// models is not a comparison of two prompts.
+	Model  string
+	Effort string
 	// Judge, when set, scores each finished transcript.
 	Judge *Judge
 	// Recorder, when set, is where the run and its members are written as
@@ -296,6 +301,12 @@ func execute(ctx context.Context, pub Publisher, sessions Sessions, opts Options
 
 	if opts.MaxSubTurns > 0 {
 		task.MaxSubTurns = opts.MaxSubTurns
+	}
+	if opts.Model != "" {
+		task.Model = opts.Model
+	}
+	if opts.Effort != "" {
+		task.Effort = opts.Effort
 	}
 	req := task.Request(r.RequestID, r.Variant)
 	if err := req.Validate(); err != nil {
