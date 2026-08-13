@@ -254,11 +254,12 @@ The watch page, against a run another agent started:
 1. Launch a run the way an agent would — `harness publish -repo <url>
    -permission-mode readonly -parent-agent-type claude-code
    -parent-agent-id <id> "task"` — so `parent_is_user` is false.
-2. Open it while it is running. Confirm the watch page renders: provenance
-   strip naming the launcher, navigator rail on the left with the find box,
-   filters and the plan-as-phases with one tick per sub-turn, the footer
-   saying what the run is doing, and **no way to send it a message** (not
-   even a disabled composer).
+2. Open it while it is running. Confirm the watch page renders: a top nav
+   whose only navigation is the back link to the session list, the
+   provenance strip naming the launcher, the navigator rail on the left with
+   the plan-as-phases and one tick per sub-turn, the footer saying what the
+   run is doing, and **no way to send it a message** (not even a disabled
+   composer).
 3. Confirm the launching agent's instruction renders as its own message at
    the top of the stream: `.msg-user` reading "from claude-code · delivered
    · sub-turn 1".

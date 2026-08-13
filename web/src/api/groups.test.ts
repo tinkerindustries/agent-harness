@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { FoldState, foldEvents } from "./fold";
-import { countMatching, groupBySubTurn, groupMatchesFilter, phaseFromTodos, SubTurnGroupState, type SubTurnGroup, type TranscriptItem } from "./groups";
+import { groupBySubTurn, groupMatchesFilter, phaseFromTodos, SubTurnGroupState, type SubTurnGroup, type TranscriptItem } from "./groups";
 import type { StoreEvent, Todo } from "./types";
 
 function ev(seq: number, kind: StoreEvent["kind"], payload: unknown): StoreEvent {
@@ -333,22 +333,6 @@ describe("filter counts", () => {
     expect(state.churnPoint).toEqual({ subTurn: 1, excessTokens: 500 });
   });
 
-  it("countMatching counts only the groups the find box's query leaves on screen", () => {
-    // The watch page's search narrows the transcript, so the chips must
-    // count the narrowed set — same per-card membership as the incremental
-    // counts, over the groups that pass the predicate.
-    const items = groupBySubTurn(foldEvents(filterSampleEvents()));
-    const turn2Only = (g: SubTurnGroup) => g.subTurn === 2;
-    expect(countMatching(items, turn2Only)).toEqual({ total: 1, edits: 1, bash: 1, errors: 1, churn: 0 });
-    // A predicate every group passes reproduces the whole-transcript counts.
-    expect(countMatching(items, () => true)).toEqual({ total: 3, edits: 1, bash: 2, errors: 1, churn: 1 });
-    // A predicate no group passes counts nothing.
-    expect(countMatching(items, () => false)).toEqual({ total: 0, edits: 0, bash: 0, errors: 0, churn: 0 });
-    // Top-level blocks (opening, run_finished) never count — the chips
-    // count sub-turn cards.
-    const allItems = items.filter((i) => i.kind === "group");
-    expect(countMatching(allItems, () => true)).toEqual(countMatching(items, () => true));
-  });
 });
 
 // The timeline rail's phase grouping: every TaskCreate or TaskUpdate call in

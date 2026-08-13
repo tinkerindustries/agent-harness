@@ -1,7 +1,7 @@
 import type { Block, LiveView } from "../../api/fold";
-import type { SubTurnGroup, TranscriptItem } from "../../api/groups";
-import type { SessionState, ToolCallPayload } from "../../api/types";
-import { diffCounts, exitCode, formatCost, toolDetail } from "../blocks/toolArgs";
+import type { TranscriptItem } from "../../api/groups";
+import type { SessionState } from "../../api/types";
+import { diffCounts, exitCode, formatCost } from "../blocks/toolArgs";
 
 // turnHelpers is the pure, testable logic of the turn renderer (.turn):
 // choosing a tool row's single most useful number, and splitting a long
@@ -143,35 +143,6 @@ export function watchStatusFigures(
 }
 
 // --- the chat page's steer messages and finished band ---
-
-// groupMatchesQuery is the watch page's find box ("Search this
-// transcript…"): whether a sub-turn's visible text —
-// the assistant's reasoning and prose, the tool calls' names and targets,
-// and the tool results — contains the query, case-insensitively. A blank
-// query matches everything. It reads the call the fold keeps (getToolCall)
-// so the target is the one-line descriptor the turn renders, never the raw
-// arguments JSON.
-export function groupMatchesQuery(
-  group: SubTurnGroup,
-  query: string,
-  getToolCall: (id: string) => ToolCallPayload | undefined,
-): boolean {
-  const q = query.trim().toLowerCase();
-  if (q === "") return true;
-  const assistant = group.blocks[0];
-  if (assistant.type === "assistant") {
-    if (assistant.content.toLowerCase().includes(q) || assistant.reasoning.toLowerCase().includes(q)) return true;
-    for (const call of assistant.toolCalls) {
-      const full = getToolCall(call.id) ?? call;
-      if (full.name.toLowerCase().includes(q) || toolDetail(full).toLowerCase().includes(q)) return true;
-    }
-  }
-  for (const block of group.blocks.slice(1)) {
-    if (block.type === "tool_result" && block.content.toLowerCase().includes(q)) return true;
-    if (block.type === "tool_denied" && `${block.rule} ${block.content}`.toLowerCase().includes(q)) return true;
-  }
-  return false;
-}
 
 // pendingWaitLabel says what a pending steer is waiting on, from the
 // live view ("waiting for the current tool call to finish"). The three

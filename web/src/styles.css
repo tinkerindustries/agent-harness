@@ -66,6 +66,13 @@
   --diff-remove-fg: hsl(0 65% 36%);
   --diff-gutter: hsl(240 4% 62%);
 
+  /* The watch rail's read tick. Edit, bash, error and churn all borrow a
+     colour that already means that thing elsewhere; a file read has no
+     outcome colour to borrow, so it gets the one hue the palette does not
+     otherwise use. */
+  --tick-read: hsl(268 60% 52%);
+  --tick-read-bg: hsl(268 70% 96%);
+
   /* Semantic aliases. The base names above are what the product writes; these
      say what each one is for when a new surface needs to choose. */
   --text-body: var(--foreground);
@@ -134,6 +141,9 @@
     --diff-remove-bg: hsl(0 40% 14%);
     --diff-remove-fg: hsl(0 60% 70%);
     --diff-gutter: hsl(240 5% 45%);
+
+    --tick-read: hsl(268 75% 72%);
+    --tick-read-bg: hsl(268 45% 18%);
   }
 }
 
@@ -284,6 +294,9 @@
   --diff-remove-bg: hsl(2 40% 12%);
   --diff-remove-fg: hsl(2 70% 68%);
   --diff-gutter: hsl(150 8% 40%);
+
+  --tick-read: hsl(285 70% 68%);
+  --tick-read-bg: hsl(285 45% 11%);
 
   --surface-hover: color-mix(in srgb, var(--accent) 70%, transparent);
   --surface-active: color-mix(in srgb, var(--accent) 90%, transparent);
@@ -662,6 +675,33 @@ html {
 .navlink-active {
   background: var(--secondary);
   color: var(--foreground);
+}
+
+/* A session detail's nav carries one back link where the sections are: the
+   page is a place you arrive at from the list, and the way out is back to
+   it. Same metrics as a navlink so the row's height does not move between
+   screens; the arrow is what says "back" rather than "another section". */
+.navback {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px 0 6px;
+  border-radius: calc(var(--radius) - 2px);
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.navback:hover {
+  background: var(--accent);
+  color: var(--foreground);
+}
+
+.navback svg {
+  width: 14px;
+  height: 14px;
 }
 
 .topnav .spacer {
@@ -3691,39 +3731,6 @@ kbd {
   text-decoration: underline;
 }
 
-/* ---------- the navigator rail ----------
-   A watcher's job is to find things: the error among 78 sub-turns, the edit
-   that touched a file, the churn point. So the filters and the find box
-   live at the top of the left rail with the timeline rather than in a bar
-   of their own — one column that answers "where in this run". The shared
-   top nav's right slot is spoken for by the run controls, so search comes
-   down here (web/CLAUDE.md: each screen registers its own page-specific
-   nav content). */
-.rail .input {
-  width: 100%;
-  min-width: 0;
-  height: 28px;
-  font-size: 0.75rem;
-  margin-bottom: 10px;
-}
-
-/* The Input primitive's icon wrapper is inline-flex, sized to a nav row's
-   fixed-width field; in the rail the find box owns the column. */
-.rail [data-slot="input-wrapper"] {
-  display: flex;
-  width: 100%;
-}
-.chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-.rail .chips .chip-toggle {
-  height: 24px;
-  padding: 0 8px;
-  font-size: 0.6875rem;
-}
-
 /* ---------- the left rail's timeline ----------
    Sub-turns grouped under the plan item that was in progress when they ran
    — plan and navigation in one column, one disclosure per phase, one tick
@@ -3785,7 +3792,10 @@ kbd {
 }
 /* One tick per sub-turn, coloured by what happened in it. A row of these is
    a shape you learn to read: a wall of green with one red is a run that hit
-   one snag, alternating amber is a run going in circles. */
+   one snag, alternating amber is a run going in circles, a long violet run
+   is a model still reading its way in. Edit green, bash blue and error red
+   are the timeline rail's glyph families (.g-write, .g-bash, .g-err), so a
+   colour means the same thing in both rails. */
 .tick {
   width: 13px;
   height: 13px;
@@ -3797,6 +3807,14 @@ kbd {
 .tick-edit {
   background: var(--diff-add-bg);
   border-color: var(--diff-add-fg);
+}
+.tick-bash {
+  background: var(--status-running-bg);
+  border-color: var(--status-running);
+}
+.tick-read {
+  background: var(--tick-read-bg);
+  border-color: var(--tick-read);
 }
 .tick-err {
   background: var(--status-failed-bg);

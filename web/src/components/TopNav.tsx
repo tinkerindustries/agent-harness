@@ -1,12 +1,16 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { ArrowLeft } from "@phosphor-icons/react";
 import type { Route } from "../App";
 import { cn } from "@/lib/utils";
 
-// The shared top nav: the wordmark, the three sections as real links with
+// The shared top nav: the wordmark, the sections as real links with
 // an active state, and — on a session
 // detail — a crumb for the session id. One component, mounted once
 // by App around whichever screen the route renders; the screens never
-// redeclare it. What the design keeps page-specific — the session list's
+// redeclare it. A session detail is the exception to the links: it is a
+// page you arrived at from a list and leave by going back, so the section
+// links give way to one back link to the session list — the run's own
+// controls own the rest of the row. What the design keeps page-specific — the session list's
 // search input and LIVE badge, the settings screen's search input, the
 // operations screen's refresh button, the transcript's connection badge —
 // is rendered by the owning screen into the right slot through useNavRight,
@@ -56,22 +60,38 @@ export function TopNav({ route, onNavigate, children }: TopNavProps) {
     <NavRightContext.Provider value={setRight}>
       <header className={cn("topnav", (route.kind === "session" || route.kind === "evalRun") && "topnav-wide")}>
         <span className="wordmark">deepseek-harness</span>
-        <nav className="topnav-links">
-          <NavLink label="Sessions" href="/" active={section === "sessions"} onNavigate={onNavigate} />
-          <NavLink label="Evals" href="/evals" active={section === "evals"} onNavigate={onNavigate} />
-          <NavLink
-            label="Operations"
-            href="/operations"
-            active={section === "operations"}
-            onNavigate={onNavigate}
-          />
-          <NavLink
-            label="Settings"
-            href="/settings"
-            active={section === "settings"}
-            onNavigate={onNavigate}
-          />
-        </nav>
+        {route.kind === "session" ? (
+          <nav className="topnav-links">
+            <a
+              className="navback"
+              href="/"
+              onClick={(e) => {
+                e.preventDefault();
+                onNavigate("/");
+              }}
+            >
+              <ArrowLeft aria-hidden />
+              Sessions
+            </a>
+          </nav>
+        ) : (
+          <nav className="topnav-links">
+            <NavLink label="Sessions" href="/" active={section === "sessions"} onNavigate={onNavigate} />
+            <NavLink label="Evals" href="/evals" active={section === "evals"} onNavigate={onNavigate} />
+            <NavLink
+              label="Operations"
+              href="/operations"
+              active={section === "operations"}
+              onNavigate={onNavigate}
+            />
+            <NavLink
+              label="Settings"
+              href="/settings"
+              active={section === "settings"}
+              onNavigate={onNavigate}
+            />
+          </nav>
+        )}
         {(route.kind === "session" || route.kind === "evalRun") && (
           <span className="nav-crumb">
             <span className="sep">/</span>

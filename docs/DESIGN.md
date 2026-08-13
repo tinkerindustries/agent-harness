@@ -988,7 +988,10 @@ command, `Read`/`Grep` the path or pattern, `Task` the description plus the
 child session's turn count and cost. The opening block collapses to one summary
 line (word count and the files it names); filter chips over the cards
 (All/Edits/Bash/Errors/Churn) read their counts off the same pass that builds
-the groups; and a cache-churn banner above the transcript links to the first
+the groups — the chips are now the child transcript's and the perf harnesses'
+only, the session pages themselves neither filter nor search a transcript,
+and the watch rail's coloured squares are what index a long run instead; and a
+cache-churn banner above the transcript links to the first
 sub-turn whose usage carried `churn_point_index`. Density is a plain string
 prop on the memoised card/list chain, so the group-level bailouts above
 survive every live-only delta — toggling it is the one all-cards re-render.

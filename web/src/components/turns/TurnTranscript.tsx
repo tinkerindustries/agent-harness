@@ -4,7 +4,6 @@ import type { TranscriptFilter, TranscriptItem } from "../../api/groups";
 import type { ToolCallPayload } from "../../api/types";
 import { FrozenBlock } from "../blocks/FrozenBlock";
 import { groupMatchesFilter } from "../../api/groups";
-import { groupMatchesQuery } from "./turnHelpers";
 import { Turn } from "./Turn";
 import { LiveTurnSection } from "./LiveTurn";
 import type { SteerBlock } from "./SteerMessage";
@@ -25,7 +24,6 @@ export function TurnTranscript({
   renderSteer,
   renderInstruction,
   renderRunFinished,
-  textQuery,
 }: {
   items: TranscriptItem[];
   live: LiveView;
@@ -51,10 +49,6 @@ export function TurnTranscript({
   // harnesses — the block keeps its FrozenBlock rendering. Reference-stable
   // across live-only deltas, like renderSteer.
   renderRunFinished?: (block: Extract<Block, { type: "run_finished" }>) => ReactNode;
-  // textQuery is the watch page's find box: a non-blank query hides
-  // every sub-turn whose visible text does not contain it. Blank — the
-  // chat page and the perf harnesses — matches everything.
-  textQuery?: string;
 }) {
   const empty = items.length === 0 && !live.turn && live.pendingTools.size === 0;
   return (
@@ -66,7 +60,6 @@ export function TurnTranscript({
         renderSteer={renderSteer}
         renderInstruction={renderInstruction}
         renderRunFinished={renderRunFinished}
-        textQuery={textQuery}
       />
       <LiveTurnSection turn={live.turn} pendingTools={live.pendingTools} />
       {empty && <p className="empty-row">Waiting for the run to start…</p>}
@@ -81,9 +74,7 @@ export function TurnTranscript({
 // the whole list bails out — the token-rate hot path (docs/DESIGN.md §5.1).
 // When a block freezes, only the tail group can be new, so an append costs a
 // walk over items plus a render of the tail turn, not a re-render of the
-// transcript (§5.2's freeze, at group granularity). textQuery is a second
-// memo dimension: typing in the find box is a deliberate re-render, exactly
-// like toggling a chip.
+// transcript (§5.2's freeze, at group granularity).
 export const TurnList = memo(function TurnList({
   items,
   filter,
@@ -91,7 +82,6 @@ export const TurnList = memo(function TurnList({
   renderSteer,
   renderInstruction,
   renderRunFinished,
-  textQuery,
 }: {
   items: TranscriptItem[];
   filter: TranscriptFilter;
@@ -99,13 +89,12 @@ export const TurnList = memo(function TurnList({
   renderSteer?: (block: SteerBlock) => ReactNode;
   renderInstruction?: (block: Extract<Block, { type: "instruction" }>) => ReactNode;
   renderRunFinished?: (block: Extract<Block, { type: "run_finished" }>) => ReactNode;
-  textQuery?: string;
 }) {
   return (
     <>
       {items.map((item) =>
         item.kind === "group" ? (
-          groupMatchesFilter(item.group, filter) && groupMatchesQuery(item.group, textQuery ?? "", getToolCall) ? (
+          groupMatchesFilter(item.group, filter) ? (
             <Turn key={item.group.seq} group={item.group} getToolCall={getToolCall} />
           ) : null
         ) : item.block.type === "steer" && renderSteer ? (

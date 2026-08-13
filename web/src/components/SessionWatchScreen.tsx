@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, StopCircle } from "@phosphor-icons/react";
 import type { SessionState } from "../api/types";
 import type { Block } from "../api/fold";
-import { countMatching, type TranscriptFilter } from "../api/groups";
 import type { TranscriptSnapshot } from "../api/transcriptStore";
 import { TurnTranscript } from "./turns/TurnTranscript";
 import { WatchRail } from "./WatchRail";
@@ -16,7 +15,7 @@ import { useLabelFlip, useNow } from "../hooks";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { outcome, watchBadge } from "./statusBadge";
-import { cachePercent, formatRunDuration, groupMatchesQuery, watchStatusFigures } from "./turns/turnHelpers";
+import { cachePercent, formatRunDuration, watchStatusFigures } from "./turns/turnHelpers";
 import { formatCost } from "./blocks/toolArgs";
 import { useNavRight } from "./TopNav";
 
@@ -44,8 +43,8 @@ interface Props {
 // invites you to look for the way to enable it). A finished run drops the
 // shell: one page scroll, the sticky rail, the footer's figures in the nav
 // (SessionScreen decides the mode). This page is the provenance
-// strip under the nav, the navigator rail on the left (find, chips, the
-// plan as phases with one tick per sub-turn), the live footer answering
+// strip under the nav, the navigator rail on the left (the plan as phases
+// with one tick per sub-turn), the live footer answering
 // what the run is doing right now, the result the parent gets back at the
 // end of the stream, and the dropped-stream banner both pages share.
 export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, everOpen }: Props) {
@@ -78,27 +77,6 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
       cancelled = true;
     };
   }, [sessionId]);
-
-  // The filter starts at All and the find box blank; both are plain values,
-  // so the memoised turn list compares them by value and still bails out on
-  // every live-only delta — toggling a chip or typing is the deliberate
-  // re-render.
-  const [filter, setFilter] = useState<TranscriptFilter>("all");
-  const [query, setQuery] = useState("");
-
-  // The chip counts follow the find box: a search that narrows 273 turns
-  // to 12 must not keep the chips reading 273, so with a non-blank query
-  // the counts are recomputed over the
-  // sub-turns the search leaves on screen (countMatching walks the items
-  // with the same text predicate TurnTranscript renders with). A blank
-  // query keeps the snapshot's incremental counts — the hot path, no walk.
-  const counts = useMemo(
-    () =>
-      query.trim() === ""
-        ? snapshot.counts
-        : countMatching(snapshot.items, (group) => groupMatchesQuery(group, query, snapshot.getToolCall)),
-    [query, snapshot.counts, snapshot.items, snapshot.getToolCall],
-  );
 
   // --- the stop flow ---
   // The nav's Stop arms the same inline confirm strip the chat page uses —
@@ -361,15 +339,6 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
             ? `This run takes its instructions from ${who}. You can stop it, but not message it.`
             : `This run took its instructions from ${who}. It is finished, and could not be messaged.`}
         </span>
-        <a
-          href="/"
-          onClick={(e) => {
-            e.preventDefault();
-            onNavigate("/");
-          }}
-        >
-          Session row →
-        </a>
       </div>
       {planMini && (
         <div className="plan-mini">
@@ -387,11 +356,6 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
           items={snapshot.items}
           live={snapshot.live}
           todos={snapshot.todos}
-          counts={counts}
-          filter={filter}
-          onFilterChange={setFilter}
-          query={query}
-          onQueryChange={setQuery}
           meta={meta}
           getToolCall={snapshot.getToolCall}
         />
@@ -409,11 +373,10 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
             <TurnTranscript
               items={snapshot.items}
               live={snapshot.live}
-              filter={filter}
+              filter="all"
               getToolCall={snapshot.getToolCall}
               renderInstruction={renderInstruction}
               renderRunFinished={renderRunFinished}
-              textQuery={query}
             />
           </div>
           {/* The jump pill is for a live run; a finished session's stream has

@@ -30,6 +30,10 @@ export interface GroupTags {
   edits: number;
   // bash counts Bash tool results.
   bash: number;
+  // reads counts Read tool results. Nothing filters on it — it exists for
+  // the watch rail's tick colour, which gives a sub-turn that only read a
+  // file its own square rather than the plain one.
+  reads: number;
   // errors counts failed tool results (is_error) and denied calls — the
   // cards that must stay open in Compact mode.
   errors: number;
@@ -153,28 +157,7 @@ export function groupMembership(tags: GroupTags): GroupCounts {
   };
 }
 
-// countMatching is the chip row's numbers for a narrowed transcript: how
-// many sub-turn cards match each filter family among the groups that pass
-// match. The watch page's find box hides every sub-turn that does not
-// contain the query, so the chips must count the narrowed set — a query that
-// leaves 12 of 273 turns on screen must not keep saying 273. Top-level
-// blocks never count: the chips count sub-turn cards, exactly like the
-// incremental counts SubTurnGroupState maintains.
-export function countMatching(items: TranscriptItem[], match: (group: SubTurnGroup) => boolean): GroupCounts {
-  const counts: GroupCounts = { total: 0, edits: 0, bash: 0, errors: 0, churn: 0 };
-  for (const item of items) {
-    if (item.kind !== "group" || !match(item.group)) continue;
-    const m = groupMembership(item.group.tags);
-    counts.total += m.total;
-    counts.edits += m.edits;
-    counts.bash += m.bash;
-    counts.errors += m.errors;
-    counts.churn += m.churn;
-  }
-  return counts;
-}
-
-const ZERO_TAGS: GroupTags = { edits: 0, bash: 0, errors: 0, churn: false };
+const ZERO_TAGS: GroupTags = { edits: 0, bash: 0, reads: 0, errors: 0, churn: false };
 
 // computeTags classifies a group from its own blocks and usage.
 export function computeTags(group: Pick<SubTurnGroup, "blocks" | "usage">): GroupTags {
@@ -183,6 +166,7 @@ export function computeTags(group: Pick<SubTurnGroup, "blocks" | "usage">): Grou
     if (block.type === "tool_result") {
       if (block.name === "Edit" || block.name === "Write") tags.edits++;
       else if (block.name === "Bash") tags.bash++;
+      else if (block.name === "Read") tags.reads++;
       if (block.is_error) tags.errors++;
     } else if (block.type === "tool_denied") {
       tags.errors++;

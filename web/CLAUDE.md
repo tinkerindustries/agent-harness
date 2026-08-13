@@ -18,7 +18,11 @@ around whichever screen the route renders. It is not
 redeclared inside the screens; each screen registers its page-specific
 right-hand content — a search input, a LIVE/connection badge, a refresh button
 — into the nav's right slot with `useNavRight`, so the slot stays owned by the
-screen that holds its state. The `/perf` harness route renders no nav.
+screen that holds its state. A session detail is the one route whose nav
+drops the section links: it is a page you arrive at from the list and leave
+by going back, so the links give way to a single back link to the session
+list and the rest of the row belongs to the run's own controls. The `/perf`
+harness route renders no nav.
 
 What the screens are:
 
@@ -49,15 +53,21 @@ What the screens are:
   sub-turn, reasoning, text, tool calls and results in one body and the usage
   block in the header (`src/api/groups.ts` builds the groups as a display-side
   view over the fold's `blocks`; the `Block` union is untouched). A
-  Compact/Full toggle collapses every card to its header line; filter chips
-  (All/Edits/Bash/Errors/Churn) read their counts from the grouping pass; tool
+  Compact/Full toggle collapses every card to its header line; tool
   call headers show the target, not the arguments JSON; the opening block
   collapses to one summary line; a cache-churn banner links to the first
-  sub-turn that churned. The sticky left rail lists every sub-turn under the
+  sub-turn that churned. Neither session page filters or searches its own
+  transcript — the filter chips (All/Edits/Bash/Errors/Churn) survive only in
+  `TranscriptToolbar`, for the child-transcript block and the perf harnesses,
+  and `TurnTranscript`'s `filter` prop is `"all"` on both screens. The sticky
+  left rail lists every sub-turn under the
   plan item that was `in_progress`, one glyph per tool call, with a single
-  IntersectionObserver marking the current entry. The screen's own header is
-  gone: the nav's crumb shows the session id and its right slot carries the
-  connection badge.
+  IntersectionObserver marking the current entry. On the watch page's own
+  rail each sub-turn is a coloured square instead — error red, churn amber,
+  edit green, bash blue, read violet, anything else plain, in that priority
+  order (`WatchRail.tsx` `tickCls`, over `GroupTags`). The screen's own
+  header is gone: the nav's crumb shows the session id and its right slot
+  carries the connection badge.
 - **Evals.** The eval list is every run over time — what it compared, where it
   got to, and a headline delta; the run page is the comparison table, then the
   runs it is built from (docs/EVALS.md). No statistics happen in the browser:
