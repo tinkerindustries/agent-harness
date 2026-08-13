@@ -861,7 +861,7 @@ pre {
 }
 
 .run-summary:hover {
-  background: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: var(--surface-hover);
 }
 
 .run-line1 {
@@ -2107,7 +2107,7 @@ pre {
 }
 
 .settings-summary:hover {
-  background: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: var(--surface-hover);
 }
 
 .settings-summary-open {

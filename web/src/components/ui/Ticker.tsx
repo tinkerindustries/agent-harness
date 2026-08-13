@@ -28,13 +28,25 @@ export function Ticker({
   const [shown, setShown] = React.useState(value);
   const [prev, setPrev] = React.useState<string | number | null>(null);
 
+  // The timeout is held in a ref rather than cleared by this effect's own
+  // cleanup. Setting `shown` re-runs the effect (shown is a dependency), and a
+  // cleanup here would cancel the very timeout the previous run had just
+  // scheduled — the outgoing value would then never be dropped. It survived
+  // review because .anim-roll-out ends at opacity 0 with `both`, so a stale
+  // span is invisible; under prefers-reduced-motion the animation is off, the
+  // span paints at full opacity, and every live figure renders with its
+  // outgoing value overprinted on top of it.
+  const timer = React.useRef(0);
+
   React.useEffect(() => {
     if (value === shown) return;
     setPrev(shown);
     setShown(value);
-    const t = window.setTimeout(() => setPrev(null), 260);
-    return () => window.clearTimeout(t);
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setPrev(null), 260);
   }, [value, shown]);
+
+  React.useEffect(() => () => window.clearTimeout(timer.current), []);
 
   return (
     <span data-slot="ticker" className={cn("inline-flex items-baseline tabular-nums", className)}>

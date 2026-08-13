@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSyncExternalStore } from "react";
-import { CaretRight, Copy, MagnifyingGlass, Play, Queue, X } from "@phosphor-icons/react";
+import { Broadcast, CaretRight, Copy, MagnifyingGlass, Play, Queue, X } from "@phosphor-icons/react";
 import { sessionListStore } from "../api/sessionListStore";
 import { listSettings } from "../api/settings";
 import { controlToken } from "../api/operations";
@@ -240,7 +240,7 @@ export function SessionListScreen({ onOpen }: Props) {
 
   // The nav's right slot for this screen: the start-run trigger
   // (docs/RUN-CONTROL.md "The frontend"), the search input, and the LIVE
-  // badge. The dot pulses while the stream is open and goes still while
+  // badge. The mark pulses while the stream is open and goes still while
   // EventSource reconnects. When run control is
   // not configured the trigger is replaced by a note saying so — a form
   // whose submit would 503 must not be offered as a button.
@@ -281,7 +281,16 @@ export function SessionListScreen({ onOpen }: Props) {
         spellCheck={false}
       />
       <Badge variant={snapshot.connection === "open" ? "running" : "outline"}>
-        <span className={cn("dot", snapshot.connection === "open" && "dot-pulse")} />
+        {/* Broadcast at bold rather than the app's light default: at 12px,
+            beside an 11px uppercase label, the light stroke disappears. It
+            takes the badge's currentColor and carries the pulse the plain dot
+            used to — the badge is the one place a reader checks to see
+            whether the screen is still being told anything. */}
+        <Broadcast
+          weight="bold"
+          size={12}
+          className={cn(snapshot.connection === "open" && "dot-pulse")}
+        />
         {snapshot.connection === "open" ? "LIVE" : "connecting"}
       </Badge>
     </>,

@@ -28,6 +28,8 @@ class SessionListStore {
   private byID = new Map<string, SessionState>();
   private listeners = new Set<Listener>();
   private snapshot: Snapshot = { sessions: [], connection: "connecting" };
+  private dirty = false;
+  private flushHandle: number | null = null;
 
   constructor() {
     this.connect();
@@ -52,7 +54,28 @@ class SessionListStore {
     this.notify();
   }
 
+  // A burst of session_state events becomes one snapshot, on the next frame,
+  // the same way the transcript store coalesces deltas (docs/DESIGN.md §5.2).
+  // The stream opens by sending one event per session, so a harness with a
+  // few dozen rows re-sorted the whole list and notified React once per
+  // message. React counts a store notification that lands while it is
+  // committing as a nested update and throws "Maximum update depth exceeded"
+  // past fifty of them — which is what the session list did on every load,
+  // and what dropped the rest of the connect burst on the floor. Sorting once
+  // per frame instead of once per message is the same win the transcript
+  // store measured.
   private emit() {
+    this.dirty = true;
+    if (this.flushHandle !== null) return;
+    this.flushHandle = requestAnimationFrame(() => {
+      this.flushHandle = null;
+      this.flush();
+    });
+  }
+
+  private flush() {
+    if (!this.dirty) return;
+    this.dirty = false;
     this.snapshot = {
       sessions: [...this.byID.values()].sort(bySessionAge),
       connection: this.snapshot.connection,
