@@ -107,6 +107,12 @@ export interface SessionStartedPayload {
   // any. Sent separately so the fold can lift it into its own block without
   // parsing the message text.
   skill_catalogue?: string;
+  // The paths the request's attachments were materialised under —
+  // scratch/attachments/<name> inside the session workspace — when the run
+  // carried any. Sent separately, the way skill_catalogue is, so the opening
+  // block can render the images through GET /api/sessions/{id}/screenshot
+  // without parsing the message text.
+  attachments?: string[];
   // task is the launching agent's own instruction — the "Task:\n..." tail of
   // opening_message — when the run was created with one (an agent-started
   // run; a browser start is created empty and waits for its first message).

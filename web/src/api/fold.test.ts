@@ -410,13 +410,13 @@ describe("steer block", () => {
     state.ingest(ev(1, "session_started", { opening_message: "x" }));
     state.ingest(ev(2, "steer_message", { text: "be terse", source: "web" }));
     expect(state.blocks).toEqual([
-      { type: "opening", seq: 1, text: "x" },
+      { type: "opening", seq: 1, text: "x", attachments: [] },
       { type: "steer", seq: 2, text: "be terse", state: "pending" },
     ]);
 
     state.ingest(ev(3, "steer_applied", { source_seq: 2, text: "be terse", sub_turn: 1 }));
     expect(state.blocks).toEqual([
-      { type: "opening", seq: 1, text: "x" },
+      { type: "opening", seq: 1, text: "x", attachments: [] },
       { type: "steer", seq: 2, text: "be terse", state: "delivered", appliedSubTurn: 1 },
     ]);
   });
@@ -509,6 +509,33 @@ describe("skills catalogue", () => {
     expect(blocks.map((b) => b.type)).toEqual(["opening"]);
     const openingBlock = blocks[0];
     expect("text" in openingBlock && openingBlock.text).toEqual(opening);
+  });
+});
+
+// The task's image attachments: the workspace paths they were materialised
+// under (scratch/attachments/<name>), carried separately by session_started
+// so the opening block renders them through the screenshot endpoint without
+// parsing the message text.
+describe("task attachments", () => {
+  it("reaches the opening block, exactly as the payload carried them", () => {
+    const blocks = foldEvents([
+      ev(1, "session_started", {
+        opening_message: "Workspace: /ws\n\nImage files attached to this task, materialised into scratch/attachments/:\n- scratch/attachments/mockup.png\n- scratch/attachments/light.webp\n\nTask:\nmatch the mockup\n",
+        attachments: ["scratch/attachments/mockup.png", "scratch/attachments/light.webp"],
+      }),
+    ]);
+    expect(blocks.map((b) => b.type)).toEqual(["opening"]);
+    const openingBlock = blocks[0];
+    expect(openingBlock && "attachments" in openingBlock ? openingBlock.attachments : undefined).toEqual([
+      "scratch/attachments/mockup.png",
+      "scratch/attachments/light.webp",
+    ]);
+  });
+
+  it("defaults to an empty list when the payload carries none (older sessions)", () => {
+    const blocks = foldEvents([ev(1, "session_started", { opening_message: "Workspace: /ws\n\nTask:\ndo the thing\n" })]);
+    const openingBlock = blocks[0];
+    expect(openingBlock && "attachments" in openingBlock ? openingBlock.attachments : undefined).toEqual([]);
   });
 });
 

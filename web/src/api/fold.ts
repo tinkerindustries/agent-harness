@@ -30,7 +30,12 @@ import type {
 // that completes it has been seen.
 
 export type Block =
-  | { type: "opening"; seq: number; text: string }
+  // attachments are the workspace paths the task's image attachments were
+  // materialised under (scratch/attachments/<name>), carried separately by
+  // session_started so the opening block can render them through
+  // GET /api/sessions/{id}/screenshot without parsing the message text.
+  // Empty when the run carried none.
+  | { type: "opening"; seq: number; text: string; attachments: string[] }
   | { type: "skills"; seq: number; text: string }
   // The launching agent's own instruction (.msg-user "from claude-code ·
   // delivered · sub-turn 1"): the task tail of the opening message,
@@ -292,7 +297,8 @@ export class FoldState {
         const text = hasCatalogue
           ? p.opening_message.replace(catalogue + "\n", "").replace(catalogue, "")
           : p.opening_message;
-        this.pushBlock({ type: "opening", seq: ev.seq, text });
+        // Older sessions predate the field; an empty list renders nothing.
+        this.pushBlock({ type: "opening", seq: ev.seq, text, attachments: p.attachments ?? [] });
         // The launching agent's instruction, when the run was created with
         // one: its own block after the opening message, exactly where the
         // design draws it — the launcher's words rendered as a message,
