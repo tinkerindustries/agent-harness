@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -188,7 +189,9 @@ func TestReviewScreenshotSendsAndReturns(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("unexpected error: %s", res.Content)
 	}
-	if !strings.Contains(res.Content, `"element":"nav"`) {
+	// The answer is re-marshalled indented by formatReviewAnswer (Part 2), so
+	// the finding arrives with spaces after the colons.
+	if !strings.Contains(res.Content, `"element": "nav"`) {
 		t.Fatalf("tool result should carry the model's text, got: %s", res.Content)
 	}
 
@@ -198,23 +201,83 @@ func TestReviewScreenshotSendsAndReturns(t *testing.T) {
 	if !strings.Contains(got.SystemInstruction, `"element"`) || !strings.Contains(got.SystemInstruction, `"issue"`) {
 		t.Errorf("system instruction should ask for the element/issue/expected/actual JSON shape, got: %s", got.SystemInstruction)
 	}
-	if len(got.Input) != 3 {
-		t.Fatalf("input has %d parts, want 3 (2 images + question)", len(got.Input))
+	if len(got.Input) != 5 {
+		t.Fatalf("input has %d parts, want 5 (label + image, label + image, question)", len(got.Input))
 	}
-	if got.Input[0].Type != gemini.ContentTypeImage || got.Input[0].Resolution != gemini.ResolutionHigh {
-		t.Errorf("first image = %+v, want image at high", got.Input[0])
+	if got.Input[0].Type != gemini.ContentTypeText || got.Input[0].Text != "Image 1: a.png" {
+		t.Errorf("first part = %+v, want the label for a.png", got.Input[0])
 	}
-	if got.Input[1].Type != gemini.ContentTypeImage || got.Input[1].Resolution != gemini.ResolutionMedium {
-		t.Errorf("second image = %+v, want image at medium", got.Input[1])
+	if got.Input[1].Type != gemini.ContentTypeImage || got.Input[1].Resolution != gemini.ResolutionHigh {
+		t.Errorf("second part = %+v, want first image at high", got.Input[1])
 	}
-	if got.Input[2].Type != gemini.ContentTypeText {
-		t.Fatalf("last part = %+v, want the question last", got.Input[2])
+	if got.Input[2].Type != gemini.ContentTypeText || got.Input[2].Text != "Image 2: b.png" {
+		t.Errorf("third part = %+v, want the label for b.png", got.Input[2])
 	}
-	if !strings.Contains(got.Input[2].Text, "what is wrong?") {
-		t.Errorf("question missing from the last part: %s", got.Input[2].Text)
+	if got.Input[3].Type != gemini.ContentTypeImage || got.Input[3].Resolution != gemini.ResolutionMedium {
+		t.Errorf("fourth part = %+v, want second image at medium", got.Input[3])
 	}
-	if !strings.Contains(got.Input[2].Text, "64px tall") {
-		t.Errorf("spec should precede the question in the last part: %s", got.Input[2].Text)
+	if got.Input[4].Type != gemini.ContentTypeText {
+		t.Fatalf("last part = %+v, want the question last", got.Input[4])
+	}
+	if !strings.Contains(got.Input[4].Text, "what is wrong?") {
+		t.Errorf("question missing from the last part: %s", got.Input[4].Text)
+	}
+	if !strings.Contains(got.Input[4].Text, "64px tall") {
+		t.Errorf("spec should precede the question in the last part: %s", got.Input[4].Text)
+	}
+}
+
+// TestReviewScreenshotLabelsAreBaseNames pins that each image's label is the
+// file's base name, whatever directory the path resolves into — so a finding
+// names the file a human can find in the transcript, not a directory
+// position.
+func TestReviewScreenshotLabelsAreBaseNames(t *testing.T) {
+	var labels []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Input []gemini.Content `json:"input"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		for _, p := range req.Input {
+			if p.Type == gemini.ContentTypeText && strings.HasPrefix(p.Text, "Image ") {
+				labels = append(labels, p.Text)
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"i","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"[]"}]}]}`))
+	}))
+	defer srv.Close()
+
+	root := t.TempDir()
+	sub := filepath.Join(root, "shots", "nested")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	e, err := NewExecutor(root, &Policy{Mode: ModeFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Gemini = reviewScreenshotClient(srv)
+	writeFile(t, sub, "hero-dark.png", "x")
+	writeFile(t, sub, "form.png", "x")
+
+	res := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ImagePaths: []string{"shots/nested/hero-dark.png", "shots/nested/form.png"},
+		Question:   "what is wrong?",
+	})
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	want := []string{"Image 1: hero-dark.png", "Image 2: form.png"}
+	if len(labels) != len(want) {
+		t.Fatalf("labels = %q, want %q", labels, want)
+	}
+	for i := range want {
+		if labels[i] != want[i] {
+			t.Errorf("label %d = %q, want %q", i, labels[i], want[i])
+		}
 	}
 }
 
@@ -399,5 +462,387 @@ func TestReviewScreenshotResultCarriesUsage(t *testing.T) {
 	}
 	if res.GeminiUsage.SubTurn != 0 {
 		t.Errorf("SubTurn = %d, want 0 (the runner stamps the sub-turn)", res.GeminiUsage.SubTurn)
+	}
+}
+
+// mustParseFindings extracts the JSON array embedded in a formatted review
+// result — between the leading count line and the trailing truncation note —
+// and asserts it parses, which is exactly the property Part 2 is about: the
+// array DeepSeek receives must never be cut mid-document again. The decoder
+// reads from the first '[' and stops at the array's own closing bracket, so
+// the trailing note's brackets cannot confuse it.
+func mustParseFindings(t *testing.T, text string) []map[string]string {
+	t.Helper()
+	start := strings.Index(text, "[")
+	if start < 0 {
+		t.Fatalf("no JSON array in result: %q", text)
+	}
+	var out []map[string]string
+	if err := json.NewDecoder(strings.NewReader(text[start:])).Decode(&out); err != nil {
+		t.Fatalf("the JSON array in the result does not parse: %v\n%s", err, text)
+	}
+	return out
+}
+
+// TestFormatReviewAnswer covers the four shapes Gemini's answer can take: a
+// long array that must be capped by dropping whole findings (never by cutting
+// bytes), a short array, an empty array, and unparseable prose.
+func TestFormatReviewAnswer(t *testing.T) {
+	three := `[{"image":"a.png","element":"nav","issue":"overlaps the hero","expected":"64px","actual":"120px","confidence":"high"},{"image":"b.png","element":"footer","issue":"clipped","expected":"visible","actual":"cut","confidence":"medium"},{"image":"a.png","element":"logo","issue":"wrong colour","expected":"#123456","actual":"#654321","confidence":"low"}]`
+
+	t.Run("long array capped by finding count", func(t *testing.T) {
+		out, truncated := formatReviewAnswer(three, 260)
+		if !truncated {
+			t.Fatal("a long array must report truncation")
+		}
+		if !strings.HasPrefix(out, "3 findings, 1 high confidence\n") {
+			t.Errorf("result should lead with the full answer's count line, got: %q", out)
+		}
+		findings := mustParseFindings(t, out)
+		if len(findings) == 0 || len(findings) >= 3 {
+			t.Fatalf("capped result should keep some but not all findings, got %d: %s", len(findings), out)
+		}
+		wantDropped := fmt.Sprintf("dropped %d of 3 findings", 3-len(findings))
+		if !strings.Contains(out, wantDropped) {
+			t.Errorf("result should name how many findings were dropped (%s), got: %s", wantDropped, out)
+		}
+		// Whatever survived the cap, each finding is still whole: the parse
+		// above succeeded, and the kept ones carry their fields.
+		for _, f := range findings {
+			if f["image"] == "" || f["element"] == "" {
+				t.Errorf("kept finding lost its fields: %v", f)
+			}
+		}
+	})
+
+	t.Run("short array passes through whole", func(t *testing.T) {
+		short := `[{"image":"a.png","element":"nav","issue":"overlaps","confidence":"high"}]`
+		out, truncated := formatReviewAnswer(short, 200_000)
+		if truncated {
+			t.Fatal("a short array must not be truncated")
+		}
+		if !strings.HasPrefix(out, "1 finding, 1 high confidence\n") {
+			t.Errorf("count line = %q, want the singular form", out)
+		}
+		findings := mustParseFindings(t, out)
+		if len(findings) != 1 || findings[0]["image"] != "a.png" || findings[0]["confidence"] != "high" {
+			t.Errorf("findings = %v, want the one finding intact", findings)
+		}
+	})
+
+	t.Run("empty array stays a valid answer", func(t *testing.T) {
+		out, truncated := formatReviewAnswer(`[]`, 200_000)
+		if truncated {
+			t.Fatal("an empty array must not report truncation")
+		}
+		if !strings.HasPrefix(out, "0 findings, 0 high confidence\n") {
+			t.Errorf("count line = %q, want 0 findings", out)
+		}
+		if find := mustParseFindings(t, out); len(find) != 0 {
+			t.Errorf("findings = %v, want none", find)
+		}
+		if strings.Contains(out, "truncated") {
+			t.Errorf("empty array must not carry a truncation note: %s", out)
+		}
+	})
+
+	t.Run("unparseable prose is labelled", func(t *testing.T) {
+		prose := "The header overlaps the hero image on narrow screens."
+		out, truncated := formatReviewAnswer(prose, 200_000)
+		if truncated {
+			t.Fatal("short prose must not report truncation")
+		}
+		if !strings.HasPrefix(out, "Gemini's answer was not a JSON list; unparsed text follows:") {
+			t.Errorf("prose must be labelled as unparsed, got: %q", out)
+		}
+		if !strings.Contains(out, prose) {
+			t.Errorf("the raw prose should still reach the model: %s", out)
+		}
+	})
+
+	t.Run("prose over the cap is cut with the label", func(t *testing.T) {
+		prose := strings.Repeat("the header overlaps the hero. ", 50)
+		out, truncated := formatReviewAnswer(prose, 120)
+		if !truncated {
+			t.Fatal("long prose must report truncation")
+		}
+		if !strings.HasPrefix(out, "Gemini's answer was not a JSON list; unparsed text follows:") {
+			t.Errorf("prose must be labelled as unparsed, got: %q", out)
+		}
+		if !strings.Contains(out, "[truncated:") {
+			t.Errorf("the byte cap on prose must stay labelled: %s", out)
+		}
+	})
+}
+
+// TestReviewScreenshotFormatsTheAnswer drives the formatting end to end
+// through the tool: the Gemini server returns a raw compact array, and the
+// tool result must come back as the count line plus an indented array that
+// still parses, with the truncated flag set when the output cap bites.
+func TestReviewScreenshotFormatsTheAnswer(t *testing.T) {
+	answer := `[{"image":"a.png","element":"nav","issue":"overlaps","confidence":"high"},{"image":"b.png","element":"footer","issue":"clipped","confidence":"medium"}]`
+	quoted, err := json.Marshal(answer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"i","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":` + string(quoted) + `}]}]}`))
+	}))
+	defer srv.Close()
+
+	root := t.TempDir()
+	e, err := NewExecutor(root, &Policy{Mode: ModeFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Gemini = reviewScreenshotClient(srv)
+	// A small output cap forces the drop-by-count path while still leaving
+	// room for one whole finding plus the count line and the drop note.
+	e.OutputCap = 200
+	writeFile(t, root, "a.png", "x")
+	writeFile(t, root, "b.png", "x")
+
+	res := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ImagePaths: []string{"a.png", "b.png"},
+		Question:   "what is wrong?",
+	})
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	if !res.Truncated {
+		t.Fatal("a capped answer must set the truncated flag")
+	}
+	if !strings.HasPrefix(res.Content, "conversation_id: rvw-") {
+		t.Errorf("result should carry the conversation id first, got: %q", res.Content)
+	}
+	if !strings.Contains(res.Content, "\n2 findings, 1 high confidence\n") {
+		t.Errorf("result should lead with the count line after the id, got: %q", res.Content)
+	}
+	if find := mustParseFindings(t, res.Content); len(find) == 0 || len(find) >= 2 {
+		t.Errorf("capped result should keep some but not all findings, got: %s", res.Content)
+	}
+}
+
+// reviewScreenshotRequests is the shape every capture below decodes the
+// Gemini request body into.
+type reviewScreenshotRequests []struct {
+	Input []gemini.Content `json:"input"`
+}
+
+// reviewConversationServer stands in for Gemini across a conversation,
+// recording every request body and answering [] each time.
+func reviewConversationServer(t *testing.T, requests *reviewScreenshotRequests) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Input []gemini.Content `json:"input"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		*requests = append(*requests, req)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"i","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"[]"}]}]}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// TestReviewScreenshotConversationFollowUp drives a first call and then a
+// follow-up against the test Gemini server, asserting the second request
+// carries the images again, the first question, the first answer, and the
+// new question — the follow-up is one review with the thread re-sent, not a
+// fresh review from scratch.
+func TestReviewScreenshotConversationFollowUp(t *testing.T) {
+	var requests reviewScreenshotRequests
+	srv := reviewConversationServer(t, &requests)
+
+	root := t.TempDir()
+	e, err := NewExecutor(root, &Policy{Mode: ModeFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Gemini = reviewScreenshotClient(srv)
+	writeFile(t, root, "a.png", "first image bytes")
+	writeFile(t, root, "b.png", "second image bytes")
+
+	first := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ImagePaths: []string{"a.png", "b.png"},
+		Question:   "what is wrong?",
+		Spec:       "the nav is 64px tall",
+	})
+	if first.IsError {
+		t.Fatalf("first call failed: %s", first.Content)
+	}
+	firstLine, _, _ := strings.Cut(first.Content, "\n")
+	if !strings.HasPrefix(firstLine, "conversation_id: rvw-") {
+		t.Fatalf("first result should carry a conversation id, got: %q", firstLine)
+	}
+	id := strings.TrimPrefix(firstLine, "conversation_id: ")
+
+	second := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ConversationID: id,
+		Question:       "look closer at the header",
+	})
+	if second.IsError {
+		t.Fatalf("follow-up failed: %s", second.Content)
+	}
+	if !strings.HasPrefix(second.Content, "conversation_id: "+id+"\n") {
+		t.Errorf("follow-up result should echo the conversation id, got: %q", second.Content)
+	}
+
+	if len(requests) != 2 {
+		t.Fatalf("Gemini saw %d requests, want 2", len(requests))
+	}
+
+	// The second request carries the images again, byte for byte.
+	var secondImages []gemini.Content
+	for _, p := range requests[1].Input {
+		if p.Type == gemini.ContentTypeImage {
+			secondImages = append(secondImages, p)
+		}
+	}
+	if len(secondImages) != 2 {
+		t.Fatalf("second request has %d image parts, want 2 (the images again)", len(secondImages))
+	}
+	if secondImages[0].Data != base64.StdEncoding.EncodeToString([]byte("first image bytes")) ||
+		secondImages[1].Data != base64.StdEncoding.EncodeToString([]byte("second image bytes")) {
+		t.Errorf("second request's images differ from the first call's files: %+v", secondImages)
+	}
+
+	// The second request's last text part carries the first question, the
+	// first answer (the raw [] from the first response), the spec, and the
+	// new question last.
+	last := requests[1].Input[len(requests[1].Input)-1]
+	if last.Type != gemini.ContentTypeText {
+		t.Fatalf("second request's last part = %+v, want the composed question text", last)
+	}
+	for _, want := range []string{
+		"Design spec / target CSS:", "the nav is 64px tall",
+		"Question: what is wrong?", "Answer: []",
+		"look closer at the header",
+	} {
+		if !strings.Contains(last.Text, want) {
+			t.Errorf("follow-up question should carry %q, got: %s", want, last.Text)
+		}
+	}
+	if !strings.HasSuffix(last.Text, "look closer at the header") {
+		t.Errorf("the new question should come last, got: %s", last.Text)
+	}
+
+	// The labels still introduce the re-sent images.
+	var labels []string
+	for _, p := range requests[1].Input {
+		if p.Type == gemini.ContentTypeText && strings.HasPrefix(p.Text, "Image ") {
+			labels = append(labels, p.Text)
+		}
+	}
+	if len(labels) != 2 || labels[0] != "Image 1: a.png" || labels[1] != "Image 2: b.png" {
+		t.Errorf("follow-up labels = %q, want the base names again", labels)
+	}
+}
+
+// TestReviewScreenshotFollowUpMissingFile pins the re-read-from-disk
+// contract: a follow-up does not hold the image bytes, so a file deleted
+// since the conversation started fails with an ordinary error result naming
+// the missing path.
+func TestReviewScreenshotFollowUpMissingFile(t *testing.T) {
+	var requests reviewScreenshotRequests
+	srv := reviewConversationServer(t, &requests)
+
+	root := t.TempDir()
+	e, err := NewExecutor(root, &Policy{Mode: ModeFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Gemini = reviewScreenshotClient(srv)
+	writeFile(t, root, "a.png", "first image bytes")
+
+	first := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ImagePaths: []string{"a.png"},
+		Question:   "what is wrong?",
+	})
+	if first.IsError {
+		t.Fatalf("first call failed: %s", first.Content)
+	}
+	firstLine, _, _ := strings.Cut(first.Content, "\n")
+	id := strings.TrimPrefix(firstLine, "conversation_id: ")
+
+	if err := os.Remove(filepath.Join(root, "a.png")); err != nil {
+		t.Fatal(err)
+	}
+
+	res := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ConversationID: id,
+		Question:       "look again",
+	})
+	if !res.IsError {
+		t.Fatalf("follow-up on a deleted file should fail, got: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, "a.png") || !strings.Contains(res.Content, "not found") {
+		t.Errorf("error should name the missing path, got: %s", res.Content)
+	}
+	// Nothing reached Gemini: the failure happened before the request.
+	if len(requests) != 1 {
+		t.Errorf("Gemini saw %d requests, want 1 (the failed follow-up sent nothing)", len(requests))
+	}
+}
+
+// TestReviewScreenshotConversationMisuse pins the follow-up contract: an
+// unknown conversation_id and a follow-up that carries image_paths or spec
+// are refused with readable errors, so the model corrects the call rather
+// than paying for a request it did not mean.
+func TestReviewScreenshotConversationMisuse(t *testing.T) {
+	var requests reviewScreenshotRequests
+	srv := reviewConversationServer(t, &requests)
+
+	root := t.TempDir()
+	e, err := NewExecutor(root, &Policy{Mode: ModeFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Gemini = reviewScreenshotClient(srv)
+	writeFile(t, root, "a.png", "x")
+
+	first := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ImagePaths: []string{"a.png"},
+		Question:   "what is wrong?",
+	})
+	if first.IsError {
+		t.Fatalf("first call failed: %s", first.Content)
+	}
+	firstLine, _, _ := strings.Cut(first.Content, "\n")
+	id := strings.TrimPrefix(firstLine, "conversation_id: ")
+
+	res := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ConversationID: "rvw-deadbeef",
+		Question:       "look again",
+	})
+	if !res.IsError || !strings.Contains(res.Content, "unknown conversation_id") {
+		t.Errorf("unknown id should be refused, got: %s", res.Content)
+	}
+
+	res = runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ConversationID: id,
+		ImagePaths:     []string{"a.png"},
+		Question:       "look again",
+	})
+	if !res.IsError || !strings.Contains(res.Content, "no image_paths") {
+		t.Errorf("image_paths on a follow-up should be refused, got: %s", res.Content)
+	}
+
+	res = runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ConversationID: id,
+		Question:       "look again",
+		Spec:           "a new spec",
+	})
+	if !res.IsError || !strings.Contains(res.Content, "no spec") {
+		t.Errorf("spec on a follow-up should be refused, got: %s", res.Content)
+	}
+
+	// The refused calls sent nothing: only the first call reached Gemini.
+	if len(requests) != 1 {
+		t.Errorf("Gemini saw %d requests, want 1 (the refused calls sent nothing)", len(requests))
 	}
 }

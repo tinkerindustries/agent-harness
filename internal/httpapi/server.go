@@ -26,6 +26,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -35,6 +36,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -867,6 +869,13 @@ func (s *Server) handleSteerSession(w http.ResponseWriter, r *http.Request) {
 // absent — a browser form has no idempotency key to offer — and a caller
 // that supplies one gets the same deduplication every other producer gets.
 //
+// The body may also carry an attachments array (name, mime_type, base64
+// data). Each attachment is validated — plain file name, PNG/JPEG/WebP
+// extension, bytes within the per-file cap, count within the cap
+// (tools.attachments_max_count, tools.attachments_max_bytes) — and written
+// to the store before validation, so the published request carries only the
+// attachment ids and never the bytes (docs/DATA-API.md).
+//
 // The handler overwrites the three provenance fields — parent_is_user,
 // parent_agent_type, parent_agent_id — before validation: a person started
 // this run directly, so parent_is_user is true and the parent agent fields
@@ -892,17 +901,28 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	var req queue.Request
-	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+	var body startRunBody
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<26)).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body: expected a work request (prompt, repos, permission_mode, ...)"})
 		return
 	}
+	req := body.Request
 	if req.RequestID == "" {
 		req.RequestID = randomRequestID()
 	}
 	req.ParentIsUser = true
 	req.ParentAgentType = ""
 	req.ParentAgentID = s.operatorName(r.Context())
+	// Attachments are written to the store before validation, so a request
+	// that passes Validate is already complete: the bytes never ride the
+	// NATS request (the default max_payload is 1 MB and a mockup exceeds
+	// it), only the ids do (docs/DATA-API.md).
+	ids, err := s.writeAttachments(r.Context(), body.Attachments)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	req.AttachmentIDs = ids
 	if err := req.Validate(); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -916,6 +936,135 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"request_id": req.RequestID})
+}
+
+// startRunBody is the POST /api/runs body: the queue request's own wire
+// shape plus an optional attachments array. The bytes are base64 in the
+// body but never on the NATS request — the handler writes them to the
+// store's attachments table and the request carries the ids
+// (docs/DATA-API.md). Embedding keeps every request field the queue owns
+// flowing through unchanged.
+type startRunBody struct {
+	queue.Request
+	Attachments []startRunAttachment `json:"attachments"`
+}
+
+// startRunAttachment is one image a browser start carries: a plain file
+// name, a MIME type from ReviewScreenshot's own allowlist, and the image
+// bytes base64-encoded.
+type startRunAttachment struct {
+	Name     string `json:"name"`
+	MIMEType string `json:"mime_type"`
+	Data     string `json:"data"`
+}
+
+// attachmentMaxCountDefault and attachmentMaxBytesDefault back the
+// tools.attachments_max_count and tools.attachments_max_bytes settings for
+// a Server with no settings resolver (the test path); the registry defaults
+// are the same values, and internal/settings/registry_test.go pins them.
+const (
+	attachmentMaxCountDefault = 8
+	attachmentMaxBytesDefault = 5 << 20 // 5 MB per file, ReviewScreenshot's own cap
+)
+
+func (s *Server) attachmentMaxCount(ctx context.Context) int {
+	if s.Settings != nil {
+		if v, err := s.Settings.Int(ctx, settings.KeyToolAttachmentsMaxCount); err == nil {
+			return v
+		}
+	}
+	return attachmentMaxCountDefault
+}
+
+func (s *Server) attachmentMaxBytes(ctx context.Context) int {
+	if s.Settings != nil {
+		if v, err := s.Settings.Int(ctx, settings.KeyToolAttachmentsMaxBytes); err == nil {
+			return v
+		}
+	}
+	return attachmentMaxBytesDefault
+}
+
+// writeAttachments validates each attachment (name, MIME type, base64, the
+// per-file byte cap, and the count cap) and stores its bytes, returning the
+// ids the request then carries. A nil store — a Server built without one —
+// refuses attachments rather than dropping them silently: a run that cannot
+// deliver the file its caller sent must not start without it.
+func (s *Server) writeAttachments(ctx context.Context, attachments []startRunAttachment) ([]string, error) {
+	if len(attachments) == 0 {
+		return nil, nil
+	}
+	maxCount := s.attachmentMaxCount(ctx)
+	if len(attachments) > maxCount {
+		return nil, fmt.Errorf("at most %d attachments are accepted, got %d", maxCount, len(attachments))
+	}
+	if s.Store == nil {
+		return nil, errors.New("attachments cannot be stored: no store is wired")
+	}
+	maxBytes := s.attachmentMaxBytes(ctx)
+	ids := make([]string, 0, len(attachments))
+	for _, att := range attachments {
+		name, mime, data, err := validateAttachmentInput(att, maxBytes)
+		if err != nil {
+			return nil, err
+		}
+		id, err := s.Store.WriteAttachment(ctx, name, mime, data)
+		if err != nil {
+			return nil, fmt.Errorf("store attachment %q: %w", name, err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+// validateAttachmentInput checks one attachment and returns its decoded
+// bytes. The name must be a plain file name — the workspace writes the file
+// under it, so a path-shaped name would be a way out of scratch/attachments/
+// — and its extension must be one of the three types ReviewScreenshot
+// accepts, because the model's whole use of the file is passing it back to
+// ReviewScreenshot. The MIME type, when supplied, must match the extension.
+func validateAttachmentInput(att startRunAttachment, maxBytes int) (string, string, []byte, error) {
+	name := att.Name
+	if name == "" {
+		return "", "", nil, errors.New("attachment name is required")
+	}
+	if filepath.Base(name) != name || name == "." || name == ".." {
+		return "", "", nil, fmt.Errorf("attachment name %q must be a plain file name, not a path", name)
+	}
+	mime, ok := attachmentMIMEType(name)
+	if !ok {
+		return "", "", nil, fmt.Errorf("attachment %q: only PNG, JPEG, and WebP images are accepted", name)
+	}
+	if att.MIMEType != "" && att.MIMEType != mime {
+		return "", "", nil, fmt.Errorf("attachment %q: mime_type %q does not match the file's extension", name, att.MIMEType)
+	}
+	data, err := base64.StdEncoding.DecodeString(att.Data)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("attachment %q: data is not valid base64", name)
+	}
+	if len(data) > maxBytes {
+		return "", "", nil, fmt.Errorf("attachment %q is %d bytes, over the %d-byte per-file limit", name, len(data), maxBytes)
+	}
+	if len(data) == 0 {
+		return "", "", nil, fmt.Errorf("attachment %q is empty", name)
+	}
+	return name, mime, data, nil
+}
+
+// attachmentMIMEType reports the MIME type an attachment name claims, by
+// extension, and whether it is one of the three types ReviewScreenshot
+// accepts.
+func attachmentMIMEType(name string) (string, bool) {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".png":
+		return "image/png", true
+	case ".jpg", ".jpeg":
+		return "image/jpeg", true
+	case ".webp":
+		return "image/webp", true
+	default:
+		return "", false
+	}
 }
 
 // operatorName resolves identity.operator for stamping into parent_agent_id

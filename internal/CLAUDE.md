@@ -130,9 +130,10 @@ run. Depends on: nothing internal.
 ### `internal/mcp`
 The MCP launch server: tools and resources over streamable HTTP, mounted at
 `/mcp` by `harness serve` on its own HTTP server and handed serve's own
-JetStream handle and control token. Backed by the WORK and RESULTS streams and
-the harness's HTTP API. Imports `store` and `hub` for their types only — it
-renders transcripts fetched over HTTP and opens no database. It never touches
+JetStream handle, control token, settings resolver, and store. Backed by the
+WORK and RESULTS streams and the harness's HTTP API. It opens no database —
+the store handle it writes attachments through is serve's own, so `serve`
+stays the single writer (docs/DATA-API.md, "attachments"). It never touches
 the system prompt or the tool array.
 
 ### `internal/cache`

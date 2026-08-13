@@ -202,6 +202,37 @@ Three boundaries this draws:
   authentication [RUN-CONTROL.md](RUN-CONTROL.md) names as the open question for
   a surface anyone exposes beyond loopback.
 
+### attachments
+
+A work request may carry images — a mockup the task asks the agent to match,
+say. The bytes live in the `attachments` table, never inline in the NATS
+request: the default `max_payload` is 1 MB and a mockup exceeds it, and the
+store is the authority the disk mirror derives from, so `harness export`
+stays complete. The request carries only `attachment_ids`; the worker reads
+the rows back and the workspace materialises them into
+`scratch/attachments/`, which the run's opening message names.
+
+The two producers accept them in the same shape — `POST /api/runs` (a
+top-level `attachments` array beside the work-request fields) and the MCP
+`deepseek_agent` tool:
+
+```json
+{"name": "mockup.png", "mime_type": "image/png", "data": "<base64>"}
+```
+
+Each attachment is validated before it is stored: the name must be a plain
+file name ending in `.png`, `.jpg`, `.jpeg`, or `.webp` — the three types
+`ReviewScreenshot` accepts, because the model's use of the file is passing it
+back to ReviewScreenshot — the MIME type, when supplied, must match the
+extension, and the decoded bytes must be within the per-file cap. The count
+and the per-file bytes are settings, not fixed values
+(`tools.attachments_max_count`, `tools.attachments_max_bytes`, both under
+`Tool limits` with the same defaults shape as the
+`tools.reviewscreenshot_max_*` pair). A failing attachment is a 400 (or a
+tool error from `deepseek_agent`) naming the problem, and nothing is
+published; a request that passes validation is already complete, because the
+bytes were stored before the publish.
+
 ### work_requests
 
 A work request is the idempotency row for one queued job: request id, the

@@ -22,6 +22,8 @@ import (
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/config"
+	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
+	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
 
 // serverVersion is the only version string in the repo, and it is what an MCP
@@ -40,6 +42,18 @@ type Service struct {
 	Cfg        config.MCPConfig
 	HTTPClient *http.Client
 	Registry   *Registry
+
+	// Store is where deepseek_agent writes its attachments before
+	// publishing (the request carries only the ids, docs/DATA-API.md). It is
+	// serve's own handle, passed in rather than opened here — internal/mcp
+	// never opens a SQLite handle (ARCHITECTURE.md). Nil refuses a launch
+	// that carries attachments.
+	Store *store.Store
+
+	// Settings resolves the attachment caps (tools.attachments_max_count,
+	// tools.attachments_max_bytes) on every launch, so a limit changed with
+	// harness config set applies without a restart.
+	Settings *settings.Resolver
 }
 
 // NewServer builds the MCP server and registers every tool and resource

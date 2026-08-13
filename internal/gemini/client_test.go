@@ -35,8 +35,8 @@ func TestRequestShapePinsTheDoc(t *testing.T) {
 		"You are reviewing a web page screenshot against its intended design.",
 		"Based on the preceding screenshot, identify all visual discrepancies.",
 		[]Image{
-			{Data: []byte("first"), MIMEType: "image/png", Resolution: ResolutionHigh},
-			{Data: []byte("second"), MIMEType: "image/webp", Resolution: ResolutionMedium},
+			{Data: []byte("first"), MIMEType: "image/png", Resolution: ResolutionHigh, Label: "home-dark.png"},
+			{Data: []byte("second"), MIMEType: "image/webp", Resolution: ResolutionMedium, Label: "home-light.png"},
 		})
 	if err != nil {
 		t.Fatalf("Interact: %v", err)
@@ -51,20 +51,26 @@ func TestRequestShapePinsTheDoc(t *testing.T) {
 	if got.GenerationConfig.ThinkingLevel != ThinkingLevelMedium {
 		t.Errorf("thinking_level = %q, want %q", got.GenerationConfig.ThinkingLevel, ThinkingLevelMedium)
 	}
-	if len(got.Input) != 3 {
-		t.Fatalf("input has %d parts, want 3 (2 images + question)", len(got.Input))
+	if len(got.Input) != 5 {
+		t.Fatalf("input has %d parts, want 5 (2 labels + 2 images + question)", len(got.Input))
 	}
-	if got.Input[0].Type != ContentTypeImage || got.Input[0].Resolution != ResolutionHigh {
-		t.Errorf("first part = %+v, want image at high", got.Input[0])
+	if got.Input[0].Type != ContentTypeText || got.Input[0].Text != "Image 1: home-dark.png" {
+		t.Errorf("first part = %+v, want the label text part for the first image", got.Input[0])
 	}
-	if got.Input[1].Type != ContentTypeImage || got.Input[1].Resolution != ResolutionMedium {
-		t.Errorf("second part = %+v, want image at medium", got.Input[1])
+	if got.Input[1].Type != ContentTypeImage || got.Input[1].Resolution != ResolutionHigh {
+		t.Errorf("second part = %+v, want image at high", got.Input[1])
 	}
-	if got.Input[2].Type != ContentTypeText || got.Input[2].Text == "" {
-		t.Errorf("last part = %+v, want the question last", got.Input[2])
+	if got.Input[2].Type != ContentTypeText || got.Input[2].Text != "Image 2: home-light.png" {
+		t.Errorf("third part = %+v, want the label text part for the second image", got.Input[2])
 	}
-	if got.Input[0].MIMEType != "image/png" || got.Input[0].Data != base64.StdEncoding.EncodeToString([]byte("first")) {
-		t.Errorf("first image bytes not base64-encoded with its mime type: %+v", got.Input[0])
+	if got.Input[3].Type != ContentTypeImage || got.Input[3].Resolution != ResolutionMedium {
+		t.Errorf("fourth part = %+v, want image at medium", got.Input[3])
+	}
+	if got.Input[4].Type != ContentTypeText || got.Input[4].Text == "" {
+		t.Errorf("last part = %+v, want the question last", got.Input[4])
+	}
+	if got.Input[1].MIMEType != "image/png" || got.Input[1].Data != base64.StdEncoding.EncodeToString([]byte("first")) {
+		t.Errorf("first image bytes not base64-encoded with its mime type: %+v", got.Input[1])
 	}
 
 	raw, err := json.Marshal(got)
@@ -81,6 +87,69 @@ func TestRequestShapePinsTheDoc(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), `"response_format":{"type":"array"}`) {
 		t.Errorf("request body does not carry top-level response_format, got: %s", raw)
+	}
+}
+
+// TestInteractLabelsPrecedeImages asserts the label interleaving order: a
+// text part carrying "Image N: <label>" sits immediately before each image
+// part, in the order the images were given, so the model can name the
+// screenshot a finding is about. An image without a label emits no label
+// part, so a caller that has nothing to name does not pay for one.
+func TestInteractLabelsPrecedeImages(t *testing.T) {
+	var got InteractionRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decode request body: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"i-1","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"[]"}]}]}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }))
+	_, _, err := c.Interact(context.Background(), "gemini-3.5-flash", "", "question?",
+		[]Image{
+			{Data: []byte("a"), MIMEType: "image/png", Resolution: ResolutionHigh, Label: "a.png"},
+			{Data: []byte("b"), MIMEType: "image/png", Resolution: ResolutionMedium, Label: "b.png"},
+			{Data: []byte("c"), MIMEType: "image/png", Resolution: ResolutionMedium},
+		})
+	if err != nil {
+		t.Fatalf("Interact: %v", err)
+	}
+
+	var parts []string
+	for _, p := range got.Input {
+		if p.Type == ContentTypeText {
+			parts = append(parts, p.Text)
+		}
+	}
+	want := []string{"Image 1: a.png", "Image 2: b.png", "question?"}
+	if len(parts) != len(want) {
+		t.Fatalf("text parts = %q, want %q", parts, want)
+	}
+	for i := range want {
+		if parts[i] != want[i] {
+			t.Errorf("text part %d = %q, want %q", i, parts[i], want[i])
+		}
+	}
+
+	// The label parts sit immediately before their images, in order: for each
+	// of the two labelled images, the part before it must be the matching
+	// label; the unlabelled third image emits none.
+	imageIdx := 0
+	for i, p := range got.Input {
+		if p.Type != ContentTypeImage {
+			continue
+		}
+		imageIdx++
+		if imageIdx <= 2 {
+			if i == 0 || got.Input[i-1].Type != ContentTypeText {
+				t.Errorf("image part %d has no label text part immediately before it", i)
+			}
+		}
+	}
+	if imageIdx != 3 {
+		t.Errorf("image parts = %d, want 3", imageIdx)
 	}
 }
 

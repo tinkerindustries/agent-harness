@@ -2,9 +2,16 @@ package mcp
 
 import (
 	"context"
+	"encoding/base64"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
 	"github.com/mrgeoffrich/deepseek-harness/internal/config"
+	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
+	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
 
 // newValidationService builds a Service whose validation-only handler paths
@@ -157,5 +164,99 @@ func TestHandleCollectRejectsMissingRequestID(t *testing.T) {
 	}
 	if !res.IsError {
 		t.Fatal("expected an error result for a missing request_id")
+	}
+}
+
+// TestLaunchWritesAttachmentsToTheStore pins the attachment path of the
+// deepseek_agent tool: the bytes are stored before the publish and the
+// caller receives the ids on the work request, so the NATS request stays
+// small and the worker can materialise the files.
+func TestLaunchWritesAttachmentsToTheStore(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "harness.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	svc := newValidationService(t)
+	svc.Store = st
+	svc.Settings = settings.NewResolver(st)
+
+	ids, err := svc.writeAttachments(context.Background(), []launchAttachment{
+		{Name: "mockup.png", MIMEType: "image/png", Data: base64.StdEncoding.EncodeToString([]byte("mockup bytes"))},
+		{Name: "dark.webp", Data: base64.StdEncoding.EncodeToString([]byte("dark bytes"))}, // mime derived from the name
+	})
+	if err != nil {
+		t.Fatalf("writeAttachments: %v", err)
+	}
+	if len(ids) != 2 {
+		t.Fatalf("got %d ids, want 2", len(ids))
+	}
+
+	att, err := st.GetAttachment(context.Background(), ids[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if att.Name != "mockup.png" || att.MIMEType != "image/png" || string(att.Data) != "mockup bytes" {
+		t.Errorf("attachment = %+v, want the stored mockup", att)
+	}
+	att2, err := st.GetAttachment(context.Background(), ids[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if att2.MIMEType != "image/webp" {
+		t.Errorf("omitted mime_type should be derived from the name, got %q", att2.MIMEType)
+	}
+}
+
+// TestLaunchRefusesBadAttachments pins the same refusals the browser start
+// carries: a bad extension, a mismatched MIME type, a path-shaped name, and
+// bytes over the cap are tool errors, and a launch that carries attachments
+// against a Service with no store wired is refused rather than stripped.
+func TestLaunchRefusesBadAttachments(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "harness.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	svc := newValidationService(t)
+	svc.Store = st
+	svc.Settings = settings.NewResolver(st)
+
+	valid := base64.StdEncoding.EncodeToString([]byte("mockup bytes"))
+	for _, tc := range []struct {
+		name string
+		att  launchAttachment
+		want string
+	}{
+		{name: "bad extension", att: launchAttachment{Name: "mockup.gif", Data: valid}, want: "only PNG, JPEG, and WebP"},
+		{name: "mime mismatch", att: launchAttachment{Name: "mockup.png", MIMEType: "image/webp", Data: valid}, want: "does not match"},
+		{name: "path-shaped name", att: launchAttachment{Name: "../mockup.png", MIMEType: "image/png", Data: valid}, want: "plain file name"},
+		{name: "not base64", att: launchAttachment{Name: "mockup.png", Data: "!!!not base64!!!"}, want: "not valid base64"},
+		{name: "over the byte cap", att: launchAttachment{Name: "mockup.png", MIMEType: "image/png", Data: base64.StdEncoding.EncodeToString(make([]byte, launchAttachmentMaxBytesDefault+1))}, want: "per-file limit"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := svc.writeAttachments(context.Background(), []launchAttachment{tc.att}); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %v, want it to carry %q", err, tc.want)
+			}
+		})
+	}
+
+	// A launch carrying attachments against a service with no store is an
+	// ordinary tool error, not a silently stripped attachment.
+	noStore := newValidationService(t)
+	res, _, err := noStore.handleLaunch(context.Background(), nil, launchInput{
+		Description:    "task",
+		Prompt:         "match the mockup",
+		Repos:          testLaunchRepos(),
+		PermissionMode: "full",
+		Attachments:    []launchAttachment{{Name: "mockup.png", MIMEType: "image/png", Data: valid}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected protocol error: %v", err)
+	}
+	if !res.IsError || !strings.Contains(res.Content[0].(*mcpsdk.TextContent).Text, "no store is wired") {
+		t.Errorf("expected a no-store refusal, got: %s", res.Content[0].(*mcpsdk.TextContent).Text)
 	}
 }

@@ -179,6 +179,14 @@ type Executor struct {
 	todosMu    sync.Mutex
 	todos      []Todo
 	nextTaskID int
+
+	// ReviewScreenshot conversation state, held here because an Executor
+	// belongs to exactly one session: the image paths and prior question/
+	// answer pairs of each conversation, capped to the most recent few so a
+	// long session cannot grow this without bound (reviewscreenshot.go).
+	reviewMu            sync.Mutex
+	reviewConversations map[string]*reviewConversation
+	reviewOrder         []string
 }
 
 // NewExecutor returns an Executor rooted at workspace (resolved to an

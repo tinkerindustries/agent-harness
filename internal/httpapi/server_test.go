@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -4124,4 +4125,104 @@ func TestStartRunStampsConfiguredOperator(t *testing.T) {
 			t.Fatalf("published ParentIsUser = false, want true")
 		}
 	})
+}
+
+// TestStartRunWritesAttachmentsBeforePublishing pins the attachment path
+// end to end: a browser start carrying images stores their bytes in the
+// store's attachments table before the publish, and the published request
+// carries the ids — never the bytes — so the NATS request stays small and
+// the worker can materialise the files into scratch/attachments/.
+func TestStartRunWritesAttachmentsBeforePublishing(t *testing.T) {
+	pub := &fakeRunPublisher{}
+	srv, st := newStartTestServer(t, pub)
+
+	body := `{
+		"prompt":"make the page match the mockup",
+		"repos":[{"url":"https://github.com/org/app.git"}],
+		"permission_mode":"readonly",
+		"attachments":[
+			{"name":"mockup.png","mime_type":"image/png","data":"` + base64.StdEncoding.EncodeToString([]byte("mockup bytes")) + `"},
+			{"name":"dark.webp","mime_type":"image/webp","data":"` + base64.StdEncoding.EncodeToString([]byte("dark bytes")) + `"}
+		]
+	}`
+	resp := doWrite(t, srv, http.MethodPost, "/api/runs", body, controlAuth)
+	got, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("got status %d, want 202 (body %s)", resp.StatusCode, got)
+	}
+
+	if len(pub.requests) != 1 {
+		t.Fatalf("publisher saw %d requests, want 1", len(pub.requests))
+	}
+	published := pub.requests[0]
+	if len(published.AttachmentIDs) != 2 {
+		t.Fatalf("published request carries %d attachment ids, want 2: %+v", len(published.AttachmentIDs), published)
+	}
+
+	// Each id the request carries resolves to a stored row with the right
+	// name, MIME type, and bytes: the worker reads exactly these back.
+	for i, want := range []struct{ name, mime, data string }{
+		{"mockup.png", "image/png", "mockup bytes"},
+		{"dark.webp", "image/webp", "dark bytes"},
+	} {
+		att, err := st.GetAttachment(context.Background(), published.AttachmentIDs[i])
+		if err != nil {
+			t.Fatalf("attachment %d not in the store: %v", i, err)
+		}
+		if att.Name != want.name || att.MIMEType != want.mime || string(att.Data) != want.data {
+			t.Errorf("attachment %d = %+v, want %+v", i, att, want)
+		}
+	}
+}
+
+// TestStartRunRefusesBadAttachments pins the attachment validation: a bad
+// extension, a mismatched MIME type, a path-shaped name, and an over-cap
+// file are all 400s, and none of them reaches the publisher — a request
+// whose attachment fails validation never starts.
+func TestStartRunRefusesBadAttachments(t *testing.T) {
+	valid := base64.StdEncoding.EncodeToString([]byte("mockup bytes"))
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "bad extension",
+			body: `{"prompt":"p","repos":[{"url":"https://github.com/org/app.git"}],"permission_mode":"readonly","attachments":[{"name":"mockup.gif","mime_type":"image/gif","data":"` + valid + `"}]}`,
+			want: "only PNG, JPEG, and WebP",
+		},
+		{
+			name: "mime mismatch",
+			body: `{"prompt":"p","repos":[{"url":"https://github.com/org/app.git"}],"permission_mode":"readonly","attachments":[{"name":"mockup.png","mime_type":"image/webp","data":"` + valid + `"}]}`,
+			want: "does not match",
+		},
+		{
+			name: "path-shaped name",
+			body: `{"prompt":"p","repos":[{"url":"https://github.com/org/app.git"}],"permission_mode":"readonly","attachments":[{"name":"../mockup.png","mime_type":"image/png","data":"` + valid + `"}]}`,
+			want: "plain file name",
+		},
+		{
+			name: "not base64",
+			body: `{"prompt":"p","repos":[{"url":"https://github.com/org/app.git"}],"permission_mode":"readonly","attachments":[{"name":"mockup.png","mime_type":"image/png","data":"!!!not base64!!!"}]}`,
+			want: "not valid base64",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pub := &fakeRunPublisher{}
+			srv, _ := newStartTestServer(t, pub)
+			resp := doWrite(t, srv, http.MethodPost, "/api/runs", tc.body, controlAuth)
+			got, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("got status %d, want 400 (body %s)", resp.StatusCode, got)
+			}
+			if !strings.Contains(string(got), tc.want) {
+				t.Errorf("400 should name the problem (%q), got %s", tc.want, got)
+			}
+			if len(pub.requests) != 0 {
+				t.Errorf("a refused attachment must not publish, got %+v", pub.requests)
+			}
+		})
+	}
 }
