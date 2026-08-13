@@ -40,7 +40,7 @@ type statusResponse struct {
 func (svc *Service) registerStatusTool(server *mcpsdk.Server) {
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "deepseek_status",
-		Description: "Report where a deepseek-harness run is up to, by request_id. Never blocks: it reads the " +
+		Description: "Report where an agent-harness run is up to, by request_id. Never blocks: it reads the " +
 			"harness's read-only status endpoint and returns immediately with the current state — what the run " +
 			"is working on, its todo list, tools in flight, and cost so far. Use while a run is in flight, and " +
 			"deepseek_result once it has finished.",

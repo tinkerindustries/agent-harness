@@ -1,8 +1,10 @@
-# deepseek-harness
+# agent-harness
 
-A coding harness for DeepSeek. An agent loop that clones repositories, reads and
-writes files, runs commands, and iterates until a task is done — targeting
-DeepSeek's own API rather than a provider-agnostic abstraction.
+A coding harness for running agent loops against a model provider's own API.
+DeepSeek is the default provider and the only one implemented today. The loop
+clones repositories, reads and writes files, runs commands, and iterates until
+a task is done — targeting a provider's real behaviour rather than a
+provider-agnostic abstraction.
 
 Work arrives on a NATS JetStream queue, runs as one of several concurrent agent
 sessions in a single Go process, and returns a result to a results stream. A

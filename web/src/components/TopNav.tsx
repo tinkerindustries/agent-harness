@@ -67,7 +67,7 @@ export function TopNav({ route, onNavigate, children }: TopNavProps) {
           route.kind === "session" && "topnav-flush",
         )}
       >
-        <span className="wordmark">deepseek-harness</span>
+        <span className="wordmark">agent-harness</span>
         {route.kind === "session" ? (
           <nav className="topnav-links">
             <a
