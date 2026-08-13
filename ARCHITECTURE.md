@@ -132,7 +132,9 @@ than loses. Owns acknowledgement discipline and idempotency against the
 Prepares the per-session directory — a `scratch/` subdirectory for files that
 are not part of the deliverable, and clones of the repositories a request
 names — including the remote-URL restrictions that keep `ext::` and local
-paths out. §4.10.
+paths out. Each clone then gets its Node dependencies installed, with the
+lockfile choosing the package manager; the install is best-effort and never
+fails a run. §4.10.
 
 ### `internal/skills`
 Scans each cloned repository for `.claude/skills/` and `.deepcode/skills/` and

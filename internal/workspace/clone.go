@@ -17,7 +17,8 @@ import (
 // Prepare creates root/sessionID with a scratch/ subdirectory and clones
 // repos into it, returning the absolute path the session runs against. The
 // directory must not already exist: a session id names exactly one run, so an
-// existing folder means something else owns it.
+// existing folder means something else owns it. Each clone then has its Node
+// dependencies installed, best-effort (deps.go).
 //
 // A partly built workspace is left on disk when a clone fails. The run is
 // over at that point and the directory is the only record of how far it got.
@@ -53,6 +54,7 @@ func Prepare(ctx context.Context, root, sessionID string, repos []queue.Repo) (s
 		if err := clone(ctx, dir, repo); err != nil {
 			return dir, err
 		}
+		installDependencies(ctx, filepath.Join(dir, repo.Dir()))
 	}
 	return dir, nil
 }

@@ -55,6 +55,12 @@ RUN apk add --no-cache libstdc++ && \
     ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
     ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
+# pnpm and yarn, because the workspace installs whatever manager a cloned
+# repository's lockfile names (internal/workspace/deps.go) and a pnpm repo has
+# nothing to run without them. Baked rather than fetched through corepack at
+# run time, so a session does not wait on a download or fail without a network.
+RUN npm install -g --no-fund --no-audit pnpm yarn
+
 # The go and gofmt binaries are statically linked, so nothing else is needed.
 COPY --from=go-toolchain /usr/local/go /usr/local/go
 ENV PATH="/usr/local/go/bin:${PATH}"
