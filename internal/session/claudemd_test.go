@@ -64,7 +64,7 @@ func TestRunWithoutClaudeMDLeavesOpeningMessageUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	started := startedPayloadOf(t, srv.URL, ws)
-	if want := RenderOpeningMessage(resolved, "say something", nil, "", ""); started.OpeningMessage != want {
+	if want := RenderOpeningMessage(resolved, "say something", nil, "", "", nil); started.OpeningMessage != want {
 		t.Fatalf("opening message = %q, want %q", started.OpeningMessage, want)
 	}
 	if started.ClaudeMDBlock != "" {

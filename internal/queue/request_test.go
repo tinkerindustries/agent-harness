@@ -2,6 +2,7 @@ package queue
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
@@ -282,5 +283,53 @@ func TestValidateRejectsMalformedProvenanceFields(t *testing.T) {
 		if err := req.Validate(); err == nil {
 			t.Errorf("expected validation to fail for %+v", req)
 		}
+	}
+}
+
+// TestValidateAttachmentIDs pins the attachment_ids contract: valid ids
+// pass, and an empty id, whitespace, or a duplicate is refused with a
+// message naming the offending index. The count and byte caps live where
+// attachments are accepted, not here.
+func TestValidateAttachmentIDs(t *testing.T) {
+	base := Request{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: "full"}
+
+	base.AttachmentIDs = []string{"att-1111111111111111", "att-2222222222222222"}
+	if err := base.Validate(); err != nil {
+		t.Fatalf("valid attachment ids refused: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		ids  []string
+		want string
+	}{
+		{name: "empty id", ids: []string{""}, want: "attachment_ids[0] is empty"},
+		{name: "whitespace", ids: []string{"att-1111 2222"}, want: "contains whitespace"},
+		{name: "duplicate", ids: []string{"att-1111111111111111", "att-1111111111111111"}, want: "is duplicated"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base.AttachmentIDs = tc.ids
+			err := base.Validate()
+			if err == nil {
+				t.Fatal("expected validation to fail")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %q, want it to contain %q", err, tc.want)
+			}
+		})
+	}
+
+	// The ids ride the wire: a published request carries them, so a producer
+	// that wrote the rows can point the worker at them.
+	body, err := json.Marshal(Request{RequestID: "req-1", Repos: testRepos(), PermissionMode: "full", AttachmentIDs: []string{"att-1111111111111111"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParseRequest(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.AttachmentIDs) != 1 || parsed.AttachmentIDs[0] != "att-1111111111111111" {
+		t.Errorf("attachment_ids did not round-trip: %+v", parsed.AttachmentIDs)
 	}
 }

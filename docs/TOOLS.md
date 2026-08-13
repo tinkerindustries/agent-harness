@@ -295,6 +295,17 @@ and the spec is fixed for the conversation's life. Retained conversations are
 capped at the most recent five per session, so a long session cannot grow this
 without bound.
 
+An image can also arrive with the task. A work request may carry attachments
+(`POST /api/runs`, the MCP `deepseek_agent` tool — docs/DATA-API.md): the
+bytes are stored in SQLite, the request carries only ids, and
+`internal/workspace` materialises them into `scratch/attachments/` during
+`Prepare`. The opening message names the files, so the model knows they exist
+and can pass one to ReviewScreenshot as the image the page should be judged
+against — "make it look like this mockup" becomes a review against the mockup
+itself instead of a prose description of it. Only PNG, JPEG, and WebP are
+accepted, capped in count and per-file bytes by
+`tools.attachments_max_count` and `tools.attachments_max_bytes`.
+
 A Gemini call bills separately from the sub-turn that made it. Its usage rides
 home on the tool result, and the runner stamps the sub-turn it happened in and
 commits it as its own usage event, priced against `configs/prices.json` under

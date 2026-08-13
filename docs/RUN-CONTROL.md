@@ -521,6 +521,12 @@ run is byte-identical in the store to one started from MCP or the CLI: same
 event kinds, same validation, same idempotency behaviour on a duplicate
 `request_id`.
 
+The body may also carry an `attachments` array — images (a mockup, say)
+stored before the publish so the request carries only `attachment_ids`, never
+the bytes (docs/DATA-API.md, "attachments"). The caps come from
+`tools.attachments_max_count` and `tools.attachments_max_bytes`, and the
+materialised files are named in the run's opening message.
+
 ### Authentication
 
 Loopback plus the same-origin and content-type guards stay, and are not enough

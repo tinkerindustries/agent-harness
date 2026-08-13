@@ -51,7 +51,7 @@ func TestPrepareClonesDefaultBranchIntoSessionDirectory(t *testing.T) {
 	origin := newOrigin(t)
 	root := t.TempDir()
 
-	dir, err := Prepare(context.Background(), root, "sess-1", []queue.Repo{{URL: origin}})
+	dir, err := Prepare(context.Background(), root, "sess-1", []queue.Repo{{URL: origin}}, nil)
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestPrepareClonesNamedBranch(t *testing.T) {
 	origin := newOrigin(t)
 	root := t.TempDir()
 
-	dir, err := Prepare(context.Background(), root, "sess-2", []queue.Repo{{URL: origin, Branch: "feature"}})
+	dir, err := Prepare(context.Background(), root, "sess-2", []queue.Repo{{URL: origin, Branch: "feature"}}, nil)
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestPrepareClonesEveryRepo(t *testing.T) {
 	first, second := newOrigin(t), newOrigin(t)
 	root := t.TempDir()
 
-	dir, err := Prepare(context.Background(), root, "sess-3", []queue.Repo{{URL: first}, {URL: second}})
+	dir, err := Prepare(context.Background(), root, "sess-3", []queue.Repo{{URL: first}, {URL: second}}, nil)
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestPrepareCreatesScratchDirectory(t *testing.T) {
 	origin := newOrigin(t)
 	root := t.TempDir()
 
-	dir, err := Prepare(context.Background(), root, "sess-scratch", []queue.Repo{{URL: origin}})
+	dir, err := Prepare(context.Background(), root, "sess-scratch", []queue.Repo{{URL: origin}}, nil)
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestPrepareFailsOnMissingBranch(t *testing.T) {
 	origin := newOrigin(t)
 	root := t.TempDir()
 
-	if _, err := Prepare(context.Background(), root, "sess-4", []queue.Repo{{URL: origin, Branch: "nope"}}); err == nil {
+	if _, err := Prepare(context.Background(), root, "sess-4", []queue.Repo{{URL: origin, Branch: "nope"}}, nil); err == nil {
 		t.Fatal("expected a clone of a branch that does not exist to fail")
 	}
 }
@@ -133,13 +133,61 @@ func TestPrepareRefusesAnExistingSessionDirectory(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(root, "sess-5"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Prepare(context.Background(), root, "sess-5", nil); err == nil {
+	if _, err := Prepare(context.Background(), root, "sess-5", nil, nil); err == nil {
 		t.Fatal("expected an existing session directory to be refused")
 	}
 }
 
 func TestPrepareRequiresARoot(t *testing.T) {
-	if _, err := Prepare(context.Background(), "", "sess-6", nil); err == nil {
+	if _, err := Prepare(context.Background(), "", "sess-6", nil, nil); err == nil {
 		t.Fatal("expected an unconfigured root to be refused")
+	}
+}
+
+// TestPrepareMaterialisesAttachments pins the scratch/attachments contract:
+// the images a request carried land there under their own names, byte for
+// byte, before the session starts — so the opening message can name them and
+// ReviewScreenshot can read them. An attachment name that is not a plain
+// file name is refused rather than written somewhere it could escape.
+func TestPrepareMaterialisesAttachments(t *testing.T) {
+	root := t.TempDir()
+
+	dir, err := Prepare(context.Background(), root, "sess-att", nil, []Attachment{
+		{Name: "mockup.png", MIMEType: "image/png", Data: []byte("the mockup bytes")},
+		{Name: "light-theme.webp", MIMEType: "image/webp", Data: []byte("the light theme")},
+	})
+	if err != nil {
+		t.Fatalf("Prepare: %v", err)
+	}
+
+	for name, want := range map[string]string{
+		"mockup.png":       "the mockup bytes",
+		"light-theme.webp": "the light theme",
+	} {
+		data, err := os.ReadFile(filepath.Join(dir, "scratch", "attachments", name))
+		if err != nil {
+			t.Fatalf("attachment %s was not materialised: %v", name, err)
+		}
+		if string(data) != want {
+			t.Errorf("attachment %s = %q, want %q", name, data, want)
+		}
+	}
+
+	// A request with no attachments still works, and creates no attachments
+	// directory.
+	dir2, err := Prepare(context.Background(), root, "sess-noatt", nil, nil)
+	if err != nil {
+		t.Fatalf("Prepare without attachments: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir2, "scratch", "attachments")); err == nil {
+		t.Error("an empty attachment list must not create scratch/attachments")
+	}
+
+	// A path-shaped name is refused: an attachment can never escape the
+	// attachments directory.
+	if _, err := Prepare(context.Background(), root, "sess-badatt", nil, []Attachment{
+		{Name: "../escape.png", MIMEType: "image/png", Data: []byte("x")},
+	}); err == nil {
+		t.Fatal("expected a path-shaped attachment name to be refused")
 	}
 }

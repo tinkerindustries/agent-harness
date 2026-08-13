@@ -48,6 +48,15 @@ type Request struct {
 	// ReminderPolicy names the cadence on which the loop re-states a rule
 	// mid-conversation (internal/session/reminders.go). Empty is none.
 	ReminderPolicy string `json:"reminder_policy,omitempty"`
+	// AttachmentIDs names the images the request carries. The bytes never
+	// ride the NATS request — the default max_payload is 1 MB and a mockup
+	// exceeds it — they live in the store's attachments table, written by the
+	// producer (POST /api/runs, the MCP launch tool) before publishing. The
+	// worker reads the rows back and internal/workspace materialises them
+	// into scratch/attachments/ during Prepare, so the request stays small
+	// and `harness export` — which derives from the store — stays complete
+	// (docs/DATA-API.md).
+	AttachmentIDs []string `json:"attachment_ids,omitempty"`
 }
 
 // Repo is one checkout a request asks for. The worker clones each one into
@@ -168,7 +177,32 @@ func (r Request) Validate() error {
 	if err := promptvariant.ValidateReminderPolicy(r.ReminderPolicy); err != nil {
 		return fmt.Errorf("queue: %w", err)
 	}
+	if err := validateAttachmentIDs(r.AttachmentIDs); err != nil {
+		return err
+	}
 
+	return nil
+}
+
+// validateAttachmentIDs rejects an id a producer could not have minted: it
+// must be non-empty, free of whitespace, and not duplicated. The count and
+// per-file byte caps are enforced where attachments are accepted (POST
+// /api/runs and the MCP launch tool), because they are settings; this check
+// only guarantees the ids are well-formed.
+func validateAttachmentIDs(ids []string) error {
+	seen := make(map[string]bool, len(ids))
+	for i, id := range ids {
+		if id == "" {
+			return fmt.Errorf("queue: attachment_ids[%d] is empty", i)
+		}
+		if strings.ContainsAny(id, " \t\n\r") {
+			return fmt.Errorf("queue: attachment_ids[%d] %q contains whitespace", i, id)
+		}
+		if seen[id] {
+			return fmt.Errorf("queue: attachment_ids[%d] %q is duplicated", i, id)
+		}
+		seen[id] = true
+	}
 	return nil
 }
 

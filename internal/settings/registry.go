@@ -73,6 +73,8 @@ const (
 	KeyToolWebFetchMaxExtract        = "tools.webfetch_max_extract"
 	KeyToolReviewScreenshotMaxImages = "tools.reviewscreenshot_max_images"
 	KeyToolReviewScreenshotMaxBytes  = "tools.reviewscreenshot_max_bytes"
+	KeyToolAttachmentsMaxCount       = "tools.attachments_max_count"
+	KeyToolAttachmentsMaxBytes       = "tools.attachments_max_bytes"
 
 	KeyDefaultModel      = "model.default"
 	KeyDefaultFlashModel = "model.flash"
@@ -175,6 +177,10 @@ var registry = []Descriptor{
 		"Maximum screenshots one ReviewScreenshot call accepts"),
 	intSetting(KeyToolReviewScreenshotMaxBytes, GroupToolLimits, 5<<20, 1024, 1<<30,
 		"Maximum bytes per screenshot file (5 MB at the default)"),
+	intSetting(KeyToolAttachmentsMaxCount, GroupToolLimits, 8, 1, 100,
+		"Maximum image attachments one work request may carry (POST /api/runs and the MCP deepseek_agent tool)"),
+	intSetting(KeyToolAttachmentsMaxBytes, GroupToolLimits, 5<<20, 1024, 1<<30,
+		"Maximum bytes per image attachment, matching ReviewScreenshot's per-file cap so an attachment can always be reviewed (5 MB at the default)"),
 
 	// --- Models ---
 	stringSetting(KeyDefaultModel, GroupModels,

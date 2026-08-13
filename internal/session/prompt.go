@@ -100,7 +100,14 @@ func RenderSystemPromptVariant(name string) (string, error) {
 // (internal/skills). Both sit ahead of the task so the task text stays last.
 // Empty blocks leave the message byte-identical to what a run without them
 // produces.
-func RenderOpeningMessage(workspace, task string, resultSchema json.RawMessage, claudeMDBlock, skillCatalogue string) string {
+//
+// attachments names the files the request's attachments were materialised
+// into under scratch/attachments/ (internal/workspace). The model cannot
+// guess they exist — nothing in the task text says so — so they are named
+// here, ahead of the task, with the path a tool call can use; the common
+// use is passing one to ReviewScreenshot as the mockup the page should be
+// judged against.
+func RenderOpeningMessage(workspace, task string, resultSchema json.RawMessage, claudeMDBlock, skillCatalogue string, attachments []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Workspace: %s\n\n", workspace)
 	if claudeMDBlock != "" {
@@ -110,6 +117,13 @@ func RenderOpeningMessage(workspace, task string, resultSchema json.RawMessage, 
 	if skillCatalogue != "" {
 		b.WriteString(skillCatalogue)
 		b.WriteString("\n")
+	}
+	if len(attachments) > 0 {
+		b.WriteString("Image files attached to this task, materialised into scratch/attachments/:\n")
+		for _, name := range attachments {
+			fmt.Fprintf(&b, "- scratch/attachments/%s\n", name)
+		}
+		b.WriteString("You can pass one of these paths to ReviewScreenshot — the image is already in the workspace, so the spec you were working to is something you can show rather than describe.\n\n")
 	}
 	fmt.Fprintf(&b, "Task:\n%s\n", task)
 	if len(resultSchema) > 0 {

@@ -262,17 +262,20 @@ func runServe(ctx context.Context, args []string) error {
 	}
 	// The MCP launch server mounts on the same *http.Server as /api/... and
 	// the web UI: one process, one port. It reuses serve's own JetStream
-	// handle and control token rather than dialing NATS a second time or
-	// round-tripping to GET /api/control-token, and keeps calling /api/...
-	// over loopback HTTP so internal/mcp never opens a SQLite handle
-	// (ARCHITECTURE.md). The outer mux lives here in cmd/, not inside
-	// internal/httpapi, because api.Handler() is methodGate(s.routes()) and
-	// its allowlist would 405 a path it has not been taught.
+	// handle, control token, settings resolver, and store — the launch tool
+	// writes its attachments through the store's single writer, never
+	// opening a SQLite handle of its own (ARCHITECTURE.md) — and keeps
+	// calling /api/... over loopback HTTP for the reads. The outer mux
+	// lives here in cmd/, not inside internal/httpapi, because api.Handler()
+	// is methodGate(s.routes()) and its allowlist would 405 a path it has
+	// not been taught.
 	mcpSvc := &harnessmcp.Service{
 		JS:         js,
 		Cfg:        mcpCfg,
 		HTTPClient: &http.Client{Timeout: 30 * time.Second},
 		Registry:   harnessmcp.NewRegistry(),
+		Store:      st,
+		Settings:   res,
 	}
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", mcpSvc.Handler())

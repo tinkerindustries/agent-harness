@@ -38,6 +38,8 @@ func TestRegistryDefaultsMatchTheConstantsTheyReplaced(t *testing.T) {
 		{settings.KeyToolWebFetchMaxExtract, "40000"},
 		{settings.KeyToolReviewScreenshotMaxImages, "4"},
 		{settings.KeyToolReviewScreenshotMaxBytes, "5242880"},
+		{settings.KeyToolAttachmentsMaxCount, "8"},
+		{settings.KeyToolAttachmentsMaxBytes, "5242880"},
 		{settings.KeyDefaultModel, "deepseek-v4-pro"},
 		{settings.KeyDefaultFlashModel, "deepseek-v4-flash"},
 		{settings.KeyDefaultEffort, "high"},
