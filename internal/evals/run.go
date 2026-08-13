@@ -29,8 +29,11 @@ type Run struct {
 	Err       string   `json:"error,omitempty"`
 }
 
-// A Report is everything one `harness eval run` produced.
+// A Report is everything one `harness eval run` produced. It is an export of
+// the eval_runs and eval_members rows rather than the record itself: the rows
+// are written as the run goes and outlive the process.
 type Report struct {
+	EvalRunID  string    `json:"eval_run_id"`
 	Suite      string    `json:"suite"`
 	Variants   []string  `json:"variants"`
 	Replicates int       `json:"replicates"`
@@ -44,6 +47,15 @@ type Report struct {
 type Sessions interface {
 	GetWorkRequest(ctx context.Context, requestID string) (store.WorkRequest, error)
 	GetEvents(ctx context.Context, sessionID string) ([]store.Event, error)
+}
+
+// Recorder is where a run's progress is written as it happens, so the eval
+// survives the terminal it was started from and a browser can read a run that
+// is still going. Nil records nothing and the report is the only output.
+type Recorder interface {
+	CreateEvalRun(ctx context.Context, run store.EvalRun, members []store.EvalMember) error
+	UpdateEvalMember(ctx context.Context, m store.EvalMember) error
+	FinishEvalRun(ctx context.Context, id, status string, finishedAt time.Time) error
 }
 
 // Publisher publishes one validated work request, the same seam the HTTP
@@ -74,6 +86,15 @@ type Options struct {
 	MaxSubTurns int
 	// Judge, when set, scores each finished transcript.
 	Judge *Judge
+	// Recorder, when set, is where the run and its members are written as
+	// they happen.
+	Recorder Recorder
+	// Note is the operator's one line on what this run is asking.
+	Note string
+	// EvalRunID names the run. Empty mints one.
+	EvalRunID string
+	// StartedAt stamps the run. Zero is time.Now.
+	StartedAt time.Time
 	// Progress, when set, is called as each run finishes.
 	Progress func(Run)
 }
@@ -98,11 +119,20 @@ func Execute(ctx context.Context, pub Publisher, sessions Sessions, opts Options
 		opts.Timeout = 30 * time.Minute
 	}
 
+	evalRunID := opts.EvalRunID
+	if evalRunID == "" {
+		evalRunID = newID("evr")
+	}
+	startedAt := opts.StartedAt
+	if startedAt.IsZero() {
+		startedAt = time.Now().UTC()
+	}
 	report := &Report{
+		EvalRunID:  evalRunID,
 		Suite:      opts.Suite.Name,
 		Variants:   opts.Variants,
 		Replicates: opts.Replicates,
-		StartedAt:  time.Now().UTC(),
+		StartedAt:  startedAt,
 	}
 
 	// The work list interleaves variants rather than running one arm and then
@@ -116,7 +146,7 @@ func Execute(ctx context.Context, pub Publisher, sessions Sessions, opts Options
 					TaskID:    task.ID,
 					Variant:   variant,
 					Replicate: rep,
-					RequestID: newRequestID(),
+					RequestID: newID("eval"),
 				})
 			}
 		}
@@ -125,6 +155,36 @@ func Execute(ctx context.Context, pub Publisher, sessions Sessions, opts Options
 	tasksByID := map[string]Task{}
 	for _, t := range opts.Suite.Tasks {
 		tasksByID[t.ID] = t
+	}
+
+	// The members exist before anything is published, so a run that dies
+	// mid-flight still says what it was going to do.
+	if opts.Recorder != nil {
+		members := make([]store.EvalMember, 0, len(pending))
+		for _, r := range pending {
+			members = append(members, storeMember(evalRunID, r, "pending"))
+		}
+		judgeModel := ""
+		if opts.Judge != nil {
+			judgeModel = opts.Judge.Model
+		}
+		suiteJSON, err := json.Marshal(opts.Suite)
+		if err != nil {
+			return nil, fmt.Errorf("evals: encode suite: %w", err)
+		}
+		if err := opts.Recorder.CreateEvalRun(ctx, store.EvalRun{
+			ID:         evalRunID,
+			Suite:      opts.Suite.Name,
+			SuiteJSON:  suiteJSON,
+			Variants:   opts.Variants,
+			Replicates: opts.Replicates,
+			JudgeModel: judgeModel,
+			Note:       opts.Note,
+			Status:     store.EvalStatusRunning,
+			StartedAt:  startedAt,
+		}, members); err != nil {
+			return nil, fmt.Errorf("evals: record eval run: %w", err)
+		}
 	}
 
 	var (
@@ -148,17 +208,85 @@ func Execute(ctx context.Context, pub Publisher, sessions Sessions, opts Options
 
 			execute(ctx, pub, sessions, opts, tasksByID[r.TaskID], &r)
 			done[i] = r
-			if opts.Progress != nil {
-				mu.Lock()
-				opts.Progress(r)
-				mu.Unlock()
+			mu.Lock()
+			if opts.Recorder != nil {
+				if err := opts.Recorder.UpdateEvalMember(ctx, storeMember(evalRunID, r, "")); err != nil {
+					log.Printf("evals: record member %s: %v", r.RequestID, err)
+				}
 			}
+			if opts.Progress != nil {
+				opts.Progress(r)
+			}
+			mu.Unlock()
 		}(i, r)
 	}
 	wg.Wait()
 
 	report.Runs = done
+	if opts.Recorder != nil {
+		status := store.EvalStatusOK
+		if ctx.Err() != nil {
+			status = store.EvalStatusCancelled
+		} else if allFailed(done) {
+			status = store.EvalStatusFailed
+		}
+		if err := opts.Recorder.FinishEvalRun(context.WithoutCancel(ctx), evalRunID, status, time.Now().UTC()); err != nil {
+			log.Printf("evals: close eval run %s: %v", evalRunID, err)
+		}
+	}
 	return report, nil
+}
+
+// allFailed reports whether every run errored. A run where some members
+// finished is an ok run with failed members, not a failed run: the comparison
+// over what did finish still stands.
+func allFailed(runs []Run) bool {
+	for _, r := range runs {
+		if r.Err == "" {
+			return false
+		}
+	}
+	return len(runs) > 0
+}
+
+// StoreMember is one Run as the store holds it, for a caller writing a
+// rescored member back.
+func StoreMember(evalRunID string, r Run) store.EvalMember {
+	return storeMember(evalRunID, r, "")
+}
+
+// storeMember is one Run as the store holds it. status overrides the run's
+// own, which is what records a member before it has one.
+func storeMember(evalRunID string, r Run, status string) store.EvalMember {
+	if status == "" {
+		status = r.Status
+		if status == "" {
+			status = "failed"
+		}
+	}
+	m := store.EvalMember{
+		EvalRunID: evalRunID,
+		RequestID: r.RequestID,
+		TaskID:    r.TaskID,
+		Variant:   r.Variant,
+		Replicate: r.Replicate,
+		SessionID: r.SessionID,
+		Status:    status,
+		CostUSD:   r.CostUSD,
+		SubTurns:  r.SubTurns,
+		Error:     r.Err,
+	}
+	if len(r.Scores) > 0 {
+		if b, err := json.Marshal(r.Scores); err == nil {
+			m.Scores = b
+		}
+	}
+	if r.Verdict != nil {
+		if b, err := json.Marshal(r.Verdict); err == nil {
+			m.Verdict = b
+		}
+	}
+	return m
 }
 
 // execute publishes one run and waits for it, filling in r.
@@ -253,10 +381,10 @@ func costAndSubTurns(events []store.Event) (float64, int) {
 	return cost, subTurns
 }
 
-func newRequestID() string {
+func newID(prefix string) string {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		panic("evals: crypto/rand unavailable: " + err.Error())
 	}
-	return "eval-" + hex.EncodeToString(b[:])
+	return prefix + "-" + hex.EncodeToString(b[:])
 }

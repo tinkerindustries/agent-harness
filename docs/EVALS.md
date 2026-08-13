@@ -152,6 +152,25 @@ to let it write.
 reading, and none needs a shell, so a Bash call to grep is a choice rather than
 a necessity — which is what makes `search_via_tool` mean anything on it.
 
+## Where a run is recorded
+
+An eval writes two tables as it goes: `eval_runs` for the run and
+`eval_members` for one row per (task, variant, replicate). The members exist
+before anything is published, so a run that dies mid-flight still says what it
+was going to do, and each member is updated as its session finishes — a report
+exists for the part of an eval that has completed while the rest is still
+going.
+
+`scores` and `verdict` are stored rather than recomputed on demand. Deleting a
+session removes the event log a rescore would read, and a judge verdict is a
+model call that cannot be repeated for free; a member whose session is gone
+still contributes its numbers to the comparison and loses only the link.
+
+`suite_json` holds the suite as it was loaded. The file under `evals/` changes,
+and a run has to keep saying what it actually ran.
+
+The `-out` file is an export of those rows rather than the record itself.
+
 ## Why not an online A/B
 
 Splitting production traffic was the alternative. Against the read-before-edit

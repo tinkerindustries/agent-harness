@@ -312,11 +312,53 @@ CREATE TABLE IF NOT EXISTS settings (
 	updated_at TEXT NOT NULL
 );
 
+-- An eval run and the sessions it compares (docs/EVALS.md). suite_json is the
+-- suite as it was loaded: the file under evals/ changes, and a run has to keep
+-- saying what it actually ran.
+CREATE TABLE IF NOT EXISTS eval_runs (
+	id          TEXT PRIMARY KEY,
+	suite       TEXT NOT NULL,
+	suite_json  TEXT NOT NULL,
+	variants    TEXT NOT NULL,
+	replicates  INTEGER NOT NULL,
+	judge_model TEXT NOT NULL DEFAULT '',
+	note        TEXT NOT NULL DEFAULT '',
+	status      TEXT NOT NULL,
+	started_at  TEXT NOT NULL,
+	finished_at TEXT,
+	version     INTEGER NOT NULL DEFAULT 1
+);
+
+-- One member per (task, variant, replicate). scores and verdict are stored
+-- rather than recomputed: deleting a session removes the event log a rescore
+-- would read, and a judge verdict is a model call that cannot be repeated for
+-- free. session_id carries no foreign key, matching work_requests — a deleted
+-- session leaves the numbers and loses only the link.
+CREATE TABLE IF NOT EXISTS eval_members (
+	eval_run_id TEXT NOT NULL,
+	request_id  TEXT NOT NULL,
+	task_id     TEXT NOT NULL,
+	variant     TEXT NOT NULL,
+	replicate   INTEGER NOT NULL,
+	session_id  TEXT,
+	status      TEXT NOT NULL,
+	scores      TEXT,
+	verdict     TEXT,
+	cost_usd    REAL NOT NULL DEFAULT 0,
+	sub_turns   INTEGER NOT NULL DEFAULT 0,
+	error       TEXT NOT NULL DEFAULT '',
+	PRIMARY KEY (eval_run_id, request_id)
+);
+
 -- Read paths: the session list's usage summary filters events down to two
 -- kinds before scanning, and looks a session up by the request that
 -- created it.
 CREATE INDEX IF NOT EXISTS idx_events_session_kind ON events (session_id, kind);
 CREATE INDEX IF NOT EXISTS idx_work_requests_session_id ON work_requests (session_id);
+
+-- The session page asks "which eval does this session belong to?" on every
+-- load, which is the reverse of the membership table's own key.
+CREATE INDEX IF NOT EXISTS idx_eval_members_session ON eval_members (session_id);
 `
 
 // Open opens (creating if needed) the SQLite database at path, applies the

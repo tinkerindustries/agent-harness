@@ -67,6 +67,7 @@ func runEvalRun(ctx context.Context, args []string) error {
 	useJudge := fs.Bool("judge", false, "score each transcript with a model as well as the counters")
 	judgeModel := fs.String("judge-model", "", "model the judge uses (config default otherwise)")
 	maxSubTurns := fs.Int("max-sub-turns", 0, "override every task's sub-turn budget; applies to all arms at once")
+	note := fs.String("note", "", "one line on what this run is asking, shown beside it later")
 	timeout := fs.Duration("timeout", 30*time.Minute, "how long one run may take")
 	out := fs.String("out", "", "write the full report as JSON to this path")
 	if err := fs.Parse(args); err != nil {
@@ -108,6 +109,8 @@ func runEvalRun(ctx context.Context, args []string) error {
 		Concurrency: *concurrency,
 		MaxSubTurns: *maxSubTurns,
 		Timeout:     *timeout,
+		Recorder:    st,
+		Note:        *note,
 		Progress: func(r evals.Run) {
 			status := r.Status
 			if r.Err != "" {
@@ -143,6 +146,7 @@ func runEvalRun(ctx context.Context, args []string) error {
 	}
 
 	fmt.Println()
+	fmt.Printf("eval run %s\n\n", report.EvalRunID)
 	evals.WriteTable(os.Stdout, report)
 	if *out != "" {
 		if err := writeReport(*out, report); err != nil {
@@ -186,6 +190,8 @@ func runEvalScore(ctx context.Context, args []string) error {
 	}
 	defer st.Close()
 
+	// A rescore is silently partial when a member's session has been deleted,
+	// so the count says how many it could actually reach.
 	rescored := 0
 	for i := range report.Runs {
 		run := &report.Runs[i]
@@ -199,6 +205,11 @@ func runEvalScore(ctx context.Context, args []string) error {
 		}
 		run.Scores = evals.Score(events)
 		rescored++
+		if report.EvalRunID != "" {
+			if err := st.UpdateEvalMember(ctx, evals.StoreMember(report.EvalRunID, *run)); err != nil {
+				fmt.Fprintf(os.Stderr, "  %s: record rescore: %v\n", run.SessionID, err)
+			}
+		}
 	}
 	fmt.Printf("re-scored %d of %d runs\n\n", rescored, len(report.Runs))
 	evals.WriteTable(os.Stdout, &report)

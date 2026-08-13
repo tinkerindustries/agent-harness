@@ -146,7 +146,9 @@ text; this package owns the edits to it. [docs/EVALS.md](docs/EVALS.md).
 
 ### `internal/evals`
 Measures a prompt change. Publishes a suite of tasks under two or more prompt
-variants through the WORK stream, scores each run from its stored events, and
+variants through the WORK stream, records the run and its members in
+`eval_runs` and `eval_members` as it goes, scores each run from its stored
+events, and
 compares the arms. Depends on: `internal/queue` to publish, `internal/store` to
 read, `internal/deepseek` for the optional judge. [docs/EVALS.md](docs/EVALS.md).
 
