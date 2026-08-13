@@ -1,11 +1,15 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/jpeg"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +18,10 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"golang.org/x/image/draw"
+	// Registers the WebP decoder with image.Decode; x/image has no WebP
+	// encoder, so oversize WebP files are re-encoded as PNG (encodeScreenshot).
+	_ "golang.org/x/image/webp"
 )
 
 type reviewScreenshotArgs struct {
@@ -134,15 +142,16 @@ func execReviewScreenshot(ctx context.Context, e *Executor, argsRaw json.RawMess
 		return errorResult("ReviewScreenshot accepts at most %d images, got %d", maxImages, len(paths))
 	}
 
-	images, err := loadReviewImages(ctx, e, paths)
+	images, downscaled, err := loadReviewImages(ctx, e, paths)
 	if err != nil {
 		return errorResult("%v", err)
 	}
 
 	// The capability check comes after argument validation, so a call with a
-	// bad extension or an oversize file learns that even when this session
-	// has no Gemini client — the specific error is the one the model can
-	// route around.
+	// bad extension or an image that will not decode learns that even when
+	// this session has no Gemini client — the specific error is the one the
+	// model can route around. An oversize file that does decode is downscaled
+	// here and then fails the capability check below like any other image.
 	if e.Gemini == nil {
 		return errorResult("ReviewScreenshot is not available in this context: no Gemini client configured")
 	}
@@ -185,7 +194,15 @@ func execReviewScreenshot(ctx context.Context, e *Executor, argsRaw json.RawMess
 	}
 
 	out, truncated := formatReviewAnswer(answer, e.outputCap(ctx))
-	res := Result{Content: "conversation_id: " + conversationID + "\n\n" + out, Truncated: truncated}
+	content := "conversation_id: " + conversationID + "\n\n" + out
+	if len(downscaled) > 0 {
+		// Lead with the downscale notes so the model reads them before the
+		// findings: each says which file was shrunk and to what dimensions,
+		// so the model knows the vision model saw less detail than the file
+		// holds (and can say so in its answer if that matters).
+		content = strings.Join(downscaled, "\n") + "\n\n" + content
+	}
+	res := Result{Content: content, Truncated: truncated}
 	if usage != nil {
 		res.GeminiUsage = geminiUsagePayload(e.Prices, model, usage)
 	}
@@ -198,34 +215,58 @@ func execReviewScreenshot(ctx context.Context, e *Executor, argsRaw json.RawMess
 // since the conversation started fails with an ordinary error naming it.
 // The first image goes at high resolution and the rest at medium, and each
 // image's label is its file's base name.
-func loadReviewImages(ctx context.Context, e *Executor, paths []string) ([]gemini.Image, error) {
+//
+// A file over the byte cap is downscaled rather than refused: it is decoded,
+// shrunk preserving aspect ratio until the re-encoded bytes fit under the
+// cap, and the shrunk bytes are sent. The second return value carries one
+// note per downscaled file — which file, and to what dimensions — so the
+// model knows the vision model saw less detail than the file holds. A file
+// that will not decode keeps the refusal, naming the limit and the reason.
+// A file already under the cap is sent byte-identically: it is never decoded
+// and re-encoded.
+func loadReviewImages(ctx context.Context, e *Executor, paths []string) ([]gemini.Image, []string, error) {
 	images := make([]gemini.Image, 0, len(paths))
+	var downscaled []string
 	for i, userPath := range paths {
 		path, err := ResolvePath(e.Workspace, userPath)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		info, err := os.Stat(path)
 		if err != nil {
 			if os.IsNotExist(err) {
-				return nil, fmt.Errorf("file not found: %s", userPath)
+				return nil, nil, fmt.Errorf("file not found: %s", userPath)
 			}
-			return nil, fmt.Errorf("stat %s: %v", userPath, err)
+			return nil, nil, fmt.Errorf("stat %s: %v", userPath, err)
 		}
 		if info.IsDir() {
-			return nil, fmt.Errorf("%s is a directory, not a screenshot", userPath)
-		}
-		maxBytes := int64(e.reviewScreenshotMaxBytes(ctx))
-		if info.Size() > maxBytes {
-			return nil, fmt.Errorf("screenshot %s is %d bytes, over the %d-byte per-file limit", userPath, info.Size(), maxBytes)
+			return nil, nil, fmt.Errorf("%s is a directory, not a screenshot", userPath)
 		}
 		mimeType, ok := screenshotMIMEType(path)
 		if !ok {
-			return nil, fmt.Errorf("unsupported screenshot type for %s: ReviewScreenshot accepts PNG, JPEG, and WebP files", userPath)
+			return nil, nil, fmt.Errorf("unsupported screenshot type for %s: ReviewScreenshot accepts PNG, JPEG, and WebP files", userPath)
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("read %s: %v", userPath, err)
+			return nil, nil, fmt.Errorf("read %s: %v", userPath, err)
+		}
+
+		maxBytes := int64(e.reviewScreenshotMaxBytes(ctx))
+		if int64(len(data)) > maxBytes {
+			shrunk, shrunkMIME, w, h, err := downscaleImage(data, mimeType, maxBytes)
+			if err != nil {
+				// The refusal names both the limit and why the route around it
+				// (downscaling) was not available, so the model knows a re-capture
+				// is the only way forward rather than retrying the same file.
+				return nil, nil, fmt.Errorf("screenshot %s is %d bytes, over the %d-byte per-file limit, and could not be downscaled: %v", userPath, len(data), maxBytes, err)
+			}
+			note := fmt.Sprintf("%s was downscaled to %dx%d to fit the %d-byte per-file limit", userPath, w, h, maxBytes)
+			if shrunkMIME != mimeType {
+				note += fmt.Sprintf(" (re-encoded as %s: x/image has no WebP encoder)", strings.TrimPrefix(shrunkMIME, "image/"))
+			}
+			data = shrunk
+			mimeType = shrunkMIME
+			downscaled = append(downscaled, note)
 		}
 
 		resolution := gemini.ResolutionMedium
@@ -238,7 +279,60 @@ func loadReviewImages(ctx context.Context, e *Executor, paths []string) ([]gemin
 		// image (docs/TOOLS.md, "Seeing the screenshots").
 		images = append(images, gemini.Image{Data: data, MIMEType: mimeType, Resolution: resolution, Label: filepath.Base(path)})
 	}
-	return images, nil
+	return images, downscaled, nil
+}
+
+// downscaleImage decodes data (a PNG, JPEG, or WebP) and re-encodes it at
+// halved dimensions, preserving aspect ratio, until the bytes fit under cap.
+// It returns the shrunk bytes, the MIME type they are encoded as, and the
+// dimensions it settled on. The standard library has no scaler, so the
+// resample uses x/image's CatmullRom, a quality-preserving resampler;
+// encoding quality is fixed (jpeg), so the loop converges by dimension alone.
+// x/image decodes WebP but has no WebP encoder, so a WebP file comes back as
+// PNG — the only re-encode that keeps alpha. An image that will not decode
+// at all, or that still does not fit at the smallest size, is an error the
+// caller turns into the refusal.
+func downscaleImage(data []byte, mimeType string, cap int64) ([]byte, string, int, int, error) {
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return nil, "", 0, 0, err
+	}
+	bounds := img.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+	if w < 1 || h < 1 {
+		return nil, "", 0, 0, fmt.Errorf("image has no pixels")
+	}
+	for w > 1 && h > 1 {
+		w, h = w/2, h/2
+		dst := image.NewRGBA(image.Rect(0, 0, w, h))
+		draw.CatmullRom.Scale(dst, dst.Bounds(), img, bounds, draw.Over, nil)
+		encoded, encodedMIME, err := encodeScreenshot(dst, mimeType)
+		if err != nil {
+			return nil, "", 0, 0, err
+		}
+		if int64(len(encoded)) <= cap {
+			return encoded, encodedMIME, w, h, nil
+		}
+	}
+	return nil, "", 0, 0, fmt.Errorf("still over the byte cap at the smallest size")
+}
+
+// encodeScreenshot re-encodes an image in the format mimeType names, with a
+// quality that keeps a screenshot reviewable without inflating the bytes.
+// WebP has no encoder in x/image, so it is re-encoded as PNG (which keeps
+// alpha); the returned MIME type is what the bytes actually are.
+func encodeScreenshot(img image.Image, mimeType string) ([]byte, string, error) {
+	var buf bytes.Buffer
+	switch mimeType {
+	case "image/png", "image/webp":
+		err := png.Encode(&buf, img)
+		return buf.Bytes(), "image/png", err
+	case "image/jpeg":
+		err := jpeg.Encode(&buf, img, &jpeg.Options{Quality: 85})
+		return buf.Bytes(), "image/jpeg", err
+	default:
+		return nil, "", fmt.Errorf("cannot re-encode %s", mimeType)
+	}
 }
 
 // reviewFollowUpQuestion composes a follow-up's question: the conversation's
