@@ -66,6 +66,12 @@ type Options struct {
 	PollInterval time.Duration
 	// Timeout bounds one run end to end.
 	Timeout time.Duration
+	// MaxSubTurns, when set, overrides every task's own budget. It applies to
+	// every arm at once, which is the only safe way to give a run more room:
+	// extending the arm that keeps running out would hand extra budget to
+	// whichever variant is less efficient, hiding the difference the eval
+	// exists to measure.
+	MaxSubTurns int
 	// Judge, when set, scores each finished transcript.
 	Judge *Judge
 	// Progress, when set, is called as each run finishes.
@@ -160,6 +166,9 @@ func execute(ctx context.Context, pub Publisher, sessions Sessions, opts Options
 	runCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
 
+	if opts.MaxSubTurns > 0 {
+		task.MaxSubTurns = opts.MaxSubTurns
+	}
 	req := task.Request(r.RequestID, r.Variant)
 	if err := req.Validate(); err != nil {
 		r.Err = err.Error()

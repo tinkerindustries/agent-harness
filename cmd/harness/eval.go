@@ -66,6 +66,7 @@ func runEvalRun(ctx context.Context, args []string) error {
 	concurrency := fs.Int("concurrency", 2, "runs in flight at once")
 	useJudge := fs.Bool("judge", false, "score each transcript with a model as well as the counters")
 	judgeModel := fs.String("judge-model", "", "model the judge uses (config default otherwise)")
+	maxSubTurns := fs.Int("max-sub-turns", 0, "override every task's sub-turn budget; applies to all arms at once")
 	timeout := fs.Duration("timeout", 30*time.Minute, "how long one run may take")
 	out := fs.String("out", "", "write the full report as JSON to this path")
 	if err := fs.Parse(args); err != nil {
@@ -105,6 +106,7 @@ func runEvalRun(ctx context.Context, args []string) error {
 		Variants:    variants,
 		Replicates:  *replicates,
 		Concurrency: *concurrency,
+		MaxSubTurns: *maxSubTurns,
 		Timeout:     *timeout,
 		Progress: func(r evals.Run) {
 			status := r.Status

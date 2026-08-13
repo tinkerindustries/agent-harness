@@ -21,6 +21,14 @@ harness eval score -report report.json      # re-score from stored events
 and `-concurrency` (default 2) bounds how many are in flight, so an eval does
 not fill every worker slot.
 
+`-max-sub-turns` overrides every task's own budget. It applies to all arms at
+once, which is the only safe way to give a run more room: extending only the
+arm that keeps running out hands extra budget to whichever variant is less
+efficient, hiding the difference the eval exists to measure. When runs do hit
+the cap, the table says how many, because their metrics stop where the run
+stopped rather than where the work did — raise the budget and run it again
+instead of reading those numbers.
+
 Runs are interleaved across variants rather than run arm by arm. A change in
 the machine or in the API partway through then hits both arms alike instead of
 landing entirely on one.
@@ -108,7 +116,11 @@ own median rather than a fixed token figure, so a short run and a long one
 both yield a number.
 
 `-judge` adds a model reading the rendered transcript and scoring it 1–5
-against the suite's rubric, plus a completed flag. It catches a variant that
+against the suite's rubric, plus a completed flag. It runs in thinking mode
+with the models' documented maximum output, so the judge is bounded by the
+model rather than by us — scoring a transcript is a judgement, and the
+reasoning is where it is made. The ceiling is not a reservation: a request is
+billed for what it generates. It catches a variant that
 improves a counter while doing the work worse — a run that searches beautifully
 and answers wrongly. The judge is stochastic and its numbers carry noise the
 counters do not, so read the counters first and treat a judge difference

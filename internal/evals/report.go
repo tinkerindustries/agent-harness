@@ -117,10 +117,13 @@ func WriteTable(w io.Writer, r *Report) {
 		byMetric[s.Metric][s.Variant] = s
 	}
 
-	failed := 0
+	failed, capped := 0, 0
 	for _, run := range r.Runs {
 		if run.Err != "" {
 			failed++
+		}
+		if run.Status == "max_turns" {
+			capped++
 		}
 	}
 
@@ -157,6 +160,11 @@ func WriteTable(w io.Writer, r *Report) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "± is the standard error of the mean. A delta smaller than the two")
 	fmt.Fprintln(w, "standard errors combined is not a result; add replicates.")
+	if capped > 0 {
+		fmt.Fprintf(w, "\n%d of %d runs hit the sub-turn cap. Their metrics stop where the run\n", capped, len(r.Runs))
+		fmt.Fprintln(w, "stopped, not where the work did. Raise -max-sub-turns and run it again")
+		fmt.Fprintln(w, "rather than reading these numbers.")
+	}
 }
 
 // delta describes the last variant against the first, which is the comparison

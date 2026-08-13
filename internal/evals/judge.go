@@ -48,11 +48,22 @@ it.
 Reply with a JSON object and nothing else:
 {"score": <1-5>, "completed": <true|false>, "reasoning": "<one or two sentences>"}`
 
+// JudgeMaxTokens is the documented maximum output for either model
+// (third_party/deepseek-docs/quick_start/pricing.md), so the judge is bounded
+// by the model rather than by us. The verdict is short but the reasoning that
+// reaches it is not, and a budget that runs out mid-thought returns empty
+// content rather than a worse verdict. It is a ceiling, not a reservation: a
+// request is billed for what it generates.
+//
+// Every request sends max_tokens explicitly (internal/deepseek/types_test.go),
+// so this is a number rather than an omission.
+const JudgeMaxTokens = 384 * 1024
+
 // Judge scores transcripts with a model.
 type Judge struct {
 	Client *deepseek.Client
 	Model  string
-	// MaxTokens bounds the judge's own reply, which is a short JSON object.
+	// MaxTokens bounds the judge's reply. Zero is JudgeMaxTokens.
 	MaxTokens int
 }
 
@@ -67,15 +78,15 @@ func (j Judge) Score(ctx context.Context, rubric string, events []store.Event) (
 
 	maxTokens := j.MaxTokens
 	if maxTokens <= 0 {
-		maxTokens = 1024
+		maxTokens = JudgeMaxTokens
 	}
 	resp, err := j.Client.CreateChatCompletion(ctx, deepseek.ChatCompletionRequest{
 		Model: j.Model,
-		// Both models default to thinking mode, and a judge asked for a short
-		// JSON object spends the whole budget reasoning and returns empty
-		// content. The verdict is a rubric lookup, not a problem to work
-		// through (internal/tools/webfetch.go makes the same call).
-		Thinking:  &deepseek.ThinkingConfig{Type: deepseek.ThinkingDisabled},
+		// Thinking mode is on. Scoring a transcript against a rubric is a
+		// judgement, and the reasoning is where it is made; the earlier
+		// failure was a 1024-token budget that reasoning exhausted before any
+		// content, not thinking itself.
+		Thinking:  &deepseek.ThinkingConfig{Type: deepseek.ThinkingEnabled},
 		MaxTokens: maxTokens,
 		Messages: []deepseek.Message{
 			deepseek.SystemMessage(judgeSystemPrompt),
