@@ -58,7 +58,13 @@ What the screens are:
   relative to the session's workspace root (`toolArgs.ts` `trimWorkspace`);
   the opening block
   collapses to one summary line; a cache-churn banner links to the first
-  sub-turn that churned. Neither session page filters or searches its own
+  sub-turn that churned. A `Screenshot` or `ReviewScreenshot` result renders
+  the images above its text, fetched from the session's live workspace
+  (docs/TOOLS.md, "Seeing the screenshots"); the session id reaches that leaf
+  through `SessionIdContext` rather than a prop, because the path to it runs
+  through the memoised cards that exist to bail out of re-rendering, and a
+  file that is gone renders as "no longer available" rather than a broken
+  image. Neither session page filters or searches its own
   transcript — the filter chips (All/Edits/Bash/Errors/Churn) survive only in
   `TranscriptToolbar`, for the child-transcript block and the perf harnesses,
   and `TurnTranscript`'s `filter` prop is `"all"` on both screens. The sticky

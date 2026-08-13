@@ -4,8 +4,9 @@ import { Markdown } from "../../render/Markdown";
 import { languageForPath } from "../../render/highlight";
 import { CollapsibleOutput } from "./CollapsibleOutput";
 import { DiffTable } from "./DiffTable";
+import { ScreenshotGallery } from "./ScreenshotGallery";
 import { TaskChildTranscript } from "./TaskChildTranscript";
-import { parseToolArgs, toolDetail } from "./toolArgs";
+import { parseToolArgs, screenshotPaths, toolDetail } from "./toolArgs";
 
 type ToolResultData = Extract<Block, { type: "tool_result" }>;
 
@@ -49,6 +50,29 @@ export function ToolResultBody({ block }: { block: ToolResultData }) {
 
     case "WebFetch":
       return <Markdown text={block.content} />;
+
+    case "Screenshot":
+      // The capture tool's own result is a line of metadata (what it wrote,
+      // at what size). The image is the point, so it leads and the text
+      // follows it.
+      return (
+        <>
+          <ScreenshotGallery paths={screenshotPaths(block.call)} />
+          <p className="block-text dim">{block.content}</p>
+        </>
+      );
+
+    case "ReviewScreenshot":
+      // Gemini's findings are a JSON list, so they get the same collapsible
+      // verbatim rendering every other structured output gets — but above
+      // them sit the images it was actually looking at, which is the only
+      // way a human reading this can check the finding against the page.
+      return (
+        <>
+          <ScreenshotGallery paths={screenshotPaths(block.call)} />
+          <CollapsibleOutput text={block.content} language="json" />
+        </>
+      );
 
     case "TaskCreate":
     case "TaskUpdate":

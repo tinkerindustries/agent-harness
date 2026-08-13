@@ -4,7 +4,8 @@ import type { ToolCallPayload } from "../../api/types";
 import { Markdown } from "../../render/Markdown";
 import { DiffTable } from "../blocks/DiffTable";
 import { formatElapsed } from "../blocks/ReasoningPanel";
-import { formatCost, toolDetail } from "../blocks/toolArgs";
+import { ScreenshotGallery } from "../blocks/ScreenshotGallery";
+import { formatCost, screenshotPaths, toolDetail } from "../blocks/toolArgs";
 import { cachePercent, deniedBody, elideLines, toolStat, type ToolResultLike } from "./turnHelpers";
 
 // Turn renders one frozen sub-turn as a turn (.turn), not a card: the
@@ -188,15 +189,16 @@ function ToolRow({ call, result }: { call: ToolCallPayload | undefined; result: 
           </span>
         )}
       </summary>
-      <ToolBody result={result} />
+      <ToolBody call={call} result={result} />
     </details>
   );
 }
 
 // ToolBody is a frozen tool result's body: the computed diff table for an
-// edit, the raw output for everything else. Long output truncates to a head
-// and a tail with an elided row — no scroll container inside the turn list.
-function ToolBody({ result }: { result: ToolResultLike }) {
+// edit, the images for a capture or a vision review, the raw output for
+// everything else. Long output truncates to a head and a tail with an elided
+// row — no scroll container inside the turn list.
+function ToolBody({ call, result }: { call: ToolCallPayload | undefined; result: ToolResultLike }) {
   if (result.type === "tool_denied") {
     const body = deniedBody(result.rule, result.content);
     return (
@@ -213,6 +215,23 @@ function ToolBody({ result }: { result: ToolResultLike }) {
         <DiffTable diff={result.diff} />
       </div>
     );
+  }
+  // The images a capture wrote or a review looked at, above the text that
+  // describes them. Without this the transcript says what Gemini thought of a
+  // page and never shows the page (docs/TOOLS.md, "Seeing the screenshots").
+  // Read from the call rather than the result, so they still appear when the
+  // call itself failed — a capture that came out blank is exactly when
+  // seeing it matters.
+  if (result.name === "Screenshot" || result.name === "ReviewScreenshot") {
+    const paths = screenshotPaths(call);
+    if (paths.length > 0) {
+      return (
+        <>
+          <ScreenshotGallery paths={paths} />
+          <ElidedOutput text={result.content} />
+        </>
+      );
+    }
   }
   return <ElidedOutput text={result.content} />;
 }

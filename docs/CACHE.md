@@ -77,7 +77,7 @@ binary. Otherwise upgrading the harness silently changes the prefix of every
 resumable session, and every resume is cold.
 
 **Never vary the tool array.** Permission modes gate execution, not availability
-— all fifteen tools ship on every request in every mode, and a disallowed call
+— all sixteen tools ship on every request in every mode, and a disallowed call
 is refused at execution with an error result the model can read. Removing tools
 per mode would give each mode its own prefix and make mode switching a cold
 start. A work request's `result_schema` is the tempting exception: it belongs
@@ -127,7 +127,7 @@ every session after that hits it. A warmup would buy one request's worth of
 benefit, once, ever. Not worth the code.
 
 The corollary is worth keeping though: size the stable head so it is comfortably
-over 128 tokens. Fifteen tool schemas keep it in the 2–3K range (an estimate,
+over 128 tokens. Sixteen tool schemas keep it in the 2–3K range (an estimate,
 not a re-measured figure — the four plan tools replaced the single whole-plan
 tool, so the head grew by three schemas' worth of tokens), so this takes care
 of itself.

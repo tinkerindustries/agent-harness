@@ -4,7 +4,7 @@ import "strings"
 
 // Mode is the permission mode a session holds for its whole life
 // (docs/TOOLS.md, "Permissions"). Modes gate execution, never the tool
-// array sent to the model: all fifteen tools ship in every mode, and a
+// array sent to the model: all sixteen tools ship in every mode, and a
 // disallowed call is refused at execution time.
 type Mode string
 
@@ -54,6 +54,16 @@ type Policy struct {
 // that puts WebFetch in read-only mode. The four task tools carry the same
 // "the plan is the session's own bookkeeping" reasoning TodoWrite had, so
 // read-only-mode sessions keep full plan tracking.
+//
+// Screenshot is the one member that does write to disk, and it is here
+// because of where it is allowed to write: internal/tools/screenshot.go
+// confines its output to the workspace's scratch/ directory, which by the
+// system prompt's own definition holds nothing that is part of a run's
+// deliverable. A read-only session can therefore capture and review a page —
+// the whole point of a review run — without being able to leave a mark on a
+// cloned repository. It spawns a browser, which Bash-in-readonly is denied
+// for, but it spawns exactly one command it composed itself against a URL:
+// there is no argument that turns it into arbitrary execution.
 var alwaysAllowed = map[string]bool{
 	"Read":             true,
 	"Glob":             true,
@@ -61,6 +71,7 @@ var alwaysAllowed = map[string]bool{
 	"List":             true,
 	"WebFetch":         true,
 	"ReviewScreenshot": true,
+	"Screenshot":       true,
 	"TaskCreate":       true,
 	"TaskGet":          true,
 	"TaskList":         true,

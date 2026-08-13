@@ -8,7 +8,7 @@ import { SteerMessage, type SteerBlock, type SteerWait } from "./turns/SteerMess
 import { finishedBandText, formatRunDuration } from "./turns/turnHelpers";
 import { controlToken, errorMessage, steerSession, stopSession } from "../api/operations";
 import { isUserStarted } from "../api/provenance";
-import { useNow } from "../hooks";
+import { SessionIdContext, useNow } from "../hooks";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { ChatComposer, type ComposerStatus, type FinishedBand } from "./ChatComposer";
@@ -387,13 +387,15 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
                 The prefix moved — see docs/CACHE.md. <a href={`#sub-turn-${snapshot.churnPoint.subTurn}`}>Jump to it →</a>
               </div>
             )}
-            <TurnTranscript
-              items={snapshot.items}
-              live={snapshot.live}
-              filter="all"
-              getToolCall={snapshot.getToolCall}
-              renderSteer={renderSteer}
-            />
+            <SessionIdContext.Provider value={sessionId}>
+              <TurnTranscript
+                items={snapshot.items}
+                live={snapshot.live}
+                filter="all"
+                getToolCall={snapshot.getToolCall}
+                renderSteer={renderSteer}
+              />
+            </SessionIdContext.Provider>
             {failed.map((f) => (
               <div className="msg msg-user msg-user-failed" key={f.id}>
                 <div className="body">{f.text}</div>

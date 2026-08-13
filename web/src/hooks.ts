@@ -1,6 +1,28 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { QueueHealth, SessionState } from "./api/types";
 import { TranscriptStore } from "./api/transcriptStore";
+
+// SessionIdContext carries the session a transcript's blocks belong to.
+//
+// It is a context rather than a prop because the only consumer is a leaf —
+// the screenshot gallery, which needs the id to build the image URL
+// (docs/TOOLS.md, "Seeing the screenshots") — and the path to that leaf runs
+// through the memoised sub-turn cards whose whole job is to bail out of
+// re-rendering (web/CLAUDE.md, "Completed content freezes"). Threading a prop
+// down that path would add one to every frozen component on the way. The
+// value is a session id, constant for a transcript's life, so no consumer
+// ever re-renders on it after mount.
+//
+// A Task child's transcript re-provides it with the child's own id: the child
+// ran in its own workspace, so its screenshots resolve against that session
+// and not the parent's. The empty default is what the perf harnesses render
+// under, and the gallery falls back to listing paths as text rather than
+// requesting an image it cannot address.
+export const SessionIdContext = createContext<string>("");
+
+export function useSessionId(): string {
+  return useContext(SessionIdContext);
+}
 
 // useNow re-renders its caller on an interval — used only for the session
 // list's live elapsed-time column, a handful of rows ticking once a second.

@@ -53,6 +53,13 @@ started the run, false on a pre-migration row).
 - `GET /api/sessions` — list, newest first, each row with status, cost, and the
   originating request id.
 - `GET /api/sessions/{id}` — one row, the same shape as a list row.
+- `GET /api/sessions/{id}/screenshot?path=<path>` — one image file from that
+  session's workspace, so the transcript can render what a `Screenshot` or
+  `ReviewScreenshot` call was looking at
+  ([TOOLS.md, "Seeing the screenshots"](TOOLS.md)). Not a resource of its own
+  and not a general file read: the path must resolve inside that session's
+  workspace and carry a PNG, JPEG, or WebP extension, and the image is read
+  live, so a session whose workspace has been cleaned up returns 404.
 
 A session row's representation carries `version` (see
 [Optimistic concurrency](#optimistic-concurrency)). The write endpoints change

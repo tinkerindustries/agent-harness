@@ -1,4 +1,4 @@
-// Package tools implements the fifteen tools in docs/TOOLS.md: schemas that
+// Package tools implements the sixteen tools in docs/TOOLS.md: schemas that
 // match the trained-in shape, argument validation in Go, workspace
 // confinement, per-tool timeouts and output caps, and the permission policy
 // that gates execution without ever changing which tools are on offer
@@ -44,6 +44,12 @@ const (
 	// default tool timeout, so it gets its own (docs/TOOLS.md,
 	// "ReviewScreenshot").
 	ReviewScreenshotTimeout = 60 * time.Second
+	// ScreenshotTimeout bounds one capture: launching Chromium, navigating,
+	// waiting for the page to settle and encoding the image do not fit in the
+	// 30-second default, and the driver's own navigation timeout is derived
+	// from this one so a slow page fails with a message rather than being
+	// killed silently (docs/TOOLS.md, "Screenshot").
+	ScreenshotTimeout = 90 * time.Second
 )
 
 // Result is what one tool execution returns. Content is what goes back to
@@ -122,6 +128,7 @@ type Timeouts struct {
 	WebFetch         time.Duration
 	Task             time.Duration
 	ReviewScreenshot time.Duration
+	Screenshot       time.Duration
 }
 
 // Executor runs tools against one session's mutable state. An Executor
@@ -243,6 +250,8 @@ func (e *Executor) timeoutFor(ctx context.Context, name string, argsRaw json.Raw
 			}
 		}
 		return ReviewScreenshotTimeout
+	case "Screenshot":
+		return e.screenshotTimeout(ctx)
 	default:
 		if e.Timeouts.Tool > 0 {
 			return e.Timeouts.Tool
@@ -327,6 +336,7 @@ var toolFuncs = map[string]toolFunc{
 	"Task":             execTask,
 	"WebFetch":         execWebFetch,
 	"ReviewScreenshot": execReviewScreenshot,
+	"Screenshot":       execScreenshot,
 }
 
 // Execute evaluates permission for call, then runs it (or Complete's
