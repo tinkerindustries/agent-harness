@@ -471,6 +471,10 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 			SkillCatalogue: catalogue,
 			ClaudeMDBlock:  claudeMD,
 			Task:           opts.Prompt,
+			// The browser addresses each file on
+			// GET /api/sessions/{id}/screenshot by exactly this path
+			// (store.SessionStartedPayload.Attachments).
+			Attachments: attachmentPaths(opts.AttachmentNames),
 		}},
 	})
 	if err != nil {
@@ -481,6 +485,22 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	allEvents := appended
 
 	return r.runLoop(ctx, curSess, allEvents, opts, executor, cache.NewDetector(), 1)
+}
+
+// attachmentPaths turns the request's attachment names into the workspace
+// paths they were materialised under: scratch/attachments/<name>
+// (internal/workspace), exactly the paths RenderOpeningMessage lists and
+// GET /api/sessions/{id}/screenshot resolves. Nil when there are none, so
+// the payload field stays absent for a run without attachments.
+func attachmentPaths(names []string) []string {
+	if len(names) == 0 {
+		return nil
+	}
+	out := make([]string, len(names))
+	for i, name := range names {
+		out[i] = "scratch/attachments/" + name
+	}
+	return out
 }
 
 // runLoop iterates sub-turns from startSubTurn through opts.MaxSubTurns (or

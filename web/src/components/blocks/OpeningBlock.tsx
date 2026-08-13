@@ -1,6 +1,7 @@
 import { memo, useMemo, useState } from "react";
 import type { Block } from "../../api/fold";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible";
+import { ScreenshotGallery } from "./ScreenshotGallery";
 
 // OpeningBlock renders the run's opening message collapsed to one summary
 // line — the workspace line, the word count, and the files it names
@@ -24,6 +25,10 @@ export const OpeningBlock = memo(function OpeningBlock({ block }: { block: Extra
         </CollapsibleTrigger>
         <CollapsibleContent>
           <p className="block-text">{block.text}</p>
+          {/* The task's image attachments, rendered through the same gallery
+              the Screenshot and ReviewScreenshot results use — the paths the
+              payload carried, addressed on GET /api/sessions/{id}/screenshot. */}
+          <ScreenshotGallery paths={block.attachments} />
         </CollapsibleContent>
       </Collapsible>
     </section>
