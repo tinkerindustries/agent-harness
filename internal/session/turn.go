@@ -189,13 +189,17 @@ func (r *Runner) pickUpSteers(ctx context.Context, sess store.Session, allEvents
 // half-written turn behind: a resumed session either has the whole turn or
 // none of it (docs/DESIGN.md §4.5, §4.8).
 func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *[]store.Event, opts RunOptions,
-	executor *tools.Executor, detector *cache.Detector, subTurn int, appliedSeq *int64) (subTurnOutcome, error) {
+	executor *tools.Executor, detector *cache.Detector, subTurn int, appliedSeq *int64,
+	reminders *reminderState, contextTokens int) (subTurnOutcome, error) {
 
 	// Pending steers are read once per sub-turn, before the fold, and folded
 	// in as user messages at the tail — after the previous sub-turn's tool
 	// round, never mid-call. A steer sent while a long tool call is running
 	// reaches the model only here, at the next natural boundary, which is
 	// what keeps §4.6's stalling problem closed.
+	if err := r.emitDueReminder(ctx, sess, allEvents, reminders, subTurn, contextTokens); err != nil {
+		return subTurnOutcome{}, err
+	}
 	if err := r.pickUpSteers(ctx, sess, allEvents, appliedSeq, subTurn); err != nil {
 		return subTurnOutcome{}, err
 	}
@@ -506,4 +510,34 @@ func (r *Runner) stream(ctx context.Context, model string, messages []deepseek.M
 		return "", "", nil, "", nil, streamErr
 	}
 	return reasoningBuf.String(), contentBuf.String(), assembler, finishReason, usage, nil
+}
+
+// emitDueReminder appends a reminder when the run's policy says the context
+// has grown far enough since the last one. It writes a steer_applied directly
+// rather than a steer_message an operator sent: there is no source event to
+// link, so SourceSeq stays zero and the applied high-water mark ignores it.
+//
+// The reminder lands at the tail, before the fold, so it is the last thing in
+// the conversation when the next request goes out and nothing earlier moves.
+func (r *Runner) emitDueReminder(ctx context.Context, sess store.Session, allEvents *[]store.Event,
+	reminders *reminderState, subTurn, contextTokens int) error {
+
+	if reminders == nil || contextTokens <= 0 {
+		return nil
+	}
+	text, role, ok := reminders.due(contextTokens)
+	if !ok {
+		return nil
+	}
+	appended, err := r.Store.AppendEvents(ctx, sess.ID, []store.EventInput{{
+		Kind:    store.KindSteerApplied,
+		Payload: store.SteerAppliedPayload{Text: text, SubTurn: subTurn, Role: role},
+	}})
+	if err != nil {
+		return fmt.Errorf("session: append reminder: %w", err)
+	}
+	r.mirrorAppend(sess, appended)
+	r.publishEvents(sess, appended)
+	*allEvents = append(*allEvents, appended...)
+	return nil
 }

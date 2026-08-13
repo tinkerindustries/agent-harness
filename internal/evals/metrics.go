@@ -8,6 +8,7 @@ package evals
 import (
 	"encoding/json"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
@@ -29,12 +30,15 @@ type metric struct {
 }
 
 // toolCall pairs a call with its result, which is what most metrics need:
-// whether a call happened, and whether it worked.
+// whether a call happened, and whether it worked. contextTokens is how large
+// the request was at the moment of the call, which is what the decay metrics
+// below are measured against.
 type toolCall struct {
-	name    string
-	args    map[string]any
-	result  string
-	isError bool
+	name          string
+	args          map[string]any
+	result        string
+	isError       bool
+	contextTokens int
 }
 
 func (c toolCall) arg(key string) string {
@@ -125,6 +129,129 @@ var Metrics = []metric{
 			return float64(len(calls)), true
 		},
 	},
+	{
+		name:        "search_via_tool_decay",
+		description: "change in search-tool share from the run's first half to its second, by context size",
+		compute:     decayOf(searchViaToolShare),
+	},
+	{
+		name:        "edit_miss_rate_decay",
+		description: "change in the share of edits refused for want of a read, first half to second",
+		compute:     decayOf(editMissRate),
+	},
+	{
+		name:        "context_tokens_max",
+		description: "largest request the run made, as a check that it ran long enough for decay to mean anything",
+		compute: func(calls []toolCall) (float64, bool) {
+			maxTokens := 0
+			for _, c := range calls {
+				if c.contextTokens > maxTokens {
+					maxTokens = c.contextTokens
+				}
+			}
+			if maxTokens == 0 {
+				return 0, false
+			}
+			return float64(maxTokens), true
+		},
+	},
+}
+
+// A rule the model is asked to follow decays as the context grows: measured
+// over 85 production sessions, search-tool share fell from 41.7% under 16k to
+// 3.5% above 128k, and edits refused for want of a read rose from 0% to 1.95%
+// (docs/EVALS.md). A wording change that holds early and not late is worth
+// telling apart from one that holds throughout, so every rule metric has a
+// decay counterpart.
+//
+// The split is at the run's own median context size rather than a fixed token
+// figure, so a short run and a long one both yield a number and neither is
+// scored against a threshold it never reached. Read it beside
+// context_tokens_max: a decay of zero on a run that never passed 20k says
+// nothing about what happens at 200k.
+
+// share is a metric computed over some subset of a run's calls.
+type share func(calls []toolCall) (float64, bool)
+
+func searchViaToolShare(calls []toolCall) (float64, bool) {
+	viaTool, viaBash := 0, 0
+	for _, c := range calls {
+		switch c.name {
+		case "Grep", "Glob":
+			viaTool++
+		case "Bash":
+			if bashSearch.MatchString(c.arg("command")) {
+				viaBash++
+			}
+		}
+	}
+	if viaTool+viaBash == 0 {
+		return 0, false
+	}
+	return float64(viaTool) / float64(viaTool+viaBash), true
+}
+
+func editMissRate(calls []toolCall) (float64, bool) {
+	edits, misses := 0, 0
+	for _, c := range calls {
+		if c.name != "Edit" && c.name != "Write" {
+			continue
+		}
+		edits++
+		if strings.Contains(c.result, "has not been read in this session") {
+			misses++
+		}
+	}
+	if edits == 0 {
+		return 0, false
+	}
+	return float64(misses) / float64(edits), true
+}
+
+// decayOf turns a share into the difference between the run's second half and
+// its first. A run where either half has nothing to measure reports nothing:
+// a decay against an absent baseline is not a number.
+func decayOf(s share) func([]toolCall) (float64, bool) {
+	return func(calls []toolCall) (float64, bool) {
+		first, second := splitByContext(calls)
+		early, okEarly := s(first)
+		late, okLate := s(second)
+		if !okEarly || !okLate {
+			return 0, false
+		}
+		return late - early, true
+	}
+}
+
+// splitByContext divides a run at its median context size, so each half holds
+// the calls made while the request was small and large respectively. Splitting
+// on context rather than on call index is what makes the number about the
+// window: a run can make thirty calls inside one sub-turn without the context
+// moving at all.
+func splitByContext(calls []toolCall) (first, second []toolCall) {
+	sized := make([]toolCall, 0, len(calls))
+	for _, c := range calls {
+		if c.contextTokens > 0 {
+			sized = append(sized, c)
+		}
+	}
+	if len(sized) < 2 {
+		return nil, nil
+	}
+	tokens := make([]int, len(sized))
+	for i, c := range sized {
+		tokens[i] = c.contextTokens
+	}
+	sort.Ints(tokens)
+	median := tokens[len(tokens)/2]
+	for _, c := range sized {
+		if c.contextTokens < median {
+			first = append(first, c)
+		} else {
+			second = append(second, c)
+		}
+	}
+	return first, second
 }
 
 // Score computes every metric over one session's events. A metric with
@@ -140,23 +267,44 @@ func Score(events []store.Event) Scores {
 	return scores
 }
 
-// pairCalls joins each tool_call to its tool_result. A call with no result —
-// the run was cut off mid-flight — keeps an empty result rather than being
-// dropped, because it still happened.
+// pairCalls joins each tool_call to its tool_result and stamps it with the
+// context size of the sub-turn it belongs to. A call with no result — the run
+// was cut off mid-flight — keeps an empty result rather than being dropped,
+// because it still happened.
 func pairCalls(events []store.Event) []toolCall {
 	results := map[string]store.ToolResultPayload{}
+	// A sub-turn that was retried commits a second usage event; the first one
+	// is the context the sub-turn's calls were made against.
+	contextBySubTurn := map[int]int{}
 	for _, e := range events {
-		if e.Kind != store.KindToolResult {
-			continue
-		}
-		var p store.ToolResultPayload
-		if err := json.Unmarshal(e.Payload, &p); err == nil {
-			results[p.ToolCallID] = p
+		switch e.Kind {
+		case store.KindToolResult:
+			var p store.ToolResultPayload
+			if err := json.Unmarshal(e.Payload, &p); err == nil {
+				results[p.ToolCallID] = p
+			}
+		case store.KindUsage:
+			var p store.UsagePayload
+			if err := json.Unmarshal(e.Payload, &p); err == nil {
+				if _, seen := contextBySubTurn[p.SubTurn]; !seen {
+					contextBySubTurn[p.SubTurn] = p.PromptTokens
+				}
+			}
 		}
 	}
 
 	var calls []toolCall
+	subTurn := 0
 	for _, e := range events {
+		if e.Kind == store.KindTurnStarted {
+			var p struct {
+				SubTurn int `json:"sub_turn"`
+			}
+			if json.Unmarshal(e.Payload, &p) == nil {
+				subTurn = p.SubTurn
+			}
+			continue
+		}
 		if e.Kind != store.KindToolCall {
 			continue
 		}
@@ -168,10 +316,11 @@ func pairCalls(events []store.Event) []toolCall {
 		_ = json.Unmarshal([]byte(p.Arguments), &args)
 		res := results[p.ID]
 		calls = append(calls, toolCall{
-			name:    p.Name,
-			args:    args,
-			result:  res.Content,
-			isError: res.IsError,
+			name:          p.Name,
+			args:          args,
+			result:        res.Content,
+			isError:       res.IsError,
+			contextTokens: contextBySubTurn[subTurn],
 		})
 	}
 	return calls

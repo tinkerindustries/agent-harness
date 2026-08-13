@@ -67,8 +67,9 @@ func Summarise(r *Report) []Summary {
 // reportedMetrics is the print order: the mechanical counters first, then the
 // judge, then what the run cost.
 var reportedMetrics = []string{
-	"search_via_tool", "searches_total", "tool_error_rate",
-	"read_before_edit_misses", "tool_calls",
+	"search_via_tool", "search_via_tool_decay", "searches_total",
+	"tool_error_rate", "read_before_edit_misses", "edit_miss_rate_decay",
+	"tool_calls", "context_tokens_max",
 	"judge_score", "judge_completed",
 	"sub_turns", "cost_usd",
 }
@@ -181,8 +182,11 @@ func delta(metric string, hasBase bool, base Summary, row map[string]Summary, va
 // four places, counts plainly.
 func format(metric string, v float64) string {
 	switch {
-	case strings.HasSuffix(metric, "_rate"), strings.HasSuffix(metric, "_via_tool"), metric == "judge_completed":
+	case strings.HasSuffix(metric, "_rate"), strings.HasSuffix(metric, "_via_tool"),
+		strings.HasSuffix(metric, "_decay"), metric == "judge_completed":
 		return fmt.Sprintf("%.1f%%", v*100)
+	case metric == "context_tokens_max":
+		return fmt.Sprintf("%.0fk", v/1000)
 	case metric == "cost_usd":
 		return fmt.Sprintf("$%.4f", v)
 	default:

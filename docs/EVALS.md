@@ -28,10 +28,15 @@ landing entirely on one.
 ## Variants
 
 A variant is a set of exact-substring replacements against the shipped prompt,
-defined in `internal/session/variants.go`. Holding replacements rather than a
-second copy of the prompt means an edit to the shipped text reaches every
-variant, and a variant whose anchor text has disappeared fails loudly instead
-of rendering unchanged and being scored as though it had applied.
+defined in `internal/promptvariant/variants.go`. Holding replacements rather
+than a second copy of the prompt means an edit to the shipped text reaches
+every variant, and a variant whose anchor text has disappeared fails loudly
+instead of rendering unchanged and being scored as though it had applied.
+
+The package holds no prompt text of its own and imports nothing internal but
+the wire vocabulary. That is what lets `internal/queue` reject a misspelled
+variant on a work request without the agent loop joining the HTTP server's
+dependency set.
 
 `base` renders the shipped prompt byte for byte, asserted by a test. A work
 request with no `prompt_variant` gets it, which is every production request.
@@ -39,6 +44,45 @@ request with no `prompt_variant` gets it, which is every production request.
 Two variants in flight means two cached prefixes rather than one. That costs a
 second cold prefill and nothing after it: each prefix is an independent unit
 and every session's first request misses regardless (`docs/CACHE.md`).
+
+## Reminders
+
+A rule stated once in the system prompt decays as the context grows. Measured
+over 85 production sessions:
+
+| Context | Searches | Via the search tools | Edits | Refused for want of a read |
+| --- | --- | --- | --- | --- |
+| 0–16k | 36 | 41.7% | 2 | 0% |
+| 16–32k | 88 | 33.0% | 32 | 0% |
+| 32–64k | 371 | 29.6% | 121 | 0.83% |
+| 64–128k | 573 | 15.0% | 755 | 1.59% |
+| 128k+ | 1185 | 3.5% | 1895 | 1.95% |
+
+Both rules decay monotonically. The association is confounded — a session
+orienting in a fresh repository searches differently from one running builds
+an hour in — which is what an eval is for: the task is held constant and only
+the context length varies.
+
+A reminder re-states a rule further down the conversation. Cadence is in
+context tokens rather than sub-turns, because tokens are the variable the
+decay is against: one tool call returning a build log adds more context than
+thirty small ones. A policy has a floor (`afterTokens`) below which the rule
+holds unaided, and an interval (`everyTokens`) the context must grow before
+the next reminder.
+
+The reminder is appended at the tail through the same path a steer takes, as a
+`steer_applied` event with no source. Nothing earlier in the conversation
+moves, so the cached prefix survives and the reminder costs its own tokens
+plus the trailing partial block.
+
+Its message role is a policy field rather than a decision. DeepSeek's schema
+accepts a system message at any position in `messages`, and whether one
+carries further than a user message here is unmeasured — `search-64k` and
+`search-64k-system` are otherwise identical, so an eval can answer it.
+
+A variant may name a reminder policy, which makes head and tail one axis:
+`search-remind` is the shipped prompt plus reminders, `search-first-remind`
+is both.
 
 ## What gets scored
 
@@ -53,7 +97,15 @@ last week.
 | `searches_total` | searches of any kind, as a check that a variant did not simply search less |
 | `tool_error_rate` | share of tool calls that came back an error |
 | `read_before_edit_misses` | Edit or Write calls refused because the file had not been read |
+| `search_via_tool_decay` | change in search-tool share from the run's first half to its second, split at its own median context size |
+| `edit_miss_rate_decay` | the same, for edits refused for want of a read |
+| `context_tokens_max` | the largest request the run made |
 | `tool_calls`, `sub_turns`, `cost_usd` | what the run cost to get there |
+
+Read a decay beside `context_tokens_max`. A decay of zero on a run that never
+passed 20k says nothing about what happens at 200k. The split is at the run's
+own median rather than a fixed token figure, so a short run and a long one
+both yield a number.
 
 `-judge` adds a model reading the rendered transcript and scoring it 1–5
 against the suite's rubric, plus a completed flag. It catches a variant that

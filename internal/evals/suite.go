@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/promptvariant"
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
-	"github.com/mrgeoffrich/deepseek-harness/internal/session"
 )
 
 // A Suite is a set of tasks run under every variant being compared. Tasks are
@@ -92,20 +92,26 @@ func (t Task) PermissionModeOrDefault() string {
 }
 
 // Request builds the work request for one run of a task under one variant.
+//
+// An eval is a producer, not a person: parent_is_user false sends the session
+// to the read-only watch page rather than the chat page with a steer
+// composer, and steering an eval run would corrupt the measurement it exists
+// to produce.
 func (t Task) Request(requestID, variant string) queue.Request {
 	return queue.Request{
-		RequestID:      requestID,
-		Prompt:         t.Prompt,
-		Repos:          t.Repos,
-		Model:          t.Model,
-		Effort:         t.Effort,
-		PermissionMode: t.PermissionModeOrDefault(),
-		MaxSubTurns:    t.MaxSubTurns,
-		DeadlineMS:     t.DeadlineMS,
-		JobType:        "implementation",
-		PromptVariant:  variant,
-		ParentIsUser:   true,
-		ParentAgentID:  "harness-eval",
+		RequestID:       requestID,
+		Prompt:          t.Prompt,
+		Repos:           t.Repos,
+		Model:           t.Model,
+		Effort:          t.Effort,
+		PermissionMode:  t.PermissionModeOrDefault(),
+		MaxSubTurns:     t.MaxSubTurns,
+		DeadlineMS:      t.DeadlineMS,
+		JobType:         "implementation",
+		PromptVariant:   variant,
+		ParentIsUser:    false,
+		ParentAgentType: "eval",
+		ParentAgentID:   requestID,
 	}
 }
 
@@ -121,7 +127,7 @@ func ValidateVariants(names []string) error {
 			return fmt.Errorf("evals: variant %q named twice", n)
 		}
 		seen[n] = true
-		if err := session.ValidateVariant(n); err != nil {
+		if err := promptvariant.Validate(n); err != nil {
 			return fmt.Errorf("evals: %w", err)
 		}
 	}

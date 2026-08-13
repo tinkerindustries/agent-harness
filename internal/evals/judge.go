@@ -70,7 +70,12 @@ func (j Judge) Score(ctx context.Context, rubric string, events []store.Event) (
 		maxTokens = 1024
 	}
 	resp, err := j.Client.CreateChatCompletion(ctx, deepseek.ChatCompletionRequest{
-		Model:     j.Model,
+		Model: j.Model,
+		// Both models default to thinking mode, and a judge asked for a short
+		// JSON object spends the whole budget reasoning and returns empty
+		// content. The verdict is a rubric lookup, not a problem to work
+		// through (internal/tools/webfetch.go makes the same call).
+		Thinking:  &deepseek.ThinkingConfig{Type: deepseek.ThinkingDisabled},
 		MaxTokens: maxTokens,
 		Messages: []deepseek.Message{
 			deepseek.SystemMessage(judgeSystemPrompt),

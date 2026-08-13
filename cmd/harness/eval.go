@@ -13,8 +13,8 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/evals"
+	"github.com/mrgeoffrich/deepseek-harness/internal/promptvariant"
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
-	"github.com/mrgeoffrich/deepseek-harness/internal/session"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 )
 
@@ -49,8 +49,11 @@ func runEval(ctx context.Context, args []string) error {
 }
 
 func runEvalVariants() error {
-	for _, name := range session.VariantNames() {
-		fmt.Printf("%-16s %s\n", name, session.VariantDescription(name))
+	for _, name := range promptvariant.Names() {
+		fmt.Printf("%-20s %s\n", name, promptvariant.Description(name))
+		if policy := promptvariant.ReminderPolicyFor(name); policy != "" {
+			fmt.Printf("%-20s   reminders: %s\n", "", promptvariant.ReminderPolicyDescription(policy))
+		}
 	}
 	return nil
 }

@@ -16,7 +16,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
-	"github.com/mrgeoffrich/deepseek-harness/internal/session"
+	"github.com/mrgeoffrich/deepseek-harness/internal/promptvariant"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 )
 
@@ -45,6 +45,9 @@ type Request struct {
 	// (internal/session/variants.go). Empty is the shipped prompt, which is
 	// what every production request sends.
 	PromptVariant string `json:"prompt_variant,omitempty"`
+	// ReminderPolicy names the cadence on which the loop re-states a rule
+	// mid-conversation (internal/session/reminders.go). Empty is none.
+	ReminderPolicy string `json:"reminder_policy,omitempty"`
 }
 
 // Repo is one checkout a request asks for. The worker clones each one into
@@ -159,7 +162,10 @@ func (r Request) Validate() error {
 	if err := agentmeta.ValidateParent(r.ParentIsUser, r.ParentAgentType, r.ParentAgentID); err != nil {
 		return fmt.Errorf("queue: %w", err)
 	}
-	if err := session.ValidateVariant(r.PromptVariant); err != nil {
+	if err := promptvariant.Validate(r.PromptVariant); err != nil {
+		return fmt.Errorf("queue: %w", err)
+	}
+	if err := promptvariant.ValidateReminderPolicy(r.ReminderPolicy); err != nil {
 		return fmt.Errorf("queue: %w", err)
 	}
 

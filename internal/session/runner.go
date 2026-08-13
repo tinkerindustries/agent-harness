@@ -21,6 +21,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/httplog"
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
+	"github.com/mrgeoffrich/deepseek-harness/internal/promptvariant"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/skills"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
@@ -71,6 +72,11 @@ type RunOptions struct {
 	// PromptVariant names the system prompt this run uses. Empty is the
 	// shipped prompt; anything else is an eval run (variants.go).
 	PromptVariant string
+
+	// ReminderPolicy names the cadence on which the loop re-states a rule
+	// further down the conversation. Empty is none, which is what production
+	// runs do (reminders.go). A variant may name one, and this overrides it.
+	ReminderPolicy string
 
 	// SessionID, when set, is used instead of generating a fresh one. A
 	// caller that must know the id before the session row exists — the
@@ -417,6 +423,13 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 	// id with a fresh log, so steers applied before compaction live in the
 	// summary that carried them forward, and unapplied ones stay attached to
 	// the retired session — they are neither delivered nor lost.
+	reminderPolicy := opts.ReminderPolicy
+	if reminderPolicy == "" {
+		reminderPolicy = promptvariant.ReminderPolicyFor(opts.PromptVariant)
+	}
+	reminders := newReminderState(reminderPolicy)
+	contextTokens := 0
+
 	appliedSeq, err := r.Store.LastAppliedSteerSeq(ctx, curSess.ID)
 	if err != nil {
 		return r.fail(ctx, curSess, allEvents, startSubTurn-1, agg, fmt.Errorf("session: derive applied steer seq: %w", err))
@@ -445,7 +458,7 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 	lastCompleteError, completeRejections := "", 0
 
 	for subTurn := startSubTurn; subTurn <= maxTurns; subTurn++ {
-		outcome, err := r.runSubTurn(ctx, curSess, &allEvents, opts, executor, detector, subTurn, &appliedSeq)
+		outcome, err := r.runSubTurn(ctx, curSess, &allEvents, opts, executor, detector, subTurn, &appliedSeq, &reminders, contextTokens)
 		if err != nil {
 			return r.fail(ctx, curSess, allEvents, subTurn-1, agg, err)
 		}
@@ -474,6 +487,8 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 		if completeRejections >= maxCompleteRejections {
 			return r.abandonRun(ctx, curSess, allEvents, agg, subTurn, lastText, lastCompleteError)
 		}
+
+		contextTokens = outcome.usagePayload.PromptTokens
 
 		if outcome.usagePayload.PromptTokens >= r.compactionThreshold(ctx) {
 			newSess, newEvents, err := r.compact(ctx, curSess, allEvents, executor.Workspace)

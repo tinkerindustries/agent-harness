@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/mrgeoffrich/deepseek-harness/internal/promptvariant"
 )
 
 // systemPrompt is fixed for the life of a harness build. Nothing here may
@@ -73,6 +75,13 @@ Rules:
 // that session (docs/CACHE.md).
 func RenderSystemPrompt() string {
 	return systemPrompt
+}
+
+// RenderSystemPromptVariant returns the system prompt with a named variant's
+// edits made. An empty name is the shipped prompt, byte for byte
+// (internal/promptvariant).
+func RenderSystemPromptVariant(name string) (string, error) {
+	return promptvariant.Apply(name, systemPrompt)
 }
 
 // RenderOpeningMessage builds the first user message: everything specific

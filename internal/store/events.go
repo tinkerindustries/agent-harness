@@ -197,11 +197,17 @@ type SteerMessagePayload struct {
 }
 
 // SteerAppliedPayload is the point in the log where a steer_message became a
-// user message. SourceSeq links it to the steer_message it applies, which is
-// what lets a resumed run recompute which steers are outstanding from the log
-// alone, with no in-memory high-water mark to lose.
+// message in the conversation. SourceSeq links it to the steer_message it
+// applies, which is what lets a resumed run recompute which steers are
+// outstanding from the log alone, with no in-memory high-water mark to lose.
+// A reminder the loop generated for itself carries no source, so SourceSeq is
+// zero and the high-water mark ignores it (internal/session/reminders.go).
 type SteerAppliedPayload struct {
 	SourceSeq int64  `json:"source_seq"`
 	Text      string `json:"text"`
 	SubTurn   int    `json:"sub_turn"`
+	// Role is the message role this folds to. Empty is "user", which is what
+	// every operator steer is and what every row written before this field
+	// existed holds.
+	Role string `json:"role,omitempty"`
 }

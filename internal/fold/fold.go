@@ -119,7 +119,11 @@ func Fold(sess store.Session, events []store.Event) ([]deepseek.Message, error) 
 			if err := json.Unmarshal(e.Payload, &p); err != nil {
 				return nil, fmt.Errorf("fold: steer_applied at seq %d: %w", e.Seq, err)
 			}
-			messages = append(messages, deepseek.UserMessage(p.Text))
+			if p.Role == deepseek.RoleSystem {
+				messages = append(messages, deepseek.SystemMessage(p.Text))
+			} else {
+				messages = append(messages, deepseek.UserMessage(p.Text))
+			}
 
 		case store.KindToolStdout, store.KindUsage, store.KindRunFinished, store.KindError, store.KindSteerMessage:
 			// Carry no messages-array content. Usage and errors are

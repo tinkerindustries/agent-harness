@@ -136,6 +136,14 @@ paths out. Each clone then gets its Node dependencies installed, with the
 lockfile choosing the package manager; the install is best-effort and never
 fails a run. §4.10.
 
+### `internal/promptvariant`
+The named alternatives to the shipped system prompt, and the reminder cadences
+that go with them. Imports nothing internal but the wire vocabulary, which is
+what lets `internal/queue` validate a variant name on a work request without
+pulling the agent loop in behind it — a boundary
+`internal/httpapi/boundary_test.go` pins. `internal/session` owns the prompt
+text; this package owns the edits to it. [docs/EVALS.md](docs/EVALS.md).
+
 ### `internal/evals`
 Measures a prompt change. Publishes a suite of tasks under two or more prompt
 variants through the WORK stream, scores each run from its stored events, and
