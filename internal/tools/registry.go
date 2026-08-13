@@ -65,6 +65,14 @@ type Result struct {
 	Truncated      bool
 	Diff           []store.DiffLine
 	ChildSessionID string
+	// ImageURL is the base64 data URI of an image Read returned as an
+	// image_url part, set only on a vision provider (docs/KIMI-INTEGRATION.md
+	// §4.5). It never rides with IsError: a Read that fails is a refusal with
+	// a text result, not a broken image part. The runner stores Content and
+	// ImageURL on the tool_result event and the fold rebuilds the parts array
+	// from them (internal/fold/fold.go), so the image bytes live in the event
+	// log and a replay reproduces them identically.
+	ImageURL string
 	// GeminiUsage is the costed token accounting of a ReviewScreenshot
 	// call, set only when the tool made a successful request to Gemini. The
 	// runner commits it as its own usage event (internal/session/turn.go),
@@ -156,6 +164,17 @@ type Executor struct {
 	Client     ChatClient
 	Prices     *pricing.Table
 	FlashModel string
+
+	// SeeImages is true when the session's provider reads images natively
+	// (Kimi K3; DeepSeek is text-only). Read consults it: on a vision
+	// provider, reading an image path returns the file as an image_url part
+	// instead of the binary-file refusal, and the two vision tools
+	// (Screenshot, ReviewScreenshot) are not offered at all
+	// (internal/tools/definitions.go, docs/KIMI-INTEGRATION.md §4.5). Set by
+	// internal/session from the session's model at creation and on resume,
+	// and never changed mid-session — the tool array and Read's behaviour
+	// are both frozen for a session's life (docs/CACHE.md).
+	SeeImages bool
 
 	// Gemini is the client the ReviewScreenshot tool uses to send screenshots
 	// to Google's Gemini API. Nil (a session with no client configured) makes
