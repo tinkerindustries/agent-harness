@@ -114,11 +114,19 @@ export function useTranscriptStore(sessionID: string): TranscriptStore {
 // flicker in between — and swallows a transient fetch failure, which just
 // leaves the caller showing whatever it last had.
 //
-// settled is whether the current fetch has completed, successfully or not.
-// The session route needs it to tell "row not here yet" (render the shell
-// with an empty stream) from "row will never arrive" (keep the chat screen,
-// the safe default for a fetch-failed run). meta and settled reset together
-// on a session switch, and a re-fetch after a failure retries the row.
+// settled is whether the FIRST fetch for this session has completed,
+// successfully or not — not whether the latest one has. The session route
+// needs it to tell "row not here yet" (render the shell with an empty stream)
+// from "row will never arrive" (keep the chat screen, the safe default for a
+// fetch-failed run), and that question is only ever asked once per session.
+//
+// Only the session-switch effect below clears it. A refreshOn re-fetch must
+// not, because the route renders a different subtree while unsettled: every
+// connection change would unmount the whole screen and remount it when the
+// row landed, throwing away its scroll position and its local state, and
+// replaying every mount animation in the transcript. The stream connection
+// opens a beat after the first fetch returns on every single page load, so
+// that fired every time — see SessionScreen.
 export function useSessionMeta(
   sessionId: string,
   refreshOn: unknown,
@@ -136,7 +144,6 @@ export function useSessionMeta(
 
   useEffect(() => {
     const controller = new AbortController();
-    setSettled(false);
     fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { signal: controller.signal })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
