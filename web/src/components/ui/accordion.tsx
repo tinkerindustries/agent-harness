@@ -3,17 +3,14 @@ import { Accordion as AccordionPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 
-// shadcn/ui's Accordion (docs/WEB-REDESIGN.md phase 1's component list, and
-// components.html's mapping of details.rail-phase to "Accordion (type
-// multiple)"), written against the unified radix-ui package like the rest of
-// this ui directory. The rail's phase groups are several-open-at-once, which
-// is exactly what type="multiple" gives; the trigger/content/header
-// primitives are styled in the bespoke layer (styles.css) rather than here,
-// because the rail's summary row is its own layout (caret, phase name,
-// sub-turn range) — see .rail-phase.
+// shadcn/ui's Accordion, written against the unified radix-ui package like
+// the rest of this ui directory. The rail's phase groups are
+// several-open-at-once, which is exactly what type="multiple" gives; the
+// trigger/content/header primitives are styled in the bespoke layer
+// (styles.css) rather than here, because the rail's summary row is its own
+// layout (caret, phase name, sub-turn range) — see .rail-phase.
 //
-// Deliberately no chevron icon: the rail's phases draw the design's ▸ caret
-// themselves.
+// Deliberately no chevron icon: the rail's phases draw their own ▸ caret.
 
 function Accordion({
   ...props

@@ -4,8 +4,8 @@
  *    variable values are ported verbatim — shadcn's names carry shadcn's
  *    values, and the --status- / --diff- names survive unchanged as the
  *    vocabulary on top that shadcn has no opinion about.
- *    The dark block responds to prefers-color-scheme (no theme switcher;
- *    docs/WEB-REDESIGN.md "What is deliberately not here").
+ *    The dark block responds to prefers-color-scheme; there is no theme
+ *    switcher.
  * 2. The base layer: preflight plus the app's default body styling.
  * 3. The bespoke layer: everything shadcn has no opinion about — the
  *    transcript block styles, the diff table, the status and diff tokens,
@@ -234,8 +234,8 @@
 }
 
 /* ---------- terminal scope ---------- */
-/* Opt-in per subtree. NOT a theme switcher (docs/WEB-REDESIGN.md "What is
- * deliberately not here"), and nothing in the product sets it.
+/* Opt-in per subtree. NOT a theme switcher, and nothing in the product sets
+ * it.
  *
  * The :root[data-theme="terminal"] selector is load-bearing: at (0,1,0) the bare
  * attribute selector loses to any :root block that comes later in the cascade,
@@ -417,9 +417,8 @@ html {
 
 /* ---------- the bespoke layer ----------
    Layout, the transcript blocks, the diff table, and the status and diff
-   tokens. This is the layer shadcn has no opinion about (docs/WEB-REDESIGN.md
-   phase 1); the component styles (badge, button, input) live in
-   src/components/ui. */
+   tokens. This is the layer shadcn has no opinion about; the component
+   styles (badge, button, input) live in src/components/ui. */
 
 /* ---------- motion ----------
    Seven animations, each tied to a fact changing on screen. Nothing animates
@@ -601,7 +600,7 @@ html {
   white-space: nowrap;
 }
 
-/* ---------- shared top nav (docs/WEB-REDESIGN.md phase 9) ----------
+/* ---------- shared top nav ----------
    One header, identical on every product screen: the wordmark, the three
    sections as real links with an active state, then whatever is page-specific
    (the search inputs, the LIVE/connection badge, the refresh button) pinned
@@ -685,7 +684,7 @@ html {
 }
 
 /* A session's transcript isn't one of the three sections on its own — it is
-   a session, so Sessions stays the active link (phase 9) — and the crumb
+   a session, so Sessions stays the active link — and the crumb
    says exactly which one, in the slot a page title would otherwise sit in. */
 .nav-crumb {
   display: flex;
@@ -785,7 +784,7 @@ pre {
 /* ---------- session list: in-flight cards and the finished table ----------
    Running sessions leave the table and become collapsible plan cards;
    finished sessions keep the dense table, whose Session cell gains a
-   one-line subtitle per row (docs/WEB-REDESIGN.md phase 3). */
+   one-line subtitle per row. */
 
 .list-section + .list-section {
   margin-top: calc(var(--space) * 2.5);
@@ -1081,12 +1080,11 @@ pre {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  /* The phase 9 fix for the finished table's real overflow bug: without a
-     max-width a long plan summary stretched the Session column until every
-     column after it scrolled off the right edge (measured live at 1600px —
-     only Status and Session visible). The subtitle now ellipses instead of
-     pushing, and Elapsed/Cost sit right after Session so the two
-     prioritised numbers are never the ones that scroll away. */
+  /* Without a max-width a long plan summary stretches the Session column
+     until every column after it scrolls off the right edge — at 1600px
+     only Status and Session would stay visible. The subtitle ellipses
+     instead of pushing, and Elapsed/Cost sit right after Session so the
+     two prioritised numbers are never the ones that scroll away. */
   max-width: 360px;
   min-width: 0;
 }
@@ -1117,7 +1115,7 @@ pre {
   white-space: nowrap;
 }
 
-/* ---------- session list: the stat strip (docs/WEB-REDESIGN.md phase 9) ---
+/* ---------- session list: the stat strip ----------
    The four cards above the queue health bar: Running (of the pool's
    slots), Spend today, Median duration today, Done vs gave up today. All
    four are computed client-side over the session list the screen already
@@ -1295,7 +1293,7 @@ pre {
   color: var(--status-gaveup);
 }
 
-/* ---------- sub-turn cards (docs/WEB-REDESIGN.md phase 4) ----------
+/* ---------- sub-turn cards ----------
    One card per sub-turn: reasoning, assistant text, tool calls and their
    results in one body, with the sub-turn's usage figures in the header.
    The inner blocks render exactly as they do outside a group; only the
@@ -1303,8 +1301,8 @@ pre {
    Card with Tailwind utilities overriding its defaults; these rules are the
    header and body layout shadcn has no opinion about. */
 
-/* The header is a disclosure button since phase 5 (Compact collapses a card
-   to it); the layout is the same row the pre-collapse header had. */
+/* The header carries disclosure-button styling (the caret rotates via
+   [data-state]); SubTurnCard renders it as a plain div, always expanded. */
 .subturn-header {
   display: flex;
   align-items: center;
@@ -1452,9 +1450,9 @@ pre {
   gap: var(--space);
 }
 
-/* ---------- transcript toolbar and chips (docs/WEB-REDESIGN.md phase 5) ---
-   The density toggle and the filter chips over the folded blocks. Counts
-   come from the snapshot, computed in the same pass that builds the cards. */
+/* ---------- transcript toolbar and chips ----------
+   The filter chips over the folded blocks. Counts come from the snapshot,
+   computed in the same pass that builds the cards. */
 
 .transcript-toolbar {
   display: flex;
@@ -1513,7 +1511,7 @@ pre {
   font-weight: 600;
 }
 
-/* ---------- the collapsed opening block (docs/WEB-REDESIGN.md phase 5) --- */
+/* ---------- the collapsed opening block ---------- */
 
 .opening-summary {
   display: flex;
@@ -1700,13 +1698,12 @@ pre {
   }
 }
 
-/* ---------- the timeline rail (docs/WEB-REDESIGN.md phase 6) ----------
+/* ---------- the timeline rail ----------
    The sticky left column that lists every sub-turn under the plan item that
    was in_progress when it ran. The column sticks below the toolbar and
    scrolls its own content with plain overflow — NOT
-   ScrollArea (phase 1's deliberate omission: a custom scroll container costs
-   a wrapper and a listener per column on a screen that is already
-   frame-budget sensitive). */
+   ScrollArea (a custom scroll container costs a wrapper and a listener per
+   column on a screen that is already frame-budget sensitive). */
 
 .transcript-col {
   flex: 1;
@@ -2275,7 +2272,7 @@ pre {
 }
 
 /* ---------- the start form (docs/RUN-CONTROL.md "The frontend") ----------
-   Phase 6's browser write path for starting a run: a card at the top of the
+   The browser write path for starting a run: a card at the top of the
    session list, opened by the trigger in the nav's right slot. It mirrors
    harness publish's flags — prompt, repos (URL#branch), an explicit
    permission mode, and the optional fields behind a disclosure — and the
@@ -2500,8 +2497,8 @@ pre {
 
 /* ---------- operations screen ----------
 
-   The first screen where the browser acts on the harness (docs/DATA-API.md
-   phase 5): stuck sessions, running work requests, and workspace leases,
+   The first screen where the browser acts on the harness (docs/DATA-API.md):
+   stuck sessions, running work requests, and workspace leases,
    each with the writes that rewrite operational state. It follows the
    settings screen's density and the session list's table conventions — same
    strip up top for the counts, same dense table, same destructive vocabulary
@@ -2626,8 +2623,8 @@ pre {
   font-size: 0.8125rem;
 }
 
-/* In the nav's right slot since phase 9 retired the transcript's own
-   header (web/CLAUDE.md): a row, and the confirm lays out inline rather
+/* The transcript has no header of its own, so this lives in the nav's
+   right slot (web/CLAUDE.md): a row, and the confirm lays out inline rather
    than stacking, so arming it does not change the nav's height. */
 .stop-nav {
   display: flex;
@@ -2709,7 +2706,7 @@ pre {
   color: var(--status-gaveup);
 }
 
-/* ---------- web/src/perf: the phase 5 measurement harness page ---------- */
+/* ---------- web/src/perf: the measurement harness page ---------- */
 
 .perf-harness {
   max-width: 1200px;
@@ -2720,7 +2717,7 @@ pre {
   white-space: nowrap;
 }
 
-/* The phase 5 height measurement's headline figure (web/src/perf/HeightHarness). */
+/* The height measurement's headline figure (web/src/perf/HeightHarness). */
 .perf-height-result {
   margin: 0 0 16px;
   font-family: var(--font-mono);
@@ -2827,7 +2824,7 @@ body.page .topnav {
   min-height: 0;
 }
 /* The chat page's work band: the conversation column and the 288px plan
-   rail. The watch page's columns are phase 4's. */
+   rail. The watch page has its own, separate column layout. */
 .work-chat {
   grid-template-columns: minmax(0, 1fr) 288px;
 }
@@ -2939,10 +2936,10 @@ body.page .topnav {
 .state-pending {
   color: var(--status-gaveup);
 }
-/* A steer the run never applied because it ended first (phase 5's live
-   finding: a steer sent while the final sub-turn's request was in flight).
-   The pending vocabulary — "waiting for the current tool call to finish" —
-   would claim a boundary is coming that is not. The gaveup colour stays
+/* A steer the run never applied because it ended first (a steer sent while
+   the final sub-turn's request was in flight, and the run ends before it
+   is delivered). The pending vocabulary — "waiting for the current tool
+   call to finish" — would claim a boundary is coming that is not. The gaveup colour stays
    (the message was accepted, not delivered) but the pulse dot goes, because
    nothing is in motion. */
 .state-undelivered {

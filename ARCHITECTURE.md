@@ -183,9 +183,9 @@ Diagnostic, not a request-path dependency.
 Environment loading and `.env` parsing. Carries the bootstrap values only —
 the data directory (which locates the database the settings themselves live
 in), the network addresses, the price table path, and the workspace root —
-plus the thinking toggle. Everything else that used to be a default here
-(models, run budgets, worker sizes) lives in the settings registry. Read
-configuration through here rather than calling `os.Getenv` elsewhere.
+plus the thinking toggle. Everything else (models, run budgets, worker sizes)
+lives in the settings registry. Read configuration through here rather than
+calling `os.Getenv` elsewhere.
 
 ### `internal/settings`
 The registry and resolver for the `settings` table. The registry is one

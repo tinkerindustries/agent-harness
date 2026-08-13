@@ -13,11 +13,10 @@ import { childStat, exitCode, formatCost, toolHeader } from "./toolArgs";
 // SubTurnCard renders one sub-turn as a single card, always full:
 // reasoning, assistant text, tool calls and their results in one body,
 // with the sub-turn's usage figures in the header instead of a sibling
-// usage block. The session redesign retired the Compact/Full toggle (a
-// turn is always full, and collapsing happens per tool row instead), so
-// this card — now only used for a child transcript nested inside a Task
-// tool result,
-// where the design does not cover a turn rendering — is always expanded.
+// usage block. There is no Compact/Full toggle — a turn is always full, and
+// collapsing happens per tool row instead. This card is used only for a
+// child transcript nested inside a Task tool result, where the design does
+// not cover a turn rendering, and is always expanded.
 // It is memoised on the group object, which SubTurnGroupState only replaces
 // when the group's own children or usage change — so every group but the
 // tail one renders once and never again (docs/DESIGN.md §5.2's freeze, at
@@ -35,10 +34,10 @@ export const SubTurnCard = memo(function SubTurnCard({
   return (
     <Card
       id={`sub-turn-${group.subTurn}`}
-      // data-seq is the group's stable id for the phase 6 rail: the rail's
+      // data-seq is the group's stable id for the timeline rail: the rail's
       // single IntersectionObserver watches these card elements and maps
-      // them back to rail entries by this attribute (docs/WEB-REDESIGN.md
-      // phase 6, "the group is what the observer watches").
+      // them back to rail entries by this attribute — the group is what
+      // the observer watches.
       data-seq={group.seq}
       // .anim-stream-in rides the memoised card, which renders exactly once
       // when its group freezes — never the live buffer, where the tail would

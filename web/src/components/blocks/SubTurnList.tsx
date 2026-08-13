@@ -5,8 +5,8 @@ import { FrozenBlock } from "./FrozenBlock";
 import { SubTurnCard } from "./SubTurnCard";
 import { groupMatchesFilter } from "../../api/groups";
 
-// SubTurnList is the display-side grouping of docs/WEB-REDESIGN.md phase 4:
-// each sub-turn's assistant block, tool results, and usage render as one
+// SubTurnList is the display-side grouping: each sub-turn's assistant
+// block, tool results, and usage render as one
 // card instead of sibling blocks, and opening / skills / run_finished /
 // error blocks stay top-level. It is memoised on the items array itself,
 // the same second layer of memoisation FrozenBlocks had on the blocks array:
@@ -18,10 +18,10 @@ import { groupMatchesFilter } from "../../api/groups";
 // its children array reference and its SubTurnCard memo bails out on the
 // group reference, so an append costs a walk over items plus a render of the
 // tail group, not a re-render of the transcript (§5.2's freeze, at group
-// granularity). This list now serves only the child-transcript context
+// granularity). This list serves only the child-transcript context
 // (TaskChildBody) — the session screens render turns via
-// components/turns/TurnTranscript — and the Compact/Full density toggle is
-// retired with the redesign, so the cards render always full.
+// components/turns/TurnTranscript — and there is no Compact/Full density
+// toggle, so the cards render always full.
 export const SubTurnList = memo(function SubTurnList({
   items,
   filter,

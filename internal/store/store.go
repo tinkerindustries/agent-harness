@@ -179,12 +179,12 @@ type Session struct {
 	Status         string
 	// CompleteStatus is the status argument the model gave Complete ("done"
 	// or "gave_up"), when it called the tool at all. Empty covers both a
-	// pre-migration row and a session that ended without calling Complete
-	// (docs/WEB-REDESIGN.md phase 2); the browser renders the empty value as
+	// pre-migration row and a session that ended without calling Complete;
+	// the browser renders the empty value as
 	// the plain terminal status rather than guessing.
 	CompleteStatus string
 	// Plan is the JSON encoding of the working plan's todos array, written
-	// verbatim from the latest TodoWrite call (docs/WEB-REDESIGN.md phase 3).
+	// verbatim from the latest TodoWrite call.
 	// Empty covers both a pre-migration row and a session that never called
 	// TodoWrite; the browser renders the empty value as "no plan section"
 	// rather than an empty list.
@@ -197,7 +197,7 @@ type Session struct {
 	RecentToolCalls []RecentToolCall
 	// Summary is the summary argument the model gave Complete, its own
 	// one-line account of what the run did, shown under the finished table's
-	// session id (docs/WEB-REDESIGN.md phase 3). Empty when Complete was
+	// session id. Empty when Complete was
 	// never called.
 	Summary    string
 	CreatedAt  time.Time
@@ -497,14 +497,14 @@ var sessionMigrationColumns = []migrationColumn{
 	{"parent_agent_type", "TEXT NOT NULL DEFAULT ''"},
 	{"parent_agent_id", "TEXT NOT NULL DEFAULT ''"},
 	// complete_status: the status argument to Complete, kept alongside the
-	// session's own status so the session list can tell DONE from GAVE UP
-	// (docs/WEB-REDESIGN.md phase 2). Older rows default to the empty string,
+	// session's own status so the session list can tell DONE from GAVE UP.
+	// Older rows default to the empty string,
 	// which the browser renders as the plain terminal status rather than
 	// guessing.
 	{"complete_status", "TEXT NOT NULL DEFAULT ''"},
 	// plan: the JSON todos array of the latest TodoWrite call, so the
 	// session list carries the live plan without re-walking the event log
-	// and keeps it for finished sessions (docs/WEB-REDESIGN.md phase 3).
+	// and keeps it for finished sessions.
 	// Older rows default to the empty string, which the browser renders as
 	// "no plan section" rather than an empty list.
 	{"plan", "TEXT NOT NULL DEFAULT ''"},
@@ -514,7 +514,7 @@ var sessionMigrationColumns = []migrationColumn{
 	{"recent_tool_calls", "TEXT NOT NULL DEFAULT ''"},
 	// summary: the summary argument the model gave Complete, its own
 	// one-line account of the run, shown under the finished table's session
-	// id (docs/WEB-REDESIGN.md phase 3). Older rows default to the empty
+	// id. Older rows default to the empty
 	// string, which the browser renders as no subtitle.
 	{"summary", "TEXT NOT NULL DEFAULT ''"},
 	// version: the optimistic-concurrency counter every mutating write
@@ -671,7 +671,7 @@ func (s *Store) UpdateSessionStatus(ctx context.Context, id, status string, fini
 // tool). Keeping the complete_status and summary writes in the same UPDATE
 // as the terminal status is what makes the session list able to tell DONE
 // from GAVE UP and to subtitle the finished table without re-walking the
-// event log (docs/WEB-REDESIGN.md phases 2 and 3). It refuses to move a
+// event log. It refuses to move a
 // cancelled row, like UpdateSessionStatus: a cancelled session is terminal
 // and final, and no wedged goroutine that wakes after a stop may relabel it
 // (docs/RUN-CONTROL.md "Half two").
@@ -704,7 +704,7 @@ func (s *Store) FinishSession(ctx context.Context, id, status, completeStatus, s
 const maxRecentToolCalls = 5
 
 // UpdateSessionLiveState atomically rewrites the session row's live plan
-// and recent-tool-call roll (docs/WEB-REDESIGN.md phase 3). plan is the
+// and recent-tool-call roll. plan is the
 // JSON todos array from the latest TodoWrite call; the empty string keeps
 // the existing plan, so a sub-turn with no TodoWrite never clobbers one
 // that had it. calls are appended to the stored roll and trimmed to the

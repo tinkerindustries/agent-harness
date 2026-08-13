@@ -16,18 +16,18 @@ docs present as mandatory and which measurement shows is not.
 
 ## 1. Scope
 
-In scope for v1: concurrent agent sessions in one process, NATS JetStream
-ingress and result publication, the fifteen tools in [TOOLS.md](TOOLS.md), a
-declarative per-request permission policy, flash-backed subagents via `Task`, an
+Concurrent agent sessions in one process, NATS JetStream ingress and result
+publication, the fifteen tools in [TOOLS.md](TOOLS.md), a declarative
+per-request permission policy, flash-backed subagents via `Task`, an
 append-only event log in SQLite mirrored to disk for review, cost and cache
-accounting, a read-only browser transcript with a live plan panel driven by the
-plan tools (`TaskCreate`/`TaskUpdate`), and session resume.
+accounting, a browser transcript with a live plan panel driven by the plan
+tools (`TaskCreate`/`TaskUpdate`), session resume, and run control from the
+browser — starting, steering, and stopping a run (§4.2).
 
-Out of scope for v1: run control from the browser, auth and multi-user
-identity, remote or containerised workspaces, an editor pane, FIM inline
-completion, MCP tools inside the agent loop, prefix completion, background
-shells, edit checkpointing and rollback. Each is additive against this
-architecture.
+Not built: auth and multi-user identity, remote or containerised workspaces,
+an editor pane, FIM inline completion, MCP tools inside the agent loop, prefix
+completion, background shells, edit checkpointing and rollback. Each is
+additive against this architecture.
 
 "MCP tools inside the agent loop" names one direction specifically: the
 harness *consuming* MCP tools as part of its own DeepSeek tool array, which
@@ -38,16 +38,13 @@ deepseek-harness runs by publishing to the WORK stream below. It is a
 separate process (`harness mcp`) that never touches the system prompt or the
 tool array DeepSeek sees.
 
-The browser's inability to control a run is the constraint with the widest
-reach. No control in the UI can approve a tool call, so approval cannot be a
-question the loop asks a human and waits on. Section 4.6 covers what replaces
-it.
-
-That constraint is being lifted in stages (§4.2): the data the harness manages
-is writable over HTTP, and run control is intended next. §4.6 is the section to
-re-read when it lands — the policy there is not merely a workaround for a
-browser that cannot answer, it is also what keeps an unattended run from
-stalling on a question nobody is there to answer.
+No control in the UI can approve a tool call, so approval is never a question
+the loop asks a human and waits on. Section 4.6 covers what replaces it. That
+holds even though the data the harness manages is writable over HTTP and the
+browser can start, steer, and stop a run (§4.2): none of those give the
+browser a way to answer a mid-run tool-call decision, so §4.6's policy is not
+merely a workaround for a browser that cannot answer — it is also what keeps
+an unattended run from stalling on a question nobody is there to answer.
 
 ## 2. Which API surface
 
@@ -200,36 +197,26 @@ so SSE fits, and `Last-Event-ID` gives replay without extra protocol. The
 settings endpoints below are the one place a click goes up, and they are plain
 fetch calls, not SSE.
 
-The HTTP API reads and writes the data the harness manages, and cannot reach
-the run loop. Those are two separate properties and only the second is a
-constraint now.
+The HTTP API reads and writes the data the harness manages, and it also
+carries run control; it cannot reach the run loop directly. The data surface —
+sessions, events, work requests, settings — is specified in
+[DATA-API.md](DATA-API.md). Run control — stopping, steering, starting — is
+specified in [RUN-CONTROL.md](RUN-CONTROL.md), and the seams are: stopping
+goes through the `RunController` interface declared in `internal/httpapi` and
+implemented by `*worker.Pool`; starting goes through the `RunPublisher`
+interface, declared in `internal/httpapi` and implemented by `cmd/harness`
+over the queue's own JetStream handle — so the HTTP server holds no NATS
+handle itself, only the narrow ability to enqueue one validated request, and
+work enters over NATS whichever surface asked for it. `POST
+/api/sessions/{id}/stop` and `POST /api/runs` are authenticated by the
+`http.control_token` bearer token. Steering is a store write by the handler
+and a store read by the loop, so `POST /api/sessions/{id}/steer` needs no seam
+at all. A write that closes an abandoned session row is data; a write that
+publishes a work request is run control — the run-control endpoints are the
+three actions in docs/RUN-CONTROL.md, and the data write surface stays
+docs/DATA-API.md.
 
-v1 allowed exactly one write — the settings endpoints — and forbade the rest.
-That bought a genuinely simpler frontend, and it was the right default while
-the only client was a browser rendering transcripts. It stopped paying when
-operating the harness meant reaching past its own API: an abandoned session
-row that no code path ever closes has to be repaired somehow, and the choices
-were a shell on the box or a hand-written SQLite update against a live store.
-An API is the better answer, so the prohibition is retired and
-[DATA-API.md](DATA-API.md) is the surface that replaces it.
-
-Run control is built in stages (docs/RUN-CONTROL.md), and the seams are
-chosen: stopping goes through the `RunController` interface declared in
-`internal/httpapi` and implemented by `*worker.Pool`; starting goes through
-the `RunPublisher` interface, declared in `internal/httpapi` and implemented
-by `cmd/harness` over the queue's own JetStream handle — so the HTTP server
-still holds no NATS handle, only the narrow ability to enqueue one validated
-request, and work enters over NATS whichever surface asked for it. `POST
-/api/sessions/{id}/stop` and `POST /api/runs` are live, authenticated by the
-`http.control_token` bearer token. Steering is live too — `POST
-/api/sessions/{id}/steer` is a store write by the handler and a store read by
-the loop, so it needs no seam at all. The distinction that used to matter —
-a write that closes an abandoned session row is data, and a write that
-publishes a work request is run control — is now settled: the run-control
-endpoints are the three actions in docs/RUN-CONTROL.md, and the data write
-surface stays docs/DATA-API.md.
-
-Two things stage two has to answer, and stage one should not foreclose:
+Two questions the current design leaves open:
 
 - **Authentication.** Loopback is the whole of the current story, and it holds
   only while the surface is one operator's own machine. An interactive site is
@@ -238,8 +225,8 @@ Two things stage two has to answer, and stage one should not foreclose:
 - **§4.6's approval model.** It is built on the browser being unable to answer
   the loop, so a run never blocks on a human. Making the browser able to answer
   reopens that, and the answer is not "add an approve button" — a loop that
-  waits on a person is a loop that stalls when nobody is watching. Whatever
-  stage two does here, it needs a default for the unattended case.
+  waits on a person is a loop that stalls when nobody is watching. Any answer
+  here needs a default for the unattended case.
 
     GET /api/sessions                    list, newest first, with status and cost
     GET /api/sessions/{id}               metadata
@@ -258,7 +245,7 @@ nowhere else: a POST to `/api/sessions` still 405s with an `Allow` header
 naming what the path actually permits, the settings collection path itself
 (`/api/settings` without a key) has no write route, and the events resource
 is never writable. The whole surface, including the work-request and lease
-endpoints later phases add, is specified in [DATA-API.md](DATA-API.md).
+endpoints, is specified in [DATA-API.md](DATA-API.md).
 Secret keys are masked in `GET /api/settings` to at most their last four
 characters, exactly as `harness config list` masks them, and the full value
 never leaves the process over HTTP — there is no reveal parameter. The writing
@@ -302,10 +289,8 @@ makes the service safe to expose: transcripts carry workspace paths, file
 contents, and command output, and the write surface now reaches the store.
 Treat the port as sensitive and bind it to loopback by default.
 
-That was defensible when the surface was one write against a settings table.
-It gets less so with every endpoint added, and the interactive frontend the
-API is heading towards is the point where loopback stops being an answer —
-see §4.2's note on what stage two has to settle.
+It grows less defensible with every endpoint added — see above for what
+authentication has to settle.
 
 WebSocket buys nothing here; the session surface is a one-way stream and the
 settings writes are ordinary fetch calls.
@@ -797,27 +782,30 @@ The browser shows a list of sessions (§5.8), the transcript of any one of them
 — live or historical (§5.9, §5.10) — and the settings screen: the registry
 (§4.2) rendered grouped, with each entry's default, its validation bounds,
 whether the current value is a default or an override, and the restart markers.
-It can steer and stop a running session (docs/RUN-CONTROL.md "The frontend"):
-a steer input and a stop control on the transcript screen, both visible only
-while the session is running, with the steer's pending/delivered states
-carried by the fold. It cannot yet start a run, and it has no prompt box and
-no approve button.
+It also controls a run (docs/RUN-CONTROL.md "The frontend"): a start form on
+the session list (prompt, repos, a model, a thinking effort, and permission
+mode), and a steer input and a stop control on the transcript screen, both
+visible only while the session is running, with the steer's pending/delivered
+states carried by the fold. There is still no approve button: a tool-call
+decision is never a question the loop asks the browser (§4.6).
 
-That was a subtraction the frontend was designed around, and it removed most of
-the usual frontend work — no optimistic updates, no command queue, no
-reconciliation between local intent and server state. It is being undone
-deliberately (§4.2), and each of those three returns as the surface grows:
+Stop, steer, and start are each an acceptance, not an outcome — the browser
+gets back a 202 or a store write, not the result, and the SSE stream the
+screens are already connected to is what says what actually happened. That
+keeps the frontend out of optimistic updates, a command queue, and
+reconciliation between local intent and server state:
 
-- **Optimistic updates and reconciliation** arrive with the first write whose
-  result the user waits on. The settings screen dodged this by re-fetching
-  after every write, which is honest and cheap at one form and will not scale
-  to a screen where several writes are in flight.
-- **A command queue** arrives with run control, because a request that starts a
-  run is not answered by the response to it.
+- **No optimistic updates or reconciliation.** The settings screen re-fetches
+  after every write rather than guessing at the new value, which is honest
+  and cheap while a screen has one write in flight at a time. A screen with
+  several concurrent writes needs more than that, and run control follows the
+  same re-fetch pattern rather than spreading it.
+- **No command queue.** A request that starts, steers, or stops a run is
+  answered by the SSE stream, not by the response to the request.
 - **The frame budget below is unaffected.** It is about rendering deltas, not
   about what the browser is allowed to send, and none of it changes.
 
-### 5.0 What actually reaches the browser today
+### 5.0 What reaches the browser
 
 The backend accumulates a sub-turn's reasoning and content in Go and commits
 one `reasoning_delta` and one `content_delta` when the sub-turn ends, so the
@@ -910,9 +898,9 @@ Vite, React, TypeScript, shadcn/ui on Tailwind v4. The component layer is
 `accordion`, `badge`, `button`, `card`, `collapsible`, `input`, `toggle`,
 `toggle-group`, and `tooltip` (in `web/src/components/ui/`), themed from
 the token set ported into the theme block in `web/src/styles.css`.
-`ScrollArea` and `DataTable` are deliberately absent —
+`ScrollArea` and `DataTable` are absent —
 the rail and the plan column are plain sticky elements, and the diff table
-renders inside the transcript (docs/WEB-REDESIGN.md phase 1). Everything
+renders inside the transcript. Everything
 shadcn has no opinion about — the transcript block styles, the diff table,
 and the status and diff tokens — is plain CSS in `web/src/styles.css`.
 Three screens, so no router library — `App.tsx`
@@ -927,7 +915,7 @@ data layer beyond the SSE client, the store, and the settings fetch calls
 Several sessions run at once, so the list is a first-class screen rather than a
 drawer. It subscribes to `GET /api/stream`, which carries session-level state
 changes only and stays quiet while transcripts are loud. The screen splits the
-list in two (docs/WEB-REDESIGN.md phase 3). In-flight sessions render as
+list in two. In-flight sessions render as
 collapsible plan cards: the summary carries the job's description — the
 session's `task`, clamped to three lines — and the trigger answers what the
 session is doing, the `in_progress` item's activeForm, and how far in it is,
@@ -955,8 +943,8 @@ description.
 
 ### 5.9 The sub-turn is the unit
 
-The transcript renders one card per sub-turn (docs/WEB-REDESIGN.md phase 4):
-reasoning, assistant text, tool calls and their results in one body, with the
+The transcript renders one card per sub-turn: reasoning,
+assistant text, tool calls and their results in one body, with the
 usage block absorbed into the card header instead of a fifth sibling block.
 The grouping is a display-side view over the fold's `blocks` array —
 `SubTurnGroupState` in `web/src/api/groups.ts` — computed incrementally in the
@@ -984,8 +972,8 @@ events/s), before and after the grouping:
   out. At 2000 blocks the append mean dropped 6.66 ms -> 1.43 ms and the max
   8.9 ms -> 2.3 ms.
 
-Phase 5 stacked the transcript's browsing controls on top of the card
-(docs/WEB-REDESIGN.md phase 5). A Compact/Full toggle collapses every card to
+The transcript's browsing controls stack on top of the card.
+A Compact/Full toggle collapses every card to
 its header line; a card containing a failed result or a denial stays open in
 both modes, because an error you have to expand to find is an error you miss.
 Tool call headers are built from the call the fold already keeps in
@@ -997,23 +985,21 @@ line (word count and the files it names); filter chips over the cards
 (All/Edits/Bash/Errors/Churn) read their counts off the same pass that builds
 the groups; and a cache-churn banner above the transcript links to the first
 sub-turn whose usage carried `churn_point_index`. Density is a plain string
-prop on the memoised card/list chain, so the phase 4 bailouts survive every
-live-only delta — toggling it is the one deliberate all-cards re-render.
+prop on the memoised card/list chain, so the group-level bailouts above
+survive every live-only delta — toggling it is the one all-cards re-render.
 
 Scroll height on the synthetic 142-sub-turn feed (391 blocks) that
 `web/src/perf` mounts: Full 7,880 px, Compact 6,973 px — about 12% shorter in
-Compact on the same feed. The 86,674 px / 974 block elements figures in
-docs/WEB-REDESIGN.md were measured on the real session
-`sess-f93b37beb37098b5637832e829c37d92` before any of this plan existed, and
-have not been re-measured against the new UI; no scroll-height figure taken on
-the synthetic feed is comparable to them. Collapsing a card on the real session
-would hide far more text than it does on the synthetic feed, so the real saving
-is likely larger — but nobody has measured that, and this record says so.
+Compact on the same feed. A real session,
+`sess-f93b37beb37098b5637832e829c37d92`, measured 86,674 px across 974 block
+elements; that figure uses a different corpus and measurement method, so it is
+not comparable to the synthetic-feed numbers above. Collapsing a card on the
+real session would hide far more text than it does on the synthetic feed, so
+the real saving is likely larger, but it has not been measured directly.
 
 ### 5.10 The timeline rail
 
-Phase 6 added a sticky left column to the transcript screen
-(docs/WEB-REDESIGN.md phase 6): one entry per sub-turn — the number and one
+A sticky left column on the transcript screen: one entry per sub-turn — the number and one
 glyph per tool call, coloured by family, a failed result or a denial
 overriding to red — grouped under the plan item that was `in_progress` when
 the sub-turn ran. The boundary is free: every `TaskCreate` or `TaskUpdate`
@@ -1021,7 +1007,7 @@ call in the event stream starts a phase, and the fold already applies those
 calls, so the rail groups sub-turns without walking the session's history
 itself. Each entry is an anchor to its card; one `IntersectionObserver` watches the group containers and
 marks the current entry. The column is plain sticky CSS — `ScrollArea` stays
-out, phase 1's deliberate omission — scrolling its own content with `overflow`.
+out — scrolling its own content with `overflow`.
 
 The observer is one instance for the whole rail, and that is measured rather
 than asserted: the perf harness replaces `window.IntersectionObserver` with a
@@ -1043,15 +1029,14 @@ build:
 
 ### 5.11 Measured, end to end
 
-The bundle embedded in the Go binary, before phase 1 and after phase 6:
+The bundle embedded in the Go binary:
 
-    CSS    8.44 kB -> 46.71 kB   (gzip   2.38 kB ->   9.71 kB)
-    JS   376.28 kB -> 478.92 kB  (gzip 119.31 kB -> 150.27 kB)
+    CSS   86.70 kB (gzip  16.78 kB)
+    JS   584.88 kB (gzip 177.48 kB)
 
-The frontend test count grew from 38 before phase 1 to 89 after phase 6. The
-per-feature numbers live with their features: the sub-turn grouping and the
-density toggle in §5.9, the timeline rail in §5.10. Every scroll-height figure
-in §5 was measured on the synthetic feed that `web/src/perf` mounts; the
-86,674 px / 974 block elements baseline quoted in docs/WEB-REDESIGN.md was
-measured on the real session `sess-f93b37beb37098b5637832e829c37d92` and has
-not been re-measured against the new UI — the two are not comparable (§5.9).
+The frontend test suite has 259 tests. The per-feature numbers live with their
+features: the sub-turn grouping and the density toggle in §5.9, the timeline
+rail in §5.10. Every scroll-height figure in §5 was measured on the synthetic
+feed that `web/src/perf` mounts; the real session
+`sess-f93b37beb37098b5637832e829c37d92` measured 86,674 px across 974 block
+elements, a figure that is not comparable to the synthetic-feed numbers (§5.9).

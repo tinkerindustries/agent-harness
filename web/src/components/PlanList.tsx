@@ -3,8 +3,8 @@ import type { Todo } from "../api/types";
 import { cn } from "@/lib/utils";
 
 // The one todo-list renderer in the app, shared by the transcript's plan
-// panel (PlanPanel) and the in-flight card's expanded plan
-// (docs/WEB-REDESIGN.md phase 3). One component, one set of glyphs and
+// panel (PlanPanel) and the in-flight card's expanded plan. One component,
+// one set of glyphs and
 // status classes, so the two screens cannot drift apart. An in_progress
 // item shows its activeForm ("Wiring six call sites…") rather than its
 // static subject, exactly as the transcript renders it today. The item's

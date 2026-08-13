@@ -1,9 +1,9 @@
 import type { Todo } from "../api/types";
 
-// PlanProgress is what the collapsed in-flight line answers
-// (docs/WEB-REDESIGN.md phase 3: "Collapsed, a card answers what the
-// session is doing and how far in it is"): how many plan items are done of
-// how many, and the activeForm of the item in progress — or, before any
+// PlanProgress is what the collapsed in-flight line answers — a collapsed
+// card answers what the session is doing and how far in it is: how many
+// plan items are done of how many, and the activeForm of the item in
+// progress — or, before any
 // item is in progress, the subject of the first pending one, so the line
 // has something to say from the moment a plan is written.
 export interface PlanProgress {

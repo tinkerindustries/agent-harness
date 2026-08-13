@@ -43,28 +43,27 @@ cutting a version and deploying it to the production stack.
   lever. Measure a wording change before shipping it:
   [`docs/EVALS.md`](docs/EVALS.md) covers `harness eval`, which runs a suite
   under two named prompt variants and compares what the sessions did.
-- **The HTTP API is becoming the harness's real interface, in stages.** The
-  read-only rule is retired. Stage one is the data the harness manages —
-  sessions, events, work requests, settings — and it is specified in
-  docs/DATA-API.md. Stage two is run control from the browser, built in stages
-  (docs/RUN-CONTROL.md): stopping (`POST /api/sessions/{id}/stop`, through the
-  declared `RunController` seam), steering (`POST /api/sessions/{id}/steer`,
-  a store write the loop reads), and starting (`POST /api/runs`, through the
-  declared `RunPublisher` seam) are built.
-  **The HTTP server holds no JetStream handle; it holds two narrow run-control
-  seams, `RunPublisher` and `RunController`.** `RunPublisher` (declared in
+- **The HTTP API is the harness's interface for both data and run control.**
+  It serves the data the harness manages — sessions, events, work requests,
+  settings — specified in docs/DATA-API.md. It also carries run control from
+  the browser, specified in docs/RUN-CONTROL.md: stopping
+  (`POST /api/sessions/{id}/stop`, through the `RunController` seam), steering
+  (`POST /api/sessions/{id}/steer`, a store write the loop reads), and
+  starting (`POST /api/runs`, through the `RunPublisher` seam).
+  Evals are the same shape again: `POST /api/evals` starts one through the
+  `EvalController` seam (docs/EVALS.md).
+  **The HTTP server holds no JetStream handle; it reaches the run loop only
+  through narrow declared seams — `RunPublisher`, `RunController` and
+  `EvalController`.** `RunPublisher` (declared in
   `internal/httpapi`, implemented by `cmd/harness` over the queue's own
   handle) publishes one validated `queue.Request` to the WORK stream — the
   browser is one more producer, not a second way a session starts, and the
-  claim/heartbeat/redelivery machinery stays the only one. The seam was
-  chosen deliberately, not by an import appearing, which is what the old rule
-  ("do not give the HTTP server a NATS handle") was protecting: this is its
-  record. Build stage one so stage two is an addition rather than a rewrite.
-  Every write carries the guards the settings endpoints already use — same
-  origin, `application/json`, loopback. Authentication is the open question
-  stage two forces: the port serves transcripts carrying workspace paths, file
-  contents, and command output, and loopback stops being sufficient the moment
-  the surface is something a person leaves open.
+  claim/heartbeat/redelivery machinery stays the only one. Every write
+  carries the guards the settings endpoints also use — same origin,
+  `application/json`, loopback. Authentication is an open question: the port
+  serves transcripts carrying workspace paths, file contents, and command
+  output, and loopback stops being sufficient the moment the surface is
+  something a person leaves open.
 - **A production stack runs on this machine and must not be disturbed.** It is
   the `deepseek-harness-prod` compose project from `docker-compose.prod.yml`,
   on ports 8180 / 4522, and it is very likely mid-run. A bare

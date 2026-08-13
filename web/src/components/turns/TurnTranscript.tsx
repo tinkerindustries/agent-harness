@@ -32,21 +32,20 @@ export function TurnTranscript({
   filter: TranscriptFilter;
   getToolCall: (id: string) => ToolCallPayload | undefined;
   // renderSteer replaces the steer block card with the chat page's .msg-user
-  // rendering (phase 3): a sent message is a message, not a block. Absent —
-  // the watch page and the perf harnesses — steer blocks keep the FrozenBlock
+  // rendering: a sent message is a message, not a block. Absent — the watch
+  // page and the perf harnesses — steer blocks keep the FrozenBlock
   // rendering. The callback must be reference-stable across live-only deltas
   // (the chat screen memoises it), or the memoised TurnList below would
   // re-render the whole conversation on every token.
   renderSteer?: (block: SteerBlock) => ReactNode;
   // renderInstruction replaces the instruction block card with the watch
-  // page's .msg-user rendering (phase 5: the launching agent's
-  // instruction attributed to the launcher, "from
-  // claude-code · delivered · sub-turn 1"). Absent — the chat page and the
-  // perf harnesses — the block keeps its FrozenBlock rendering. Same
-  // reference-stability rule as renderSteer.
+  // page's .msg-user rendering: the launching agent's instruction
+  // attributed to the launcher, "from claude-code · delivered · sub-turn
+  // 1". Absent — the chat page and the perf harnesses — the block keeps
+  // its FrozenBlock rendering. Same reference-stability rule as renderSteer.
   renderInstruction?: (block: Extract<Block, { type: "instruction" }>) => ReactNode;
   // renderRunFinished replaces the run_finished block card with the watch
-  // page's result panel (phase 4): for a run another agent launched, the
+  // page's result panel: for a run another agent launched, the
   // result payload is what the parent gets back, rendered at the end of the
   // stream where the run ended. Absent — the chat page and the perf
   // harnesses — the block keeps its FrozenBlock rendering. Reference-stable
@@ -114,7 +113,7 @@ export const TurnList = memo(function TurnList({
           // perf harnesses keep the block below.
           renderSteer(item.block)
         ) : item.block.type === "instruction" && renderInstruction ? (
-          // The watch page's launcher-instruction rendering (phase 5); the
+          // The watch page's launcher-instruction rendering; the
           // chat page and the perf harnesses keep the block below.
           renderInstruction(item.block)
         ) : item.block.type === "run_finished" && renderRunFinished ? (

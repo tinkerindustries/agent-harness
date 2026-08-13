@@ -21,7 +21,7 @@ import { useNow } from "../hooks";
 import { Button } from "./ui/button";
 import { useNavRight } from "./TopNav";
 
-// The operations screen (docs/DATA-API.md phase 5): the one place the
+// The operations screen (docs/DATA-API.md): the one place the
 // browser acts on the harness. Three sections — stuck sessions, running
 // work requests, and workspace leases — each offering the writes that
 // rewrite operational state: Close (PATCH to a terminal status), Delete,
@@ -209,8 +209,7 @@ export function OperationsScreen() {
     runWrite(keyOf({ kind: "lease", workspace: l.workspace }), () => releaseLease(l.workspace, l.version));
   }
 
-  // The nav's right slot for this screen: the refresh button, the same
-  // one the screen's own header used to carry.
+  // The nav's right slot for this screen: the refresh button.
   useNavRight(
     <Button variant="outline" size="sm" onClick={refresh} disabled={busy || data === null}>
       <ArrowsClockwise />

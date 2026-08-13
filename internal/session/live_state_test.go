@@ -21,7 +21,7 @@ import (
 // full checklist, minted ids included and the patch applied, not the raw
 // arguments of any one call — the filtered recent-tool-call roll, and the
 // model's own summary: the data the session list renders the in-flight card
-// and the finished table's subtitle from (docs/WEB-REDESIGN.md phase 3).
+// and the finished table's subtitle from.
 func TestTaskCallsPersistPlanToSessionRow(t *testing.T) {
 	var streamCall int32Counter
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -223,9 +223,9 @@ func TestTaskReadsDoNotWritePlan(t *testing.T) {
 // the store; publishState used to publish the sess parameter as received,
 // which never picked either write up in memory, so a live push to the
 // browser mid-run could silently revert the in-flight card's plan and "Last
-// calls" panel until the next full reconnect re-read the row from the store
-// (docs/WEB-REDESIGN.md phase 3's promise that "the state publish that
-// follows carries the new plan on the same sub-turn"). This covers both
+// calls" panel until the next full reconnect re-read the row from the store.
+// The invariant: the state publish that follows a sub-turn carries that same
+// sub-turn's new plan. This covers both
 // publish points in runSubTurn: the reload before persistLiveState's
 // publishState, and persistTaskState's own local sess.Plan update before its
 // publishState.

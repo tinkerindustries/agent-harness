@@ -4,10 +4,9 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/colla
 
 // OpeningBlock renders the run's opening message collapsed to one summary
 // line — the workspace line, the word count, and the files it names
-// (.fold card, docs/WEB-REDESIGN.md phase 5). A
-// task that runs about 3,000 words before its first sub-turn was pushing the
-// transcript's start off the first screen; the full text stays one disclosure
-// away.
+// (.fold card). A task that runs about 3,000 words before its first sub-turn
+// pushes the transcript's start off the first screen, so the full text stays
+// one disclosure away.
 export const OpeningBlock = memo(function OpeningBlock({ block }: { block: Extract<Block, { type: "opening" }> }) {
   const [open, setOpen] = useState(false);
   const summary = useMemo(() => openingSummary(block.text), [block.text]);

@@ -264,10 +264,10 @@ async function runOne(cfg: RunConfig, hooks: RunHooks): Promise<RunResult> {
 }
 
 export function PerfHarnessScreen() {
-  // ?height=1 swaps the render-cost sweep for the phase 5 exit measurement:
+  // ?height=1 swaps the render-cost sweep for the page-height measurement:
   // the transcript screen in Compact mode against a synthetic session, with
   // its scroll height reported (web/src/perf/HeightHarness.tsx). ?rail=1
-  // swaps it for the phase 6 exit measurement: the same screen with the
+  // swaps it for the rail measurement: the same screen with the
   // timeline rail, scrolling through it to count marker updates and frame
   // cost (web/src/perf/RailHarness.tsx). Read before any hooks because the
   // modes share no state.

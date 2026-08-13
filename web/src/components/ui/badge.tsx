@@ -22,10 +22,10 @@ const badgeVariants = cva(
           "border-border text-foreground [a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
         ghost: "[a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
         link: "text-primary underline-offset-4 [a&]:hover:underline",
-        // The harness's own status vocabulary on top of the shadcn badge
-        // (docs/WEB-REDESIGN.md phase 1): the class names carry the
-        // --status-* tints defined in src/styles.css, ported verbatim.
-        // Uppercase matches what the pre-shadcn .status-badge rendered.
+        // The harness's own status vocabulary on top of the shadcn badge:
+        // the class names carry the --status-* tints defined in
+        // src/styles.css, ported verbatim. Uppercase matches what the
+        // pre-shadcn .status-badge rendered.
         running: "badge-running uppercase",
         done: "badge-done uppercase",
         gaveup: "badge-gaveup uppercase",

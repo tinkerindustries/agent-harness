@@ -11,10 +11,10 @@ import type { TranscriptFilter } from "../api/groups";
 import { computeFrameStats, type FrameStats } from "./frameStats";
 import { buildSyntheticHistory, liveEventGenerator, makeSeqSource, type SeqSource } from "./syntheticFeed";
 
-// RailHarness is the phase 6 exit measurement (docs/WEB-REDESIGN.md): mount
+// RailHarness is the timeline rail's measurement harness: mount
 // the transcript screen with its timeline rail against the synthetic
-// 142-sub-turn session, then answer the two questions the phase has to
-// answer with numbers rather than arguments —
+// 142-sub-turn session, then answer two questions with numbers rather than
+// arguments —
 //
 //   - the rail renders one entry per sub-turn (142), grouped under the plan
 //     items the synthetic feed's TaskCreate/TaskUpdate calls mark, with

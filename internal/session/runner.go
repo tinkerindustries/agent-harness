@@ -441,8 +441,8 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 	// then (docs/RUN-CONTROL.md "The frontend"). So a fresh run with an
 	// empty task waits for that first steer before the first request —
 	// sending "Task:" with no task burns sub-turns asking what to do and
-	// ends the run (no_tool_calls) before the operator can type, which the
-	// live phase 5 run exposed. Only the empty-prompt start waits: every
+	// ends the run (no_tool_calls) before the operator can type, which a
+	// live run exposed. Only the empty-prompt start waits: every
 	// other ingress (publish, MCP, subagents, resume) names a task. The
 	// wait is bounded by the run's own budget — ctx carries the request
 	// deadline and the stop cancellation — so an abandoned empty run
@@ -643,7 +643,7 @@ func (r *Runner) priceTableDate() string {
 // letting the model keep rephrasing. Complete's schema failure deliberately
 // does not end the run — the model gets to correct it (docs/TOOLS.md) — but a
 // model that has not corrected it in three identical attempts is not
-// correcting it at all: the phase 5 live run spent eleven consecutive
+// correcting it at all: one live run spent eleven consecutive
 // sub-turns, 7% of its budget and 18% of everything it wrote all session,
 // varying the payload's size rather than its shape, then ended on
 // no_tool_calls asserting a harness bug that did not exist
@@ -717,7 +717,7 @@ func (r *Runner) finishRun(ctx context.Context, sess store.Session, allEvents []
 // The terminal bookkeeping runs on a fresh, bounded context rather than the
 // run's own: a stop or a deadline is exactly what often ends a run this way,
 // and the run's ctx is then already cancelled — a row update made through it
-// failed silently before phase 5's live stop test, leaving the session
+// once failed silently, leaving the session
 // running forever with the page stuck on RUNNING while the queue result
 // already said cancelled. A run ended by a cancellation is marked cancelled
 // (the status the stop escalation and the session list both use); any other
@@ -822,7 +822,7 @@ func isTaskFamily(name string) bool {
 }
 
 // persistLiveState writes this sub-turn's recent-tool-call roll to the
-// session row (docs/WEB-REDESIGN.md phase 3). The runner calls it where it
+// session row. The runner calls it where it
 // already appends the tool_call events — the one component that sees every
 // tool call and already holds the store handle — rather than inside
 // tools.Executor, which deliberately does not import internal/store. The

@@ -165,7 +165,7 @@ func recordingAnswerServer(t *testing.T, answer string, bodies *[]string) *httpt
 // operator's first message lands as a steer_message. Before this wait
 // existed, an empty task went to the model, which answered "what would you
 // like me to do?" and ended the run (no_tool_calls) before the operator
-// could type — the live phase 5 run that exposed it. The test: Run with an
+// could type — the live run that exposed it. The test: Run with an
 // empty prompt sends no request while waiting; appending a steer_message
 // the way the HTTP handler does makes it proceed, and the request the model
 // then sees carries the steer text as a user message.
@@ -250,7 +250,7 @@ func TestRunWithEmptyPromptWaitsForFirstSteer(t *testing.T) {
 }
 
 // TestRunCancelMarksSessionCancelled pins the soft-stop terminal path (the
-// live phase 5 stop test that exposed it): when a stop cancels the run's
+// live stop test that exposed it): when a stop cancels the run's
 // context mid-request, the runner's fail() must still land its terminal
 // bookkeeping — on a fresh context, because the run's own is cancelled — and
 // mark the row cancelled (the status the CANCELLED badge and the stop
@@ -416,7 +416,7 @@ func TestRunDoneSetsCompleteStatus(t *testing.T) {
 }
 
 // A model that keeps re-sending a Complete the schema keeps rejecting is not
-// correcting anything, and the loop must stop paying for it: the phase 5 run
+// correcting anything, and the loop must stop paying for it: one run
 // spent eleven sub-turns and 7% of its budget on identical rejections
 // (docs/reviews/sess-bb6c0ed564ddae573c3b1832cb3981f4.md). The server here
 // answers every request with the same schema-failing Complete, so an unbounded

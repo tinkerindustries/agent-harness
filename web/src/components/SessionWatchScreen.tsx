@@ -43,7 +43,7 @@ interface Props {
 // no way to send a message, not even a disabled one (a greyed-out input
 // invites you to look for the way to enable it). A finished run drops the
 // shell: one page scroll, the sticky rail, the footer's figures in the nav
-// (SessionScreen decides the mode). Phase 4 is this page: the provenance
+// (SessionScreen decides the mode). This page is the provenance
 // strip under the nav, the navigator rail on the left (find, chips, the
 // plan as phases with one tick per sub-turn), the live footer answering
 // what the run is doing right now, the result the parent gets back at the

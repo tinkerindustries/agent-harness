@@ -17,7 +17,7 @@ import (
 
 // ErrRunNotFound is returned by Pool.Stop when no run in this process owns
 // the named session (docs/RUN-CONTROL.md "Stopping is addressed at one
-// goroutine, so the seam is a registry"). Phase 4's HTTP handler turns it
+// goroutine, so the seam is a registry"). The HTTP handler turns it
 // into a 404; here it is the whole contract.
 var ErrRunNotFound = errors.New("worker: no run in this process owns that session")
 
@@ -145,7 +145,7 @@ func (p *Pool) stopGracePeriod(ctx context.Context) time.Duration {
 // The soft stop is rec.cancel(): a healthy run ends at its next check point
 // the way a deadline already does. Everything after the return happens in a
 // goroutine (escalateStop), which is why this path is non-blocking and why
-// phase 4's endpoint answers 202.
+// the endpoint answers 202.
 func (p *Pool) Stop(sessionID, reason string) error {
 	rec, ok := p.controller().lookup(sessionID)
 	if !ok {

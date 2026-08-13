@@ -82,8 +82,7 @@ export function diffCounts(diff: DiffLine[] | undefined): { adds: number; remove
 
 // diffStat is the +n −n figure an Edit/Write tool header carries, counted
 // from the result's diff. A zero side is suppressed rather than printed as
-// "+0" or "−0" (docs/WEB-REDESIGN.md phase 5), and an empty diff yields an
-// empty stat.
+// "+0" or "−0", and an empty diff yields an empty stat.
 export function diffStat(diff: DiffLine[] | undefined): string {
   const { adds, removes } = diffCounts(diff);
   const parts: string[] = [];

@@ -60,7 +60,8 @@ describe("formatDelta", () => {
     // "0.00" beside a metric name reads as the value, not the change.
     expect(formatDelta("sub_turns", 0)).toBe("no change");
     // Rounding to thousands is right for a mean of 83k and wrong for a
-    // difference of 270, which used to print as "-0k".
+    // difference of 270 — rounded to the nearest k that reads as "-0k",
+    // which looks like no signal at all.
     expect(formatDelta("context_tokens_max", -270)).toBe("-270");
     expect(formatDelta("context_tokens_max", 4200)).toBe("+4k");
   });

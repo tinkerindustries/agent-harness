@@ -183,12 +183,11 @@ browser. That costs
 tokens, so it is the check for changes that could not fail any other way —
 prompt wording, tool descriptions, the fold.
 
-## The browser pass over the session pages (phase 5)
+## The browser pass over the session pages
 
-The session pages were built against mockups and fabricated sessions; the
-phase 5 pass drives them against a **live run** — a real session, streaming
-over SSE, that you type into and watch respond — and it is the only check
-that exercises the steer/stop flows end to end. It costs real tokens and
+This pass drives the session pages against a **live run** — a real session,
+streaming over SSE, that you type into and watch respond — and it is the only
+check that exercises the steer/stop flows end to end. It costs real tokens and
 needs a real DeepSeek key in the harness's settings table
 (`harness config set deepseek.api_key <key>`), so it is a manual, occasional
 pass rather than part of the suites.
@@ -248,7 +247,7 @@ The interactive page, against a run you start from the browser:
    then the terminal badge (CANCELLED) and the finished band. Check the
    session row too: `GET /api/sessions/{id}` must read `"status":
    "cancelled"` with a `finished_at` — a stop that leaves the row running is
-   a bug (phase 5 found and fixed exactly that).
+   a bug.
 
 The watch page, against a run another agent started:
 

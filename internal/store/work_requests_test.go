@@ -123,8 +123,8 @@ func TestClaimWorkRequestConcurrentDuplicates(t *testing.T) {
 	}
 }
 
-// TestClaimWorkRequestSessionSetRefusedAtEveryStatus is the phase 2 exit
-// criterion at the store layer: once a request carries a session id it is
+// TestClaimWorkRequestSessionSetRefusedAtEveryStatus pins the store-layer
+// invariant: once a request carries a session id it is
 // spent, and a second claim is refused at every status the row can hold —
 // running (the abandoned-mid-run shape) and each terminal one (the
 // finished-normally shape). The refusal is RefusalSpent for a running row
@@ -174,8 +174,8 @@ func TestClaimWorkRequestSessionSetRefusedAtEveryStatus(t *testing.T) {
 	}
 }
 
-// TestClaimWorkRequestRedeliveryBeforeSessionStillClaims is the phase 2
-// "died before its session existed" exit criterion: a request whose attempt
+// TestClaimWorkRequestRedeliveryBeforeSessionStillClaims pins the
+// "died before its session existed" case: a request whose attempt
 // died during workspace preparation has no session id, nothing happened
 // that matters, and a redelivery may still claim it.
 func TestClaimWorkRequestRedeliveryBeforeSessionStillClaims(t *testing.T) {
@@ -379,8 +379,8 @@ func requestWithSession(t *testing.T, s *Store, requestID, sessionID string) {
 	}
 }
 
-// TestCloseWorkRequestClosesDeadRequest pins the success path (docs/DATA-API.md
-// phase 3): a running request whose session is idle — or that has no session
+// TestCloseWorkRequestClosesDeadRequest pins the success path
+// (docs/DATA-API.md): a running request whose session is idle — or that has no session
 // at all — can be closed into a terminal status, which sets finished_at and
 // bumps the version. A session that never appended an event has nothing
 // recent and passes the idle check the same way.
@@ -442,7 +442,7 @@ func TestCloseWorkRequestClosesDeadRequest(t *testing.T) {
 }
 
 // TestCloseWorkRequestRefusesLiveRequest pins the precondition that matters
-// (docs/DATA-API.md phase 3): a running request whose session's most recent
+// (docs/DATA-API.md): a running request whose session's most recent
 // event is newer than the idle threshold is being run by a live pool worker
 // right now, and the close is a 409 whose message names when the session was
 // last heard from. The row is untouched.
@@ -477,7 +477,7 @@ func TestCloseWorkRequestRefusesLiveRequest(t *testing.T) {
 }
 
 // TestCloseWorkRequestRecloseIsVersionBump pins the idempotent re-close
-// (docs/DATA-API.md phase 3, mirroring CloseSession): a request already
+// (docs/DATA-API.md, mirroring CloseSession): a request already
 // terminal keeps the status it finished with, so a retried PATCH is a version
 // bump and nothing else and a finished request cannot be relabelled.
 func TestCloseWorkRequestRecloseIsVersionBump(t *testing.T) {

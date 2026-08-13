@@ -360,8 +360,8 @@ function tickTitle(group: SubTurnGroup, getToolCall: (id: string) => ToolCallPay
   return `Sub-turn ${group.subTurn}${detail ? ` · ${detail}` : ""}`;
 }
 
-// TickLink is one tick: a plain anchor to its turn's id="sub-turn-N"
-// (phase 2), carrying the title and the colour.
+// TickLink is one tick: a plain anchor to its turn's id="sub-turn-N",
+// carrying the title and the colour.
 const TickLink = memo(function TickLink({ tick }: { tick: WatchTick }) {
   return (
     <a className={cn("tick", tick.cls)} href={`#sub-turn-${tick.subTurn}`} title={tick.title}>

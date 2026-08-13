@@ -66,7 +66,7 @@ func TestDeleteWorkspaceLeaseReleases(t *testing.T) {
 }
 
 // TestDeleteWorkspaceLeaseRefusesLive pins the precondition that matters
-// (docs/DATA-API.md phase 3): a lease whose heartbeat is newer than the idle
+// (docs/DATA-API.md): a lease whose heartbeat is newer than the idle
 // threshold is held by a live session right now, and the release is a 409
 // whose message names when the lease was last heartbeated. The row is
 // untouched.

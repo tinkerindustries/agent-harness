@@ -104,14 +104,14 @@ resolved once at first use. The image installs bash, so a session gets it;
 models write `${PIPESTATUS[0]}`, `[[ ]]` and arrays regardless of what the
 shell is, and busybox ash answers those with a syntax error.
 
-Foreground only in v1. Background shells with separate output-polling and kill
-tools are a named follow-up, and they matter for dev servers and test watchers.
+Foreground only. Background shells with separate output-polling and kill
+tools are not built, and they matter for dev servers and test watchers.
 
 A command that backgrounds a process without redirecting its output —
 `node server.js &`, inheriting the captured pipe — leaves that pipe open after
-the shell exits, which used to wedge the call forever: `Wait` blocked on the
-copy goroutines past the tool timeout, past a cancelled context. That wait is
-now bounded by `tools.bash_wait_delay` (default 2s). When it fires, the harness
+the shell exits: `Wait` would otherwise block on the copy goroutines past the
+tool timeout, past a cancelled context, forever. `tools.bash_wait_delay`
+(default 2s) bounds that wait. When it fires, the harness
 stops waiting, kills the process group the command ran in, and returns an error
 naming the mistake and the fix — the model is the one who has to route around
 it:

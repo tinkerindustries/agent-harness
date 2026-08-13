@@ -1,14 +1,13 @@
 // Package mcp is the harness's MCP launch server: it lets an external agent
 // harness (Claude Code, Cursor) start and collect deepseek-harness runs by
 // publishing work requests to the WORK stream and reading results back over
-// the RESULTS stream and the harness's read-only HTTP API
-// (docs/DESIGN.md §4.10). `harness serve` mounts it at /mcp on its own HTTP
-// server, handing it serve's own JetStream handle and run-control token
-// directly; it never opens a SQLite handle, since `harness serve` is the
-// single writer.
+// the RESULTS stream and the harness's HTTP API (docs/DESIGN.md §4.10).
+// `harness serve` mounts it at /mcp on its own HTTP server, handing it
+// serve's own JetStream handle and run-control token directly; it never
+// opens a SQLite handle, since `harness serve` is the single writer.
 //
 // This is the opposite direction from the MCP integration docs/DESIGN.md §1
-// lists as out of scope for v1. That entry is about the harness *consuming*
+// lists as not built. That entry is about the harness *consuming*
 // MCP tools inside its own agent loop, which would put a variable,
 // request-dependent tool array in front of the frozen cached prefix (§3.2).
 // This package never touches the system prompt or the tool array DeepSeek

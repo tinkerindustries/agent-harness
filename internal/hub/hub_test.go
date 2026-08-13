@@ -162,8 +162,7 @@ func TestBuildSessionStateCarriesProvenance(t *testing.T) {
 // TestBuildSessionStateCarriesLivePlan asserts the plan, recent-tool-call
 // roll, task, and summary reach the wire row in the shape the browser
 // consumes them: plan as the raw todos array, the roll as an array of calls,
-// task and summary as strings — all omitted when empty (docs/WEB-REDESIGN.md
-// phase 3).
+// task and summary as strings — all omitted when empty.
 func TestBuildSessionStateCarriesLivePlan(t *testing.T) {
 	sess := store.Session{
 		ID:              "sess-1",

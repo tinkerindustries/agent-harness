@@ -17,8 +17,8 @@ import { PerfHarnessScreen } from "./perf/PerfHarnessScreen";
 // settings screen; "/operations" is the operations screen — the place the
 // browser writes operational state
 // (closing stuck sessions, closing dead work requests, releasing stranded
-// leases; docs/DATA-API.md phase 5). Run control is complete on the session
-// surface: start (the form on the session list, docs/RUN-CONTROL.md phase 6),
+// leases; docs/DATA-API.md). Run control is complete on the session
+// surface: start (the form on the session list, docs/RUN-CONTROL.md),
 // stop on the in-flight card and the session page, and steer on the
 // interactive page — all through the declared seams. The Go static
 // handler falls back to index.html for any unrecognised path, so a reload or
@@ -28,11 +28,10 @@ import { PerfHarnessScreen } from "./perf/PerfHarnessScreen";
 // surface, but routed here rather than as a second Vite entry point so it
 // exercises the exact same build and component tree the real transcript does.
 //
-// Since the redesign's phase 9, the shared top nav wraps every product
-// screen (docs/WEB-REDESIGN.md): one TopNav mounted here around whichever
-// screen the route renders, not redeclared inside any of them. "/perf" does
-// not get the nav — it is a developer tool, not a product screen — and
-// renders exactly as before.
+// The shared top nav wraps every product screen: one TopNav mounted here
+// around whichever screen the route renders, not redeclared inside any of
+// them. "/perf" does not get the nav — it is a developer tool, not a
+// product screen.
 
 export type Route =
   | { kind: "list" }

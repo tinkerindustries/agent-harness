@@ -35,13 +35,13 @@ interface Props {
 }
 
 // The interactive session page: a run a person started, inside the
-// full-height app shell the two session pages share. Phase 3 is the
+// full-height app shell the two session pages share. This is the
 // page a person talks to: the composer footer that never moves, sent
 // messages rendered as .msg-user in the
 // conversation, the plan rail on the right, the states around the run
 // (empty before the first message, the finished band after), the inline stop
 // confirmation, and the nav slot the design's header draws. The watch page
-// is phase 4's; this screen owns none of its rail, chips, or timeline.
+// is a separate screen; this screen owns none of its rail, chips, or timeline.
 export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everOpen }: Props) {
   const now = useNow(1000);
   // The run is live until the row says otherwise — and when the row never
@@ -222,8 +222,8 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
   // TurnList bails out on every token (web/CLAUDE.md: preserve the
   // group-granularity memoisation). runEnded joins the deps: a steer still
   // pending when the run ends will never be applied, and the message's
-  // state line must stop claiming it is waiting (the live phase 5 run
-  // exposed a forever-pending steer on a finished run).
+  // state line must stop claiming it is waiting once the run has ended —
+  // otherwise a steer that never got applied renders as pending forever.
   const renderSteer = useCallback(
     (block: SteerBlock) => (
       <SteerMessage key={block.seq} block={block} sentAt={sentAt.get(block.seq)} wait={wait} runEnded={!running} />

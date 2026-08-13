@@ -351,8 +351,8 @@ describe("filter counts", () => {
   });
 });
 
-// The timeline rail's phase grouping (docs/WEB-REDESIGN.md phase 6): every
-// TaskCreate or TaskUpdate call in the event stream starts a phase, and the
+// The timeline rail's phase grouping: every TaskCreate or TaskUpdate call in
+// the event stream starts a phase, and the
 // phase is named after the plan item that was in_progress when it ran — read
 // from the fold's latestTodos, which the store records per block
 // (TranscriptStore.ingest) and passes into sync. TaskGet/TaskList are reads

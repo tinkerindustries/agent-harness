@@ -1,9 +1,9 @@
 import type { Block } from "./fold";
 import type { Todo } from "./types";
 
-// The sub-turn grouping (docs/WEB-REDESIGN.md phase 4): a pure display-side
-// view over the fold's `blocks` array that groups each sub-turn's assistant
-// block, tool results, and usage into one card. It is deliberately NOT a new
+// The sub-turn grouping: a pure display-side view over the fold's `blocks`
+// array that groups each sub-turn's assistant block, tool results, and usage
+// into one card. It is deliberately NOT a new
 // Block variant — the Block union and the event fold stay exactly as they
 // are (web/CLAUDE.md: "src/api/fold.ts must stay in shape agreement with
 // internal/fold"), and internal/fold never learns this module exists.
@@ -21,10 +21,9 @@ import type { Todo } from "./types";
 export type UsageBlock = Extract<Block, { type: "usage" }>;
 
 // GroupTags is the filter classification of one sub-turn group, computed in
-// the same pass that builds the group (docs/WEB-REDESIGN.md phase 5: the
-// chip counts "come from the same pass that renders them"). Only the tail
-// group is ever created or replaced, so the walk stays bounded to one
-// sub-turn's blocks.
+// the same pass that builds the group — the chip counts come from the same
+// pass that renders them. Only the tail group is ever created or replaced,
+// so the walk stays bounded to one sub-turn's blocks.
 export interface GroupTags {
   // edits counts Edit and Write tool results in the group — the "edits"
   // filter family (both grouped under one glyph colour).
@@ -56,18 +55,17 @@ export interface SubTurnGroup {
   // tags is the group's filter classification, computed from blocks and
   // usage the moment the group object is created or replaced.
   tags: GroupTags;
-  // phase is the plan item the sub-turn ran under (docs/WEB-REDESIGN.md
-  // phase 6): captured the moment the group is created, so every group but
-  // the tail one carries the same ref forever, and the rail can group the
-  // sub-turns without walking the session's TaskCreate/TaskUpdate history
-  // itself.
+  // phase is the plan item the sub-turn ran under, captured the moment the
+  // group is created, so every group but the tail one carries the same ref
+  // forever, and the rail can group the sub-turns without walking the
+  // session's TaskCreate/TaskUpdate history itself.
   phase: RailPhaseRef;
 }
 
-// RailPhaseRef is a sub-turn's phase membership for the timeline rail
-// (docs/WEB-REDESIGN.md phase 6): the plan item that was in_progress when
-// the sub-turn ran. A new phase starts on every TaskCreate or TaskUpdate
-// call in the event stream — the plan mutations the fold already applies
+// RailPhaseRef is a sub-turn's phase membership for the timeline rail: the
+// plan item that was in_progress when the sub-turn ran. A new phase starts
+// on every TaskCreate or TaskUpdate call in the event stream — the plan
+// mutations the fold already applies
 // (its latestTodos is the plan as of the last such call), so
 // SubTurnGroupState only has to notice the call in the group's own assistant
 // block. The label/index are captured from the fold's latestTodos at that
@@ -120,8 +118,8 @@ export function phaseFromTodos(todos: Todo[], id: number): RailPhaseRef {
 }
 
 // ChurnPoint is the first sub-turn whose usage carried a cache-churn
-// diagnostic, for the banner above the transcript (docs/WEB-REDESIGN.md
-// phase 5): sub-turn, and the tokens re-sent above the expected miss.
+// diagnostic, for the banner above the transcript: sub-turn, and the tokens
+// re-sent above the expected miss.
 export interface ChurnPoint {
   subTurn: number;
   excessTokens: number;
@@ -233,11 +231,11 @@ export class SubTurnGroupState {
   private lastBlocks: Block[] | null = null;
   // counts and churnPoint are maintained in the same pass that builds
   // items, so the chip row and the churn banner read them off the snapshot
-  // instead of walking the blocks again (docs/WEB-REDESIGN.md phase 5).
+  // instead of walking the blocks again.
   counts: GroupCounts = { total: 0, edits: 0, bash: 0, errors: 0, churn: 0 };
   churnPoint: ChurnPoint | null = null;
-  // The phase timeline (docs/WEB-REDESIGN.md phase 6): currentPhase is the
-  // plan item the next group to freeze ran under, bumped on every TaskCreate
+  // The phase timeline: currentPhase is the plan item the next group to
+  // freeze ran under, bumped on every TaskCreate
   // or TaskUpdate call in a frozen assistant's own toolCalls (the two plan
   // mutations — TaskGet/TaskList are reads and never start a phase). The
   // phase's name comes from the fold's already-applied plan, passed in per
@@ -290,11 +288,11 @@ export class SubTurnGroupState {
     switch (block.type) {
       case "assistant":
         // A TaskCreate or TaskUpdate in the sub-turn's own calls marks a new
-        // phase (docs/WEB-REDESIGN.md phase 6): the boundary is free — every
-        // plan-mutating call in the event stream starts one, while the
-        // TaskGet/TaskList reads do not — and the fold's already-applied
-        // plan, as of this block (todosAtBlock), names it. The group below
-        // freezes with that phase forever.
+        // phase: the boundary is free — every plan-mutating call in the
+        // event stream starts one, while the TaskGet/TaskList reads do not —
+        // and the fold's already-applied plan, as of this block
+        // (todosAtBlock), names it. The group below freezes with that phase
+        // forever.
         if (block.toolCalls.some((c) => c.name === "TaskCreate" || c.name === "TaskUpdate")) {
           this.phaseSeq++;
           this.currentPhase = phaseFromTodos(this.todosAt(blockIndex), this.phaseSeq);
@@ -429,10 +427,10 @@ export class SubTurnGroupState {
   // refreshAmended handles an in-place element replacement in the blocks
   // array without an accompanying append. Two cases exist: the assistant
   // block amended by attachReasoningTokens (a sub-turn card's first child),
-  // and — since phase 5 — a steer block flipped pending → delivered by its
-  // steer_applied event (a top-level block, which the fold keeps at the
-  // position where the operator sent it). The scan is defensive; in practice
-  // only the tail item is ever affected.
+  // and a steer block flipped pending → delivered by its steer_applied
+  // event (a top-level block, which the fold keeps at the position where
+  // the operator sent it). The scan is defensive; in practice only the
+  // tail item is ever affected.
   private refreshAmended(blocks: Block[]): void {
     const prev = this.lastBlocks!;
     for (let i = 0; i < blocks.length; i++) {

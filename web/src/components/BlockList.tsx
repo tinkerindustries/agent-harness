@@ -18,12 +18,12 @@ import { LiveAssistantBlock, LivePendingToolBlock } from "./blocks/LiveBlocks";
 // that costs is choosing which of two cheap JSX branches to return, since
 // the expensive part is isolated inside SubTurnList.
 //
-// The session screens and the perf harnesses render the new turn vocabulary
+// The session screens and the perf harnesses render the turn vocabulary
 // instead (components/turns/TurnTranscript); this component and its card
 // vocabulary survive only for a child transcript nested inside a Task tool
-// result, which the redesign does not cover.
+// result, which that design does not cover.
 //
-// filter and getToolCall keep their phase 5 defaults so the recursive
+// filter and getToolCall keep their unfiltered defaults so the recursive
 // caller — which has no toolbar of its own — stays on the unfiltered
 // rendering.
 interface Props {

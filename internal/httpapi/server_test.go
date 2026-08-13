@@ -331,7 +331,7 @@ func TestNonGetMethodsReturn405EverywhereExceptWriteRoutes(t *testing.T) {
 		}
 	}
 
-	// A steer path allows POST the same way (phase 5, docs/RUN-CONTROL.md);
+	// A steer path allows POST the same way (docs/RUN-CONTROL.md);
 	// every other method still 405s there with the same Allow header, and the
 	// gate must not widen isSessionPath to cover it — POST /api/sessions/{id}
 	// itself stays a 405 (asserted in the session-path block above).
@@ -360,7 +360,7 @@ func TestNonGetMethodsReturn405EverywhereExceptWriteRoutes(t *testing.T) {
 		}
 	}
 
-	// The runs collection allows POST (phase 6, docs/RUN-CONTROL.md "POST
+	// The runs collection allows POST (docs/RUN-CONTROL.md "POST
 	// /api/runs"); every other method still 405s there with the same Allow
 	// header, and a deeper path (/api/runs/<something>) has no write route at
 	// all — starting a run is exactly one action on exactly one path.
@@ -692,10 +692,9 @@ func TestGetEventsPagingRanges(t *testing.T) {
 }
 
 // A session's tool output is whatever its commands printed, so a run that
-// needs a token in its container can put one straight into the log — the
-// phase 5 run did, with `head -2 .env`
-// (docs/reviews/sess-bb6c0ed564ddae573c3b1832cb3981f4.md). The port must not
-// serve it back, over either transport.
+// needs a token in its container can put one straight into the log, as
+// `head -2 .env` did (docs/reviews/sess-bb6c0ed564ddae573c3b1832cb3981f4.md).
+// The port must not serve it back, over either transport.
 func TestEventsRedactCredentialsOnBothTransports(t *testing.T) {
 	srv, st, h := newTestServer(t)
 	mustCreateSession(t, st, "sess-1", time.Now())
@@ -1593,10 +1592,10 @@ func TestGetSettingsMasksSecretsAndListsAllKeys(t *testing.T) {
 		t.Fatalf("default field = %q, want 48000", byKey[settings.KeyRunMaxTokens].Default)
 	}
 
-	// The bounds phase 7 adds (docs/WEB-REDESIGN.md): an integer setting's min
-	// and max arrive as JSON numbers, a duration's as compact Go duration text
-	// ("1s", "24h" — never "24h0m0s"), and a plain string setting carries
-	// neither, so its payload does not grow a pair of meaningless zeroes.
+	// A setting's bounds: an integer setting's min and max arrive as JSON
+	// numbers, a duration's as compact Go duration text ("1s", "24h" — never
+	// "24h0m0s"), and a plain string setting carries neither, so its payload
+	// does not grow a pair of meaningless zeroes.
 	if min, ok := byKey[settings.KeyRunMaxTokens].Min.(float64); !ok || min != 1 {
 		t.Fatalf("run.max_tokens min = %v (%T), want 1", byKey[settings.KeyRunMaxTokens].Min, byKey[settings.KeyRunMaxTokens].Min)
 	}
@@ -2220,7 +2219,7 @@ func TestSessionWritesNotFound(t *testing.T) {
 // through the store without caring about the exact time.
 var staleFinishedAt = time.Now().UTC()
 
-// --- work requests and workspace leases (phase 3) ---
+// --- work requests and workspace leases ---
 
 // mustCreateWorkRequest claims requestID, creates sessionID, appends one
 // event, and attaches the session — the row shape of a request whose attempt
@@ -2442,7 +2441,7 @@ func TestPatchWorkRequestClosesDeadRequest(t *testing.T) {
 }
 
 // TestPatchWorkRequestRefusesLiveRequest pins the precondition that matters
-// (docs/DATA-API.md phase 3): a running request whose session's most recent
+// (docs/DATA-API.md): a running request whose session's most recent
 // event is newer than the idle threshold is being run by a live pool worker
 // right now, and the close is a 409 whose message names when the session was
 // last heard from. The row is untouched.
@@ -3016,7 +3015,7 @@ func TestLeaseWritesGuardsAndPreconditions(t *testing.T) {
 	}
 }
 
-// --- run control: stop (phase 4) ---
+// --- run control: stop ---
 
 // fakeRunController is the test double for RunController: a set of running
 // sessions, the Stop calls it received, and an optional error every Stop
@@ -3047,7 +3046,7 @@ func (f *fakeRunController) Running(sessionID string) bool {
 }
 
 // newControlTestServer builds a test server with the run-control bearer token
-// set and ctrl wired in — the server shape phase 4's stop endpoint needs.
+// set and ctrl wired in — the server shape the stop endpoint needs.
 // The token is fixed for the test; the controller's running set drives the
 // preconditions.
 func newControlTestServer(t *testing.T, ctrl *fakeRunController) (*httptest.Server, *store.Store) {
@@ -3394,7 +3393,7 @@ func TestGetControlTokenServesDockerNATedCaller(t *testing.T) {
 	}
 }
 
-// --- run control: steer (phase 5) ---
+// --- run control: steer ---
 
 // TestSteerRequiresBearerToken pins the authentication on POST
 // /api/sessions/{id}/steer (docs/RUN-CONTROL.md "Authentication"): a missing
@@ -3678,7 +3677,7 @@ func TestSteerAppendsEventAndPublishes(t *testing.T) {
 	}
 }
 
-// --- run control: start (phase 6) ---
+// --- run control: start ---
 
 // fakeRunPublisher is the test double for RunPublisher: records the requests
 // it was asked to publish, and an optional error every call returns. It
@@ -3698,7 +3697,7 @@ func (f *fakeRunPublisher) PublishRequest(_ context.Context, req queue.Request) 
 }
 
 // newStartTestServer builds a test server with the run-control bearer token
-// set and pub wired in — the server shape phase 6's start endpoint needs. The
+// set and pub wired in — the server shape the start endpoint needs. The
 // token is fixed for the test; the fake publisher records what the handler
 // asked it to publish.
 func newStartTestServer(t *testing.T, pub *fakeRunPublisher) (*httptest.Server, *store.Store) {

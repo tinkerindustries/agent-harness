@@ -138,7 +138,7 @@ export function SessionListScreen({ onOpen }: Props) {
   const queueHealth = useQueueHealth(5000);
 
   // One disclosure per in-flight card, independent of every other (several
-  // can be open at once — docs/WEB-REDESIGN.md phase 3, not an accordion).
+  // can be open at once — not an accordion).
   // Held here rather than inside the card so the open state survives a list
   // update: when the SSE feed pushes a new snapshot the cards re-render
   // under the same keys, and a card that was open stays open.
@@ -238,8 +238,8 @@ export function SessionListScreen({ onOpen }: Props) {
   // — a distinct state, so a blank page never reads as an empty harness.
   const emptyState = tableEmptyState(snapshot.sessions.length, running.length + finished.length);
 
-  // The nav's right slot for this screen: the start-run trigger (phase 6,
-  // docs/RUN-CONTROL.md "The frontend"), the search input, and the LIVE
+  // The nav's right slot for this screen: the start-run trigger
+  // (docs/RUN-CONTROL.md "The frontend"), the search input, and the LIVE
   // badge. The dot pulses while the stream is open and goes still while
   // EventSource reconnects. When run control is
   // not configured the trigger is replaced by a note saying so — a form
@@ -404,8 +404,8 @@ function StatStrip({ stats, poolSize }: { stats: DayStats; poolSize: number | nu
   );
 }
 
-// InFlightCard is one running session as a collapsible plan card
-// (docs/WEB-REDESIGN.md phase 3). Collapsed, its summary answers what the
+// InFlightCard is one running session as a collapsible plan card.
+// Collapsed, its summary answers what the
 // session is about — the job's description (sess.task) — and what it is
 // doing (the in_progress item's activeForm) and how far in
 // it is (the completed ratio); expanded, it shows the whole plan and the
@@ -539,13 +539,13 @@ function CopyIdButton({ sessionId }: { sessionId: string }) {
 }
 
 // FinishedRow is one finished session in the dense table. The Session cell
-// carries the subtitle — the plan ratio and the model's own summary
-// (docs/WEB-REDESIGN.md phase 3), wrapped across up to three lines (the
+// carries the subtitle — the plan ratio and the model's own summary —
+// wrapped across up to three lines (the
 // .sess-sub line clamp), so scanning the list does not require opening each
 // transcript. The row itself is clickable (onOpen, on the <tr>) — the cell
 // holds no id any more, and the click target never lived on the id span.
 // Column order is Status, Session, Elapsed, Cost, Model, Sub-turns, Cache:
-// the two numbers the redesign asked to prioritise sit right after
+// the two numbers an operator scans for sit right after
 // Session, where they stay visible before any column the scroll
 // container might still need on a narrow viewport.
 // Elapsed and Cost carry the same primary weight as the in-flight card's

@@ -2,8 +2,8 @@ import { createContext, useContext, useEffect, useState, type ReactNode } from "
 import type { Route } from "../App";
 import { cn } from "@/lib/utils";
 
-// The shared top nav (docs/WEB-REDESIGN.md phase 9): the wordmark, the
-// three sections as real links with an active state, and — on a session
+// The shared top nav: the wordmark, the three sections as real links with
+// an active state, and — on a session
 // detail — a crumb for the session id. One component, mounted once
 // by App around whichever screen the route renders; the screens never
 // redeclare it. What the design keeps page-specific — the session list's
@@ -42,8 +42,8 @@ interface TopNavProps {
   route: Route;
   onNavigate: (path: string) => void;
   // The screen the route renders, mounted by App as the nav's child: the
-  // nav wraps the screen (docs/WEB-REDESIGN.md phase 9) so the
-  // NavRightContext provider above it reaches the screen, which registers
+  // nav wraps the screen so the NavRightContext provider above it reaches
+  // the screen, which registers
   // its page-specific right-hand content through useNavRight.
   children: ReactNode;
 }

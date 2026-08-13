@@ -62,7 +62,7 @@ func TestPerRequestDataStaysOutOfTheSystemPrompt(t *testing.T) {
 }
 
 // A run given a result schema must be shown the call shape, not just the
-// schema: the phase 5 review traced eleven wasted sub-turns to a model that
+// schema: a review traced eleven wasted sub-turns to a model that
 // read the schema and put its fields at the top level of the Complete call
 // (docs/reviews/sess-bb6c0ed564ddae573c3b1832cb3981f4.md).
 func TestOpeningMessageShowsTheCompleteCallShape(t *testing.T) {

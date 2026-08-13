@@ -271,7 +271,7 @@ func (s *Server) routes() *http.ServeMux {
 	// The lease key is a workspace path, which contains slashes, so the
 	// segment is the rest of the path after /api/leases/ — a client
 	// percent-encodes each slash (DELETE /api/leases/%2Ftmp%2Fws) and the
-	// wildcard matches the remainder exactly (docs/DATA-API.md phase 3).
+	// wildcard matches the remainder exactly (docs/DATA-API.md).
 	mux.HandleFunc("DELETE /api/leases/{workspace...}", s.handleDeleteLease)
 	mux.HandleFunc("GET /api/stream", s.handleListStream)
 	mux.HandleFunc("GET /api/queue", s.handleQueueHealth)
@@ -681,7 +681,7 @@ func writeSessionWriteError(w http.ResponseWriter, err error) {
 	}
 }
 
-// --- run control: stop (phase 4) ---
+// --- run control: stop ---
 
 // stopSessionBody is the JSON body POST /api/sessions/{id}/stop accepts: the
 // operator's reason, optional, carried verbatim as the message of the
@@ -842,7 +842,7 @@ func (s *Server) handleSteerSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{"session_id": id, "seq": appended[0].Seq})
 }
 
-// --- run control: start (phase 6) ---
+// --- run control: start ---
 
 // handleStartRun serves POST /api/runs: accepts a work request in the
 // queue's own wire shape and publishes it to the WORK stream, making the
@@ -966,11 +966,11 @@ func randomRequestID() string {
 //
 // What the token buys and does not buy, plainly: nothing against another
 // process running as the same user, which can read the settings table;
-// everything on the day the port is exposed off loopback — deliberately, by a
-// `-addr 0.0.0.0`, or by a container port publish — which is the case
-// docs/DESIGN.md §4.2 names as the one stage two forces. The comparison is
-// constant time, so a timing side channel cannot probe the token byte by
-// byte.
+// everything on the day the port is exposed off loopback — by a
+// `-addr 0.0.0.0`, or by a container port publish — the case
+// docs/DESIGN.md §4.2 names as needing authentication beyond this token. The
+// comparison is constant time, so a timing side channel cannot probe the
+// token byte by byte.
 func (s *Server) requireControlToken(w http.ResponseWriter, r *http.Request) bool {
 	if s.ControlToken == "" {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
@@ -996,7 +996,7 @@ func (s *Server) requireControlToken(w http.ResponseWriter, r *http.Request) boo
 
 // handleGetControlToken serves GET /api/control-token: the run-control bearer
 // token, to a local caller only (docs/RUN-CONTROL.md "Authentication"). This
-// is how the browser and a same-host MCP server get the token in phase 4b; a
+// is how the browser and a same-host MCP server get the token; a
 // caller that is not on this machine has to be given it out of band, which is
 // the property that makes the token worth having. A non-local caller is 403
 // with no hint about whether a token exists at all.
@@ -1032,7 +1032,7 @@ func isLocalCallerAddr(remoteAddr string) bool {
 	return ip != nil && (ip.IsLoopback() || ip.IsPrivate())
 }
 
-// --- work-request and workspace-lease writes (phase 3) ---
+// --- work-request and workspace-lease writes ---
 
 // workRequestRow is one work_requests row over HTTP: the idempotency row
 // itself — request id, session id, status, result JSON, received_at,
@@ -1100,7 +1100,7 @@ func (s *Server) handleGetWorkRequest(w http.ResponseWriter, r *http.Request) {
 
 // handlePatchWorkRequest serves PATCH /api/requests/{request_id}: closes a
 // request a dead worker left running by transitioning it to a terminal status
-// and setting finished_at (docs/DATA-API.md phase 3). It is the work-request
+// and setting finished_at (docs/DATA-API.md). It is the work-request
 // analogue of PATCH /api/sessions/{id}: an abandoned row still says "running"
 // and nothing else ever closes it.
 //
@@ -1141,7 +1141,7 @@ func (s *Server) handlePatchWorkRequest(w http.ResponseWriter, r *http.Request) 
 }
 
 // handleDeleteWorkRequest serves DELETE /api/requests/{request_id}: removes
-// the work_requests row (docs/DATA-API.md phase 3). It carries the same
+// the work_requests row (docs/DATA-API.md). It carries the same
 // guards as the other writes, requires the If-Match version, and refuses a
 // request whose session is still live with a 409 naming the last event's time
 // — deleting the row of a run a live worker is finishing would swallow the
@@ -1182,8 +1182,8 @@ func writeRequestWriteError(w http.ResponseWriter, err error) {
 	}
 }
 
-// workspaceLeaseRow is one workspace_leases row over HTTP (docs/DATA-API.md
-// phase 3): the workspace, the session holding it, when it was acquired, when
+// workspaceLeaseRow is one workspace_leases row over HTTP (docs/DATA-API.md):
+// the workspace, the session holding it, when it was acquired, when
 // it was last heartbeated, and the version every row resource carries.
 type workspaceLeaseRow struct {
 	Workspace   string    `json:"workspace"`
@@ -1217,7 +1217,7 @@ func (s *Server) handleListLeases(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleDeleteLease serves DELETE /api/leases/{workspace}: releases a
-// workspace lease (docs/DATA-API.md phase 3). It carries the content-type and
+// workspace lease (docs/DATA-API.md). It carries the content-type and
 // origin guards, requires the If-Match version (428 missing, 412 stale), and
 // refuses a lease whose heartbeat is newer than sessionIdleThreshold with a
 // 409 naming the last heartbeat — the lease analog of the session endpoints'
@@ -1517,7 +1517,7 @@ func writeSettingError(w http.ResponseWriter, err error) {
 // writeGuards runs the two guards every write endpoint carries, in order, and
 // reports whether the request may proceed: a JSON content type (415) and a
 // same-origin check (403) (docs/DATA-API.md "The guards every write
-// carries"). Settings, session, and — from phase 3 — work-request and lease
+// carries"). Settings, session, work-request, and lease
 // handlers all call this one helper rather than repeating the pair, so the
 // guard set is extended in one place, not in every handler.
 func writeGuards(w http.ResponseWriter, r *http.Request) bool {

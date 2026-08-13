@@ -3,8 +3,9 @@ import { tableEmptyState } from "./sessionListEmpty";
 
 // The finished table must tell "a genuinely empty harness" apart from "a
 // filter that matched nothing": with sessions loaded and a query matching
-// none, the page used to drop both sections and render nothing below the
-// stat strip — no table, no message, no indication the filter was the reason.
+// none, collapsing the two would drop both sections and render nothing below
+// the stat strip — no table, no message, no indication the filter was the
+// reason.
 
 describe("tableEmptyState", () => {
   it("is none while any session matches", () => {

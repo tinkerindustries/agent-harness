@@ -2,7 +2,7 @@ import type { Todo } from "../api/types";
 
 // ChatRail is the chat page's right-hand rail (.rail.rail-right): the
 // plan with its progress bar and the in-progress item highlighted, then
-// the session facts. The watch page's rail is phase 4's;
+// the session facts. The watch page has its own, separate rail;
 // this one is the chat page's only rail, and it deliberately replaces the
 // filter chips, the timeline rail, and the plan panel — the design drops all
 // three from the interactive page and lets the plan carry the navigation.

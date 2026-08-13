@@ -5,8 +5,8 @@ import type { ToolCallPayload } from "../api/types";
 import { toolGlyph, type ToolGlyph } from "./blocks/toolArgs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion";
 
-// TimelineRail is the phase 6 browsing affordance (docs/WEB-REDESIGN.md):
-// every sub-turn as one entry, grouped under the plan item that was
+// TimelineRail is the timeline browsing affordance: every sub-turn as one
+// entry, grouped under the plan item that was
 // in_progress when it ran. Each entry shows the sub-turn number and one
 // glyph per tool call, coloured by family, a failed result overriding
 // to red. Clicking an entry scrolls to its card; an IntersectionObserver
@@ -26,8 +26,8 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./
 //    marker move re-renders two of them).
 // 2. The rail is plain sticky CSS, not ScrollArea: the column sticks below
 //    the toolbar and scrolls its own content with overflow — a custom scroll
-//    container would cost a wrapper and a listener per column (phase 1's
-//    deliberate omission).
+//    container would cost a wrapper and a listener per column, which is why
+//    ScrollArea is deliberately left out of the component set.
 
 export interface RailEntry {
   // The group's stable id — the card's data-seq, what the observer matches
@@ -107,8 +107,8 @@ export const TimelineRail = memo(function TimelineRail({ items, getToolCall, fil
   const phases = useMemo(() => buildRail(items, getToolCall), [items, getToolCall]);
 
   // ONE IntersectionObserver for the whole rail, created once per mount and
-  // disconnected on unmount — the "not one per block" constraint
-  // (docs/WEB-REDESIGN.md phase 6). The current sub-turn is the card
+  // disconnected on unmount — the "not one per block" constraint.
+  // The current sub-turn is the card
   // straddling the top strip of the viewport: a negative bottom rootMargin
   // shrinks the observation root to the top 20% of the viewport, so a card
   // is intersecting exactly while it is near the top, and the topmost such

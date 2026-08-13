@@ -246,7 +246,7 @@ func TestCompleteValidatesAgainstResultSchema(t *testing.T) {
 	}
 }
 
-// The failure this covers is the one from the phase 5 review: the schema's
+// The failure this covers is one a review found: the schema's
 // fields sent as top-level arguments beside status, with no result at all.
 // The validator's own message is accurate but describes what is absent, so
 // the hint has to name what is present.

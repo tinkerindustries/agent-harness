@@ -23,8 +23,7 @@ export interface SessionState {
   // complete_status is the status argument the model gave Complete ("done"
   // or "gave_up"), mirroring internal/hub's SessionState. Empty covers both
   // a pre-migration row and a session that ended without calling Complete;
-  // the badge renders it as the plain terminal status rather than guessing
-  // (docs/WEB-REDESIGN.md phase 2).
+  // the badge renders it as the plain terminal status rather than guessing.
   complete_status?: string;
   // task is the job's description — the launching instruction of the run,
   // frozen on the row at creation (the same value the session_started
@@ -35,7 +34,7 @@ export interface SessionState {
   task?: string;
   // plan is the session's working plan: the todos array as of the most
   // recent TaskCreate/TaskUpdate call, verbatim, mirroring internal/hub's
-  // SessionState (docs/WEB-REDESIGN.md phase 3). Absent covers a
+  // SessionState. Absent covers a
   // pre-migration row and a session that never wrote a plan; the in-flight
   // card renders no plan section rather than an empty one.
   plan?: Todo[];
@@ -46,8 +45,7 @@ export interface SessionState {
   recent_tool_calls?: RecentToolCall[];
   // summary is the summary argument the model gave Complete, its own
   // one-line account of the run, shown under the finished table's session
-  // id (docs/WEB-REDESIGN.md phase 3). Absent when Complete was never
-  // called.
+  // id. Absent when Complete was never called.
   summary?: string;
   created_at: string;
   finished_at?: string;

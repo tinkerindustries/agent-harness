@@ -32,7 +32,7 @@ type SessionState struct {
 	Status         string `json:"status"`
 	// CompleteStatus is the status argument the model gave Complete ("done"
 	// or "gave_up"), so the session list can tell a finished task from one
-	// the model gave up on (docs/WEB-REDESIGN.md phase 2). Empty covers a
+	// the model gave up on. Empty covers a
 	// pre-migration row and a session that ended without calling Complete;
 	// the browser renders it as the plain terminal status rather than
 	// guessing.
@@ -45,7 +45,7 @@ type SessionState struct {
 	// description rather than an empty one.
 	Task string `json:"task,omitempty"`
 	// Plan is the session's working plan: the todos array of the most
-	// recent TodoWrite call, verbatim (docs/WEB-REDESIGN.md phase 3).
+	// recent TodoWrite call, verbatim.
 	// Absent covers a pre-migration row and a session that never called
 	// TodoWrite; the browser renders the card without a plan section rather
 	// than an empty one.
@@ -57,7 +57,7 @@ type SessionState struct {
 	RecentToolCalls []store.RecentToolCall `json:"recent_tool_calls,omitempty"`
 	// Summary is the summary argument the model gave Complete, its own
 	// one-line account of the run, shown under the finished table's session
-	// id (docs/WEB-REDESIGN.md phase 3). Absent when Complete was never
+	// id. Absent when Complete was never
 	// called.
 	Summary    string     `json:"summary,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`

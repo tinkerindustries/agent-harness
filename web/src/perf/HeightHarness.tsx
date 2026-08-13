@@ -9,21 +9,21 @@ import { Button } from "../components/ui/button";
 import type { TranscriptFilter } from "../api/groups";
 import { buildSyntheticHistory, makeSeqSource } from "./syntheticFeed";
 
-// HeightHarness is the phase 5 exit measurement (docs/WEB-REDESIGN.md):
-// mount the transcript screen — header, meta row, toolbar, and the turn
+// HeightHarness is the page-height measurement harness: mount the
+// transcript screen — header, meta row, toolbar, and the turn
 // renderer — against a synthetic session the size of the measured one, and
 // report the page's scroll height against the 86,674-pixel baseline.
 // The real session (sess-f93b37…) lives on the production stack, which a
 // measurement must not touch, so the synthetic feed stands in for it
-// (web/src/perf, and the plan's own exit clause: "web/src/perf holds the
-// harness and the synthetic feed if you need a session to measure against").
+// (web/src/perf holds the harness and the synthetic feed for measuring
+// against a session).
 //
 // Configured by ?blocks=N; the default 391 blocks is the opening block plus
 // 142 sub-turns of the standard synthetic cycle (plain/bash/edit/read),
-// the measured session's size. The session redesign retired the
-// Compact/Full toggle — a turn is always full, and collapsing happens per
-// tool row — so there is no density to fix; the measurement is of the
-// renderer the screens ship. Nothing here talks to the network.
+// the measured session's size. A turn is always full — there is no
+// Compact/Full toggle to fix, and collapsing happens per tool row — so the
+// measurement is of the renderer the screens ship. Nothing here talks to
+// the network.
 
 const DEFAULT_BLOCKS = 391; // 1 opening block + 142 synthetic sub-turns
 

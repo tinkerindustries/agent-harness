@@ -290,7 +290,7 @@ func scanWorkRequest(row interface {
 
 // CloseWorkRequest transitions requestID to a terminal status — the write
 // that lets an operator close a request a dead worker left running
-// (docs/DATA-API.md phase 3). It carries two guards, both checked inside the
+// (docs/DATA-API.md). It carries two guards, both checked inside the
 // write transaction so no interleaving write can slip between a check and
 // the UPDATE:
 //
@@ -368,7 +368,7 @@ func (s *Store) CloseWorkRequest(ctx context.Context, requestID, status string, 
 // publish its own terminal result — with ActiveRequestError, so a delete
 // cannot land underneath a run the way nothing may delete a live session.
 // A request whose session is idle or absent has no live worker holding it
-// and may be deleted directly (docs/DATA-API.md phase 3). wantVersion
+// and may be deleted directly (docs/DATA-API.md). wantVersion
 // enforces the optimistic-concurrency precondition: it must equal the row's
 // current version, or VersionConflictError is returned.
 func (s *Store) DeleteWorkRequest(ctx context.Context, requestID string, wantVersion int, now time.Time, minIdle time.Duration) error {

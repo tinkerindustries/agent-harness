@@ -49,7 +49,7 @@ func TestRegistryDefaultsMatchTheConstantsTheyReplaced(t *testing.T) {
 		{settings.KeyHTTPEventsLimitDefault, "500"},
 		{settings.KeyHTTPEventsLimitMax, "5000"},
 		// The control token defaults to empty: it is generated at startup when
-		// unset, which is run control's job (phase 4), not the registry's.
+		// unset, which is run control's job, not the registry's.
 		{settings.KeyHTTPControlToken, ""},
 		// The operator name defaults to empty: unset means runs from the web
 		// UI are recorded as started by an unnamed person (D7).

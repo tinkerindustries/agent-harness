@@ -9,7 +9,7 @@ import (
 
 // WorkspaceLease is one row of the workspace_leases table: a workspace held
 // by a session. heartbeat_at is the liveness signal the HTTP release
-// endpoint judges (docs/DATA-API.md phase 3): a live session heartbeats its
+// endpoint judges (docs/DATA-API.md): a live session heartbeats its
 // lease, so a recent heartbeat means the workspace is in use right now.
 // Version is the row's optimistic-concurrency counter (docs/DATA-API.md
 // "Optimistic concurrency"), carried like every other row resource so the
@@ -65,8 +65,8 @@ func (s *Store) ListWorkspaceLeases(ctx context.Context) ([]WorkspaceLease, erro
 }
 
 // DeleteWorkspaceLease releases workspace's lease — the write that lets an
-// operator release a lease a dead worker left stranded (docs/DATA-API.md
-// phase 3). It carries two guards, both checked inside the write transaction
+// operator release a lease a dead worker left stranded (docs/DATA-API.md).
+// It carries two guards, both checked inside the write transaction
 // so no interleaving write can slip between a check and the DELETE:
 //
 //   - Optimistic concurrency: wantVersion must equal the row's current

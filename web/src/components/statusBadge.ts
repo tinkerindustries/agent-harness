@@ -1,10 +1,9 @@
 import type { VariantProps } from "class-variance-authority";
 import { badgeVariants } from "./ui/badge";
 
-// The session outcome vocabulary (docs/WEB-REDESIGN.md phase 2): one
-// badge label and colour per meaning. The store already distinguishes
-// every row in the table below; the old UI
-// rendered the first three as one green OK. complete_status is the status
+// The session outcome vocabulary: one badge label and colour per meaning.
+// The store already distinguishes every row in the table below.
+// complete_status is the status
 // argument the model gave Complete ("done" or "gave_up"), empty when it
 // never called the tool; reason is run_finished's reason ("complete",
 // "no_tool_calls", "max_sub_turns"), which only the transcript stream

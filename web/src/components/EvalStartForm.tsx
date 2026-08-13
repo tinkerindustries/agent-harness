@@ -77,7 +77,8 @@ export function EvalStartForm({ token, priorRuns, onClose, onStarted }: Props) {
   }
 
   // Say which condition is unmet rather than one message for all of them: a
-  // cleared Replicates field used to report "pick two variants".
+  // cleared Replicates field needs its own message, not the generic "pick
+  // two variants".
   const blocker =
     suite === ""
       ? "Pick a suite."

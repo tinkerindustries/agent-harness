@@ -5,23 +5,22 @@ SSE from `harness serve` for the session surface. Vite, React, TypeScript,
 with shadcn/ui on Tailwind v4 as the component layer — `accordion`, `badge`,
 `button`, `card`, `collapsible`, `input`, `toggle`, `toggle-group`, and
 `tooltip` are in (in `src/components/ui/`); `ScrollArea` and `DataTable` are
-deliberately out, because the rail and the plan column are plain sticky
-elements and the diff table renders inside the transcript
-(docs/WEB-REDESIGN.md phase 1). The theme variables are ported from the
-design token set, and everything shadcn has no opinion about — the shared
+out, because the rail and the plan column are plain sticky elements and the
+diff table renders inside the transcript. The theme variables are ported from
+the design token set, and everything shadcn has no opinion about — the shared
 top nav, the transcript block styles, the diff table, and the status and diff
 tokens — is plain CSS in `src/styles.css`. No router, no data layer beyond the
 SSE client, the store, and the settings fetch calls. `docs/DESIGN.md` §5 is
 the reference for the reasoning behind all of it.
 
-One shared top nav (docs/WEB-REDESIGN.md phase 9, `components/TopNav.tsx`) is
-mounted once by `App.tsx` around whichever screen the route renders. It is not
+One shared top nav (`components/TopNav.tsx`) is mounted once by `App.tsx`
+around whichever screen the route renders. It is not
 redeclared inside the screens; each screen registers its page-specific
 right-hand content — a search input, a LIVE/connection badge, a refresh button
 — into the nav's right slot with `useNavRight`, so the slot stays owned by the
 screen that holds its state. The `/perf` harness route renders no nav.
 
-What the screens are, since the redesign (docs/WEB-REDESIGN.md):
+What the screens are:
 
 - **Session list.** In-flight sessions are collapsible plan cards — collapsed,
   the summary carries the job's description (the session's `task`, clamped to
@@ -31,7 +30,7 @@ What the screens are, since the redesign (docs/WEB-REDESIGN.md):
   small toggle button, sibling of the summary, so toggling the plan never
   navigates. The card's stat
   row carries elapsed in primary weight and sub-turns dimmer — the finished
-  table's columns minus Cost and Cache (phase 9). Finished sessions are a dense
+  table's columns minus Cost and Cache. Finished sessions are a dense
   table whose Session cell carries a one-line subtitle: the plan ratio and the
   model's summary.
   Outcomes render as `DONE` / `GAVE UP` / `STOPPED` (`statusBadge.ts`), not one
@@ -42,9 +41,9 @@ What the screens are, since the redesign (docs/WEB-REDESIGN.md):
   Elapsed, Cost, Model, Sub-turns, Cache: the two numbers an operator
   scans for sit right after Session, where they stay visible before any column
   that still needs the scroll container. The nav's right slot carries the
-  start-run trigger (docs/RUN-CONTROL.md phase 6 — it opens the start form as
-  a card above the stat strip, and a null control token replaces it with a
-  "run control not configured" note), the search input (id/workspace/request,
+  start-run trigger (docs/RUN-CONTROL.md — it opens the start form as a card
+  above the stat strip, and a null control token replaces it with a "run
+  control not configured" note), the search input (id/workspace/request,
   client-side) and the LIVE badge.
 - **Transcript.** The unit is the sub-turn, not the block: one card per
   sub-turn, reasoning, text, tool calls and results in one body and the usage
@@ -58,7 +57,7 @@ What the screens are, since the redesign (docs/WEB-REDESIGN.md):
   plan item that was `in_progress`, one glyph per tool call, with a single
   IntersectionObserver marking the current entry. The screen's own header is
   gone: the nav's crumb shows the session id and its right slot carries the
-  connection badge (phase 9).
+  connection badge.
 - **Evals.** The eval list is every run over time — what it compared, where it
   got to, and a headline delta; the run page is the comparison table, then the
   runs it is built from (docs/EVALS.md). No statistics happen in the browser:
@@ -83,8 +82,7 @@ What the screens are, since the redesign (docs/WEB-REDESIGN.md):
   and description; open is the write controls with the bounds the registry
   validates against. A closed set renders a `ToggleGroup`; only overrides and
   unset secrets are badged. The nav's right slot carries the key/description
-  search input, which filters the rows client-side on top of the chip filter
-  (phase 9).
+  search input, which filters the rows client-side on top of the chip filter.
 
 Build output lands in `../internal/webassets/dist`, which the Go binary embeds.
 Don't change `build.outDir`.
@@ -164,9 +162,9 @@ blocks; the naive shape re-parses the whole transcript tens of times a second.
 
 Virtualisation is out, and the measurements that decided it are in §5.5: delta
 commits are flat in block count, appending a block is linear and no amount of
-memoisation removes it. Phase 4 attacked the append cost at group granularity
-instead — the walk now runs over sub-turn cards and every earlier card bails
-out, with the numbers in §5.9 — but the conclusion stands. Re-measure with the
+memoisation removes it. The append cost is attacked at group granularity
+instead — the walk runs over sub-turn cards and every earlier card bails out,
+with the numbers in §5.9 — but the conclusion stands. Re-measure with the
 harness in `src/perf` rather than arguing from first principles.
 
 Tests cover the fold, the grouping, and the display helpers. There is no DOM

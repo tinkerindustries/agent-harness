@@ -22,8 +22,8 @@ export type ConnectionState = "connecting" | "open" | "closed";
 
 export interface TranscriptSnapshot {
   blocks: Block[];
-  // The display-side grouping of `blocks` (docs/WEB-REDESIGN.md phase 4):
-  // sub-turn cards plus the top-level blocks outside any group. Computed
+  // The display-side grouping of `blocks`: sub-turn cards plus the
+  // top-level blocks outside any group. Computed
   // incrementally by SubTurnGroupState so a live-only update keeps the same
   // items reference — the grouped analogue of FoldState's stable blocks
   // reference, and what lets the SubTurnList memo bail out on every delta.
@@ -32,8 +32,8 @@ export interface TranscriptSnapshot {
   todos: Todo[];
   connection: ConnectionState;
   // counts and churnPoint come out of the same incremental pass that builds
-  // items (docs/WEB-REDESIGN.md phase 5): the filter chip row's numbers and
-  // the first cache-churn diagnostic, without a second walk over the blocks.
+  // items: the filter chip row's numbers and the first cache-churn
+  // diagnostic, without a second walk over the blocks.
   counts: GroupCounts;
   churnPoint: ChurnPoint | null;
   // getToolCall is the fold's tool-call registry, exposed read-only for the
@@ -130,8 +130,8 @@ export class TranscriptStore {
     const before = this.fold.blocks.length;
     this.fold.ingest(ev);
     // Record the fold's already-applied plan as of the moment each block
-    // froze (docs/WEB-REDESIGN.md phase 6, the rail's phase grouping): a
-    // flush folds whatever blocks arrived since the last one, so without a
+    // froze, for the rail's phase grouping: a flush folds whatever blocks
+    // arrived since the last one, so without a
     // per-block record every phase in a burst — a finished session's replay,
     // or the perf harness seeding at once — would be named from the plan at
     // the END of the burst (its last TaskCreate/TaskUpdate). Nothing is
@@ -181,7 +181,7 @@ export class TranscriptStore {
 
   // getToolCall is a stable arrow property so every snapshot carries the same
   // reference — a fresh closure per buildSnapshot would defeat the memoised
-  // components that take it as a prop (docs/WEB-REDESIGN.md phase 5).
+  // components that take it as a prop.
   private getToolCall = (id: string): ToolCallPayload | undefined => this.fold.getToolCall(id);
 
   private notify() {

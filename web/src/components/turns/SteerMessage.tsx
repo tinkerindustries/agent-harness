@@ -55,11 +55,10 @@ interface Props {
   // delivers at the next sub-turn boundary, and there is no next boundary —
   // so the pending vocabulary ("waiting for the current tool call to
   // finish") would claim a boundary is coming that is not, and a forever
-  // pulsing dot would read as a wedged run. The live phase 5 run exposed
-  // exactly this: a steer sent while the final sub-turn's request was in
-  // flight sat pending on a finished run. The state line then says the one
-  // true thing — the message was accepted, and the run ended before it
-  // reached the model.
+  // pulsing dot would read as a wedged run: a steer sent while the final
+  // sub-turn's request was in flight sits pending on a finished run
+  // otherwise. The state line then says the one true thing — the message
+  // was accepted, and the run ended before it reached the model.
   runEnded: boolean;
 }
 

@@ -1,5 +1,5 @@
 // The operations client: the fetch calls, the wire types, and the pure
-// logic the operations screen is built from (docs/DATA-API.md phase 5).
+// logic the operations screen is built from (docs/DATA-API.md).
 // Kept as a module separate from the React component, like settings.ts and
 // fold.ts — the component renders, this talks to the server, and the tests
 // pin this module's wire shape and decisions without any DOM.
@@ -30,7 +30,7 @@ export const EVENTS_PAGE_SIZE = 5000;
 
 // WorkRequestRow is one work_requests row over HTTP, mirroring
 // internal/httpapi.workRequestRow: the idempotency row plus the version
-// every row resource carries (docs/DATA-API.md phase 3). session_id is
+// every row resource carries (docs/DATA-API.md). session_id is
 // absent for a request that never ran; finished_at is absent while running.
 export interface WorkRequestRow {
   request_id: string;
@@ -44,7 +44,7 @@ export interface WorkRequestRow {
 }
 
 // WorkspaceLeaseRow is one workspace_leases row over HTTP, mirroring
-// internal/httpapi.workspaceLeaseRow (docs/DATA-API.md phase 3). The
+// internal/httpapi.workspaceLeaseRow (docs/DATA-API.md). The
 // workspace key is a path and may contain slashes, so a client
 // percent-encodes it when addressing the row.
 export interface WorkspaceLeaseRow {
@@ -146,7 +146,7 @@ function deleteInit(version: number): RequestInit {
 }
 
 // closeSession closes a session into a terminal status via PATCH
-// /api/sessions/{id} (docs/DATA-API.md phase 1). A running session whose
+// /api/sessions/{id} (docs/DATA-API.md). A running session whose
 // most recent event is newer than the idle threshold is refused with a 409
 // naming the last event's time; a stale version is a 412 naming the current
 // one — both carried out as the Error's message, which the screen shows
@@ -160,7 +160,7 @@ export async function closeSession(id: string, version: number, status: string):
 }
 
 // deleteSession removes a session row and its whole event log via DELETE
-// /api/sessions/{id} (docs/DATA-API.md phase 1). A running session is
+// /api/sessions/{id} (docs/DATA-API.md). A running session is
 // refused with 409 regardless of idleness — the operator closes it first
 // with PATCH, then deletes it.
 export async function deleteSession(id: string, version: number): Promise<void> {
@@ -169,7 +169,7 @@ export async function deleteSession(id: string, version: number): Promise<void> 
 }
 
 // closeWorkRequest closes a work request into a terminal status via PATCH
-// /api/requests/{request_id} (docs/DATA-API.md phase 3). A request whose
+// /api/requests/{request_id} (docs/DATA-API.md). A request whose
 // session is still live is refused with a 409 naming the last event's time.
 export async function closeWorkRequest(requestId: string, version: number, status: string): Promise<void> {
   const res = await fetch(`/api/requests/${encodeURIComponent(requestId)}`, {
@@ -180,14 +180,14 @@ export async function closeWorkRequest(requestId: string, version: number, statu
 }
 
 // deleteWorkRequest removes a work-request row via DELETE
-// /api/requests/{request_id} (docs/DATA-API.md phase 3).
+// /api/requests/{request_id} (docs/DATA-API.md).
 export async function deleteWorkRequest(requestId: string, version: number): Promise<void> {
   const res = await fetch(`/api/requests/${encodeURIComponent(requestId)}`, deleteInit(version));
   if (!res.ok) throw await apiError(res);
 }
 
 // releaseLease releases a workspace lease via DELETE /api/leases/{workspace}
-// (docs/DATA-API.md phase 3). The lease key is a workspace path and may
+// (docs/DATA-API.md). The lease key is a workspace path and may
 // contain slashes, so it is percent-encoded: "/tmp/ws" becomes %2Ftmp%2Fws,
 // which is the exact shape the server's wildcard route matches. A lease
 // whose heartbeat is newer than the idle threshold is refused with a 409

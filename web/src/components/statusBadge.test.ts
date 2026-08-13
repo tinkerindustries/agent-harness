@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { outcome, statusVariant, watchBadge } from "./statusBadge";
 
-// The session outcome vocabulary (docs/WEB-REDESIGN.md phase 2): one
-// badge per meaning, with status ok
+// The session outcome vocabulary: one badge per meaning, with status ok
 // split on complete_status and, where the transcript's run_finished reason is
 // available, on no_tool_calls.
 describe("outcome", () => {

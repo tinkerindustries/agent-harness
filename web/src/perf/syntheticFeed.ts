@@ -38,9 +38,8 @@ type TurnKind = "plain" | "bash" | "edit" | "read";
 const TURN_KINDS: TurnKind[] = ["plain", "bash", "edit", "read"];
 
 // The synthetic session's plan, for the TaskCreate/TaskUpdate calls that
-// phase the history (docs/WEB-REDESIGN.md phase 6 needs plan boundaries to
-// group the rail's sub-turns under). Seven items, the shape of the
-// measured session's plan.
+// phase the history: the timeline rail needs plan boundaries to group its
+// sub-turns under. Seven items, the shape of the measured session's plan.
 const PLAN_ITEMS = [
   "Fix retained-body leak",
   "Add httplog test",
@@ -101,8 +100,8 @@ export function buildSyntheticHistory(targetBlocks: number, sessionId: string, s
     let callIndex = 0;
     if (turn === 1 || turn % 20 === 1) {
       // Every plan-mutating call in the event stream marks a rail phase
-      // boundary (docs/WEB-REDESIGN.md phase 6). The first marks the plan
-      // itself: TaskCreate mints ids 1..7 in call order. Later boundaries
+      // boundary. The first marks the plan itself: TaskCreate mints ids
+      // 1..7 in call order. Later boundaries
       // advance the plan with TaskUpdate pairs — the item that was
       // in_progress completes and the next one starts — so both mutating
       // tools exercise the boundary logic.

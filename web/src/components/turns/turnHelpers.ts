@@ -142,8 +142,7 @@ export function watchStatusFigures(
   };
 }
 
-// --- the chat page's steer messages and finished band (session pages
-// phase 3) ---
+// --- the chat page's steer messages and finished band ---
 
 // groupMatchesQuery is the watch page's find box ("Search this
 // transcript…"): whether a sub-turn's visible text —

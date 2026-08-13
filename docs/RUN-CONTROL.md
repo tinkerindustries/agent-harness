@@ -1,34 +1,29 @@
 # Run control: starting, steering, and stopping a run
 
-[DESIGN.md §4.2](DESIGN.md#42-transport) calls this stage two: an interactive
-frontend that can start, steer, and stop a run, sitting on top of the data API
-[DATA-API.md](DATA-API.md) specifies. It has been named and deliberately not
-built since v1 — `internal/httpapi` imports neither `session` nor `worker`,
-which [ARCHITECTURE.md](../ARCHITECTURE.md) calls a structural fact rather than
-a policy. This document is the design that fact was waiting on, and it retires
-it on purpose: two narrow, typed seams out of `httpapi`, not an incidental one.
+An interactive frontend that can start, steer, and stop a run, sitting on top
+of the data API [DATA-API.md](DATA-API.md) specifies. `internal/httpapi`
+imports neither `session` nor `worker` ([ARCHITECTURE.md](../ARCHITECTURE.md)):
+run control reaches the loop through two narrow, typed seams out of `httpapi`,
+not an incidental import.
 
-The prompt for writing it down now: `sess-23f440713ef783c1484eb3eb0be24969`
-hung on production for good, wedged inside a `Bash` call that backgrounded a
-process without redirecting its output. §4.10 already names the failure mode —
-"a tool call blocked on something that ignores cancellation [is not
-reaped]... the delivery ceiling bounds the damage... but it does not end the
-wedged attempt" — and this design exists to close it, not just to add a stop
+Closing a run that never returns is the case that matters most: §4.10 names
+the failure mode of a tool call blocked on something that ignores
+cancellation — the delivery ceiling bounds the damage but does not end the
+wedged attempt — and this design exists to close that, not just to add a stop
 button.
 
-This is the design. The staged build order, file by file, is
+This is the design. The build order, file by file, is
 [RUN-CONTROL-PLAN.md](RUN-CONTROL-PLAN.md).
 
 ## Scope
 
-- **Starting.** The one gap here is the browser. MCP already starts runs —
-  `deepseek_agent` publishes a work request — and so does `harness publish`.
-  What's missing is a write path from the web UI, which today can only watch.
-- **Steering.** Append a new user-authored message to a run in progress.
-  Nothing today lets an operator add instructions mid-run from any surface.
-- **Stopping.** End a run on request — including one wedged inside a tool call
-  that ignores its context, which is the case that actually happened in
-  production and the case a naive `cancel()`-only stop would not fix.
+- **Starting.** MCP (`deepseek_agent`), `harness publish`, and the web UI's
+  start form each publish a work request.
+- **Steering.** An operator appends a new user-authored message to a run in
+  progress, from any of the three surfaces.
+- **Stopping.** Ends a run on request — including one wedged inside a tool
+  call that ignores its context, which a naive `cancel()`-only stop would not
+  fix.
 - Every one of these ships on **MCP, the CLI, and the web UI**, not one first.
   MCP callers are other agents, not just people at a keyboard, and an agent
   that can start a job but not steer or stop it is only half a capability.
@@ -46,11 +41,10 @@ This is the design. The staged build order, file by file, is
   for exactly this reason: it stalls when nobody is watching. Steering adds a
   channel *into* the loop; it does not make the loop wait on it.
 - **Background shells with polling and kill tools.** [TOOLS.md](TOOLS.md)
-  already names this as a separate follow-up for the `Bash` tool itself
-  (letting a command run detached, with its own poll/kill affordances). This
-  design's "kill a wedged call" is about an operator ending a *foreground*
-  call from outside; it is a prerequisite for that follow-up, not a
-  substitute for it.
+  names this separately as not built, for the `Bash` tool itself (letting a
+  command run detached, with its own poll/kill affordances). This design's
+  "kill a wedged call" is about an operator ending a *foreground* call from
+  outside; it is a prerequisite for that, not a substitute for it.
 - **Killing one tool call and letting the run continue.** Stop is whole-run.
   See [What this does not promise](#what-this-does-not-promise).
 - **A revisited authentication story.** Addressed narrowly in
@@ -60,12 +54,11 @@ This is the design. The staged build order, file by file, is
 
 ## The two seams
 
-`harness serve` already runs the worker pool and the HTTP surface in one
-process (ARCHITECTURE.md). CLAUDE.md's warning against giving `httpapi` a NATS
+`harness serve` runs the worker pool and the HTTP surface in one process
+(ARCHITECTURE.md). CLAUDE.md's warning against giving `httpapi` a NATS
 handle is not a ban on run control — it is a warning against *that specific
-handle* getting smuggled in before the seam was chosen deliberately. Two seams
-are chosen here, and they are different shapes because starting and stopping
-are different problems.
+handle* getting smuggled in rather than a declared seam. Run control uses two
+seams, different shapes because starting and stopping are different problems.
 
 ### Starting is a publish, so the seam is a publisher
 
@@ -89,12 +82,11 @@ Recommended against: an in-process shortcut that calls `Pool.run` directly.
 It would skip the idempotency row, the heartbeat, and the redelivery ceiling,
 and it is a second way for a session to begin.
 
-`httpapi` gains an import of `internal/queue` for `queue.Request` and its
-`Validate`, deliberately: a request body validated by a copy of the rules is a
-request body that eventually disagrees with the queue's. It gains no JetStream
-handle — it already imports `jetstream` for `QueueConsumer`'s types, so the
-import graph barely moves; what changes is that one narrow interface can now
-write.
+`httpapi` imports `internal/queue` for `queue.Request` and its `Validate`
+rather than a copy of the rules, because a copy is a validator that eventually
+disagrees with the queue's. It holds no JetStream handle — it already imports
+`jetstream` for `QueueConsumer`'s types, so the import graph barely moves;
+the change is that one narrow interface can now write.
 
 ### Stopping is addressed at one goroutine, so the seam is a registry
 
@@ -128,10 +120,9 @@ type inflight struct {
 }
 ```
 
-That is the shipped shape, not a sketch. Two fields are there for reasons
-that only became visible while building it: `msg`, because the escalation has
-to run the *same* finish sequence an ordinary run would rather than a
-parallel one, and `stopHeartbeat`, for the reason in the guards below.
+Two fields carry reasons worth stating up front: `msg`, because the
+escalation has to run the *same* finish sequence an ordinary run would rather
+than a parallel one, and `stopHeartbeat`, for the reason in the guards below.
 
 `httpapi` is given a small interface — `RunController` — implemented by
 `*worker.Pool`, not the whole pool, exactly as `QueuePool` already is for
@@ -241,8 +232,7 @@ the model, so say what to do differently.
    heartbeat, release the pool slot, and log a leaked-goroutine warning
    naming the session and request ids.
 
-Six things have to be true for step 4 to be honest rather than cosmetic. The
-first four were designed in; the last two were found while building it, and
+Six things have to be true for step 4 to be honest rather than cosmetic, and
 each is a real failure rather than a tidiness point.
 
 **The pool slot must actually free.** Today the semaphore token is released by
@@ -348,8 +338,7 @@ one. `TestAppendOnly` in `fold_test.go` asserts precisely that this never
 happens, and the prompt cache is what the assertion is protecting
 ([CACHE.md](CACHE.md)).
 
-One event kind *can* be made to work, and an earlier draft of this document
-wrongly said it could not. If the fold tracks how many tool calls are
+One event kind *can* be made to work. If the fold tracks how many tool calls are
 outstanding — the count it would need anyway to know the message array is at
 rest — it can buffer a `steer_message` and emit it only once every outstanding
 call has its result. The position is then stable for every prefix, and
@@ -366,8 +355,8 @@ that does not exist:
   must agree in shape (ARCHITECTURE.md). With two kinds the browser matches
   `source_seq` and is done; with one it has to re-derive the same tracking to
   know a steer has actually been delivered.
-- **A wedged run stays legible.** The case that started this plan is a run
-  that never reaches another boundary. With two kinds, a steer sits in the log
+- **A wedged run stays legible.** A run that never reaches another boundary
+  is the case that matters most. With two kinds, a steer sits in the log
   as sent-and-never-applied, which is exactly what the transcript should show.
   With one, "queued" and "delivered" are the same event and the operator
   cannot tell the difference — on precisely the run where the difference is
@@ -473,8 +462,8 @@ write carries"). `writeGuards` is called by these handlers exactly as the
 settings and session handlers call it. On top of that, and only on these
 three, a bearer token — see [Authentication](#authentication).
 
-**`If-Match` is deliberately not required here**, and that is a departure from
-DATA-API.md's rule worth stating rather than leaving to be discovered. That
+**`If-Match` is not required here**, a departure from DATA-API.md's rule
+worth stating rather than leaving to be discovered. That
 rule governs *mutations of a row*: it exists so an operator's write cannot
 land on a row that changed since they read it. These three are not row
 mutations. A running session's `version` changes continuously underneath the
@@ -561,9 +550,9 @@ world-readable-to-your-own-uid SQLite file is easy to over-sell:
   origin and content-type guards did not already do.
 - Against **another process running as the same user**: nothing. It can read
   the settings table.
-- Against **the port being exposed off loopback** — deliberately, or by a
+- Against **the port being exposed off loopback** — on purpose, or by a
   `-addr 0.0.0.0`, or by a container port publish: everything. This is the
-  case it is for, and it is the case §4.2 says stage two forces.
+  case it is for, and it is the authentication question §4.2 names as open.
 
 Distribution follows from that. `GET /api/control-token` returns the token
 **only to a local `RemoteAddr`** — loopback, or a private (RFC 1918 / RFC
@@ -646,21 +635,19 @@ follows the session from the existing `GET /api/stream` list feed as soon as
 one exists, and once it does the form opens that session's transcript, where
 the operator types the first message into the steer input.
 
-## The new result status
+## The result status
 
-§4.10 currently states flatly: "There is no `cancelled`." This design adds
-one. `internal/queue` gains `StatusCancelled = "cancelled"` alongside
-`StatusOK`, `StatusFailed`, `StatusDenied` and `StatusTimeout` — distinct from
+`internal/queue` has `StatusCancelled = "cancelled"` alongside `StatusOK`,
+`StatusFailed`, `StatusDenied` and `StatusTimeout` — distinct from
 `StatusTimeout`, which is deadline-driven with no operator involved. The
 result carries `error.code` `"cancelled"` and the operator's reason as its
 message, so a queue consumer can tell an operator's decision from a budget
 being exhausted without parsing prose.
 
-`store.StatusCancelled` already exists, and `httpapi`'s
-`terminalSessionStatuses` already accepts it — added when phase 1 needed a
-vocabulary for closing abandoned rows. What is new is a code path that
-produces it, and the meaning it carries: a session marked `cancelled` by an
-operator's stop, rather than by an operator's repair.
+`store.StatusCancelled` and `httpapi`'s `terminalSessionStatuses` both accept
+it, covering two distinct causes with one vocabulary: a session marked
+`cancelled` by an operator's PATCH-based repair (DATA-API.md), and one marked
+`cancelled` by an operator's stop.
 
 ## What this does not promise
 
@@ -681,35 +668,14 @@ operator's stop, rather than by an operator's repair.
 - **That a run stops on another `serve` instance.** The registry is
   in-process. Today there is exactly one instance; see the open questions.
 
-## Invariants this changes
-
-Each of these is written down somewhere as a fact, and each stops being one.
-The plan lists where.
-
-- ARCHITECTURE.md: "The HTTP API serves `GET` and `HEAD` and nothing else. No
-  endpoint starts, steers, or stops a run." Both halves of that were already
-  half-retired by DATA-API.md; run control retires the rest.
-- ARCHITECTURE.md: "`internal/httpapi` imports neither `session` nor
-  `worker`." Still true, and now true *because of a declared seam* rather than
-  because nothing needed one. Worth restating in those terms rather than
-  deleting.
-- DESIGN.md §4.10: "There is no `cancelled`."
-- DESIGN.md §4.2 and DATA-API.md: the data/run-control bracket, which both
-  documents use to say what does not belong to them yet.
-- CLAUDE.md: "do not give the HTTP server a NATS handle". The seam it was
-  waiting for is `RunPublisher`, and the rule becomes: no JetStream handle,
-  one narrow publisher interface.
-- web/CLAUDE.md: "no prompt box, no approve button, no cancel control." The
-  approve button stays out — §4.6 has not changed.
-
-## Open questions this design does not close
+## Open questions
 
 - **Multi-instance `serve`.** If this ever runs as more than one replica, the
   in-process registry stops being sufficient for stop: control has to find the
   right instance. Steering already works in that world, and start does too.
   The likely answer is a control subject on NATS with instances subscribing
-  for their own session ids — deliberately not built now, because it is a
-  mechanism for a problem nobody has.
+  for their own session ids — not built, because it is a mechanism for a
+  problem nobody has.
 - **Rate-limiting stop and steer.** A control token is authorization, not a
   throttle. A misbehaving caller, or a leaked token, could steer a session in
   a tight loop and drive its cost up; nothing here bounds that.

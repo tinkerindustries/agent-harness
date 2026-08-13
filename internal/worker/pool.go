@@ -393,11 +393,9 @@ const abandonedSessionIdleThreshold = 10 * time.Minute
 // handleSpent is the single-use path for a delivery whose request is spent:
 // the work_requests row carries a session id, so an attempt actually
 // started and nothing may ever run this request again. It closes the
-// abandoned session — the row phase 1's CloseSession was built for, and the
-// one that until now never got closed, so abandoned sessions sat running in
-// the list forever — publishes a failed result telling the caller what
-// happened and how to retry, and terminates the message: no further
-// delivery can help.
+// abandoned session — the row CloseSession was built for — publishes a
+// failed result telling the caller what happened and how to retry, and
+// terminates the message: no further delivery can help.
 func (p *Pool) handleSpent(msg jetstream.Msg, req queue.Request, outcome store.ClaimOutcome) {
 	ctx := context.Background()
 	sessionID := outcome.Existing.SessionID

@@ -193,7 +193,7 @@ VALUES ('legacy-1', 'deepseek-v4-pro', 'high', 1, '/tmp/ws', 'default',
 		if got.ParentAgentType != "" || got.ParentAgentID != "" || got.ParentIsUser {
 			t.Fatalf("open %d: expected empty parent agent fields, got %+v", attempt, got)
 		}
-		// The migration backfill rule (docs/WEB-REDESIGN.md phase 2): a row
+		// The migration backfill rule: a row
 		// written by an older binary reads back with the empty complete_status
 		// the new column defaults to — the browser renders that as the plain
 		// terminal status rather than guessing which outcome it was.
@@ -212,9 +212,9 @@ VALUES ('legacy-1', 'deepseek-v4-pro', 'high', 1, '/tmp/ws', 'default',
 	}
 }
 
-// TestOpenMigratesLegacyRequestsAndLeasesTables is the phase 3 migration
-// (docs/DATA-API.md): work_requests and workspace_leases rows written by a
-// pre-phase-3 binary have no version column, and Open adds it with default 1,
+// TestOpenMigratesLegacyRequestsAndLeasesTables covers the migration
+// (docs/DATA-API.md): work_requests and workspace_leases rows written by an
+// older binary have no version column, and Open adds it with default 1,
 // backfilling existing rows, and a second Open is a no-op.
 func TestOpenMigratesLegacyRequestsAndLeasesTables(t *testing.T) {
 	dir := t.TempDir()
@@ -283,7 +283,7 @@ VALUES ('/tmp/legacy', 'legacy-sess', '2026-01-02T03:04:05Z', '2026-01-02T04:04:
 // TestFinishSessionRecordsCompleteStatus proves the finish path writes the
 // model's Complete status argument onto the session row alongside the
 // terminal status, so the session list can tell DONE from GAVE UP without
-// re-walking the event log (docs/WEB-REDESIGN.md phase 2).
+// re-walking the event log.
 func TestFinishSessionRecordsCompleteStatus(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
@@ -328,7 +328,7 @@ func TestFinishSessionRecordsCompleteStatus(t *testing.T) {
 // recent-tool-call roll survive the trip into the row and back out, and
 // that the roll is trimmed to the most recent few calls — the shape the
 // session list needs to render the in-flight card without re-walking the
-// event log (docs/WEB-REDESIGN.md phase 3).
+// event log.
 func TestPlanColumnRoundTrips(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
@@ -337,7 +337,7 @@ func TestPlanColumnRoundTrips(t *testing.T) {
 	plan := `[{"content":"Read the spec","status":"completed","activeForm":""},{"content":"Wire it up","status":"in_progress","activeForm":"Wiring"}]`
 	now := time.Now().UTC()
 	calls := []RecentToolCall{
-		{Name: "Read", Arguments: `{"file_path":"docs/WEB-REDESIGN.md"}`, CreatedAt: now},
+		{Name: "Read", Arguments: `{"file_path":"docs/DESIGN.md"}`, CreatedAt: now},
 		{Name: "TodoWrite", Arguments: `{"todos":[]}`, CreatedAt: now},
 		{Name: "Bash", Arguments: `{"command":"go build ./..."}`, CreatedAt: now.Add(time.Second)},
 	}
