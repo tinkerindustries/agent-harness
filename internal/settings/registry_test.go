@@ -23,8 +23,10 @@ func TestRegistryDefaultsMatchTheConstantsTheyReplaced(t *testing.T) {
 	}{
 		{settings.KeyRunMaxTokens, "48000"},
 		{settings.KeyRunMaxSubTurns, "400"},
+		{settings.KeyRunMaxSubTurnsKimiK3, "100"},
 		{settings.KeyRunDeadline, "1h"},
 		{settings.KeyRunCompactionThreshold, "786432"},
+		{settings.KeyRunCompactionThresholdKimiK3, "131072"},
 		{settings.KeyRunStopGracePeriod, "30s"},
 		{settings.KeyToolOutputCap, "200000"},
 		{settings.KeyToolBashTimeout, "2m"},
@@ -81,5 +83,28 @@ func TestRegistryDefaultsMatchTheConstantsTheyReplaced(t *testing.T) {
 	}
 	if got := session.CompactionThresholdTokens; got != 768*1024 {
 		t.Errorf("session.CompactionThresholdTokens = %d, want 786432", got)
+	}
+	// The per-model constants are pinned the same way: kimi-k3's own
+	// ceilings live in both the registry and the session package's nil-path
+	// fallback, and the two must not drift.
+	if got := session.KimiK3MaxSubTurns; got != 100 {
+		t.Errorf("session.KimiK3MaxSubTurns = %d, want 100", got)
+	}
+	if got := session.KimiK3CompactionThresholdTokens; got != 128*1024 {
+		t.Errorf("session.KimiK3CompactionThresholdTokens = %d, want 131072", got)
+	}
+}
+
+// TestRunBudgetKeysForModel pins the model→override-key table: kimi-k3 has
+// per-model run budget keys, every other model resolves the global keys.
+func TestRunBudgetKeysForModel(t *testing.T) {
+	key, _, ok := settings.RunBudgetKeysForModel("kimi-k3")
+	if !ok || key != settings.KeyRunMaxSubTurnsKimiK3 {
+		t.Errorf("RunBudgetKeysForModel(kimi-k3) = (%q, %v), want (%q, true)", key, ok, settings.KeyRunMaxSubTurnsKimiK3)
+	}
+	for _, model := range []string{"deepseek-v4-pro", "deepseek-v4-flash", "no-such-model"} {
+		if _, _, ok := settings.RunBudgetKeysForModel(model); ok {
+			t.Errorf("RunBudgetKeysForModel(%q) = ok, want no override", model)
+		}
 	}
 }

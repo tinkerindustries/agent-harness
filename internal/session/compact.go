@@ -43,7 +43,7 @@ func (r *Runner) compact(ctx context.Context, sess store.Session, allEvents []st
 		Workspace:       sess.Workspace,
 		PermissionMode:  sess.PermissionMode,
 		DenyPatterns:    sess.DenyPatterns,
-		SystemPrompt:    RenderCompactionSummarySystemPrompt(summary),
+		SystemPrompt:    RenderCompactionSummarySystemPromptFor(sess.Model, summary),
 		ToolSchema:      sess.ToolSchema,
 		ResultSchema:    sess.ResultSchema,
 		Status:          store.StatusRunning,
@@ -94,10 +94,10 @@ func (r *Runner) compact(ctx context.Context, sess store.Session, allEvents []st
 func (r *Runner) summarize(ctx context.Context, messages []wire.Message) (string, error) {
 	var b strings.Builder
 	for _, m := range messages {
-		if m.Content == "" {
+		if m.Content.String() == "" {
 			continue
 		}
-		fmt.Fprintf(&b, "[%s] %s\n", m.Role, m.Content)
+		fmt.Fprintf(&b, "[%s] %s\n", m.Role, m.Content.String())
 	}
 
 	intent := wire.ChatIntent{
@@ -122,5 +122,5 @@ func (r *Runner) summarize(ctx context.Context, messages []wire.Message) (string
 	if len(resp.Choices) == 0 {
 		return "", errors.New("session: compaction summary returned no choices")
 	}
-	return resp.Choices[0].Message.Content, nil
+	return resp.Choices[0].Message.Content.String(), nil
 }

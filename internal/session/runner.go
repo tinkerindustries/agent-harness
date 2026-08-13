@@ -24,12 +24,25 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/promptvariant"
+	"github.com/mrgeoffrich/deepseek-harness/internal/provider"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/skills"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
+
+// seesImages reports whether the provider serving model reads images
+// natively — true only for Kimi K3 today (docs/KIMI-INTEGRATION.md §4.5).
+// It drives both halves of the vision split: which tool array the session
+// sends (internal/tools.DefinitionsFor) and whether Read returns an image
+// part (tools.Executor.SeeImages). An unknown model resolves to false, the
+// DeepSeek default; queue validation rejects unknown models before a session
+// exists, so nothing real can land here.
+func seesImages(model string) bool {
+	p, err := provider.ModelFor(model)
+	return err == nil && p == provider.Kimi
+}
 
 // DefaultMaxSubTurns and CompactionThresholdTokens are the built-in run
 // budget defaults when the Runner has no settings resolver attached (the
@@ -46,6 +59,20 @@ const DefaultMaxSubTurns = 400
 // compaction window, 768K of the 1M context (docs/TOOLS.md, "Context and
 // compaction").
 const CompactionThresholdTokens = 768 * 1024
+
+// KimiK3MaxSubTurns and KimiK3CompactionThresholdTokens are kimi-k3's own
+// run budget ceilings, resolving ahead of the global defaults for that
+// model (run.max_sub_turns_kimi_k3 and run.compaction_threshold_kimi_k3 in
+// the settings registry, which carries these exact values as defaults; the
+// two are pinned equal by internal/settings/registry_test.go, the same way
+// the global pair above are). K3 output costs about 17x deepseek-v4-pro's
+// and cache-miss input about 7x (configs/prices.json), so a sub-turn budget
+// chosen against DeepSeek's rates would let a K3 run spend an order of
+// magnitude more than the same run on pro; these ceilings bound that
+// (docs/KIMI-INTEGRATION.md §3).
+const KimiK3MaxSubTurns = 100
+
+const KimiK3CompactionThresholdTokens = 128 * 1024
 
 // RunOptions is everything one session run needs. It is deliberately flat
 // rather than reaching into global config, so a Runner can be shared by
@@ -225,11 +252,12 @@ type Runner struct {
 	MaxSubTurns               int
 	CompactionThresholdTokens int
 
-	// Settings, when set, is where the run budget (run.max_sub_turns,
-	// run.compaction_threshold) and the flash model (model.flash) resolve
-	// from, read through the store on every call, so a key changed with
-	// `harness config set` takes effect on the next session without a
-	// restart. Nil is the test path: the package constants apply.
+	// Settings, when set, is where the run budget (run.max_sub_turns and
+	// run.compaction_threshold, plus the per-model keys that replace them for
+	// kimi-k3) and the flash model (model.flash) resolve from, read through
+	// the store on every call, so a key changed with `harness config set`
+	// takes effect on the next session without a restart. Nil is the test
+	// path: the package constants apply.
 	Settings *settings.Resolver
 
 	// Progress, when set, is called after every sub-turn commits. It may be
@@ -289,14 +317,28 @@ func (r *Runner) acquireModelSlot(ctx context.Context, model string) (func(), er
 	}
 }
 
-func (r *Runner) maxSubTurns(ctx context.Context) int {
+// maxSubTurns resolves the sub-turn budget for model: the Runner-level
+// override when set, else the model's own ceiling when it has one
+// (run.max_sub_turns_kimi_k3), else the global run.max_sub_turns, else the
+// package default. The per-model resolution is what keeps a K3 run from
+// inheriting a sub-turn budget chosen against DeepSeek's rates
+// (docs/KIMI-INTEGRATION.md §3).
+func (r *Runner) maxSubTurns(ctx context.Context, model string) int {
 	if r.MaxSubTurns > 0 {
 		return r.MaxSubTurns
 	}
 	if r.Settings != nil {
+		if key, _, ok := settings.RunBudgetKeysForModel(model); ok {
+			if v, err := r.Settings.Int(ctx, key); err == nil {
+				return v
+			}
+		}
 		if v, err := r.Settings.Int(ctx, settings.KeyRunMaxSubTurns); err == nil {
 			return v
 		}
+	}
+	if _, _, ok := settings.RunBudgetKeysForModel(model); ok {
+		return KimiK3MaxSubTurns
 	}
 	return DefaultMaxSubTurns
 }
@@ -322,14 +364,27 @@ func progressFunc(r *Runner, opts RunOptions) func(SubTurnProgress) {
 	return r.Progress
 }
 
-func (r *Runner) compactionThreshold(ctx context.Context) int {
+// compactionThreshold resolves the prompt-token ceiling at which a session
+// on model compacts its history, in the same per-model order as
+// maxSubTurns: the Runner-level override, the model's own threshold when it
+// has one (run.compaction_threshold_kimi_k3), the global
+// run.compaction_threshold, then the package default.
+func (r *Runner) compactionThreshold(ctx context.Context, model string) int {
 	if r.CompactionThresholdTokens != 0 {
 		return r.CompactionThresholdTokens
 	}
 	if r.Settings != nil {
+		if _, key, ok := settings.RunBudgetKeysForModel(model); ok {
+			if v, err := r.Settings.Int(ctx, key); err == nil {
+				return v
+			}
+		}
 		if v, err := r.Settings.Int(ctx, settings.KeyRunCompactionThreshold); err == nil {
 			return v
 		}
+	}
+	if _, _, ok := settings.RunBudgetKeysForModel(model); ok {
+		return KimiK3CompactionThresholdTokens
 	}
 	return CompactionThresholdTokens
 }
@@ -362,17 +417,18 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	executor.Client = r.clientFor(r.flashModel(ctx))
 	executor.Prices = r.Prices
 	executor.FlashModel = r.flashModel(ctx)
+	executor.SeeImages = seesImages(opts.Model)
 	executor.Gemini = r.Gemini
 	executor.GeminiModel = r.GeminiModel
 	executor.Settings = r.Settings
 	executor.ResultSchema = opts.ResultSchema
 
-	toolSchema, err := json.Marshal(tools.Definitions())
+	toolSchema, err := json.Marshal(tools.DefinitionsFor(opts.Model))
 	if err != nil {
 		return nil, fmt.Errorf("session: encode tool schema: %w", err)
 	}
 
-	sysPrompt, err := RenderSystemPromptVariant(opts.PromptVariant)
+	sysPrompt, err := RenderSystemPromptFor(opts.Model, opts.PromptVariant)
 	if err != nil {
 		return nil, err
 	}
@@ -473,7 +529,7 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 	var lastText string
 	maxTurns := opts.MaxSubTurns
 	if maxTurns <= 0 {
-		maxTurns = r.maxSubTurns(ctx)
+		maxTurns = r.maxSubTurns(ctx, opts.Model)
 	}
 
 	// The applied-steer high-water mark is derived from the log, once, when a
@@ -552,7 +608,7 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 
 		contextTokens = outcome.usagePayload.PromptTokens
 
-		if outcome.usagePayload.PromptTokens >= r.compactionThreshold(ctx) {
+		if outcome.usagePayload.PromptTokens >= r.compactionThreshold(ctx, opts.Model) {
 			newSess, newEvents, err := r.compact(ctx, curSess, allEvents, executor.Workspace)
 			if err != nil {
 				log.Printf("session: compaction failed for %s, continuing uncompacted: %v", curSess.ID, err)

@@ -383,6 +383,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 				ToolCallID: toolCalls[i].ID, Name: oc.Name, Content: oc.Result.Content,
 				IsError: oc.Result.IsError, Truncated: oc.Result.Truncated,
 				Diff: oc.Result.Diff, ChildSessionID: oc.Result.ChildSessionID,
+				ImageURL: oc.Result.ImageURL,
 			}})
 			// A ReviewScreenshot call bills separately from this sub-turn's
 			// DeepSeek request; its usage rides home on the tool result and
@@ -444,8 +445,11 @@ func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestMessa
 	// How usage becomes cache-hit and cache-miss counts is the provider's
 	// decision — DeepSeek reports the two figures separately, Kimi K3 a
 	// single cached_tokens — so the split comes through the seam
-	// (client.go, docs/KIMI-INTEGRATION.md §2).
-	cacheHit, cacheMiss := r.clientFor(model).UsageSplit(usage)
+	// (client.go, docs/KIMI-INTEGRATION.md §2). The churn tolerance rides
+	// the same seam: CacheSlack is an empirical bound on the provider's
+	// over-prediction, not a property of its cache (docs/OBSERVED.md).
+	client := r.clientFor(model)
+	cacheHit, cacheMiss := client.UsageSplit(usage)
 	cost := 0.0
 	if r.Prices != nil {
 		if c, err := r.Prices.Cost(model, cacheHit, cacheMiss, usage.CompletionTokens); err == nil {
@@ -454,7 +458,17 @@ func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestMessa
 	}
 	var report cache.Report
 	if detector != nil {
-		report = detector.Observe(requestMessages, *usage)
+		// The detector gets the same split the cost model does, never the
+		// raw usage: DeepSeek reports a hit/miss pair, Kimi K3 a single
+		// cached_tokens, so a detector fed the raw usage would compare its
+		// prediction against a field Kimi never populates (internal/cache/churn.go).
+		report = detector.Observe(requestMessages, cache.Split{
+			PromptTokens:     usage.PromptTokens,
+			CacheHitTokens:   cacheHit,
+			CacheMissTokens:  cacheMiss,
+			CompletionTokens: usage.CompletionTokens,
+			Slack:            client.CacheSlack(),
+		})
 	}
 	return store.UsagePayload{
 		SubTurn:               subTurn,
@@ -486,7 +500,7 @@ func (r *Runner) stream(ctx context.Context, model string, messages []wire.Messa
 		Effort:    effort,
 		Thinking:  thinking,
 		MaxTokens: maxTokens,
-		Tools:     tools.Definitions(),
+		Tools:     tools.DefinitionsFor(model),
 	}
 
 	release, err := r.acquireModelSlot(ctx, model)

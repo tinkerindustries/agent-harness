@@ -132,7 +132,7 @@ func TestSteerAppearsAsNextUserMessage(t *testing.T) {
 
 	// The steer is the new request's final message, verbatim, as a user role.
 	last := requests[1][len(requests[1])-1]
-	if last.Role != wire.RoleUser || last.Content != "be terse now" {
+	if last.Role != wire.RoleUser || last.Content.String() != "be terse now" {
 		t.Fatalf("final message = %+v, want user \"be terse now\" verbatim", last)
 	}
 
@@ -174,7 +174,7 @@ func TestTwoSteersArriveInOrder(t *testing.T) {
 	tail := requests[1][len(requests[1])-2:]
 	for i, want := range []string{"first instruction", "second instruction"} {
 		m := tail[i]
-		if m.Role != wire.RoleUser || m.Content != want {
+		if m.Role != wire.RoleUser || m.Content.String() != want {
 			t.Fatalf("tail message %d = %+v, want user %q in send order", i, m, want)
 		}
 	}
@@ -294,7 +294,7 @@ func TestSteerHighWaterSurvivesResume(t *testing.T) {
 		t.Fatalf("resumed request has %d messages, want the fold tail to end with the unapplied steer", n)
 	}
 	last := messages[len(messages)-1]
-	if last.Role != wire.RoleUser || last.Content != "only this one is new" {
+	if last.Role != wire.RoleUser || last.Content.String() != "only this one is new" {
 		t.Fatalf("final message = %+v, want the unapplied steer verbatim", last)
 	}
 	for _, tc := range []struct {
@@ -306,7 +306,7 @@ func TestSteerHighWaterSurvivesResume(t *testing.T) {
 	} {
 		got := 0
 		for _, m := range messages {
-			if m.Role == wire.RoleUser && m.Content == tc.text {
+			if m.Role == wire.RoleUser && m.Content.String() == tc.text {
 				got++
 			}
 		}

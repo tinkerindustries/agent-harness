@@ -165,7 +165,7 @@ func TestWebFetchCompletionIsAttributedToSession(t *testing.T) {
 		_ = json.Unmarshal(body, &probe)
 		if !probe.Stream {
 			resp := wire.ChatCompletionResponse{
-				Choices: []wire.Choice{{Message: wire.Message{Role: wire.RoleAssistant, Content: "the answer"}, FinishReason: wire.FinishStop}},
+				Choices: []wire.Choice{{Message: wire.Message{Role: wire.RoleAssistant, Content: wire.TextContent("the answer")}, FinishReason: wire.FinishStop}},
 				Usage:   &wire.Usage{PromptTokens: 50, CompletionTokens: 10},
 			}
 			w.Header().Set("Content-Type", "application/json")

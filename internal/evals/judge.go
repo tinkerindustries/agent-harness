@@ -91,7 +91,7 @@ func (j Judge) Score(ctx context.Context, rubric string, events []store.Event) (
 		MaxTokens: maxTokens,
 		Messages: []wire.Message{
 			wire.SystemMessage(judgeSystemPrompt),
-			{Role: "user", Content: "Rubric:\n" + rubric + "\n\nTranscript:\n" + transcript},
+			wire.UserMessage("Rubric:\n" + rubric + "\n\nTranscript:\n" + transcript),
 		},
 	})
 	if err != nil {
@@ -102,9 +102,9 @@ func (j Judge) Score(ctx context.Context, rubric string, events []store.Event) (
 	}
 
 	var v Verdict
-	raw := extractJSONObject(resp.Choices[0].Message.Content)
+	raw := extractJSONObject(resp.Choices[0].Message.Content.String())
 	if err := json.Unmarshal([]byte(raw), &v); err != nil {
-		return nil, fmt.Errorf("evals: judge reply is not the expected JSON object: %w (got %q)", err, truncate(resp.Choices[0].Message.Content, 200))
+		return nil, fmt.Errorf("evals: judge reply is not the expected JSON object: %w (got %q)", err, truncate(resp.Choices[0].Message.Content.String(), 200))
 	}
 	if v.Score < 1 || v.Score > 5 {
 		return nil, fmt.Errorf("evals: judge returned score %d, want 1 to 5", v.Score)

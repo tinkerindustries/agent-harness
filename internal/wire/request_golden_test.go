@@ -33,7 +33,7 @@ func goldenRequest(t *testing.T) wire.ChatCompletionRequest {
 			wire.UserMessage("What is in this workspace?"),
 			{
 				Role:             wire.RoleAssistant,
-				Content:          "I'll check the workspace.",
+				Content:          wire.TextContent("I'll check the workspace."),
 				ReasoningContent: &reasoning,
 				ToolCalls: []wire.ToolCall{
 					{ID: "call_01", Type: "function", Function: wire.ToolCallFunc{Name: "List", Arguments: `{"path":"."}`}},
@@ -41,12 +41,12 @@ func goldenRequest(t *testing.T) wire.ChatCompletionRequest {
 			},
 			{
 				Role:       wire.RoleTool,
-				Content:    "README.md\nmain.go",
+				Content:    wire.TextContent("README.md\nmain.go"),
 				ToolCallID: "call_01",
 			},
 			{
 				Role:    wire.RoleAssistant,
-				Content: "",
+				Content: wire.TextContent(""),
 				ToolCalls: []wire.ToolCall{
 					{ID: "call_02", Type: "function", Function: wire.ToolCallFunc{Name: "Grep", Arguments: `{"pattern":"TODO"}`}},
 				},

@@ -228,6 +228,25 @@ func clientForModel(model string, deepSeekClient *deepseek.Client, kimiClient *k
 	return deepSeekClient
 }
 
+// reasoningClaim names, in one short parenthetical fragment, what the
+// provider was actually asked to do about reasoning — the wire claim, not
+// the session's intent (docs/KIMI-INTEGRATION.md §2). DeepSeek is sent
+// `thinking: {type: enabled|disabled}` alongside reasoning_effort, so the
+// flag is the truth for it. Kimi K3 takes no thinking field — sending one
+// is an API error — and always reasons with Preserved Thinking, its effort
+// set by reasoning_effort, so the claim for it is "always reasons" and must
+// never read as evidence the harness sent `thinking`
+// (third_party/kimi-docs/guide/use-thinking-models.md).
+func reasoningClaim(model string, thinking bool) string {
+	if providerFor(model) == provider.Kimi {
+		return "always reasons"
+	}
+	if thinking {
+		return "thinking enabled"
+	}
+	return "thinking disabled"
+}
+
 // googleAPIKeyProvider returns the key provider the gemini client calls
 // before every request: a read of google.api_key through the store, made on
 // every call, so a key set while a process is running takes effect on the
@@ -353,11 +372,6 @@ func runAsk(ctx context.Context, args []string) error {
 	}
 	messages = append(messages, wire.UserMessage(prompt))
 
-	thinkingType := wire.ThinkingDisabled
-	if *thinking {
-		thinkingType = wire.ThinkingEnabled
-	}
-
 	// ask states intent and lets the client spell the provider's reasoning
 	// control, the same seam the agent loop uses (internal/session/client.go,
 	// docs/KIMI-INTEGRATION.md §4.1).
@@ -437,7 +451,7 @@ func runAsk(ctx context.Context, args []string) error {
 	cacheHit, cacheMiss := client.UsageSplit(usage)
 	cost, costErr := priceTable.Cost(resolvedModel, cacheHit, cacheMiss, usage.CompletionTokens)
 
-	fmt.Printf("model          %s (effort %s, thinking %s)\n", resolvedModel, resolvedEffort, thinkingType)
+	fmt.Printf("model          %s (effort %s, %s)\n", resolvedModel, resolvedEffort, reasoningClaim(resolvedModel, *thinking))
 	fmt.Printf("prompt tokens  %d (cache hit %d / cache miss %d, %s)\n", usage.PromptTokens, cacheHit, cacheMiss, cacheHitRate(cacheHit, cacheMiss))
 	fmt.Printf("completion     %d (reasoning %d / answer %d)\n", usage.CompletionTokens, reasoningTokens, answerTokens)
 	if costErr == nil {

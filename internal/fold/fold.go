@@ -19,6 +19,33 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
+// toolResultMessage rebuilds the tool-role message a tool_result event
+// stands for. The ordinary shape is a bare text content. When the event
+// carries ImageURL — a Read that returned an image on a vision provider —
+// the content is the parts array the model must see: a text part carrying
+// the label, then the image_url part with the data URI exactly as the tool
+// produced it (docs/KIMI-INTEGRATION.md §4.5). Everything comes from the
+// event payload, never from the filesystem, so replaying the log reproduces
+// the identical bytes no matter what happened to the file since — the
+// property TestAppendOnly pins (docs/DESIGN.md §4.1).
+func toolResultMessage(p store.ToolResultPayload) wire.Message {
+	msg := wire.Message{
+		Role:       wire.RoleTool,
+		ToolCallID: p.ToolCallID,
+	}
+	if p.ImageURL == "" {
+		msg.Content = wire.TextContent(p.Content)
+		return msg
+	}
+	parts := make([]wire.Part, 0, 2)
+	if p.Content != "" {
+		parts = append(parts, wire.Part{Type: wire.PartTypeText, Text: p.Content})
+	}
+	parts = append(parts, wire.Part{Type: wire.PartTypeImageURL, ImageURL: &wire.ImageURL{URL: p.ImageURL}})
+	msg.Content = wire.Content{Parts: parts}
+	return msg
+}
+
 // Fold reconstructs the messages array for sess from events: the frozen
 // system prompt, the opening user message, and every completed sub-turn.
 // Events past an incomplete sub-turn (deltas seen but no turn_finished yet)
@@ -33,7 +60,7 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Message, error) {
 	flushAssistant := func() {
 		msg := wire.Message{
 			Role:      wire.RoleAssistant,
-			Content:   content.String(),
+			Content:   wire.TextContent(content.String()),
 			ToolCalls: toolCalls,
 		}
 		if reasoning.Len() > 0 {
@@ -97,11 +124,7 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Message, error) {
 			if err := json.Unmarshal(e.Payload, &p); err != nil {
 				return nil, fmt.Errorf("fold: tool_result at seq %d: %w", e.Seq, err)
 			}
-			messages = append(messages, wire.Message{
-				Role:       wire.RoleTool,
-				Content:    p.Content,
-				ToolCallID: p.ToolCallID,
-			})
+			messages = append(messages, toolResultMessage(p))
 
 		case store.KindToolDenied:
 			var p store.ToolDeniedPayload
@@ -110,7 +133,7 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Message, error) {
 			}
 			messages = append(messages, wire.Message{
 				Role:       wire.RoleTool,
-				Content:    p.Content,
+				Content:    wire.TextContent(p.Content),
 				ToolCallID: p.ToolCallID,
 			})
 

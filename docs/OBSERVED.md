@@ -49,6 +49,50 @@ sets the common prefix to 50, so `floor(50/128) × 128 = 0` and the entire
 conversation misses. Cheap tail, catastrophic head. The discipline in CACHE.md
 stands; only the warmup was wrong.
 
+## Kimi K3 over-predicts the cache hit
+
+The churn detector predicts a sub-turn's hit as `floor(previous / 128) × 128`
+and reports churn when the actual miss exceeds the prediction by more than the
+provider's tolerance. On DeepSeek expected and actual agree to within one
+block. On Kimi K3 the prediction consistently overshoots. Thirteen sub-turns
+across three live `kimi-k3` sessions:
+
+| run | sub-turn | prompt | detector expected hit | actual hit | residual |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 2 | 4120 | 3712 | 3584 | −128 |
+| 1 | 3 | 4282 | 4224 | 4096 | −128 |
+| 1 | 4 | 4399 | 4352 | 4096 | −256 |
+| 2 | 2 | 4100 | 3712 | 3584 | −128 |
+| 2 | 3 | 4498 | 4224 | 4096 | −128 |
+| 2 | 4 | 4600 | 4480 | 4352 | −128 |
+| 3 | 2 | 4088 | 3712 | 3584 | −128 |
+| 3 | 3 | 4462 | 4352 | 3840 | −512 |
+| 3 | 4 | 4749 | 4480 | 4352 | −128 |
+| 3 | 5 | 5120 | 4992 | 4608 | −384 |
+| 3 | 6 | 5448 | 5120 | 5120 | 0 |
+| 3 | 7 | 5726 | 5504 | 5376 | −128 |
+| 3 | 8 | 5828 | 5632 | 5632 | 0 |
+
+Residuals: −128 ×8, 0 ×2, −256 ×1, −384 ×1, −512 ×1. Never positive — the
+detector never under-predicts on Kimi.
+
+**What this does and does not mean.** Every actual hit is a multiple of 256,
+and the over-prediction is bounded at 512 across every observation. The cache
+demonstrably works: within a session the hit rate climbed 0% → 88% → 91% → 94%
+→ 97%, and the eight-sub-turn run ended at 83.1%. Real churn would collapse
+that curve, not improve it.
+
+No block size explains the residuals. A 512-token block was hypothesised and
+falsified — hits 3840, 4352, and 5376 are not multiples of 512. Why the
+over-prediction varies between one and four blocks is unknown, and no mechanism
+is claimed here.
+
+The detector's Kimi tolerance is therefore 512 — the largest observed
+over-prediction, so no observed healthy sub-turn reports churn. That is an
+empirical bound, not a property of Kimi's cache, and it rests on thirteen
+observations from three sessions. A later run at different prompt sizes could
+exceed it.
+
 ## Streaming tool calls arrive incrementally
 
 Settled. Deltas use OpenAI's indexed form, so the assembler design was right.

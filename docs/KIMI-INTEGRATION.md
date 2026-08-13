@@ -138,7 +138,7 @@ built. Kimi publishes its own
 [prompt guidance](../third_party/kimi-docs/guide/prompt-best-practice.md)
 to draw candidate wording from.
 
-One caveat: the current prompt names its tools and says "All fifteen are always
+One caveat: the prompt names its tools and says "All sixteen are always
 available". Any prompt variant has to keep that inventory truthful.
 
 ### 4.5 Vision
@@ -205,15 +205,17 @@ options, and has to drive `playwright-cli` through Bash instead.
    `ReviewScreenshot`. K3 sees images directly, so the Gemini round-trip and the
    capture-and-describe tool are both redundant for it.
 
-### Open
-
-6. **A second frozen head is now a supported thing, and nothing enforces it.**
-   Decision 5 means the tool array varies by provider, which the architecture
-   permits but has never had to hold. Until now "permission changes which tool
-   calls run, never which tools are offered" made the array a single constant.
-   Two arrays need the same byte-stability guard the first one has, and a test
-   that pins each. Decide in Phase 8 whether that guard is a golden file per
-   provider or one test parameterised over providers.
+6. **A second frozen head is now a supported thing, and nothing enforces it —
+   until Phase 8.** Decision 5 means the tool array varies by provider, which
+   the architecture permits but had never had to hold. Until Phase 8,
+   "permission changes which tool calls run, never which tools are offered"
+   made the array a single constant. Phase 8 settled the guard: **a golden
+   file per provider** (`internal/tools/testdata/tools_deepseek.golden.json`,
+   `tools_kimi.golden.json`), both asserted by one table-driven test
+   (`TestToolArrayGolden`). Two files rather than one, so a failing assertion
+   names the provider whose head moved; one test, so the two assertions
+   cannot drift apart. The DeepSeek golden was captured from the pre-Phase-8
+   array and must keep passing byte-for-byte; Kimi's pins the new array.
 
 ## 6. Phased plan
 
@@ -294,12 +296,18 @@ serialises unchanged. Extend the fold and the golden tests.
 Verify: the Phase 3 golden test still passes byte-for-byte, plus a new one
 covering a message that does carry parts.
 
-### Phase 8 — Kimi's tool array and image Read
+### Phase 8 — Kimi's tool array and image Read — done
 
-Give Kimi its own tool array, without `Screenshot` and `ReviewScreenshot`.
-`Read` returns an `image_url` part when the path is an image and the provider
-can see one, and keeps its current behaviour everywhere else. Settle decision 6
-here: whichever guard is chosen, both arrays get it.
+Landed as PR #93: `internal/tools` now ships two frozen arrays (DeepSeek's
+sixteen unchanged byte for byte, Kimi's fourteen without `Screenshot` and
+`ReviewScreenshot`), each pinned by its own golden file
+(`TestToolArrayGolden`, decision 6). `Read` returns an `image_url` part when
+the path is a PNG/JPEG/WebP and the provider can see images — the bytes
+base64-encoded into a data URI, capped by the existing screenshot cap
+setting (`tools.reviewscreenshot_max_bytes`), with a refusal naming the limit
+over the cap. The image bytes live in the `tool_result` event payload
+(`ImageURL`), so the fold rebuilds the parts array identically on every
+replay and stays append-only.
 
 Verify: a Kimi run that captures a page through Bash and `playwright-cli`,
 reads the PNG, and answers a question about what is in it. A DeepSeek run over
@@ -307,10 +315,27 @@ the same workspace, unchanged.
 
 ### Phase 9 — A Kimi system prompt
 
-The tool inventory changed in Phase 8, so the prompt's tool list is now wrong
-for Kimi and has to be restated regardless. Add the Kimi prompt as a
-`promptvariant`, then run `harness eval` against the shipped one over a suite.
-Ship it as K3's default only if the eval supports it.
+The tool inventory changed in Phase 8, so the prompt's tool list was wrong
+for Kimi and had to be restated regardless. Two halves:
+
+1. **The correction, shipped without an eval.** A prompt naming tools the
+   model was never sent is a bug, not a wording choice. Kimi sessions now
+   render a second frozen head — `kimiSystemPrompt` in `internal/session`,
+   derived from the DeepSeek head by the fixed edit set `kimiEdits` — whose
+   inventory names the fourteen tools in Kimi's array, whose count word is
+   corrected, and whose vision rule is the one sentence that is true for K3
+   (Read returns the image for a PNG, JPEG or WebP path). The two dropped
+   tools are named nowhere in it. DeepSeek's head is untouched byte for
+   byte, proven by comparing its rendered prompt against the base commit's.
+   `TestPromptNamesExactlyTheToolArray` pins each head to its own array —
+   no more, no less — so the inventories cannot drift apart again.
+2. **The wording A/B, set up and unrun.** `kimi-steps` is a registered
+   variant (the corrected Kimi prompt plus a step-by-step execution rule
+   drawn from Kimi's own prompt guidance), comparable against `base` on
+   `kimi-k3` over the `search` suite — its tasks need only reading and
+   searching, and none depends on the two dropped tools. The eval itself
+   costs real tokens against a live key and was recorded `not_run` at
+   landing; run it before shipping any wording as K3's default.
 
 Verify: the eval comparison, recorded per [`docs/EVALS.md`](EVALS.md).
 

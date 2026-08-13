@@ -22,8 +22,10 @@ func TestBaseVariantIsTheInputExactly(t *testing.T) {
 }
 
 // testBase carries every anchor a variant replaces, so the table below can be
-// applied without the real prompt.
-var testBase = "preamble\n" + searchToolsRule + "\npostamble"
+// applied without the real prompt. Every variant's anchors must be
+// represented here; a variant whose anchor is missing fails
+// TestEveryVariantAppliesToTheCurrentPrompt.
+var testBase = "preamble\n" + searchToolsRule + "\n" + planRule + "\npostamble"
 
 // Every variant is a set of replacements against the base prompt. A key that
 // the base no longer contains means the prompt was edited out from under the
