@@ -73,14 +73,21 @@ export function WatchRail({
               <details
                 key={phase.id}
                 className={`phase${phase.id === view.nowPhaseId ? " phase-now" : " phase-done"}`}
-                open={phase.id === view.nowPhaseId}
+                // While the run is live only the phase it is in matters, so
+                // the rest stay shut. Once it is over the rail is a review
+                // instrument and the ticks are the whole of it — a column of
+                // collapsed rows hides the one thing the reader came for.
+                open={runLive ? phase.id === view.nowPhaseId : true}
               >
                 <summary>
                   <span className="caret" aria-hidden>
                     ▸
                   </span>
                   <span className="idx">{phase.index > 0 ? phase.index : "·"}</span>
-                  <span>{phase.label || "…"}</span>
+                  {/* A phase that ran before the plan existed has no item to
+                      name it after — say so rather than trailing an ellipsis
+                      that reads like a truncation. */}
+                  <span className={phase.label ? undefined : "phase-unnamed"}>{phase.label || "before the plan"}</span>
                 </summary>
                 <div className="ticks">
                   {phase.ticks.map((tick) => (

@@ -200,8 +200,9 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
   // elapsed time, the permission-mode badge — a safety fact, stated next
   // to the stop button — and the Stop control,
   // which arms the inline confirm strip in the footer. The connection badge
-  // stays: it is the only thing on this screen that says the stream is (or
-  // is not) still telling the page what happens next. On a finished run the
+  // rides along while the run is live: it is the only thing on this screen
+  // that says the stream is (or is not) still telling the page what happens
+  // next. On a finished run the
   // footer is gone, so the slot carries what the footer's status line
   // carried — the outcome badge and the same five figures through the same
   // helpers, in the same order — and the run's wall time is frozen at
@@ -273,9 +274,16 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
           </span>
         </>
       )}
-      <Badge variant="outline" className={`connection-badge connection-${snapshot.connection}`}>
-        {snapshot.connection}
-      </Badge>
+      {/* Only while the run is live. The badge answers "is the stream still
+          telling this page what happens next", which is a question about a
+          run that has more to say; on a finished run it reads "closed" for
+          ever and sits next to the outcome badge competing with it. A stream
+          that drops while it still mattered is the banner's job. */}
+      {running && (
+        <Badge variant="outline" className={`connection-badge connection-${snapshot.connection}`}>
+          {snapshot.connection}
+        </Badge>
+      )}
     </>,
   );
 
@@ -285,56 +293,53 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
       {/* The provenance strip (.prov): who started this run, the
           originating request and job, and the one sentence that says
           what a spectator may do — a quiet strip, not an alert, because
-          this is the normal state for these sessions. */}
+          this is the normal state for these sessions.
+
+          One rank of facts is not a hierarchy: eight equally-weighted
+          fragments separated by dots read as one long string, and the
+          thing a reader actually came for — who started this, and may I
+          talk to it — sat inside it with the same weight as the replicate
+          number. So the badge and the launcher lead, and everything else is
+          a labelled chip: a dim key, a mono value, no separators, because
+          the chip shape already does the separating. */}
       <div className="prov">
         {/* The spectator badge follows the run's life: WATCHING while it is
             live, FINISHED once it is over — the sentence beside it says the
             run ended and could not be messaged, so the badge must not keep
             claiming it is being watched. */}
         <Badge variant="outline">{watchBadge(running).label}</Badge>
-        {startedByLabel && (
-          <>
-            <span className="sep">·</span>
-            <span className="who">{startedByLabel}</span>
-          </>
-        )}
-        {meta.request_id && (
-          <>
-            <span className="sep">·</span>
-            <span>
-              request <code>{meta.request_id}</code>
-            </span>
-          </>
-        )}
-        {meta.job_type && (
-          <>
-            <span className="sep">·</span>
-            <span>
-              job <code>{meta.job_type}</code>
-            </span>
-          </>
-        )}
-        {membership && (
-          <>
-            <span className="sep">·</span>
-            <span className="session-eval-strip">
-              eval{" "}
-              <a
-                href={`/evals/${encodeURIComponent(membership.eval_run_id)}`}
-                onClick={(e) => {
-                  e.preventDefault();
-                  onNavigate(`/evals/${encodeURIComponent(membership.eval_run_id)}`);
-                }}
-              >
-                {membership.suite}
-              </a>{" "}
-              · variant <code>{membership.variant}</code> · task <code>{membership.task_id}</code> ·
-              replicate {membership.replicate}
-            </span>
-          </>
-        )}
+        {startedByLabel && <span className="who">{startedByLabel}</span>}
+        <span className="prov-facts">
+          {/* An eval puts the member's request id in parent_agent_id
+              (provenance.ts), so the strip printed the same 36-character id
+              twice in a row — once inside "started by eval (…)" and again as
+              the request. Once is enough. */}
+          {meta.request_id && meta.request_id !== meta.parent_agent_id && (
+            <Fact label="request" value={meta.request_id} />
+          )}
+          {meta.job_type && <Fact label="job" value={meta.job_type} />}
+          {membership && (
+            <>
+              <span className="fact">
+                <span className="k">eval</span>
+                <a
+                  href={`/evals/${encodeURIComponent(membership.eval_run_id)}`}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onNavigate(`/evals/${encodeURIComponent(membership.eval_run_id)}`);
+                  }}
+                >
+                  {membership.suite}
+                </a>
+              </span>
+              <Fact label="variant" value={membership.variant} />
+              <Fact label="task" value={membership.task_id} />
+              <Fact label="replicate" value={String(membership.replicate)} />
+            </>
+          )}
+        </span>
         <span className="spacer" />
-        <span>
+        <span className="prov-note">
           {running
             ? `This run takes its instructions from ${who}. You can stop it, but not message it.`
             : `This run took its instructions from ${who}. It is finished, and could not be messaged.`}
@@ -413,5 +418,19 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
         />
       )}
     </>
+  );
+}
+
+// Fact is one labelled fact in the provenance strip: a dim key and the value
+// as a mono chip. The key/value pairing is what makes eight facts scannable
+// where eight dot-separated fragments were not.
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <span className="fact">
+      <span className="k">{label}</span>
+      {/* The chip clips a long id to keep the strip one line; the title is
+          how the whole of it is still available. */}
+      <code title={value}>{value}</code>
+    </span>
   );
 }

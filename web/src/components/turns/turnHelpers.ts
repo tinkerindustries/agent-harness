@@ -106,6 +106,22 @@ export function cachePercent(hitTokens: number, missTokens: number): string {
   return Number.isInteger(pct) ? String(pct) : pct.toFixed(1);
 }
 
+// --- a denied call's body ---
+
+// deniedBody is what a tool_denied block shows. The two fields overlap:
+// internal/tools/registry.go builds the model-facing content as "Denied by
+// permission policy (<mode> mode): <rule>", so a body that prints the rule
+// and then the content says the rule twice, which is what a reader notices
+// first about a denial they are trying to understand. When the content
+// already carries the rule verbatim, the content alone is the whole story —
+// it names the mode as well. A denial from anywhere else (a content that
+// does not quote its rule, or no content at all) keeps both lines.
+export function deniedBody(rule: string, content: string): { rule: string | null; content: string } {
+  if (content === "") return { rule, content: "" };
+  if (rule !== "" && content.includes(rule)) return { rule: null, content };
+  return { rule, content };
+}
+
 // --- the watch page's status line ---
 
 // watchStatusFigures is the watch page's status line's numbers: the

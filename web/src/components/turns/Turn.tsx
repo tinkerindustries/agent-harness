@@ -5,7 +5,7 @@ import { Markdown } from "../../render/Markdown";
 import { DiffTable } from "../blocks/DiffTable";
 import { formatElapsed } from "../blocks/ReasoningPanel";
 import { formatCost, toolDetail } from "../blocks/toolArgs";
-import { cachePercent, elideLines, toolStat, type ToolResultLike } from "./turnHelpers";
+import { cachePercent, deniedBody, elideLines, toolStat, type ToolResultLike } from "./turnHelpers";
 
 // Turn renders one frozen sub-turn as a turn (.turn), not a card: the
 // gutter anchor with the sub-turn number, the hover
@@ -198,7 +198,12 @@ function ToolRow({ call, result }: { call: ToolCallPayload | undefined; result: 
 // and a tail with an elided row — no scroll container inside the turn list.
 function ToolBody({ result }: { result: ToolResultLike }) {
   if (result.type === "tool_denied") {
-    return <pre className="tool-out">{`rule: ${result.rule}${result.content ? `\n${result.content}` : ""}`}</pre>;
+    const body = deniedBody(result.rule, result.content);
+    return (
+      <pre className="tool-out">
+        {[body.rule === null ? "" : `rule: ${body.rule}`, body.content].filter(Boolean).join("\n")}
+      </pre>
+    );
   }
   if ((result.name === "Edit" || result.name === "Write") && result.diff && result.diff.length > 0) {
     // The diff was already computed server-side and arrives as a structured
