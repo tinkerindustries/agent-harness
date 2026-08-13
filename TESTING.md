@@ -132,6 +132,22 @@ number if you want it.
 
 ## Smoke test after a change
 
+`scripts/build.sh` runs steps 1 to 5 below and the container, stopping at the
+first failure. Run the individual commands when you want one of them on its
+own; the list is what the script does and why.
+
+Two checks worth knowing about because nothing else catches them:
+
+- `web/src/styles.test.ts` asserts every `var(--x)` in `styles.css` is
+  defined. An undefined custom property renders as nothing — no build error,
+  no console warning — and produced a run-together layout that only a
+  screenshot found.
+- `scripts/layout-check.sh` loads every route at 1280 and 390 in the
+  container's Chromium and fails on any element whose right edge is past the
+  viewport, skipping anything inside a deliberate `overflow-x: auto` scroller.
+  `document.scrollWidth` is not the measure: an ancestor that clips reports no
+  document scroll while a table runs 179px off the side of a phone.
+
 Cheapest first.
 
 1. `gofmt -l cmd internal` — no output. No linter is configured; `gofmt` and

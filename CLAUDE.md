@@ -14,9 +14,9 @@ shaped that way.
 
 | Task | Command |
 | --- | --- |
-| Dev loop | `docker compose up -d --build` |
+| Build everything | `scripts/build.sh` — see the rule below |
 | Logs | `docker compose logs -f harness` |
-| Build the binary | `npm --prefix web run build && go build -o bin/harness ./cmd/harness` |
+| Build the binary only | `scripts/build.sh --no-docker` |
 | Test, Go | `scripts/test.sh` |
 | Test, frontend | `npm --prefix web run test` |
 | Format and vet | `gofmt -l cmd internal && go vet ./cmd/... ./internal/...` |
@@ -73,9 +73,16 @@ cutting a version and deploying it to the production stack.
   `docker rmi`/`docker tag` `deepseek-harness:prod`, and leave `.env.prod` and
   `workspaces-prod/` alone. Promotion is a deliberate act by the operator —
   see the README's "A production stack beside the dev one".
-- **Rebuild with `docker compose up -d --build`** after any source change. The
-  image bakes the frontend and the binary, so a plain `up -d` restarts the old
-  code.
+- **Build with `scripts/build.sh`.** It runs gofmt, vet, the frontend build,
+  the frontend tests, the Go binary and the container, stopping at the first
+  failure, and finishes by checking that the running container serves the
+  bundle it just produced. `--no-docker` stops after the binary.
+  A plain `docker compose up -d --build` still works and is what the script
+  runs; the reason to prefer the script is the last check. `npm run build` is
+  `tsc -b && vite build`, so a typecheck failure means vite never runs — and
+  until the output directory was emptied first, the previous bundle stayed on
+  disk, the image baked it, and the container served an app that no longer
+  matched the source, with nothing reporting an error.
 - **`internal/webassets/dist` is not in git.** A plain `go build` compiles and
   serves no UI; run `npm --prefix web run build` first if you need one outside
   compose.
