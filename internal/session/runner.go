@@ -428,7 +428,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 		return nil, fmt.Errorf("session: encode tool schema: %w", err)
 	}
 
-	sysPrompt, err := RenderSystemPromptVariant(opts.PromptVariant)
+	sysPrompt, err := RenderSystemPromptFor(opts.Model, opts.PromptVariant)
 	if err != nil {
 		return nil, err
 	}

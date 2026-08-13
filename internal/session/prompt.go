@@ -74,18 +74,90 @@ Rules:
   that pair is your only way to find out what you actually built, and
   guessing from the markup is how a broken layout gets reported as done.`
 
-// RenderSystemPrompt returns the frozen system prompt text. Sessions store
-// its output directly on creation and never call it again for the life of
-// that session (docs/CACHE.md).
+// kimiEdits are the exact text changes that turn systemPrompt into Kimi K3's
+// head (docs/KIMI-INTEGRATION.md §4.4): the inventory restated for Kimi's
+// fourteen-tool array, the vision rule replaced by the one sentence that is
+// true for K3 — it reads images natively, so Screenshot and ReviewScreenshot
+// are not offered and Read returns the image for a PNG, JPEG or WebP path —
+// and the two dropped tools unnamed everywhere else in the text.
+//
+// The head is derived rather than copied for the same reason variants are
+// replacements rather than second copies (docs/EVALS.md): an edit to shared
+// text reaches the Kimi head automatically, and an edit that breaks one of
+// these anchors fails loudly at init instead of silently changing what Kimi
+// sessions are told. The rendered head is still a second frozen head — the
+// bytes are fixed for the life of the build and stored per session, exactly
+// like DeepSeek's — it is just single-sourced in source.
+var kimiEdits = []struct{ from, to string }{
+	{
+		from: "Tools: Read, Write, Edit, Bash, Glob, Grep, List, TaskCreate, TaskGet,\n" +
+			"TaskList, TaskUpdate, Task, WebFetch, Screenshot, ReviewScreenshot, Complete.\n" +
+			"All sixteen are always available;",
+		to: "Tools: Read, Write, Edit, Bash, Glob, Grep, List, TaskCreate, TaskGet,\n" +
+			"TaskList, TaskUpdate, Task, WebFetch, Complete.\n" +
+			"All fourteen are always available;",
+	},
+	{
+		from: "- Ad hoc files that are not part of the task's deliverable — a screenshot\n" +
+			"  taken for ReviewScreenshot, a scratch note, a temporary download — belong\n" +
+			"  in a scratch/ directory at the workspace root, sibling to the repository\n" +
+			"  clone(s); never /tmp (shared with every other concurrent session in this\n" +
+			"  container, and not preserved), and never inside a cloned repository (risks\n" +
+			"  being swept into a commit). Screenshot writes there and nowhere else.",
+		to: "- Ad hoc files that are not part of the task's deliverable — a screenshot,\n" +
+			"  a scratch note, a temporary download — belong in a scratch/ directory at\n" +
+			"  the workspace root, sibling to the repository clone(s); never /tmp (shared\n" +
+			"  with every other concurrent session in this container, and not preserved),\n" +
+			"  and never inside a cloned repository (risks being swept into a commit).\n" +
+			"  Write screenshots there and nowhere else.",
+	},
+	{
+		from: "- You cannot see images. When a change is visual, Screenshot the page and\n" +
+			"  send the file to ReviewScreenshot with the spec you were working to —\n" +
+			"  that pair is your only way to find out what you actually built, and\n" +
+			"  guessing from the markup is how a broken layout gets reported as done.",
+		to: "- You can see images: Read returns the image when the path is a PNG, JPEG, or\n" +
+			"  WebP file.",
+	},
+}
+
+// kimiSystemPrompt is Kimi K3's frozen head, derived once at init from
+// systemPrompt by applying kimiEdits. A Kimi session renders this instead of
+// systemPrompt; the two heads are pinned to their own tool arrays by
+// TestPromptNamesExactlyTheToolArray, and DeepSeek's head is untouched byte
+// for byte.
+var kimiSystemPrompt = renderKimiSystemPrompt()
+
+func renderKimiSystemPrompt() string {
+	p := systemPrompt
+	for _, e := range kimiEdits {
+		if !strings.Contains(p, e.from) {
+			panic("session: kimi prompt edit no longer matches the base prompt: " + e.from)
+		}
+		p = strings.Replace(p, e.from, e.to, 1)
+	}
+	return p
+}
+
+// RenderSystemPrompt returns the frozen DeepSeek system prompt text. Sessions
+// store its output directly on creation and never call it again for the life
+// of that session (docs/CACHE.md).
 func RenderSystemPrompt() string {
 	return systemPrompt
 }
 
-// RenderSystemPromptVariant returns the system prompt with a named variant's
-// edits made. An empty name is the shipped prompt, byte for byte
-// (internal/promptvariant).
-func RenderSystemPromptVariant(name string) (string, error) {
-	return promptvariant.Apply(name, systemPrompt)
+// RenderSystemPromptFor returns the frozen system prompt for the provider
+// serving model, with a named variant's edits made. An empty variant name is
+// the provider's shipped prompt, byte for byte (internal/promptvariant):
+// DeepSeek renders systemPrompt unchanged, Kimi renders kimiSystemPrompt,
+// whose inventory matches the fourteen-tool array Kimi sessions are sent
+// (docs/KIMI-INTEGRATION.md §4.4).
+func RenderSystemPromptFor(model, variant string) (string, error) {
+	base := systemPrompt
+	if seesImages(model) {
+		base = kimiSystemPrompt
+	}
+	return promptvariant.Apply(variant, base)
 }
 
 // RenderOpeningMessage builds the first user message: everything specific
@@ -182,12 +254,17 @@ func completeExample(resultSchema json.RawMessage) string {
 	return fmt.Sprintf(`Complete(summary="…", status="done", result={%s})`, strings.Join(inner, ", "))
 }
 
-// RenderCompactionSummarySystemPrompt seeds a session forked by compaction:
-// the base system prompt plus a summary of the parent session, placed in
-// the stable head where it can itself become a cache checkpoint rather than
-// just more body text in a user message (docs/CACHE.md).
-func RenderCompactionSummarySystemPrompt(summary string) string {
-	return systemPrompt + "\n\n## Continuing from a prior session\n\n" +
+// RenderCompactionSummarySystemPromptFor seeds a session forked by
+// compaction for the provider serving model: the provider's own system
+// prompt plus a summary of the parent session, placed in the stable head
+// where it can itself become a cache checkpoint rather than just more body
+// text in a user message (docs/CACHE.md).
+func RenderCompactionSummarySystemPromptFor(model, summary string) string {
+	base := systemPrompt
+	if seesImages(model) {
+		base = kimiSystemPrompt
+	}
+	return base + "\n\n## Continuing from a prior session\n\n" +
 		"That session ran long enough to need compaction. Here is a summary of what happened before this point:\n\n" + summary
 }
 
