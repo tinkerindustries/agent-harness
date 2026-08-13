@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // TestParallelToolResultsAppendInCallOrder gives the model two Bash calls
@@ -28,8 +28,8 @@ func TestParallelToolResultsAppendInCallOrder(t *testing.T) {
 		}
 		_ = json.Unmarshal(body, &probe)
 		if !probe.Stream {
-			resp := deepseek.ChatCompletionResponse{
-				Choices: []deepseek.Choice{{Message: deepseek.Message{Role: deepseek.RoleAssistant, Content: "n/a"}, FinishReason: deepseek.FinishStop}},
+			resp := wire.ChatCompletionResponse{
+				Choices: []wire.Choice{{Message: wire.Message{Role: wire.RoleAssistant, Content: "n/a"}, FinishReason: wire.FinishStop}},
 			}
 			_ = json.NewEncoder(w).Encode(resp)
 			return
@@ -38,26 +38,26 @@ func TestParallelToolResultsAppendInCallOrder(t *testing.T) {
 		idx := streamCall.next()
 		w.Header().Set("Content-Type", "text/event-stream")
 		if idx == 0 {
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role: "assistant",
-					ToolCalls: []deepseek.ToolCallDelta{
-						{Index: 0, ID: "call_00_slow", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "Bash", Arguments: `{"command":"sleep 0.2 && echo slow"}`}},
-						{Index: 1, ID: "call_01_fast", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "Bash", Arguments: `{"command":"echo fast"}`}},
+					ToolCalls: []wire.ToolCallDelta{
+						{Index: 0, ID: "call_00_slow", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Bash", Arguments: `{"command":"sleep 0.2 && echo slow"}`}},
+						{Index: 1, ID: "call_01_fast", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Bash", Arguments: `{"command":"echo fast"}`}},
 					},
 				}}},
 			})
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishToolCalls)}},
-				Usage:   &deepseek.Usage{PromptTokens: 300, PromptCacheMissTokens: 300, CompletionTokens: 5},
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishToolCalls)}},
+				Usage:   &wire.Usage{PromptTokens: 300, PromptCacheMissTokens: 300, CompletionTokens: 5},
 			})
 		} else {
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{Role: "assistant", Content: strPtr("done")}}},
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{Role: "assistant", Content: strPtr("done")}}},
 			})
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishStop)}},
-				Usage:   &deepseek.Usage{PromptTokens: 400, PromptCacheHitTokens: 300, PromptCacheMissTokens: 100, CompletionTokens: 5},
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishStop)}},
+				Usage:   &wire.Usage{PromptTokens: 400, PromptCacheHitTokens: 300, PromptCacheMissTokens: 100, CompletionTokens: 5},
 			})
 		}
 		fmt.Fprint(w, "data: [DONE]\n\n")
@@ -68,7 +68,7 @@ func TestParallelToolResultsAppendInCallOrder(t *testing.T) {
 	r := newTestRunner(t, srv.URL)
 	ws := t.TempDir()
 	res, err := r.Run(t.Context(), RunOptions{
-		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "run two commands",
 	})
 	if err != nil {

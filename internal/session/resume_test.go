@@ -10,9 +10,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // TestResumeContinuesSubTurnNumbering runs a session to completion, resumes
@@ -27,7 +27,7 @@ func TestResumeContinuesSubTurnNumbering(t *testing.T) {
 
 	ws := t.TempDir()
 	first, err := r.Run(t.Context(), RunOptions{
-		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "first task",
 	})
 	if err != nil {
@@ -124,7 +124,7 @@ func TestResumeRefusesRunningOrCompacted(t *testing.T) {
 	ctx := t.Context()
 
 	if err := r.Store.CreateSession(ctx, store.Session{
-		ID: "sess-running", Model: "test-model", Effort: deepseek.EffortHigh, Workspace: t.TempDir(),
+		ID: "sess-running", Model: "test-model", Effort: wire.EffortHigh, Workspace: t.TempDir(),
 		PermissionMode: string(tools.ModeFull), SystemPrompt: RenderSystemPrompt(),
 		ToolSchema: json.RawMessage(`[]`), Status: store.StatusRunning,
 	}); err != nil {
@@ -135,7 +135,7 @@ func TestResumeRefusesRunningOrCompacted(t *testing.T) {
 	}
 
 	if err := r.Store.CreateSession(ctx, store.Session{
-		ID: "sess-compacted", Model: "test-model", Effort: deepseek.EffortHigh, Workspace: t.TempDir(),
+		ID: "sess-compacted", Model: "test-model", Effort: wire.EffortHigh, Workspace: t.TempDir(),
 		PermissionMode: string(tools.ModeFull), SystemPrompt: RenderSystemPrompt(),
 		ToolSchema: json.RawMessage(`[]`), Status: store.StatusCompacted,
 	}); err != nil {
@@ -160,8 +160,8 @@ func TestResumeWithoutPromptContinuesTheExistingTask(t *testing.T) {
 		n := calls.Add(1)
 
 		if !probe.Stream {
-			resp := deepseek.ChatCompletionResponse{
-				Choices: []deepseek.Choice{{Message: deepseek.Message{Role: deepseek.RoleAssistant, Content: "n/a"}, FinishReason: deepseek.FinishStop}},
+			resp := wire.ChatCompletionResponse{
+				Choices: []wire.Choice{{Message: wire.Message{Role: wire.RoleAssistant, Content: "n/a"}, FinishReason: wire.FinishStop}},
 			}
 			_ = json.NewEncoder(w).Encode(resp)
 			return
@@ -171,23 +171,23 @@ func TestResumeWithoutPromptContinuesTheExistingTask(t *testing.T) {
 		if n == 1 {
 			// First sub-turn: a tool call that keeps the loop going, so the
 			// session ends at max_sub_turns rather than finishing outright.
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []deepseek.ToolCallDelta{{Index: 0, ID: "call_0", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_0", Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}}},
 				}}},
 			})
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishToolCalls)}},
-				Usage:   &deepseek.Usage{PromptTokens: 300, PromptCacheHitTokens: 0, PromptCacheMissTokens: 300, CompletionTokens: 5},
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishToolCalls)}},
+				Usage:   &wire.Usage{PromptTokens: 300, PromptCacheHitTokens: 0, PromptCacheMissTokens: 300, CompletionTokens: 5},
 			})
 		} else {
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{Role: "assistant", Content: strPtr("done now")}}},
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{Role: "assistant", Content: strPtr("done now")}}},
 			})
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishStop)}},
-				Usage:   &deepseek.Usage{PromptTokens: 350, PromptCacheHitTokens: 256, PromptCacheMissTokens: 94, CompletionTokens: 5},
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishStop)}},
+				Usage:   &wire.Usage{PromptTokens: 350, PromptCacheHitTokens: 256, PromptCacheMissTokens: 94, CompletionTokens: 5},
 			})
 		}
 		fmt.Fprint(w, "data: [DONE]\n\n")
@@ -198,7 +198,7 @@ func TestResumeWithoutPromptContinuesTheExistingTask(t *testing.T) {
 	r := newTestRunner(t, srv.URL)
 	ws := t.TempDir()
 	first, err := r.Run(t.Context(), RunOptions{
-		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "start a task",
 		MaxSubTurns: 1,
 	})

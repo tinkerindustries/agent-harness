@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // A rule stated once in the system prompt decays as the context grows.
@@ -71,7 +71,7 @@ var reminderPolicies = map[string]Policy{
 		description: "the search reminder as a system message rather than a user one",
 		afterTokens: 64_000,
 		everyTokens: 32_000,
-		role:        deepseek.RoleSystem,
+		role:        wire.RoleSystem,
 		text: "Reminder: search with the Grep and Glob tools rather than through Bash. " +
 			"Grep takes a regular expression and an optional glob; Glob takes a path pattern.",
 	},

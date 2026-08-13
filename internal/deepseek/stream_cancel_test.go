@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // pumpGoroutines counts goroutines currently inside pumpStream.
@@ -42,9 +44,9 @@ func TestCancelledStreamDoesNotStrandPump(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	c := NewClient(srv.URL, "test-key")
-	events, err := c.StreamChatCompletion(ctx, ChatCompletionRequest{
+	events, err := c.StreamChatCompletion(ctx, wire.ChatCompletionRequest{
 		Model:     "deepseek-v4-flash",
-		Messages:  []Message{UserMessage("hi")},
+		Messages:  []wire.Message{wire.UserMessage("hi")},
 		MaxTokens: 100,
 	})
 	if err != nil {

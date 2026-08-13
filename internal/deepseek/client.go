@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // Client talks to a single DeepSeek base URL. The API key is supplied per
@@ -172,7 +174,7 @@ func wrapClientError(op string, err error) error {
 
 // CreateChatCompletion sends req without streaming and waits for the full
 // response.
-func (c *Client) CreateChatCompletion(ctx context.Context, req ChatCompletionRequest) (*ChatCompletionResponse, error) {
+func (c *Client) CreateChatCompletion(ctx context.Context, req wire.ChatCompletionRequest) (*wire.ChatCompletionResponse, error) {
 	req.Stream = false
 	req.StreamOptions = nil
 	body, err := json.Marshal(req)
@@ -189,7 +191,7 @@ func (c *Client) CreateChatCompletion(ctx context.Context, req ChatCompletionReq
 	}
 	defer resp.Body.Close()
 
-	var out ChatCompletionResponse
+	var out wire.ChatCompletionResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return nil, fmt.Errorf("deepseek: decode response: %w", err)
 	}

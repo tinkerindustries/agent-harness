@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/fold"
 	"github.com/mrgeoffrich/deepseek-harness/internal/httplog"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // compact forks a new session seeded with a summary of sess, marks sess
@@ -90,7 +90,7 @@ func (r *Runner) compact(ctx context.Context, sess store.Session, allEvents []st
 // for continuation in a new session. Non-thinking side work runs cheaper
 // and can force output shape, though a plain instruction is enough here
 // (docs/MODELS.md).
-func (r *Runner) summarize(ctx context.Context, messages []deepseek.Message) (string, error) {
+func (r *Runner) summarize(ctx context.Context, messages []wire.Message) (string, error) {
 	var b strings.Builder
 	for _, m := range messages {
 		if m.Content == "" {
@@ -99,14 +99,14 @@ func (r *Runner) summarize(ctx context.Context, messages []deepseek.Message) (st
 		fmt.Fprintf(&b, "[%s] %s\n", m.Role, m.Content)
 	}
 
-	req := deepseek.ChatCompletionRequest{
+	req := wire.ChatCompletionRequest{
 		Model: r.flashModel(ctx),
-		Messages: []deepseek.Message{
-			deepseek.SystemMessage("Summarise the following agent session transcript so the work can continue in a new session without it. " +
+		Messages: []wire.Message{
+			wire.SystemMessage("Summarise the following agent session transcript so the work can continue in a new session without it. " +
 				"Cover: the original task, what has been done, the current state of the workspace, and what remains."),
-			deepseek.UserMessage(b.String()),
+			wire.UserMessage(b.String()),
 		},
-		Thinking:  &deepseek.ThinkingConfig{Type: deepseek.ThinkingDisabled},
+		Thinking:  &wire.ThinkingConfig{Type: wire.ThinkingDisabled},
 		MaxTokens: 8000,
 	}
 	release, err := r.acquireModelSlot(ctx, req.Model)

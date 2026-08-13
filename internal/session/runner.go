@@ -26,6 +26,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/skills"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // DefaultMaxSubTurns and CompactionThresholdTokens are the built-in run
@@ -532,7 +533,7 @@ func (r *Runner) subagentRunner(parentID string, parentOpts RunOptions, workspac
 		// owner was a person.
 		res, err := r.Run(ctx, RunOptions{
 			Model:           r.flashModel(ctx),
-			Effort:          deepseek.EffortMax,
+			Effort:          wire.EffortMax,
 			Thinking:        true,
 			MaxTokens:       20000,
 			Workspace:       workspace,
@@ -777,15 +778,15 @@ func (r *Runner) fail(ctx context.Context, sess store.Session, allEvents []store
 // wired through its context so the browser can show output as it happens
 // instead of only on completion (docs/DESIGN.md §5.2); every other tool
 // runs exactly as before.
-func (r *Runner) executeToolCalls(ctx context.Context, sess store.Session, executor *tools.Executor, calls []deepseek.AssembledToolCall) []tools.Outcome {
+func (r *Runner) executeToolCalls(ctx context.Context, sess store.Session, executor *tools.Executor, calls []wire.AssembledToolCall) []tools.Outcome {
 	outcomes := make([]tools.Outcome, len(calls))
 	var wg sync.WaitGroup
 	for i, c := range calls {
 		if isTaskFamily(c.Name) {
-			call := deepseek.ToolCall{
+			call := wire.ToolCall{
 				ID:   c.ID,
 				Type: "function",
-				Function: deepseek.ToolCallFunc{
+				Function: wire.ToolCallFunc{
 					Name:      c.Name,
 					Arguments: c.Arguments,
 				},
@@ -794,12 +795,12 @@ func (r *Runner) executeToolCalls(ctx context.Context, sess store.Session, execu
 			continue
 		}
 		wg.Add(1)
-		go func(i int, c deepseek.AssembledToolCall) {
+		go func(i int, c wire.AssembledToolCall) {
 			defer wg.Done()
-			call := deepseek.ToolCall{
+			call := wire.ToolCall{
 				ID:   c.ID,
 				Type: "function",
-				Function: deepseek.ToolCallFunc{
+				Function: wire.ToolCallFunc{
 					Name:      c.Name,
 					Arguments: c.Arguments,
 				},
@@ -838,7 +839,7 @@ func isTaskFamily(name string) bool {
 // TaskCreate and TaskUpdate themselves are not rolled into the recent
 // calls: the plan panel already says what they said. TaskGet and TaskList
 // are non-mutating reads, so they roll like any other tool.
-func (r *Runner) persistLiveState(ctx context.Context, sess store.Session, calls []deepseek.AssembledToolCall) {
+func (r *Runner) persistLiveState(ctx context.Context, sess store.Session, calls []wire.AssembledToolCall) {
 	var recent []store.RecentToolCall
 	for _, c := range calls {
 		if c.Name == "TaskCreate" || c.Name == "TaskUpdate" {
@@ -867,7 +868,7 @@ func (r *Runner) persistLiveState(ctx context.Context, sess store.Session, calls
 // execution, the only source of truth for minted ids and applied patches;
 // UpdateSessionLiveState is called with a nil calls argument so this write
 // touches the plan column only.
-func (r *Runner) persistTaskState(ctx context.Context, sess store.Session, executor *tools.Executor, calls []deepseek.AssembledToolCall) {
+func (r *Runner) persistTaskState(ctx context.Context, sess store.Session, executor *tools.Executor, calls []wire.AssembledToolCall) {
 	mutates := false
 	for _, c := range calls {
 		if c.Name == "TaskCreate" || c.Name == "TaskUpdate" {
@@ -938,7 +939,7 @@ func (r *Runner) stdoutSink(ctx context.Context, sess store.Session, toolCallID 
 	}
 }
 
-func toolCallNames(calls []deepseek.AssembledToolCall) []string {
+func toolCallNames(calls []wire.AssembledToolCall) []string {
 	out := make([]string, len(calls))
 	for i, c := range calls {
 		out[i] = c.Name

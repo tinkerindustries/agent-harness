@@ -23,6 +23,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 const usage = `usage: harness <command> [flags]
@@ -286,21 +287,21 @@ func runAsk(ctx context.Context, args []string) error {
 	defer closeHTTPLog(rec)
 	client := withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res))
 
-	var messages []deepseek.Message
+	var messages []wire.Message
 	if *system != "" {
-		messages = append(messages, deepseek.SystemMessage(*system))
+		messages = append(messages, wire.SystemMessage(*system))
 	}
-	messages = append(messages, deepseek.UserMessage(prompt))
+	messages = append(messages, wire.UserMessage(prompt))
 
-	thinkingType := deepseek.ThinkingDisabled
+	thinkingType := wire.ThinkingDisabled
 	if *thinking {
-		thinkingType = deepseek.ThinkingEnabled
+		thinkingType = wire.ThinkingEnabled
 	}
 
-	req := deepseek.ChatCompletionRequest{
+	req := wire.ChatCompletionRequest{
 		Model:           resolvedModel,
 		Messages:        messages,
-		Thinking:        &deepseek.ThinkingConfig{Type: thinkingType},
+		Thinking:        &wire.ThinkingConfig{Type: thinkingType},
 		ReasoningEffort: resolvedEffort,
 		MaxTokens:       resolvedMaxTokens,
 	}
@@ -314,18 +315,18 @@ func runAsk(ctx context.Context, args []string) error {
 	var reasoningOpen, contentOpen bool
 	var contentBuf strings.Builder
 	var finishReason string
-	var usage *deepseek.Usage
+	var usage *wire.Usage
 	var streamErr error
 
 	for ev := range events {
 		switch ev.Type {
-		case deepseek.EventReasoningDelta:
+		case wire.EventReasoningDelta:
 			if !reasoningOpen {
 				fmt.Println("== reasoning ==")
 				reasoningOpen = true
 			}
 			fmt.Print(ev.Reasoning)
-		case deepseek.EventContentDelta:
+		case wire.EventContentDelta:
 			if !contentOpen {
 				if reasoningOpen {
 					fmt.Println()
@@ -335,14 +336,14 @@ func runAsk(ctx context.Context, args []string) error {
 			}
 			fmt.Print(ev.Content)
 			contentBuf.WriteString(ev.Content)
-		case deepseek.EventToolCallDelta:
+		case wire.EventToolCallDelta:
 			// `ask` sends no tools, so this should never fire.
 			fmt.Printf("\n[unexpected tool call delta: index=%d name=%s]\n", ev.ToolCall.Index, ev.ToolCall.Function.Name)
-		case deepseek.EventFinish:
+		case wire.EventFinish:
 			finishReason = ev.FinishReason
-		case deepseek.EventUsage:
+		case wire.EventUsage:
 			usage = ev.Usage
-		case deepseek.EventError:
+		case wire.EventError:
 			streamErr = ev.Err
 		}
 	}

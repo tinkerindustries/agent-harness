@@ -11,8 +11,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 type webFetchArgs struct {
@@ -116,13 +116,13 @@ func (e *Executor) summarizeFetch(ctx context.Context, content, prompt string) (
 	if model == "" {
 		model = "deepseek-v4-flash"
 	}
-	req := deepseek.ChatCompletionRequest{
+	req := wire.ChatCompletionRequest{
 		Model: model,
-		Messages: []deepseek.Message{
-			deepseek.SystemMessage("Answer the question using only the page content the user provides. If the answer is not present in it, say so plainly."),
-			deepseek.UserMessage(fmt.Sprintf("Question: %s\n\nPage content:\n%s", prompt, content)),
+		Messages: []wire.Message{
+			wire.SystemMessage("Answer the question using only the page content the user provides. If the answer is not present in it, say so plainly."),
+			wire.UserMessage(fmt.Sprintf("Question: %s\n\nPage content:\n%s", prompt, content)),
 		},
-		Thinking:  &deepseek.ThinkingConfig{Type: deepseek.ThinkingDisabled},
+		Thinking:  &wire.ThinkingConfig{Type: wire.ThinkingDisabled},
 		MaxTokens: 4000,
 	}
 	resp, err := e.Client.CreateChatCompletion(ctx, req)

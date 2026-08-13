@@ -18,6 +18,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/httplog"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // keyNotOnDisk is the API key the wired test runner sends. It is fake, but
@@ -98,7 +99,7 @@ func TestRunWithRecorderWritesSessionHTTPLog(t *testing.T) {
 
 	ws := t.TempDir()
 	res, err := r.Run(t.Context(), RunOptions{
-		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "say something",
 	})
 	if err != nil {
@@ -134,7 +135,7 @@ func TestRunWithNilRecorderRunsNormally(t *testing.T) {
 
 	ws := t.TempDir()
 	res, err := r.Run(t.Context(), RunOptions{
-		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "say something",
 	})
 	if err != nil {
@@ -163,9 +164,9 @@ func TestWebFetchCompletionIsAttributedToSession(t *testing.T) {
 		}
 		_ = json.Unmarshal(body, &probe)
 		if !probe.Stream {
-			resp := deepseek.ChatCompletionResponse{
-				Choices: []deepseek.Choice{{Message: deepseek.Message{Role: deepseek.RoleAssistant, Content: "the answer"}, FinishReason: deepseek.FinishStop}},
-				Usage:   &deepseek.Usage{PromptTokens: 50, CompletionTokens: 10},
+			resp := wire.ChatCompletionResponse{
+				Choices: []wire.Choice{{Message: wire.Message{Role: wire.RoleAssistant, Content: "the answer"}, FinishReason: wire.FinishStop}},
+				Usage:   &wire.Usage{PromptTokens: 50, CompletionTokens: 10},
 			}
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(resp)
@@ -175,23 +176,23 @@ func TestWebFetchCompletionIsAttributedToSession(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		if streamCall.next() == 0 {
 			args := fmt.Sprintf(`{"url":%q,"prompt":"what does the page say?"}`, srv.URL+"/page")
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []deepseek.ToolCallDelta{{Index: 0, ID: "call_00_webfetch", Type: "function", Function: deepseek.ToolCallFuncDelta{Name: "WebFetch", Arguments: args}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_webfetch", Type: "function", Function: wire.ToolCallFuncDelta{Name: "WebFetch", Arguments: args}}},
 				}}},
 			})
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishToolCalls)}},
-				Usage:   &deepseek.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishToolCalls)}},
+				Usage:   &wire.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
 			})
 		} else {
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{Role: "assistant", Content: strPtr("all done")}}},
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{Role: "assistant", Content: strPtr("all done")}}},
 			})
-			writeSSEChunk(t, w, deepseek.ChatCompletionChunk{
-				Choices: []deepseek.ChunkChoice{{Delta: deepseek.ChunkDelta{}, FinishReason: strPtr(deepseek.FinishStop)}},
-				Usage:   &deepseek.Usage{PromptTokens: 300, PromptCacheHitTokens: 100, PromptCacheMissTokens: 200, CompletionTokens: 5},
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishStop)}},
+				Usage:   &wire.Usage{PromptTokens: 300, PromptCacheHitTokens: 100, PromptCacheMissTokens: 200, CompletionTokens: 5},
 			})
 		}
 		fmt.Fprint(w, "data: [DONE]\n\n")
@@ -205,7 +206,7 @@ func TestWebFetchCompletionIsAttributedToSession(t *testing.T) {
 
 	ws := t.TempDir()
 	res, err := r.Run(t.Context(), RunOptions{
-		Model: "test-model", Effort: deepseek.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "fetch the page",
 	})
 	if err != nil {
