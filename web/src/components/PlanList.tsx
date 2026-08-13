@@ -19,14 +19,28 @@ export const STATUS_MARK: Record<Todo["status"], string> = {
   pending: "○",
 };
 
+// A margin past the end of --dur-swap, the mark-done gesture. Clearing the
+// class before the animation finishes cuts the pop off mid-flight, so this
+// has to stay the longer of the two — see the motion layer in styles.css.
+const MARK_HOLD_MS = 340;
+
 export function PlanList({ todos }: { todos: Todo[] }) {
   // .anim-mark-done fires on the item whose status changed, and on no other:
   // the previous statuses are compared by index, so one item completing does
-  // not pop the whole plan. The set clears after the 220ms gesture (260ms, a
-  // margin past the end of it — the same shape as the hold Ticker keeps on its
-  // own, longer roll) so a later completion in the same list animates again.
+  // not pop the whole plan. The set clears a margin past the end of the
+  // gesture so a later completion in the same list animates again.
+  //
+  // The timeout is held in a ref rather than cleared by this effect's own
+  // cleanup — the same shape, and for the same reason, as the hold in
+  // components/ui/Ticker.tsx. A plan updates repeatedly while a run works and
+  // every update re-runs this effect, so a cleanup here would cancel the clear
+  // that the run which just fired the animation had scheduled, and the early
+  // return below would never schedule a replacement. The set would then hold
+  // its indices for the life of the component, and the item that completed
+  // could never pop again.
   const prevStatuses = useRef<Todo["status"][]>(todos.map((t) => t.status));
   const [justDone, setJustDone] = useState<ReadonlySet<number>>(() => new Set());
+  const timer = useRef(0);
 
   useEffect(() => {
     const before = prevStatuses.current;
@@ -37,9 +51,11 @@ export function PlanList({ todos }: { todos: Todo[] }) {
     });
     if (changed.size === 0) return;
     setJustDone(changed);
-    const id = window.setTimeout(() => setJustDone(new Set()), 260);
-    return () => window.clearTimeout(id);
+    window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => setJustDone(new Set()), MARK_HOLD_MS);
   }, [todos]);
+
+  useEffect(() => () => window.clearTimeout(timer.current), []);
 
   return (
     <ul className="plan-list">

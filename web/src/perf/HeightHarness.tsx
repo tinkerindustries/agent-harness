@@ -78,6 +78,9 @@ export function HeightHarness() {
       }
     }
     for (const ev of events) store.ingest(ev);
+    // Seeded history is this harness's backlog — close the replay the way
+    // the server's `replayed` frame closes a real one.
+    store.markReplayed();
     setSubTurns(events.filter((e) => e.kind === "turn_finished").length);
     setSeeded(true);
   }, [store, blocks, errorDemo]);
@@ -150,6 +153,7 @@ function HeightMount({
         <TurnTranscript
           items={snapshot.items}
           live={snapshot.live}
+          replayed={snapshot.replayed}
           filter={filter}
           getToolCall={snapshot.getToolCall}
         />

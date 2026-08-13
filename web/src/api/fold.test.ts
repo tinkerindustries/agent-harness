@@ -597,6 +597,53 @@ describe("live deltas", () => {
     expect(state.live.turn?.content).toBe("");
   });
 
+  // The streaming reveal (components/ui/StreamText.tsx) animates one span per
+  // entry here, and a CSS animation only runs when its element mounts. So the
+  // property that matters is not what the array contains but that entries are
+  // only ever appended: rewrite one and it replays its animation on the next
+  // flush, sixty times a second on the text a reader is looking at.
+  it("keeps content frames as an append-only array, never rewriting an entry", () => {
+    const state = new FoldState();
+    state.ingest(ev(1, "session_started", { opening_message: "x" }));
+    state.ingest(ev(2, "turn_started", { sub_turn: 1 }));
+
+    state.ingestLive({ sub_turn: 1, channel: "content", text: "the " });
+    const afterFirst = [...state.live.turn!.liveContentChunks];
+    state.ingestLive({ sub_turn: 1, channel: "content", text: "answer" });
+
+    expect(state.live.turn?.liveContentChunks).toEqual(["the ", "answer"]);
+    // The prefix the first frame produced is untouched by the second.
+    expect(state.live.turn?.liveContentChunks.slice(0, 1)).toEqual(afterFirst);
+    // And it stays the same text as the accumulated string it mirrors.
+    expect(state.live.turn?.liveContentChunks.join("")).toBe(state.live.turn?.liveContent);
+  });
+
+  it("keeps reasoning frames out of the content chunks, and drops empty frames", () => {
+    const state = new FoldState();
+    state.ingest(ev(1, "session_started", { opening_message: "x" }));
+    state.ingest(ev(2, "turn_started", { sub_turn: 1 }));
+
+    state.ingestLive({ sub_turn: 1, channel: "reasoning", text: "thinking" });
+    state.ingestLive({ sub_turn: 1, channel: "content", text: "" });
+    state.ingestLive({ sub_turn: 1, channel: "content", text: "said" });
+
+    // An empty frame would mount a span that reveals nothing.
+    expect(state.live.turn?.liveContentChunks).toEqual(["said"]);
+  });
+
+  it("starts each sub-turn's chunks empty, so a new turn never replays the last one's", () => {
+    const state = new FoldState();
+    state.ingest(ev(1, "session_started", { opening_message: "x" }));
+    state.ingest(ev(2, "turn_started", { sub_turn: 1 }));
+    state.ingestLive({ sub_turn: 1, channel: "content", text: "first turn" });
+    state.ingest(ev(3, "tool_call", { index: 0, id: "c1", name: "Bash", arguments: "{}" }));
+    state.ingest(ev(4, "turn_finished", { finish_reason: "tool_calls" }));
+
+    state.ingest(ev(5, "turn_started", { sub_turn: 2 }));
+
+    expect(state.live.turn?.liveContentChunks).toEqual([]);
+  });
+
   it("freezes the block from the committed text, not the streamed preview", () => {
     const state = new FoldState();
     state.ingest(ev(1, "session_started", { opening_message: "x" }));

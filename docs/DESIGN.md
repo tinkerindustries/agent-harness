@@ -225,6 +225,20 @@ publishes a work request is run control — the run-control endpoints are the
 three actions in docs/RUN-CONTROL.md, and the data write surface stays
 docs/DATA-API.md.
 
+A transcript stream carries two frames that are not committed events, both
+*named* and both without an id — so neither reaches the browser's `onmessage`,
+where it could be mistaken for an event, and neither can move the
+`Last-Event-ID` cursor, which must only ever name a real seq or a reconnect
+would skip whatever came in between. `live` is model output the backend has
+not committed yet (§5.3). `replayed` is written once, after the history and
+before the first live event, and marks the seam between them. The browser
+needs the seam named because it cannot find it: a long history is delivered
+across several reads, so the first events to arrive are a fraction of the
+backlog, and treating them as the whole of it makes everything after look
+newly arrived. What that distinction buys is small and worth stating plainly —
+the frontend animates a row that arrived while somebody was watching and
+leaves the backlog alone (§5.5).
+
 Two questions the current design leaves open:
 
 - **Authentication.** Loopback is the whole of the current story, and it holds
@@ -896,6 +910,31 @@ So the original reasoning holds for the channel it was about and fails for the
 other one. Virtualisation is still out for v1, and a session that grows into
 the high hundreds of blocks will stutter on append. Revisit with the numbers
 above rather than from first principles.
+
+**The streaming reveal.** The live turn's prose renders one span per `live`
+frame rather than one text node, so each frame can settle in where it landed
+(`components/ui/StreamText.tsx`). That puts a per-flush cost on the hot path
+that grows with the number of frames the current sub-turn has accumulated, so
+it was measured the same way — `?live=1` interleaves frames with the committed
+feed, and `?liveburst=N` pushes the chunk count past what the synthetic turn
+would otherwise reach.
+
+At 1000 blocks mounted, delta commit mean against chunks held by the live turn:
+
+| chunks | roughly | delta mean | p95 |
+| --- | --- | --- | --- |
+| 5 | half a second of prose | 0.34ms | 0.5ms |
+| 50 | 5s | 0.35ms | 0.5ms |
+| 200 | 20s | 0.50ms | 0.7ms |
+| 500 | 50s | 0.75ms | 1.7ms |
+| 1000 | 100s | 1.04ms | 1.8ms |
+
+Linear, at roughly 0.7µs per chunk, and the whole curve sits inside a 16ms
+frame. The server coalesces live output to at most ten frames a second per
+channel (`internal/session/turn.go` `liveFlushInterval`), so the right-hand
+rows are a sub-turn that streams unbroken prose for a minute or more without
+calling a tool — past anything observed. The reveal is not what will make this
+screen stutter; appends still are.
 
 ### 5.6 Reasoning display
 

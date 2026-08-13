@@ -173,10 +173,24 @@ blocks; the naive shape re-parses the whole transcript tens of times a second.
 - **A `live` SSE frame is not an event.** `ingestLive` takes model output the
   backend has not committed yet and appends it to `LiveTurn.liveReasoning` /
   `liveContent` — never to `reasoning` / `content`, which belong to the
-  committed `reasoning_delta` and `content_delta` events that arrive moments
-  later carrying the same text. One field for both would double every streamed
-  sub-turn. The frozen block is always built from the committed pair; the live
-  pair is a preview that gets discarded.
+  committed `reasoning_delta` and `content_delta` events. The frozen block is
+  always built from the committed pair; the live pair is a preview that gets
+  discarded. Note when the committed pair actually lands: the whole batch is
+  written with the `turn_finished` that freezes the block, not progressively,
+  so the live frames are the only text that arrives a piece at a time. That is
+  why `liveContentChunks` — the same text kept as the frames it came in —
+  exists, and why it is what the streaming reveal renders from
+  (`components/ui/StreamText.tsx`). It is append-only, and an entry rewritten
+  in place replays its animation on every flush.
+- **`replayed` is the seam, and it comes from the server.** One named,
+  id-less frame after the history and before the first live event
+  (`internal/httpapi` `handleSessionStream`). It reaches the snapshot as
+  `replayed`, and it is what tells the display which rows are backlog and
+  which arrived while somebody was watching (`hooks.ts` `useArrivals`). Do not
+  try to infer it: a long replay arrives across several reads, so "the first
+  blocks I saw" is a fraction of the history. A store driven without a
+  connection — the perf harnesses — calls `markReplayed()` once it has seeded
+  its own history.
 
 Virtualisation is out, and the measurements that decided it are in §5.5: delta
 commits are flat in block count, appending a block is linear and no amount of

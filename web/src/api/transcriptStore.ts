@@ -31,6 +31,14 @@ export interface TranscriptSnapshot {
   live: LiveView;
   todos: Todo[];
   connection: ConnectionState;
+  // Whether the server has finished replaying this session's history, marked
+  // by its own `replayed` SSE frame (internal/httpapi handleSessionStream).
+  // Everything folded before it is the backlog the page loaded with;
+  // everything after happened while somebody was watching. The display uses
+  // it to animate only the second kind (web/src/hooks.ts useArrivals), which
+  // it cannot work out for itself — a long replay arrives across several
+  // reads, so the first blocks to land are a fraction of the history.
+  replayed: boolean;
   // counts and churnPoint come out of the same incremental pass that builds
   // items: the filter chip row's numbers and the first cache-churn
   // diagnostic, without a second walk over the blocks.
@@ -77,6 +85,7 @@ export class TranscriptStore {
   private snapshot: TranscriptSnapshot;
   private es?: EventSource;
   private connection: ConnectionState = "connecting";
+  private replayed = false;
   private dirty = false;
   private flushHandle: number | null = null;
   private scheduleFlushImpl: (cb: () => void) => number;
@@ -111,6 +120,11 @@ export class TranscriptStore {
       this.fold.ingestLive(JSON.parse((m as MessageEvent).data) as LiveDelta);
       this.markDirty();
     });
+    // The seam between the replayed history and the live tail, for the same
+    // two reasons a live frame is shaped this way: named, so onmessage never
+    // mistakes it for a committed event, and carrying no id, so it cannot
+    // move the Last-Event-ID cursor.
+    this.es.addEventListener("replayed", () => this.markReplayed());
     this.es.onmessage = (m) => {
       const ev = JSON.parse(m.data) as StoreEvent;
       this.ingest(ev);
@@ -138,6 +152,29 @@ export class TranscriptStore {
     // re-parsed here; latestTodos is the fold's own application of the plan
     // tools' calls.
     for (let i = before; i < this.fold.blocks.length; i++) this.todosAtBlock.push(this.fold.latestTodos);
+    this.markDirty();
+  }
+
+  // markReplayed closes the history replay by hand, for the connect: false
+  // mode the measurement harness runs in: there is no server to send the
+  // frame, so the harness calls this once it has seeded its synthetic
+  // history and before it starts appending live turns. A live session gets
+  // it from the stream instead.
+  markReplayed(): void {
+    if (this.replayed) return;
+    this.replayed = true;
+    this.markDirty();
+  }
+
+  // ingestLive folds one uncommitted `live` frame, the counterpart to ingest
+  // for the other of the two channels a streaming session delivers. The
+  // EventSource path above calls the fold directly; this exists so the
+  // measurement harness in web/src/perf can drive the same pipeline with
+  // opts.connect === false, which it has to in order to measure the streaming
+  // reveal at all — the live buffer is the only thing that grows a piece at a
+  // time, and it is the input StreamText renders from.
+  ingestLive(d: LiveDelta): void {
+    this.fold.ingestLive(d);
     this.markDirty();
   }
 
@@ -173,6 +210,7 @@ export class TranscriptStore {
       live: this.fold.live,
       todos: this.fold.latestTodos,
       connection: this.connection,
+      replayed: this.replayed,
       counts: { ...this.groups.counts },
       churnPoint: this.groups.churnPoint,
       getToolCall: this.getToolCall,

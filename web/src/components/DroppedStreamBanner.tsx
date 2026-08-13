@@ -12,13 +12,14 @@ import type { ConnectionState } from "../api/transcriptStore";
 //
 // The store's connection state is "connecting" both before the stream first
 // opens and after a drop, so the banner distinguishes the two by whether the
-// stream has ever opened. That flag cannot live here: useSessionMeta
-// refetches on every connection change (its refreshOn is the connection
-// state), and each refetch flips the route's settled flag, remounting the
-// screen — and with it, any local state. SessionScreen owns the flag
-// instead, above the fork, where it survives the remounts; a page that
-// never connected shows nothing while the replay loads, and a page that
-// connected and then lost the stream shows the banner. "closed" is the
+// stream has ever opened. That flag cannot live here, or in either screen:
+// the route's fork picks the chat screen or the watch screen from the
+// metadata row, so the screen holding it can still be swapped for the other
+// one — and a flag that resets on that swap would take the banner down at
+// the moment it is most wanted. SessionScreen owns it instead, above the
+// fork, where the only thing that clears it is a genuine session switch. A
+// page that never connected shows nothing while the replay loads, and a page
+// that connected and then lost the stream shows the banner. "closed" is the
 // terminal state — the run is over, the stream ended on purpose — and shows
 // nothing.
 export function DroppedStreamBanner({
