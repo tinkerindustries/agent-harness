@@ -169,6 +169,44 @@ to let it write.
 reading, and none needs a shell, so a Bash call to grep is a choice rather than
 a necessity — which is what makes `search_via_tool` mean anything on it.
 
+## Where a run runs
+
+`harness serve` owns the orchestrator. `harness eval run` posts the spec to
+`POST /api/evals` and then follows the stored rows; the verb has one
+implementation, the way `harness stop` posts to the stop endpoint rather than
+reaching around it (cmd/harness/stop.go).
+
+Two things follow. A run survives the terminal that started it — closing it,
+or rebuilding the container under it, no longer strands the run at whatever
+member it had reached. And a caller that is not a terminal can start one.
+
+`-detach` prints the run id and exits. Interrupting a non-detached follow also
+leaves the run going; it is a reader, not a holder.
+
+One eval at a time. A second start is a 409: two evals interleaving means each
+measures a machine the other is loading, which is not a comparison either can
+stand behind.
+
+The endpoints, following the conventions in docs/DATA-API.md:
+
+| Endpoint | Guards |
+| --- | --- |
+| `POST /api/evals` | write guards + bearer token → 202 `{eval_run_id}` |
+| `POST /api/evals/{id}/cancel` | write guards + bearer token → 202 |
+| `PATCH /api/evals/{id}` | write guards + `If-Match`; closes out a stranded run |
+| `DELETE /api/evals/{id}` | write guards + `If-Match`; refuses a running run |
+
+The two POSTs are run control and carry the token, the rule
+docs/RUN-CONTROL.md sets for anything that starts or ends a run and spends
+money. PATCH and DELETE are row writes and carry the version. `harness serve`
+still holds no JetStream handle: the orchestrator has one, through the same
+one-method publisher seam the browser's start already uses, and
+`internal/httpapi` reaches it through the declared `EvalController`.
+
+Cancelling stops publishing further members and ends the ones in flight.
+Members already finished keep their scores and the run lands `cancelled` with
+a partial comparison, which is a legitimate result over what did finish.
+
 ## Where a run is recorded
 
 An eval writes two tables as it goes: `eval_runs` for the run and

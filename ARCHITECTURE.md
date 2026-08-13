@@ -107,7 +107,9 @@ Serves the store and the hub and writes through the store; the reach into the
 run loop is through two declared seams rather than imports: `RunController`,
 implemented by `*worker.Pool`, for the stop endpoint, and `RunPublisher`,
 implemented by `cmd/harness` over the queue's own JetStream handle, for the
-start endpoint — so this package still imports neither `session` nor `worker`
+start endpoint; and `EvalController`, implemented over `*evals.Orchestrator`,
+for starting and cancelling an eval — so this package still imports neither
+`session` nor `worker`
 and holds no JetStream handle, only the narrow ability to enqueue one
 validated request (it imports `queue` for the request type and its `Validate`,
 deliberately, so a body validated here can never drift from the queue's).

@@ -43,6 +43,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
+	"github.com/mrgeoffrich/deepseek-harness/internal/evals"
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 	"github.com/mrgeoffrich/deepseek-harness/internal/redact"
@@ -164,6 +165,20 @@ type RunPublisher interface {
 	PublishRequest(ctx context.Context, req queue.Request) error
 }
 
+// EvalController is the subset of the eval orchestrator the eval endpoints
+// need. Declared here and implemented in cmd/harness over *evals.Orchestrator,
+// the shape RunController and RunPublisher already use: this package asks a
+// seam to begin and end an orchestration and still holds no JetStream handle —
+// the orchestrator has one, through the same one-method publisher seam.
+//
+// StartEval returns as soon as the run is recorded and its first requests are
+// published; it never waits for the eval to finish.
+type EvalController interface {
+	StartEval(ctx context.Context, spec evals.Spec) (string, error)
+	CancelEval(evalRunID string) error
+	RunningEval(evalRunID string) bool
+}
+
 // Server holds the things every handler reads: the store, for everything
 // historical; the hub, for everything live; and, optionally, the queue's
 // consumer and pool, for /api/queue's consumer lag, in-flight count, and
@@ -193,6 +208,7 @@ type Server struct {
 	Pool           QueuePool
 	Run            RunController
 	Publisher      RunPublisher
+	Evals          EvalController
 	ControlToken   string
 	PriceTableDate string
 	Settings       *settings.Resolver
@@ -263,6 +279,10 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("PUT /api/settings/{key}", s.handlePutSetting)
 	mux.HandleFunc("DELETE /api/settings/{key}", s.handleDeleteSetting)
 	mux.HandleFunc("GET /api/evals", s.handleListEvals)
+	mux.HandleFunc("POST /api/evals", s.handleStartEval)
+	mux.HandleFunc("POST /api/evals/{id}/cancel", s.handleCancelEval)
+	mux.HandleFunc("PATCH /api/evals/{id}", s.handlePatchEval)
+	mux.HandleFunc("DELETE /api/evals/{id}", s.handleDeleteEval)
 	mux.HandleFunc("GET /api/evals/suites", s.handleListEvalSuites)
 	mux.HandleFunc("GET /api/evals/variants", s.handleListEvalVariants)
 	mux.HandleFunc("GET /api/evals/{id}", s.handleGetEval)
@@ -324,6 +344,12 @@ func writeAllowed(method, path string) bool {
 		return method == http.MethodPost
 	case isRunsPath(path):
 		return method == http.MethodPost
+	case isEvalsCollectionPath(path):
+		return method == http.MethodPost
+	case isEvalCancelPath(path):
+		return method == http.MethodPost
+	case isEvalPath(path):
+		return method == http.MethodPatch || method == http.MethodDelete
 	default:
 		return false
 	}
@@ -396,6 +422,34 @@ func isRunsPath(path string) bool {
 	return path == "/api/runs"
 }
 
+func isEvalsCollectionPath(path string) bool {
+	return path == "/api/evals"
+}
+
+// isEvalPath reports whether path is exactly one eval run's resource. The
+// suites and variants collections sit under /api/evals/ too and are reads, so
+// they must not be mistaken for a run id.
+func isEvalPath(path string) bool {
+	const prefix = "/api/evals/"
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	rest := strings.TrimPrefix(path, prefix)
+	if rest == "" || strings.Contains(rest, "/") {
+		return false
+	}
+	return rest != "suites" && rest != "variants"
+}
+
+func isEvalCancelPath(path string) bool {
+	const prefix = "/api/evals/"
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	id, tail, ok := strings.Cut(strings.TrimPrefix(path, prefix), "/")
+	return ok && id != "" && tail == "cancel"
+}
+
 // isRequestPath reports whether path is exactly one work request's resource —
 // /api/requests/<request_id> with no further segments. The poll snapshot
 // subresource /api/requests/<request_id>/status is a read and carries its
@@ -442,6 +496,12 @@ func allowedMethods(path string) string {
 		return "GET, HEAD, POST"
 	case isRunsPath(path):
 		return "GET, HEAD, POST"
+	case isEvalsCollectionPath(path):
+		return "GET, HEAD, POST"
+	case isEvalCancelPath(path):
+		return "GET, HEAD, POST"
+	case isEvalPath(path):
+		return "GET, HEAD, PATCH, DELETE"
 	default:
 		return "GET, HEAD"
 	}

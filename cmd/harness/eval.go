@@ -1,20 +1,21 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"strings"
 	"time"
 
-	"github.com/nats-io/nats.go/jetstream"
-
+	"github.com/mrgeoffrich/deepseek-harness/internal/config"
 	"github.com/mrgeoffrich/deepseek-harness/internal/evals"
 	"github.com/mrgeoffrich/deepseek-harness/internal/promptvariant"
-	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
@@ -107,9 +108,14 @@ func runEvalClose(ctx context.Context, args []string) error {
 	return nil
 }
 
+// runEvalRun asks the server to start an eval and then follows it. The verb
+// has one implementation and it lives in `harness serve`
+// (cmd/harness/stop.go makes the same argument for stopping): a run started
+// here survives this terminal closing, and the browser can start the same
+// thing.
 func runEvalRun(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("eval run", flag.ContinueOnError)
-	suitePath := fs.String("suite", "", "a built-in suite's name, or a path to a suite JSON file (required)")
+	suiteName := fs.String("suite", "", "a built-in suite's name, or a path to a suite JSON file (required)")
 	variantList := fs.String("variants", "", "comma-separated prompt variants to compare, baseline first (required)")
 	replicates := fs.Int("n", 3, "runs per task per variant")
 	concurrency := fs.Int("concurrency", 2, "runs in flight at once")
@@ -119,21 +125,40 @@ func runEvalRun(ctx context.Context, args []string) error {
 	model := fs.String("model", "", "override the model every task runs on; applies to all arms at once")
 	effort := fs.String("effort", "", "override the reasoning effort every task runs at; applies to all arms at once")
 	note := fs.String("note", "", "one line on what this run is asking, shown beside it later")
-	timeout := fs.Duration("timeout", 30*time.Minute, "how long one run may take")
-	out := fs.String("out", "", "write the full report as JSON to this path")
+	detach := fs.Bool("detach", false, "print the run id and exit rather than following it")
+	out := fs.String("out", "", "write the finished report as JSON to this path")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	if *suitePath == "" || *variantList == "" {
-		return errors.New("usage: harness eval run -suite FILE -variants a,b [flags]")
+	if *suiteName == "" || *variantList == "" {
+		return errors.New("usage: harness eval run -suite NAME|FILE -variants a,b [flags]")
 	}
 
-	suite, err := resolveSuite(*suitePath)
-	if err != nil {
-		return err
+	spec := evals.Spec{
+		Variants:    splitList(*variantList),
+		Replicates:  *replicates,
+		Concurrency: *concurrency,
+		MaxSubTurns: *maxSubTurns,
+		Model:       *model,
+		Effort:      *effort,
+		Judge:       *useJudge,
+		JudgeModel:  *judgeModel,
+		Note:        *note,
 	}
-	variants := splitList(*variantList)
-	if err := evals.ValidateVariants(variants); err != nil {
+	// A built-in name goes by name so the server resolves its own copy; a
+	// path is read here and posted inline, which is how an ad-hoc suite runs
+	// without a rebuild.
+	if _, err := evals.EmbeddedSuite(*suiteName); err == nil {
+		spec.Suite = *suiteName
+	} else {
+		suite, err := evals.LoadSuite(*suiteName)
+		if err != nil {
+			return err
+		}
+		spec.SuiteJSON = suite
+	}
+	suite, err := spec.Resolve()
+	if err != nil {
 		return err
 	}
 
@@ -147,74 +172,109 @@ func runEvalRun(ctx context.Context, args []string) error {
 	}
 	defer st.Close()
 
-	nc, js, err := queue.Connect(cfg.NATSURL)
-	if err != nil {
-		return err
+	var started struct {
+		EvalRunID string `json:"eval_run_id"`
 	}
-	defer nc.Close()
-
-	opts := evals.Options{
-		Suite:       suite,
-		Variants:    variants,
-		Replicates:  *replicates,
-		Concurrency: *concurrency,
-		MaxSubTurns: *maxSubTurns,
-		Model:       *model,
-		Effort:      *effort,
-		Timeout:     *timeout,
-		Recorder:    st,
-		Note:        *note,
-		Progress: func(r evals.Run) {
-			status := r.Status
-			if r.Err != "" {
-				status = "error: " + r.Err
-			}
-			fmt.Printf("  %-24s %-14s rep %d  %s\n", r.TaskID, r.Variant, r.Replicate, status)
-		},
-	}
-	if *useJudge {
-		res := settings.NewResolver(st)
-		rec := newHTTPLogRecorder(cfg)
-		defer closeHTTPLog(rec)
-		model := *judgeModel
-		if model == "" {
-			model, err = res.String(ctx, settings.KeyDefaultModel)
-			if err != nil {
-				return fmt.Errorf("resolve %s: %w", settings.KeyDefaultModel, err)
-			}
-		}
-		opts.Judge = &evals.Judge{
-			Client: withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res)),
-			Model:  model,
-		}
-	}
-
-	total := *replicates * len(suite.Tasks) * len(variants)
-	fmt.Printf("suite %s: %d runs (%d tasks × %d variants × %d replicates), %d at a time\n",
-		suite.Name, total, len(suite.Tasks), len(variants), *replicates, *concurrency)
-	if *model != "" {
-		fmt.Printf("sessions on %s\n", *model)
-	}
-	if opts.Judge != nil {
-		fmt.Printf("judged by %s\n", opts.Judge.Model)
-	}
-	fmt.Println()
-
-	report, err := evals.Execute(ctx, publisher{js}, st, opts)
-	if err != nil {
+	if err := postJSON(ctx, cfg, st, "/api/evals", spec, http.StatusAccepted, &started); err != nil {
 		return err
 	}
 
-	fmt.Println()
-	fmt.Printf("eval run %s\n\n", report.EvalRunID)
-	evals.WriteTable(os.Stdout, report)
-	if *out != "" {
-		if err := writeReport(*out, report); err != nil {
+	fmt.Printf("eval run %s: %d runs (%d tasks × %d variants × %d replicates)\n",
+		started.EvalRunID, spec.TotalRuns(suite), len(suite.Tasks), len(spec.Variants), spec.Replicates)
+	if *detach {
+		fmt.Println("running in harness serve; follow it at /evals or with harness eval show")
+		return nil
+	}
+	return followEval(ctx, st, started.EvalRunID, *out)
+}
+
+// followEval prints each member as it lands and the table at the end. It
+// reads the stored rows rather than holding the run, so interrupting this
+// leaves the eval going.
+func followEval(ctx context.Context, st *store.Store, evalRunID, out string) error {
+	seen := map[string]bool{}
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+	for {
+		run, err := st.GetEvalRun(ctx, evalRunID)
+		if err != nil {
 			return err
 		}
-		fmt.Printf("\nreport written to %s\n", *out)
+		members, err := st.EvalMembers(ctx, evalRunID)
+		if err != nil {
+			return err
+		}
+		for _, m := range members {
+			if m.Status == "pending" || seen[m.RequestID] {
+				continue
+			}
+			seen[m.RequestID] = true
+			status := m.Status
+			if m.Error != "" {
+				status = "error: " + m.Error
+			}
+			fmt.Printf("  %-24s %-20s rep %d  %s\n", m.TaskID, m.Variant, m.Replicate, status)
+		}
+		if run.FinishedAt != nil {
+			report := evals.ReportFromStore(run, members)
+			fmt.Println()
+			evals.WriteTable(os.Stdout, report)
+			if out != "" {
+				if err := writeReport(out, report); err != nil {
+					return err
+				}
+				fmt.Printf("\nreport written to %s\n", out)
+			}
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			fmt.Printf("\nstopped following; the run continues as %s\n", evalRunID)
+			return nil
+		case <-ticker.C:
+		}
 	}
-	return nil
+}
+
+// postJSON is the CLI's one call into the run-control surface: same origin,
+// application/json, bearer token — the guards docs/RUN-CONTROL.md sets.
+func postJSON(ctx context.Context, cfg config.Config, st *store.Store, path string, body any, wantStatus int, into any) error {
+	token, err := settings.NewResolver(st).String(ctx, settings.KeyHTTPControlToken)
+	if err != nil {
+		return err
+	}
+	if token == "" {
+		return errors.New("run control is not configured: http.control_token is empty (start harness serve once to generate one)")
+	}
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	url := "http://" + cfg.HTTPAddr + path
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(encoded))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		return fmt.Errorf("POST %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
+	if resp.StatusCode != wantStatus {
+		msg := strings.TrimSpace(string(respBody))
+		if msg == "" {
+			msg = resp.Status
+		}
+		return fmt.Errorf("POST %s: status %d: %s", path, resp.StatusCode, msg)
+	}
+	if into == nil {
+		return nil
+	}
+	return json.Unmarshal(respBody, into)
 }
 
 // runEvalScore recomputes a report's metrics from the sessions it names.
@@ -297,17 +357,6 @@ func writeReport(path string, report *evals.Report) error {
 		return err
 	}
 	return os.WriteFile(path, append(b, '\n'), 0o644)
-}
-
-// publisher adapts the JetStream handle to the evals package's seam, which is
-// the same shape the HTTP server's RunPublisher uses: one validated request
-// onto the WORK stream, and no other reach into the queue.
-type publisher struct{ js jetstream.JetStream }
-
-func (p publisher) Publish(ctx context.Context, req queue.Request) error {
-	pubCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	return queue.PublishRequest(pubCtx, p.js, req)
 }
 
 func splitList(s string) []string {

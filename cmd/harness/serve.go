@@ -18,6 +18,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/config"
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
+	"github.com/mrgeoffrich/deepseek-harness/internal/evals"
 	"github.com/mrgeoffrich/deepseek-harness/internal/httpapi"
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
 	harnessmcp "github.com/mrgeoffrich/deepseek-harness/internal/mcp"
@@ -230,10 +231,31 @@ func runServe(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	// The orchestrator runs evals inside this process, so a run survives the
+	// terminal that started it and the browser can start one. It publishes
+	// through the same one-method seam the browser's start uses; httpapi
+	// still holds no JetStream handle (docs/EVALS.md).
+	orchestrator := &evals.Orchestrator{
+		Publisher: evalPublisher{js: js},
+		Store:     st,
+		NewJudge: func(model string) *evals.Judge {
+			if model == "" {
+				resolved, err := res.String(ctx, settings.KeyDefaultModel)
+				if err != nil {
+					log.Printf("evals: resolve judge model: %v", err)
+					return nil
+				}
+				model = resolved
+			}
+			return &evals.Judge{Client: client, Model: model}
+		},
+	}
+
 	api := &httpapi.Server{
 		Store: st, Hub: eventHub, Static: static, Settings: res,
 		Consumer: consumer, Pool: pool, PriceTableDate: priceTable.CapturedAt,
 		Run: pool, Publisher: publishAdapter{js: js}, ControlToken: controlToken,
+		Evals:              evalControl{o: orchestrator},
 		DefaultEventsLimit: eventsLimitDefault,
 		MaxEventsLimit:     eventsLimitMax,
 	}
@@ -288,6 +310,33 @@ func runServe(ctx context.Context, args []string) error {
 type publishAdapter struct {
 	js jetstream.JetStream
 }
+
+// evalPublisher is the same publish, in the shape internal/evals declares.
+// Two one-method interfaces over one handle rather than one shared interface,
+// so neither package imports the other's vocabulary.
+type evalPublisher struct {
+	js jetstream.JetStream
+}
+
+func (a evalPublisher) Publish(ctx context.Context, req queue.Request) error {
+	pubCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	return queue.PublishRequest(pubCtx, a.js, req)
+}
+
+// evalControl is the EvalController implementation: the orchestrator, named
+// the way internal/httpapi asks for it.
+type evalControl struct {
+	o *evals.Orchestrator
+}
+
+func (c evalControl) StartEval(ctx context.Context, spec evals.Spec) (string, error) {
+	return c.o.Start(ctx, spec)
+}
+
+func (c evalControl) CancelEval(evalRunID string) error { return c.o.Cancel(evalRunID) }
+
+func (c evalControl) RunningEval(evalRunID string) bool { return c.o.Running(evalRunID) }
 
 func (a publishAdapter) PublishRequest(ctx context.Context, req queue.Request) error {
 	return queue.PublishRequest(ctx, a.js, req)

@@ -1,12 +1,15 @@
 package evals
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
 	"sort"
 	"strings"
 	"text/tabwriter"
+
+	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
 
 // A Summary is one metric under one variant, across every run of it.
@@ -20,6 +23,34 @@ type Summary struct {
 	// nothing on its own: with runs this few, the spread is usually the story.
 	StdDev float64 `json:"stddev"`
 	Stderr float64 `json:"stderr"`
+}
+
+// ReportFromStore rebuilds a Report from the rows an eval wrote, so a caller
+// that reads the store — the CLI following a run it did not orchestrate, the
+// HTTP surface — gets its table from the same code that printed the original.
+func ReportFromStore(run store.EvalRun, members []store.EvalMember) *Report {
+	report := &Report{
+		EvalRunID: run.ID, Suite: run.Suite,
+		Variants: run.Variants, Replicates: run.Replicates, StartedAt: run.StartedAt,
+	}
+	for _, m := range members {
+		r := Run{
+			TaskID: m.TaskID, Variant: m.Variant, Replicate: m.Replicate,
+			RequestID: m.RequestID, SessionID: m.SessionID, Status: m.Status,
+			CostUSD: m.CostUSD, SubTurns: m.SubTurns, Err: m.Error,
+		}
+		if len(m.Scores) > 0 {
+			_ = json.Unmarshal(m.Scores, &r.Scores)
+		}
+		if len(m.Verdict) > 0 {
+			var v Verdict
+			if json.Unmarshal(m.Verdict, &v) == nil {
+				r.Verdict = &v
+			}
+		}
+		report.Runs = append(report.Runs, r)
+	}
+	return report
 }
 
 // Summarise reduces a report to one row per (metric, variant).

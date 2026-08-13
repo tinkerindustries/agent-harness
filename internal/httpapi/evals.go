@@ -3,6 +3,8 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -131,7 +133,7 @@ func (s *Server) handleGetEval(w http.ResponseWriter, r *http.Request) {
 	for _, m := range members {
 		rows = append(rows, evalMemberRowFrom(m))
 	}
-	report := reportFrom(run, rows)
+	report := evals.ReportFromStore(run, members)
 	writeJSON(w, http.StatusOK, evalRunDetail{
 		evalRunRow: evalRunRowFrom(run, members),
 		Members:    rows,
@@ -202,7 +204,6 @@ func evalRunRowFrom(run store.EvalRun, members []store.EvalMember) evalRunRow {
 		Status: run.Status, StartedAt: run.StartedAt, FinishedAt: run.FinishedAt,
 		Total: len(members), Version: run.Version,
 	}
-	memberRows := make([]evalMemberRow, 0, len(members))
 	for _, m := range members {
 		row.CostUSD += m.CostUSD
 		if m.Status != "pending" && m.Status != "running" {
@@ -211,9 +212,8 @@ func evalRunRowFrom(run store.EvalRun, members []store.EvalMember) evalRunRow {
 		if m.Error != "" {
 			row.Failed++
 		}
-		memberRows = append(memberRows, evalMemberRowFrom(m))
 	}
-	if deltas := deltasFrom(reportFrom(run, memberRows)); len(deltas) > 0 {
+	if deltas := deltasFrom(evals.ReportFromStore(run, members)); len(deltas) > 0 {
 		row.Headline = &deltas[0]
 	}
 	return row
@@ -237,24 +237,6 @@ func evalMemberRowFrom(m store.EvalMember) evalMemberRow {
 	return row
 }
 
-// reportFrom rebuilds the shape evals.Summarise reads from stored rows, so the
-// statistics on the wire come from the same code as the CLI's table.
-func reportFrom(run store.EvalRun, members []evalMemberRow) *evals.Report {
-	report := &evals.Report{
-		EvalRunID: run.ID, Suite: run.Suite,
-		Variants: run.Variants, Replicates: run.Replicates, StartedAt: run.StartedAt,
-	}
-	for _, m := range members {
-		report.Runs = append(report.Runs, evals.Run{
-			TaskID: m.TaskID, Variant: m.Variant, Replicate: m.Replicate,
-			RequestID: m.RequestID, SessionID: m.SessionID, Status: m.Status,
-			Scores: m.Scores, Verdict: m.Verdict,
-			CostUSD: m.CostUSD, SubTurns: m.SubTurns, Err: m.Error,
-		})
-	}
-	return report
-}
-
 func deltasFrom(report *evals.Report) []evalDelta {
 	out := make([]evalDelta, 0)
 	for _, d := range evals.Deltas(report) {
@@ -266,10 +248,197 @@ func deltasFrom(report *evals.Report) []evalDelta {
 	return out
 }
 
+// evalVersionMatches checks the If-Match header against the row. The eval
+// tables carry no version-checked write inside their transactions — unlike a
+// session, an eval run has one writer and no concurrent mutation to race — so
+// the comparison happens here, on the row that was just read.
+func evalVersionMatches(w http.ResponseWriter, r *http.Request, version int) bool {
+	want, ok := parseIfMatch(w, r)
+	if !ok {
+		return false
+	}
+	if want != version {
+		writeJSON(w, http.StatusPreconditionFailed, map[string]string{
+			"error": fmt.Sprintf("version mismatch: the eval run is at version %d", version),
+		})
+		return false
+	}
+	return true
+}
+
 func writeEvalLookupError(w http.ResponseWriter, err error) {
 	if errors.Is(err, store.ErrNotFound) {
 		http.Error(w, "eval run not found", http.StatusNotFound)
 		return
 	}
 	writeInternalError(w, err)
+}
+
+// --- writes ---
+//
+// The two POSTs are run control and carry the bearer token, the rule
+// docs/RUN-CONTROL.md set for anything that starts or ends a run and spends
+// money. PATCH and DELETE are data writes and carry If-Match against the
+// row's version, the rule docs/DATA-API.md set for every row resource. The
+// split follows the existing one exactly: an action on a run takes a token
+// and no version; an edit of a row takes a version.
+
+func (s *Server) handleStartEval(w http.ResponseWriter, r *http.Request) {
+	if !writeGuards(w, r) {
+		return
+	}
+	if !s.requireControlToken(w, r) {
+		return
+	}
+	if s.Evals == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "evals are not configured: no orchestrator is wired (start harness serve once)",
+		})
+		return
+	}
+	var spec evals.Spec
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&spec); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "invalid JSON body: expected an eval spec (suite, variants, replicates, ...)",
+		})
+		return
+	}
+	// Resolve here as well as in the orchestrator so a bad spec is a 400 with
+	// the validator's own message rather than a 500.
+	if _, err := spec.Resolve(); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	id, err := s.Evals.StartEval(r.Context(), spec)
+	if err != nil {
+		if errors.Is(err, evals.ErrEvalInFlight) {
+			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"eval_run_id": id})
+}
+
+func (s *Server) handleCancelEval(w http.ResponseWriter, r *http.Request) {
+	if !writeGuards(w, r) {
+		return
+	}
+	if !s.requireControlToken(w, r) {
+		return
+	}
+	if s.Evals == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "evals are not configured: no orchestrator is wired (start harness serve once)",
+		})
+		return
+	}
+	id := r.PathValue("id")
+	run, err := s.Store.GetEvalRun(r.Context(), id)
+	if err != nil {
+		writeEvalLookupError(w, err)
+		return
+	}
+	if run.FinishedAt != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "eval run " + id + " already finished as " + run.Status,
+		})
+		return
+	}
+	if err := s.Evals.CancelEval(id); err != nil {
+		// A row that says running with no run behind it is the stranded case:
+		// the process that owned it died. Say so rather than pretending to
+		// have cancelled something.
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "no eval run with that id is in flight in this process; close the row with PATCH if it is stranded",
+		})
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"eval_run_id": id, "cancelling": "true"})
+}
+
+// handlePatchEval closes out a run stranded by a dead orchestrator. It is the
+// only field a caller may set: everything else about a run is what happened.
+func (s *Server) handlePatchEval(w http.ResponseWriter, r *http.Request) {
+	if !writeGuards(w, r) {
+		return
+	}
+	run, err := s.Store.GetEvalRun(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeEvalLookupError(w, err)
+		return
+	}
+	if !evalVersionMatches(w, r, run.Version) {
+		return
+	}
+	var body struct {
+		Status string `json:"status"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body: expected {\"status\": \"...\"}"})
+		return
+	}
+	switch body.Status {
+	case store.EvalStatusOK, store.EvalStatusFailed, store.EvalStatusCancelled:
+	default:
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": "status must be one of ok, failed, cancelled",
+		})
+		return
+	}
+	if run.FinishedAt != nil {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "eval run already finished as " + run.Status,
+		})
+		return
+	}
+	if s.Evals != nil && s.Evals.RunningEval(run.ID) {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "eval run is still in flight here; cancel it rather than closing the row",
+		})
+		return
+	}
+	if err := s.Store.FinishEvalRun(r.Context(), run.ID, body.Status, time.Now().UTC()); err != nil {
+		writeEvalLookupError(w, err)
+		return
+	}
+	updated, err := s.Store.GetEvalRun(r.Context(), run.ID)
+	if err != nil {
+		writeEvalLookupError(w, err)
+		return
+	}
+	members, err := s.Store.EvalMembers(r.Context(), run.ID)
+	if err != nil {
+		writeInternalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, evalRunRowFrom(updated, members))
+}
+
+// handleDeleteEval removes a run and its members. The sessions it names are
+// ordinary sessions and are left alone.
+func (s *Server) handleDeleteEval(w http.ResponseWriter, r *http.Request) {
+	if !writeGuards(w, r) {
+		return
+	}
+	run, err := s.Store.GetEvalRun(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeEvalLookupError(w, err)
+		return
+	}
+	if !evalVersionMatches(w, r, run.Version) {
+		return
+	}
+	if run.FinishedAt == nil {
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": "eval run is still running; cancel it before deleting",
+		})
+		return
+	}
+	if err := s.Store.DeleteEvalRun(r.Context(), run.ID); err != nil {
+		writeEvalLookupError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
