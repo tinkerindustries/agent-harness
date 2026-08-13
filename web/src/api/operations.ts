@@ -303,6 +303,20 @@ export interface WorkRequest {
   max_sub_turns?: number;
   deadline_ms?: number;
   job_type?: string;
+  // The images the operator attached to this run (attachments.ts
+  // readAttachmentFiles), accepted by POST /api/runs and stored server-side;
+  // the request the worker sees carries the attachment ids, never these
+  // bytes (docs/DATA-API.md).
+  attachments?: RunAttachment[];
+}
+
+// RunAttachment is one image a browser start carries, mirroring
+// internal/httpapi.startRunAttachment: a plain file name, a MIME type from
+// ReviewScreenshot's own allowlist, and the image bytes base64-encoded.
+export interface RunAttachment {
+  name: string;
+  mime_type: string;
+  data: string;
 }
 
 // startRun publishes a work request via POST /api/runs (docs/RUN-CONTROL.md

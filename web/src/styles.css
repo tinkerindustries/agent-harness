@@ -2497,6 +2497,36 @@ pre {
   align-items: center;
 }
 
+/* The attachment input and the list of files the operator has chosen. The
+   rows reuse .start-repo-row's layout; the name takes the remaining width
+   and truncates, with the size dimmed beside it and the remove control at
+   the row's end. */
+
+.start-attachment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.start-attachment-name {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.start-attachment-meta {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+
 /* The repo row's searchable combobox: the input plus its absolutely
    positioned suggestion list. The list sits below the input, on top of
    whatever the form draws beneath it, so typing in a repo row floats the
