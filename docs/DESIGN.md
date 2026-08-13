@@ -126,8 +126,12 @@ Rules that follow:
 - The system prompt is fixed for the life of a harness version and shared by
   every session running against a given model. No clock, no cwd, no git status,
   no changed-file list, and nothing drawn from a work request.
-- Tool definitions are fixed for the life of a session and serialised in a stable
-  order.
+- Tool definitions are fixed for the life of a session and serialised in a
+  stable order. The array is per-provider — DeepSeek's sixteen tools, Kimi
+  K3's fourteen without the two vision tools (docs/KIMI-INTEGRATION.md
+  decision 5) — so there are two frozen heads, each shared by every session on
+  its provider and each pinned by its own golden file. A session's head is
+  chosen at creation from its model and never changes for the session's life.
 - Volatile context goes in the newest message. It is never retrofitted into an
   older one.
 - No mid-conversation compaction that rewrites history. At 768K tokens — the
@@ -151,7 +155,10 @@ request. Cheap tail, catastrophic head.
 Two rules follow that are not obvious from the invariant alone. The session
 freezes its rendered system prompt and tool schema at creation, so upgrading the
 harness cannot change the prefix of a resumable session. And permission modes
-gate execution rather than tool availability, so the tool array never varies.
+gate execution rather than tool availability, so the tool array never varies
+within a provider — the per-provider split (DeepSeek's sixteen tools, Kimi's
+fourteen) is chosen once at session creation and is part of the frozen head,
+not a per-request variation.
 
 Running many sessions at once makes the shared head worth more. Every session
 sends the same rendered system prompt and the same tool array, so the first

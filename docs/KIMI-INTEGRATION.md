@@ -205,15 +205,17 @@ options, and has to drive `playwright-cli` through Bash instead.
    `ReviewScreenshot`. K3 sees images directly, so the Gemini round-trip and the
    capture-and-describe tool are both redundant for it.
 
-### Open
-
-6. **A second frozen head is now a supported thing, and nothing enforces it.**
-   Decision 5 means the tool array varies by provider, which the architecture
-   permits but has never had to hold. Until now "permission changes which tool
-   calls run, never which tools are offered" made the array a single constant.
-   Two arrays need the same byte-stability guard the first one has, and a test
-   that pins each. Decide in Phase 8 whether that guard is a golden file per
-   provider or one test parameterised over providers.
+6. **A second frozen head is now a supported thing, and nothing enforces it —
+   until Phase 8.** Decision 5 means the tool array varies by provider, which
+   the architecture permits but had never had to hold. Until Phase 8,
+   "permission changes which tool calls run, never which tools are offered"
+   made the array a single constant. Phase 8 settled the guard: **a golden
+   file per provider** (`internal/tools/testdata/tools_deepseek.golden.json`,
+   `tools_kimi.golden.json`), both asserted by one table-driven test
+   (`TestToolArrayGolden`). Two files rather than one, so a failing assertion
+   names the provider whose head moved; one test, so the two assertions
+   cannot drift apart. The DeepSeek golden was captured from the pre-Phase-8
+   array and must keep passing byte-for-byte; Kimi's pins the new array.
 
 ## 6. Phased plan
 
@@ -294,12 +296,18 @@ serialises unchanged. Extend the fold and the golden tests.
 Verify: the Phase 3 golden test still passes byte-for-byte, plus a new one
 covering a message that does carry parts.
 
-### Phase 8 — Kimi's tool array and image Read
+### Phase 8 — Kimi's tool array and image Read — done
 
-Give Kimi its own tool array, without `Screenshot` and `ReviewScreenshot`.
-`Read` returns an `image_url` part when the path is an image and the provider
-can see one, and keeps its current behaviour everywhere else. Settle decision 6
-here: whichever guard is chosen, both arrays get it.
+Landed as PR #93: `internal/tools` now ships two frozen arrays (DeepSeek's
+sixteen unchanged byte for byte, Kimi's fourteen without `Screenshot` and
+`ReviewScreenshot`), each pinned by its own golden file
+(`TestToolArrayGolden`, decision 6). `Read` returns an `image_url` part when
+the path is a PNG/JPEG/WebP and the provider can see images — the bytes
+base64-encoded into a data URI, capped by the existing screenshot cap
+setting (`tools.reviewscreenshot_max_bytes`), with a refusal naming the limit
+over the cap. The image bytes live in the `tool_result` event payload
+(`ImageURL`), so the fold rebuilds the parts array identically on every
+replay and stays append-only.
 
 Verify: a Kimi run that captures a page through Bash and `playwright-cli`,
 reads the PNG, and answers a question about what is in it. A DeepSeek run over
