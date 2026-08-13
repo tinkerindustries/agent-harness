@@ -83,7 +83,7 @@ export function EvalListScreen({ onOpen }: { onOpen: (id: string) => void }) {
             <th>Compared</th>
             <th>Runs</th>
             <th>Cost</th>
-            <th>Started</th>
+            <th>Elapsed</th>
             <th>Headline</th>
           </tr>
         </thead>

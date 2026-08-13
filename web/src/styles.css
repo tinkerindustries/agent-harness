@@ -4070,12 +4070,12 @@ kbd {
 
 .eval-list,
 .eval-run {
-  padding: var(--space-6) 0;
+  padding: var(--space-4) 0;
 }
 
 .eval-empty,
 .eval-error {
-  padding: var(--space-6) 0;
+  padding: var(--space-4) 0;
   color: var(--muted-foreground);
 }
 
@@ -4100,7 +4100,7 @@ kbd {
 
 .eval-variants {
   display: inline-flex;
-  gap: var(--space-1);
+  gap: var(--space-half);
   flex-wrap: wrap;
 }
 
@@ -4130,7 +4130,7 @@ kbd {
 .eval-facts {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-5);
+  gap: var(--space-4);
   margin: var(--space-4) 0 0;
 }
 
@@ -4146,7 +4146,7 @@ kbd {
 }
 
 .eval-section {
-  margin-top: var(--space-7);
+  margin-top: var(--space-4);
 }
 
 .eval-section h2 {

@@ -137,12 +137,13 @@ export function formatMetric(metric: string, value: number): string {
   return value.toFixed(2);
 }
 
-// formatDelta signs the difference, because the direction is the point.
+// formatDelta signs the difference, because the direction is the point. An
+// exact zero is words rather than "0.0%", which beside a metric name reads as
+// the value rather than the change.
 export function formatDelta(metric: string, diff: number): string {
+  if (diff === 0) return "no change";
   const body = formatMetric(metric, Math.abs(diff));
-  if (diff > 0) return `+${body}`;
-  if (diff < 0) return `-${body}`;
-  return body;
+  return diff > 0 ? `+${body}` : `-${body}`;
 }
 
 // metricLabel is the human name for a metric. An unknown one — a metric added

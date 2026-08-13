@@ -53,7 +53,8 @@ describe("formatDelta", () => {
   it("signs the difference, because the direction is the point", () => {
     expect(formatDelta("search_via_tool", 0.18)).toBe("+18.0%");
     expect(formatDelta("search_via_tool", -0.18)).toBe("-18.0%");
-    expect(formatDelta("sub_turns", 0)).toBe("0.00");
+    // "0.00" beside a metric name reads as the value, not the change.
+    expect(formatDelta("sub_turns", 0)).toBe("no change");
   });
 });
 
