@@ -1,10 +1,14 @@
 package tools
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/png"
 	"math"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -101,8 +105,9 @@ func TestReviewScreenshotRefusesBadExtensions(t *testing.T) {
 }
 
 // TestReviewScreenshotRefusesOversizeFile pins the per-file byte cap: an
-// over-limit file is refused with an error naming the actual limit, and the
-// refusal happens before any request is sent.
+// over-limit file that cannot be decoded is refused with an error naming the
+// actual limit and the reason downscaling was not available, and the refusal
+// happens before any request is sent.
 func TestReviewScreenshotRefusesOversizeFile(t *testing.T) {
 	hit := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -128,8 +133,170 @@ func TestReviewScreenshotRefusesOversizeFile(t *testing.T) {
 	if !res.IsError || !strings.Contains(res.Content, want) {
 		t.Fatalf("expected a size refusal naming the limit %d, got: %s", reviewScreenshotMaxBytes, res.Content)
 	}
+	if !strings.Contains(res.Content, "could not be downscaled") {
+		t.Fatalf("the refusal should name why downscaling was not available, got: %s", res.Content)
+	}
 	if hit {
 		t.Fatal("request was sent despite an over-limit file")
+	}
+}
+
+// testPNGBytes renders a w×h RGBA image of deterministic noise and encodes
+// it as PNG. Random pixels compress poorly, so a large one is a reliably
+// over-cap file and a small one is a reliably decodable under-cap file.
+func testPNGBytes(t *testing.T, w, h int) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	rng := rand.New(rand.NewSource(42))
+	for i := range img.Pix {
+		img.Pix[i] = byte(rng.Intn(256))
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// TestReviewScreenshotDownscalesOversizeFile pins the route around the byte
+// cap: an over-cap file that decodes is shrunk preserving aspect ratio until
+// the re-encoded bytes fit, that shrunk image is what Gemini receives (under
+// the cap), and the result text tells the model it was downscaled and to
+// what dimensions.
+func TestReviewScreenshotDownscalesOversizeFile(t *testing.T) {
+	var got struct {
+		Input []gemini.Content `json:"input"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"i","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"[]"}]}]}`))
+	}))
+	defer srv.Close()
+
+	root := t.TempDir()
+	e, err := NewExecutor(root, &Policy{Mode: ModeFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Gemini = reviewScreenshotClient(srv)
+	// 2400×2400 of random pixels encodes to ~23 MB — far over the 5 MB cap —
+	// and no amount of compression will fit that, so the file must be shrunk.
+	big := testPNGBytes(t, 2400, 2400)
+	if len(big) <= reviewScreenshotMaxBytes {
+		t.Fatalf("test image is %d bytes, want it over the %d-byte cap", len(big), reviewScreenshotMaxBytes)
+	}
+	if err := os.WriteFile(filepath.Join(root, "big.png"), big, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ImagePaths: []string{"big.png"},
+		Question:   "what is wrong?",
+	})
+	if res.IsError {
+		t.Fatalf("an over-cap file that decodes must be downscaled, not refused: %s", res.Content)
+	}
+
+	// The result says the file was downscaled and names the dimensions.
+	const marker = "big.png was downscaled to "
+	idx := strings.Index(res.Content, marker)
+	if idx < 0 {
+		t.Fatalf("result should say the image was downscaled, got: %s", res.Content)
+	}
+	dims, _, _ := strings.Cut(res.Content[idx+len(marker):], " ")
+	var w, h int
+	if _, err := fmt.Sscanf(dims, "%dx%d", &w, &h); err != nil {
+		t.Fatalf("the downscale note should carry dimensions, got %q: %v", dims, err)
+	}
+	if w >= 2400 || h >= 2400 || w < 1 || h < 1 {
+		t.Fatalf("downscaled dimensions %dx%d should be smaller than the 2400x2400 original", w, h)
+	}
+
+	// What Gemini received is the shrunk image: under the cap, smaller than
+	// the original, and decoding to exactly the dimensions the note names.
+	var received []byte
+	for _, p := range got.Input {
+		if p.Type == gemini.ContentTypeImage {
+			raw, err := base64.StdEncoding.DecodeString(p.Data)
+			if err != nil {
+				t.Fatalf("received image is not valid base64: %v", err)
+			}
+			received = raw
+		}
+	}
+	if len(received) == 0 {
+		t.Fatal("no image reached the server")
+	}
+	if len(received) > reviewScreenshotMaxBytes {
+		t.Fatalf("server received %d bytes, want at most the %d-byte cap", len(received), reviewScreenshotMaxBytes)
+	}
+	if len(received) >= len(big) {
+		t.Fatalf("server received %d bytes, want fewer than the original %d", len(received), len(big))
+	}
+	decoded, _, err := image.Decode(bytes.NewReader(received))
+	if err != nil {
+		t.Fatalf("received image does not decode: %v", err)
+	}
+	if b := decoded.Bounds(); b.Dx() != w || b.Dy() != h {
+		t.Fatalf("received image is %dx%d, want the %dx%d the note names", b.Dx(), b.Dy(), w, h)
+	}
+}
+
+// TestReviewScreenshotSendsUnderCapFileByteIdentically pins that a file
+// already under the cap is never decoded and re-encoded: Gemini receives the
+// file's bytes exactly, and the result says nothing about downscaling.
+func TestReviewScreenshotSendsUnderCapFileByteIdentically(t *testing.T) {
+	var got struct {
+		Input []gemini.Content `json:"input"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"i","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"[]"}]}]}`))
+	}))
+	defer srv.Close()
+
+	root := t.TempDir()
+	e, err := NewExecutor(root, &Policy{Mode: ModeFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Gemini = reviewScreenshotClient(srv)
+	small := testPNGBytes(t, 32, 24)
+	if err := os.WriteFile(filepath.Join(root, "small.png"), small, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ImagePaths: []string{"small.png"},
+		Question:   "what is wrong?",
+	})
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	if strings.Contains(res.Content, "downscaled") {
+		t.Fatalf("an under-cap file must not be reported as downscaled, got: %s", res.Content)
+	}
+	var received []byte
+	for _, p := range got.Input {
+		if p.Type == gemini.ContentTypeImage {
+			raw, err := base64.StdEncoding.DecodeString(p.Data)
+			if err != nil {
+				t.Fatalf("received image is not valid base64: %v", err)
+			}
+			received = raw
+		}
+	}
+	if len(received) == 0 {
+		t.Fatal("no image reached the server")
+	}
+	if !bytes.Equal(received, small) {
+		t.Fatalf("server received %d bytes, want the original %d byte-for-byte", len(received), len(small))
 	}
 }
 

@@ -2,6 +2,14 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { errorMessage, parseRepoSpec, startRun, type WorkRequest } from "../api/operations";
 import { filterRepos, listGithubRepos, repoSpecFor, type GithubRepo } from "../api/github";
 import { sessionListStore } from "../api/sessionListStore";
+import { listSettings } from "../api/settings";
+import {
+  attachmentCapsFromSettings,
+  formatFileSize,
+  readAttachmentFiles,
+  type AttachmentCaps,
+  type ChosenAttachment,
+} from "../api/attachments";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import {
@@ -43,6 +51,16 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [accepted, setAccepted] = useState<string | null>(null);
+
+  // The attachment input's async state: the caps POST /api/runs enforces,
+  // read from GET /api/settings once on mount so an operator who changes
+  // tools.attachments_max_count or tools.attachments_max_bytes sees the form
+  // change with it. The input stays disabled until the caps land — there is
+  // no hardcoded fallback to validate against. chosen are the files accepted
+  // so far, shown with a per-file remove control until the run is submitted.
+  const [attachmentCaps, setAttachmentCaps] = useState<AttachmentCaps | null>(null);
+  const [attachmentCapsError, setAttachmentCapsError] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<ChosenAttachment[]>([]);
 
   // The repo picker's async state, fetched once on mount: the operator's
   // GitHub repos for the searchable combobox, whether a github.token is
@@ -88,6 +106,45 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
       cancelled = true;
     };
   }, []);
+
+  // The attachment caps come from the settings registry, not from code: a
+  // changed tools.attachments_max_count or tools.attachments_max_bytes must
+  // change what this form accepts. A fetch failure disables the input with
+  // the reason shown, rather than validating against a guessed limit.
+  useEffect(() => {
+    let cancelled = false;
+    listSettings()
+      .then((entries) => {
+        if (!cancelled) setAttachmentCaps(attachmentCapsFromSettings(entries));
+      })
+      .catch((err) => {
+        if (!cancelled) setAttachmentCapsError(`Attachment limits unavailable: ${errorMessage(err)}`);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // handleAttachmentChange reads a selection through readAttachmentFiles —
+  // extension and caps enforced there, with the refusal naming the actual
+  // limit — and appends the accepted files to the chosen list. The input's
+  // value is cleared so picking the same file again re-fires the change.
+  const handleAttachmentChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (files.length === 0 || !attachmentCaps) return;
+    setError(null);
+    const result = await readAttachmentFiles(files, attachmentCaps);
+    if (!result.ok) {
+      setError(result.error);
+      return;
+    }
+    setChosen((prev) => [...prev, ...result.chosen]);
+  };
+
+  const removeAttachment = (name: string) => {
+    setChosen((prev) => prev.filter((c) => c.attachment.name !== name));
+  };
 
   // The screen follows the new session from the list feed the screen is
   // already connected to: a session whose request_id matches what the 202
@@ -168,6 +225,7 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
     setJobType("");
     setParentAgentType("");
     setParentAgentID("");
+    setChosen([]);
   };
 
   const submit = async () => {
@@ -215,6 +273,7 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
     if (maxSubTurns.trim() !== "") body.max_sub_turns = Number(maxSubTurns);
     if (deadlineMs.trim() !== "") body.deadline_ms = Number(deadlineMs);
     if (jobType !== "") body.job_type = jobType;
+    if (chosen.length > 0) body.attachments = chosen.map((c) => c.attachment);
 
     setSending(true);
     try {
@@ -318,6 +377,41 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
           {githubError && <p className="hint">{githubError}</p>}
           {!githubConfigured && !githubLoading && !githubError && (
             <p className="hint">Add a GitHub token in Settings to search your repositories.</p>
+          )}
+        </div>
+
+        <div className="start-field start-field-wide">
+          <span className="start-label">Image attachments</span>
+          <input
+            type="file"
+            accept=".png,.jpg,.jpeg,.webp"
+            multiple
+            disabled={!attachmentCaps}
+            onChange={handleAttachmentChange}
+            aria-label="Image attachments (PNG, JPEG, WebP) — the mockups the run works against"
+          />
+          {attachmentCapsError && <p className="hint">{attachmentCapsError}</p>}
+          {!attachmentCaps && !attachmentCapsError && (
+            <p className="hint">Loading attachment limits…</p>
+          )}
+          {attachmentCaps && (
+            <p className="hint">
+              Mockups the agent reviews against, e.g. the page it should match. PNG, JPEG or WebP, up to{" "}
+              {attachmentCaps.maxCount} files of {formatFileSize(attachmentCaps.maxBytes)} each.
+            </p>
+          )}
+          {chosen.length > 0 && (
+            <ul className="start-attachment-list">
+              {chosen.map(({ attachment, size }) => (
+                <li className="start-repo-row" key={attachment.name}>
+                  <span className="start-attachment-name">{attachment.name}</span>
+                  <span className="start-attachment-meta">{formatFileSize(size)}</span>
+                  <Button variant="outline" size="sm" onClick={() => removeAttachment(attachment.name)}>
+                    Remove
+                  </Button>
+                </li>
+              ))}
+            </ul>
           )}
         </div>
 

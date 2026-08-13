@@ -79,6 +79,13 @@ type SessionStartedPayload struct {
 	// session_started carries it: a resume instruction is a continuation,
 	// not the launch instruction.
 	Task string `json:"task,omitempty"`
+	// Attachments are the paths the request's attachments were materialised
+	// into — "scratch/attachments/<name>" inside the session workspace
+	// (internal/workspace), the same paths the opening message lists, empty
+	// when the request carried none. Stored separately the way SkillCatalogue
+	// is, so the browser can render the images through
+	// GET /api/sessions/{id}/screenshot without parsing the message text.
+	Attachments []string `json:"attachments,omitempty"`
 }
 
 // TurnStartedPayload marks the start of one sub-turn.
