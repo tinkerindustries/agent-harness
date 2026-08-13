@@ -14,15 +14,31 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 )
 
+// Attachment is one image a work request carried: the bytes the store held,
+// plus the file name and MIME type to write them under. workspace never
+// reads the store — the worker fetches the rows and passes them here — so
+// this package keeps depending on nothing but queue.
+type Attachment struct {
+	Name     string
+	MIMEType string
+	Data     []byte
+}
+
 // Prepare creates root/sessionID with a scratch/ subdirectory and clones
 // repos into it, returning the absolute path the session runs against. The
 // directory must not already exist: a session id names exactly one run, so an
 // existing folder means something else owns it. Each clone then has its Node
 // dependencies installed, best-effort (deps.go).
 //
+// Attachments — images the request carried, e.g. a mockup the task asks the
+// agent to match — are materialised into scratch/attachments/ so the model
+// finds them next to the clones, named in the opening message
+// (internal/session/prompt.go). The name is written as-is: the producers
+// already rejected a name that is not a plain file name.
+//
 // A partly built workspace is left on disk when a clone fails. The run is
 // over at that point and the directory is the only record of how far it got.
-func Prepare(ctx context.Context, root, sessionID string, repos []queue.Repo) (string, error) {
+func Prepare(ctx context.Context, root, sessionID string, repos []queue.Repo, attachments []Attachment) (string, error) {
 	if root == "" {
 		return "", fmt.Errorf("workspace: no workspace root is configured; set DEEPSEEK_WORKSPACE_ROOT")
 	}
@@ -50,6 +66,10 @@ func Prepare(ctx context.Context, root, sessionID string, repos []queue.Repo) (s
 		return "", fmt.Errorf("workspace: create scratch dir in %q: %w", dir, err)
 	}
 
+	if err := writeAttachments(dir, attachments); err != nil {
+		return dir, err
+	}
+
 	for _, repo := range repos {
 		if err := clone(ctx, dir, repo); err != nil {
 			return dir, err
@@ -57,6 +77,31 @@ func Prepare(ctx context.Context, root, sessionID string, repos []queue.Repo) (s
 		installDependencies(ctx, filepath.Join(dir, repo.Dir()))
 	}
 	return dir, nil
+}
+
+// writeAttachments materialises the request's attachments into
+// scratch/attachments/, each under its own name. The name must be a plain
+// file name — no separators, no ".." — so an attachment can never escape
+// the attachments directory however it was accepted; the producers enforce
+// the same rule, and this is the second line of defence.
+func writeAttachments(dir string, attachments []Attachment) error {
+	if len(attachments) == 0 {
+		return nil
+	}
+	attDir := filepath.Join(dir, "scratch", "attachments")
+	if err := os.MkdirAll(attDir, 0o755); err != nil {
+		return fmt.Errorf("workspace: create scratch/attachments in %q: %w", dir, err)
+	}
+	for _, att := range attachments {
+		name := filepath.Base(att.Name)
+		if name == "" || name == "." || name == ".." || name != att.Name {
+			return fmt.Errorf("workspace: attachment name %q is not a plain file name", att.Name)
+		}
+		if err := os.WriteFile(filepath.Join(attDir, name), att.Data, 0o644); err != nil {
+			return fmt.Errorf("workspace: write attachment %s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 // clone checks one repository out into parent. Validation (queue.Request)

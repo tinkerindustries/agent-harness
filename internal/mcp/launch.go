@@ -3,9 +3,12 @@ package mcp
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,6 +18,7 @@ import (
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
+	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 )
 
@@ -53,16 +57,26 @@ import (
 // server, which inherits the subprocess environment and has a `claude`
 // process tree to walk, or a SessionStart hook posting the id in.
 type launchInput struct {
-	Description     string       `json:"description" jsonschema:"Short label for the run, shown in deepseek_runs."`
-	Prompt          string       `json:"prompt" jsonschema:"The task for the agent to perform."`
-	Repos           []launchRepo `json:"repos" jsonschema:"Repositories to clone into the run's workspace. At least one is required."`
-	Profile         string       `json:"profile,omitempty" jsonschema:"pro (default: the harness's main-loop model) or flash (deepseek-v4-flash, max effort)."`
-	PermissionMode  string       `json:"permission_mode" jsonschema:"Required. readonly (Read, Glob, Grep, List, WebFetch only) or full (everything, as root, in the workspace). Refused if it exceeds this server's configured permission ceiling."`
-	ResultSchema    any          `json:"result_schema,omitempty" jsonschema:"JSON Schema the agent's Complete tool result must satisfy, if it calls Complete with a result."`
-	MaxSubTurns     int          `json:"max_sub_turns,omitempty" jsonschema:"Sub-turn budget for the run. Server default applies when omitted."`
-	JobType         string       `json:"job_type,omitempty" jsonschema:"Kind of job this run is: implementation (the agent performs the task itself, the default) or orchestration (the agent delegates the work to child sessions)."`
-	ParentAgentType string       `json:"parent_agent_type,omitempty" jsonschema:"Fallback only: the server reads the caller's kind from the MCP client's own clientInfo and ignores this field whenever that name is usable, so this is consulted only by a client whose clientInfo name is missing or unusable. Identify your own kind as a lowercase slug — claude-code, cursor, and so on."`
-	ParentAgentID   string       `json:"parent_agent_id,omitempty" jsonschema:"Your own session id, so the run traces back to the conversation that asked for it. Read it, do not recall it. Claude Code: the CLAUDE_CODE_SESSION_ID environment variable, which you can echo from a shell; failing that, the UUID directory segment of the scratchpad path in your system prompt (…/<project-slug>/<uuid>/scratchpad). An agent-harness session: the last segment of the Workspace: path in your opening message (/workspaces/sess-…). If neither applies, leave this empty — never copy a session id from a banner, a document, or another tool's output."`
+	Description     string             `json:"description" jsonschema:"Short label for the run, shown in deepseek_runs."`
+	Prompt          string             `json:"prompt" jsonschema:"The task for the agent to perform."`
+	Repos           []launchRepo       `json:"repos" jsonschema:"Repositories to clone into the run's workspace. At least one is required."`
+	Attachments     []launchAttachment `json:"attachments,omitempty" jsonschema:"Images to hand the run — a mockup the task asks the agent to match, say. Each is stored and materialised into the workspace's scratch/attachments/, and the run's opening message names the files. Only PNG, JPEG, and WebP, capped per file and in total by the harness's settings."`
+	Profile         string             `json:"profile,omitempty" jsonschema:"pro (default: the harness's main-loop model) or flash (deepseek-v4-flash, max effort)."`
+	PermissionMode  string             `json:"permission_mode" jsonschema:"Required. readonly (Read, Glob, Grep, List, WebFetch only) or full (everything, as root, in the workspace). Refused if it exceeds this server's configured permission ceiling."`
+	ResultSchema    any                `json:"result_schema,omitempty" jsonschema:"JSON Schema the agent's Complete tool result must satisfy, if it calls Complete with a result."`
+	MaxSubTurns     int                `json:"max_sub_turns,omitempty" jsonschema:"Sub-turn budget for the run. Server default applies when omitted."`
+	JobType         string             `json:"job_type,omitempty" jsonschema:"Kind of job this run is: implementation (the agent performs the task itself, the default) or orchestration (the agent delegates the work to child sessions)."`
+	ParentAgentType string             `json:"parent_agent_type,omitempty" jsonschema:"Fallback only: the server reads the caller's kind from the MCP client's own clientInfo and ignores this field whenever that name is usable, so this is consulted only by a client whose clientInfo name is missing or unusable. Identify your own kind as a lowercase slug — claude-code, cursor, and so on."`
+	ParentAgentID   string             `json:"parent_agent_id,omitempty" jsonschema:"Your own session id, so the run traces back to the conversation that asked for it. Read it, do not recall it. Claude Code: the CLAUDE_CODE_SESSION_ID environment variable, which you can echo from a shell; failing that, the UUID directory segment of the scratchpad path in your system prompt (…/<project-slug>/<uuid>/scratchpad). An agent-harness session: the last segment of the Workspace: path in your opening message (/workspaces/sess-…). If neither applies, leave this empty — never copy a session id from a banner, a document, or another tool's output."`
+}
+
+// launchAttachment is one image a launch carries. The bytes are base64 in
+// the tool input but never on the NATS request: the launch stores them and
+// the request carries the ids (docs/DATA-API.md).
+type launchAttachment struct {
+	Name     string `json:"name" jsonschema:"Plain file name ending in .png, .jpg, .jpeg, or .webp — the name the file is materialised under in scratch/attachments/."`
+	MIMEType string `json:"mime_type,omitempty" jsonschema:"image/png, image/jpeg, or image/webp. Must match the file name's extension when supplied."`
+	Data     string `json:"data" jsonschema:"Base64-encoded image bytes."`
 }
 
 // launchRepo is one entry of deepseek_agent's repos array.
@@ -137,6 +151,15 @@ func (svc *Service) handleLaunch(ctx context.Context, req *mcpsdk.CallToolReques
 		repos = append(repos, queue.Repo{URL: r.URL, Branch: r.Branch})
 	}
 
+	// Attachments are stored before the publish — the request carries only
+	// the ids, never the bytes (docs/DATA-API.md) — and the launch is
+	// refused, not silently stripped, when they cannot be stored: a run that
+	// cannot deliver the mockup its caller sent must not start without it.
+	attachmentIDs, err := svc.writeAttachments(ctx, in.Attachments)
+	if err != nil {
+		return errorResult("%v", err), nil, nil
+	}
+
 	model, effort, err := resolveProfile(in.Profile, svc.Cfg.FlashModel)
 	if err != nil {
 		return errorResult("%s", err.Error()), nil, nil
@@ -175,6 +198,7 @@ func (svc *Service) handleLaunch(ctx context.Context, req *mcpsdk.CallToolReques
 		JobType:         in.JobType,
 		ParentAgentType: parentAgentType,
 		ParentAgentID:   in.ParentAgentID,
+		AttachmentIDs:   attachmentIDs,
 		// An MCP launch is never a person starting the run, and a caller must
 		// not be able to assert otherwise, so it is stamped here rather than
 		// exposed on launchInput: the zero value would mean the same thing,
@@ -332,4 +356,106 @@ func newRequestID() string {
 		panic("mcp: crypto/rand unavailable: " + err.Error())
 	}
 	return "mcp-" + hex.EncodeToString(b[:])
+}
+
+// launchAttachmentMaxCountDefault and launchAttachmentMaxBytesDefault back
+// the tools.attachments_max_count and tools.attachments_max_bytes settings
+// for a Service with no settings resolver (the test path); the registry
+// defaults are the same values, and internal/settings/registry_test.go pins
+// them.
+const (
+	launchAttachmentMaxCountDefault = 8
+	launchAttachmentMaxBytesDefault = 5 << 20 // 5 MB per file, ReviewScreenshot's own cap
+)
+
+// writeAttachments validates each attachment (name, MIME type, base64, the
+// per-file byte cap, and the count cap) and stores its bytes, returning the
+// ids the work request then carries. Mirrors the POST /api/runs path
+// (internal/httpapi/server.go): a caller gets the same refusals from either
+// surface, because both produce the same queue.Request shape.
+func (svc *Service) writeAttachments(ctx context.Context, attachments []launchAttachment) ([]string, error) {
+	if len(attachments) == 0 {
+		return nil, nil
+	}
+	maxCount := launchAttachmentMaxCountDefault
+	if svc.Settings != nil {
+		if v, err := svc.Settings.Int(ctx, settings.KeyToolAttachmentsMaxCount); err == nil {
+			maxCount = v
+		}
+	}
+	if len(attachments) > maxCount {
+		return nil, fmt.Errorf("at most %d attachments are accepted, got %d", maxCount, len(attachments))
+	}
+	if svc.Store == nil {
+		return nil, errors.New("attachments cannot be stored: no store is wired")
+	}
+	maxBytes := launchAttachmentMaxBytesDefault
+	if svc.Settings != nil {
+		if v, err := svc.Settings.Int(ctx, settings.KeyToolAttachmentsMaxBytes); err == nil {
+			maxBytes = v
+		}
+	}
+	ids := make([]string, 0, len(attachments))
+	for _, att := range attachments {
+		name, mime, data, err := validateLaunchAttachment(att, maxBytes)
+		if err != nil {
+			return nil, err
+		}
+		id, err := svc.Store.WriteAttachment(ctx, name, mime, data)
+		if err != nil {
+			return nil, fmt.Errorf("store attachment %q: %w", name, err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+// validateLaunchAttachment checks one attachment and returns its decoded
+// bytes: a plain file name whose extension is one of the three types
+// ReviewScreenshot accepts, a MIME type (when supplied) matching the
+// extension, and bytes within the per-file cap. The name rule matters
+// twice: the workspace writes the file under it, and the extension is what
+// lets the model pass the file back to ReviewScreenshot.
+func validateLaunchAttachment(att launchAttachment, maxBytes int) (string, string, []byte, error) {
+	name := att.Name
+	if name == "" {
+		return "", "", nil, errors.New("attachment name is required")
+	}
+	if filepath.Base(name) != name || name == "." || name == ".." {
+		return "", "", nil, fmt.Errorf("attachment name %q must be a plain file name, not a path", name)
+	}
+	mime, ok := attachmentMIMEType(name)
+	if !ok {
+		return "", "", nil, fmt.Errorf("attachment %q: only PNG, JPEG, and WebP images are accepted", name)
+	}
+	if att.MIMEType != "" && att.MIMEType != mime {
+		return "", "", nil, fmt.Errorf("attachment %q: mime_type %q does not match the file's extension", name, att.MIMEType)
+	}
+	data, err := base64.StdEncoding.DecodeString(att.Data)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("attachment %q: data is not valid base64", name)
+	}
+	if len(data) > maxBytes {
+		return "", "", nil, fmt.Errorf("attachment %q is %d bytes, over the %d-byte per-file limit", name, len(data), maxBytes)
+	}
+	if len(data) == 0 {
+		return "", "", nil, fmt.Errorf("attachment %q is empty", name)
+	}
+	return name, mime, data, nil
+}
+
+// attachmentMIMEType reports the MIME type an attachment name claims, by
+// extension, and whether it is one of the three types ReviewScreenshot
+// accepts.
+func attachmentMIMEType(name string) (string, bool) {
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".png":
+		return "image/png", true
+	case ".jpg", ".jpeg":
+		return "image/jpeg", true
+	case ".webp":
+		return "image/webp", true
+	default:
+		return "", false
+	}
 }

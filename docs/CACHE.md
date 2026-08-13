@@ -81,7 +81,12 @@ resumable session, and every resume is cold.
 is refused at execution with an error result the model can read. Removing tools
 per mode would give each mode its own prefix and make mode switching a cold
 start. A work request's `result_schema` is the tempting exception: it belongs
-in the opening user message, never in `Complete`'s definition.
+in the opening user message, never in `Complete`'s definition. Evolving the
+array *between releases* is different from varying it per request: when
+`ReviewScreenshot` gained its `conversation_id` argument, every session shipped
+the new array together, so the head changed once, paid once, and stayed shared
+— the rule is that no session or request gets a head of its own, not that the
+head is frozen forever.
 
 **Never quote a configurable limit in a tool description.** The tool array is
 part of the frozen head, so a number that an operator can change — a timeout,

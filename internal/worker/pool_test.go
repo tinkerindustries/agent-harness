@@ -26,6 +26,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 	"github.com/mrgeoffrich/deepseek-harness/internal/session"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/deepseek-harness/internal/workspace"
 )
 
 // testNATSURL and connectOrSkip mirror internal/queue's test helpers: the
@@ -240,11 +241,24 @@ func (h *testHarness) startPool(t *testing.T) (stop func()) {
 
 // fakePrepareWorkspace stands in for workspace.Prepare so these tests drive
 // the pool without cloning anything over the network. The real clone is
-// covered in internal/workspace.
-func fakePrepareWorkspace(_ context.Context, root, sessionID string, _ []queue.Repo) (string, error) {
+// covered in internal/workspace. It materialises attachments the way the
+// real Prepare does, so the attachment tests can assert the pool hands them
+// through.
+func fakePrepareWorkspace(_ context.Context, root, sessionID string, _ []queue.Repo, attachments []workspace.Attachment) (string, error) {
 	dir := filepath.Join(root, sessionID)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
+	}
+	if len(attachments) > 0 {
+		attDir := filepath.Join(dir, "scratch", "attachments")
+		if err := os.MkdirAll(attDir, 0o755); err != nil {
+			return "", err
+		}
+		for _, att := range attachments {
+			if err := os.WriteFile(filepath.Join(attDir, att.Name), att.Data, 0o644); err != nil {
+				return "", err
+			}
+		}
 	}
 	return dir, nil
 }

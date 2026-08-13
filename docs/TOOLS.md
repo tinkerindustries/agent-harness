@@ -266,16 +266,45 @@ on their own terms — overlap, clipping, overflow, contrast — and told not to
 report stylistic judgements. A vision model given no standard falls back on
 general web-design convention and returns deliberate choices as breakage,
 which is why the tool description urges a spec on every call. Both forms ask
-for the same JSON list, each finding carrying a `confidence`, and both state
+for the same JSON list, each finding carrying a `confidence` and an `image`
+naming the screenshot it concerns, and both state
 that an empty list is a valid answer rather than a failure to retry
 ([`docs/reviews/sess-b949743ff7766606eb210ae59f2c1bcd.md`](reviews/sess-b949743ff7766606eb210ae59f2c1bcd.md)
-measures what the earlier single instruction cost).
+measures what the earlier single instruction cost). The name comes from a
+label: each image part is preceded by a text part carrying its file's base
+name ("Image 1: home-dark.png"), so a finding on a multi-capture comparison
+says which screenshot it is about, and the transcript's rendered image sits
+under the same name.
 
 The model comes from the `google.vision_model` setting (default
 `gemini-3.5-flash`) and the key from `google.api_key`, both read through the
 settings table on every call, so either can change without a restart. The call
 has its own timeout (default 60s, `tools.reviewscreenshot_timeout`) rather than
 the 30-second tool default.
+
+A review can be followed up without re-uploading. A call without
+`conversation_id` starts a conversation and its result carries the id; a call
+passing that id, a question, and no `image_paths` continues the conversation.
+The conversation is held on the session's Executor and stores the image paths
+and the prior question/answer pairs — never the image bytes — so a follow-up
+re-reads the files from disk (a file deleted since the first call fails with an
+ordinary error naming it), re-sends the images, the earlier exchanges, and the
+new question in one request. "Look closer at the header" therefore costs one
+Gemini interaction with the thread replayed, not a fresh review from scratch,
+and the spec is fixed for the conversation's life. Retained conversations are
+capped at the most recent five per session, so a long session cannot grow this
+without bound.
+
+An image can also arrive with the task. A work request may carry attachments
+(`POST /api/runs`, the MCP `deepseek_agent` tool — docs/DATA-API.md): the
+bytes are stored in SQLite, the request carries only ids, and
+`internal/workspace` materialises them into `scratch/attachments/` during
+`Prepare`. The opening message names the files, so the model knows they exist
+and can pass one to ReviewScreenshot as the image the page should be judged
+against — "make it look like this mockup" becomes a review against the mockup
+itself instead of a prose description of it. Only PNG, JPEG, and WebP are
+accepted, capped in count and per-file bytes by
+`tools.attachments_max_count` and `tools.attachments_max_bytes`.
 
 A Gemini call bills separately from the sub-turn that made it. Its usage rides
 home on the tool result, and the runner stamps the sub-turn it happened in and

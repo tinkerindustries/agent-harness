@@ -125,10 +125,16 @@ func NewClient(baseURL string, opts ...ClientOption) *Client {
 // of the Resolution constants. Only the image that needs the closest
 // scrutiny should be ResolutionHigh; the rest should be ResolutionMedium to
 // save tokens (docs/gemini-3.5-flash-ui-review-prompting.md).
+//
+// Label names the image to the model: Interact emits a text part carrying it
+// ("Image 1: <label>") immediately before the image part, so a finding can
+// say which screenshot it is about instead of referring to a position in the
+// array. ReviewScreenshot sets it to the file's base name.
 type Image struct {
 	Data       []byte
 	MIMEType   string
 	Resolution string
+	Label      string
 }
 
 // Interact sends one interaction to model with the screenshots first
@@ -153,7 +159,17 @@ func (c *Client) Interact(ctx context.Context, model, systemInstruction, questio
 		ResponseFormat: &ResponseFormat{Type: "array"},
 		Input:          make([]Content, 0, len(images)+1),
 	}
-	for _, img := range images {
+	for i, img := range images {
+		// The label rides as its own text part immediately before the image,
+		// so the model can name the screenshot a finding is about rather than
+		// referring to a position in the array. The numbering is 1-based, the
+		// order a human sees the images in.
+		if img.Label != "" {
+			req.Input = append(req.Input, Content{
+				Type: ContentTypeText,
+				Text: fmt.Sprintf("Image %d: %s", i+1, img.Label),
+			})
+		}
 		req.Input = append(req.Input, Content{
 			Type:       ContentTypeImage,
 			MIMEType:   img.MIMEType,

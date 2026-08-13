@@ -83,8 +83,10 @@ type Pool struct {
 
 	// PrepareWorkspace builds one run's workspace. It defaults to
 	// workspace.Prepare and is overridable so a test can drive the pool
-	// without cloning over the network.
-	PrepareWorkspace func(ctx context.Context, root, sessionID string, repos []queue.Repo) (string, error)
+	// without cloning over the network. attachments are the request's
+	// materialised images (workspace.Attachment), fetched from the store by
+	// id before this is called.
+	PrepareWorkspace func(ctx context.Context, root, sessionID string, repos []queue.Repo, attachments []workspace.Attachment) (string, error)
 
 	// StopGracePeriod overrides run.stop_grace_period for a stop's
 	// force-finish escalation. Zero (the production default) resolves the
@@ -130,11 +132,36 @@ func (p *Pool) retryLaterDelay() time.Duration {
 	return 5 * time.Second
 }
 
-func (p *Pool) prepareWorkspace() func(context.Context, string, string, []queue.Repo) (string, error) {
+func (p *Pool) prepareWorkspace() func(context.Context, string, string, []queue.Repo, []workspace.Attachment) (string, error) {
 	if p.PrepareWorkspace != nil {
 		return p.PrepareWorkspace
 	}
 	return workspace.Prepare
+}
+
+// loadAttachments reads the request's attachments from the store by id,
+// returning them as workspace.Attachment (the shape Prepare materialises)
+// and their names (the shape the opening message names). A request carrying
+// an id with no row — the row was cleaned up, say — is a setup failure
+// naming the id: the run cannot do what its caller asked without the file.
+func (p *Pool) loadAttachments(ctx context.Context, ids []string) ([]workspace.Attachment, []string, error) {
+	if len(ids) == 0 {
+		return nil, nil, nil
+	}
+	attachments := make([]workspace.Attachment, 0, len(ids))
+	names := make([]string, 0, len(ids))
+	for _, id := range ids {
+		att, err := p.Store.GetAttachment(ctx, id)
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return nil, nil, fmt.Errorf("attachment %s named by the request is not in the store", id)
+			}
+			return nil, nil, fmt.Errorf("read attachment %s: %w", id, err)
+		}
+		attachments = append(attachments, workspace.Attachment{Name: att.Name, MIMEType: att.MIMEType, Data: att.Data})
+		names = append(names, att.Name)
+	}
+	return attachments, names, nil
 }
 
 // defaultDeadline is the wall clock a run that names no deadline gets. It
@@ -591,8 +618,22 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, releaseSlot func()) {
 
 	// Each attempt clones into a directory of its own, named for its session
 	// id, so a redelivery never inherits the half-finished tree of an
-	// attempt that died before its session existed.
-	ws, err := p.prepareWorkspace()(runCtx, p.WorkspaceRoot, sessionID, req.Repos)
+	// attempt that died before its session existed. The request's attachments
+	// are fetched from the store first — the request carries only ids, the
+	// bytes live in the database (docs/DATA-API.md) — and materialised into
+	// scratch/attachments/ by Prepare; the names ride to the opening message
+	// so the model knows the files exist.
+	attachments, attachmentNames, err := p.loadAttachments(runCtx, req.AttachmentIDs)
+	if err != nil {
+		if !rec.answer() {
+			log.Printf("worker: %s: message for session %s already answered; dropping the setup failure", req.RequestID, sessionID)
+			return
+		}
+		result := setupFailedResult(req.RequestID, sessionID, started, err)
+		p.finish(msg, req.RequestID, sessionID, result, false)
+		return
+	}
+	ws, err := p.prepareWorkspace()(runCtx, p.WorkspaceRoot, sessionID, req.Repos, attachments)
 	if err != nil {
 		if !rec.answer() {
 			// A stop force-finished this run while preparation was wedged;
@@ -635,6 +676,7 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, releaseSlot func()) {
 		ParentIsUser:    req.ParentIsUser,
 		PromptVariant:   req.PromptVariant,
 		ReminderPolicy:  req.ReminderPolicy,
+		AttachmentNames: attachmentNames,
 		Progress: func(sp session.SubTurnProgress) {
 			if progressLimiter.Allow(time.Now()) {
 				p.publishProgress(req.RequestID, sp)

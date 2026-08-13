@@ -78,6 +78,12 @@ type RunOptions struct {
 	// runs do (reminders.go). A variant may name one, and this overrides it.
 	ReminderPolicy string
 
+	// AttachmentNames are the files the request's attachments were
+	// materialised into under scratch/attachments/ (internal/workspace).
+	// RenderOpeningMessage names them so the model knows they exist and can
+	// pass one to ReviewScreenshot.
+	AttachmentNames []string
+
 	// SessionID, when set, is used instead of generating a fresh one. A
 	// caller that must know the id before the session row exists — the
 	// worker pool acquiring a workspace lease under it before calling Run,
@@ -380,7 +386,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	// repository instructions.
 	catalogue := skills.Discover(executor.Workspace).Render()
 	claudeMD := claudemd.Discover(executor.Workspace).Render()
-	opening := RenderOpeningMessage(executor.Workspace, opts.Prompt, opts.ResultSchema, claudeMD, catalogue)
+	opening := RenderOpeningMessage(executor.Workspace, opts.Prompt, opts.ResultSchema, claudeMD, catalogue, opts.AttachmentNames)
 	appended, err := r.Store.AppendEvents(ctx, sessID, []store.EventInput{
 		{Kind: store.KindSessionStarted, Payload: store.SessionStartedPayload{
 			OpeningMessage: opening,
