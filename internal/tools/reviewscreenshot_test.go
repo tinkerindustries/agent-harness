@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -612,10 +613,236 @@ func TestReviewScreenshotFormatsTheAnswer(t *testing.T) {
 	if !res.Truncated {
 		t.Fatal("a capped answer must set the truncated flag")
 	}
-	if !strings.HasPrefix(res.Content, "2 findings, 1 high confidence\n") {
-		t.Errorf("result should lead with the count line, got: %q", res.Content)
+	if !strings.HasPrefix(res.Content, "conversation_id: rvw-") {
+		t.Errorf("result should carry the conversation id first, got: %q", res.Content)
+	}
+	if !strings.Contains(res.Content, "\n2 findings, 1 high confidence\n") {
+		t.Errorf("result should lead with the count line after the id, got: %q", res.Content)
 	}
 	if find := mustParseFindings(t, res.Content); len(find) == 0 || len(find) >= 2 {
 		t.Errorf("capped result should keep some but not all findings, got: %s", res.Content)
+	}
+}
+
+// reviewScreenshotRequests is the shape every capture below decodes the
+// Gemini request body into.
+type reviewScreenshotRequests []struct {
+	Input []gemini.Content `json:"input"`
+}
+
+// reviewConversationServer stands in for Gemini across a conversation,
+// recording every request body and answering [] each time.
+func reviewConversationServer(t *testing.T, requests *reviewScreenshotRequests) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Input []gemini.Content `json:"input"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		*requests = append(*requests, req)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"i","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"[]"}]}]}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// TestReviewScreenshotConversationFollowUp drives a first call and then a
+// follow-up against the test Gemini server, asserting the second request
+// carries the images again, the first question, the first answer, and the
+// new question — the follow-up is one review with the thread re-sent, not a
+// fresh review from scratch.
+func TestReviewScreenshotConversationFollowUp(t *testing.T) {
+	var requests reviewScreenshotRequests
+	srv := reviewConversationServer(t, &requests)
+
+	root := t.TempDir()
+	e, err := NewExecutor(root, &Policy{Mode: ModeFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Gemini = reviewScreenshotClient(srv)
+	writeFile(t, root, "a.png", "first image bytes")
+	writeFile(t, root, "b.png", "second image bytes")
+
+	first := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ImagePaths: []string{"a.png", "b.png"},
+		Question:   "what is wrong?",
+		Spec:       "the nav is 64px tall",
+	})
+	if first.IsError {
+		t.Fatalf("first call failed: %s", first.Content)
+	}
+	firstLine, _, _ := strings.Cut(first.Content, "\n")
+	if !strings.HasPrefix(firstLine, "conversation_id: rvw-") {
+		t.Fatalf("first result should carry a conversation id, got: %q", firstLine)
+	}
+	id := strings.TrimPrefix(firstLine, "conversation_id: ")
+
+	second := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ConversationID: id,
+		Question:       "look closer at the header",
+	})
+	if second.IsError {
+		t.Fatalf("follow-up failed: %s", second.Content)
+	}
+	if !strings.HasPrefix(second.Content, "conversation_id: "+id+"\n") {
+		t.Errorf("follow-up result should echo the conversation id, got: %q", second.Content)
+	}
+
+	if len(requests) != 2 {
+		t.Fatalf("Gemini saw %d requests, want 2", len(requests))
+	}
+
+	// The second request carries the images again, byte for byte.
+	var secondImages []gemini.Content
+	for _, p := range requests[1].Input {
+		if p.Type == gemini.ContentTypeImage {
+			secondImages = append(secondImages, p)
+		}
+	}
+	if len(secondImages) != 2 {
+		t.Fatalf("second request has %d image parts, want 2 (the images again)", len(secondImages))
+	}
+	if secondImages[0].Data != base64.StdEncoding.EncodeToString([]byte("first image bytes")) ||
+		secondImages[1].Data != base64.StdEncoding.EncodeToString([]byte("second image bytes")) {
+		t.Errorf("second request's images differ from the first call's files: %+v", secondImages)
+	}
+
+	// The second request's last text part carries the first question, the
+	// first answer (the raw [] from the first response), the spec, and the
+	// new question last.
+	last := requests[1].Input[len(requests[1].Input)-1]
+	if last.Type != gemini.ContentTypeText {
+		t.Fatalf("second request's last part = %+v, want the composed question text", last)
+	}
+	for _, want := range []string{
+		"Design spec / target CSS:", "the nav is 64px tall",
+		"Question: what is wrong?", "Answer: []",
+		"look closer at the header",
+	} {
+		if !strings.Contains(last.Text, want) {
+			t.Errorf("follow-up question should carry %q, got: %s", want, last.Text)
+		}
+	}
+	if !strings.HasSuffix(last.Text, "look closer at the header") {
+		t.Errorf("the new question should come last, got: %s", last.Text)
+	}
+
+	// The labels still introduce the re-sent images.
+	var labels []string
+	for _, p := range requests[1].Input {
+		if p.Type == gemini.ContentTypeText && strings.HasPrefix(p.Text, "Image ") {
+			labels = append(labels, p.Text)
+		}
+	}
+	if len(labels) != 2 || labels[0] != "Image 1: a.png" || labels[1] != "Image 2: b.png" {
+		t.Errorf("follow-up labels = %q, want the base names again", labels)
+	}
+}
+
+// TestReviewScreenshotFollowUpMissingFile pins the re-read-from-disk
+// contract: a follow-up does not hold the image bytes, so a file deleted
+// since the conversation started fails with an ordinary error result naming
+// the missing path.
+func TestReviewScreenshotFollowUpMissingFile(t *testing.T) {
+	var requests reviewScreenshotRequests
+	srv := reviewConversationServer(t, &requests)
+
+	root := t.TempDir()
+	e, err := NewExecutor(root, &Policy{Mode: ModeFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Gemini = reviewScreenshotClient(srv)
+	writeFile(t, root, "a.png", "first image bytes")
+
+	first := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ImagePaths: []string{"a.png"},
+		Question:   "what is wrong?",
+	})
+	if first.IsError {
+		t.Fatalf("first call failed: %s", first.Content)
+	}
+	firstLine, _, _ := strings.Cut(first.Content, "\n")
+	id := strings.TrimPrefix(firstLine, "conversation_id: ")
+
+	if err := os.Remove(filepath.Join(root, "a.png")); err != nil {
+		t.Fatal(err)
+	}
+
+	res := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ConversationID: id,
+		Question:       "look again",
+	})
+	if !res.IsError {
+		t.Fatalf("follow-up on a deleted file should fail, got: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, "a.png") || !strings.Contains(res.Content, "not found") {
+		t.Errorf("error should name the missing path, got: %s", res.Content)
+	}
+	// Nothing reached Gemini: the failure happened before the request.
+	if len(requests) != 1 {
+		t.Errorf("Gemini saw %d requests, want 1 (the failed follow-up sent nothing)", len(requests))
+	}
+}
+
+// TestReviewScreenshotConversationMisuse pins the follow-up contract: an
+// unknown conversation_id and a follow-up that carries image_paths or spec
+// are refused with readable errors, so the model corrects the call rather
+// than paying for a request it did not mean.
+func TestReviewScreenshotConversationMisuse(t *testing.T) {
+	var requests reviewScreenshotRequests
+	srv := reviewConversationServer(t, &requests)
+
+	root := t.TempDir()
+	e, err := NewExecutor(root, &Policy{Mode: ModeFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Gemini = reviewScreenshotClient(srv)
+	writeFile(t, root, "a.png", "x")
+
+	first := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ImagePaths: []string{"a.png"},
+		Question:   "what is wrong?",
+	})
+	if first.IsError {
+		t.Fatalf("first call failed: %s", first.Content)
+	}
+	firstLine, _, _ := strings.Cut(first.Content, "\n")
+	id := strings.TrimPrefix(firstLine, "conversation_id: ")
+
+	res := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ConversationID: "rvw-deadbeef",
+		Question:       "look again",
+	})
+	if !res.IsError || !strings.Contains(res.Content, "unknown conversation_id") {
+		t.Errorf("unknown id should be refused, got: %s", res.Content)
+	}
+
+	res = runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ConversationID: id,
+		ImagePaths:     []string{"a.png"},
+		Question:       "look again",
+	})
+	if !res.IsError || !strings.Contains(res.Content, "no image_paths") {
+		t.Errorf("image_paths on a follow-up should be refused, got: %s", res.Content)
+	}
+
+	res = runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ConversationID: id,
+		Question:       "look again",
+		Spec:           "a new spec",
+	})
+	if !res.IsError || !strings.Contains(res.Content, "no spec") {
+		t.Errorf("spec on a follow-up should be refused, got: %s", res.Content)
+	}
+
+	// The refused calls sent nothing: only the first call reached Gemini.
+	if len(requests) != 1 {
+		t.Errorf("Gemini saw %d requests, want 1 (the refused calls sent nothing)", len(requests))
 	}
 }

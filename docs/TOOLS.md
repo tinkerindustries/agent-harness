@@ -282,6 +282,19 @@ settings table on every call, so either can change without a restart. The call
 has its own timeout (default 60s, `tools.reviewscreenshot_timeout`) rather than
 the 30-second tool default.
 
+A review can be followed up without re-uploading. A call without
+`conversation_id` starts a conversation and its result carries the id; a call
+passing that id, a question, and no `image_paths` continues the conversation.
+The conversation is held on the session's Executor and stores the image paths
+and the prior question/answer pairs — never the image bytes — so a follow-up
+re-reads the files from disk (a file deleted since the first call fails with an
+ordinary error naming it), re-sends the images, the earlier exchanges, and the
+new question in one request. "Look closer at the header" therefore costs one
+Gemini interaction with the thread replayed, not a fresh review from scratch,
+and the spec is fixed for the conversation's life. Retained conversations are
+capped at the most recent five per session, so a long session cannot grow this
+without bound.
+
 A Gemini call bills separately from the sub-turn that made it. Its usage rides
 home on the tool result, and the runner stamps the sub-turn it happened in and
 commits it as its own usage event, priced against `configs/prices.json` under
