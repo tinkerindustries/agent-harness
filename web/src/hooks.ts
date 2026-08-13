@@ -56,6 +56,40 @@ export function useLabelFlip(label: string): string {
   return flipped.current ? "anim-badge-in" : "";
 }
 
+// useArrivals is the gate on .anim-row-in, the way useLabelFlip is the gate on
+// .anim-badge-in: it answers whether a key is new to a list that was already
+// on screen, which is the only thing that animation is for. A page load is not
+// an arrival — forty sub-turns that were already in the log did not just
+// happen, and animating them says they did.
+//
+// The caller says WHEN the backlog is complete, through `settled`, and the
+// keys present on the first settled render become the baseline. It cannot be
+// inferred here, and the obvious guesses are both wrong: these lists are empty
+// on mount and fill in over SSE, so "the first render" would make the whole
+// backlog an arrival, and "the first non-empty render" is barely better — a
+// transcript's replay is delivered across several reads, so the first blocks
+// to land are a fraction of the history and every later batch reads as new.
+// Measured on a 64-turn session, that guess animated 63 of them.
+//
+// So each caller passes the signal it actually has: the transcript, the
+// server's own `replayed` frame (api/transcriptStore.ts); the session list,
+// whether its snapshot has arrived, which for that stream is a single event
+// carrying every row at once.
+//
+// An arrival stays one. The class rides an element that never remounts, so the
+// animation runs once when it mounts and leaving the class applied afterwards
+// costs nothing — which is also why the returned predicate can be called
+// during render without any memoisation.
+export function useArrivals(
+  keys: readonly (string | number)[],
+  settled: boolean,
+): (key: string | number) => boolean {
+  const baseline = useRef<ReadonlySet<string | number> | null>(null);
+  if (baseline.current === null && settled) baseline.current = new Set(keys);
+  const base = baseline.current;
+  return (key) => base !== null && !base.has(key);
+}
+
 // useQueueHealth polls GET /api/queue on an interval. A plain poll rather
 // than the external-store/SSE shape the rest of this app uses: queue health
 // changes at human timescales (a redelivery, a halt), not token rate, so
@@ -114,11 +148,19 @@ export function useTranscriptStore(sessionID: string): TranscriptStore {
 // flicker in between — and swallows a transient fetch failure, which just
 // leaves the caller showing whatever it last had.
 //
-// settled is whether the current fetch has completed, successfully or not.
-// The session route needs it to tell "row not here yet" (render the shell
-// with an empty stream) from "row will never arrive" (keep the chat screen,
-// the safe default for a fetch-failed run). meta and settled reset together
-// on a session switch, and a re-fetch after a failure retries the row.
+// settled is whether the FIRST fetch for this session has completed,
+// successfully or not — not whether the latest one has. The session route
+// needs it to tell "row not here yet" (render the shell with an empty stream)
+// from "row will never arrive" (keep the chat screen, the safe default for a
+// fetch-failed run), and that question is only ever asked once per session.
+//
+// Only the session-switch effect below clears it. A refreshOn re-fetch must
+// not, because the route renders a different subtree while unsettled: every
+// connection change would unmount the whole screen and remount it when the
+// row landed, throwing away its scroll position and its local state, and
+// replaying every mount animation in the transcript. The stream connection
+// opens a beat after the first fetch returns on every single page load, so
+// that fired every time — see SessionScreen.
 export function useSessionMeta(
   sessionId: string,
   refreshOn: unknown,
@@ -136,7 +178,6 @@ export function useSessionMeta(
 
   useEffect(() => {
     const controller = new AbortController();
-    setSettled(false);
     fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, { signal: controller.signal })
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {

@@ -389,6 +389,7 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
             )}
             <SessionIdContext.Provider value={sessionId}>
               <TurnTranscript
+                replayed={snapshot.replayed}
                 items={snapshot.items}
                 live={snapshot.live}
                 filter="all"

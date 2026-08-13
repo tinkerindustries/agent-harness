@@ -1905,6 +1905,21 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 		writeSSEEvent(w, ev)
 		sent = ev.Seq
 	}
+	// The seam between the replay and the live tail, named so the browser can
+	// find it. Everything before this frame is history the page loaded with;
+	// everything after it happened while somebody was watching, and the
+	// frontend animates only the second kind (web/src/hooks.ts useArrivals).
+	//
+	// It has to be a frame rather than something the client infers, because
+	// the replay does not arrive as one batch: a long history is delivered
+	// across several reads, so "the first events I saw" is a fraction of the
+	// backlog and everything after it would read as newly arrived.
+	//
+	// A *named* event with no id, exactly like a live delta: onmessage never
+	// sees it, so it cannot be mistaken for a committed event, and it cannot
+	// move the EventSource's Last-Event-ID cursor. A reconnect replays from
+	// the last real event and gets a fresh marker at the new seam.
+	writeSSEReplayed(w)
 	flusher.Flush()
 
 	// A session already at a terminal status will never append again.
@@ -2077,6 +2092,16 @@ func writeSSELive(w io.Writer, d hub.LiveDelta) {
 		return
 	}
 	fmt.Fprintf(w, "event: live\ndata: %s\n\n", redact.Bytes(b))
+}
+
+// writeSSEReplayed marks the end of a transcript stream's history replay,
+// before the first live event. It carries no data worth reading — the frame's
+// arrival is the whole message — and, like a live delta, it is named and has
+// no id so it neither reaches the client's onmessage nor moves the resume
+// cursor. See handleSessionStream for why the client cannot work the seam out
+// for itself.
+func writeSSEReplayed(w io.Writer) {
+	fmt.Fprint(w, "event: replayed\ndata: {}\n\n")
 }
 
 // writeSSEData writes v as a plain SSE frame with no id — the shape the

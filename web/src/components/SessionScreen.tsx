@@ -24,12 +24,11 @@ export function SessionScreen({ sessionId, onNavigate }: Props) {
   const { meta, settled } = useSessionMeta(sessionId, snapshot.connection);
 
   // Whether this session's stream has opened since the page loaded, for the
-  // dropped-stream banner (DroppedStreamBanner). It lives HERE rather than
-  // in the banner or the screens because useSessionMeta refetches on every
-  // connection change — its refreshOn is the connection state — and each
-  // refetch flips settled, remounting the screen the fork renders (and any
-  // local state it holds). This component survives those remounts; the flag
-  // resets only on a genuine session switch.
+  // dropped-stream banner (DroppedStreamBanner). It lives HERE rather than in
+  // the banner or the screens because the fork below can swap one screen for
+  // the other when the metadata row lands, taking that screen's local state
+  // with it. This component sits above the fork and survives the swap; the
+  // flag resets only on a genuine session switch.
   const [everOpen, setEverOpen] = useState(false);
   useEffect(() => {
     if (snapshot.connection === "open") setEverOpen(true);

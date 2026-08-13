@@ -377,6 +377,7 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
             )}
             <SessionIdContext.Provider value={sessionId}>
               <TurnTranscript
+                replayed={snapshot.replayed}
                 items={snapshot.items}
                 live={snapshot.live}
                 filter="all"

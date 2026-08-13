@@ -444,18 +444,36 @@ html {
   --dur-instant: 0.08s;
   --dur-fast: 0.1s;
   --dur-caret: 0.12s;
-  --dur-turn: 0.15s;
-  --dur-swap: 0.22s;
-  --dur-reveal: 0.32s;
+  --dur-turn: 0.26s;
+  --dur-swap: 0.3s;
+  --dur-reveal: 0.42s;
   --dur-roll: 0.34s;
 
   --ease: ease;
   /* --dur-swap: a badge flipping, a plan item's mark landing. --dur-roll: a
-     digit of a figure rolling — its own duration rather than --dur-swap's,
-     because a roll travels a whole line where a badge flip barely moves, and
-     at swap speed it read as a twitch. --dur-reveal: streamed text
-     landing, a turn arriving.
-     Out-quart: fast start, long settle. Everything that arrives uses it. */
+     digit of a figure rolling. --dur-reveal: streamed text landing.
+     --dur-turn: a row arriving in a list already on screen.
+     Out-quart: fast start, long settle. Everything that arrives uses it.
+
+     READ THIS BEFORE CHANGING A DURATION OR A TRAVEL DISTANCE.
+
+     Out-quart is 49% done at a tenth of its duration and 88% done at a
+     third, so the duration is NOT how long the gesture is visible for —
+     the travel distance is. What the eye follows is how far the element
+     still has to move once the opacity is up, and past ~75% progress
+     there is nothing left to see however long the tail runs.
+
+     Measured against the running app, the useful figure is the travel
+     remaining at 60ms. The ticker's roll sits at 2.8px there and reads as
+     a digit turning over. Everything else used to sit at 0.2–0.6px on
+     2–4px of total travel: technically animating, perceptually a
+     flicker, and the reason nothing but the ticker looked alive. The
+     travel distances below are set so each gesture has ~2–3px left at
+     60ms, and the durations are stretched to match rather than shortened,
+     because shortening moves the whole curve earlier and makes it worse.
+
+     If you shrink a translate here, re-check that number or you will
+     quietly delete the animation while leaving it in the file. */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   /* Symmetric, for something leaving and arriving in the same gesture. */
   --ease-inout: cubic-bezier(0.4, 0, 0.2, 1);
@@ -474,14 +492,16 @@ html {
   }
 }
 
-/* Streamed text: the line lands dim and slightly nearer, then settles. Applied
-   per block as it commits — never per character, which turns a transcript into
-   a slot machine. */
+/* Streamed text: the block lands out of focus and a little low, then settles.
+   The blur does most of the work — text coming into focus reads as arriving at
+   a travel distance that would look like a lurch if it were movement alone.
+   Applied per block as it commits — never per character, which turns a
+   transcript into a slot machine. */
 @keyframes stream-in {
   from {
     opacity: 0;
-    transform: translateY(2px);
-    filter: blur(1.5px);
+    transform: translateY(8px);
+    filter: blur(5px);
   }
   to {
     opacity: 1;
@@ -490,12 +510,15 @@ html {
   }
 }
 
-/* A status badge flipping to its terminal value: the old label leaves upward,
-   the new one arrives from below, in the same 220ms. */
+/* A status badge flipping to its terminal value: the new label arrives from
+   below over --dur-swap. There is no matching leave — the caller keys the
+   badge on its label, so the old element is simply gone on the render that
+   brings the new one in, and the arrival carries the whole gesture. That is
+   why it travels further than a badge's own height would suggest. */
 @keyframes badge-in {
   from {
     opacity: 0;
-    transform: translateY(4px) scale(0.97);
+    transform: translateY(10px) scale(0.92);
   }
   to {
     opacity: 1;
@@ -550,7 +573,7 @@ html {
 @keyframes row-in {
   from {
     opacity: 0;
-    transform: translateY(-3px);
+    transform: translateY(-8px);
   }
   to {
     opacity: 1;

@@ -8,7 +8,7 @@ import { startedBy } from "../api/provenance";
 import { startedByShort } from "./sessionListLabel";
 import { tableEmptyState } from "./sessionListEmpty";
 import type { QueueHealth, SessionState, Usage } from "../api/types";
-import { useLabelFlip, useNow, useQueueHealth } from "../hooks";
+import { useArrivals, useLabelFlip, useNow, useQueueHealth } from "../hooks";
 import { cn } from "@/lib/utils";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -233,6 +233,16 @@ export function SessionListScreen({ onOpen }: Props) {
     () => snapshot.sessions.filter((s) => s.status !== "running" && matchesQuery(s, q)),
     [snapshot.sessions, q],
   );
+  // Which rows arrived while this page was already open (hooks.ts
+  // useArrivals). Keyed over the whole session set rather than either filtered
+  // list, for two reasons: typing in the search box must not make the rows it
+  // reveals read as new sessions, and a run finishing moves its row from the
+  // in-flight cards to the table without being an arrival there — it is the
+  // same session, and it was already on screen.
+  const arrived = useArrivals(
+    useMemo(() => snapshot.sessions.map((s) => s.id), [snapshot.sessions]),
+    snapshot.sessions.length > 0,
+  );
   // The empty-row state (sessionListEmpty.ts): "no-sessions" for a genuinely
   // empty harness, "no-match" when sessions exist but the filter matched none
   // — a distinct state, so a blank page never reads as an empty harness.
@@ -321,6 +331,7 @@ export function SessionListScreen({ onOpen }: Props) {
                 open={openIds.has(sess.id)}
                 onOpenChange={(open) => toggleOpen(sess.id, open)}
                 onOpen={onOpen}
+                arrived={arrived(sess.id)}
               />
             ))}
           </div>
@@ -350,7 +361,7 @@ export function SessionListScreen({ onOpen }: Props) {
               </thead>
               <tbody>
                 {finished.map((sess) => (
-                  <FinishedRow key={sess.id} sess={sess} now={now} onOpen={onOpen} />
+                  <FinishedRow key={sess.id} sess={sess} now={now} onOpen={onOpen} arrived={arrived(sess.id)} />
                 ))}
                 {emptyState !== "none" && (
                   <tr>
@@ -429,12 +440,16 @@ function InFlightCard({
   open,
   onOpenChange,
   onOpen,
+  arrived = false,
 }: {
   sess: SessionState;
   now: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onOpen: (id: string) => void;
+  // Whether this run started while the list was already open, rather than
+  // being one of the rows the page loaded with (hooks.ts useArrivals).
+  arrived?: boolean;
 }) {
   const badge = outcome(sess);
   const flip = useLabelFlip(badge.label);
@@ -443,7 +458,7 @@ function InFlightCard({
   const { verb, rest } = splitVerb(prog.activeForm);
 
   return (
-    <Card className="run-card" interactive>
+    <Card className={cn("run-card", arrived && "anim-row-in")} interactive>
       <Collapsible open={open} onOpenChange={onOpenChange}>
         <div className="run-head">
           <CollapsibleTrigger asChild>
@@ -563,10 +578,16 @@ function FinishedRow({
   sess,
   now,
   onOpen,
+  arrived = false,
 }: {
   sess: SessionState;
   now: number;
   onOpen: (id: string) => void;
+  // Whether this session appeared while the list was already open (hooks.ts
+  // useArrivals). A run that finishes moves from the cards above into this
+  // table, and that is not an arrival — useArrivals keys over the whole
+  // session set, so the row it moved from covers it.
+  arrived?: boolean;
 }) {
   const badge = outcome(sess);
   const plan = sess.plan ?? [];
@@ -581,7 +602,7 @@ function FinishedRow({
   const provenanceLabel = startedBy(sess);
   const provenanceShort = startedByShort(sess);
   return (
-    <tr className="session-row" onClick={() => onOpen(sess.id)}>
+    <tr className={cn("session-row", arrived && "anim-row-in")} onClick={() => onOpen(sess.id)}>
       <td>
         <Badge variant={badge.variant}>{badge.label}</Badge>
       </td>
