@@ -120,13 +120,13 @@ func TestValidateAcceptsEmptyPrompt(t *testing.T) {
 // (internal/provider, docs/KIMI-INTEGRATION.md §4.3). Empty means "the
 // default model" and stays valid.
 func TestValidateChecksModelAgainstProviderTable(t *testing.T) {
-	for _, model := range []string{"deepseek-v4-pro", "deepseek-v4-flash"} {
+	for _, model := range []string{"deepseek-v4-pro", "deepseek-v4-flash", "kimi-k3"} {
 		req := Request{RequestID: "req-1", Repos: testRepos(), PermissionMode: "full", Model: model}
 		if err := req.Validate(); err != nil {
 			t.Errorf("Validate with model %q: %v", model, err)
 		}
 	}
-	for _, model := range []string{"deepseek-v4-turbo", "kimi-k3", "gpt-4"} {
+	for _, model := range []string{"deepseek-v4-turbo", "kimi-k2.6", "gpt-4"} {
 		req := Request{RequestID: "req-1", Repos: testRepos(), PermissionMode: "full", Model: model}
 		if err := req.Validate(); err == nil {
 			t.Errorf("Validate with unknown model %q: nil error, want one", model)

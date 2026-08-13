@@ -50,6 +50,7 @@ const (
 // constants exist so Go call sites name a key without string literals.
 const (
 	KeyDeepSeekAPIKey    = "deepseek.api_key"
+	KeyKimiAPIKey        = "kimi.api_key"
 	KeyGoogleAPIKey      = "google.api_key"
 	KeyGoogleVisionModel = "google.vision_model"
 	KeyGitHubToken       = "github.token"
@@ -127,6 +128,8 @@ var registry = []Descriptor{
 	// --- Credentials ---
 	stringSetting(KeyDeepSeekAPIKey, GroupCredentials,
 		"DeepSeek API key — the harness's own account", "", true, false),
+	stringSetting(KeyKimiAPIKey, GroupCredentials,
+		"Kimi API key — Moonshot AI account used for kimi-k3 runs (third_party/kimi-docs/api/overview.md)", "", true, false),
 	stringSetting(KeyGoogleAPIKey, GroupCredentials,
 		"Google API key — sent to Gemini by ReviewScreenshot", "", true, false),
 	stringSetting(KeyGitHubToken, GroupCredentials,

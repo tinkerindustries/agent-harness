@@ -125,6 +125,12 @@ func (r *Resolver) DeepSeekAPIKey(ctx context.Context) (string, error) {
 	return r.String(ctx, KeyDeepSeekAPIKey)
 }
 
+// KimiAPIKey returns the stored Kimi API key, "" when unset — the exact
+// shape the kimi client's per-request key provider needs.
+func (r *Resolver) KimiAPIKey(ctx context.Context) (string, error) {
+	return r.String(ctx, KeyKimiAPIKey)
+}
+
 // GoogleAPIKey returns the stored Google API key, "" when unset — the exact
 // shape the gemini client's per-request key provider needs.
 func (r *Resolver) GoogleAPIKey(ctx context.Context) (string, error) {
