@@ -43,7 +43,7 @@ func (r *Runner) compact(ctx context.Context, sess store.Session, allEvents []st
 		Workspace:       sess.Workspace,
 		PermissionMode:  sess.PermissionMode,
 		DenyPatterns:    sess.DenyPatterns,
-		SystemPrompt:    RenderCompactionSummarySystemPrompt(summary),
+		SystemPrompt:    RenderCompactionSummarySystemPromptFor(sess.Model, summary),
 		ToolSchema:      sess.ToolSchema,
 		ResultSchema:    sess.ResultSchema,
 		Status:          store.StatusRunning,
