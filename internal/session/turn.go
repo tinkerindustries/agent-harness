@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/cache"
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/fold"
 	"github.com/mrgeoffrich/deepseek-harness/internal/httplog"
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
@@ -265,7 +264,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	// by however much reasoning it burned — which, this failure mode being
 	// what it is, is the whole of an exhausted max_tokens budget.
 	var starved *wire.Usage
-	if deepseek.IsReasoningStarved(finishReason, content) && len(assembler.Finalize()) == 0 {
+	if r.Client.IsReasoningStarved(finishReason, content) && len(assembler.Finalize()) == 0 {
 		starved = usage
 		reasoning, content, assembler, finishReason, usage, err = r.stream(ctx, sess.Model, messages, opts.Effort, opts.Thinking, opts.MaxTokens*2, live)
 		if err != nil {
@@ -284,7 +283,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	// what ran. The model's own bytes are still on disk in the HTTP log,
 	// which is where a question about what it actually emitted belongs.
 	for i := range toolCalls {
-		repaired, ok := deepseek.RepairArguments(finishReason, toolCalls[i].Arguments)
+		repaired, ok := r.Client.RepairArguments(finishReason, toolCalls[i].Arguments)
 		if !ok {
 			continue
 		}
@@ -442,9 +441,14 @@ func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestMessa
 	if usage.CompletionTokensDetails != nil {
 		reasoningTokens = usage.CompletionTokensDetails.ReasoningTokens
 	}
+	// How usage becomes cache-hit and cache-miss counts is the provider's
+	// decision — DeepSeek reports the two figures separately, Kimi K3 a
+	// single cached_tokens — so the split comes through the seam
+	// (client.go, docs/KIMI-INTEGRATION.md §2).
+	cacheHit, cacheMiss := r.Client.UsageSplit(usage)
 	cost := 0.0
 	if r.Prices != nil {
-		if c, err := r.Prices.Cost(model, usage.PromptCacheHitTokens, usage.PromptCacheMissTokens, usage.CompletionTokens); err == nil {
+		if c, err := r.Prices.Cost(model, cacheHit, cacheMiss, usage.CompletionTokens); err == nil {
 			cost = c
 		}
 	}
@@ -456,8 +460,8 @@ func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestMessa
 		SubTurn:               subTurn,
 		Attempt:               attempt,
 		PromptTokens:          usage.PromptTokens,
-		PromptCacheHitTokens:  usage.PromptCacheHitTokens,
-		PromptCacheMissTokens: usage.PromptCacheMissTokens,
+		PromptCacheHitTokens:  cacheHit,
+		PromptCacheMissTokens: cacheMiss,
 		CompletionTokens:      usage.CompletionTokens,
 		ReasoningTokens:       reasoningTokens,
 		CostUSD:               cost,
@@ -467,23 +471,22 @@ func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestMessa
 }
 
 // stream sends one request and collects the full response from the event
-// channel. Serialisation happens once inside Client.StreamChatCompletion
-// and any HTTP-level retry resends those identical bytes
-// (docs/CACHE.md); this function does not re-serialise between attempts.
+// channel. The loop states its intent — model, messages, effort, whether to
+// think, the token ceiling, the tools — and the Client implementation turns
+// that into its provider's request shape; serialisation happens once inside
+// that implementation and any HTTP-level retry resends those identical
+// bytes (docs/CACHE.md). This function does not re-serialise between
+// attempts.
 func (r *Runner) stream(ctx context.Context, model string, messages []wire.Message, effort string, thinking bool, maxTokens int, live *liveSink) (
 	reasoning, content string, assembler *wire.ToolCallAssembler, finishReason string, usage *wire.Usage, err error) {
 
-	thinkingType := wire.ThinkingDisabled
-	if thinking {
-		thinkingType = wire.ThinkingEnabled
-	}
-	req := wire.ChatCompletionRequest{
-		Model:           model,
-		Messages:        messages,
-		Thinking:        &wire.ThinkingConfig{Type: thinkingType},
-		ReasoningEffort: effort,
-		MaxTokens:       maxTokens,
-		Tools:           tools.Definitions(),
+	intent := wire.ChatIntent{
+		Model:     model,
+		Messages:  messages,
+		Effort:    effort,
+		Thinking:  thinking,
+		MaxTokens: maxTokens,
+		Tools:     tools.Definitions(),
 	}
 
 	release, err := r.acquireModelSlot(ctx, model)
@@ -492,7 +495,7 @@ func (r *Runner) stream(ctx context.Context, model string, messages []wire.Messa
 	}
 	defer release()
 
-	events, err := r.Client.StreamChatCompletion(ctx, req)
+	events, err := r.Client.StreamChatCompletion(ctx, intent)
 	if err != nil {
 		return "", "", nil, "", nil, err
 	}

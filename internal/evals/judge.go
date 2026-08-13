@@ -81,13 +81,13 @@ func (j Judge) Score(ctx context.Context, rubric string, events []store.Event) (
 	if maxTokens <= 0 {
 		maxTokens = JudgeMaxTokens
 	}
-	resp, err := j.Client.CreateChatCompletion(ctx, wire.ChatCompletionRequest{
+	resp, err := j.Client.CreateChatCompletion(ctx, wire.ChatIntent{
 		Model: j.Model,
 		// Thinking mode is on. Scoring a transcript against a rubric is a
 		// judgement, and the reasoning is where it is made; the earlier
 		// failure was a 1024-token budget that reasoning exhausted before any
 		// content, not thinking itself.
-		Thinking:  &wire.ThinkingConfig{Type: wire.ThinkingEnabled},
+		Thinking:  true,
 		MaxTokens: maxTokens,
 		Messages: []wire.Message{
 			wire.SystemMessage(judgeSystemPrompt),

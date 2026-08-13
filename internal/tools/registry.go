@@ -13,7 +13,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
@@ -132,6 +131,18 @@ type Timeouts struct {
 	Screenshot       time.Duration
 }
 
+// ChatClient is the narrow seam the executor's own model calls use —
+// WebFetch's summarisation — declared here, where it is consumed, and
+// implemented by the provider clients; *deepseek.Client implements it today
+// and Kimi K3's client will tomorrow. It is the same shape as
+// internal/session's Client seam (docs/KIMI-INTEGRATION.md §4.1): the
+// caller states intent (wire.ChatIntent) and the implementation spells its
+// provider's request. The session hands its own provider client through,
+// so the dynamic type implements this smaller interface.
+type ChatClient interface {
+	CreateChatCompletion(ctx context.Context, intent wire.ChatIntent) (*wire.ChatCompletionResponse, error)
+}
+
 // Executor runs tools against one session's mutable state. An Executor
 // belongs to exactly one session; nothing on it is shared across sessions
 // (docs/DESIGN.md §4.5).
@@ -142,7 +153,7 @@ type Executor struct {
 	OutputCap    int
 	Timeouts     Timeouts
 
-	Client     *deepseek.Client
+	Client     ChatClient
 	Prices     *pricing.Table
 	FlashModel string
 

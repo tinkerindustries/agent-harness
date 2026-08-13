@@ -14,6 +14,7 @@ import (
 // with finish_reason "tool_calls" (docs/OBSERVED.md). The first two are
 // repaired; the third has two readings and is left alone.
 func TestRepairArguments(t *testing.T) {
+	client := NewClient("http://unused.invalid", "test-key")
 	cases := []struct {
 		name         string
 		finishReason string
@@ -102,7 +103,7 @@ func TestRepairArguments(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, ok := RepairArguments(tc.finishReason, tc.args)
+			got, ok := client.RepairArguments(tc.finishReason, tc.args)
 			if got != tc.want || ok != tc.wantOK {
 				t.Errorf("RepairArguments(%q, %q)\n got  = %q, %v\n want = %q, %v",
 					tc.finishReason, tc.args, got, ok, tc.want, tc.wantOK)
@@ -115,6 +116,7 @@ func TestRepairArguments(t *testing.T) {
 // which the narrow rules above are meant to guarantee rather than merely
 // tend towards.
 func TestRepairArgumentsAlwaysProducesValidObject(t *testing.T) {
+	client := NewClient("http://unused.invalid", "test-key")
 	inputs := []string{
 		`{"a":1`,
 		`{"a":{"b":2}`,
@@ -132,7 +134,7 @@ func TestRepairArgumentsAlwaysProducesValidObject(t *testing.T) {
 		`}}}}`,
 	}
 	for _, in := range inputs {
-		got, ok := RepairArguments(wire.FinishToolCalls, in)
+		got, ok := client.RepairArguments(wire.FinishToolCalls, in)
 		if !ok {
 			if got != in {
 				t.Errorf("RepairArguments(%q) reported no repair but changed the text to %q", in, got)

@@ -44,7 +44,7 @@ func TestCancelledStreamDoesNotStrandPump(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	c := NewClient(srv.URL, "test-key")
-	events, err := c.StreamChatCompletion(ctx, wire.ChatCompletionRequest{
+	events, err := c.StreamChatCompletion(ctx, wire.ChatIntent{
 		Model:     "deepseek-v4-flash",
 		Messages:  []wire.Message{wire.UserMessage("hi")},
 		MaxTokens: 100,
