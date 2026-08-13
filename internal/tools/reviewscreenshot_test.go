@@ -188,7 +188,9 @@ func TestReviewScreenshotSendsAndReturns(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("unexpected error: %s", res.Content)
 	}
-	if !strings.Contains(res.Content, `"element":"nav"`) {
+	// The answer is re-marshalled indented by formatReviewAnswer (Part 2), so
+	// the finding arrives with spaces after the colons.
+	if !strings.Contains(res.Content, `"element": "nav"`) {
 		t.Fatalf("tool result should carry the model's text, got: %s", res.Content)
 	}
 
@@ -459,5 +461,161 @@ func TestReviewScreenshotResultCarriesUsage(t *testing.T) {
 	}
 	if res.GeminiUsage.SubTurn != 0 {
 		t.Errorf("SubTurn = %d, want 0 (the runner stamps the sub-turn)", res.GeminiUsage.SubTurn)
+	}
+}
+
+// mustParseFindings extracts the JSON array embedded in a formatted review
+// result — between the leading count line and the trailing truncation note —
+// and asserts it parses, which is exactly the property Part 2 is about: the
+// array DeepSeek receives must never be cut mid-document again. The decoder
+// reads from the first '[' and stops at the array's own closing bracket, so
+// the trailing note's brackets cannot confuse it.
+func mustParseFindings(t *testing.T, text string) []map[string]string {
+	t.Helper()
+	start := strings.Index(text, "[")
+	if start < 0 {
+		t.Fatalf("no JSON array in result: %q", text)
+	}
+	var out []map[string]string
+	if err := json.NewDecoder(strings.NewReader(text[start:])).Decode(&out); err != nil {
+		t.Fatalf("the JSON array in the result does not parse: %v\n%s", err, text)
+	}
+	return out
+}
+
+// TestFormatReviewAnswer covers the four shapes Gemini's answer can take: a
+// long array that must be capped by dropping whole findings (never by cutting
+// bytes), a short array, an empty array, and unparseable prose.
+func TestFormatReviewAnswer(t *testing.T) {
+	three := `[{"image":"a.png","element":"nav","issue":"overlaps the hero","expected":"64px","actual":"120px","confidence":"high"},{"image":"b.png","element":"footer","issue":"clipped","expected":"visible","actual":"cut","confidence":"medium"},{"image":"a.png","element":"logo","issue":"wrong colour","expected":"#123456","actual":"#654321","confidence":"low"}]`
+
+	t.Run("long array capped by finding count", func(t *testing.T) {
+		out, truncated := formatReviewAnswer(three, 260)
+		if !truncated {
+			t.Fatal("a long array must report truncation")
+		}
+		if !strings.HasPrefix(out, "3 findings, 1 high confidence\n") {
+			t.Errorf("result should lead with the full answer's count line, got: %q", out)
+		}
+		findings := mustParseFindings(t, out)
+		if len(findings) == 0 || len(findings) >= 3 {
+			t.Fatalf("capped result should keep some but not all findings, got %d: %s", len(findings), out)
+		}
+		wantDropped := fmt.Sprintf("dropped %d of 3 findings", 3-len(findings))
+		if !strings.Contains(out, wantDropped) {
+			t.Errorf("result should name how many findings were dropped (%s), got: %s", wantDropped, out)
+		}
+		// Whatever survived the cap, each finding is still whole: the parse
+		// above succeeded, and the kept ones carry their fields.
+		for _, f := range findings {
+			if f["image"] == "" || f["element"] == "" {
+				t.Errorf("kept finding lost its fields: %v", f)
+			}
+		}
+	})
+
+	t.Run("short array passes through whole", func(t *testing.T) {
+		short := `[{"image":"a.png","element":"nav","issue":"overlaps","confidence":"high"}]`
+		out, truncated := formatReviewAnswer(short, 200_000)
+		if truncated {
+			t.Fatal("a short array must not be truncated")
+		}
+		if !strings.HasPrefix(out, "1 finding, 1 high confidence\n") {
+			t.Errorf("count line = %q, want the singular form", out)
+		}
+		findings := mustParseFindings(t, out)
+		if len(findings) != 1 || findings[0]["image"] != "a.png" || findings[0]["confidence"] != "high" {
+			t.Errorf("findings = %v, want the one finding intact", findings)
+		}
+	})
+
+	t.Run("empty array stays a valid answer", func(t *testing.T) {
+		out, truncated := formatReviewAnswer(`[]`, 200_000)
+		if truncated {
+			t.Fatal("an empty array must not report truncation")
+		}
+		if !strings.HasPrefix(out, "0 findings, 0 high confidence\n") {
+			t.Errorf("count line = %q, want 0 findings", out)
+		}
+		if find := mustParseFindings(t, out); len(find) != 0 {
+			t.Errorf("findings = %v, want none", find)
+		}
+		if strings.Contains(out, "truncated") {
+			t.Errorf("empty array must not carry a truncation note: %s", out)
+		}
+	})
+
+	t.Run("unparseable prose is labelled", func(t *testing.T) {
+		prose := "The header overlaps the hero image on narrow screens."
+		out, truncated := formatReviewAnswer(prose, 200_000)
+		if truncated {
+			t.Fatal("short prose must not report truncation")
+		}
+		if !strings.HasPrefix(out, "Gemini's answer was not a JSON list; unparsed text follows:") {
+			t.Errorf("prose must be labelled as unparsed, got: %q", out)
+		}
+		if !strings.Contains(out, prose) {
+			t.Errorf("the raw prose should still reach the model: %s", out)
+		}
+	})
+
+	t.Run("prose over the cap is cut with the label", func(t *testing.T) {
+		prose := strings.Repeat("the header overlaps the hero. ", 50)
+		out, truncated := formatReviewAnswer(prose, 120)
+		if !truncated {
+			t.Fatal("long prose must report truncation")
+		}
+		if !strings.HasPrefix(out, "Gemini's answer was not a JSON list; unparsed text follows:") {
+			t.Errorf("prose must be labelled as unparsed, got: %q", out)
+		}
+		if !strings.Contains(out, "[truncated:") {
+			t.Errorf("the byte cap on prose must stay labelled: %s", out)
+		}
+	})
+}
+
+// TestReviewScreenshotFormatsTheAnswer drives the formatting end to end
+// through the tool: the Gemini server returns a raw compact array, and the
+// tool result must come back as the count line plus an indented array that
+// still parses, with the truncated flag set when the output cap bites.
+func TestReviewScreenshotFormatsTheAnswer(t *testing.T) {
+	answer := `[{"image":"a.png","element":"nav","issue":"overlaps","confidence":"high"},{"image":"b.png","element":"footer","issue":"clipped","confidence":"medium"}]`
+	quoted, err := json.Marshal(answer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"i","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":` + string(quoted) + `}]}]}`))
+	}))
+	defer srv.Close()
+
+	root := t.TempDir()
+	e, err := NewExecutor(root, &Policy{Mode: ModeFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Gemini = reviewScreenshotClient(srv)
+	// A small output cap forces the drop-by-count path while still leaving
+	// room for one whole finding plus the count line and the drop note.
+	e.OutputCap = 200
+	writeFile(t, root, "a.png", "x")
+	writeFile(t, root, "b.png", "x")
+
+	res := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ImagePaths: []string{"a.png", "b.png"},
+		Question:   "what is wrong?",
+	})
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	if !res.Truncated {
+		t.Fatal("a capped answer must set the truncated flag")
+	}
+	if !strings.HasPrefix(res.Content, "2 findings, 1 high confidence\n") {
+		t.Errorf("result should lead with the count line, got: %q", res.Content)
+	}
+	if find := mustParseFindings(t, res.Content); len(find) == 0 || len(find) >= 2 {
+		t.Errorf("capped result should keep some but not all findings, got: %s", res.Content)
 	}
 }

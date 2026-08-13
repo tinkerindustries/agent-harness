@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -172,12 +173,75 @@ func execReviewScreenshot(ctx context.Context, e *Executor, argsRaw json.RawMess
 	if err != nil {
 		return errorResult("%v", err)
 	}
-	out, truncated := truncate(answer, e.outputCap(ctx))
+	out, truncated := formatReviewAnswer(answer, e.outputCap(ctx))
 	res := Result{Content: out, Truncated: truncated}
 	if usage != nil {
 		res.GeminiUsage = geminiUsagePayload(e.Prices, model, usage)
 	}
 	return res
+}
+
+// formatReviewAnswer turns Gemini's answer into the tool result text. The
+// answer is a JSON array, and the plain byte-cap truncation that labels other
+// tools' output would cut it mid-document — DeepSeek would receive a JSON
+// list with no closing bracket and read it as broken data. So the array is
+// parsed first, and the cap is applied by dropping whole findings off the
+// end, with a trailing line saying how many were dropped. The result leads
+// with a count line ("3 findings, 2 high confidence") so the model sees the
+// shape of the answer before the detail.
+//
+// An answer that does not parse as a JSON array is returned as the raw text,
+// labelled as unparsed prose rather than passed off as JSON. An empty array
+// keeps its meaning — a valid answer that found nothing, not a failure the
+// model should retry. The boolean reports whether anything was dropped.
+func formatReviewAnswer(answer string, cap int) (string, bool) {
+	var findings []json.RawMessage
+	if err := json.Unmarshal([]byte(answer), &findings); err != nil {
+		out, cut := truncate(answer, cap)
+		return "Gemini's answer was not a JSON list; unparsed text follows:\n" + out, cut
+	}
+
+	high := 0
+	for _, f := range findings {
+		var m map[string]any
+		if json.Unmarshal(f, &m) == nil {
+			if c, _ := m["confidence"].(string); c == "high" {
+				high++
+			}
+		}
+	}
+	// The count line always describes the full answer, even when findings are
+	// dropped below it: the trailing note says how many were dropped, so the
+	// two lines together tell the model the whole shape.
+	header := fmt.Sprintf("%d %s, %d high confidence", len(findings), pluralFindings(len(findings)), high)
+
+	kept := len(findings)
+	for {
+		body, err := json.MarshalIndent(findings[:kept], "", "  ")
+		if err != nil {
+			// The model's answer parsed; it can only fail to re-marshal if it
+			// holds something no valid JSON array can (it cannot). Fall back
+			// to the unparsed label rather than panicking.
+			out, cut := truncate(answer, cap)
+			return "Gemini's answer was not a JSON list; unparsed text follows:\n" + out, cut
+		}
+		dropped := len(findings) - kept
+		text := header + "\n" + string(body)
+		if dropped > 0 {
+			text += fmt.Sprintf("\n\n[truncated: dropped %d of %d findings to fit the output cap]", dropped, len(findings))
+		}
+		if len(text) <= cap || kept == 0 {
+			return text, dropped > 0
+		}
+		kept--
+	}
+}
+
+func pluralFindings(n int) string {
+	if n == 1 {
+		return "finding"
+	}
+	return "findings"
 }
 
 // geminiUsagePayload turns one successful Gemini call's usage into the
