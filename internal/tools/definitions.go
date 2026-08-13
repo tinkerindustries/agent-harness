@@ -3,16 +3,27 @@ package tools
 import (
 	"encoding/json"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/provider"
 	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
-// definitions is the fixed, ordered tool array sent on every request in
-// every session and every permission mode. Order and content never vary by
-// mode or by request — that is what keeps the shared prefix stable
-// (docs/CACHE.md). Schemas are non-strict: optional arguments are simply
-// absent from "required" rather than encoded as anyOf-null, matching the
-// trained-in shape the target harnesses use (docs/TOOLS.md).
-var definitions = []wire.Tool{
+// The tool array is per-provider (docs/KIMI-INTEGRATION.md §4.5, decision 5):
+// DeepSeek gets all sixteen tools, and Kimi K3 gets the fourteen that remain
+// once the two vision tools are dropped — K3 reads images natively, so
+// ReviewScreenshot (the Gemini round-trip) and Screenshot (capture-and-
+// describe) are both redundant for it (docs/TOOLS.md). A provider's array is
+// fixed and ordered, shared by every session on that provider in every
+// permission mode; it never varies by mode or by request — that is what keeps
+// the shared prefix stable (docs/CACHE.md). Each array is pinned by its own
+// golden file (internal/tools/testdata/tools_*.golden.json, asserted by
+// TestToolArrayGolden), the same byte-stability guard the single array used
+// to have, now that there are two frozen request heads
+// (docs/KIMI-INTEGRATION.md decision 6).
+//
+// Schemas are non-strict: optional arguments are simply absent from
+// "required" rather than encoded as anyOf-null, matching the trained-in shape
+// the target harnesses use (docs/TOOLS.md).
+var definitionsDeepSeek = []wire.Tool{
 	function("Read", "Read a file from the workspace. Returns content with line numbers, cat -n style.", `{
 		"type": "object",
 		"properties": {
@@ -185,6 +196,32 @@ var definitions = []wire.Tool{
 	}`),
 }
 
+// definitionsKimi is Kimi K3's array: DeepSeek's sixteen minus the two tools
+// that exist only because DeepSeek cannot see images. Building it by
+// subtraction states that relationship and cannot drift from it — if a tool
+// is added to DeepSeek's array, Kimi's changes the same way unless it is
+// named here. The result is pinned by its own golden file like DeepSeek's.
+var definitionsKimi = without(definitionsDeepSeek, "Screenshot", "ReviewScreenshot")
+
+// without returns tools minus every entry whose name is in drop. Callers
+// must not mutate the result.
+func without(tools []wire.Tool, drop ...string) []wire.Tool {
+	out := make([]wire.Tool, 0, len(tools))
+	for _, t := range tools {
+		keep := true
+		for _, d := range drop {
+			if t.Function.Name == d {
+				keep = false
+				break
+			}
+		}
+		if keep {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
 func function(name, description, parameters string) wire.Tool {
 	return wire.Tool{
 		Type: "function",
@@ -196,7 +233,37 @@ func function(name, description, parameters string) wire.Tool {
 	}
 }
 
-// Definitions returns the fixed tool array. Callers must not mutate it.
+// Definitions returns the DeepSeek tool array — the sixteen tools the
+// harness has always shipped, unchanged byte for byte
+// (docs/KIMI-INTEGRATION.md §4.2). It is the array every pre-Phase-8 caller
+// meant, and the default for anything that does not resolve to a provider
+// (an unknown model falls back to the default provider, DeepSeek). Callers
+// must not mutate it.
 func Definitions() []wire.Tool {
-	return definitions
+	return definitionsDeepSeek
+}
+
+// DefinitionsFor returns the frozen tool array for the provider serving
+// model, resolved through the one model→provider table
+// (internal/provider, docs/KIMI-INTEGRATION.md §4.3). Queue validation
+// rejects an unknown model before a session is created, so the fallback to
+// the DeepSeek array below is belt-and-braces for direct CLI callers, not a
+// route anything can take by mistake. Callers must not mutate the result.
+func DefinitionsFor(model string) []wire.Tool {
+	p, err := provider.ModelFor(model)
+	if err != nil {
+		return definitionsDeepSeek
+	}
+	return DefinitionsForProvider(p)
+}
+
+// DefinitionsForProvider returns the frozen tool array for one provider.
+// Callers must not mutate the result.
+func DefinitionsForProvider(p provider.Name) []wire.Tool {
+	switch p {
+	case provider.Kimi:
+		return definitionsKimi
+	default:
+		return definitionsDeepSeek
+	}
 }
