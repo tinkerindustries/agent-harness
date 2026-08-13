@@ -58,19 +58,24 @@ func (e *Executor) reviewScreenshotMaxBytes(ctx context.Context) int {
 // is the only standard, and a call without one is held to defects visible on
 // their own terms. Both carry a confidence the caller can weigh, and both
 // state that an empty list is an answer
-// (docs/reviews/sess-b949743ff7766606eb210ae59f2c1bcd.md).
+// (docs/reviews/sess-b949743ff7766606eb210ae59f2c1bcd.md). Both name the
+// image each finding is about: every image part is preceded by a label part
+// ("Image 1: <base name>", internal/gemini), and the model is told to echo
+// it, so a finding on a multi-image review says which screenshot it concerns.
 const reviewScreenshotSpecInstruction = `You are reviewing a web page screenshot against the design spec sent with it.
 The spec is the only standard of correctness. Report a discrepancy only where the screenshot contradicts it; anything the spec does not cover is intentional, so do not flag it against general web-design convention.
 Be precise and concise — name the element and what differs (position, size, colour, spacing), not general impressions.
+Each image is introduced by a label like "Image 1: home-dark.png"; every finding names the image it concerns, exactly as that label writes it.
 Returning an empty list is a valid and expected answer: [] means the screenshot matches the spec.
-Output as a JSON list: [{ "element": "", "issue": "", "expected": "", "actual": "", "confidence": "high" }]
+Output as a JSON list: [{ "image": "", "element": "", "issue": "", "expected": "", "actual": "", "confidence": "high" }]
 Set confidence to high only when the spec states the expectation you are measuring against, medium when you are inferring it, and low when the element is too small or the image too ambiguous to be sure.`
 
 const reviewScreenshotNoSpecInstruction = `You are reviewing a web page screenshot for defects.
 No design spec was sent with it, so you cannot know what the page is meant to look like: report only what is broken on its own terms — overlapping text, content clipped or overflowing its container, elements outside the viewport, unreadable contrast. Do not report stylistic choices, layout you would have made differently, or anything you are only guessing is wrong.
 Be precise and concise — name the element and what is wrong, not general impressions.
+Each image is introduced by a label like "Image 1: home-dark.png"; every finding names the image it concerns, exactly as that label writes it.
 Returning an empty list is a valid and expected answer: [] means you found no defect.
-Output as a JSON list: [{ "element": "", "issue": "", "expected": "", "actual": "", "confidence": "high" }]
+Output as a JSON list: [{ "image": "", "element": "", "issue": "", "expected": "", "actual": "", "confidence": "high" }]
 Set confidence to high only when the defect is unmistakable in the image, medium when it is likely, and low when the element is too small or the image too ambiguous to be sure.`
 
 // execReviewScreenshot implements ReviewScreenshot: send one to four
@@ -130,7 +135,11 @@ func execReviewScreenshot(ctx context.Context, e *Executor, argsRaw json.RawMess
 		if i == 0 {
 			resolution = gemini.ResolutionHigh
 		}
-		images = append(images, gemini.Image{Data: data, MIMEType: mimeType, Resolution: resolution})
+		// The label is the file's base name, so a finding can say which
+		// screenshot it concerns ("Image 1: home-dark.png") and the human
+		// reading the transcript can cross-check it against the rendered
+		// image (docs/TOOLS.md, "Seeing the screenshots").
+		images = append(images, gemini.Image{Data: data, MIMEType: mimeType, Resolution: resolution, Label: filepath.Base(path)})
 	}
 
 	// The capability check comes after argument validation, so a call with a

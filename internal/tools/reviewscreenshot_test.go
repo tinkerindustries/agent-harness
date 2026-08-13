@@ -198,23 +198,83 @@ func TestReviewScreenshotSendsAndReturns(t *testing.T) {
 	if !strings.Contains(got.SystemInstruction, `"element"`) || !strings.Contains(got.SystemInstruction, `"issue"`) {
 		t.Errorf("system instruction should ask for the element/issue/expected/actual JSON shape, got: %s", got.SystemInstruction)
 	}
-	if len(got.Input) != 3 {
-		t.Fatalf("input has %d parts, want 3 (2 images + question)", len(got.Input))
+	if len(got.Input) != 5 {
+		t.Fatalf("input has %d parts, want 5 (label + image, label + image, question)", len(got.Input))
 	}
-	if got.Input[0].Type != gemini.ContentTypeImage || got.Input[0].Resolution != gemini.ResolutionHigh {
-		t.Errorf("first image = %+v, want image at high", got.Input[0])
+	if got.Input[0].Type != gemini.ContentTypeText || got.Input[0].Text != "Image 1: a.png" {
+		t.Errorf("first part = %+v, want the label for a.png", got.Input[0])
 	}
-	if got.Input[1].Type != gemini.ContentTypeImage || got.Input[1].Resolution != gemini.ResolutionMedium {
-		t.Errorf("second image = %+v, want image at medium", got.Input[1])
+	if got.Input[1].Type != gemini.ContentTypeImage || got.Input[1].Resolution != gemini.ResolutionHigh {
+		t.Errorf("second part = %+v, want first image at high", got.Input[1])
 	}
-	if got.Input[2].Type != gemini.ContentTypeText {
-		t.Fatalf("last part = %+v, want the question last", got.Input[2])
+	if got.Input[2].Type != gemini.ContentTypeText || got.Input[2].Text != "Image 2: b.png" {
+		t.Errorf("third part = %+v, want the label for b.png", got.Input[2])
 	}
-	if !strings.Contains(got.Input[2].Text, "what is wrong?") {
-		t.Errorf("question missing from the last part: %s", got.Input[2].Text)
+	if got.Input[3].Type != gemini.ContentTypeImage || got.Input[3].Resolution != gemini.ResolutionMedium {
+		t.Errorf("fourth part = %+v, want second image at medium", got.Input[3])
 	}
-	if !strings.Contains(got.Input[2].Text, "64px tall") {
-		t.Errorf("spec should precede the question in the last part: %s", got.Input[2].Text)
+	if got.Input[4].Type != gemini.ContentTypeText {
+		t.Fatalf("last part = %+v, want the question last", got.Input[4])
+	}
+	if !strings.Contains(got.Input[4].Text, "what is wrong?") {
+		t.Errorf("question missing from the last part: %s", got.Input[4].Text)
+	}
+	if !strings.Contains(got.Input[4].Text, "64px tall") {
+		t.Errorf("spec should precede the question in the last part: %s", got.Input[4].Text)
+	}
+}
+
+// TestReviewScreenshotLabelsAreBaseNames pins that each image's label is the
+// file's base name, whatever directory the path resolves into — so a finding
+// names the file a human can find in the transcript, not a directory
+// position.
+func TestReviewScreenshotLabelsAreBaseNames(t *testing.T) {
+	var labels []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Input []gemini.Content `json:"input"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		for _, p := range req.Input {
+			if p.Type == gemini.ContentTypeText && strings.HasPrefix(p.Text, "Image ") {
+				labels = append(labels, p.Text)
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"i","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"[]"}]}]}`))
+	}))
+	defer srv.Close()
+
+	root := t.TempDir()
+	sub := filepath.Join(root, "shots", "nested")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	e, err := NewExecutor(root, &Policy{Mode: ModeFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Gemini = reviewScreenshotClient(srv)
+	writeFile(t, sub, "hero-dark.png", "x")
+	writeFile(t, sub, "form.png", "x")
+
+	res := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ImagePaths: []string{"shots/nested/hero-dark.png", "shots/nested/form.png"},
+		Question:   "what is wrong?",
+	})
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	want := []string{"Image 1: hero-dark.png", "Image 2: form.png"}
+	if len(labels) != len(want) {
+		t.Fatalf("labels = %q, want %q", labels, want)
+	}
+	for i := range want {
+		if labels[i] != want[i] {
+			t.Errorf("label %d = %q, want %q", i, labels[i], want[i])
+		}
 	}
 }
 
