@@ -73,10 +73,15 @@ export function EvalListScreen({ onOpen }: { onOpen: (id: string) => void }) {
     />
   );
 
-  if (runs === null) return <p className="eval-empty">Loading…</p>;
+  if (runs === null)
+    return (
+      <div className="screen">
+        <p className="eval-empty">Loading…</p>
+      </div>
+    );
   if (runs.length === 0) {
     return (
-      <div className="eval-list">
+      <div className="screen eval-list">
         {form}
         <p className="eval-empty">
           No eval runs yet. Start one above, or with{" "}
@@ -87,9 +92,10 @@ export function EvalListScreen({ onOpen }: { onOpen: (id: string) => void }) {
   }
 
   return (
-    <div className="eval-list">
+    <div className="screen eval-list">
       {form}
-      <table className="session-table">
+      <div className="eval-table-scroll">
+        <table className="session-table">
         <thead>
           <tr>
             <th>Status</th>
@@ -105,8 +111,9 @@ export function EvalListScreen({ onOpen }: { onOpen: (id: string) => void }) {
           {runs.map((run) => (
             <EvalRow key={run.id} run={run} onOpen={onOpen} />
           ))}
-        </tbody>
-      </table>
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -145,7 +152,7 @@ function EvalRow({ run, onOpen }: { run: EvalRunRow; onOpen: (id: string) => voi
           </span>
         )}
       </td>
-      <td>${run.cost_usd.toFixed(2)}</td>
+      <td>${run.cost_usd.toFixed(run.cost_usd > 0 && run.cost_usd < 0.01 ? 4 : 2)}</td>
       <td>{formatDuration(ended - started)}</td>
       <td>
         {run.headline ? (

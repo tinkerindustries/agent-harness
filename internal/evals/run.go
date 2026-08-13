@@ -249,12 +249,14 @@ func Execute(ctx context.Context, pub Publisher, sessions Sessions, opts Options
 	return report, nil
 }
 
-// allFailed reports whether every run errored. A run where some members
-// finished is an ok run with failed members, not a failed run: the comparison
-// over what did finish still stands.
+// allFailed reports whether no run finished cleanly. A run where some members
+// did is an ok run with failed members: the comparison over those still
+// stands. Status matters as well as Err — a member that timed out or ran out
+// of sub-turns carries the status and no error string, and counting Err alone
+// called a run where every member timed out a clean success.
 func allFailed(runs []Run) bool {
 	for _, r := range runs {
-		if r.Err == "" {
+		if r.Err == "" && r.Status == "ok" {
 			return false
 		}
 	}

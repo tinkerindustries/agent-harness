@@ -52,10 +52,17 @@ describe("formatMetric", () => {
 
 describe("formatDelta", () => {
   it("signs the difference, because the direction is the point", () => {
-    expect(formatDelta("search_via_tool", 0.18)).toBe("+18.0%");
-    expect(formatDelta("search_via_tool", -0.18)).toBe("-18.0%");
+    // A change in a share is in percentage points, not percent: printing it
+    // exactly like the level invites reading a 57% relative drop as 0.3%.
+    expect(formatDelta("search_via_tool", 0.18)).toBe("+18.0pp");
+    expect(formatDelta("search_via_tool", -0.18)).toBe("-18.0pp");
+    expect(formatDelta("sub_turns", 1.5)).toBe("+1.50");
     // "0.00" beside a metric name reads as the value, not the change.
     expect(formatDelta("sub_turns", 0)).toBe("no change");
+    // Rounding to thousands is right for a mean of 83k and wrong for a
+    // difference of 270, which used to print as "-0k".
+    expect(formatDelta("context_tokens_max", -270)).toBe("-270");
+    expect(formatDelta("context_tokens_max", 4200)).toBe("+4k");
   });
 });
 
@@ -92,6 +99,7 @@ describe("buildComparison", () => {
     expect(rows.map((r) => r.metric)).toEqual(["search_via_tool", "sub_turns"]);
     expect(rows[0].cells.map((c) => c?.mean)).toEqual([0.15, 0.85]);
     expect(rows[0].delta?.significant).toBe(true);
+    expect(rows[0].cells[0]?.stderr).toBe(0.05);
     // A metric with no delta from the server carries none rather than a zero.
     expect(rows[1].delta).toBeNull();
   });
@@ -148,19 +156,74 @@ describe("isRunning", () => {
 describe("estimateCost", () => {
   // The estimate comes from what earlier runs actually cost per finished
   // member, so it tracks whichever model the operator has been using.
-  it("scales the mean per-run cost of earlier runs", () => {
+  it("scales the mean per-run cost of earlier runs of the same suite", () => {
     const prior = [
-      { finished: 4, cost_usd: 0.08 },
-      { finished: 2, cost_usd: 0.06 },
+      { suite: "search", finished: 4, cost_usd: 0.08 },
+      { suite: "search", finished: 2, cost_usd: 0.06 },
     ] as never as EvalRunDetail[];
     // (0.02 + 0.03) / 2 = 0.025 per run.
-    expect(estimateCost(24, prior)).toBeCloseTo(0.6);
+    expect(estimateCost(24, "search", prior)).toBeCloseTo(0.6);
+  });
+
+  // A cheap one-task suite averaged in with an expensive four-task one halves
+  // the figure, and this number is the last thing read before spending money.
+  it("ignores runs of a different suite", () => {
+    const prior = [
+      { suite: "search", finished: 4, cost_usd: 0.08 },
+      { suite: "smoke", finished: 2, cost_usd: 0.004 },
+    ] as never as EvalRunDetail[];
+    expect(estimateCost(10, "search", prior)).toBeCloseTo(0.2);
   });
 
   // A suite nobody has run yet has nothing to estimate from, and must say so
   // rather than promise a confident zero before spending real money.
-  it("is null with no finished runs to learn from", () => {
-    expect(estimateCost(24, [])).toBeNull();
-    expect(estimateCost(24, [{ finished: 0, cost_usd: 0 }] as never as EvalRunDetail[])).toBeNull();
+  it("is null with no finished runs of that suite to learn from", () => {
+    expect(estimateCost(24, "search", [])).toBeNull();
+    expect(
+      estimateCost(24, "search", [{ suite: "search", finished: 0, cost_usd: 0 }] as never as EvalRunDetail[]),
+    ).toBeNull();
+    expect(
+      estimateCost(24, "search", [{ suite: "smoke", finished: 2, cost_usd: 0.01 }] as never as EvalRunDetail[]),
+    ).toBeNull();
+  });
+});
+
+describe("buildComparison guards", () => {
+  // The standard error of one observation is undefined, not zero. Printing
+  // "±0.00" beside a caption about standard errors invites the reader to
+  // call every delta on the page real.
+  it("has no spread at n=1", () => {
+    const rows = buildComparison(
+      detail({
+        summary: [
+          { metric: "sub_turns", variant: "base", n: 1, mean: 30, stddev: 0, stderr: 0 },
+          { metric: "sub_turns", variant: "search-first", n: 3, mean: 27, stddev: 2, stderr: 1.2 },
+        ],
+      }),
+    );
+    expect(rows[0].cells[0]?.stderr).toBeNull();
+    expect(rows[0].cells[1]?.stderr).toBe(1.2);
+  });
+
+  // One measured arm and one absent is not a comparison, whatever the server
+  // sent alongside it.
+  it("drops a delta when either arm has nothing to measure", () => {
+    const rows = buildComparison(
+      detail({
+        summary: [{ metric: "searches_total", variant: "base", n: 2, mean: 12.5, stddev: 1, stderr: 0.7 }],
+        deltas: [
+          {
+            metric: "searches_total",
+            baseline_variant: "base",
+            variant: "search-first",
+            diff: 0,
+            combined_stderr: 0,
+            significant: false,
+          },
+        ],
+      }),
+    );
+    expect(rows[0].cells[1]).toBeNull();
+    expect(rows[0].delta).toBeNull();
   });
 });

@@ -182,17 +182,24 @@ export async function getSessionEval(sessionId: string): Promise<EvalMembership 
 // formatMetric mirrors internal/evals/report.go's format, so a number reads
 // the same in the browser as in the terminal: shares as percentages, money to
 // four places, context in thousands, everything else to two.
-export function formatMetric(metric: string, value: number): string {
-  if (
+export function isShare(metric: string): boolean {
+  return (
     metric.endsWith("_rate") ||
     metric.endsWith("_via_tool") ||
     metric.endsWith("_decay") ||
     metric === "judge_completed"
-  ) {
-    return `${(value * 100).toFixed(1)}%`;
-  }
+  );
+}
+
+export function formatMetric(metric: string, value: number): string {
+  if (isShare(metric)) return `${(value * 100).toFixed(1)}%`;
   if (metric === "cost_usd") return `$${value.toFixed(4)}`;
-  if (metric === "context_tokens_max") return `${Math.round(value / 1000)}k`;
+  // Rounding a token count to thousands is right for a mean of ~83k and
+  // wrong for a difference of 270, which would print as 0k. Below a thousand
+  // the raw count is the honest number.
+  if (metric === "context_tokens_max") {
+    return Math.abs(value) < 1000 ? `${Math.round(value)}` : `${Math.round(value / 1000)}k`;
+  }
   return value.toFixed(2);
 }
 
@@ -202,7 +209,12 @@ export function formatMetric(metric: string, value: number): string {
 export function formatDelta(metric: string, diff: number): string {
   if (diff === 0) return "no change";
   const body = formatMetric(metric, Math.abs(diff));
-  return diff > 0 ? `+${body}` : `-${body}`;
+  // A change in a share is in percentage points, not percent: -0.3% beside
+  // values of 0.5% and 0.2% is a 57% relative drop, and printing the change
+  // exactly like the level invites reading it as one.
+  const unit = isShare(metric) ? "pp" : "";
+  const signed = diff > 0 ? `+${body}` : `-${body}`;
+  return unit === "" ? signed : `${signed.replace("%", "")}${unit}`;
 }
 
 // metricLabel is the human name for a metric. An unknown one — a metric added
@@ -233,7 +245,10 @@ export function metricLabel(metric: string): string {
 // mean 0, and that distinction has to survive to the screen.
 export interface ComparisonCell {
   mean: number;
-  stderr: number;
+  // stderr is null at n=1: the standard error of one observation is
+  // undefined, not zero, and "±0.00" beside the caption about standard errors
+  // invites the reader to call every delta on the page real.
+  stderr: number | null;
   n: number;
 }
 
@@ -258,14 +273,16 @@ export function buildComparison(detail: EvalRunDetail): ComparisonRow[] {
     row.set(s.variant, s);
   }
   const deltaFor = new Map(detail.deltas.map((d) => [d.metric, d]));
-  return order.map((metric) => ({
-    metric,
-    cells: detail.variants.map((v) => {
+  return order.map((metric) => {
+    const cells = detail.variants.map((v) => {
       const s = byMetric.get(metric)?.get(v);
-      return s ? { mean: s.mean, stderr: s.stderr, n: s.n } : null;
-    }),
-    delta: deltaFor.get(metric) ?? null,
-  }));
+      return s ? { mean: s.mean, stderr: s.n > 1 ? s.stderr : null, n: s.n } : null;
+    });
+    // A delta needs both arms. One measured arm and one absent is not a
+    // comparison, whatever the server sent alongside it.
+    const measured = cells[0] !== null && cells[cells.length - 1] !== null;
+    return { metric, cells, delta: measured ? (deltaFor.get(metric) ?? null) : null };
+  });
 }
 
 // groupMembersByTask keeps the arms of one task adjacent, which is the
@@ -293,10 +310,13 @@ export function evalRunProgress(run: EvalRunRow): number {
 // runs already recorded. It is an estimate and says so: a suite nobody has
 // run yet has nothing to estimate from and returns null rather than a
 // confident zero.
-export function estimateCost(totalRuns: number, priorRuns: EvalRunRow[]): number | null {
-  const finished = priorRuns.filter((r) => r.finished > 0);
-  if (finished.length === 0) return null;
-  const perRun = finished.reduce((sum, r) => sum + r.cost_usd / r.finished, 0) / finished.length;
+// It learns from runs of the same suite only. Averaging a four-task search
+// run together with a one-task smoke run halves the figure, and this number
+// is the last thing a reader sees before a button that spends real money.
+export function estimateCost(totalRuns: number, suite: string, priorRuns: EvalRunRow[]): number | null {
+  const comparable = priorRuns.filter((r) => r.suite === suite && r.finished > 0);
+  if (comparable.length === 0) return null;
+  const perRun = comparable.reduce((sum, r) => sum + r.cost_usd / r.finished, 0) / comparable.length;
   return perRun * totalRuns;
 }
 

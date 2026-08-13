@@ -4068,9 +4068,10 @@ kbd {
    server's own significance decision. Everything else reuses the session
    table. */
 
+/* Both screens wrap in .screen, which owns the width and the gutters. */
 .eval-list,
 .eval-run {
-  padding: var(--space-4) 0;
+  padding-top: var(--space-4);
 }
 
 .eval-empty,
@@ -4108,12 +4109,16 @@ kbd {
   color: var(--destructive);
 }
 
-/* A thin bar under the counter while a run is going. */
+/* A bar under the counter while a run is going. Two pixels tall and only as
+   wide as the text read as an underline rather than a progress indicator. */
 .eval-progress {
   display: block;
-  height: 2px;
-  margin-top: 4px;
+  width: 6ch;
+  height: 5px;
+  margin-top: 5px;
+  border-radius: 999px;
   background: var(--border);
+  overflow: hidden;
 }
 
 .eval-progress > span {
@@ -4287,8 +4292,15 @@ kbd {
   flex-wrap: wrap;
 }
 
+/* Wide enough that a model name is not clipped mid-word; wrapping rather
+   than shrinking below it on a phone. */
 .eval-field-row > .eval-field {
-  flex: 1 1 10ch;
+  flex: 1 1 18ch;
+  min-width: 18ch;
+}
+
+.eval-field-row > .eval-field input {
+  min-width: 0;
 }
 
 .eval-variant-picker {

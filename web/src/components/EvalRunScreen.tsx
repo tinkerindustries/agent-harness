@@ -36,13 +36,31 @@ export function EvalRunScreen({ id, onOpenSession }: { id: string; onOpenSession
     ),
   );
 
-  if (!detail) return <p className="eval-empty">Loading…</p>;
+  // An id that does not resolve leaves the stream closed and nothing to
+  // show. Without this the screen sits on "Loading…" for ever.
+  if (!detail) {
+    return connected ? (
+      <div className="screen">
+        <p className="eval-empty">Loading…</p>
+      </div>
+    ) : (
+      <div className="screen">
+        <p className="eval-error">No eval run with id {id}. It may have been deleted.</p>
+      </div>
+    );
+  }
 
   const rows = buildComparison(detail);
-  const capped = detail.members.filter((m) => m.status === "max_turns").length;
+  // Any member that did not end ok leaves its metrics stopping where the run
+  // stopped rather than where the work did. Counting only max_turns missed a
+  // run where all eight members timed out and the page called it a clean
+  // comparison.
+  const terminated = detail.members.filter(
+    (m) => m.status !== "ok" && m.status !== "pending" && m.status !== "running",
+  );
 
   return (
-    <div className="eval-run">
+    <div className="screen eval-run">
       <header className="eval-header">
         <h1>{detail.suite}</h1>
         {detail.note && <p className="eval-note">{detail.note}</p>}
@@ -87,10 +105,12 @@ export function EvalRunScreen({ id, onOpenSession }: { id: string; onOpenSession
           ± is the standard error of the mean. A delta smaller than the two standard errors combined is
           not a result; add replicates.
         </p>
-        {capped > 0 && (
+        {terminated.length > 0 && (
           <p className="eval-warning">
-            {capped} of {detail.total} runs hit the sub-turn cap. Their metrics stop where the run
-            stopped, not where the work did.
+            {terminated.length} of {detail.total} runs did not finish cleanly (
+            {[...new Set(terminated.map((m) => m.status))].join(", ")}). Their metrics stop where the
+            run stopped, not where the work did — read this comparison with that in mind, or run it
+            again with a larger budget.
           </p>
         )}
       </section>
@@ -141,7 +161,8 @@ function ComparisonTableRow({ row }: { row: ComparisonRow }) {
           <td key={i}>
             <span className="eval-mean">{formatMetric(row.metric, cell.mean)}</span>
             <span className="eval-spread">
-              ±{formatMetric(row.metric, cell.stderr)} (n={cell.n})
+              {cell.stderr === null ? "no spread" : `±${formatMetric(row.metric, cell.stderr)}`} (n=
+              {cell.n})
             </span>
           </td>
         ) : (
@@ -185,7 +206,9 @@ function MemberTableRow({
           <Badge variant={member.error ? "failed" : "outline"}>{member.status}</Badge>
         </td>
         <td>{member.sub_turns || "—"}</td>
-        <td>${member.cost_usd.toFixed(4)}</td>
+        {/* A member that has not run cost nothing because it has not
+            happened, which is not the same as having been free. */}
+        <td>{member.cost_usd > 0 ? `$${member.cost_usd.toFixed(4)}` : <span className="eval-absent">—</span>}</td>
         <td>{member.verdict ? `${member.verdict.score}/5` : <span className="eval-absent">—</span>}</td>
         <td>
           {member.session_id ? (

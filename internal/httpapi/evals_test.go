@@ -231,6 +231,35 @@ func TestListEvalSuitesAndVariants(t *testing.T) {
 	}
 }
 
+// A member that timed out carries a status and no error string. Counting
+// only the error string reported a run where every member timed out as a
+// clean success with nothing failed.
+func TestListEvalsCountsABadlyEndedMemberAsFailed(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	run := store.EvalRun{
+		ID: "evr-timeouts", Suite: "search", SuiteJSON: json.RawMessage(`{}`),
+		Variants: []string{"base", "search-first"}, Replicates: 1,
+		Status: store.EvalStatusOK, StartedAt: time.Now().UTC(),
+	}
+	members := []store.EvalMember{
+		{EvalRunID: "evr-timeouts", RequestID: "a", TaskID: "t", Variant: "base", Replicate: 1, Status: "timeout"},
+		{EvalRunID: "evr-timeouts", RequestID: "b", TaskID: "t", Variant: "search-first", Replicate: 1, Status: "max_turns"},
+		{EvalRunID: "evr-timeouts", RequestID: "c", TaskID: "t", Variant: "base", Replicate: 1, Status: "ok"},
+	}
+	if err := st.CreateEvalRun(context.Background(), run, members); err != nil {
+		t.Fatal(err)
+	}
+
+	var rows []evalRunRow
+	getJSON(t, srv.URL+"/api/evals", &rows)
+	if rows[0].Failed != 2 {
+		t.Errorf("failed = %d, want 2 — a timeout and a max_turns are not clean finishes", rows[0].Failed)
+	}
+	if rows[0].Finished != 3 {
+		t.Errorf("finished = %d, want 3 — they did reach a terminal state", rows[0].Finished)
+	}
+}
+
 // A running run reports what has finished so far rather than waiting.
 func TestListEvalsCountsAPartlyFinishedRun(t *testing.T) {
 	srv, st, _ := newTestServer(t)

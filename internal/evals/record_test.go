@@ -20,6 +20,8 @@ type fakeQueue struct {
 	mu        sync.Mutex
 	published []queue.Request
 	st        *store.Store
+	// finishStatus is what the work request lands as. Empty is "ok".
+	finishStatus string
 }
 
 func (q *fakeQueue) Publish(ctx context.Context, req queue.Request) error {
@@ -50,7 +52,11 @@ func (q *fakeQueue) Publish(ctx context.Context, req queue.Request) error {
 	if err := q.st.SetWorkRequestSession(ctx, req.RequestID, sessionID); err != nil {
 		return err
 	}
-	_, err := q.st.FinishWorkRequest(ctx, req.RequestID, sessionID, "ok", nil, time.Now().UTC())
+	status := q.finishStatus
+	if status == "" {
+		status = "ok"
+	}
+	_, err := q.st.FinishWorkRequest(ctx, req.RequestID, sessionID, status, nil, time.Now().UTC())
 	return err
 }
 
@@ -242,5 +248,29 @@ func TestExecuteWithoutARecorderWritesNothing(t *testing.T) {
 	}
 	if len(runs) != 0 {
 		t.Errorf("runs = %d, want 0 without a recorder", len(runs))
+	}
+}
+
+// A member that timed out carries a status and no error string. The run is
+// not a success just because nothing raised an error.
+func TestExecuteRecordsAFailedRunWhenEveryMemberTimedOut(t *testing.T) {
+	st := openStore(t)
+	ctx := context.Background()
+	q := &fakeQueue{st: st, finishStatus: "timeout"}
+
+	report, err := Execute(ctx, q, st, Options{
+		Suite: testSuite(), Variants: []string{"base", "search-first"},
+		Replicates: 1, Concurrency: 2, PollInterval: time.Millisecond,
+		Timeout: 10 * time.Second, Recorder: st,
+	})
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	run, err := st.GetEvalRun(ctx, report.EvalRunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if run.Status != store.EvalStatusFailed {
+		t.Errorf("status = %q, want %q — every member timed out", run.Status, store.EvalStatusFailed)
 	}
 }

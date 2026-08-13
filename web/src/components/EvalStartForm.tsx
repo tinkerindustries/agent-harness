@@ -62,10 +62,12 @@ export function EvalStartForm({ token, priorRuns, onClose, onStarted }: Props) {
   }, []);
 
   const selectedSuite = suites.find((s) => s.name === suite);
-  const reps = Number.parseInt(replicates, 10);
+  // A fractional value is rejected rather than truncated: 2.5 silently
+  // becoming 2 changes what the run measures without saying so.
+  const reps = /^\d+$/.test(replicates.trim()) ? Number.parseInt(replicates, 10) : Number.NaN;
   const totalRuns =
     selectedSuite && Number.isFinite(reps) && reps > 0 ? selectedSuite.task_ids.length * chosen.length * reps : 0;
-  const estimate = useMemo(() => estimateCost(totalRuns, priorRuns), [totalRuns, priorRuns]);
+  const estimate = useMemo(() => estimateCost(totalRuns, suite, priorRuns), [totalRuns, suite, priorRuns]);
 
   // Two variants at least, and the first is the baseline. Toggling keeps the
   // click order, so the operator chooses which arm the delta is measured
@@ -74,7 +76,17 @@ export function EvalStartForm({ token, priorRuns, onClose, onStarted }: Props) {
     setChosen((prev) => (prev.includes(name) ? prev.filter((v) => v !== name) : [...prev, name]));
   }
 
-  const ready = suite !== "" && chosen.length >= 2 && totalRuns > 0 && !sending;
+  // Say which condition is unmet rather than one message for all of them: a
+  // cleared Replicates field used to report "pick two variants".
+  const blocker =
+    suite === ""
+      ? "Pick a suite."
+      : chosen.length < 2
+        ? "Pick at least two variants — the comparison needs a baseline and an arm."
+        : !Number.isFinite(reps) || reps < 1
+          ? "Replicates must be a whole number, at least 1."
+          : null;
+  const ready = blocker === null && !sending;
 
   async function submit() {
     setSending(true);
@@ -166,14 +178,12 @@ export function EvalStartForm({ token, priorRuns, onClose, onStarted }: Props) {
       </label>
 
       <p className="eval-cost">
-        {totalRuns > 0 ? (
+        {blocker ?? (
           <>
             <strong>{totalRuns} runs</strong>
-            {estimate !== null && <> · roughly ${estimate.toFixed(2)}, from what earlier runs cost</>}
-            {estimate === null && <> · no earlier runs to estimate a cost from</>}
+            {estimate !== null && <> · roughly ${estimate.toFixed(2)}, from earlier {suite} runs</>}
+            {estimate === null && <> · no earlier {suite} runs to estimate a cost from</>}
           </>
-        ) : (
-          "Pick a suite and at least two variants."
         )}
       </p>
 

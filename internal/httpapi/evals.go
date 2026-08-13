@@ -182,10 +182,15 @@ func evalRunRowFrom(run store.EvalRun, members []store.EvalMember) evalRunRow {
 	}
 	for _, m := range members {
 		row.CostUSD += m.CostUSD
-		if m.Status != "pending" && m.Status != "running" {
+		switch m.Status {
+		case "pending", "running":
+		case "ok":
 			row.Finished++
-		}
-		if m.Error != "" {
+		default:
+			// A member that timed out or ran out of sub-turns carries the
+			// status and no error string, so counting Error alone reported a
+			// run where every member timed out as a clean success.
+			row.Finished++
 			row.Failed++
 		}
 	}
