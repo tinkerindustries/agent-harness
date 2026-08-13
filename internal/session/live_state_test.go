@@ -32,7 +32,7 @@ func TestTaskCallsPersistPlanToSessionRow(t *testing.T) {
 		_ = json.Unmarshal(body, &probe)
 		if !probe.Stream {
 			resp := wire.ChatCompletionResponse{
-				Choices: []wire.Choice{{Message: wire.Message{Role: wire.RoleAssistant, Content: "n/a"}, FinishReason: wire.FinishStop}},
+				Choices: []wire.Choice{{Message: wire.Message{Role: wire.RoleAssistant, Content: wire.TextContent("n/a")}, FinishReason: wire.FinishStop}},
 			}
 			_ = json.NewEncoder(w).Encode(resp)
 			return
@@ -143,7 +143,7 @@ func TestTaskReadsDoNotWritePlan(t *testing.T) {
 		_ = json.Unmarshal(body, &probe)
 		if !probe.Stream {
 			resp := wire.ChatCompletionResponse{
-				Choices: []wire.Choice{{Message: wire.Message{Role: wire.RoleAssistant, Content: "n/a"}, FinishReason: wire.FinishStop}},
+				Choices: []wire.Choice{{Message: wire.Message{Role: wire.RoleAssistant, Content: wire.TextContent("n/a")}, FinishReason: wire.FinishStop}},
 			}
 			_ = json.NewEncoder(w).Encode(resp)
 			return
@@ -239,7 +239,7 @@ func TestSubTurnPublishesFreshPlanAndRecentToolCalls(t *testing.T) {
 		_ = json.Unmarshal(body, &probe)
 		if !probe.Stream {
 			resp := wire.ChatCompletionResponse{
-				Choices: []wire.Choice{{Message: wire.Message{Role: wire.RoleAssistant, Content: "n/a"}, FinishReason: wire.FinishStop}},
+				Choices: []wire.Choice{{Message: wire.Message{Role: wire.RoleAssistant, Content: wire.TextContent("n/a")}, FinishReason: wire.FinishStop}},
 			}
 			_ = json.NewEncoder(w).Encode(resp)
 			return

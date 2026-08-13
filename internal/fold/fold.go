@@ -33,7 +33,7 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Message, error) {
 	flushAssistant := func() {
 		msg := wire.Message{
 			Role:      wire.RoleAssistant,
-			Content:   content.String(),
+			Content:   wire.TextContent(content.String()),
 			ToolCalls: toolCalls,
 		}
 		if reasoning.Len() > 0 {
@@ -99,7 +99,7 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Message, error) {
 			}
 			messages = append(messages, wire.Message{
 				Role:       wire.RoleTool,
-				Content:    p.Content,
+				Content:    wire.TextContent(p.Content),
 				ToolCallID: p.ToolCallID,
 			})
 
@@ -110,7 +110,7 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Message, error) {
 			}
 			messages = append(messages, wire.Message{
 				Role:       wire.RoleTool,
-				Content:    p.Content,
+				Content:    wire.TextContent(p.Content),
 				ToolCallID: p.ToolCallID,
 			})
 

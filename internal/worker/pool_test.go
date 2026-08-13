@@ -112,7 +112,7 @@ func plainAnswerServer(t *testing.T, answer string, delay time.Duration, hits *h
 
 		if !probe.Stream {
 			resp := wire.ChatCompletionResponse{
-				Choices: []wire.Choice{{Message: wire.Message{Role: wire.RoleAssistant, Content: answer}, FinishReason: wire.FinishStop}},
+				Choices: []wire.Choice{{Message: wire.Message{Role: wire.RoleAssistant, Content: wire.TextContent(answer)}, FinishReason: wire.FinishStop}},
 				Usage:   &wire.Usage{PromptTokens: 50, CompletionTokens: 10},
 			}
 			w.Header().Set("Content-Type", "application/json")

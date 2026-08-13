@@ -41,7 +41,7 @@ func TestRequestSerialisationIsByteStable(t *testing.T) {
 func TestAssistantToolCallContentIsEmptyStringNotNull(t *testing.T) {
 	msg := Message{
 		Role:    RoleAssistant,
-		Content: "",
+		Content: TextContent(""),
 		ToolCalls: []ToolCall{
 			{ID: "call_00_x", Type: "function", Function: ToolCallFunc{Name: "get_date", Arguments: "{}"}},
 		},

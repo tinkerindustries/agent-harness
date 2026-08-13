@@ -49,10 +49,13 @@ const (
 // encoding/json emits, so the same Message value always produces the same
 // bytes. Content has no omitempty: an assistant message carrying tool_calls
 // must serialise content as "" rather than being absent or null
-// (docs/DESIGN.md §4.4).
+// (docs/DESIGN.md §4.4). Content is a plain string today for every message
+// the harness sends, and can carry typed parts for multimodal input; its
+// own marshaller keeps the text-only serialisation byte-identical
+// (third_party/kimi-docs/openapi.json "Message", docs/KIMI-INTEGRATION.md §4.5).
 type Message struct {
 	Role             string     `json:"role"`
-	Content          string     `json:"content"`
+	Content          Content    `json:"content"`
 	Name             string     `json:"name,omitempty"`
 	ReasoningContent *string    `json:"reasoning_content,omitempty"`
 	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
@@ -61,12 +64,12 @@ type Message struct {
 
 // SystemMessage builds a system-role message.
 func SystemMessage(content string) Message {
-	return Message{Role: RoleSystem, Content: content}
+	return Message{Role: RoleSystem, Content: TextContent(content)}
 }
 
 // UserMessage builds a user-role message.
 func UserMessage(content string) Message {
-	return Message{Role: RoleUser, Content: content}
+	return Message{Role: RoleUser, Content: TextContent(content)}
 }
 
 // ToolCall is a completed function call, as it appears in a non-streaming

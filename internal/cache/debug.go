@@ -15,7 +15,7 @@ func Mutate(messages []wire.Message, i int) []wire.Message {
 		return out
 	}
 	m := out[i]
-	m.Content += "\n\n[deliberately churned for docs/CACHE.md's diagnostic demonstration]"
+	m.Content = wire.TextContent(m.Content.String() + "\n\n[deliberately churned for docs/CACHE.md's diagnostic demonstration]")
 	out[i] = m
 	return out
 }

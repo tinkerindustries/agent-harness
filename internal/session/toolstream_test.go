@@ -29,7 +29,7 @@ func bashThenAnswerServer(t *testing.T, command, finalAnswer string) *httptest.S
 		_ = json.Unmarshal(body, &probe)
 		if !probe.Stream {
 			resp := wire.ChatCompletionResponse{
-				Choices: []wire.Choice{{Message: wire.Message{Role: wire.RoleAssistant, Content: finalAnswer}, FinishReason: wire.FinishStop}},
+				Choices: []wire.Choice{{Message: wire.Message{Role: wire.RoleAssistant, Content: wire.TextContent(finalAnswer)}, FinishReason: wire.FinishStop}},
 				Usage:   &wire.Usage{PromptTokens: 50, CompletionTokens: 10},
 			}
 			w.Header().Set("Content-Type", "application/json")
@@ -161,7 +161,7 @@ func TestTaskResultCarriesChildSessionID(t *testing.T) {
 		_ = json.Unmarshal(body, &probe)
 		if !probe.Stream {
 			resp := wire.ChatCompletionResponse{
-				Choices: []wire.Choice{{Message: wire.Message{Role: wire.RoleAssistant, Content: "parent done"}, FinishReason: wire.FinishStop}},
+				Choices: []wire.Choice{{Message: wire.Message{Role: wire.RoleAssistant, Content: wire.TextContent("parent done")}, FinishReason: wire.FinishStop}},
 				Usage:   &wire.Usage{PromptTokens: 50, CompletionTokens: 10},
 			}
 			w.Header().Set("Content-Type", "application/json")

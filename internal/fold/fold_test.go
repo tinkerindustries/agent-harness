@@ -74,7 +74,7 @@ func TestFoldPlainTurn(t *testing.T) {
 	want := []wire.Message{
 		wire.SystemMessage("you are a coding agent"),
 		wire.UserMessage("fix the bug"),
-		{Role: wire.RoleAssistant, Content: "The bug is fixed.", ReasoningContent: &reasoning},
+		{Role: wire.RoleAssistant, Content: wire.TextContent("The bug is fixed."), ReasoningContent: &reasoning},
 	}
 	requireEqualMessages(t, got, want)
 }
@@ -103,13 +103,13 @@ func TestFoldToolCallTurn(t *testing.T) {
 		wire.UserMessage("list the files"),
 		{
 			Role:             wire.RoleAssistant,
-			Content:          "",
+			Content:          wire.TextContent(""),
 			ReasoningContent: &reasoning,
 			ToolCalls: []wire.ToolCall{
 				{ID: "call_00_abc", Type: "function", Function: wire.ToolCallFunc{Name: "List", Arguments: `{"path":"."}`}},
 			},
 		},
-		{Role: wire.RoleTool, Content: "a.go\nb.go", ToolCallID: "call_00_abc"},
+		{Role: wire.RoleTool, Content: wire.TextContent("a.go\nb.go"), ToolCallID: "call_00_abc"},
 	}
 	requireEqualMessages(t, got, want)
 
@@ -166,14 +166,14 @@ func TestFoldParallelToolCallTurn(t *testing.T) {
 		wire.UserMessage("check the weather in two cities"),
 		{
 			Role:    wire.RoleAssistant,
-			Content: "",
+			Content: wire.TextContent(""),
 			ToolCalls: []wire.ToolCall{
 				{ID: "call_00_a", Type: "function", Function: wire.ToolCallFunc{Name: "get_weather", Arguments: `{"location":"Hobart"}`}},
 				{ID: "call_01_b", Type: "function", Function: wire.ToolCallFunc{Name: "get_weather", Arguments: `{"location":"Perth"}`}},
 			},
 		},
-		{Role: wire.RoleTool, Content: "18C", ToolCallID: "call_00_a"},
-		{Role: wire.RoleTool, Content: "24C", ToolCallID: "call_01_b"},
+		{Role: wire.RoleTool, Content: wire.TextContent("18C"), ToolCallID: "call_00_a"},
+		{Role: wire.RoleTool, Content: wire.TextContent("24C"), ToolCallID: "call_01_b"},
 	}
 	requireEqualMessages(t, got, want)
 }
@@ -211,14 +211,14 @@ func TestFoldMultiTurnCarriesReasoning(t *testing.T) {
 		wire.UserMessage("add a test"),
 		{
 			Role:             wire.RoleAssistant,
-			Content:          "",
+			Content:          wire.TextContent(""),
 			ReasoningContent: &turn1Reasoning,
 			ToolCalls: []wire.ToolCall{
 				{ID: "call_00_x", Type: "function", Function: wire.ToolCallFunc{Name: "Read", Arguments: `{"file_path":"a.go"}`}},
 			},
 		},
-		{Role: wire.RoleTool, Content: "1\tpackage a", ToolCallID: "call_00_x"},
-		{Role: wire.RoleAssistant, Content: "done", ReasoningContent: &turn2Reasoning},
+		{Role: wire.RoleTool, Content: wire.TextContent("1\tpackage a"), ToolCallID: "call_00_x"},
+		{Role: wire.RoleAssistant, Content: wire.TextContent("done"), ReasoningContent: &turn2Reasoning},
 	}
 	requireEqualMessages(t, got, want)
 }
@@ -244,7 +244,7 @@ func TestFoldSteer(t *testing.T) {
 	want := []wire.Message{
 		wire.SystemMessage("you are a coding agent"),
 		wire.UserMessage("do it"),
-		{Role: wire.RoleAssistant, Content: "done"},
+		{Role: wire.RoleAssistant, Content: wire.TextContent("done")},
 	}
 	requireEqualMessages(t, got, want)
 
@@ -282,7 +282,7 @@ func TestFoldTwoSteersInOneBatch(t *testing.T) {
 	want := []wire.Message{
 		wire.SystemMessage("you are a coding agent"),
 		wire.UserMessage("do it"),
-		{Role: wire.RoleAssistant, Content: "done"},
+		{Role: wire.RoleAssistant, Content: wire.TextContent("done")},
 		wire.UserMessage("first"),
 		wire.UserMessage("second"),
 	}
