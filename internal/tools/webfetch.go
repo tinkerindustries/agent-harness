@@ -132,7 +132,7 @@ func (e *Executor) summarizeFetch(ctx context.Context, content, prompt string) (
 	if len(resp.Choices) == 0 {
 		return "", fmt.Errorf("no choices returned")
 	}
-	return resp.Choices[0].Message.Content, nil
+	return resp.Choices[0].Message.Content.String(), nil
 }
 
 var (

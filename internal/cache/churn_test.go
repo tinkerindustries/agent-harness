@@ -61,7 +61,7 @@ func TestAppendOnlyGrowthDoesNotChurn(t *testing.T) {
 
 	// Second request appends one message (a tool result) and the API
 	// reports the full first request's floor(1000/128)*128 = 896 as a hit.
-	second := append(append([]wire.Message{}, first...), wire.Message{Role: wire.RoleAssistant, Content: "ok"})
+	second := append(append([]wire.Message{}, first...), wire.Message{Role: wire.RoleAssistant, Content: wire.TextContent("ok")})
 	report := d.Observe(second, deepSeekSplit(wire.Usage{PromptTokens: 1080, PromptCacheHitTokens: 896, PromptCacheMissTokens: 184}))
 	if report.Churned {
 		t.Fatalf("appending content should not churn: %+v", report)
@@ -127,7 +127,7 @@ func TestMutateChurnsAndNamesTheIndex(t *testing.T) {
 	first := []wire.Message{
 		wire.SystemMessage("sys"),
 		wire.UserMessage("workspace and task"),
-		{Role: wire.RoleAssistant, Content: "ok"},
+		{Role: wire.RoleAssistant, Content: wire.TextContent("ok")},
 	}
 	d.Observe(first, deepSeekSplit(wire.Usage{PromptTokens: 2000, PromptCacheHitTokens: 0, PromptCacheMissTokens: 2000}))
 
@@ -233,7 +233,7 @@ func TestKimiThirteenObservedSubTurnsDoNotChurn(t *testing.T) {
 			// expectedHit tokens with nothing appended yet.
 			d.Observe(first, kimiSplit(wire.Usage{PromptTokens: tc.expectedHit, CachedTokens: tc.expectedHit}))
 
-			second := append(append([]wire.Message{}, first...), wire.Message{Role: wire.RoleAssistant, Content: "ok"})
+			second := append(append([]wire.Message{}, first...), wire.Message{Role: wire.RoleAssistant, Content: wire.TextContent("ok")})
 			report := d.Observe(second, kimiSplit(wire.Usage{PromptTokens: tc.prompt, CachedTokens: tc.actualHit}))
 
 			if report.Churned {
@@ -266,7 +266,7 @@ func TestDeepSeekToleranceBoundaryUnchanged(t *testing.T) {
 		d.Observe(first, deepSeekSplit(wire.Usage{PromptTokens: 1000, PromptCacheHitTokens: 0, PromptCacheMissTokens: 1000}))
 	}
 
-	second := []wire.Message{wire.SystemMessage("sys"), wire.UserMessage("hi"), wire.Message{Role: wire.RoleAssistant, Content: "ok"}}
+	second := []wire.Message{wire.SystemMessage("sys"), wire.UserMessage("hi"), wire.Message{Role: wire.RoleAssistant, Content: wire.TextContent("ok")}}
 
 	// Miss of expected + 127: the full trailing block's worth, quiet.
 	d := NewDetector()
@@ -339,7 +339,7 @@ func TestKimiShapedHealthyUsageDoesNotChurn(t *testing.T) {
 	first := []wire.Message{wire.SystemMessage("sys"), wire.UserMessage("hi")}
 	d.Observe(first, kimiSplit(wire.Usage{PromptTokens: 1000, CachedTokens: 0}))
 
-	second := append(append([]wire.Message{}, first...), wire.Message{Role: wire.RoleAssistant, Content: "ok"})
+	second := append(append([]wire.Message{}, first...), wire.Message{Role: wire.RoleAssistant, Content: wire.TextContent("ok")})
 	report := d.Observe(second, kimiSplit(wire.Usage{PromptTokens: 1080, CachedTokens: 896}))
 	if report.Churned {
 		t.Fatalf("kimi-shaped append-only growth should not churn: %+v", report)
