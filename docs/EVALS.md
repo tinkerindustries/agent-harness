@@ -69,19 +69,23 @@ prompt as it stood at v0.21.0:
 | 64–128k | 573 | 15.0% | 755 | 1.59% |
 | 128k+ | 1185 | 3.5% | 1895 | 1.95% |
 
-Both rules decay monotonically. The association is confounded — a session
-orienting in a fresh repository searches differently from one running builds
-an hour in — which is what an eval is for: the task is held constant and only
-the context length varies.
+Both rules decay monotonically there. Whether that is a property of the
+window is not settled. The association is confounded — a session orienting in
+a fresh repository searches differently from one running builds an hour in.
+And the prompt those sessions ran under told the model to "search from Bash
+with rg", two lines under "prefer Grep and Glob"; removing the contradiction
+moved flash from 12.5% tool use to 99.5%, so the decay may be that
+instruction losing to habit rather than the context length. A later run on
+the current prompt showed no decay at all, at 83k.
 
-Read the search column with its cause in mind. That prompt told the model to
-"search from Bash with rg", two lines under "prefer Grep and Glob"; removing
-the contradiction moved flash from 12.5% tool use to 99.5%, measured by the
-`search` suite. The decay may be a property of the window or of that
-instruction losing to habit; the run that would separate them has not been
-done.
+So: watch it. `search_via_tool_decay` and `edit_miss_rate_decay` are on every
+report for that reason, and a variant that holds early and not late is worth
+telling from one that holds throughout. It may turn out not to be a problem.
+The reminder policies below are built and untested against anything that
+actually decays.
 
-A reminder re-states a rule further down the conversation. Cadence is in
+A reminder re-states a rule further down the conversation, for the case where
+decay does turn out to matter. Cadence is in
 context tokens rather than sub-turns, because tokens are the variable the
 decay is against: one tool call returning a build log adds more context than
 thirty small ones. A policy has a floor (`afterTokens`) below which the rule
@@ -206,6 +210,20 @@ one-method publisher seam the browser's start already uses, and
 Cancelling stops publishing further members and ends the ones in flight.
 Members already finished keep their scores and the run lands `cancelled` with
 a partial comparison, which is a legitimate result over what did finish.
+
+## Watching one
+
+Both eval screens are pushed rather than polled. `GET /api/evals/stream` is
+the list and `GET /api/evals/{id}/stream` is one run; each frame is the whole
+snapshot, not a delta. A run changes a few times a minute and its detail is a
+few kilobytes, so a full snapshot costs nothing worth optimising and takes all
+the merge logic out of the browser — along with any chance of the comparison
+table disagreeing with the rows above it.
+
+The orchestrator wakes the hub after every write, through an `OnChange`
+callback `cmd/harness` wires to `hub.PublishEvalChanged`. That is why
+orchestration had to move into `harness serve` before this could work: the hub
+and the thing generating the updates are now the same process.
 
 ## Where a run is recorded
 

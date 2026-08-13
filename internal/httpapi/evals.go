@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -100,46 +101,21 @@ type evalMembershipRow struct {
 }
 
 func (s *Server) handleListEvals(w http.ResponseWriter, r *http.Request) {
-	runs, err := s.Store.ListEvalRuns(r.Context())
+	rows, err := s.evalRows(r.Context())
 	if err != nil {
 		writeInternalError(w, err)
 		return
-	}
-	rows := make([]evalRunRow, 0, len(runs))
-	for _, run := range runs {
-		members, err := s.Store.EvalMembers(r.Context(), run.ID)
-		if err != nil {
-			writeInternalError(w, err)
-			return
-		}
-		rows = append(rows, evalRunRowFrom(run, members))
 	}
 	writeJSON(w, http.StatusOK, rows)
 }
 
 func (s *Server) handleGetEval(w http.ResponseWriter, r *http.Request) {
-	run, err := s.Store.GetEvalRun(r.Context(), r.PathValue("id"))
+	detail, err := s.evalDetail(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeEvalLookupError(w, err)
 		return
 	}
-	members, err := s.Store.EvalMembers(r.Context(), run.ID)
-	if err != nil {
-		writeInternalError(w, err)
-		return
-	}
-
-	rows := make([]evalMemberRow, 0, len(members))
-	for _, m := range members {
-		rows = append(rows, evalMemberRowFrom(m))
-	}
-	report := evals.ReportFromStore(run, members)
-	writeJSON(w, http.StatusOK, evalRunDetail{
-		evalRunRow: evalRunRowFrom(run, members),
-		Members:    rows,
-		Summary:    evals.Summarise(report),
-		Deltas:     deltasFrom(report),
-	})
+	writeJSON(w, http.StatusOK, detail)
 }
 
 // handleGetSessionEval is the session page's lookup. A session in no eval is
@@ -441,4 +417,149 @@ func (s *Server) handleDeleteEval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// handleEvalStream pushes a run's whole detail on connect and again on every
+// change. A run is a couple of dozen members and changes a few times a
+// minute, so a full snapshot is a few kilobytes at a low rate — and it takes
+// all the merge logic out of the browser, along with any chance of the
+// comparison table disagreeing with the rows above it.
+func (s *Server) handleEvalStream(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	id := r.PathValue("id")
+	if _, err := s.Store.GetEvalRun(r.Context(), id); err != nil {
+		writeEvalLookupError(w, err)
+		return
+	}
+
+	// Subscribe before the first read, so a change between the snapshot and
+	// the subscription wakes this rather than being lost.
+	changes, cancel := s.Hub.SubscribeEval(id)
+	defer cancel()
+
+	setSSEHeaders(w)
+	flusher.Flush()
+
+	send := func() bool {
+		detail, err := s.evalDetail(r.Context(), id)
+		if err != nil {
+			return false
+		}
+		writeSSEData(w, detail)
+		flusher.Flush()
+		return true
+	}
+	if !send() {
+		return
+	}
+
+	keepalive := time.NewTicker(sseKeepaliveInterval)
+	defer keepalive.Stop()
+	for {
+		select {
+		case _, ok := <-changes:
+			if !ok {
+				return
+			}
+			if !send() {
+				return
+			}
+		case <-keepalive.C:
+			fmt.Fprint(w, ": keep-alive\n\n")
+			flusher.Flush()
+		case <-r.Context().Done():
+			return
+		}
+	}
+}
+
+// handleEvalListStream is the same for the collection: the list on connect,
+// and again whenever any run changes.
+func (s *Server) handleEvalListStream(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+	changes, cancel := s.Hub.SubscribeEval("")
+	defer cancel()
+
+	setSSEHeaders(w)
+	flusher.Flush()
+
+	send := func() bool {
+		rows, err := s.evalRows(r.Context())
+		if err != nil {
+			return false
+		}
+		writeSSEData(w, rows)
+		flusher.Flush()
+		return true
+	}
+	if !send() {
+		return
+	}
+
+	keepalive := time.NewTicker(sseKeepaliveInterval)
+	defer keepalive.Stop()
+	for {
+		select {
+		case _, ok := <-changes:
+			if !ok {
+				return
+			}
+			if !send() {
+				return
+			}
+		case <-keepalive.C:
+			fmt.Fprint(w, ": keep-alive\n\n")
+			flusher.Flush()
+		case <-r.Context().Done():
+			return
+		}
+	}
+}
+
+// evalRows and evalDetail are the two read shapes, shared by the JSON
+// endpoints and the streams so a poll and a push can never differ.
+func (s *Server) evalRows(ctx context.Context) ([]evalRunRow, error) {
+	runs, err := s.Store.ListEvalRuns(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]evalRunRow, 0, len(runs))
+	for _, run := range runs {
+		members, err := s.Store.EvalMembers(ctx, run.ID)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, evalRunRowFrom(run, members))
+	}
+	return rows, nil
+}
+
+func (s *Server) evalDetail(ctx context.Context, id string) (*evalRunDetail, error) {
+	run, err := s.Store.GetEvalRun(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	members, err := s.Store.EvalMembers(ctx, run.ID)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]evalMemberRow, 0, len(members))
+	for _, m := range members {
+		rows = append(rows, evalMemberRowFrom(m))
+	}
+	report := evals.ReportFromStore(run, members)
+	return &evalRunDetail{
+		evalRunRow: evalRunRowFrom(run, members),
+		Members:    rows,
+		Summary:    evals.Summarise(report),
+		Deltas:     deltasFrom(report),
+	}, nil
 }

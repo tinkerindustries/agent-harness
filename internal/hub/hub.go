@@ -23,6 +23,10 @@ import (
 const (
 	sessionBufferSize = 256
 	listBufferSize    = 64
+	// evalBufferSize is small because an eval frame carries no payload: it
+	// says a run changed, and the subscriber re-reads the run. A subscriber
+	// that has not drained one signal has no use for a second.
+	evalBufferSize = 4
 )
 
 // LiveDelta is model output as it arrives, before the sub-turn it belongs to
@@ -69,6 +73,9 @@ type Hub struct {
 	mu       sync.Mutex
 	sessions map[string]map[chan Frame]struct{}
 	list     map[chan SessionState]struct{}
+	// evals holds one subscriber set per eval run id, plus a set under the
+	// empty key for the list, which wants to know that any run changed.
+	evals map[string]map[chan struct{}]struct{}
 }
 
 // New returns a Hub ready to use.
@@ -198,6 +205,61 @@ func (h *Hub) PublishSessionState(s SessionState) {
 		default:
 			delete(h.list, ch)
 			close(ch)
+		}
+	}
+}
+
+// Eval subscribers are notified that a run changed, not what changed: an eval
+// changes a few times a minute and its whole detail is a few kilobytes, so
+// the reader re-reads the run rather than merging a delta. That removes any
+// chance of the comparison table disagreeing with the rows above it.
+//
+// SubscribeEval with an empty id subscribes to every run, which is what the
+// eval list wants.
+func (h *Hub) SubscribeEval(evalRunID string) (changes <-chan struct{}, cancel func()) {
+	ch := make(chan struct{}, evalBufferSize)
+	h.mu.Lock()
+	if h.evals == nil {
+		h.evals = make(map[string]map[chan struct{}]struct{})
+	}
+	set, ok := h.evals[evalRunID]
+	if !ok {
+		set = make(map[chan struct{}]struct{})
+		h.evals[evalRunID] = set
+	}
+	set[ch] = struct{}{}
+	h.mu.Unlock()
+
+	cancel = func() {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		set := h.evals[evalRunID]
+		if _, present := set[ch]; present {
+			delete(set, ch)
+			close(ch)
+			if len(set) == 0 {
+				delete(h.evals, evalRunID)
+			}
+		}
+	}
+	return ch, cancel
+}
+
+// PublishEvalChanged wakes this run's subscribers and the list's. A
+// subscriber whose buffer is full is left alone rather than dropped: it has a
+// signal pending already, and one signal is as good as two.
+func (h *Hub) PublishEvalChanged(evalRunID string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, key := range []string{evalRunID, ""} {
+		for ch := range h.evals[key] {
+			select {
+			case ch <- struct{}{}:
+			default:
+			}
+		}
+		if evalRunID == "" {
+			break
 		}
 	}
 }

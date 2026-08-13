@@ -283,6 +283,8 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/evals/{id}/cancel", s.handleCancelEval)
 	mux.HandleFunc("PATCH /api/evals/{id}", s.handlePatchEval)
 	mux.HandleFunc("DELETE /api/evals/{id}", s.handleDeleteEval)
+	mux.HandleFunc("GET /api/evals/stream", s.handleEvalListStream)
+	mux.HandleFunc("GET /api/evals/{id}/stream", s.handleEvalStream)
 	mux.HandleFunc("GET /api/evals/suites", s.handleListEvalSuites)
 	mux.HandleFunc("GET /api/evals/variants", s.handleListEvalVariants)
 	mux.HandleFunc("GET /api/evals/{id}", s.handleGetEval)
@@ -438,7 +440,7 @@ func isEvalPath(path string) bool {
 	if rest == "" || strings.Contains(rest, "/") {
 		return false
 	}
-	return rest != "suites" && rest != "variants"
+	return rest != "suites" && rest != "variants" && rest != "stream"
 }
 
 func isEvalCancelPath(path string) bool {

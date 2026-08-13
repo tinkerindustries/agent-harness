@@ -1,20 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowsClockwise } from "@phosphor-icons/react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 
 import {
   buildComparison,
   formatDelta,
   formatMetric,
-  getEvalRun,
   groupMembersByTask,
-  isRunning,
   metricLabel,
   type ComparisonRow,
   type EvalMemberRow,
-  type EvalRunDetail,
 } from "../api/evals";
+import { openEvalRunStream } from "../api/evalStreams";
 import { Badge } from "./ui/badge";
-import { Button } from "./ui/button";
 import { useNavRight } from "./TopNav";
 
 // One eval run (docs/EVALS.md): the header, the comparison, and the runs it
@@ -24,45 +20,22 @@ import { useNavRight } from "./TopNav";
 // Every statistic comes from the server, computed by the same code the CLI's
 // table uses. This screen formats and lays out; it decides nothing.
 
-const POLL_MS = 3000;
-
 export function EvalRunScreen({ id, onOpenSession }: { id: string; onOpenSession: (sessionId: string) => void }) {
-  const [detail, setDetail] = useState<EvalRunDetail | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    try {
-      setDetail(await getEvalRun(id));
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, [id]);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  const running = detail !== null && isRunning(detail);
-  useEffect(() => {
-    if (!running) return;
-    const timer = setInterval(() => void refresh(), POLL_MS);
-    return () => clearInterval(timer);
-  }, [running, refresh]);
+  // Per-screen rather than an app-lifetime singleton: a run stream is about
+  // one page, and holding every run a session opened would be a connection
+  // each.
+  const store = useMemo(() => openEvalRunStream(id), [id]);
+  useEffect(() => () => store.close(), [store]);
+  const detail = useSyncExternalStore(store.subscribe, store.snapshot);
+  const connected = useSyncExternalStore(store.subscribe, store.connected);
 
   useNavRight(
     useMemo(
-      () => (
-        <Button variant="ghost" size="sm" onClick={() => void refresh()} aria-label="Refresh">
-          <ArrowsClockwise size={16} />
-          Refresh
-        </Button>
-      ),
-      [refresh],
+      () => <Badge variant={connected ? "running" : "outline"}>{connected ? "LIVE" : "OFFLINE"}</Badge>,
+      [connected],
     ),
   );
 
-  if (error) return <p className="eval-error">{error}</p>;
   if (!detail) return <p className="eval-empty">Loading…</p>;
 
   const rows = buildComparison(detail);

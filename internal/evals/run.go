@@ -102,6 +102,10 @@ type Options struct {
 	StartedAt time.Time
 	// Progress, when set, is called as each run finishes.
 	Progress func(Run)
+	// OnChange, when set, is called with the eval run id after every write.
+	// It is how the hub learns a run moved without internal/evals importing
+	// it: cmd/harness wires this to hub.PublishEvalChanged.
+	OnChange func(evalRunID string)
 }
 
 // Execute publishes every run, waits for each to finish, and scores it.
@@ -190,6 +194,7 @@ func Execute(ctx context.Context, pub Publisher, sessions Sessions, opts Options
 		}, members); err != nil {
 			return nil, fmt.Errorf("evals: record eval run: %w", err)
 		}
+		notify(opts.OnChange, evalRunID)
 	}
 
 	var (
@@ -218,6 +223,7 @@ func Execute(ctx context.Context, pub Publisher, sessions Sessions, opts Options
 				if err := opts.Recorder.UpdateEvalMember(ctx, storeMember(evalRunID, r, "")); err != nil {
 					log.Printf("evals: record member %s: %v", r.RequestID, err)
 				}
+				notify(opts.OnChange, evalRunID)
 			}
 			if opts.Progress != nil {
 				opts.Progress(r)
@@ -238,6 +244,7 @@ func Execute(ctx context.Context, pub Publisher, sessions Sessions, opts Options
 		if err := opts.Recorder.FinishEvalRun(context.WithoutCancel(ctx), evalRunID, status, time.Now().UTC()); err != nil {
 			log.Printf("evals: close eval run %s: %v", evalRunID, err)
 		}
+		notify(opts.OnChange, evalRunID)
 	}
 	return report, nil
 }
@@ -390,6 +397,14 @@ func costAndSubTurns(events []store.Event) (float64, int) {
 		}
 	}
 	return cost, subTurns
+}
+
+// notify is a nil-safe call: a caller with no hub — the CLI's own follow,
+// a test — passes none.
+func notify(onChange func(string), evalRunID string) {
+	if onChange != nil {
+		onChange(evalRunID)
+	}
 }
 
 func newID(prefix string) string {

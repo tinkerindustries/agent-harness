@@ -95,6 +95,9 @@ type Orchestrator struct {
 	// per run from settings, the same read-through shape the rest of the
 	// process uses.
 	NewJudge func(model string) *Judge
+	// OnChange, when set, is called with the run id after every write, so a
+	// browser watching sees the run move.
+	OnChange func(evalRunID string)
 
 	mu      sync.Mutex
 	running map[string]context.CancelFunc
@@ -136,6 +139,7 @@ func (o *Orchestrator) Start(ctx context.Context, spec Spec) (string, error) {
 		Note:        spec.Note,
 		EvalRunID:   evalRunID,
 		StartedAt:   time.Now().UTC(),
+		OnChange:    o.OnChange,
 	}
 	if spec.Judge && o.NewJudge != nil {
 		opts.Judge = o.NewJudge(spec.JudgeModel)
@@ -156,6 +160,7 @@ func (o *Orchestrator) Start(ctx context.Context, spec Spec) (string, error) {
 				store.EvalStatusFailed, time.Now().UTC()); ferr != nil && !errors.Is(ferr, store.ErrNotFound) {
 				log.Printf("evals: close failed run %s: %v", evalRunID, ferr)
 			}
+			notify(o.OnChange, evalRunID)
 		}
 	}()
 	return evalRunID, nil

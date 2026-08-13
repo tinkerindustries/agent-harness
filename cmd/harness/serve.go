@@ -238,6 +238,7 @@ func runServe(ctx context.Context, args []string) error {
 	orchestrator := &evals.Orchestrator{
 		Publisher: evalPublisher{js: js},
 		Store:     st,
+		OnChange:  eventHub.PublishEvalChanged,
 		NewJudge: func(model string) *evals.Judge {
 			if model == "" {
 				resolved, err := res.String(ctx, settings.KeyDefaultModel)

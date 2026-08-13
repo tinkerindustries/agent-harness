@@ -1,14 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowsClockwise } from "@phosphor-icons/react";
-
-import {
-  evalRunProgress,
-  formatDelta,
-  isRunning,
-  listEvalRuns,
-  metricLabel,
-  type EvalRunRow,
-} from "../api/evals";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { evalRunProgress, formatDelta, isRunning, metricLabel, type EvalRunRow } from "../api/evals";
+import { openEvalListStream } from "../api/evalStreams";
 import { controlToken, formatDuration } from "../api/operations";
 import { EvalStartForm } from "./EvalStartForm";
 import { useNow } from "../hooks";
@@ -21,16 +13,15 @@ import { useNavRight } from "./TopNav";
 // the ordinary session list — this screen is about the comparison, not the
 // runs.
 //
-// A running run is polled rather than streamed. The orchestrator lives in the
-// CLI process today, so the hub in `harness serve` has nothing to push; this
-// is the one place in the frontend that polls, and it goes away when
-// orchestration moves into serve.
-
-const POLL_MS = 3000;
+// The list is pushed, not polled: the orchestrator runs in this process and
+// wakes the hub after every write. Each frame is the whole list, so the
+// render is a straight replace.
 
 export function EvalListScreen({ onOpen }: { onOpen: (id: string) => void }) {
-  const [runs, setRuns] = useState<EvalRunRow[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const store = useMemo(() => openEvalListStream(), []);
+  useEffect(() => () => store.close(), [store]);
+  const runs = useSyncExternalStore(store.subscribe, store.snapshot);
+  const connected = useSyncExternalStore(store.subscribe, store.connected);
 
   // The start trigger lives in the nav's right slot and the form opens as a
   // card above the table, the shape the session list's start uses. A null
@@ -51,26 +42,6 @@ export function EvalListScreen({ onOpen }: { onOpen: (id: string) => void }) {
     };
   }, []);
 
-  const refresh = useCallback(async () => {
-    try {
-      setRuns(await listEvalRuns());
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
-
-  const anyRunning = (runs ?? []).some(isRunning);
-  useEffect(() => {
-    if (!anyRunning) return;
-    const timer = setInterval(() => void refresh(), POLL_MS);
-    return () => clearInterval(timer);
-  }, [anyRunning, refresh]);
-
   useNavRight(
     useMemo(
       () => (
@@ -83,13 +54,10 @@ export function EvalListScreen({ onOpen }: { onOpen: (id: string) => void }) {
                 Start an eval
               </Button>
             ))}
-          <Button variant="ghost" size="sm" onClick={() => void refresh()} aria-label="Refresh">
-            <ArrowsClockwise size={16} />
-            Refresh
-          </Button>
+          <Badge variant={connected ? "running" : "outline"}>{connected ? "LIVE" : "OFFLINE"}</Badge>
         </>
       ),
-      [refresh, token, tokenReady],
+      [connected, token, tokenReady],
     ),
   );
 
@@ -100,13 +68,11 @@ export function EvalListScreen({ onOpen }: { onOpen: (id: string) => void }) {
       onClose={() => setStartOpen(false)}
       onStarted={(id) => {
         setStartOpen(false);
-        void refresh();
         onOpen(id);
       }}
     />
   );
 
-  if (error) return <p className="eval-error">{error}</p>;
   if (runs === null) return <p className="eval-empty">Loading…</p>;
   if (runs.length === 0) {
     return (

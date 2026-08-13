@@ -66,8 +66,12 @@ What the screens are, since the redesign (docs/WEB-REDESIGN.md):
   code the CLI's table uses, and decides significance, so `src/api/evals.ts`
   formats and arranges and nothing else. A metric with nothing to measure
   renders as a dash and never as a zero. Both screens poll while a run is
-  going — the only polling in the frontend, and it goes when the hub learns to
-  push eval state. The nav's right slot carries the start trigger, which opens
+  going. Both are pushed over SSE, not polled: each frame is a whole snapshot
+  rather than a delta, so the store is a straight replace and none of the
+  frame-budget machinery below applies — an eval changes a few times a minute,
+  not a few times a frame. The run stream is per-screen rather than an
+  app-lifetime singleton, because a run stream is about one page. The nav's
+  right slot carries the start trigger, which opens
   a form card above the table; a null control token replaces it with a "run
   control is not configured" note, the same shape the session list's start
   uses. The form names only suites and variants the build already has, both
