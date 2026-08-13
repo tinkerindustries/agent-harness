@@ -41,7 +41,7 @@ type workRequestRow struct {
 func (svc *Service) registerStopTool(server *mcpsdk.Server) {
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "deepseek_stop",
-		Description: "Stop a deepseek-harness run, by session_id or request_id. Posts to the harness's run-control " +
+		Description: "Stop an agent-harness run, by session_id or request_id. Posts to the harness's run-control " +
 			"endpoint and returns immediately with whether the stop was accepted — it never blocks, and an accepted " +
 			"stop means the run is ending, not that it has ended. A run may still finish on its own inside the " +
 			"grace period, and stopping is irreversible. Call deepseek_status afterwards to see what actually " +
@@ -156,7 +156,7 @@ type steerOutput struct {
 func (svc *Service) registerSteerTool(server *mcpsdk.Server) {
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "deepseek_steer",
-		Description: "Append an instruction to a running deepseek-harness run, by session_id or request_id. The run does NOT stop to read this: " +
+		Description: "Append an instruction to a running agent-harness run, by session_id or request_id. The run does NOT stop to read this: " +
 			"the text is queued and reaches the model at the next sub-turn boundary, which may be a minute or more away if a long tool call is " +
 			"in flight. It is an instruction the model sees as a new user message, not a command the harness executes. Returns immediately with " +
 			"the acceptance and the seq the text landed at; call deepseek_status afterwards to see the run continue.",

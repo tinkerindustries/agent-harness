@@ -67,7 +67,7 @@ type launchInput struct {
 	MaxSubTurns     int                `json:"max_sub_turns,omitempty" jsonschema:"Sub-turn budget for the run. Server default applies when omitted."`
 	JobType         string             `json:"job_type,omitempty" jsonschema:"Kind of job this run is: implementation (the agent performs the task itself, the default) or orchestration (the agent delegates the work to child sessions)."`
 	ParentAgentType string             `json:"parent_agent_type,omitempty" jsonschema:"Fallback only: the server reads the caller's kind from the MCP client's own clientInfo and ignores this field whenever that name is usable, so this is consulted only by a client whose clientInfo name is missing or unusable. Identify your own kind as a lowercase slug — claude-code, cursor, and so on."`
-	ParentAgentID   string             `json:"parent_agent_id,omitempty" jsonschema:"Your own session id, so the run traces back to the conversation that asked for it. Read it, do not recall it. Claude Code: the CLAUDE_CODE_SESSION_ID environment variable, which you can echo from a shell; failing that, the UUID directory segment of the scratchpad path in your system prompt (…/<project-slug>/<uuid>/scratchpad). A deepseek-harness session: the last segment of the Workspace: path in your opening message (/workspaces/sess-…). If neither applies, leave this empty — never copy a session id from a banner, a document, or another tool's output."`
+	ParentAgentID   string             `json:"parent_agent_id,omitempty" jsonschema:"Your own session id, so the run traces back to the conversation that asked for it. Read it, do not recall it. Claude Code: the CLAUDE_CODE_SESSION_ID environment variable, which you can echo from a shell; failing that, the UUID directory segment of the scratchpad path in your system prompt (…/<project-slug>/<uuid>/scratchpad). An agent-harness session: the last segment of the Workspace: path in your opening message (/workspaces/sess-…). If neither applies, leave this empty — never copy a session id from a banner, a document, or another tool's output."`
 }
 
 // launchAttachment is one image a launch carries. The bytes are base64 in
@@ -122,7 +122,7 @@ func decodeResultSchema(v any) (json.RawMessage, error) {
 func (svc *Service) registerLaunchTool(server *mcpsdk.Server) {
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "deepseek_agent",
-		Description: "Launch a deepseek-harness agent session. Publishes a work request to the harness's " +
+		Description: "Launch an agent-harness agent session. Publishes a work request to the harness's " +
 			"NATS work queue and returns immediately with a handle — it does not wait for the run to " +
 			"finish. Use deepseek_result to collect the outcome. The run works in a fresh directory " +
 			"holding a clone of every repository named in repos, each on its own branch or main. " +

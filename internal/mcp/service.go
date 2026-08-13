@@ -1,5 +1,5 @@
 // Package mcp is the harness's MCP launch server: it lets an external agent
-// harness (Claude Code, Cursor) start and collect deepseek-harness runs by
+// harness (Claude Code, Cursor) start and collect agent-harness runs by
 // publishing work requests to the WORK stream and reading results back over
 // the RESULTS stream and the harness's HTTP API (docs/DESIGN.md §4.10).
 // `harness serve` mounts it at /mcp on its own HTTP server, handing it
@@ -64,7 +64,7 @@ func (svc *Service) NewServer() *mcpsdk.Server {
 		Name:    "deepseek-harness",
 		Version: serverVersion,
 	}, &mcpsdk.ServerOptions{
-		Instructions: "Launch, collect, steer, and stop deepseek-harness agent runs. deepseek_agent starts a run and returns " +
+		Instructions: "Launch, collect, steer, and stop agent-harness agent runs. deepseek_agent starts a run and returns " +
 			"immediately; it never blocks for the run to finish. While a run is in flight, deepseek_status " +
 			"reports where it is up to; deepseek_steer appends an instruction that reaches the model at the next " +
 			"sub-turn boundary — the run does not stop to read it, so a long tool call delays it; deepseek_result " +

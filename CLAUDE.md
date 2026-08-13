@@ -1,8 +1,9 @@
-# deepseek-harness
+# agent-harness
 
-A harness for running DeepSeek specifically. Target DeepSeek's own API rather
-than a provider-agnostic abstraction; where a choice arises, prefer the option
-that exercises DeepSeek's behaviour directly.
+A harness for running coding agents against a model provider's own API.
+DeepSeek is the default provider and the only one implemented today; Kimi
+K3 is being added behind a narrow dialect seam. Prefer the option that
+exercises a provider's real behaviour over a provider-agnostic abstraction.
 
 Work arrives on a NATS JetStream queue, runs as one of several concurrent agent
 sessions in a single Go process, and returns a result to a results stream.

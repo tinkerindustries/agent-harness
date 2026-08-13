@@ -15,7 +15,7 @@ type runsInput struct{}
 func (svc *Service) registerRunsTool(server *mcpsdk.Server) {
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "deepseek_runs",
-		Description: "List the deepseek-harness runs this MCP server has launched and their last known state. " +
+		Description: "List the agent-harness runs this MCP server has launched and their last known state. " +
 			"State is a snapshot from the last time deepseek_agent or deepseek_result touched each entry, not a " +
 			"live query — call deepseek_result to refresh one. This list is this process's own memory, not the " +
 			"harness's full history; see harness://sessions for that.",

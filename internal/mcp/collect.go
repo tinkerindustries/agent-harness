@@ -24,7 +24,7 @@ type collectInput struct {
 func (svc *Service) registerCollectTool(server *mcpsdk.Server) {
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "deepseek_result",
-		Description: "Collect a deepseek-harness run's result by request_id. Never blocks: it reads the RESULTS " +
+		Description: "Collect an agent-harness run's result by request_id. Never blocks: it reads the RESULTS " +
 			"stream once and returns whatever is there at that moment. If the run has already finished — even " +
 			"long ago, even from a different process — this returns the persisted final result. Otherwise it " +
 			"returns a short line pointing at deepseek_status, which reports where the run is up to.",
