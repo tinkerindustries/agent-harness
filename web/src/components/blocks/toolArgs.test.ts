@@ -1,6 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { DiffLine, ToolCallPayload } from "../../api/types";
-import { childStat, diffStat, formatCost, parseToolArgs, toolDetail, toolGlyph, toolHeader } from "./toolArgs";
+import {
+  childStat,
+  diffStat,
+  formatCost,
+  parseToolArgs,
+  screenshotPaths,
+  screenshotUrl,
+  toolDetail,
+  toolGlyph,
+  toolHeader,
+} from "./toolArgs";
 
 function call(name: string, args: unknown): ToolCallPayload {
   return { index: 0, id: "c1", name, arguments: JSON.stringify(args) };
@@ -171,5 +181,77 @@ describe("toolHeader", () => {
 
   it("returns empty parts for no call at all", () => {
     expect(toolHeader(undefined)).toEqual({ name: "", target: "", stat: "" });
+  });
+});
+
+describe("screenshotPaths", () => {
+  it("reads ReviewScreenshot's image_paths array", () => {
+    const c = call("ReviewScreenshot", { image_paths: ["scratch/a.png", "scratch/b.webp"], question: "?" });
+    expect(screenshotPaths(c)).toEqual(["scratch/a.png", "scratch/b.webp"]);
+  });
+
+  it("reads Screenshot's single path", () => {
+    expect(screenshotPaths(call("Screenshot", { url: "http://x", path: "scratch/home.png" }))).toEqual(["scratch/home.png"]);
+  });
+
+  it("keeps the given order, because the first image is the high-resolution one", () => {
+    const c = call("ReviewScreenshot", { image_paths: ["z.png", "a.png"] });
+    expect(screenshotPaths(c)).toEqual(["z.png", "a.png"]);
+  });
+
+  it("drops duplicates so one file is not fetched and rendered twice", () => {
+    const c = call("ReviewScreenshot", { image_paths: ["a.png", "a.png"] });
+    expect(screenshotPaths(c)).toEqual(["a.png"]);
+  });
+
+  // Arguments arrive mid-stream, so a half-assembled array is a normal
+  // intermediate state and must not throw or render junk.
+  it("survives partial and malformed arguments", () => {
+    expect(screenshotPaths(undefined)).toEqual([]);
+    expect(screenshotPaths({ index: 0, id: "c1", name: "ReviewScreenshot", arguments: '{"image_paths":["a.p' })).toEqual([]);
+    expect(screenshotPaths(call("ReviewScreenshot", {}))).toEqual([]);
+    expect(screenshotPaths(call("ReviewScreenshot", { image_paths: "not-an-array.png" }))).toEqual([]);
+    expect(screenshotPaths(call("ReviewScreenshot", { image_paths: [1, null, "", "  ", "ok.png"] }))).toEqual(["ok.png"]);
+  });
+
+  // The endpoint serves three types and refuses the rest, so asking for
+  // anything else would only ever produce a broken image.
+  it("keeps only the extensions the endpoint serves", () => {
+    const c = call("ReviewScreenshot", { image_paths: ["a.png", "b.JPEG", "c.jpg", "d.webp", "e.gif", "f.txt", "g"] });
+    expect(screenshotPaths(c)).toEqual(["a.png", "b.JPEG", "c.jpg", "d.webp"]);
+  });
+});
+
+describe("screenshotUrl", () => {
+  it("puts the path in the query string, encoded", () => {
+    expect(screenshotUrl("sess-1", "scratch/home page.png")).toBe(
+      "/api/sessions/sess-1/screenshot?path=scratch%2Fhome%20page.png",
+    );
+  });
+
+  it("encodes an absolute path, which is the form the model usually passes", () => {
+    expect(screenshotUrl("sess-1", "/workspaces/sess-1/scratch/a.png")).toBe(
+      "/api/sessions/sess-1/screenshot?path=%2Fworkspaces%2Fsess-1%2Fscratch%2Fa.png",
+    );
+  });
+});
+
+describe("toolDetail for the screenshot tools", () => {
+  it("shows the URL a Screenshot call captured", () => {
+    expect(toolDetail(call("Screenshot", { url: "http://127.0.0.1:5173/", path: "scratch/a.png" }))).toBe("http://127.0.0.1:5173/");
+  });
+
+  it("names the first image and counts the rest, so the header stays one line", () => {
+    expect(toolDetail(call("ReviewScreenshot", { image_paths: ["/workspaces/sess-1/scratch/a.png"] }))).toBe("scratch/a.png");
+    expect(toolDetail(call("ReviewScreenshot", { image_paths: ["scratch/a.png", "b.png", "c.png"] }))).toBe("scratch/a.png +2");
+    expect(toolDetail(call("ReviewScreenshot", {}))).toBe("");
+  });
+});
+
+describe("toolGlyph for the screenshot tools", () => {
+  it("gives ReviewScreenshot a letter that cannot be confused with Read's", () => {
+    expect(toolGlyph("ReviewScreenshot").letter).toBe("V");
+    expect(toolGlyph("Screenshot").letter).toBe("S");
+    expect(toolGlyph("Read").letter).toBe("R");
   });
 });

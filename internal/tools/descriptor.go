@@ -38,6 +38,12 @@ func descriptorFor(name string, argsRaw json.RawMessage) string {
 		if u, _ := args["url"].(string); u != "" {
 			return name + " " + u
 		}
+	case "Screenshot":
+		// The URL, so a deny pattern can keep a session off a host the same
+		// way it can for WebFetch — the browser reaches the network too.
+		if u, _ := args["url"].(string); u != "" {
+			return name + " " + u
+		}
 	case "ReviewScreenshot":
 		if paths, ok := args["image_paths"].([]any); ok && len(paths) > 0 {
 			if p, ok := paths[0].(string); ok && p != "" {

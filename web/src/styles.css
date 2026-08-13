@@ -1607,6 +1607,67 @@ pre {
   text-transform: none;
 }
 
+/* The screenshot gallery a Screenshot or ReviewScreenshot result carries
+   (components/blocks/ScreenshotGallery.tsx). Tiles wrap and each is capped
+   rather than stretched: a screenshot is usually much taller than the
+   transcript column is wide, and a full-height one would push the finding
+   that goes with it off the screen. Clicking opens the image at its real
+   size. */
+.screenshot-gallery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 6px 0;
+}
+
+.screenshot-tile {
+  margin: 0;
+  min-width: 0;
+  flex: 0 1 320px;
+}
+
+.screenshot-tile img {
+  display: block;
+  width: 100%;
+  max-height: 380px;
+  object-fit: contain;
+  object-position: top;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  /* A page screenshot is usually white, and on a dark transcript an
+     unbordered one reads as a hole punched in the page. */
+  background: var(--background);
+}
+
+.screenshot-tile figcaption {
+  margin-top: 4px;
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+/* The workspace is gone, which is the ordinary end state of a finished run
+   rather than a failure — so this is a plain placeholder, not an error
+   colour. */
+.screenshot-missing-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 96px;
+  padding: 0 12px;
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+  text-align: center;
+}
+
+/* The fallback when there is no session to address the images against. */
+.screenshot-paths {
+  margin: 6px 0;
+  padding-left: 18px;
+  font-size: 0.8125rem;
+}
+
 .block-tool-pending {
   border-style: dashed;
   color: var(--muted-foreground);

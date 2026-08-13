@@ -63,9 +63,65 @@ export function toolDetail(call: ToolCallPayload | undefined): string {
       return str(args.description);
     case "WebFetch":
       return str(args.url);
+    case "Screenshot":
+      // The URL captured, not the file written: the file name is visible in
+      // the gallery underneath, and the URL is the fact that identifies which
+      // capture this was.
+      return str(args.url);
+    case "ReviewScreenshot": {
+      const paths = screenshotPaths(call);
+      if (paths.length === 0) return "";
+      // The first image is the one sent at high resolution, so it is the one
+      // worth naming; the rest are counted rather than listed, which keeps
+      // the header one line whatever the image count.
+      const first = trimWorkspace(paths[0]);
+      return paths.length === 1 ? first : `${first} +${paths.length - 1}`;
+    }
     default:
       return "";
   }
+}
+
+// IMAGE_EXTENSION is the three types the screenshot endpoint serves
+// (internal/httpapi/screenshots.go's screenshotContentTypes) and the three
+// ReviewScreenshot accepts. A path with any other extension is not requested
+// at all — the endpoint would refuse it, so asking would only produce a
+// broken image where the path itself is the more useful thing to show.
+const IMAGE_EXTENSION = /\.(png|jpe?g|webp)$/i;
+
+// screenshotPaths pulls the image paths out of a Screenshot or
+// ReviewScreenshot call for the transcript's gallery to render.
+//
+// ReviewScreenshot names its images in image_paths; Screenshot writes one
+// file and names it in path. Both are read from the call rather than from the
+// result, so the images appear as soon as the call is folded and stay
+// visible even when the call itself failed — a capture that produced a
+// blank page is exactly the case where seeing the image matters most.
+//
+// Anything that is not a non-empty string with an image extension is dropped
+// rather than passed through: arguments can arrive mid-stream and a
+// half-assembled array is a normal intermediate state, not an error.
+export function screenshotPaths(call: ToolCallPayload | undefined): string[] {
+  if (!call) return [];
+  const args = parseToolArgs(call);
+  const raw: unknown[] =
+    call.name === "ReviewScreenshot" ? (Array.isArray(args.image_paths) ? args.image_paths : []) : [args.path];
+  const paths: string[] = [];
+  for (const value of raw) {
+    if (typeof value !== "string") continue;
+    const path = value.trim();
+    if (path === "" || !IMAGE_EXTENSION.test(path)) continue;
+    if (!paths.includes(path)) paths.push(path);
+  }
+  return paths;
+}
+
+// screenshotUrl addresses one image on GET /api/sessions/{id}/screenshot.
+// The path goes in the query string rather than the URL path because it
+// contains slashes and is often absolute; encodeURIComponent keeps both the
+// separators and a "#" or "?" in a file name intact.
+export function screenshotUrl(sessionId: string, path: string): string {
+  return `/api/sessions/${encodeURIComponent(sessionId)}/screenshot?path=${encodeURIComponent(path)}`;
 }
 
 // exitCode extracts the Bash tool's "[exit code N]" trailer from an error
@@ -173,6 +229,11 @@ const GLYPH_BY_NAME: Record<string, ToolGlyph> = {
   TaskGet: { letter: "P", family: "other" },
   TaskList: { letter: "P", family: "other" },
   TaskUpdate: { letter: "P", family: "other" },
+  // Screenshot keeps its first letter; ReviewScreenshot cannot, because its
+  // R would be indistinguishable from Read's on the rail. "V" for the vision
+  // call it makes is the one letter that says which of the two it was.
+  Screenshot: { letter: "S", family: "other" },
+  ReviewScreenshot: { letter: "V", family: "other" },
 };
 
 export function toolGlyph(name: string): ToolGlyph {

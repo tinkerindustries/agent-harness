@@ -1,5 +1,6 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { TranscriptStore } from "../../api/transcriptStore";
+import { SessionIdContext } from "../../hooks";
 import { BlockList } from "../BlockList";
 
 // TaskChildBody owns its own TranscriptStore and SSE connection, exactly
@@ -19,7 +20,12 @@ export default function TaskChildBody({ sessionId }: { sessionId: string }) {
   const snapshot = useSyncExternalStore(ref.current.subscribe, ref.current.getSnapshot);
   return (
     <div className="task-child-body">
-      <BlockList items={snapshot.items} live={snapshot.live} />
+      {/* Re-provided with the child's own id: a subagent ran in its own
+          workspace, so its screenshots resolve against that session and not
+          the parent whose transcript this is nested inside. */}
+      <SessionIdContext.Provider value={sessionId}>
+        <BlockList items={snapshot.items} live={snapshot.live} />
+      </SessionIdContext.Provider>
     </div>
   );
 }

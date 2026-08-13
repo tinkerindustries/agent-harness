@@ -68,6 +68,7 @@ const (
 	KeyToolWebFetchTimeout           = "tools.webfetch_timeout"
 	KeyToolTaskTimeout               = "tools.task_timeout"
 	KeyToolReviewScreenshotTimeout   = "tools.reviewscreenshot_timeout"
+	KeyToolScreenshotTimeout         = "tools.screenshot_timeout"
 	KeyToolWebFetchMaxBody           = "tools.webfetch_max_body"
 	KeyToolWebFetchMaxExtract        = "tools.webfetch_max_extract"
 	KeyToolReviewScreenshotMaxImages = "tools.reviewscreenshot_max_images"
@@ -164,6 +165,8 @@ var registry = []Descriptor{
 		"Wall-clock timeout for one Task subagent call"),
 	durationSetting(KeyToolReviewScreenshotTimeout, GroupToolLimits, "60s", time.Second, 24*time.Hour,
 		"Wall-clock timeout for one ReviewScreenshot Gemini call (generating a diagnosis routinely takes longer than the 30-second tool default)"),
+	durationSetting(KeyToolScreenshotTimeout, GroupToolLimits, "90s", time.Second, 24*time.Hour,
+		"Wall-clock timeout for one Screenshot capture (launching Chromium, navigating, waiting for the page to settle and encoding the image). The driver's own navigation timeout is derived from this, so raise it for an application that is slow to start rather than retrying the call."),
 	intSetting(KeyToolWebFetchMaxBody, GroupToolLimits, 4<<20, 1024, 1<<30,
 		"Bytes of a fetched page read before extraction"),
 	intSetting(KeyToolWebFetchMaxExtract, GroupToolLimits, 40_000, 100, 10_000_000,

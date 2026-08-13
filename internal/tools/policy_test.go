@@ -33,14 +33,14 @@ func TestToolArrayIdenticalAcrossModes(t *testing.T) {
 	if string(readonly) != string(after) {
 		t.Fatal("tool array changed after exercising permission checks across modes")
 	}
-	if len(Definitions()) != 15 {
-		t.Fatalf("expected 15 tools, got %d", len(Definitions()))
+	if len(Definitions()) != 16 {
+		t.Fatalf("expected 16 tools, got %d", len(Definitions()))
 	}
 }
 
 func TestReadOnlyModeDenies(t *testing.T) {
 	p := &Policy{Mode: ModeReadOnly}
-	allowed := []string{"Read", "Glob", "Grep", "List", "WebFetch", "ReviewScreenshot", "TaskCreate", "TaskGet", "TaskList", "TaskUpdate", "Complete"}
+	allowed := []string{"Read", "Glob", "Grep", "List", "WebFetch", "ReviewScreenshot", "Screenshot", "TaskCreate", "TaskGet", "TaskList", "TaskUpdate", "Complete"}
 	for _, name := range allowed {
 		if d := p.Check(name, name); !d.Allow {
 			t.Errorf("readonly mode should allow %s, got denied: %s", name, d.Rule)

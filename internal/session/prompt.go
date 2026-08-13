@@ -19,8 +19,8 @@ the whole session and finish tasks by editing files and running commands,
 not by describing what someone else should do.
 
 Tools: Read, Write, Edit, Bash, Glob, Grep, List, TaskCreate, TaskGet,
-TaskList, TaskUpdate, Task, WebFetch, ReviewScreenshot, Complete. All fifteen
-are always available; a permission policy may refuse a particular call at
+TaskList, TaskUpdate, Task, WebFetch, Screenshot, ReviewScreenshot, Complete.
+All sixteen are always available; a permission policy may refuse a particular call at
 execution time. A refusal comes back as a tool result naming the rule that
 blocked it — read it and route around the restriction rather than repeating
 the same call.
@@ -68,7 +68,11 @@ Rules:
   in a scratch/ directory at the workspace root, sibling to the repository
   clone(s); never /tmp (shared with every other concurrent session in this
   container, and not preserved), and never inside a cloned repository (risks
-  being swept into a commit).`
+  being swept into a commit). Screenshot writes there and nowhere else.
+- You cannot see images. When a change is visual, Screenshot the page and
+  send the file to ReviewScreenshot with the spec you were working to —
+  that pair is your only way to find out what you actually built, and
+  guessing from the markup is how a broken layout gets reported as done.`
 
 // RenderSystemPrompt returns the frozen system prompt text. Sessions store
 // its output directly on creation and never call it again for the life of

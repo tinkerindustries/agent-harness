@@ -261,6 +261,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/runs", s.handleStartRun)
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.handleGetEvents)
 	mux.HandleFunc("GET /api/sessions/{id}/stream", s.handleSessionStream)
+	mux.HandleFunc("GET /api/sessions/{id}/screenshot", s.handleGetScreenshot)
 	mux.HandleFunc("GET /api/control-token", s.handleGetControlToken)
 	mux.HandleFunc("GET /api/requests", s.handleListWorkRequests)
 	mux.HandleFunc("GET /api/requests/{request_id}", s.handleGetWorkRequest)

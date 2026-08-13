@@ -11,7 +11,7 @@ import { DroppedStreamBanner } from "./DroppedStreamBanner";
 import { controlToken, errorMessage, stopSession } from "../api/operations";
 import { getSessionEval, type EvalMembership } from "../api/evals";
 import { startedBy } from "../api/provenance";
-import { useLabelFlip, useNow } from "../hooks";
+import { SessionIdContext, useLabelFlip, useNow } from "../hooks";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { outcome, watchBadge } from "./statusBadge";
@@ -375,14 +375,16 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
                 The prefix moved — see docs/CACHE.md. <a href={`#sub-turn-${snapshot.churnPoint.subTurn}`}>Jump to it →</a>
               </div>
             )}
-            <TurnTranscript
-              items={snapshot.items}
-              live={snapshot.live}
-              filter="all"
-              getToolCall={snapshot.getToolCall}
-              renderInstruction={renderInstruction}
-              renderRunFinished={renderRunFinished}
-            />
+            <SessionIdContext.Provider value={sessionId}>
+              <TurnTranscript
+                items={snapshot.items}
+                live={snapshot.live}
+                filter="all"
+                getToolCall={snapshot.getToolCall}
+                renderInstruction={renderInstruction}
+                renderRunFinished={renderRunFinished}
+              />
+            </SessionIdContext.Provider>
           </div>
           {/* The jump pill is for a live run; a finished session's stream has
               no tail left to jump to. */}

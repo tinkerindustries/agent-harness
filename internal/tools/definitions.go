@@ -153,6 +153,26 @@ var definitions = []deepseek.Tool{
 		},
 		"required": ["image_paths", "question"]
 	}`),
+	// Like ReviewScreenshot's, this description names no limits: the timeout
+	// is a setting and the dimension bounds are stated by the refusal message
+	// that quotes them, so nothing here varies per installation
+	// (docs/CACHE.md).
+	function("Screenshot", "Capture a web page as an image with a headless browser, writing one PNG or JPEG into scratch/ for ReviewScreenshot to review or a human to look at in the transcript. Defaults to the visible viewport in the light colour scheme, which is almost always what you want: a full-page capture of a long document is downscaled to the same size as a viewport one, so everything on it shrinks until small controls are unreadable. When the question is about one control, pass selector and capture just that element. When the page has a dark mode, capture both colour schemes — a layout that holds in one can break in the other. The result reports the file written, whether the document ran past the bottom of the viewport, and any console or page errors, so a blank capture comes back with the reason it was blank.", `{
+		"type": "object",
+		"properties": {
+			"url": {"type": "string", "description": "The http, https, or file URL to capture. A dev server this session started is the usual target."},
+			"path": {"type": "string", "description": "Where to write the image, under scratch/ — for example scratch/home-dark.png. Must end in .png, .jpg, or .jpeg. Name it for what it shows, because this path is what you pass to ReviewScreenshot and what a human sees under the image in the transcript."},
+			"width": {"type": "integer", "description": "Viewport width in pixels. Defaults to a desktop layout; pass a phone width to check a responsive layout."},
+			"height": {"type": "integer", "description": "Viewport height in pixels."},
+			"device_scale_factor": {"type": "integer", "description": "Pixel density, 1 by default. Raise it only when fine detail has to stay readable at full size — it multiplies the file size, and a vision model downscales the image regardless."},
+			"color_scheme": {"type": "string", "enum": ["light", "dark"], "description": "The colour scheme to emulate. Defaults to light."},
+			"full_page": {"type": "boolean", "description": "Capture the whole scrollable document instead of the viewport. Off by default, and usually the wrong choice: prefer a selector, or a taller viewport."},
+			"selector": {"type": "string", "description": "A CSS selector to clip the capture to, so one control fills the image instead of being a few pixels of a whole page. Cannot be combined with full_page."},
+			"wait_for_selector": {"type": "string", "description": "A CSS selector to wait for before capturing — the way to photograph content that arrives after the initial render."},
+			"wait_ms": {"type": "integer", "description": "Milliseconds to wait after the page settles, for an animation or transition to finish."}
+		},
+		"required": ["url", "path"]
+	}`),
 	function("Complete", "End the run and report its outcome. summary is prose for a human; result is the machine-readable payload, validated against the schema given in the opening message if one was supplied.", `{
 		"type": "object",
 		"properties": {

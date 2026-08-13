@@ -50,14 +50,16 @@ trying against `Edit` if exact-match replacement underperforms.
 | `TaskUpdate` | `taskId`, `status?`, `subject?`, `description?`, `activeForm?` | Patch one task by taskId, or remove it with `status: "deleted"` |
 | `Task` | `description`, `prompt`, `subagent_type` | Delegate to a flash-backed subagent |
 | `WebFetch` | `url`, `prompt` | Fetch a URL and extract against a question |
+| `Screenshot` | `url`, `path`, `width?`, `height?`, `device_scale_factor?`, `color_scheme?`, `full_page?`, `selector?`, `wait_for_selector?`, `wait_ms?` | Capture a page with a headless browser into `scratch/` |
 | `ReviewScreenshot` | `image_paths[]`, `question`, `spec?` | Send screenshots to Gemini's vision model and return its diagnosis |
 | `Complete` | `summary`, `result?`, `status?` | Emit the run's machine-readable result |
 
-Fifteen tools. The first thirteen have a trained-in analogue in at least two of
-the three named harnesses. `ReviewScreenshot` and `Complete` do not. The former
-exists because DeepSeek cannot see images, so vision is a Gemini call this
-harness builds itself; the trained-vocabulary argument above says nothing
-about either, and each is named for what it does.
+Sixteen tools. The first thirteen have a trained-in analogue in at least two of
+the three named harnesses. `Screenshot`, `ReviewScreenshot` and `Complete` do
+not. The first two exist because DeepSeek cannot see images, so the harness
+builds the whole visual path itself — a capture it controls, and a diagnosis
+from Gemini; the trained-vocabulary argument above says nothing about any of
+them, and each is named for what it does.
 
 ## Per-tool notes
 
@@ -185,11 +187,61 @@ the extraction cap, and the call's timeout are defaults under the `tools.`
 group of settings (`tools.webfetch_max_body`, `tools.webfetch_max_extract`,
 `tools.webfetch_timeout`).
 
+### Screenshot
+
+The capture half of the vision path. It drives a headless Chromium to a URL
+and writes one PNG or JPEG, which `ReviewScreenshot` then sends to Gemini and
+the transcript renders inline.
+
+The harness owns the capture rather than leaving the agent to compose a
+Playwright invocation through `Bash`, because the settings that decide whether
+a screenshot is worth anything — the viewport, the colour scheme, whether the
+image is clipped to the element actually in question — are exactly the ones an
+ad hoc invocation omits. An agent left to its own devices takes a full-page
+capture of a desktop-width page in the light scheme and reviews that, which is
+the one combination least likely to show a problem.
+
+So the defaults are the standard:
+
+- **The viewport, not the full page.** `full_page` is off. A full-page capture
+  of a long document is downscaled to the same token budget as a viewport one,
+  so every control on it shrinks until it is unreadable — the failure the
+  `ReviewScreenshot` notes below describe. When a viewport capture cuts the
+  document off, the result says so, with both heights, so the model knows what
+  it did not see rather than concluding the page ends there.
+- **`selector` clips to one element.** This is the answer to "the button looks
+  wrong": capture the button. It is also why the tool drives the Playwright
+  library through an embedded Node script rather than the `playwright
+  screenshot` CLI, which can neither clip to an element nor set a device scale
+  factor.
+- **`device_scale_factor` stays at 1.** The image's next stop is a vision model
+  that downscales it regardless, so doubling the pixels doubles the bytes
+  against `ReviewScreenshot`'s per-file cap and buys nothing in what Gemini
+  sees. Raise it when a human is going to read fine detail in the transcript.
+- **`color_scheme` defaults to light, and the tool description tells the model
+  to capture both.** A layout that holds in one scheme can break in the other,
+  and one capture cannot cover both.
+
+Output is confined to `scratch/`, the directory the system prompt already
+reserves for files that are not part of the deliverable. That confinement is
+what lets the tool run in a read-only session (see "Permissions"): the capture
+cannot land in a cloned repository whatever the mode.
+
+The result carries what the page did while it was captured — its title, the
+document height against the viewport height, and any console or uncaught page
+errors, capped at twenty of each. A capture that came back blank therefore
+arrives with the reason it was blank, instead of costing a second sub-turn to
+go and find out. URLs are limited to `http`, `https`, and `file`; the timeout
+is `tools.screenshot_timeout` (90s by default, covering the browser launch,
+the navigation, the settle and the encode), and the driver's own navigation
+timeout is derived from it so a slow page fails with a message rather than
+being killed silently.
+
 ### ReviewScreenshot
 
-DeepSeek is text-only, so this is the harness's vision path: the agent captures
-a screenshot itself (a browser tool, a headless-browser script) and this tool
-sends it to Google Gemini for a diagnosis. It accepts PNG, JPEG, or WebP files,
+DeepSeek is text-only, so this is the harness's vision path: `Screenshot`
+captures the page (or the agent writes one itself with a headless-browser
+script) and this tool sends it to Google Gemini for a diagnosis. It accepts PNG, JPEG, or WebP files,
 workspace-confined like every other path-taking tool. The image count and the
 per-file size cap are defaults, not fixed values
 (`tools.reviewscreenshot_max_images`, `tools.reviewscreenshot_max_bytes`), so
@@ -232,6 +284,35 @@ the vision model that ran — so a session's cost total covers Gemini the same
 way it covers DeepSeek (docs/DESIGN.md §4.9). A model with no entry in the
 price table leaves the cost at zero rather than failing the call: the run
 succeeded, and the operator's price table is the incomplete thing.
+
+### Seeing the screenshots
+
+Both screenshot tools' results render in the transcript with the images
+above them, served by `GET /api/sessions/{id}/screenshot?path=…`
+(`internal/httpapi/screenshots.go`). Without it a transcript reports what the
+vision model said about a page and never shows the page, which leaves the one
+artefact that would settle whether the model was right out of the record —
+and a session review has to take Gemini's prose on faith.
+
+The endpoint reads the session's live workspace. That is the trade-off it is
+built on: no schema change and the image at full resolution, against the fact
+that a workspace gets cleaned up (docs/RUN-CONTROL.md) and an old session then
+has no images left to serve. A missing file is therefore an ordinary 404 that
+the transcript renders as "screenshot no longer available", keeping the path
+visible, rather than an error or a broken image. Storing a downscaled copy in
+the database is the alternative if that becomes the common case.
+
+Two properties keep it from being a general file read over the workspace: the
+path must resolve inside that session's own workspace with symlinks fully
+resolved, and the extension must be one of the three image types
+`ReviewScreenshot` accepts. An escape and a missing file return the same 404
+with the same text, so a caller probing for a path outside the workspace
+learns only that it cannot have it. Like every other `GET` on the surface it
+carries no control token; the write endpoints are the authenticated ones.
+
+A `Task` child's transcript re-provides its own session id, so a subagent's
+screenshots resolve against the workspace the subagent ran in rather than its
+parent's.
 
 ### Complete
 
@@ -321,7 +402,7 @@ So the choice is:
 FIM and prefix completion sit on the `/beta` base URL and are unaffected by
 this choice.
 
-Recommendation: stay on Chat Completions. Search is one tool among fifteen, our
+Recommendation: stay on Chat Completions. Search is one tool among sixteen, our
 own `WebFetch` covers the documentation-lookup case that a coding harness
 actually needs, and DeepSeek's own note says its web search bills extra tokens
 for summarisation anyway. The decision is reversible per-session if it proves
@@ -355,9 +436,15 @@ later. The browser is read-only, so there is nobody there to ask.
 
 Two modes, fixed for the life of a session and required on every request:
 
-- Read-only. `Read`, `Glob`, `Grep`, `List`, `WebFetch`, `ReviewScreenshot`,
-  `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`, and `Complete` run.
-  `Write`, `Edit`, `Bash`, and `Task` are denied.
+- Read-only. `Read`, `Glob`, `Grep`, `List`, `WebFetch`, `Screenshot`,
+  `ReviewScreenshot`, `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`, and
+  `Complete` run. `Write`, `Edit`, `Bash`, and `Task` are denied.
+  `Screenshot` is the one tool in that list that writes to disk, and it is
+  there because of where: its output is confined to `scratch/`, which holds
+  nothing that is part of a run's deliverable, so a read-only session can
+  look at a page it is reviewing without being able to mark a cloned
+  repository. Reviewing a UI is the read-only run's whole job, and denying it
+  the capture would have left it reading markup and guessing.
 - Full access. Everything runs, as root, inside the workspace mount.
 
 There is no third mode between them and no default. Every ingress — a work
@@ -379,7 +466,7 @@ changing nothing on disk.
 A work request may add `deny` patterns on top of its mode. They only ever
 subtract; a request cannot widen the mode it asked for.
 
-Modes gate execution, never availability. All fifteen tools are sent on every
+Modes gate execution, never availability. All sixteen tools are sent on every
 request in every mode, and a call the mode disallows is refused at execution
 with an error result the model can read and route around. Removing tools per
 mode would give each mode a different prefix and make every mode switch a cold
