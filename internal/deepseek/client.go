@@ -172,12 +172,12 @@ func wrapClientError(op string, err error) error {
 	return fmt.Errorf("deepseek: %s: %w", op, err)
 }
 
-// CreateChatCompletion sends req without streaming and waits for the full
-// response.
-func (c *Client) CreateChatCompletion(ctx context.Context, req wire.ChatCompletionRequest) (*wire.ChatCompletionResponse, error) {
-	req.Stream = false
-	req.StreamOptions = nil
-	body, err := json.Marshal(req)
+// CreateChatCompletion sends one non-streaming completion expressing the
+// caller's intent and waits for the full response. The request is built from
+// the intent here, in the provider, so the caller never spells DeepSeek's
+// reasoning control (docs/KIMI-INTEGRATION.md §4.1).
+func (c *Client) CreateChatCompletion(ctx context.Context, intent wire.ChatIntent) (*wire.ChatCompletionResponse, error) {
+	body, err := json.Marshal(requestFromIntent(intent))
 	if err != nil {
 		return nil, fmt.Errorf("deepseek: encode request: %w", err)
 	}
@@ -196,6 +196,21 @@ func (c *Client) CreateChatCompletion(ctx context.Context, req wire.ChatCompleti
 		return nil, fmt.Errorf("deepseek: decode response: %w", err)
 	}
 	return &out, nil
+}
+
+// UsageSplit maps one request's usage figures onto the cache-hit and
+// cache-miss counts the cost model and the stored usage payload use. How a
+// provider reports prefix caching is a provider decision: DeepSeek reports
+// prompt_cache_hit_tokens and prompt_cache_miss_tokens separately, so the
+// split is the response's own figures; Kimi K3 reports a single
+// cached_tokens instead and will derive the split itself
+// (docs/KIMI-INTEGRATION.md §2). A nil usage — the API did not return one —
+// maps to zeroes.
+func (c *Client) UsageSplit(usage *wire.Usage) (cacheHit, cacheMiss int) {
+	if usage == nil {
+		return 0, 0
+	}
+	return usage.PromptCacheHitTokens, usage.PromptCacheMissTokens
 }
 
 // ListModels calls GET /models.

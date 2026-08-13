@@ -28,16 +28,22 @@ streaming completions calls, the auxiliary endpoints (`/models`,
 `/user/balance`), the error body, retry classification, and the narrow
 repairs for the quirks recorded in docs/OBSERVED.md (the misplaced brace in
 large arguments objects, and reasoning starvation under a small max_tokens
-budget) — a later phase decides where those repairs belong. Speaks the
-shared vocabulary of `internal/wire`; knows nothing of sessions, tools, or
-storage. Depends on: `internal/wire`. §4.3, §4.4.
+budget). Implements the narrow `Client` seam `internal/session` declares
+(docs/KIMI-INTEGRATION.md §4.1): it turns the loop's `wire.ChatIntent` into
+DeepSeek's request shape — `thinking: {type}` and `reasoning_effort` — maps
+usage onto cache-hit and cache-miss counts, and owns the two response
+quirks. Speaks the shared vocabulary of `internal/wire`; knows nothing of
+sessions, tools, or storage. Depends on: `internal/wire`. §4.3, §4.4.
 
 ### `internal/wire`
 The provider-neutral wire vocabulary every request path speaks: the message
 and tool types, the request and response bodies, the streaming chunk types,
 the role, finish-reason, effort, and thinking constants, the SSE scanner,
-the tool-call assembler, and the stream event vocabulary. Both providers
-produce and consume these unchanged — DeepSeek today, Kimi next
+the tool-call assembler, and the stream event vocabulary — plus
+`ChatIntent`, the provider-neutral request intent the session seam speaks
+(model, messages, effort, whether to think, the token ceiling, the tools),
+which each provider implementation turns into its own request shape. Both
+providers produce and consume these unchanged — DeepSeek today, Kimi next
 (docs/KIMI-INTEGRATION.md §4.1). Field order is the byte-stability contract
 the prompt cache depends on (docs/DESIGN.md §3.2), pinned by the golden
 request-body test. Depends on: nothing internal. §3.2, §4.3, §4.4.
@@ -45,8 +51,14 @@ request-body test. Depends on: nothing internal. §3.2, §4.3, §4.4.
 ### `internal/session`
 The agent loop: sub-turn iteration, the system prompt, tool dispatch, ordering
 of tool results, compaction, and resume. The widest dependency set in the repo,
-deliberately — this is where everything meets. Consumed by `internal/worker` and
-by the CLI's `run` and `resume`. §4.5, §4.6.
+deliberately — this is where everything meets. Its reach to the model API is
+through a declared seam rather than an import: `Client`, a narrow interface
+declared here and implemented by `internal/deepseek`, which turns the loop's
+`wire.ChatIntent` into DeepSeek's request shape and owns DeepSeek's usage
+mapping and response quirks — the same shape `RunPublisher` and `RunController`
+take, with cmd/harness choosing the implementation when it builds the Runner
+(docs/KIMI-INTEGRATION.md §4.1). Consumed by `internal/worker` and by the
+CLI's `run` and `resume`. §4.5, §4.6.
 
 ### `internal/tools`
 Every tool the model can call: schemas matching the trained-in shape, argument
@@ -96,7 +108,10 @@ the session loop reads at its next sub-turn boundary. §4.2.
 
 ### `internal/queue`
 JetStream wiring shared by every NATS caller: stream and consumer declaration,
-the work request and result bodies, and the progress rate limiter. §4.10.
+the work request and result bodies, and the progress rate limiter. Request
+validation checks a named model against the model→provider table
+(`internal/provider`), so an unknown model fails at validation rather than
+reaching a provider. §4.10.
 
 ### `internal/worker`
 The pool. Pulls a request, builds its workspace, runs it as a session,
@@ -119,6 +134,15 @@ what lets `internal/queue` validate a variant name on a work request without
 pulling the agent loop in behind it — a boundary
 `internal/httpapi/boundary_test.go` pins. `internal/session` owns the prompt
 text; this package owns the edits to it. [../docs/EVALS.md](../docs/EVALS.md).
+
+### `internal/provider`
+The one model→provider table (docs/KIMI-INTEGRATION.md §4.3): `ModelFor`
+maps a model name to the provider serving it, with no default — an unknown
+model is an error, so request validation rejects it loudly instead of
+silently routing to a provider. Both entries point at DeepSeek today;
+`kimi-k3` is the next. It is a package of its own so that cmd/harness
+(client construction) and `internal/queue` (request validation) can both
+reach it without importing the agent loop. Depends on: nothing internal.
 
 ### `internal/evals`
 Measures a prompt change. Publishes a suite of tasks under two or more prompt

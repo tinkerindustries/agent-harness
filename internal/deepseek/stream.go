@@ -18,11 +18,14 @@ import (
 // keep-alives are expected during that wait.
 var ErrIdleTimeout = errors.New("deepseek: stream idle timeout")
 
-// StreamChatCompletion sends req with streaming enabled and returns a
-// channel of typed deltas. The channel closes when the stream ends,
-// normally or by error; a terminal Event with Type EventError is always
-// the last event sent before it closes.
-func (c *Client) StreamChatCompletion(ctx context.Context, req wire.ChatCompletionRequest) (<-chan wire.Event, error) {
+// StreamChatCompletion sends one streaming completion expressing the
+// caller's intent and returns a channel of typed deltas. The request is
+// built from the intent here, in the provider, so the caller never spells
+// DeepSeek's reasoning control (docs/KIMI-INTEGRATION.md §4.1). The channel
+// closes when the stream ends, normally or by error; a terminal Event with
+// Type EventError is always the last event sent before it closes.
+func (c *Client) StreamChatCompletion(ctx context.Context, intent wire.ChatIntent) (<-chan wire.Event, error) {
+	req := requestFromIntent(intent)
 	req.Stream = true
 	req.StreamOptions = &wire.StreamOptions{IncludeUsage: true}
 	body, err := json.Marshal(req)
@@ -160,7 +163,10 @@ func chunkToEvents(chunk wire.ChatCompletionChunk) []wire.Event {
 // ceiling before producing any answer text. Reasoning is generated before
 // content, so an undersized budget is spent entirely on reasoning and bills
 // in full while returning nothing usable; this is a distinct condition from
-// an answer that was truncated mid-sentence (docs/OBSERVED.md).
-func IsReasoningStarved(finishReason, content string) bool {
+// an answer that was truncated mid-sentence (docs/OBSERVED.md). It is
+// DeepSeek's quirk — how the loop reacts to it lives behind the session
+// seam, and Kimi's implementation is free to do nothing
+// (docs/KIMI-INTEGRATION.md §4.1).
+func (c *Client) IsReasoningStarved(finishReason, content string) bool {
 	return finishReason == wire.FinishLength && content == ""
 }

@@ -36,7 +36,8 @@ flowchart LR
     WORK --> worker[internal/worker pool]
     worker --> ws[internal/workspace<br/>clone per session]
     worker --> session[internal/session<br/>agent loop]
-    session <--> api[api.deepseek.com]
+    session -->|wire.ChatIntent| ds[internal/deepseek client<br/>implements the Client seam]
+    ds --> api[api.deepseek.com]
     session --> tools[internal/tools<br/>in the workspace]
     session --> store[(SQLite + disk mirror)]
     session --> hub[internal/hub]
@@ -87,7 +88,15 @@ workspace       session ──────┘        │        │
 `deepseek`, `tools`, `session`, and `fold` all read their vocabulary from
 `wire` — the rows above are the client, the tool array, the agent loop, and
 the fold, each one level above the shared types. `cache`, `evals`, and
-`promptvariant` import it directly as well.
+`promptvariant` import it directly as well, and `provider` — the
+model→provider table both client construction and request validation
+consult (docs/KIMI-INTEGRATION.md §4.3) — is a leaf beside it. The loop's
+reach to the DeepSeek client runs through a declared seam rather than a
+direct import: `internal/session` declares a narrow `Client` interface it
+consumes, `internal/deepseek` implements it (turning the loop's
+`wire.ChatIntent` into DeepSeek's request shape), and `cmd/harness` chooses
+the implementation when it builds the Runner — the same declared-seam shape
+`RunPublisher` and `RunController` take (docs/KIMI-INTEGRATION.md §4.1).
 ```
 
 The edges that matter:
@@ -105,8 +114,14 @@ The edges that matter:
   `QueuePool` already uses for `/api/queue`. Steering is the exception that
   proves the rule — it needs no seam because it is a store write by the
   handler and a store read by the loop, and the store is already here.
-- **`internal/session` is the only package that speaks to both the API client
-  and the tools.** A change that needs both belongs there.
+- **`internal/session` is the only package that speaks to both the model API
+  and the tools**, and its reach to the API is through the narrow `Client`
+  seam it declares: `internal/deepseek` implements it, turning the loop's
+  `wire.ChatIntent` into DeepSeek's request shape and owning DeepSeek's usage
+  mapping and response quirks, and `cmd/harness` chooses the implementation
+  when it builds the Runner — the same declared-seam shape `RunPublisher`
+  and `RunController` take (docs/KIMI-INTEGRATION.md §4.1). A change that
+  needs both belongs there.
 - **`internal/worker` is the only package that acks a JetStream message.**
 - Nothing imports `cmd/`.
 

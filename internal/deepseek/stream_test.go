@@ -101,6 +101,7 @@ func TestChunkToEventsToolCallDelta(t *testing.T) {
 }
 
 func TestIsReasoningStarved(t *testing.T) {
+	c := NewClient("http://unused.invalid", "test-key")
 	cases := []struct {
 		name         string
 		finishReason string
@@ -112,10 +113,10 @@ func TestIsReasoningStarved(t *testing.T) {
 		{"stop with empty content", wire.FinishStop, "", false},
 		{"stop with content", wire.FinishStop, "answer", false},
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := IsReasoningStarved(c.finishReason, c.content); got != c.want {
-				t.Errorf("IsReasoningStarved(%q, %q) = %v, want %v", c.finishReason, c.content, got, c.want)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := c.IsReasoningStarved(tc.finishReason, tc.content); got != tc.want {
+				t.Errorf("IsReasoningStarved(%q, %q) = %v, want %v", tc.finishReason, tc.content, got, tc.want)
 			}
 		})
 	}

@@ -298,16 +298,17 @@ func runAsk(ctx context.Context, args []string) error {
 		thinkingType = wire.ThinkingEnabled
 	}
 
-	req := wire.ChatCompletionRequest{
-		Model:           resolvedModel,
-		Messages:        messages,
-		Thinking:        &wire.ThinkingConfig{Type: thinkingType},
-		ReasoningEffort: resolvedEffort,
-		MaxTokens:       resolvedMaxTokens,
-	}
-
+	// ask states intent and lets the client spell the provider's reasoning
+	// control, the same seam the agent loop uses (internal/session/client.go,
+	// docs/KIMI-INTEGRATION.md §4.1).
 	start := time.Now()
-	events, err := client.StreamChatCompletion(ctx, req)
+	events, err := client.StreamChatCompletion(ctx, wire.ChatIntent{
+		Model:     resolvedModel,
+		Messages:  messages,
+		Effort:    resolvedEffort,
+		Thinking:  *thinking,
+		MaxTokens: resolvedMaxTokens,
+	})
 	if err != nil {
 		return explainError(err)
 	}
@@ -354,7 +355,7 @@ func runAsk(ctx context.Context, args []string) error {
 		return explainError(fmt.Errorf("stream: %w", streamErr))
 	}
 
-	if deepseek.IsReasoningStarved(finishReason, contentBuf.String()) {
+	if client.IsReasoningStarved(finishReason, contentBuf.String()) {
 		fmt.Fprintln(os.Stderr, "\nreasoning exhausted max_tokens before producing an answer; retry with a larger -max-tokens")
 	}
 

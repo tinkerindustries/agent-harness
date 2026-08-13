@@ -10,6 +10,9 @@ import (
 // RepairArguments corrects a single misplaced brace in assembled tool-call
 // arguments. It returns the repaired text and true when it changed
 // something, and args unchanged and false otherwise (docs/OBSERVED.md).
+// It is DeepSeek's quirk — how the loop applies it lives behind the session
+// seam, and Kimi's implementation is free to do nothing
+// (docs/KIMI-INTEGRATION.md §4.1).
 //
 // Two shapes are repaired, both unambiguous — there is exactly one object
 // the bytes can have meant:
@@ -41,7 +44,7 @@ import (
 // by name and property. Anything not repaired here is left for the
 // executor to reject, which is the behaviour this supplements and remains
 // the fallback.
-func RepairArguments(finishReason, args string) (string, bool) {
+func (c *Client) RepairArguments(finishReason, args string) (string, bool) {
 	if finishReason != wire.FinishToolCalls {
 		return args, false
 	}

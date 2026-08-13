@@ -1,6 +1,9 @@
-// Package session implements the agent loop: sub-turn iteration against
-// DeepSeek, tool execution, and the session-runner interface that holds no
-// state outside the session it is running (docs/DESIGN.md §4.5).
+// Package session implements the agent loop: sub-turn iteration against a
+// model provider's API through the narrow Client seam, tool execution, and
+// the session-runner interface that holds no state outside the session it is
+// running (docs/DESIGN.md §4.5). The loop states intent (wire.ChatIntent)
+// and never names a provider; cmd/harness chooses which provider's client
+// the Runner gets (docs/KIMI-INTEGRATION.md §4.1).
 package session
 
 import (
@@ -16,7 +19,6 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/cache"
 	"github.com/mrgeoffrich/deepseek-harness/internal/claudemd"
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
 	"github.com/mrgeoffrich/deepseek-harness/internal/httplog"
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
@@ -171,9 +173,15 @@ type SubTurnProgress struct {
 // That is what lets the worker pool wrap this type without changing it
 // (docs/DESIGN.md §4.5).
 type Runner struct {
-	Store      *store.Store
-	Mirror     *store.Mirror
-	Client     *deepseek.Client
+	Store  *store.Store
+	Mirror *store.Mirror
+	// Client is the provider seam the loop speaks through: it states intent
+	// (wire.ChatIntent) and the implementation — *deepseek.Client today —
+	// turns that into its provider's request shape, maps usage onto cache
+	// hit and miss, and repairs its own response quirks. Declared in this
+	// package, implemented in the provider packages, chosen by cmd/harness
+	// when the Runner is built (client.go, docs/KIMI-INTEGRATION.md §4.1).
+	Client     Client
 	Prices     *pricing.Table
 	FlashModel string
 
