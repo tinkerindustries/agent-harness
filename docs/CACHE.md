@@ -175,10 +175,13 @@ The harness knows exactly what it appended since the previous request, so it can
 predict the miss precisely: the new content, plus the partial block left over
 from the previous prefix, so under 128 tokens of slack. `usage`
 `prompt_cache_miss_tokens` reports the truth. When actual exceeds expected by
-more than a block, the prefix churned.
+more than the provider's tolerance, the prefix churned.
 
-The 128-token granularity is what makes this diagnostic sharp. Expected and
-actual should agree to within 127 tokens on every healthy sub-turn, so a
+The 128-token granularity is what makes this diagnostic sharp on DeepSeek:
+expected and actual agree to within 127 tokens on every healthy sub-turn. The
+tolerance is per-provider, carried on the same usage split the provider seam
+already supplies — Kimi K3's is 512, an empirical bound on its over-prediction
+rather than a property of its cache ([OBSERVED.md](OBSERVED.md)). Either way, a
 disagreement of thousands is unambiguous rather than a judgement call.
 
 That turns into a real diagnostic. Keep a per-message hash of the previous
