@@ -35,14 +35,12 @@ FROM alpine:3.21
 # through /bin/sh, and agent sessions expect git on the path.
 RUN apk add --no-cache ca-certificates git
 
-# ripgrep, because /bin/grep here is busybox's and sessions reach for GNU
-# flags it does not have. A `grep -rn --include="*.go"` prints a usage banner
-# instead of matching, and with the 2>/dev/null a session tends to add, the
-# banner disappears and an empty result reads as a genuine no-match — one
-# live run took that answer at face value three separate times, 144 sub-turns
-# apart (docs/reviews/sess-bb6c0ed564ddae573c3b1832cb3981f4.md). rg is one
-# binary that removes the whole class, and the system prompt points at it.
-RUN apk add --no-cache ripgrep
+# Sessions reach for GNU flags that busybox's applets reject, and a rejection
+# swallowed by the 2>/dev/null they tend to add reads as a genuine no-match
+# (docs/reviews/sess-bb6c0ed564ddae573c3b1832cb3981f4.md). grep and procps
+# replace the two applets that get hit, curl is absent from busybox entirely,
+# and ripgrep stays for the searches that suit it.
+RUN apk add --no-cache grep curl procps ripgrep
 
 # A C toolchain for the sessions' own builds: cgo, node-gyp, and Python
 # packages that ship no musl wheel all compile from source. linux-headers

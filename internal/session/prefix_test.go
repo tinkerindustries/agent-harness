@@ -102,27 +102,52 @@ func TestOpeningMessageUnchangedWithoutAResultSchema(t *testing.T) {
 	}
 }
 
-// The system prompt tells sessions to search with rg rather than grep,
-// because busybox's grep silently no-matches on GNU flags
-// (docs/reviews/sess-bb6c0ed564ddae573c3b1832cb3981f4.md). That advice is
-// only true while the image installs it, so the two are asserted together —
-// a Dockerfile that drops ripgrep fails here rather than at run time, in a
-// session that has no way to tell it was misinformed.
-func TestSystemPromptPointsAtRipgrepAndTheImageShipsIt(t *testing.T) {
+// The system prompt names the binaries a session may rely on instead of
+// busybox's applets, which silently no-match on GNU flags
+// (docs/reviews/sess-bb6c0ed564ddae573c3b1832cb3981f4.md). The claim is only
+// true while the image installs them, so the two are asserted together — a
+// Dockerfile that drops one fails here rather than at run time, in a session
+// that has no way to tell it was misinformed.
+func TestSystemPromptNamesBinariesTheImageInstalls(t *testing.T) {
 	sys := RenderSystemPrompt()
-	for _, needle := range []string{"rg", "busybox", "--include", "curl"} {
-		if !strings.Contains(sys, needle) {
-			t.Errorf("system prompt should mention %q, it does not", needle)
+	installed := apkPackages(t)
+	// Prompt wording to apk package, where the two differ.
+	for _, c := range []struct{ named, pkg string }{
+		{"grep", "grep"},
+		{"rg", "ripgrep"},
+		{"curl", "curl"},
+		{"ps", "procps"},
+	} {
+		if !strings.Contains(sys, c.named) {
+			t.Errorf("system prompt should name %q, it does not", c.named)
+		}
+		if !installed[c.pkg] {
+			t.Errorf("system prompt names %q; the Dockerfile does not apk add %q", c.named, c.pkg)
 		}
 	}
+}
 
+// apkPackages is the set of packages the Dockerfile installs, read as
+// whitespace-delimited tokens so "grep" does not match inside "ripgrep".
+func apkPackages(t *testing.T) map[string]bool {
+	t.Helper()
 	dockerfile, err := os.ReadFile(filepath.Join("..", "..", "Dockerfile"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(dockerfile), "ripgrep") {
-		t.Error("the system prompt tells sessions rg is installed; the Dockerfile does not install it")
+	pkgs := map[string]bool{}
+	for _, line := range strings.Split(string(dockerfile), "\n") {
+		_, args, found := strings.Cut(line, "apk add ")
+		if !found {
+			continue
+		}
+		for _, f := range strings.Fields(args) {
+			if !strings.HasPrefix(f, "-") && f != "&&" {
+				pkgs[f] = true
+			}
+		}
 	}
+	return pkgs
 }
 
 // The system prompt tells the model where scratch output belongs: a scratch/
