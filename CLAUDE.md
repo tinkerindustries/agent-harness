@@ -6,8 +6,10 @@ that exercises DeepSeek's behaviour directly.
 
 Work arrives on a NATS JetStream queue, runs as one of several concurrent agent
 sessions in a single Go process, and returns a result to a results stream.
-[ARCHITECTURE.md](ARCHITECTURE.md) maps the packages and the invariants between
-them; [`docs/DESIGN.md`](docs/DESIGN.md) is the reference for why any of it is
+[ARCHITECTURE.md](ARCHITECTURE.md) maps how the packages relate and the
+invariants between them, and [`internal/CLAUDE.md`](internal/CLAUDE.md) is the
+codemap — one entry per Go package, loaded automatically when you work in one;
+[`docs/DESIGN.md`](docs/DESIGN.md) is the reference for why any of it is
 shaped that way.
 
 ## Commands
@@ -31,47 +33,6 @@ their arguments.
 tests need, and the smoke sequence to finish on. [RELEASE.md](RELEASE.md) covers
 cutting a version and deploying it to the production stack.
 
-## Rules
-
-- **The system prompt, the tool array, and the request path are cache-critical.**
-  Read `docs/DESIGN.md` §3.2 and [`docs/CACHE.md`](docs/CACHE.md) before touching
-  any of them: the head of every request is frozen and shared, and the prompt
-  cache is worth 50–120× on input tokens.
-  [`docs/PROMPTING.md`](docs/PROMPTING.md) covers how to word the system prompt
-  and tool descriptions. Thinking mode ignores the sampling parameters and
-  rejects the coercive `tool_choice` values, so wording is the main loop's only
-  lever. Measure a wording change before shipping it:
-  [`docs/EVALS.md`](docs/EVALS.md) covers `harness eval`, which runs a suite
-  under two named prompt variants and compares what the sessions did.
-- **The HTTP API is the harness's interface for both data and run control.**
-  It serves the data the harness manages — sessions, events, work requests,
-  settings — specified in docs/DATA-API.md. It also carries run control from
-  the browser, specified in docs/RUN-CONTROL.md: stopping
-  (`POST /api/sessions/{id}/stop`, through the `RunController` seam), steering
-  (`POST /api/sessions/{id}/steer`, a store write the loop reads), and
-  starting (`POST /api/runs`, through the `RunPublisher` seam).
-  Evals are the same shape again: `POST /api/evals` starts one through the
-  `EvalController` seam (docs/EVALS.md).
-  **The HTTP server holds no JetStream handle; it reaches the run loop only
-  through narrow declared seams — `RunPublisher`, `RunController` and
-  `EvalController`.** `RunPublisher` (declared in
-  `internal/httpapi`, implemented by `cmd/harness` over the queue's own
-  handle) publishes one validated `queue.Request` to the WORK stream — the
-  browser is one more producer, not a second way a session starts, and the
-  claim/heartbeat/redelivery machinery stays the only one. Every write
-  carries the guards the settings endpoints also use — same origin,
-  `application/json`, loopback. Authentication is an open question: the port
-  serves transcripts carrying workspace paths, file contents, and command
-  output, and loopback stops being sufficient the moment the surface is
-  something a person leaves open.
-- **A production stack runs on this machine and must not be disturbed.** It is
-  the `deepseek-harness-prod` compose project from `docker-compose.prod.yml`,
-  on ports 8180 / 4522, and it is very likely mid-run. A bare
-  `docker compose ...` in this directory only ever touches the dev project, so
-  keep it that way: never pass `-f docker-compose.prod.yml`, never
-  `docker rmi`/`docker tag` `deepseek-harness:prod`, and leave `.env.prod` and
-  `workspaces-prod/` alone. Promotion is a deliberate act by the operator —
-  see the README's "A production stack beside the dev one".
 - **Build with `scripts/build.sh`.** It runs gofmt, vet, the frontend build,
   the frontend tests, the Go binary and the container, stopping at the first
   failure, and finishes by checking that the running container serves the
@@ -100,21 +61,9 @@ cutting a version and deploying it to the production stack.
 ## Vendored documentation
 
 `third_party/deepseek-docs/` mirrors <https://api-docs.deepseek.com/> as Markdown.
-Start at `third_party/deepseek-docs/README.md` for the index. Consult it before
-answering questions about DeepSeek's API surface.
-
-The mirror is generated, not authored — do not hand-edit the files. To refresh,
-re-scrape the site; response schemas under `api/` render client-side and need a
-headless browser to capture.
-
-Files with an `.en.` in the name are our English translations rather than
-upstream content. DeepSeek's prompt library is published in Chinese only;
-`_data/prompts.en.json` mirrors its structure and works as a drop-in substitute.
 
 `third_party/kimi-docs/` mirrors <https://platform.kimi.ai/docs> the same way,
-for Moonshot AI's Kimi models. Start at its `README.md`. That site publishes
-Markdown at `<url>.md` and an OpenAPI 3.1.0 spec, so a refresh needs no headless
-browser; its `sitemap.xml` is incomplete, so crawl links to closure.
+for Moonshot AI's Kimi models. Start at its `README.md`.
 
 ## Generated skills
 

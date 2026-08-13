@@ -1,0 +1,172 @@
+# internal/
+
+The Go packages, one entry each: what the package is for, what it may depend
+on, and the `docs/DESIGN.md` section that argues for it. Composition happens in
+`cmd/harness` and nowhere else — no package here constructs another's
+dependencies.
+
+[`../ARCHITECTURE.md`](../ARCHITECTURE.md) is the rest of the picture: how the
+pieces relate, the dependency direction, the cross-cutting concerns, the
+invariants and the gotchas. [`../docs/DESIGN.md`](../docs/DESIGN.md) is why any
+of it is shaped that way, and the § references below point into it.
+
+One property shapes the arrangement: the head of every request — system prompt,
+then tool array — is byte-identical across sessions and frozen for a session's
+life, and the message array only ever grows at the end (§3.2). Packages are
+split so that nothing on the request path can perturb that head.
+
+## Codemap
+
+### `cmd/harness`
+Subcommand dispatch, flag parsing, and process wiring — one file per subcommand.
+Composition happens here and nowhere else; no `internal` package constructs
+another's dependencies.
+
+### `internal/deepseek`
+The API client. Request and response types as structs rather than maps, so
+serialisation is byte-stable; SSE reading with an idle watchdog; the tool-call
+assembler keyed by call index; retry classification. Knows nothing of sessions,
+tools, or storage. Depends on: nothing internal. §4.3, §4.4.
+
+### `internal/session`
+The agent loop: sub-turn iteration, the system prompt, tool dispatch, ordering
+of tool results, compaction, and resume. The widest dependency set in the repo,
+deliberately — this is where everything meets. Consumed by `internal/worker` and
+by the CLI's `run` and `resume`. §4.5, §4.6.
+
+### `internal/tools`
+Every tool the model can call: schemas matching the trained-in shape, argument
+validation in Go, workspace confinement, per-tool timeouts and output caps, and
+the permission policy that gates execution. Also owns the frozen tool
+definitions the request head carries. The catalogue and its wording are
+[`../docs/TOOLS.md`](../docs/TOOLS.md); a change here is a cache-prefix change.
+
+### `internal/fold`
+Folds the event log into the DeepSeek `messages` array. Pure, append-only, a
+switch on event kind. Its counterpart is the frontend's own fold in
+`web/src/api`, which walks the same log to produce display blocks. §4.1.
+
+### `internal/store`
+SQLite (`modernc.org/sqlite`, pure Go, WAL) plus the derived disk mirror under
+`<data dir>/sessions/` and diff computation. The database is authoritative; the
+mirror is rebuildable with `harness export`. The `settings` table holds the
+harness's stored configuration — the DeepSeek API key among it — written and
+read through `internal/settings`. Depends on: nothing internal. §4.8.
+
+### `internal/hub`
+In-process SSE fan-out: per-session transcript subscribers and a quieter
+session-list subscriber set. Fed the same events a session appends. Touches no
+JetStream — the browser reads the store and the hub, never NATS. §4.2, §5.8.
+
+### `internal/httpapi`
+The HTTP surface and the static file server for the embedded frontend. `GET`
+and `HEAD` on every path, plus the write endpoints over the data the harness
+manages (docs/DATA-API.md) and the run-control endpoints (docs/RUN-CONTROL.md).
+Serves the store and the hub and writes through the store; the reach into the
+run loop is through two declared seams rather than imports: `RunController`,
+implemented by `*worker.Pool`, for the stop endpoint, and `RunPublisher`,
+implemented by `cmd/harness` over the queue's own JetStream handle, for the
+start endpoint; and `EvalController`, implemented over `*evals.Orchestrator`,
+for starting and cancelling an eval — so this package still imports neither
+`session` nor `worker`
+and holds no JetStream handle, only the narrow ability to enqueue one
+validated request (it imports `queue` for the request type and its `Validate`,
+deliberately, so a body validated here can never drift from the queue's).
+Steering (`POST /api/sessions/{id}/steer`) needs no seam: it is a store write
+the session loop reads at its next sub-turn boundary. §4.2.
+
+### `internal/webassets`
+`go:embed` of the built frontend, so the binary ships with no runtime assets.
+`dist/` is Vite output and is not in git.
+
+### `internal/queue`
+JetStream wiring shared by every NATS caller: stream and consumer declaration,
+the work request and result bodies, and the progress rate limiter. §4.10.
+
+### `internal/worker`
+The pool. Pulls a request, builds its workspace, runs it as a session,
+publishes the result, then acks — in that order, so a crash redelivers rather
+than loses. Owns acknowledgement discipline and idempotency against the
+`work_requests` table. §4.10.
+
+### `internal/workspace`
+Prepares the per-session directory — a `scratch/` subdirectory for files that
+are not part of the deliverable, and clones of the repositories a request
+names — including the remote-URL restrictions that keep `ext::` and local
+paths out. Each clone then gets its Node dependencies installed, with the
+lockfile choosing the package manager; the install is best-effort and never
+fails a run. §4.10.
+
+### `internal/promptvariant`
+The named alternatives to the shipped system prompt, and the reminder cadences
+that go with them. Imports nothing internal but the wire vocabulary, which is
+what lets `internal/queue` validate a variant name on a work request without
+pulling the agent loop in behind it — a boundary
+`internal/httpapi/boundary_test.go` pins. `internal/session` owns the prompt
+text; this package owns the edits to it. [../docs/EVALS.md](../docs/EVALS.md).
+
+### `internal/evals`
+Measures a prompt change. Publishes a suite of tasks under two or more prompt
+variants through the WORK stream, records the run and its members in
+`eval_runs` and `eval_members` as it goes, scores each run from its stored
+events, and
+compares the arms. Depends on: `internal/queue` to publish, `internal/store` to
+read, `internal/deepseek` for the optional judge.
+[../docs/EVALS.md](../docs/EVALS.md).
+
+### `internal/skills`
+Scans each cloned repository for `.claude/skills/` and `.deepcode/skills/` and
+renders what it finds into a catalogue. Discovery never fails a run. Depends on:
+nothing internal. §4.11.
+
+### `internal/claudemd`
+Scans the workspace and each cloned repository for a root `CLAUDE.md` and
+renders their contents into the opening user message, ahead of the skill
+catalogue and the task, capped per file and in total. Discovery never fails a
+run. Depends on: nothing internal.
+
+### `internal/mcp`
+The MCP launch server: tools and resources over streamable HTTP, mounted at
+`/mcp` by `harness serve` on its own HTTP server and handed serve's own
+JetStream handle and control token. Backed by the WORK and RESULTS streams and
+the harness's HTTP API. Imports `store` and `hub` for their types only — it
+renders transcripts fetched over HTTP and opens no database. It never touches
+the system prompt or the tool array.
+
+### `internal/cache`
+The prompt-cache churn diagnostic from [`../docs/CACHE.md`](../docs/CACHE.md):
+predicts a sub-turn's cache miss from what the harness knows it appended and
+names the first message that differs when prediction and reality diverge.
+Diagnostic, not a request-path dependency.
+
+### `internal/config`
+Environment loading and `.env` parsing. Carries the bootstrap values only —
+the data directory (which locates the database the settings themselves live
+in), the network addresses, the price table path, and the workspace root —
+plus the thinking toggle. Everything else (models, run budgets, worker sizes)
+lives in the settings registry. Read configuration through here rather than
+calling `os.Getenv` elsewhere.
+
+### `internal/settings`
+The registry and resolver for the `settings` table. The registry is one
+ordered slice of descriptors — key, type (string/integer/duration), default,
+validation bounds, description, and the secret/restart flags — covering every
+setting: the API keys, the run budget, the tool limits, the model names, and
+the restart-required operational limits. `ValidKeys` and `IsSecretKey` derive
+from it; `Set` validates against it, so a value rejected by `harness config`
+reads identically from the HTTP API and the screen. The resolver reads through
+to the store on every call, so a key changed by another process takes effect
+on the next request without restarting anything (restart-flagged keys are the
+exception: they are read once at startup and marked as such). Depends on: the
+settings surface of `internal/store` only.
+
+### `internal/pricing`
+The price table, loaded from JSON at runtime and carrying its own capture date.
+Depends on: nothing internal. §4.9.
+
+### `web/`
+The React frontend — three screens: the session list, one session's
+transcript, and the settings screen. It reads and writes the harness's data
+and can start, steer, and stop a running session, all through the run-control
+endpoints (docs/RUN-CONTROL.md). Its own build and test cycle; see
+[`../web/CLAUDE.md`](../web/CLAUDE.md) for the constraints on changing it. §5.

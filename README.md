@@ -270,8 +270,10 @@ block, and that is usually the answer.
 ## Documentation
 
 - [CLAUDE.md](CLAUDE.md) — the rules an agent working in this repo has to know
-- [ARCHITECTURE.md](ARCHITECTURE.md) — the packages, how they relate, and the
+- [ARCHITECTURE.md](ARCHITECTURE.md) — how the packages relate and the
   invariants between them
+- [`internal/CLAUDE.md`](internal/CLAUDE.md) — the codemap: one entry per Go
+  package, what it is for and what it may depend on
 - [TESTING.md](TESTING.md) — the suites, the broker the integration tests need,
   and the smoke sequence
 - [`docs/DESIGN.md`](docs/DESIGN.md) — the technical design and why each choice
