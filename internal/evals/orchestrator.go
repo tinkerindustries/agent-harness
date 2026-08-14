@@ -90,11 +90,13 @@ func (s Spec) TotalRuns(suite *Suite) int {
 type Orchestrator struct {
 	Publisher Publisher
 	Store     *store.Store
-	// NewJudge builds the judge for a run, or returns nil when none is
-	// configured. It is a function rather than a Judge so the model resolves
-	// per run from settings, the same read-through shape the rest of the
-	// process uses.
-	NewJudge func(model string) *Judge
+	// NewJudge builds the judge for a run. It is a function rather than a
+	// Judge so the model resolves per run from settings, the same read-through
+	// shape the rest of the process uses; it returns an error when the judge's
+	// model cannot be resolved to a provider client, which fails the start
+	// loudly rather than scoring with the wrong provider or skipping the judge
+	// silently.
+	NewJudge func(model string) (*Judge, error)
 	// OnChange, when set, is called with the run id after every write, so a
 	// browser watching sees the run move.
 	OnChange func(evalRunID string)
@@ -142,7 +144,20 @@ func (o *Orchestrator) Start(ctx context.Context, spec Spec) (string, error) {
 		OnChange:    o.OnChange,
 	}
 	if spec.Judge && o.NewJudge != nil {
-		opts.Judge = o.NewJudge(spec.JudgeModel)
+		judge, err := o.NewJudge(spec.JudgeModel)
+		if err != nil {
+			// The judge's model could not be resolved to a provider client —
+			// an unknown name or a failed settings read. Fail the start loudly
+			// instead of running the eval without the judge the spec asked
+			// for; the run slot registered above is released here, the same
+			// cleanup the goroutine's defer does on a normal finish.
+			cancel()
+			o.mu.Lock()
+			delete(o.running, evalRunID)
+			o.mu.Unlock()
+			return "", err
+		}
+		opts.Judge = judge
 	}
 
 	go func() {

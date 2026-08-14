@@ -6,10 +6,21 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
+
+// Client is the narrow seam between the judge and a model provider's API
+// client, declared here where it is consumed the way internal/session
+// declares its own (docs/KIMI-INTEGRATION.md §4.1, internal/CLAUDE.md). The
+// judge names only what it calls — one non-streaming completion — so this is
+// that one method, not the wider session.Client. *deepseek.Client and
+// *kimi.Client both implement it, and cmd/harness resolves which one a judge
+// model gets through the model→provider table (internal/provider,
+// docs/KIMI-INTEGRATION.md §4.3).
+type Client interface {
+	CreateChatCompletion(ctx context.Context, intent wire.ChatIntent) (*wire.ChatCompletionResponse, error)
+}
 
 // The judge scores what the mechanical metrics cannot: whether the run
 // actually did the work. It is a second model reading a rendered transcript,
@@ -62,7 +73,7 @@ const JudgeMaxTokens = 384 * 1024
 
 // Judge scores transcripts with a model.
 type Judge struct {
-	Client *deepseek.Client
+	Client Client
 	Model  string
 	// MaxTokens bounds the judge's reply. Zero is JudgeMaxTokens.
 	MaxTokens int
