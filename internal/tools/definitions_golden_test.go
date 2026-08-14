@@ -11,7 +11,7 @@ import (
 
 // TestToolArrayGolden pins the exact serialised tool array of each provider
 // against its own committed golden file. There are two frozen request heads
-// now — DeepSeek's nineteen tools, Kimi's fourteen without the five vision
+// now — DeepSeek's twenty tools, Kimi's fourteen without the six vision
 // tools (docs/KIMI-INTEGRATION.md decisions 5 and 6) — and both need the
 // byte-stability guard the single array used to have: the head of every
 // request is frozen and shared (docs/DESIGN.md §3.2, docs/CACHE.md), and the
@@ -62,20 +62,20 @@ func TestToolArrayGolden(t *testing.T) {
 }
 
 // TestDefinitionsForProviderShape pins the relationship between the two
-// arrays directly: Kimi's is DeepSeek's nineteen minus exactly the five
+// arrays directly: Kimi's is DeepSeek's twenty minus exactly the six
 // vision tools, in the same order, with the surviving tools byte-identical. The
 // golden files pin the bytes; this pins the subtraction.
 func TestDefinitionsForProviderShape(t *testing.T) {
 	deepseek := tools.DefinitionsFor("deepseek-v4-pro")
 	kimi := tools.DefinitionsFor("kimi-k3")
-	if len(deepseek) != 19 {
-		t.Fatalf("DeepSeek array has %d tools, want 19", len(deepseek))
+	if len(deepseek) != 20 {
+		t.Fatalf("DeepSeek array has %d tools, want 20", len(deepseek))
 	}
 	if len(kimi) != 14 {
 		t.Fatalf("Kimi array has %d tools, want 14", len(kimi))
 	}
 
-	// Walk both arrays with two pointers; DeepSeek's skips the three vision
+	// Walk both arrays with two pointers; DeepSeek's skips the six vision
 	// tools, Kimi's does not. Every surviving pair must be byte-identical.
 	dj, _ := json.Marshal(deepseek)
 	var ds []struct {
@@ -86,7 +86,7 @@ func TestDefinitionsForProviderShape(t *testing.T) {
 	if err := json.Unmarshal(dj, &ds); err != nil {
 		t.Fatal(err)
 	}
-	dropped := []string{"Screenshot", "Glance", "Ground", "Detect", "Crop"}
+	dropped := []string{"Screenshot", "Glance", "Ground", "Detect", "Transcribe", "Crop"}
 	var j int
 	for i, d := range ds {
 		isDropped := false

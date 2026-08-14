@@ -73,6 +73,9 @@ const (
 	KeyToolTaskTimeout               = "tools.task_timeout"
 	KeyToolReviewScreenshotTimeout   = "tools.reviewscreenshot_timeout"
 	KeyToolScreenshotTimeout         = "tools.screenshot_timeout"
+	KeyToolTranscribeTimeout         = "tools.transcribe_timeout"
+	KeyToolTranscribeMaxChunks       = "tools.transcribe_max_chunks"
+	KeyToolTranscribeConcurrency     = "tools.transcribe_concurrency"
 	KeyToolWebFetchMaxBody           = "tools.webfetch_max_body"
 	KeyToolWebFetchMaxExtract        = "tools.webfetch_max_extract"
 	KeyToolReviewScreenshotMaxImages = "tools.reviewscreenshot_max_images"
@@ -180,6 +183,12 @@ var registry = []Descriptor{
 		"Wall-clock timeout for one Gemini call made by Glance, Ground, or Detect (describing or locating something routinely takes longer than the 30-second tool default, and a whole-page description with thinking on has been measured past 60). The key keeps the name of the tool it originally bounded; Crop makes no model call and is not covered by it."),
 	durationSetting(KeyToolScreenshotTimeout, GroupToolLimits, "90s", time.Second, 24*time.Hour,
 		"Wall-clock timeout for one Screenshot capture (launching Chromium, navigating, waiting for the page to settle and encoding the image). The driver's own navigation timeout is derived from this, so raise it for an application that is slow to start rather than retrying the call."),
+	durationSetting(KeyToolTranscribeTimeout, GroupToolLimits, "300s", time.Second, 24*time.Hour,
+		"Wall-clock timeout for one Transcribe call, covering every chunk of the image. The chunks are sent concurrently, so this is a few of the per-call vision timeouts rather than the sum of them all — but it has to bound the slowest wave of a tall page, not one request, which is why it is its own key and not the Glance one."),
+	intSetting(KeyToolTranscribeMaxChunks, GroupToolLimits, 24, 1, 200,
+		"Maximum chunks one Transcribe call cuts an image into, and so the maximum vision calls it bills. An image that would need more is not refused: the split stops and the last chunk keeps the remainder, which the per-chunk heights in the result make visible."),
+	intSetting(KeyToolTranscribeConcurrency, GroupToolLimits, 4, 1, 32,
+		"How many of a Transcribe call's chunks are in flight at once. Raising it shortens a tall page's wall time and raises the burst rate against the vision API; the whole call is still bounded by tools.transcribe_timeout."),
 	intSetting(KeyToolWebFetchMaxBody, GroupToolLimits, 4<<20, 1024, 1<<30,
 		"Bytes of a fetched page read before extraction"),
 	intSetting(KeyToolWebFetchMaxExtract, GroupToolLimits, 40_000, 100, 10_000_000,

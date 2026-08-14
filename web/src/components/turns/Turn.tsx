@@ -257,6 +257,7 @@ function ToolBody({ call, result }: { call: ToolCallPayload | undefined; result:
     result.name === "Glance" ||
     result.name === "Ground" ||
     result.name === "Detect" ||
+    result.name === "Transcribe" ||
     result.name === "Crop"
   ) {
     const paths = screenshotPaths(call);

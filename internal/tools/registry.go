@@ -1,4 +1,4 @@
-// Package tools implements the sixteen tools in docs/TOOLS.md: schemas that
+// Package tools implements the twenty tools in docs/TOOLS.md: schemas that
 // match the trained-in shape, argument validation in Go, workspace
 // confinement, per-tool timeouts and output caps, and the permission policy
 // that gates execution without ever changing which tools are on offer
@@ -54,6 +54,14 @@ const (
 	// retried and the retry cost a second full call, so the ceiling was buying
 	// a stuck-call guard that a real answer was already exceeding.
 	ReviewScreenshotTimeout = 120 * time.Second
+	// TranscribeTimeout bounds one Transcribe call — every chunk of it, not
+	// one Gemini request. A tall page is several calls, sent concurrently in
+	// waves of tools.transcribe_concurrency, so the wall time is a few of
+	// ReviewScreenshotTimeout rather than the sum of all of them; this is
+	// sized for the slowest wave of a page at the chunk cap, plus the local
+	// decode and re-encode of the chunks themselves, which a 12,000-pixel
+	// capture makes non-trivial.
+	TranscribeTimeout = 300 * time.Second
 	// ScreenshotTimeout bounds one capture: launching Chromium, navigating,
 	// waiting for the page to settle and encoding the image do not fit in the
 	// 30-second default, and the driver's own navigation timeout is derived
@@ -83,12 +91,21 @@ type Result struct {
 	// from them (internal/fold/fold.go), so the image bytes live in the event
 	// log and a replay reproduces them identically.
 	ImageURL string
-	// GeminiUsage is the costed token accounting of a Glance, Ground, or
-	// Detect call, set only when the tool made a successful request to
-	// Gemini (Crop never sets it: it makes no model call). The runner
-	// commits it as its own usage event (internal/session/turn.go), so a
-	// Gemini call shows up in the session's cost total exactly the way a
-	// DeepSeek turn's usage does.
+	// GeminiUsage is the costed token accounting of a Glance, Ground,
+	// Detect, or Transcribe call, set only when the tool made a successful
+	// request to Gemini (Crop never sets it: it makes no model call). The
+	// runner commits it as its own usage event (internal/session/turn.go),
+	// so a Gemini call shows up in the session's cost total exactly the way
+	// a DeepSeek turn's usage does.
+	//
+	// One payload, and therefore one event, even for a tool that made many
+	// calls: Transcribe sends a request per chunk and sums them here, with
+	// Calls recording how many, because the transcript card absorbs one
+	// usage block per sub-turn and a later one replaces an earlier one
+	// (internal/tools/transcribe.go, sumTranscribeUsage, has the whole
+	// argument). A tool that adds a second Gemini call to a result inherits
+	// that decision and must sum too, or the card will show the price of
+	// whichever call happened to be last.
 	GeminiUsage *store.UsagePayload
 }
 
@@ -148,6 +165,7 @@ type Timeouts struct {
 	Task             time.Duration
 	ReviewScreenshot time.Duration
 	Screenshot       time.Duration
+	Transcribe       time.Duration
 }
 
 // ChatClient is the narrow seam the executor's own model calls use —
@@ -300,6 +318,20 @@ func (e *Executor) timeoutFor(ctx context.Context, name string, argsRaw json.Raw
 			}
 		}
 		return ReviewScreenshotTimeout
+	case "Transcribe":
+		// Not the Glance timeout: Transcribe's budget has to cover every
+		// chunk of an image, and inheriting a per-call one would kill a tall
+		// page part-way through and bill for the chunks that had already
+		// come back.
+		if e.Timeouts.Transcribe > 0 {
+			return e.Timeouts.Transcribe
+		}
+		if e.Settings != nil {
+			if v, err := e.Settings.Duration(ctx, settings.KeyToolTranscribeTimeout); err == nil {
+				return v
+			}
+		}
+		return TranscribeTimeout
 	case "Screenshot":
 		return e.screenshotTimeout(ctx)
 	default:
@@ -389,6 +421,7 @@ var toolFuncs = map[string]toolFunc{
 	"Ground":     execGround,
 	"Detect":     execDetect,
 	"Crop":       execCrop,
+	"Transcribe": execTranscribe,
 	"Screenshot": execScreenshot,
 }
 

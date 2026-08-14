@@ -264,6 +264,16 @@ export interface UsagePayload {
    * price table could not cost at all.
    */
   rate_tier?: string;
+  /**
+   * How many provider requests this one event accounts for, mirroring
+   * internal/store's UsagePayload. Set only where that is not one:
+   * Transcribe fans a tall image out over a call per chunk and sums them
+   * into a single event, because this card shows one usage block per
+   * sub-turn and a later one replaces an earlier one, so separate events
+   * would display the price of one chunk. Absent means one call, which is
+   * every other usage event.
+   */
+  calls?: number;
   expected_miss_tokens: number;
   churn_point_index?: number;
 }

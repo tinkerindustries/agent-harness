@@ -43,9 +43,10 @@ not by describing what someone else should do.
 // orders are pinned — the array's by its own golden files, this one by
 // TestPromptGolden and by TestPromptNamesExactlyTheToolArray.
 //
-// The vision block is Screenshot then the four tools that read what it
+// The vision block is Screenshot then the five tools that read what it
 // captures, which is the order a session uses them in: capture, then look
-// (Glance), then locate (Ground, Detect), then cut a located box out (Crop).
+// (Glance, or Transcribe when the looking is at more text than one call can
+// resolve), then locate (Ground, Detect), then cut a located box out (Crop).
 // Replacing ReviewScreenshot and AskVision with these four changed the head's
 // bytes and therefore the cache prefix once, for every session
 // (docs/CACHE.md, docs/VISION-TOOLKIT.md) — a cost paid deliberately at the
@@ -53,7 +54,7 @@ not by describing what someone else should do.
 var toolOrder = []string{
 	"Read", "Write", "Edit", "Bash", "Glob", "Grep", "List",
 	"TaskCreate", "TaskGet", "TaskList", "TaskUpdate", "Task", "WebFetch",
-	"Screenshot", "Glance", "Ground", "Detect", "Crop", "Complete",
+	"Screenshot", "Glance", "Transcribe", "Ground", "Detect", "Crop", "Complete",
 }
 
 // toolNamesInOrder maps a session's tool array onto the head's canonical
@@ -107,13 +108,16 @@ func inventorySentence(names []string) string {
 
 // numberWord spells n the way the head spells its availability count
 // ("All seventeen are always available"). The count is generated from the
-// tool array, so a count past twenty fails loudly at the one place that
-// spells it and forces the word table to grow — and a head that disagrees
-// with its own array fails TestPromptNamesExactlyTheToolArray.
+// tool array, so a count past the end of the table renders "?" rather than a
+// word — visible in the golden head the moment it happens, which is what
+// forces the table to grow. Adding Transcribe took the count to twenty and
+// the table had exactly twenty entries, so it grew here at the same time
+// rather than waiting to be the next tool's surprise.
 func numberWord(n int) string {
 	words := [...]string{"", "one", "two", "three", "four", "five", "six", "seven", "eight",
 		"nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
-		"sixteen", "seventeen", "eighteen", "nineteen", "twenty"}
+		"sixteen", "seventeen", "eighteen", "nineteen", "twenty",
+		"twenty-one", "twenty-two", "twenty-three", "twenty-four", "twenty-five"}
 	if n < 1 || n >= len(words) {
 		return "?"
 	}
@@ -327,12 +331,23 @@ var toolFragments = []toolFragment{
 - An image costs a fixed token budget however large it is, so a full-page
   capture spends it on the parts you did not ask about. When the question is
   about one control, capture that control — or pass a box from Ground to
-  Crop, or to Glance's region, and spend the budget there.`,
+  Crop, or to Glance's region, and spend the budget there.
+`,
+	},
+	{
+		needs: []string{"Transcribe"},
+		text: `- To read the text off a page taller than a screen, use Transcribe rather
+  than Glance: it cuts the image up and reads each piece at full resolution,
+  where one look at the whole thing spends the same fixed budget and comes
+  back with the top of the page and a summary of the rest. Read the seam
+  report it returns before you trust the text at a boundary.
+`,
 	},
 	{
 		seesImages: capability(true),
 		text: `- You can see images: Read returns the image when the path is a PNG, JPEG, or
-  WebP file.`,
+  WebP file.
+`,
 	},
 }
 
@@ -359,7 +374,12 @@ func renderSystemPromptFor(names []string, seesImages bool) string {
 			b.WriteString(f.text)
 		}
 	}
-	return b.String()
+	// Every fragment ends with a newline so that adding one to the end of
+	// the table cannot run into the previous rule's last line — which is
+	// what happened when the fragments that could be last omitted theirs.
+	// The head itself ends without one, so the last fragment's is trimmed
+	// here rather than left off there.
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // RenderSystemPrompt returns the frozen DeepSeek system prompt text. Sessions
