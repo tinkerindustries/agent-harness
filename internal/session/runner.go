@@ -155,6 +155,49 @@ type RunOptions struct {
 	DebugChurnAtSubTurn int
 }
 
+// session builds the store.Session row RunOptions describes, at the given
+// status and workspace. Create and Run's insert branch both build their row
+// through this method, rather than each spelling out the same field list by
+// hand, because a hand-copied literal is how ResultSchema once reached one
+// insert path (Run) and not another (Create) while PromoteSession wrote
+// neither — a queue-driven run's ResultSchema silently never reached the
+// row. SystemPrompt and ToolSchema are not resolvable from RunOptions alone
+// (they depend on the rendered prompt and the resolved tool array) and stay
+// the caller's to set afterward, which is why Create's row leaves them at
+// their zero value and Run's does not.
+//
+// SessionID is resolved here so Create needs no separate id variable; Run
+// resolves opts.SessionID itself before calling this, so the same id backs
+// its GetSession check and its RunSubagent closure.
+func (o RunOptions) session(status, workspace string) store.Session {
+	sessID := o.SessionID
+	if sessID == "" {
+		sessID = newID("sess")
+	}
+	return store.Session{
+		ID:              sessID,
+		ParentID:        o.ParentID,
+		JobType:         o.JobType,
+		Task:            o.Prompt,
+		Title:           o.Title,
+		Description:     o.Description,
+		Phase:           o.Phase,
+		TotalPhases:     o.TotalPhases,
+		ParentAgentType: o.ParentAgentType,
+		ParentAgentID:   o.ParentAgentID,
+		ParentIsUser:    o.ParentIsUser,
+		Model:           o.Model,
+		PromptVariant:   o.PromptVariant,
+		Effort:          o.Effort,
+		Thinking:        o.Thinking,
+		Workspace:       workspace,
+		PermissionMode:  string(o.PermissionMode),
+		DenyPatterns:    o.Deny,
+		ResultSchema:    o.ResultSchema,
+		Status:          status,
+	}
+}
+
 // Usage aggregates token accounting across every sub-turn of a run.
 type Usage struct {
 	CacheHitTokens   int
@@ -418,35 +461,11 @@ func (r *Runner) compactionThreshold(ctx context.Context, model string) int {
 // usage/request-id lookups the Runner already holds, and the worker must not
 // gain a hub dependency.
 func (r *Runner) Create(ctx context.Context, opts RunOptions) error {
-	sessID := opts.SessionID
-	if sessID == "" {
-		sessID = newID("sess")
-	}
-	sess := store.Session{
-		ID:              sessID,
-		ParentID:        opts.ParentID,
-		JobType:         opts.JobType,
-		Task:            opts.Prompt,
-		Title:           opts.Title,
-		Description:     opts.Description,
-		Phase:           opts.Phase,
-		TotalPhases:     opts.TotalPhases,
-		ParentAgentType: opts.ParentAgentType,
-		ParentAgentID:   opts.ParentAgentID,
-		ParentIsUser:    opts.ParentIsUser,
-		Model:           opts.Model,
-		PromptVariant:   opts.PromptVariant,
-		Effort:          opts.Effort,
-		Thinking:        opts.Thinking,
-		Workspace:       opts.Workspace,
-		PermissionMode:  string(opts.PermissionMode),
-		DenyPatterns:    opts.Deny,
-		Status:          store.StatusCreating,
-	}
+	sess := opts.session(store.StatusCreating, opts.Workspace)
 	if err := r.Store.CreateSession(ctx, sess); err != nil {
 		return fmt.Errorf("session: create session: %w", err)
 	}
-	curSess, err := r.Store.GetSession(ctx, sessID)
+	curSess, err := r.Store.GetSession(ctx, sess.ID)
 	if err != nil {
 		return fmt.Errorf("session: reload created session: %w", err)
 	}
@@ -547,52 +566,31 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 		return nil, err
 	}
 
-	sessID := opts.SessionID
-	if sessID == "" {
-		sessID = newID("sess")
+	if opts.SessionID == "" {
+		opts.SessionID = newID("sess")
 	}
+	sessID := opts.SessionID
 	executor.RunSubagent = r.subagentRunner(sessID, opts, executor.Workspace)
 
 	// The worker creates the row as "creating" before it prepares the
 	// workspace, so a run is visible and stoppable from the moment it is
-	// claimed. Run promotes that row to "running" — writing the three
+	// claimed. Run promotes that row to "running" — writing the four
 	// columns that are only resolvable now that the run is starting — and
 	// otherwise inserts the row exactly as it always has. Every caller that
 	// does not clone (harness run, harness resume, the Task subagent path,
 	// compaction) has no pre-created row, so it always inserts, and none of
 	// them should ever show "creating".
 	if existing, err := r.Store.GetSession(ctx, sessID); err == nil && existing.Status == store.StatusCreating {
-		if err := r.Store.PromoteSession(ctx, sessID, executor.Workspace, sysPrompt, toolSchema); err != nil {
+		if err := r.Store.PromoteSession(ctx, sessID, executor.Workspace, sysPrompt, toolSchema, opts.ResultSchema); err != nil {
 			return nil, fmt.Errorf("session: promote session: %w", err)
 		}
 	} else {
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			return nil, fmt.Errorf("session: load session: %w", err)
 		}
-		sess := store.Session{
-			ID:              sessID,
-			ParentID:        opts.ParentID,
-			JobType:         opts.JobType,
-			Task:            opts.Prompt,
-			Title:           opts.Title,
-			Description:     opts.Description,
-			Phase:           opts.Phase,
-			TotalPhases:     opts.TotalPhases,
-			ParentAgentType: opts.ParentAgentType,
-			ParentAgentID:   opts.ParentAgentID,
-			ParentIsUser:    opts.ParentIsUser,
-			Model:           opts.Model,
-			PromptVariant:   opts.PromptVariant,
-			Effort:          opts.Effort,
-			Thinking:        opts.Thinking,
-			Workspace:       executor.Workspace,
-			PermissionMode:  string(opts.PermissionMode),
-			DenyPatterns:    opts.Deny,
-			SystemPrompt:    sysPrompt,
-			ToolSchema:      toolSchema,
-			ResultSchema:    opts.ResultSchema,
-			Status:          store.StatusRunning,
-		}
+		sess := opts.session(store.StatusRunning, executor.Workspace)
+		sess.SystemPrompt = sysPrompt
+		sess.ToolSchema = toolSchema
 		if err := r.Store.CreateSession(ctx, sess); err != nil {
 			return nil, fmt.Errorf("session: create session: %w", err)
 		}
@@ -745,7 +743,7 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 		contextTokens = outcome.usagePayload.PromptTokens
 
 		if outcome.usagePayload.PromptTokens >= r.compactionThreshold(ctx, opts.Model) {
-			newSess, newEvents, err := r.compact(ctx, curSess, allEvents, executor.Workspace)
+			newSess, newEvents, err := r.compact(ctx, curSess, allEvents, opts, executor.Workspace)
 			if err != nil {
 				log.Printf("session: compaction failed for %s, continuing uncompacted: %v", curSess.ID, err)
 			} else {

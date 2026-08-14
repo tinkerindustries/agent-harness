@@ -133,6 +133,57 @@ func TestRunPromotesPreCreatedRow(t *testing.T) {
 	}
 }
 
+// TestPromotedRowKeepsResultSchema pins finding 01: a queue-driven run's
+// ResultSchema must survive Create and the promotion Run performs on top of
+// it, exactly as it already did for the insert-only path
+// (TestRunInsertsWhenNoRowExists). Before the fix, Runner.Create's row
+// literal omitted ResultSchema and PromoteSession's UPDATE never wrote the
+// column, so a queue-driven run's schema silently vanished — this failed
+// before the fix and passes after.
+func TestPromotedRowKeepsResultSchema(t *testing.T) {
+	srv := plainAnswerServer(t, "all done")
+	defer srv.Close()
+	r := newTestRunner(t, srv.URL)
+
+	schema := json.RawMessage(`{"type":"object","properties":{"ok":{"type":"boolean"}}}`)
+
+	if err := r.Create(t.Context(), RunOptions{
+		SessionID: "sess-schema-test", Model: "test-model", Effort: wire.EffortHigh,
+		Thinking: true, Workspace: filepath.Join(t.TempDir(), "sess-schema-test"),
+		PermissionMode: tools.ModeFull, Prompt: "do it", ResultSchema: schema,
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// The schema must already be on the row right after Create, not only
+	// after Run promotes it — a stop or crash during workspace preparation
+	// should not lose it either.
+	created, err := r.Store.GetSession(t.Context(), "sess-schema-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(created.ResultSchema) != string(schema) {
+		t.Fatalf("expected the result schema on the created row, got %q", created.ResultSchema)
+	}
+
+	ws := t.TempDir()
+	if _, err := r.Run(t.Context(), RunOptions{
+		SessionID: "sess-schema-test", Model: "test-model", Effort: wire.EffortHigh,
+		Thinking: true, MaxTokens: 4000,
+		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "do it", ResultSchema: schema,
+	}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	sess, err := r.Store.GetSession(t.Context(), "sess-schema-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(sess.ResultSchema) != string(schema) {
+		t.Fatalf("expected the result schema to survive promotion, got %q", sess.ResultSchema)
+	}
+}
+
 // TestRunInsertsWhenNoRowExists pins the other half of promote-or-insert:
 // a caller with no pre-created row (harness run, harness resume, the Task
 // subagent path, compaction) gets the row inserted exactly as before — as

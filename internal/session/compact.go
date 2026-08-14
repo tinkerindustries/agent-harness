@@ -19,7 +19,19 @@ import (
 // be a new session rather than an edit to the old one — that is the only
 // way to reset the cache deliberately instead of by accident
 // (docs/CACHE.md, docs/TOOLS.md).
-func (r *Runner) compact(ctx context.Context, sess store.Session, allEvents []store.Event, workspace string) (store.Session, []store.Event, error) {
+//
+// The new row is built from opts.session, the same builder Create and Run's
+// insert branch use, rather than copied field-by-field from sess — that
+// hand-copied shape is exactly how a field once reached Run's row and
+// Create's but not PromoteSession's UPDATE (finding 01). opts is the same
+// RunOptions this whole Run call has carried since the top, so its fields
+// agree with sess's by construction; ParentID, SystemPrompt and ToolSchema
+// are the three that must differ from a fresh row (the compacted session's
+// parent is the session it replaces, not the run's original parent, and its
+// prompt and schema are the compaction summary and the carried-over schema,
+// not what session() would compute from opts alone), so they are
+// overwritten after.
+func (r *Runner) compact(ctx context.Context, sess store.Session, allEvents []store.Event, opts RunOptions, workspace string) (store.Session, []store.Event, error) {
 	messages, err := fold.Fold(sess, allEvents)
 	if err != nil {
 		return sess, allEvents, fmt.Errorf("session: fold for compaction: %w", err)
@@ -29,30 +41,11 @@ func (r *Runner) compact(ctx context.Context, sess store.Session, allEvents []st
 		return sess, allEvents, fmt.Errorf("session: summarise for compaction: %w", err)
 	}
 
-	newSess := store.Session{
-		ID:              newID("sess"),
-		ParentID:        sess.ID,
-		JobType:         sess.JobType,
-		Task:            sess.Task,
-		Title:           sess.Title,
-		Description:     sess.Description,
-		Phase:           sess.Phase,
-		TotalPhases:     sess.TotalPhases,
-		ParentAgentType: sess.ParentAgentType,
-		ParentAgentID:   sess.ParentAgentID,
-		ParentIsUser:    sess.ParentIsUser,
-		Model:           sess.Model,
-		PromptVariant:   sess.PromptVariant,
-		Effort:          sess.Effort,
-		Thinking:        sess.Thinking,
-		Workspace:       sess.Workspace,
-		PermissionMode:  sess.PermissionMode,
-		DenyPatterns:    sess.DenyPatterns,
-		SystemPrompt:    RenderCompactionSummarySystemPromptFor(sess.Model, sess.PromptVariant, summary),
-		ToolSchema:      sess.ToolSchema,
-		ResultSchema:    sess.ResultSchema,
-		Status:          store.StatusRunning,
-	}
+	newSess := opts.session(store.StatusRunning, sess.Workspace)
+	newSess.ID = newID("sess")
+	newSess.ParentID = sess.ID
+	newSess.SystemPrompt = RenderCompactionSummarySystemPromptFor(sess.Model, sess.PromptVariant, summary)
+	newSess.ToolSchema = sess.ToolSchema
 	if err := r.Store.CreateSession(ctx, newSess); err != nil {
 		return sess, allEvents, fmt.Errorf("session: create compacted session: %w", err)
 	}

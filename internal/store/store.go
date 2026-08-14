@@ -719,16 +719,22 @@ func (s *Store) CreateSession(ctx context.Context, sess Session) error {
 }
 
 // PromoteSession flips a "creating" session row to "running" and writes the
-// three columns that are only resolvable once the run starts: the workspace
+// four columns that are only resolvable once the run starts: the workspace
 // (which the worker has now finished preparing), the rendered system prompt,
-// and the tool schema. It bumps version like any other mutation.
+// the tool schema, and the result schema. It bumps version like any other
+// mutation.
+//
+// resultSchema is written even when nil — CreateSession's own NULL-vs-empty
+// handling doesn't apply here because a "creating" row from Runner.Create
+// never had a result_schema to begin with, so this column has nothing to
+// preserve on a no-op promotion.
 //
 // A row already "running" is a no-op success, so a redelivery that calls
 // PromoteSession twice — once from a retried Runner.Run after a crash — is
 // idempotent. A terminal row refuses with SessionFinishedError: the run
 // ended (a stop during preparation, a setup failure) and nothing may relabel
 // it.
-func (s *Store) PromoteSession(ctx context.Context, id, workspace, systemPrompt string, toolSchema []byte) error {
+func (s *Store) PromoteSession(ctx context.Context, id, workspace, systemPrompt string, toolSchema, resultSchema []byte) error {
 	return s.submit(ctx, func(tx *sql.Tx) error {
 		var storedStatus string
 		if err := tx.QueryRow(`SELECT status FROM sessions WHERE id = ?`, id).Scan(&storedStatus); err != nil {
@@ -744,8 +750,12 @@ func (s *Store) PromoteSession(ctx context.Context, id, workspace, systemPrompt 
 		default:
 			return &SessionFinishedError{SessionID: id, Status: storedStatus}
 		}
-		_, err := tx.Exec(`UPDATE sessions SET status = ?, workspace = ?, system_prompt = ?, tool_schema = ?, version = version + 1 WHERE id = ?`,
-			StatusRunning, workspace, systemPrompt, string(toolSchema), id)
+		var resultSchemaCol sql.NullString
+		if len(resultSchema) > 0 {
+			resultSchemaCol = sql.NullString{String: string(resultSchema), Valid: true}
+		}
+		_, err := tx.Exec(`UPDATE sessions SET status = ?, workspace = ?, system_prompt = ?, tool_schema = ?, result_schema = ?, version = version + 1 WHERE id = ?`,
+			StatusRunning, workspace, systemPrompt, string(toolSchema), resultSchemaCol, id)
 		return err
 	})
 }
