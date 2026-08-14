@@ -421,7 +421,7 @@ function StuckSessionRow({
 }: StuckSessionRowProps) {
   return (
     <tr className="ops-row">
-      <td>
+      <td data-label="Session">
         <div className="sess-cell">
           <span className="sess-id">{session.id}</span>
           <span className="sess-sub truncate">
@@ -430,8 +430,8 @@ function StuckSessionRow({
           </span>
         </div>
       </td>
-      <td className="ops-quiet">{quietCell(parseStamp(lastEventAt), now)}</td>
-      <td className="dim">{lastEventAt ? formatStamp(lastEventAt) : "no events"}</td>
+      <td className="ops-quiet" data-label="Quiet">{quietCell(parseStamp(lastEventAt), now)}</td>
+      <td className="dim" data-label="Last event">{lastEventAt ? formatStamp(lastEventAt) : "no events"}</td>
       <td className="ops-actions-cell">
         {confirming ? (
           <div className="ops-confirm">
@@ -488,10 +488,10 @@ function WorkRequestRowView({
 }: WorkRequestRowProps) {
   return (
     <tr className="ops-row">
-      <td className="ops-mono">{row.request_id}</td>
-      <td className="ops-mono dim">{row.session_id ?? "—"}</td>
-      <td>{row.delivery_count}</td>
-      <td className="dim">{formatStamp(row.received_at)}</td>
+      <td className="ops-mono" data-label="Request">{row.request_id}</td>
+      <td className="ops-mono dim" data-label="Session">{row.session_id ?? "—"}</td>
+      <td data-label="Deliveries">{row.delivery_count}</td>
+      <td className="dim" data-label="Received">{formatStamp(row.received_at)}</td>
       <td className="ops-actions-cell">
         {confirming ? (
           <div className="ops-confirm">
@@ -539,13 +539,13 @@ interface LeaseRowProps {
 function LeaseRow({ row, now, busy, confirming, error, onRelease, onConfirmRelease, onCancel }: LeaseRowProps) {
   return (
     <tr className="ops-row">
-      <td className="ops-mono">
+      <td className="ops-mono" data-label="Workspace">
         <ElidedPath path={row.workspace} keepSession />
       </td>
-      <td className="ops-mono dim">{row.session_id}</td>
-      <td className="dim">{formatStamp(row.acquired_at)}</td>
-      <td className="dim">{formatStamp(row.heartbeat_at)}</td>
-      <td className="ops-quiet">{quietCell(parseStamp(row.heartbeat_at), now)}</td>
+      <td className="ops-mono dim" data-label="Session">{row.session_id}</td>
+      <td className="dim" data-label="Acquired">{formatStamp(row.acquired_at)}</td>
+      <td className="dim" data-label="Last heartbeat">{formatStamp(row.heartbeat_at)}</td>
+      <td className="ops-quiet" data-label="Quiet">{quietCell(parseStamp(row.heartbeat_at), now)}</td>
       <td className="ops-actions-cell">
         {confirming ? (
           <div className="ops-confirm">

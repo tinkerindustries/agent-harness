@@ -128,11 +128,11 @@ function EvalRow({ run, onOpen }: { run: EvalRunRow; onOpen: (id: string) => voi
       <td>
         <Badge variant={evalStatusVariant(run.status)}>{run.status.toUpperCase()}</Badge>
       </td>
-      <td>
+      <td data-label="Eval">
         <span className="eval-suite">{run.suite}</span>
         {run.note && <span className="eval-note">{run.note}</span>}
       </td>
-      <td>
+      <td data-label="Compared">
         <span className="eval-variants">
           {run.variants.map((v) => (
             <Badge key={v} variant="outline">
@@ -141,7 +141,7 @@ function EvalRow({ run, onOpen }: { run: EvalRunRow; onOpen: (id: string) => voi
           ))}
         </span>
       </td>
-      <td>
+      <td data-label="Runs">
         <span className="eval-runs">
           {run.finished}/{run.total}
           {run.failed > 0 && <span className="eval-failed"> · {run.failed} failed</span>}
@@ -152,9 +152,9 @@ function EvalRow({ run, onOpen }: { run: EvalRunRow; onOpen: (id: string) => voi
           </span>
         )}
       </td>
-      <td>${run.cost_usd.toFixed(run.cost_usd > 0 && run.cost_usd < 0.01 ? 4 : 2)}</td>
-      <td>{formatDuration(ended - started)}</td>
-      <td>
+      <td data-label="Cost">${run.cost_usd.toFixed(run.cost_usd > 0 && run.cost_usd < 0.01 ? 4 : 2)}</td>
+      <td data-label="Elapsed">{formatDuration(ended - started)}</td>
+      <td data-label="Headline">
         {run.headline ? (
           <span className={run.headline.significant ? "eval-headline is-significant" : "eval-headline"}>
             {metricLabel(run.headline.metric)} {formatDelta(run.headline.metric, run.headline.diff)}
