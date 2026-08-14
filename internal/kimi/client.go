@@ -1,17 +1,16 @@
 package kimi
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/providerhttp"
 	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
@@ -26,18 +25,12 @@ const DefaultBaseURL = "https://api.moonshot.ai/v1"
 // request by a provider, so a key stored in the database can change while
 // the client lives without rebuilding it. The HTTP shape — per-request key,
 // retries with backoff on transient statuses, the streaming idle watchdog —
-// follows internal/deepseek's client, which is the worked example for all of
-// it; what differs is the base URL, the request body (reasoning_effort, never
-// thinking), the usage split, and the auxiliary endpoints, all documented
-// against third_party/kimi-docs/.
+// lives in internal/providerhttp, shared with internal/deepseek; what stays
+// here is Kimi's own dialect: the base URL, the request body
+// (reasoning_effort, never thinking), the usage split, and the auxiliary
+// endpoints, all documented against third_party/kimi-docs/.
 type Client struct {
-	baseURL        string
-	apiKeyProvider func() (string, error)
-	httpClient     *http.Client
-	idleTimeout    time.Duration
-	maxRetries     int
-	retryBase      time.Duration
-	retryMax       time.Duration
+	transport *providerhttp.Transport
 }
 
 // ErrNoAPIKey is returned before a request is sent when the key provider
@@ -51,19 +44,19 @@ type ClientOption func(*Client)
 // WithIdleTimeout overrides the default idle watchdog duration used by
 // StreamChatCompletion.
 func WithIdleTimeout(d time.Duration) ClientOption {
-	return func(c *Client) { c.idleTimeout = d }
+	return func(c *Client) { c.transport.IdleTimeout = d }
 }
 
 // WithAPIKeyProvider replaces the key supplied at construction time with one
 // resolved per request. The provider is called before every request is sent;
 // an empty key returned from it fails the request locally with ErrNoAPIKey.
 func WithAPIKeyProvider(fn func() (string, error)) ClientOption {
-	return func(c *Client) { c.apiKeyProvider = fn }
+	return func(c *Client) { c.transport.APIKeyProvider = fn }
 }
 
 // WithHTTPClient overrides the default HTTP client, e.g. in tests.
 func WithHTTPClient(h *http.Client) ClientOption {
-	return func(c *Client) { c.httpClient = h }
+	return func(c *Client) { c.transport.HTTPClient = h }
 }
 
 // WithTransportWrapper wraps the client's existing transport, e.g. to
@@ -71,7 +64,7 @@ func WithHTTPClient(h *http.Client) ClientOption {
 // response header timeouts survive because the wrapper replaces the
 // Transport field, not the http.Client.
 func WithTransportWrapper(wrap func(http.RoundTripper) http.RoundTripper) ClientOption {
-	return func(c *Client) { c.httpClient.Transport = wrap(c.httpClient.Transport) }
+	return func(c *Client) { c.transport.HTTPClient.Transport = wrap(c.transport.HTTPClient.Transport) }
 }
 
 // NewClient builds a Client for baseURL using apiKey. The string is wrapped
@@ -84,104 +77,32 @@ func WithTransportWrapper(wrap func(http.RoundTripper) http.RoundTripper) Client
 // (docs/DESIGN.md §4.3).
 func NewClient(baseURL, apiKey string, opts ...ClientOption) *Client {
 	c := &Client{
-		baseURL: strings.TrimRight(baseURL, "/"),
-		apiKeyProvider: func() (string, error) {
-			return apiKey, nil
-		},
-		httpClient: &http.Client{
-			Transport: &http.Transport{
-				DialContext:           (&net.Dialer{Timeout: 15 * time.Second}).DialContext,
-				TLSHandshakeTimeout:   15 * time.Second,
-				ResponseHeaderTimeout: 30 * time.Second,
-				IdleConnTimeout:       90 * time.Second,
+		transport: &providerhttp.Transport{
+			BaseURL: strings.TrimRight(baseURL, "/"),
+			APIKeyProvider: func() (string, error) {
+				return apiKey, nil
 			},
+			HTTPClient: &http.Client{
+				Transport: &http.Transport{
+					DialContext:           (&net.Dialer{Timeout: 15 * time.Second}).DialContext,
+					TLSHandshakeTimeout:   15 * time.Second,
+					ResponseHeaderTimeout: 30 * time.Second,
+					IdleConnTimeout:       90 * time.Second,
+				},
+			},
+			IdleTimeout: 120 * time.Second,
+			MaxRetries:  4,
+			RetryBase:   500 * time.Millisecond,
+			RetryMax:    20 * time.Second,
+			Retryable:   isRetryableStatus,
+			NoAPIKey:    ErrNoAPIKey,
+			ErrPrefix:   "kimi",
 		},
-		idleTimeout: 120 * time.Second,
-		maxRetries:  4,
-		retryBase:   500 * time.Millisecond,
-		retryMax:    20 * time.Second,
 	}
 	for _, opt := range opts {
 		opt(c)
 	}
 	return c
-}
-
-func (c *Client) newRequest(ctx context.Context, method, path string, body []byte) (*http.Request, error) {
-	apiKey, err := c.apiKeyProvider()
-	if err != nil {
-		return nil, fmt.Errorf("kimi: resolve api key: %w", err)
-	}
-	if apiKey == "" {
-		return nil, ErrNoAPIKey
-	}
-	var bodyReader io.Reader
-	if body != nil {
-		bodyReader = bytes.NewReader(body)
-	}
-	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, bodyReader)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Accept", "application/json")
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-	return req, nil
-}
-
-// do sends one request, retrying on transient status codes and network
-// errors with backoff. It returns the response as-is on a non-retryable
-// status so callers can decode the error body; the caller owns closing
-// resp.Body in every non-error return.
-func (c *Client) do(ctx context.Context, method, path string, body []byte) (*http.Response, error) {
-	for attempt := 0; ; attempt++ {
-		req, err := c.newRequest(ctx, method, path, body)
-		if err != nil {
-			return nil, err
-		}
-		resp, err := c.httpClient.Do(req)
-		if err != nil {
-			if attempt >= c.maxRetries || ctx.Err() != nil {
-				return nil, err
-			}
-			if !sleepBackoff(ctx, c.retryBase, c.retryMax, attempt) {
-				return nil, ctx.Err()
-			}
-			continue
-		}
-		if resp.StatusCode == http.StatusOK || !isRetryableStatus(resp.StatusCode) || attempt >= c.maxRetries {
-			return resp, nil
-		}
-		io.Copy(io.Discard, resp.Body)
-		resp.Body.Close()
-		if !sleepBackoff(ctx, c.retryBase, c.retryMax, attempt) {
-			return nil, ctx.Err()
-		}
-	}
-}
-
-func sleepBackoff(ctx context.Context, base, max time.Duration, attempt int) bool {
-	t := time.NewTimer(backoffDelay(attempt, base, max))
-	defer t.Stop()
-	select {
-	case <-t.C:
-		return true
-	case <-ctx.Done():
-		return false
-	}
-}
-
-// wrapClientError adds operation context to err, except for ErrNoAPIKey:
-// that one surfaces verbatim, so the operator sees the fix — "no Kimi API
-// key configured; set one with: harness config set kimi.api_key <key>" —
-// without a transport prefix in front of it.
-func wrapClientError(op string, err error) error {
-	if errors.Is(err, ErrNoAPIKey) {
-		return err
-	}
-	return fmt.Errorf("kimi: %s: %w", op, err)
 }
 
 // CreateChatCompletion sends one non-streaming completion expressing the
@@ -194,9 +115,9 @@ func (c *Client) CreateChatCompletion(ctx context.Context, intent wire.ChatInten
 		return nil, fmt.Errorf("kimi: encode request: %w", err)
 	}
 
-	resp, err := c.do(ctx, http.MethodPost, "/chat/completions", body)
+	resp, err := c.transport.Do(ctx, http.MethodPost, "/chat/completions", body)
 	if err != nil {
-		return nil, wrapClientError("chat completion request", err)
+		return nil, c.transport.WrapError("chat completion request", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, parseAPIError(resp)
@@ -236,9 +157,9 @@ func (c *Client) CacheSlack() int { return 512 }
 
 // ListModels calls GET /models.
 func (c *Client) ListModels(ctx context.Context) (*ModelsResponse, error) {
-	resp, err := c.do(ctx, http.MethodGet, "/models", nil)
+	resp, err := c.transport.Do(ctx, http.MethodGet, "/models", nil)
 	if err != nil {
-		return nil, wrapClientError("list models", err)
+		return nil, c.transport.WrapError("list models", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, parseAPIError(resp)
@@ -254,9 +175,9 @@ func (c *Client) ListModels(ctx context.Context) (*ModelsResponse, error) {
 
 // GetBalance calls GET /users/me/balance.
 func (c *Client) GetBalance(ctx context.Context) (*BalanceResponse, error) {
-	resp, err := c.do(ctx, http.MethodGet, "/users/me/balance", nil)
+	resp, err := c.transport.Do(ctx, http.MethodGet, "/users/me/balance", nil)
 	if err != nil {
-		return nil, wrapClientError("get balance", err)
+		return nil, c.transport.WrapError("get balance", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, parseAPIError(resp)

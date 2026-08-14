@@ -23,17 +23,30 @@ Composition happens here and nowhere else; no `internal` package constructs
 another's dependencies.
 
 ### `internal/deepseek`
-The DeepSeek API client: base URL, per-request API key, the non-streaming and
-streaming completions calls, the auxiliary endpoints (`/models`,
-`/user/balance`), the error body, retry classification, and the narrow
-repairs for the quirks recorded in docs/OBSERVED.md (the misplaced brace in
-large arguments objects, and reasoning starvation under a small max_tokens
-budget). Implements the narrow `Client` seam `internal/session` declares
-(docs/KIMI-INTEGRATION.md §4.1): it turns the loop's `wire.ChatIntent` into
-DeepSeek's request shape — `thinking: {type}` and `reasoning_effort` — maps
-usage onto cache-hit and cache-miss counts, and owns the two response
-quirks. Speaks the shared vocabulary of `internal/wire`; knows nothing of
-sessions, tools, or storage. Depends on: `internal/wire`. §4.3, §4.4.
+The DeepSeek API client: the request body it builds from a `wire.ChatIntent`,
+the auxiliary endpoints (`/models`, `/user/balance`), the error body, retry
+classification, and the narrow repairs for the quirks recorded in
+docs/OBSERVED.md (the misplaced brace in large arguments objects, and
+reasoning starvation under a small max_tokens budget). Implements the narrow
+`Client` seam `internal/session` declares (docs/KIMI-INTEGRATION.md §4.1): it
+turns the loop's `wire.ChatIntent` into DeepSeek's request shape —
+`thinking: {type}` and `reasoning_effort` — maps usage onto cache-hit and
+cache-miss counts, and owns the two response quirks. The HTTP transport
+underneath — base URL, per-request key, retry-with-backoff, the SSE pump and
+its idle watchdog — is `internal/providerhttp`, shared with `internal/kimi`;
+what stays here is DeepSeek's own dialect. Knows nothing of sessions, tools,
+or storage. Depends on: `internal/wire`, `internal/providerhttp`. §4.3, §4.4.
+
+### `internal/providerhttp`
+The HTTP transport `internal/deepseek` and `internal/kimi` share: a request
+retried with backoff on a provider-supplied set of transient status codes,
+and a streaming response pumped as SSE frames into `wire.Event`s behind an
+idle watchdog. Carries no provider dialect — no request shape, no usage
+mapping, no error-body parsing, no quirk repairs — so each provider keeps its
+own `Client` type satisfying the narrow `session.Client` seam independently;
+this package only removes the near-verbatim duplication two full client
+implementations used to carry (docs/KIMI-INTEGRATION.md §4.1). Depends on:
+`internal/wire`.
 
 ### `internal/wire`
 The provider-neutral wire vocabulary every request path speaks: the message

@@ -33,23 +33,6 @@ func TestIsRetryableStatus(t *testing.T) {
 	}
 }
 
-func TestBackoffDelayBounds(t *testing.T) {
-	base := 500 * time.Millisecond
-	max := 20 * time.Second
-
-	for attempt := 0; attempt < 20; attempt++ {
-		for i := 0; i < 50; i++ {
-			d := backoffDelay(attempt, base, max)
-			if d < 0 {
-				t.Fatalf("backoffDelay(%d) = %v, want >= 0", attempt, d)
-			}
-			if d > max {
-				t.Fatalf("backoffDelay(%d) = %v, want <= max %v", attempt, d, max)
-			}
-		}
-	}
-}
-
 // TestParseAPIErrorKimiEnvelope parses the documented error body
 // (third_party/kimi-docs/api/errors.md): {"error": {"type": ..., "message":
 // ...}}, with the optional code field, into an *APIError.
@@ -94,8 +77,8 @@ func TestRetriesTransientStatusThenSucceeds(t *testing.T) {
 
 	// The real backoff would make this test wait; shrink the schedule.
 	c := NewClient(srv.URL, "test-key", WithHTTPClient(&http.Client{}))
-	c.retryBase = time.Millisecond
-	c.retryMax = 5 * time.Millisecond
+	c.transport.RetryBase = time.Millisecond
+	c.transport.RetryMax = 5 * time.Millisecond
 
 	if _, err := c.ListModels(context.Background()); err != nil {
 		t.Fatalf("ListModels after transient statuses: %v", err)
@@ -117,8 +100,8 @@ func TestDoesNotRetryPermanentStatus(t *testing.T) {
 			fmt.Fprintln(w, `{"error":{"type":"invalid_request_error","message":"nope"}}`)
 		}))
 		c := NewClient(srv.URL, "test-key", WithHTTPClient(&http.Client{}))
-		c.retryBase = time.Millisecond
-		c.retryMax = 5 * time.Millisecond
+		c.transport.RetryBase = time.Millisecond
+		c.transport.RetryMax = 5 * time.Millisecond
 		_, err := c.ListModels(context.Background())
 		if err == nil {
 			t.Fatalf("status %d: expected an error, got nil", status)
