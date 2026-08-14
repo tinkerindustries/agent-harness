@@ -100,3 +100,56 @@ func (s *Store) DeleteWorkspaceLease(ctx context.Context, workspace string, want
 		return err
 	})
 }
+
+// AcquireWorkspaceLease claims workspace for sessionID. It fails fast with
+// ErrWorkspaceLeased if another session already holds it; no caller waits
+// (docs/DESIGN.md §4.5).
+func (s *Store) AcquireWorkspaceLease(ctx context.Context, workspace, sessionID string) error {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	return s.submit(ctx, func(tx *sql.Tx) error {
+		var holder string
+		err := tx.QueryRow(`SELECT session_id FROM workspace_leases WHERE workspace = ?`, workspace).Scan(&holder)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			_, err := tx.Exec(`INSERT INTO workspace_leases (workspace, session_id, acquired_at, heartbeat_at, version) VALUES (?, ?, ?, ?, 1)`,
+				workspace, sessionID, now, now)
+			return err
+		case err != nil:
+			return err
+		case holder == sessionID:
+			return nil
+		default:
+			return ErrWorkspaceLeased
+		}
+	})
+}
+
+// ReleaseWorkspaceLease drops the lease if sessionID holds it. Releasing an
+// unheld or differently-held lease is not an error.
+func (s *Store) ReleaseWorkspaceLease(ctx context.Context, workspace, sessionID string) error {
+	return s.submit(ctx, func(tx *sql.Tx) error {
+		_, err := tx.Exec(`DELETE FROM workspace_leases WHERE workspace = ? AND session_id = ?`, workspace, sessionID)
+		return err
+	})
+}
+
+// AcquireWorkspaceLeaseWait retries AcquireWorkspaceLease on pollInterval
+// until it succeeds or ctx is done, which is what makes wait-or-fail a
+// per-request choice (docs/DESIGN.md §4.5): the caller bounds ctx by the
+// request's own deadline, so a request with little time left effectively
+// fails fast and one with a long deadline effectively waits.
+func (s *Store) AcquireWorkspaceLeaseWait(ctx context.Context, workspace, sessionID string, pollInterval time.Duration) error {
+	for {
+		err := s.AcquireWorkspaceLease(ctx, workspace, sessionID)
+		if err == nil || !errors.Is(err, ErrWorkspaceLeased) {
+			return err
+		}
+		t := time.NewTimer(pollInterval)
+		select {
+		case <-t.C:
+		case <-ctx.Done():
+			t.Stop()
+			return ctx.Err()
+		}
+	}
+}

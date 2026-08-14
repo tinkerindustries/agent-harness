@@ -124,7 +124,12 @@ read through `internal/settings`. Owns the session status vocabulary:
 `StatusRunning`, `StatusCreating` (the window while a queue-driven run's
 workspace is being prepared), the terminal statuses, and `IsLive` — every
 branch and SQL predicate that means "this session is live" builds off it,
-never a string literal. Depends on: nothing internal. §4.8.
+never a string literal. Split by concern, `store.go`'s own package doc names
+which file holds which: the `Store` type and the single-writer loop stay in
+`store.go`; `errors.go` is the error vocabulary; `schema.go` the SQL schema
+and column migration; `sessions.go` the status vocabulary and session CRUD;
+`events.go` the event payload types and the append-only log's queries;
+`leases.go` workspace leases. Depends on: nothing internal. §4.8.
 
 ### `internal/hub`
 In-process SSE fan-out: per-session transcript subscribers and a quieter
