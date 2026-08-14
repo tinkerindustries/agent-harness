@@ -90,6 +90,61 @@ export function useArrivals(
   return (key) => base !== null && !base.has(key);
 }
 
+// useHeldFrames answers whether `on` has been true for two animation frames
+// running. It exists as the fallback half of the session list's "did this
+// happen while I was watching" gate (useSettledFlip below): that gate settles
+// when the list's snapshot arrives, but an empty harness has no snapshot to
+// wait for, and its very first run is exactly the arrival the gate exists to
+// catch — so the connection being open, and staying open, stands in for it.
+//
+// Two frames rather than one because the store coalesces the stream's connect
+// burst into a single requestAnimationFrame flush (api/sessionListStore.ts)
+// while the connection opening notifies straight away: one frame could easily
+// land between the two, and settle on an empty list that was about to have
+// rows in it.
+export function useHeldFrames(on: boolean): boolean {
+  const [held, setHeld] = useState(false);
+  useEffect(() => {
+    if (!on) {
+      setHeld(false);
+      return;
+    }
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setHeld(true));
+    });
+    return () => {
+      cancelAnimationFrame(outer);
+      cancelAnimationFrame(inner);
+    };
+  }, [on]);
+  return held;
+}
+
+// useSettledFlip is useLabelFlip's shape for a fact that is false on the way
+// in: it answers whether `value` has changed at least once since the caller's
+// baseline, where the baseline is whatever `value` was on the first settled
+// render. A page that loads with a session already running must not play the
+// gesture that says one just started, and must not animate the stat strip
+// down to its compact size on the way in — it was already that size, as far
+// as this page load is concerned.
+//
+// The caller says when the baseline is trustworthy, the way useArrivals's
+// `settled` does and for the same reason: these lists are empty on mount and
+// fill in over SSE, so "the first render" is always false and would make
+// every page load an onset.
+export function useSettledFlip(value: boolean, settled: boolean): boolean {
+  const baseline = useRef<boolean | null>(null);
+  const flipped = useRef(false);
+  if (baseline.current === null) {
+    if (settled) baseline.current = value;
+  } else if (value !== baseline.current) {
+    baseline.current = value;
+    flipped.current = true;
+  }
+  return flipped.current;
+}
+
 // useQueueHealth polls GET /api/queue on an interval. A plain poll rather
 // than the external-store/SSE shape the rest of this app uses: queue health
 // changes at human timescales (a redelivery, a halt), not token rate, so

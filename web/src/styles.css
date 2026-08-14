@@ -581,6 +581,27 @@ html {
   }
 }
 
+/* A whole section arriving on a page that was already settled — the session
+   list's In flight section, when the first run of the moment starts. It is
+   the one gesture here that carries a section rather than a row, so it
+   travels further than row-in and comes out of focus the way streamed text
+   does: the strip above it is shrinking to its compact size over the same
+   duration, and a section that only faded would read as a reflow rather than
+   as an arrival. Height is still not animated — the section takes its space
+   at once and the content settles into it. */
+@keyframes section-in {
+  from {
+    opacity: 0;
+    transform: translateY(-14px) scale(0.97);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: none;
+  }
+}
+
 .dot-pulse {
   animation: pulse var(--pulse-period) ease-in-out infinite;
 }
@@ -602,6 +623,9 @@ html {
 .anim-row-in {
   animation: row-in var(--dur-turn) var(--ease-out) both;
 }
+.anim-section-in {
+  animation: section-in var(--dur-reveal) var(--ease-out) both;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .dot-pulse,
@@ -610,7 +634,8 @@ html {
   .anim-roll-in,
   .anim-roll-out,
   .anim-mark-done,
-  .anim-row-in {
+  .anim-row-in,
+  .anim-section-in {
     animation: none;
   }
   /* The outgoing character is only invisible because roll-out ends at opacity
@@ -1360,6 +1385,78 @@ pre {
   letter-spacing: 0;
   color: var(--muted-foreground);
   margin-top: 1px;
+}
+
+/* ---------- the stat strip, compact ----------
+   The strip is the page's hero while nothing is running, and gets out of the
+   way the moment something is: the four cards keep every figure and lose
+   roughly half their height, so the In flight section arriving below them
+   lands near the top of the page instead of below a full-size hero.
+   .stats-compact is the size; .stats-anim is whether it was reached while
+   somebody was watching (SessionListScreen's StatStrip) — a page that loads
+   with a run already going gets the compact size with no transition, because
+   nothing changed.
+
+   Only type and box metrics move. The column count deliberately does not,
+   here or on the phone layout below: a grid track count cannot be
+   interpolated, so it would snap the strip's height at the first frame and
+   turn the one gesture the section and the strip share into a jump. */
+.stats-compact {
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.stats-compact .stat {
+  padding: 4px 10px;
+}
+
+.stats-compact .stat .label {
+  font-size: 0.625rem;
+  line-height: 1.3;
+}
+
+.stats-compact .stat .value {
+  font-size: 0.875rem;
+  line-height: 1.3;
+  margin-top: 0;
+}
+
+.stats-compact .stat .value small {
+  font-size: 0.625rem;
+  line-height: 1.3;
+}
+
+/* The transition rides the same duration and curve as the section arriving
+   below, so the two read as one gesture. font-size is the thing actually
+   being animated on three of these — twelve short strings reflowing, not a
+   layout pass over the list. */
+.stats-anim {
+  transition:
+    gap var(--dur-reveal) var(--ease-out),
+    margin-bottom var(--dur-reveal) var(--ease-out);
+}
+
+.stats-anim .stat {
+  transition: padding var(--dur-reveal) var(--ease-out);
+}
+
+.stats-anim .stat .label,
+.stats-anim .stat .value,
+.stats-anim .stat .value small {
+  transition:
+    font-size var(--dur-reveal) var(--ease-out),
+    line-height var(--dur-reveal) var(--ease-out),
+    margin-top var(--dur-reveal) var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stats-anim,
+  .stats-anim .stat,
+  .stats-anim .stat .label,
+  .stats-anim .stat .value,
+  .stats-anim .stat .value small {
+    transition: none;
+  }
 }
 
 .connection-badge {
