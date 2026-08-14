@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/redact"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
@@ -48,16 +49,6 @@ func openConfigResolver() (*settings.Resolver, *store.Store, error) {
 	return settings.NewResolver(st), st, nil
 }
 
-// maskSecret masks value so at most its last 4 characters are visible. A
-// value of 4 characters or fewer reveals none of itself — the guarantee is
-// that no stored secret ever appears in full outside `get -reveal`.
-func maskSecret(value string) string {
-	if len(value) <= 4 {
-		return strings.Repeat("*", len(value))
-	}
-	return strings.Repeat("*", len(value)-4) + value[len(value)-4:]
-}
-
 func runConfigList(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("config list", flag.ContinueOnError)
 	if err := fs.Parse(args); err != nil {
@@ -83,7 +74,7 @@ func runConfigList(ctx context.Context, args []string) error {
 		display := value
 		if ok {
 			if settings.IsSecretKey(d.Key) {
-				display = maskSecret(value)
+				display = redact.Secret(value)
 			}
 			if value != d.Default {
 				marker = "(override)"
@@ -136,7 +127,7 @@ func runConfigGet(ctx context.Context, args []string) error {
 	if *reveal || !settings.IsSecretKey(key) {
 		fmt.Printf("%s = %s\n", key, value)
 	} else {
-		fmt.Printf("%s = %s\n", key, maskSecret(value))
+		fmt.Printf("%s = %s\n", key, redact.Secret(value))
 	}
 	return nil
 }

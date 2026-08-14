@@ -27,13 +27,16 @@
 // authentication, which docs/RUN-CONTROL.md names as the open question.
 package redact
 
-import "regexp"
+import (
+	"regexp"
+	"strings"
+)
 
 // Placeholder replaces every match. It carries no tail of the original
-// value: harness config's maskSecret shows the last four characters so an
-// operator can tell two configured keys apart, which is a different job
-// from this one — nobody needs to identify the token in a transcript, and
-// four characters of a live credential is four more than the reader needs.
+// value: Secret shows the last four characters so an operator can tell two
+// configured keys apart, which is a different job from this one — nobody
+// needs to identify the token in a transcript, and four characters of a
+// live credential is four more than the reader needs.
 const Placeholder = "[redacted]"
 
 // patterns are credential shapes whose prefix makes them unmistakable. Each
@@ -74,4 +77,19 @@ func Bytes(b []byte) []byte {
 		return b
 	}
 	return patterns.ReplaceAllLiteral(b, []byte(Placeholder))
+}
+
+// Secret masks a stored setting value so at most its last 4 characters are
+// visible — the display shape for a secret-shaped setting (per
+// settings.IsSecretKey), used identically by `harness config list`/`get`
+// (cmd/harness/config.go) and the settings HTTP endpoint
+// (internal/httpapi/server.go), so an operator sees the same mask from
+// either surface. A value of 4 characters or fewer reveals none of itself.
+// The guarantee this exists for: no stored secret ever appears in full
+// outside `harness config get -reveal`.
+func Secret(value string) string {
+	if len(value) <= 4 {
+		return strings.Repeat("*", len(value))
+	}
+	return strings.Repeat("*", len(value)-4) + value[len(value)-4:]
 }

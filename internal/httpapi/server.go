@@ -1571,7 +1571,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 		if ok {
 			entry.Value = value
 			if d.Secret {
-				entry.Value = maskSecret(value)
+				entry.Value = redact.Secret(value)
 			}
 		}
 		entries = append(entries, entry)
@@ -1704,18 +1704,6 @@ func checkOrigin(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	return true
-}
-
-// maskSecret masks value so at most its last 4 characters are visible, the
-// exact mask the CLI's harness config list applies to secrets
-// (cmd/harness/config.go). A value of 4 characters or fewer reveals none of
-// itself — the guarantee is that no stored secret ever appears in full over
-// HTTP.
-func maskSecret(value string) string {
-	if len(value) <= 4 {
-		return strings.Repeat("*", len(value))
-	}
-	return strings.Repeat("*", len(value)-4) + value[len(value)-4:]
 }
 
 type eventsPage struct {
