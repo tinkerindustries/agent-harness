@@ -175,8 +175,12 @@ func execGlance(ctx context.Context, e *Executor, argsRaw json.RawMessage) Resul
 	var err error
 	if args.Region != "" {
 		var img gemini.Image
-		img, _, err = loadCroppedVisionImage(ctx, e, args.ImagePaths[0], args.Region)
+		var note string
+		img, _, note, err = loadCroppedVisionImage(ctx, e, args.ImagePaths[0], args.Region)
 		images = []gemini.Image{img}
+		if note != "" {
+			notes = append(notes, note)
+		}
 	} else {
 		images, notes, err = loadVisionImages(ctx, e, args.ImagePaths)
 	}
@@ -295,20 +299,26 @@ func runLocate(ctx context.Context, e *Executor, tool, userPath, target, region 
 	// scaling — a downscale between here and the wire changes nothing.
 	sentW, sentH := width, height
 	var offset [2]int
+	var notes []string
 	if region != "" {
 		var box [4]int
-		img, box, err = loadCroppedVisionImage(ctx, e, userPath, region)
+		var note string
+		img, box, note, err = loadCroppedVisionImage(ctx, e, userPath, region)
 		if err != nil {
 			return errorResult("%v", err)
 		}
 		sentW, sentH = box[2]-box[0], box[3]-box[1]
 		offset = [2]int{box[0], box[1]}
+		if note != "" {
+			notes = append(notes, note)
+		}
 	} else {
-		images, _, loadErr := loadVisionImages(ctx, e, []string{userPath})
+		images, downscaled, loadErr := loadVisionImages(ctx, e, []string{userPath})
 		if loadErr != nil {
 			return errorResult("%v", loadErr)
 		}
 		img = images[0]
+		notes = downscaled
 	}
 	if e.Gemini == nil {
 		return errorResult("%s is not available in this context: no Gemini client configured", tool)
@@ -345,7 +355,18 @@ func runLocate(ctx context.Context, e *Executor, tool, userPath, target, region 
 	} else {
 		lines = formatMatches(matches, width, height)
 	}
-	out, truncated := truncate(strings.Join(lines, "\n"), e.outputCap(ctx))
+	// The downscale note matters more here than it does for Glance, not less.
+	// The boxes are still in the original image's pixels — the grid is
+	// normalised, so the arithmetic survives a downscale untouched — but the
+	// model's ability to SEE a small target does not, and a locate that
+	// returns nothing on a shrunk capture reads identically to one that
+	// returned nothing because the target is absent. Ahead of the boxes, so
+	// an empty answer arrives with the reason it might be empty.
+	body := strings.Join(lines, "\n")
+	if len(notes) > 0 {
+		body = strings.Join(notes, "\n") + "\n\n" + body
+	}
+	out, truncated := truncate(body, e.outputCap(ctx))
 	return visionResult(e, out, truncated, usage, sentAt)
 }
 
@@ -783,30 +804,36 @@ func decodeVisionImage(path string) (image.Image, string, error) {
 // send, with the box it cut in the original image's coordinates. Upstream
 // sends the crop and nothing else, which is the point: a small control fills
 // the frame instead of being a few pixels of a page.
-func loadCroppedVisionImage(ctx context.Context, e *Executor, userPath, region string) (gemini.Image, [4]int, error) {
+// The third return value is the downscale note, empty when the crop fitted
+// the byte cap as cut — the same note loadVisionImages produces, for the same
+// reason: the caller has to be able to tell the model that what the vision
+// model saw held less detail than the file does.
+func loadCroppedVisionImage(ctx context.Context, e *Executor, userPath, region string) (gemini.Image, [4]int, string, error) {
 	path, err := resolveImagePath(e.Workspace, userPath)
 	if err != nil {
-		return gemini.Image{}, [4]int{}, err
+		return gemini.Image{}, [4]int{}, "", err
 	}
 	src, mimeType, err := decodeVisionImage(path)
 	if err != nil {
-		return gemini.Image{}, [4]int{}, err
+		return gemini.Image{}, [4]int{}, "", err
 	}
 	bounds := src.Bounds()
 	box, err := parseRegion(region, bounds.Dx(), bounds.Dy())
 	if err != nil {
-		return gemini.Image{}, [4]int{}, err
+		return gemini.Image{}, [4]int{}, "", err
 	}
 	encoded, encodedMIME, err := encodeScreenshot(cropAndScale(src, box, 1), mimeType)
 	if err != nil {
-		return gemini.Image{}, [4]int{}, fmt.Errorf("encode the crop of %s: %v", userPath, err)
+		return gemini.Image{}, [4]int{}, "", fmt.Errorf("encode the crop of %s: %v", userPath, err)
 	}
+	var note string
 	maxBytes := int64(e.visionMaxBytes(ctx))
 	if int64(len(encoded)) > maxBytes {
-		shrunk, shrunkMIME, _, _, err := downscaleImage(encoded, encodedMIME, maxBytes)
+		shrunk, shrunkMIME, w, h, err := downscaleImage(encoded, encodedMIME, maxBytes)
 		if err != nil {
-			return gemini.Image{}, [4]int{}, fmt.Errorf("the crop of %s is %d bytes, over the %d-byte per-file limit, and could not be downscaled: %v", userPath, len(encoded), maxBytes, err)
+			return gemini.Image{}, [4]int{}, "", fmt.Errorf("the crop of %s is %d bytes, over the %d-byte per-file limit, and could not be downscaled: %v", userPath, len(encoded), maxBytes, err)
 		}
+		note = fmt.Sprintf("the %s crop of %s was downscaled to %dx%d to fit the %d-byte per-file limit", region, userPath, w, h, maxBytes)
 		encoded, encodedMIME = shrunk, shrunkMIME
 	}
 	return gemini.Image{
@@ -814,7 +841,7 @@ func loadCroppedVisionImage(ctx context.Context, e *Executor, userPath, region s
 		MIMEType:   encodedMIME,
 		Resolution: gemini.ResolutionHigh,
 		Label:      filepath.Base(path),
-	}, box, nil
+	}, box, note, nil
 }
 
 // loadVisionImages reads and validates the image files paths names. The first

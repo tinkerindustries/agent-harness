@@ -17,7 +17,7 @@ docs present as mandatory and which measurement shows is not.
 ## 1. Scope
 
 Concurrent agent sessions in one process, NATS JetStream ingress and result
-publication, the sixteen tools in [TOOLS.md](TOOLS.md), a declarative
+publication, the nineteen tools in [TOOLS.md](TOOLS.md), a declarative
 per-request permission policy, flash-backed subagents via `Task`, an
 append-only event log in SQLite mirrored to disk for review, cost and cache
 accounting, a browser transcript with a live plan panel driven by the plan
@@ -71,10 +71,11 @@ not fire on the native endpoint either (§3.1), so the advantage is moot.
 Input to DeepSeek is text only. Both models declare `input_modalities: ["text"]`, the
 Anthropic table marks image and document blocks unsupported, and the Responses
 API replaces image parts with placeholder text. No screenshots reach DeepSeek,
-no image paste, no visual diffing inside the loop. Vision is a tool instead:
-`ReviewScreenshot` sends the agent's screenshots to Google Gemini and returns
-the findings, so a screenshot the agent captures itself can still be reviewed
-([TOOLS.md](TOOLS.md)).
+no image paste, no visual diffing inside the loop. Vision is a set of tools
+instead: `Screenshot` captures a page, and `Glance`, `Ground`, `Detect`, and
+`Crop` send images to Google Gemini and return a prose answer, a located pixel
+box, or a local crop, so a screenshot the agent captures itself can still be
+looked at ([TOOLS.md](TOOLS.md)).
 
 ## 3. The rules that shape everything
 
@@ -127,8 +128,8 @@ Rules that follow:
   every session running against a given model. No clock, no cwd, no git status,
   no changed-file list, and nothing drawn from a work request.
 - Tool definitions are fixed for the life of a session and serialised in a
-  stable order. The array is per-provider — DeepSeek's sixteen tools, Kimi
-  K3's fourteen without the two vision tools (docs/KIMI-INTEGRATION.md
+  stable order. The array is per-provider — DeepSeek's nineteen tools, Kimi
+  K3's fourteen without the five vision tools (docs/KIMI-INTEGRATION.md
   decision 5) — so there are two frozen heads, each shared by every session on
   its provider and each pinned by its own golden file. A session's head is
   chosen at creation from its model and never changes for the session's life.
@@ -156,7 +157,7 @@ Two rules follow that are not obvious from the invariant alone. The session
 freezes its rendered system prompt and tool schema at creation, so upgrading the
 harness cannot change the prefix of a resumable session. And permission modes
 gate execution rather than tool availability, so the tool array never varies
-within a provider — the per-provider split (DeepSeek's sixteen tools, Kimi's
+within a provider — the per-provider split (DeepSeek's nineteen tools, Kimi's
 fourteen) is chosen once at session creation and is part of the frozen head,
 not a per-request variation.
 
@@ -432,9 +433,9 @@ every one of them will hit the same wall.
 Specified in [TOOLS.md](TOOLS.md). The set is `Read`, `Write`, `Edit`, `Bash`,
 `Glob`, `Grep`, `List`, `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`,
 `Task`, and `WebFetch` — the vocabulary of the harnesses DeepSeek names as its
-V4 agent optimisation targets — plus `Complete`, which is ours, and
-`ReviewScreenshot`, which sends screenshots to Gemini because DeepSeek cannot
-see images.
+V4 agent optimisation targets — plus `Complete`, which is ours, and the vision
+path — `Screenshot`, `Glance`, `Ground`, `Detect`, and `Crop` — because
+DeepSeek cannot see images.
 
 Four points from that document bear on the rest of this design:
 
@@ -824,7 +825,7 @@ opening user message ahead of the task. The model reads a skill's body with
 
 Three consequences follow from §3.2. The catalogue goes in the opening message,
 never the system prompt, so a repository's skills cannot disturb the cached
-head. No `Skill` tool exists, because a sixteenth tool definition would enlarge
+head. No `Skill` tool exists, because a twentieth tool definition would enlarge
 that head for every session to duplicate what `Read` already does. An empty
 catalogue renders to nothing, leaving the opening message byte-identical to a
 run with no skills.
