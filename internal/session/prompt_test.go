@@ -77,6 +77,54 @@ func TestPromptNamesExactlyTheToolArray(t *testing.T) {
 	}
 }
 
+// TestToolOrderExactlyMatchesTheToolArray pins toolOrder — the order the
+// head lists tools in its inventory — to the tool array's membership: the
+// same names, each exactly once. TestPromptNamesExactlyTheToolArray cannot
+// catch a drift between the two, because it sorts both sides before
+// comparing and compares a *rendered* inventory: a name added to toolOrder
+// alone is skipped by toolNamesInOrder (it is in no array, so it never
+// renders) and a name dropped from the array alone never renders either,
+// so the rendered inventory can agree with the array while the two sources
+// of truth disagree. The head's order stays toolOrder's — the frozen
+// historical order, which is deliberately not the array's own order
+// (prompt.go) — but the membership must agree outright, and a tool added
+// to one and not the other must fail here the moment it happens.
+func TestToolOrderExactlyMatchesTheToolArray(t *testing.T) {
+	array := tools.Definitions()
+	names := make([]string, 0, len(array))
+	for _, tool := range array {
+		names = append(names, tool.Function.Name)
+	}
+	// Same length, and the same names with the same multiplicities — sorted
+	// copies, so the comparison is about membership, not order.
+	sortedOrder := append([]string(nil), toolOrder...)
+	sort.Strings(sortedOrder)
+	sortedArray := append([]string(nil), names...)
+	sort.Strings(sortedArray)
+	if !reflect.DeepEqual(sortedOrder, sortedArray) {
+		t.Fatalf("toolOrder names %v, want exactly the tool array's names %v",
+			sortedOrder, sortedArray)
+	}
+	// Each name exactly once on each side: a duplicate in toolOrder (or in
+	// the array) would survive the sorted comparison only if mirrored on the
+	// other side, which is exactly the kind of drift this test exists to
+	// catch.
+	for _, side := range []struct {
+		what  string
+		names []string
+	}{{"toolOrder", toolOrder}, {"the tool array", names}} {
+		seen := map[string]int{}
+		for _, name := range side.names {
+			seen[name]++
+		}
+		for name, n := range seen {
+			if n != 1 {
+				t.Errorf("%s carries %q %d times, want exactly once", side.what, name, n)
+			}
+		}
+	}
+}
+
 // inventoryFromPrompt extracts the names the prompt's "Tools:" paragraph
 // lists, in the order written, and the availability count word that follows
 // it. The paragraph's shape is part of the frozen prompt: "Tools: A, B, C.\n
