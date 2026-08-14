@@ -2,6 +2,7 @@ import { memo, useMemo } from "react";
 import type { LiveView } from "../api/fold";
 import type { SubTurnGroup, TranscriptItem } from "../api/groups";
 import type { SessionState, Todo, ToolCallPayload } from "../api/types";
+import { isLive } from "../api/status";
 import { cachePercent } from "./turns/turnHelpers";
 import { formatCost, toolDetail } from "./blocks/toolArgs";
 import { cn } from "@/lib/utils";
@@ -40,7 +41,7 @@ export function WatchRail({
   // on primitives only (the live turn's number, not the live view object),
   // so the token-rate hot path — a live-only delta that leaves items
   // reference-identical — bails out instead of rebuilding the phases.
-  const runLive = meta.status === "running";
+  const runLive = isLive(meta.status);
   const liveSubTurn = live.turn?.subTurn ?? null;
   const view = useMemo(
     () => buildWatchPhases(items, liveSubTurn, todos, runLive, getToolCall),

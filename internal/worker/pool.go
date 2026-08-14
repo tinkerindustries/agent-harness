@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"path/filepath"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
@@ -29,7 +30,14 @@ import (
 // Runner runs one session to a terminal result. *session.Runner implements
 // it; the interface exists so the pool's tests can drive a run that ignores
 // its context entirely — a genuinely wedged run — without calling an API.
+// Create and FailSetup are the preparation window's two bookends: Create
+// inserts the session row as "creating" before the workspace is built, so a
+// run is visible and stoppable from the moment it is claimed, and FailSetup
+// moves that row to "failed" when preparation fails instead of leaving it
+// stuck.
 type Runner interface {
+	Create(ctx context.Context, opts session.RunOptions) error
+	FailSetup(ctx context.Context, sessionID string, cause error) error
 	Run(ctx context.Context, opts session.RunOptions) (*session.RunResult, error)
 }
 
@@ -618,36 +626,6 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, releaseSlot func()) {
 	}
 	p.publishAccepted(req.RequestID, sessionID, started)
 
-	// Each attempt clones into a directory of its own, named for its session
-	// id, so a redelivery never inherits the half-finished tree of an
-	// attempt that died before its session existed. The request's attachments
-	// are fetched from the store first — the request carries only ids, the
-	// bytes live in the database (docs/DATA-API.md) — and materialised into
-	// scratch/attachments/ by Prepare; the names ride to the opening message
-	// so the model knows the files exist.
-	attachments, attachmentNames, err := p.loadAttachments(runCtx, req.AttachmentIDs)
-	if err != nil {
-		if !rec.answer() {
-			log.Printf("worker: %s: message for session %s already answered; dropping the setup failure", req.RequestID, sessionID)
-			return
-		}
-		result := setupFailedResult(req.RequestID, sessionID, started, err)
-		p.finish(msg, req.RequestID, sessionID, result, false)
-		return
-	}
-	ws, err := p.prepareWorkspace()(runCtx, p.WorkspaceRoot, sessionID, req.Repos, attachments)
-	if err != nil {
-		if !rec.answer() {
-			// A stop force-finished this run while preparation was wedged;
-			// the cancelled result is already on the stream.
-			log.Printf("worker: %s: message for session %s already answered; dropping the setup failure", req.RequestID, sessionID)
-			return
-		}
-		result := setupFailedResult(req.RequestID, sessionID, started, err)
-		p.finish(msg, req.RequestID, sessionID, result, false)
-		return
-	}
-
 	// Validate has already rejected an absent or unknown mode.
 	mode := tools.Mode(req.PermissionMode)
 	model := req.Model
@@ -659,14 +637,20 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, releaseSlot func()) {
 		effort = p.defaultEffort(runCtx)
 	}
 
-	progressLimiter := queue.NewProgressLimiter(time.Second)
-	runResult, runErr := p.Runner.Run(runCtx, session.RunOptions{
+	// The session row is created as "creating" before any preparation runs,
+	// with the workspace path this attempt is about to clone into, so the
+	// run is visible on the session list and stoppable from the moment it is
+	// claimed — a stop during a clone has a row to mark. Runner.Run promotes
+	// the row to "running" once preparation succeeds. A Create failure is a
+	// setup failure on the existing path: there is no row to mark, because
+	// it never existed.
+	runOpts := session.RunOptions{
 		SessionID:       sessionID,
 		Model:           model,
 		Effort:          effort,
 		Thinking:        p.DefaultThinking,
 		MaxTokens:       p.defaultMaxTokens(runCtx),
-		Workspace:       ws,
+		Workspace:       filepath.Join(p.WorkspaceRoot, sessionID),
 		PermissionMode:  mode,
 		Deny:            req.Deny,
 		Prompt:          req.Prompt,
@@ -682,13 +666,58 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, releaseSlot func()) {
 		ParentIsUser:    req.ParentIsUser,
 		PromptVariant:   req.PromptVariant,
 		ReminderPolicy:  req.ReminderPolicy,
-		AttachmentNames: attachmentNames,
-		Progress: func(sp session.SubTurnProgress) {
-			if progressLimiter.Allow(time.Now()) {
-				p.publishProgress(req.RequestID, sp)
-			}
-		},
-	})
+	}
+	if err := p.Runner.Create(runCtx, runOpts); err != nil {
+		if !rec.answer() {
+			log.Printf("worker: %s: message for session %s already answered; dropping the setup failure", req.RequestID, sessionID)
+			return
+		}
+		result := setupFailedResult(req.RequestID, sessionID, started, err)
+		p.finish(msg, req.RequestID, sessionID, result, false)
+		return
+	}
+
+	// Each attempt clones into a directory of its own, named for its session
+	// id, so a redelivery never inherits the half-finished tree of an
+	// attempt that died before its session existed. The request's attachments
+	// are fetched from the store first — the request carries only ids, the
+	// bytes live in the database (docs/DATA-API.md) — and materialised into
+	// scratch/attachments/ by Prepare; the names ride to the opening message
+	// so the model knows the files exist.
+	attachments, attachmentNames, err := p.loadAttachments(runCtx, req.AttachmentIDs)
+	if err != nil {
+		if !rec.answer() {
+			log.Printf("worker: %s: message for session %s already answered; dropping the setup failure", req.RequestID, sessionID)
+			return
+		}
+		p.failSetup(req.RequestID, sessionID, err)
+		result := setupFailedResult(req.RequestID, sessionID, started, err)
+		p.finish(msg, req.RequestID, sessionID, result, false)
+		return
+	}
+	ws, err := p.prepareWorkspace()(runCtx, p.WorkspaceRoot, sessionID, req.Repos, attachments)
+	if err != nil {
+		if !rec.answer() {
+			// A stop force-finished this run while preparation was wedged;
+			// the cancelled result is already on the stream.
+			log.Printf("worker: %s: message for session %s already answered; dropping the setup failure", req.RequestID, sessionID)
+			return
+		}
+		p.failSetup(req.RequestID, sessionID, err)
+		result := setupFailedResult(req.RequestID, sessionID, started, err)
+		p.finish(msg, req.RequestID, sessionID, result, false)
+		return
+	}
+
+	runOpts.Workspace = ws
+	runOpts.AttachmentNames = attachmentNames
+	progressLimiter := queue.NewProgressLimiter(time.Second)
+	runOpts.Progress = func(sp session.SubTurnProgress) {
+		if progressLimiter.Allow(time.Now()) {
+			p.publishProgress(req.RequestID, sp)
+		}
+	}
+	runResult, runErr := p.Runner.Run(runCtx, runOpts)
 
 	// An empty account is distinct from an ordinary run failure: every other
 	// queued request is about to hit the same wall, so the pool stops
@@ -823,6 +852,17 @@ func setupFailedResult(requestID, sessionID string, started time.Time, err error
 		Error:      &queue.ResultError{Code: "workspace_setup", Message: err.Error()},
 		StartedAt:  started,
 		FinishedAt: time.Now().UTC(),
+	}
+}
+
+// failSetup marks a session whose workspace preparation failed, so no row is
+// ever left stuck in "creating": the row moves to failed with an error event
+// (Runner.FailSetup), and the session page shows why the run never started.
+// A failure to record is logged rather than changing the setup result — the
+// caller already won the message, and the result publish is what matters.
+func (p *Pool) failSetup(requestID, sessionID string, cause error) {
+	if err := p.Runner.FailSetup(context.Background(), sessionID, cause); err != nil {
+		log.Printf("worker: %s: fail setup for session %s: %v", requestID, sessionID, err)
 	}
 }
 

@@ -1557,6 +1557,56 @@ func TestFinishedSessionServesFullTranscriptAndCloses(t *testing.T) {
 	}
 }
 
+// TestCreatingSessionStreamStaysOpen asserts the live-status widening on the
+// transcript stream: a session still cloning has a "creating" row and no
+// events, and a browser that opened it must get a stream that stays open
+// (the post-replay and keepalive status checks use store.IsLive) rather than
+// one that closes instantly as though the run were over.
+func TestCreatingSessionStreamStaysOpen(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	mustCreateSession(t, st, "sess-1", time.Now())
+	if err := st.UpdateSessionStatus(context.Background(), "sess-1", store.StatusCreating, nil); err != nil {
+		t.Fatalf("mark creating: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/sessions/sess-1/stream", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	sr := newSSEReader(resp.Body)
+	// The replay marker is the whole history for a session with no events.
+	for {
+		frame, err := sr.nextFrame()
+		if err != nil {
+			t.Fatalf("read frame: %v", err)
+		}
+		if frame.event == "replayed" {
+			break
+		}
+	}
+
+	// The stream must stay open while the row is creating; a terminal check
+	// that read "not running" as finished would close it here.
+	done := make(chan error, 1)
+	go func() {
+		_, err := sr.next()
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("expected a creating session's stream to stay open, got %v", err)
+	case <-time.After(500 * time.Millisecond):
+	}
+}
+
 // TestSlowSessionSubscriberDoesNotBlockProducer opens an SSE connection and
 // never reads from it, then confirms a burst of publishes to the same
 // session completes promptly anyway — the backpressure property
@@ -2515,7 +2565,8 @@ func TestDeleteSessionRemovesFinishedSession(t *testing.T) {
 }
 
 // TestDeleteSessionRefusesRunning pins the surfaced store rule: DELETE
-// refuses a running session with 409 regardless of idleness — an abandoned
+// refuses a live session — running, or creating while a worker is preparing
+// its workspace — with 409 regardless of idleness; an abandoned
 // row is closed with PATCH first and deleted afterwards.
 func TestDeleteSessionRefusesRunning(t *testing.T) {
 	srv, st, _ := newTestServer(t)
@@ -2534,8 +2585,8 @@ func TestDeleteSessionRefusesRunning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(body), "still running") {
-		t.Fatalf("409 must say the session is still running, got %q", body)
+	if !strings.Contains(string(body), "still live") {
+		t.Fatalf("409 must say the session is still live, got %q", body)
 	}
 	if _, err := st.GetSession(ctx, "sess-1"); err != nil {
 		t.Fatalf("session should survive a refused delete: %v", err)
@@ -3906,6 +3957,23 @@ func TestSteerPreconditions(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "status ok") {
 		t.Fatalf("409 must name the session's actual status, got %q", body)
+	}
+
+	// A creating session refuses the same way, but the message says its
+	// workspace is still being prepared — not that the run is over, which a
+	// bare "not running" would read as.
+	mustCreateSession(t, st, "creating-sess", time.Now())
+	if err := st.UpdateSessionStatus(ctx, "creating-sess", store.StatusCreating, nil); err != nil {
+		t.Fatalf("mark creating: %v", err)
+	}
+	resp = doWrite(t, srv, http.MethodPost, "/api/sessions/creating-sess/steer", `{"text":"hi"}`, controlAuth)
+	body, _ = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("creating session: got status %d, want 409 (body %s)", resp.StatusCode, body)
+	}
+	if !strings.Contains(string(body), "still being prepared") {
+		t.Fatalf("409 must say the workspace is still being prepared, got %q", body)
 	}
 
 	// 202 with the seq the text landed at; the second steer lands at a

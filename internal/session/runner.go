@@ -405,6 +405,99 @@ func (r *Runner) compactionThreshold(ctx context.Context, model string) int {
 	return CompactionThresholdTokens
 }
 
+// Create inserts the session row for a run whose workspace is still being
+// prepared — the window between the worker minting the session id and the
+// agent loop's first request. The row is created "creating" with the
+// workspace path the worker is about to clone into and the metadata the
+// request already carries (model, effort, task, title, description, phase,
+// parent fields, permission mode, deny patterns); system_prompt and
+// tool_schema stay empty because neither is resolvable until the run starts
+// — Runner.Run promotes the row and writes them. publishState follows so the
+// row reaches the session-list feed immediately. It lives on the Runner
+// rather than in the worker because publishState needs the Hub and the
+// usage/request-id lookups the Runner already holds, and the worker must not
+// gain a hub dependency.
+func (r *Runner) Create(ctx context.Context, opts RunOptions) error {
+	sessID := opts.SessionID
+	if sessID == "" {
+		sessID = newID("sess")
+	}
+	sess := store.Session{
+		ID:              sessID,
+		ParentID:        opts.ParentID,
+		JobType:         opts.JobType,
+		Task:            opts.Prompt,
+		Title:           opts.Title,
+		Description:     opts.Description,
+		Phase:           opts.Phase,
+		TotalPhases:     opts.TotalPhases,
+		ParentAgentType: opts.ParentAgentType,
+		ParentAgentID:   opts.ParentAgentID,
+		ParentIsUser:    opts.ParentIsUser,
+		Model:           opts.Model,
+		Effort:          opts.Effort,
+		Thinking:        opts.Thinking,
+		Workspace:       opts.Workspace,
+		PermissionMode:  string(opts.PermissionMode),
+		DenyPatterns:    opts.Deny,
+		Status:          store.StatusCreating,
+	}
+	if err := r.Store.CreateSession(ctx, sess); err != nil {
+		return fmt.Errorf("session: create session: %w", err)
+	}
+	curSess, err := r.Store.GetSession(ctx, sessID)
+	if err != nil {
+		return fmt.Errorf("session: reload created session: %w", err)
+	}
+	r.publishState(ctx, curSess)
+	return nil
+}
+
+// FailSetup moves a "creating" session row to "failed" with finished_at,
+// appends an error event so the session page shows why the run never
+// started, and publishes the updated state. It is the worker's terminal
+// bookkeeping for a run whose workspace could not be built (an attachment
+// that vanished, a clone that was refused), and the counterpart of the
+// promotion Run performs when preparation succeeds.
+//
+// The terminal bookkeeping runs on a fresh, bounded context rather than the
+// caller's, the same rule fail follows: a stop or a deadline is exactly what
+// often ends preparation this way, and the caller's ctx is then already
+// cancelled. A row the stop escalation already marked cancelled refuses the
+// update (UpdateSessionStatus returns ErrSessionCancelled) and is treated as
+// success — the stop owns that row, and its cancelled result is on its way.
+func (r *Runner) FailSetup(ctx context.Context, sessionID string, cause error) error {
+	terminalCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	sess, err := r.Store.GetSession(terminalCtx, sessionID)
+	if err != nil {
+		return fmt.Errorf("session: fail setup: load %s: %w", sessionID, err)
+	}
+	appended, appendErr := r.Store.AppendEvents(terminalCtx, sessionID, []store.EventInput{
+		{Kind: store.KindError, Payload: store.ErrorPayload{Message: cause.Error()}},
+	})
+	if appendErr != nil {
+		log.Printf("session: fail setup for %s: append error event: %v", sessionID, appendErr)
+	} else {
+		r.mirrorAppend(sess, appended)
+		r.publishEvents(sess, appended)
+	}
+
+	finished := time.Now().UTC()
+	if err := r.Store.UpdateSessionStatus(terminalCtx, sessionID, store.StatusFailed, &finished); err != nil {
+		if errors.Is(err, store.ErrSessionCancelled) {
+			return nil
+		}
+		return fmt.Errorf("session: fail setup: mark %s failed: %w", sessionID, err)
+	}
+	if updated, err := r.Store.GetSession(terminalCtx, sessionID); err == nil {
+		r.mirrorUpdateSession(updated)
+		r.publishState(terminalCtx, updated)
+	}
+	return nil
+}
+
 // Run drives one session from creation to a terminal state: a response with
 // no tool calls, a successful Complete call, exhausting MaxSubTurns, or an
 // unrecoverable error. The returned error is non-nil only for
@@ -455,31 +548,48 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	}
 	executor.RunSubagent = r.subagentRunner(sessID, opts, executor.Workspace)
 
-	sess := store.Session{
-		ID:              sessID,
-		ParentID:        opts.ParentID,
-		JobType:         opts.JobType,
-		Task:            opts.Prompt,
-		Title:           opts.Title,
-		Description:     opts.Description,
-		Phase:           opts.Phase,
-		TotalPhases:     opts.TotalPhases,
-		ParentAgentType: opts.ParentAgentType,
-		ParentAgentID:   opts.ParentAgentID,
-		ParentIsUser:    opts.ParentIsUser,
-		Model:           opts.Model,
-		Effort:          opts.Effort,
-		Thinking:        opts.Thinking,
-		Workspace:       executor.Workspace,
-		PermissionMode:  string(opts.PermissionMode),
-		DenyPatterns:    opts.Deny,
-		SystemPrompt:    sysPrompt,
-		ToolSchema:      toolSchema,
-		ResultSchema:    opts.ResultSchema,
-		Status:          store.StatusRunning,
-	}
-	if err := r.Store.CreateSession(ctx, sess); err != nil {
-		return nil, fmt.Errorf("session: create session: %w", err)
+	// The worker creates the row as "creating" before it prepares the
+	// workspace, so a run is visible and stoppable from the moment it is
+	// claimed. Run promotes that row to "running" — writing the three
+	// columns that are only resolvable now that the run is starting — and
+	// otherwise inserts the row exactly as it always has. Every caller that
+	// does not clone (harness run, harness resume, the Task subagent path,
+	// compaction) has no pre-created row, so it always inserts, and none of
+	// them should ever show "creating".
+	if existing, err := r.Store.GetSession(ctx, sessID); err == nil && existing.Status == store.StatusCreating {
+		if err := r.Store.PromoteSession(ctx, sessID, executor.Workspace, sysPrompt, toolSchema); err != nil {
+			return nil, fmt.Errorf("session: promote session: %w", err)
+		}
+	} else {
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return nil, fmt.Errorf("session: load session: %w", err)
+		}
+		sess := store.Session{
+			ID:              sessID,
+			ParentID:        opts.ParentID,
+			JobType:         opts.JobType,
+			Task:            opts.Prompt,
+			Title:           opts.Title,
+			Description:     opts.Description,
+			Phase:           opts.Phase,
+			TotalPhases:     opts.TotalPhases,
+			ParentAgentType: opts.ParentAgentType,
+			ParentAgentID:   opts.ParentAgentID,
+			ParentIsUser:    opts.ParentIsUser,
+			Model:           opts.Model,
+			Effort:          opts.Effort,
+			Thinking:        opts.Thinking,
+			Workspace:       executor.Workspace,
+			PermissionMode:  string(opts.PermissionMode),
+			DenyPatterns:    opts.Deny,
+			SystemPrompt:    sysPrompt,
+			ToolSchema:      toolSchema,
+			ResultSchema:    opts.ResultSchema,
+			Status:          store.StatusRunning,
+		}
+		if err := r.Store.CreateSession(ctx, sess); err != nil {
+			return nil, fmt.Errorf("session: create session: %w", err)
+		}
 	}
 	curSess, err := r.Store.GetSession(ctx, sessID)
 	if err != nil {

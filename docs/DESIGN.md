@@ -663,6 +663,16 @@ across attempts, so a redelivery that still may run — one whose attempt died
 before its session existed — clones afresh rather than inheriting a
 half-finished tree.
 
+The session row exists from before that preparation starts: the worker
+creates it as `creating` (Runner.Create) with the workspace path it is about
+to clone into, and `Runner.Run` promotes it to `running` once the workspace
+is ready. The preparation window — repositories cloning, Node dependencies
+installing, which takes minutes for a large clone — is therefore visible on
+the session list's in-flight side (§5.8) and stoppable: a stop during a clone
+marks the `creating` row cancelled instead of finding no row to mark, and a
+preparation that fails leaves the row `failed` with an error event saying
+why, rather than nothing at all.
+
 What each terminal status means. `ok` is a run that finished on its own.
 `failed` covers a validation rejection, a workspace that could not be built
 (`error.code: workspace_setup`, typically a clone that was refused or a branch
@@ -733,25 +743,30 @@ Idempotency is a row, not a convention. `request_id` is the primary key of
 `work_requests`, and the row's `session_id` column is the discriminator that
 decides whether a delivery may run:
 
-- **No session id yet** — the attempt died during workspace preparation,
-  before the session row existed. Nothing happened that matters (no clone, no
-  file write, no command, no money spent), so a redelivery may claim the row
-  and run afresh.
+- **No session id yet** — the attempt died in the instant after claiming the
+  request, before it attached its session id. Nothing happened that matters (no
+  clone, no file write, no command, no money spent), so a redelivery may claim
+  the row and run afresh.
 - **Session id set** — the request is **single-use**. The id is attached the
-  moment the session row exists, before the run does anything side-effecting,
-  so a row that carries one is proof an attempt actually started. An agent run
-  is not idempotent: it clones repositories, writes files, runs commands,
+  moment the session row exists — the row is created as `creating` before the
+  workspace is built, so an attempt that dies during preparation leaves a
+  `creating` row behind, and the run is visible and stoppable from the moment
+  it is claimed — and before the run does anything side-effecting, so a row
+  that carries one is proof an attempt actually started. An agent run is not
+  idempotent: it clones repositories, writes files, runs commands,
   pushes branches, opens pull requests, and spends money, and re-running one
   blind repeats all of that against a workspace and a branch that have moved
   on. The worker therefore never runs a session for such a request again,
   whatever its status. It closes the abandoned session instead — the row phase
   1's `CloseSession` was built for, and the one that until now never got
-  closed, so abandoned sessions sat `running` in the list forever — publishes a
-  `failed` result telling the caller the run was abandoned, that work requests
-  are single-use, and that republishing under a new `request_id` is how to
-  retry, and terminates the message, because no further delivery can help. The
-  abandoned session's transcript still survives for review, now better than
-  before: it is closed, not left `running` forever.
+  closed, so abandoned sessions sat `running` in the list forever — publishing
+  a `failed` result telling the caller the run was abandoned, that work
+  requests are single-use, and that republishing under a new `request_id` is
+  how to retry, and terminates the message, because no further delivery can
+  help. `CloseSession` closes a `creating` row exactly like a `running` one, so
+  an attempt that died mid-clone is closed the same way. The abandoned
+  session's transcript still survives for review, now better than
+  before: it is closed, not left `running` (or `creating`) forever.
 - **Terminal row** — a finished request republishes its stored result and
   acks without running anything.
 

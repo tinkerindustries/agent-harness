@@ -71,7 +71,8 @@ caps and the phase relationship (`agentmeta.ValidateTitle`,
   each row with status, cost, and the originating request id, wrapped in the
   [Pagination envelope](#pagination) — the response is the envelope even when
   the caller asked for no page. Four query parameters:
-  `?status=` (`running`, or `finished` — everything not running; an unknown
+  `?status=` (`running` — the live set, running plus `creating`, the rows the
+  in-flight list shows — or `finished`, everything not live; an unknown
   value is a 400 naming the valid ones, the same refusal `?kind=` gives),
   `?q=` (a case-insensitive substring of the session id, workspace, or work
   request id), `?limit=` and `?offset=` (clamped to the endpoint's defaults,
@@ -98,14 +99,18 @@ If-Match: <version>
 ```
 
 - Body: `{"status": "<terminal status>"}` — one of `ok`, `failed`, `timeout`,
-  `max_turns`, `cancelled`, `compacted` (every status except `running`; closing
-  *into* running would be a resume, which is run control). Anything else is
-  a 400 naming the accepted values; a malformed body is a 400.
+  `max_turns`, `cancelled`, `compacted` (every status except `running` and
+  `creating`; closing *into* a live status would be a resume, which is run
+  control). Anything else is a 400 naming the accepted values; a malformed
+  body is a 400.
 - Preconditions, both inside the store transaction: version must equal
   `If-Match` (412 on mismatch, 428 if the header is missing) and, when the
-  session is running, its most recent event must be older than
+  session is live (`running`, or `creating` while a worker is still preparing
+  its workspace), its most recent event must be older than
   `sessionIdleThreshold` (409 naming the last event's time).
-- Effect on a **running** session: status set, `finished_at` set to now.
+- Effect on a **live** session — `running`, or `creating` (a row a dead
+  worker left mid-clone closes exactly like an abandoned running one): status
+  set, `finished_at` set to now.
 - Effect on a session **already terminal**: nothing but a version bump. Both
   the status and `finished_at` it finished with are kept, so a retried PATCH
   is idempotent and a completed run cannot be relabelled. This endpoint closes
@@ -119,8 +124,10 @@ If-Match: <version>
   `/api/stream` list feed so open session lists update.
 
 The workflow that prompted it: a worker process died, leaving a session row
-`running` forever. The operator reads the row, sees its last event is hours
-old, and closes it with the PATCH above. A live run cannot be closed: its
+`running` forever — or `creating`, when it died mid-clone, which the same
+close now handles. The operator reads the row, sees its last event is hours
+old (a `creating` row has no events at all), and closes it with the PATCH
+above. A live run cannot be closed: its
 events keep the last-event time inside the threshold, and the 409 says when the
 last event was.
 
@@ -130,15 +137,16 @@ Content-Type: application/json
 If-Match: <version>
 ```
 
-- Preconditions: version must equal `If-Match` (412/428 as above); a running
-  session is refused with 409 regardless of idleness.
+- Preconditions: version must equal `If-Match` (412/428 as above); a live
+  session — `running`, or `creating` while a worker is cloning into that
+  directory — is refused with 409 regardless of idleness.
 - Effect: the row and its whole event log are removed, atomically. The derived
   disk mirror directory is **not** removed — the HTTP server has no data-dir
   handle, the mirror is never read back, and `harness export` rebuilds it. The
   CLI's `harness delete` is the way to remove a mirror directory too.
 - Success: 200 `{"ok": true}`.
 
-Because a running session cannot be deleted, closing an abandoned session is
+Because a live session cannot be deleted, closing an abandoned session is
 two calls: PATCH to a terminal status, then DELETE with the version the PATCH
 response returned.
 

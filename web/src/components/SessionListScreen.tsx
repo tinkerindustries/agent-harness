@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSyncExternalStore } from "react";
 import { Broadcast, CaretRight, Copy, MagnifyingGlass, Play, Queue, X } from "@phosphor-icons/react";
 import { sessionListStore } from "../api/sessionListStore";
+import { isLive } from "../api/status";
 import { listSettings } from "../api/settings";
 import { controlToken } from "../api/operations";
 import { clampPage } from "../api/paging";
@@ -105,7 +106,7 @@ function computeDayStats(sessions: SessionListRow[], dayStartMs: number): DaySta
   let spendUsd = 0;
   const durations: number[] = [];
   for (const s of sessions) {
-    if (s.status === "running") running++;
+    if (isLive(s.status)) running++;
     const created = Date.parse(s.created_at);
     if (Number.isNaN(created) || created < dayStartMs) continue;
     spendUsd += s.usage.cost_usd;
@@ -243,7 +244,7 @@ export function SessionListScreen({ onOpen }: Props) {
 
   const q = query.trim().toLowerCase();
   const running = useMemo(
-    () => snapshot.sessions.filter((s) => s.status === "running" && matchesQuery(s, q)),
+    () => snapshot.sessions.filter((s) => isLive(s.status) && matchesQuery(s, q)),
     [snapshot.sessions, q],
   );
   // Which rows arrived while this page was already open (hooks.ts

@@ -1,5 +1,6 @@
 import { useEffect, useSyncExternalStore, useState } from "react";
 import { isUserStarted } from "../api/provenance";
+import { isLive } from "../api/status";
 import { useSessionMeta, useTranscriptStore } from "../hooks";
 import { SessionChatScreen } from "./SessionChatScreen";
 import { SessionWatchScreen } from "./SessionWatchScreen";
@@ -51,7 +52,7 @@ export function SessionScreen({ sessionId, onNavigate }: Props) {
   // an ordinary page again — one scroll, no footer. The mode lives on body
   // as body.app or the page companion body.page (the sticky nav and rail
   // hang off it in styles.css), and follows the run to its end.
-  const shell = !settled || meta === null || isUserStarted(meta) || meta.status === "running";
+  const shell = !settled || meta === null || isUserStarted(meta) || isLive(meta.status);
   useEffect(() => {
     if (shell) {
       document.body.classList.add("app");

@@ -515,9 +515,12 @@ func allowedMethods(path string) string {
 }
 
 // sessionListStatuses are the valid ?status= values on GET /api/sessions:
-// "running", and "finished" — the display name for everything not running.
+// "running" (the live set — running plus creating, the rows the in-flight
+// list shows), and "finished" — the display name for everything not live.
 // The 400 for an unknown status names exactly these, the same refusal shape
-// the events endpoint's ?kind= filter uses.
+// the events endpoint's ?kind= filter uses. The store widening does the rest:
+// ListSessionsPage builds its SQL off store.IsLive, so these two public
+// values keep their meaning as the live set grows.
 var sessionListStatuses = []string{store.StatusRunning, "finished"}
 
 func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
@@ -596,10 +599,10 @@ type patchSessionBody struct {
 }
 
 // handlePatchSession serves PATCH /api/sessions/{id}: closes a session a dead
-// worker left running by transitioning it to a terminal status and setting
-// finished_at (docs/DATA-API.md). It is the write the read-only rule was
-// retired for — an abandoned row still says "running" and nothing else ever
-// closes it.
+// worker left live — running, or creating mid-clone — by transitioning it to
+// a terminal status and setting finished_at (docs/DATA-API.md). It is the
+// write the read-only rule was retired for — an abandoned row still says
+// "running" (or "creating") and nothing else ever closes it.
 //
 // The guards and preconditions, in order: the content-type and origin guards
 // every write carries; a body whose status is a terminal status (400
@@ -844,8 +847,15 @@ func (s *Server) handleSteerSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if sess.Status != store.StatusRunning {
+		// A steer keeps refusing anything but "running" — a creating session
+		// has no loop to read the steer — but the message names the actual
+		// situation rather than reading as though the run is over.
+		message := fmt.Sprintf("session %s is not running (status %s); a steer needs a running run", sess.ID, sess.Status)
+		if sess.Status == store.StatusCreating {
+			message = fmt.Sprintf("session %s is still being prepared (status %s); a steer needs the workspace ready", sess.ID, sess.Status)
+		}
 		writeJSON(w, http.StatusConflict, map[string]string{
-			"error": fmt.Sprintf("session %s is not running (status %s); a steer needs a running run", sess.ID, sess.Status),
+			"error": message,
 		})
 		return
 	}
@@ -1950,8 +1960,10 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 	// Compaction retires the old session id without a closing event of its
 	// own, so checking status here — not just watching for run_finished or
 	// error — is what lets a reload of an already-compacted session's
-	// stream close instead of idling forever.
-	if sess, err := s.Store.GetSession(r.Context(), id); err == nil && sess.Status != store.StatusRunning {
+	// stream close instead of idling forever. IsLive keeps the stream open
+	// for a session still cloning too, so a browser that opened it before
+	// the first event stays connected through the preparation window.
+	if sess, err := s.Store.GetSession(r.Context(), id); err == nil && !store.IsLive(sess.Status) {
 		return
 	}
 
@@ -1999,7 +2011,7 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case <-keepalive.C:
-			if cur, err := s.Store.GetSession(r.Context(), id); err == nil && cur.Status != store.StatusRunning {
+			if cur, err := s.Store.GetSession(r.Context(), id); err == nil && !store.IsLive(cur.Status) {
 				return
 			}
 			fmt.Fprint(w, ": keep-alive\n\n")

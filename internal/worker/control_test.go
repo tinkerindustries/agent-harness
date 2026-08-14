@@ -2,7 +2,6 @@ package worker
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -28,8 +27,14 @@ type ctxBlockingRunner struct {
 	store *store.Store
 }
 
+func (r *ctxBlockingRunner) Create(ctx context.Context, opts session.RunOptions) error {
+	return fakeCreateSession(r.store, ctx, opts)
+}
+
+func (r *ctxBlockingRunner) FailSetup(context.Context, string, error) error { return nil }
+
 func (r *ctxBlockingRunner) Run(ctx context.Context, opts session.RunOptions) (*session.RunResult, error) {
-	if err := fakeCreateSession(r.store, ctx, opts); err != nil {
+	if err := fakePromoteSession(r.store, ctx, opts); err != nil {
 		return nil, err
 	}
 	<-ctx.Done()
@@ -55,8 +60,14 @@ func (r *wedgingRunner) release() {
 	r.once.Do(func() { close(r.gate) })
 }
 
+func (r *wedgingRunner) Create(ctx context.Context, opts session.RunOptions) error {
+	return fakeCreateSession(r.store, ctx, opts)
+}
+
+func (r *wedgingRunner) FailSetup(context.Context, string, error) error { return nil }
+
 func (r *wedgingRunner) Run(ctx context.Context, opts session.RunOptions) (*session.RunResult, error) {
-	if err := fakeCreateSession(r.store, ctx, opts); err != nil {
+	if err := fakePromoteSession(r.store, ctx, opts); err != nil {
 		return nil, err
 	}
 	if r.calls.Add(1) == 1 {
@@ -82,8 +93,14 @@ func (r *finishThenBlockRunner) release() {
 	r.once.Do(func() { close(r.gate) })
 }
 
+func (r *finishThenBlockRunner) Create(ctx context.Context, opts session.RunOptions) error {
+	return fakeCreateSession(r.store, ctx, opts)
+}
+
+func (r *finishThenBlockRunner) FailSetup(context.Context, string, error) error { return nil }
+
 func (r *finishThenBlockRunner) Run(ctx context.Context, opts session.RunOptions) (*session.RunResult, error) {
-	if err := fakeCreateSession(r.store, ctx, opts); err != nil {
+	if err := fakePromoteSession(r.store, ctx, opts); err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC()
@@ -95,8 +112,9 @@ func (r *finishThenBlockRunner) Run(ctx context.Context, opts session.RunOptions
 	return &session.RunResult{SessionID: opts.SessionID, Status: store.StatusOK, Text: "completed"}, nil
 }
 
-// fakeCreateSession makes the session row a real Runner.Run would, the
-// minimum the store needs.
+// fakeCreateSession makes the session row a real Runner.Create would, the
+// minimum the store needs, as "creating" — the status the worker's run path
+// inserts before workspace preparation.
 func fakeCreateSession(st *store.Store, ctx context.Context, opts session.RunOptions) error {
 	return st.CreateSession(ctx, store.Session{
 		ID:             opts.SessionID,
@@ -104,9 +122,14 @@ func fakeCreateSession(st *store.Store, ctx context.Context, opts session.RunOpt
 		Effort:         opts.Effort,
 		Workspace:      opts.Workspace,
 		PermissionMode: string(opts.PermissionMode),
-		SystemPrompt:   "sys",
-		ToolSchema:     json.RawMessage(`[]`),
+		Status:         store.StatusCreating,
 	})
+}
+
+// fakePromoteSession flips the row fakeCreateSession made to "running", the
+// way a real Runner.Run promotes a pre-created row once preparation is done.
+func fakePromoteSession(st *store.Store, ctx context.Context, opts session.RunOptions) error {
+	return st.PromoteSession(ctx, opts.SessionID, opts.Workspace, "sys", []byte("[]"))
 }
 
 // waitForSessionID polls the work_requests row until the run has attached

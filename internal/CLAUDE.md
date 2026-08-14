@@ -57,7 +57,11 @@ declared here and implemented by `internal/deepseek`, which turns the loop's
 `wire.ChatIntent` into DeepSeek's request shape and owns DeepSeek's usage
 mapping and response quirks — the same shape `RunPublisher` and `RunController`
 take, with cmd/harness choosing the implementation when it builds the Runner
-(docs/KIMI-INTEGRATION.md §4.1). Consumed by `internal/worker` and by the
+(docs/KIMI-INTEGRATION.md §4.1). Owns the session row's lifecycle around the
+worker's preparation window: `Create` inserts it as `creating` before the
+workspace is built, `FailSetup` moves it to `failed` with an error event when
+preparation fails, and `Run` promotes a pre-created row to `running` (or
+inserts when there is none). Consumed by `internal/worker` and by the
 CLI's `run` and `resume`. §4.5, §4.6.
 
 ### `internal/tools`
@@ -78,7 +82,11 @@ SQLite (`modernc.org/sqlite`, pure Go, WAL) plus the derived disk mirror under
 `<data dir>/sessions/` and diff computation. The database is authoritative; the
 mirror is rebuildable with `harness export`. The `settings` table holds the
 harness's stored configuration — the DeepSeek API key among it — written and
-read through `internal/settings`. Depends on: nothing internal. §4.8.
+read through `internal/settings`. Owns the session status vocabulary:
+`StatusRunning`, `StatusCreating` (the window while a queue-driven run's
+workspace is being prepared), the terminal statuses, and `IsLive` — every
+branch and SQL predicate that means "this session is live" builds off it,
+never a string literal. Depends on: nothing internal. §4.8.
 
 ### `internal/hub`
 In-process SSE fan-out: per-session transcript subscribers and a quieter
@@ -121,10 +129,14 @@ validation checks a named model against the model→provider table
 reaching a provider. §4.10.
 
 ### `internal/worker`
-The pool. Pulls a request, builds its workspace, runs it as a session,
-publishes the result, then acks — in that order, so a crash redelivers rather
-than loses. Owns acknowledgement discipline and idempotency against the
-`work_requests` table. §4.10.
+The pool. Pulls a request, creates its session row as `creating` (Runner.Create,
+so the run is visible and stoppable while the workspace is being prepared),
+builds the workspace, runs it as a session (which promotes the row to
+`running`), publishes the result, then acks — in that order, so a crash
+redelivers rather than loses. A preparation failure marks the row `failed`
+(Runner.FailSetup) before the setup result is published, so no row is left
+stuck in `creating`. Owns acknowledgement discipline and idempotency against
+the `work_requests` table. §4.10.
 
 ### `internal/workspace`
 Prepares the per-session directory — a `scratch/` subdirectory for files that

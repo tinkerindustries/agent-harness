@@ -13,6 +13,7 @@
 // reason.
 
 import type { EventsPage, Page, SessionState } from "./types";
+import { isLive } from "./status";
 
 // sessionIdleThresholdMs mirrors internal/httpapi's sessionIdleThreshold
 // (docs/DATA-API.md "Preconditions"): ten minutes. The server owns the real
@@ -370,21 +371,25 @@ export function parseRepoSpec(spec: string): { url: string; branch?: string } {
 
 // --- logic the screen is built from (tested without a DOM) ---
 
-// isStuckSession reports whether a session row counts as stuck: still
-// running, with no demonstrated liveness — either it never appended an
+// isStuckSession reports whether a session row counts as stuck: still live —
+// running, or creating while a worker prepares its workspace — with no
+// demonstrated liveness, either it never appended an
 // event, or its most recent event is older than the idle threshold
 // (docs/DATA-API.md "Preconditions"). The threshold is the server's
 // sessionIdleThreshold mirrored in this module; the server's 409 is the
 // authority when the two disagree. lastEventAtMs is null for a session with
 // no events, which counts as stuck because the server's own idleness check
-// would let the close through.
+// would let the close through — and a creating session has no events by
+// construction, so a preparation that outlives the threshold reads as a dead
+// worker mid-clone, which is exactly what the operations screen exists to
+// close.
 export function isStuckSession(
   status: string,
   lastEventAtMs: number | null,
   nowMs: number,
   thresholdMs: number = SESSION_IDLE_THRESHOLD_MS,
 ): boolean {
-  if (status !== "running") return false;
+  if (!isLive(status)) return false;
   return lastEventAtMs === null || nowMs - lastEventAtMs > thresholdMs;
 }
 

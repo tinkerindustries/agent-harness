@@ -23,6 +23,7 @@ import (
 // Session statuses.
 const (
 	StatusRunning   = "running"
+	StatusCreating  = "creating"
 	StatusOK        = "ok"
 	StatusFailed    = "failed"
 	StatusTimeout   = "timeout"
@@ -30,6 +31,15 @@ const (
 	StatusCancelled = "cancelled"
 	StatusCompacted = "compacted"
 )
+
+// IsLive reports whether status is a live session status: "running", or
+// "creating" while a queue-driven run's workspace is still being prepared.
+// Every branch and SQL predicate that means "this session is live" is built
+// off this constant and IsLive, never off a string literal, so the Go side
+// and the SQL side cannot disagree about what live is.
+func IsLive(status string) bool {
+	return status == StatusRunning || status == StatusCreating
+}
 
 // ErrClosed is returned by Store methods called after Close.
 var ErrClosed = errors.New("store: closed")
@@ -66,15 +76,16 @@ func (e *SessionFinishedError) Error() string {
 }
 
 // SessionRunningError is returned when a mutating write targets a session
-// whose status is still "running": nothing may delete (or otherwise
-// overwrite) a row a live session goroutine is still appending events to.
+// whose status is still live ("running", or "creating" while a worker is
+// preparing its workspace): nothing may delete (or otherwise overwrite) a
+// row a live session goroutine is still writing.
 // It surfaces as a 409 on the HTTP surface (docs/DATA-API.md).
 type SessionRunningError struct {
 	SessionID string
 }
 
 func (e *SessionRunningError) Error() string {
-	return fmt.Sprintf("store: refusing to delete %s: it is still running", e.SessionID)
+	return fmt.Sprintf("store: refusing to delete %s: it is still live", e.SessionID)
 }
 
 // ActiveSessionError is returned when a write would close a running session
@@ -696,6 +707,38 @@ func (s *Store) CreateSession(ctx context.Context, sess Session) error {
 	})
 }
 
+// PromoteSession flips a "creating" session row to "running" and writes the
+// three columns that are only resolvable once the run starts: the workspace
+// (which the worker has now finished preparing), the rendered system prompt,
+// and the tool schema. It bumps version like any other mutation.
+//
+// A row already "running" is a no-op success, so a redelivery that calls
+// PromoteSession twice — once from a retried Runner.Run after a crash — is
+// idempotent. A terminal row refuses with SessionFinishedError: the run
+// ended (a stop during preparation, a setup failure) and nothing may relabel
+// it.
+func (s *Store) PromoteSession(ctx context.Context, id, workspace, systemPrompt string, toolSchema []byte) error {
+	return s.submit(ctx, func(tx *sql.Tx) error {
+		var storedStatus string
+		if err := tx.QueryRow(`SELECT status FROM sessions WHERE id = ?`, id).Scan(&storedStatus); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		switch storedStatus {
+		case StatusRunning:
+			return nil
+		case StatusCreating:
+		default:
+			return &SessionFinishedError{SessionID: id, Status: storedStatus}
+		}
+		_, err := tx.Exec(`UPDATE sessions SET status = ?, workspace = ?, system_prompt = ?, tool_schema = ?, version = version + 1 WHERE id = ?`,
+			StatusRunning, workspace, systemPrompt, string(toolSchema), id)
+		return err
+	})
+}
+
 // UpdateSessionStatus sets status and, when non-nil, finishedAt. It refuses
 // to move a cancelled row: cancelled is terminal and final, and a wedged
 // goroutine that wakes after a stop must not be able to relabel the session
@@ -819,9 +862,12 @@ func (s *Store) ResumeSession(ctx context.Context, id string) error {
 // to stop an operator closing a live row, while this writer is the run's own
 // owner and the row being live is the point. A distinct method rather than
 // CloseSession(..., minIdle: 0) so the intent is readable at the call site.
-// A second cancel is a no-op: the row is already cancelled, and re-stamping
-// it would only move finished_at away from the moment the stop actually
-// landed. A session that reached any *other* terminal status refuses with
+// It accepts "creating" as well as "running", which is what lets a stop
+// during workspace preparation mark the row instead of finding nothing
+// (docs/RUN-CONTROL.md "Half two": the escalation's no-row branch). A second
+// cancel is a no-op: the row is already cancelled, and re-stamping it would
+// only move finished_at away from the moment the stop actually landed. A
+// session that reached any *other* terminal status refuses with
 // SessionFinishedError — it finished on its own in the gap between the
 // operator asking and the stop landing, and relabelling a completed run as
 // cancelled would destroy the one distinction the status carries.
@@ -837,7 +883,7 @@ func (s *Store) CancelRunningSession(ctx context.Context, id string, now time.Ti
 		switch storedStatus {
 		case StatusCancelled:
 			return nil
-		case StatusRunning:
+		case StatusRunning, StatusCreating:
 		default:
 			return &SessionFinishedError{SessionID: id, Status: storedStatus}
 		}
@@ -850,25 +896,28 @@ func (s *Store) CancelRunningSession(ctx context.Context, id string, now time.Ti
 
 // CloseSession transitions id to a terminal status — the write that lets an
 // operator close a session a dead worker left running (docs/DATA-API.md).
+// A "creating" row — a dead worker's attempt that was still preparing its
+// workspace — is treated exactly like "running": it takes the new status,
+// so an operator can close a row a dead worker left mid-clone.
 // It carries two guards, both checked inside the write transaction so no
 // interleaving write can slip between a check and the UPDATE:
 //
 //   - Optimistic concurrency: wantVersion must equal the row's current
 //     version, or VersionConflictError is returned. The version is read from
 //     the session representation and echoed back in If-Match.
-//   - Idleness: a running session whose most recent event is newer than
+//   - Idleness: a live session whose most recent event is newer than
 //     minIdle is presumed live and refused with ActiveSessionError. A live
 //     run appends events continuously, so "abandoned" means quiet for
 //     minIdle; a session with no events has nothing recent and passes. now is
 //     the clock the idleness is judged against — the caller's — so the rule
 //     is the HTTP layer's policy, not the store's.
 //
-// A running session gets the new status and finished_at = now. One already
+// A live session gets the new status and finished_at = now. One already
 // terminal keeps both — a re-close is a version bump and nothing else, so a
 // retried write is idempotent and a finished run cannot be relabelled. The
 // updated row is returned. The event log is untouched.
 func (s *Store) CloseSession(ctx context.Context, id, status string, wantVersion int, now time.Time, minIdle time.Duration) (Session, error) {
-	if status == StatusRunning {
+	if status == StatusRunning || status == StatusCreating {
 		return Session{}, fmt.Errorf("store: CloseSession: %s is not a terminal status", status)
 	}
 	var out Session
@@ -884,7 +933,7 @@ func (s *Store) CloseSession(ctx context.Context, id, status string, wantVersion
 		if version != wantVersion {
 			return &VersionConflictError{Resource: "session " + id, Want: wantVersion, Current: version}
 		}
-		if storedStatus == StatusRunning {
+		if IsLive(storedStatus) {
 			last, ok, err := lastEventAt(tx, id)
 			if err != nil {
 				return err
@@ -893,7 +942,7 @@ func (s *Store) CloseSession(ctx context.Context, id, status string, wantVersion
 				return &ActiveSessionError{SessionID: id, LastEventAt: last}
 			}
 		}
-		// Only a running session takes the new status. A row that is
+		// Only a live session takes the new status. A row that is
 		// already terminal keeps the status it finished with: this endpoint
 		// exists to close an abandoned run, not to relabel a finished one,
 		// and a completed session's status is a fact about what happened.
@@ -903,7 +952,7 @@ func (s *Store) CloseSession(ctx context.Context, id, status string, wantVersion
 		// which keeps a retried PATCH idempotent.
 		newStatus := storedStatus
 		var fa sql.NullString
-		if storedStatus == StatusRunning {
+		if IsLive(storedStatus) {
 			newStatus = status
 			fa = sql.NullString{String: now.UTC().Format(time.RFC3339Nano), Valid: true}
 		}
@@ -940,8 +989,9 @@ func lastEventAt(tx *sql.Tx, sessionID string) (time.Time, bool, error) {
 }
 
 // DeleteSession removes id's row and its whole event log. It refuses a
-// session whose status is still "running": nothing may delete a row a live
-// session goroutine is still appending events to. wantVersion enforces the
+// session whose status is still live — "running", or "creating" while a
+// worker is cloning into that directory: nothing may delete a row a live
+// session goroutine is still writing. wantVersion enforces the
 // optimistic-concurrency precondition (docs/DATA-API.md): it must equal the
 // row's current version, or VersionConflictError is returned, so a delete
 // based on a stale read refuses instead of deleting a row that changed since
@@ -961,7 +1011,7 @@ func (s *Store) DeleteSession(ctx context.Context, id string, wantVersion int) e
 		if version != wantVersion {
 			return &VersionConflictError{Resource: "session " + id, Want: wantVersion, Current: version}
 		}
-		if status == StatusRunning {
+		if IsLive(status) {
 			return &SessionRunningError{SessionID: id}
 		}
 		if _, err := tx.Exec(`DELETE FROM events WHERE session_id = ?`, id); err != nil {
@@ -1073,14 +1123,15 @@ func (s *Store) ListSessions(ctx context.Context) ([]Session, error) {
 }
 
 // SessionPageOptions is the filter and window one page of the session list is
-// read with (GET /api/sessions). Status "" means any; "running" means exactly
-// running; anything else is "finished" — everything not running. Query is a
+// read with (GET /api/sessions). Status "" means any; "running" means the
+// live set — running plus creating, the rows the in-flight list shows;
+// anything else is "finished" — everything not live. Query is a
 // case-insensitive substring across the three places the browser filter
 // searches: the session id, the workspace, and the work request id (via the
 // work_requests join). Limit and Offset window the rows in the store's own
 // order, created_at DESC.
 type SessionPageOptions struct {
-	Status string // "" (any), "running", or "finished" (everything not running)
+	Status string // "" (any), "running", or "finished" (everything not live)
 	Query  string // matches session id, workspace, or work request id; "" matches all
 	Limit  int
 	Offset int
@@ -1096,14 +1147,19 @@ func (s *Store) ListSessionsPage(ctx context.Context, opts SessionPageOptions) (
 	where := ""
 	var args []any
 	if opts.Status != "" {
-		// Built off the StatusRunning constant, never a string literal: the
-		// SQL and the Go branch cannot disagree about what "running" is.
+		// Built off the StatusRunning constant and IsLive, never string
+		// literals: the SQL and the Go branch cannot disagree about what
+		// "running" and "finished" mean. "running" is the live set —
+		// StatusRunning plus StatusCreating — and "finished" is its negation,
+		// so a preparing session shows up in the in-flight list, not the
+		// finished table.
 		if opts.Status == StatusRunning {
-			where += " AND status = ?"
+			where += " AND status IN (?, ?)"
+			args = append(args, StatusRunning, StatusCreating)
 		} else {
-			where += " AND status != ?"
+			where += " AND status NOT IN (?, ?)"
+			args = append(args, StatusRunning, StatusCreating)
 		}
-		args = append(args, StatusRunning)
 	}
 	if opts.Query != "" {
 		where += ` AND (id LIKE '%'||?||'%' OR workspace LIKE '%'||?||'%' OR

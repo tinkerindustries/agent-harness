@@ -164,6 +164,12 @@ are here.
   session creation, stored on the `sessions` row, and never recomputed. Adding a
   tool, reordering the array, or reworded prompt text is a cache-prefix change
   for every session (§3.2, [`docs/CACHE.md`](docs/CACHE.md)).
+- **A queue-driven run's session row exists before its workspace does.** The
+  worker creates the row as `creating` before cloning (§4.10), so the run is
+  visible on the session list and stoppable during preparation; `Runner.Run`
+  promotes it to `running` and writes the system prompt and tool schema once
+  the workspace is ready. "Live" is always `running` or `creating`
+  (`store.IsLive`; `isLive` in the frontend), never a literal comparison.
 - **The message array is append-only.** Nothing edits or removes an earlier
   message. Compaction starts a new session rather than rewriting one.
 - **`tool_choice` is never sent.** Thinking mode rejects `required` and
