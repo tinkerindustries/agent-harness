@@ -20,6 +20,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
+	"github.com/mrgeoffrich/deepseek-harness/internal/gemini/geminitest"
 	"github.com/mrgeoffrich/deepseek-harness/internal/kimi"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
@@ -792,7 +793,7 @@ func (c *int32Counter) next() int {
 func TestRunGeminiCostShowsInSessionTotal(t *testing.T) {
 	geminiSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"id":"i-1","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"[{}]"}]}],"usage":{"total_tokens":72,"total_input_tokens":15,"total_cached_tokens":0,"total_output_tokens":1,"total_thought_tokens":56}}`))
+		w.Write([]byte(geminitest.Answer("[{}]", `{"total_tokens":72,"total_input_tokens":15,"total_cached_tokens":0,"total_output_tokens":1,"total_thought_tokens":56}`)))
 	}))
 	defer geminiSrv.Close()
 	geminiClient := gemini.NewClient(geminiSrv.URL, gemini.WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }))
