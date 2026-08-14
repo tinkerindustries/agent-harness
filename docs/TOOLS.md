@@ -404,7 +404,7 @@ multi-capture comparison says which screenshot it is about, and the
 transcript's rendered image sits under the same name.
 
 The model comes from the `google.vision_model` setting (default
-`gemini-3.5-flash`) and the key from `google.api_key`, both read through the
+`gemini-3.7-flash`) and the key from `google.api_key`, both read through the
 settings table on every call, so either can change without a restart. The call
 has its own timeout (default 60s, `tools.reviewscreenshot_timeout`) rather than
 the 30-second tool default.

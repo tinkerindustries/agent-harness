@@ -4,6 +4,15 @@ Use case: a coding agent takes screenshots of a web page under development and
 sends them to a vision model to diagnose layout/design issues, feeding the
 diagnosis back into the coding loop for fixes.
 
+> **The default is no longer 3.5 Flash.** `google.vision_model` defaults to
+> `gemini-3.7-flash` as of 2026-08-14: it bills the same input as 3.5 Flash and
+> 2.4× less output, and it is the newer model at exactly this task. The
+> prompting guidance below was measured against 3.5 Flash and is kept under
+> that name because that is what it was measured on — the shapes it
+> recommends (schema-constrained JSON, the question last, explicit thinking
+> levels) are 3.x-wide, but no number in this file has been re-measured on
+> 3.7. Treat the measurements as indicative until they have been.
+
 ## Why Gemini 3.5 Flash / 3.5 Flash-Lite
 
 - Cheap, fast, strong at UI/screenshot/document understanding specifically
@@ -15,6 +24,10 @@ diagnosis back into the coding loop for fixes.
 - `gemini-3.6-flash` = newer, improved computer-use/OSWorld and multimodal
   document/chart parsing scores over 3.5 Flash — worth benchmarking if 3.5
   misses layout bugs.
+- `gemini-3.7-flash` = the current default. Priced identically to 3.6 Flash
+  ($0.75/$3.75 per 1M introductory, doubling on 2027-01-01), with Google's
+  launch claims leading on visual layout adherence — which is this tool's
+  whole job. See `configs/prices.json` for the rates and their capture date.
 
 ## Key differences from prompting older models (2.5 Flash, GPT-4o, etc.)
 

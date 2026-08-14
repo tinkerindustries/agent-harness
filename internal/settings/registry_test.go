@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
+	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/session"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
@@ -49,7 +51,7 @@ func TestRegistryDefaultsMatchTheConstantsTheyReplaced(t *testing.T) {
 		// the provider's account, and K3 is the outside-the-family judge the
 		// eval exists to get (docs/EVALS.md).
 		{settings.KeyJudgeModel, "kimi-k3"},
-		{settings.KeyGoogleVisionModel, "gemini-3.5-flash"},
+		{settings.KeyGoogleVisionModel, "gemini-3.7-flash"},
 		{settings.KeyWorkerPoolSize, "4"},
 		{settings.KeyWorkerConcurrencyPro, "500"},
 		{settings.KeyWorkerConcurrencyFlash, "2500"},
@@ -110,5 +112,60 @@ func TestRunBudgetKeysForModel(t *testing.T) {
 		if _, _, ok := settings.RunBudgetKeysForModel(model); ok {
 			t.Errorf("RunBudgetKeysForModel(%q) = ok, want no override", model)
 		}
+	}
+}
+
+// TestEveryDefaultModelIsPriced pins that every model this registry will
+// reach for without being told to has an entry in the shipped price table.
+//
+// The invariant lives here rather than in internal/pricing because the
+// registry is where the default is declared, and because internal/pricing
+// depends on nothing internal (internal/CLAUDE.md) — a test there naming a
+// setting would be the first thing to break that.
+//
+// It matters most for the vision model. Table.Cost errors on a model it has
+// no entry for, and ReviewScreenshot's caller keeps zero when it does
+// (internal/tools/reviewscreenshot.go), so a default naming an unpriced
+// model does not fail loudly: the call runs, bills real money, and reports
+// $0 for it in every figure the UI shows — the stat strip, the session row,
+// the Finished table. Nothing else in the build connects these two files,
+// so without this nothing would notice.
+func TestEveryDefaultModelIsPriced(t *testing.T) {
+	table, err := pricing.Load("../../configs/prices.json")
+	if err != nil {
+		t.Fatalf("load the shipped price table: %v", err)
+	}
+	for _, key := range []string{
+		settings.KeyDefaultModel,
+		settings.KeyDefaultFlashModel,
+		settings.KeyJudgeModel,
+		settings.KeyGoogleVisionModel,
+	} {
+		d, ok := settings.Lookup(key)
+		if !ok {
+			t.Errorf("registry has no %q", key)
+			continue
+		}
+		if _, ok := table.Models[d.Default]; !ok {
+			t.Errorf("%s defaults to %q, which configs/prices.json has no entry for — its spend would silently report as $0", key, d.Default)
+		}
+	}
+}
+
+// TestGeminiDefaultModelMatchesTheRegistry pins the two copies of the vision
+// default together. internal/gemini holds one as a constant, for the
+// fallback path in AskVision that has no settings resolver to ask; this
+// registry holds the other, which is what every ordinary call resolves
+// through. gemini's own doc comment already claims they agree, and a claim
+// in a comment is not a claim anything checks — so when they drift, the
+// runs that take the fallback quietly switch to a different model, and
+// those are the runs with the least context available to notice.
+func TestGeminiDefaultModelMatchesTheRegistry(t *testing.T) {
+	d, ok := settings.Lookup(settings.KeyGoogleVisionModel)
+	if !ok {
+		t.Fatalf("registry has no %q", settings.KeyGoogleVisionModel)
+	}
+	if gemini.DefaultModel != d.Default {
+		t.Errorf("gemini.DefaultModel = %q, registry default = %q — they must agree", gemini.DefaultModel, d.Default)
 	}
 }

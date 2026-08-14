@@ -15,12 +15,21 @@ import (
 // — the Gemini entries, whose prices come from Google's pricing page while
 // the table's top-level source names DeepSeek's. Absent per model, a cost
 // readout falls back to the table's top-level date.
+//
+// Note is a dated warning about the rate itself, for the case the Gemini
+// entries are in: a price that is correct today because it is promotional,
+// and that steps up on a known date with nothing in this package watching
+// for it. It is a real field rather than a comment because JSON has no
+// comments and an unknown key here is silently dropped — which is exactly
+// how gemini-3.6-flash sat at its standard rate through an introductory
+// period and over-reported every vision call by a factor of two.
 type ModelPrices struct {
 	InputCacheHitPerMillionUSD  float64 `json:"input_cache_hit_per_million_usd"`
 	InputCacheMissPerMillionUSD float64 `json:"input_cache_miss_per_million_usd"`
 	OutputPerMillionUSD         float64 `json:"output_per_million_usd"`
 	Source                      string  `json:"source,omitempty"`
 	CapturedAt                  string  `json:"captured_at,omitempty"`
+	Note                        string  `json:"note,omitempty"`
 }
 
 // Table is a price table read from config. CapturedAt records when the

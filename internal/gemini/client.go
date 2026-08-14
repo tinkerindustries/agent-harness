@@ -32,8 +32,11 @@ const DefaultBaseURL = "https://generativelanguage.googleapis.com"
 
 // DefaultModel is the vision model ReviewScreenshot uses when no
 // google.vision_model setting is stored; it is also internal/settings's
-// default for that key.
-const DefaultModel = "gemini-3.5-flash"
+// default for that key. The two are pinned equal by
+// TestGeminiDefaultModelMatchesTheRegistry — this constant is the fallback
+// on a path that could not reach the store, so a disagreement between them
+// is a silent change of model on exactly the runs least able to report it.
+const DefaultModel = "gemini-3.7-flash"
 
 // Thinking levels for generation_config.thinking_level (docs/gemini-3.5
 // -flash-ui-review-prompting.md, "Control reasoning depth").

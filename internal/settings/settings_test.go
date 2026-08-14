@@ -107,7 +107,7 @@ func TestResolverRejectsUnknownKeys(t *testing.T) {
 
 // TestGoogleKeysPins the two phase-2 resolver methods: GoogleAPIKey reads
 // the stored key ("" when unset) and GoogleVisionModel defaults to
-// gemini-3.5-flash when unset and honours a stored value.
+// gemini-3.7-flash when unset and honours a stored value.
 func TestGoogleKeys(t *testing.T) {
 	r := NewResolver(&fakeStore{values: map[string]string{}})
 	ctx := context.Background()
@@ -118,8 +118,8 @@ func TestGoogleKeys(t *testing.T) {
 	}
 
 	model, err := r.GoogleVisionModel(ctx)
-	if err != nil || model != "gemini-3.5-flash" {
-		t.Fatalf("GoogleVisionModel on empty store = %q err=%v, want gemini-3.5-flash nil", model, err)
+	if err != nil || model != "gemini-3.7-flash" {
+		t.Fatalf("GoogleVisionModel on empty store = %q err=%v, want gemini-3.7-flash nil", model, err)
 	}
 
 	if err := r.Set(ctx, KeyGoogleAPIKey, "gk-abc"); err != nil {
