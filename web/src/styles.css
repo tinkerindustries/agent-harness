@@ -4536,6 +4536,18 @@ kbd {
   .topnav-right [data-slot="input-wrapper"] {
     flex: 1 0 100%;
   }
+  /* The search input sits between the start trigger and the LIVE badge in
+     the DOM, so with the input taking a full line the badge wraps onto a
+     row of its own. Reordering the three lets the trigger and the badge
+     share the line above the search, which is the intended two-row layout
+     (only the session list has a search; the other screens' slots are
+     unaffected). */
+  .topnav-right [data-slot="input-wrapper"] {
+    order: 3;
+  }
+  .topnav-right [data-slot="input-wrapper"] + * {
+    order: 2;
+  }
 
   /* The in-flight card's headline row: the badge and the model name share
      the first line, and the two figures (elapsed, sub-turns) drop onto a
@@ -4559,14 +4571,18 @@ kbd {
      name on its own line. The cells are flex items with bases that wrap
      into those lines; a row that grows or shrinks keeps the pairs equal
      width, and the description column takes what the badge does not. */
-  .session-table,
-  .session-table tbody {
+  /* The finished table, as stacked cards. Scoped to the session list's own
+     table (inside .table-scroll): the eval tables reuse the .session-table
+     class and must stay tables in their own scroll container, with their
+     headers on. */
+  .table-scroll .session-table,
+  .table-scroll .session-table tbody {
     display: block;
   }
 
   /* Visually hidden rather than display:none, so a screen reader still
      hears the column names the visible labels below echo. */
-  .session-table thead {
+  .table-scroll .session-table thead {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -4578,7 +4594,7 @@ kbd {
     border-width: 0;
   }
 
-  .session-table tr {
+  .table-scroll .session-table tr {
     display: flex;
     flex-wrap: wrap;
     gap: 4px 12px;
@@ -4589,14 +4605,14 @@ kbd {
     margin-bottom: 10px;
   }
 
-  .session-table td {
+  .table-scroll .session-table td {
     border: none;
     padding: 0;
     white-space: normal;
   }
 
   /* The badge sits beside the session text, level with its title. */
-  .session-table td:nth-child(1) {
+  .table-scroll .session-table td:nth-child(1) {
     flex: 0 0 auto;
     align-self: flex-start;
     padding-top: 2px;
@@ -4608,29 +4624,29 @@ kbd {
      DONE badge and pushed the title onto its own line) and pushes every
      figure below. A badge wider than that — COMPACTED — wraps the title
      onto its own line rather than squeezing it. */
-  .session-table td:nth-child(2) {
+  .table-scroll .session-table td:nth-child(2) {
     flex: 1 1 78%;
     min-width: 0;
   }
 
   /* Elapsed and cost share a line as equal halves; sub-turns and cache
      do the same on the line below the model. */
-  .session-table td:nth-child(3),
-  .session-table td:nth-child(4),
-  .session-table td:nth-child(6),
-  .session-table td:nth-child(7) {
+  .table-scroll .session-table td:nth-child(3),
+  .table-scroll .session-table td:nth-child(4),
+  .table-scroll .session-table td:nth-child(6),
+  .table-scroll .session-table td:nth-child(7) {
     flex: 1 1 40%;
   }
 
   /* The model name spans the card on its own line. */
-  .session-table td:nth-child(5) {
+  .table-scroll .session-table td:nth-child(5) {
     flex: 1 1 100%;
   }
 
   /* The column name above the figure, in the design's panel-label
      vocabulary, rendered only at this width (the header names the same
      columns on the wide layout). */
-  .session-table td[data-label]::before {
+  .table-scroll .session-table td[data-label]::before {
     content: attr(data-label);
     display: block;
     font-size: 0.6875rem;
@@ -4642,7 +4658,7 @@ kbd {
 
   /* The empty-row message is a single cell of its own row, not one of the
      seven; keep it full-width and centred. */
-  .session-table tr .empty-row {
+  .table-scroll .session-table tr .empty-row {
     flex: 1 1 100%;
     text-align: center;
   }
@@ -4930,3 +4946,361 @@ kbd {
   font-size: 0.75em;
   font-variant-numeric: tabular-nums;
 }
+
+/* The statusline's keyboard hints, wrapped in ChatComposer so a phone can
+   drop them without the numbers shifting (a phone has no esc or shift-enter
+   to advertise). display: contents keeps the wrapper invisible to the
+   desktop flex layout — the spans stay direct flex items, so this changes
+   nothing above 560px. */
+.statusline .hints {
+  display: contents;
+}
+
+/* ---------- phone pass (≤560px) ----------
+   The phone block above stacks the finished table and reflows the nav, but
+   a 390px phone still gets a nav stacked five rows tall, 26-28px tap
+   targets, eval tables whose headers vanish while the table still scrolls
+   sideways, operations tables squeezed into a scroll strip, and a composer
+   whose Send control is thumb-sized. This pass fixes those — tap targets
+   to a thumb, the eval list and operations tables to the same stacked-card
+   shape the finished table already has, eval-run tables keeping their
+   headers inside their scroller, and a touch-sized composer. Every rule is
+   inside the media query; the wide layout is untouched. */
+@media (max-width: 560px) {
+  /* --- the nav: brand and links on one row, controls on the next ---
+     At this width the wordmark, the four links, the start trigger, the
+     search and the badge wrap into five separate rows (~150px of chrome).
+     Tightening the links' type and padding pulls brand + links onto a
+     single 44px-tall row; the right slot keeps its own row below. */
+  .topnav .wordmark {
+    font-size: 0.75rem;
+    margin-right: 6px;
+  }
+  .navlink,
+  .navback {
+    height: 44px;
+    padding: 0 6px;
+    font-size: 0.75rem;
+  }
+  .topnav .nav-search {
+    height: 44px;
+  }
+  /* The sticky nav is taller now; anchors and the page-mode rail must clear
+     it by the same amount (--nav-height is the sticky nav's height in the
+     base layer). 8px padding twice + 44px links + the bottom rule. */
+  :root {
+    --nav-height: 61px;
+  }
+
+  /* --- tap targets: every interactive control to a thumb --- */
+  [data-slot="button"] {
+    min-height: 44px;
+  }
+  [data-slot="toggle"],
+  [data-slot="toggle-group-item"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  .send {
+    height: 44px;
+    padding: 0 16px;
+  }
+  .box textarea {
+    min-height: 44px;
+  }
+  .jump {
+    height: 44px;
+    padding: 0 16px;
+  }
+  .chip {
+    min-height: 44px;
+    padding: 0 14px;
+  }
+  .caret-btn {
+    min-width: 44px;
+  }
+  /* The sub-turn number is the transcript's coordinate system, so it keeps
+     its row on a phone too — but it is an anchor, and an anchor smaller
+     than a thumb is a dead link. Padding grows the hit area without moving
+     the number out of the turn's own vertical rhythm. */
+  .gutter {
+    min-height: 44px;
+    padding: 12px 0 8px;
+  }
+  .opening-summary {
+    min-height: 44px;
+    padding: 6px 0;
+  }
+  .think > summary {
+    min-height: 44px;
+    padding: 10px 8px;
+  }
+  .tool > summary {
+    min-height: 44px;
+    padding: 10px 12px;
+  }
+  .subturn-header {
+    min-height: 44px;
+  }
+  .elided {
+    min-height: 44px;
+    padding: 10px 12px;
+  }
+  /* The shortened-path control is a button that lives inline in a row of
+     text; on a phone it grows to a square thumb, which the stacked ops
+     cards have room for. */
+  .path-elide {
+    min-height: 44px;
+    min-width: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    vertical-align: middle;
+    padding: 0 6px;
+  }
+  .msg-user .dismiss {
+    min-height: 44px;
+    min-width: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .eval-session-link {
+    display: inline-block;
+    min-height: 44px;
+    padding: 10px 4px;
+  }
+  /* The provenance strip's eval link and the skills disclosure sit in
+     running text but are still links; a thumb needs them taller. */
+  .prov a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 4px;
+  }
+  .skills-summary {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+  .follow {
+    min-height: 44px;
+    padding: 0 16px;
+  }
+  /* The result payload's disclosure is the last interactive thing on the
+     watch page; it gets a thumb too. */
+  .result-json > summary {
+    min-height: 44px;
+    padding: 10px 12px;
+  }
+  .start-select {
+    height: 44px;
+  }
+  .settings-input {
+    min-width: 0;
+    flex-basis: 100%;
+  }
+
+  /* --- the composer --- */
+  .box {
+    padding: 8px 8px 8px 12px;
+  }
+  .queued {
+    line-height: 1.5;
+  }
+  /* The status line's live numbers wrap onto their own lines when they do
+     not fit; the keyboard hints are desktop-only and go entirely. */
+  .statusline {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+  .footer .statusline .hints {
+    display: none;
+  }
+
+  /* --- eval list: the finished table's stacked-card treatment ---
+     The eval rows carry the same data-label attributes the session table's
+     cells do; here they become cards: badge and suite on the first line,
+     the compared variants and the run count on their own lines, cost and
+     elapsed as labeled halves, the headline spanning the card. */
+  .eval-list .session-table,
+  .eval-list .session-table tbody {
+    display: block;
+  }
+  /* Visually hidden rather than display:none, so a screen reader still
+     hears the column names the visible labels below echo. */
+  .eval-list .session-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+  .eval-list .session-table tr {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) - 2px);
+    background: var(--card);
+    padding: 10px 12px;
+    margin-bottom: 10px;
+  }
+  .eval-list .session-table td {
+    border: none;
+    padding: 0;
+    white-space: normal;
+    min-width: 0;
+  }
+  .eval-list .session-table td:nth-child(1) {
+    flex: 0 0 auto;
+    align-self: flex-start;
+    padding-top: 2px;
+  }
+  .eval-list .session-table td:nth-child(2) {
+    flex: 1 1 60%;
+  }
+  .eval-list .session-table td:nth-child(3),
+  .eval-list .session-table td:nth-child(4),
+  .eval-list .session-table td:nth-child(7) {
+    flex: 1 1 100%;
+  }
+  .eval-list .session-table td:nth-child(5),
+  .eval-list .session-table td:nth-child(6) {
+    flex: 1 1 40%;
+  }
+  .eval-list .session-table td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.6875rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+    margin-bottom: 1px;
+  }
+
+  /* The eval run's comparison table keeps its headers and scrolls inside
+     .eval-table-scroll — horizontal scroll is the treatment for dense
+     numeric tables. The first column is the primary content; give it a
+     floor so the table's natural width starts from a readable metric
+     name. */
+  .eval-run .eval-comparison .eval-metric {
+    min-width: 11em;
+  }
+
+  /* --- operations: the same stacked-card treatment ---
+     The ops tables carry one long value per row (a session id, a request
+     id, a workspace path) and the Close/Delete controls. Squeezed into a
+     390px scroll strip the long value truncates and the controls sit off
+     the right edge; as cards the value gets the row, the labelled figures
+     wrap beneath, and the actions row takes the card's width with the
+     buttons at its end. */
+  .ops-table,
+  .ops-table tbody {
+    display: block;
+  }
+  .ops-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+  .ops-table tr {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) - 2px);
+    background: var(--card);
+    padding: 10px 12px;
+    margin-bottom: 10px;
+  }
+  .ops-table td {
+    border: none;
+    padding: 0;
+    white-space: normal;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .ops-table td:first-child {
+    flex: 1 1 100%;
+  }
+  /* The card's session subtitle is the row's primary identifier; on a
+     phone it wraps onto its own lines instead of ellipsizing mid-path (the
+     ⋯/ control still shortens it when collapsed). */
+  .ops-table .sess-sub {
+    white-space: normal;
+    overflow: visible;
+  }
+  .ops-table td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.6875rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+    margin-bottom: 1px;
+  }
+  /* The actions row: its own dashed rule, buttons at the card's end. The
+     confirm block replaces the buttons inline and spans the card. */
+  .ops-table td:last-child {
+    flex: 1 1 100%;
+    margin-top: 4px;
+    padding-top: 8px;
+    border-top: 1px dashed var(--border);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .ops-table .ops-actions {
+    align-self: flex-end;
+  }
+  .ops-table .ops-confirm {
+    width: 100%;
+  }
+
+  /* --- phone type scale ---
+     The prose is the most-read thing on the page; a phone holds it at arm's
+     length, so it gets a step up and the code that surrounds it a half
+     step. Everything else keeps the desktop size — this is a refinement of
+     the existing scale, not a re-skin. */
+  .say {
+    font-size: 1rem;
+    line-height: 1.7;
+  }
+  .tool-out {
+    font-size: 0.8125rem;
+  }
+  .code-block {
+    font-size: 0.875rem;
+  }
+  .block-pre {
+    font-size: 0.875rem;
+  }
+  .msg-user .body {
+    font-size: 0.875rem;
+  }
+}
+
+/* ---------- narrow-screen refinements (≤720px) ----------
+   The 720px block above handles the nav wrap and the stream gutters; these
+   are the follow-ups a phone needs that a 700px tablet does not. */
+@media (max-width: 720px) {
+  /* The plan-mini band is a full-width band; its gutter should match the
+     stream's, not the desktop band's 20px. */
+  .plan-mini {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+}
+
