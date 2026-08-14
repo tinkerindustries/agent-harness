@@ -88,7 +88,6 @@ interface DayStats {
   running: number;
   spendUsd: number;
   medianMs: number | null;
-  count: number;
   totalMs: number | null;
 }
 
@@ -99,8 +98,8 @@ interface DayStats {
 // finished-today count come straight from the list, spend, the median and
 // the total are reductions over it — and the duration figures cover only
 // sessions that have a finished_at (a running session's duration is not a
-// duration yet). The median and the total are over the same set, so one
-// count serves both cards' small print.
+// duration yet). The median and the total are over the same set; the strip
+// shows them as the two figures, with no count small print under either.
 function computeDayStats(sessions: SessionState[], dayStartMs: number): DayStats {
   let running = 0;
   let spendUsd = 0;
@@ -119,7 +118,6 @@ function computeDayStats(sessions: SessionState[], dayStartMs: number): DayStats
     running,
     spendUsd,
     medianMs: median(durations),
-    count: durations.length,
     totalMs: durations.length > 0 ? durations.reduce((a, b) => a + b, 0) : null,
   };
 }
@@ -413,11 +411,12 @@ export function SessionListScreen({ onOpen }: Props) {
   );
 }
 
-// StatStrip is the four cards above the queue health bar: Running (of
+// StatStrip is the four cards above the queue banner: Running (of
 // the pool's slots), Spend today, Median duration today, Total time
-// today. Each value carries the qualifying small print under it — the
-// denominator, the count the
-// duration figures are over — the way the drawing's cards do, so a
+// today. The Running card carries the pool-size denominator as its only
+// small print — the running count means nothing without it; the duration
+// cards show their figures bare, with no count under either — the way the
+// drawing's cards do, so a
 // rolled-up figure never floats free of what it is made of.
 // Every figure here is a Ticker: these four move while an operator watches the
 // list — a run claims a slot, a sub-turn adds to the day's spend — and a number
