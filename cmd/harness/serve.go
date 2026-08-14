@@ -15,6 +15,7 @@ import (
 
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/mrgeoffrich/deepseek-harness/assets"
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/config"
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
@@ -241,6 +242,10 @@ func runServe(ctx context.Context, args []string) error {
 		Size:                workerPoolSize,
 		MaxDeliveryAttempts: maxDeliveryAttempts,
 		Settings:            res,
+		// The skills this build ships. Composition is the only place that
+		// names them, so a deployment that wants none drops this line rather
+		// than editing the pool (internal/skills.Install, assets/embed.go).
+		SkillsFS: assets.AgentSkills(),
 	}
 
 	static, err := httpapi.NewStaticHandler(cfg.DevFrontendURL)

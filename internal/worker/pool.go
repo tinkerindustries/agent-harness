@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"path/filepath"
 	"runtime/debug"
@@ -22,6 +23,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 	"github.com/mrgeoffrich/deepseek-harness/internal/session"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
+	"github.com/mrgeoffrich/deepseek-harness/internal/skills"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 	"github.com/mrgeoffrich/deepseek-harness/internal/workspace"
@@ -96,6 +98,11 @@ type Pool struct {
 	// materialised images (workspace.Attachment), fetched from the store by
 	// id before this is called.
 	PrepareWorkspace func(ctx context.Context, root, sessionID string, repos []queue.Repo, attachments []workspace.Attachment) (string, error)
+
+	// SkillsFS is the skill tree every prepared workspace gets a copy of,
+	// supplied by cmd/harness as assets.AgentSkills(). Nil ships none, which
+	// is what every test that does not care about skills leaves it as.
+	SkillsFS fs.FS
 
 	// StopGracePeriod overrides run.stop_grace_period for a stop's
 	// force-finish escalation. Zero (the production default) resolves the
@@ -707,6 +714,19 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, releaseSlot func()) {
 		result := setupFailedResult(req.RequestID, sessionID, started, err)
 		p.finish(msg, req.RequestID, sessionID, result, false)
 		return
+	}
+
+	// The skills this build ships, written into the workspace's own skills/
+	// directory so discovery lists them beside whatever the cloned
+	// repositories carry (internal/skills.Install). It runs after preparation
+	// rather than inside it so that a test overriding PrepareWorkspace still
+	// exercises this, and it never fails the run: a skill that did not land
+	// is one catalogue entry missing, and the task the request asked for does
+	// not depend on it.
+	if n, err := skills.Install(p.SkillsFS, ws); err != nil {
+		log.Printf("worker: %s: session %s: installing shipped skills: %v", req.RequestID, sessionID, err)
+	} else if n > 0 {
+		log.Printf("worker: %s: session %s: installed %d shipped skill(s)", req.RequestID, sessionID, n)
 	}
 
 	runOpts.Workspace = ws
