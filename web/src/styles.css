@@ -1177,7 +1177,9 @@ pre {
 
 /* The plan list as the in-flight card renders it: the same todo-item glyphs
    and status classes PlanList renders in the transcript panel, drawn at the
-   card's density with the running item marked by a left rule and a tint.
+   card's density with the running item found by its heavier weight alone —
+   no band, no left rule, so the current step stays findable without
+   shouting over the plan.
    Every rule is scoped under .run-plan so the transcript's own
    `.plan-panel ul` rendering — and its strikethrough, which the card
    deliberately drops — is untouched. */
@@ -1214,8 +1216,11 @@ pre {
 }
 
 .run-plan .plan-list li.todo-in_progress {
-  border-left-color: var(--status-running);
-  background: var(--status-running-bg);
+  /* The current step is found by weight alone: font-weight 500 keeps it
+     standing out from the pending and completed items without the blue band
+     and left rule the transcript's plan panel still carries. The transparent
+     left border from the base .todo-item rule stays, so nothing shifts
+     sideways when the highlight is gone. */
   font-weight: 500;
 }
 
