@@ -15,7 +15,7 @@ func (svc *Service) registerResources(server *mcpsdk.Server) {
 	server.AddResource(&mcpsdk.Resource{
 		URI:         "harness://sessions",
 		Name:        "sessions",
-		Description: "The harness's session list (proxies GET /api/sessions).",
+		Description: "The harness's session list, newest first, as the paginated envelope GET /api/sessions returns — {items, total, limit, offset, has_more, next} (proxies GET /api/sessions untouched).",
 		MIMEType:    "application/json",
 	}, svc.readSessions)
 
