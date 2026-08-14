@@ -344,7 +344,7 @@ func RenderSystemPrompt() string {
 // its own smaller array, with no replacements entry needed to keep the
 // inventory truthful.
 func RenderSystemPromptFor(model, variant string) (string, error) {
-	base := renderSystemPromptFor(toolNamesInOrder(tools.DefinitionsFor(model)), seesImages(model))
+	base := renderSystemPromptFor(toolNamesInOrder(tools.DefinitionsForVariant(model, variant)), seesImages(model))
 	return promptvariant.Apply(variant, base)
 }
 

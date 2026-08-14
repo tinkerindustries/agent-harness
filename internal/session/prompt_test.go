@@ -109,6 +109,67 @@ func containsSorted(sorted []string, name string) bool {
 	return i < len(sorted) && sorted[i] == name
 }
 
+// TestVariantDroppedToolRendersAHeadConsistentWithItsArray pins the payoff
+// of tool-dropping variants: a variant that subtracts a tool needs no
+// replacements entry, because the head is assembled from the session's
+// tool array (tools.DefinitionsForVariant) rather than from stored text.
+// Dropping Bash names one fewer tool in the inventory, corrects the count
+// word, and takes every rule gated on Bash — the shell rule, the batch
+// rule — out of the text, while every rule not about Bash survives
+// untouched. The plan group stays: it is gated on the four plan tools, not
+// on every word of its text, so its example mention of a "long run of Bash
+// or Edit calls" survives a no-bash head by design.
+func TestVariantDroppedToolRendersAHeadConsistentWithItsArray(t *testing.T) {
+	base, err := RenderSystemPromptFor("deepseek-v4-pro", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := RenderSystemPromptFor("deepseek-v4-pro", "no-bash")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	baseNames, _ := inventoryFromPrompt(t, base)
+	names, countWord := inventoryFromPrompt(t, got)
+
+	if len(names) != len(baseNames)-1 {
+		t.Fatalf("no-bash head names %d tools, want %d (one fewer than base)", len(names), len(baseNames)-1)
+	}
+	if containsSorted(names, "Bash") {
+		t.Error("no-bash inventory still names Bash")
+	}
+	// The inventory must agree with the array the variant's session is
+	// actually sent — the whole point of generating it from the array.
+	array := tools.DefinitionsForVariant("deepseek-v4-pro", "no-bash")
+	if len(array) != len(names) {
+		t.Fatalf("no-bash head names %d tools but the variant's array has %d", len(names), len(array))
+	}
+	if word := numberWord(len(array)); countWord != word {
+		t.Errorf("no-bash head says %q are always available, want %q for a %d-tool array",
+			countWord, word, len(array))
+	}
+
+	// Bash's rules are gone with the tool: the shell rule and the batch
+	// rule are both gated on Bash.
+	for _, gone := range []string{"- The shell is bash in an Alpine container",
+		"- Send independent tool calls together in one message. Several Reads, a Grep"} {
+		if strings.Contains(got, gone) {
+			t.Errorf("no-bash head still carries the rule %q", gone)
+		}
+	}
+	// Everything not about Bash survives untouched.
+	for _, keep := range []string{
+		"- Read a file before Write-ing over it or Edit-ing it. Edit requires an",
+		"- Prefer Grep and Glob to orient before reading whole files.",
+		"- A task that takes three or more steps gets a plan. Call TaskCreate once, at",
+		"- Tool calls cannot be forced. When the task is done, call Complete",
+	} {
+		if !strings.Contains(got, keep) {
+			t.Errorf("no-bash head lost the rule %q", keep)
+		}
+	}
+}
+
 // TestKimiStepsVariantAppliesToTheKimiHead pins the wording variant to the
 // head the eval measures it against: the arm is base vs kimi-steps, both on
 // kimi-k3, so the variant must render on the Kimi head, differ from it, and

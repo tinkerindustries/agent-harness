@@ -249,7 +249,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	// wall time the run waited on the API.
 	streamStart := time.Now()
 	live := newLiveSink(r.Hub, sess.ID, subTurn)
-	reasoning, content, assembler, finishReason, usage, err := r.stream(httplog.WithSessionID(ctx, sess.ID), sess.Model, messages, opts.Effort, opts.Thinking, opts.MaxTokens, live)
+	reasoning, content, assembler, finishReason, usage, err := r.stream(httplog.WithSessionID(ctx, sess.ID), sess.Model, opts.PromptVariant, messages, opts.Effort, opts.Thinking, opts.MaxTokens, live)
 	if err != nil {
 		return subTurnOutcome{}, fmt.Errorf("session: sub-turn %d: %w", subTurn, err)
 	}
@@ -266,7 +266,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	var starved *wire.Usage
 	if r.clientFor(sess.Model).IsReasoningStarved(finishReason, content) && len(assembler.Finalize()) == 0 {
 		starved = usage
-		reasoning, content, assembler, finishReason, usage, err = r.stream(ctx, sess.Model, messages, opts.Effort, opts.Thinking, opts.MaxTokens*2, live)
+		reasoning, content, assembler, finishReason, usage, err = r.stream(ctx, sess.Model, opts.PromptVariant, messages, opts.Effort, opts.Thinking, opts.MaxTokens*2, live)
 		if err != nil {
 			return subTurnOutcome{}, fmt.Errorf("session: sub-turn %d retry: %w", subTurn, err)
 		}
@@ -491,7 +491,14 @@ func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestMessa
 // that implementation and any HTTP-level retry resends those identical
 // bytes (docs/CACHE.md). This function does not re-serialise between
 // attempts.
-func (r *Runner) stream(ctx context.Context, model string, messages []wire.Message, effort string, thinking bool, maxTokens int, live *liveSink) (
+//
+// The tool list is resolved variant-aware: a tool-dropping variant's
+// session sends the same smaller array on every request
+// (tools.DefinitionsForVariant), matching the head it renders and the
+// schema stored on its row. The variant string comes from the run's
+// options; a resumed session has none and sends the provider's full array,
+// exactly as it always has.
+func (r *Runner) stream(ctx context.Context, model, variant string, messages []wire.Message, effort string, thinking bool, maxTokens int, live *liveSink) (
 	reasoning, content string, assembler *wire.ToolCallAssembler, finishReason string, usage *wire.Usage, err error) {
 
 	intent := wire.ChatIntent{
@@ -500,7 +507,7 @@ func (r *Runner) stream(ctx context.Context, model string, messages []wire.Messa
 		Effort:    effort,
 		Thinking:  thinking,
 		MaxTokens: maxTokens,
-		Tools:     tools.DefinitionsFor(model),
+		Tools:     tools.DefinitionsForVariant(model, variant),
 	}
 
 	release, err := r.acquireModelSlot(ctx, model)

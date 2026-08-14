@@ -3,6 +3,7 @@ package tools
 import (
 	"encoding/json"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/promptvariant"
 	"github.com/mrgeoffrich/deepseek-harness/internal/provider"
 	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
@@ -295,4 +296,31 @@ func DefinitionsForProvider(p provider.Name) []wire.Tool {
 	default:
 		return definitionsDeepSeek
 	}
+}
+
+// DefinitionsForVariant resolves the tool array for the provider serving
+// model with the named variant's tool subtractions applied
+// (internal/promptvariant.ToolsDroppedBy): the provider's frozen array,
+// minus every tool the variant drops, in the same order. A variant that
+// drops nothing — the shipped prompt, every wording variant — returns the
+// frozen array itself, and the head it renders is the provider's shipped
+// head byte for byte (TestPromptGolden). Subtraction only: the `without`
+// helper can only remove tools, so a variant can never make a session's
+// array carry a tool that does not exist.
+//
+// The session resolves its array through this function wherever it needs
+// one — the schema stored on the session row (internal/session/runner.go)
+// and every request's tool list (internal/session/turn.go) — so a
+// tool-dropping variant's array and the head rendered from it can never
+// disagree. One caveat: a resumed session does not know its variant (the
+// variant name is not persisted on the session row), so Resume resolves
+// with the empty variant and sends the provider's full array, exactly as
+// it always has for a base session.
+func DefinitionsForVariant(model, variant string) []wire.Tool {
+	defs := DefinitionsFor(model)
+	dropped := promptvariant.ToolsDroppedBy(variant)
+	if len(dropped) == 0 {
+		return defs
+	}
+	return without(defs, dropped...)
 }
