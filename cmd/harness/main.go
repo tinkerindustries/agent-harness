@@ -449,15 +449,21 @@ func runAsk(ctx context.Context, args []string) error {
 	// DeepSeek reports the two figures, Kimi a single cached_tokens — so the
 	// split comes through the seam (internal/session/client.go).
 	cacheHit, cacheMiss := client.UsageSplit(usage)
-	cost, costErr := priceTable.Cost(resolvedModel, cacheHit, cacheMiss, usage.CompletionTokens)
+	// `start` is when the request went out, which is the instant the rate is
+	// chosen by from 2026-08-16 — not now, which is after the response came
+	// back and can be the other side of a peak boundary.
+	cost, rateTier, costErr := priceTable.Cost(resolvedModel, start, cacheHit, cacheMiss, usage.CompletionTokens)
 
 	fmt.Printf("model          %s (effort %s, %s)\n", resolvedModel, resolvedEffort, reasoningClaim(resolvedModel, *thinking))
 	fmt.Printf("prompt tokens  %d (cache hit %d / cache miss %d, %s)\n", usage.PromptTokens, cacheHit, cacheMiss, cacheHitRate(cacheHit, cacheMiss))
 	fmt.Printf("completion     %d (reasoning %d / answer %d)\n", usage.CompletionTokens, reasoningTokens, answerTokens)
 	if costErr == nil {
-		fmt.Printf("cost           $%.6f USD (price table captured %s)\n", cost, priceTable.CapturedAt)
+		fmt.Printf("cost           $%.6f USD (price table captured %s%s)\n", cost, priceTable.CapturedAt, rateTierNote(rateTier))
 	} else {
 		fmt.Printf("cost           unknown: %v\n", costErr)
+	}
+	if line := peakWindowLine(priceTable, start); line != "" {
+		fmt.Printf("peak hours     %s\n", line)
 	}
 	fmt.Printf("finish reason  %s\n", finishReason)
 	fmt.Printf("wall clock     %s\n", elapsed.Round(time.Millisecond))
@@ -557,4 +563,58 @@ func runBalance(ctx context.Context, args []string) error {
 		fmt.Printf("%s  total=%s  granted=%s  topped_up=%s\n", b.Currency, b.TotalBalance, b.GrantedBalance, b.ToppedUpBalance)
 	}
 	return nil
+}
+
+// rateTierNote names the tier a cost was computed at, for the ask command's
+// cost line. Flat says nothing: before DeepSeek's split, and for every
+// provider that never had one, there is no other tier to have been on and
+// the note would be noise on every run.
+func rateTierNote(tier pricing.Tier) string {
+	switch tier {
+	case pricing.TierPeak:
+		return ", peak rate"
+	case pricing.TierOffPeak:
+		return ", off-peak rate"
+	default:
+		return ""
+	}
+}
+
+// peakWindowLine renders the price table's peak windows in the machine's own
+// timezone, or "" when there is no schedule to render.
+//
+// Local, not UTC, and this is the one place the operator's zone belongs. What
+// a token costs is decided on DeepSeek's clock and nothing about that is
+// negotiable by where you are sitting — internal/pricing prices in UTC and
+// says so. But "01:00-04:00 UTC" is not a fact anybody can act on, and
+// "11:00-14:00" is: it tells an operator at UTC+10 that DeepSeek's expensive
+// hours are the middle of their working day, which is the whole reason to
+// print it. Both are shown, because the UTC pair is what the pricing page
+// says and the local pair is what to do about it.
+func peakWindowLine(t *pricing.Table, at time.Time) string {
+	if t == nil || t.Schedule == nil {
+		return ""
+	}
+	s := t.Schedule
+	local := s.LocalWindows(time.Local)
+	parts := make([]string, 0, len(local))
+	for _, w := range local {
+		part := fmt.Sprintf("%s-%s", w.From, w.To)
+		if w.Crossed {
+			// A range that ends on the next day reads as an ordinary evening
+			// unless it says otherwise.
+			part += " (+1d)"
+		}
+		parts = append(parts, part)
+	}
+	utc := make([]string, 0, len(s.PeakWindowsUTC))
+	for _, w := range s.PeakWindowsUTC {
+		utc = append(utc, fmt.Sprintf("%s-%s", w.From, w.To))
+	}
+	zone, _ := at.In(time.Local).Zone()
+	line := fmt.Sprintf("%s %s (%s UTC)", strings.Join(parts, ", "), zone, strings.Join(utc, ", "))
+	if at.Before(s.EffectiveAt) {
+		line += fmt.Sprintf(" — from %s", s.EffectiveAt.In(time.Local).Format("2006-01-02 15:04 MST"))
+	}
+	return line
 }

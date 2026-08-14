@@ -300,7 +300,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	// messages, so observing twice would double-count one prefix.
 	if starved != nil {
 		inputs = append(inputs, store.EventInput{Kind: store.KindUsage,
-			Payload: r.buildUsagePayload(sess.Model, starved, nil, nil, subTurn, 1)})
+			Payload: r.buildUsagePayload(sess.Model, starved, nil, nil, subTurn, 1, streamStart)})
 	}
 	if reasoning != "" {
 		inputs = append(inputs, store.EventInput{Kind: store.KindReasoningDelta, Payload: store.ReasoningDeltaPayload{Text: reasoning}})
@@ -323,7 +323,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	if starved != nil {
 		attempt = 2
 	}
-	usagePayload := r.buildUsagePayload(sess.Model, usage, messages, detector, subTurn, attempt)
+	usagePayload := r.buildUsagePayload(sess.Model, usage, messages, detector, subTurn, attempt, streamStart)
 	inputs = append(inputs, store.EventInput{Kind: store.KindUsage, Payload: usagePayload})
 
 	appended, err := r.Store.AppendEvents(ctx, sess.ID, inputs)
@@ -433,7 +433,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 // detector skips the churn report, for an attempt whose prefix the next turn
 // will not build on.
 func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestMessages []wire.Message,
-	detector *cache.Detector, subTurn, attempt int) store.UsagePayload {
+	detector *cache.Detector, subTurn, attempt int, sentAt time.Time) store.UsagePayload {
 
 	if usage == nil {
 		return store.UsagePayload{SubTurn: subTurn, Attempt: attempt}
@@ -450,10 +450,16 @@ func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestMessa
 	// over-prediction, not a property of its cache (docs/OBSERVED.md).
 	client := r.clientFor(model)
 	cacheHit, cacheMiss := client.UsageSplit(usage)
+	// sentAt, not time.Now(): from 2026-08-16 DeepSeek bills by the hour the
+	// request was made in (configs/prices.json rate_schedule), and a sub-turn
+	// that starts at 03:58 UTC and returns at 04:03 has crossed out of a peak
+	// window by the time this runs. The tokens were submitted at the start.
 	cost := 0.0
+	rateTier := ""
 	if r.Prices != nil {
-		if c, err := r.Prices.Cost(model, cacheHit, cacheMiss, usage.CompletionTokens); err == nil {
+		if c, tier, err := r.Prices.Cost(model, sentAt, cacheHit, cacheMiss, usage.CompletionTokens); err == nil {
 			cost = c
+			rateTier = string(tier)
 		}
 	}
 	var report cache.Report
@@ -479,6 +485,7 @@ func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestMessa
 		CompletionTokens:      usage.CompletionTokens,
 		ReasoningTokens:       reasoningTokens,
 		CostUSD:               cost,
+		RateTier:              rateTier,
 		ExpectedMissTokens:    report.ExpectedMissTokens,
 		ChurnPointIndex:       report.ChurnPointIndex,
 	}

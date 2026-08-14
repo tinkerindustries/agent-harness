@@ -183,8 +183,16 @@ type UsagePayload struct {
 	CompletionTokens      int     `json:"completion_tokens"`
 	ReasoningTokens       int     `json:"reasoning_tokens"`
 	CostUSD               float64 `json:"cost_usd"`
-	ExpectedMissTokens    int     `json:"expected_miss_tokens"`
-	ChurnPointIndex       *int    `json:"churn_point_index,omitempty"`
+	// RateTier is which set of rates CostUSD was computed at — "flat",
+	// "peak" or "off_peak" (internal/pricing). From 2026-08-16 DeepSeek
+	// bills peak hours at twice off-peak, so two identical sub-turns can
+	// differ threefold in cost for no reason visible in their token counts;
+	// this is the record of which one applied, on the event that already
+	// carries the figure. Empty on a session committed before the split,
+	// and on any usage the price table could not cost at all.
+	RateTier           string `json:"rate_tier,omitempty"`
+	ExpectedMissTokens int    `json:"expected_miss_tokens"`
+	ChurnPointIndex    *int   `json:"churn_point_index,omitempty"`
 }
 
 // TurnFinishedPayload closes out a sub-turn's assistant message. ElapsedMs is
