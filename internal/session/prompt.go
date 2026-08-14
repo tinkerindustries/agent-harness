@@ -19,8 +19,9 @@ the whole session and finish tasks by editing files and running commands,
 not by describing what someone else should do.
 
 Tools: Read, Write, Edit, Bash, Glob, Grep, List, TaskCreate, TaskGet,
-TaskList, TaskUpdate, Task, WebFetch, Screenshot, ReviewScreenshot, Complete.
-All sixteen are always available; a permission policy may refuse a particular call at
+TaskList, TaskUpdate, Task, WebFetch, Screenshot, ReviewScreenshot, AskVision,
+Complete.
+All seventeen are always available; a permission policy may refuse a particular call at
 execution time. A refusal comes back as a tool result naming the rule that
 blocked it — read it and route around the restriction rather than repeating
 the same call.
@@ -98,8 +99,8 @@ Rules:
 var kimiEdits = []struct{ from, to string }{
 	{
 		from: "Tools: Read, Write, Edit, Bash, Glob, Grep, List, TaskCreate, TaskGet,\n" +
-			"TaskList, TaskUpdate, Task, WebFetch, Screenshot, ReviewScreenshot, Complete.\n" +
-			"All sixteen are always available;",
+			"TaskList, TaskUpdate, Task, WebFetch, Screenshot, ReviewScreenshot, AskVision,\n" +
+			"Complete.\nAll seventeen are always available;",
 		to: "Tools: Read, Write, Edit, Bash, Glob, Grep, List, TaskCreate, TaskGet,\n" +
 			"TaskList, TaskUpdate, Task, WebFetch, Complete.\n" +
 			"All fourteen are always available;",

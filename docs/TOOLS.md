@@ -52,19 +52,21 @@ trying against `Edit` if exact-match replacement underperforms.
 | `WebFetch` | `url`, `prompt` | Fetch a URL and extract against a question |
 | `Screenshot` | `url`, `path`, `width?`, `height?`, `device_scale_factor?`, `color_scheme?`, `full_page?`, `selector?`, `wait_for_selector?`, `wait_ms?` | Capture a page with a headless browser into `scratch/` |
 | `ReviewScreenshot` | `image_paths[]`, `question`, `spec?` | Send screenshots to Gemini's vision model and return its diagnosis |
+| `AskVision` | `image_paths[]`, `prompt`, `thinking_level?` | Ask Gemini's vision model anything about images and return its reply as text |
 | `Complete` | `summary`, `result?`, `status?` | Emit the run's machine-readable result |
 
-Sixteen tools. The first thirteen have a trained-in analogue in at least two of
-the three named harnesses. `Screenshot`, `ReviewScreenshot` and `Complete` do
-not. The first two exist because DeepSeek cannot see images, so the harness
-builds the whole visual path itself — a capture it controls, and a diagnosis
-from Gemini; the trained-vocabulary argument above says nothing about any of
-them, and each is named for what it does.
+Seventeen tools. The first thirteen have a trained-in analogue in at least two
+of the three named harnesses. `Screenshot`, `ReviewScreenshot`, `AskVision` and
+`Complete` do not. The first three exist because DeepSeek cannot see images, so
+the harness builds the whole visual path itself — a capture it controls, and
+either a structured diagnosis or a free answer from Gemini; the
+trained-vocabulary argument above says nothing about any of them, and each is
+named for what it does.
 
 The array is per-provider (docs/KIMI-INTEGRATION.md §4.5, decision 5). A Kimi
-K3 session gets the fourteen tools that remain when `Screenshot` and
-`ReviewScreenshot` are dropped — K3 reads images natively, so both are
-redundant for it, and capture happens through Bash and the `playwright-cli`
+K3 session gets the fourteen tools that remain when `Screenshot`,
+`ReviewScreenshot` and `AskVision` are dropped — K3 reads images natively, so all
+three are redundant for it, and capture happens through Bash and the `playwright-cli`
 skill instead. DeepSeek's array is the full sixteen, unchanged byte for byte.
 Each array is a frozen request head shared by every session on its provider,
 pinned by its own golden file (`internal/tools/testdata/tools_*.golden.json`,
@@ -454,6 +456,51 @@ head, so a figure there would vary per installation and per price table
 (docs/CACHE.md). It says a call is expensive in general; the result says what
 this one actually cost. An unpriced model prints no line at all, because an
 invented `$0.0000` reads as "this was free".
+
+### AskVision
+
+The unstructured half of the vision path, and the deliberate opposite of
+`ReviewScreenshot`. That tool owns its prompt — a fixed instruction, a spec
+slot, a findings schema, an `observed` sentence — and everything it guarantees
+comes from owning it. The cost is that it can ask one question. `AskVision`
+hands the whole prompt to the caller and returns Gemini's reply as text, with
+no schema and nothing to reshape.
+
+It exists because the pressure was already there and was being released
+badly. `describe` mode was the first carve-out: a "does this page have content
+on it at all" question has no place in a findings schema, so it came back as
+an empty list, which reads exactly like "the page is perfect". Before the mode
+existed, a session smuggled a transcription request through the review path,
+Gemini abandoned the findings shape to answer it, and the harness reported the
+result as "15 findings, 0 high confidence" — a well-formed lie. A comparison
+question ("is the desktop layout still the same page?") has the same problem
+and gets the same non-answer: `0 findings`.
+
+The prompting rules the tool no longer enforces live in its description
+instead, distilled from
+[gemini-3.5-flash-ui-review-prompting.md](gemini-3.5-flash-ui-review-prompting.md):
+state the standard being judged against, put the data first and the question
+last, stay concise because 3.x reasoning models over-analyse under
+chain-of-thought scaffolding, and ask for something actionable rather than an
+impression. A caller that ignores them gets a worse answer, which is the point
+of the trade.
+
+One rule is not delegated. The system instruction still asks for a sentence on
+what is actually visible before the answer, for the reason the whole `observed`
+field exists: a reader who cannot open the image cannot tell a correct answer
+from an answer about a blank page, and one measured session spent 23% of its
+cost re-asking to find out. That failure is invisible from the caller's side,
+so the caller is not the right place to put the fix.
+
+`thinking_level` is exposed here and not on `ReviewScreenshot` because the
+caller knows which kind of question it is asking: `low` for reading text off an
+image, `medium` for a real diagnostic pass, `high` for a subtle bug a medium
+pass already missed. It is most of what a call costs. `minimal` is not offered.
+
+Truncation is the plain byte cap, which is safe here precisely because there is
+no JSON document to sever — the reason `ReviewScreenshot` needs entry-wise
+truncation instead. Image caps, downscaling, the per-call cost line and the
+separable usage event are all shared with `ReviewScreenshot` unchanged.
 
 ### Seeing the screenshots
 

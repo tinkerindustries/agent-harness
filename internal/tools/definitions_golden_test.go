@@ -61,20 +61,20 @@ func TestToolArrayGolden(t *testing.T) {
 }
 
 // TestDefinitionsForProviderShape pins the relationship between the two
-// arrays directly: Kimi's is DeepSeek's sixteen minus exactly the two vision
-// tools, in the same order, with the surviving tools byte-identical. The
+// arrays directly: Kimi's is DeepSeek's seventeen minus exactly the three
+// vision tools, in the same order, with the surviving tools byte-identical. The
 // golden files pin the bytes; this pins the subtraction.
 func TestDefinitionsForProviderShape(t *testing.T) {
 	deepseek := tools.DefinitionsFor("deepseek-v4-pro")
 	kimi := tools.DefinitionsFor("kimi-k3")
-	if len(deepseek) != 16 {
-		t.Fatalf("DeepSeek array has %d tools, want 16", len(deepseek))
+	if len(deepseek) != 17 {
+		t.Fatalf("DeepSeek array has %d tools, want 17", len(deepseek))
 	}
 	if len(kimi) != 14 {
 		t.Fatalf("Kimi array has %d tools, want 14", len(kimi))
 	}
 
-	// Walk both arrays with two pointers; DeepSeek's skips the two vision
+	// Walk both arrays with two pointers; DeepSeek's skips the three vision
 	// tools, Kimi's does not. Every surviving pair must be byte-identical.
 	dj, _ := json.Marshal(deepseek)
 	var ds []struct {
@@ -85,7 +85,7 @@ func TestDefinitionsForProviderShape(t *testing.T) {
 	if err := json.Unmarshal(dj, &ds); err != nil {
 		t.Fatal(err)
 	}
-	dropped := []string{"Screenshot", "ReviewScreenshot"}
+	dropped := []string{"Screenshot", "ReviewScreenshot", "AskVision"}
 	var j int
 	for i, d := range ds {
 		isDropped := false

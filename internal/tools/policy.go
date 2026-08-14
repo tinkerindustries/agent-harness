@@ -71,6 +71,7 @@ var alwaysAllowed = map[string]bool{
 	"List":             true,
 	"WebFetch":         true,
 	"ReviewScreenshot": true,
+	"AskVision":        true,
 	"Screenshot":       true,
 	"TaskCreate":       true,
 	"TaskGet":          true,

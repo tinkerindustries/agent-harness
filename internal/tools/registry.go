@@ -279,7 +279,7 @@ func (e *Executor) timeoutFor(ctx context.Context, name string, argsRaw json.Raw
 			}
 		}
 		return TaskTimeout
-	case "ReviewScreenshot":
+	case "ReviewScreenshot", "AskVision":
 		if e.Timeouts.ReviewScreenshot > 0 {
 			return e.Timeouts.ReviewScreenshot
 		}
@@ -374,6 +374,7 @@ var toolFuncs = map[string]toolFunc{
 	"TaskUpdate":       execTaskUpdate,
 	"Task":             execTask,
 	"WebFetch":         execWebFetch,
+	"AskVision":        execAskVision,
 	"ReviewScreenshot": execReviewScreenshot,
 	"Screenshot":       execScreenshot,
 }

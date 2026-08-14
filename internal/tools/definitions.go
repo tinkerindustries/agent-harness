@@ -166,6 +166,24 @@ var definitionsDeepSeek = []wire.Tool{
 		},
 		"required": ["image_paths", "question"]
 	}`),
+	// AskVision's description is the tool. ReviewScreenshot puts its prompting
+	// discipline in Go, where the caller cannot get it wrong and cannot vary
+	// it; this one hands the prompt to the caller, so the rules that make a
+	// vision answer useful have to travel here instead — distilled from
+	// docs/gemini-3.5-flash-ui-review-prompting.md, which is the measured
+	// version. It stays short for the reason every description does: this text
+	// is in the frozen request head and is paid on every request of every
+	// session (docs/CACHE.md), so it carries the rules that change the answer
+	// and nothing else.
+	function("AskVision", "Ask Google Gemini's vision model anything about images, in your own words, and get its reply back as plain text. Use this when what you need is not \"what is wrong with this page\" — comparing two captures, reading text off a chart, checking whether a specific element is present, asking what a screenshot shows. For diagnosing a page against a spec, ReviewScreenshot is the better tool: it returns findings you can work through and it is harder to ask badly. Four rules decide whether the answer is worth what it cost. Say what standard you are judging against, because a vision model given none falls back on general web convention and reports deliberate choices as breakage. Put the data first and the question last — describe the images, paste the spec or CSS, then ask. Be brief and concrete: this is a reasoning model, and step-by-step scaffolding written for older models makes it over-analyse, so name what you want examined instead of instructing it how to think. Ask for what you can act on — an element, a position, a measurement, a yes or no — rather than an impression. The answer always opens with what the model says it can actually see, whether you ask for that or not, so a reply you were not expecting can be checked against what was on the screen rather than re-asked. Images are PNG, JPEG, or WebP, workspace-relative or absolute; the first is read at high resolution and the rest at medium, so put the one that matters first. A call costs many times an ordinary sub-turn and the result says what it cost.", `{
+		"type": "object",
+		"properties": {
+			"image_paths": {"type": "array", "items": {"type": "string"}, "description": "Absolute or workspace-relative paths to PNG, JPEG, or WebP files. The first is read at high resolution and the rest at medium, so put the image the question is really about first. Capture the element itself rather than the whole page when the question is about a small control."},
+			"prompt": {"type": "string", "description": "The whole prompt, in your words, sent as you wrote it. Name the images in it if the question is about more than one — they arrive labelled Image 1, Image 2 in the order you list them. Put any spec, CSS, or context above the question and ask the question last."},
+			"thinking_level": {"type": "string", "enum": ["low", "medium", "high"], "description": "How hard the vision model thinks, and most of what the call costs. low for a quick does-this-roughly-match or reading text off an image; medium, the default, for a real diagnostic pass; high only for a subtle bug a medium pass has already missed."}
+		},
+		"required": ["image_paths", "prompt"]
+	}`),
 	// Like ReviewScreenshot's, this description names no limits: the timeout
 	// is a setting and the dimension bounds are stated by the refusal message
 	// that quotes them, so nothing here varies per installation
@@ -212,7 +230,7 @@ var definitionsDeepSeek = []wire.Tool{
 // subtraction states that relationship and cannot drift from it — if a tool
 // is added to DeepSeek's array, Kimi's changes the same way unless it is
 // named here. The result is pinned by its own golden file like DeepSeek's.
-var definitionsKimi = without(definitionsDeepSeek, "Screenshot", "ReviewScreenshot")
+var definitionsKimi = without(definitionsDeepSeek, "Screenshot", "ReviewScreenshot", "AskVision")
 
 // without returns tools minus every entry whose name is in drop. Callers
 // must not mutate the result.
