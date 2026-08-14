@@ -135,7 +135,7 @@ var registry = []Descriptor{
 	stringSetting(KeyKimiAPIKey, GroupCredentials,
 		"Kimi API key — Moonshot AI account used for kimi-k3 runs (third_party/kimi-docs/api/overview.md)", "", true, false),
 	stringSetting(KeyGoogleAPIKey, GroupCredentials,
-		"Google API key — sent to Gemini by ReviewScreenshot", "", true, false),
+		"Google API key — sent to Gemini by the vision tools (Glance, Ground, Detect)", "", true, false),
 	stringSetting(KeyGitHubToken, GroupCredentials,
 		"GitHub personal access token — used by the start-run form's repo search (GET /api/github/repos)", "", true, false),
 	stringSetting(KeyHTTPControlToken, GroupCredentials,
@@ -177,7 +177,7 @@ var registry = []Descriptor{
 	durationSetting(KeyToolTaskTimeout, GroupToolLimits, "10m", time.Second, 24*time.Hour,
 		"Wall-clock timeout for one Task subagent call"),
 	durationSetting(KeyToolReviewScreenshotTimeout, GroupToolLimits, "60s", time.Second, 24*time.Hour,
-		"Wall-clock timeout for one ReviewScreenshot Gemini call (generating a diagnosis routinely takes longer than the 30-second tool default)"),
+		"Wall-clock timeout for one Gemini call made by Glance, Ground, or Detect (describing or locating something routinely takes longer than the 30-second tool default). The key keeps the name of the tool it originally bounded; Crop makes no model call and is not covered by it."),
 	durationSetting(KeyToolScreenshotTimeout, GroupToolLimits, "90s", time.Second, 24*time.Hour,
 		"Wall-clock timeout for one Screenshot capture (launching Chromium, navigating, waiting for the page to settle and encoding the image). The driver's own navigation timeout is derived from this, so raise it for an application that is slow to start rather than retrying the call."),
 	intSetting(KeyToolWebFetchMaxBody, GroupToolLimits, 4<<20, 1024, 1<<30,
@@ -185,13 +185,13 @@ var registry = []Descriptor{
 	intSetting(KeyToolWebFetchMaxExtract, GroupToolLimits, 40_000, 100, 10_000_000,
 		"Bytes of extracted text sent to the flash summarising call"),
 	intSetting(KeyToolReviewScreenshotMaxImages, GroupToolLimits, 4, 1, 100,
-		"Maximum screenshots one ReviewScreenshot call accepts"),
+		"Maximum images one Glance call accepts (the key keeps the name of the tool it originally bounded)"),
 	intSetting(KeyToolReviewScreenshotMaxBytes, GroupToolLimits, 5<<20, 1024, 1<<30,
-		"Maximum bytes per screenshot file (5 MB at the default)"),
+		"Maximum bytes per image file for Glance, Ground, and Detect (5 MB at the default; the key keeps the name of the tool it originally bounded)"),
 	intSetting(KeyToolAttachmentsMaxCount, GroupToolLimits, 8, 1, 100,
 		"Maximum image attachments one work request may carry (POST /api/runs and the MCP deepseek_agent tool)"),
 	intSetting(KeyToolAttachmentsMaxBytes, GroupToolLimits, 5<<20, 1024, 1<<30,
-		"Maximum bytes per image attachment, matching ReviewScreenshot's per-file cap so an attachment can always be reviewed (5 MB at the default)"),
+		"Maximum bytes per image attachment, matching the vision tools' per-file cap so an attachment can always be looked at (5 MB at the default)"),
 
 	// --- Models ---
 	stringSetting(KeyDefaultModel, GroupModels,
@@ -204,9 +204,9 @@ var registry = []Descriptor{
 	stringSetting(KeyJudgeModel, GroupModels,
 		"Model the eval judge scores transcripts with, when an eval names none (docs/EVALS.md). Defaults to kimi-k3 — the expensive judge: K3 output costs $15.00/M against deepseek-v4-pro's $0.87 (configs/prices.json), and a verdict is bounded by the 384K-token JudgeMaxTokens ceiling, so a judge that runs to it costs ~$5.90 on K3 against ~$0.34 on pro. A verbose verdict on a big eval is a cost to see coming.", "kimi-k3", false, false),
 	stringSetting(KeyGoogleVisionModel, GroupModels,
-		"Gemini model ReviewScreenshot sends screenshots to. Defaults to gemini-3.7-flash, which bills the same input as 3.5 Flash and 2.4x less output ($3.75/M against $9.00/M, configs/prices.json) while being the newer model at the thing this tool does. Its rates are introductory and double on 2027-01-01. A model with no entry in the price table still runs — the cost lookup fails and the caller keeps zero (internal/tools/reviewscreenshot.go), so its spend silently vanishes from every figure in the UI rather than erroring. Add the entry before changing this.", "gemini-3.7-flash", false, false),
+		"Gemini model the vision tools (Glance, Ground, Detect) send images to. Defaults to gemini-3.7-flash, which bills the same input as 3.5 Flash and 2.4x less output ($3.75/M against $9.00/M, configs/prices.json) while being the newer model at the thing these tools do. Its rates are introductory and double on 2027-01-01. A model with no entry in the price table still runs — the cost lookup fails and the caller keeps zero (internal/tools/vision.go), so its spend silently vanishes from every figure in the UI rather than erroring. Add the entry before changing this.", "gemini-3.7-flash", false, false),
 	stringSetting(KeyGoogleVisionThinkingLevel, GroupModels,
-		"How hard the vision model thinks before answering a ReviewScreenshot call. Thinking bills at the output rate and is where a review's cost goes — an empty findings list has been measured at 1,947 thinking tokens against one token of answer. \"auto\" lets the tool choose per call: medium to judge a page against a spec, low to describe one.", "auto", false, false).
+		"How hard the vision model thinks before answering a Glance, Ground, or Detect call. Thinking bills at the output rate and is where a call's cost goes — an empty findings list has been measured at 1,947 thinking tokens against one token of answer. \"auto\" lets the tool choose per call: medium for Glance's default description or a query, low for Ground and Detect, which are locating rather than reasoning.", "auto", false, false).
 		withAllowed("auto", "minimal", "low", "medium", "high"),
 
 	// --- Requires a restart ---

@@ -225,7 +225,8 @@ func TestScreenshotRequiresUrlAndPath(t *testing.T) {
 
 // Argument validation happens before the browser is reached for, so a call
 // with a bad argument gets the specific complaint even where node is absent —
-// the same ordering ReviewScreenshot uses for its capability check.
+// the same ordering Glance, Ground, and Detect use for their capability
+// check.
 func TestScreenshotValidatesArgumentsBeforeLaunchingTheBrowser(t *testing.T) {
 	e, _ := screenshotExecutor(t)
 	// An absolute path outside scratch/, since a relative one is no longer a

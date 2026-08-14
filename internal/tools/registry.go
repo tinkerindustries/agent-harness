@@ -39,10 +39,15 @@ const (
 	DefaultToolTimeout   = 30 * time.Second
 	WebFetchTimeout      = 45 * time.Second
 	TaskTimeout          = 10 * time.Minute
-	// ReviewScreenshotTimeout bounds one Gemini call: generating a diagnosis
-	// of up to four screenshots routinely takes longer than the 30-second
-	// default tool timeout, so it gets its own (docs/TOOLS.md,
-	// "ReviewScreenshot").
+	// ReviewScreenshotTimeout bounds one Gemini call made by Glance, Ground,
+	// or Detect: describing or locating something across up to four images
+	// routinely takes longer than the 30-second default tool timeout, so
+	// these three get their own (docs/TOOLS.md). The name predates the tools
+	// it now bounds — it was ReviewScreenshot's alone — and is kept rather
+	// than renamed to match: it is also a stored setting key
+	// (tools.reviewscreenshot_timeout), and renaming it would be a silent
+	// config reset for every operator who has set one. Crop makes no model
+	// call and is not in this group; it keeps the default tool timeout.
 	ReviewScreenshotTimeout = 60 * time.Second
 	// ScreenshotTimeout bounds one capture: launching Chromium, navigating,
 	// waiting for the page to settle and encoding the image do not fit in the
@@ -73,11 +78,12 @@ type Result struct {
 	// from them (internal/fold/fold.go), so the image bytes live in the event
 	// log and a replay reproduces them identically.
 	ImageURL string
-	// GeminiUsage is the costed token accounting of a ReviewScreenshot
-	// call, set only when the tool made a successful request to Gemini. The
-	// runner commits it as its own usage event (internal/session/turn.go),
-	// so a Gemini call shows up in the session's cost total exactly the way
-	// a DeepSeek turn's usage does.
+	// GeminiUsage is the costed token accounting of a Glance, Ground, or
+	// Detect call, set only when the tool made a successful request to
+	// Gemini (Crop never sets it: it makes no model call). The runner
+	// commits it as its own usage event (internal/session/turn.go), so a
+	// Gemini call shows up in the session's cost total exactly the way a
+	// DeepSeek turn's usage does.
 	GeminiUsage *store.UsagePayload
 }
 
@@ -168,19 +174,19 @@ type Executor struct {
 	// SeeImages is true when the session's provider reads images natively
 	// (Kimi K3; DeepSeek is text-only). Read consults it: on a vision
 	// provider, reading an image path returns the file as an image_url part
-	// instead of the binary-file refusal, and the two vision tools
-	// (Screenshot, ReviewScreenshot) are not offered at all
+	// instead of the binary-file refusal, and the five vision tools
+	// (Screenshot, Glance, Ground, Detect, Crop) are not offered at all
 	// (internal/tools/definitions.go, docs/KIMI-INTEGRATION.md §4.5). Set by
 	// internal/session from the session's model at creation and on resume,
 	// and never changed mid-session — the tool array and Read's behaviour
 	// are both frozen for a session's life (docs/CACHE.md).
 	SeeImages bool
 
-	// Gemini is the client the ReviewScreenshot tool uses to send screenshots
-	// to Google's Gemini API. Nil (a session with no client configured) makes
-	// the tool return an ordinary error result saying so, the same shape
-	// WebFetch uses for a nil Client — it never panics and never fails the
-	// run.
+	// Gemini is the client Glance, Ground, and Detect use to send images to
+	// Google's Gemini API (Crop makes no model call). Nil (a session with no
+	// client configured) makes a tool return an ordinary error result saying
+	// so, the same shape WebFetch uses for a nil Client — it never panics and
+	// never fails the run.
 	Gemini *gemini.Client
 
 	// GeminiModel resolves the vision model name per call, the same
@@ -198,10 +204,10 @@ type Executor struct {
 	RunSubagent func(ctx context.Context, description, prompt, subagentType string) (summary string, sessionID string, err error)
 
 	// Settings, when set, is where the tool limits (output caps, timeouts,
-	// WebFetch and ReviewScreenshot bounds) resolve from on every call, so a
-	// limit changed with `harness config set tools.*` takes effect on the
-	// next tool call without a restart. Nil is the test path: the package
-	// constants below apply.
+	// WebFetch and vision bounds) resolve from on every call, so a limit
+	// changed with `harness config set tools.*` takes effect on the next tool
+	// call without a restart. Nil is the test path: the package constants
+	// below apply.
 	Settings *settings.Resolver
 
 	readsMu sync.Mutex
@@ -210,14 +216,6 @@ type Executor struct {
 	todosMu    sync.Mutex
 	todos      []Todo
 	nextTaskID int
-
-	// ReviewScreenshot conversation state, held here because an Executor
-	// belongs to exactly one session: the image paths and prior question/
-	// answer pairs of each conversation, capped to the most recent few so a
-	// long session cannot grow this without bound (reviewscreenshot.go).
-	reviewMu            sync.Mutex
-	reviewConversations map[string]*reviewConversation
-	reviewOrder         []string
 }
 
 // NewExecutor returns an Executor rooted at workspace (resolved to an
@@ -279,7 +277,9 @@ func (e *Executor) timeoutFor(ctx context.Context, name string, argsRaw json.Raw
 			}
 		}
 		return TaskTimeout
-	case "ReviewScreenshot", "AskVision":
+	case "Glance", "Ground", "Detect":
+		// Crop makes no model call, so it keeps the default tool timeout below
+		// rather than this one — it has no Gemini round-trip to bound.
 		if e.Timeouts.ReviewScreenshot > 0 {
 			return e.Timeouts.ReviewScreenshot
 		}
@@ -361,22 +361,24 @@ func (e *Executor) wasRead(path string) bool {
 type toolFunc func(ctx context.Context, e *Executor, args json.RawMessage) Result
 
 var toolFuncs = map[string]toolFunc{
-	"Read":             execRead,
-	"Write":            execWrite,
-	"Edit":             execEdit,
-	"Bash":             execBash,
-	"Glob":             execGlob,
-	"Grep":             execGrep,
-	"List":             execList,
-	"TaskCreate":       execTaskCreate,
-	"TaskGet":          execTaskGet,
-	"TaskList":         execTaskList,
-	"TaskUpdate":       execTaskUpdate,
-	"Task":             execTask,
-	"WebFetch":         execWebFetch,
-	"AskVision":        execAskVision,
-	"ReviewScreenshot": execReviewScreenshot,
-	"Screenshot":       execScreenshot,
+	"Read":       execRead,
+	"Write":      execWrite,
+	"Edit":       execEdit,
+	"Bash":       execBash,
+	"Glob":       execGlob,
+	"Grep":       execGrep,
+	"List":       execList,
+	"TaskCreate": execTaskCreate,
+	"TaskGet":    execTaskGet,
+	"TaskList":   execTaskList,
+	"TaskUpdate": execTaskUpdate,
+	"Task":       execTask,
+	"WebFetch":   execWebFetch,
+	"Glance":     execGlance,
+	"Ground":     execGround,
+	"Detect":     execDetect,
+	"Crop":       execCrop,
+	"Screenshot": execScreenshot,
 }
 
 // Execute evaluates permission for call, then runs it (or Complete's

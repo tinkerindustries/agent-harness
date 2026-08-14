@@ -49,11 +49,11 @@ type Policy struct {
 }
 
 // alwaysAllowed tools have no side effects outside the session's own
-// bookkeeping and run in every mode. ReviewScreenshot reads a file and sends
-// it over the network without changing anything on disk — the same reasoning
-// that puts WebFetch in read-only mode. The four task tools carry the same
-// "the plan is the session's own bookkeeping" reasoning TodoWrite had, so
-// read-only-mode sessions keep full plan tracking.
+// bookkeeping and run in every mode. Glance, Ground, and Detect read a file
+// and send it over the network without changing anything on disk — the same
+// reasoning that puts WebFetch in read-only mode. The four task tools carry
+// the same "the plan is the session's own bookkeeping" reasoning TodoWrite
+// had, so read-only-mode sessions keep full plan tracking.
 //
 // Screenshot is the one member that does write to disk, and it is here
 // because of where it is allowed to write: internal/tools/screenshot.go
@@ -64,20 +64,30 @@ type Policy struct {
 // cloned repository. It spawns a browser, which Bash-in-readonly is denied
 // for, but it spawns exactly one command it composed itself against a URL:
 // there is no argument that turns it into arbitrary execution.
+//
+// Crop also writes to disk, but does not get the same allowance: its output
+// argument resolves through plain ResolvePath (internal/tools/vision.go), the
+// same workspace-wide confinement Write and Edit use, and its default output
+// path sits next to the source image rather than under scratch/ — so a Crop
+// call can leave a new file inside a cloned repository the way Write can.
+// That is exactly the side effect read-only mode exists to prevent, so Crop
+// is gated by Mode like every other file-writing tool instead of joining this
+// map.
 var alwaysAllowed = map[string]bool{
-	"Read":             true,
-	"Glob":             true,
-	"Grep":             true,
-	"List":             true,
-	"WebFetch":         true,
-	"ReviewScreenshot": true,
-	"AskVision":        true,
-	"Screenshot":       true,
-	"TaskCreate":       true,
-	"TaskGet":          true,
-	"TaskList":         true,
-	"TaskUpdate":       true,
-	"Complete":         true,
+	"Read":       true,
+	"Glob":       true,
+	"Grep":       true,
+	"List":       true,
+	"WebFetch":   true,
+	"Glance":     true,
+	"Ground":     true,
+	"Detect":     true,
+	"Screenshot": true,
+	"TaskCreate": true,
+	"TaskGet":    true,
+	"TaskList":   true,
+	"TaskUpdate": true,
+	"Complete":   true,
 }
 
 // Check evaluates one tool call. descriptor is what a deny pattern matches

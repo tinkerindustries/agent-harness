@@ -36,22 +36,24 @@ not by describing what someone else should do.
 
 `
 
-// toolOrder is the order the frozen head lists tools in its inventory. It
-// is the order the prompt has always used, and it is NOT the tool array's
-// own order: the array (internal/tools/definitions.go) lists the three
-// vision tools as ReviewScreenshot, AskVision, Screenshot, while the head
-// has always listed Screenshot, ReviewScreenshot, AskVision — the order the
-// tools were added to the prompt. The head's bytes are the prompt cache's
-// prefix, so this refactor preserves them; aligning the array to the head
-// is a deliberate, cache-costing array change (docs/CACHE.md), not part of
-// rebuilding the prompt. toolNamesInOrder reconciles the two: the array's
-// membership, listed in the head's order. Both orders are pinned — the
-// array's by its own golden files, this one by TestPromptGolden and by
-// TestPromptNamesExactlyTheToolArray.
+// toolOrder is the order the frozen head lists tools in its inventory. It is
+// the order the tools were added to the prompt, and it is NOT the tool
+// array's own order (internal/tools/definitions.go); toolNamesInOrder
+// reconciles the two by listing the array's membership in this order. Both
+// orders are pinned — the array's by its own golden files, this one by
+// TestPromptGolden and by TestPromptNamesExactlyTheToolArray.
+//
+// The vision block is Screenshot then the four tools that read what it
+// captures, which is the order a session uses them in: capture, then look
+// (Glance), then locate (Ground, Detect), then cut a located box out (Crop).
+// Replacing ReviewScreenshot and AskVision with these four changed the head's
+// bytes and therefore the cache prefix once, for every session
+// (docs/CACHE.md, docs/VISION-TOOLKIT.md) — a cost paid deliberately at the
+// swap rather than drifted into.
 var toolOrder = []string{
 	"Read", "Write", "Edit", "Bash", "Glob", "Grep", "List",
 	"TaskCreate", "TaskGet", "TaskList", "TaskUpdate", "Task", "WebFetch",
-	"Screenshot", "ReviewScreenshot", "AskVision", "Complete",
+	"Screenshot", "Glance", "Ground", "Detect", "Crop", "Complete",
 }
 
 // toolNamesInOrder maps a session's tool array onto the head's canonical
@@ -292,8 +294,8 @@ var toolFragments = []toolFragment{
 	{
 		needs: []string{"Screenshot"},
 		text: `- Ad hoc files that are not part of the task's deliverable — a screenshot
-  taken for ReviewScreenshot, a scratch note, a temporary download — belong
-  in a scratch/ directory at the workspace root, sibling to the repository
+  taken for Glance, a scratch note, a temporary download — belong in a
+  scratch/ directory at the workspace root, sibling to the repository
   clone(s); never /tmp (shared with every other concurrent session in this
   container, and not preserved), and never inside a cloned repository (risks
   being swept into a commit). Screenshot writes there and nowhere else.
@@ -310,11 +312,14 @@ var toolFragments = []toolFragment{
 `,
 	},
 	{
-		needs: []string{"Screenshot", "ReviewScreenshot"},
+		needs: []string{"Screenshot", "Glance"},
 		text: `- You cannot see images. When a change is visual, Screenshot the page and
-  send the file to ReviewScreenshot with the spec you were working to —
-  that pair is your only way to find out what you actually built, and
-  guessing from the markup is how a broken layout gets reported as done.`,
+  ask Glance what it shows, naming the spec you were working to — that pair
+  is your only way to find out what you actually built, and guessing from the
+  markup is how a broken layout gets reported as done. Where the answer turns
+  on a position or a size rather than what is there, Ground and Detect return
+  pixel boxes instead of prose, and Crop cuts one out so the next look is at
+  the element rather than the page.`,
 	},
 	{
 		seesImages: capability(true),
@@ -387,8 +392,8 @@ func RenderSystemPromptFor(model, variant string) (string, error) {
 // into under scratch/attachments/ (internal/workspace). The model cannot
 // guess they exist — nothing in the task text says so — so they are named
 // here, ahead of the task, with the path a tool call can use; the common
-// use is passing one to ReviewScreenshot as the mockup the page should be
-// judged against.
+// use is passing one to Glance as the mockup the page should be judged
+// against.
 func RenderOpeningMessage(workspace, task string, resultSchema json.RawMessage, claudeMDBlock, skillCatalogue string, attachments []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Workspace: %s\n\n", workspace)
@@ -405,7 +410,7 @@ func RenderOpeningMessage(workspace, task string, resultSchema json.RawMessage, 
 		for _, name := range attachments {
 			fmt.Fprintf(&b, "- scratch/attachments/%s\n", name)
 		}
-		b.WriteString("You can pass one of these paths to ReviewScreenshot — the image is already in the workspace, so the spec you were working to is something you can show rather than describe.\n\n")
+		b.WriteString("You can pass one of these paths to Glance — the image is already in the workspace, so the spec you were working to is something you can show rather than describe.\n\n")
 	}
 	fmt.Fprintf(&b, "Task:\n%s\n", task)
 	if len(resultSchema) > 0 {

@@ -127,7 +127,7 @@ type RunOptions struct {
 	// AttachmentNames are the files the request's attachments were
 	// materialised into under scratch/attachments/ (internal/workspace).
 	// RenderOpeningMessage names them so the model knows they exist and can
-	// pass one to ReviewScreenshot.
+	// pass one to Glance.
 	AttachmentNames []string
 
 	// SessionID, when set, is used instead of generating a fresh one. A
@@ -240,10 +240,10 @@ type Runner struct {
 	Prices     *pricing.Table
 	FlashModel string
 
-	// Gemini is the client the ReviewScreenshot tool uses to send screenshots
+	// Gemini is the client the vision tools use to send images
 	// to Google's Gemini API. Nil is the CLI's case when none is configured:
 	// the tool then reports itself unavailable instead of failing the run
-	// (internal/tools, ReviewScreenshot).
+	// (internal/tools, Glance).
 	Gemini *gemini.Client
 
 	// GeminiModel resolves the vision model name per call — the same

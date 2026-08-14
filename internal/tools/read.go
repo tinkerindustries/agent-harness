@@ -126,16 +126,16 @@ func execRead(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 //     A binary file misnamed .png would otherwise enter the conversation and
 //     be re-sent on every sub-turn of the frozen prefix before the API
 //     rejected it — the most expensive way to discover the mistake.
-//   - The encoded size is capped by the existing screenshot cap setting
-//     (tools.reviewscreenshot_max_bytes, the same default of 5 MB
-//     ReviewScreenshot enforces per file — docs/CACHE.md: the tool
+//   - The encoded size is capped by the existing vision cap setting
+//     (tools.reviewscreenshot_max_bytes, the same default of 5 MB Glance,
+//     Ground, and Detect enforce per file — docs/CACHE.md: the tool
 //     description names no numbers, and the model discovers the actual limit
 //     from this refusal). Images sit in the frozen-prefix conversation and
 //     are re-sent every sub-turn, so an unbounded image would bloat every
 //     request after it; over the cap, the refusal names the limit and
 //     suggests resizing.
 func (e *Executor) readImage(ctx context.Context, resolved, asPath, mime string) Result {
-	limit := e.reviewScreenshotMaxBytes(ctx)
+	limit := e.visionMaxBytes(ctx)
 	// A file already over the cap cannot fit encoded (the data URI is
 	// strictly larger than the raw bytes), so refuse before reading it into
 	// memory — an over-cap image is the one case the size check exists for.

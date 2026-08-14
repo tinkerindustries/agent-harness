@@ -33,7 +33,7 @@ func testPrices() *pricing.Table {
 		CapturedAt: "2026-08-09",
 		Models: map[string]pricing.ModelPrices{
 			"test-model": {InputCacheHitPerMillionUSD: 0.003625, InputCacheMissPerMillionUSD: 0.435, OutputPerMillionUSD: 0.87},
-			// The vision model the ReviewScreenshot tool uses by default,
+			// The vision model the Glance tool uses by default,
 			// with the introductory rates fetched from Google's pricing page
 			// on 2026-08-14, so the Gemini cost accounting test below has a
 			// real table to cost against. Keyed on the constant rather than a
@@ -786,7 +786,7 @@ func (c *int32Counter) next() int {
 }
 
 // TestRunGeminiCostShowsInSessionTotal drives a full run whose first
-// sub-turn calls ReviewScreenshot, then asserts the session's cost total
+// sub-turn calls Glance, then asserts the session's cost total
 // covers the Gemini call: the tool result carries its usage, the runner
 // commits it as its own usage event, and SessionUsageSummaries sums it into
 // the session cost exactly as it sums a DeepSeek turn's usage (docs/DESIGN.md
@@ -805,11 +805,11 @@ func TestRunGeminiCostShowsInSessionTotal(t *testing.T) {
 	deepseekSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		if toolCallSent.CompareAndSwap(false, true) {
-			// First sub-turn: a ReviewScreenshot call.
+			// First sub-turn: a Glance call.
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call-review", Type: "function", Function: wire.ToolCallFuncDelta{Name: "ReviewScreenshot", Arguments: `{"image_paths":["shot.png"],"question":"what is wrong?"}`}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call-review", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Glance", Arguments: `{"image_paths":["shot.png"],"query":"what is wrong?"}`}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{

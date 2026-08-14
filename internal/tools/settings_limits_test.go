@@ -32,10 +32,12 @@ func (f *fakeSettingsStore) DeleteSetting(ctx context.Context, key string) error
 }
 
 // TestExecutorResolvesLimitsFromSettings pins the configurable tool limits:
-// with a settings resolver attached, ReviewScreenshot's image count and
-// per-file size caps come from the registry, and the refusal messages state
-// the actual limit — the shape the model discovers a changed bound from
-// (docs/CACHE.md: the tool description itself names no numbers).
+// with a settings resolver attached, Glance's image count and per-file size
+// caps come from the registry, and the refusal messages state the actual
+// limit — the shape the model discovers a changed bound from (docs/CACHE.md:
+// the tool description itself names no numbers). The keys keep the names of
+// the tool they originally bounded (tools.reviewscreenshot_max_images,
+// tools.reviewscreenshot_max_bytes) — vision.go, docs/VISION-TOOLKIT.md §5.
 func TestExecutorResolvesLimitsFromSettings(t *testing.T) {
 	res := settings.NewResolver(&fakeSettingsStore{values: map[string]string{
 		settings.KeyToolReviewScreenshotMaxImages: "2",
@@ -52,9 +54,8 @@ func TestExecutorResolvesLimitsFromSettings(t *testing.T) {
 	for i := range paths {
 		paths[i] = "shot.png"
 	}
-	res1 := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+	res1 := runTool(t, e, "Glance", glanceArgs{
 		ImagePaths: paths,
-		Question:   "what is wrong?",
 	})
 	if !res1.IsError || !strings.Contains(res1.Content, "at most 2 images") {
 		t.Fatalf("expected a refusal naming the configured cap of 2, got: %s", res1.Content)
@@ -64,9 +65,8 @@ func TestExecutorResolvesLimitsFromSettings(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(e.Workspace, "big.png"), make([]byte, 1001), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res2 := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+	res2 := runTool(t, e, "Glance", glanceArgs{
 		ImagePaths: []string{"big.png"},
-		Question:   "what is wrong?",
 	})
 	if !res2.IsError || !strings.Contains(res2.Content, "over the 1000-byte per-file limit") {
 		t.Fatalf("expected a refusal naming the configured byte cap, got: %s", res2.Content)

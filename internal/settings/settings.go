@@ -138,8 +138,8 @@ func (r *Resolver) GoogleAPIKey(ctx context.Context) (string, error) {
 }
 
 // GoogleVisionModel returns the stored Gemini vision model, the registry's
-// google.vision_model default when unset — the exact shape the
-// ReviewScreenshot tool's per-call model provider needs.
+// google.vision_model default when unset — the exact shape the vision
+// tools' (Glance, Ground, Detect) per-call model provider needs.
 func (r *Resolver) GoogleVisionModel(ctx context.Context) (string, error) {
 	return r.String(ctx, KeyGoogleVisionModel)
 }

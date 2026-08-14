@@ -124,12 +124,12 @@ func TestRunBudgetKeysForModel(t *testing.T) {
 // setting would be the first thing to break that.
 //
 // It matters most for the vision model. Table.Cost errors on a model it has
-// no entry for, and ReviewScreenshot's caller keeps zero when it does
-// (internal/tools/reviewscreenshot.go), so a default naming an unpriced
-// model does not fail loudly: the call runs, bills real money, and reports
-// $0 for it in every figure the UI shows — the stat strip, the session row,
-// the Finished table. Nothing else in the build connects these two files,
-// so without this nothing would notice.
+// no entry for, and the vision tools' caller keeps zero when it does
+// (internal/tools/vision.go), so a default naming an unpriced model does not
+// fail loudly: the call runs, bills real money, and reports $0 for it in
+// every figure the UI shows — the stat strip, the session row, the Finished
+// table. Nothing else in the build connects these two files, so without this
+// nothing would notice.
 func TestEveryDefaultModelIsPriced(t *testing.T) {
 	table, err := pricing.Load("../../configs/prices.json")
 	if err != nil {
@@ -153,10 +153,11 @@ func TestEveryDefaultModelIsPriced(t *testing.T) {
 }
 
 // TestGeminiDefaultModelMatchesTheRegistry pins the two copies of the vision
-// default together. internal/gemini holds one as a constant, for the
-// fallback path in AskVision that has no settings resolver to ask; this
-// registry holds the other, which is what every ordinary call resolves
-// through. gemini's own doc comment already claims they agree, and a claim
+// default together. internal/gemini holds one as a constant, for the vision
+// tools' (Glance, Ground, Detect) fallback path when there is no settings
+// resolver to ask; this registry holds the other, which is what every
+// ordinary call resolves through. gemini's own doc comment already claims
+// they agree, and a claim
 // in a comment is not a claim anything checks — so when they drift, the
 // runs that take the fallback quietly switch to a different model, and
 // those are the runs with the least context available to notice.
