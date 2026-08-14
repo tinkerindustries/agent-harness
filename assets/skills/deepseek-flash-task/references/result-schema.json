@@ -1,7 +1,7 @@
 {
   "type": "object",
   "additionalProperties": false,
-  "required": ["summary", "deferred", "verification", "branch", "files_changed", "error"],
+  "required": ["summary", "deferred", "verification", "branch", "error"],
   "properties": {
     "summary": {
       "type": "string",
@@ -38,7 +38,7 @@
     "branch": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "base_sha", "head_sha", "pushed", "pull_request_url", "commits"],
+      "required": ["name", "base_sha", "head_sha", "pushed", "pull_request_url"],
       "properties": {
         "name": {
           "type": "string",
@@ -46,7 +46,7 @@
         },
         "base_sha": {
           "type": "string",
-          "description": "The commit on the base branch that you branched from."
+          "description": "The commit on the base branch that you branched from. This and head_sha are what let a reader derive the diff, the file list, and the commit log from git itself, so get them exactly right rather than approximately."
         },
         "head_sha": {
           "type": "string",
@@ -59,32 +59,6 @@
         "pull_request_url": {
           "type": "string",
           "description": "URL of the draft pull request. Empty string if it was not created."
-        },
-        "commits": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["sha", "subject"],
-            "properties": {
-              "sha": { "type": "string" },
-              "subject": { "type": "string" }
-            }
-          }
-        }
-      }
-    },
-    "files_changed": {
-      "type": "array",
-      "description": "One entry per file in the diff between base_sha and head_sha. Read it out of git diff --numstat rather than from memory.",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["path", "added", "deleted"],
-        "properties": {
-          "path": { "type": "string" },
-          "added": { "type": "integer" },
-          "deleted": { "type": "integer" }
         }
       }
     },
