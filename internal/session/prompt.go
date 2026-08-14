@@ -443,12 +443,14 @@ func completeExample(resultSchema json.RawMessage) string {
 }
 
 // RenderCompactionSummarySystemPromptFor seeds a session forked by
-// compaction for the provider serving model: the provider's own system
-// prompt plus a summary of the parent session, placed in the stable head
-// where it can itself become a cache checkpoint rather than just more body
-// text in a user message (docs/CACHE.md).
-func RenderCompactionSummarySystemPromptFor(model, summary string) string {
-	base := renderSystemPromptFor(toolNamesInOrder(tools.DefinitionsFor(model)), seesImages(model))
+// compaction for the provider serving model: the system prompt of the
+// session being continued — variant-aware, so a compacted variant session's
+// head still names the array it is actually sent — plus a summary of the
+// parent session, placed in the stable head where it can itself become a
+// cache checkpoint rather than just more body text in a user message
+// (docs/CACHE.md).
+func RenderCompactionSummarySystemPromptFor(model, variant, summary string) string {
+	base := renderSystemPromptFor(toolNamesInOrder(tools.DefinitionsForVariant(model, variant)), seesImages(model))
 	return base + "\n\n## Continuing from a prior session\n\n" +
 		"That session ran long enough to need compaction. Here is a summary of what happened before this point:\n\n" + summary
 }

@@ -496,8 +496,10 @@ func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestMessa
 // session sends the same smaller array on every request
 // (tools.DefinitionsForVariant), matching the head it renders and the
 // schema stored on its row. The variant string comes from the run's
-// options; a resumed session has none and sends the provider's full array,
-// exactly as it always has.
+// options — on a fresh run from the request, on a resume from the session
+// row, where the variant name is frozen (store.Session.PromptVariant) — so
+// a resumed variant session sends the same array it sent before it was
+// interrupted.
 func (r *Runner) stream(ctx context.Context, model, variant string, messages []wire.Message, effort string, thinking bool, maxTokens int, live *liveSink) (
 	reasoning, content string, assembler *wire.ToolCallAssembler, finishReason string, usage *wire.Usage, err error) {
 

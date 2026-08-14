@@ -312,10 +312,10 @@ func DefinitionsForProvider(p provider.Name) []wire.Tool {
 // one — the schema stored on the session row (internal/session/runner.go)
 // and every request's tool list (internal/session/turn.go) — so a
 // tool-dropping variant's array and the head rendered from it can never
-// disagree. One caveat: a resumed session does not know its variant (the
-// variant name is not persisted on the session row), so Resume resolves
-// with the empty variant and sends the provider's full array, exactly as
-// it always has for a base session.
+// disagree. The variant name rides the session row
+// (store.Session.PromptVariant), and a resumed session resolves through it
+// too (internal/session/resume.go), so the array a variant session is sent
+// is the same before and after a resume.
 func DefinitionsForVariant(model, variant string) []wire.Tool {
 	defs := DefinitionsFor(model)
 	dropped := promptvariant.ToolsDroppedBy(variant)

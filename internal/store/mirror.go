@@ -37,28 +37,31 @@ func (m *Mirror) Dir(sess Session) string {
 }
 
 type sessionJSON struct {
-	ID              string          `json:"id"`
-	ParentID        string          `json:"parent_id,omitempty"`
-	JobType         string          `json:"job_type"`
-	Task            string          `json:"task,omitempty"`
-	Title           string          `json:"title,omitempty"`
-	Description     string          `json:"description,omitempty"`
-	Phase           int             `json:"phase,omitempty"`
-	TotalPhases     int             `json:"total_phases,omitempty"`
-	ParentAgentType string          `json:"parent_agent_type,omitempty"`
-	ParentAgentID   string          `json:"parent_agent_id,omitempty"`
-	ParentIsUser    bool            `json:"parent_is_user,omitempty"`
-	Model           string          `json:"model"`
-	Effort          string          `json:"effort"`
-	Thinking        bool            `json:"thinking"`
-	Workspace       string          `json:"workspace"`
-	PermissionMode  string          `json:"permission_mode"`
-	DenyPatterns    []string        `json:"deny_patterns"`
-	SystemPrompt    string          `json:"system_prompt"`
-	ToolSchema      json.RawMessage `json:"tool_schema"`
-	ResultSchema    json.RawMessage `json:"result_schema,omitempty"`
-	Status          string          `json:"status"`
-	CompleteStatus  string          `json:"complete_status,omitempty"`
+	ID              string `json:"id"`
+	ParentID        string `json:"parent_id,omitempty"`
+	JobType         string `json:"job_type"`
+	Task            string `json:"task,omitempty"`
+	Title           string `json:"title,omitempty"`
+	Description     string `json:"description,omitempty"`
+	Phase           int    `json:"phase,omitempty"`
+	TotalPhases     int    `json:"total_phases,omitempty"`
+	ParentAgentType string `json:"parent_agent_type,omitempty"`
+	ParentAgentID   string `json:"parent_agent_id,omitempty"`
+	ParentIsUser    bool   `json:"parent_is_user,omitempty"`
+	Model           string `json:"model"`
+	// PromptVariant is the name of the system prompt variant the session
+	// runs under; absent is the shipped prompt.
+	PromptVariant  string          `json:"prompt_variant,omitempty"`
+	Effort         string          `json:"effort"`
+	Thinking       bool            `json:"thinking"`
+	Workspace      string          `json:"workspace"`
+	PermissionMode string          `json:"permission_mode"`
+	DenyPatterns   []string        `json:"deny_patterns"`
+	SystemPrompt   string          `json:"system_prompt"`
+	ToolSchema     json.RawMessage `json:"tool_schema"`
+	ResultSchema   json.RawMessage `json:"result_schema,omitempty"`
+	Status         string          `json:"status"`
+	CompleteStatus string          `json:"complete_status,omitempty"`
 	// Plan is the stored todos array as JSON, written as the array itself
 	// (like the hub wire row) rather than a JSON-escaped string.
 	Plan            json.RawMessage  `json:"plan,omitempty"`
@@ -82,6 +85,7 @@ func toSessionJSON(sess Session) sessionJSON {
 		ParentAgentID:   sess.ParentAgentID,
 		ParentIsUser:    sess.ParentIsUser,
 		Model:           sess.Model,
+		PromptVariant:   sess.PromptVariant,
 		Effort:          sess.Effort,
 		Thinking:        sess.Thinking,
 		Workspace:       sess.Workspace,
