@@ -2,8 +2,10 @@ package hub
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
@@ -132,6 +134,121 @@ func TestSubscribeListReceivesSnapshot(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for list event")
+	}
+}
+
+// TestPublishSessionStateReachesBothAudiences asserts the one publish call a
+// session makes lands in both shapes: the ListRow projection on the list
+// feed, and the whole row as a Frame on that session's own stream. The two
+// are what the session list and the session detail screen are each connected
+// to, and neither should need the other's endpoint to stay current.
+func TestPublishSessionStateReachesBothAudiences(t *testing.T) {
+	h := New()
+	rows, cancelList := h.SubscribeList()
+	defer cancelList()
+	frames, cancelSession := h.Subscribe("sess-1")
+	defer cancelSession()
+
+	state := SessionState{
+		ID:              "sess-1",
+		Status:          "running",
+		Summary:         "wired it up",
+		PermissionMode:  "full",
+		Version:         7,
+		RecentToolCalls: []store.RecentToolCall{{Name: "Write", Arguments: `{"content":"a whole file"}`}},
+		Usage:           Usage{CostUSD: 1.25, CacheHitTokens: 90},
+	}
+	h.PublishSessionState(state)
+
+	select {
+	case got := <-rows:
+		if got.ID != "sess-1" || got.Status != "running" {
+			t.Fatalf("unexpected list row: %+v", got)
+		}
+		if got.Usage.CostUSD != 1.25 {
+			t.Fatalf("expected the running cost on the list row, got %v", got.Usage.CostUSD)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for the list row")
+	}
+
+	select {
+	case f := <-frames:
+		if f.State == nil {
+			t.Fatalf("expected a state frame on the session stream, got %+v", f)
+		}
+		// The session's own stream is the one that carries everything: the
+		// fields ListRow drops are exactly what the detail screen reads.
+		if f.State.Summary != "wired it up" || f.State.PermissionMode != "full" || f.State.Version != 7 {
+			t.Fatalf("expected the whole row on the session stream, got %+v", f.State)
+		}
+		if len(f.State.RecentToolCalls) != 1 {
+			t.Fatalf("expected the tool-call roll on the session stream, got %+v", f.State.RecentToolCalls)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for the state frame")
+	}
+}
+
+// TestListRowOfDropsWhatTheListDoesNotRender pins the projection by its JSON,
+// which is the contract the browser actually sees. The named fields are the
+// ones the session list has no pixel for and that the feed re-sent on every
+// sub-turn — recent_tool_calls, the largest of them by far, carries raw tool
+// arguments and was never redacted on this feed.
+func TestListRowOfDropsWhatTheListDoesNotRender(t *testing.T) {
+	b, err := json.Marshal(ListRowOf(SessionState{
+		ID:              "sess-1",
+		Status:          "running",
+		PermissionMode:  "full",
+		ParentID:        "sess-parent",
+		Summary:         "wired it up",
+		Version:         7,
+		PriceTableDate:  "2026-01-01",
+		RecentToolCalls: []store.RecentToolCall{{Name: "Write", Arguments: `{"content":"a whole file"}`}},
+		Usage:           Usage{CostUSD: 1.25, CacheHitTokens: 90, CacheMissTokens: 10},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, absent := range []string{
+		`"recent_tool_calls"`, `"summary"`, `"permission_mode"`, `"parent_id"`,
+		`"version"`, `"price_table_date"`, `"cache_hit_tokens"`, `"cache_miss_tokens"`,
+	} {
+		if jsonContains(b, absent) {
+			t.Fatalf("expected %s off the list feed, got %s", absent, b)
+		}
+	}
+	// What the list does render has to survive the projection, cost among it:
+	// the stat strip's "Spend today" is a sum over this field.
+	for _, present := range []string{`"id"`, `"status"`, `"sub_turns"`, `"cost_usd"`} {
+		if !jsonContains(b, present) {
+			t.Fatalf("expected %s on the list feed, got %s", present, b)
+		}
+	}
+}
+
+// TestListRowOfCapsTheTask asserts the cap and, just as importantly, that a
+// task under it is untouched — the list's fallback description line is the
+// whole task for most runs, and a cap that marked every row would be a
+// visible change to all of them.
+func TestListRowOfCapsTheTask(t *testing.T) {
+	short := "wire it up"
+	if got := ListRowOf(SessionState{Task: short}).Task; got != short {
+		t.Fatalf("expected a short task carried whole, got %q", got)
+	}
+
+	// Multi-byte on purpose: the cap counts runes, so a task cut here must
+	// still be valid UTF-8 rather than half a character.
+	long := strings.Repeat("é", MaxListTaskChars+50)
+	got := ListRowOf(SessionState{Task: long}).Task
+	if !utf8.ValidString(got) {
+		t.Fatalf("capped task is not valid UTF-8: %q", got)
+	}
+	if runes := utf8.RuneCountInString(got); runes != MaxListTaskChars+1 {
+		t.Fatalf("expected %d runes (the cap plus the ellipsis), got %d", MaxListTaskChars+1, runes)
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Fatalf("expected a capped task to say so with an ellipsis, got %q", got)
 	}
 }
 

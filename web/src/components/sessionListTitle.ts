@@ -1,4 +1,4 @@
-import type { SessionState } from "../api/types";
+import type { SessionListRow } from "../api/types";
 
 // The session list's title/description rendering, as a pure function of the
 // wire row — the same shape the other display helpers take (statusBadge).
@@ -22,7 +22,7 @@ export interface TitleLines {
   phase: string | null;
 }
 
-export function titleLines(sess: SessionState): TitleLines {
+export function titleLines(sess: SessionListRow): TitleLines {
   const phase =
     sess.total_phases && sess.total_phases > 0
       ? `phase ${sess.phase ?? 0}/${sess.total_phases}`
@@ -37,7 +37,7 @@ export function titleLines(sess: SessionState): TitleLines {
 // descriptionLine picks the description line under the title: the run's own
 // description when there is one, nothing when the title already says what the
 // run is, and the raw prompt only when there is no title to say it.
-function descriptionLine(sess: SessionState): string {
+function descriptionLine(sess: SessionListRow): string {
   if (sess.description) return sess.description;
   if (sess.title) return "";
   return sess.task || "";

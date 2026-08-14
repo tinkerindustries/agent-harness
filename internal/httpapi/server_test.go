@@ -1618,12 +1618,18 @@ func TestListStreamSnapshotThenUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read snapshot frame: %v", err)
 	}
-	var snap hub.SessionState
+	var snap hub.ListRow
 	if err := json.Unmarshal([]byte(frame.data), &snap); err != nil {
 		t.Fatal(err)
 	}
 	if snap.ID != "sess-1" || snap.Status != store.StatusRunning {
 		t.Fatalf("unexpected snapshot: %+v", snap)
+	}
+	// The snapshot is the projection, not the full row — the same shape the
+	// updates below arrive in. A snapshot carrying more than the updates do
+	// would seed fields that revert the first time a session moved.
+	if strings.Contains(frame.data, `"recent_tool_calls"`) || strings.Contains(frame.data, `"permission_mode"`) {
+		t.Fatalf("expected the list snapshot projected to hub.ListRow, got %s", frame.data)
 	}
 
 	// A new session's creation reaches this subscriber without a
@@ -1638,12 +1644,77 @@ func TestListStreamSnapshotThenUpdate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read update frame: %v", err)
 	}
-	var update hub.SessionState
+	var update hub.ListRow
 	if err := json.Unmarshal([]byte(frame.data), &update); err != nil {
 		t.Fatal(err)
 	}
 	if update.ID != "sess-2" {
 		t.Fatalf("expected update for sess-2, got %+v", update)
+	}
+}
+
+// TestSessionStreamCarriesStateFrames asserts the other half of the split:
+// somebody watching one session is told about every change to its row, in
+// full, on the stream they are already connected to. Before this the detail
+// screen re-fetched GET /api/sessions/{id} only when its connection flipped,
+// so its cost and cache figures sat still for the length of a run.
+//
+// The frame is named and carries no id, exactly like a live delta: it must
+// not reach the client's onmessage fold, and it must not move Last-Event-ID,
+// which may only ever name a committed seq.
+func TestSessionStreamCarriesStateFrames(t *testing.T) {
+	srv, st, h := newTestServer(t)
+	mustCreateSession(t, st, "sess-1", time.Now())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, srv.URL+"/api/sessions/sess-1/stream", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	sr := newSSEReader(resp.Body)
+	// The replay seam first — an empty session has no history before it.
+	// nextFrame rather than next, which skips the marker by design.
+	frame, err := sr.nextFrame()
+	if err != nil {
+		t.Fatalf("read replay marker: %v", err)
+	}
+	if frame.event != "replayed" {
+		t.Fatalf("expected the replayed marker first, got %+v", frame)
+	}
+
+	sess := mustGetSession(t, st, "sess-1")
+	sess.Summary = "wired it up"
+	sess.RecentToolCalls = []store.RecentToolCall{{Name: "Bash", Arguments: `{"command":"echo hi"}`}}
+	h.PublishSessionState(hub.BuildSessionState(sess, store.SessionUsageSummary{SubTurns: 3}, "req-1", "2026-01-01"))
+
+	frame, err = sr.next()
+	if err != nil {
+		t.Fatalf("read state frame: %v", err)
+	}
+	if frame.event != "state" {
+		t.Fatalf("expected a named state frame, got %+v", frame)
+	}
+	if frame.id != "" {
+		t.Fatalf("a state frame must carry no id, got %q", frame.id)
+	}
+	var got hub.SessionState
+	if err := json.Unmarshal([]byte(frame.data), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "sess-1" || got.SubTurns != 3 {
+		t.Fatalf("unexpected state frame: %+v", got)
+	}
+	// Everything the list feed drops is here — this is the feed for a caller
+	// who asked about this one session.
+	if got.Summary != "wired it up" || got.PriceTableDate != "2026-01-01" || len(got.RecentToolCalls) != 1 {
+		t.Fatalf("expected the whole row on the session stream, got %+v", got)
 	}
 }
 

@@ -173,7 +173,7 @@ kind filtering:
   SQL: a page of tool traffic never pulls the transcript's reasoning and
   content deltas off the disk.
 
-Plus the SSE transcript stream, which carries two kinds of frame:
+Plus the SSE transcript stream, which carries three kinds of frame:
 
 - **Committed events**, as `id: <seq>` plus `data:` — the resumable log. A
   client resumes with `Last-Event-ID` and the server replays from there.
@@ -202,8 +202,46 @@ Plus the SSE transcript stream, which carries two kinds of frame:
   the same instant and the transcript's live states were otherwise unreachable
   on a real run.
 
-**Both transports redact credential shapes on the way out** (`internal/redact`,
-applied in `internal/httpapi`). A session's tool output is whatever its commands
+- **State frames**, as `event: state` plus `data:`, with **no id**. One
+  session's whole metadata row — the same JSON `GET /api/sessions/{id}`
+  returns — republished whenever the row changes: every sub-turn, and every
+  write of the plan. A client watching one session gets every change to its
+  row here rather than by polling the REST endpoint.
+
+  ```
+  event: state
+  data: {"id": "sess-…", "status": "running", "sub_turns": 4, "usage": {…}, …}
+  ```
+
+  Named and id-less for the same two reasons a live delta is: the name keeps
+  it off `onmessage`, which folds committed events and would choke on a row,
+  and the missing id keeps it out of `Last-Event-ID`, which may only ever name
+  a committed seq. A state frame is a full replacement, never a patch, and a
+  client that ignores it entirely is correct — it just has to re-fetch the row
+  to notice a change.
+
+  The last row of a run may not arrive: the terminal state is published after
+  the `run_finished` event that tells a client to close the stream. A client
+  that wants it re-fetches `GET /api/sessions/{id}` when the connection ends,
+  which is what the frontend does.
+
+The list feed, `GET /api/stream`, is the counterpart and deliberately not the
+same shape. It sends `hub.ListRow` — the projection of a session row down to
+what the session list screen renders — as a plain `data:` frame with no id and
+no event name, both for the connect snapshot (one frame per session) and for
+every update after it. `recent_tool_calls`, `summary`, `permission_mode`,
+`parent_id`, `version`, `price_table_date` and the cache-token counts are not
+on it, and `task` is capped to `hub.MaxListTaskChars` with a trailing ellipsis
+where it was cut. The reason is rate: this feed re-sends a whole row on every
+sub-turn of every running session to every open list, so a field nobody draws
+costs the same as one that is. A caller that wants the whole row asks for it —
+`GET /api/sessions`, `GET /api/sessions/{id}`, or the `state` frames above.
+
+**Every one of these transports redacts credential shapes on the way out**
+(`internal/redact`, applied in `internal/httpapi`) — the paged events
+resource, the transcript stream's events and live deltas, and the two feeds
+carrying session rows, which reach the same browser and carry the prompt a run
+was launched with. A session's tool output is whatever its commands
 printed, and an agent that needs a token in its container will read one back —
 a run once put a full `github_pat_` value in a tool result with `head -2
 .env`. Values matching a recognisable credential format — GitHub, GitLab,

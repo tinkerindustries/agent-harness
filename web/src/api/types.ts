@@ -3,9 +3,17 @@
 // field names identical to the JSON tags on the Go side is what lets a
 // payload be used directly after JSON.parse, with no translation layer.
 
-export interface SessionState {
+// SessionListRow is what GET /api/stream carries, mirroring internal/hub's
+// ListRow: the projection of a session row down to the fields the session
+// list renders. That feed re-sends a whole row on every sub-turn of every
+// running session to every open list, so the fields it leaves out — the
+// tool-call roll above all, which is the biggest thing on the row and which
+// this screen has no pixel for — are ones nobody was drawing. A screen that
+// wants the rest asks for the whole row: GET /api/sessions for the Finished
+// table, GET /api/sessions/{id} and the session stream's `state` frames for
+// the detail screens.
+export interface SessionListRow {
   id: string;
-  parent_id?: string;
   request_id?: string;
   job_type?: string;
   parent_agent_type?: string;
@@ -18,7 +26,6 @@ export interface SessionState {
   model: string;
   effort: string;
   workspace: string;
-  permission_mode: string;
   status: string;
   // complete_status is the status argument the model gave Complete ("done"
   // or "gave_up"), mirroring internal/hub's SessionState. Empty covers both
@@ -31,6 +38,11 @@ export interface SessionState {
   // pre-migration row and a run created with no prompt (a browser start
   // waits for its first message); the in-flight card renders no description
   // rather than an empty one.
+  //
+  // On the list feed alone it is capped at internal/hub's MaxListTaskChars
+  // and marked with a trailing ellipsis when it was cut: the task is
+  // immutable but re-sent on every sub-turn, and this screen shows it in a
+  // three-line clamp and a tooltip. The whole task is on the REST row.
   task?: string;
   // title is the run's name (at most 10 words), shown bold on the main page
   // in place of the raw prompt, mirroring internal/hub's SessionState.
@@ -57,24 +69,38 @@ export interface SessionState {
   // pre-migration row and a session that never wrote a plan; the in-flight
   // card renders no plan section rather than an empty one.
   plan?: Todo[];
+  created_at: string;
+  finished_at?: string;
+  sub_turns: number;
+  usage: ListUsage;
+}
+
+// SessionState is a session's whole metadata row, mirroring internal/hub's
+// SessionState: what GET /api/sessions and GET /api/sessions/{id} return, and
+// what the session stream's `state` frames carry. It extends the list row
+// rather than restating it, so a full row is usable anywhere a list row is —
+// which is what lets the display helpers (statusBadge, sessionListTitle,
+// provenance) serve the list and the detail screens from one implementation.
+export interface SessionState extends SessionListRow {
+  parent_id?: string;
+  permission_mode: string;
   // recent_tool_calls is the rolling roll of the last few tool calls the
-  // session made, mirroring internal/hub's SessionState. The in-flight card
-  // no longer renders it; the field stays on the wire because it rides the
-  // plan's store write. Absent when the session made none yet.
+  // session made, mirroring internal/hub's SessionState. Nothing renders it;
+  // the field stays on the row because it rides the plan's store write. It is
+  // off the list feed entirely (SessionListRow) — it was the largest field
+  // there and carries each call's raw arguments. Absent when the session made
+  // none yet.
   recent_tool_calls?: RecentToolCall[];
   // summary is the summary argument the model gave Complete, its own
   // one-line account of the run, shown under the finished table's session
   // id. Absent when Complete was never called.
   summary?: string;
-  created_at: string;
-  finished_at?: string;
   // Version is the row's optimistic-concurrency counter (docs/DATA-API.md):
   // the value a mutating write must echo back in If-Match, bumped by every
-  // change to the row. It rides on every representation — list, single, and
-  // the stream feed — so a client can always read a fresh version before
-  // writing.
+  // change to the row. It rides on every full representation — list, single,
+  // and the session stream's state frames — so a client can always read a
+  // fresh version before writing.
   version: number;
-  sub_turns: number;
   usage: Usage;
   // price_table_date is the config price table's own capture date
   // (internal/pricing.Table.CapturedAt), carried alongside usage so a cost
@@ -85,12 +111,18 @@ export interface SessionState {
   price_table_date?: string;
 }
 
-export interface Usage {
+// ListUsage is the one usage figure the session list reads: the running cost,
+// which the stat strip sums into "Spend today". The token counts behind it
+// are Finished-table columns, and that table reads the full row.
+export interface ListUsage {
+  cost_usd: number;
+}
+
+export interface Usage extends ListUsage {
   cache_hit_tokens: number;
   cache_miss_tokens: number;
   completion_tokens: number;
   reasoning_tokens: number;
-  cost_usd: number;
 }
 
 export type EventKind =

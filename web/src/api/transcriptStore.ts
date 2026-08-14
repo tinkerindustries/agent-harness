@@ -1,6 +1,6 @@
 import { FoldState, type Block, type LiveDelta, type LiveView } from "./fold";
 import { SubTurnGroupState, type ChurnPoint, type GroupCounts, type TranscriptItem } from "./groups";
-import type { StoreEvent, Todo, ToolCallPayload } from "./types";
+import type { SessionState, StoreEvent, Todo, ToolCallPayload } from "./types";
 
 // One session's transcript, live or historical (docs/DESIGN.md §4.2: "the
 // same endpoint shape"). The SSE endpoint alone is the whole data source —
@@ -39,6 +39,18 @@ export interface TranscriptSnapshot {
   // it cannot work out for itself — a long replay arrives across several
   // reads, so the first blocks to land are a fraction of the history.
   replayed: boolean;
+  // state is this session's metadata row as the server last published it,
+  // delivered by the stream's own `state` frames (internal/httpapi
+  // handleSessionStream). null until one arrives, which is the normal case
+  // for a finished session: the row only changes while a run is going, so a
+  // terminal session's page runs on its REST fetch alone.
+  //
+  // This is the session-scoped half of the SSE split: the list feed carries a
+  // projection of every session's row, and one session's own stream carries
+  // all of that session's row. Before it existed the detail screen re-fetched
+  // GET /api/sessions/{id} only when its connection flipped, so its cost,
+  // cache and sub-turn figures sat frozen for the length of a run.
+  state: SessionState | null;
   // counts and churnPoint come out of the same incremental pass that builds
   // items: the filter chip row's numbers and the first cache-churn
   // diagnostic, without a second walk over the blocks.
@@ -86,6 +98,7 @@ export class TranscriptStore {
   private es?: EventSource;
   private connection: ConnectionState = "connecting";
   private replayed = false;
+  private state: SessionState | null = null;
   private dirty = false;
   private flushHandle: number | null = null;
   private scheduleFlushImpl: (cb: () => void) => number;
@@ -125,6 +138,14 @@ export class TranscriptStore {
     // mistakes it for a committed event, and carrying no id, so it cannot
     // move the Last-Event-ID cursor.
     this.es.addEventListener("replayed", () => this.markReplayed());
+    // `state` frames are this session's metadata row, republished whenever it
+    // changes. Named and id-less for the same two reasons a live frame is:
+    // onmessage folds committed events and would choke on a row, and the
+    // resume cursor may only ever name a committed seq.
+    this.es.addEventListener("state", (m) => {
+      this.state = JSON.parse((m as MessageEvent).data) as SessionState;
+      this.markDirty();
+    });
     this.es.onmessage = (m) => {
       const ev = JSON.parse(m.data) as StoreEvent;
       this.ingest(ev);
@@ -211,6 +232,7 @@ export class TranscriptStore {
       todos: this.fold.latestTodos,
       connection: this.connection,
       replayed: this.replayed,
+      state: this.state,
       counts: { ...this.groups.counts },
       churnPoint: this.groups.churnPoint,
       getToolCall: this.getToolCall,

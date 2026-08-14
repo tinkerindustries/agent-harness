@@ -55,14 +55,20 @@ const (
 	ChannelContent   = "content"
 )
 
-// Frame is one thing to send a transcript subscriber: either a committed
-// event or an ephemeral live delta, never both. The two travel on one
-// channel so a subscriber cannot receive them out of order relative to each
-// other — a delta published after a commit must arrive after it, and two
-// channels would race.
+// Frame is one thing to send a transcript subscriber: a committed event, an
+// ephemeral live delta, or the session's own metadata row — exactly one of
+// the three. They travel on one channel so a subscriber cannot receive them
+// out of order relative to each other — a delta published after a commit
+// must arrive after it, and separate channels would race.
+//
+// State is the whole SessionState, not the list feed's projection of it: a
+// caller watching one session has asked about that session, so it gets every
+// change to its row. The session list is the opposite case — many sessions,
+// a fraction of each row — and takes ListRow instead.
 type Frame struct {
 	Event store.Event
 	Live  *LiveDelta
+	State *SessionState
 }
 
 // Hub fans events out to SSE subscribers. All methods are safe for
@@ -72,7 +78,7 @@ type Frame struct {
 type Hub struct {
 	mu       sync.Mutex
 	sessions map[string]map[chan Frame]struct{}
-	list     map[chan SessionState]struct{}
+	list     map[chan ListRow]struct{}
 	// evals holds one subscriber set per eval run id, plus a set under the
 	// empty key for the list, which wants to know that any run changed.
 	evals map[string]map[chan struct{}]struct{}
@@ -82,7 +88,7 @@ type Hub struct {
 func New() *Hub {
 	return &Hub{
 		sessions: make(map[string]map[chan Frame]struct{}),
-		list:     make(map[chan SessionState]struct{}),
+		list:     make(map[chan ListRow]struct{}),
 	}
 }
 
@@ -177,8 +183,8 @@ subs:
 // snapshot on every connection instead of a resumable log, so a caller
 // reconnecting after a drop just gets the current state again rather than
 // needing a sequence number (docs/DESIGN.md §5.8).
-func (h *Hub) SubscribeList() (states <-chan SessionState, cancel func()) {
-	ch := make(chan SessionState, listBufferSize)
+func (h *Hub) SubscribeList() (rows <-chan ListRow, cancel func()) {
+	ch := make(chan ListRow, listBufferSize)
 	h.mu.Lock()
 	h.list[ch] = struct{}{}
 	h.mu.Unlock()
@@ -194,14 +200,29 @@ func (h *Hub) SubscribeList() (states <-chan SessionState, cancel func()) {
 	return ch, cancel
 }
 
-// PublishSessionState fans one session's current row out to every list
-// subscriber, dropping (not blocking on) any that has fallen behind.
+// PublishSessionState fans one session's current row out to the two audiences
+// that want it, in the shape each one asked for: every list subscriber gets
+// ListRowOf(s), the projection down to what the session list renders, and
+// this session's own transcript subscribers get the whole row as a Frame.
+//
+// One call, two shapes, because a caller producing a row knows nothing about
+// who is watching — session.Runner publishes after every sub-turn whether the
+// browser is on the list, on this session's page, or nowhere at all. Keeping
+// the fork here is what stops "which fields does that screen need" from
+// spreading into the run loop.
+//
+// The list send drops (rather than blocks on) a subscriber that has fallen
+// behind; the transcript send goes through publish, which drops on the same
+// terms.
 func (h *Hub) PublishSessionState(s SessionState) {
+	h.publish(s.ID, []Frame{{State: &s}})
+
+	row := ListRowOf(s)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for ch := range h.list {
 		select {
-		case ch <- s:
+		case ch <- row:
 		default:
 			delete(h.list, ch)
 			close(ch)

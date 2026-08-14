@@ -83,7 +83,14 @@ read through `internal/settings`. Depends on: nothing internal. §4.8.
 ### `internal/hub`
 In-process SSE fan-out: per-session transcript subscribers and a quieter
 session-list subscriber set. Fed the same events a session appends. Touches no
-JetStream — the browser reads the store and the hub, never NATS. §4.2, §5.8.
+JetStream — the browser reads the store and the hub, never NATS. Owns the two
+shapes a session row goes out in, and the projection between them:
+`SessionState`, the whole row, which the REST endpoints return and which one
+session's own stream carries as `state` frames, and `ListRow`, what the list
+feed sends — the fields that screen renders, because a row is republished on
+every sub-turn of every running session to every open list. `ListRowOf` is
+the only place the two meet, so a field reaches the list feed by being added
+there on purpose. §4.2, §5.8.
 
 ### `internal/httpapi`
 The HTTP surface and the static file server for the embedded frontend. `GET`

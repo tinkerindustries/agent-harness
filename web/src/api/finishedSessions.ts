@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSyncExternalStore } from "react";
 import { listSessions } from "./operations";
+import { mergeLive } from "./liveOverlay";
 import { offsetFor } from "./paging";
 import { sessionListStore } from "./sessionListStore";
-import type { Page, SessionState } from "./types";
+import type { Page, SessionListRow, SessionState } from "./types";
 
 // FINISHED_PAGE_SIZE is how many finished rows one page fetches: the
 // server's defaultPageLimit, asked for explicitly so the page size never
@@ -37,10 +38,10 @@ export interface FinishedPage {
 //
 // While a page loads, the previous page's rows stay in place: clearing the
 // table between pages would flash an empty state. Live state is overlaid
-// per row — any fetched row the store holds a newer copy of is replaced
-// before rendering — which keeps a row's cost and status fresh between
-// fetches for free, and is why the refetch signature can afford to be as
-// coarse as it is.
+// per row — any fetched row the store holds a newer copy of is merged with it
+// before rendering (mergeLive) — which keeps a row's cost and status fresh
+// between fetches for free, and is why the refetch signature can afford to be
+// as coarse as it is.
 export function useFinishedSessions(page: number, query: string): FinishedPage {
   const snapshot = useSyncExternalStore(sessionListStore.subscribe, sessionListStore.getSnapshot);
 
@@ -102,14 +103,17 @@ export function useFinishedSessions(page: number, query: string): FinishedPage {
   // snapshot the hook already subscribes to. The stream updates live; the
   // page was fetched at some earlier moment.
   const liveById = useMemo(() => {
-    const m = new Map<string, SessionState>();
+    const m = new Map<string, SessionListRow>();
     for (const s of snapshot.sessions) m.set(s.id, s);
     return m;
   }, [snapshot.sessions]);
 
   const items = useMemo(() => {
     if (!data) return [];
-    return data.items.map((s) => liveById.get(s.id) ?? s);
+    return data.items.map((s) => {
+      const live = liveById.get(s.id);
+      return live ? mergeLive(s, live) : s;
+    });
   }, [data, liveById]);
 
   return { items, total: data?.total ?? 0, loading, error };

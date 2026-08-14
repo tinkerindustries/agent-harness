@@ -281,21 +281,41 @@ func TestSubTurnPublishesFreshPlanAndRecentToolCalls(t *testing.T) {
 
 	r := newTestRunner(t, srv.URL)
 	r.Hub = hub.New()
-	statesCh, cancel := r.Hub.SubscribeList()
 
-	var published []hub.SessionState
+	// Both audiences of a state publish, watched at once: the list feed,
+	// which gets the ListRow projection, and this session's own transcript
+	// stream, which gets the whole row. The session id is generated up front
+	// (RunOptions.SessionID) so the session subscription can exist before the
+	// first sub-turn publishes — the roll is only asserted where it is
+	// actually sent, and ListRow has no field for it to arrive in.
+	sessionID := NewSessionID()
+	statesCh, cancelList := r.Hub.SubscribeList()
+	framesCh, cancelSession := r.Hub.Subscribe(sessionID)
+
+	var listRows []hub.ListRow
+	var fullRows []hub.SessionState
 	drained := make(chan struct{})
 	go func() {
 		for s := range statesCh {
-			published = append(published, s)
+			listRows = append(listRows, s)
 		}
 		close(drained)
+	}()
+	framesDrained := make(chan struct{})
+	go func() {
+		for f := range framesCh {
+			if f.State != nil {
+				fullRows = append(fullRows, *f.State)
+			}
+		}
+		close(framesDrained)
 	}()
 
 	ws := t.TempDir()
 	res, err := r.Run(t.Context(), RunOptions{
 		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "wire it up",
+		SessionID: sessionID,
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -304,32 +324,58 @@ func TestSubTurnPublishesFreshPlanAndRecentToolCalls(t *testing.T) {
 		t.Fatalf("unexpected status: %s", res.Status)
 	}
 	// Run only returns once every sub-turn's publishState call for this
-	// session has already happened, so every event is in statesCh by now.
-	cancel()
+	// session has already happened, so every frame is in both channels by now.
+	cancelList()
+	cancelSession()
 	<-drained
+	<-framesDrained
 
 	// The first sub-turn's publish (right after the TaskCreate+Bash sub-turn
 	// committed, before Complete's sub-turn) must already carry the plan
 	// and the Bash call — not empty, and not the finished row's own later
 	// state, which this asserts against by checking the still-running one.
-	var sawLiveWithPlan bool
-	for _, s := range published {
+	// The plan is on both feeds; the roll is on the session's alone.
+	var sawFullWithPlanAndRoll bool
+	for _, s := range fullRows {
 		if s.ID != res.SessionID || s.Status != store.StatusRunning {
 			continue
 		}
 		if len(s.Plan) == 0 || len(s.RecentToolCalls) == 0 {
 			continue
 		}
-		var todos []store.StatusTodo
-		if err := json.Unmarshal(s.Plan, &todos); err != nil {
-			t.Fatalf("decode published plan %q: %v", s.Plan, err)
+		if !planHasSubject(t, s.Plan, "Wire it up") {
+			continue
 		}
-		if len(todos) == 1 && todos[0].Subject == "Wire it up" &&
-			len(s.RecentToolCalls) == 1 && s.RecentToolCalls[0].Name == "Bash" {
-			sawLiveWithPlan = true
+		if len(s.RecentToolCalls) == 1 && s.RecentToolCalls[0].Name == "Bash" {
+			sawFullWithPlanAndRoll = true
 		}
 	}
-	if !sawLiveWithPlan {
-		t.Fatalf("no running-status session_state publish carried the sub-turn's plan and tool-call roll: %+v", published)
+	if !sawFullWithPlanAndRoll {
+		t.Fatalf("no running-status state frame on the session stream carried the sub-turn's plan and tool-call roll: %+v", fullRows)
 	}
+
+	var sawListWithPlan bool
+	for _, s := range listRows {
+		if s.ID != res.SessionID || s.Status != store.StatusRunning || len(s.Plan) == 0 {
+			continue
+		}
+		if planHasSubject(t, s.Plan, "Wire it up") {
+			sawListWithPlan = true
+		}
+	}
+	if !sawListWithPlan {
+		t.Fatalf("no running-status list row carried the sub-turn's plan: %+v", listRows)
+	}
+}
+
+// planHasSubject reports whether a published plan is the single-item plan
+// this test's TaskCreate wrote. Shared by the two assertions above so the
+// list feed and the session stream are held to the same plan.
+func planHasSubject(t *testing.T, plan json.RawMessage, subject string) bool {
+	t.Helper()
+	var todos []store.StatusTodo
+	if err := json.Unmarshal(plan, &todos); err != nil {
+		t.Fatalf("decode published plan %q: %v", plan, err)
+	}
+	return len(todos) == 1 && todos[0].Subject == subject
 }

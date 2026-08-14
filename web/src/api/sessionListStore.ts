@@ -1,4 +1,4 @@
-import type { SessionState } from "./types";
+import type { SessionListRow } from "./types";
 
 // The session list's external store (docs/DESIGN.md §5.7:
 // useSyncExternalStore, no state library). GET /api/stream sends a full
@@ -8,6 +8,13 @@ import type { SessionState } from "./types";
 // any race between a snapshot fetch and the stream picking up where it left
 // off.
 //
+// Every frame is a SessionListRow, not a whole session row: this feed
+// re-sends a row on every sub-turn of every running session, so it carries
+// only the fields this screen draws (internal/hub's ListRow). A row here is
+// a replacement, never a patch — the snapshot and the updates are the same
+// shape by construction, so a set() can never drop a field the previous
+// frame had.
+//
 // The browser's EventSource retries on its own after a drop; nothing here
 // re-implements reconnect.
 
@@ -16,7 +23,7 @@ type Listener = () => void;
 export type ConnectionState = "connecting" | "open";
 
 interface Snapshot {
-  sessions: SessionState[];
+  sessions: SessionListRow[];
   connection: ConnectionState;
   // finishedRevision is a counter over the *set* of terminal sessions,
   // bumped in flush() only when a cheap signature of that set changes (its
@@ -27,7 +34,7 @@ interface Snapshot {
   finishedRevision: number;
 }
 
-function bySessionAge(a: SessionState, b: SessionState): number {
+function bySessionAge(a: SessionListRow, b: SessionListRow): number {
   return b.created_at.localeCompare(a.created_at);
 }
 
@@ -36,7 +43,7 @@ function bySessionAge(a: SessionState, b: SessionState): number {
 // arrive sorted by created_at DESC, so the first terminal row is the newest
 // one). A running session's progress changes neither; a run finishing
 // changes both; a deletion changes the count.
-function finishedSignature(sessions: SessionState[]): string {
+function finishedSignature(sessions: SessionListRow[]): string {
   let count = 0;
   let newest = "";
   for (const s of sessions) {
@@ -48,7 +55,7 @@ function finishedSignature(sessions: SessionState[]): string {
 }
 
 class SessionListStore {
-  private byID = new Map<string, SessionState>();
+  private byID = new Map<string, SessionListRow>();
   private listeners = new Set<Listener>();
   private snapshot: Snapshot = { sessions: [], connection: "connecting", finishedRevision: 0 };
   private finishedSig = "";
@@ -67,7 +74,7 @@ class SessionListStore {
     es.onopen = () => this.setConnection("open");
     es.onerror = () => this.setConnection("connecting"); // EventSource retries on its own
     es.onmessage = (m) => {
-      const state = JSON.parse(m.data) as SessionState;
+      const state = JSON.parse(m.data) as SessionListRow;
       this.byID.set(state.id, state);
       this.emit();
     };

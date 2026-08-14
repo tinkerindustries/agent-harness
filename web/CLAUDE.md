@@ -212,6 +212,18 @@ blocks; the naive shape re-parses the whole transcript tens of times a second.
   blocks I saw" is a fraction of the history. A store driven without a
   connection — the perf harnesses — calls `markReplayed()` once it has seeded
   its own history.
+- **Two feeds, two shapes, and the narrow one is the list's.** `GET
+  /api/stream` sends `SessionListRow` (`internal/hub`'s `ListRow`): only the
+  fields the session list draws, with `task` capped. It re-sends a whole row on
+  every sub-turn of every running session to every open tab, so a field added
+  there is paid for at that rate — add one only by adding it to `ListRow` on
+  the Go side too, and only if this screen renders it. Everything else comes
+  from a full row: the Finished table fetches one per page (and *merges* the
+  live row over it — `api/liveOverlay.ts` `mergeLive`, never a replacement, or
+  the summary and cache columns blank), and the session detail screens read
+  `state` frames off the session's own stream (`transcriptStore`'s
+  `snapshot.state`, preferred over `useSessionMeta`'s fetch, which is what
+  answers "does this session exist" and what covers a finished run).
 
 Virtualisation is out, and the measurements that decided it are in §5.5: delta
 commits are flat in block count, appending a block is linear and no amount of

@@ -140,10 +140,14 @@ export function useTranscriptStore(sessionID: string): TranscriptStore {
 }
 
 // useSessionMeta fetches GET /api/sessions/{id} and returns the metadata
-// row. Re-fetches when refreshOn changes (the stream connection opening or
-// closing), so the status badge picks up the terminal status the
-// transcript's own run_finished/error block already shows, rather than
-// freezing on whatever the first fetch returned. Clears only on a genuine
+// row, preferring the live row the caller passes in — the session stream's
+// own `state` frames (transcriptStore), which are what keep a running
+// session's figures moving. Re-fetches when refreshOn changes (the stream
+// connection opening or closing), so a session with no live row still picks
+// up the terminal status the transcript's own run_finished/error block
+// already shows, rather than freezing on whatever the first fetch returned;
+// that is also what covers the last row of a run, published after the
+// terminal event has already closed the stream. Clears only on a genuine
 // session switch — a refreshOn change re-fetches without a visible blank
 // flicker in between — and swallows a transient fetch failure, which just
 // leaves the caller showing whatever it last had.
@@ -164,6 +168,7 @@ export function useTranscriptStore(sessionID: string): TranscriptStore {
 export function useSessionMeta(
   sessionId: string,
   refreshOn: unknown,
+  live?: SessionState | null,
 ): { meta: SessionState | null; settled: boolean } {
   const [meta, setMeta] = useState<SessionState | null>(null);
   const [settled, setSettled] = useState(false);
@@ -194,5 +199,13 @@ export function useSessionMeta(
     return () => controller.abort();
   }, [sessionId, refreshOn]);
 
-  return { meta, settled };
+  // The live row wins whenever there is one. It comes from this session's own
+  // SSE stream (transcriptStore's `state` frames), which is republished on
+  // every change to the row, so it is never older than the fetch — while the
+  // fetch, which only re-runs when the connection flips, went stale the
+  // moment the run's next sub-turn landed. A session with no live row (a
+  // finished run, a stream that has not opened) falls back to the fetch, and
+  // `settled` stays a statement about the fetch alone: it is the "will a row
+  // ever arrive" question, and only the fetch can answer it.
+  return { meta: live ?? meta, settled };
 }

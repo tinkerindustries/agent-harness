@@ -9,7 +9,7 @@ import { FINISHED_PAGE_SIZE, useFinishedSessions } from "../api/finishedSessions
 import { startedBy } from "../api/provenance";
 import { titleLines } from "./sessionListTitle";
 import { tableEmptyState } from "./sessionListEmpty";
-import type { QueueHealth, SessionState, Usage } from "../api/types";
+import type { QueueHealth, SessionListRow, SessionState, Usage } from "../api/types";
 import { useArrivals, useLabelFlip, useNow, useQueueHealth } from "../hooks";
 import { cn } from "@/lib/utils";
 import { Badge } from "./ui/badge";
@@ -30,7 +30,7 @@ import { StopControl } from "./StopControl";
 import { StartRunForm } from "./StartRunForm";
 import { useNavRight } from "./TopNav";
 
-function formatElapsed(sess: SessionState, nowMs: number): string {
+function formatElapsed(sess: SessionListRow, nowMs: number): string {
   const start = Date.parse(sess.created_at);
   const end = sess.finished_at ? Date.parse(sess.finished_at) : nowMs;
   return formatMs(end - start);
@@ -75,7 +75,7 @@ function hitRateTitle(usage: Usage): string {
 // matchesQuery is the session list's own filter: id, workspace, or
 // request id, client-side over the snapshot the table already holds —
 // no backend field, no endpoint.
-function matchesQuery(s: SessionState, q: string): boolean {
+function matchesQuery(s: SessionListRow, q: string): boolean {
   if (q === "") return true;
   return (
     s.id.toLowerCase().includes(q) ||
@@ -100,7 +100,7 @@ interface DayStats {
 // sessions that have a finished_at (a running session's duration is not a
 // duration yet). The median and the total are over the same set; the strip
 // shows them as the two figures, with no count small print under either.
-function computeDayStats(sessions: SessionState[], dayStartMs: number): DayStats {
+function computeDayStats(sessions: SessionListRow[], dayStartMs: number): DayStats {
   let running = 0;
   let spendUsd = 0;
   const durations: number[] = [];
@@ -476,7 +476,12 @@ function InFlightCard({
   onOpen,
   arrived = false,
 }: {
-  sess: SessionState;
+  // The in-flight cards and the stat strip run off the SSE snapshot, which
+  // carries the list projection (SessionListRow) rather than the whole row.
+  // The Finished table below is the other half — it reads full rows from the
+  // paged REST endpoint, which is why FinishedRow can render the summary and
+  // the cache figures and this card cannot.
+  sess: SessionListRow;
   now: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;

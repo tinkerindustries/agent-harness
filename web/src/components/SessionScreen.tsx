@@ -21,7 +21,12 @@ interface Props {
 export function SessionScreen({ sessionId, onNavigate }: Props) {
   const store = useTranscriptStore(sessionId);
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
-  const { meta, settled } = useSessionMeta(sessionId, snapshot.connection);
+  // snapshot.state is this session's row as its own stream last published it
+  // — the live half of the metadata, republished on every change to the row.
+  // The fetch behind useSessionMeta is the other half: it is what answers
+  // "does this session exist" and what covers a finished run, whose row
+  // stopped changing before anybody opened the page.
+  const { meta, settled } = useSessionMeta(sessionId, snapshot.connection, snapshot.state);
 
   // Whether this session's stream has opened since the page loaded, for the
   // dropped-stream banner (DroppedStreamBanner). It lives HERE rather than in

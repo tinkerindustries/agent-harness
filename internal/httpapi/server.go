@@ -1977,6 +1977,17 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 				flusher.Flush()
 				continue
 			}
+			// A state frame is this session's metadata row, republished
+			// whenever it changes (hub.PublishSessionState). Like a live
+			// delta it is named and carries no seq, so it neither reaches
+			// the client's onmessage fold nor moves the resume cursor: it
+			// is not a log position, it is the current value of a row the
+			// log does not hold.
+			if frame.State != nil {
+				writeSSEState(w, *frame.State)
+				flusher.Flush()
+				continue
+			}
 			ev := frame.Event
 			if ev.Seq <= sent {
 				continue // already sent from history; the subscribe/read overlap window
@@ -2004,6 +2015,14 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 // progress, or finish (docs/DESIGN.md §5.8). Unlike the transcript stream
 // it carries no Last-Event-ID — a reconnect just gets a fresh snapshot,
 // which is cheap because this stream is deliberately quiet.
+//
+// Every row here is a hub.ListRow, the projection down to what the session
+// list renders. This feed is quiet in frequency, not in volume: it re-sends
+// a whole row on every sub-turn of every running session to every browser
+// with the list open, so a field it carries that no pixel reads is paid for
+// once per sub-turn per session per tab. A caller that wants the whole row
+// asks for one — GET /api/sessions, or the `state` frames on the session's
+// own stream, which is the feed for somebody watching one session.
 func (s *Server) handleListStream(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -2027,8 +2046,13 @@ func (s *Server) handleListStream(w http.ResponseWriter, r *http.Request) {
 
 	setSSEHeaders(w)
 	flusher.Flush()
+	// The snapshot is projected through the same ListRowOf the live tail
+	// below already comes through (hub.PublishSessionState), so the row a
+	// browser starts from and the rows it is updated with carry the identical
+	// field set — a snapshot with more fields than the updates would leave
+	// whatever it seeded reverting the first time a session moved.
 	for _, st := range states {
-		writeSSEData(w, st)
+		writeSSEData(w, hub.ListRowOf(st))
 	}
 	flusher.Flush()
 
@@ -2036,11 +2060,11 @@ func (s *Server) handleListStream(w http.ResponseWriter, r *http.Request) {
 	defer keepalive.Stop()
 	for {
 		select {
-		case st, ok := <-live:
+		case row, ok := <-live:
 			if !ok {
 				return
 			}
-			writeSSEData(w, st)
+			writeSSEData(w, row)
 			flusher.Flush()
 		case <-keepalive.C:
 			fmt.Fprint(w, ": keep-alive\n\n")
@@ -2128,15 +2152,35 @@ func writeSSEReplayed(w io.Writer) {
 	fmt.Fprint(w, "event: replayed\ndata: {}\n\n")
 }
 
+// writeSSEState writes one session's metadata row as a *named* SSE event
+// with no id, for the same two reasons a live delta carries that shape: the
+// name keeps it off the client's onmessage handler, which folds committed
+// events and would choke on a row, and the missing id keeps it out of
+// Last-Event-ID, which must only ever name a committed seq.
+//
+// It redacts, exactly as the events beside it do. The row carries the task
+// the run was launched with and the model's own summary of it, and a secret
+// masked in the log but streamed in the clear here would be no masking at
+// all.
+func writeSSEState(w io.Writer, s hub.SessionState) {
+	b, err := json.Marshal(s)
+	if err != nil {
+		return
+	}
+	fmt.Fprintf(w, "event: state\ndata: %s\n\n", redact.Bytes(b))
+}
+
 // writeSSEData writes v as a plain SSE frame with no id — the shape the
 // list stream uses, since a session-list row is a full replacement rather
-// than a resumable log position.
+// than a resumable log position. It redacts on the way out for the same
+// reason writeSSEState does: a list row carries the task, and the two feeds
+// serve the same data to the same browser.
 func writeSSEData(w io.Writer, v any) {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return
 	}
-	fmt.Fprintf(w, "data: %s\n\n", b)
+	fmt.Fprintf(w, "data: %s\n\n", redact.Bytes(b))
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

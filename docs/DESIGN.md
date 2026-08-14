@@ -965,7 +965,32 @@ data layer beyond the SSE client, the store, and the settings fetch calls
 
 Several sessions run at once, so the list is a first-class screen rather than a
 drawer. It subscribes to `GET /api/stream`, which carries session-level state
-changes only and stays quiet while transcripts are loud. The screen splits the
+changes only and stays quiet while transcripts are loud.
+
+Quiet in frequency, not in volume — which is why that feed carries a
+projection of a session row rather than the row. A state publish happens on
+every sub-turn of every running session, and every subscriber gets a whole
+row; anything on it that the list does not draw is paid for once per sub-turn
+per session per open tab. So `internal/hub` has two shapes: `SessionState`,
+the full row, and `ListRow`, the fields this screen renders, with `ListRowOf`
+the one place they meet. Measured over a live harness the row averaged 18KB
+and reached 48KB, of which 9.9KB was `recent_tool_calls` — a rolling roll of
+raw tool arguments, a `Write`'s whole file body among them, that the card
+stopped rendering and that this feed never redacted. The projection also caps
+`task`, the other four-kilobyte field, because it is immutable and the card
+shows it in a three-line clamp.
+
+The counterpart is the session's own stream. `GET /api/sessions/{id}/stream`
+now carries `state` frames — the whole `SessionState`, republished on every
+change — alongside its events and live deltas, named and id-less like a live
+delta so they neither reach the client's event fold nor move `Last-Event-ID`.
+A caller watching one session has asked about that session and gets every
+change to its row; the list is the opposite case, many sessions and a fraction
+of each. Before this the detail screen re-fetched `GET /api/sessions/{id}`
+only when its stream connection flipped, so its cost, cache and sub-turn
+figures sat frozen for the length of a run.
+
+The screen splits the
 list in two. In-flight sessions render as
 collapsible plan cards: the summary carries the job's description — the
 session's `task`, clamped to three lines — and the trigger answers what the
