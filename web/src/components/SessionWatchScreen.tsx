@@ -9,6 +9,7 @@ import { WatchFooter } from "./WatchFooter";
 import { ResultPanel, type RunFinishedBlock } from "./ResultPanel";
 import { DroppedStreamBanner } from "./DroppedStreamBanner";
 import { controlToken, errorMessage, stopSession } from "../api/operations";
+import { isLive } from "../api/status";
 import { getSessionEval, type EvalMembership } from "../api/evals";
 import { startedBy } from "../api/provenance";
 import { SessionIdContext, useLabelFlip, useNow } from "../hooks";
@@ -50,7 +51,10 @@ interface Props {
 // end of the stream, and the dropped-stream banner both pages share.
 export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, everOpen }: Props) {
   const now = useNow(1000);
-  const running = meta.status === "running";
+  // The run is live until the row says otherwise: running, or still
+  // creating while the worker prepares its workspace — a creating run has
+  // no events yet, so "not running" would misread it as finished.
+  const running = isLive(meta.status);
 
   // The one-line provenance label ("started by claude-code (sess-1)") and
   // the bare identity the sentence below names. provenance.ts owns the

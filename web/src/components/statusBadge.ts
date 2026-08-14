@@ -12,6 +12,7 @@ type BadgeVariant = NonNullable<VariantProps<typeof badgeVariants>["variant"]>;
 
 const STATUS_VARIANT: Record<string, BadgeVariant> = {
   running: "running",
+  creating: "outline",
   ok: "done",
   failed: "failed",
   timeout: "stopped",
@@ -54,6 +55,8 @@ export function outcome(session: OutcomeSession): Outcome {
   switch (session.status) {
     case "running":
       return { label: "RUNNING", variant: "running" };
+    case "creating":
+      return { label: "CREATING", variant: "outline" };
     case "max_turns":
       return { label: "MAX TURNS", variant: "gaveup" };
     case "failed":

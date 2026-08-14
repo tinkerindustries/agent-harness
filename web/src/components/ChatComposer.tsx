@@ -55,8 +55,11 @@ export interface FinishedBand {
 interface ChatComposerProps {
   // The run-control bearer; null hides the composer box (see above).
   token: string | null;
-  // The run is live — the composer and the stop controls render. Once the
-  // run is over the .box-done band replaces them.
+  // The run is steerable — the composer box and the stop controls render.
+  // Once the run is over the .box-done band replaces them, and a run that is
+  // live but not yet steerable (its workspace still being prepared) shows
+  // neither box nor band, so the composer stays disabled while the workspace
+  // is being built.
   running: boolean;
   // Steers accepted but not yet applied, for the queued line.
   pendingCount: number;
@@ -225,7 +228,7 @@ export function ChatComposer({
                 sub-turn boundary. The run does not pause.
               </div>
             )}
-            {token !== null && (
+            {token !== null && running && (
               <div className="box">
                 <span className="prompt" aria-hidden>
                   &gt;

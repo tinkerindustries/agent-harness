@@ -7,6 +7,7 @@ import { TurnTranscript } from "./turns/TurnTranscript";
 import { SteerMessage, type SteerBlock, type SteerWait } from "./turns/SteerMessage";
 import { finishedBandText, formatRunDuration } from "./turns/turnHelpers";
 import { controlToken, errorMessage, steerSession, stopSession } from "../api/operations";
+import { canSteer, isLive } from "../api/status";
 import { isUserStarted } from "../api/provenance";
 import { SessionIdContext, useNow } from "../hooks";
 import { Badge } from "./ui/badge";
@@ -44,9 +45,13 @@ interface Props {
 // is a separate screen; this screen owns none of its rail, chips, or timeline.
 export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everOpen }: Props) {
   const now = useNow(1000);
-  // The run is live until the row says otherwise — and when the row never
-  // arrived, the safe default is live, so the composer stays steerable.
-  const running = meta === null || meta.status === "running";
+  // The composer is steerability, not liveness: the run is steerable until
+  // the row says otherwise — and when the row never arrived, the safe
+  // default is steerable, so the composer stays usable. A "creating" row is
+  // live but has no loop to read a steer yet, so canSteer (not isLive) is
+  // what gates the composer: it stays disabled while the workspace is being
+  // built.
+  const running = meta === null || canSteer(meta.status);
 
   // The run-control bearer, fetched once per page load (controlToken caches
   // its promise) and shared by the steer POST and the stop POST. A null
@@ -251,8 +256,12 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
   // rather than disabled, and the outcome, duration and
   // cost take its place. The duration is the row's own finished_at −
   // created_at — the wall time the run actually ran, not a guess.
+  // The band is gated on liveness, not on the composer's canSteer: a
+  // "creating" run is not steerable yet, but it is not over either, so it
+  // must show neither the box nor the band while the workspace is being
+  // built.
   const finished: FinishedBand | null = useMemo(() => {
-    if (!meta || running) return null;
+    if (!meta || isLive(meta.status)) return null;
     const o = outcome(headerOutcomeSession(meta, snapshot.blocks));
     const durationMs =
       meta.finished_at && meta.created_at ? Date.parse(meta.finished_at) - Date.parse(meta.created_at) : 0;
@@ -261,7 +270,7 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
       variant: o.variant,
       text: finishedBandText(meta.status, durationMs, meta.sub_turns, meta.usage.cost_usd, o.label),
     };
-  }, [meta, running, snapshot.blocks]);
+  }, [meta, snapshot.blocks]);
 
   // The plan-mini band (the narrow-width fallback): which plan item is
   // running, in one line above the stream, shown only

@@ -7,6 +7,7 @@ import { outcome, statusVariant, watchBadge } from "./statusBadge";
 describe("outcome", () => {
   it("maps every store status from the design table", () => {
     expect(outcome({ status: "running" })).toEqual({ label: "RUNNING", variant: "running" });
+    expect(outcome({ status: "creating" })).toEqual({ label: "CREATING", variant: "outline" });
     expect(outcome({ status: "max_turns" })).toEqual({ label: "MAX TURNS", variant: "gaveup" });
     expect(outcome({ status: "failed" })).toEqual({ label: "FAILED", variant: "failed" });
     expect(outcome({ status: "timeout" })).toEqual({ label: "TIMEOUT", variant: "stopped" });
@@ -43,7 +44,7 @@ describe("outcome", () => {
   });
 
   it("keeps statusVariant consistent with outcome's colours", () => {
-    for (const status of ["running", "ok", "failed", "timeout", "max_turns", "cancelled", "compacted"]) {
+    for (const status of ["running", "creating", "ok", "failed", "timeout", "max_turns", "cancelled", "compacted"]) {
       expect(statusVariant(status)).toBe(outcome({ status }).variant);
     }
   });

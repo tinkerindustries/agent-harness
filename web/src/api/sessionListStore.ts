@@ -1,4 +1,5 @@
 import type { SessionListRow } from "./types";
+import { finishedSignature } from "./status";
 
 // The session list's external store (docs/DESIGN.md §5.7:
 // useSyncExternalStore, no state library). GET /api/stream sends a full
@@ -38,22 +39,9 @@ function bySessionAge(a: SessionListRow, b: SessionListRow): number {
   return b.created_at.localeCompare(a.created_at);
 }
 
-// finishedSignature is the cheap fingerprint of the terminal-session set:
-// the count plus the newest terminal session's id (newest because sessions
-// arrive sorted by created_at DESC, so the first terminal row is the newest
-// one). A running session's progress changes neither; a run finishing
-// changes both; a deletion changes the count.
-function finishedSignature(sessions: SessionListRow[]): string {
-  let count = 0;
-  let newest = "";
-  for (const s of sessions) {
-    if (s.status === "running") continue;
-    count++;
-    if (newest === "") newest = s.id;
-  }
-  return `${count}:${newest}`;
-}
-
+// finishedSignature lives in status.ts beside isLive — it is the "live"
+// vocabulary inverted (the terminal set is everything not live) — and the
+// session-list store's flush() keys its finishedRevision on it.
 class SessionListStore {
   private byID = new Map<string, SessionListRow>();
   private listeners = new Set<Listener>();

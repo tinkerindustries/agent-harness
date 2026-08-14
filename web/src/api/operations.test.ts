@@ -394,6 +394,20 @@ describe("isStuckSession", () => {
     expect(isStuckSession("running", null, now, SESSION_IDLE_THRESHOLD_MS)).toBe(true);
   });
 
+  it("counts a creating session as live, so a quiet one reads as a dead worker mid-clone", () => {
+    // A creating session has no events by construction, so an old timestamp
+    // (or none) is exactly the abandoned-during-preparation shape the
+    // operations screen exists to close.
+    const old = Date.parse("2026-01-01T00:00:00Z");
+    expect(isStuckSession("creating", null, now, SESSION_IDLE_THRESHOLD_MS)).toBe(true);
+    expect(isStuckSession("creating", old, now, SESSION_IDLE_THRESHOLD_MS)).toBe(true);
+  });
+
+  it("does not count a creating session with recent activity as stuck", () => {
+    const recent = Date.parse("2026-01-01T00:55:00Z");
+    expect(isStuckSession("creating", recent, now, SESSION_IDLE_THRESHOLD_MS)).toBe(false);
+  });
+
   it("never counts a terminal session, however quiet", () => {
     const old = Date.parse("2026-01-01T00:00:00Z");
     expect(isStuckSession("cancelled", old, now, SESSION_IDLE_THRESHOLD_MS)).toBe(false);
