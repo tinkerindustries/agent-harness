@@ -39,6 +39,15 @@ type variant struct {
 	// replacement. Every key must be present or rendering fails loudly: a
 	// variant that silently no-ops would be scored as if it had applied.
 	replacements map[string]string
+	// dropTools names tools the variant subtracts from the session's tool
+	// array. Subtraction only: a variant can remove a tool that exists, it
+	// cannot add one that does not. internal/session resolves the array
+	// through tools.DefinitionsForVariant, and the prompt's head is
+	// assembled from that array — so the inventory sentence, the count
+	// word, and every rule about the dropped tool fall out of the head
+	// with the tool itself, and a tool-dropping variant needs no
+	// replacements entry to stay consistent with its own tool array.
+	dropTools []string
 	// reminder names a policy from reminders.go. A variant may change the
 	// head, the tail, or both: the head is what the model is told once, the
 	// tail is what it is told again as the context grows.
@@ -109,6 +118,18 @@ var variants = map[string]variant{
 			planRule: planRule + " Then execute the plan step by step: finish one step and check its result before starting the next.",
 		},
 	},
+
+	// no-bash is the tool-dropping arm: the session is offered no Bash
+	// tool, so the shell rule, the batch rule and every other fragment that
+	// needs Bash fall out of the head with it, and the inventory and its
+	// count follow the array — no replacements entry is needed, and one
+	// that restated the inventory would be the drift this mechanism
+	// exists to remove. What it measures is whether a session routes
+	// around a missing tool instead of stalling on it.
+	"no-bash": {
+		description: "the shipped prompt with the Bash tool dropped — no shell rule, no batch rule naming Bash, and an inventory that names the sixteen tools the session is actually sent",
+		dropTools:   []string{"Bash"},
+	},
 }
 
 // Apply returns base with the named variant's edits made. An empty name is
@@ -164,6 +185,17 @@ func ReminderPolicyFor(name string) string {
 		name = Base
 	}
 	return variants[name].reminder
+}
+
+// ToolsDroppedBy is the set of tools a variant subtracts from the session's
+// tool array, or nil for a variant that drops none. Subtraction only: a
+// variant can only remove tools that exist — it cannot add one — so the
+// caller applies the names with `without` and the array can only shrink.
+func ToolsDroppedBy(name string) []string {
+	if name == "" {
+		name = Base
+	}
+	return variants[name].dropTools
 }
 
 // Description is the one-line summary of what a variant changes.

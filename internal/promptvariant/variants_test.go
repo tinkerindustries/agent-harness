@@ -33,8 +33,8 @@ var testBase = "preamble\n" + searchToolsRule + "\n" + planRule + "\npostamble"
 // scored as though it had applied.
 //
 // A variant must differ from the base in something — the prompt, the reminder
-// policy, or both. One that differs in neither is an arm that measures
-// nothing.
+// policy, the tool array, or any combination. One that differs in none is an
+// arm that measures nothing.
 func TestEveryVariantAppliesToTheCurrentPrompt(t *testing.T) {
 	for _, name := range Names() {
 		got, err := Apply(name, testBase)
@@ -42,12 +42,29 @@ func TestEveryVariantAppliesToTheCurrentPrompt(t *testing.T) {
 			t.Errorf("variant %q no longer applies to the base prompt: %v", name, err)
 			continue
 		}
-		if name != Base && got == testBase && ReminderPolicyFor(name) == "" {
-			t.Errorf("variant %q changes neither the prompt nor the reminder policy", name)
+		if name != Base && got == testBase && ReminderPolicyFor(name) == "" && len(ToolsDroppedBy(name)) == 0 {
+			t.Errorf("variant %q changes neither the prompt nor the reminder policy nor the tool array", name)
 		}
 		if Description(name) == "" {
 			t.Errorf("variant %q has no description", name)
 		}
+	}
+}
+
+// ToolsDroppedBy is how the session learns what a variant subtracts from
+// its tool array. Base drops nothing; a tool-dropping variant names exactly
+// the tools it removes.
+func TestToolsDroppedBy(t *testing.T) {
+	for _, name := range []string{"", Base} {
+		if got := ToolsDroppedBy(name); got != nil {
+			t.Errorf("ToolsDroppedBy(%q) = %v, want nil", name, got)
+		}
+	}
+	if got := ToolsDroppedBy("no-bash"); len(got) != 1 || got[0] != "Bash" {
+		t.Errorf("ToolsDroppedBy(no-bash) = %v, want [Bash]", got)
+	}
+	if got := ToolsDroppedBy("kimi-steps"); got != nil {
+		t.Errorf("ToolsDroppedBy(kimi-steps) = %v, want nil (it drops no tools)", got)
 	}
 }
 

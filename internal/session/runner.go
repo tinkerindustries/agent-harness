@@ -435,6 +435,7 @@ func (r *Runner) Create(ctx context.Context, opts RunOptions) error {
 		ParentAgentID:   opts.ParentAgentID,
 		ParentIsUser:    opts.ParentIsUser,
 		Model:           opts.Model,
+		PromptVariant:   opts.PromptVariant,
 		Effort:          opts.Effort,
 		Thinking:        opts.Thinking,
 		Workspace:       opts.Workspace,
@@ -532,7 +533,11 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	executor.Settings = r.Settings
 	executor.ResultSchema = opts.ResultSchema
 
-	toolSchema, err := json.Marshal(tools.DefinitionsFor(opts.Model))
+	// The schema stored on the session row is resolved variant-aware, like
+	// the prompt above it and the per-request tool list (turn.go): a
+	// variant that drops a tool ships a session whose row, head and
+	// requests all carry the same smaller array.
+	toolSchema, err := json.Marshal(tools.DefinitionsForVariant(opts.Model, opts.PromptVariant))
 	if err != nil {
 		return nil, fmt.Errorf("session: encode tool schema: %w", err)
 	}
@@ -577,6 +582,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 			ParentAgentID:   opts.ParentAgentID,
 			ParentIsUser:    opts.ParentIsUser,
 			Model:           opts.Model,
+			PromptVariant:   opts.PromptVariant,
 			Effort:          opts.Effort,
 			Thinking:        opts.Thinking,
 			Workspace:       executor.Workspace,

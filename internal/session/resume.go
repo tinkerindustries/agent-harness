@@ -12,10 +12,10 @@ import (
 )
 
 // ResumeOptions is what Resume needs beyond the session it is continuing.
-// Model, effort, thinking, workspace, permission mode, deny patterns, and
-// result schema all come from the frozen session row instead — a resumed
-// session's prefix cannot change (docs/CACHE.md), so none of those are a
-// caller's to choose again.
+// Model, effort, thinking, the prompt variant, workspace, permission mode,
+// deny patterns, and result schema all come from the frozen session row
+// instead — a resumed session's prefix cannot change (docs/CACHE.md), so none
+// of those are a caller's to choose again.
 type ResumeOptions struct {
 	SessionID string
 	// Prompt, when non-empty, is appended as a new user message before the
@@ -75,7 +75,8 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 
 	runOpts := RunOptions{
 		Model: sess.Model, Effort: sess.Effort, Thinking: sess.Thinking,
-		MaxTokens: opts.MaxTokens, Workspace: sess.Workspace,
+		PromptVariant: sess.PromptVariant,
+		MaxTokens:     opts.MaxTokens, Workspace: sess.Workspace,
 		PermissionMode: tools.Mode(sess.PermissionMode), Deny: sess.DenyPatterns,
 		ResultSchema: sess.ResultSchema, MaxSubTurns: opts.MaxSubTurns,
 		Resolver: opts.Resolver, ParentID: sess.ParentID,

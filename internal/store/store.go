@@ -197,8 +197,14 @@ type Session struct {
 	// ParentIsUser records that a person started this session directly. It is
 	// producer-stamped on the request and inherited by child sessions; false
 	// on a pre-migration row is correct for essentially every historical row.
-	ParentIsUser   bool
-	Model          string
+	ParentIsUser bool
+	Model        string
+	// PromptVariant is the name of the system prompt variant this session
+	// runs under, frozen on the row like SystemPrompt and ToolSchema: a
+	// resumed session must keep sending the array and rendering the head its
+	// variant asks for, and the name is the only record of that once the run
+	// is over (docs/EVALS.md). Empty is the shipped prompt.
+	PromptVariant  string
 	Effort         string
 	Thinking       bool
 	Workspace      string
@@ -299,6 +305,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 	parent_agent_type TEXT NOT NULL DEFAULT '',
 	parent_agent_id   TEXT NOT NULL DEFAULT '',
 	model             TEXT NOT NULL,
+	prompt_variant    TEXT NOT NULL DEFAULT '',
 	effort            TEXT NOT NULL,
 	thinking          INTEGER NOT NULL,
 	workspace         TEXT NOT NULL,
@@ -591,6 +598,10 @@ var sessionMigrationColumns = []migrationColumn{
 	// which is correct for essentially every historical row (the few "user"
 	// rows predate the operator-name era and read as an unnamed person).
 	{"parent_is_user", "INTEGER NOT NULL DEFAULT 0"},
+	// prompt_variant: the name of the system prompt variant the session runs
+	// under, so a resume keeps the variant's tool array and head. Older rows
+	// default to the empty string, which is the shipped prompt.
+	{"prompt_variant", "TEXT NOT NULL DEFAULT ''"},
 }
 
 // workRequestMigrationColumns are the columns migrateTableColumns adds to a
@@ -695,12 +706,12 @@ func (s *Store) CreateSession(ctx context.Context, sess Session) error {
 		_, err := tx.Exec(`
 			INSERT INTO sessions (id, parent_id, job_type, task, title, description, phase, total_phases,
 				parent_agent_type, parent_agent_id,
-				model, effort, thinking, workspace, permission_mode, deny_patterns, system_prompt,
+				model, prompt_variant, effort, thinking, workspace, permission_mode, deny_patterns, system_prompt,
 				tool_schema, result_schema, status, created_at, finished_at, version, parent_is_user)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, ?)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, ?)`,
 			sess.ID, parentID, sess.JobType, sess.Task, sess.Title, sess.Description, sess.Phase, sess.TotalPhases,
 			sess.ParentAgentType, sess.ParentAgentID,
-			sess.Model, sess.Effort, sess.Thinking, sess.Workspace, sess.PermissionMode,
+			sess.Model, sess.PromptVariant, sess.Effort, sess.Thinking, sess.Workspace, sess.PermissionMode,
 			deny, sess.SystemPrompt, toolSchema, resultSchema, sess.Status, createdAt.Format(time.RFC3339Nano),
 			sess.ParentIsUser)
 		return err
@@ -1032,7 +1043,7 @@ func scanSession(row interface {
 	var denyJSON, createdAt, recentCalls string
 	err := row.Scan(&sess.ID, &parentID, &sess.JobType, &sess.Task, &sess.Title, &sess.Description,
 		&sess.Phase, &sess.TotalPhases, &sess.ParentAgentType, &sess.ParentAgentID,
-		&sess.Model, &sess.Effort, &thinking, &sess.Workspace,
+		&sess.Model, &sess.PromptVariant, &sess.Effort, &thinking, &sess.Workspace,
 		&sess.PermissionMode, &denyJSON, &sess.SystemPrompt, (*sqlText)(&sess.ToolSchema), &resultSchema,
 		&sess.Status, &createdAt, &finishedAt, &sess.CompleteStatus, &sess.Plan, &recentCalls, &sess.Summary,
 		&sess.Version, &parentIsUser)
@@ -1087,7 +1098,7 @@ func (t *sqlText) Scan(src any) error {
 }
 
 const sessionColumns = `id, parent_id, job_type, task, title, description, phase, total_phases,
-	parent_agent_type, parent_agent_id, model, effort,
+	parent_agent_type, parent_agent_id, model, prompt_variant, effort,
 	thinking, workspace, permission_mode, deny_patterns, system_prompt, tool_schema,
 	result_schema, status, created_at, finished_at, complete_status, plan, recent_tool_calls, summary, version, parent_is_user`
 

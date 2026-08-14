@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -110,6 +111,126 @@ func TestResumeContinuesSubTurnNumbering(t *testing.T) {
 		}
 		if p.ChurnPointIndex != nil {
 			t.Fatalf("expected no churn on the first sub-turn after a clean resume, got churn point %d", *p.ChurnPointIndex)
+		}
+	}
+}
+
+// TestResumeKeepsVariantHeadAndToolArray pins the resume-variant fix: a
+// session that ran under a tool-dropping variant must, when resumed, keep
+// sending the variant's tool array and rendering the variant's head — the
+// same array and head it sent before it was interrupted. The variant name
+// is frozen on the session row (store.Session.PromptVariant) and Resume
+// resolves through it, so a resumed arm of an eval stays that arm instead
+// of silently reverting to the provider's full array while nothing warns
+// anyone (docs/EVALS.md).
+func TestResumeKeepsVariantHeadAndToolArray(t *testing.T) {
+	var mu sync.Mutex
+	var streamed [][]byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var probe struct {
+			Stream bool `json:"stream"`
+		}
+		_ = json.Unmarshal(body, &probe)
+		if probe.Stream {
+			mu.Lock()
+			streamed = append(streamed, body)
+			mu.Unlock()
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEChunk(t, w, wire.ChatCompletionChunk{
+			Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{Role: "assistant", Content: strPtr("done")}}},
+		})
+		writeSSEChunk(t, w, wire.ChatCompletionChunk{
+			Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishStop)}},
+			Usage:   &wire.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
+		})
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		w.(http.Flusher).Flush()
+	}))
+	defer srv.Close()
+
+	r := newTestRunner(t, srv.URL)
+	ws := t.TempDir()
+	first, err := r.Run(t.Context(), RunOptions{
+		Model: "deepseek-v4-pro", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "first task",
+		PromptVariant: "no-bash",
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if first.Status != store.StatusOK {
+		t.Fatalf("expected status ok, got %s", first.Status)
+	}
+
+	sess, err := r.Store.GetSession(t.Context(), first.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.PromptVariant != "no-bash" {
+		t.Fatalf("session row does not record the variant: got %q, want %q", sess.PromptVariant, "no-bash")
+	}
+
+	resumed, err := r.Resume(t.Context(), ResumeOptions{
+		SessionID: first.SessionID, Prompt: "keep going", MaxTokens: 4000,
+	})
+	if err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	if resumed.Status != store.StatusOK {
+		t.Fatalf("expected the resumed run to finish ok, got %s", resumed.Status)
+	}
+
+	// Two streamed requests: the first run's and the resumed run's. Both
+	// must carry the no-bash array and the no-bash head — identical to each
+	// other, and identical to what the variant asks for.
+	mu.Lock()
+	defer mu.Unlock()
+	if len(streamed) != 2 {
+		t.Fatalf("expected 2 streamed requests (run then resume), got %d", len(streamed))
+	}
+	wantHead, err := RenderSystemPromptFor("deepseek-v4-pro", "no-bash")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantTools := tools.DefinitionsForVariant("deepseek-v4-pro", "no-bash")
+	wantNames := make([]string, len(wantTools))
+	for i, tool := range wantTools {
+		wantNames[i] = tool.Function.Name
+	}
+	for i, body := range streamed {
+		var req struct {
+			Tools []struct {
+				Function struct{ Name string } `json:"function"`
+			} `json:"tools"`
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.Unmarshal(body, &req); err != nil {
+			t.Fatalf("request %d: decode body: %v", i+1, err)
+		}
+		if len(req.Tools) != len(wantNames) {
+			t.Fatalf("request %d sends %d tools, want the no-bash array's %d", i+1, len(req.Tools), len(wantNames))
+		}
+		for j, tool := range req.Tools {
+			if tool.Function.Name != wantNames[j] {
+				t.Fatalf("request %d tool %d is %q, want %q (the no-bash array's order)", i+1, j, tool.Function.Name, wantNames[j])
+			}
+		}
+		for _, name := range wantNames {
+			if name == "Bash" {
+				t.Fatal("the no-bash array must not contain Bash")
+			}
+		}
+		if len(req.Messages) == 0 || req.Messages[0].Role != "system" {
+			t.Fatalf("request %d has no system message", i+1)
+		}
+		if req.Messages[0].Content != wantHead {
+			t.Fatalf("request %d renders a different head from the no-bash one:\n--- got ---\n%s\n--- want ---\n%s",
+				i+1, req.Messages[0].Content, wantHead)
 		}
 	}
 }
