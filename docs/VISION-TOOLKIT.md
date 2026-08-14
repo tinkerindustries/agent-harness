@@ -176,7 +176,103 @@ contract.
 
 ---
 
-## 6. Not verified
+## 6. How `ground` and `detect` actually work, and what a Go port is
+
+Read in full: `ground.py` (216 lines), `detect.py` (56), `vision_client.py`
+(272). There is less here than the capability suggests, and almost none of it
+is Python-specific.
+
+### The whole contract
+
+`ground` sends the image plus this prompt (**observed**, `ground.py:31-38`):
+
+> Locate every visible object or region matching this target:
+> `<target>`
+>
+> Return only a JSON array. Each item must contain "box_2d" as [y0, x0, y1, x1]
+> on a 0-1000 grid and "label" as a short description. Use tight boxes in the
+> original image. Return [] when nothing matches.
+
+`max_tokens` is 8192, with a comment recording why: 2048 truncated the JSON
+mid-array on a dense screen (`ground.py:157-159`).
+
+**That 0-1000 grid with `[y0, x0, y1, x1]` ordering is Gemini's own
+bounding-box convention**, which is why a prompt this thin works at all. It is
+also the property that makes the port safe against our existing image pipeline:
+the coordinates are resolution-independent, so `loadReviewImages` downscaling a
+capture before sending does not corrupt them — scale the returned box by the
+**original** width and height and it lands correctly. (Perception still
+degrades with the downscale; the arithmetic does not.)
+
+`detect` is `ground` with a canned target and no other logic at all
+(**observed**, `detect.py:14-20`):
+
+> every distinct `<category, default: UI element (buttons, links, inputs,
+> icons, labels, headings, images, badges)>` — include the exact visible text in
+> each label
+
+### The parse pipeline
+
+Four stages, each earning its place (**observed**, `ground.py:41-122`):
+
+1. Strip markdown fences, taking the **last** fenced block if several.
+2. `json.loads`. On failure, a regex scavenger pulls out any `{...}` containing
+   a `box_2d`/`bbox_2d`/`box2d`/`bbox`/`box` key with four numbers.
+3. Accept a bare array, or a dict wrapping it under `boxes`,
+   `bounding_boxes`, `bboxes`, `objects`, `items`, or `results`.
+4. Normalise each box: swap inverted axes, scale `/1000 * dimension`, clamp to
+   bounds, drop anything degenerate. Label falls back through
+   `label` → `caption` → `description` → the target string.
+
+`--region` crops locally, sends only the crop, and translates the returned
+boxes back into original-image coordinates (`ground.py:137-165`).
+
+Output formatting is deliberate: one match prints bare `x1: … y1: … x2: … y2:`,
+several print numbered lines each prefixed with a coarse 3×3 position word
+(`top-left`, `center`, `bottom-right`) computed from the box centre
+(`ground.py:168-190`).
+
+### What `vision_client.py` does that we already do better
+
+It is a `urllib` poster with three request shapes (`chat_completions`,
+`responses`, `anthropic`), bearer auth, two retries on 429/5xx with
+`Retry-After`, a 180s timeout, and key redaction in error bodies. Every one of
+those is already in `internal/gemini`, against the **native** Gemini API rather
+than an OpenAI-compatible shim — plus thinking levels, streaming, and the usage
+accounting their client has none of. None of this file should be ported.
+
+### Port size
+
+| Piece | Go equivalent | Notes |
+| --- | --- | --- |
+| `ground` | ~150 lines + tests | Prompt, the four-stage parser, box normalisation |
+| `detect` | ~10 lines | The canned target string, calling the same code |
+| `crop` | ~80 lines | `image/png`, `image/jpeg`, `x/image/draw` for the upscale — no API call |
+| `glance` | already `AskVision` | Missing only `--region`, which `crop` covers |
+| `trace` | skip | Depends on `vtracer` (Rust); not worth a cgo dependency |
+| `vision_client` | already `internal/gemini` | Do not port |
+
+So the honest scope is **one new tool (`Locate`, with a category mode) and one
+local image operation (`Crop`)**, both against the client we already have,
+keeping priced usage, workspace confinement, output caps, and the permission
+policy that the CLI route gives up.
+
+### Risks worth naming before writing it
+
+- **The parser's tolerance is the product.** Porting the prompt without stages
+  2–4 gets a tool that works in testing and fails on the dense screens that
+  matter. Their regex fallback exists because the model does return prose
+  around the JSON sometimes.
+- **Structured output is tempting and unproven here.** Gemini's response
+  schema could make stage 2 deterministic, but `askvision.go:106-110` records
+  that constraining the container without a schema "empties or mangles the
+  contents". Ship the tolerant parser first; try the schema as an optimisation
+  with an eval behind it.
+- **Accuracy is unmeasured.** Whether the boxes are tight enough on a rendered
+  page to act on is still the open question a spike answers, and it is cheaper
+  to answer with their CLIs than with our port.
+
+## 7. Not verified
 
 - **Nothing was run.** The local settings table is empty and `.env` carries no
   Gemini key, so no CLI was executed against the live API. Everything above is
