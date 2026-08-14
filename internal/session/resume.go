@@ -30,9 +30,10 @@ type ResumeOptions struct {
 }
 
 // Resume continues a session that reached a terminal status. It refuses a
-// session that is still running (a live goroutine already owns it) or that
-// was retired by compaction (its continuation is the compacted child, found
-// at the child's ParentID, not this session).
+// session that is still live — "running" (a live goroutine already owns it)
+// or "creating" (its workspace is still being prepared, so there is no loop
+// to continue) — or that was retired by compaction (its continuation is the
+// compacted child, found at the child's ParentID, not this session).
 func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, error) {
 	sess, err := r.Store.GetSession(ctx, opts.SessionID)
 	if err != nil {
@@ -41,6 +42,8 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 	switch sess.Status {
 	case store.StatusRunning:
 		return nil, fmt.Errorf("session: resume: %s is still running", opts.SessionID)
+	case store.StatusCreating:
+		return nil, fmt.Errorf("session: resume: %s is still being prepared", opts.SessionID)
 	case store.StatusCompacted:
 		return nil, fmt.Errorf("session: resume: %s was retired by compaction; resume its child session instead", opts.SessionID)
 	}
