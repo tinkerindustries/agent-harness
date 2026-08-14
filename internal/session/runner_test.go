@@ -898,6 +898,122 @@ func TestTaskCreateOrderingWithinSubTurn(t *testing.T) {
 	}
 }
 
+// editBatchFixture writes a file, marks it read so Edit will accept it, and
+// returns the runner, executor and path the same-file tests share.
+func editBatchFixture(t *testing.T, content string) (*Runner, *tools.Executor, string) {
+	t.Helper()
+	r := newTestRunner(t, "http://127.0.0.1:1") // no request is ever made
+	dir := t.TempDir()
+	path := filepath.Join(dir, "styles.css")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	executor, err := tools.NewExecutor(dir, &tools.Policy{Mode: tools.ModeFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Edit refuses a file this session has not read.
+	read := executor.Execute(t.Context(), wire.ToolCall{
+		ID: "call_read", Type: "function",
+		Function: wire.ToolCallFunc{Name: "Read", Arguments: `{"file_path":"styles.css"}`},
+	})
+	if read.Result.IsError {
+		t.Fatalf("Read fixture: %s", read.Result.Content)
+	}
+	return r, executor, path
+}
+
+// TestSameFileEditsRunInOrder is the fix's own test for the case that used to
+// lose work: two Edits to one file in one sub-turn. Run concurrently, each
+// reads the file, applies its own replacement and writes the whole thing
+// back, so one change is silently dropped and the model is told both
+// succeeded. Ordered, both land. The second call names the file differently
+// on purpose — resolution is what makes the two recognisable as one file.
+// Run with -race.
+func TestSameFileEditsRunInOrder(t *testing.T) {
+	r, executor, path := editBatchFixture(t, "alpha\nbravo\n")
+	calls := []wire.AssembledToolCall{
+		{ID: "call_00_alpha", Name: "Edit", Arguments: `{"file_path":"styles.css","old_string":"alpha","new_string":"ALPHA"}`},
+		{ID: "call_01_bravo", Name: "Edit", Arguments: `{"file_path":"./styles.css","old_string":"bravo","new_string":"BRAVO"}`},
+	}
+	outcomes := r.executeToolCalls(t.Context(), store.Session{ID: "sess-edits"}, executor, calls)
+
+	for i, o := range outcomes {
+		if o.Result.IsError {
+			t.Fatalf("edit %d failed: %s", i, o.Result.Content)
+		}
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "ALPHA\nBRAVO\n" {
+		t.Fatalf("file = %q, want both edits applied", got)
+	}
+}
+
+// TestSameFileEditsClashExplainsWhy covers the case ordering cannot rescue:
+// the second Edit was written against text the first one rewrote, so its
+// old_string is genuinely gone. It has to fail — but "old_string not found"
+// alone sends the model hunting for a typo in text that was correct when it
+// wrote it, so the outcome carries the reason.
+func TestSameFileEditsClashExplainsWhy(t *testing.T) {
+	r, executor, path := editBatchFixture(t, "alpha bravo\n")
+	calls := []wire.AssembledToolCall{
+		{ID: "call_00_wide", Name: "Edit", Arguments: `{"file_path":"styles.css","old_string":"alpha bravo","new_string":"charlie"}`},
+		{ID: "call_01_stale", Name: "Edit", Arguments: `{"file_path":"styles.css","old_string":"bravo","new_string":"BRAVO"}`},
+	}
+	outcomes := r.executeToolCalls(t.Context(), store.Session{ID: "sess-clash"}, executor, calls)
+
+	if outcomes[0].Result.IsError {
+		t.Fatalf("first edit should have applied: %s", outcomes[0].Result.Content)
+	}
+	if !outcomes[1].Result.IsError {
+		t.Fatal("second edit should have failed: its old_string was rewritten by the first")
+	}
+	if !strings.Contains(outcomes[1].Result.Content, "earlier call in this same message") {
+		t.Fatalf("clash result = %q, want it to name the earlier call as the cause", outcomes[1].Result.Content)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "charlie\n" {
+		t.Fatalf("file = %q, want only the first edit applied", got)
+	}
+}
+
+// TestDifferentFileEditsStayConcurrent guards the other half: only a real
+// collision is ordered. Two edits to two files must not be serialised, or the
+// fix would have cost the parallelism it was carving an exception out of.
+func TestDifferentFileEditsStayConcurrent(t *testing.T) {
+	r, executor, _ := editBatchFixture(t, "alpha\n")
+	other := filepath.Join(executor.Workspace, "other.css")
+	if err := os.WriteFile(other, []byte("bravo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	read := executor.Execute(t.Context(), wire.ToolCall{
+		ID: "call_read2", Type: "function",
+		Function: wire.ToolCallFunc{Name: "Read", Arguments: `{"file_path":"other.css"}`},
+	})
+	if read.Result.IsError {
+		t.Fatalf("Read other.css: %s", read.Result.Content)
+	}
+	calls := []wire.AssembledToolCall{
+		{ID: "call_00", Name: "Edit", Arguments: `{"file_path":"styles.css","old_string":"alpha","new_string":"ALPHA"}`},
+		{ID: "call_01", Name: "Edit", Arguments: `{"file_path":"other.css","old_string":"bravo","new_string":"BRAVO"}`},
+	}
+	outcomes := r.executeToolCalls(t.Context(), store.Session{ID: "sess-two-files"}, executor, calls)
+	for i, o := range outcomes {
+		if o.Result.IsError {
+			t.Fatalf("edit %d failed: %s", i, o.Result.Content)
+		}
+		if strings.Contains(o.Result.Content, "earlier call in this same message") {
+			t.Fatalf("edit %d was treated as a collision; different files must not be grouped", i)
+		}
+	}
+}
+
 // TestTaskSubagentRunsAtMaxEffort pins the subagent's hardcoded effort:
 // subagentRunner launches its nested flash session at max effort, matching
 // docs/MODELS.md's `Task` subagent row. The child session row stores the

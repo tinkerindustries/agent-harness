@@ -221,6 +221,24 @@ For a repository with neither a worktree skill nor a tool of its own, pick a
 compose project name and ports nothing else is likely using, and bring
 everything back down yourself before finishing.
 
+**Reaching what you just started.** A published port is published on the
+*host's* loopback, and you are not on the host — inside this container
+`127.0.0.1` is your own loopback, where nothing is listening. Anything that
+fetches a URL, Screenshot and WebFetch included, has to go to the container's
+own address on the compose network, on the *container* port rather than the
+published one:
+
+    cid="$(docker compose ps -q <service>)"
+    ip="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$cid")"
+    # then use http://$ip:<container port>/ — e.g. 8080, not the published 87NN
+
+Wrong: `Screenshot url=http://127.0.0.1:8703/`, which times out with nothing
+listening, and reads as a broken tool rather than the wrong address.
+Right: resolving the container's address first and screenshotting that.
+
+`scripts/build.sh` does exactly this, guarded on `[ -f /.dockerenv ]`, and is
+worth copying from rather than rediscovering.
+
 **Release it on the failure path too.** A `worktree-remove` skill will tell you
 to leave a worktree alive when the run failed or nothing was pushed, and for a
 person that is the right rule — they can come back to it tomorrow. You cannot.

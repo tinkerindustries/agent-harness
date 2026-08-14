@@ -595,6 +595,15 @@ These hold for every tool and live in Go, not in prompt text.
   table ignores `disable_parallel_tool_use`. Executing concurrently is fine;
   appending out of order is not, because it churns the prefix and costs the
   cache (`DESIGN.md` §3.2).
+- Two calls that rewrite the same file run in order, not concurrently, and
+  files are grouped separately so different files still overlap. `Edit` and
+  `Write` each read a whole file, change their own copy and write it back, so
+  racing two of them on one path drops whichever finishes first while
+  reporting both as successful — a silent lost edit, and one that was observed
+  in a real run. Ordered, disjoint edits both land; an edit whose `old_string`
+  the earlier one rewrote fails as it should, with a note naming the earlier
+  call so the model does not go hunting for a typo. `tools.MutationTarget`
+  decides what collides, by resolved path.
 - Never send `tool_choice`. Thinking mode accepts `auto` and `none` but rejects
   `required` and named-tool forcing, so no tool can be forced while thinking is
   on (`DESIGN.md` §4.4, [OBSERVED.md](OBSERVED.md)).

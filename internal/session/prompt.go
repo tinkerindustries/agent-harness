@@ -30,6 +30,13 @@ Rules:
   exact, unique match of old_string against the file's real bytes; the
   line-number prefix Read shows you is for your reference only and must
   never appear inside old_string.
+- Send independent tool calls together in one message. Several Reads, a Grep
+  beside a Glob, Bash commands that do not depend on each other — batched,
+  they run concurrently and cost one round trip instead of five. Two calls
+  that write the same file are the one exception: they are applied in the
+  order you sent them, never merged, so the second is working from bytes the
+  first has already replaced. Make the change in a single Edit where you can,
+  and where you cannot, send the second only after seeing the first land.
 - Prefer Grep and Glob to orient before reading whole files.
 - The shell is bash in an Alpine container. GNU grep, rg, curl, ps and the
   git, Go, Node and Python toolchains are installed; anything else may be
