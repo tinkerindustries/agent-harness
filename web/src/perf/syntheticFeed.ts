@@ -175,6 +175,11 @@ export function buildSyntheticHistory(targetBlocks: number, sessionId: string, s
       completion_tokens: 40,
       reasoning_tokens: 30,
       cost_usd: 0.0001,
+      // Alternating, so both branches of the per-turn rate chip render in
+      // the harness: it is drawn only for "peak" (components/turns/Turn.tsx
+      // TurnMeta), and a feed emitting one tier would leave the other path
+      // unexercised and unseen.
+      rate_tier: turn % 2 === 0 ? "peak" : "off_peak",
       expected_miss_tokens: 100 + turn * 5,
     });
     blockCount++; // the usage block
@@ -242,6 +247,11 @@ export function liveEventGenerator(sessionId: string, seq: SeqSource): Generator
         completion_tokens: 40,
         reasoning_tokens: 30,
         cost_usd: 0.0001,
+        // Alternating, so both branches of the sub-turn card's rate chip
+        // render in the harness: the chip is drawn only for "peak"
+        // (components/blocks/SubTurnCard.tsx), and a feed that emitted one
+        // tier would leave the other path unexercised and unseen.
+        rate_tier: turn % 2 === 0 ? "peak" : "off_peak",
         expected_miss_tokens: 100,
       });
       turn++;

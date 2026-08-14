@@ -88,6 +88,17 @@ function UsageHeader({ usage, elapsedMs }: { usage: UsageBlock; elapsedMs?: numb
       )}
       <span>{usage.completion_tokens} out</span>
       <span>${formatCost(usage.cost_usd)}</span>
+      {/* Only peak. "flat" is every sub-turn before the split and every
+          sub-turn on a provider that never had one, and "off_peak" is the
+          ordinary case for two thirds of the day — a chip on either would be
+          a chip on almost every card, which is a chip nobody reads by the
+          time it says something. Peak is the one that explains a figure the
+          token counts beside it do not. */}
+      {usage.rate_tier === "peak" && (
+        <span className="rate-peak" title="billed at DeepSeek's peak rate — twice off-peak (docs/DESIGN.md §4.9)">
+          peak
+        </span>
+      )}
       {elapsedMs !== undefined && <span>{formatElapsed(elapsedMs)}</span>}
       {usage.churn_point_index !== undefined && (
         <span className="churn-warning" title="cache prefix churn — see docs/CACHE.md">

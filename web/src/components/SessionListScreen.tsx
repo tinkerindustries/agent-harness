@@ -11,7 +11,7 @@ import { startedBy } from "../api/provenance";
 import { titleLines } from "./sessionListTitle";
 import { tableEmptyState } from "./sessionListEmpty";
 import type { QueueHealth, SessionListRow, SessionState, Usage } from "../api/types";
-import { useArrivals, useHeldFrames, useLabelFlip, useNow, useQueueHealth, useSettledFlip } from "../hooks";
+import { useArrivals, useHeldFrames, useLabelFlip, useNow, usePeakNote, useQueueHealth, useSettledFlip } from "../hooks";
 import { cn } from "@/lib/utils";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -138,6 +138,8 @@ export function SessionListScreen({ onOpen }: Props) {
   const snapshot = useSyncExternalStore(sessionListStore.subscribe, sessionListStore.getSnapshot);
   const now = useNow(1000);
   const queueHealth = useQueueHealth(5000);
+  // "" unless DeepSeek is currently billing peak rates (api/pricing.ts).
+  const peak = usePeakNote(now);
 
   // One disclosure per in-flight card, independent of every other (several
   // can be open at once — not an accordion).
@@ -345,7 +347,7 @@ export function SessionListScreen({ onOpen }: Props) {
       {startOpen && startToken !== null && (
         <StartRunForm token={startToken} onClose={() => setStartOpen(false)} onOpen={onOpen} />
       )}
-      <StatStrip stats={stats} poolSize={poolSize} compact={busy} animate={flipped} />
+      <StatStrip stats={stats} poolSize={poolSize} compact={busy} animate={flipped} peak={peak} />
       <QueueHaltBanner health={queueHealth} />
 
       {busy && (
@@ -453,11 +455,17 @@ function StatStrip({
   poolSize,
   compact,
   animate,
+  peak,
 }: {
   stats: DayStats;
   poolSize: number | null;
   compact: boolean;
   animate: boolean;
+  // The peak-rate note, or "" when there is nothing to say (api/pricing.ts
+  // peakNote). It rides on Spend today because that is the figure it is
+  // about, and because the decision it informs — start this run now, or
+  // after the window closes — is taken on this screen.
+  peak: string;
 }) {
   return (
     <div className={cn("stats", compact && "stats-compact", animate && "stats-anim")}>
@@ -472,6 +480,11 @@ function StatStrip({
         <span className="label">Spend today</span>
         <span className="value">
           <Ticker value={formatCost(stats.spendUsd)} />
+          {peak && (
+            <span className="stat-peak" title="DeepSeek bills peak hours at twice off-peak (docs/DESIGN.md §4.9)">
+              {peak}
+            </span>
+          )}
         </span>
       </Card>
       <Card className="stat">

@@ -37,6 +37,7 @@ concurrency on the row, and a JSON error body.
 | work_requests | `/api/requests` | GET (list), GET `/api/requests/{request_id}` (row), GET `/api/requests/{request_id}/status` (poll snapshot) | PATCH, DELETE `/api/requests/{request_id}` |
 | workspace_leases | `/api/leases` | GET (list) | DELETE `/api/leases/{workspace}` |
 | settings | `/api/settings` | GET `/api/settings` | PUT, DELETE `/api/settings/{key}` |
+| pricing | `/api/pricing` | GET (the rate schedule, no rates) | **none** |
 
 ### sessions
 
@@ -661,3 +662,30 @@ missing precondition, 403 cross-origin, 500 internal. A successful write is
 `{"ok": true}` for a delete, and the updated resource representation for a
 patch. This is the shape the settings endpoints established and every other
 resource keeps.
+
+### pricing
+
+`GET /api/pricing` answers one question: when are the expensive hours, and
+from when. It returns the price table's capture date and — once the table has
+one — its rate schedule: the `effective_at` instant, the peak windows in UTC,
+and the models the schedule prices by the hour. Nothing is writable.
+
+**It carries no rates, deliberately.** Every cost figure the UI shows was
+computed on the server when its usage event was committed and stored on that
+event ([DESIGN.md §4.9](DESIGN.md#49-cost-accounting)), which is what keeps a
+historical figure stable when prices move. A browser holding a rate card could
+only ever use it to compute a second, disagreeing number, so it does not get
+one. What it gets instead is the schedule, because that is a fact about the
+future rather than about a run that already happened.
+
+The windows go out in UTC, as DeepSeek states them and bills on them, and the
+browser renders them in its own zone (`web/src/api/pricing.ts`). That split is
+the point: the server has no idea where the person reading is sitting and the
+browser knows exactly. At UTC+10 the two windows read 11:00-14:00 and
+16:00-20:00 — most of a working day, which is a fact worth showing and one the
+server cannot produce.
+
+A harness with no price table, or a table with no schedule, answers 200 with
+the schedule absent rather than an error: a screen with nothing to say about
+peak hours says nothing, which is also the correct display for every table
+before 2026-08-16.

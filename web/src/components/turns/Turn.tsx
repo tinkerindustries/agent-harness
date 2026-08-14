@@ -126,6 +126,17 @@ function TurnMeta({ usage, elapsedMs }: { usage: UsageBlock; elapsedMs?: number 
       {hit > 0 && <span>{cachePercent(usage.prompt_cache_hit_tokens, usage.prompt_cache_miss_tokens)}% cache</span>}
       <span>{usage.completion_tokens} out</span>
       <span>${formatCost(usage.cost_usd)}</span>
+      {/* Only peak. "off_peak" is two thirds of the day and "flat" is every
+          sub-turn before the split and every one on a provider that never had
+          one, so a chip for those would sit on nearly every turn in the
+          transcript — and a mark that is always there is a mark nobody reads.
+          Peak is the one that explains a cost the token counts beside it do
+          not (docs/DESIGN.md §4.9). */}
+      {usage.rate_tier === "peak" && (
+        <span className="rate-peak" title="billed at DeepSeek's peak rate — twice off-peak">
+          peak
+        </span>
+      )}
     </div>
   );
 }

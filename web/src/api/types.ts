@@ -253,6 +253,16 @@ export interface UsagePayload {
   completion_tokens: number;
   reasoning_tokens: number;
   cost_usd: number;
+  /**
+   * Which set of rates cost_usd was computed at — "flat", "peak" or
+   * "off_peak" (internal/pricing) — mirroring internal/store's UsagePayload.
+   * From 2026-08-16 DeepSeek bills peak hours at twice off-peak, so two
+   * sub-turns with identical token counts can differ threefold in cost for
+   * a reason invisible in the figures beside it; this is that reason.
+   * Absent on a session committed before the split, and on any usage the
+   * price table could not cost at all.
+   */
+  rate_tier?: string;
   expected_miss_tokens: number;
   churn_point_index?: number;
 }
