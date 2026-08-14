@@ -4860,9 +4860,18 @@ kbd {
 }
 
 /* Wide content scrolls inside its own container; the page never scrolls
-   sideways. */
+   sideways. The edge fades exist only while the table overflows: the
+   local-attached background-colour masks scroll with the content and cover
+   the scroll-attached shadow layers at rest, so a table that fits its
+   container shows nothing and one that does not shows where it continues. */
 .eval-table-scroll {
   overflow-x: auto;
+  background:
+    linear-gradient(to right, var(--background) 88%, transparent) left center / 28px 100% no-repeat,
+    linear-gradient(to left, var(--background) 88%, transparent) right center / 28px 100% no-repeat,
+    linear-gradient(to right, color-mix(in srgb, var(--foreground) 14%, transparent), transparent) left center / 20px 100% no-repeat,
+    linear-gradient(to left, color-mix(in srgb, var(--foreground) 14%, transparent), transparent) right center / 20px 100% no-repeat;
+  background-attachment: local, local, scroll, scroll;
 }
 
 .eval-comparison .eval-metric {
@@ -4886,13 +4895,40 @@ kbd {
   font-variant-numeric: tabular-nums;
 }
 
+/* A delta the server does not mark significant is rendered muted: the value
+   is still there to read, but the row's state — "not a result" — is visible
+   at a glance. The star and the body colour are the significant state, the
+   one worth standing out. */
+.eval-delta {
+  color: var(--muted-foreground);
+}
+
 .eval-delta.is-significant,
 .eval-headline.is-significant {
   font-weight: 600;
 }
 
+.eval-delta.is-significant {
+  color: var(--foreground);
+}
+
 .eval-star {
   color: var(--primary);
+}
+
+/* The verdict line above the comparison table: the headline metric and its
+   delta in one sentence, muted with "not a result" when the server does not
+   mark it significant, body-coloured with the star when it does. */
+.eval-verdict {
+  margin: 0 0 var(--space-2);
+  color: var(--muted-foreground);
+  font-size: 0.9em;
+  font-variant-numeric: tabular-nums;
+}
+
+.eval-verdict.is-significant {
+  color: var(--foreground);
+  font-weight: 600;
 }
 
 /* An absent measurement is a dash, never a zero. */
