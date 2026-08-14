@@ -8,8 +8,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/nats-io/nats.go/jetstream"
-
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
@@ -64,10 +62,10 @@ func (c *Controller) lookup(sessionID string) (*inflight, bool) {
 type inflight struct {
 	requestID string
 	sessionID string
-	// msg is the JetStream message this run answers, so the escalation can
+	// msg is the claimed queue message this run answers, so the escalation can
 	// run the same finish sequence — record the row, publish, ack — an
 	// ordinary run would have.
-	msg jetstream.Msg
+	msg queue.Msg
 	// cancel cancels runCtx: the soft stop. A healthy run ends at its next
 	// check point; a wedged one does not, which is what the escalation is for.
 	cancel context.CancelFunc
