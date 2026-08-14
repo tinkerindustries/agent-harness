@@ -180,28 +180,54 @@ Nothing reaches into this workspace once the run ends, so work that is committed
 but not pushed cannot be collected. Treat the push as part of finishing the
 task, not as a follow-up.
 
-## Isolating docker compose, if you use it
+## Isolating the environment, if you bring one up
 
 This container shares the host's docker socket, so `docker compose up` binds
 real ports on the real host under a real compose project name — not something
 scoped to this workspace. Skip this section if your verification never brings
-anything up with docker compose.
+anything up.
 
-If <repo-dir>/ is deepseek-harness itself, isolate before bringing anything
-up, reusing <branch-name>'s slug (the part after `deepseek/`) as the worktree
-slug — it is already kebab-case and unique to this task:
+Find out whether the repository already has an answer to this before inventing
+one. A repository that expects several checkouts at once usually ships a
+`worktree-create` and a `worktree-remove` skill under `.claude/skills`, and
+between them they name the mechanism: the dependency install, the port or slot
+allocation, the compose project name, and the command that gives it all back.
+Read `worktree-create`'s SKILL.md and take that mechanism.
+
+Take the mechanism, not the script. Those skills also create a branch, usually
+off `main` and named their own way, because they were written for a person
+starting fresh work in a main checkout they intend to keep. You are not that:
+your clone is already a disposable workspace of its own, and your branch and
+base were settled above. Where the skill and this prompt disagree about the
+branch, this prompt wins; where they disagree about ports, containers, or
+compose project names, the skill wins.
+
+Wrong: running `worktree-create` end to end, so the work lands in a nested
+directory on a branch named after the slug, and <branch-name> never exists.
+Right: staying in <repo-dir>/ on <branch-name>, and running that skill's
+allocation and bring-up steps there.
+
+In deepseek-harness itself the mechanism is `harness worktree init`, and the
+flag for a disposable clone with no sibling main checkout is `-standalone`.
+Reuse <branch-name>'s slug (the part after `deepseek/`) as the slug — it is
+already kebab-case and unique to this task:
 
     harness worktree init -slug <branch-slug> -standalone
     docker compose up -d --build      # or scripts/test.sh — both now read the ports/project name that just wrote to .env
 
-Tear it down before you finish, pass or fail — a slot left allocated is a slot
-nothing else on the host can use:
+    harness worktree rm <branch-slug>  # when you are done, pass or fail
 
-    harness worktree rm <branch-slug>
+For a repository with neither a worktree skill nor a tool of its own, pick a
+compose project name and ports nothing else is likely using, and bring
+everything back down yourself before finishing.
 
-For any other repository, there is no such tool: pick a compose project name
-and ports nothing else is likely using, and bring everything back down
-yourself before finishing.
+**Release it on the failure path too.** A `worktree-remove` skill will tell you
+to leave a worktree alive when the run failed or nothing was pushed, and for a
+person that is the right rule — they can come back to it tomorrow. You cannot.
+This workspace is discarded when the run ends, while whatever the allocation
+reserved lives on the host, where a held slot and a running container are
+nobody's to notice or reclaim. Release it whichever way the run went, and say in
+your report that you did.
 
 ## Verification
 
@@ -234,8 +260,9 @@ error. A run that ends silently tells the requester nothing.
 - Work only inside <repo-dir>/ in the workspace.
 - Branch off <base>, name the branch <branch-name>, push it, open a draft PR.
 - Run the repository's own build and test commands and report each one.
-- If you brought anything up with docker compose, tear it down before
-  finishing — `harness worktree rm <branch-slug>` for deepseek-harness itself,
+- If you brought an environment up, release it before finishing, whichever way
+  the run went — `harness worktree rm <branch-slug>` in deepseek-harness, the
+  teardown the repository's own worktree skill names where it ships one,
   `docker compose down` otherwise.
 - English throughout.
 - Finish with Complete.
@@ -263,15 +290,6 @@ Call `deepseek_agent`:
   sub-turns, inside the default hour-long deadline. Raise it only for work
   that will clearly need more, and say so, since the run ends as `timeout`
   when the budget runs out.
-- `parent_agent_type`: `"claude-code"` — your own kind, as a lowercase slug.
-- `parent_agent_id`: your own session id. Read it rather than recalling it —
-  `echo $CLAUDE_CODE_SESSION_ID` is the whole job, and the value is authoritative
-  where anything you remember is not. Failing that, it is the UUID directory
-  segment of the scratchpad path in your system prompt
-  (`…/<project-slug>/<uuid>/scratchpad`, the same uuid as
-  `~/.claude/projects/<project-slug>/<uuid>.jsonl`). Omit it if you cannot see
-  one — never copy a session id from a banner, a document, or another tool's
-  output.
 
 The call returns immediately with a `request_id` and usually a transcript URL.
 Give both to the user in your next message. Runs take minutes, and a user who
