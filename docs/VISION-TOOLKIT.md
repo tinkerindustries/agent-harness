@@ -11,6 +11,13 @@ half nobody talks about: the operations either side of "describe this image".
 The cheapest way to find out whether those operations improve DeepSeek's design
 advice is a skill-plus-CLI spike that touches no Go code.
 
+> **Status, 2026-08-15.** This document opens as an assessment and its
+> recommendation was overtaken: rather than the skill-plus-CLI spike proposed
+> in §5, the four tools were ported to Go directly (option C), `AskVision` and
+> `ReviewScreenshot` were removed, and the result has run twice against the
+> live API. §1-§5 are kept as the reasoning that led there — including the
+> parts that argued for a different route — and §7 is what actually happened.
+
 ---
 
 ## 1. What the toolkit actually is
@@ -272,15 +279,58 @@ policy that the CLI route gives up.
   page to act on is still the open question a spike answers, and it is cheaper
   to answer with their CLIs than with our port.
 
-## 7. Not verified
+## 7. What the live runs showed
 
-- **Nothing was run.** The local settings table is empty and `.env` carries no
-  Gemini key, so no CLI was executed against the live API. Everything above is
-  from reading. Running the spike needs a key from the production stack — a
-  credential-handling decision I left alone.
-- **Output quality is unmeasured.** Whether `ground`'s boxes are accurate enough
-  on a rendered web page to act on is exactly what the spike would tell us.
-- **Licence read, not audited.** MIT at the root; vendoring means checking the
-  bundled `scripts/` and any optional dependency (Pillow, vtracer) separately.
+Two runs against the dev stack on 2026-08-15, `deepseek-v4-flash`, against
+this harness's own web UI. They are what turned the port from plausible into
+verified, and they found real defects.
+
+**The coordinate contract holds on a real page.** `Ground` located a nav tab
+at `x1: 517, y1: 34, x2: 566, y2: 49`; `Crop` at scale 3 wrote a 147x45 image
+— exactly 49x15x3, so the box survived the crop arithmetic — and an OCR
+`Glance` of that crop read back `Settings`, the text actually at those
+coordinates. In the same run `Detect` independently boxed the same tab at
+`507-576 x 27-56`: `Ground` boxes the text, `Detect` boxes the link's hit
+area, and one sits inside the other. Two tools agreeing on an element to
+within its padding is the strongest evidence available without pixel-level
+ground truth.
+
+**Cost accounting survived the swap.** Five vision calls in the second run,
+each its own priced usage event, $0.0183 of the session's $0.0222. Input
+tokens per image were 1,121-1,195 — the documented ~1,120 budget showing up
+in production, and the reason a tall page needs chunking rather than a bigger
+image (§6).
+
+**What the first run broke, and what fixed it:**
+
+| Symptom | Cause | Fix |
+| --- | --- | --- |
+| A `Glance` describing a whole page died with `context deadline exceeded`, and the model paid for a full retry | The 60s vision timeout, inherited from ReviewScreenshot | 120s, in the constant and the setting default alike. The retest's equivalent call produced 3331 output tokens (1772 of them thinking) and landed first time |
+| `Ground` answered "the main heading" with a 15px nav brand | The tool matches the words it is given, not the intent behind them. The page has no larger headline, so it was right | Its description now says so, and says to describe an element by its visible text, position, or the block it sits in |
+| `Detect` reported a status badge shaped like a button as a button | Vision enumerates what looks like the category | Its description now says an inventory is a starting point to check against the markup, and that `category` is worth naming precisely. Set precisely in the retest, it returned exactly the four nav tabs and excluded the badge |
+
+**And one the deploy found rather than the runs:** `assets/` was missing from
+the Dockerfile's build context, so the image build failed outright once
+`cmd/harness` imported it. A host `go build` sees the whole working tree and
+cannot catch that — only the container build can, which is what
+`scripts/build.sh` is for.
+
+## 8. Still not verified
+
+- **Box accuracy has a floor nobody has measured.** Both runs located
+  elements whose position was obvious from the layout. Nothing has tested a
+  crowded form, overlapping controls, or an element the page renders twice.
+- **No eval has run.** The frozen head changed twice and every vision tool
+  was replaced underneath it; `internal/promptvariant` and `internal/evals`
+  exist to measure exactly that, and neither has been pointed at this.
+- **The evidence sentence is gone and its absence is untested.** `AskVision`
+  forced every answer to open with what was actually visible, because a
+  session once spent 23% of its cost proving a clean answer was clean
+  (docs/reviews/vision-path-2026-08-14.md). Both live runs were structured
+  tasks where the model verified itself, so they say nothing about the
+  failure mode that instruction was measured against.
+- **Licence read, not audited.** MIT at the root; vendoring anything beyond
+  the attribution already shipped means checking the bundled `scripts/` and
+  any optional dependency (Pillow, vtracer) separately.
 - **The `dsh-vision-toolkit` submodule was not cloned.** It targets DeepSeek's
-  harness, and may or may not carry ideas worth reading.
+  own harness, and may or may not carry ideas worth reading.

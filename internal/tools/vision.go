@@ -3,6 +3,8 @@ package tools
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -103,11 +105,12 @@ func (e *Executor) visionThinkingLevel(ctx context.Context, fallback string) str
 // ---------------------------------------------------------------------------
 
 type glanceArgs struct {
-	ImagePaths []string `json:"image_paths"`
-	Query      string   `json:"query"`
-	OCR        bool     `json:"ocr"`
-	OCRExtra   string   `json:"ocr_extra"`
-	Region     string   `json:"region"`
+	ImagePaths     []string `json:"image_paths"`
+	Query          string   `json:"query"`
+	OCR            bool     `json:"ocr"`
+	OCRExtra       string   `json:"ocr_extra"`
+	Region         string   `json:"region"`
+	ConversationID string   `json:"conversation_id"`
 }
 
 // glancePrompt is bin/glance's build_prompt, ported branch for branch. The
@@ -156,8 +159,26 @@ func execGlance(ctx context.Context, e *Executor, argsRaw json.RawMessage) Resul
 	if err := json.Unmarshal(argsRaw, &args); err != nil {
 		return errorResult("invalid arguments: %v", err)
 	}
+	var conversation *glanceConversation
+	if args.ConversationID != "" {
+		conversation = e.glanceConversation(args.ConversationID)
+		if conversation == nil {
+			// Naming the ones that exist rather than only the miss: an id
+			// from a conversation this session dropped past the cap reads
+			// identically to a typo, and the model can only act on the
+			// difference if it is told.
+			return errorResult("no Glance conversation %q in this session%s", args.ConversationID, glanceConversationHint(e))
+		}
+	}
+	// image_paths is required on a first call and optional on a follow-up,
+	// where omitting it means "the same images" and passing new ones replaces
+	// them for the rest of the thread.
+	imagesReplaced := conversation != nil && len(args.ImagePaths) > 0
 	if len(args.ImagePaths) == 0 {
-		return errorResult("image_paths is required and must name at least one file")
+		if conversation == nil {
+			return errorResult("image_paths is required and must name at least one file")
+		}
+		args.ImagePaths = conversation.imagePaths
 	}
 	if args.OCR && args.Query != "" {
 		return errorResult("query and ocr are mutually exclusive: ocr transcribes the text, query asks a question")
@@ -191,16 +212,32 @@ func execGlance(ctx context.Context, e *Executor, argsRaw json.RawMessage) Resul
 		return errorResult("Glance is not available in this context: no Gemini client configured")
 	}
 
-	answer, usage, sentAt, err := visionInteract(ctx, e, "", glancePrompt(args, len(images)), images,
+	question := glancePrompt(args, len(images))
+	sent := question
+	if conversation != nil {
+		sent = glanceFollowUpPrompt(conversation, question, imagesReplaced)
+	}
+	answer, usage, sentAt, err := visionInteract(ctx, e, "", sent, images,
 		e.visionThinkingLevel(ctx, gemini.ThinkingLevelMedium))
 	if err != nil {
 		return errorResult("%v", err)
 	}
 
+	// The thread records the question as asked, not as sent: replaying a
+	// follow-up's composed prompt into the next follow-up would nest the
+	// history inside itself and grow every turn quadratically.
+	turn := glanceTurn{question: question, answer: answer}
+	conversationID := args.ConversationID
+	if conversation == nil {
+		conversationID = e.startGlanceConversation(args.ImagePaths, turn)
+	} else {
+		e.appendGlanceTurn(conversationID, args.ImagePaths, turn)
+	}
+
 	// Plain byte truncation is safe: there is no JSON document to sever, so a
 	// cut answer is a short answer rather than a broken one.
 	out, truncated := truncate(answer, e.outputCap(ctx))
-	content := out
+	content := out + fmt.Sprintf("\n\nconversation_id: %s (pass it to ask a follow-up about these images without re-sending the thread)", conversationID)
 	if len(notes) > 0 {
 		// Ahead of the answer, so the model knows the vision model saw less
 		// detail than the file holds before it reads what it concluded.
@@ -625,12 +662,26 @@ func execCrop(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 
 	out := args.Output
 	if out == "" {
-		// Upstream's default: <image-stem>.crop.png next to the input.
-		out = strings.TrimSuffix(args.ImagePath, filepath.Ext(args.ImagePath)) + ".crop.png"
+		// Upstream writes <image-stem>.crop.png beside the input, which is
+		// right for a CLI on your own machine and wrong here: beside the input
+		// can be inside a cloned repository, where the crop turns up in that
+		// repository's diff. The base name alone is relative, so the scratch
+		// rule re-roots it under scratch/ — the same place Screenshot puts a
+		// capture, and what makes Crop safe to allow in read-only mode
+		// (policy.go).
+		base := filepath.Base(args.ImagePath)
+		out = strings.TrimSuffix(base, filepath.Ext(base)) + ".crop.png"
 	}
-	outPath, err := ResolvePath(e.Workspace, out)
+	outPath, err := resolveScratchImageOutput(e.Workspace, out)
 	if err != nil {
 		return errorResult("%v", err)
+	}
+
+	// scratch/ exists in a prepared workspace (internal/workspace) but a
+	// nested output path under it may not, and a crop that resolves fine and
+	// then fails on the write is a confusing refusal.
+	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+		return errorResult("create the directory for %s: %v", out, err)
 	}
 
 	cropped := cropAndScale(src, box, args.Scale)
@@ -1088,4 +1139,118 @@ func maxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// ---------------------------------------------------------------------------
+// Glance conversations
+// ---------------------------------------------------------------------------
+
+// maxGlanceConversations caps how many Glance conversations one session holds
+// at once. Each is a handful of paths and text pairs, so the cap bounds a long
+// session's growth rather than memory; the most recent are kept.
+const maxGlanceConversations = 5
+
+// glanceTurn is one exchange. The answer is Gemini's raw text rather than the
+// formatted tool result, because the raw text is what gets re-sent.
+type glanceTurn struct {
+	question string
+	answer   string
+}
+
+// glanceConversation is what a follow-up needs to continue without the caller
+// restating the thread: the image paths (files are re-read from disk each
+// time, so no bytes are held) and the exchanges so far.
+//
+// This is ReviewScreenshot's conversation_id, brought back onto Glance. It was
+// lost in the port because the upstream CLI is stateless — every invocation is
+// a fresh process — and a CLI has nowhere to keep a thread. A tool call does.
+// Without it, "look closer at the header" re-uploads the image and re-derives
+// context the model already had, and the earlier answer is gone unless the
+// caller pastes it back.
+//
+// imagePaths is the one part a follow-up may replace, by passing its own
+// image_paths — the re-capture loop the tool is used in.
+type glanceConversation struct {
+	imagePaths []string
+	turns      []glanceTurn
+}
+
+func (e *Executor) glanceConversation(id string) *glanceConversation {
+	e.glanceMu.Lock()
+	defer e.glanceMu.Unlock()
+	return e.glanceConversations[id]
+}
+
+// startGlanceConversation records a fresh conversation and returns its id. The
+// map is created lazily so an Executor built without the field (every test
+// that constructs one directly) works unchanged.
+func (e *Executor) startGlanceConversation(imagePaths []string, turn glanceTurn) string {
+	e.glanceMu.Lock()
+	defer e.glanceMu.Unlock()
+	if e.glanceConversations == nil {
+		e.glanceConversations = make(map[string]*glanceConversation)
+	}
+	id := newGlanceConversationID()
+	e.glanceConversations[id] = &glanceConversation{imagePaths: imagePaths, turns: []glanceTurn{turn}}
+	e.glanceOrder = append(e.glanceOrder, id)
+	if len(e.glanceOrder) > maxGlanceConversations {
+		oldest := e.glanceOrder[0]
+		e.glanceOrder = e.glanceOrder[1:]
+		delete(e.glanceConversations, oldest)
+	}
+	return id
+}
+
+// appendGlanceTurn records one more exchange and re-points the conversation at
+// the images that exchange was about, so the next follow-up continues from the
+// newest capture rather than reverting to the ones it opened with.
+func (e *Executor) appendGlanceTurn(id string, imagePaths []string, turn glanceTurn) {
+	e.glanceMu.Lock()
+	defer e.glanceMu.Unlock()
+	if c := e.glanceConversations[id]; c != nil {
+		c.imagePaths = imagePaths
+		c.turns = append(c.turns, turn)
+	}
+}
+
+// newGlanceConversationID mints an id. The prefix makes its origin obvious in
+// a tool result the model echoes back.
+func newGlanceConversationID() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic("tools: crypto/rand unavailable: " + err.Error())
+	}
+	return "gl-" + hex.EncodeToString(b[:])
+}
+
+// glanceFollowUpPrompt composes a follow-up: the earlier exchanges, then the
+// new question last — data first, question last, the same shape a first call
+// has. imagesReplaced says the images attached now are not the ones the thread
+// describes, which the model has to be told: replayed beside its own earlier
+// answer, a fresh capture otherwise gets reconciled against that answer
+// instead of being looked at.
+func glanceFollowUpPrompt(conversation *glanceConversation, prompt string, imagesReplaced bool) string {
+	var b strings.Builder
+	if len(conversation.turns) > 0 {
+		b.WriteString("Earlier in this conversation:\n")
+		for _, turn := range conversation.turns {
+			fmt.Fprintf(&b, "Question: %s\nAnswer: %s\n\n", turn.question, turn.answer)
+		}
+	}
+	if imagesReplaced {
+		b.WriteString("The images attached to this message are NEW captures, taken after the exchange above. They replace the ones you were shown earlier. Judge what you can see now; treat the earlier exchange as history, not as a description of these images.\n\n")
+	}
+	b.WriteString(prompt)
+	return b.String()
+}
+
+// glanceConversationHint names the conversations this session still holds, so
+// a rejected id can be corrected rather than guessed at.
+func glanceConversationHint(e *Executor) string {
+	e.glanceMu.Lock()
+	defer e.glanceMu.Unlock()
+	if len(e.glanceOrder) == 0 {
+		return "; none have been started yet"
+	}
+	return "; open conversations: " + strings.Join(e.glanceOrder, ", ")
 }

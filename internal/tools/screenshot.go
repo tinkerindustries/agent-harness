@@ -137,7 +137,7 @@ func execScreenshot(ctx context.Context, e *Executor, argsRaw json.RawMessage) R
 		return errorResult("path is required and must name the file to write")
 	}
 
-	path, err := resolveScreenshotOutput(e.Workspace, args.Path)
+	path, err := resolveScratchImageOutput(e.Workspace, args.Path)
 	if err != nil {
 		return errorResult("%v", err)
 	}
@@ -193,7 +193,7 @@ func validateScreenshotURL(raw string) error {
 // honoured.
 var screenshotOutputExtensions = map[string]bool{".png": true, ".jpg": true, ".jpeg": true}
 
-// resolveScreenshotOutput confines the capture to the session's scratch
+// resolveScratchImageOutput confines an image a tool writes to the session's scratch
 // directory.
 //
 // A screenshot is not part of a run's deliverable, and the system prompt
@@ -219,7 +219,7 @@ var screenshotOutputExtensions = map[string]bool{".png": true, ".jpg": true, ".j
 // is meant to be, so re-rooting one under scratch/ would be overriding the
 // caller rather than completing what they meant, and the refusal below is
 // what tells them the tool cannot write there.
-func resolveScreenshotOutput(workspace, userPath string) (string, error) {
+func resolveScratchImageOutput(workspace, userPath string) (string, error) {
 	ext := strings.ToLower(filepath.Ext(userPath))
 	if !screenshotOutputExtensions[ext] {
 		return "", fmt.Errorf("path must end in .png, .jpg, or .jpeg, got %q", userPath)

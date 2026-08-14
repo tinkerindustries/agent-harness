@@ -40,15 +40,19 @@ func TestToolArrayIdenticalAcrossModes(t *testing.T) {
 
 func TestReadOnlyModeDenies(t *testing.T) {
 	p := &Policy{Mode: ModeReadOnly}
-	allowed := []string{"Read", "Glob", "Grep", "List", "WebFetch", "Glance", "Ground", "Detect", "Screenshot", "TaskCreate", "TaskGet", "TaskList", "TaskUpdate", "Complete"}
+	// Crop is in the allowed set despite writing a file: its output is
+	// confined to scratch/ exactly as Screenshot's is
+	// (resolveScratchImageOutput), so it cannot reach the deliverable or a
+	// cloned repository. Denying it put the whole Ground-Crop-Glance pipeline
+	// behind full permissions, the mode that also carries the host docker
+	// socket.
+	allowed := []string{"Read", "Glob", "Grep", "List", "WebFetch", "Glance", "Ground", "Detect", "Screenshot", "Crop", "TaskCreate", "TaskGet", "TaskList", "TaskUpdate", "Complete"}
 	for _, name := range allowed {
 		if d := p.Check(name, name); !d.Allow {
 			t.Errorf("readonly mode should allow %s, got denied: %s", name, d.Rule)
 		}
 	}
-	// Crop is denied like any other file-writing tool: its output is not
-	// confined to scratch/ the way Screenshot's is (internal/tools/policy.go).
-	denied := []string{"Write", "Edit", "Bash", "Task", "Crop"}
+	denied := []string{"Write", "Edit", "Bash", "Task"}
 	for _, name := range denied {
 		if d := p.Check(name, name); d.Allow {
 			t.Errorf("readonly mode should deny %s", name)

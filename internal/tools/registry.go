@@ -221,6 +221,12 @@ type Executor struct {
 	todosMu    sync.Mutex
 	todos      []Todo
 	nextTaskID int
+
+	// Glance conversation state, held here because an Executor belongs to
+	// exactly one session (docs/DESIGN.md §4.5). See glanceConversation.
+	glanceMu            sync.Mutex
+	glanceConversations map[string]*glanceConversation
+	glanceOrder         []string
 }
 
 // NewExecutor returns an Executor rooted at workspace (resolved to an

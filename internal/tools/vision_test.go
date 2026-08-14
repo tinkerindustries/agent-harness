@@ -393,7 +393,7 @@ func TestExecCrop(t *testing.T) {
 		if !strings.Contains(res.Content, "shot.crop.png") {
 			t.Errorf("result should name the default output path, got: %s", res.Content)
 		}
-		data, err := os.ReadFile(filepath.Join(root, "shot.crop.png"))
+		data, err := os.ReadFile(filepath.Join(root, "scratch", "shot.crop.png"))
 		if err != nil {
 			t.Fatalf("no crop written: %v", err)
 		}
@@ -414,7 +414,7 @@ func TestExecCrop(t *testing.T) {
 		if !strings.Contains(res.Content, "upscaled 3x") {
 			t.Errorf("result should note the upscale, got: %s", res.Content)
 		}
-		data, err := os.ReadFile(filepath.Join(root, "scaled.png"))
+		data, err := os.ReadFile(filepath.Join(root, "scratch", "scaled.png"))
 		if err != nil {
 			t.Fatalf("no crop written: %v", err)
 		}
@@ -447,4 +447,93 @@ func TestExecCrop(t *testing.T) {
 			t.Error("expected a refusal for an out-of-range scale")
 		}
 	})
+}
+
+// Crop's output is confined to scratch/ the way Screenshot's is, which is
+// what lets it run in read-only mode (policy.go). A relative path lands there
+// whether or not the caller spells the prefix — the measured lesson behind
+// resolveScratchImageOutput, where refusing the unprefixed spelling cost a
+// run twelve corrective sub-turns — and an absolute path elsewhere is
+// refused rather than quietly relocated.
+func TestExecCropConfinesOutputToScratch(t *testing.T) {
+	e, root := newTestExecutor(t)
+	if err := os.WriteFile(filepath.Join(root, "shot.png"), testPNGBytes(t, 60, 60), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, out := range []string{"cut.png", "scratch/cut2.png"} {
+		res := runTool(t, e, "Crop", cropArgs{ImagePath: "shot.png", Region: "0,0,20,20", Output: out})
+		if res.IsError {
+			t.Fatalf("Crop(%q): %s", out, res.Content)
+		}
+		if _, err := os.Stat(filepath.Join(root, "scratch", filepath.Base(out))); err != nil {
+			t.Errorf("Crop(%q) did not land under scratch/: %v", out, err)
+		}
+	}
+
+	res := runTool(t, e, "Crop", cropArgs{ImagePath: "shot.png", Region: "0,0,20,20", Output: "/tmp/escaped.png"})
+	if !res.IsError {
+		t.Error("an absolute path outside scratch/ should be refused")
+	}
+}
+
+// A Glance conversation replays the earlier exchange into the follow-up's
+// prompt, so "look closer at the header" costs one call rather than a fresh
+// description, and image_paths becomes optional. The test captures what the
+// harness actually sent, because that — not the tool result — is where the
+// thread either travels or is lost.
+func TestGlanceConversationReplaysTheThread(t *testing.T) {
+	var sent []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		sent = append(sent, string(body))
+		w.WriteHeader(http.StatusOK)
+		io.WriteString(w, geminitest.Answer("a login form with one button", ""))
+	}))
+	defer srv.Close()
+
+	e, root := newTestExecutor(t)
+	e.Gemini = reviewScreenshotClient(srv)
+	if err := os.WriteFile(filepath.Join(root, "shot.png"), testPNGBytes(t, 60, 60), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	first := runTool(t, e, "Glance", glanceArgs{ImagePaths: []string{"shot.png"}, Query: "what is on this page?"})
+	if first.IsError {
+		t.Fatalf("first call: %s", first.Content)
+	}
+	id := ""
+	for _, line := range strings.Split(first.Content, "\n") {
+		if strings.HasPrefix(line, "conversation_id: ") {
+			id = strings.Fields(strings.TrimPrefix(line, "conversation_id: "))[0]
+		}
+	}
+	if id == "" {
+		t.Fatalf("first result carries no conversation_id: %s", first.Content)
+	}
+
+	// No image_paths: the follow-up continues on the conversation's images.
+	second := runTool(t, e, "Glance", glanceArgs{ConversationID: id, Query: "how many buttons?"})
+	if second.IsError {
+		t.Fatalf("follow-up: %s", second.Content)
+	}
+	if len(sent) != 2 {
+		t.Fatalf("sent %d requests, want 2", len(sent))
+	}
+	if !strings.Contains(sent[1], "Earlier in this conversation") ||
+		!strings.Contains(sent[1], "what is on this page?") ||
+		!strings.Contains(sent[1], "a login form with one button") {
+		t.Errorf("the follow-up did not replay the thread: %s", sent[1])
+	}
+	// The thread records the question as asked, never the composed prompt —
+	// otherwise each follow-up nests the history inside itself.
+	if strings.Count(sent[1], "Earlier in this conversation") != 1 {
+		t.Errorf("history nested inside itself: %s", sent[1])
+	}
+
+	if bad := runTool(t, e, "Glance", glanceArgs{ConversationID: "gl-nope", Query: "?"}); !bad.IsError {
+		t.Error("an unknown conversation_id should be refused")
+	} else if !strings.Contains(bad.Content, id) {
+		t.Errorf("the refusal should name the open conversations, got: %s", bad.Content)
+	}
 }

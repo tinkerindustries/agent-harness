@@ -83,6 +83,15 @@ var alwaysAllowed = map[string]bool{
 	"Ground":     true,
 	"Detect":     true,
 	"Screenshot": true,
+	// Crop writes a file, which is why it is worth saying why it sits
+	// here beside the readers rather than with Write and Edit: its output
+	// is confined to scratch/ by the same rule Screenshot's is
+	// (resolveScratchImageOutput), so it cannot touch the deliverable or a
+	// cloned repository. Gating it by mode instead put the whole
+	// Ground-Crop-Glance pipeline behind full permissions, which is the
+	// mode that also hands the session the host docker socket — a large
+	// grant to buy a closer look at a screenshot.
+	"Crop":       true,
 	"TaskCreate": true,
 	"TaskGet":    true,
 	"TaskList":   true,
