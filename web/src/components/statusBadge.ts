@@ -74,7 +74,7 @@ export function outcome(session: OutcomeSession): Outcome {
   }
 }
 
-// watchBadge is the provenance strip's spectator badge (.prov): WATCHING
+// watchBadge is the spectator badge: WATCHING
 // while the run is live, and FINISHED once it is over. The strip's own
 // sentence beside the badge says a finished run "could not be messaged"
 // — so the badge must not keep claiming the operator is watching a run

@@ -86,6 +86,10 @@ const rafSchedule = (cb: () => void) => requestAnimationFrame(cb);
 const rafCancel = (handle: number) => cancelAnimationFrame(handle);
 
 export class TranscriptStore {
+  private readonly sessionID: string;
+  // Whether this store may open a stream at all — false is the measurement
+  // harness's synthetic mode, where connect() is a no-op.
+  private readonly connectable: boolean;
   private fold = new FoldState();
   private groups = new SubTurnGroupState();
   // The fold's already-parsed plan as of each block index, appended by
@@ -108,17 +112,31 @@ export class TranscriptStore {
   // measurement harness uses: no EventSource, no network at all. The caller
   // drives the exact same fold-and-flush pipeline a live session runs by
   // calling ingest() directly, at whatever rate it wants to measure.
+  //
+  // Constructing a store opens nothing. The connection belongs to connect()
+  // so that the effect which tears it down is the same one that sets it up:
+  // a store built during render and closed from an effect cleanup cannot be
+  // revived, and React's development StrictMode runs that cleanup between
+  // two mounts (web/src/hooks.ts useTranscriptStore).
   constructor(sessionID: string, opts: TranscriptStoreOptions = {}) {
+    this.sessionID = sessionID;
+    this.connectable = opts.connect !== false;
     this.scheduleFlushImpl = opts.scheduleFlush ?? rafSchedule;
     this.cancelFlushImpl = opts.cancelFlush ?? rafCancel;
+    if (!this.connectable) this.connection = "open";
     this.snapshot = this.buildSnapshot();
-    if (opts.connect === false) {
-      this.connection = "open";
-      this.snapshot = this.buildSnapshot();
-      return;
-    }
+  }
 
-    this.es = new EventSource(`/api/sessions/${encodeURIComponent(sessionID)}/stream`);
+  // connect opens this session's stream, and may be called again after
+  // disconnect(). A fresh EventSource sends no Last-Event-ID, so the server
+  // replays the whole history; the fold starts empty for that reason, or a
+  // second connection would fold every historical event twice.
+  connect(): void {
+    if (!this.connectable || this.es) return;
+    this.resetFold();
+    this.connection = "connecting";
+
+    this.es = new EventSource(`/api/sessions/${encodeURIComponent(this.sessionID)}/stream`);
     this.es.onopen = () => this.setConnection("open");
     this.es.onerror = () => {
       if (this.connection !== "closed") this.setConnection("connecting");
@@ -156,9 +174,22 @@ export class TranscriptStore {
         // browser's automatic reconnect from polling a session that will
         // never have anything new to say.
         this.es!.close();
+        this.es = undefined;
         this.setConnection("closed");
       }
     };
+    this.markDirty();
+  }
+
+  // resetFold drops everything folded from an earlier connection. The
+  // metadata row survives it: the server re-sends it, and clearing it would
+  // blank the figures the screen is already showing for as long as the
+  // replay takes.
+  private resetFold(): void {
+    this.fold = new FoldState();
+    this.groups = new SubTurnGroupState();
+    this.todosAtBlock = [];
+    this.replayed = false;
   }
 
   ingest(ev: StoreEvent): void {
@@ -255,8 +286,11 @@ export class TranscriptStore {
 
   getSnapshot = (): TranscriptSnapshot => this.snapshot;
 
-  close(): void {
+  // disconnect closes the stream and cancels any pending flush. The store
+  // stays usable: connect() opens a new one and replays from the start.
+  disconnect(): void {
     this.es?.close();
+    this.es = undefined;
     if (this.flushHandle !== null) {
       this.cancelFlushImpl(this.flushHandle);
       this.flushHandle = null;

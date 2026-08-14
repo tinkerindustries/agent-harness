@@ -182,15 +182,23 @@ export function useQueueHealth(intervalMs: number): QueueHealth | null {
 // connection and replays from the store, which is cheap and simple rather
 // than reusing a possibly-stale one (docs/DESIGN.md §4.2, "the same
 // endpoint shape" for historical and live).
+//
+// The store is built during render because useSyncExternalStore needs it
+// there, but the stream is opened and closed by the effect. Both halves have
+// to live in the effect: a connection opened during render outlives the
+// cleanup that closes it, and the ref still names that dead store on the
+// next mount — which is what React's development StrictMode does, leaving
+// the screen subscribed to a store whose EventSource is closed for good.
 export function useTranscriptStore(sessionID: string): TranscriptStore {
   const ref = useRef<{ id: string; store: TranscriptStore } | null>(null);
   if (!ref.current || ref.current.id !== sessionID) {
-    ref.current?.store.close();
+    ref.current?.store.disconnect();
     ref.current = { id: sessionID, store: new TranscriptStore(sessionID) };
   }
   useEffect(() => {
     const store = ref.current!.store;
-    return () => store.close();
+    store.connect();
+    return () => store.disconnect();
   }, [sessionID]);
   return ref.current.store;
 }

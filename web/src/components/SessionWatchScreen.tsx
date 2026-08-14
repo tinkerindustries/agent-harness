@@ -15,7 +15,7 @@ import { startedBy } from "../api/provenance";
 import { SessionIdContext, useLabelFlip, useNow } from "../hooks";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
-import { outcome, watchBadge } from "./statusBadge";
+import { outcome } from "./statusBadge";
 import { cachePercent, formatRunDuration, watchStatusFigures } from "./turns/turnHelpers";
 import { formatCost } from "./blocks/toolArgs";
 import { useNavRight } from "./TopNav";
@@ -316,37 +316,46 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
         />
         <main className="stream" ref={streamRef} onScroll={onStreamScroll}>
           <div className="stream-inner">
-            {/* The provenance strip (.prov) leads the transcript column: who
-                started this run, the originating request and job, and the one
-                sentence that says what a spectator may do — a quiet strip,
-                not an alert, because this is the normal state for these
-                sessions. It sits above the SKILLS block and scrolls with the
-                conversation.
+            {/* The run header leads the transcript column: what this run was
+                called, who launched it, and the settings it ran under. It is
+                unfilled and closed by a hairline, so the filled cards below
+                it are the transcript rather than its frame.
 
-                One rank of facts is not a hierarchy: eight equally-weighted
-                fragments separated by dots read as one long string, and the
-                thing a reader actually came for — who started this, and may I
-                talk to it — sat inside it with the same weight as the
-                replicate number. So the badge and the launcher lead, and
-                everything else is a labelled chip: a dim key, a mono value,
-                no separators, because the chip shape already does the
-                separating. */}
-            <div className="prov">
-              {/* The spectator badge follows the run's life: WATCHING while
-                  it is live, FINISHED once it is over — the sentence beside
-                  it says the run ended and could not be messaged, so the
-                  badge must not keep claiming it is being watched. */}
-              <Badge variant="outline">{watchBadge(running).label}</Badge>
-              {startedByLabel && <span className="who">{startedByLabel}</span>}
-              <span className="prov-facts">
+                The run's own status is not repeated here. The nav carries the
+                outcome badge and the run's figures, and a header that also
+                said FINISHED stated one fact three times over — badge,
+                sentence, nav. What a spectator may do is a live-run fact, so
+                the note renders only while the run is going. */}
+            <header className="runhead">
+              <div className="runhead-line">
+                <h1 className="runhead-title">{meta.title || `Run ${sessionId.replace(/^sess-/, "").slice(0, 8)}`}</h1>
+                {!running && (
+                  <span className="runhead-when" title={new Date(meta.created_at).toString()}>
+                    started {runWhen(meta.created_at)}
+                  </span>
+                )}
+              </div>
+              {meta.description && <p className="runhead-desc">{meta.description}</p>}
+              <div className="runhead-facts">
+                {/* The launcher's own id is a claude-code session id: nothing
+                    on this page or any other resolves it, so it rides on the
+                    title rather than taking a third of the row. */}
+                <Fact label="started by" value={who} title={startedByLabel ?? undefined} />
+                {meta.job_type && <Fact label="job" value={meta.job_type} />}
+                <Fact label="model" value={meta.model} />
+                <Fact label="effort" value={meta.effort} />
+                {/* A run that held the host docker socket says so on its own
+                    face. The nav states it only while the run is live, which
+                    left a finished full-permission run with nowhere that
+                    said what it had been allowed to do. */}
+                <Fact label="permission" value={meta.permission_mode} danger={meta.permission_mode === "full"} />
                 {/* An eval puts the member's request id in parent_agent_id
                     (provenance.ts), so the strip printed the same
                     36-character id twice in a row — once inside "started by
                     eval (…)" and again as the request. Once is enough. */}
                 {meta.request_id && meta.request_id !== meta.parent_agent_id && (
-                  <Fact label="request" value={meta.request_id} />
+                  <Fact label="request" value={meta.request_id} mono />
                 )}
-                {meta.job_type && <Fact label="job" value={meta.job_type} />}
                 {membership && (
                   <>
                     <span className="fact">
@@ -366,13 +375,13 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
                     <Fact label="replicate" value={String(membership.replicate)} />
                   </>
                 )}
-              </span>
-              <span className="prov-note">
-                {running
-                  ? `This run takes its instructions from ${who}. You can stop it, but not message it.`
-                  : `This run took its instructions from ${who}. It is finished, and could not be messaged.`}
-              </span>
-            </div>
+              </div>
+              {running && (
+                <p className="runhead-note">
+                  {`This run takes its instructions from ${who}. You can stop it, but not message it.`}
+                </p>
+              )}
+            </header>
             {snapshot.churnPoint && (
               <div className="notice churn-banner">
                 <b>
@@ -431,16 +440,43 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
   );
 }
 
-// Fact is one labelled fact in the provenance strip: a dim key and the value
-// as a mono chip. The key/value pairing is what makes eight facts scannable
-// where eight dot-separated fragments were not.
-function Fact({ label, value }: { label: string; value: string }) {
+// runWhen is the run's wall-clock date, which no part of this page carried
+// before: every figure on the screen was a duration, so a run from this
+// morning and one from three weeks ago read identically.
+function runWhen(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+// Fact is one labelled fact in the run header: a dim key and its value. Only
+// an identifier takes the mono chip — a word like "implementation" or "max"
+// is prose, and chipping it made six settings look like six ids.
+function Fact({
+  label,
+  value,
+  mono,
+  danger,
+  title,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  danger?: boolean;
+  title?: string;
+}) {
   return (
-    <span className="fact">
+    <span className={`fact${danger ? " fact-danger" : ""}`}>
       <span className="k">{label}</span>
       {/* The chip clips a long id to keep the strip one line; the title is
           how the whole of it is still available. */}
-      <code title={value}>{value}</code>
+      {mono ? (
+        <code title={title ?? value}>{value}</code>
+      ) : (
+        <span className="v" title={title ?? value}>
+          {value}
+        </span>
+      )}
     </span>
   );
 }
