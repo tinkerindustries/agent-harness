@@ -50,6 +50,23 @@ A row also carries the provenance triple — `job_type`, `parent_agent_type`,
 `parent_agent_id`, and `parent_is_user` (producer-stamped: true when a person
 started the run, false on a pre-migration row).
 
+The session representation also carries four fields the main page renders in
+place of the raw prompt: `title`, the run's name shown bold, at most **10
+words**; `description`, what change the agent is making, shown under the
+title, at most **50 words**; and `phase` / `total_phases`, this run's 1-based
+position in a multi-phase chain (the `deepseek-flash-plan` skill cuts a job
+into phases) — both zero, or absent, means the run is not part of a chain.
+All four are optional on the wire, and `task` stays exactly as it is —
+still stored, still on the wire, still shown on the session page; it just
+stops being what the main page's description column renders. A row with no
+title (a pre-migration row, or a browser start that left the fields blank)
+renders the raw prompt as the description line. The MCP launch path
+(`deepseek_agent`) requires `title` and `description` — a launch without
+them is refused at the tool — while the browser path (`POST /api/runs`) and
+`harness publish` treat both as optional; the queue enforces only the word
+caps and the phase relationship (`agentmeta.ValidateTitle`,
+`ValidateDescription`, `ValidatePhase`), never presence.
+
 - `GET /api/sessions` — list, newest first, each row with status, cost, and the
   originating request id.
 - `GET /api/sessions/{id}` — one row, the same shape as a list row.

@@ -115,6 +115,13 @@ the first of them is the one that decides whether the chain works at all:
   being right, and nothing in the run will tell you when it is not.
 - **Name the phase in the branch.** `deepseek/<feature>-p2-<slug>` keeps the
   phases sorted together and readable in the branch list a week later.
+- **Name the phase on the launch.** Every `deepseek_agent` call passes
+  `title` (the phase's name, at most 10 words), `description` (what the
+  phase changes, at most 50 words), and the phase position: `phase` N with
+  `total_phases` M, where M is the chain's total and N is the phase being
+  launched. The harness UI then renders the title bold with the description
+  beneath it and a `phase N/M` chip instead of a raw prompt, which is what
+  makes a four-phase chain readable from the session list at a glance.
 - **Ask for a normal pull request, not a draft.** You are going to merge it in a
   few minutes, and a draft has to be marked ready first. Draft is the right
   default for the PR to `main` at the end, where a human reviews it; here it is
