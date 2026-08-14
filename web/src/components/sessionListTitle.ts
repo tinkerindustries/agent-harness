@@ -1,8 +1,8 @@
 import type { SessionState } from "../api/types";
 
 // The session list's title/description rendering, as a pure function of the
-// wire row — the same shape the other display helpers take (sessionListLabel,
-// statusBadge). The main page shows the run's title bold with the description
+// wire row — the same shape the other display helpers take (statusBadge).
+// The main page shows the run's title bold with the description
 // beneath it, and the raw prompt only as a fallback: a pre-migration row or a
 // browser start with no title renders no bold line at all and uses the task
 // as the description line, so no row ever goes blank.

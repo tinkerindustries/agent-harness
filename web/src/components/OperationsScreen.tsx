@@ -109,8 +109,12 @@ export function OperationsScreen() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const now = useNow(1000);
 
-  // refresh re-fetches the whole screen from the server. Work requests come
-  // from their own list endpoint (docs/DATA-API.md): every work_requests
+  // refresh re-fetches the whole screen from the server. Sessions come from
+  // GET /api/sessions filtered server-side: this screen only ever wants the
+  // running rows, so it asks for ?status=running at the largest page the
+  // server accepts rather than pulling every session and filtering
+  // client-side (docs/DATA-API.md "Pagination"). Work requests come from
+  // their own list endpoint (docs/DATA-API.md): every work_requests
   // row, newest first, each carrying the version a write echoes back in
   // If-Match. Listing the rows directly — rather than walking the sessions
   // each one produced — is what makes a request whose worker died during
@@ -121,16 +125,14 @@ export function OperationsScreen() {
   const refresh = useCallback(async () => {
     try {
       const [sessions, requests, leases] = await Promise.all([
-        listSessions(),
+        listSessions({ status: "running", limit: 200 }),
         listWorkRequests(),
         listLeases(),
       ]);
 
       const running = (
         await Promise.all(
-          sessions
-            .filter((s) => s.status === "running")
-            .map(async (session) => {
+          sessions.items.map(async (session) => {
               try {
                 return { session, lastEventAt: await fetchLastEventAt(session.id) };
               } catch (err) {

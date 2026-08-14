@@ -434,29 +434,225 @@ func TestHeadIsAllowed(t *testing.T) {
 
 // --- session list and metadata ---
 
+// fetchSessionPage GETs /api/sessions with qs and decodes the envelope —
+// every response from the collection is a Page now, never a bare array
+// (docs/DATA-API.md "Pagination").
+func fetchSessionPage(t *testing.T, srv *httptest.Server, qs string) Page[hub.SessionState] {
+	t.Helper()
+	resp, err := http.Get(srv.URL + "/api/sessions" + qs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/sessions%s: got status %d, want 200", qs, resp.StatusCode)
+	}
+	var page Page[hub.SessionState]
+	if err := json.NewDecoder(resp.Body).Decode(&page); err != nil {
+		t.Fatal(err)
+	}
+	return page
+}
+
 func TestListSessionsNewestFirst(t *testing.T) {
 	srv, st, _ := newTestServer(t)
 	now := time.Now().UTC()
 	mustCreateSession(t, st, "older", now.Add(-time.Hour))
 	mustCreateSession(t, st, "newer", now)
 
-	resp, err := http.Get(srv.URL + "/api/sessions")
+	page := fetchSessionPage(t, srv, "")
+	if page.Total != 2 {
+		t.Fatalf("expected total 2, got %d", page.Total)
+	}
+	if len(page.Items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(page.Items))
+	}
+	if page.Items[0].ID != "newer" || page.Items[1].ID != "older" {
+		t.Fatalf("expected newest first, got %s then %s", page.Items[0].ID, page.Items[1].ID)
+	}
+	if page.Limit != defaultPageLimit || page.Offset != 0 {
+		t.Fatalf("expected default limit %d offset 0, got limit %d offset %d", defaultPageLimit, page.Limit, page.Offset)
+	}
+	if page.HasMore || page.Next != nil {
+		t.Fatalf("expected no more on 2 rows, got has_more %v next %v", page.HasMore, page.Next)
+	}
+}
+
+func TestListSessionsDefaultPage(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	now := time.Now().UTC()
+	for i := 0; i < 25; i++ {
+		mustCreateSession(t, st, "sess-"+strconv.Itoa(i), now.Add(-time.Duration(i)*time.Minute))
+	}
+
+	page := fetchSessionPage(t, srv, "")
+	if len(page.Items) != defaultPageLimit {
+		t.Fatalf("expected %d items on the default page, got %d", defaultPageLimit, len(page.Items))
+	}
+	if page.Total != 25 {
+		t.Fatalf("expected total 25, got %d", page.Total)
+	}
+	if !page.HasMore {
+		t.Fatal("expected has_more on the default page of 25 rows")
+	}
+	if page.Next == nil || *page.Next != defaultPageLimit {
+		t.Fatalf("expected next %d, got %v", defaultPageLimit, page.Next)
+	}
+
+	// The second page holds the remaining 5 rows and reports no more.
+	page = fetchSessionPage(t, srv, "?offset=20")
+	if len(page.Items) != 5 || page.Total != 25 {
+		t.Fatalf("expected 5 of 25 on the second page, got %d of %d", len(page.Items), page.Total)
+	}
+	if page.HasMore || page.Next != nil {
+		t.Fatalf("expected no more on the last page, got has_more %v next %v", page.HasMore, page.Next)
+	}
+}
+
+func TestListSessionsExplicitLimitOffset(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	now := time.Now().UTC()
+	for i := 0; i < 10; i++ {
+		mustCreateSession(t, st, "sess-"+strconv.Itoa(i), now.Add(-time.Duration(i)*time.Minute))
+	}
+
+	page := fetchSessionPage(t, srv, "?limit=3&offset=6")
+	if page.Limit != 3 || page.Offset != 6 {
+		t.Fatalf("expected limit 3 offset 6 echoed back, got limit %d offset %d", page.Limit, page.Offset)
+	}
+	if len(page.Items) != 3 {
+		t.Fatalf("expected 3 items, got %d", len(page.Items))
+	}
+	if page.Items[0].ID != "sess-6" || page.Items[2].ID != "sess-8" {
+		t.Fatalf("expected the window to start at sess-6, got %s first", page.Items[0].ID)
+	}
+	if page.Total != 10 {
+		t.Fatalf("expected total 10, got %d", page.Total)
+	}
+
+	// A limit over the max clamps to the default, never a 400 — the events
+	// endpoint's forgiving shape.
+	page = fetchSessionPage(t, srv, "?limit=99999")
+	if page.Limit != defaultPageLimit {
+		t.Fatalf("expected over-max limit to clamp to %d, got %d", defaultPageLimit, page.Limit)
+	}
+}
+
+func TestListSessionsStatusSplit(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	now := time.Now().UTC()
+	mustCreateSession(t, st, "run-1", now)
+	mustCreateSession(t, st, "done-1", now.Add(-time.Minute))
+	mustCreateSession(t, st, "done-2", now.Add(-2*time.Minute))
+	finishTestSession(t, st, "done-1")
+	finishTestSession(t, st, "done-2")
+
+	page := fetchSessionPage(t, srv, "?status=running")
+	if page.Total != 1 || len(page.Items) != 1 || page.Items[0].ID != "run-1" {
+		t.Fatalf("expected only run-1 under status=running, got %+v", page)
+	}
+
+	page = fetchSessionPage(t, srv, "?status=finished")
+	if page.Total != 2 || len(page.Items) != 2 {
+		t.Fatalf("expected 2 finished rows, got total %d len %d", page.Total, len(page.Items))
+	}
+	for _, s := range page.Items {
+		if s.Status == store.StatusRunning {
+			t.Fatalf("expected no running rows under status=finished, got %q", s.Status)
+		}
+	}
+
+	// No status: everything, still newest first.
+	page = fetchSessionPage(t, srv, "")
+	if page.Total != 3 {
+		t.Fatalf("expected 3 rows with no status filter, got %d", page.Total)
+	}
+}
+
+func TestListSessionsQueryMatches(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	now := time.Now().UTC()
+	mustCreateSession(t, st, "sess-1", now)
+	mustCreateSession(t, st, "sess-2", now.Add(-time.Minute))
+	mustCreateSession(t, st, "sess-3", now.Add(-2*time.Minute))
+	if _, err := st.ClaimWorkRequest(context.Background(), "req-special-9", 1, time.Now()); err != nil {
+		t.Fatalf("claim work request: %v", err)
+	}
+	if err := st.SetWorkRequestSession(context.Background(), "req-special-9", "sess-3"); err != nil {
+		t.Fatalf("set work request session: %v", err)
+	}
+
+	// Workspace match ("/tmp/sess-1") — the query matches the workspace, not
+	// the id, here.
+	page := fetchSessionPage(t, srv, "?q=%2Ftmp%2Fsess-1")
+	if page.Total != 1 || page.Items[0].ID != "sess-1" {
+		t.Fatalf("expected only sess-1 for the workspace query, got %+v", page)
+	}
+
+	// Work-request match, found only through the join.
+	page = fetchSessionPage(t, srv, "?q=req-special-9")
+	if page.Total != 1 || page.Items[0].ID != "sess-3" {
+		t.Fatalf("expected only sess-3 for the request-id query, got %+v", page)
+	}
+
+	// A query matching nothing is an empty page, not an error.
+	page = fetchSessionPage(t, srv, "?q=no-such-row")
+	if page.Total != 0 || len(page.Items) != 0 {
+		t.Fatalf("expected an empty page for a no-match query, got %+v", page)
+	}
+}
+
+func TestListSessionsBadStatusIs400(t *testing.T) {
+	srv, _, _ := newTestServer(t)
+	resp, err := http.Get(srv.URL + "/api/sessions?status=bogus")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("got status %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("got status %d, want 400", resp.StatusCode)
 	}
-	var states []hub.SessionState
-	if err := json.NewDecoder(resp.Body).Decode(&states); err != nil {
+	var body map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatal(err)
 	}
-	if len(states) != 2 {
-		t.Fatalf("expected 2 sessions, got %d", len(states))
+	for _, want := range []string{"running", "finished"} {
+		if !strings.Contains(body["error"], want) {
+			t.Fatalf("expected the 400 to name %q, got %q", want, body["error"])
+		}
 	}
-	if states[0].ID != "newer" || states[1].ID != "older" {
-		t.Fatalf("expected newest first, got %s then %s", states[0].ID, states[1].ID)
+}
+
+func TestListSessionsTotalCountsFilterNotPage(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	now := time.Now().UTC()
+	for i := 0; i < 5; i++ {
+		mustCreateSession(t, st, "run-"+strconv.Itoa(i), now.Add(-time.Duration(i)*time.Minute))
+	}
+	for i := 0; i < 3; i++ {
+		mustCreateSession(t, st, "done-"+strconv.Itoa(i), now.Add(-time.Duration(10+i)*time.Minute))
+		finishTestSession(t, st, "done-"+strconv.Itoa(i))
+	}
+
+	page := fetchSessionPage(t, srv, "?status=finished&limit=2")
+	if len(page.Items) != 2 {
+		t.Fatalf("expected 2 rows on the page, got %d", len(page.Items))
+	}
+	if page.Total != 3 {
+		t.Fatalf("expected total 3 (the filter's count, not the page's), got %d", page.Total)
+	}
+	if !page.HasMore || page.Next == nil || *page.Next != 2 {
+		t.Fatalf("expected has_more with next 2, got has_more %v next %v", page.HasMore, page.Next)
+	}
+}
+
+// finishTestSession closes a session into a terminal status, the minimal
+// stand-in for a run finishing.
+func finishTestSession(t *testing.T, st *store.Store, id string) {
+	t.Helper()
+	finished := time.Now().UTC()
+	if err := st.UpdateSessionStatus(context.Background(), id, store.StatusOK, &finished); err != nil {
+		t.Fatalf("finish session %s: %v", id, err)
 	}
 }
 

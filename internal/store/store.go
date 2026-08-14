@@ -1072,6 +1072,70 @@ func (s *Store) ListSessions(ctx context.Context) ([]Session, error) {
 	return out, rows.Err()
 }
 
+// SessionPageOptions is the filter and window one page of the session list is
+// read with (GET /api/sessions). Status "" means any; "running" means exactly
+// running; anything else is "finished" — everything not running. Query is a
+// case-insensitive substring across the three places the browser filter
+// searches: the session id, the workspace, and the work request id (via the
+// work_requests join). Limit and Offset window the rows in the store's own
+// order, created_at DESC.
+type SessionPageOptions struct {
+	Status string // "" (any), "running", or "finished" (everything not running)
+	Query  string // matches session id, workspace, or work request id; "" matches all
+	Limit  int
+	Offset int
+}
+
+// ListSessionsPage returns one page of sessions, newest first — the same
+// created_at DESC order ListSessions uses, so a row's position never depends
+// on which call fetched it — plus the total number of rows matching the
+// filter, ignoring limit/offset. One COUNT(*) and one SELECT over the same
+// WHERE, both against s.readDB. SQLite's LIKE is case-insensitive for ASCII,
+// which is exactly what the browser's toLowerCase().includes() was doing.
+func (s *Store) ListSessionsPage(ctx context.Context, opts SessionPageOptions) ([]Session, int, error) {
+	where := ""
+	var args []any
+	if opts.Status != "" {
+		// Built off the StatusRunning constant, never a string literal: the
+		// SQL and the Go branch cannot disagree about what "running" is.
+		if opts.Status == StatusRunning {
+			where += " AND status = ?"
+		} else {
+			where += " AND status != ?"
+		}
+		args = append(args, StatusRunning)
+	}
+	if opts.Query != "" {
+		where += ` AND (id LIKE '%'||?||'%' OR workspace LIKE '%'||?||'%' OR
+			EXISTS (SELECT 1 FROM work_requests wr WHERE wr.session_id = sessions.id AND wr.request_id LIKE '%'||?||'%'))`
+		args = append(args, opts.Query, opts.Query, opts.Query)
+	}
+	if where != "" {
+		where = " WHERE " + strings.TrimPrefix(where, " AND ")
+	}
+
+	var total int
+	if err := s.readDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM sessions`+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	rows, err := s.readDB.QueryContext(ctx, `SELECT `+sessionColumns+` FROM sessions`+where+
+		` ORDER BY created_at DESC LIMIT ? OFFSET ?`, append(args, opts.Limit, opts.Offset)...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	var out []Session
+	for rows.Next() {
+		sess, err := scanSession(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		out = append(out, sess)
+	}
+	return out, total, rows.Err()
+}
+
 // AppendEvents assigns sequence numbers starting after the session's current
 // max and inserts inputs in order within one transaction. It returns the
 // stored Events, including their assigned Seq and CreatedAt, so callers can

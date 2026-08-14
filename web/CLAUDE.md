@@ -36,7 +36,17 @@ What the screens are:
   row carries elapsed in primary weight and sub-turns dimmer — the finished
   table's columns minus Cost and Cache. Finished sessions are a dense
   table whose Session cell carries a one-line subtitle: the plan ratio and the
-  model's summary.
+  model's summary. The Finished table is **server-paged at 20 rows a page**
+  against `GET /api/sessions?status=finished&q=&limit=&offset=`
+  (`api/finishedSessions.ts` `useFinishedSessions`): the search box now
+  filters server-side, the query and the page are debounced, the refetch is
+  keyed on `sessionListStore`'s `finishedRevision` (bumped only when the set
+  of terminal sessions changes, so a streaming run never costs a refetch),
+  and the `Pager` below the table pages the envelope. The in-flight cards
+  and the stat strip still come from the SSE snapshot — only the Finished
+  table reads the paged endpoint, and the Model column is the model name
+  with the effort, job type and full provenance label on hover (the cell's
+  `title`).
   Outcomes render as `DONE` / `GAVE UP` / `STOPPED` (`statusBadge.ts`), not one
   green OK. A stat strip above the queue health bar — Running (of the pool's
   slots, from `worker.pool_size`), Spend today, Median duration today, Total
@@ -48,7 +58,8 @@ What the screens are:
   start-run trigger (docs/RUN-CONTROL.md — it opens the start form as a card
   above the stat strip, and a null control token replaces it with a "run
   control not configured" note), the search input (id/workspace/request,
-  client-side) and the LIVE badge.
+  server-side for the Finished table, client-side for the in-flight cards)
+  and the LIVE badge.
 - **Transcript.** The unit is the sub-turn, not the block: one card per
   sub-turn, reasoning, text, tool calls and results in one body and the usage
   block in the header (`src/api/groups.ts` builds the groups as a display-side
