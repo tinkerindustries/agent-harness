@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { errorMessage, parseRepoSpec, startRun, type WorkRequest } from "../api/operations";
 import { filterRepos, listGithubRepos, repoSpecFor, type GithubRepo } from "../api/github";
+import { DEFAULT_MODEL_KEY, listModels, resolveModelOptions, settingModel } from "../api/models";
 import { sessionListStore } from "../api/sessionListStore";
 import { listSettings } from "../api/settings";
 import {
@@ -39,7 +40,19 @@ interface StartRunFormProps {
 export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
   const [repoSpecs, setRepoSpecs] = useState<string[]>([""]);
   const [permission, setPermission] = useState("full");
-  const [model, setModel] = useState("deepseek-v4-pro");
+  // The model dropdown is fed by the harness, not a hardcoded copy: the
+  // option list comes from GET /api/models — the provider table that
+  // validates a work request — and the preselected model and the reset
+  // target come from the model.default settings row, so a model added to the
+  // table shows up in the browser with no frontend change (docs/DATA-API.md
+  // "models"). Empty until the mount fetch resolves; the select renders no
+  // selection rather than a guessed one. When the models request fails,
+  // resolveModelOptions falls back to the settings' two model defaults so
+  // the dropdown is never empty.
+  const [model, setModel] = useState("");
+  const [models, setModels] = useState<string[]>([]);
+  const [defaultModel, setDefaultModel] = useState("");
+  const [modelsError, setModelsError] = useState<string | null>(null);
   const [effort, setEffort] = useState("max");
   const [deny, setDeny] = useState("");
   const [resultSchema, setResultSchema] = useState("");
@@ -109,19 +122,41 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
     };
   }, []);
 
-  // The attachment caps come from the settings registry, not from code: a
-  // changed tools.attachments_max_count or tools.attachments_max_bytes must
-  // change what this form accepts. A fetch failure disables the input with
-  // the reason shown, rather than validating against a guessed limit.
+  // Mount resolves the form's two server-fed bits in one pass. The
+  // attachment caps and the model defaults come from the settings registry,
+  // and the model dropdown's options come from GET /api/models — the
+  // provider table that validates a work request, so a model added there
+  // shows up here with no frontend change (docs/DATA-API.md "models"). The
+  // two fetches are independent, so one failing must not take the other
+  // down: a failed settings fetch disables the attachment input with the
+  // reason shown, and a failed models fetch falls back to the settings'
+  // model defaults (resolveModelOptions) with a hint — never an empty
+  // dropdown.
   useEffect(() => {
     let cancelled = false;
-    listSettings()
-      .then((entries) => {
-        if (!cancelled) setAttachmentCaps(attachmentCapsFromSettings(entries));
-      })
-      .catch((err) => {
-        if (!cancelled) setAttachmentCapsError(`Attachment limits unavailable: ${errorMessage(err)}`);
-      });
+    Promise.allSettled([listModels(), listSettings()]).then(([modelsRes, settingsRes]) => {
+      if (cancelled) return;
+      if (settingsRes.status === "fulfilled") {
+        const entries = settingsRes.value;
+        setAttachmentCaps(attachmentCapsFromSettings(entries));
+        const def = settingModel(entries, DEFAULT_MODEL_KEY);
+        setDefaultModel(def);
+        // The user cannot have picked anything yet — the select has no
+        // options until this lands — so filling an empty selection is safe.
+        setModel((prev) => (prev === "" ? def : prev));
+      } else {
+        setAttachmentCapsError(`Attachment limits unavailable: ${errorMessage(settingsRes.reason)}`);
+      }
+      if (modelsRes.status === "rejected") {
+        setModelsError(`Model list unavailable: ${errorMessage(modelsRes.reason)} — showing the configured defaults.`);
+      }
+      setModels(
+        resolveModelOptions(
+          modelsRes.status === "fulfilled" ? modelsRes.value : null,
+          settingsRes.status === "fulfilled" ? settingsRes.value : [],
+        ),
+      );
+    });
     return () => {
       cancelled = true;
     };
@@ -218,7 +253,9 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
   const reset = () => {
     setRepoSpecs([""]);
     setPermission("full");
-    setModel("deepseek-v4-pro");
+    // The reset target is the settings-derived default (model.default), the
+    // same source the initial selection came from — never a hardcoded name.
+    setModel(defaultModel);
     setEffort("max");
     setDeny("");
     setResultSchema("");
@@ -428,9 +465,13 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
           <label className="start-field">
             <span className="start-label">Model</span>
             <select className="start-select" value={model} onChange={(e) => setModel(e.target.value)}>
-              <option value="deepseek-v4-pro">deepseek-v4-pro</option>
-              <option value="deepseek-v4-flash">deepseek-v4-flash</option>
+              {models.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
             </select>
+            {modelsError && <p className="hint">{modelsError}</p>}
           </label>
           <label className="start-field">
             <span className="start-label">Thinking</span>
