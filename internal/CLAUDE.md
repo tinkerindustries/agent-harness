@@ -93,7 +93,14 @@ worker's preparation window: `Create` inserts it as `creating` before the
 workspace is built, `FailSetup` moves it to `failed` with an error event when
 preparation fails, and `Run` promotes a pre-created row to `running` (or
 inserts when there is none). Consumed by `internal/worker` and by the
-CLI's `run` and `resume`. §4.5, §4.6.
+CLI's `run` and `resume`. §4.5, §4.6. `Runner`'s five jobs split by file, all
+on the same type (`runner.go`'s own package doc names which file holds
+which): `RunOptions` and the `Runner` type stay in `runner.go` beside the
+settings accessors; `lifecycle.go` is `Create`/`FailSetup`/`Run` and the loop
+that drives a run to a terminal result; `sinks.go` is where a sub-turn's
+output goes (the disk mirror, the hub); `tooldispatch.go` executes a
+sub-turn's tool calls; `livestate.go` persists the plan and recent-calls
+roll.
 
 ### `internal/tools`
 Every tool the model can call: schemas matching the trained-in shape, argument
