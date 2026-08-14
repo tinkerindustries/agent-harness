@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestRequestShapePinsTheDoc asserts the request body follows
@@ -375,5 +377,44 @@ func TestUsageTokenSplit(t *testing.T) {
 	u3 := &Usage{TotalInputTokens: 10, TotalCachedTokens: 50}
 	if _, miss, _, _ := u3.TokenSplit(); miss != 0 {
 		t.Errorf("cached tokens larger than input must clamp the miss to 0, got %d", miss)
+	}
+}
+
+// TestNoResponseHeaderTimeout pins the transport setting that a review call
+// depends on. Interactions are not streamed, so the response headers arrive
+// only once the model has finished thinking; a 30s ResponseHeaderTimeout cut
+// off six multi-image reviews in one production session
+// (docs/reviews/sess-8df2a5f78847c4737b0e86e6e5d069b6.md) and made
+// tools.reviewscreenshot_timeout unable to raise the real deadline.
+func TestNoResponseHeaderTimeout(t *testing.T) {
+	tr, ok := NewClient("").httpClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("transport is %T, want *http.Transport", NewClient("").httpClient.Transport)
+	}
+	if tr.ResponseHeaderTimeout != 0 {
+		t.Errorf("ResponseHeaderTimeout = %v, want 0: the caller's context is the call's deadline", tr.ResponseHeaderTimeout)
+	}
+	if tr.TLSHandshakeTimeout == 0 {
+		t.Error("TLSHandshakeTimeout = 0: connection setup must stay bounded")
+	}
+}
+
+// TestContextBoundsTheCall proves the deadline the transport no longer
+// supplies still exists: a server that never answers ends the call when the
+// caller's context expires, rather than hanging.
+func TestContextBoundsTheCall(t *testing.T) {
+	block := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-block
+	}))
+	defer srv.Close()
+	defer close(block)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }))
+	_, _, err := c.Interact(ctx, "gemini-3.5-flash", "system", "question", nil)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Interact error = %v, want context.DeadlineExceeded", err)
 	}
 }
