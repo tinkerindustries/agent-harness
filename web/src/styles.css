@@ -1068,9 +1068,10 @@ pre {
   color: var(--muted-foreground);
   font-size: 0.8125rem;
   white-space: nowrap;
-  /* The description takes the middle of the row now, so the meta and the
-     stats keep their natural widths; the meta clips only after the stats
-     have yielded theirs. */
+  /* The meta line is the one element on the row that yields: it carries the
+     model name (the effort, job type and provenance ride on its title) and
+     ellipsizes when the card is too narrow, while the stat figures beside
+     it keep their full width. */
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1084,12 +1085,11 @@ pre {
   font-size: 0.8125rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  /* The stat row is the card's garnish now — elapsed and sub-turns — so on
-     a card too narrow for everything, the stats yield their width before
-     the description or the meta line clips. */
-  min-width: 0;
-  overflow: hidden;
-  flex-shrink: 2;
+  /* The stat row is the card's garnish — elapsed and sub-turns — and the
+     two figures must never come out clipped mid-word, so on a card too
+     narrow for everything the stats keep their full width and the meta
+     line is the element that gives up width and ellipsizes. */
+  flex: none;
 }
 
 /* The two figures a running session is judged by, matching the finished
