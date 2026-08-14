@@ -188,6 +188,10 @@ func runEvalRun(ctx context.Context, args []string) error {
 	return followEval(ctx, st, started.EvalRunID, *out)
 }
 
+// evalRowGrace bounds how long followEval waits for a just-started run's row
+// to appear before treating a missing row as a real error.
+const evalRowGrace = 30 * time.Second
+
 // followEval prints each member as it lands and the table at the end. It
 // reads the stored rows rather than holding the run, so interrupting this
 // leaves the eval going.
@@ -195,11 +199,26 @@ func followEval(ctx context.Context, st *store.Store, evalRunID, out string) err
 	seen := map[string]bool{}
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
+	// The server hands back the id before the run's row is written: Start
+	// returns as soon as the goroutine is launched, and the row is created
+	// inside it. Poll through ErrNotFound until the row appears rather than
+	// failing the follow on a race the run itself survives.
+	appeared := false
+	deadline := time.Now().Add(evalRowGrace)
 	for {
 		run, err := st.GetEvalRun(ctx, evalRunID)
+		if errors.Is(err, store.ErrNotFound) && !appeared && time.Now().Before(deadline) {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-ticker.C:
+			}
+			continue
+		}
 		if err != nil {
 			return err
 		}
+		appeared = true
 		members, err := st.EvalMembers(ctx, evalRunID)
 		if err != nil {
 			return err
