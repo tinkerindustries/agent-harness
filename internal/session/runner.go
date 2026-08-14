@@ -167,6 +167,15 @@ type RunOptions struct {
 // SessionID is resolved here so Create needs no separate id variable; Run
 // resolves opts.SessionID itself before calling this, so the same id backs
 // its GetSession check and its RunSubagent closure.
+//
+// Only for a row built fresh from the caller's own RunOptions. compact
+// (compact.go) forks a successor from an existing store.Session instead of
+// calling this: Runner.Resume builds its RunOptions from the session row
+// and deliberately leaves Title, Description, Phase, TotalPhases, and
+// Prompt unset (resume.go), because none of those is a resumed run's to
+// choose again — so for a resumed run, opts and the session row disagree on
+// exactly the fields a compacted successor needs to carry forward. A copy
+// of the row itself cannot have that problem.
 func (o RunOptions) session(status, workspace string) store.Session {
 	sessID := o.SessionID
 	if sessID == "" {

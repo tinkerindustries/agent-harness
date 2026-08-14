@@ -319,7 +319,7 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 		contextTokens = outcome.usagePayload.PromptTokens
 
 		if outcome.usagePayload.PromptTokens >= r.compactionThreshold(ctx, opts.Model) {
-			newSess, newEvents, err := r.compact(ctx, curSess, allEvents, opts, executor.Workspace)
+			newSess, newEvents, err := r.compact(ctx, curSess, allEvents, executor.Workspace)
 			if err != nil {
 				log.Printf("session: compaction failed for %s, continuing uncompacted: %v", curSess.ID, err)
 			} else {
