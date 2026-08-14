@@ -137,9 +137,74 @@ func TestSessionProvenanceRoundTrip(t *testing.T) {
 	}
 }
 
+// TestSessionTitleFieldsRoundTrip pins the four session fields end to end:
+// a session created with a title, description, and phase set comes back with
+// all of them, and a session created without them comes back with the
+// empty/zero values — the unphased default the browser renders without a
+// title line or a phase chip.
+func TestSessionTitleFieldsRoundTrip(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	populated := Session{
+		ID:             "sess-titled",
+		Model:          "deepseek-v4-pro",
+		Effort:         "high",
+		Workspace:      "/tmp/ws",
+		PermissionMode: "default",
+		SystemPrompt:   "sys",
+		ToolSchema:     json.RawMessage(`[]`),
+		Task:           "raw launching prompt",
+		Title:          "Add session title fields",
+		Description:    "Carry a title, description, and phase position from every producer onto the session row and the main page.",
+		Phase:          2,
+		TotalPhases:    5,
+	}
+	if err := s.CreateSession(ctx, populated); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	got, err := s.GetSession(ctx, populated.ID)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if got.Title != populated.Title || got.Description != populated.Description {
+		t.Fatalf("title fields not preserved: %+v", got)
+	}
+	if got.Phase != 2 || got.TotalPhases != 5 {
+		t.Fatalf("phase fields not preserved: %+v", got)
+	}
+	if got.Task != populated.Task {
+		t.Fatalf("task must stay the raw launching prompt, got %q", got.Task)
+	}
+
+	empty := Session{
+		ID:             "sess-plain",
+		Model:          "deepseek-v4-flash",
+		Effort:         "high",
+		Workspace:      "/tmp/plain",
+		PermissionMode: "default",
+		SystemPrompt:   "sys",
+		ToolSchema:     json.RawMessage(`[]`),
+	}
+	if err := s.CreateSession(ctx, empty); err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	got, err = s.GetSession(ctx, empty.ID)
+	if err != nil {
+		t.Fatalf("get session: %v", err)
+	}
+	if got.Title != "" || got.Description != "" {
+		t.Fatalf("expected empty title and description, got %q/%q", got.Title, got.Description)
+	}
+	if got.Phase != 0 || got.TotalPhases != 0 {
+		t.Fatalf("expected zero phase fields, got %d/%d", got.Phase, got.TotalPhases)
+	}
+}
+
 // TestOpenMigratesLegacySessionsTable builds a database with the pre-change
-// sessions table, inserts a row, and proves Open adds the three columns,
-// backfilling the row, and that a second Open is a no-op.
+// sessions table, inserts a row, and proves Open adds the missing columns —
+// provenance, task, the terminal-metadata columns, and the four new session
+// fields — backfilling the row, and that a second Open is a no-op.
 func TestOpenMigratesLegacySessionsTable(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "legacy.db")
@@ -205,6 +270,16 @@ VALUES ('legacy-1', 'deepseek-v4-pro', 'high', 1, '/tmp/ws', 'default',
 		// rather than inventing one.
 		if got.Task != "" {
 			t.Fatalf("open %d: expected task to default to empty on a pre-migration row, got %q", attempt, got.Task)
+		}
+		// The same migration rule for the four new session fields: a row
+		// written by an older binary reads back with the empty/zero values
+		// the new columns default to — the browser renders the task line
+		// without a bold title and with no phase chip rather than guessing.
+		if got.Title != "" || got.Description != "" {
+			t.Fatalf("open %d: expected title and description to default to empty on a pre-migration row, got %q/%q", attempt, got.Title, got.Description)
+		}
+		if got.Phase != 0 || got.TotalPhases != 0 {
+			t.Fatalf("open %d: expected phase and total_phases to default to zero on a pre-migration row, got %d/%d", attempt, got.Phase, got.TotalPhases)
 		}
 		if err := s.Close(); err != nil {
 			t.Fatalf("close %d: %v", attempt, err)
