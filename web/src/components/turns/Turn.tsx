@@ -246,13 +246,19 @@ function ToolBody({ call, result }: { call: ToolCallPayload | undefined; result:
       </div>
     );
   }
-  // The images a capture wrote or a review looked at, above the text that
-  // describes them. Without this the transcript says what Gemini thought of a
-  // page and never shows the page (docs/TOOLS.md, "Seeing the screenshots").
-  // Read from the call rather than the result, so they still appear when the
-  // call itself failed — a capture that came out blank is exactly when
-  // seeing it matters.
-  if (result.name === "Screenshot" || result.name === "ReviewScreenshot") {
+  // The images a capture wrote, a vision tool looked at, or a crop cut out,
+  // above the text that describes them. Without this the transcript says
+  // what a vision tool thought of a page and never shows the page
+  // (docs/TOOLS.md, "Seeing the screenshots"). Read from the call rather than
+  // the result, so they still appear when the call itself failed — a capture
+  // that came out blank is exactly when seeing it matters.
+  if (
+    result.name === "Screenshot" ||
+    result.name === "Glance" ||
+    result.name === "Ground" ||
+    result.name === "Detect" ||
+    result.name === "Crop"
+  ) {
     const paths = screenshotPaths(call);
     if (paths.length > 0) {
       return (

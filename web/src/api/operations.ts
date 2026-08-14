@@ -332,7 +332,7 @@ export interface WorkRequest {
 
 // RunAttachment is one image a browser start carries, mirroring
 // internal/httpapi.startRunAttachment: a plain file name, a MIME type from
-// ReviewScreenshot's own allowlist, and the image bytes base64-encoded.
+// the vision tools' shared allowlist, and the image bytes base64-encoded.
 export interface RunAttachment {
   name: string;
   mime_type: string;

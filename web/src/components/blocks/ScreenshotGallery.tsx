@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useSessionId } from "../../hooks";
 import { screenshotUrl, trimWorkspace } from "./toolArgs";
 
-// ScreenshotGallery renders the images a Screenshot or ReviewScreenshot call
-// names, read from the session's live workspace through
+// ScreenshotGallery renders the images a Screenshot, Glance, Ground, Detect
+// or Crop call names, read from the session's live workspace through
 // GET /api/sessions/{id}/screenshot (docs/TOOLS.md, "Seeing the
 // screenshots"). Without it a transcript reports what the vision model said
 // about a page and never shows the page, which leaves the one artefact that

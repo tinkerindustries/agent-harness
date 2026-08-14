@@ -77,15 +77,44 @@ function ToolResultContent({ block }: { block: ToolResultData }) {
         </>
       );
 
-    case "ReviewScreenshot":
-      // Gemini's findings are a JSON list, so they get the same collapsible
-      // verbatim rendering every other structured output gets — but above
-      // them sit the images it was actually looking at, which is the only
-      // way a human reading this can check the finding against the page.
+    case "Glance":
+      // Glance answers in prose — a description, an answer, or an OCR
+      // transcription — plus a cost line, so it gets the same plain
+      // collapsible rendering the untagged tools fall through to below
+      // rather than Markdown, which would risk reformatting a verbatim OCR
+      // transcript. Above the text sit the images it was actually looking
+      // at, which is the only way a human reading this can check the answer
+      // against the page.
       return (
         <>
           <ScreenshotGallery paths={screenshotPaths(block.call)} />
-          <CollapsibleOutput text={block.content} language="json" />
+          <CollapsibleOutput text={block.content} />
+        </>
+      );
+
+    case "Ground":
+    case "Detect":
+      // Ground and Detect answer in numbered plain-text lines — a position
+      // word, a label, a pixel box (internal/tools/vision.go's
+      // formatMatches/formatInventory) — not JSON, so no language hint. The
+      // gallery above is how a human checks a returned box against the page.
+      return (
+        <>
+          <ScreenshotGallery paths={screenshotPaths(block.call)} />
+          <CollapsibleOutput text={block.content} />
+        </>
+      );
+
+    case "Crop":
+      // Crop makes no model call: its result is one line of metadata (what
+      // it wrote, at what size, cut from where), so it gets the same
+      // gallery-above-dim-text shape Screenshot's own result gets — the crop
+      // it produced, often upscaled, is the thing worth seeing without
+      // following its path by hand.
+      return (
+        <>
+          <ScreenshotGallery paths={screenshotPaths(block.call)} />
+          <p className="block-text dim">{block.content}</p>
         </>
       );
 
