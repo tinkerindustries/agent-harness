@@ -12,7 +12,7 @@
 // evidence (the last event, the last heartbeat). Nothing here guesses at the
 // reason.
 
-import type { EventsPage, SessionState } from "./types";
+import type { EventsPage, Page, SessionState } from "./types";
 
 // sessionIdleThresholdMs mirrors internal/httpapi's sessionIdleThreshold
 // (docs/DATA-API.md "Preconditions"): ten minutes. The server owns the real
@@ -57,12 +57,25 @@ export interface WorkspaceLeaseRow {
 
 // --- reads ---
 
-// listSessions fetches GET /api/sessions: every session row, newest first,
-// each carrying the version a write must echo back in If-Match.
-export async function listSessions(): Promise<SessionState[]> {
-  const res = await fetch("/api/sessions");
+// listSessions fetches one page of GET /api/sessions: the paginated
+// envelope — items plus total/limit/offset/has_more/next — never a bare
+// array (docs/DATA-API.md "Pagination"). Each item is a session row
+// carrying the version a write must echo back in If-Match. The optional
+// status filter, query, limit and offset map straight onto the query
+// string; absent options are omitted, so the plain call asks for the
+// server's default first page.
+export async function listSessions(
+  opts: { status?: string; q?: string; limit?: number; offset?: number } = {},
+): Promise<Page<SessionState>> {
+  const params = new URLSearchParams();
+  if (opts.status) params.set("status", opts.status);
+  if (opts.q) params.set("q", opts.q);
+  if (opts.limit !== undefined) params.set("limit", String(opts.limit));
+  if (opts.offset !== undefined) params.set("offset", String(opts.offset));
+  const qs = params.toString();
+  const res = await fetch(`/api/sessions${qs ? `?${qs}` : ""}`);
   if (!res.ok) throw await apiError(res);
-  return (await res.json()) as SessionState[];
+  return (await res.json()) as Page<SessionState>;
 }
 
 // getWorkRequest fetches GET /api/requests/{request_id}: the row, distinct

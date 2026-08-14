@@ -84,16 +84,42 @@ function eventRow(seq: number, created_at: string): Record<string, unknown> {
 }
 
 describe("listSessions", () => {
-  it("GETs /api/sessions and passes the version through untouched", async () => {
+  it("GETs /api/sessions with the status, query, limit and offset parameters and parses the envelope", async () => {
     const mock = stubFetch();
-    mock.mockResolvedValue(fakeResponse(200, [sessionRow(), sessionRow({ id: "sess-2", version: 1 })]));
+    mock.mockResolvedValue(
+      fakeResponse(200, {
+        items: [sessionRow(), sessionRow({ id: "sess-2", version: 1 })],
+        total: 137,
+        limit: 20,
+        offset: 40,
+        has_more: true,
+        next: 60,
+      }),
+    );
 
-    const sessions = await listSessions();
+    const page = await listSessions({ status: "finished", q: "deepseek", limit: 20, offset: 40 });
+
+    expect(mock).toHaveBeenCalledWith("/api/sessions?status=finished&q=deepseek&limit=20&offset=40");
+    expect(page.items).toHaveLength(2);
+    expect(page.total).toBe(137);
+    expect(page.offset).toBe(40);
+    expect(page.has_more).toBe(true);
+    expect(page.next).toBe(60);
+    expect(page.items[0]).toMatchObject({ id: "sess-1", version: 3, status: "running" });
+    expect(page.items[1].version).toBe(1);
+  });
+
+  it("omits absent parameters and still parses the envelope", async () => {
+    const mock = stubFetch();
+    mock.mockResolvedValue(fakeResponse(200, { items: [], total: 0, limit: 20, offset: 0, has_more: false }));
+
+    const page = await listSessions();
 
     expect(mock).toHaveBeenCalledWith("/api/sessions");
-    expect(sessions).toHaveLength(2);
-    expect(sessions[0]).toMatchObject({ id: "sess-1", version: 3, status: "running" });
-    expect(sessions[1].version).toBe(1);
+    expect(page.items).toHaveLength(0);
+    expect(page.total).toBe(0);
+    expect(page.has_more).toBe(false);
+    expect(page.next).toBeUndefined();
   });
 });
 

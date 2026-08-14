@@ -269,6 +269,20 @@ export interface EventsPage {
   next?: number;
 }
 
+// Page is the envelope every paginated list endpoint returns
+// (docs/DATA-API.md "Pagination"): the items of one page, the total number
+// of rows matching the filter, the limit and offset actually applied, and
+// has_more/next for paging forward. It is the one shape GET /api/sessions
+// answers with — never a bare array.
+export interface Page<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+  next?: number;
+}
+
 // QueueHealth mirrors internal/httpapi's queueHealth: GET /api/queue's
 // response, the queue health the session list shows. Available
 // is false whenever there is nothing to report — no queue wired up, or the

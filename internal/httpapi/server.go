@@ -37,6 +37,7 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -513,8 +514,27 @@ func allowedMethods(path string) string {
 	}
 }
 
+// sessionListStatuses are the valid ?status= values on GET /api/sessions:
+// "running", and "finished" — the display name for everything not running.
+// The 400 for an unknown status names exactly these, the same refusal shape
+// the events endpoint's ?kind= filter uses.
+var sessionListStatuses = []string{store.StatusRunning, "finished"}
+
 func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
-	sessions, err := s.Store.ListSessions(r.Context())
+	status := r.URL.Query().Get("status")
+	if status != "" && !slices.Contains(sessionListStatuses, status) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{
+			"error": fmt.Sprintf("status must be one of %s", strings.Join(sessionListStatuses, ", ")),
+		})
+		return
+	}
+	limit, offset := parsePaging(r, defaultPageLimit, maxPageLimit)
+	sessions, total, err := s.Store.ListSessionsPage(r.Context(), store.SessionPageOptions{
+		Status: status,
+		Query:  r.URL.Query().Get("q"),
+		Limit:  limit,
+		Offset: offset,
+	})
 	if err != nil {
 		writeInternalError(w, err)
 		return
@@ -524,7 +544,10 @@ func (s *Server) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		writeInternalError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, states)
+	// The envelope, always — a paginated list endpoint returns Page even
+	// when the caller asked for no page, so the response has one shape for
+	// every consumer (docs/DATA-API.md "Pagination").
+	writeJSON(w, http.StatusOK, newPage(states, total, limit, offset))
 }
 
 func (s *Server) handleGetSession(w http.ResponseWriter, r *http.Request) {

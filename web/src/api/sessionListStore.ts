@@ -18,16 +18,40 @@ export type ConnectionState = "connecting" | "open";
 interface Snapshot {
   sessions: SessionState[];
   connection: ConnectionState;
+  // finishedRevision is a counter over the *set* of terminal sessions,
+  // bumped in flush() only when a cheap signature of that set changes (its
+  // count plus the newest terminal session's id). The finished table's hook
+  // keys its refetch on it: a run finishing, or a session disappearing,
+  // bumps it; a running session streaming progress — which bumps this
+  // snapshot many times a second — does not.
+  finishedRevision: number;
 }
 
 function bySessionAge(a: SessionState, b: SessionState): number {
   return b.created_at.localeCompare(a.created_at);
 }
 
+// finishedSignature is the cheap fingerprint of the terminal-session set:
+// the count plus the newest terminal session's id (newest because sessions
+// arrive sorted by created_at DESC, so the first terminal row is the newest
+// one). A running session's progress changes neither; a run finishing
+// changes both; a deletion changes the count.
+function finishedSignature(sessions: SessionState[]): string {
+  let count = 0;
+  let newest = "";
+  for (const s of sessions) {
+    if (s.status === "running") continue;
+    count++;
+    if (newest === "") newest = s.id;
+  }
+  return `${count}:${newest}`;
+}
+
 class SessionListStore {
   private byID = new Map<string, SessionState>();
   private listeners = new Set<Listener>();
-  private snapshot: Snapshot = { sessions: [], connection: "connecting" };
+  private snapshot: Snapshot = { sessions: [], connection: "connecting", finishedRevision: 0 };
+  private finishedSig = "";
   private dirty = false;
   private flushHandle: number | null = null;
 
@@ -76,9 +100,18 @@ class SessionListStore {
   private flush() {
     if (!this.dirty) return;
     this.dirty = false;
+    const sessions = [...this.byID.values()].sort(bySessionAge);
+    // The signature is compared before the snapshot is replaced, so the
+    // revision advances only when the terminal set actually changed — the
+    // property the finished table's refetch depends on.
+    const sig = finishedSignature(sessions);
+    const finishedRevision =
+      sig === this.finishedSig ? this.snapshot.finishedRevision : this.snapshot.finishedRevision + 1;
+    this.finishedSig = sig;
     this.snapshot = {
-      sessions: [...this.byID.values()].sort(bySessionAge),
+      sessions,
       connection: this.snapshot.connection,
+      finishedRevision,
     };
     this.notify();
   }

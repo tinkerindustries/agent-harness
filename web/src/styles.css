@@ -875,6 +875,25 @@ pre {
   padding: calc(var(--space) * 2);
 }
 
+/* The pager under a paged table: Prev and Next at the ends, the page
+   counter and the row range dimmed between them. */
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: var(--space);
+}
+
+.pager-info,
+.pager-range {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.pager-range {
+  margin-left: auto;
+}
+
 /* ---------- session list: in-flight cards and the finished table ----------
    Running sessions leave the table and become collapsible plan cards;
    finished sessions keep the dense table, whose Session cell gains a
