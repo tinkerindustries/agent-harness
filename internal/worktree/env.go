@@ -27,7 +27,7 @@ var managedKeys = []string{
 	"HARNESS_TEST_NATS_PORT", "HARNESS_TEST_NATS_URL",
 	"DEEPSEEK_HTTP_ADDR",
 	"DEEPSEEK_HARNESS_BASE_URL", "DEEPSEEK_HARNESS_PUBLIC_URL",
-	"DEEPSEEK_WORKSPACE_ROOT", "HARNESS_VITE_PORT",
+	"DEEPSEEK_WORKSPACE_ROOT", "HARNESS_WORKSPACES", "HARNESS_VITE_PORT",
 }
 
 // stripManagedKeys drops every line of content that assigns one of
@@ -73,6 +73,14 @@ func managedBlock(d Descriptor) string {
 	fmt.Fprintf(&b, "DEEPSEEK_HARNESS_BASE_URL=http://127.0.0.1:%d\n", d.Ports.HarnessHTTP)
 	fmt.Fprintf(&b, "DEEPSEEK_HARNESS_PUBLIC_URL=http://127.0.0.1:%d\n", d.Ports.HarnessHTTP)
 	fmt.Fprintf(&b, "DEEPSEEK_WORKSPACE_ROOT=%s\n", filepath.Join(d.Identity.Path, "workspaces"))
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "# What docker compose mounts the workspace root at — on both sides of the")
+	fmt.Fprintln(&b, "# mount, so a session's paths mean the same thing to the host's docker")
+	fmt.Fprintln(&b, "# daemon as they do inside the container (docs/WORKTREES.md, \"Path")
+	fmt.Fprintln(&b, "# parity\"). The same directory as DEEPSEEK_WORKSPACE_ROOT above, which is")
+	fmt.Fprintln(&b, "# the point: with parity there is only one path to a workspace. Pinned")
+	fmt.Fprintln(&b, "# absolutely because the compose default is ${PWD}, the shell's directory.")
+	fmt.Fprintf(&b, "HARNESS_WORKSPACES=%s\n", filepath.Join(d.Identity.Path, "workspaces"))
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "# web/vite.config.ts reads this for its own dev server port and to build")
 	fmt.Fprintln(&b, "# its /api proxy target from HARNESS_HTTP_PORT above.")

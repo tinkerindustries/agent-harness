@@ -175,14 +175,17 @@ RUN apk add --no-cache tini
 
 COPY --from=build /out/harness /usr/local/bin/harness
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-# The price table's default path is relative to the working directory, which
-# holds workspaces here. Point at an absolute copy so the image runs the same
-# way outside compose.
+# The price table's default path is relative to the working directory. Point
+# at an absolute copy so the image runs the same way outside compose, and so
+# it does not depend on the working directory below.
 COPY configs/prices.json /etc/harness/prices.json
 ENV DEEPSEEK_PRICE_TABLE=/etc/harness/prices.json \
     DEEPSEEK_DATA_DIR=/data
 # Runs as root: agent sessions write into the mounted workspace, and a
 # fixed uid would collide with the host's ownership on a bind mount.
-WORKDIR /workspaces
+# Not the workspace root: compose mounts that at whatever absolute path it
+# has on the host, so the image cannot know it (docker-compose.yml, "path
+# parity"). Sessions are given their workspace directory explicitly.
+WORKDIR /
 ENTRYPOINT ["/sbin/tini", "--", "docker-entrypoint.sh"]
 CMD ["serve"]

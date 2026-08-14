@@ -41,7 +41,17 @@ services:
       # The published port below keeps it loopback-only on the host.
       DEEPSEEK_HTTP_ADDR: 0.0.0.0:8080
       DEEPSEEK_DATA_DIR: /data
-      DEEPSEEK_WORKSPACE_ROOT: /workspaces
+      # The same path the mount below uses on both of its sides — see the
+      # note there. A session's workspace is therefore addressed by its host
+      # path everywhere: in this process, in the paths it hands the model,
+      # and in any docker command a session runs.
+      DEEPSEEK_WORKSPACE_ROOT: ${HARNESS_WORKSPACES:-${PWD}/workspaces}
+      # The host path of the worktree registry, for a `docker compose` a
+      # session runs inside this container: ${HOME} there is /root, so a
+      # nested compose interpolating it would ask the host for
+      # /root/.deepseek-harness, which is not the host's registry. This
+      # carries the host's own path through so the nested mount finds it.
+      HARNESS_REGISTRY_DIR: ${HARNESS_REGISTRY_DIR:-${HOME}/.deepseek-harness}
       # Transcript links the MCP tools return are built from this URL, so a
       # browser on the host can follow them. The harness service also serves
       # /mcp on the published port below, so this is the same origin a caller
@@ -52,7 +62,23 @@ services:
     volumes:
       # Each run gets a directory of its own here, named for its session id
       # and holding the clones the request asked for.
-      - ${HARNESS_WORKSPACES:-./workspaces}:/workspaces
+      #
+      # Source and target are deliberately the same absolute path. The docker
+      # socket below makes this container a client of the *host's* daemon, and
+      # a bind mount's source is resolved by that daemon, on the host. Mounted
+      # at /workspaces, a session that ran `docker compose up` inside its own
+      # clone asked the host to bind /workspaces/sess-…/<repo>, a path that
+      # exists nowhere on the host — "mounts denied: the path … is not shared
+      # from the host", which is what stopped an agent running this repo's own
+      # scripts/build.sh (docs/WORKTREES.md, "Path parity"). With the two
+      # sides equal, every path a session hands the daemon is already a host
+      # path and nested compose needs no translation.
+      #
+      # ${PWD} is the shell's directory, not the project's, so run compose
+      # from the repository root or set HARNESS_WORKSPACES to an absolute
+      # path: scripts/build.sh exports it, and `harness worktree init` writes
+      # it into each worktree's .env.
+      - ${HARNESS_WORKSPACES:-${PWD}/workspaces}:${HARNESS_WORKSPACES:-${PWD}/workspaces}
       - harness-data:/data
       # The host's docker daemon, for sessions that build or run containers.
       # A session in full permission mode can do anything to the host through
@@ -65,8 +91,10 @@ services:
       # session's own `harness worktree init -standalone` (docs/WORKTREES.md)
       # allocate a slot the host's real worktrees also see, instead of
       # colliding with them the moment it runs docker compose against the
-      # shared daemon above.
-      - ${HOME}/.deepseek-harness:/root/.deepseek-harness
+      # shared daemon above. The target stays /root because that is where the
+      # binary in this container looks; HARNESS_REGISTRY_DIR above is what
+      # carries the host's path to a nested compose.
+      - ${HARNESS_REGISTRY_DIR:-${HOME}/.deepseek-harness}:/root/.deepseek-harness
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/api/queue"]
       interval: 10s

@@ -49,7 +49,11 @@ cutting a version and deploying it to the production stack.
   compose.
 - **The host's docker socket is mounted into the harness container**, so a
   session in `full` permission mode has control of the host daemon. Weigh that
-  before changing what a mode allows.
+  before changing what a mode allows. Because that daemon resolves bind mounts
+  on the host, the workspace root is mounted at the same absolute path on both
+  sides — [`docs/WORKTREES.md`](docs/WORKTREES.md), "Path parity". Keep the two
+  sides of that mount equal: unequal, a session cannot run `docker compose` in
+  its own clone, which is most of what `scripts/build.sh` is for.
 - **Sibling git worktrees each get their own ports and compose project**,
   allocated by `harness worktree init` and torn down by `harness worktree rm`.
   Create one with `/worktree-create <slug>`, remove one with

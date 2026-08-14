@@ -95,6 +95,53 @@ Everything else — `HARNESS_WORKSPACES`'s bind mount, the `harness-data` and
 already relative to the working directory or namespaced by the compose
 project, so it isolates for free once the project name does.
 
+## Path parity
+
+The workspace root is mounted at **the same absolute path inside the harness
+container as it has on the host** — source and target of one bind mount, both
+`${HARNESS_WORKSPACES:-${PWD}/workspaces}`. It reads like a tautology and it
+is load-bearing.
+
+The container shares the host's docker socket, so the `docker` a session runs
+is a client of the *host's* daemon. That daemon resolves a bind mount's source
+against the host's filesystem, never the client's. While the workspace root
+was mounted at `/workspaces`, a session that ran `docker compose up` inside
+its own clone asked the host to bind
+`/workspaces/sess-…/<repo>/workspaces` — a path that exists nowhere on the
+host:
+
+```
+mounts denied: the path /workspaces/sess-…/deepseek-harness/workspaces
+is not shared from the host and is not known to Docker.
+```
+
+That is what stopped a delegated run from completing this repo's own
+`scripts/build.sh`, whose last and most valuable stage is a container check
+(CLAUDE.md). It was recorded twice as an environment limitation before it was
+recognised as a fixable one. With the two paths equal, every path a session
+hands the daemon is already a host path, and nested compose — this repo's or
+any other's, relative bind mounts included — needs no translation at all.
+
+Three consequences worth knowing:
+
+- **`${PWD}` is the shell's directory, not the project's.** Compose resolves a
+  *relative* bind source against the project directory but interpolates
+  `${PWD}` from the environment, so running compose from a subdirectory would
+  mount the wrong host path. `scripts/build.sh` exports `HARNESS_WORKSPACES`
+  from the repository root, and `harness worktree init` pins it absolutely in
+  each worktree's `.env`, so only a hand-typed `docker compose` from a
+  subdirectory can get it wrong.
+- **The registry is passed by path, not inherited.** `${HOME}` inside the
+  container is `/root`, so a nested compose interpolating it would ask the
+  host for `/root/.deepseek-harness`. `HARNESS_REGISTRY_DIR` carries the
+  host's own path into the container's environment for the nested mount to
+  name.
+- **The path must be one the daemon will share.** On Docker Desktop that
+  means under a directory in File Sharing — `/Users/...` by default, which is
+  where a checkout normally lives. `scripts/build.sh` probes this before
+  running compose when it detects it is inside a container, because compose's
+  own error names a path rather than the reason.
+
 ## What stays shared
 
 `.worktree-env.xml`'s `<shared>` block restates this list inside the
@@ -153,6 +200,14 @@ harness worktree init -slug <unique-slug> -standalone
 docker compose up -d --build      # or scripts/test.sh — both read the .env just written
 harness worktree rm <unique-slug> # unconditionally, before finishing
 ```
+
+The bind mounts in that `docker compose up` resolve because the session's
+workspace has the same path inside the container as it does on the host — see
+[Path parity](#path-parity) above. It is also why the registry this `init`
+writes to is the host's own: the file is shared into the container, and
+`HARNESS_REGISTRY_DIR` carries its host path for the nested compose to mount.
+Both stacks share it, so a session cannot be handed a slot a host worktree is
+already holding.
 
 Never pass `-standalone` in your own primary checkout of this repo — git
 cannot distinguish "the real main checkout" from "a disposable clone" on its
