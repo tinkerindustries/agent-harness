@@ -67,8 +67,15 @@ them is refused at the tool — while the browser path (`POST /api/runs`) and
 caps and the phase relationship (`agentmeta.ValidateTitle`,
 `ValidateDescription`, `ValidatePhase`), never presence.
 
-- `GET /api/sessions` — list, newest first, each row with status, cost, and the
-  originating request id.
+- `GET /api/sessions` — one page of the list, newest first (`created_at DESC`),
+  each row with status, cost, and the originating request id, wrapped in the
+  [Pagination envelope](#pagination) — the response is the envelope even when
+  the caller asked for no page. Four query parameters:
+  `?status=` (`running`, or `finished` — everything not running; an unknown
+  value is a 400 naming the valid ones, the same refusal `?kind=` gives),
+  `?q=` (a case-insensitive substring of the session id, workspace, or work
+  request id), `?limit=` and `?offset=` (clamped to the endpoint's defaults,
+  never a 400).
 - `GET /api/sessions/{id}` — one row, the same shape as a list row.
 - `GET /api/sessions/{id}/screenshot?path=<path>` — one image file from that
   session's workspace, so the transcript can render what a `Screenshot` or
@@ -368,6 +375,42 @@ GET here — no write guards, because there is nothing to guard.
   GitHub side of the failure.
 - A successful fetch is cached in memory for 60 seconds, so reopening the
   start-run dialog does not re-hit GitHub's rate-limited API on every open.
+
+## Pagination
+
+Every paginated list endpoint returns the same envelope — one shape, one
+contract — whether or not the caller asked for a page:
+
+```json
+{"items": [...], "total": 137, "limit": 20, "offset": 40, "has_more": true, "next": 60}
+```
+
+- `items` — the rows of this page, in the endpoint's own order (`created_at
+  DESC` for the session list). Always an array, even when empty.
+- `total` — the number of rows matching the filter, ignoring `limit` and
+  `offset`; the count a client shows ("137 sessions") and pages against.
+- `limit` — the limit actually applied, after clamping; `offset` — the
+  offset actually applied, after clamping. Both are echoed back so a client
+  never has to guess what the server did with its request.
+- `has_more` — whether more rows follow this page (`offset + len(items) <
+  total`). `next` is present only when `has_more` is true and is the
+  `offset` to ask for the next page with.
+
+The paging parameters clamp rather than 400, the same forgiving shape the
+events endpoint's `?limit=` uses: a `limit` that is absent, non-numeric,
+`<= 0`, or over the endpoint's max falls back to the default, and a
+negative `offset` clamps to 0. An unknown *status* or *kind* filter value
+is still a 400 — the clamp is for windowing arithmetic, never for a filter
+name the caller misspelled. A paginated list endpoint always returns the
+envelope, even when the caller asked for no page at all: there is no
+"bare array" form of a paginated list for a client to accidentally code
+against.
+
+The events endpoint's pager is deliberately *not* this one: `from`/`next`
+there are sequence numbers over an append-only log, and `has_more` is
+decided by peeking one row past the page — a cursor pager for a different
+shape of data (a log a page can end exactly on), not an offset pager over
+a filtered table.
 
 ## Events are not writable
 
