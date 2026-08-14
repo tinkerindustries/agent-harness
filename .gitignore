@@ -48,4 +48,10 @@ web/tsconfig.tsbuildinfo
 # git worktrees and their per-worktree environment (docs/WORKTREES.md).
 # .env itself is already covered by the Secrets rule above.
 .claude/worktrees/
+
+# Skill-development scratch: eval iterations written beside a skill while it is
+# being built. Generated, never source — and while untracked it makes the tree
+# dirty, which blocks `scripts/prod.sh promote` and stamps any forced build
+# `-dirty` (RELEASE.md).
+.claude/skills/*-workspace/
 .worktree-env.xml
