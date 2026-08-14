@@ -3,13 +3,17 @@ package mcp
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/nats-io/nats.go/jetstream"
+
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/config"
+	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
@@ -35,7 +39,7 @@ func testLaunchRepos() []launchRepo {
 
 func TestHandleLaunchRejectsMissingDescription(t *testing.T) {
 	svc := newValidationService(t)
-	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{Prompt: "do it", Repos: testLaunchRepos(), PermissionMode: "full"})
+	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{Title: "A title", Prompt: "do it", Repos: testLaunchRepos(), PermissionMode: "full"})
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)
 	}
@@ -44,9 +48,135 @@ func TestHandleLaunchRejectsMissingDescription(t *testing.T) {
 	}
 }
 
+// TestHandleLaunchRejectsMissingTitle pins the launch path's presence rule:
+// the MCP tool requires a title even though the queue layer treats it as
+// optional — the run's heading is one of the two lines the harness UI
+// renders for a launch.
+func TestHandleLaunchRejectsMissingTitle(t *testing.T) {
+	svc := newValidationService(t)
+	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{Description: "a task", Prompt: "do it", Repos: testLaunchRepos(), PermissionMode: "full"})
+	if err != nil {
+		t.Fatalf("unexpected protocol error: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("expected an error result for a missing title")
+	}
+	if !strings.Contains(res.Content[0].(*mcpsdk.TextContent).Text, "title is required") {
+		t.Fatalf("expected the refusal to name the missing title, got: %s", res.Content[0].(*mcpsdk.TextContent).Text)
+	}
+}
+
+// TestHandleLaunchRejectsOverLengthTitle pins the word cap at the launch
+// surface: an 11-word title is refused before it can reach the queue, the
+// same way a bad permission mode is.
+func TestHandleLaunchRejectsOverLengthTitle(t *testing.T) {
+	svc := newValidationService(t)
+	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{
+		Title:       "one two three four five six seven eight nine ten eleven",
+		Description: "a task", Prompt: "do it", Repos: testLaunchRepos(), PermissionMode: "full",
+	})
+	if err != nil {
+		t.Fatalf("unexpected protocol error: %v", err)
+	}
+	if !res.IsError {
+		t.Fatal("expected an error result for an 11-word title")
+	}
+}
+
+// captureJS is a JetStream handle that records the one publish handleLaunch
+// makes and answers the accepted subscription with an empty batch, so a
+// good launch's happy path runs to the queued outcome without a broker: the
+// request validates, publishes, and reports "queued" because nothing
+// accepted it within the wait window. The embedded interfaces stay nil —
+// handleLaunch's queued path never reaches any other JetStream method.
+type captureJS struct {
+	jetstream.JetStream
+	published []byte
+}
+
+func (c *captureJS) Publish(ctx context.Context, subject string, payload []byte, opts ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
+	c.published = append([]byte(nil), payload...)
+	return &jetstream.PubAck{}, nil
+}
+
+func (c *captureJS) OrderedConsumer(ctx context.Context, stream string, cfg jetstream.OrderedConsumerConfig) (jetstream.Consumer, error) {
+	return &emptyConsumer{}, nil
+}
+
+type emptyConsumer struct {
+	jetstream.Consumer
+}
+
+func (c *emptyConsumer) Fetch(batch int, opts ...jetstream.FetchOpt) (jetstream.MessageBatch, error) {
+	ch := make(chan jetstream.Msg)
+	close(ch)
+	return &emptyBatch{msgs: ch}, nil
+}
+
+type emptyBatch struct {
+	msgs chan jetstream.Msg
+}
+
+func (b *emptyBatch) Messages() <-chan jetstream.Msg { return b.msgs }
+func (b *emptyBatch) Error() error                   { return nil }
+
+// TestLaunchCarriesAllFourFieldsOntoTheRequest launches with a title,
+// description, and a phase position and captures the published work request,
+// asserting all four reach the wire exactly as given — the launch path is
+// where a phased chain stamps its position.
+func TestLaunchCarriesAllFourFieldsOntoTheRequest(t *testing.T) {
+	svc := newValidationService(t)
+	captured := &captureJS{}
+	svc.JS = captured
+
+	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{
+		Title:          "Add session title fields",
+		Description:    "Carry a title, description, and phase position from every producer onto the session row.",
+		Prompt:         "do it",
+		Repos:          testLaunchRepos(),
+		PermissionMode: "full",
+		Phase:          2,
+		TotalPhases:    5,
+	})
+	if err != nil {
+		t.Fatalf("unexpected protocol error: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected error result: %+v", res.Content)
+	}
+	if lo, ok := res.StructuredContent.(launchOutput); !ok || lo.Status != "queued" {
+		t.Fatalf("expected the queued launch outcome, got %+v", res.StructuredContent)
+	}
+
+	var got queue.Request
+	if err := json.Unmarshal(captured.published, &got); err != nil {
+		t.Fatalf("parse published work request: %v", err)
+	}
+	if got.Title != "Add session title fields" {
+		t.Fatalf("published title = %q, want the submitted title", got.Title)
+	}
+	if got.Description != "Carry a title, description, and phase position from every producer onto the session row." {
+		t.Fatalf("published description = %q, want the submitted description", got.Description)
+	}
+	if got.Phase != 2 || got.TotalPhases != 5 {
+		t.Fatalf("published phase = %d/%d, want 2/5", got.Phase, got.TotalPhases)
+	}
+
+	// The registry entry the deepseek_runs listing reads carries the same
+	// four, so the phase position is visible in the MCP surface too.
+	records := svc.Registry.list()
+	if len(records) != 1 {
+		t.Fatalf("expected one registry record, got %d", len(records))
+	}
+	if records[0].Title != got.Title || records[0].Description != got.Description ||
+		records[0].Phase != 2 || records[0].TotalPhases != 5 {
+		t.Fatalf("registry record = %+v, want the submitted title fields", records[0])
+	}
+}
+
 func TestHandleLaunchRejectsMissingPrompt(t *testing.T) {
 	svc := newValidationService(t)
-	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{Description: "task", Repos: testLaunchRepos(), PermissionMode: "full"})
+	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{Title: "A title", Description: "task", Repos: testLaunchRepos(), PermissionMode: "full"})
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)
 	}
@@ -57,7 +187,7 @@ func TestHandleLaunchRejectsMissingPrompt(t *testing.T) {
 
 func TestHandleLaunchRejectsMissingRepos(t *testing.T) {
 	svc := newValidationService(t)
-	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{Description: "task", Prompt: "do it", PermissionMode: "full"})
+	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{Title: "A title", Description: "task", Prompt: "do it", PermissionMode: "full"})
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)
 	}
@@ -69,7 +199,7 @@ func TestHandleLaunchRejectsMissingRepos(t *testing.T) {
 func TestHandleLaunchRejectsUnsupportedRepoURL(t *testing.T) {
 	svc := newValidationService(t)
 	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{
-		Description: "task", Prompt: "do it", PermissionMode: "full",
+		Title: "A title", Description: "task", Prompt: "do it", PermissionMode: "full",
 		Repos: []launchRepo{{URL: "ext::sh -c 'touch /tmp/pwned'"}},
 	})
 	if err != nil {
@@ -82,7 +212,7 @@ func TestHandleLaunchRejectsUnsupportedRepoURL(t *testing.T) {
 
 func TestHandleLaunchRejectsBadProfile(t *testing.T) {
 	svc := newValidationService(t)
-	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{Description: "task", Prompt: "do it", Repos: testLaunchRepos(), Profile: "ultra", PermissionMode: "full"})
+	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{Title: "A title", Description: "task", Prompt: "do it", Repos: testLaunchRepos(), Profile: "ultra", PermissionMode: "full"})
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)
 	}
@@ -94,7 +224,7 @@ func TestHandleLaunchRejectsBadProfile(t *testing.T) {
 func TestHandleLaunchRejectsBadPermissionMode(t *testing.T) {
 	svc := newValidationService(t)
 	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{
-		Description: "task", Prompt: "do it", Repos: testLaunchRepos(), PermissionMode: "root",
+		Title: "A title", Description: "task", Prompt: "do it", Repos: testLaunchRepos(), PermissionMode: "root",
 	})
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)
@@ -108,7 +238,7 @@ func TestHandleLaunchRejectsNegativeMaxSubTurns(t *testing.T) {
 	svc := newValidationService(t)
 	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{
 		PermissionMode: "full",
-		Description:    "task", Prompt: "do it", Repos: testLaunchRepos(), MaxSubTurns: -1,
+		Title:          "A title", Description: "task", Prompt: "do it", Repos: testLaunchRepos(), MaxSubTurns: -1,
 	})
 	if err != nil {
 		t.Fatalf("unexpected protocol error: %v", err)
@@ -126,7 +256,7 @@ func TestHandleLaunchRejectsUnknownJobType(t *testing.T) {
 	svc := newValidationService(t)
 	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{
 		PermissionMode: "full",
-		Description:    "task", Prompt: "do it", Repos: testLaunchRepos(),
+		Title:          "A title", Description: "task", Prompt: "do it", Repos: testLaunchRepos(),
 		JobType: "make-coffee",
 	})
 	if err != nil {
@@ -145,7 +275,7 @@ func TestHandleLaunchRejectsRetiredUserParentAgentType(t *testing.T) {
 	svc := newValidationService(t)
 	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{
 		PermissionMode: "full",
-		Description:    "task", Prompt: "do it", Repos: testLaunchRepos(),
+		Title:          "A title", Description: "task", Prompt: "do it", Repos: testLaunchRepos(),
 		ParentAgentType: "user",
 	})
 	if err != nil {
@@ -247,6 +377,7 @@ func TestLaunchRefusesBadAttachments(t *testing.T) {
 	// ordinary tool error, not a silently stripped attachment.
 	noStore := newValidationService(t)
 	res, _, err := noStore.handleLaunch(context.Background(), nil, launchInput{
+		Title:          "A title",
 		Description:    "task",
 		Prompt:         "match the mockup",
 		Repos:          testLaunchRepos(),

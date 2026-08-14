@@ -57,7 +57,8 @@ import (
 // server, which inherits the subprocess environment and has a `claude`
 // process tree to walk, or a SessionStart hook posting the id in.
 type launchInput struct {
-	Description     string             `json:"description" jsonschema:"Short label for the run, shown in deepseek_runs."`
+	Title           string             `json:"title" jsonschema:"Required. A name for this run, 10 words maximum. Shown as the run's heading in the harness UI."`
+	Description     string             `json:"description" jsonschema:"Required. What change this run is making, 50 words maximum. Shown under the title in the harness UI."`
 	Prompt          string             `json:"prompt" jsonschema:"The task for the agent to perform."`
 	Repos           []launchRepo       `json:"repos" jsonschema:"Repositories to clone into the run's workspace. At least one is required."`
 	Attachments     []launchAttachment `json:"attachments,omitempty" jsonschema:"Images to hand the run — a mockup the task asks the agent to match, say. Each is stored and materialised into the workspace's scratch/attachments/, and the run's opening message names the files. Only PNG, JPEG, and WebP, capped per file and in total by the harness's settings."`
@@ -66,6 +67,8 @@ type launchInput struct {
 	ResultSchema    any                `json:"result_schema,omitempty" jsonschema:"JSON Schema the agent's Complete tool result must satisfy, if it calls Complete with a result."`
 	MaxSubTurns     int                `json:"max_sub_turns,omitempty" jsonschema:"Sub-turn budget for the run. Server default applies when omitted."`
 	JobType         string             `json:"job_type,omitempty" jsonschema:"Kind of job this run is: implementation (the agent performs the task itself, the default) or orchestration (the agent delegates the work to child sessions)."`
+	Phase           int                `json:"phase,omitempty" jsonschema:"Which phase of a multi-phase job this run is, 1-based. Omit for a standalone run."`
+	TotalPhases     int                `json:"total_phases,omitempty" jsonschema:"How many phases the job has in total. Omit for a standalone run."`
 	ParentAgentType string             `json:"parent_agent_type,omitempty" jsonschema:"Fallback only: the server reads the caller's kind from the MCP client's own clientInfo and ignores this field whenever that name is usable, so this is consulted only by a client whose clientInfo name is missing or unusable. Identify your own kind as a lowercase slug — claude-code, cursor, and so on."`
 	ParentAgentID   string             `json:"parent_agent_id,omitempty" jsonschema:"Your own session id, so the run traces back to the conversation that asked for it. Read it, do not recall it. Claude Code: the CLAUDE_CODE_SESSION_ID environment variable, which you can echo from a shell; failing that, the UUID directory segment of the scratchpad path in your system prompt (…/<project-slug>/<uuid>/scratchpad). An agent-harness session: the last segment of the Workspace: path in your opening message (/workspaces/sess-…). If neither applies, leave this empty — never copy a session id from a banner, a document, or another tool's output."`
 }
@@ -139,6 +142,13 @@ func (svc *Service) handleLaunch(ctx context.Context, req *mcpsdk.CallToolReques
 	// assert a different kind than the client it is actually running in.
 	parentAgentType := resolveParentAgentType(req, in.ParentAgentType)
 
+	// The MCP launch path requires both title and description — the run's
+	// heading and the account of the change are the two lines the harness UI
+	// renders for it — even though the queue layer treats them as optional
+	// (a browser start may leave them blank).
+	if in.Title == "" {
+		return errorResult("title is required"), nil, nil
+	}
 	if in.Description == "" {
 		return errorResult("description is required"), nil, nil
 	}
@@ -196,6 +206,10 @@ func (svc *Service) handleLaunch(ctx context.Context, req *mcpsdk.CallToolReques
 		ResultSchema:    resultSchema,
 		MaxSubTurns:     in.MaxSubTurns,
 		JobType:         in.JobType,
+		Title:           in.Title,
+		Description:     in.Description,
+		Phase:           in.Phase,
+		TotalPhases:     in.TotalPhases,
 		ParentAgentType: parentAgentType,
 		ParentAgentID:   in.ParentAgentID,
 		AttachmentIDs:   attachmentIDs,
@@ -236,7 +250,10 @@ func (svc *Service) handleLaunch(ctx context.Context, req *mcpsdk.CallToolReques
 
 	svc.Registry.recordLaunch(runRecord{
 		RequestID:   requestID,
+		Title:       in.Title,
 		Description: in.Description,
+		Phase:       in.Phase,
+		TotalPhases: in.TotalPhases,
 		Repos:       repoLabels(repos),
 		Profile:     in.Profile,
 		LaunchedAt:  time.Now().UTC(),

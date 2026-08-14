@@ -13,7 +13,10 @@ import (
 // stream and the harness's own store, both of which outlive this process.
 type runRecord struct {
 	RequestID      string    `json:"request_id"`
+	Title          string    `json:"title,omitempty"`
 	Description    string    `json:"description"`
+	Phase          int       `json:"phase,omitempty"`
+	TotalPhases    int       `json:"total_phases,omitempty"`
 	Repos          []string  `json:"repos,omitempty"` // url#branch, as launched
 	Profile        string    `json:"profile,omitempty"`
 	LaunchedAt     time.Time `json:"launched_at"`

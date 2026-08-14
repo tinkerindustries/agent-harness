@@ -4033,6 +4033,42 @@ func TestStartRunGeneratesRequestID(t *testing.T) {
 	}
 }
 
+// TestStartRunCarriesTitleFields pins that the four session fields flow
+// through POST /api/runs untouched: startRunBody embeds queue.Request, so a
+// body carrying a title, description, and phase position reaches the
+// published request with no handler change.
+func TestStartRunCarriesTitleFields(t *testing.T) {
+	pub := &fakeRunPublisher{}
+	srv, _ := newStartTestServer(t, pub)
+
+	body := `{"prompt":"do it","repos":[{"url":"https://github.com/org/app.git"}],"permission_mode":"full","title":"Add session title fields","description":"Carry a title, description, and phase position from every producer onto the session row.","phase":2,"total_phases":5}`
+	resp := doWrite(t, srv, http.MethodPost, "/api/runs", body, controlAuth)
+	if resp.StatusCode != http.StatusAccepted {
+		got, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		t.Fatalf("got status %d, want 202 (body %s)", resp.StatusCode, got)
+	}
+	resp.Body.Close()
+
+	if len(pub.requests) != 1 {
+		t.Fatalf("publisher saw %d requests, want 1", len(pub.requests))
+	}
+	published := pub.requests[0]
+	if published.Title != "Add session title fields" {
+		t.Fatalf("published Title = %q, want the submitted title", published.Title)
+	}
+	if published.Description != "Carry a title, description, and phase position from every producer onto the session row." {
+		t.Fatalf("published Description = %q, want the submitted description", published.Description)
+	}
+	if published.Phase != 2 || published.TotalPhases != 5 {
+		t.Fatalf("published phase = %d/%d, want 2/5", published.Phase, published.TotalPhases)
+	}
+	// The handler's provenance stamp still applies on top of the body.
+	if !published.ParentIsUser {
+		t.Fatal("published ParentIsUser = false, want the handler's true stamp")
+	}
+}
+
 // TestStartRunAcceptsWithoutPrompt pins that a browser start may create the
 // run without an initial prompt (docs/RUN-CONTROL.md "Start"): the prompt is
 // optional on this surface, so a body that is otherwise complete is accepted

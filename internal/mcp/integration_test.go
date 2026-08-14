@@ -97,6 +97,7 @@ func TestHandleLaunchQueuedOutcome(t *testing.T) {
 
 	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{
 		PermissionMode: "full",
+		Title:          "Queued test run",
 		Description:    "queued test", Prompt: "do nothing", Repos: testLaunchRepos(),
 	})
 	if err != nil {
@@ -149,6 +150,7 @@ func TestHandleLaunchCarriesProvenance(t *testing.T) {
 
 	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{
 		PermissionMode: "full",
+		Title:          "Provenance test run",
 		Description:    "provenance test", Prompt: "do something", Repos: testLaunchRepos(),
 		JobType:         agentmeta.JobTypeOrchestration,
 		ParentAgentType: "claude-code",
@@ -206,6 +208,7 @@ func TestHandleLaunchRunningOutcome(t *testing.T) {
 
 	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{
 		PermissionMode: "full",
+		Title:          "Running test run",
 		Description:    "running test", Prompt: "do something", Repos: testLaunchRepos(),
 	})
 	if err != nil {
@@ -242,6 +245,7 @@ func TestHandleLaunchPublishFailure(t *testing.T) {
 
 	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{
 		PermissionMode: "full",
+		Title:          "Publish failure test",
 		Description:    "should fail", Prompt: "do something", Repos: testLaunchRepos(),
 	})
 	if err != nil {
