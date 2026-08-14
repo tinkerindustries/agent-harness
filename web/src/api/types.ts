@@ -178,6 +178,12 @@ export interface ToolResultPayload {
   truncated?: boolean;
   diff?: DiffLine[];
   child_session_id?: string;
+  // image_url is the base64 data URI of an image Read returned as an
+  // image_url part to a vision provider (docs/KIMI-INTEGRATION.md §4.5),
+  // mirroring internal/store.ToolResultPayload.ImageURL. Present only for
+  // that case; the transcript renders it inline above the result text, so
+  // the picture the model was looking at is part of the record.
+  image_url?: string;
 }
 
 export interface ToolDeniedPayload {

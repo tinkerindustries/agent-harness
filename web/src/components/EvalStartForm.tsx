@@ -9,6 +9,8 @@ import {
   type EvalSuiteRow,
   type EvalVariantRow,
 } from "../api/evals";
+import { FLASH_MODEL_KEY, listModels, resolveModelOptions, settingModel } from "../api/models";
+import { listSettings } from "../api/settings";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 
@@ -35,7 +37,15 @@ export function EvalStartForm({ token, priorRuns, onClose, onStarted }: Props) {
   const [suite, setSuite] = useState("");
   const [chosen, setChosen] = useState<string[]>([]);
   const [replicates, setReplicates] = useState("3");
-  const [model, setModel] = useState("deepseek-v4-flash");
+  // The model dropdown is fed by the harness, not a hardcoded copy: the
+  // option list comes from GET /api/models — the provider table a work
+  // request validates against — and the preselected model comes from the
+  // model.flash settings row, whose default is the model this form used to
+  // hardcode (docs/DATA-API.md "models"). When the models request fails,
+  // resolveModelOptions falls back to the settings' two model defaults so
+  // the dropdown is never empty.
+  const [model, setModel] = useState("");
+  const [models, setModels] = useState<string[]>([]);
   const [maxSubTurns, setMaxSubTurns] = useState("");
   const [judge, setJudge] = useState(true);
   const [note, setNote] = useState("");
@@ -56,6 +66,33 @@ export function EvalStartForm({ token, priorRuns, onClose, onStarted }: Props) {
       .catch((err) => {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
       });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // The model dropdown is fed by the same lists the rest of the form is — the
+  // server's own — so a browser can no more invent a model than a prompt
+  // variant. The option list comes from GET /api/models and the preselection
+  // from the model.flash settings row; when the models request fails the
+  // dropdown falls back to the settings' two model defaults rather than
+  // rendering empty (docs/DATA-API.md "models").
+  useEffect(() => {
+    let cancelled = false;
+    Promise.allSettled([listModels(), listSettings()]).then(([modelsRes, settingsRes]) => {
+      if (cancelled) return;
+      const entries = settingsRes.status === "fulfilled" ? settingsRes.value : [];
+      const flash = settingModel(entries, FLASH_MODEL_KEY);
+      // The user cannot have picked anything yet — the select has no options
+      // until this lands — so filling an empty selection is safe.
+      setModel((prev) => (prev === "" ? flash : prev));
+      setModels(
+        resolveModelOptions(
+          modelsRes.status === "fulfilled" ? modelsRes.value : null,
+          entries,
+        ),
+      );
+    });
     return () => {
       cancelled = true;
     };
@@ -155,7 +192,13 @@ export function EvalStartForm({ token, priorRuns, onClose, onStarted }: Props) {
         </label>
         <label className="eval-field">
           <span>Model</span>
-          <Input value={model} onChange={(e) => setModel(e.target.value)} />
+          <select value={model} onChange={(e) => setModel(e.target.value)}>
+            {models.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
         </label>
         <label className="eval-field">
           <span>Max sub-turns</span>

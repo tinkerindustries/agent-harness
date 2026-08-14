@@ -4,6 +4,7 @@ import { Markdown } from "../../render/Markdown";
 import { languageForPath } from "../../render/highlight";
 import { CollapsibleOutput } from "./CollapsibleOutput";
 import { DiffTable } from "./DiffTable";
+import { InlineImage } from "./InlineImage";
 import { ScreenshotGallery } from "./ScreenshotGallery";
 import { TaskChildTranscript } from "./TaskChildTranscript";
 import { parseToolArgs, screenshotPaths, toolDetail } from "./toolArgs";
@@ -35,7 +36,21 @@ export const ToolResultBlock = memo(function ToolResultBlock({ block }: { block:
 // Task gets a link into the subagent's own transcript. Every other tool
 // falls back to plain collapsible text. Exported so the sub-turn card's tool
 // cards can reuse exactly the same bodies their standalone blocks render.
+//
+// The image a tool result carries inline (image_url — a Read of an image
+// file for a vision provider) leads the body the way a Screenshot result's
+// images lead theirs: the picture is the point, and the text below it names
+// it. A tool result without an image renders exactly as before.
 export function ToolResultBody({ block }: { block: ToolResultData }) {
+  return (
+    <>
+      {block.image_url && <InlineImage url={block.image_url} />}
+      <ToolResultContent block={block} />
+    </>
+  );
+}
+
+function ToolResultContent({ block }: { block: ToolResultData }) {
   switch (block.name) {
     case "Edit":
       return block.diff && block.diff.length > 0 ? <DiffTable diff={block.diff} /> : <CollapsibleOutput text={block.content} />;
