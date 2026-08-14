@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
+	"github.com/mrgeoffrich/deepseek-harness/internal/gemini/geminitest"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 )
@@ -63,7 +64,7 @@ func TestReviewScreenshotConfinesPaths(t *testing.T) {
 	}
 	e.Gemini = reviewScreenshotClient(httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"id":"i","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"ok"}]}]}`))
+		w.Write([]byte(geminitest.Answer("ok", "")))
 	})))
 
 	res := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
@@ -98,7 +99,7 @@ func TestReviewScreenshotReadsARelativePathFromScratch(t *testing.T) {
 			t.Errorf("decode request: %v", err)
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"id":"i","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"[]"}]}]}`))
+		w.Write([]byte(geminitest.Answer("[]", "")))
 	}))
 	defer srv.Close()
 
@@ -150,7 +151,7 @@ func TestReviewScreenshotPrefersTheNamedPathOverScratch(t *testing.T) {
 			t.Errorf("decode request: %v", err)
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"id":"i","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"[]"}]}]}`))
+		w.Write([]byte(geminitest.Answer("[]", "")))
 	}))
 	defer srv.Close()
 
@@ -285,7 +286,7 @@ func TestReviewScreenshotDownscalesOversizeFile(t *testing.T) {
 			t.Errorf("decode request: %v", err)
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"id":"i","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"[]"}]}]}`))
+		w.Write([]byte(geminitest.Answer("[]", "")))
 	}))
 	defer srv.Close()
 
@@ -370,7 +371,7 @@ func TestReviewScreenshotSendsUnderCapFileByteIdentically(t *testing.T) {
 			t.Errorf("decode request: %v", err)
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"id":"i","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"[]"}]}]}`))
+		w.Write([]byte(geminitest.Answer("[]", "")))
 	}))
 	defer srv.Close()
 
@@ -448,7 +449,7 @@ func TestReviewScreenshotSendsAndReturns(t *testing.T) {
 			t.Errorf("decode request: %v", err)
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"id":"i-1","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"[{\"element\":\"nav\",\"issue\":\"overlaps\"}]"}]}]}`))
+		w.Write([]byte(geminitest.Answer("[{\"element\":\"nav\",\"issue\":\"overlaps\"}]", "")))
 	}))
 	defer srv.Close()
 
@@ -526,7 +527,7 @@ func TestReviewScreenshotLabelsAreBaseNames(t *testing.T) {
 			}
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"id":"i","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"[]"}]}]}`))
+		w.Write([]byte(geminitest.Answer("[]", "")))
 	}))
 	defer srv.Close()
 
@@ -578,7 +579,7 @@ func TestReviewScreenshotInstructionDependsOnSpec(t *testing.T) {
 		}
 		instruction = req.SystemInstruction
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"id":"i","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"[]"}]}]}`))
+		w.Write([]byte(geminitest.Answer("[]", "")))
 	}))
 	defer srv.Close()
 
@@ -645,7 +646,7 @@ func TestReviewScreenshotModelProviderIsConsulted(t *testing.T) {
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		gotModel = req.Model
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"id":"i","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"ok"}]}]}`))
+		w.Write([]byte(geminitest.Answer("ok", "")))
 	}))
 	defer srv.Close()
 
@@ -720,7 +721,7 @@ func TestGeminiUsagePayloadCostsAgainstThePriceTable(t *testing.T) {
 func TestReviewScreenshotResultCarriesUsage(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"id":"i-1","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"ok"}]}],"usage":{"total_tokens":72,"total_input_tokens":15,"total_cached_tokens":0,"total_output_tokens":1,"total_thought_tokens":56}}`))
+		w.Write([]byte(geminitest.Answer("ok", `{"total_tokens":72,"total_input_tokens":15,"total_cached_tokens":0,"total_output_tokens":1,"total_thought_tokens":56}`)))
 	}))
 	defer srv.Close()
 
@@ -950,13 +951,9 @@ func TestFormatReviewAnswer(t *testing.T) {
 // still parses, with the truncated flag set when the output cap bites.
 func TestReviewScreenshotFormatsTheAnswer(t *testing.T) {
 	answer := `{"observed":"Two pages.","findings":[{"image":"a.png","element":"nav","issue":"overlaps","confidence":"high"},{"image":"b.png","element":"footer","issue":"clipped","confidence":"medium"}]}`
-	quoted, err := json.Marshal(answer)
-	if err != nil {
-		t.Fatal(err)
-	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"id":"i","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":` + string(quoted) + `}]}]}`))
+		w.Write([]byte(geminitest.Answer(answer, "")))
 	}))
 	defer srv.Close()
 
@@ -1013,7 +1010,7 @@ func reviewConversationServer(t *testing.T, requests *reviewScreenshotRequests) 
 		}
 		*requests = append(*requests, req)
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"id":"i","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"[]"}]}]}`))
+		w.Write([]byte(geminitest.Answer("[]", "")))
 	}))
 	t.Cleanup(srv.Close)
 	return srv
@@ -1318,13 +1315,9 @@ func captureReviewRequest(t *testing.T, e *Executor, args reviewScreenshotArgs, 
 		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
 			t.Errorf("decode request: %v", err)
 		}
-		quoted, err := json.Marshal(answer)
-		if err != nil {
-			t.Errorf("quote answer: %v", err)
-		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"id":"i","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":` + string(quoted) + `}]}],` +
-			`"usage":{"total_tokens":300,"total_input_tokens":100,"total_output_tokens":50,"total_thought_tokens":150,"total_cached_tokens":0}}`))
+		w.Write([]byte(geminitest.Answer(answer,
+			`{"total_tokens":300,"total_input_tokens":100,"total_output_tokens":50,"total_thought_tokens":150,"total_cached_tokens":0}`)))
 	}))
 	defer srv.Close()
 	e.Gemini = reviewScreenshotClient(srv)

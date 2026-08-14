@@ -27,6 +27,10 @@ type InteractionRequest struct {
 	// than inside a ```json fence (measured against the live API: the fence
 	// disappears when the type is set).
 	ResponseFormat *ResponseFormat `json:"response_format,omitempty"`
+	// Stream asks for the answer as server-sent events. Every call this
+	// client makes sets it: see stream.go for why and for the frame
+	// vocabulary.
+	Stream bool `json:"stream,omitempty"`
 }
 
 // ResponseFormat is the top-level response_format request field.
@@ -127,9 +131,15 @@ func (u *Usage) TokenSplit() (cacheHit, cacheMiss, completion, reasoning int) {
 // Step is one step of an interaction. Only model_output steps carry the
 // model's answer; the others (thought, function_call, ...) are skipped by
 // Text().
+//
+// Summary holds a thought step's reasoning summary. It arrives only when the
+// request asks for it with generation_config.thinking_summaries, which this
+// client does not yet do, and even then the model decides per call whether
+// to produce one.
 type Step struct {
 	Type    string    `json:"type"`
 	Content []Content `json:"content,omitempty"`
+	Summary []Content `json:"summary,omitempty"`
 }
 
 // Text returns the model's output as the concatenation of every text part

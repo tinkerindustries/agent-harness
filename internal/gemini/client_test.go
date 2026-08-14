@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mrgeoffrich/deepseek-harness/internal/gemini/geminitest"
 )
 
 // TestRequestShapePinsTheDoc asserts the request body follows
@@ -28,7 +30,7 @@ func TestRequestShapePinsTheDoc(t *testing.T) {
 			t.Errorf("decode request body: %v", err)
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"id":"i-1","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"[]"}]}]}`))
+		w.Write([]byte(geminitest.Stream([]geminitest.Step{{Type: "model_output", Texts: []string{"[]"}}}, "")))
 	}))
 	defer srv.Close()
 
@@ -104,7 +106,7 @@ func TestInteractLabelsPrecedeImages(t *testing.T) {
 			t.Errorf("decode request body: %v", err)
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"id":"i-1","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"[]"}]}]}`))
+		w.Write([]byte(geminitest.Stream([]geminitest.Step{{Type: "model_output", Texts: []string{"[]"}}}, "")))
 	}))
 	defer srv.Close()
 
@@ -212,7 +214,7 @@ func TestAPIKeyRidesInHeader(t *testing.T) {
 			t.Error("the API key appears in the URL")
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"id":"i-1","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"ok"}]}]}`))
+		w.Write([]byte(geminitest.Stream([]geminitest.Step{{Type: "model_output", Texts: []string{"ok"}}}, "")))
 	}))
 	defer srv.Close()
 
@@ -248,14 +250,10 @@ func TestEmptyKeyFailsBeforeSending(t *testing.T) {
 func TestInteractReturnsModelText(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{
-			"id": "i-1",
-			"status": "completed",
-			"steps": [
-				{"type": "thought", "content": [{"type": "text", "text": "thinking..."}]},
-				{"type": "model_output", "content": [{"type": "text", "text": "line one"}, {"type": "text", "text": "line two"}]}
-			]
-		}`))
+		w.Write([]byte(geminitest.Stream([]geminitest.Step{
+			{Type: "thought", Summaries: []string{"thinking..."}},
+			{Type: "model_output", Texts: []string{"line one, ", "line two"}},
+		}, "")))
 	}))
 	defer srv.Close()
 
@@ -264,7 +262,7 @@ func TestInteractReturnsModelText(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Interact: %v", err)
 	}
-	if want := "line one\nline two"; got != want {
+	if want := "line one, line two"; got != want {
 		t.Fatalf("text = %q, want %q", got, want)
 	}
 }
@@ -275,7 +273,7 @@ func TestInteractReturnsModelText(t *testing.T) {
 func TestInteractEmptyTextIsAnError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"id":"i-1","status":"completed","steps":[]}`))
+		w.Write([]byte(geminitest.Stream(nil, "")))
 	}))
 	defer srv.Close()
 
@@ -308,21 +306,16 @@ func TestAPIErrorSurfacesTheMessage(t *testing.T) {
 func TestInteractReturnsParsedUsage(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{
-			"id": "i-1",
-			"status": "completed",
-			"steps": [{"type": "model_output", "content": [{"type": "text", "text": "[{}]"}]}],
-			"usage": {
-				"total_tokens": 72,
-				"total_input_tokens": 15,
-				"input_tokens_by_modality": [{"modality": "text", "tokens": 15}],
-				"total_cached_tokens": 0,
-				"total_output_tokens": 1,
-				"total_tool_use_tokens": 0,
-				"total_thought_tokens": 56,
-				"raw_prompt_token": 50
-			}
-		}`))
+		w.Write([]byte(geminitest.Stream([]geminitest.Step{{Type: "model_output", Texts: []string{"[{}]"}}}, `{
+			"total_tokens": 72,
+			"total_input_tokens": 15,
+			"input_tokens_by_modality": [{"modality": "text", "tokens": 15}],
+			"total_cached_tokens": 0,
+			"total_output_tokens": 1,
+			"total_tool_use_tokens": 0,
+			"total_thought_tokens": 56,
+			"raw_prompt_token": 50
+		}`)))
 	}))
 	defer srv.Close()
 

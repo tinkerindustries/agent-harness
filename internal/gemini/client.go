@@ -206,6 +206,7 @@ func (c *Client) Interact(ctx context.Context, model, systemInstruction, questio
 		SystemInstruction: systemInstruction,
 		GenerationConfig:  &GenerationConfig{ThinkingLevel: cfg.thinkingLevel},
 		Input:             make([]Content, 0, len(images)+1),
+		Stream:            true,
 	}
 	if cfg.responseFormat != "" {
 		req.ResponseFormat = &ResponseFormat{Type: cfg.responseFormat}
@@ -257,15 +258,13 @@ func (c *Client) interact(ctx context.Context, req InteractionRequest) (*Interac
 		return nil, fmt.Errorf("gemini: interaction request: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
+		// A refused request answers in JSON even when it asked for a stream,
+		// so the error path is the same as it ever was.
 		return nil, parseAPIError(resp)
 	}
 	defer resp.Body.Close()
 
-	var out InteractionResponse
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, fmt.Errorf("gemini: decode response: %w", err)
-	}
-	return &out, nil
+	return decodeStream(resp.Body)
 }
 
 // newRequest resolves the API key and builds the request. The key rides in
@@ -284,7 +283,7 @@ func (c *Client) newRequest(ctx context.Context, path string, body []byte) (*htt
 		return nil, err
 	}
 	req.Header.Set("x-goog-api-key", apiKey)
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Content-Type", "application/json")
 	return req, nil
 }

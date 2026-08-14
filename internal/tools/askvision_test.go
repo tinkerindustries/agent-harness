@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mrgeoffrich/deepseek-harness/internal/gemini/geminitest"
 )
 
 // askVisionExecutor returns an executor whose Gemini client points at srv,
@@ -35,7 +37,7 @@ func TestAskVisionReturnsAnswerVerbatim(t *testing.T) {
 	const answer = "The left image shows a login form; the right shows the same form with the submit button missing."
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		io.WriteString(w, `{"id":"i","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":`+quote(answer)+`}]}]}`)
+		io.WriteString(w, geminitest.Answer(answer, ""))
 	}))
 	defer srv.Close()
 
@@ -65,7 +67,7 @@ func TestAskVisionSendsTheCallersPromptUnchanged(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusOK)
-		io.WriteString(w, `{"id":"i","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"A badge and a title on one line."}]}]}`)
+		io.WriteString(w, geminitest.Answer("A badge and a title on one line.", ""))
 	}))
 	defer srv.Close()
 
