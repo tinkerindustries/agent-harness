@@ -316,10 +316,18 @@ var toolFragments = []toolFragment{
 		text: `- You cannot see images. When a change is visual, Screenshot the page and
   ask Glance what it shows, naming the spec you were working to — that pair
   is your only way to find out what you actually built, and guessing from the
-  markup is how a broken layout gets reported as done. Where the answer turns
-  on a position or a size rather than what is there, Ground and Detect return
-  pixel boxes instead of prose, and Crop cuts one out so the next look is at
-  the element rather than the page.`,
+  markup is how a broken layout gets reported as done.
+- Glance answers what something is; Ground and Detect answer where it is, as
+  pixel boxes. Ask for a box whenever the answer turns on a position, a size,
+  an alignment or a count: a description of a gap reads the same whether it
+  is 4px or 40px. Boxes are close rather than exact — crop and compare with
+  them, and read a value you have to be sure of out of the CSS.
+- Compare images in one Glance call, never two. Separate calls cannot see
+  each other's image, so comparing their answers compares two guesses.
+- An image costs a fixed token budget however large it is, so a full-page
+  capture spends it on the parts you did not ask about. When the question is
+  about one control, capture that control — or pass a box from Ground to
+  Crop, or to Glance's region, and spend the budget there.`,
 	},
 	{
 		seesImages: capability(true),
