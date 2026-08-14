@@ -221,6 +221,17 @@ pass rather than part of the suites.
   ends. A host run still exercises the compose broker; the identical
   `scripts/test.sh` command works in both places with nothing passed and
   nothing configured.
+- **A container that cannot fork.** The image runs `tini` as PID 1 so
+  orphaned processes get reaped. A session's Bash calls run under a shell in
+  its own process group, and any of that shell's children outliving it are
+  reparented to PID 1; `harness serve` is a Go program and reaps only what it
+  started, so without `tini` those orphans accumulate as zombies until the
+  container runs out of PIDs. The symptom is not an obvious crash: `serve`
+  keeps running while its healthcheck fails, because the check `exec`s a
+  `wget` there is no room to fork, and the HTTP listener shuts down with
+  `context deadline exceeded`. Count them with
+  `docker exec <container> sh -c "ps -o stat | grep -c '^Z'"` — a healthy
+  container sits at zero.
 
 ### The sequence
 
