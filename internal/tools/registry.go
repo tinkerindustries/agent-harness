@@ -48,7 +48,12 @@ const (
 	// (tools.reviewscreenshot_timeout), and renaming it would be a silent
 	// config reset for every operator who has set one. Crop makes no model
 	// call and is not in this group; it keeps the default tool timeout.
-	ReviewScreenshotTimeout = 60 * time.Second
+	// 120s rather than 60s: a Glance asked to describe a whole page at medium
+	// thinking produced 1142 output tokens, 438 of them thinking, and hit the
+	// 60s ceiling mid-stream on a live run (sess-24bae5fa, seq 39). The model
+	// retried and the retry cost a second full call, so the ceiling was buying
+	// a stuck-call guard that a real answer was already exceeding.
+	ReviewScreenshotTimeout = 120 * time.Second
 	// ScreenshotTimeout bounds one capture: launching Chromium, navigating,
 	// waiting for the page to settle and encoding the image do not fit in the
 	// 30-second default, and the driver's own navigation timeout is derived

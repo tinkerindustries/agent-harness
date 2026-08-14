@@ -37,7 +37,7 @@ func TestRegistryDefaultsMatchTheConstantsTheyReplaced(t *testing.T) {
 		{settings.KeyToolTimeout, "30s"},
 		{settings.KeyToolWebFetchTimeout, "45s"},
 		{settings.KeyToolTaskTimeout, "10m"},
-		{settings.KeyToolReviewScreenshotTimeout, "60s"},
+		{settings.KeyToolReviewScreenshotTimeout, "120s"},
 		{settings.KeyToolWebFetchMaxBody, "4194304"},
 		{settings.KeyToolWebFetchMaxExtract, "40000"},
 		{settings.KeyToolReviewScreenshotMaxImages, "4"},
