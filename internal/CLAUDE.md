@@ -105,7 +105,9 @@ provider→model table and subtracts the named variant's dropped tools
 (`internal/promptvariant`), so a variant session's row, head, and requests all
 carry the same smaller array. The catalogue and its wording are
 [`../docs/TOOLS.md`](../docs/TOOLS.md); a change here is a cache-prefix change.
-Depends on: `internal/wire`, `internal/provider`, `internal/promptvariant`.
+Depends on: `internal/wire`, `internal/provider`, `internal/promptvariant`,
+`internal/attachment` (the image-extension-to-MIME-type table the vision
+tools read images by).
 
 ### `internal/fold`
 Folds the event log into the wire `messages` array (`internal/wire`'s

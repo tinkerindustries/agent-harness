@@ -5,24 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-)
 
-// screenshotContentTypes is the set of image types this endpoint will serve,
-// keyed by lower-case extension. It is deliberately the same three types
-// ReviewScreenshot accepts (internal/tools/reviewscreenshot.go's
-// screenshotMIMEType): the endpoint exists to show a human the images a
-// session sent to the vision model, so serving a type that tool would have
-// refused would be showing something the run could not have reviewed.
-//
-// The allowlist is also what keeps this from being a general file-read
-// endpoint over the workspace. A session's workspace holds cloned
-// repositories and whatever the model wrote; only images come back out.
-var screenshotContentTypes = map[string]string{
-	".png":  "image/png",
-	".jpg":  "image/jpeg",
-	".jpeg": "image/jpeg",
-	".webp": "image/webp",
-}
+	"github.com/mrgeoffrich/deepseek-harness/internal/attachment"
+)
 
 // handleGetScreenshot serves GET /api/sessions/{id}/screenshot?path=...: one
 // image file from that session's workspace, so the transcript can render the
@@ -51,8 +36,15 @@ func (s *Server) handleGetScreenshot(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "path query parameter is required", http.StatusBadRequest)
 		return
 	}
-	ext := strings.ToLower(filepath.Ext(userPath))
-	contentType, ok := screenshotContentTypes[ext]
+	// The allowlist here is deliberately the same three types
+	// ReviewScreenshot accepts (internal/attachment.ImageMIMETypes): the
+	// endpoint exists to show a human the images a session sent to the
+	// vision model, so serving a type that tool would have refused would be
+	// showing something the run could not have reviewed. It is also what
+	// keeps this from being a general file-read endpoint over the
+	// workspace — a session's workspace holds cloned repositories and
+	// whatever the model wrote; only images come back out.
+	contentType, ok := attachment.MIMEType(userPath)
 	if !ok {
 		http.Error(w, "screenshots are PNG, JPEG, or WebP files", http.StatusBadRequest)
 		return
