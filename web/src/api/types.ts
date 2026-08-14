@@ -40,7 +40,8 @@ export interface SessionState {
   // description is what change the agent is making (at most 50 words),
   // shown under the title on the main page, mirroring internal/hub's
   // SessionState. Absent covers a pre-migration row and a producer that
-  // left it blank; the list falls back to the task as the description line.
+  // left it blank; the list then shows no description line when the run has
+  // a title, and falls back to the task only when there is no title either.
   description?: string;
   // phase is this run's 1-based position in a multi-phase chain, mirroring
   // internal/hub's SessionState. Absent together with total_phases absent

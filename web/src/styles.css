@@ -996,8 +996,9 @@ pre {
 /* The title and description are the card's description block, on lines of
    their own under the badge row: the run's name in bold with the account of
    the change beneath it. The raw prompt rides on the block's title attribute
-   (reachable on hover) and becomes the description line when the run has no
-   title — a pre-migration row or a blank browser start — so the block is
+   (reachable on hover) and becomes the description line only when the run
+   has no title at all — a pre-migration row or a blank browser start — so
+   the block is
    never empty. The description wraps normally and only a description still
    too long after three lines is ellipsized — the same -webkit-box line
    clamp .sess-sub uses. The block gets its own lines rather than a share of

@@ -446,8 +446,10 @@ function StatStrip({ stats, poolSize }: { stats: DayStats; poolSize: number | nu
 
 // InFlightCard is one running session as a collapsible plan card.
 // Collapsed, its summary answers what the
-// session is about — the run's title bold with the description (or the raw
-// prompt, when there is no title) under it — and what it is
+// session is about — the run's title bold with the description
+// under it, no description line when the title exists without one (the raw
+// prompt is not repeated), and the raw prompt only when there is no title at
+// all — and what it is
 // doing (the in_progress item's activeForm) and how far in
 // it is (the completed ratio); expanded, it shows the whole plan and the
 // actions row. The caret is its own small toggle button (sibling of the
@@ -528,7 +530,7 @@ function InFlightCard({
                     {lines.phase && <span className="phase-chip">{lines.phase}</span>}
                   </span>
                 )}
-                <span className="run-desc-text">{lines.desc}</span>
+                {lines.desc !== "" && <span className="run-desc-text">{lines.desc}</span>}
               </span>
             )}
             {plan.length > 0 && (
@@ -595,9 +597,12 @@ function CopyIdButton({ sessionId }: { sessionId: string }) {
 // it (clamped to two lines), and the old subtitle — the plan ratio and the
 // model's own summary — moved below the description, dimmer (the .sess-sub
 // line clamp), so scanning the list still does not require opening each
-// transcript. A row with no title (pre-migration, blank browser start)
-// renders the raw prompt as the description line and no bold title, so no
-// row ever goes blank. The row itself is clickable (onOpen, on the <tr>) —
+// transcript. A row with a description renders it under the title; a title
+// without a description shows no description line (the raw prompt is not
+// repeated under a title that says what the run is); and a row with no title
+// at all — pre-migration, blank browser start — renders the raw prompt as
+// the description line with no bold title, so no row ever goes blank. The
+// row itself is clickable (onOpen, on the <tr>) —
 // the cell holds no id any more, and the click target never lived on the id
 // span. Column order is Status, Session, Elapsed, Cost, Model, Sub-turns,
 // Cache: the two numbers an operator scans for sit right after Session,
@@ -648,7 +653,7 @@ function FinishedRow({
               {lines.phase && <span className="phase-chip">{lines.phase}</span>}
             </span>
           )}
-          {(lines.title || lines.desc) && <span className="sess-desc">{lines.desc}</span>}
+          {lines.desc !== "" && <span className="sess-desc">{lines.desc}</span>}
           <span className="sess-sub">{subtitle || "—"}</span>
         </div>
       </td>
