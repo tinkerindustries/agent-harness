@@ -163,10 +163,11 @@ func containsSorted(sorted []string, name string) bool {
 // tool array (tools.DefinitionsForVariant) rather than from stored text.
 // Dropping Bash names one fewer tool in the inventory, corrects the count
 // word, and takes every rule gated on Bash — the shell rule, the batch
-// rule — out of the text, while every rule not about Bash survives
-// untouched. The plan group stays: it is gated on the four plan tools, not
-// on every word of its text, so its example mention of a "long run of Bash
-// or Edit calls" survives a no-bash head by design.
+// rule, and the plan bullet that mentions "a long run of Bash or Edit
+// calls" — out of the text, while every rule not about Bash survives
+// untouched. The plan group itself stays: it is gated on the four plan
+// tools, and its one Bash-naming bullet picks its wording from what is
+// present, so a no-bash head carries the same bullet without the mention.
 func TestVariantDroppedToolRendersAHeadConsistentWithItsArray(t *testing.T) {
 	base, err := RenderSystemPromptFor("deepseek-v4-pro", "")
 	if err != nil {
@@ -197,12 +198,28 @@ func TestVariantDroppedToolRendersAHeadConsistentWithItsArray(t *testing.T) {
 			countWord, word, len(array))
 	}
 
-	// Bash's rules are gone with the tool: the shell rule and the batch
-	// rule are both gated on Bash.
+	// Bash's rules are gone with the tool: the shell rule, the batch rule,
+	// and the plan bullet's Bash mention are all gated on Bash, and the
+	// inventory must not name it either — a head that never mentions Bash at
+	// all is the whole point of dropping the tool.
 	for _, gone := range []string{"- The shell is bash in an Alpine container",
-		"- Send independent tool calls together in one message. Several Reads, a Grep"} {
+		"- Send independent tool calls together in one message. Several Reads, a Grep",
+		"mid-stream through a long run of Bash or Edit calls"} {
 		if strings.Contains(got, gone) {
 			t.Errorf("no-bash head still carries the rule %q", gone)
+		}
+	}
+	if strings.Contains(got, "Bash") {
+		t.Error("no-bash head still mentions Bash anywhere")
+	}
+	// The plan bullet survives without the mention, worded for a session
+	// that has no Bash.
+	for _, keep := range []string{
+		"- Set a task to in_progress with TaskUpdate before starting it, and to",
+		"mid-stream through a long run of Edit calls, rather than saving the",
+	} {
+		if !strings.Contains(got, keep) {
+			t.Errorf("no-bash head lost the Bash-free plan wording %q", keep)
 		}
 	}
 	// Everything not about Bash survives untouched.

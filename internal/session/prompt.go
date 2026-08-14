@@ -180,12 +180,16 @@ func (f toolFragment) renders(have map[string]bool, seesImages bool) bool {
 // capability returns a pointer to b for a fragment's seesImages condition.
 func capability(b bool) *bool { return &b }
 
-// The Rules list, in the frozen head's order. The first eleven entries are
+// The Rules list, in the frozen head's order. The first ten entries are
 // tool-shaped: each names the tools it is about and renders only when all
 // of them are in the session's array. The plan rules are one group — the
 // plan machinery is all-or-nothing, so any one of the four plan tools
-// missing removes the whole section. The workspace rule is not about any
-// tool and always renders. The scratch rule always renders too, but its
+// missing removes the whole section — split into four fragments so the one
+// bullet that mentions Bash ("a long run of Bash or Edit calls") can pick
+// its wording from what is present, the same way the scratch rule does: a
+// session without Bash gets the same bullet without the Bash mention, and
+// one with it gets today's text exactly. The workspace rule is not about
+// any tool and always renders. The scratch rule always renders too, but its
 // wording depends on whether the session has the Screenshot tool: the head
 // must not name a tool the session was never sent, so a session without
 // Screenshot gets the wording that does not mention it. The vision rule
@@ -231,12 +235,30 @@ var toolFragments = []toolFragment{
   involves; activeForm, the subject in the present continuous, like "Running
   the test suite", which a human watching the run sees while that step is in
   progress. A one- or two-step task needs no plan — do the work.
-- Set a task to in_progress with TaskUpdate before starting it, and to
+`,
+	},
+	{
+		needs: []string{"TaskCreate", "TaskGet", "TaskList", "TaskUpdate", "Bash"},
+		text: `- Set a task to in_progress with TaskUpdate before starting it, and to
   completed with TaskUpdate as soon as it is done. Keep exactly one task
   in_progress. Send each update at the moment the step changes state, even
   mid-stream through a long run of Bash or Edit calls, rather than saving the
   updates for the end of the run.
-- One TaskUpdate call names one taskId and sets the one or two fields that
+`,
+	},
+	{
+		needs:  []string{"TaskCreate", "TaskGet", "TaskList", "TaskUpdate"},
+		unless: []string{"Bash"},
+		text: `- Set a task to in_progress with TaskUpdate before starting it, and to
+  completed with TaskUpdate as soon as it is done. Keep exactly one task
+  in_progress. Send each update at the moment the step changes state, even
+  mid-stream through a long run of Edit calls, rather than saving the
+  updates for the end of the run.
+`,
+	},
+	{
+		needs: []string{"TaskCreate", "TaskGet", "TaskList", "TaskUpdate"},
+		text: `- One TaskUpdate call names one taskId and sets the one or two fields that
   changed. Do not re-send the whole plan.
 - Mark a task completed only when it actually worked. If a step's command
   failed or its fix did not hold, leave that task in_progress and TaskCreate a
