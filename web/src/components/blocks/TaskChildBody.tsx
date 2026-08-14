@@ -12,9 +12,12 @@ export default function TaskChildBody({ sessionId }: { sessionId: string }) {
   const ref = useRef<TranscriptStore | null>(null);
   if (!ref.current) ref.current = new TranscriptStore(sessionId);
 
+  // The effect owns both halves of the connection, for the reason
+  // useTranscriptStore does (hooks.ts).
   useEffect(() => {
     const store = ref.current!;
-    return () => store.close();
+    store.connect();
+    return () => store.disconnect();
   }, []);
 
   const snapshot = useSyncExternalStore(ref.current.subscribe, ref.current.getSnapshot);
