@@ -180,6 +180,34 @@ describe("foldEvents", () => {
     expect(result).toMatchObject({ diff: [{ kind: "remove", text: "old", old_line: 1 }] });
   });
 
+  it("carries the image_url data URI through onto a tool_result block when the payload has one", () => {
+    // Phase 8 of the Kimi work: Read returns an image to a vision provider
+    // and the bytes ride the tool_result payload as image_url
+    // (docs/KIMI-INTEGRATION.md §4.5), so the transcript can render the
+    // picture the model was looking at.
+    const events = [
+      ev(1, "session_started", { opening_message: "x" }),
+      ev(2, "turn_started", { sub_turn: 1 }),
+      ev(3, "tool_call", { index: 0, id: "call_r", name: "Read", arguments: '{"file_path":"shot.png"}' }),
+      ev(4, "turn_finished", { finish_reason: "tool_calls" }),
+      ev(5, "tool_result", {
+        tool_call_id: "call_r",
+        name: "Read",
+        content: "Image: shot.png",
+        image_url: "data:image/png;base64,iVBORw0KGgo=",
+      }),
+    ];
+    const blocks = foldEvents(events);
+    const result = blocks.find((b) => b.type === "tool_result");
+    expect(result && "image_url" in result ? result.image_url : undefined).toBe("data:image/png;base64,iVBORw0KGgo=");
+  });
+
+  it("leaves image_url absent on a tool_result block whose payload has none", () => {
+    const blocks = foldEvents(sampleEvents());
+    const result = blocks.find((b) => b.type === "tool_result");
+    expect(result && "image_url" in result ? result.image_url : undefined).toBeUndefined();
+  });
+
   it("attaches the originating tool_call's arguments to the frozen tool_result block", () => {
     const blocks = foldEvents(sampleEvents());
     const result = blocks.find((b) => b.type === "tool_result");
