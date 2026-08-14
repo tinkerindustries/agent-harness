@@ -3962,18 +3962,23 @@ kbd {
 
 /* ---------- provenance strip ----------
    For an agent-launched run this is the first question a person has: who
-   started this, and on whose behalf. It is a quiet strip, not an alert —
-   this is the normal state for these sessions, not a fault. */
+   started this, and on whose behalf. It leads the transcript column as its
+   first block — the same border, radius, background and padding the
+   transcript's own blocks carry — and scrolls with the conversation. It is
+   a quiet strip, not an alert — this is the normal state for these
+   sessions, not a fault. */
 .prov {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  padding: 7px 20px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
+  padding: var(--space);
   background: var(--muted);
-  border-bottom: 1px solid var(--border);
   font-size: 0.75rem;
   color: var(--muted-foreground);
+  margin-bottom: 24px;
 }
 .prov .who {
   color: var(--foreground);
@@ -4016,12 +4021,13 @@ kbd {
   white-space: nowrap;
 }
 /* The sentence is the least urgent thing on the strip — it says the same
-   thing on every run of this kind — so it never competes with the facts. */
+   thing on every run of this kind — so it never competes with the facts: it
+   takes its own full row under the chips (flex-basis: 100%), so a wrapped
+   strip reads as rows of chips with the sentence below them rather than a
+   ragged mix. */
 .prov-note {
   color: var(--muted-foreground);
-}
-.prov .spacer {
-  flex: 1;
+  flex-basis: 100%;
 }
 .prov a {
   color: var(--status-running);
