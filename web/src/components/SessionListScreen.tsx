@@ -4,8 +4,9 @@ import { Broadcast, CaretRight, Copy, MagnifyingGlass, Play, Queue, X } from "@p
 import { sessionListStore } from "../api/sessionListStore";
 import { listSettings } from "../api/settings";
 import { controlToken } from "../api/operations";
+import { clampPage } from "../api/paging";
+import { FINISHED_PAGE_SIZE, useFinishedSessions } from "../api/finishedSessions";
 import { startedBy } from "../api/provenance";
-import { startedByShort } from "./sessionListLabel";
 import { titleLines } from "./sessionListTitle";
 import { tableEmptyState } from "./sessionListEmpty";
 import type { QueueHealth, SessionState, Usage } from "../api/types";
@@ -15,6 +16,7 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Input } from "./ui/input";
+import { Pager } from "./ui/Pager";
 import { Ticker } from "./ui/Ticker";
 import {
   Collapsible,
@@ -154,9 +156,25 @@ export function SessionListScreen({ onOpen }: Props) {
   };
 
   // The list's own search. The input lives in the shared nav's right
-  // slot (below); the filter runs over the snapshot the table already
-  // holds, client-side, so a keystroke never hits the network.
+  // slot (below); the Finished table's filter runs server-side on it
+  // (useFinishedSessions, debounced), while the in-flight cards keep
+  // filtering over the snapshot client-side — they are few, and the
+  // snapshot is already in memory.
   const [query, setQuery] = useState("");
+
+  // The Finished table is server-paged (useFinishedSessions): which 1-based
+  // page is showing. It resets to 1 whenever the query changes — a new
+  // filter starts at the top — and clamps to the last page when the total
+  // shrinks under it, so deleting the last row of the last page can never
+  // leave an empty table with no way back.
+  const [page, setPage] = useState(1);
+  const { items: finishedItems, total: finishedTotal } = useFinishedSessions(page, query.trim());
+  useEffect(() => {
+    setPage(1);
+  }, [query]);
+  useEffect(() => {
+    setPage((p) => clampPage(p, finishedTotal, FINISHED_PAGE_SIZE));
+  }, [finishedTotal]);
 
   // The start form (docs/RUN-CONTROL.md "The frontend"): the trigger lives
   // in the nav's right slot, the form card opens at the top of the screen.
@@ -230,10 +248,6 @@ export function SessionListScreen({ onOpen }: Props) {
     () => snapshot.sessions.filter((s) => s.status === "running" && matchesQuery(s, q)),
     [snapshot.sessions, q],
   );
-  const finished = useMemo(
-    () => snapshot.sessions.filter((s) => s.status !== "running" && matchesQuery(s, q)),
-    [snapshot.sessions, q],
-  );
   // Which rows arrived while this page was already open (hooks.ts
   // useArrivals). Keyed over the whole session set rather than either filtered
   // list, for two reasons: typing in the search box must not make the rows it
@@ -245,9 +259,13 @@ export function SessionListScreen({ onOpen }: Props) {
     snapshot.sessions.length > 0,
   );
   // The empty-row state (sessionListEmpty.ts): "no-sessions" for a genuinely
-  // empty harness, "no-match" when sessions exist but the filter matched none
-  // — a distinct state, so a blank page never reads as an empty harness.
-  const emptyState = tableEmptyState(snapshot.sessions.length, running.length + finished.length);
+  // empty harness, "no-match" when sessions exist but the Finished filter
+  // matched none — a distinct state, so a blank page never reads as an empty
+  // harness. The total-sessions argument is the SSE snapshot's length — the
+  // stream still holds everything, so an empty harness stays distinguishable
+  // from a filter that matched nothing — and the matched argument is the
+  // paged envelope's total.
+  const emptyState = tableEmptyState(snapshot.sessions.length, finishedTotal);
 
   // The nav's right slot for this screen: the start-run trigger
   // (docs/RUN-CONTROL.md "The frontend"), the search input, and the LIVE
@@ -339,12 +357,12 @@ export function SessionListScreen({ onOpen }: Props) {
         </section>
       )}
 
-      {(finished.length > 0 || emptyState !== "none") && (
+      {(finishedTotal > 0 || emptyState !== "none") && (
         <section className="list-section">
           <div className="section-head">
             <h2>Finished</h2>
             <span className="count">
-              {finished.length} session{finished.length === 1 ? "" : "s"}
+              {finishedTotal} session{finishedTotal === 1 ? "" : "s"}
             </span>
           </div>
           <div className="table-scroll">
@@ -361,7 +379,7 @@ export function SessionListScreen({ onOpen }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {finished.map((sess) => (
+                {finishedItems.map((sess) => (
                   <FinishedRow key={sess.id} sess={sess} now={now} onOpen={onOpen} arrived={arrived(sess.id)} />
                 ))}
                 {emptyState !== "none" && (
@@ -374,6 +392,7 @@ export function SessionListScreen({ onOpen }: Props) {
               </tbody>
             </table>
           </div>
+          <Pager page={page} total={finishedTotal} perPage={FINISHED_PAGE_SIZE} onPage={setPage} />
         </section>
       )}
     </div>
@@ -584,6 +603,9 @@ function CopyIdButton({ sessionId }: { sessionId: string }) {
 // Cache: the two numbers an operator scans for sit right after Session,
 // where they stay visible before any column the scroll container might
 // still need on a narrow viewport.
+// The Model cell renders the model name alone; the effort, the job type and
+// the full provenance label (id included) moved onto the cell's title, so
+// the column stays narrow and the detail is one hover away.
 // Elapsed and Cost carry the same primary weight as the in-flight card's
 // stat row.
 function FinishedRow({
@@ -607,13 +629,12 @@ function FinishedRow({
   const ratio = plan.length > 0 ? `${prog.done} of ${prog.total} plan items` : "";
   const subtitle = [ratio, sess.summary].filter(Boolean).join(" · ");
   const lines = titleLines(sess);
-  // The Model cell shows the provenance label short — the parent agent's type
-  // without its id — because the full label's UUID wrapped the cell to three
-  // lines and pushed the Sub-turns and Cache columns out of the table's
-  // container (sessionListLabel.ts). The full label, id included, rides on
-  // the cell's title so it is still reachable on hover.
-  const provenanceLabel = startedBy(sess);
-  const provenanceShort = startedByShort(sess);
+  // The Model cell renders the model name alone. The detail it used to print
+  // inline — the effort, the job type when there is one, and the full
+  // provenance label, id included — rides on the cell's title, one hover
+  // away; the full label's UUID is what wrapped the old cell to three lines
+  // and pushed the Sub-turns and Cache columns out of the table's container.
+  const modelTitle = [sess.effort, sess.job_type, startedBy(sess)].filter(Boolean).join(" · ");
   return (
     <tr className={cn("session-row", arrived && "anim-row-in")} onClick={() => onOpen(sess.id)}>
       <td>
@@ -635,11 +656,7 @@ function FinishedRow({
       <td className="primary" title={costTitle(sess)}>
         {formatCost(sess.usage.cost_usd)}
       </td>
-      <td title={provenanceLabel ?? undefined}>
-        {sess.model} <span className="dim">({sess.effort})</span>
-        {sess.job_type && <span className="dim"> · {sess.job_type}</span>}
-        {provenanceShort && <span className="dim"> · {provenanceShort}</span>}
-      </td>
+      <td title={modelTitle}>{sess.model}</td>
       <td>{sess.sub_turns}</td>
       <td className="dim" title={hitRateTitle(sess.usage)}>
         {formatHitRate(sess.usage)}
