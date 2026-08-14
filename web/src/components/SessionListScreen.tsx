@@ -11,7 +11,7 @@ import { startedBy } from "../api/provenance";
 import { titleLines } from "./sessionListTitle";
 import { tableEmptyState } from "./sessionListEmpty";
 import type { QueueHealth, SessionListRow, SessionState, Usage } from "../api/types";
-import { useArrivals, useLabelFlip, useNow, useQueueHealth } from "../hooks";
+import { useArrivals, useHeldFrames, useLabelFlip, useNow, useQueueHealth, useSettledFlip } from "../hooks";
 import { cn } from "@/lib/utils";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -266,6 +266,22 @@ export function SessionListScreen({ onOpen }: Props) {
   // paged envelope's total.
   const emptyState = tableEmptyState(snapshot.sessions.length, finishedTotal);
 
+  // Whether anything is in flight, and whether that answer has changed since
+  // the page settled. The strip is the page's hero while nothing is running
+  // and gets out of the way the moment something is: `busy` compacts the four
+  // cards, and `flipped` is what allows the change to be a gesture rather than
+  // the size the cards simply are. A page that loads with a run already going
+  // renders the compact strip and the section without either animating —
+  // neither of those facts just happened (hooks.ts useSettledFlip).
+  //
+  // Settled is the list's own snapshot having landed, with the connection
+  // holding open across two frames standing in for it on an empty harness,
+  // which has no snapshot to wait for and whose first run is precisely the
+  // onset worth animating.
+  const busy = running.length > 0;
+  const openHeld = useHeldFrames(snapshot.connection === "open");
+  const flipped = useSettledFlip(busy, snapshot.sessions.length > 0 || openHeld);
+
   // The nav's right slot for this screen: the start-run trigger
   // (docs/RUN-CONTROL.md "The frontend"), the search input, and the LIVE
   // badge. The mark pulses while the stream is open and goes still while
@@ -329,11 +345,11 @@ export function SessionListScreen({ onOpen }: Props) {
       {startOpen && startToken !== null && (
         <StartRunForm token={startToken} onClose={() => setStartOpen(false)} onOpen={onOpen} />
       )}
-      <StatStrip stats={stats} poolSize={poolSize} />
+      <StatStrip stats={stats} poolSize={poolSize} compact={busy} animate={flipped} />
       <QueueHaltBanner health={queueHealth} />
 
-      {running.length > 0 && (
-        <section className="list-section">
+      {busy && (
+        <section className={cn("list-section", flipped && "anim-section-in")}>
           <div className="section-head">
             <h2>In flight</h2>
             <span className="count">
@@ -424,9 +440,27 @@ export function SessionListScreen({ onOpen }: Props) {
 // that moved should be noticeable without the row twitching. The finished table
 // below deliberately gets none: those figures are final and a roll there is
 // noise.
-function StatStrip({ stats, poolSize }: { stats: DayStats; poolSize: number | null }) {
+//
+// The strip has two sizes. `compact` is the size it takes while something is
+// in flight: the four figures stay, at roughly half the height, because the
+// running work is what the page is about the moment there is any and the
+// strip is the day's context around it. `animate` is separate on purpose — it
+// says the size CHANGED while somebody was watching, which is the only time
+// the change is worth a transition; without it the compact strip is just the
+// size the page loaded at.
+function StatStrip({
+  stats,
+  poolSize,
+  compact,
+  animate,
+}: {
+  stats: DayStats;
+  poolSize: number | null;
+  compact: boolean;
+  animate: boolean;
+}) {
   return (
-    <div className="stats">
+    <div className={cn("stats", compact && "stats-compact", animate && "stats-anim")}>
       <Card className="stat">
         <span className="label">Running</span>
         <span className="value">

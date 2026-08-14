@@ -59,7 +59,16 @@ What the screens are:
   Running (of the pool's
   slots, from `worker.pool_size`), Spend today, Median duration today, Total
   time today — is a client-side reduction over the same session list, with
-  no backend field behind it; the queue banner below it renders only when the
+  no backend field behind it. The strip has two sizes: it is the page's hero
+  while nothing is in flight and compacts to roughly half its height —
+  every figure kept — the moment the In flight section has anything in it,
+  on the phone layout as much as the wide one. The change is a transition
+  only when it happens while somebody is watching (`hooks.ts`
+  `useSettledFlip`, gated on the list's snapshot having landed, with
+  `useHeldFrames` standing in for it on an empty harness): a page that loads
+  with a run already going renders the compact strip and the section without
+  either animating, because neither of those facts just happened. The queue
+  banner below it renders only when the
   pool halts (or the health poll reports an error) — the routine pending /
   in-flight / redelivered counters are gone. The finished table's columns run Status, Session,
   Elapsed, Cost, Model, Sub-turns, Cache: the two numbers an operator
