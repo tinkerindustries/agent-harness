@@ -331,7 +331,7 @@ export function SessionListScreen({ onOpen }: Props) {
         <StartRunForm token={startToken} onClose={() => setStartOpen(false)} onOpen={onOpen} />
       )}
       <StatStrip stats={stats} poolSize={poolSize} />
-      <QueueHealthBar health={queueHealth} />
+      <QueueHaltBanner health={queueHealth} />
 
       {running.length > 0 && (
         <section className="list-section">
@@ -670,27 +670,19 @@ function FinishedRow({
   );
 }
 
-// QueueHealthBar surfaces consumer lag, in-flight count, and redelivery
-// count, plus a halted state as an unmissable banner
-// rather than another quiet figure — an operator watching the list is
-// exactly who needs to know the pool stopped pulling work on an empty
-// account (docs/DESIGN.md §4.5). Renders nothing for a CLI-only harness
-// with no queue wired up (health.available === false, health.halted ===
-// false) and nothing while the first poll is still in flight.
-function QueueHealthBar({ health }: { health: QueueHealth | null }) {
-  if (!health || (!health.available && !health.halted)) return null;
+// QueueHaltBanner is what is left of the old queue-health bar: the routine
+// counters (pending / in flight / redelivered) are gone, and the bar now
+// exists only for the one thing on it an operator cannot afford to miss — a
+// halted pool, as an unmissable banner rather than another quiet figure, plus
+// the health error when there is one (docs/DESIGN.md §4.5). Renders nothing
+// at all unless the queue is halted or health.error is set, and nothing while
+// the first poll is still in flight.
+function QueueHaltBanner({ health }: { health: QueueHealth | null }) {
+  if (!health || (!health.halted && !health.error)) return null;
   return (
     <div className={`queue-health${health.halted ? " queue-health-halted" : ""}`}>
       <Queue aria-hidden />
-      {health.halted ? (
-        <span>
-          queue halted — {health.halt_reason || "reason unknown"}
-        </span>
-      ) : (
-        <span>
-          queue: {health.consumer_lag ?? 0} pending, {health.in_flight ?? 0} in flight, {health.redelivered ?? 0} redelivered
-        </span>
-      )}
+      {health.halted && <span>queue halted — {health.halt_reason || "reason unknown"}</span>}
       {health.error && <span className="dim"> ({health.error})</span>}
     </div>
   );
