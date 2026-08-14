@@ -157,7 +157,9 @@ the session loop reads at its next sub-turn boundary. It holds the loaded
 price table for `GET /api/pricing`, which serves the rate schedule and no
 rates — `internal/pricing` depends on nothing internal, so this adds no edge
 worth worrying about, and the browser prices nothing (docs/DATA-API.md
-"pricing"). §4.2.
+"pricing"). §4.2. Split by resource, one file per group; `server.go`'s own
+package doc names which file holds which (the `Server` type and `routes()`
+stay there so the whole surface is still readable in one list).
 
 ### `internal/webassets`
 `go:embed` of the built frontend, so the binary ships with no runtime assets.
