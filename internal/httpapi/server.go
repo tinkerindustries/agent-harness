@@ -26,7 +26,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -36,7 +35,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -46,6 +44,7 @@ import (
 	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
+	"github.com/mrgeoffrich/deepseek-harness/internal/attachment"
 	"github.com/mrgeoffrich/deepseek-harness/internal/evals"
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
@@ -1047,7 +1046,7 @@ func (s *Server) writeAttachments(ctx context.Context, attachments []startRunAtt
 	maxBytes := s.attachmentMaxBytes(ctx)
 	ids := make([]string, 0, len(attachments))
 	for _, att := range attachments {
-		name, mime, data, err := validateAttachmentInput(att, maxBytes)
+		name, mime, data, err := attachment.Validate(att.Name, att.MIMEType, att.Data, maxBytes)
 		if err != nil {
 			return nil, err
 		}
@@ -1058,56 +1057,6 @@ func (s *Server) writeAttachments(ctx context.Context, attachments []startRunAtt
 		ids = append(ids, id)
 	}
 	return ids, nil
-}
-
-// validateAttachmentInput checks one attachment and returns its decoded
-// bytes. The name must be a plain file name — the workspace writes the file
-// under it, so a path-shaped name would be a way out of scratch/attachments/
-// — and its extension must be one of the three types ReviewScreenshot
-// accepts, because the model's whole use of the file is passing it back to
-// ReviewScreenshot. The MIME type, when supplied, must match the extension.
-func validateAttachmentInput(att startRunAttachment, maxBytes int) (string, string, []byte, error) {
-	name := att.Name
-	if name == "" {
-		return "", "", nil, errors.New("attachment name is required")
-	}
-	if filepath.Base(name) != name || name == "." || name == ".." {
-		return "", "", nil, fmt.Errorf("attachment name %q must be a plain file name, not a path", name)
-	}
-	mime, ok := attachmentMIMEType(name)
-	if !ok {
-		return "", "", nil, fmt.Errorf("attachment %q: only PNG, JPEG, and WebP images are accepted", name)
-	}
-	if att.MIMEType != "" && att.MIMEType != mime {
-		return "", "", nil, fmt.Errorf("attachment %q: mime_type %q does not match the file's extension", name, att.MIMEType)
-	}
-	data, err := base64.StdEncoding.DecodeString(att.Data)
-	if err != nil {
-		return "", "", nil, fmt.Errorf("attachment %q: data is not valid base64", name)
-	}
-	if len(data) > maxBytes {
-		return "", "", nil, fmt.Errorf("attachment %q is %d bytes, over the %d-byte per-file limit", name, len(data), maxBytes)
-	}
-	if len(data) == 0 {
-		return "", "", nil, fmt.Errorf("attachment %q is empty", name)
-	}
-	return name, mime, data, nil
-}
-
-// attachmentMIMEType reports the MIME type an attachment name claims, by
-// extension, and whether it is one of the three types ReviewScreenshot
-// accepts.
-func attachmentMIMEType(name string) (string, bool) {
-	switch strings.ToLower(filepath.Ext(name)) {
-	case ".png":
-		return "image/png", true
-	case ".jpg", ".jpeg":
-		return "image/jpeg", true
-	case ".webp":
-		return "image/webp", true
-	default:
-		return "", false
-	}
 }
 
 // operatorName resolves identity.operator for stamping into parent_agent_id

@@ -48,6 +48,24 @@ this package only removes the near-verbatim duplication two full client
 implementations used to carry (docs/KIMI-INTEGRATION.md §4.1). Depends on:
 `internal/wire`.
 
+### `internal/attachment`
+Validates one image attachment a producer submitted — POST /api/runs
+(`internal/httpapi`) or the MCP `deepseek_agent` tool (`internal/mcp`) —
+before its bytes reach the store: the name must be a plain file name (the
+workspace writes the file under it, so a path-shaped name would be a way out
+of `scratch/attachments/`), the extension must be one of the image types
+`ReviewScreenshot` accepts, an asserted MIME type must match the extension,
+and the decoded bytes must fit the per-file cap. Also carries the
+image-extension-to-MIME-type table those two producers, the
+screenshot-serving endpoint (`internal/httpapi/screenshots.go`), and the
+vision tools (`internal/tools/vision.go`) all agree on — distinct from
+`internal/tools/screenshot.go`'s narrower `screenshotOutputExtensions`
+(no WebP, because that one names what Chromium's capture can produce, not
+what the harness can read back in). A leaf, deliberately: `internal/httpapi`
+imports neither `internal/session` nor `internal/worker`, and a validator
+that stays a leaf keeps that boundary legible for a second importer.
+Depends on: nothing internal.
+
 ### `internal/wire`
 The provider-neutral wire vocabulary every request path speaks: the message
 and tool types, the request and response bodies, the streaming chunk types,
