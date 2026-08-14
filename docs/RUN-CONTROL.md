@@ -232,6 +232,12 @@ the model, so say what to do differently.
    heartbeat, release the pool slot, and log a leaked-goroutine warning
    naming the session and request ids.
 
+A run wedged in workspace preparation is why the session row exists before
+the workspace does: the pool creates it as `creating` before the clone starts
+(docs/DESIGN.md §4.10), so a stop during preparation marks that row cancelled
+— `CancelRunningSession` accepts `creating` — instead of finding no row to
+mark.
+
 Six things have to be true for step 4 to be honest rather than cosmetic, and
 each is a real failure rather than a tidiness point.
 
@@ -265,7 +271,9 @@ second `run_finished`, and a `FinishSession` that would move the row out of
   `store.ErrSessionCancelled`.
 - `FinishSession` and `UpdateSessionStatus` refuse to move a row *out of*
   `cancelled`. Cancelled is terminal and final; every other terminal status
-  is reachable only from `running`.
+  is reachable only from a live session (`running`, or `creating` while the
+  workspace is still being prepared — a stop or a setup failure can end the
+  preparation window directly).
 
 This is worth more than tidiness: it is a second, independent stop. A wedged
 goroutine that wakes finds its next append refused, fails the run, and unwinds
@@ -477,7 +485,7 @@ are about the *run*, not the row, and they are:
 | --- | --- | --- |
 | stop | the session exists | 404 |
 | stop | this process is running it | 409, naming the session's status |
-| steer | the session exists and is `running` | 404 / 409 |
+| steer | the session exists and is `running` | 404 / 409 (a `creating` session's 409 says its workspace is still being prepared, not that the run is over) |
 | runs | the body passes `queue.Request.Validate` | 400, the validator's message |
 
 `202 Accepted` on all three, with a body naming what was accepted:
