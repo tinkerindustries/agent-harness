@@ -189,8 +189,15 @@ containers, network and volumes, on separate ports.
 | Web UI | <http://localhost:8080> | <http://localhost:8180> |
 | MCP | `http://127.0.0.1:8080/mcp` | `http://127.0.0.1:8180/mcp` |
 | NATS client / monitor | 4322 / 8322 | 4522 / 8522 |
-| Workspaces | `workspaces/` | `workspaces-prod/` |
+| Workspaces | `HARNESS_WORKSPACES` | `HARNESS_WORKSPACES_PROD` |
 | Environment | `.env` | `.env.prod` |
+
+Both workspace roots default outside this checkout —
+`/Users/Shared/harness-workspaces` and `/Users/Shared/harness-workspaces-prod`
+— so the paths a run prints, records and hands the model carry no home
+directory or repository name. Each is mounted at that same absolute path
+inside its container, which is a requirement rather than a detail
+([`docs/WORKTREES.md`](docs/WORKTREES.md), "Path parity").
 
 The difference that matters is that **prod never builds**. Both its services run
 the `deepseek-harness:prod` tag, and only `promote` moves that tag, so no dev

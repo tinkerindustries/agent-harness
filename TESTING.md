@@ -158,11 +158,13 @@ Cheapest first.
    serves no UI; see [`ARCHITECTURE.md`](ARCHITECTURE.md) gotchas.)
 
    Steps 2 and 3 name the source roots for the same reason step 1 does, and
-   it is not cosmetic: a session's workspace lives inside this checkout, so
-   any Go a run leaves in `workspaces/` or `workspaces-prod/` joins this
-   module. `./...` then tries to build it and fails on code that was never
-   ours — today, a prod session's `scratch/` with two `main` declarations in
-   it.
+   it is not cosmetic: any Go a run leaves in a workspace that sits inside
+   this checkout joins this module. `./...` then tries to build it and fails
+   on code that was never ours — today, a prod session's `scratch/` with two
+   `main` declarations in it. Both roots now default outside the checkout, so
+   new runs cannot add to the problem, but the workspaces written before that
+   are still in `workspaces/` and `workspaces-prod/` and still shadow the
+   module — keep naming the roots.
 4. `scripts/test.sh` — all pass. Seconds for the unit tests, under a minute
    including the broker's start-up.
 5. Frontend, if you touched `web/`: `npm --prefix web run build` then

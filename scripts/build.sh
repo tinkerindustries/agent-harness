@@ -29,6 +29,13 @@ cd "$(dirname "$0")/.."
 # the shell's directory rather than the project's; export it from the root
 # this script just moved to, so the value never depends on where the script
 # was invoked from.
+# .env is where compose reads it from, so honour it here too: an exported
+# variable wins over .env in compose's interpolation, and without this line a
+# root pinned there would be silently replaced by $PWD/workspaces on every
+# build — the one path this script is supposed to keep stable.
+if [ -z "${HARNESS_WORKSPACES:-}" ] && [ -f .env ]; then
+  HARNESS_WORKSPACES="$(sed -n 's/^HARNESS_WORKSPACES=//p' .env | tail -1)"
+fi
 export HARNESS_WORKSPACES="${HARNESS_WORKSPACES:-$PWD/workspaces}"
 
 DOCKER=1

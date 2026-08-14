@@ -5,6 +5,7 @@ import type { SessionState, Todo, ToolCallPayload } from "../api/types";
 import { isLive } from "../api/status";
 import { cachePercent } from "./turns/turnHelpers";
 import { formatCost, toolDetail } from "./blocks/toolArgs";
+import { ElidedPath } from "./ui/ElidedPath";
 import { cn } from "@/lib/utils";
 
 // WatchRail is the watch page's left-hand navigator: one column that
@@ -152,9 +153,7 @@ export function WatchRail({
           </div>
           <div>
             <span>workspace</span>
-            <span className="v" title={meta.workspace}>
-              {meta.workspace}
-            </span>
+            <ElidedPath className="v" path={meta.workspace} keepSession />
           </div>
           <div>
             <span>cost</span>

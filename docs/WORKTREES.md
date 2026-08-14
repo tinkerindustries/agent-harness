@@ -130,7 +130,10 @@ Three consequences worth knowing:
   mount the wrong host path. `scripts/build.sh` exports `HARNESS_WORKSPACES`
   from the repository root, and `harness worktree init` pins it absolutely in
   each worktree's `.env`, so only a hand-typed `docker compose` from a
-  subdirectory can get it wrong.
+  subdirectory can get it wrong. `build.sh` reads the value out of `.env`
+  first: an exported variable beats `.env` in compose's interpolation, so
+  without that read the export would silently replace a root pinned there on
+  every build.
 - **The registry is passed by path, not inherited.** `${HOME}` inside the
   container is `/root`, so a nested compose interpolating it would ask the
   host for `/root/.deepseek-harness`. `HARNESS_REGISTRY_DIR` carries the
@@ -141,6 +144,17 @@ Three consequences worth knowing:
   where a checkout normally lives. `scripts/build.sh` probes this before
   running compose when it detects it is inside a container, because compose's
   own error names a path rather than the reason.
+
+Parity constrains the two sides to be equal; it does not constrain *which*
+path they are. The root is `HARNESS_WORKSPACES`, and pointing it somewhere
+neutral — `/Users/Shared/harness-workspaces` rather than the checkout's own
+`workspaces/` — keeps the operator's home directory and the checkout's name
+out of every path a session prints, records, and hands the model, at no cost
+to any of the above. It has to stay a path the host daemon can resolve and
+share, so this is a relocation rather than an alias: a container-only path
+is what parity exists to rule out. Sessions already recorded under the old
+root keep pointing at it, which is why the move is a change of root for new
+runs rather than a migration of old ones.
 
 ## What stays shared
 

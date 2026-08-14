@@ -1,4 +1,5 @@
 import type { Todo } from "../api/types";
+import { ElidedPath } from "./ui/ElidedPath";
 
 // ChatRail is the chat page's right-hand rail (.rail.rail-right): the
 // plan with its progress bar and the in-progress item highlighted, then
@@ -46,9 +47,7 @@ export function ChatRail({
           </div>
           <div>
             <span>workspace</span>
-            <span className="v" title={facts.workspace}>
-              {facts.workspace}
-            </span>
+            <ElidedPath className="v" path={facts.workspace} keepSession />
           </div>
           <div>
             <span>request</span>

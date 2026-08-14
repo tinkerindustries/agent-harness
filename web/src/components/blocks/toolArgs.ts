@@ -1,4 +1,5 @@
 import type { DiffLine, ToolCallPayload } from "../../api/types";
+import { elidePath, splitWorkspacePath } from "../ui/workspacePath";
 
 // parseToolArgs safely decodes a tool call's arguments for display purposes
 // only. A malformed or still-assembling payload (arguments can arrive mid-
@@ -20,22 +21,25 @@ function str(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
 
-// Every path a session touches lives under its own workspace root
-// (/workspaces/<session id>/), so an absolute path spends its first fifty
-// characters saying what the Session panel already says — the same prefix on
-// every row of a 34-sub-turn run, pushing the part that differs off the end
-// of the line. trimWorkspace drops it, leaving the path as the model would
-// have written it in the repo. Display only: the tool row's expanded body
-// and the arguments the run actually made are untouched, and a path outside
-// a workspace (an absolute path elsewhere on the box) is left alone, because
-// there the leading slash is the fact.
-const WORKSPACE_ROOT = /^\/workspaces\/[^/]+(\/|$)/;
-
+// trimWorkspace drops a path's workspace prefix, leaving it as the model
+// would have written it in the repo: the prefix is the same on every row of a
+// 34-sub-turn run and says what the Session panel already says, so printed
+// whole it pushes the part that differs off the end of the line. Display
+// only — the tool row's expanded body and the arguments the run actually made
+// are untouched, and a path outside a workspace is left alone, because there
+// the leading slash is the fact.
+//
+// The split is anchored on the session directory rather than on a literal
+// root (workspacePath.ts). It used to match /workspaces/<id> only, which
+// stopped matching anything the day path parity made the root a real host
+// path — every tool target in the transcript quietly went back to printing
+// the operator's home directory. An anchor that does not name the root
+// cannot rot that way again, and it still splits the paths sessions recorded
+// before parity landed.
 export function trimWorkspace(path: string): string {
-  if (!WORKSPACE_ROOT.test(path)) return path;
-  const rest = path.replace(WORKSPACE_ROOT, "");
-  // The workspace root itself, named rather than left as an empty string.
-  return rest === "" ? "workspace root" : rest;
+  const split = splitWorkspacePath(path);
+  if (!split) return path;
+  return elidePath(split, false).visible;
 }
 
 // toolDetail is the one-line descriptor shown next to a tool's name in its

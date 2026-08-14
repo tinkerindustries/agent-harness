@@ -67,7 +67,7 @@ services:
       DEEPSEEK_HTTP_ADDR: 0.0.0.0:8080
       DEEPSEEK_DATA_DIR: /data
       # The same path the mount below uses on both sides — see the note there.
-      DEEPSEEK_WORKSPACE_ROOT: ${PWD}/workspaces-prod
+      DEEPSEEK_WORKSPACE_ROOT: ${HARNESS_WORKSPACES_PROD:-/Users/Shared/harness-workspaces-prod}
       # The host path of the worktree registry, for a `docker compose` a
       # session runs inside this container; ${HOME} there is /root, which is
       # not the host's registry. The mount below is what shares the file
@@ -80,15 +80,22 @@ services:
     ports:
       - "127.0.0.1:8180:8080"
     volumes:
-      # Production runs get their workspaces here, beside the dev stack's
-      # ./workspaces and never mixed with it.
+      # Production runs get their workspaces here, never mixed with the dev
+      # stack's.
       #
       # Source and target are the same absolute path for the reason
       # docker-compose.yml sets out at length: the socket below makes this a
       # client of the host's daemon, which resolves a bind source on the host,
       # so a session that runs docker compose inside its own clone can only be
       # understood if the path it names is a host path.
-      - ${PWD}/workspaces-prod:${PWD}/workspaces-prod
+      #
+      # The default sits outside the checkout so a production path carries no
+      # operator home directory or repository name — it is quoted in the
+      # opening message of every run, in the session list, and in exported
+      # transcripts (docs/WORKTREES.md, "Path parity"). Override with
+      # HARNESS_WORKSPACES_PROD; it must stay a real host path the daemon will
+      # share, and moving it leaves earlier runs' workspaces where they are.
+      - ${HARNESS_WORKSPACES_PROD:-/Users/Shared/harness-workspaces-prod}:${HARNESS_WORKSPACES_PROD:-/Users/Shared/harness-workspaces-prod}
       - harness-data:/data
       # The host's docker daemon, for sessions that build or run containers.
       # A session in full permission mode can do anything to the host through

@@ -2,6 +2,7 @@ import { memo, useMemo, useState } from "react";
 import type { Block } from "../../api/fold";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible";
 import { ScreenshotGallery } from "./ScreenshotGallery";
+import { shortenWorkspacePaths } from "../ui/workspacePath";
 
 // OpeningBlock renders the run's opening message collapsed to one summary
 // line — the workspace line, the word count, and the files it names
@@ -44,7 +45,10 @@ export function openingSummary(text: string): string {
   const first = text.split("\n").find((l) => l.trim().length > 0) ?? "";
   const words = text.trim().split(/\s+/).filter(Boolean).length;
   const files = fileNames(text);
-  const parts = [first.trim(), `${words.toLocaleString("en-US")} words`];
+  // The first line is the workspace line, whose root is the same on every run
+  // and long enough to push the word count off the end. The disclosure below
+  // still carries the opening message verbatim.
+  const parts = [shortenWorkspacePaths(first.trim()), `${words.toLocaleString("en-US")} words`];
   if (files.length > 0) parts.push(files.slice(0, 3).join(", "));
   return parts.join(" · ");
 }

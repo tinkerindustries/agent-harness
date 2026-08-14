@@ -19,6 +19,7 @@ import type { WorkRequestRow, WorkspaceLeaseRow } from "../api/operations";
 import type { SessionState } from "../api/types";
 import { useNow } from "../hooks";
 import { Button } from "./ui/button";
+import { ElidedPath } from "./ui/ElidedPath";
 import { useNavRight } from "./TopNav";
 
 // The operations screen (docs/DATA-API.md): the one place the
@@ -424,7 +425,7 @@ function StuckSessionRow({
         <div className="sess-cell">
           <span className="sess-id">{session.id}</span>
           <span className="sess-sub truncate">
-            {session.workspace}
+            <ElidedPath path={session.workspace} keepSession />
             {session.model && <> · {session.model}</>}
           </span>
         </div>
@@ -538,7 +539,9 @@ interface LeaseRowProps {
 function LeaseRow({ row, now, busy, confirming, error, onRelease, onConfirmRelease, onCancel }: LeaseRowProps) {
   return (
     <tr className="ops-row">
-      <td className="ops-mono">{row.workspace}</td>
+      <td className="ops-mono">
+        <ElidedPath path={row.workspace} keepSession />
+      </td>
       <td className="ops-mono dim">{row.session_id}</td>
       <td className="dim">{formatStamp(row.acquired_at)}</td>
       <td className="dim">{formatStamp(row.heartbeat_at)}</td>
@@ -547,7 +550,13 @@ function LeaseRow({ row, now, busy, confirming, error, onRelease, onConfirmRelea
         {confirming ? (
           <div className="ops-confirm">
             <span>
-              Release the lease on <code>{row.workspace}</code>? Its row is removed.
+              Release the lease on{" "}
+              <code>
+                {/* The session directory is what identifies the lease, so the
+                    confirmation stays unambiguous with the root elided. */}
+                <ElidedPath path={row.workspace} keepSession />
+              </code>
+              ? Its row is removed.
             </span>
             <div className="ops-confirm-buttons">
               <Button variant="destructive" size="sm" onClick={onConfirmRelease} disabled={busy}>

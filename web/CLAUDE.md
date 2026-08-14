@@ -76,8 +76,17 @@ What the screens are:
   view over the fold's `blocks`; the `Block` union is untouched). A
   Compact/Full toggle collapses every card to its header line; tool
   call headers show the target, not the arguments JSON, and a path target is
-  relative to the session's workspace root (`toolArgs.ts` `trimWorkspace`);
-  the opening block
+  relative to the session's workspace root (`toolArgs.ts` `trimWorkspace`).
+  Every workspace path the UI prints is elided the same way, against the
+  session directory rather than a literal root — the root is configurable
+  (`HARNESS_WORKSPACES`) and is a real host path since path parity, so it
+  carries the operator's own directory names and an elision keyed to one
+  spelling of it silently stops working. `components/ui/workspacePath.ts`
+  owns the split; where the value is a path on its own — the rails' workspace
+  fact, the operations screen's session and lease rows — `ui/ElidedPath.tsx`
+  renders it behind a control that puts the whole path back on click, so a
+  shortened path is always visibly shortened and never a dead end. The
+  opening block
   collapses to one summary line; a cache-churn banner links to the first
   sub-turn that churned. A `Screenshot` or `ReviewScreenshot` result renders
   the images above its text, fetched from the session's live workspace

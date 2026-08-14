@@ -3486,6 +3486,58 @@ body.page .topnav {
 .elided:hover {
   color: var(--foreground);
 }
+/* .path-elide is .elided's inline sibling: the control standing in for a
+   workspace path's hidden prefix (components/ui/ElidedPath.tsx). Same muted
+   treatment and dashed border, sized to sit inside a line of text rather
+   than to span a block, so a row reads as "something was shortened here"
+   without the prefix taking the width back. */
+.path-elide {
+  border: 1px dashed var(--border);
+  border-radius: 3px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  line-height: 1;
+  padding: 1px 3px;
+  margin-right: 2px;
+  cursor: pointer;
+  /* The glyph is the whole control, so it must not be pulled apart by a
+     selection that runs across the path text beside it. */
+  user-select: none;
+  vertical-align: baseline;
+}
+.path-elide:hover {
+  color: var(--foreground);
+  border-color: var(--muted-foreground);
+}
+.path-elide:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+/* An expanded path is the one value in these rows that must be allowed to
+   wrap. Both the rail's facts and the operations table's session subtitle
+   ellipsise their contents, which is correct for the collapsed form and
+   exactly wrong for the expanded one — the reader clicked to see the whole
+   string, and an ellipsis would hand back a shorter path than they started
+   with. The rail selector is repeated because .rail .facts .v outranks a
+   bare class. */
+.path-full,
+.rail .facts .v.path-full {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  /* Paths have no spaces to break at, so the break has to be allowed
+     anywhere or the string overflows its column instead of wrapping. */
+  overflow-wrap: anywhere;
+}
+/* A one-line value reads fine flush right, but a path wrapped over four
+   lines gives every line a different left edge — the segment boundaries stop
+   lining up and the string becomes hard to follow. Left-align it once it
+   wraps. */
+.rail .facts .v.path-full {
+  text-align: left;
+}
 /* The tail half of an elided output sits directly under the elision row,
    whose dashed bottom border already draws the separator — the design's
    sub-turn 2 (its tail pre carries no border-top of its own). */
