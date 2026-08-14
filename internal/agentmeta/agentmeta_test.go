@@ -114,3 +114,81 @@ func TestValidateParent(t *testing.T) {
 		}
 	}
 }
+
+// words returns n whitespace-separated words, so the word-cap tests below
+// can build a string exactly at a cap or one word over without hand-typing
+// fifty words.
+func words(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	parts := make([]string, n)
+	for i := range parts {
+		parts[i] = "word"
+	}
+	return strings.Join(parts, " ")
+}
+
+func TestValidateTitle(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"", true},
+		{"a", true},
+		{words(MaxTitleWords), true},
+		{words(MaxTitleWords + 1), false},
+		{"line one\nline two", false},
+		{"line one\rline two", false},
+	}
+	for _, c := range cases {
+		err := ValidateTitle(c.in)
+		if (err == nil) != c.want {
+			t.Errorf("ValidateTitle(%q) error = %v, want error = %v", c.in, err, c.want)
+		}
+	}
+}
+
+func TestValidateDescription(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"", true},
+		{"a", true},
+		{words(MaxDescriptionWords), true},
+		{words(MaxDescriptionWords + 1), false},
+		// Newlines are allowed in a description: it is prose, not a label.
+		{"line one\nline two", true},
+	}
+	for _, c := range cases {
+		err := ValidateDescription(c.in)
+		if (err == nil) != c.want {
+			t.Errorf("ValidateDescription(%q) error = %v, want error = %v", c.in, err, c.want)
+		}
+	}
+}
+
+func TestValidatePhase(t *testing.T) {
+	cases := []struct {
+		phase, total int
+		want         bool
+	}{
+		{0, 0, true},
+		{1, 1, true},
+		{1, 3, true},
+		{3, 3, true},
+		{4, 3, false},
+		{0, 3, false},
+		{2, 0, false},
+		{-1, 3, false},
+		{1, -3, false},
+		{-1, -1, false},
+	}
+	for _, c := range cases {
+		err := ValidatePhase(c.phase, c.total)
+		if (err == nil) != c.want {
+			t.Errorf("ValidatePhase(%d, %d) error = %v, want error = %v", c.phase, c.total, err, c.want)
+		}
+	}
+}
