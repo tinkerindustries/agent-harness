@@ -50,7 +50,9 @@ What the screens are:
   and the stat strip still come from the SSE snapshot — only the Finished
   table reads the paged endpoint, and the Model column is the model name
   with the effort, job type and full provenance label on hover (the cell's
-  `title`).
+  `title`); the in-flight card's meta line reads the same way — the model
+  name alone on the line, the effort, job type and provenance on the
+  span's `title`, so the row leaves room for the stat figures beside it.
   Outcomes render as `DONE` / `GAVE UP` / `STOPPED` (`statusBadge.ts`), and a
   bare `ok` with no Complete status renders DONE too — the list shows one word
   for both, never an OK of its own. A stat strip above the queue banner —

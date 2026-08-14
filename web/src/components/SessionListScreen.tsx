@@ -491,6 +491,12 @@ function InFlightCard({
   const prog = planProgress(plan);
   const { verb, rest } = splitVerb(prog.activeForm);
   const lines = titleLines(sess);
+  // The meta line renders the model name alone, the way the Finished table's
+  // Model cell does. The detail it used to print inline — the effort, the
+  // job type when there is one, and the full provenance label, id included
+  // — rides on the span's title, one hover away, so the line stays short
+  // enough to leave the stat figures their room on the row.
+  const metaTitle = [sess.effort, sess.job_type, startedBy(sess)].filter(Boolean).join(" · ");
 
   return (
     <Card className={cn("run-card", arrived && "anim-row-in")} interactive>
@@ -513,10 +519,8 @@ function InFlightCard({
               <Badge key={badge.label} variant={badge.variant} className={flip}>
                 {badge.label}
               </Badge>
-              <span className="run-meta">
-                {sess.model} · {sess.effort}
-                {sess.job_type && <> · {sess.job_type}</>}
-                {startedBy(sess) && <> · {startedBy(sess)}</>}
+              <span className="run-meta" title={metaTitle}>
+                {sess.model}
               </span>
               {/* The two figures a running session is judged by — elapsed
                   in full weight, sub-turns dimmer — the finished table's
