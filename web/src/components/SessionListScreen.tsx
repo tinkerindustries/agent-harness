@@ -677,13 +677,13 @@ function FinishedRow({
           <span className="sess-sub">{subtitle || "—"}</span>
         </div>
       </td>
-      <td className="primary">{formatElapsed(sess, now)}</td>
-      <td className="primary" title={costTitle(sess)}>
+      <td data-label="Elapsed" className="primary">{formatElapsed(sess, now)}</td>
+      <td data-label="Cost" className="primary" title={costTitle(sess)}>
         {formatCost(sess.usage.cost_usd)}
       </td>
-      <td title={modelTitle}>{sess.model}</td>
-      <td>{sess.sub_turns}</td>
-      <td className="dim" title={hitRateTitle(sess.usage)}>
+      <td data-label="Model" title={modelTitle}>{sess.model}</td>
+      <td data-label="Sub-turns">{sess.sub_turns}</td>
+      <td data-label="Cache" className="dim" title={hitRateTitle(sess.usage)}>
         {formatHitRate(sess.usage)}
       </td>
     </tr>

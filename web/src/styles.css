@@ -4439,6 +4439,163 @@ kbd {
   }
 }
 
+/* ---------- phone layout (≤560px) ----------
+   The session list was laid out for a desktop browser, and at a phone
+   viewport it does two things badly: the seven-column Finished table
+   squeezes the Session column down to one letter per line, and the nav's
+   right group (Start run, the search input, the LIVE badge) crams the
+   search input into a truncated stub. The table becomes stacked cards —
+   the header visually hidden (not display:none, so the column names stay
+   in the accessibility tree), the same seven cells rearranged into a
+   grid, with the numeric cells carrying their column name as a small
+   label (the data-label attributes FinishedRow renders; invisible on the
+   wide layout, where the header still names them) — and the nav's right
+   group wraps onto its own rows with the search input taking the whole
+   line. Everything here is inside the media query: the wide layout is
+   the same page it always was. */
+@media (max-width: 560px) {
+  .screen {
+    padding: calc(var(--space) * 2) 12px;
+  }
+
+  /* The nav: the right group drops below the wordmark and section links
+     (already wrapping at 720px), the Start run trigger and the LIVE badge
+     share one line, and the search input takes the next line in full so
+     its placeholder reads instead of truncating. */
+  .topnav {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .topnav-right {
+    flex: 1 0 100%;
+  }
+
+  .topnav .nav-search {
+    /* The icon input renders as a wrapper span around the input, and the
+       span is the flex item in the nav's right group; the input inside it
+       is w-full. Flex-shrink 0 is the point: with shrink allowed, the
+       wrapper squeezes onto the trigger's line and the input truncates its
+       placeholder; unsqueezable, it wraps to a full line of its own. */
+    flex: 1 0 100%;
+    width: 100%;
+  }
+
+  .topnav-right [data-slot="input-wrapper"] {
+    flex: 1 0 100%;
+  }
+
+  /* The in-flight card's headline row: the badge and the model name share
+     the first line, and the two figures (elapsed, sub-turns) drop onto a
+     line of their own instead of squeezing the model down to an ellipsis —
+     on 358px of content, four items on one line is what truncated
+     "deepse…" in the first place. */
+  .run-line1 {
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
+  .run-stats {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  /* The finished table, as stacked cards. The row keeps every figure the
+     desktop row carries — nothing is dropped on the phone, the cells just
+     re-flow: the badge beside the session text, then the labeled figures
+     in symmetric pairs (elapsed · cost, sub-turns · cache) with the model
+     name on its own line. The cells are flex items with bases that wrap
+     into those lines; a row that grows or shrinks keeps the pairs equal
+     width, and the description column takes what the badge does not. */
+  .session-table,
+  .session-table tbody {
+    display: block;
+  }
+
+  /* Visually hidden rather than display:none, so a screen reader still
+     hears the column names the visible labels below echo. */
+  .session-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
+  }
+
+  .session-table tr {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) - 2px);
+    background: var(--card);
+    padding: 10px 12px;
+    margin-bottom: 10px;
+  }
+
+  .session-table td {
+    border: none;
+    padding: 0;
+    white-space: normal;
+  }
+
+  /* The badge sits beside the session text, level with its title. */
+  .session-table td:nth-child(1) {
+    flex: 0 0 auto;
+    align-self: flex-start;
+    padding-top: 2px;
+  }
+
+  /* The session text takes the rest of the badge's line — and the whole
+     line's width, so nothing else can share it: a basis of 78% plus the
+     badge's intrinsic width fills the row (85% was 13px too wide for a
+     DONE badge and pushed the title onto its own line) and pushes every
+     figure below. A badge wider than that — COMPACTED — wraps the title
+     onto its own line rather than squeezing it. */
+  .session-table td:nth-child(2) {
+    flex: 1 1 78%;
+    min-width: 0;
+  }
+
+  /* Elapsed and cost share a line as equal halves; sub-turns and cache
+     do the same on the line below the model. */
+  .session-table td:nth-child(3),
+  .session-table td:nth-child(4),
+  .session-table td:nth-child(6),
+  .session-table td:nth-child(7) {
+    flex: 1 1 40%;
+  }
+
+  /* The model name spans the card on its own line. */
+  .session-table td:nth-child(5) {
+    flex: 1 1 100%;
+  }
+
+  /* The column name above the figure, in the design's panel-label
+     vocabulary, rendered only at this width (the header names the same
+     columns on the wide layout). */
+  .session-table td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 0.6875rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted-foreground);
+    margin-bottom: 1px;
+  }
+
+  /* The empty-row message is a single cell of its own row, not one of the
+     seven; keep it full-width and centred. */
+  .session-table tr .empty-row {
+    flex: 1 1 100%;
+    text-align: center;
+  }
+}
+
 
 /* --- Evals (docs/EVALS.md) ------------------------------------------------
    The comparison table is the one layout here with no existing analogue: a
