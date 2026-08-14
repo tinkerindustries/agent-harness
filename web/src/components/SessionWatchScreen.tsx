@@ -42,9 +42,10 @@ interface Props {
 // no way to send a message, not even a disabled one (a greyed-out input
 // invites you to look for the way to enable it). A finished run drops the
 // shell: one page scroll, the sticky rail, the footer's figures in the nav
-// (SessionScreen decides the mode). This page is the provenance
-// strip under the nav, the navigator rail on the left (the plan as phases
-// with one tick per sub-turn), the live footer answering
+// (SessionScreen decides the mode). This page is the navigator
+// rail on the left (the plan as phases
+// with one tick per sub-turn), the provenance strip leading
+// the transcript column, the live footer answering
 // what the run is doing right now, the result the parent gets back at the
 // end of the stream, and the dropped-stream banner both pages share.
 export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, everOpen }: Props) {
@@ -290,61 +291,6 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
   return (
     <>
       <DroppedStreamBanner connection={snapshot.connection} everOpen={everOpen} />
-      {/* The provenance strip (.prov): who started this run, the
-          originating request and job, and the one sentence that says
-          what a spectator may do — a quiet strip, not an alert, because
-          this is the normal state for these sessions.
-
-          One rank of facts is not a hierarchy: eight equally-weighted
-          fragments separated by dots read as one long string, and the
-          thing a reader actually came for — who started this, and may I
-          talk to it — sat inside it with the same weight as the replicate
-          number. So the badge and the launcher lead, and everything else is
-          a labelled chip: a dim key, a mono value, no separators, because
-          the chip shape already does the separating. */}
-      <div className="prov">
-        {/* The spectator badge follows the run's life: WATCHING while it is
-            live, FINISHED once it is over — the sentence beside it says the
-            run ended and could not be messaged, so the badge must not keep
-            claiming it is being watched. */}
-        <Badge variant="outline">{watchBadge(running).label}</Badge>
-        {startedByLabel && <span className="who">{startedByLabel}</span>}
-        <span className="prov-facts">
-          {/* An eval puts the member's request id in parent_agent_id
-              (provenance.ts), so the strip printed the same 36-character id
-              twice in a row — once inside "started by eval (…)" and again as
-              the request. Once is enough. */}
-          {meta.request_id && meta.request_id !== meta.parent_agent_id && (
-            <Fact label="request" value={meta.request_id} />
-          )}
-          {meta.job_type && <Fact label="job" value={meta.job_type} />}
-          {membership && (
-            <>
-              <span className="fact">
-                <span className="k">eval</span>
-                <a
-                  href={`/evals/${encodeURIComponent(membership.eval_run_id)}`}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    onNavigate(`/evals/${encodeURIComponent(membership.eval_run_id)}`);
-                  }}
-                >
-                  {membership.suite}
-                </a>
-              </span>
-              <Fact label="variant" value={membership.variant} />
-              <Fact label="task" value={membership.task_id} />
-              <Fact label="replicate" value={String(membership.replicate)} />
-            </>
-          )}
-        </span>
-        <span className="spacer" />
-        <span className="prov-note">
-          {running
-            ? `This run takes its instructions from ${who}. You can stop it, but not message it.`
-            : `This run took its instructions from ${who}. It is finished, and could not be messaged.`}
-        </span>
-      </div>
       {planMini && (
         <div className="plan-mini">
           <span className="mark" aria-hidden>
@@ -366,6 +312,63 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
         />
         <main className="stream" ref={streamRef} onScroll={onStreamScroll}>
           <div className="stream-inner">
+            {/* The provenance strip (.prov) leads the transcript column: who
+                started this run, the originating request and job, and the one
+                sentence that says what a spectator may do — a quiet strip,
+                not an alert, because this is the normal state for these
+                sessions. It sits above the SKILLS block and scrolls with the
+                conversation.
+
+                One rank of facts is not a hierarchy: eight equally-weighted
+                fragments separated by dots read as one long string, and the
+                thing a reader actually came for — who started this, and may I
+                talk to it — sat inside it with the same weight as the
+                replicate number. So the badge and the launcher lead, and
+                everything else is a labelled chip: a dim key, a mono value,
+                no separators, because the chip shape already does the
+                separating. */}
+            <div className="prov">
+              {/* The spectator badge follows the run's life: WATCHING while
+                  it is live, FINISHED once it is over — the sentence beside
+                  it says the run ended and could not be messaged, so the
+                  badge must not keep claiming it is being watched. */}
+              <Badge variant="outline">{watchBadge(running).label}</Badge>
+              {startedByLabel && <span className="who">{startedByLabel}</span>}
+              <span className="prov-facts">
+                {/* An eval puts the member's request id in parent_agent_id
+                    (provenance.ts), so the strip printed the same
+                    36-character id twice in a row — once inside "started by
+                    eval (…)" and again as the request. Once is enough. */}
+                {meta.request_id && meta.request_id !== meta.parent_agent_id && (
+                  <Fact label="request" value={meta.request_id} />
+                )}
+                {meta.job_type && <Fact label="job" value={meta.job_type} />}
+                {membership && (
+                  <>
+                    <span className="fact">
+                      <span className="k">eval</span>
+                      <a
+                        href={`/evals/${encodeURIComponent(membership.eval_run_id)}`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          onNavigate(`/evals/${encodeURIComponent(membership.eval_run_id)}`);
+                        }}
+                      >
+                        {membership.suite}
+                      </a>
+                    </span>
+                    <Fact label="variant" value={membership.variant} />
+                    <Fact label="task" value={membership.task_id} />
+                    <Fact label="replicate" value={String(membership.replicate)} />
+                  </>
+                )}
+              </span>
+              <span className="prov-note">
+                {running
+                  ? `This run takes its instructions from ${who}. You can stop it, but not message it.`
+                  : `This run took its instructions from ${who}. It is finished, and could not be messaged.`}
+              </span>
+            </div>
             {snapshot.churnPoint && (
               <div className="notice churn-banner">
                 <b>

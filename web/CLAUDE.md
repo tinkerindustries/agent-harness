@@ -27,8 +27,10 @@ harness route renders no nav.
 What the screens are:
 
 - **Session list.** In-flight sessions are collapsible plan cards — collapsed,
-  the summary carries the job's description (the session's `task`, clamped to
-  three lines) and the trigger line shows the `in_progress` item's activeForm
+  the summary carries the run's title with the description beneath it (the raw
+  prompt only when the run has no title at all, clamped to three lines; a
+  title without a description shows no description line) and the trigger line
+  shows the `in_progress` item's activeForm
   and the completed ratio; expanded, the whole plan and the actions row (Stop).
   The card's summary itself opens the session page — the caret is its own
   small toggle button, sibling of the summary, so toggling the plan never
@@ -42,16 +44,24 @@ What the screens are:
   filters server-side, the query and the page are debounced, the refetch is
   keyed on `sessionListStore`'s `finishedRevision` (bumped only when the set
   of terminal sessions changes, so a streaming run never costs a refetch),
-  and the `Pager` below the table pages the envelope. The in-flight cards
+  and a `Pager` above and below the table pages the envelope — the Session
+  column takes all the width the other six columns do not need, so none of
+  them ever wraps. The in-flight cards
   and the stat strip still come from the SSE snapshot — only the Finished
   table reads the paged endpoint, and the Model column is the model name
   with the effort, job type and full provenance label on hover (the cell's
-  `title`).
-  Outcomes render as `DONE` / `GAVE UP` / `STOPPED` (`statusBadge.ts`), not one
-  green OK. A stat strip above the queue health bar — Running (of the pool's
+  `title`); the in-flight card's meta line reads the same way — the model
+  name alone on the line, the effort, job type and provenance on the
+  span's `title`, so the row leaves room for the stat figures beside it.
+  Outcomes render as `DONE` / `GAVE UP` / `STOPPED` (`statusBadge.ts`), and a
+  bare `ok` with no Complete status renders DONE too — the list shows one word
+  for both, never an OK of its own. A stat strip above the queue banner —
+  Running (of the pool's
   slots, from `worker.pool_size`), Spend today, Median duration today, Total
   time today — is a client-side reduction over the same session list, with
-  no backend field behind it. The finished table's columns run Status, Session,
+  no backend field behind it; the queue banner below it renders only when the
+  pool halts (or the health poll reports an error) — the routine pending /
+  in-flight / redelivered counters are gone. The finished table's columns run Status, Session,
   Elapsed, Cost, Model, Sub-turns, Cache: the two numbers an operator
   scans for sit right after Session, where they stay visible before any column
   that still needs the scroll container. The nav's right slot carries the

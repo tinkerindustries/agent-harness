@@ -26,16 +26,16 @@ describe("outcome", () => {
     });
   });
 
-  it("renders an empty complete_status as the plain terminal status, not a guess", () => {
+  it("renders an empty complete_status as DONE, the one word for an ok run, not a guess", () => {
     // A pre-migration row, or a session that ended without calling Complete:
-    // either way the browser shows the plain status rather than guessing
-    // which outcome it was.
-    expect(outcome({ status: "ok" })).toEqual({ label: "OK", variant: "done" });
-    expect(outcome({ status: "ok", complete_status: "" })).toEqual({ label: "OK", variant: "done" });
+    // either way the browser shows the same word it uses for a completed run
+    // rather than guessing which outcome it was.
+    expect(outcome({ status: "ok" })).toEqual({ label: "DONE", variant: "done" });
+    expect(outcome({ status: "ok", complete_status: "" })).toEqual({ label: "DONE", variant: "done" });
     // The reason only refines the empty case; a complete reason with no
-    // status argument is still the plain status, because complete_status is
+    // status argument is still the plain terminal status, because complete_status is
     // the only signal the session list has.
-    expect(outcome({ status: "ok", reason: "complete" })).toEqual({ label: "OK", variant: "done" });
+    expect(outcome({ status: "ok", reason: "complete" })).toEqual({ label: "DONE", variant: "done" });
   });
 
   it("falls back to the raw status for a status the table does not name", () => {

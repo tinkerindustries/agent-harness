@@ -4,8 +4,11 @@ import type { SessionState } from "../api/types";
 
 // The Session cell's title/description rendering (SessionListScreen):
 // a session with a title renders it bold on its own line with the
-// description beneath, and one without falls back to the raw prompt as the
-// description line — no row ever goes blank. Boldness itself is the
+// description beneath; a description with no title renders on its own;
+// a title without a description shows no description line at all (the raw
+// prompt is not repeated under a title that says what the run is); and only
+// a session with neither falls back to the raw prompt as the description
+// line — no row ever goes blank. Boldness itself is the
 // .sess-title span's font-weight 600 in styles.css; this helper decides
 // what that span contains.
 
@@ -44,10 +47,22 @@ describe("titleLines", () => {
     expect(lines.desc).toBe("make the page match the mockup");
   });
 
-  it("keeps the task fallback when a title exists but the description is blank", () => {
+  it("shows the description on its own line when there is no title", () => {
+    const lines = titleLines(
+      sess({ description: "Carry a title, description, and phase position from every producer onto the session row." }),
+    );
+    expect(lines.title).toBeNull();
+    expect(lines.desc).toBe(
+      "Carry a title, description, and phase position from every producer onto the session row.",
+    );
+  });
+
+  it("shows no description line when a title exists but the description is blank", () => {
+    // The title already says what the run is; the raw prompt is not repeated
+    // under it.
     const lines = titleLines(sess({ title: "Match the mockup", task: "make the page match the mockup" }));
     expect(lines.title).toBe("Match the mockup");
-    expect(lines.desc).toBe("make the page match the mockup");
+    expect(lines.desc).toBe("");
   });
 
   it("renders no title and an empty description line when neither exists", () => {

@@ -851,6 +851,20 @@ pre {
   border-bottom: 1px solid var(--border);
   padding: 6px 8px;
   vertical-align: top;
+  /* Every cell except the Session column takes its intrinsic single-line
+     width; combined with .sess-col's width: 100% this is what lets the
+     Session column absorb all the width the other six do not need. */
+  white-space: nowrap;
+}
+
+/* The Session column takes the width the other six columns leave over:
+   width: 100% here plus white-space: nowrap on every other cell makes each
+   of the six take exactly its intrinsic single-line width and this one the
+   rest, so none of them ever wraps. The cell's own text still wraps
+   normally. */
+.session-table .sess-col {
+  width: 100%;
+  white-space: normal;
 }
 
 .session-row {
@@ -882,6 +896,14 @@ pre {
   align-items: center;
   gap: 12px;
   margin-top: var(--space);
+}
+
+/* The pager above the table carries its own spacing: the base rule's
+   margin-top would crowd the section head, and what it needs instead is a
+   little air between itself and the table it pages. */
+.pager-top {
+  margin-top: 0;
+  margin-bottom: var(--space);
 }
 
 .pager-info,
@@ -996,8 +1018,9 @@ pre {
 /* The title and description are the card's description block, on lines of
    their own under the badge row: the run's name in bold with the account of
    the change beneath it. The raw prompt rides on the block's title attribute
-   (reachable on hover) and becomes the description line when the run has no
-   title — a pre-migration row or a blank browser start — so the block is
+   (reachable on hover) and becomes the description line only when the run
+   has no title at all — a pre-migration row or a blank browser start — so
+   the block is
    never empty. The description wraps normally and only a description still
    too long after three lines is ellipsized — the same -webkit-box line
    clamp .sess-sub uses. The block gets its own lines rather than a share of
@@ -1045,9 +1068,10 @@ pre {
   color: var(--muted-foreground);
   font-size: 0.8125rem;
   white-space: nowrap;
-  /* The description takes the middle of the row now, so the meta and the
-     stats keep their natural widths; the meta clips only after the stats
-     have yielded theirs. */
+  /* The meta line is the one element on the row that yields: it carries the
+     model name (the effort, job type and provenance ride on its title) and
+     ellipsizes when the card is too narrow, while the stat figures beside
+     it keep their full width. */
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1061,12 +1085,11 @@ pre {
   font-size: 0.8125rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  /* The stat row is the card's garnish now — elapsed and sub-turns — so on
-     a card too narrow for everything, the stats yield their width before
-     the description or the meta line clips. */
-  min-width: 0;
-  overflow: hidden;
-  flex-shrink: 2;
+  /* The stat row is the card's garnish — elapsed and sub-turns — and the
+     two figures must never come out clipped mid-word, so on a card too
+     narrow for everything the stats keep their full width and the meta
+     line is the element that gives up width and ellipsizes. */
+  flex: none;
 }
 
 /* The two figures a running session is judged by, matching the finished
@@ -1154,7 +1177,9 @@ pre {
 
 /* The plan list as the in-flight card renders it: the same todo-item glyphs
    and status classes PlanList renders in the transcript panel, drawn at the
-   card's density with the running item marked by a left rule and a tint.
+   card's density with the running item found by its heavier weight alone —
+   no band, no left rule, so the current step stays findable without
+   shouting over the plan.
    Every rule is scoped under .run-plan so the transcript's own
    `.plan-panel ul` rendering — and its strikethrough, which the card
    deliberately drops — is untouched. */
@@ -1191,8 +1216,11 @@ pre {
 }
 
 .run-plan .plan-list li.todo-in_progress {
-  border-left-color: var(--status-running);
-  background: var(--status-running-bg);
+  /* The current step is found by weight alone: font-weight 500 keeps it
+     standing out from the pending and completed items without the blue band
+     and left rule the transcript's plan panel still carries. The transparent
+     left border from the base .todo-item rule stays, so nothing shifts
+     sideways when the highlight is gone. */
   font-weight: 500;
 }
 
@@ -1224,13 +1252,14 @@ pre {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  /* Without a max-width a long plan summary stretches the Session column
-     until every column after it scrolls off the right edge — at 1600px
-     only Status and Session would stay visible. The subtitle ellipses
-     instead of pushing, and Elapsed/Cost sit right after Session so the
-     two prioritised numbers are never the ones that scroll away. */
-  max-width: 360px;
+  /* The Session column takes all the width the other six columns do not
+     need (see .sess-col above); this block just keeps its own lines
+     wrapping normally and breaks a long unbroken string — a workspace
+     path, a URL in a summary — anywhere rather than letting it push the
+     numeric columns out of the container. */
   min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .sess-id {
@@ -1319,10 +1348,11 @@ pre {
   margin-top: 2px;
 }
 
-/* The qualifying note — the denominator, the count the duration figures are
-   over — goes under the figure rather than trailing it. Beside a 22px number a
+/* The qualifying note — the Running card's pool-size denominator — goes
+   under the figure rather than trailing it. Beside a 22px number a
    12px note reads as part of the value; under it, it reads as what it is, and
-   the figure keeps the card's baseline to itself. */
+   the figure keeps the card's baseline to itself. The duration cards carry
+   no note at all. */
 .stat .value small {
   display: block;
   font-size: 0.75rem;
@@ -3932,18 +3962,23 @@ kbd {
 
 /* ---------- provenance strip ----------
    For an agent-launched run this is the first question a person has: who
-   started this, and on whose behalf. It is a quiet strip, not an alert —
-   this is the normal state for these sessions, not a fault. */
+   started this, and on whose behalf. It leads the transcript column as its
+   first block — the same border, radius, background and padding the
+   transcript's own blocks carry — and scrolls with the conversation. It is
+   a quiet strip, not an alert — this is the normal state for these
+   sessions, not a fault. */
 .prov {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  padding: 7px 20px;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
+  padding: var(--space);
   background: var(--muted);
-  border-bottom: 1px solid var(--border);
   font-size: 0.75rem;
   color: var(--muted-foreground);
+  margin-bottom: 24px;
 }
 .prov .who {
   color: var(--foreground);
@@ -3986,12 +4021,13 @@ kbd {
   white-space: nowrap;
 }
 /* The sentence is the least urgent thing on the strip — it says the same
-   thing on every run of this kind — so it never competes with the facts. */
+   thing on every run of this kind — so it never competes with the facts: it
+   takes its own full row under the chips (flex-basis: 100%), so a wrapped
+   strip reads as rows of chips with the sentence below them rather than a
+   ragged mix. */
 .prov-note {
   color: var(--muted-foreground);
-}
-.prov .spacer {
-  flex: 1;
+  flex-basis: 100%;
 }
 .prov a {
   color: var(--status-running);
@@ -4366,7 +4402,7 @@ kbd {
     flex-wrap: wrap;
   }
   /* Four stat cards across a ~388px content box leave ~90px cards whose
-     small print ("0 of 4 slots", "9 sessions today") breaks over three
+     small print ("0 of 4 slots") breaks over three
      lines; two columns keeps both the value and its qualifier on one line. */
   .stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));

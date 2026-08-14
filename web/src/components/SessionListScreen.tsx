@@ -88,7 +88,6 @@ interface DayStats {
   running: number;
   spendUsd: number;
   medianMs: number | null;
-  count: number;
   totalMs: number | null;
 }
 
@@ -99,8 +98,8 @@ interface DayStats {
 // finished-today count come straight from the list, spend, the median and
 // the total are reductions over it — and the duration figures cover only
 // sessions that have a finished_at (a running session's duration is not a
-// duration yet). The median and the total are over the same set, so one
-// count serves both cards' small print.
+// duration yet). The median and the total are over the same set; the strip
+// shows them as the two figures, with no count small print under either.
 function computeDayStats(sessions: SessionState[], dayStartMs: number): DayStats {
   let running = 0;
   let spendUsd = 0;
@@ -119,7 +118,6 @@ function computeDayStats(sessions: SessionState[], dayStartMs: number): DayStats
     running,
     spendUsd,
     medianMs: median(durations),
-    count: durations.length,
     totalMs: durations.length > 0 ? durations.reduce((a, b) => a + b, 0) : null,
   };
 }
@@ -331,7 +329,7 @@ export function SessionListScreen({ onOpen }: Props) {
         <StartRunForm token={startToken} onClose={() => setStartOpen(false)} onOpen={onOpen} />
       )}
       <StatStrip stats={stats} poolSize={poolSize} />
-      <QueueHealthBar health={queueHealth} />
+      <QueueHaltBanner health={queueHealth} />
 
       {running.length > 0 && (
         <section className="list-section">
@@ -365,12 +363,20 @@ export function SessionListScreen({ onOpen }: Props) {
               {finishedTotal} session{finishedTotal === 1 ? "" : "s"}
             </span>
           </div>
+          <Pager
+            className="pager-top"
+            label="Finished sessions, top pager"
+            page={page}
+            total={finishedTotal}
+            perPage={FINISHED_PAGE_SIZE}
+            onPage={setPage}
+          />
           <div className="table-scroll">
             <table className="session-table">
               <thead>
                 <tr>
                   <th>Status</th>
-                  <th>Session</th>
+                  <th className="sess-col">Session</th>
                   <th>Elapsed</th>
                   <th>Cost</th>
                   <th>Model</th>
@@ -392,18 +398,25 @@ export function SessionListScreen({ onOpen }: Props) {
               </tbody>
             </table>
           </div>
-          <Pager page={page} total={finishedTotal} perPage={FINISHED_PAGE_SIZE} onPage={setPage} />
+          <Pager
+            label="Finished sessions, bottom pager"
+            page={page}
+            total={finishedTotal}
+            perPage={FINISHED_PAGE_SIZE}
+            onPage={setPage}
+          />
         </section>
       )}
     </div>
   );
 }
 
-// StatStrip is the four cards above the queue health bar: Running (of
+// StatStrip is the four cards above the queue banner: Running (of
 // the pool's slots), Spend today, Median duration today, Total time
-// today. Each value carries the qualifying small print under it — the
-// denominator, the count the
-// duration figures are over — the way the drawing's cards do, so a
+// today. The Running card carries the pool-size denominator as its only
+// small print — the running count means nothing without it; the duration
+// cards show their figures bare, with no count under either — the way the
+// drawing's cards do, so a
 // rolled-up figure never floats free of what it is made of.
 // Every figure here is a Ticker: these four move while an operator watches the
 // list — a run claims a slot, a sub-turn adds to the day's spend — and a number
@@ -430,14 +443,12 @@ function StatStrip({ stats, poolSize }: { stats: DayStats; poolSize: number | nu
         <span className="label">Median duration</span>
         <span className="value">
           <Ticker value={stats.medianMs !== null ? formatMs(stats.medianMs) : "—"} />
-          {stats.count > 0 && <small>{stats.count} sessions today</small>}
         </span>
       </Card>
       <Card className="stat">
         <span className="label">Total time today</span>
         <span className="value">
           <Ticker value={stats.totalMs !== null ? formatMs(stats.totalMs) : "—"} />
-          {stats.totalMs !== null && <small>{stats.count} sessions today</small>}
         </span>
       </Card>
     </div>
@@ -446,8 +457,10 @@ function StatStrip({ stats, poolSize }: { stats: DayStats; poolSize: number | nu
 
 // InFlightCard is one running session as a collapsible plan card.
 // Collapsed, its summary answers what the
-// session is about — the run's title bold with the description (or the raw
-// prompt, when there is no title) under it — and what it is
+// session is about — the run's title bold with the description
+// under it, no description line when the title exists without one (the raw
+// prompt is not repeated), and the raw prompt only when there is no title at
+// all — and what it is
 // doing (the in_progress item's activeForm) and how far in
 // it is (the completed ratio); expanded, it shows the whole plan and the
 // actions row. The caret is its own small toggle button (sibling of the
@@ -478,6 +491,12 @@ function InFlightCard({
   const prog = planProgress(plan);
   const { verb, rest } = splitVerb(prog.activeForm);
   const lines = titleLines(sess);
+  // The meta line renders the model name alone, the way the Finished table's
+  // Model cell does. The detail it used to print inline — the effort, the
+  // job type when there is one, and the full provenance label, id included
+  // — rides on the span's title, one hover away, so the line stays short
+  // enough to leave the stat figures their room on the row.
+  const metaTitle = [sess.effort, sess.job_type, startedBy(sess)].filter(Boolean).join(" · ");
 
   return (
     <Card className={cn("run-card", arrived && "anim-row-in")} interactive>
@@ -500,10 +519,8 @@ function InFlightCard({
               <Badge key={badge.label} variant={badge.variant} className={flip}>
                 {badge.label}
               </Badge>
-              <span className="run-meta">
-                {sess.model} · {sess.effort}
-                {sess.job_type && <> · {sess.job_type}</>}
-                {startedBy(sess) && <> · {startedBy(sess)}</>}
+              <span className="run-meta" title={metaTitle}>
+                {sess.model}
               </span>
               {/* The two figures a running session is judged by — elapsed
                   in full weight, sub-turns dimmer — the finished table's
@@ -528,7 +545,7 @@ function InFlightCard({
                     {lines.phase && <span className="phase-chip">{lines.phase}</span>}
                   </span>
                 )}
-                <span className="run-desc-text">{lines.desc}</span>
+                {lines.desc !== "" && <span className="run-desc-text">{lines.desc}</span>}
               </span>
             )}
             {plan.length > 0 && (
@@ -595,9 +612,12 @@ function CopyIdButton({ sessionId }: { sessionId: string }) {
 // it (clamped to two lines), and the old subtitle — the plan ratio and the
 // model's own summary — moved below the description, dimmer (the .sess-sub
 // line clamp), so scanning the list still does not require opening each
-// transcript. A row with no title (pre-migration, blank browser start)
-// renders the raw prompt as the description line and no bold title, so no
-// row ever goes blank. The row itself is clickable (onOpen, on the <tr>) —
+// transcript. A row with a description renders it under the title; a title
+// without a description shows no description line (the raw prompt is not
+// repeated under a title that says what the run is); and a row with no title
+// at all — pre-migration, blank browser start — renders the raw prompt as
+// the description line with no bold title, so no row ever goes blank. The
+// row itself is clickable (onOpen, on the <tr>) —
 // the cell holds no id any more, and the click target never lived on the id
 // span. Column order is Status, Session, Elapsed, Cost, Model, Sub-turns,
 // Cache: the two numbers an operator scans for sit right after Session,
@@ -648,7 +668,7 @@ function FinishedRow({
               {lines.phase && <span className="phase-chip">{lines.phase}</span>}
             </span>
           )}
-          {(lines.title || lines.desc) && <span className="sess-desc">{lines.desc}</span>}
+          {lines.desc !== "" && <span className="sess-desc">{lines.desc}</span>}
           <span className="sess-sub">{subtitle || "—"}</span>
         </div>
       </td>
@@ -665,27 +685,19 @@ function FinishedRow({
   );
 }
 
-// QueueHealthBar surfaces consumer lag, in-flight count, and redelivery
-// count, plus a halted state as an unmissable banner
-// rather than another quiet figure — an operator watching the list is
-// exactly who needs to know the pool stopped pulling work on an empty
-// account (docs/DESIGN.md §4.5). Renders nothing for a CLI-only harness
-// with no queue wired up (health.available === false, health.halted ===
-// false) and nothing while the first poll is still in flight.
-function QueueHealthBar({ health }: { health: QueueHealth | null }) {
-  if (!health || (!health.available && !health.halted)) return null;
+// QueueHaltBanner is what is left of the old queue-health bar: the routine
+// counters (pending / in flight / redelivered) are gone, and the bar now
+// exists only for the one thing on it an operator cannot afford to miss — a
+// halted pool, as an unmissable banner rather than another quiet figure, plus
+// the health error when there is one (docs/DESIGN.md §4.5). Renders nothing
+// at all unless the queue is halted or health.error is set, and nothing while
+// the first poll is still in flight.
+function QueueHaltBanner({ health }: { health: QueueHealth | null }) {
+  if (!health || (!health.halted && !health.error)) return null;
   return (
     <div className={`queue-health${health.halted ? " queue-health-halted" : ""}`}>
       <Queue aria-hidden />
-      {health.halted ? (
-        <span>
-          queue halted — {health.halt_reason || "reason unknown"}
-        </span>
-      ) : (
-        <span>
-          queue: {health.consumer_lag ?? 0} pending, {health.in_flight ?? 0} in flight, {health.redelivered ?? 0} redelivered
-        </span>
-      )}
+      {health.halted && <span>queue halted — {health.halt_reason || "reason unknown"}</span>}
       {health.error && <span className="dim"> ({health.error})</span>}
     </div>
   );
