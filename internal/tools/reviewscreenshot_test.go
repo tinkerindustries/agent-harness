@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
 	"github.com/mrgeoffrich/deepseek-harness/internal/gemini/geminitest"
@@ -691,7 +692,7 @@ func TestGeminiUsagePayloadCostsAgainstThePriceTable(t *testing.T) {
 		TotalThoughtTokens: 56,
 	}
 
-	payload := geminiUsagePayload(prices, "gemini-3.5-flash", usage)
+	payload := geminiUsagePayload(prices, "gemini-3.5-flash", time.Now(), usage)
 	if payload == nil {
 		t.Fatal("geminiUsagePayload returned nil for a non-nil usage")
 	}
@@ -706,10 +707,10 @@ func TestGeminiUsagePayloadCostsAgainstThePriceTable(t *testing.T) {
 		t.Errorf("CostUSD = %.12f, want %.12f", payload.CostUSD, want)
 	}
 
-	if p := geminiUsagePayload(nil, "gemini-3.5-flash", usage); p.CostUSD != 0 {
+	if p := geminiUsagePayload(nil, "gemini-3.5-flash", time.Now(), usage); p.CostUSD != 0 {
 		t.Errorf("CostUSD with a nil price table = %v, want 0", p.CostUSD)
 	}
-	if p := geminiUsagePayload(prices, "gemini-not-in-table", usage); p.CostUSD != 0 {
+	if p := geminiUsagePayload(prices, "gemini-not-in-table", time.Now(), usage); p.CostUSD != 0 {
 		t.Errorf("CostUSD for an unlisted model = %v, want 0", p.CostUSD)
 	}
 }

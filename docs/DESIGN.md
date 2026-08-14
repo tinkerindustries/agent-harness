@@ -540,11 +540,38 @@ off-peak at half the peak rate. Every rate rises: pro output goes from $0.87/M
 to $1.98/M off-peak and $3.96/M at peak, and cache hits rise six to twelve fold
 on both models. `quick_start/pricing.md` carries both tables.
 
-The current table has no concept of time of day, so it prices every token at the
-pre-16-August flat rate. It carries its own capture date and the cost readout
-shows it, which is what keeps a stale figure from looking authoritative — but a
-capture date does not make a wrong figure right. Supporting the split needs a
-schema change and a UTC clock on the cost path.
+The table carries the split as a `rate_schedule` block: an `effective_at`, the
+peak windows, and a peak/off-peak rate pair per model. Before `effective_at` the
+flat rates apply; from it, a model the schedule names is priced by the window
+its request fell in. A model in neither half — every Gemini and Kimi entry —
+keeps its flat rate, because those providers do not do this.
+
+Two decisions inside that are worth stating.
+
+**The windows are data, not constants.** They are DeepSeek's to change, for the
+same reason the rates are, and a schedule change that needed a Go release to
+take effect would mean the harness billed its own figures wrong until somebody
+noticed. The failure mode is quiet in a particular way: a schedule that never
+matches prices every hour off-peak and simply looks like a cheap week. So the
+loader validates the block rather than tolerating it — an unparseable window, a
+missing half, or a model priced in one half and not the other is a load error.
+
+**The clock is UTC and takes an instant from the caller.** UTC because that is
+what DeepSeek bills on; an operator's own timezone changes nothing about what a
+token costs, only which of their working hours are dear — at UTC+10 the windows
+land at 11:00-14:00 and 16:00-20:00, most of a working day, which `harness ask`
+prints in local time and nothing on the costing path consults. The instant is a
+parameter rather than `time.Now()` because the two differ and the difference is
+billable: a sub-turn that starts at 03:58 UTC and returns at 04:03 has left the
+peak window by the time its usage is recorded. The runner passes the moment the
+request was sent. A zero time is refused rather than defaulted, because it would
+otherwise compare as before every `effective_at` and quietly bill the pre-split
+rate for ever.
+
+Cost is computed once, when the usage event is committed, and stored on it. That
+is what makes a historical figure stable: nothing recomputes an old session at
+today's rates, and the tier that applied is recorded alongside the figure
+(`rate_tier`) so a dear sub-turn can be told from a badly timed one.
 
 Track per turn and per session: cache-hit input tokens, cache-miss input tokens,
 output tokens, reasoning tokens, and derived cost. A work request's result

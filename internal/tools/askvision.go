@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
 )
@@ -97,6 +98,9 @@ func execAskVision(ctx context.Context, e *Executor, argsRaw json.RawMessage) Re
 		}
 	}
 
+	// The instant the request went out, which is what the price table
+	// costs against (internal/pricing.Table.Cost).
+	sentAt := time.Now()
 	answer, usage, err := e.Gemini.Interact(ctx, model, askVisionInstruction, args.Prompt, images,
 		gemini.WithThinkingLevel(level),
 		// Same measured reason as ReviewScreenshot: the field carries a type
@@ -125,7 +129,7 @@ func execAskVision(ctx context.Context, e *Executor, argsRaw json.RawMessage) Re
 		// and the figure comes home in the text because the description cannot
 		// carry a number (docs/CACHE.md) and "expensive" on its own has not
 		// stopped a session spending a third of its budget here.
-		res.GeminiUsage = geminiUsagePayload(e.Prices, model, usage)
+		res.GeminiUsage = geminiUsagePayload(e.Prices, model, sentAt, usage)
 		if line := reviewCostLine(res.GeminiUsage, model); line != "" {
 			res.Content += "\n\n" + line
 		}

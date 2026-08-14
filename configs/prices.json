@@ -1,9 +1,13 @@
 {
   "captured_at": "2026-08-13",
   "source": "https://api-docs.deepseek.com/quick_start/pricing",
-  "pending_change": {
+  "rate_schedule": {
     "effective_at": "2026-08-16T16:00:00Z",
-    "note": "DeepSeek splits billing into peak and off-peak. Peak is 01:00-04:00 and 06:00-10:00 UTC; off-peak is half the peak rate. The loader ignores this block: Cost() has no clock, so it prices every token at the flat rates above and will be wrong from effective_at until the split is implemented. docs/DESIGN.md section 4.9.",
+    "note": "DeepSeek splits billing into peak and off-peak from effective_at; off-peak is half the peak rate. Before effective_at the flat models rates below apply. A model absent from both maps here — every Gemini and Kimi entry — bills its flat rate around the clock. The windows are UTC because that is the clock DeepSeek bills on; at UTC+10 they fall at 11:00-14:00 and 16:00-20:00, which is most of an Australian working day. Verified against the live pricing page on 2026-08-14. docs/DESIGN.md section 4.9.",
+    "peak_windows_utc": [
+      { "from": "01:00", "to": "04:00" },
+      { "from": "06:00", "to": "10:00" }
+    ],
     "peak": {
       "deepseek-v4-flash": {
         "input_cache_hit_per_million_usd": 0.014,

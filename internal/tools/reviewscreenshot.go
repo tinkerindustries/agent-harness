@@ -7,21 +7,22 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"golang.org/x/image/draw"
 	"image"
 	"image/jpeg"
 	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+	// Registers the WebP decoder with image.Decode; x/image has no WebP
+	// encoder, so oversize WebP files are re-encoded as PNG (encodeScreenshot).
+	_ "golang.org/x/image/webp"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
-	"golang.org/x/image/draw"
-	// Registers the WebP decoder with image.Decode; x/image has no WebP
-	// encoder, so oversize WebP files are re-encoded as PNG (encodeScreenshot).
-	_ "golang.org/x/image/webp"
 )
 
 type reviewScreenshotArgs struct {
@@ -253,6 +254,9 @@ func execReviewScreenshot(ctx context.Context, e *Executor, argsRaw json.RawMess
 		question = reviewFollowUpQuestion(conversation, spec, args.Question, imagesReplaced)
 	}
 
+	// The instant the request went out, which is what the price table
+	// costs against (internal/pricing.Table.Cost).
+	sentAt := time.Now()
 	answer, usage, err := e.Gemini.Interact(ctx, model, instruction, question, images,
 		gemini.WithThinkingLevel(e.visionThinkingLevel(ctx, mode)),
 		// No response_format at all: the model decides its own container, and
@@ -289,7 +293,7 @@ func execReviewScreenshot(ctx context.Context, e *Executor, argsRaw json.RawMess
 	}
 	res := Result{Content: content, Truncated: truncated}
 	if usage != nil {
-		res.GeminiUsage = geminiUsagePayload(e.Prices, model, usage)
+		res.GeminiUsage = geminiUsagePayload(e.Prices, model, sentAt, usage)
 		// What the call cost, on the result, in the place the model decides
 		// whether to make another one. The tool description can only say a
 		// review is expensive in general — it is part of the frozen request
@@ -682,7 +686,12 @@ func plural(noun string, n int) string {
 // itself succeeded, and the operator's price table is the thing that is
 // incomplete (docs/DESIGN.md §4.9 prices load from config, never from
 // code).
-func geminiUsagePayload(prices *pricing.Table, model string, usage *gemini.Usage) *store.UsagePayload {
+// billedAt is the instant the vision request was made. Gemini bills one rate
+// around the clock, so no Gemini model appears in the price table's rate
+// schedule and the tier is always flat — but Cost still requires the instant
+// rather than assuming one, because a signature that lets a caller omit it is
+// a signature the DeepSeek path could have omitted it on too.
+func geminiUsagePayload(prices *pricing.Table, model string, billedAt time.Time, usage *gemini.Usage) *store.UsagePayload {
 	cacheHit, cacheMiss, completion, reasoning := usage.TokenSplit()
 	payload := &store.UsagePayload{
 		// Named, so this event is separable from the session's own turns. It
@@ -697,8 +706,9 @@ func geminiUsagePayload(prices *pricing.Table, model string, usage *gemini.Usage
 		ReasoningTokens:       reasoning,
 	}
 	if prices != nil {
-		if c, err := prices.Cost(model, cacheHit, cacheMiss, completion); err == nil {
+		if c, tier, err := prices.Cost(model, billedAt, cacheHit, cacheMiss, completion); err == nil {
 			payload.CostUSD = c
+			payload.RateTier = string(tier)
 		}
 	}
 	return payload
