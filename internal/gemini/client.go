@@ -94,8 +94,15 @@ func WithTransportWrapper(wrap func(http.RoundTripper) http.RoundTripper) Client
 // every request fails locally with ErrNoAPIKey: cmd/harness always supplies
 // a provider reading the key from the settings table, so the empty default
 // is the safe one. The default HTTP client sets no overall request timeout
-// — the tool-level context bounds the call — but transport-level timeouts
-// bound connection setup, matching internal/deepseek.
+// and no response header timeout: the tool-level context is the call's only
+// deadline, so raising tools.reviewscreenshot_timeout actually raises it.
+// Dial and TLS handshake timeouts still bound connection setup.
+//
+// A response header timeout cannot be set here. Interactions are not
+// streamed, so nothing arrives until the model has finished thinking, and a
+// multi-image review at medium thinking reaches 29s of it
+// (docs/reviews/sess-8df2a5f78847c4737b0e86e6e5d069b6.md). internal/deepseek
+// and internal/kimi keep theirs because they stream.
 func NewClient(baseURL string, opts ...ClientOption) *Client {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
@@ -107,10 +114,9 @@ func NewClient(baseURL string, opts ...ClientOption) *Client {
 		},
 		httpClient: &http.Client{
 			Transport: &http.Transport{
-				DialContext:           (&net.Dialer{Timeout: 15 * time.Second}).DialContext,
-				TLSHandshakeTimeout:   15 * time.Second,
-				ResponseHeaderTimeout: 30 * time.Second,
-				IdleConnTimeout:       90 * time.Second,
+				DialContext:         (&net.Dialer{Timeout: 15 * time.Second}).DialContext,
+				TLSHandshakeTimeout: 15 * time.Second,
+				IdleConnTimeout:     90 * time.Second,
 			},
 		},
 	}
