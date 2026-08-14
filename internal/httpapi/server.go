@@ -340,34 +340,46 @@ func methodGate(next http.Handler) http.Handler {
 	})
 }
 
+// writeRoute pairs a path-shape predicate with the writing methods the gate
+// allows there. writeRoutes is the single ordered list writeAllowed and
+// allowedMethods both look up, so a phase that adds a resource extends one
+// list rather than two switches that had to be kept in lockstep by hand —
+// the two used to disagree on nothing only because every edit remembered to
+// touch both; a route added to one and not the other would 405 with a wrong
+// Allow header, silently.
+//
+// Order is significant and preserved from the two switches this replaced:
+// isEvalPath must keep losing to isEvalsCollectionPath and
+// isEvalCancelPath, and isStopPath/isSteerPath must keep being distinct
+// from isSessionPath, for the reasons each predicate's own doc comment
+// gives below.
+type writeRoute struct {
+	match   func(path string) bool
+	methods []string
+}
+
+var writeRoutes = []writeRoute{
+	{isSettingsKeyPath, []string{http.MethodPut, http.MethodDelete}},
+	{isSessionPath, []string{http.MethodPatch, http.MethodDelete}},
+	{isRequestPath, []string{http.MethodPatch, http.MethodDelete}},
+	{isLeasePath, []string{http.MethodDelete}},
+	{isStopPath, []string{http.MethodPost}},
+	{isSteerPath, []string{http.MethodPost}},
+	{isRunsPath, []string{http.MethodPost}},
+	{isEvalsCollectionPath, []string{http.MethodPost}},
+	{isEvalCancelPath, []string{http.MethodPost}},
+	{isEvalPath, []string{http.MethodPatch, http.MethodDelete}},
+}
+
 // writeAllowed reports whether method is a writing method the surface allows
-// on path. The sets live here, one place, so a phase that adds a resource
-// extends this switch rather than the gate itself.
+// on path, by the first writeRoutes entry whose predicate matches.
 func writeAllowed(method, path string) bool {
-	switch {
-	case isSettingsKeyPath(path):
-		return method == http.MethodPut || method == http.MethodDelete
-	case isSessionPath(path):
-		return method == http.MethodPatch || method == http.MethodDelete
-	case isRequestPath(path):
-		return method == http.MethodPatch || method == http.MethodDelete
-	case isLeasePath(path):
-		return method == http.MethodDelete
-	case isStopPath(path):
-		return method == http.MethodPost
-	case isSteerPath(path):
-		return method == http.MethodPost
-	case isRunsPath(path):
-		return method == http.MethodPost
-	case isEvalsCollectionPath(path):
-		return method == http.MethodPost
-	case isEvalCancelPath(path):
-		return method == http.MethodPost
-	case isEvalPath(path):
-		return method == http.MethodPatch || method == http.MethodDelete
-	default:
-		return false
+	for _, route := range writeRoutes {
+		if route.match(path) {
+			return slices.Contains(route.methods, method)
+		}
 	}
+	return false
 }
 
 // isSettingsKeyPath reports whether path is one key's settings resource —
@@ -493,33 +505,17 @@ func isLeasePath(path string) bool {
 }
 
 // allowedMethods names the methods the surface actually allows for path, for
-// the Allow header on a rejected request. Only paths with a write route allow
-// the writing methods; every other path is GET and HEAD.
+// the Allow header on a rejected request, by the same writeRoutes lookup
+// writeAllowed uses. Only paths with a write route allow the writing
+// methods; every other path is GET and HEAD.
 func allowedMethods(path string) string {
-	switch {
-	case isSettingsKeyPath(path):
-		return "GET, HEAD, PUT, DELETE"
-	case isSessionPath(path):
-		return "GET, HEAD, PATCH, DELETE"
-	case isRequestPath(path):
-		return "GET, HEAD, PATCH, DELETE"
-	case isLeasePath(path):
-		return "GET, HEAD, DELETE"
-	case isStopPath(path):
-		return "GET, HEAD, POST"
-	case isSteerPath(path):
-		return "GET, HEAD, POST"
-	case isRunsPath(path):
-		return "GET, HEAD, POST"
-	case isEvalsCollectionPath(path):
-		return "GET, HEAD, POST"
-	case isEvalCancelPath(path):
-		return "GET, HEAD, POST"
-	case isEvalPath(path):
-		return "GET, HEAD, PATCH, DELETE"
-	default:
-		return "GET, HEAD"
+	methods := []string{http.MethodGet, http.MethodHead}
+	for _, route := range writeRoutes {
+		if route.match(path) {
+			return strings.Join(append(methods, route.methods...), ", ")
+		}
 	}
+	return strings.Join(methods, ", ")
 }
 
 // sessionListStatuses are the valid ?status= values on GET /api/sessions:
