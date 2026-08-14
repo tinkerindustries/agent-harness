@@ -974,21 +974,52 @@ pre {
   transform: rotate(90deg);
 }
 
-/* The task is the card's description, on a line of its own under the badge
-   row. It wraps normally and only a description still too long after three
-   lines is ellipsized — the same -webkit-box line clamp .sess-sub uses —
-   with the full text on the element's title, never the old id's single-line
-   truncation. It gets its own line rather than a share of line1 because the
-   meta beside it is nowrap: as a flex sibling it was squeezed to zero width
-   on every card whose meta line carried a started-by, which is all of them. */
+/* The title and description are the card's description block, on lines of
+   their own under the badge row: the run's name in bold with the account of
+   the change beneath it. The raw prompt rides on the block's title attribute
+   (reachable on hover) and becomes the description line when the run has no
+   title — a pre-migration row or a blank browser start — so the block is
+   never empty. The description wraps normally and only a description still
+   too long after three lines is ellipsized — the same -webkit-box line
+   clamp .sess-sub uses. The block gets its own lines rather than a share of
+   line1 because the meta beside it is nowrap: as a flex sibling it was
+   squeezed to zero width on every card whose meta line carried a
+   started-by, which is all of them. */
 .run-desc {
   font-size: 0.8125rem;
   margin-top: 7px;
+}
+
+.run-desc-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.run-desc-text {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* The small "phase N/M" chip next to a run's title: the run's position in a
+   multi-phase chain (the deepseek-flash-plan skill cuts a job into phases),
+   drawn with the list's existing border and muted-foreground vocabulary at
+   the same size as the plan panel's label. */
+.phase-chip {
+  flex: none;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 6px;
+  line-height: 1.5;
+  white-space: nowrap;
 }
 
 .run-meta {
@@ -1186,6 +1217,28 @@ pre {
 .sess-id {
   font-family: var(--font-mono);
   font-size: 0.8125rem;
+}
+
+/* The finished table's Session cell now carries three stacked lines: the
+   run's title bold with its phase chip, the description under it, and the
+   old subtitle dimmest at the bottom. The description clamps to two lines
+   (the -webkit-box line clamp, like .sess-sub) so a long account never
+   stretches the row or pushes the numeric columns out of the container. */
+.sess-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.sess-desc {
+  font-size: 0.8125rem;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sess-sub {

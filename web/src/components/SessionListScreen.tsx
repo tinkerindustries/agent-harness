@@ -6,6 +6,7 @@ import { listSettings } from "../api/settings";
 import { controlToken } from "../api/operations";
 import { startedBy } from "../api/provenance";
 import { startedByShort } from "./sessionListLabel";
+import { titleLines } from "./sessionListTitle";
 import { tableEmptyState } from "./sessionListEmpty";
 import type { QueueHealth, SessionState, Usage } from "../api/types";
 import { useArrivals, useLabelFlip, useNow, useQueueHealth } from "../hooks";
@@ -426,7 +427,8 @@ function StatStrip({ stats, poolSize }: { stats: DayStats; poolSize: number | nu
 
 // InFlightCard is one running session as a collapsible plan card.
 // Collapsed, its summary answers what the
-// session is about — the job's description (sess.task) — and what it is
+// session is about — the run's title bold with the description (or the raw
+// prompt, when there is no title) under it — and what it is
 // doing (the in_progress item's activeForm) and how far in
 // it is (the completed ratio); expanded, it shows the whole plan and the
 // actions row. The caret is its own small toggle button (sibling of the
@@ -456,6 +458,7 @@ function InFlightCard({
   const plan = sess.plan ?? [];
   const prog = planProgress(plan);
   const { verb, rest } = splitVerb(prog.activeForm);
+  const lines = titleLines(sess);
 
   return (
     <Card className={cn("run-card", arrived && "anim-row-in")} interactive>
@@ -498,9 +501,15 @@ function InFlightCard({
                 </span>
               </span>
             </span>
-            {sess.task && (
+            {(lines.title || lines.desc) && (
               <span className="run-desc" title={sess.task}>
-                {sess.task}
+                {lines.title && (
+                  <span className="run-desc-title">
+                    {lines.title}
+                    {lines.phase && <span className="phase-chip">{lines.phase}</span>}
+                  </span>
+                )}
+                <span className="run-desc-text">{lines.desc}</span>
               </span>
             )}
             {plan.length > 0 && (
@@ -563,15 +572,18 @@ function CopyIdButton({ sessionId }: { sessionId: string }) {
 }
 
 // FinishedRow is one finished session in the dense table. The Session cell
-// carries the subtitle — the plan ratio and the model's own summary —
-// wrapped across up to three lines (the
-// .sess-sub line clamp), so scanning the list does not require opening each
-// transcript. The row itself is clickable (onOpen, on the <tr>) — the cell
-// holds no id any more, and the click target never lived on the id span.
-// Column order is Status, Session, Elapsed, Cost, Model, Sub-turns, Cache:
-// the two numbers an operator scans for sit right after
-// Session, where they stay visible before any column the scroll
-// container might still need on a narrow viewport.
+// carries the run's title bold on its own line with the description beneath
+// it (clamped to two lines), and the old subtitle — the plan ratio and the
+// model's own summary — moved below the description, dimmer (the .sess-sub
+// line clamp), so scanning the list still does not require opening each
+// transcript. A row with no title (pre-migration, blank browser start)
+// renders the raw prompt as the description line and no bold title, so no
+// row ever goes blank. The row itself is clickable (onOpen, on the <tr>) —
+// the cell holds no id any more, and the click target never lived on the id
+// span. Column order is Status, Session, Elapsed, Cost, Model, Sub-turns,
+// Cache: the two numbers an operator scans for sit right after Session,
+// where they stay visible before any column the scroll container might
+// still need on a narrow viewport.
 // Elapsed and Cost carry the same primary weight as the in-flight card's
 // stat row.
 function FinishedRow({
@@ -594,6 +606,7 @@ function FinishedRow({
   const prog = planProgress(plan);
   const ratio = plan.length > 0 ? `${prog.done} of ${prog.total} plan items` : "";
   const subtitle = [ratio, sess.summary].filter(Boolean).join(" · ");
+  const lines = titleLines(sess);
   // The Model cell shows the provenance label short — the parent agent's type
   // without its id — because the full label's UUID wrapped the cell to three
   // lines and pushed the Sub-turns and Cache columns out of the table's
@@ -608,6 +621,13 @@ function FinishedRow({
       </td>
       <td>
         <div className="sess-cell">
+          {lines.title && (
+            <span className="sess-title">
+              {lines.title}
+              {lines.phase && <span className="phase-chip">{lines.phase}</span>}
+            </span>
+          )}
+          {(lines.title || lines.desc) && <span className="sess-desc">{lines.desc}</span>}
           <span className="sess-sub">{subtitle || "—"}</span>
         </div>
       </td>

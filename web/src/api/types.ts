@@ -32,6 +32,24 @@ export interface SessionState {
   // waits for its first message); the in-flight card renders no description
   // rather than an empty one.
   task?: string;
+  // title is the run's name (at most 10 words), shown bold on the main page
+  // in place of the raw prompt, mirroring internal/hub's SessionState.
+  // Absent covers a pre-migration row and a producer that left it blank; the
+  // list then renders the task line without a bold title.
+  title?: string;
+  // description is what change the agent is making (at most 50 words),
+  // shown under the title on the main page, mirroring internal/hub's
+  // SessionState. Absent covers a pre-migration row and a producer that
+  // left it blank; the list falls back to the task as the description line.
+  description?: string;
+  // phase is this run's 1-based position in a multi-phase chain, mirroring
+  // internal/hub's SessionState. Absent together with total_phases absent
+  // means the run is not part of a chain; the list shows no phase chip.
+  phase?: number;
+  // total_phases is how many phases the chain has, mirroring
+  // internal/hub's SessionState. When present, the list renders a small
+  // "phase N/M" chip next to the title.
+  total_phases?: number;
   // plan is the session's working plan: the todos array as of the most
   // recent TaskCreate/TaskUpdate call, verbatim, mirroring internal/hub's
   // SessionState. Absent covers a

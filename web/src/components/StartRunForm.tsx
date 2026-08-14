@@ -46,6 +46,8 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
   const [maxSubTurns, setMaxSubTurns] = useState("");
   const [deadlineMs, setDeadlineMs] = useState("");
   const [jobType, setJobType] = useState("");
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
   const [parentAgentType, setParentAgentType] = useState("");
   const [parentAgentID, setParentAgentID] = useState("");
   const [sending, setSending] = useState(false);
@@ -223,6 +225,8 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
     setMaxSubTurns("");
     setDeadlineMs("");
     setJobType("");
+    setTitle("");
+    setDescription("");
     setParentAgentType("");
     setParentAgentID("");
     setChosen([]);
@@ -273,6 +277,11 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
     if (maxSubTurns.trim() !== "") body.max_sub_turns = Number(maxSubTurns);
     if (deadlineMs.trim() !== "") body.deadline_ms = Number(deadlineMs);
     if (jobType !== "") body.job_type = jobType;
+    // Title and description are optional on the browser path: a run started
+    // with both blank renders the raw prompt as its description line, the
+    // way a pre-migration row does.
+    if (title.trim() !== "") body.title = title.trim();
+    if (description.trim() !== "") body.description = description.trim();
     if (chosen.length > 0) body.attachments = chosen.map((c) => c.attachment);
 
     setSending(true);
@@ -452,6 +461,21 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
           </CollapsibleTrigger>
           <CollapsibleContent>
             <div className="start-optional-grid">
+              <label className="start-field">
+                <span className="start-label">Title</span>
+                <Input className="start-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="(optional, up to 10 words)" spellCheck={false} />
+              </label>
+              <label className="start-field start-field-wide">
+                <span className="start-label">Description</span>
+                <textarea
+                  className="start-schema"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="(optional, up to 50 words) — what change this run is making; shown under the title on the main page"
+                  rows={2}
+                  spellCheck={false}
+                />
+              </label>
               <label className="start-field">
                 <span className="start-label">Deny patterns</span>
                 <Input className="start-input" value={deny} onChange={(e) => setDeny(e.target.value)} placeholder="comma-separated substrings, e.g. git push" spellCheck={false} />
