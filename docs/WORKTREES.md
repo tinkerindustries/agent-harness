@@ -201,7 +201,21 @@ docker compose up -d --build      # or scripts/test.sh — both read the .env ju
 harness worktree rm <unique-slug> # unconditionally, before finishing
 ```
 
-The bind mounts in that `docker compose up` resolve because the session's
+Two things had to be true before that sequence actually worked, and both are
+worth knowing because neither is visible from inside a session:
+
+**The slug has to reach compose.** `docker-compose.yml` loads `.env` wholesale
+into the container, so a worktree's own `COMPOSE_PROJECT_NAME` and ports
+became environment variables of every session running there — and compose
+prefers the environment to a `.env` file. A session's `init -standalone` wrote
+itself a correct `.env` that its own `docker compose up` then ignored,
+inheriting the parent's project name and recreating the parent's containers:
+the harness that was running the session, killed by the session. The compose
+file now blanks those keys in the container's environment (`${VAR:-default}`
+treats empty as unset), leaving `HARNESS_REGISTRY_DIR` as the only one a
+session inherits on purpose.
+
+**The bind mounts have to resolve**, which they do because the session's
 workspace has the same path inside the container as it does on the host — see
 [Path parity](#path-parity) above. It is also why the registry this `init`
 writes to is the host's own: the file is shared into the container, and
