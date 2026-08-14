@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { ArrowDown, StopCircle } from "@phosphor-icons/react";
 import type { SessionState } from "../api/types";
 import type { Block } from "../api/fold";
@@ -10,6 +10,7 @@ import { ResultPanel, type RunFinishedBlock } from "./ResultPanel";
 import { DroppedStreamBanner } from "./DroppedStreamBanner";
 import { controlToken, errorMessage, stopSession } from "../api/operations";
 import { isLive } from "../api/status";
+import { liveness, stallNote } from "../api/pulse";
 import { getSessionEval, type EvalMembership } from "../api/evals";
 import { startedBy } from "../api/provenance";
 import { SessionIdContext, useLabelFlip, useNow } from "../hooks";
@@ -225,12 +226,22 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
   // open. The gate keeps a run that had already ended when the page loaded from
   // flipping in (hooks.ts useLabelFlip).
   const navOutcomeFlip = useLabelFlip(running ? "RUNNING" : finishedNav?.outcome.label ?? "RUNNING");
+  // The nav's dot and the footer's are the same dot for the same run, so they
+  // breathe at the same rate: one reading (api/pulse.ts liveness), read in
+  // both places, rather than the same arithmetic written twice and left to
+  // drift apart.
+  const life = liveness(snapshot.live, snapshot.durations, now);
+  const stall = stallNote(life);
   useNavRight(
     <>
       {running && (
         <>
-          <Badge key="running" variant="running" className={navOutcomeFlip}>
-            <span className="dot dot-pulse" aria-hidden />
+          <Badge key="running" variant="running" className={navOutcomeFlip} title={stall}>
+            <span
+              className="dot dot-pulse"
+              style={{ "--pulse-period": `${Math.round(life.periodMs)}ms` } as CSSProperties}
+              aria-hidden
+            />
             RUNNING
           </Badge>
           {navElapsed && <span>{navElapsed}</span>}
@@ -425,6 +436,8 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
             onConfirmStop: () => void confirmStop(),
           }}
           getToolCall={snapshot.getToolCall}
+          pulse={snapshot.pulse}
+          durations={snapshot.durations}
         />
       )}
     </>

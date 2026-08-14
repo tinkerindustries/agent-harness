@@ -1,5 +1,6 @@
 import { FoldState, type Block, type LiveDelta, type LiveView } from "./fold";
 import { SubTurnGroupState, type ChurnPoint, type GroupCounts, type TranscriptItem } from "./groups";
+import { DurationStats, PulseMeter } from "./pulse";
 import type { SessionState, StoreEvent, Todo, ToolCallPayload } from "./types";
 
 // One session's transcript, live or historical (docs/DESIGN.md §4.2: "the
@@ -62,6 +63,18 @@ export interface TranscriptSnapshot {
   // snapshots, so memoised components can take it as a prop without breaking
   // their bailouts.
   getToolCall: (id: string) => ToolCallPayload | undefined;
+  // The liveness layer (api/pulse.ts). Both ride the snapshot as stable
+  // references rather than as values, for the same reason getToolCall does:
+  // they are mutable, they are written on the delta path, and a snapshot that
+  // carried their contents would put the token-rate channel back into React
+  // state — which is the one thing docs/DESIGN.md §5.2 is about.
+  //
+  // pulse is read by the run pulse canvas on its own animation frame; nothing
+  // re-renders when it changes. durations is read during render, but only by
+  // components that were already re-rendering on the second (the footer's
+  // clock), and only for a median over at most fifty samples.
+  pulse: PulseMeter;
+  durations: DurationStats;
 }
 
 const TERMINAL_KINDS = new Set<StoreEvent["kind"]>(["run_finished", "error"]);
@@ -88,6 +101,8 @@ const rafCancel = (handle: number) => cancelAnimationFrame(handle);
 export class TranscriptStore {
   private fold = new FoldState();
   private groups = new SubTurnGroupState();
+  private pulse = new PulseMeter();
+  private durations = new DurationStats();
   // The fold's already-parsed plan as of each block index, appended by
   // ingest() as the fold freezes blocks (see ingest). SubTurnGroupState
   // reads it to name a rail phase from the boundary sub-turn's own plan even
@@ -130,8 +145,7 @@ export class TranscriptStore {
     // properties are what let the transcript show streaming text without
     // the resume path having to know this feature exists.
     this.es.addEventListener("live", (m) => {
-      this.fold.ingestLive(JSON.parse((m as MessageEvent).data) as LiveDelta);
-      this.markDirty();
+      this.ingestLive(JSON.parse((m as MessageEvent).data) as LiveDelta);
     });
     // The seam between the replayed history and the live tail, for the same
     // two reasons a live frame is shaped this way: named, so onmessage never
@@ -164,6 +178,18 @@ export class TranscriptStore {
   ingest(ev: StoreEvent): void {
     const before = this.fold.blocks.length;
     this.fold.ingest(ev);
+    // The two halves of the liveness layer are fed on different terms, and
+    // the difference is the `replayed` seam (api/pulse.ts explains why).
+    //
+    // The baselines take the whole log, off the events' own created_at: they
+    // are a statement about this session, and a page opened forty sub-turns
+    // in should already know what normal looks like here rather than spend
+    // the next few minutes learning it.
+    this.durations.feedEvent(ev);
+    // The pulse takes only what arrived while somebody was watching, off the
+    // wall clock. Feeding it the replay would put an entire finished run into
+    // whichever half-second bucket the connection happened to land in.
+    if (this.replayed) this.pulse.feedEvent(Date.now(), ev);
     // Record the fold's already-applied plan as of the moment each block
     // froze, for the rail's phase grouping: a flush folds whatever blocks
     // arrived since the last one, so without a
@@ -196,6 +222,12 @@ export class TranscriptStore {
   // time, and it is the input StreamText renders from.
   ingestLive(d: LiveDelta): void {
     this.fold.ingestLive(d);
+    // Live frames are the only text that arrives a piece at a time
+    // (web/CLAUDE.md, "A `live` SSE frame is not an event"), which makes them
+    // the run pulse's whole model-output signal: the committed pair lands in
+    // one batch with the turn_finished that freezes the block, and counting
+    // it too would draw every sub-turn twice.
+    if (this.replayed) this.pulse.feedLive(Date.now(), d);
     this.markDirty();
   }
 
@@ -236,6 +268,8 @@ export class TranscriptStore {
       counts: { ...this.groups.counts },
       churnPoint: this.groups.churnPoint,
       getToolCall: this.getToolCall,
+      pulse: this.pulse,
+      durations: this.durations,
     };
   }
 

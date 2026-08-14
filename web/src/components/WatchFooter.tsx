@@ -1,11 +1,13 @@
-import { useMemo } from "react";
+import { useMemo, type CSSProperties } from "react";
 import { HourglassMedium } from "@phosphor-icons/react";
 import type { SessionState } from "../api/types";
 import type { TranscriptItem } from "../api/groups";
 import type { LiveView } from "../api/fold";
 import type { ToolCallPayload } from "../api/types";
+import { liveness, stallNote, type DurationStats, type PulseMeter } from "../api/pulse";
 import { useNow } from "../hooks";
 import { Button } from "./ui/button";
+import { RunPulse } from "./ui/RunPulse";
 import { Ticker } from "./ui/Ticker";
 import { cachePercent, formatRunDuration, watchStatusFigures } from "./turns/turnHelpers";
 import { formatCost, toolDetail } from "./blocks/toolArgs";
@@ -30,6 +32,8 @@ export function WatchFooter({
   onToggleFollow,
   stop,
   getToolCall,
+  pulse,
+  durations,
 }: {
   meta: SessionState;
   items: TranscriptItem[];
@@ -46,8 +50,24 @@ export function WatchFooter({
     onConfirmStop: () => void;
   };
   getToolCall: (id: string) => ToolCallPayload | undefined;
+  // The liveness layer, straight off the store's snapshot (api/pulse.ts).
+  // Both are stable references and neither is state: the meter is read by the
+  // canvas on its own frame, and the baselines are read here once a second on
+  // the clock this footer already re-renders on.
+  pulse: PulseMeter;
+  durations: DurationStats;
 }) {
   const now = useNow(1000);
+
+  // How hard this run is breathing. The dot's --pulse-period comes from the
+  // current activity's age measured against this session's own median, so a
+  // tool call that has been going four times as long as normal for this run
+  // slows the dot to a heavy throb — and a run doing ordinary work looks
+  // exactly as it always did. The gate is per-run rather than absolute
+  // because there is no absolute: a session of Reads and a session of builds
+  // have nothing in common but the dot.
+  const life = liveness(live, durations, now);
+  const stall = stallNote(life);
 
   // The status line's numbers: the sub-turn the footer names — the live
   // turn, or the last frozen one — and the run's totals from the row.
@@ -60,25 +80,22 @@ export function WatchFooter({
   // What is running right now (.nowline): the last pending tool call,
   // the streaming turn's thinking, or the loop between turns. The plan
   // item it sits under is the tail phase's label — the same phase ref
-  // the rail builds its disclosures from. ageMs is the running thing's
-  // OWN age — the pending tool's start stamp from the fold, or the
-  // streaming turn's — never the run's elapsed, which the status
-  // line below owns ("1m 04s" under the tool, "4m 12s elapsed" in the
-  // status line). Null between sub-turns, where there is nothing to age.
+  // the rail builds its disclosures from. The running thing's OWN age —
+  // never the run's elapsed, which the status line below owns ("1m 04s"
+  // under the tool, "4m 12s elapsed" in the status line) — now comes from
+  // `life`, which ages the same activity to decide the dot's period; two
+  // clocks on one fact is how they come to disagree.
   const activity = useMemo(() => {
     let name = "";
     let arg = "";
-    let ageMs: number | null = null;
     if (live.pendingTools.size > 0) {
       const pending = [...live.pendingTools.values()];
       const last = pending[pending.length - 1].call;
       const full = getToolCall(last.id) ?? last;
       name = full.name;
       arg = toolDetail(full);
-      ageMs = now - Date.parse(pending[pending.length - 1].startedAt);
     } else if (live.turn) {
       name = "Thinking";
-      ageMs = now - Date.parse(live.turn.startedAt);
     } else {
       name = "Between sub-turns";
     }
@@ -90,8 +107,8 @@ export function WatchFooter({
         break;
       }
     }
-    return { name, arg, phaseLabel, ageMs };
-  }, [live.pendingTools, live.turn, items, getToolCall, now]);
+    return { name, arg, phaseLabel };
+  }, [live.pendingTools, live.turn, items, getToolCall]);
 
   return (
     <div className="footer footer-watch">
@@ -122,13 +139,28 @@ export function WatchFooter({
           </div>
         )}
         {stop.error && <span className="field-error">{stop.error}</span>}
-        <div className="nowline">
-          <span className="dot dot-pulse" style={{ color: "var(--status-running)" }} aria-hidden />
+        {/* The run pulse leads the band: what the run has actually produced
+            over the last minute and a half, above the line that says what it
+            is doing. The order is deliberate — the shape is the thing you
+            read at a glance and the words are what you read when the shape
+            looks wrong. */}
+        <RunPulse meter={pulse} className="pulse-strip" />
+        <div className="nowline" title={stall}>
+          <span
+            className="dot dot-pulse"
+            // The one place a live figure drives a duration rather than a
+            // label. Set inline because it is per-run data, not a theme
+            // choice: the token in styles.css stays the resting value and
+            // this overrides it only while there is a reading to override
+            // it with.
+            style={{ color: "var(--status-running)", "--pulse-period": `${Math.round(life.periodMs)}ms` } as CSSProperties}
+            aria-hidden
+          />
           <span className="name">{activity.name}</span>
           {activity.arg && <span className="arg">{activity.arg}</span>}
           <span className="under">
-            {activity.ageMs !== null ? formatRunDuration(activity.ageMs) : ""}
-            {activity.phaseLabel ? `${activity.ageMs !== null ? " · " : ""}under “${activity.phaseLabel}”` : ""}
+            {life.ageMs !== null ? formatRunDuration(life.ageMs) : ""}
+            {activity.phaseLabel ? `${life.ageMs !== null ? " · " : ""}under “${activity.phaseLabel}”` : ""}
           </span>
           <span className="spacer" />
           <button type="button" className={`follow${following ? "" : " follow-off"}`} onClick={onToggleFollow}>

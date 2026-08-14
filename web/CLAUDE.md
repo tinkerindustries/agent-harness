@@ -112,7 +112,13 @@ What the screens are:
   IntersectionObserver marking the current entry. On the watch page's own
   rail each sub-turn is a coloured square instead — error red, churn amber,
   edit green, bash blue, read violet, anything else plain, in that priority
-  order (`WatchRail.tsx` `tickCls`, over `GroupTags`). The screen's own
+  order (`WatchRail.tsx` `tickCls`, over `GroupTags`). The watch page's
+  footer leads with the run pulse — the last ninety seconds of what the run
+  has actually produced, as a canvas strip — above the line that says what it
+  is doing, because the shape is what you read at a glance and the words are
+  what you read when the shape looks wrong; the live dot beside them breathes
+  at a rate the run's own figures set (see "Liveness is derived here" below).
+  The screen's own
   header is gone: the nav's crumb shows the session id and its right slot
   carries the connection badge.
 - **Evals.** The eval list is every run over time — what it compared, where it
@@ -221,6 +227,35 @@ blocks; the naive shape re-parses the whole transcript tens of times a second.
   exists, and why it is what the streaming reveal renders from
   (`components/ui/StreamText.tsx`). It is append-only, and an entry rewritten
   in place replays its animation on every flush.
+- **Liveness is derived here, not sent.** `api/pulse.ts` holds the two
+  readings of "is this run actually moving", neither of which is a field on
+  the wire. `PulseMeter` is a ring buffer of how much text arrived when,
+  bucketed at 500ms over a 90-second window and drawn as a canvas strip in the
+  watch footer (`ui/RunPulse.tsx`); `DurationStats` keeps this session's
+  median tool call and sub-turn, and `liveness()` measures the current
+  activity's age against it to set the live dot's `--pulse-period`. Three
+  things about that are load-bearing:
+  - **The meter counts live frames, never the committed deltas.** The
+    committed pair is written in one batch with the `turn_finished` that
+    freezes the block (see the note below), so counting both would draw every
+    sub-turn twice — once smeared across the time it took, once as a spike at
+    the end of it.
+  - **The two halves straddle `replayed` in opposite directions.** The meter
+    takes only what arrived while somebody was watching, off the wall clock,
+    or a replayed backlog lands entirely in whichever bucket the connection
+    opened in. The baselines take the whole log, off each event's own
+    `created_at`, so a page opened forty sub-turns into a run arrives already
+    knowing what normal looks like there.
+  - **Neither is React state, and neither is a snapshot value.** They ride the
+    snapshot as stable references, the way `getToolCall` does. The strip reads
+    the meter on its own animation frame and redraws only when the meter's
+    `revision` moved or the window scrolled a bucket — an unconditional 60Hz
+    repaint in the component that reports liveness would be a poor joke.
+
+  The gate is per-run and it withholds rather than guesses: no median until
+  three comparable calls have completed, and a floor under the baseline so a
+  session of 40ms Reads does not call an ordinary one-second call a stall.
+  Drive it with `/perf?pulse=1`, which scripts a run that hangs on cue.
 - **`replayed` is the seam, and it comes from the server.** One named,
   id-less frame after the history and before the first live event
   (`internal/httpapi` `handleSessionStream`). It reaches the snapshot as

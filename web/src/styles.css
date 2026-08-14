@@ -4343,6 +4343,23 @@ kbd {
   max-width: 840px;
   margin-left: 16px;
 }
+/* The run pulse (components/ui/RunPulse.tsx). A canvas, so everything about
+   how it looks is decided in the drawing pass — this rule owns its box and
+   nothing else. Height is fixed rather than derived: the strip is a reading
+   taken at a glance, and a band that changed height as the footer's contents
+   changed would move the line of text under it while somebody was reading
+   that instead.
+
+   No animation here. The strip is redrawn per frame from the meter and its
+   motion is the data moving, so there is nothing for the reduced-motion query
+   at the top of this file to switch off — the component drops to a one-second
+   redraw itself when that query matches. */
+.pulse-strip {
+  display: block;
+  width: 100%;
+  height: 26px;
+  margin-bottom: 6px;
+}
 .nowline {
   display: flex;
   align-items: center;

@@ -6,6 +6,7 @@ import { computeFrameStats, type FrameStats } from "./frameStats";
 import { buildSyntheticHistory, liveEventGenerator, makeSeqSource } from "./syntheticFeed";
 import { HeightHarness } from "./HeightHarness";
 import { RailHarness } from "./RailHarness";
+import { PulseHarness } from "./PulseHarness";
 
 // PerfHarnessScreen is the instrument behind docs/DESIGN.md §5.5, not a
 // nicety: a synthetic delta feed at a fixed rate against a mounted
@@ -338,10 +339,14 @@ export function PerfHarnessScreen() {
   // its scroll height reported (web/src/perf/HeightHarness.tsx). ?rail=1
   // swaps it for the rail measurement: the same screen with the
   // timeline rail, scrolling through it to count marker updates and frame
-  // cost (web/src/perf/RailHarness.tsx). Read before any hooks because the
+  // cost (web/src/perf/RailHarness.tsx). ?pulse=1 swaps it for the run pulse
+  // and the stall gate against a scripted run that hangs on cue — the two
+  // things in this app that cannot be checked from a still page
+  // (web/src/perf/PulseHarness.tsx). Read before any hooks because the
   // modes share no state.
   if (new URL(window.location.href).searchParams.get("height") === "1") return <HeightHarness />;
   if (new URL(window.location.href).searchParams.get("rail") === "1") return <RailHarness />;
+  if (new URL(window.location.href).searchParams.get("pulse") === "1") return <PulseHarness />;
 
   const [status, setStatus] = useState("idle");
   const [results, setResults] = useState<RunResult[]>([]);

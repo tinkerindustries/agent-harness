@@ -98,7 +98,15 @@ from the last.
   agreement with the Go one. Test the event kinds, not the React tree.
 - **Don't bother** with the React components. There is no DOM test harness and
   the frontend's risk is frame budget, not logic — `web/src/perf` is the
-  instrument for that, driven by hand against a synthetic feed.
+  instrument for that, driven by hand against a synthetic feed. Its modes are
+  query params on `/perf`: `?height=1`, `?rail=1`, and `?pulse=1` for the run
+  pulse and the stall gate.
+- **`web/src/api/pulse.ts`** — unit-test the arithmetic (the ring buffer, the
+  medians, the period curve) and look at the rest. The strip is a shape that
+  only means anything while it moves and the gate's whole claim is that the
+  dot changes when a run stops producing; neither survives a still page, which
+  is what `?pulse=1` exists for — it scripts a run that hangs on cue and
+  prints the gate's own figures beside the dot.
 
 ## Conventions
 
