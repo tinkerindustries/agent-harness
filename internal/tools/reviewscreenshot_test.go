@@ -1447,10 +1447,15 @@ func TestReviewScreenshotReportsItsCost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Keyed on gemini.DefaultModel rather than a literal: this call resolves
+	// its model through that constant, and a table that prices some OTHER
+	// Gemini model does not fail here — Cost errors, the caller keeps zero,
+	// and the assertions below just stop finding a cost line. Naming the
+	// constant means the stub follows the default when it moves.
 	e.Prices = &pricing.Table{
-		CapturedAt: "2026-08-10",
+		CapturedAt: "2026-08-14",
 		Models: map[string]pricing.ModelPrices{
-			"gemini-3.5-flash": {InputCacheHitPerMillionUSD: 0.15, InputCacheMissPerMillionUSD: 1.5, OutputPerMillionUSD: 9.0},
+			gemini.DefaultModel: {InputCacheHitPerMillionUSD: 0.075, InputCacheMissPerMillionUSD: 0.75, OutputPerMillionUSD: 3.75},
 		},
 	}
 	writeFile(t, root, "shot.png", "x")

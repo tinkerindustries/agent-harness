@@ -34,10 +34,13 @@ func testPrices() *pricing.Table {
 		Models: map[string]pricing.ModelPrices{
 			"test-model": {InputCacheHitPerMillionUSD: 0.003625, InputCacheMissPerMillionUSD: 0.435, OutputPerMillionUSD: 0.87},
 			// The vision model the ReviewScreenshot tool uses by default,
-			// with the rates fetched from Google's pricing page on
-			// 2026-08-10, so the Gemini cost accounting test below has a
-			// real table to cost against.
-			"gemini-3.5-flash": {InputCacheHitPerMillionUSD: 0.15, InputCacheMissPerMillionUSD: 1.5, OutputPerMillionUSD: 9.0},
+			// with the introductory rates fetched from Google's pricing page
+			// on 2026-08-14, so the Gemini cost accounting test below has a
+			// real table to cost against. Keyed on the constant rather than a
+			// literal so it follows the default when that moves; a table
+			// pricing the wrong Gemini model does not fail loudly here, it
+			// just silently costs the call at zero.
+			gemini.DefaultModel: {InputCacheHitPerMillionUSD: 0.075, InputCacheMissPerMillionUSD: 0.75, OutputPerMillionUSD: 3.75},
 		},
 	}
 }
@@ -854,7 +857,13 @@ func TestRunGeminiCostShowsInSessionTotal(t *testing.T) {
 	sum := summaries[res.SessionID]
 
 	deepseekCost := 2 * (float64(100)/1e6*0.003625 + float64(100)/1e6*0.435 + float64(5)/1e6*0.87)
-	geminiCost := float64(15)/1e6*1.5 + float64(57)/1e6*9.0
+	// Derived from the table the runner actually costs against rather than
+	// from the rates written out again here. What this test is for is that a
+	// Gemini call reaches the session total at all; restating the rates made
+	// it fail every time they changed, which reads as the accounting breaking
+	// when it is only the price of a token moving.
+	geminiPrices := r.Prices.Models[gemini.DefaultModel]
+	geminiCost := float64(15)/1e6*geminiPrices.InputCacheMissPerMillionUSD + float64(57)/1e6*geminiPrices.OutputPerMillionUSD
 	if math.Abs(sum.CostUSD-(deepseekCost+geminiCost)) > 1e-9 {
 		t.Fatalf("session cost = %.9f, want %.9f (deepseek %.9f + gemini %.9f)", sum.CostUSD, deepseekCost+geminiCost, deepseekCost, geminiCost)
 	}

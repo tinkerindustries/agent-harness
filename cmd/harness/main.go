@@ -259,7 +259,7 @@ func googleAPIKeyProvider(res *settings.Resolver) func() (string, error) {
 
 // googleVisionModelProvider returns the model provider the ReviewScreenshot
 // tool calls before every call: a read of google.vision_model through the
-// store, defaulting to gemini-3.5-flash when unset, so a model changed
+// store, defaulting to gemini-3.7-flash when unset, so a model changed
 // while a process is running takes effect on the next call without a
 // restart.
 func googleVisionModelProvider(res *settings.Resolver) func() (string, error) {

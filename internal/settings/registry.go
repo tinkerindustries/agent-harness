@@ -204,7 +204,7 @@ var registry = []Descriptor{
 	stringSetting(KeyJudgeModel, GroupModels,
 		"Model the eval judge scores transcripts with, when an eval names none (docs/EVALS.md). Defaults to kimi-k3 — the expensive judge: K3 output costs $15.00/M against deepseek-v4-pro's $0.87 (configs/prices.json), and a verdict is bounded by the 384K-token JudgeMaxTokens ceiling, so a judge that runs to it costs ~$5.90 on K3 against ~$0.34 on pro. A verbose verdict on a big eval is a cost to see coming.", "kimi-k3", false, false),
 	stringSetting(KeyGoogleVisionModel, GroupModels,
-		"Gemini model ReviewScreenshot sends screenshots to", "gemini-3.5-flash", false, false),
+		"Gemini model ReviewScreenshot sends screenshots to. Defaults to gemini-3.7-flash, which bills the same input as 3.5 Flash and 2.4x less output ($3.75/M against $9.00/M, configs/prices.json) while being the newer model at the thing this tool does. Its rates are introductory and double on 2027-01-01. A model with no entry in the price table still runs — the cost lookup fails and the caller keeps zero (internal/tools/reviewscreenshot.go), so its spend silently vanishes from every figure in the UI rather than erroring. Add the entry before changing this.", "gemini-3.7-flash", false, false),
 	stringSetting(KeyGoogleVisionThinkingLevel, GroupModels,
 		"How hard the vision model thinks before answering a ReviewScreenshot call. Thinking bills at the output rate and is where a review's cost goes — an empty findings list has been measured at 1,947 thinking tokens against one token of answer. \"auto\" lets the tool choose per call: medium to judge a page against a spec, low to describe one.", "auto", false, false).
 		withAllowed("auto", "minimal", "low", "medium", "high"),

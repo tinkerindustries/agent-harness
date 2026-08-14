@@ -4,6 +4,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -115,7 +116,7 @@ func TestRepoTableCarriesGeminiModels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load ../../configs/prices.json: %v", err)
 	}
-	for _, model := range []string{"gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.6-flash"} {
+	for _, model := range []string{"gemini-3.5-flash", "gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.7-flash"} {
 		p, ok := table.Models[model]
 		if !ok {
 			t.Errorf("table is missing %q", model)
@@ -132,6 +133,56 @@ func TestRepoTableCarriesGeminiModels(t *testing.T) {
 				t.Errorf("%s has a non-positive rate: %v", model, rate)
 			}
 		}
+	}
+}
+
+// TestRepoTableGeminiRates pins the exact Gemini rates against Google's
+// pricing page, the way TestRepoTableCarriesKimiK3 pins Moonshot's.
+//
+// The loose test above — a positive rate, a source, a date — is what let
+// gemini-3.6-flash sit at its standard $1.50/$7.50 through an introductory
+// period billing $0.75/$3.75, over-reporting every 3.6 vision call by a
+// factor of two for as long as it was set. A rate that is plausible is not
+// a rate that is right, and the only version of this test that would have
+// caught it is one that names the numbers.
+//
+// 3.7 and 3.6 Flash carry the SAME rates on purpose: 3.7 launched at 3.6's
+// price. If a future capture makes them differ, that is a real change and
+// this test should be updated to say so — not collapsed into one case.
+func TestRepoTableGeminiRates(t *testing.T) {
+	table, err := Load("../../configs/prices.json")
+	if err != nil {
+		t.Fatalf("Load ../../configs/prices.json: %v", err)
+	}
+	for _, tc := range []struct {
+		model                 string
+		hit, miss, out        float64
+		introductoryUntil2027 bool
+	}{
+		// Introductory through 2026-12-31; these double on 2027-01-01.
+		{"gemini-3.7-flash", 0.075, 0.75, 3.75, true},
+		{"gemini-3.6-flash", 0.075, 0.75, 3.75, true},
+		// No introductory period: these are the standard rates.
+		{"gemini-3.5-flash", 0.15, 1.5, 9.0, false},
+		{"gemini-3.5-flash-lite", 0.03, 0.3, 2.5, false},
+	} {
+		t.Run(tc.model, func(t *testing.T) {
+			p, ok := table.Models[tc.model]
+			if !ok {
+				t.Fatalf("table is missing %q", tc.model)
+			}
+			if p.InputCacheHitPerMillionUSD != tc.hit || p.InputCacheMissPerMillionUSD != tc.miss || p.OutputPerMillionUSD != tc.out {
+				t.Errorf("rates = (%v, %v, %v), want (%v, %v, %v)",
+					p.InputCacheHitPerMillionUSD, p.InputCacheMissPerMillionUSD, p.OutputPerMillionUSD,
+					tc.hit, tc.miss, tc.out)
+			}
+			// A promotional rate with nothing watching its expiry is the
+			// failure this whole test exists for, so the entry has to say
+			// so in the table itself rather than only in a commit message.
+			if tc.introductoryUntil2027 && !strings.Contains(p.Note, "2027-01-01") {
+				t.Errorf("note = %q, want it to name the 2027-01-01 step-up", p.Note)
+			}
+		})
 	}
 }
 
