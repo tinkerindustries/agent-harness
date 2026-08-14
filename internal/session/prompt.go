@@ -7,42 +7,225 @@ import (
 	"strings"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/promptvariant"
+	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
-// systemPrompt is fixed for the life of a harness build. Nothing here may
-// vary per session or per request — no clock, cwd, git status, or file
-// listing — because it sits at the head of every request and divergence
-// there costs the whole prompt cache (docs/CACHE.md). Per-session and
-// per-request context goes in the opening user message instead.
-const systemPrompt = `You are a headless coding agent. You work inside one workspace directory for
+// The head of every request is fixed for the life of a harness build.
+// Nothing here may vary per session or per request — no clock, cwd, git
+// status, or file listing — because it sits at the head of every request
+// and divergence there costs the whole prompt cache (docs/CACHE.md).
+// Per-session and per-request context goes in the opening user message
+// instead.
+//
+// The tool section of the head is assembled, not stored: the inventory
+// sentence and its count word are generated from the session's tool array,
+// and the rules are a table of fragments each declaring the tools it needs
+// (internal/tools). A session's head is therefore a pure function of its
+// tool array and one provider capability — seesImages (docs/KIMI-INTEGRATION
+// .md §4.5) — and adding a tool to an array updates the inventory, the
+// count, and every rule about that tool in one place. The rendered bytes
+// are pinned by TestPromptGolden against the committed golden files, the
+// same byte-stability guard the tool arrays have
+// (internal/tools/definitions_golden_test.go): the head is the shared
+// prompt-cache prefix, so a byte that moves costs every session on that
+// provider a full cache miss.
+const promptPreamble = `You are a headless coding agent. You work inside one workspace directory for
 the whole session and finish tasks by editing files and running commands,
 not by describing what someone else should do.
 
-Tools: Read, Write, Edit, Bash, Glob, Grep, List, TaskCreate, TaskGet,
-TaskList, TaskUpdate, Task, WebFetch, Screenshot, ReviewScreenshot, AskVision,
-Complete.
-All seventeen are always available; a permission policy may refuse a particular call at
+`
+
+// toolOrder is the order the frozen head lists tools in its inventory. It
+// is the order the prompt has always used, and it is NOT the tool array's
+// own order: the array (internal/tools/definitions.go) lists the three
+// vision tools as ReviewScreenshot, AskVision, Screenshot, while the head
+// has always listed Screenshot, ReviewScreenshot, AskVision — the order the
+// tools were added to the prompt. The head's bytes are the prompt cache's
+// prefix, so this refactor preserves them; aligning the array to the head
+// is a deliberate, cache-costing array change (docs/CACHE.md), not part of
+// rebuilding the prompt. toolNamesInOrder reconciles the two: the array's
+// membership, listed in the head's order. Both orders are pinned — the
+// array's by its own golden files, this one by TestPromptGolden and by
+// TestPromptNamesExactlyTheToolArray.
+var toolOrder = []string{
+	"Read", "Write", "Edit", "Bash", "Glob", "Grep", "List",
+	"TaskCreate", "TaskGet", "TaskList", "TaskUpdate", "Task", "WebFetch",
+	"Screenshot", "ReviewScreenshot", "AskVision", "Complete",
+}
+
+// toolNamesInOrder maps a session's tool array onto the head's canonical
+// inventory order: the array's membership, listed in toolOrder. A session
+// whose array is the DeepSeek or Kimi one renders the frozen head byte for
+// byte (TestPromptGolden); a variant that subtracts tools (internal/prompt
+// variant) renders the same head with those tools' names and rules gone.
+func toolNamesInOrder(array []wire.Tool) []string {
+	have := make(map[string]bool, len(array))
+	for _, t := range array {
+		have[t.Function.Name] = true
+	}
+	names := make([]string, 0, len(array))
+	for _, name := range toolOrder {
+		if have[name] {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// inventorySentence renders the "Tools: <names>." paragraph of the head
+// from the session's tool names. The wrapping is the frozen head's: each
+// line holds at most 78 characters of text and a line break falls only
+// between names. The count sentence that follows ("All <n> are always
+// available; ...") is fixed text with the count word generated from the
+// array (numberWord), so the whole inventory stays truthful for any tool
+// set without anyone editing a sentence by hand.
+func inventorySentence(names []string) string {
+	const width = 79 // counts the ", " separator that follows each name but the last
+	var b strings.Builder
+	line := "Tools: "
+	for i, name := range names {
+		piece := name
+		if i < len(names)-1 {
+			piece += ", "
+		} else {
+			piece += "."
+		}
+		if len(line)+len(piece) > width && line != "Tools: " {
+			b.WriteString(strings.TrimSpace(line))
+			b.WriteString("\n")
+			line = ""
+		}
+		line += piece
+	}
+	b.WriteString(line)
+	b.WriteString("\n")
+	return b.String()
+}
+
+// numberWord spells n the way the head spells its availability count
+// ("All seventeen are always available"). The count is generated from the
+// tool array, so a count past twenty fails loudly at the one place that
+// spells it and forces the word table to grow — and a head that disagrees
+// with its own array fails TestPromptNamesExactlyTheToolArray.
+func numberWord(n int) string {
+	words := [...]string{"", "one", "two", "three", "four", "five", "six", "seven", "eight",
+		"nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
+		"sixteen", "seventeen", "eighteen", "nineteen", "twenty"}
+	if n < 1 || n >= len(words) {
+		return "?"
+	}
+	return words[n]
+}
+
+// availabilityTail is the fixed part of the availability paragraph, after
+// the count word generated from the array ("All " + count + tail).
+const availabilityTail = ` are always available; a permission policy may refuse a particular call at
 execution time. A refusal comes back as a tool result naming the rule that
 blocked it — read it and route around the restriction rather than repeating
 the same call.
 
-Rules:
-- Read a file before Write-ing over it or Edit-ing it. Edit requires an
+`
+
+// toolFragment is one entry of the head's Rules list. It renders when every
+// tool in needs is in the session's tool array, no tool in unless is, and
+// (when set) the provider's seesImages capability matches. needs, unless
+// and seesImages are all optional; a fragment with none of them set always
+// renders. The table order is the frozen head's rule order — the bytes the
+// goldens pin — so the assembled head is deterministic for a given tool
+// set, and a session's head is a pure function of its array and capability
+// rather than of the order fragments were edited in.
+type toolFragment struct {
+	// needs lists the tools that must all be in the session's tool array
+	// for the fragment to render. Empty means the fragment does not depend
+	// on the tool set.
+	needs []string
+	// unless lists tools whose presence suppresses the fragment: every one
+	// of them must be absent for it to render. The scratch rule is worded
+	// differently for a session that has the Screenshot tool and one that
+	// does not — it must not name a tool the session was never sent — and
+	// unless is the other half of that pair.
+	unless []string
+	// seesImages, when set, additionally requires the provider capability
+	// to match: true renders only for a provider that reads images
+	// natively, false only for one that does not. The vision sentence is
+	// capability-shaped, not tool-shaped — "You can see images" is true of
+	// Kimi K3 because of the provider (seesImages in runner.go), and no
+	// tool array says so — so it is selected here rather than by which
+	// tools happen to be present.
+	seesImages *bool
+	// text is the fragment's contribution, byte for byte the frozen head's.
+	text string
+}
+
+// renders reports whether the fragment belongs in a head assembled for this
+// tool set and provider capability.
+func (f toolFragment) renders(have map[string]bool, seesImages bool) bool {
+	for _, name := range f.needs {
+		if !have[name] {
+			return false
+		}
+	}
+	for _, name := range f.unless {
+		if have[name] {
+			return false
+		}
+	}
+	if f.seesImages != nil && *f.seesImages != seesImages {
+		return false
+	}
+	return true
+}
+
+// capability returns a pointer to b for a fragment's seesImages condition.
+func capability(b bool) *bool { return &b }
+
+// The Rules list, in the frozen head's order. The first eleven entries are
+// tool-shaped: each names the tools it is about and renders only when all
+// of them are in the session's array. The plan rules are one group — the
+// plan machinery is all-or-nothing, so any one of the four plan tools
+// missing removes the whole section. The workspace rule is not about any
+// tool and always renders. The scratch rule always renders too, but its
+// wording depends on whether the session has the Screenshot tool: the head
+// must not name a tool the session was never sent, so a session without
+// Screenshot gets the wording that does not mention it. The vision rule
+// renders as "You cannot see images ..." when the session is offered the
+// two vision tools, and as the one true sentence for a provider that reads
+// images natively — a property of the provider, not of the tool array.
+var toolFragments = []toolFragment{
+	{
+		needs: []string{"Read", "Write", "Edit"},
+		text: `- Read a file before Write-ing over it or Edit-ing it. Edit requires an
   exact, unique match of old_string against the file's real bytes; the
   line-number prefix Read shows you is for your reference only and must
   never appear inside old_string.
-- Send independent tool calls together in one message. Several Reads, a Grep
+`,
+	},
+	{
+		needs: []string{"Read", "Grep", "Glob", "Bash"},
+		text: `- Send independent tool calls together in one message. Several Reads, a Grep
   beside a Glob, Bash commands that do not depend on each other — batched,
   they run concurrently and cost one round trip instead of five. Two calls
   that write the same file are the one exception: they are applied in the
   order you sent them, never merged, so the second is working from bytes the
   first has already replaced. Make the change in a single Edit where you can,
   and where you cannot, send the second only after seeing the first land.
-- Prefer Grep and Glob to orient before reading whole files.
-- The shell is bash in an Alpine container. GNU grep, rg, curl, ps and the
+`,
+	},
+	{
+		needs: []string{"Grep", "Glob"},
+		text:  "- Prefer Grep and Glob to orient before reading whole files.\n",
+	},
+	{
+		needs: []string{"Bash"},
+		text: `- The shell is bash in an Alpine container. GNU grep, rg, curl, ps and the
   git, Go, Node and Python toolchains are installed; anything else may be
   busybox's applet, which rejects GNU flags.
-- A task that takes three or more steps gets a plan. Call TaskCreate once, at
+`,
+	},
+	{
+		needs: []string{"TaskCreate", "TaskGet", "TaskList", "TaskUpdate"},
+		text: `- A task that takes three or more steps gets a plan. Call TaskCreate once, at
   the start, with one entry per step. Every entry needs all three of: subject,
   a short title like "Run the test suite"; description, what the step
   involves; activeForm, the subject in the present continuous, like "Running
@@ -62,109 +245,106 @@ Rules:
 - Call TaskList to re-read the plan when you have lost track of it, and
   TaskGet with a taskId to re-read one task's description. Read the plan back
   after a long stretch of work rather than guessing what is left.
-- Delegate self-contained side work to Task when it would otherwise clutter
+`,
+	},
+	{
+		needs: []string{"Task", "WebFetch"},
+		text: `- Delegate self-contained side work to Task when it would otherwise clutter
   this conversation, and use WebFetch to read documentation or a URL you
   were given.
-- Tool calls cannot be forced. When the task is done, call Complete
+`,
+	},
+	{
+		needs: []string{"Complete"},
+		text: `- Tool calls cannot be forced. When the task is done, call Complete
   yourself with a summary and, if asked for one, a structured result. If
   you stop without finishing, call Complete with status "gave_up" and say
   why in summary.
-- Work only within the workspace path given in the opening message. Paths
+`,
+	},
+	{
+		text: `- Work only within the workspace path given in the opening message. Paths
   outside it are rejected.
-- Ad hoc files that are not part of the task's deliverable — a screenshot
+`,
+	},
+	{
+		needs: []string{"Screenshot"},
+		text: `- Ad hoc files that are not part of the task's deliverable — a screenshot
   taken for ReviewScreenshot, a scratch note, a temporary download — belong
   in a scratch/ directory at the workspace root, sibling to the repository
   clone(s); never /tmp (shared with every other concurrent session in this
   container, and not preserved), and never inside a cloned repository (risks
   being swept into a commit). Screenshot writes there and nowhere else.
-- You cannot see images. When a change is visual, Screenshot the page and
+`,
+	},
+	{
+		unless: []string{"Screenshot"},
+		text: `- Ad hoc files that are not part of the task's deliverable — a screenshot,
+  a scratch note, a temporary download — belong in a scratch/ directory at
+  the workspace root, sibling to the repository clone(s); never /tmp (shared
+  with every other concurrent session in this container, and not preserved),
+  and never inside a cloned repository (risks being swept into a commit).
+  Write screenshots there and nowhere else.
+`,
+	},
+	{
+		needs: []string{"Screenshot", "ReviewScreenshot"},
+		text: `- You cannot see images. When a change is visual, Screenshot the page and
   send the file to ReviewScreenshot with the spec you were working to —
   that pair is your only way to find out what you actually built, and
-  guessing from the markup is how a broken layout gets reported as done.`
-
-// kimiEdits are the exact text changes that turn systemPrompt into Kimi K3's
-// head (docs/KIMI-INTEGRATION.md §4.4): the inventory restated for Kimi's
-// fourteen-tool array, the vision rule replaced by the one sentence that is
-// true for K3 — it reads images natively, so Screenshot and ReviewScreenshot
-// are not offered and Read returns the image for a PNG, JPEG or WebP path —
-// and the two dropped tools unnamed everywhere else in the text.
-//
-// The head is derived rather than copied for the same reason variants are
-// replacements rather than second copies (docs/EVALS.md): an edit to shared
-// text reaches the Kimi head automatically, and an edit that breaks one of
-// these anchors fails loudly at init instead of silently changing what Kimi
-// sessions are told. The rendered head is still a second frozen head — the
-// bytes are fixed for the life of the build and stored per session, exactly
-// like DeepSeek's — it is just single-sourced in source.
-var kimiEdits = []struct{ from, to string }{
-	{
-		from: "Tools: Read, Write, Edit, Bash, Glob, Grep, List, TaskCreate, TaskGet,\n" +
-			"TaskList, TaskUpdate, Task, WebFetch, Screenshot, ReviewScreenshot, AskVision,\n" +
-			"Complete.\nAll seventeen are always available;",
-		to: "Tools: Read, Write, Edit, Bash, Glob, Grep, List, TaskCreate, TaskGet,\n" +
-			"TaskList, TaskUpdate, Task, WebFetch, Complete.\n" +
-			"All fourteen are always available;",
+  guessing from the markup is how a broken layout gets reported as done.`,
 	},
 	{
-		from: "- Ad hoc files that are not part of the task's deliverable — a screenshot\n" +
-			"  taken for ReviewScreenshot, a scratch note, a temporary download — belong\n" +
-			"  in a scratch/ directory at the workspace root, sibling to the repository\n" +
-			"  clone(s); never /tmp (shared with every other concurrent session in this\n" +
-			"  container, and not preserved), and never inside a cloned repository (risks\n" +
-			"  being swept into a commit). Screenshot writes there and nowhere else.",
-		to: "- Ad hoc files that are not part of the task's deliverable — a screenshot,\n" +
-			"  a scratch note, a temporary download — belong in a scratch/ directory at\n" +
-			"  the workspace root, sibling to the repository clone(s); never /tmp (shared\n" +
-			"  with every other concurrent session in this container, and not preserved),\n" +
-			"  and never inside a cloned repository (risks being swept into a commit).\n" +
-			"  Write screenshots there and nowhere else.",
-	},
-	{
-		from: "- You cannot see images. When a change is visual, Screenshot the page and\n" +
-			"  send the file to ReviewScreenshot with the spec you were working to —\n" +
-			"  that pair is your only way to find out what you actually built, and\n" +
-			"  guessing from the markup is how a broken layout gets reported as done.",
-		to: "- You can see images: Read returns the image when the path is a PNG, JPEG, or\n" +
-			"  WebP file.",
+		seesImages: capability(true),
+		text: `- You can see images: Read returns the image when the path is a PNG, JPEG, or
+  WebP file.`,
 	},
 }
 
-// kimiSystemPrompt is Kimi K3's frozen head, derived once at init from
-// systemPrompt by applying kimiEdits. A Kimi session renders this instead of
-// systemPrompt; the two heads are pinned to their own tool arrays by
-// TestPromptNamesExactlyTheToolArray, and DeepSeek's head is untouched byte
-// for byte.
-var kimiSystemPrompt = renderKimiSystemPrompt()
-
-func renderKimiSystemPrompt() string {
-	p := systemPrompt
-	for _, e := range kimiEdits {
-		if !strings.Contains(p, e.from) {
-			panic("session: kimi prompt edit no longer matches the base prompt: " + e.from)
-		}
-		p = strings.Replace(p, e.from, e.to, 1)
+// renderSystemPromptFor assembles the head for one session's tool set and
+// provider capability: the fixed preamble, the inventory generated from the
+// array, and the Rules list assembled from the fragment table. The bytes
+// are deterministic — a pure function of names and seesImages — so every
+// session with the same tool set shares the same head, the prompt cache's
+// prefix (docs/CACHE.md).
+func renderSystemPromptFor(names []string, seesImages bool) string {
+	have := make(map[string]bool, len(names))
+	for _, name := range names {
+		have[name] = true
 	}
-	return p
+	var b strings.Builder
+	b.WriteString(promptPreamble)
+	b.WriteString(inventorySentence(names))
+	b.WriteString("All ")
+	b.WriteString(numberWord(len(names)))
+	b.WriteString(availabilityTail)
+	b.WriteString("Rules:\n")
+	for _, f := range toolFragments {
+		if f.renders(have, seesImages) {
+			b.WriteString(f.text)
+		}
+	}
+	return b.String()
 }
 
 // RenderSystemPrompt returns the frozen DeepSeek system prompt text. Sessions
 // store its output directly on creation and never call it again for the life
 // of that session (docs/CACHE.md).
 func RenderSystemPrompt() string {
-	return systemPrompt
+	return renderSystemPromptFor(toolNamesInOrder(tools.Definitions()), false)
 }
 
 // RenderSystemPromptFor returns the frozen system prompt for the provider
 // serving model, with a named variant's edits made. An empty variant name is
 // the provider's shipped prompt, byte for byte (internal/promptvariant):
-// DeepSeek renders systemPrompt unchanged, Kimi renders kimiSystemPrompt,
-// whose inventory matches the fourteen-tool array Kimi sessions are sent
-// (docs/KIMI-INTEGRATION.md §4.4).
+// DeepSeek renders its seventeen-tool head, Kimi renders the head for its
+// fourteen-tool array — whose inventory, count word and rules all follow
+// from the array itself (docs/KIMI-INTEGRATION.md §4.4) — and a variant
+// that subtracts tools (tools.DefinitionsForVariant) renders the head for
+// its own smaller array, with no replacements entry needed to keep the
+// inventory truthful.
 func RenderSystemPromptFor(model, variant string) (string, error) {
-	base := systemPrompt
-	if seesImages(model) {
-		base = kimiSystemPrompt
-	}
+	base := renderSystemPromptFor(toolNamesInOrder(tools.DefinitionsFor(model)), seesImages(model))
 	return promptvariant.Apply(variant, base)
 }
 
@@ -268,10 +448,7 @@ func completeExample(resultSchema json.RawMessage) string {
 // where it can itself become a cache checkpoint rather than just more body
 // text in a user message (docs/CACHE.md).
 func RenderCompactionSummarySystemPromptFor(model, summary string) string {
-	base := systemPrompt
-	if seesImages(model) {
-		base = kimiSystemPrompt
-	}
+	base := renderSystemPromptFor(toolNamesInOrder(tools.DefinitionsFor(model)), seesImages(model))
 	return base + "\n\n## Continuing from a prior session\n\n" +
 		"That session ran long enough to need compaction. Here is a summary of what happened before this point:\n\n" + summary
 }

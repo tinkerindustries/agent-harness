@@ -320,13 +320,14 @@ for Kimi and had to be restated regardless. Two halves:
 
 1. **The correction, shipped without an eval.** A prompt naming tools the
    model was never sent is a bug, not a wording choice. Kimi sessions now
-   render a second frozen head — `kimiSystemPrompt` in `internal/session`,
-   derived from the DeepSeek head by the fixed edit set `kimiEdits` — whose
-   inventory names the fourteen tools in Kimi's array, whose count word is
-   corrected, and whose vision rule is the one sentence that is true for K3
-   (Read returns the image for a PNG, JPEG or WebP path). The two dropped
-   tools are named nowhere in it. DeepSeek's head is untouched byte for
-   byte, proven by comparing its rendered prompt against the base commit's.
+   render a second frozen head — assembled in `internal/session` from the
+   same fragment table as DeepSeek's, driven by Kimi's fourteen-tool array
+   and the seesImages capability — whose inventory names the fourteen tools
+   in Kimi's array, whose count word is corrected, and whose vision rule is
+   the one sentence that is true for K3 (Read returns the image for a PNG,
+   JPEG or WebP path). The two dropped tools are named nowhere in it.
+   DeepSeek's head is untouched byte for byte, proven by the golden files
+   `internal/session/testdata/prompt_*.golden.txt`.
    `TestPromptNamesExactlyTheToolArray` pins each head to its own array —
    no more, no less — so the inventories cannot drift apart again.
 2. **The wording A/B, set up and unrun.** `kimi-steps` is a registered

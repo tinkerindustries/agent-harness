@@ -17,10 +17,13 @@ import (
 // This is the guard Phase 8 made necessary (docs/KIMI-INTEGRATION.md §4.4,
 // decision 6). The tool array is per-provider, and the system prompt is a
 // second frozen head that nothing else ties to it: the DeepSeek head names
-// sixteen tools and the Kimi head fourteen, and both must be restated the
-// moment a tool is added to or dropped from an array. Without this test the
-// two can drift — the Phase 9 bug this pins is exactly that: Kimi sessions
-// were sent a fourteen-tool array under a prompt that named sixteen tools.
+// seventeen tools and the Kimi head fourteen, and both must be restated the
+// moment a tool is added to or dropped from an array. The head is now
+// assembled from the array (internal/session/prompt.go), so this test pins
+// the assembly: the rendered inventory must still name exactly the tools
+// the array carries. Without it the two can drift — the Phase 9 bug this
+// pins is exactly that: Kimi sessions were sent a fourteen-tool array under
+// a prompt that named sixteen tools.
 func TestPromptNamesExactlyTheToolArray(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -99,20 +102,6 @@ func inventoryFromPrompt(t *testing.T, prompt string) ([]string, string) {
 		names = append(names, strings.TrimSpace(p))
 	}
 	return names, word
-}
-
-// numberWord spells n the way the prompts spell their availability count.
-// Twenty tools is far beyond anything planned; a future count past that
-// fails the test and forces the word table to grow — loudly, at the point
-// the count word and the array disagree.
-func numberWord(n int) string {
-	words := [...]string{"", "one", "two", "three", "four", "five", "six", "seven", "eight",
-		"nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen",
-		"sixteen", "seventeen", "eighteen", "nineteen", "twenty"}
-	if n < 1 || n >= len(words) {
-		return "?"
-	}
-	return words[n]
 }
 
 func containsSorted(sorted []string, name string) bool {
