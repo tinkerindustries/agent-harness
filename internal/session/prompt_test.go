@@ -269,7 +269,7 @@ func TestKimiHeadDiffersFromDeepSeekHeadOnlyWhereItMust(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, gone := range []string{"Screenshot", "ReviewScreenshot"} {
+	for _, gone := range []string{"Screenshot", "Glance", "Ground", "Detect", "Crop"} {
 		if strings.Contains(kimi, gone) {
 			t.Errorf("Kimi head still mentions %q", gone)
 		}

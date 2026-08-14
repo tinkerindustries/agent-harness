@@ -27,7 +27,7 @@ export const OpeningBlock = memo(function OpeningBlock({ block }: { block: Extra
         <CollapsibleContent>
           <p className="block-text">{block.text}</p>
           {/* The task's image attachments, rendered through the same gallery
-              the Screenshot and ReviewScreenshot results use — the paths the
+              the Screenshot and vision-tool results use — the paths the
               payload carried, addressed on GET /api/sessions/{id}/screenshot. */}
           <ScreenshotGallery paths={block.attachments} />
         </CollapsibleContent>

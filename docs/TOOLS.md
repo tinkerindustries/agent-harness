@@ -51,27 +51,31 @@ trying against `Edit` if exact-match replacement underperforms.
 | `Task` | `description`, `prompt`, `subagent_type` | Delegate to a flash-backed subagent |
 | `WebFetch` | `url`, `prompt` | Fetch a URL and extract against a question |
 | `Screenshot` | `url`, `path`, `width?`, `height?`, `device_scale_factor?`, `color_scheme?`, `full_page?`, `selector?`, `wait_for_selector?`, `wait_ms?` | Capture a page with a headless browser into `scratch/` |
-| `ReviewScreenshot` | `image_paths[]`, `question`, `spec?` | Send screenshots to Gemini's vision model and return its diagnosis |
-| `AskVision` | `image_paths[]`, `prompt`, `thinking_level?` | Ask Gemini's vision model anything about images and return its reply as text |
+| `Glance` | `image_paths[]`, `query?`, `ocr?`, `ocr_extra?`, `region?` | Ask Gemini's vision model about one or more images: describe, answer a question, or transcribe the text |
+| `Ground` | `image_path`, `target`, `region?` | Locate something in an image; every match comes back as a pixel box |
+| `Detect` | `image_path`, `category?`, `region?` | Inventory every instance of a kind of thing in an image; a numbered list of pixel boxes |
+| `Crop` | `image_path`, `region`, `output?`, `scale?` | Cut a pixel box out of an image into its own file — local, no model call |
 | `Complete` | `summary`, `result?`, `status?` | Emit the run's machine-readable result |
 
-Seventeen tools. The first thirteen have a trained-in analogue in at least two
-of the three named harnesses. `Screenshot`, `ReviewScreenshot`, `AskVision` and
-`Complete` do not. The first three exist because DeepSeek cannot see images, so
-the harness builds the whole visual path itself — a capture it controls, and
-either a structured diagnosis or a free answer from Gemini; the
-trained-vocabulary argument above says nothing about any of them, and each is
-named for what it does.
+Nineteen tools. The first thirteen have a trained-in analogue in at least two
+of the three named harnesses. `Screenshot`, `Glance`, `Ground`, `Detect`,
+`Crop`, and `Complete` do not. The first five exist because DeepSeek cannot
+see images, so the harness builds the whole visual path itself — a capture it
+controls (`Screenshot`), a prose answer or a located pixel box from Gemini
+(`Glance`, `Ground`, `Detect`), and a local crop with no model call at all
+(`Crop`); the trained-vocabulary argument above says nothing about any of
+them, and each is named for what it does.
 
 The array is per-provider (docs/KIMI-INTEGRATION.md §4.5, decision 5). A Kimi
-K3 session gets the fourteen tools that remain when `Screenshot`,
-`ReviewScreenshot` and `AskVision` are dropped — K3 reads images natively, so all
-three are redundant for it, and capture happens through Bash and the `playwright-cli`
-skill instead. DeepSeek's array is the full sixteen, unchanged byte for byte.
-Each array is a frozen request head shared by every session on its provider,
-pinned by its own golden file (`internal/tools/testdata/tools_*.golden.json`,
-asserted by `TestToolArrayGolden`); the `Read` section below covers how an
-image reaches the model on the provider that can see one.
+K3 session gets the fourteen tools that remain when `Screenshot`, `Glance`,
+`Ground`, `Detect`, and `Crop` are dropped — K3 reads images natively, so all
+five are redundant for it, and capture happens through Bash and the
+`playwright-cli` skill instead. DeepSeek's array is the full nineteen,
+unchanged byte for byte. Each array is a frozen request head shared by every
+session on its provider, pinned by its own golden file
+(`internal/tools/testdata/tools_*.golden.json`, asserted by
+`TestToolArrayGolden`); the `Read` section below covers how an image reaches
+the model on the provider that can see one.
 
 ## Per-tool notes
 
@@ -85,8 +89,9 @@ path returns the file as an `image_url` part — the bytes base64-encoded into a
 `data:image/<fmt>;base64,...` data URI, the exact shape the Kimi guide
 prescribes (third_party/kimi-docs/guide/use-kimi-vision-model.md), with a
 short text label naming the file alongside. The encoded size is capped by the
-existing screenshot cap setting (`tools.reviewscreenshot_max_bytes`, the same
-5 MB default ReviewScreenshot enforces per file), and an over-cap image is
+existing screenshot cap setting (`tools.reviewscreenshot_max_bytes` — the
+vision tools keep this setting's original name, docs/VISION-TOOLKIT.md — the
+same 5 MB default they enforce per file), and an over-cap image is
 refused with a result naming the limit and suggesting a resize — a refusal
 the model can act on, never a failed run. The image bytes are stored on the
 `tool_result` event, so the fold replays them identically
@@ -218,8 +223,8 @@ group of settings (`tools.webfetch_max_body`, `tools.webfetch_max_extract`,
 ### Screenshot
 
 The capture half of the vision path. It drives a headless Chromium to a URL
-and writes one PNG or JPEG, which `ReviewScreenshot` then sends to Gemini and
-the transcript renders inline.
+and writes one PNG or JPEG, which `Glance`, `Ground`, or `Detect` can then
+send to Gemini and the transcript renders inline.
 
 The harness owns the capture rather than leaving the agent to compose a
 Playwright invocation through `Bash`, because the settings that decide whether
@@ -234,7 +239,7 @@ So the defaults are the standard:
 - **The viewport, not the full page.** `full_page` is off. A full-page capture
   of a long document is downscaled to the same token budget as a viewport one,
   so every control on it shrinks until it is unreadable — the failure the
-  `ReviewScreenshot` notes below describe. When a viewport capture cuts the
+  `Glance` notes below describe. When a viewport capture cuts the
   document off, the result says so, with both heights, so the model knows what
   it did not see rather than concluding the page ends there.
 - **`selector` clips to one element.** This is the answer to "the button looks
@@ -244,7 +249,7 @@ So the defaults are the standard:
   factor.
 - **`device_scale_factor` stays at 1.** The image's next stop is a vision model
   that downscales it regardless, so doubling the pixels doubles the bytes
-  against `ReviewScreenshot`'s per-file cap and buys nothing in what Gemini
+  against the vision tools' per-file cap and buys nothing in what Gemini
   sees. Raise it when a human is going to read fine detail in the transcript.
 - **`color_scheme` defaults to light, and the tool description tells the model
   to capture both.** A layout that holds in one scheme can break in the other,
@@ -288,12 +293,12 @@ path there satisfies it exactly as the explicit spelling does. An **absolute**
 path is left as given — it is a statement about where the file goes, so one
 outside `scratch/` is still refused rather than quietly re-rooted.
 
-The reading side matches, or the pairing would be pointless: `ReviewScreenshot`
-and `AskVision` retry a relative `image_paths` entry that names nothing under
-`scratch/`, and so does the transcript's own image endpoint (see "Seeing the
-screenshots"). A path that does resolve to a real file is never second-guessed,
-so a file at the workspace root is never shadowed by a same-named one in
-`scratch/`.
+The reading side matches, or the pairing would be pointless: `Glance`,
+`Ground`, `Detect`, and `Crop` all retry a relative image path that names
+nothing under `scratch/`, and so does the transcript's own image endpoint (see
+"Seeing the screenshots"). A path that does resolve to a real file is never
+second-guessed, so a file at the workspace root is never shadowed by a
+same-named one in `scratch/`.
 
 The result carries what the page did while it was captured — its title, the
 steps that ran before the shutter, the document height against the viewport
@@ -306,151 +311,170 @@ the navigation, the settle and the encode), and the driver's own navigation
 timeout is derived from it so a slow page fails with a message rather than
 being killed silently.
 
-### ReviewScreenshot
+### Glance
 
-DeepSeek is text-only, so this is the harness's vision path: `Screenshot`
-captures the page (or the agent writes one itself with a headless-browser
-script) and this tool sends it to Google Gemini for a diagnosis. It accepts PNG, JPEG, or WebP files,
-workspace-confined like every other path-taking tool. The image count and the
-per-file size cap are defaults, not fixed values
-(`tools.reviewscreenshot_max_images`, `tools.reviewscreenshot_max_bytes`), so
-the tool description quotes no numbers — it is part of the frozen request head
-(docs/CACHE.md) and a number there would make the head vary per installation.
-A call that exceeds a bound is refused with an error stating the actual limit,
-which is how the model discovers it. The first image is sent at `high`
-resolution and the rest at `medium`, per the prompting notes' advice that only
-the image needing scrutiny should be high — the model is told to put the
-screenshot it cares about first
+DeepSeek is text-only, so this is the harness's general-purpose vision tool:
+it sends one or more images to Google Gemini and returns whatever comes
+back as prose — a description, an answer to a question, or a verbatim
+transcription. It is one of four tools ported from `Anionex/agent-vision-toolkit`
+(docs/VISION-TOOLKIT.md is the assessment behind the port) that between them
+replaced this harness's own `ReviewScreenshot` and `AskVision`, and it is
+designed to be used with the other three in sequence: `Screenshot` captures a
+page, `Ground` locates a spot on it, `Crop` cuts that spot out, and `Glance`
+reads the crop closely — capture, locate, cut, read. A caller that only ever
+calls `Glance` against a full page is skipping the rest of that pipeline, and
+paying for it in how much of a busy screen actually gets seen.
+
+It accepts PNG, JPEG, or WebP files, workspace-confined like every other
+path-taking tool, and a relative `image_paths` entry that names nothing at
+the workspace root is retried once more under `scratch/`, the same as
+`Screenshot`'s own output (see "Screenshot"). The image count and the
+per-file size cap are defaults, not fixed values (`tools.reviewscreenshot_max_images`,
+`tools.reviewscreenshot_max_bytes` — the vision tools kept these setting
+names from the tools they replaced, so an operator's existing configuration
+survived the port unchanged, `internal/tools/vision.go`), so the tool description
+quotes no numbers — it is part of the frozen request head (docs/CACHE.md) and
+a number there would make the head vary per installation. A call that
+exceeds a bound is refused with an error stating the actual limit, which is
+how the model discovers it.
+
+The first image is sent at `high` resolution and the rest at `medium`, per
+the prompting notes' advice that only the image needing scrutiny should be
+high — the tool description tells the model to put the screenshot it cares
+about first
 ([`docs/gemini-3.5-flash-ui-review-prompting.md`](gemini-3.5-flash-ui-review-prompting.md)
 has the request-shape rationale: no temperature/top_p/top_k, `thinking_level`,
-"data first, question last"). A full-page capture is downscaled to roughly a
-thousand image tokens, which leaves a small control unreadable, so the
-description tells the model to screenshot the element itself when the question
-is about one.
+"data first, question last"). An image over the byte cap is downscaled rather
+than refused — decoded and shrunk, preserving aspect ratio, until the
+re-encoded bytes fit — and the answer is prefixed with a note naming which
+file was downscaled and to what dimensions, so the model knows it saw less
+detail than the file holds before it reads what it concluded. A full-page
+capture downscaled this way leaves a small control unreadable, which is the
+case `region` exists for: crop to the spot in question (with `Ground` or
+`Crop`) and `Glance` the crop at full resolution instead of the whole page.
 
-#### Every answer says what it saw
+`query` and `ocr` are mutually exclusive. `query` sends exactly the question
+written, with no fixed instruction wrapped around it; `ocr` transcribes every
+piece of visible text verbatim, line by line, with `ocr_extra` for additional
+requirements; omitting both describes the image or images in general — each
+labelled "Image 1", "Image 2" when there is more than one (a text part
+carrying the file's base name precedes each image part), so an answer about a
+multi-image comparison says which one it means. `region` crops the one image
+to a pixel box before sending, sending only the crop and nothing else — the
+way to look closer at a spot `Ground` or `Detect` already found; it works
+with exactly one image path.
 
-The answer is an object, and its first field is `observed`: one or two plain
-sentences on what is actually on the screen. It is required, it is never
-empty, and the tool result leads with it, above the count.
-
-This is the tool's central fix and it is worth stating why, because the
-obvious design is the one that failed. An answer that is only a findings list
-makes "the page is correct" and "the page never rendered" the same two bytes —
-`[]` — and the caller cannot open the image to break the tie. DeepSeek noticed
-this unaided and said so in its reasoning: *"the '0 findings' answer is only
-meaningful if the page actually rendered the content […] 0 findings could also
-mean 'nothing rendered at all'"*. It then re-asked, got `[]` again, and in one
-measured session spent five calls and 23% of the run's entire cost
-establishing that a clean answer was clean.
-
-The previous attempt at this was a sentence in the instruction telling the
-model an empty list is an answer
-([`sess-b949743ff7766606eb210ae59f2c1bcd.md`](reviews/sess-b949743ff7766606eb210ae59f2c1bcd.md),
-recommendation 3). It shipped, and it did not work — the same session quotes
-that sentence back and overrides it anyway. The lesson is that the model was
-never disbelieving the claim; it was correctly observing that the result
-carried no evidence. Wording cannot fix a missing fact, so the fact is now in
-every answer, and a blank capture arrives as words rather than as an empty
-list ([`vision-path-2026-08-14.md`](reviews/vision-path-2026-08-14.md)).
-
-The shape is asked for and not enforced, and that is deliberate. The API's
-`response_format` carries a type with no schema beside it, and constraining
-the container costs the contents — asking for `"object"` returns a literally
-empty object
-([`gemini-3.5-flash-ui-review-prompting.md`](gemini-3.5-flash-ui-review-prompting.md)
-has the measurement). So the call sends no `response_format`, the model reads
-the instruction and picks its own container, and the harness handles whatever
-comes back:
-
-- A ```` ```json ```` fence is stripped. It is what the model wraps its answer
-  in when nothing constrains it, and it is a much smaller problem than an
-  empty answer.
-- A bare array is the pre-`observed` shape, still read as findings, with the
-  missing description called out in so many words.
-- An object without `observed` gets that same note.
-- Anything that is not JSON comes back as raw text, labelled as unparsed
-  prose rather than passed off as structure.
-
-#### Modes and the standard applied
-
-`mode` chooses what the call is for. `review`, the default, judges the
-screenshots; `describe` makes no judgement and returns what is on the screen —
-the layout, and each element's text, role and styling.
-
-Describe exists because the model kept asking for it through the review path
-and the review path kept refusing. A "what does this page actually show"
-question has no place in a findings schema, so it came back as `[]`. Left with
-no other route, DeepSeek asked for a verbatim transcription inside a review
-call — Gemini complied by abandoning the findings shape, and the harness
-reported the result as "15 findings, 0 high confidence", one of them the
-object `{"transcriptions": []}`. The workaround worked and the count line was
-a fiction; a mode is the honest version of it.
-
-Within `review`, `spec` decides which instruction the call carries. With a
-spec, the model is told the spec is the only standard of correctness and that
-anything it does not cover is intentional; without one, it is held to defects
-visible on their own terms — overlap, clipping, overflow, contrast — and told
-not to report stylistic judgements. A vision model given no standard falls
-back on general web-design convention and returns deliberate choices as
-breakage, which is why the tool description urges a spec on every call. Both
-forms ask for the same findings, each carrying a `confidence` and an `image`
-naming the screenshot it concerns. `describe` is held to neither: a spec is
-meaningless to a call that judges nothing.
-
-The image name comes from a label: each image part is preceded by a text part
-carrying its file's base name ("Image 1: home-dark.png"), so a finding on a
-multi-capture comparison says which screenshot it is about, and the
-transcript's rendered image sits under the same name.
-
-The model comes from the `google.vision_model` setting (default
-`gemini-3.7-flash`) and the key from `google.api_key`, both read through the
-settings table on every call, so either can change without a restart. The call
-has its own timeout (default 60s, `tools.reviewscreenshot_timeout`) rather than
-the 30-second tool default.
-
-How hard the vision model thinks is `google.vision_thinking_level`. It defaults
-to `auto`, which lets the mode decide: `medium` to judge a page against a spec,
-`low` to describe one, on the grounds that saying what is on a screen is not
-the part that needs reasoning. Thinking is where a call's money goes — it bills
-at the output rate, and an empty findings list has been measured at 1,947
-thinking tokens against a one-token answer — so this is the cheapest lever the
-tool has.
-
-#### Following up, and re-capturing
-
-A review can be continued without re-uploading. A call without
-`conversation_id` starts a conversation and its result carries the id; a call
-passing that id and a question continues it. The conversation is held on the
-session's Executor and stores the image paths and the prior question/answer
-pairs — never the image bytes — so a follow-up re-reads the files from disk (a
-file deleted since the first call fails with an ordinary error naming it),
-re-sends the images, the earlier exchanges, and the new question in one
-request. "Look closer at the header" therefore costs one Gemini interaction
-with the thread replayed, not a fresh review from scratch. Retained
-conversations are capped at the most recent five per session, so a long
-session cannot grow this without bound.
-
-A follow-up may also carry new `image_paths`, which replace the ones under
-discussion while the thread survives — review, change something, capture it
-again, ask whether it is fixed. That loop is what the tool is used in, and it
-used to be the one shape refused: a model that had re-captured a page got its
-previous answer back, about the previous bytes, and paid for it. The
-replacement is announced inside the request, because a fresh capture replayed
-alongside the model's own earlier answer otherwise gets reconciled against
-that answer instead of being looked at. The spec and the mode stay fixed for
-the conversation's life — the thread being replayed was produced under them.
-
-An image can also arrive with the task. A work request may carry attachments
-(`POST /api/runs`, the MCP `deepseek_agent` tool — docs/DATA-API.md): the
-bytes are stored in SQLite, the request carries only ids, and
-`internal/workspace` materialises them into `scratch/attachments/` during
-`Prepare`. The opening message names the files, so the model knows they exist
-and can pass one to ReviewScreenshot as the image the page should be judged
-against — "make it look like this mockup" becomes a review against the mockup
-itself instead of a prose description of it. Only PNG, JPEG, and WebP are
-accepted, capped in count and per-file bytes by
+An image can also arrive with the task rather than being captured mid-session.
+A work request may carry attachments (`POST /api/runs`, the MCP
+`deepseek_agent` tool — docs/DATA-API.md): the bytes are stored in SQLite, the
+request carries only ids, and `internal/workspace` materialises them into
+`scratch/attachments/` during `Prepare`. The opening message names the files,
+so the model knows they exist and can pass one to `Glance` as the image to
+compare against — "make it look like this mockup" becomes a question against
+the mockup itself instead of a prose description of it. Only PNG, JPEG, and
+WebP are accepted, capped in count and per-file bytes by
 `tools.attachments_max_count` and `tools.attachments_max_bytes`.
+
+How hard the vision model thinks defaults to medium — a real question
+deserves reasoning — and truncation is the plain byte cap: safe here because
+there is no JSON document to sever. The model comes from the
+`google.vision_model` setting (default `gemini-3.7-flash`) and the key from
+`google.api_key`, both read through the settings table on every call so
+either can change without a restart; the call has its own timeout (60s,
+`tools.reviewscreenshot_timeout`) rather than the 30-second tool default. An
+operator can override the thinking default with `google.vision_thinking_level`;
+there is no longer a per-call `thinking_level` argument — `Glance`, `Ground`,
+and `Detect` each pick their own default and the operator's setting is the
+only knob left over it.
+
+#### What was lost, and what to do instead
+
+`Glance` is one tool doing the work `ReviewScreenshot` and `AskVision` used
+to split between them, and it inherits neither tool's guarantees. Gone: the
+structured findings list, each carrying a `confidence` and the screenshot it
+concerned; the instruction that told Gemini to judge only against a supplied
+`spec` and treat everything else as intentional; the required `observed`
+sentence that stopped a clean answer from being mistaken for a blank page
+(the fix for a real, measured failure —
+[`vision-path-2026-08-14.md`](reviews/vision-path-2026-08-14.md), one session
+spent 23% of its cost re-asking to find out a review of nothing was a review
+of nothing); and `conversation_id` follow-ups that let a review continue
+without re-uploading the images.
+
+A session that needs any of that now has to build it into its own `query`:
+state the standard being judged against, ask for a sentence on what is
+actually on the screen before the verdict, and ask for findings in whatever
+shape it wants back — as prose, not a validated schema. `Screenshot`'s own
+result still reports the page's title, console errors, and whether the
+document ran past the viewport, which is real evidence a rendering-vs-review
+question can be checked against without a second Gemini call. A multi-step
+review — capture, judge, fix, re-capture, ask whether it is fixed — is now
+several independent `Glance` calls rather than one held conversation; each
+has to restate its own context, because nothing on the harness side carries
+it forward between them.
+
+### Ground and Detect
+
+Where `Glance` answers in prose, `Ground` and `Detect` answer in pixels:
+"where is the submit button" gets back a box, not a description of roughly
+where it is. Upstream, `detect` is `ground` with a canned target and no other
+logic at all (docs/VISION-TOOLKIT.md §6), and this harness ports them the
+same way — one implementation (`runLocate` in `internal/tools/vision.go`)
+behind two tool names, sharing every property below.
+
+`Ground` takes `target` — anything nameable, a labelled control or a region
+of the page — and returns every match. `Detect` takes an optional `category`,
+defaulting to UI elements generally (buttons, links, inputs, icons, labels,
+headings, images, badges), and always numbers its results, with each entry's
+label carrying the element's own visible text; `Ground` prints a single match
+bare and only numbers a list when there is more than one. Neither guesses:
+"no match found" (`Ground`) or "no elements detected" (`Detect`) is a real
+answer, not an error.
+
+Both accept exactly one image — PNG, JPEG, or WebP — with the same workspace
+confinement and `scratch/`-relative retry as `Glance`. `region` narrows the
+search to part of the image before sending, useful when roughly where to
+look is already known; the returned boxes are reported in the original
+image's coordinates either way (see below). An oversize image or crop is
+downscaled the same way `Glance`'s is; unlike `Glance`, neither tool surfaces
+a note about it in the result — the coordinate contract below means the
+returned box still lands correctly regardless, though the model's perception
+of a downscaled image can still be worse than of the original. Thinking
+defaults to low rather than `Glance`'s medium: locating something is
+perception, not reasoning, and it is most of what a call costs.
+
+#### The coordinate contract
+
+Gemini returns boxes on a 0-1000 grid, `[y0, x0, y1, x1]`, resolution-independent
+by construction. The harness scales each returned box by the dimensions of
+the image actually sent — the crop's dimensions when `region` was given, the
+whole file's otherwise — never by whatever dimensions survived a byte-cap
+downscale, and reports every box back in the **original** file's pixel
+coordinates. That is what makes the byte cap harmless for locating: an image
+downscaled to fit under the cap still returns a box a caller can use directly
+against the file on disk, even though perception itself degrades with the
+downscale (docs/VISION-TOOLKIT.md §6).
+
+The reply is parsed tolerantly rather than validated against a schema: a
+```` ```json ```` fence is stripped, a bare array or an object wrapping one
+under `boxes`, `bounding_boxes`, `bboxes`, `objects`, `items`, or `results` is
+accepted, and failing that, a regex scavenger pulls box-shaped objects out of
+surrounding prose. Constraining the reply's shape with `response_format` has
+been measured to empty or mangle the contents instead
+(docs/VISION-TOOLKIT.md §6), so the call sends none and leans on the parser.
+A reply that still will not parse comes back as the model's raw text,
+labelled as unparsed rather than passed off as structure — the usage and
+cost still ride home, because the call was made and billed whatever the
+answer turned out to be.
+
+Each match reports a coarse position (`top-left`, `center`, `bottom-right`,
+and the rest of that grid, from the box's centre) alongside its own
+`x1: … y1: … x2: … y2:` pixel box. Feed a box straight to `Crop` for a
+full-resolution look at just that spot, or to `Glance`'s `region` to ask a
+question about it instead of the whole page.
+
+The model, the key, the settings that decide either, the call's own timeout,
+and the cost accounting below are all shared with `Glance` unchanged.
 
 #### What it costs, and who can see that
 
@@ -474,61 +498,50 @@ The tool description cannot carry the number: it is part of the frozen request
 head, so a figure there would vary per installation and per price table
 (docs/CACHE.md). It says a call is expensive in general; the result says what
 this one actually cost. An unpriced model prints no line at all, because an
-invented `$0.0000` reads as "this was free".
+invented `$0.0000` reads as "this was free". `Glance`, `Ground`, and `Detect`
+all attach the same line the same way.
 
-### AskVision
+### Crop
 
-The unstructured half of the vision path, and the deliberate opposite of
-`ReviewScreenshot`. That tool owns its prompt — a fixed instruction, a spec
-slot, a findings schema, an `observed` sentence — and everything it guarantees
-comes from owning it. The cost is that it can ask one question. `AskVision`
-hands the whole prompt to the caller and returns Gemini's reply as text, with
-no schema and nothing to reshape.
+Local image manipulation: no model call, no cost, no usage event. It cuts
+`region` — the same `x1,y1,x2,y2` shape `Ground` and `Detect` report — out of
+`image_path` into its own file, the way a box either tool located becomes an
+image `Glance` can read at full resolution instead of as a few pixels of a
+whole page. `output` defaults to the source's own name with `.crop.png`
+appended, written next to it; the extension of whatever path is given
+chooses the encoding, falling back to the source's own format when it names
+nothing the harness can encode. `scale` enlarges the cut region by an integer
+factor from 1 to 8, for a source small enough that a plain crop would still
+be hard to read; the resample is `x/image`'s CatmullRom, the same resampler
+the byte-cap downscale uses standing in for upstream's LANCZOS.
 
-It exists because the pressure was already there and was being released
-badly. `describe` mode was the first carve-out: a "does this page have content
-on it at all" question has no place in a findings schema, so it came back as
-an empty list, which reads exactly like "the page is perfect". Before the mode
-existed, a session smuggled a transcription request through the review path,
-Gemini abandoned the findings shape to answer it, and the harness reported the
-result as "15 findings, 0 high confidence" — a well-formed lie. A comparison
-question ("is the desktop layout still the same page?") has the same problem
-and gets the same non-answer: `0 findings`.
-
-The prompting rules the tool no longer enforces live in its description
-instead, distilled from
-[gemini-3.5-flash-ui-review-prompting.md](gemini-3.5-flash-ui-review-prompting.md):
-state the standard being judged against, put the data first and the question
-last, stay concise because 3.x reasoning models over-analyse under
-chain-of-thought scaffolding, and ask for something actionable rather than an
-impression. A caller that ignores them gets a worse answer, which is the point
-of the trade.
-
-One rule is not delegated. The system instruction still asks for a sentence on
-what is actually visible before the answer, for the reason the whole `observed`
-field exists: a reader who cannot open the image cannot tell a correct answer
-from an answer about a blank page, and one measured session spent 23% of its
-cost re-asking to find out. That failure is invisible from the caller's side,
-so the caller is not the right place to put the fix.
-
-`thinking_level` is exposed here and not on `ReviewScreenshot` because the
-caller knows which kind of question it is asking: `low` for reading text off an
-image, `medium` for a real diagnostic pass, `high` for a subtle bug a medium
-pass already missed. It is most of what a call costs. `minimal` is not offered.
-
-Truncation is the plain byte cap, which is safe here precisely because there is
-no JSON document to sever — the reason `ReviewScreenshot` needs entry-wise
-truncation instead. Image caps, downscaling, the per-call cost line and the
-separable usage event are all shared with `ReviewScreenshot` unchanged.
+Unlike `Glance`, `Ground`, and `Detect` — which read a file and send it over
+the network, changing nothing on disk, the same reasoning that puts
+`WebFetch` in read-only mode — `Crop` is not in the read-only mode's
+always-allowed set. Its output path resolves through the same
+workspace-wide confinement `Write` and `Edit` use, and its default output
+sits next to the source image rather than under `scratch/`, so a `Crop` call
+can leave a new file inside a cloned repository the way `Write` can. That is
+exactly the side effect read-only mode exists to prevent, so `Crop` is gated
+by permission mode like every other file-writing tool: denied in `readonly`,
+allowed in `full` (`internal/tools/policy.go`, "Permissions" below). It makes
+no Gemini call, so it also keeps the ordinary 30-second tool timeout rather
+than the vision tools' 60-second one.
 
 ### Seeing the screenshots
 
-Both screenshot tools' results render in the transcript with the images
-above them, served by `GET /api/sessions/{id}/screenshot?path=…`
+A `Screenshot`, `Glance`, `Ground`, `Detect`, or `Crop` result renders the
+images above its text, served by `GET /api/sessions/{id}/screenshot?path=…`
 (`internal/httpapi/screenshots.go`). Without it a transcript reports what the
 vision model said about a page and never shows the page, which leaves the one
 artefact that would settle whether the model was right out of the record —
-and a session review has to take Gemini's prose on faith.
+and a session review has to take Gemini's prose on faith. `Crop` is the odd
+one out among the five: it makes no model call, and its `image_path` is
+usually already visible from an earlier call in the transcript, so the
+gallery shows what it *wrote* (`output`, or the default `<stem>.crop.png`
+name `execCrop` falls back to) rather than what it read — the produced crop,
+often upscaled, is the new thing a reader has not seen yet
+(`web/src/components/blocks/toolArgs.ts`).
 
 The endpoint reads the session's live workspace. That is the trade-off it is
 built on: no schema change and the image at full resolution, against the fact
@@ -549,7 +562,7 @@ Three properties keep it from being a general file read over the workspace: the
 path must resolve inside that session's own workspace with symlinks fully
 resolved, the `scratch/` attempt joins before it resolves so a traversal cannot
 climb out by spelling `../`, and the extension must be one of the three image
-types `ReviewScreenshot` accepts. An escape and a missing file return the same
+types the vision tools accept. An escape and a missing file return the same
 404 with the same text, so a caller probing for a path outside the workspace
 learns only that it cannot have it. Like every other `GET` on the surface it
 carries no control token; the write endpoints are the authenticated ones.
@@ -646,7 +659,7 @@ So the choice is:
 FIM and prefix completion sit on the `/beta` base URL and are unaffected by
 this choice.
 
-Recommendation: stay on Chat Completions. Search is one tool among sixteen, our
+Recommendation: stay on Chat Completions. Search is one tool among nineteen, our
 own `WebFetch` covers the documentation-lookup case that a coding harness
 actually needs, and DeepSeek's own note says its web search bills extra tokens
 for summarisation anyway. The decision is reversible per-session if it proves
@@ -690,14 +703,19 @@ later. The browser is read-only, so there is nobody there to ask.
 Two modes, fixed for the life of a session and required on every request:
 
 - Read-only. `Read`, `Glob`, `Grep`, `List`, `WebFetch`, `Screenshot`,
-  `ReviewScreenshot`, `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`, and
-  `Complete` run. `Write`, `Edit`, `Bash`, and `Task` are denied.
-  `Screenshot` is the one tool in that list that writes to disk, and it is
-  there because of where: its output is confined to `scratch/`, which holds
-  nothing that is part of a run's deliverable, so a read-only session can
-  look at a page it is reviewing without being able to mark a cloned
-  repository. Reviewing a UI is the read-only run's whole job, and denying it
-  the capture would have left it reading markup and guessing.
+  `Glance`, `Ground`, `Detect`, `TaskCreate`, `TaskGet`, `TaskList`,
+  `TaskUpdate`, and `Complete` run. `Write`, `Edit`, `Bash`, `Task`, and
+  `Crop` are denied. `Screenshot` is the one tool in that list that writes to
+  disk, and it is there because of where: its output is confined to
+  `scratch/`, which holds nothing that is part of a run's deliverable, so a
+  read-only session can look at a page it is reviewing without being able to
+  mark a cloned repository. Reviewing a UI is the read-only run's whole job,
+  and denying it the capture would have left it reading markup and guessing.
+  `Crop` also writes to disk, but does not get the same allowance: its output
+  argument resolves through the same workspace-wide confinement `Write` and
+  `Edit` use, and its default output sits next to the source image rather
+  than under `scratch/`, so it is gated by mode like every other
+  file-writing tool instead (`internal/tools/policy.go`).
 - Full access. Everything runs, as root, inside the workspace mount.
 
 There is no third mode between them and no default. Every ingress — a work
@@ -713,8 +731,9 @@ actually enforce.
 
 `WebFetch` runs in read-only mode. It reaches the network, so read-only bounds
 what a session can change on disk rather than what it can send.
-`ReviewScreenshot` is the same: it reads a file and sends it over the network,
-changing nothing on disk.
+`Glance`, `Ground`, and `Detect` are the same: each reads a file and sends it
+over the network, changing nothing on disk. `Crop` reads a file too, but it
+writes one back — see above for why that puts it in the other group.
 
 A work request may add `deny` patterns on top of its mode. They only ever
 subtract; a request cannot widen the mode it asked for.
@@ -724,7 +743,7 @@ on every request in every mode, and a call the mode disallows is refused at
 execution with an error result the model can read and route around. Removing
 tools per mode would give each mode a different prefix and make every mode
 switch a cold cache ([CACHE.md](CACHE.md)). The one thing that does vary the
-array is the provider — DeepSeek's sixteen, Kimi's fourteen — and that is a
+array is the provider — DeepSeek's nineteen, Kimi's fourteen — and that is a
 per-session property, fixed at creation and never changed mid-session, so it
 never varies within a provider's sessions ([CACHE.md](CACHE.md)).
 

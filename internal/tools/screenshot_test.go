@@ -79,9 +79,9 @@ func TestScreenshotConfinesOutputToScratch(t *testing.T) {
 	}
 	for _, tc := range refused {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := resolveScreenshotOutput(root, tc.path)
+			_, err := resolveScratchImageOutput(root, tc.path)
 			if err == nil {
-				t.Fatalf("resolveScreenshotOutput(%q) allowed it, want a refusal", tc.path)
+				t.Fatalf("resolveScratchImageOutput(%q) allowed it, want a refusal", tc.path)
 			}
 			if !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("error = %q, want it to mention %q", err, tc.want)
@@ -90,8 +90,8 @@ func TestScreenshotConfinesOutputToScratch(t *testing.T) {
 	}
 
 	for _, ok := range []string{"scratch/shot.png", "scratch/nested/dir/shot.jpeg", "scratch/a.JPG"} {
-		if _, err := resolveScreenshotOutput(root, ok); err != nil {
-			t.Errorf("resolveScreenshotOutput(%q) = %v, want it allowed", ok, err)
+		if _, err := resolveScratchImageOutput(root, ok); err != nil {
+			t.Errorf("resolveScratchImageOutput(%q) = %v, want it allowed", ok, err)
 		}
 	}
 }
@@ -135,12 +135,12 @@ func TestScreenshotRelocatesRelativePathsIntoScratch(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := resolveScreenshotOutput(root, tc.path)
+			got, err := resolveScratchImageOutput(root, tc.path)
 			if err != nil {
-				t.Fatalf("resolveScreenshotOutput(%q) = %v, want it allowed", tc.path, err)
+				t.Fatalf("resolveScratchImageOutput(%q) = %v, want it allowed", tc.path, err)
 			}
 			if got != tc.want {
-				t.Fatalf("resolveScreenshotOutput(%q) = %q, want %q", tc.path, got, tc.want)
+				t.Fatalf("resolveScratchImageOutput(%q) = %q, want %q", tc.path, got, tc.want)
 			}
 		})
 	}
@@ -151,8 +151,8 @@ func TestScreenshotRelocatesRelativePathsIntoScratch(t *testing.T) {
 func TestScreenshotRejectsUnwritableFormats(t *testing.T) {
 	_, root := screenshotExecutor(t)
 	for _, path := range []string{"scratch/shot.webp", "scratch/shot.gif", "scratch/shot", "scratch/shot.png.txt"} {
-		if _, err := resolveScreenshotOutput(root, path); err == nil {
-			t.Errorf("resolveScreenshotOutput(%q) allowed it, want a refusal", path)
+		if _, err := resolveScratchImageOutput(root, path); err == nil {
+			t.Errorf("resolveScratchImageOutput(%q) allowed it, want a refusal", path)
 		}
 	}
 }
@@ -225,7 +225,8 @@ func TestScreenshotRequiresUrlAndPath(t *testing.T) {
 
 // Argument validation happens before the browser is reached for, so a call
 // with a bad argument gets the specific complaint even where node is absent —
-// the same ordering ReviewScreenshot uses for its capability check.
+// the same ordering Glance, Ground, and Detect use for their capability
+// check.
 func TestScreenshotValidatesArgumentsBeforeLaunchingTheBrowser(t *testing.T) {
 	e, _ := screenshotExecutor(t)
 	// An absolute path outside scratch/, since a relative one is no longer a

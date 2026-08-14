@@ -1553,7 +1553,8 @@ pre {
 }
 
 /* The model name prefixes a usage line only when the request was not the
-   session's own — today, a ReviewScreenshot call's vision spend. It carries
+   session's own — today, a vision-tool call's spend (Glance, Ground or
+   Detect; Crop makes no model call and carries no usage line). It carries
    the row's own dim colour at full weight rather than a new one: the line is
    already the quietest thing on the card, and this is the part of it that
    says the cost belongs to something else. */
@@ -1888,8 +1889,8 @@ pre {
   text-transform: none;
 }
 
-/* The screenshot gallery a Screenshot or ReviewScreenshot result carries
-   (components/blocks/ScreenshotGallery.tsx), and the inline image a Read
+/* The screenshot gallery a Screenshot, Glance, Ground, Detect or Crop result
+   carries (components/blocks/ScreenshotGallery.tsx), and the inline image a Read
    result carries as a data URI (components/blocks/InlineImage.tsx) — the
    inline tile reuses these classes so a data URI gets the same bounds and
    the same new-tab full-size view. Tiles wrap and each is capped rather than

@@ -33,15 +33,15 @@ type InteractionRequest struct {
 	Stream bool `json:"stream,omitempty"`
 }
 
-// ResponseFormat is the top-level response_format request field.
-// ReviewScreenshot sends "object" for a review or a description and "array"
-// for the legacy bare-list shape; the API also accepts 'video', 'text',
-// 'image', 'integer', 'string', 'number', 'boolean', and 'audio'.
+// ResponseFormat is the top-level response_format request field: 'array',
+// 'object', 'video', 'text', 'image', 'integer', 'string', 'number',
+// 'boolean', and 'audio' are the accepted types.
 //
 // It carries a type and nothing else. There is no field for a JSON schema on
-// this surface, so asking for a particular object shape is a matter for the
-// system instruction, and checking that the answer has that shape is a
-// matter for the caller — internal/tools/reviewscreenshot.go does both.
+// this surface, so asking for a particular shape is a matter for the system
+// instruction — and constraining the container costs the contents, which is
+// why the vision tools' own call sends no response_format at all and parses
+// tolerantly instead (internal/tools/vision.go, WithResponseFormat("")).
 type ResponseFormat struct {
 	Type string `json:"type"`
 }

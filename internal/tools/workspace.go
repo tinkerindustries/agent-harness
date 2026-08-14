@@ -83,8 +83,8 @@ func resolveScratchRelative(root, userPath string) (string, error) {
 // relative path that names nothing as scratch-relative on a second attempt.
 //
 // The models this harness runs write a screenshot to "after/01.png" and then
-// hand that same string back to ReviewScreenshot, because that is how the
-// path reads in their own previous tool call — and the file is at
+// hand that same string back to Glance, Ground, or Detect, because that is
+// how the path reads in their own previous tool call — and the file is at
 // scratch/after/01.png, since Screenshot puts every relative path there
 // (resolveScreenshotOutput). Refusing the read teaches nothing the model does
 // not already believe it did right; it just costs a sub-turn per image. So a

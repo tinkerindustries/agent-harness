@@ -385,7 +385,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 				Diff: oc.Result.Diff, ChildSessionID: oc.Result.ChildSessionID,
 				ImageURL: oc.Result.ImageURL,
 			}})
-			// A ReviewScreenshot call bills separately from this sub-turn's
+			// A vision call bills separately from this sub-turn's
 			// DeepSeek request; its usage rides home on the tool result and
 			// is committed as its own usage event, so the session's cost
 			// total covers Gemini the same way it covers DeepSeek

@@ -79,11 +79,11 @@ type screenshotAction struct {
 // stop a call producing an image nothing downstream can use.
 //
 // The viewport is a desktop layout wide enough for a two-column page. Device
-// scale stays at 1 by default: the image's next stop is usually
-// ReviewScreenshot, which downscales it to roughly a thousand image tokens
-// anyway, so doubling the pixels doubles the bytes against that tool's
-// per-file cap and buys nothing in what the vision model sees. Raise it when
-// a human is going to read fine detail in the transcript.
+// scale stays at 1 by default: the image's next stop is usually Glance,
+// which downscales it to roughly a thousand image tokens anyway, so doubling
+// the pixels doubles the bytes against that tool's per-file cap and buys
+// nothing in what the vision model sees. Raise it when a human is going to
+// read fine detail in the transcript.
 //
 // full_page defaults off. A full-page capture of a long document is the
 // single most common way to end up with an unreadable screenshot: it is
@@ -137,7 +137,7 @@ func execScreenshot(ctx context.Context, e *Executor, argsRaw json.RawMessage) R
 		return errorResult("path is required and must name the file to write")
 	}
 
-	path, err := resolveScreenshotOutput(e.Workspace, args.Path)
+	path, err := resolveScratchImageOutput(e.Workspace, args.Path)
 	if err != nil {
 		return errorResult("%v", err)
 	}
@@ -187,13 +187,13 @@ func validateScreenshotURL(raw string) error {
 }
 
 // screenshotOutputExtensions are the formats Chromium will encode. WebP is
-// absent deliberately: ReviewScreenshot accepts one and the transcript
+// absent deliberately: the vision tools accept one and the transcript
 // endpoint serves one, but Playwright's screenshot writes PNG and JPEG only,
 // so accepting .webp here would mean accepting an argument that cannot be
 // honoured.
 var screenshotOutputExtensions = map[string]bool{".png": true, ".jpg": true, ".jpeg": true}
 
-// resolveScreenshotOutput confines the capture to the session's scratch
+// resolveScratchImageOutput confines an image a tool writes to the session's scratch
 // directory.
 //
 // A screenshot is not part of a run's deliverable, and the system prompt
@@ -219,7 +219,7 @@ var screenshotOutputExtensions = map[string]bool{".png": true, ".jpg": true, ".j
 // is meant to be, so re-rooting one under scratch/ would be overriding the
 // caller rather than completing what they meant, and the refusal below is
 // what tells them the tool cannot write there.
-func resolveScreenshotOutput(workspace, userPath string) (string, error) {
+func resolveScratchImageOutput(workspace, userPath string) (string, error) {
 	ext := strings.ToLower(filepath.Ext(userPath))
 	if !screenshotOutputExtensions[ext] {
 		return "", fmt.Errorf("path must end in .png, .jpg, or .jpeg, got %q", userPath)
@@ -482,7 +482,7 @@ func runScreenshotDriver(ctx context.Context, workspace string, cfg screenshotDr
 
 // formatScreenshotReport is the tool result: what was written, then what the
 // page did while it was written. The path comes first and in full, because it
-// is the argument the model passes to ReviewScreenshot next.
+// is the argument the model passes to Glance next.
 func formatScreenshotReport(report screenshotReport, path string, cfg screenshotDriverConfig, size int64) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Wrote %s (%d bytes)\n", path, size)

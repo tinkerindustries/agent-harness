@@ -80,8 +80,8 @@ caps and the phase relationship (`agentmeta.ValidateTitle`,
   never a 400).
 - `GET /api/sessions/{id}` — one row, the same shape as a list row.
 - `GET /api/sessions/{id}/screenshot?path=<path>` — one image file from that
-  session's workspace, so the transcript can render what a `Screenshot` or
-  `ReviewScreenshot` call was looking at
+  session's workspace, so the transcript can render what a `Screenshot`,
+  `Glance`, `Ground`, or `Detect` call was looking at
   ([TOOLS.md, "Seeing the screenshots"](TOOLS.md)). Not a resource of its own
   and not a general file read: the path must resolve inside that session's
   workspace and carry a PNG, JPEG, or WebP extension, and the image is read
@@ -292,9 +292,9 @@ top-level `attachments` array beside the work-request fields) and the MCP
 ```
 
 Each attachment is validated before it is stored: the name must be a plain
-file name ending in `.png`, `.jpg`, `.jpeg`, or `.webp` — the three types
-`ReviewScreenshot` accepts, because the model's use of the file is passing it
-back to ReviewScreenshot — the MIME type, when supplied, must match the
+file name ending in `.png`, `.jpg`, `.jpeg`, or `.webp` — the three types the
+vision tools accept, because the model's use of the file is passing it to
+`Glance`, `Ground`, or `Detect` — the MIME type, when supplied, must match the
 extension, and the decoded bytes must be within the per-file cap. The count
 and the per-file bytes are settings, not fixed values
 (`tools.attachments_max_count`, `tools.attachments_max_bytes`, both under

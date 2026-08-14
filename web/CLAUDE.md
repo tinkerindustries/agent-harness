@@ -97,8 +97,9 @@ What the screens are:
   shortened path is always visibly shortened and never a dead end. The
   opening block
   collapses to one summary line; a cache-churn banner links to the first
-  sub-turn that churned. A `Screenshot` or `ReviewScreenshot` result renders
-  the images above its text, fetched from the session's live workspace
+  sub-turn that churned. A `Screenshot`, `Glance`, `Ground`, `Detect` or
+  `Crop` result renders the images above its text, fetched from the
+  session's live workspace
   (docs/TOOLS.md, "Seeing the screenshots"); the session id reaches that leaf
   through `SessionIdContext` rather than a prop, because the path to it runs
   through the memoised cards that exist to bail out of re-rendering, and a

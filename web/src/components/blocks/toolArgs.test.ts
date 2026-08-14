@@ -185,8 +185,8 @@ describe("toolHeader", () => {
 });
 
 describe("screenshotPaths", () => {
-  it("reads ReviewScreenshot's image_paths array", () => {
-    const c = call("ReviewScreenshot", { image_paths: ["scratch/a.png", "scratch/b.webp"], question: "?" });
+  it("reads Glance's image_paths array", () => {
+    const c = call("Glance", { image_paths: ["scratch/a.png", "scratch/b.webp"], query: "?" });
     expect(screenshotPaths(c)).toEqual(["scratch/a.png", "scratch/b.webp"]);
   });
 
@@ -194,13 +194,30 @@ describe("screenshotPaths", () => {
     expect(screenshotPaths(call("Screenshot", { url: "http://x", path: "scratch/home.png" }))).toEqual(["scratch/home.png"]);
   });
 
+  it("reads Ground's and Detect's single image_path", () => {
+    expect(screenshotPaths(call("Ground", { image_path: "scratch/a.png", target: "the submit button" }))).toEqual([
+      "scratch/a.png",
+    ]);
+    expect(screenshotPaths(call("Detect", { image_path: "scratch/a.png", category: "buttons" }))).toEqual(["scratch/a.png"]);
+  });
+
+  it("reads Crop's own output rather than the image it read", () => {
+    const c = call("Crop", { image_path: "scratch/a.png", region: "0,0,10,10", output: "scratch/cropped.png" });
+    expect(screenshotPaths(c)).toEqual(["scratch/cropped.png"]);
+  });
+
+  it("falls back to execCrop's own default output name when output is omitted", () => {
+    const c = call("Crop", { image_path: "scratch/a.png", region: "0,0,10,10" });
+    expect(screenshotPaths(c)).toEqual(["scratch/a.crop.png"]);
+  });
+
   it("keeps the given order, because the first image is the high-resolution one", () => {
-    const c = call("ReviewScreenshot", { image_paths: ["z.png", "a.png"] });
+    const c = call("Glance", { image_paths: ["z.png", "a.png"] });
     expect(screenshotPaths(c)).toEqual(["z.png", "a.png"]);
   });
 
   it("drops duplicates so one file is not fetched and rendered twice", () => {
-    const c = call("ReviewScreenshot", { image_paths: ["a.png", "a.png"] });
+    const c = call("Glance", { image_paths: ["a.png", "a.png"] });
     expect(screenshotPaths(c)).toEqual(["a.png"]);
   });
 
@@ -208,16 +225,18 @@ describe("screenshotPaths", () => {
   // intermediate state and must not throw or render junk.
   it("survives partial and malformed arguments", () => {
     expect(screenshotPaths(undefined)).toEqual([]);
-    expect(screenshotPaths({ index: 0, id: "c1", name: "ReviewScreenshot", arguments: '{"image_paths":["a.p' })).toEqual([]);
-    expect(screenshotPaths(call("ReviewScreenshot", {}))).toEqual([]);
-    expect(screenshotPaths(call("ReviewScreenshot", { image_paths: "not-an-array.png" }))).toEqual([]);
-    expect(screenshotPaths(call("ReviewScreenshot", { image_paths: [1, null, "", "  ", "ok.png"] }))).toEqual(["ok.png"]);
+    expect(screenshotPaths({ index: 0, id: "c1", name: "Glance", arguments: '{"image_paths":["a.p' })).toEqual([]);
+    expect(screenshotPaths(call("Glance", {}))).toEqual([]);
+    expect(screenshotPaths(call("Glance", { image_paths: "not-an-array.png" }))).toEqual([]);
+    expect(screenshotPaths(call("Glance", { image_paths: [1, null, "", "  ", "ok.png"] }))).toEqual(["ok.png"]);
+    expect(screenshotPaths(call("Ground", {}))).toEqual([]);
+    expect(screenshotPaths(call("Crop", {}))).toEqual([]);
   });
 
   // The endpoint serves three types and refuses the rest, so asking for
   // anything else would only ever produce a broken image.
   it("keeps only the extensions the endpoint serves", () => {
-    const c = call("ReviewScreenshot", { image_paths: ["a.png", "b.JPEG", "c.jpg", "d.webp", "e.gif", "f.txt", "g"] });
+    const c = call("Glance", { image_paths: ["a.png", "b.JPEG", "c.jpg", "d.webp", "e.gif", "f.txt", "g"] });
     expect(screenshotPaths(c)).toEqual(["a.png", "b.JPEG", "c.jpg", "d.webp"]);
   });
 });
@@ -236,22 +255,41 @@ describe("screenshotUrl", () => {
   });
 });
 
-describe("toolDetail for the screenshot tools", () => {
+describe("toolDetail for the screenshot and vision tools", () => {
   it("shows the URL a Screenshot call captured", () => {
     expect(toolDetail(call("Screenshot", { url: "http://127.0.0.1:5173/", path: "scratch/a.png" }))).toBe("http://127.0.0.1:5173/");
   });
 
   it("names the first image and counts the rest, so the header stays one line", () => {
-    expect(toolDetail(call("ReviewScreenshot", { image_paths: ["/workspaces/sess-1/scratch/a.png"] }))).toBe("scratch/a.png");
-    expect(toolDetail(call("ReviewScreenshot", { image_paths: ["scratch/a.png", "b.png", "c.png"] }))).toBe("scratch/a.png +2");
-    expect(toolDetail(call("ReviewScreenshot", {}))).toBe("");
+    expect(toolDetail(call("Glance", { image_paths: ["/workspaces/sess-1/scratch/a.png"] }))).toBe("scratch/a.png");
+    expect(toolDetail(call("Glance", { image_paths: ["scratch/a.png", "b.png", "c.png"] }))).toBe("scratch/a.png +2");
+    expect(toolDetail(call("Glance", {}))).toBe("");
+  });
+
+  it("shows the target for Ground and the category for Detect", () => {
+    expect(toolDetail(call("Ground", { image_path: "scratch/a.png", target: "the submit button" }))).toBe(
+      "the submit button",
+    );
+    expect(toolDetail(call("Detect", { image_path: "scratch/a.png", category: "buttons" }))).toBe("buttons");
+    expect(toolDetail(call("Detect", {}))).toBe("");
+  });
+
+  it("shows the file Crop wrote, trimmed the same way a Read/Write path is", () => {
+    const p = "/workspaces/sess-1/scratch/a.png";
+    expect(toolDetail(call("Crop", { image_path: p, region: "0,0,10,10", output: "scratch/cropped.png" }))).toBe(
+      "scratch/cropped.png",
+    );
+    expect(toolDetail(call("Crop", { image_path: p, region: "0,0,10,10" }))).toBe("scratch/a.crop.png");
   });
 });
 
-describe("toolGlyph for the screenshot tools", () => {
-  it("gives ReviewScreenshot a letter that cannot be confused with Read's", () => {
-    expect(toolGlyph("ReviewScreenshot").letter).toBe("V");
+describe("toolGlyph for the screenshot and vision tools", () => {
+  it("gives each vision tool a letter that cannot be confused with Read's, Grep's, Glob's or Complete's", () => {
     expect(toolGlyph("Screenshot").letter).toBe("S");
+    expect(toolGlyph("Glance").letter).toBe("V");
+    expect(toolGlyph("Ground").letter).toBe("X");
+    expect(toolGlyph("Detect").letter).toBe("D");
+    expect(toolGlyph("Crop").letter).toBe("K");
     expect(toolGlyph("Read").letter).toBe("R");
   });
 });

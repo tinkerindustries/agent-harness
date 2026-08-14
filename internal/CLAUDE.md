@@ -140,8 +140,10 @@ reaching a provider. §4.10.
 ### `internal/worker`
 The pool. Pulls a request, creates its session row as `creating` (Runner.Create,
 so the run is visible and stoppable while the workspace is being prepared),
-builds the workspace, runs it as a session (which promotes the row to
-`running`), publishes the result, then acks — in that order, so a crash
+builds the workspace, installs the shipped skills into it
+(`internal/skills.Install`, best-effort — a skill that fails to land is one
+catalogue entry missing, not a failed run), runs it as a session (which
+promotes the row to `running`), publishes the result, then acks — in that order, so a crash
 redelivers rather than loses. A preparation failure marks the row `failed`
 (Runner.FailSetup) before the setup result is published, so no row is left
 stuck in `creating`. Owns acknowledgement discipline and idempotency against
@@ -149,8 +151,11 @@ the `work_requests` table. §4.10.
 
 ### `internal/workspace`
 Prepares the per-session directory — a `scratch/` subdirectory for files that
-are not part of the deliverable, and clones of the repositories a request
-names — including the remote-URL restrictions that keep `ext::` and local
+are not part of the deliverable, an empty `skills/` for skills given to the
+session rather than committed to a repository (scanned by `internal/skills`;
+the directory name is spelled in both packages and pinned equal by a test, so
+neither depends on the other at build time), and clones of the repositories a
+request names — including the remote-URL restrictions that keep `ext::` and local
 paths out. Each clone then gets its Node dependencies installed, with the
 lockfile choosing the package manager; the install is best-effort and never
 fails a run. §4.10.
@@ -187,9 +192,26 @@ is never a direct dependency. Depends on: `internal/queue` to publish,
 [../docs/EVALS.md](../docs/EVALS.md).
 
 ### `internal/skills`
-Scans each cloned repository for `.claude/skills/` and `.deepcode/skills/` and
-renders what it finds into a catalogue. Discovery never fails a run. Depends on:
-nothing internal. §4.11.
+Scans each cloned repository for `.claude/skills/` and `.deepcode/skills/`, and
+the workspace's own `skills/` (`WorkspaceSkillsDir`, created by
+`internal/workspace`), and renders what it finds into a catalogue. The
+workspace directory is how a skill reaches a session without being committed
+to any repository the session is working in — and it sits under the workspace
+root because the catalogue carries only descriptions, so the model opens each
+`SKILL.md` with `Read`, which is workspace-confined. `Install` is what fills
+that directory: it writes the shipped tree (`assets`, embedded in the binary)
+into one prepared workspace, taking only directories that hold a `SKILL.md`,
+and `internal/worker` calls it once the workspace exists. Neither discovery
+nor installation ever fails a run. Depends on: nothing internal. §4.11.
+
+### `assets`
+The files the repository ships rather than runs, and the only Go package
+outside `cmd/` and `internal/`: it sits at the root because `go:embed` cannot
+reach outside its own package directory. `assets/skills` is for humans —
+Claude Code skills for driving the harness from outside, copied by hand and
+never loaded by a run. `assets/agent-skills` is embedded and is what
+`internal/skills.Install` writes into every prepared workspace. Depends on:
+nothing.
 
 ### `internal/claudemd`
 Scans the workspace and each cloned repository for a root `CLAUDE.md` and

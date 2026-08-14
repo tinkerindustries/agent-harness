@@ -9,14 +9,15 @@ import (
 )
 
 // The tool array is per-provider (docs/KIMI-INTEGRATION.md §4.5, decision 5):
-// DeepSeek gets all sixteen tools, and Kimi K3 gets the fourteen that remain
-// once the two vision tools are dropped — K3 reads images natively, so
-// ReviewScreenshot (the Gemini round-trip) and Screenshot (capture-and-
-// describe) are both redundant for it (docs/TOOLS.md). A provider's array is
-// fixed and ordered, shared by every session on that provider in every
-// permission mode; it never varies by mode or by request — that is what keeps
-// the shared prefix stable (docs/CACHE.md). Each array is pinned by its own
-// golden file (internal/tools/testdata/tools_*.golden.json, asserted by
+// DeepSeek gets all nineteen tools, and Kimi K3 gets the fourteen that remain
+// once the five vision tools are dropped — K3 reads images natively, so
+// Glance, Ground, Detect, Crop (the Gemini round-trips and the local image
+// operation that feeds them) and Screenshot (capture-and-describe) are all
+// redundant for it (docs/TOOLS.md). A provider's array is fixed and ordered,
+// shared by every session on that provider in every permission mode; it
+// never varies by mode or by request — that is what keeps the shared prefix
+// stable (docs/CACHE.md). Each array is pinned by its own golden file
+// (internal/tools/testdata/tools_*.golden.json, asserted by
 // TestToolArrayGolden), the same byte-stability guard the single array used
 // to have, now that there are two frozen request heads
 // (docs/KIMI-INTEGRATION.md decision 6).
@@ -148,52 +149,71 @@ var definitionsDeepSeek = []wire.Tool{
 		},
 		"required": ["url", "prompt"]
 	}`),
-	// The ReviewScreenshot description names no limits. The image count and
+	// The four vision tools' descriptions name no limits. The image count and
 	// per-file size caps are settings (tools.reviewscreenshot_max_images,
-	// tools.reviewscreenshot_max_bytes), and this text is part of the frozen
-	// request head (docs/CACHE.md): a number here would make the head vary
-	// per installation and change under operators' feet, costing the whole
-	// prompt cache. The model discovers a bound from the refusal message,
-	// which states the actual limit — the same shape the other tools' caps
-	// use.
-	function("ReviewScreenshot", "Send the screenshots to Google Gemini's vision model, which can see them where you cannot. Every answer opens with what the model says is actually on the screen, so a result with no findings still tells you the page rendered and what it rendered — read that line before deciding whether to ask again. Pass the design spec, target CSS, or mock markup in spec whenever one exists: it is the only standard the reviewer is told to judge against, and without it deliberate design choices get reported as breakage. The first image gets high resolution and the rest medium, so put the screenshot that needs the closest scrutiny first — and when the question is about one small control, screenshot that element rather than the whole page, because a full-page capture is downscaled until small detail is unreadable. Screenshots are PNG, JPEG, or WebP files, workspace-relative or absolute paths. A call costs many times what an ordinary sub-turn costs, and the result says what it cost, so ask one well-aimed question rather than re-asking a screenshot the reviewer has already answered on. A call without conversation_id starts a new conversation and its result carries the id; passing that id continues it, with the earlier questions and answers re-sent — send new image_paths with it when you have re-captured the page, and they replace the images under discussion while the thread survives.", `{
+	// tools.reviewscreenshot_max_bytes — vision.go keeps the original setting
+	// keys, docs/VISION-TOOLKIT.md §5 decision), and this text is part of the
+	// frozen request head (docs/CACHE.md): a number here would make the head
+	// vary per installation and change under operators' feet, costing the
+	// whole prompt cache. The model discovers a bound from the refusal
+	// message, which states the actual limit — the same shape the other
+	// tools' caps use.
+	//
+	// Glance is the general, prose-answering tool — what ReviewScreenshot and
+	// AskVision both were, now one tool with no imposed findings shape. Ground
+	// and Detect exist because prose is the wrong return type for "where is
+	// it": they hand back pixel boxes a caller can act on, feed to Crop for a
+	// closer look, or drop straight into Glance's region to ask about just
+	// that spot (docs/VISION-TOOLKIT.md §4, §6).
+	function("Glance", "Ask Google Gemini's vision model about one or more images: describe them, ask a question in your own words, or transcribe the visible text verbatim. Use this for anything the answer to which is prose — comparing two captures, reading text off a chart, checking what a screenshot shows. When what you actually need is where something is, Ground or Detect return a pixel box instead of a description of one. query and ocr are mutually exclusive: query sends exactly the question you write, ocr transcribes text line by line without judging it, and omitting both describes the image in general. Put any spec, CSS, or context in query ahead of the question you ask, and say what standard you are judging against — a vision model given none falls back on general web convention and reports deliberate choices as breakage. region crops the image to a pixel box before sending it, so a spot Ground or Detect just located can be looked at closer and sharper than re-describing the whole page; it works with exactly one image. The first image goes at high resolution and the rest at medium, so put the one the question is really about first. A call without conversation_id starts a conversation and its result carries the id; passing that id continues it, so \"look closer at the header\" costs one call rather than a whole fresh look. Images are PNG, JPEG, or WebP, workspace-relative or absolute paths. A call costs many times an ordinary sub-turn and the result says what it cost.", `{
 		"type": "object",
 		"properties": {
-			"image_paths": {"type": "array", "items": {"type": "string"}, "description": "Absolute or workspace-relative paths to PNG, JPEG, or WebP screenshot files. The first image is reviewed at high resolution and the rest at medium, so put the screenshot you care about most first. Capture the element itself rather than the whole page when the question is about a small control. On a follow-up, omit these to keep discussing the same images, or pass new ones to swap in a fresh capture."},
-			"question": {"type": "string", "description": "What to diagnose about the screenshots — name the area you are unsure about rather than listing points to confirm, which turns the review into a checklist and misses what you did not think to ask."},
-			"spec": {"type": "string", "description": "The design spec, target CSS, or mock markup to judge the screenshots against — the only standard the reviewer treats as authoritative. Supply it whenever one exists: without it the review falls back to defects visible on their own terms, and anything intentional but unconventional reads as a bug. Fixed when the conversation starts; omit on a follow-up. Ignored in describe mode, which judges nothing."},
-			"mode": {"type": "string", "enum": ["review", "describe"], "description": "review, the default, judges the screenshots and reports what is wrong with them. describe makes no judgement: it returns what is on the screen — the layout, and every element's text, role and styling — which is what to ask for when you need to know what a page actually shows rather than whether it is correct. Fixed when the conversation starts."},
-			"conversation_id": {"type": "string", "description": "Id from an earlier ReviewScreenshot call. Passing it continues that conversation: the earlier questions and answers are re-sent along with your new question, so \"look closer at the header\" costs one call rather than a fresh review. Omit it to start a new conversation."}
+			"image_paths": {"type": "array", "items": {"type": "string"}, "description": "Absolute or workspace-relative paths to PNG, JPEG, or WebP files. The first is read at high resolution and the rest at medium, so put the image the question is really about first."},
+			"query": {"type": "string", "description": "The question to ask about the image(s), in your own words, sent as you wrote it. Mutually exclusive with ocr. Naming the images helps when there is more than one — they arrive labelled Image 1, Image 2 in the order you list them."},
+			"ocr": {"type": "boolean", "description": "Transcribe every piece of visible text verbatim — titles, body text, labels, watermarks — instead of describing the image or answering a question. Mutually exclusive with query."},
+			"ocr_extra": {"type": "string", "description": "Additional requirements for the transcription, appended after the base instruction. Only meaningful alongside ocr."},
+			"conversation_id": {"type": "string", "description": "Id from an earlier Glance call, to ask a follow-up about the same images. The earlier questions and answers are re-sent with your new one, so \"look closer at the header\" costs one call rather than a fresh description, and image_paths becomes optional — omit it to keep discussing the same images, or pass new ones to swap in a re-capture while the thread survives. Omit conversation_id entirely to start fresh; the result of every call carries the id to continue it."},
+			"region": {"type": "string", "description": "Crop to this pixel box, X1,Y1,X2,Y2, before sending the image — the way to look closer at a spot Ground or Detect already located. Only valid with exactly one image path."}
 		},
-		"required": ["image_paths", "question"]
+		"required": ["image_paths"]
 	}`),
-	// AskVision's description is the tool. ReviewScreenshot puts its prompting
-	// discipline in Go, where the caller cannot get it wrong and cannot vary
-	// it; this one hands the prompt to the caller, so the rules that make a
-	// vision answer useful have to travel here instead — distilled from
-	// docs/gemini-3.5-flash-ui-review-prompting.md, which is the measured
-	// version. It stays short for the reason every description does: this text
-	// is in the frozen request head and is paid on every request of every
-	// session (docs/CACHE.md), so it carries the rules that change the answer
-	// and nothing else.
-	function("AskVision", "Ask Google Gemini's vision model anything about images, in your own words, and get its reply back as plain text. Use this when what you need is not \"what is wrong with this page\" — comparing two captures, reading text off a chart, checking whether a specific element is present, asking what a screenshot shows. For diagnosing a page against a spec, ReviewScreenshot is the better tool: it returns findings you can work through and it is harder to ask badly. Four rules decide whether the answer is worth what it cost. Say what standard you are judging against, because a vision model given none falls back on general web convention and reports deliberate choices as breakage. Put the data first and the question last — describe the images, paste the spec or CSS, then ask. Be brief and concrete: this is a reasoning model, and step-by-step scaffolding written for older models makes it over-analyse, so name what you want examined instead of instructing it how to think. Ask for what you can act on — an element, a position, a measurement, a yes or no — rather than an impression. The answer always opens with what the model says it can actually see, whether you ask for that or not, so a reply you were not expecting can be checked against what was on the screen rather than re-asked. Images are PNG, JPEG, or WebP, workspace-relative or absolute; the first is read at high resolution and the rest at medium, so put the one that matters first. A call costs many times an ordinary sub-turn and the result says what it cost.", `{
+	function("Ground", "Locate something in an image and get back its pixel box, not a description of roughly where it is. Say what to find in target, described by what distinguishes it — its visible text, its position, the block it sits in — because the tool matches the words you gave it rather than the intent behind them: ask for \"the main heading\" on a page whose largest text is a nav brand and the nav brand is what comes back. Several numbered matches means the description fitted more than one element; narrow it and ask again rather than picking one. Every match comes back with a coarse position (top-left, center, bottom-right, and the rest of that grid) and its box as x1,y1,x2,y2 in the image's own pixels. Use the box to Crop a tight second look at full resolution, or pass it as Glance's region to ask a question about just that spot instead of the whole page. Returns \"no match found\" rather than guessing when nothing does. region here narrows the search to part of the image first — useful when you already know roughly where to look and want a tighter answer — and the returned box is still in the original image's coordinates either way. Images are PNG, JPEG, or WebP, workspace-relative or absolute paths. A call costs many times an ordinary sub-turn and the result says what it cost.", `{
 		"type": "object",
 		"properties": {
-			"image_paths": {"type": "array", "items": {"type": "string"}, "description": "Absolute or workspace-relative paths to PNG, JPEG, or WebP files. The first is read at high resolution and the rest at medium, so put the image the question is really about first. Capture the element itself rather than the whole page when the question is about a small control."},
-			"prompt": {"type": "string", "description": "The whole prompt, in your words, sent as you wrote it. Name the images in it if the question is about more than one — they arrive labelled Image 1, Image 2 in the order you list them. Put any spec, CSS, or context above the question and ask the question last."},
-			"thinking_level": {"type": "string", "enum": ["low", "medium", "high"], "description": "How hard the vision model thinks, and most of what the call costs. low for a quick does-this-roughly-match or reading text off an image; medium, the default, for a real diagnostic pass; high only for a subtle bug a medium pass has already missed."}
+			"image_path": {"type": "string", "description": "Absolute or workspace-relative path to a PNG, JPEG, or WebP image."},
+			"target": {"type": "string", "description": "What to locate, in your own words — a labelled control, a region of the page, anything visible in the image. Every match is returned, not just the first."},
+			"region": {"type": "string", "description": "Search only this pixel box, X1,Y1,X2,Y2, instead of the whole image. Returned boxes are still reported in the original image's coordinates."}
 		},
-		"required": ["image_paths", "prompt"]
+		"required": ["image_path", "target"]
 	}`),
-	// Like ReviewScreenshot's, this description names no limits: the timeout
-	// is a setting and the dimension bounds are stated by the refusal message
-	// that quotes them, so nothing here varies per installation
-	// (docs/CACHE.md).
-	function("Screenshot", "Capture a web page as an image with a headless browser, writing one PNG or JPEG into scratch/ for ReviewScreenshot to review or a human to look at in the transcript. Defaults to the visible viewport in the light colour scheme, which is almost always what you want: a full-page capture of a long document is downscaled to the same size as a viewport one, so everything on it shrinks until small controls are unreadable. When the question is about one control, pass selector and capture just that element. When the page has a dark mode, capture both colour schemes — a layout that holds in one can break in the other. When the state worth photographing is not the one a fresh load produces — a dialog that has to be opened, an overlay covering the form, a field that has to be filled — pass actions to drive the page there first, rather than dropping to a browser script and losing these defaults. The result reports the file written, which actions ran, whether the document ran past the bottom of the viewport, and any console or page errors, so a blank capture comes back with the reason it was blank.", `{
+	function("Detect", "Inventory every instance of a kind of thing in an image and get back a numbered list of pixel boxes, one per match — for \"what buttons are on this page\" rather than \"where is the submit button\", which is what Ground answers. category names the kind to look for and is worth naming precisely: the model enumerates what LOOKS like the category, so a status badge shaped like a button is listed as a button, which makes an inventory a starting point to check against the markup rather than an authority on what the page holds. Omitted, category defaults to UI elements generally (buttons, links, inputs, icons, labels, headings, images, badges), and every entry's label carries the element's own visible text. Feed a box from the result to Crop for a full-resolution look at one entry, or to Glance's region to ask a question about just it. region narrows the search to part of the image first, the returned boxes staying in the original image's coordinates regardless. Images are PNG, JPEG, or WebP, workspace-relative or absolute paths. A call costs many times an ordinary sub-turn and the result says what it cost.", `{
+		"type": "object",
+		"properties": {
+			"image_path": {"type": "string", "description": "Absolute or workspace-relative path to a PNG, JPEG, or WebP image."},
+			"category": {"type": "string", "description": "The kind of thing to inventory. Defaults to UI elements generally (buttons, links, inputs, icons, labels, headings, images, badges); name a narrower category to cut the list down to what you actually care about."},
+			"region": {"type": "string", "description": "Search only this pixel box, X1,Y1,X2,Y2, instead of the whole image. Returned boxes are still reported in the original image's coordinates."}
+		},
+		"required": ["image_path"]
+	}`),
+	function("Crop", "Cut a pixel box out of an image into its own file. No model call and no cost — this is local image manipulation, the way to turn a box Ground or Detect located into an image Glance can read at full resolution instead of as a few pixels of the whole page. region is the box to cut, the same x1,y1,x2,y2 shape Ground and Detect report. output names where to write the result, defaulting to the source's own name with .crop.png appended, next to it; scale enlarges the cut region by an integer factor, for a small source where a plain crop would still be too small to read clearly.", `{
+		"type": "object",
+		"properties": {
+			"image_path": {"type": "string", "description": "Absolute or workspace-relative path to the PNG, JPEG, or WebP image to cut from."},
+			"region": {"type": "string", "description": "The pixel box to cut out, X1,Y1,X2,Y2 — the same shape Ground and Detect report, so a match either tool located can be cut out directly."},
+			"output": {"type": "string", "description": "Where to write the cropped image, under scratch/ — crops go where screenshots go, never beside a file in a cloned repository. Defaults to the source's name with .crop.png appended. A relative path lands under scratch/ whether or not you spell the prefix; an absolute path outside it is refused. The extension chooses the encoding; one this harness cannot encode falls back to the source's own format."},
+			"scale": {"type": "integer", "description": "Enlarge the cropped region by this integer factor before writing it, for a source small enough that a plain crop would still be hard to read."}
+		},
+		"required": ["image_path", "region"]
+	}`),
+	// Like the vision tools' descriptions, this one names no limits: the
+	// timeout is a setting and the dimension bounds are stated by the
+	// refusal message that quotes them, so nothing here varies per
+	// installation (docs/CACHE.md).
+	function("Screenshot", "Capture a web page as an image with a headless browser, writing one PNG or JPEG into scratch/ for Glance to review or a human to look at in the transcript. Defaults to the visible viewport in the light colour scheme, which is almost always what you want: a full-page capture of a long document is downscaled to the same size as a viewport one, so everything on it shrinks until small controls are unreadable. When the question is about one control, pass selector and capture just that element. When the page has a dark mode, capture both colour schemes — a layout that holds in one can break in the other. When the state worth photographing is not the one a fresh load produces — a dialog that has to be opened, an overlay covering the form, a field that has to be filled — pass actions to drive the page there first, rather than dropping to a browser script and losing these defaults. The result reports the file written, which actions ran, whether the document ran past the bottom of the viewport, and any console or page errors, so a blank capture comes back with the reason it was blank.", `{
 		"type": "object",
 		"properties": {
 			"url": {"type": "string", "description": "The http, https, or file URL to capture. A dev server this session started is the usual target."},
-			"path": {"type": "string", "description": "Where to write the image, under scratch/ — for example scratch/home-dark.png. Must end in .png, .jpg, or .jpeg. Name it for what it shows, because this path is what you pass to ReviewScreenshot and what a human sees under the image in the transcript."},
+			"path": {"type": "string", "description": "Where to write the image, under scratch/ — for example scratch/home-dark.png. Must end in .png, .jpg, or .jpeg. Name it for what it shows, because this path is what you pass to Glance and what a human sees under the image in the transcript."},
 			"width": {"type": "integer", "description": "Viewport width in pixels. Defaults to a desktop layout; pass a phone width to check a responsive layout."},
 			"height": {"type": "integer", "description": "Viewport height in pixels."},
 			"device_scale_factor": {"type": "integer", "description": "Pixel density, 1 by default. Raise it only when fine detail has to stay readable at full size — it multiplies the file size, and a vision model downscales the image regardless."},
@@ -226,12 +246,12 @@ var definitionsDeepSeek = []wire.Tool{
 	}`),
 }
 
-// definitionsKimi is Kimi K3's array: DeepSeek's sixteen minus the two tools
-// that exist only because DeepSeek cannot see images. Building it by
+// definitionsKimi is Kimi K3's array: DeepSeek's nineteen minus the five
+// tools that exist only because DeepSeek cannot see images. Building it by
 // subtraction states that relationship and cannot drift from it — if a tool
 // is added to DeepSeek's array, Kimi's changes the same way unless it is
 // named here. The result is pinned by its own golden file like DeepSeek's.
-var definitionsKimi = without(definitionsDeepSeek, "Screenshot", "ReviewScreenshot", "AskVision")
+var definitionsKimi = without(definitionsDeepSeek, "Screenshot", "Glance", "Ground", "Detect", "Crop")
 
 // without returns tools minus every entry whose name is in drop. Callers
 // must not mutate the result.

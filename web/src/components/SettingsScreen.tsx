@@ -104,7 +104,9 @@ function typeLabel(entry: SettingEntry): string {
 // is missing. A secret's registry default is the empty string, so the old
 // "not set — default  applies" rendered with a hole in it and understated
 // the case; the true sentence is per-credential. The two credentials
-// today have one consumer each: the harness itself, and ReviewScreenshot.
+// today have one consumer each: the harness itself, and the three vision
+// tools that call Gemini (Glance, Ground, Detect — Crop makes no model call
+// and needs no key).
 interface UnsetNotice {
   lead: string;
   rest: string;
@@ -120,8 +122,8 @@ function unsetSecretNotice(entry: SettingEntry): UnsetNotice | null {
       };
     case "google.api_key":
       return {
-        lead: "ReviewScreenshot fails until this is set.",
-        rest: " Nothing else in the harness reads it — runs, tools and the queue are unaffected.",
+        lead: "Glance, Ground and Detect fail until this is set.",
+        rest: " Crop makes no model call and needs no key. Nothing else in the harness reads it — runs, tools and the queue are unaffected.",
       };
     default:
       return { lead: "Nothing that reads this credential works until it is set.", rest: "" };

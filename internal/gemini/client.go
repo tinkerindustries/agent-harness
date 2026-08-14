@@ -1,8 +1,9 @@
-// Package gemini is a client for Google's Gemini API, used by the
-// ReviewScreenshot tool to send screenshots DeepSeek cannot see to a vision
-// model and return its findings (docs/TOOLS.md, "ReviewScreenshot"). Request
-// and response bodies are Go structs, never map[string]any, so identical
-// values always serialise to identical bytes.
+// Package gemini is a client for Google's Gemini API, used by the vision
+// tools — Glance, Ground, and Detect — to send images DeepSeek cannot see to
+// a vision model and return its answer or located boxes (docs/TOOLS.md,
+// "Glance" and "Ground and Detect"). Request and response bodies are Go
+// structs, never map[string]any, so identical values always serialise to
+// identical bytes.
 //
 // The request is sent to POST {base}/v1beta/interactions, the surface
 // docs/gemini-3.5-flash-ui-review-prompting.md's sources document: the
@@ -30,7 +31,7 @@ import (
 // empty string.
 const DefaultBaseURL = "https://generativelanguage.googleapis.com"
 
-// DefaultModel is the vision model ReviewScreenshot uses when no
+// DefaultModel is the vision model Glance, Ground, and Detect use when no
 // google.vision_model setting is stored; it is also internal/settings's
 // default for that key. The two are pinned equal by
 // TestGeminiDefaultModelMatchesTheRegistry — this constant is the fallback
@@ -138,7 +139,7 @@ func NewClient(baseURL string, opts ...ClientOption) *Client {
 // Label names the image to the model: Interact emits a text part carrying it
 // ("Image 1: <label>") immediately before the image part, so a finding can
 // say which screenshot it is about instead of referring to a position in the
-// array. ReviewScreenshot sets it to the file's base name.
+// array. Glance, Ground, and Detect all set it to the file's base name.
 type Image struct {
 	Data       []byte
 	MIMEType   string
@@ -158,12 +159,12 @@ type InteractOption func(*interactConfig)
 
 // WithThinkingLevel sets generation_config.thinking_level for the call.
 //
-// Thinking is where a review's cost goes: measured over two production
+// Thinking is where a vision call's cost goes: measured over two production
 // sessions, an empty findings list cost 1,947 thinking tokens against one
-// token of answer (docs/reviews/vision-path-2026-08-14.md). Medium is right
-// for judging a page against a spec; a call that only has to say what is on
-// the screen does not need it, which is why ReviewScreenshot's describe mode
-// drops to low.
+// token of answer (docs/reviews/vision-path-2026-08-14.md). Glance defaults
+// to medium, for answering a question about a page; Ground and Detect default
+// to low, on the grounds that locating something is perception rather than
+// reasoning (internal/tools/vision.go).
 func WithThinkingLevel(level string) InteractOption {
 	return func(c *interactConfig) {
 		if level != "" {

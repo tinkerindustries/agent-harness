@@ -16,6 +16,12 @@ COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY cmd/ ./cmd/
 COPY internal/ ./internal/
+# assets/ is a Go package, not just files: it embeds assets/agent-skills into
+# the binary (assets/embed.go), so the build fails without it rather than
+# producing a binary that ships no skills. A host `go build` sees the whole
+# working tree and cannot catch a missing COPY here — only the container
+# build can, which is the reason scripts/build.sh runs it.
+COPY assets/ ./assets/
 COPY --from=web /src/internal/webassets/dist ./internal/webassets/dist
 # modernc.org/sqlite is pure Go, so the binary needs no libc at runtime.
 RUN --mount=type=cache,target=/go/pkg/mod \

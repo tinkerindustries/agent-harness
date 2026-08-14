@@ -241,10 +241,11 @@ export interface UsagePayload {
   sub_turn: number;
   attempt?: number;
   /**
-   * Set only when the request was not the session's own — a ReviewScreenshot
-   * call bills a vision model and commits a second usage event on the same
-   * sub-turn. Absent means the session's own model, so the transcript names
-   * the model only when there is something to distinguish.
+   * Set only when the request was not the session's own — a Glance, Ground
+   * or Detect call bills a vision model and commits a second usage event on
+   * the same sub-turn (Crop makes no model call and commits none). Absent
+   * means the session's own model, so the transcript names the model only
+   * when there is something to distinguish.
    */
   model?: string;
   prompt_tokens: number;

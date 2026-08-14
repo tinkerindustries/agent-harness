@@ -72,7 +72,7 @@ export function toolDetail(call: ToolCallPayload | undefined): string {
       // the gallery underneath, and the URL is the fact that identifies which
       // capture this was.
       return str(args.url);
-    case "ReviewScreenshot": {
+    case "Glance": {
       const paths = screenshotPaths(call);
       if (paths.length === 0) return "";
       // The first image is the one sent at high resolution, so it is the one
@@ -81,6 +81,17 @@ export function toolDetail(call: ToolCallPayload | undefined): string {
       const first = trimWorkspace(paths[0]);
       return paths.length === 1 ? first : `${first} +${paths.length - 1}`;
     }
+    case "Ground":
+      // What to locate is the fact that identifies this call, the same way
+      // Grep's pattern does — the image itself is shown by the gallery below.
+      return str(args.target);
+    case "Detect":
+      return str(args.category);
+    case "Crop":
+      // The file the call produced, the same way Write's target is the file
+      // it wrote — computed the same way screenshotPaths derives it, so the
+      // two never disagree about which name a caller who omitted output gets.
+      return trimWorkspace(screenshotPaths(call)[0] ?? "");
     default:
       return "";
   }
@@ -88,19 +99,36 @@ export function toolDetail(call: ToolCallPayload | undefined): string {
 
 // IMAGE_EXTENSION is the three types the screenshot endpoint serves
 // (internal/httpapi/screenshots.go's screenshotContentTypes) and the three
-// ReviewScreenshot accepts. A path with any other extension is not requested
+// the vision tools accept. A path with any other extension is not requested
 // at all — the endpoint would refuse it, so asking would only produce a
 // broken image where the path itself is the more useful thing to show.
 const IMAGE_EXTENSION = /\.(png|jpe?g|webp)$/i;
 
-// screenshotPaths pulls the image paths out of a Screenshot or
-// ReviewScreenshot call for the transcript's gallery to render.
+// cropDefaultOutput is execCrop's own fallback when output is omitted
+// (internal/tools/vision.go): <image-stem>.crop.png next to the input. Kept
+// in step with the Go side so the gallery finds the same file the tool
+// actually wrote.
+function cropDefaultOutput(imagePath: string): string {
+  const dot = imagePath.lastIndexOf(".");
+  const stem = dot < 0 ? imagePath : imagePath.slice(0, dot);
+  return `${stem}.crop.png`;
+}
+
+// screenshotPaths pulls the image path(s) a tool call names, or produces, for
+// the transcript's gallery to render. Glance takes several in image_paths;
+// Ground, Detect and Crop take one in image_path; Screenshot writes one file
+// and names it in path.
 //
-// ReviewScreenshot names its images in image_paths; Screenshot writes one
-// file and names it in path. Both are read from the call rather than from the
-// result, so the images appear as soon as the call is folded and stay
-// visible even when the call itself failed — a capture that produced a
-// blank page is exactly the case where seeing the image matters most.
+// Crop is the odd one out: it makes no model call and its image_path is
+// usually already visible from an earlier call, so the gallery shows what it
+// wrote (output, or the same default name execCrop falls back to) rather than
+// what it read — the produced crop, often upscaled, is the new thing a reader
+// has not seen yet.
+//
+// Paths are read from the call rather than from the result, so the images
+// appear as soon as the call is folded and stay visible even when the call
+// itself failed — a capture that produced a blank page is exactly the case
+// where seeing the image matters most.
 //
 // Anything that is not a non-empty string with an image extension is dropped
 // rather than passed through: arguments can arrive mid-stream and a
@@ -108,8 +136,24 @@ const IMAGE_EXTENSION = /\.(png|jpe?g|webp)$/i;
 export function screenshotPaths(call: ToolCallPayload | undefined): string[] {
   if (!call) return [];
   const args = parseToolArgs(call);
-  const raw: unknown[] =
-    call.name === "ReviewScreenshot" ? (Array.isArray(args.image_paths) ? args.image_paths : []) : [args.path];
+  let raw: unknown[];
+  switch (call.name) {
+    case "Glance":
+      raw = Array.isArray(args.image_paths) ? args.image_paths : [];
+      break;
+    case "Ground":
+    case "Detect":
+      raw = [args.image_path];
+      break;
+    case "Crop": {
+      const output = str(args.output);
+      const imagePath = str(args.image_path);
+      raw = [output || (imagePath ? cropDefaultOutput(imagePath) : "")];
+      break;
+    }
+    default:
+      raw = [args.path];
+  }
   const paths: string[] = [];
   for (const value of raw) {
     if (typeof value !== "string") continue;
@@ -233,11 +277,18 @@ const GLYPH_BY_NAME: Record<string, ToolGlyph> = {
   TaskGet: { letter: "P", family: "other" },
   TaskList: { letter: "P", family: "other" },
   TaskUpdate: { letter: "P", family: "other" },
-  // Screenshot keeps its first letter; ReviewScreenshot cannot, because its
-  // R would be indistinguishable from Read's on the rail. "V" for the vision
-  // call it makes is the one letter that says which of the two it was.
+  // Screenshot keeps its first letter. None of the four vision tools can:
+  // Glance and Ground would both fall back to "G", clashing with Grep and
+  // Glob's own "G"; Crop's "C" would clash with Complete's fallback. V (the
+  // vision call Glance makes), X (the pixel coordinates Ground returns), D
+  // (Detect, free and undisputed) and K (a hard-C stand-in for Crop) are
+  // picked to keep clear of every other glyph in this table and of each
+  // other.
   Screenshot: { letter: "S", family: "other" },
-  ReviewScreenshot: { letter: "V", family: "other" },
+  Glance: { letter: "V", family: "other" },
+  Ground: { letter: "X", family: "other" },
+  Detect: { letter: "D", family: "other" },
+  Crop: { letter: "K", family: "other" },
 };
 
 export function toolGlyph(name: string): ToolGlyph {

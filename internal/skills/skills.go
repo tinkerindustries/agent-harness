@@ -28,6 +28,21 @@ var skillDirs = []string{
 	filepath.Join(".deepcode", "skills"),
 }
 
+// WorkspaceSkillsDir is the harness's own skill directory, created by
+// internal/workspace beside scratch/ and scanned like a repository's
+// .claude/skills. It exists so a skill can be given to a session without
+// being committed to any of the repositories the session is working in: a
+// skill dropped in a clone shows up in that repository's diff and in its pull
+// request, which is a change nobody asked for, and one the model then has to
+// remember not to commit.
+//
+// Being under the workspace root rather than somewhere in the image is what
+// makes the skill readable. The catalogue only carries each skill's
+// description; the model opens the SKILL.md itself with Read, and Read is
+// confined to the workspace (internal/tools/workspace.go), so a skill outside
+// it would be advertised and then refuse to open.
+const WorkspaceSkillsDir = "skills"
+
 // Limits on what reaches the model. The catalogue rides in every request of
 // the run, so a repository with a hundred verbose skills would otherwise
 // spend real tokens per sub-turn on descriptions of work it will never do.
@@ -70,11 +85,13 @@ type frontmatter struct {
 
 // Discover scans workspace for skills and returns them in a stable order.
 //
-// Two layouts are covered. A queue-driven run clones each repository into its
-// own subdirectory of the workspace, so skills sit at
+// Three layouts are covered. A queue-driven run clones each repository into
+// its own subdirectory of the workspace, so skills sit at
 // <workspace>/<repo>/.claude/skills/<name>/SKILL.md. A CLI run points the
-// workspace straight at a checkout, so they sit one level higher. Both are
-// scanned; neither recurses further.
+// workspace straight at a checkout, so they sit one level higher. And the
+// harness's own skills sit at <workspace>/skills/<name>/SKILL.md, outside
+// every repository (WorkspaceSkillsDir). All three are scanned; none recurses
+// further.
 //
 // Discovery never fails a run. A workspace that cannot be read, a malformed
 // SKILL.md, and a skill with no description all yield no entry and no error.
@@ -90,6 +107,17 @@ func Discover(workspace string) Catalogue {
 
 	var found []Skill
 	seen := make(map[string]bool)
+	// The workspace's own skills/ first, so a repository shipping a skill of
+	// the same name sorts after it and the harness's copy is the one a reader
+	// meets first. Scanned directly rather than through skillDirs: it is the
+	// skill directory itself, not a repository that contains one.
+	for _, skill := range scanSkillDir(workspace, filepath.Join(workspace, WorkspaceSkillsDir)) {
+		if seen[skill.Path] {
+			continue
+		}
+		seen[skill.Path] = true
+		found = append(found, skill)
+	}
 	for _, root := range roots {
 		for _, dir := range skillDirs {
 			for _, skill := range scanSkillDir(workspace, filepath.Join(root, dir)) {

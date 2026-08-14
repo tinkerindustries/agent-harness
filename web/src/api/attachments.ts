@@ -43,10 +43,10 @@ export function attachmentCapsFromSettings(entries: SettingEntry[]): AttachmentC
   return { maxCount: effective(ATTACHMENT_MAX_COUNT_KEY), maxBytes: effective(ATTACHMENT_MAX_BYTES_KEY) };
 }
 
-// The same extension-to-MIME allowlist the tool and the server use
-// (internal/tools/screenshotMIMEType): only what ReviewScreenshot can review
-// can be attached, because the model's whole use of the file is passing it
-// back to that tool.
+// The same extension-to-MIME allowlist the tools and the server use
+// (internal/tools/screenshotMIMEType): only what the vision tools (Glance,
+// Ground, Detect, Crop) can read can be attached, because the model's whole
+// use of the file is passing it to one of them.
 const attachmentMIMEByExtension: Record<string, string> = {
   ".png": "image/png",
   ".jpg": "image/jpeg",
