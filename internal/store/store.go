@@ -160,7 +160,27 @@ type Session struct {
 	// say what a session is about without reading the event log. Empty when
 	// the run was created with no prompt (a browser start waits for its
 	// first message).
-	Task            string
+	Task string
+	// Title is the run's name, at most agentmeta.MaxTitleWords words, shown
+	// bold on the main page in place of the raw prompt. Empty covers a
+	// pre-migration row and a producer that left it blank (the browser start
+	// and the CLI); the browser then renders the task line without a bold
+	// title rather than an empty one.
+	Title string
+	// Description is what change the agent is making, at most
+	// agentmeta.MaxDescriptionWords words, shown under the title on the main
+	// page. Empty covers a pre-migration row and a producer that left it
+	// blank; the browser falls back to the task as the description line.
+	Description string
+	// Phase is this run's 1-based position in a multi-phase chain (the
+	// deepseek-flash-plan skill cuts a job into phases). Zero together with
+	// TotalPhases zero means the run is not part of a chain; the browser
+	// shows no phase chip then.
+	Phase int
+	// TotalPhases is how many phases the chain has. Zero together with Phase
+	// zero means the run is not part of a chain; when set, Phase is 1-based
+	// and at most TotalPhases (agentmeta.ValidatePhase).
+	TotalPhases     int
 	ParentAgentType string
 	ParentAgentID   string
 	// ParentIsUser records that a person started this session directly. It is
@@ -261,6 +281,10 @@ CREATE TABLE IF NOT EXISTS sessions (
 	parent_id         TEXT,
 	job_type          TEXT NOT NULL DEFAULT 'implementation',
 	task              TEXT NOT NULL DEFAULT '',
+	title             TEXT NOT NULL DEFAULT '',
+	description       TEXT NOT NULL DEFAULT '',
+	phase             INTEGER NOT NULL DEFAULT 0,
+	total_phases      INTEGER NOT NULL DEFAULT 0,
 	parent_agent_type TEXT NOT NULL DEFAULT '',
 	parent_agent_id   TEXT NOT NULL DEFAULT '',
 	model             TEXT NOT NULL,
@@ -509,6 +533,22 @@ var sessionMigrationColumns = []migrationColumn{
 	// event log. Older rows default to the empty string, which the browser
 	// renders as no description rather than guessing.
 	{"task", "TEXT NOT NULL DEFAULT ''"},
+	// title: the run's name, shown bold on the main page in place of the raw
+	// prompt. Older rows default to the empty string, which the browser
+	// renders as no bold title (the task line then carries the description)
+	// rather than inventing one.
+	{"title", "TEXT NOT NULL DEFAULT ''"},
+	// description: what change the agent is making, shown under the title on
+	// the main page. Older rows default to the empty string, which the
+	// browser renders as the task fallback rather than an empty line.
+	{"description", "TEXT NOT NULL DEFAULT ''"},
+	// phase: this run's 1-based position in a multi-phase chain. Older rows
+	// default to 0, which — with total_phases also 0 — means "not part of a
+	// chain", so the browser shows no phase chip.
+	{"phase", "INTEGER NOT NULL DEFAULT 0"},
+	// total_phases: how many phases the chain has. Older rows default to 0,
+	// which — with phase also 0 — means "not part of a chain".
+	{"total_phases", "INTEGER NOT NULL DEFAULT 0"},
 	{"parent_agent_type", "TEXT NOT NULL DEFAULT ''"},
 	{"parent_agent_id", "TEXT NOT NULL DEFAULT ''"},
 	// complete_status: the status argument to Complete, kept alongside the
@@ -642,11 +682,13 @@ func (s *Store) CreateSession(ctx context.Context, sess Session) error {
 
 	return s.submit(ctx, func(tx *sql.Tx) error {
 		_, err := tx.Exec(`
-			INSERT INTO sessions (id, parent_id, job_type, task, parent_agent_type, parent_agent_id,
+			INSERT INTO sessions (id, parent_id, job_type, task, title, description, phase, total_phases,
+				parent_agent_type, parent_agent_id,
 				model, effort, thinking, workspace, permission_mode, deny_patterns, system_prompt,
 				tool_schema, result_schema, status, created_at, finished_at, version, parent_is_user)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, ?)`,
-			sess.ID, parentID, sess.JobType, sess.Task, sess.ParentAgentType, sess.ParentAgentID,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, ?)`,
+			sess.ID, parentID, sess.JobType, sess.Task, sess.Title, sess.Description, sess.Phase, sess.TotalPhases,
+			sess.ParentAgentType, sess.ParentAgentID,
 			sess.Model, sess.Effort, sess.Thinking, sess.Workspace, sess.PermissionMode,
 			deny, sess.SystemPrompt, toolSchema, resultSchema, sess.Status, createdAt.Format(time.RFC3339Nano),
 			sess.ParentIsUser)
@@ -938,7 +980,8 @@ func scanSession(row interface {
 	var thinking int
 	var parentIsUser int
 	var denyJSON, createdAt, recentCalls string
-	err := row.Scan(&sess.ID, &parentID, &sess.JobType, &sess.Task, &sess.ParentAgentType, &sess.ParentAgentID,
+	err := row.Scan(&sess.ID, &parentID, &sess.JobType, &sess.Task, &sess.Title, &sess.Description,
+		&sess.Phase, &sess.TotalPhases, &sess.ParentAgentType, &sess.ParentAgentID,
 		&sess.Model, &sess.Effort, &thinking, &sess.Workspace,
 		&sess.PermissionMode, &denyJSON, &sess.SystemPrompt, (*sqlText)(&sess.ToolSchema), &resultSchema,
 		&sess.Status, &createdAt, &finishedAt, &sess.CompleteStatus, &sess.Plan, &recentCalls, &sess.Summary,
@@ -993,7 +1036,8 @@ func (t *sqlText) Scan(src any) error {
 	return nil
 }
 
-const sessionColumns = `id, parent_id, job_type, task, parent_agent_type, parent_agent_id, model, effort,
+const sessionColumns = `id, parent_id, job_type, task, title, description, phase, total_phases,
+	parent_agent_type, parent_agent_id, model, effort,
 	thinking, workspace, permission_mode, deny_patterns, system_prompt, tool_schema,
 	result_schema, status, created_at, finished_at, complete_status, plan, recent_tool_calls, summary, version, parent_is_user`
 

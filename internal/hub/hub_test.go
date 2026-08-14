@@ -160,13 +160,18 @@ func TestBuildSessionStateCarriesProvenance(t *testing.T) {
 }
 
 // TestBuildSessionStateCarriesLivePlan asserts the plan, recent-tool-call
-// roll, task, and summary reach the wire row in the shape the browser
-// consumes them: plan as the raw todos array, the roll as an array of calls,
-// task and summary as strings — all omitted when empty.
+// roll, task, summary, and the four session fields reach the wire row in the
+// shape the browser consumes them: plan as the raw todos array, the roll as
+// an array of calls, task, title, and description as strings, phase and
+// total_phases as ints — all omitted when empty.
 func TestBuildSessionStateCarriesLivePlan(t *testing.T) {
 	sess := store.Session{
 		ID:              "sess-1",
 		Task:            "carry the job's description onto the session row",
+		Title:           "Add session title fields",
+		Description:     "Carry a title, description, and phase position from every producer onto the session row.",
+		Phase:           2,
+		TotalPhases:     5,
 		Plan:            `[{"content":"a","status":"completed","activeForm":""}]`,
 		RecentToolCalls: []store.RecentToolCall{{Name: "Bash", Arguments: `{"command":"go build ./..."}`}},
 		Summary:         "wired it up",
@@ -174,6 +179,12 @@ func TestBuildSessionStateCarriesLivePlan(t *testing.T) {
 	st := BuildSessionState(sess, store.SessionUsageSummary{}, "req-1", "")
 	if st.Task != sess.Task {
 		t.Fatalf("expected task %q on the wire row, got %q", sess.Task, st.Task)
+	}
+	if st.Title != sess.Title || st.Description != sess.Description {
+		t.Fatalf("expected title %q and description %q on the wire row, got %q/%q", sess.Title, sess.Description, st.Title, st.Description)
+	}
+	if st.Phase != 2 || st.TotalPhases != 5 {
+		t.Fatalf("expected phase 2/5 on the wire row, got %d/%d", st.Phase, st.TotalPhases)
 	}
 	if string(st.Plan) != sess.Plan {
 		t.Fatalf("expected plan %q on the wire row, got %q", sess.Plan, st.Plan)
@@ -185,13 +196,14 @@ func TestBuildSessionStateCarriesLivePlan(t *testing.T) {
 		t.Fatalf("expected summary %q on the wire row, got %q", "wired it up", st.Summary)
 	}
 
-	// The empty row omits all four: the wire must not carry a "plan":null
-	// or an empty task/summary the browser would have to second-guess.
+	// The empty row omits them all: the wire must not carry a "plan":null
+	// or an empty task/title/description the browser would have to
+	// second-guess.
 	b, err := json.Marshal(BuildSessionState(store.Session{ID: "sess-2"}, store.SessionUsageSummary{}, "", ""))
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, absent := range []string{`"task"`, `"plan"`, `"recent_tool_calls"`, `"summary"`} {
+	for _, absent := range []string{`"task"`, `"title"`, `"description"`, `"phase"`, `"total_phases"`, `"plan"`, `"recent_tool_calls"`, `"summary"`} {
 		if jsonContains(b, absent) {
 			t.Fatalf("expected %s omitted when empty, got %s", absent, b)
 		}

@@ -30,7 +30,17 @@ func (svc *Service) handleRuns(ctx context.Context, _ *mcpsdk.CallToolRequest, _
 
 	var b strings.Builder
 	for _, rec := range records {
-		fmt.Fprintf(&b, "%s  %-10s %s", rec.RequestID, rec.Status, rec.Description)
+		// The run's title is the readable name of what was launched; the
+		// phase position rides next to it when the job is part of a chain,
+		// the same shape the harness UI shows on the session list.
+		label := rec.Title
+		if label == "" {
+			label = rec.Description
+		}
+		if rec.Phase > 0 && rec.TotalPhases > 0 {
+			label = fmt.Sprintf("%s (phase %d/%d)", label, rec.Phase, rec.TotalPhases)
+		}
+		fmt.Fprintf(&b, "%s  %-10s %s", rec.RequestID, rec.Status, label)
 		if rec.SessionID != "" {
 			fmt.Fprintf(&b, "  session=%s", rec.SessionID)
 		}

@@ -7,6 +7,7 @@ package agentmeta
 import (
 	"fmt"
 	"regexp"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 )
@@ -52,6 +53,63 @@ func ValidateParentAgentType(s string) error {
 		return nil
 	}
 	return fmt.Errorf("agentmeta: invalid parent agent type %q", s)
+}
+
+// MaxTitleWords is the word cap on a run's title: the name of the run,
+// shown bold on the main page. Ten words is a label, not a paragraph.
+const MaxTitleWords = 10
+
+// MaxDescriptionWords is the word cap on a run's description: what change
+// the agent is making, shown under the title on the main page.
+const MaxDescriptionWords = 50
+
+// ValidateTitle returns an error unless s is "" or is at most MaxTitleWords
+// whitespace-separated words and contains no newline. Empty is allowed —
+// presence is the producer's call (the browser start and the CLI leave it
+// blank; the MCP launch path requires it) — so this enforces only the shape
+// of a present title.
+func ValidateTitle(s string) error {
+	if s == "" {
+		return nil
+	}
+	if strings.ContainsAny(s, "\n\r") {
+		return fmt.Errorf("agentmeta: title must not contain a newline")
+	}
+	if n := len(strings.Fields(s)); n > MaxTitleWords {
+		return fmt.Errorf("agentmeta: title has %d words, at most %d", n, MaxTitleWords)
+	}
+	return nil
+}
+
+// ValidateDescription returns an error unless s is "" or is at most
+// MaxDescriptionWords whitespace-separated words. Newlines are allowed — a
+// description is prose. Empty is allowed for the same reason it is for a
+// title: presence is the producer's call.
+func ValidateDescription(s string) error {
+	if s == "" {
+		return nil
+	}
+	if n := len(strings.Fields(s)); n > MaxDescriptionWords {
+		return fmt.Errorf("agentmeta: description has %d words, at most %d", n, MaxDescriptionWords)
+	}
+	return nil
+}
+
+// ValidatePhase returns an error unless phase and total are both zero (the
+// run is not part of a multi-phase chain) or both positive with
+// phase <= total. Negative is always an error, and one set without the
+// other is an error: a chain position has no meaning with only half of it.
+func ValidatePhase(phase, total int) error {
+	if phase == 0 && total == 0 {
+		return nil
+	}
+	if phase <= 0 || total <= 0 {
+		return fmt.Errorf("agentmeta: phase (%d) and total_phases (%d) must both be set, or both zero", phase, total)
+	}
+	if phase > total {
+		return fmt.Errorf("agentmeta: phase %d exceeds total_phases %d", phase, total)
+	}
+	return nil
 }
 
 // ValidateParentAgentID returns an error unless s is "" or is at most 128

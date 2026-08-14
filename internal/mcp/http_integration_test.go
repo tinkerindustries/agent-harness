@@ -98,6 +98,7 @@ func TestMCPServerCallToolLaunchOverHTTP(t *testing.T) {
 	res, err := cs.CallTool(context.Background(), &mcpsdk.CallToolParams{
 		Name: "deepseek_agent",
 		Arguments: map[string]any{
+			"title":           "HTTP smoke test",
 			"description":     "http smoke test",
 			"prompt":          "do nothing",
 			"repos":           []any{map[string]any{"url": "https://example.com/org/app.git"}},
@@ -139,6 +140,7 @@ func TestMCPServerLaunchStampsParentAgentTypeFromClientInfo(t *testing.T) {
 	res, err := cs.CallTool(context.Background(), &mcpsdk.CallToolParams{
 		Name: "deepseek_agent",
 		Arguments: map[string]any{
+			"title":             "Clientinfo stamp test",
 			"description":       "clientinfo stamp test",
 			"prompt":            "do nothing",
 			"repos":             []any{map[string]any{"url": "https://example.com/org/app.git"}},

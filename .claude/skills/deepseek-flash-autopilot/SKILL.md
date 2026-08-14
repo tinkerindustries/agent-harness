@@ -266,6 +266,14 @@ turn per check. Pass on the transcript URL when it arrives. Unattended does not
 mean silent: one line when a phase starts and one when it lands is the
 difference between a user who can look in and a user who has to guess.
 
+Every launch carries the phase's identity, so the session list reads as the
+chain it is rather than a wall of raw prompts: `title` (the phase's name, at
+most 10 words), `description` (what the phase changes, at most 50 words), and
+the position `phase` N / `total_phases` M — N is the phase being launched, M
+the chain's total, both known from the ledger's live plan. The harness UI
+shows the title bold with the description beneath and a `phase N/M` chip, and
+your own between-phase line can quote that same title instead of a request id.
+
 ### 3. Check the change
 
 Before it merges, not after. Cheap by default, because you will do this six

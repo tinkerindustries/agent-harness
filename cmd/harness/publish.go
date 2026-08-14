@@ -39,6 +39,10 @@ func runPublish(ctx context.Context, args []string) error {
 	wait := fs.Bool("wait", false, "block until the final result is published, then print it")
 	waitTimeout := fs.Duration("wait-timeout", 0, "how long -wait blocks for (default: the request's own deadline, or the config default deadline)")
 	jobType := fs.String("job-type", "", "implementation or orchestration (default implementation)")
+	title := fs.String("title", "", "a name for the run, at most 10 words, shown bold on the main page")
+	description := fs.String("description", "", "what change this run is making, at most 50 words, shown under the title on the main page")
+	phase := fs.Int("phase", 0, "this run's 1-based position in a multi-phase chain; omit (or pair with -total-phases 0) for a standalone run")
+	totalPhases := fs.Int("total-phases", 0, "how many phases the chain has in total; omit (or pair with -phase 0) for a standalone run")
 	parentAgentType := fs.String("parent-agent-type", "", "the launching agent's kind, as a lowercase slug (claude-code, cursor, ...)")
 	parentAgentID := fs.String("parent-agent-id", "", "the launching agent's session id")
 	parentIsUser := fs.Bool("parent-is-user", false, "record this run as started by a person rather than an agent; the -parent-agent-id is then that person's name")
@@ -92,6 +96,10 @@ func runPublish(ctx context.Context, args []string) error {
 		MaxSubTurns:     *maxSubTurns,
 		DeadlineMS:      *deadlineMS,
 		JobType:         *jobType,
+		Title:           *title,
+		Description:     *description,
+		Phase:           *phase,
+		TotalPhases:     *totalPhases,
 		ParentAgentType: *parentAgentType,
 		ParentAgentID:   *parentAgentID,
 		ParentIsUser:    *parentIsUser,

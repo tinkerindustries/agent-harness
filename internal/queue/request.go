@@ -37,6 +37,22 @@ type Request struct {
 	JobType         string          `json:"job_type,omitempty"`
 	ParentAgentType string          `json:"parent_agent_type,omitempty"`
 	ParentAgentID   string          `json:"parent_agent_id,omitempty"`
+	// Title is the run's name, at most agentmeta.MaxTitleWords words, shown
+	// bold on the main page. Absent is allowed at this layer — the browser
+	// start and the CLI may leave it blank — and the queue enforces only the
+	// word cap and the no-newline rule (agentmeta.ValidateTitle).
+	Title string `json:"title,omitempty"`
+	// Description is what change the agent is making, at most
+	// agentmeta.MaxDescriptionWords words, shown under the title on the main
+	// page. Absent is allowed at this layer for the same reason a blank
+	// prompt is: presence is the producer's call.
+	Description string `json:"description,omitempty"`
+	// Phase is this run's 1-based position in a multi-phase chain. Both this
+	// and TotalPhases zero means the run is not part of a chain.
+	Phase int `json:"phase,omitempty"`
+	// TotalPhases is how many phases the chain has. When set, Phase is
+	// 1-based and at most TotalPhases (agentmeta.ValidatePhase).
+	TotalPhases int `json:"total_phases,omitempty"`
 	// ParentIsUser records that a person started this run directly. It is set
 	// by the producer — a browser start, the MCP tool, or the CLI — and never
 	// by the calling agent, which is what makes it trustworthy where
@@ -178,6 +194,15 @@ func (r Request) Validate() error {
 		return errors.New("queue: deadline_ms must not be negative")
 	}
 	if err := agentmeta.ValidateJobType(r.JobType); err != nil {
+		return fmt.Errorf("queue: %w", err)
+	}
+	if err := agentmeta.ValidateTitle(r.Title); err != nil {
+		return fmt.Errorf("queue: %w", err)
+	}
+	if err := agentmeta.ValidateDescription(r.Description); err != nil {
+		return fmt.Errorf("queue: %w", err)
+	}
+	if err := agentmeta.ValidatePhase(r.Phase, r.TotalPhases); err != nil {
 		return fmt.Errorf("queue: %w", err)
 	}
 	if err := agentmeta.ValidateParent(r.ParentIsUser, r.ParentAgentType, r.ParentAgentID); err != nil {

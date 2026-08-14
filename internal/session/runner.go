@@ -79,19 +79,35 @@ const KimiK3CompactionThresholdTokens = 128 * 1024
 // many concurrent calls to Run without any of them touching another's
 // state.
 type RunOptions struct {
-	Model           string
-	Effort          string
-	Thinking        bool
-	MaxTokens       int
-	Workspace       string
-	PermissionMode  tools.Mode
-	Deny            []string
-	Prompt          string
-	ResultSchema    json.RawMessage
-	MaxSubTurns     int
-	Resolver        tools.Resolver
-	ParentID        string
-	JobType         string
+	Model          string
+	Effort         string
+	Thinking       bool
+	MaxTokens      int
+	Workspace      string
+	PermissionMode tools.Mode
+	Deny           []string
+	Prompt         string
+	ResultSchema   json.RawMessage
+	MaxSubTurns    int
+	Resolver       tools.Resolver
+	ParentID       string
+	JobType        string
+	// Title is the run's name, at most agentmeta.MaxTitleWords words, shown
+	// bold on the main page. Empty is a producer's choice — the CLI and a
+	// browser start may leave it blank — and the session row then renders
+	// without a bold title.
+	Title string
+	// Description is what change the agent is making, at most
+	// agentmeta.MaxDescriptionWords words, shown under the title on the main
+	// page. Empty is a producer's choice; the browser falls back to the
+	// prompt as the description line.
+	Description string
+	// Phase is this run's 1-based position in a multi-phase chain. Both this
+	// and TotalPhases zero means the run is not part of a chain.
+	Phase int
+	// TotalPhases is how many phases the chain has. When set, Phase is
+	// 1-based and at most TotalPhases (agentmeta.ValidatePhase).
+	TotalPhases     int
 	ParentAgentType string
 	ParentAgentID   string
 	// ParentIsUser records that a person started this run directly. It is
@@ -444,6 +460,10 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 		ParentID:        opts.ParentID,
 		JobType:         opts.JobType,
 		Task:            opts.Prompt,
+		Title:           opts.Title,
+		Description:     opts.Description,
+		Phase:           opts.Phase,
+		TotalPhases:     opts.TotalPhases,
 		ParentAgentType: opts.ParentAgentType,
 		ParentAgentID:   opts.ParentAgentID,
 		ParentIsUser:    opts.ParentIsUser,
@@ -657,6 +677,16 @@ func (r *Runner) subagentRunner(parentID string, parentOpts RunOptions, workspac
 			ParentAgentType: parentOpts.ParentAgentType,
 			ParentAgentID:   parentOpts.ParentAgentID,
 			ParentIsUser:    parentOpts.ParentIsUser,
+			// The Task tool's own description argument is exactly a short
+			// label for the child's work, so it becomes the child's title —
+			// truncated to the title cap rather than failing the subagent
+			// call when a model supplies a long one. The child's Description
+			// stays empty and its phase position is inherited from the
+			// parent: a compacted continuation is the same job, and so is a
+			// delegated slice of one.
+			Title:       truncateTitle(description),
+			Phase:       parentOpts.Phase,
+			TotalPhases: parentOpts.TotalPhases,
 		})
 		if err != nil {
 			if res != nil {
@@ -669,6 +699,19 @@ func (r *Runner) subagentRunner(parentID string, parentOpts RunOptions, workspac
 		}
 		return res.Summary, res.SessionID, nil
 	}
+}
+
+// truncateTitle clips a model-supplied label down to the title word cap
+// (agentmeta.MaxTitleWords): the first cap words, joined with single spaces
+// so a newline or a run of whitespace cannot smuggle itself into a title.
+// The alternative — letting a long Task description fail validation and
+// abort the subagent call — would turn a cosmetic cap into a lost run.
+func truncateTitle(s string) string {
+	fields := strings.Fields(s)
+	if len(fields) <= agentmeta.MaxTitleWords {
+		return strings.Join(fields, " ")
+	}
+	return strings.Join(fields[:agentmeta.MaxTitleWords], " ")
 }
 
 func (r *Runner) mirrorAppend(sess store.Session, events []store.Event) {

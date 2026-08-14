@@ -344,6 +344,75 @@ func TestRunWritesProvenanceOntoSessionRow(t *testing.T) {
 	}
 }
 
+// TestRunWritesTitleFieldsOntoSessionRow pins the four session fields end to
+// end on the run path: RunOptions carries them onto the store.Session it
+// creates, next to Task, so the session list can render a title and a phase
+// chip without reading the event log.
+func TestRunWritesTitleFieldsOntoSessionRow(t *testing.T) {
+	srv := plainAnswerServer(t, "all done")
+	defer srv.Close()
+	r := newTestRunner(t, srv.URL)
+
+	ws := t.TempDir()
+	res, err := r.Run(t.Context(), RunOptions{
+		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "say something",
+		Title:       "Add session title fields",
+		Description: "Carry a title, description, and phase position from every producer onto the session row.",
+		Phase:       2,
+		TotalPhases: 5,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	sess, err := r.Store.GetSession(t.Context(), res.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.Task != "say something" {
+		t.Fatalf("task must stay the raw prompt, got %q", sess.Task)
+	}
+	if sess.Title != "Add session title fields" || sess.Description != "Carry a title, description, and phase position from every producer onto the session row." {
+		t.Fatalf("title fields not copied onto the session row: %+v", sess)
+	}
+	if sess.Phase != 2 || sess.TotalPhases != 5 {
+		t.Fatalf("phase fields not copied onto the session row: %+v", sess)
+	}
+}
+
+// TestSubagentTitleAndPhaseInheritance pins the child session's session
+// fields: the Task tool's own description argument becomes the child's title
+// (truncated to the title cap when a model supplies a long one), the child's
+// Description stays empty, and the parent's phase position is inherited — a
+// delegated slice of a phased job is still part of that job.
+func TestSubagentTitleAndPhaseInheritance(t *testing.T) {
+	srv := plainAnswerServer(t, "subagent answer")
+	defer srv.Close()
+	r := newTestRunner(t, srv.URL)
+
+	ws := t.TempDir()
+	run := r.subagentRunner("parent-sess", RunOptions{PermissionMode: tools.ModeFull, Phase: 3, TotalPhases: 4}, ws)
+	_, childID, err := run(t.Context(), "one two three four five six seven eight nine ten eleven words here", "find it", "general")
+	if err != nil {
+		t.Fatalf("subagent run: %v", err)
+	}
+
+	child, err := r.Store.GetSession(t.Context(), childID)
+	if err != nil {
+		t.Fatalf("expected the child session to exist in the store: %v", err)
+	}
+	if want := "one two three four five six seven eight nine ten"; child.Title != want {
+		t.Fatalf("expected the child title truncated to the first ten words, got %q", child.Title)
+	}
+	if child.Description != "" {
+		t.Fatalf("expected the child description to stay empty, got %q", child.Description)
+	}
+	if child.Phase != 3 || child.TotalPhases != 4 {
+		t.Fatalf("expected the child to inherit the parent's phase position, got %d/%d", child.Phase, child.TotalPhases)
+	}
+}
+
 // completeToolServer answers every streaming request with a single call to
 // Complete, ending the run in one sub-turn. It is what
 // TestRunGaveUpSetsCompleteStatus and its "done" counterpart drive against.

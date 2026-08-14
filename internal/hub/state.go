@@ -44,6 +44,24 @@ type SessionState struct {
 	// browser start waits for its first message); the card renders no
 	// description rather than an empty one.
 	Task string `json:"task,omitempty"`
+	// Title is the run's name, at most agentmeta.MaxTitleWords words, shown
+	// bold on the main page in place of the raw prompt. Absent covers a
+	// pre-migration row and a producer that left it blank; the browser then
+	// renders the task line without a bold title rather than an empty one.
+	Title string `json:"title,omitempty"`
+	// Description is what change the agent is making, at most
+	// agentmeta.MaxDescriptionWords words, shown under the title on the main
+	// page. Absent covers a pre-migration row and a producer that left it
+	// blank; the browser falls back to the task as the description line.
+	Description string `json:"description,omitempty"`
+	// Phase is this run's 1-based position in a multi-phase chain. Absent
+	// together with total_phases absent means the run is not part of a
+	// chain; the browser shows no phase chip then.
+	Phase int `json:"phase,omitempty"`
+	// TotalPhases is how many phases the chain has. When present, Phase is
+	// 1-based and at most TotalPhases; the browser renders a "phase N/M"
+	// chip next to the title.
+	TotalPhases int `json:"total_phases,omitempty"`
 	// Plan is the session's working plan: the todos array of the most
 	// recent TodoWrite call, verbatim.
 	// Absent covers a pre-migration row and a session that never called
@@ -110,6 +128,10 @@ func BuildSessionState(sess store.Session, summary store.SessionUsageSummary, re
 		Status:          sess.Status,
 		CompleteStatus:  sess.CompleteStatus,
 		Task:            sess.Task,
+		Title:           sess.Title,
+		Description:     sess.Description,
+		Phase:           sess.Phase,
+		TotalPhases:     sess.TotalPhases,
 		Plan:            json.RawMessage(sess.Plan),
 		RecentToolCalls: sess.RecentToolCalls,
 		Summary:         sess.Summary,

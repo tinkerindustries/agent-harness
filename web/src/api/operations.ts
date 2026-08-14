@@ -303,6 +303,12 @@ export interface WorkRequest {
   max_sub_turns?: number;
   deadline_ms?: number;
   job_type?: string;
+  // title is the run's name (up to 10 words), shown bold on the main page;
+  // description (up to 50 words) is what change the run is making, shown
+  // under the title. Both are optional on the browser path: a run started
+  // with them blank renders the raw prompt as its description line.
+  title?: string;
+  description?: string;
   // The images the operator attached to this run (attachments.ts
   // readAttachmentFiles), accepted by POST /api/runs and stored server-side;
   // the request the worker sees carries the attachment ids, never these
