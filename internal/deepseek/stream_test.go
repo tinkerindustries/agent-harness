@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/providerhttp"
 	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
@@ -27,9 +28,9 @@ func TestChunkToEventsReasoningNullContent(t *testing.T) {
 		t.Fatalf("Delta.Content = %v, want nil (explicit JSON null)", *chunk.Choices[0].Delta.Content)
 	}
 
-	events := chunkToEvents(chunk)
+	events := providerhttp.ChunkToEvents(chunk)
 	if len(events) != 1 {
-		t.Fatalf("chunkToEvents() returned %d events, want 1: %+v", len(events), events)
+		t.Fatalf("ChunkToEvents() returned %d events, want 1: %+v", len(events), events)
 	}
 	if events[0].Type != wire.EventReasoningDelta || events[0].Reasoning != "thinking..." {
 		t.Errorf("event = %+v, want reasoning delta %q", events[0], "thinking...")
@@ -40,9 +41,9 @@ func TestChunkToEventsContentDelta(t *testing.T) {
 	raw := `{"choices":[{"index":0,"delta":{"content":"hello","reasoning_content":null},"finish_reason":null}]}`
 	chunk := decodeChunk(t, raw)
 
-	events := chunkToEvents(chunk)
+	events := providerhttp.ChunkToEvents(chunk)
 	if len(events) != 1 {
-		t.Fatalf("chunkToEvents() returned %d events, want 1: %+v", len(events), events)
+		t.Fatalf("ChunkToEvents() returned %d events, want 1: %+v", len(events), events)
 	}
 	if events[0].Type != wire.EventContentDelta || events[0].Content != "hello" {
 		t.Errorf("event = %+v, want content delta %q", events[0], "hello")
@@ -56,7 +57,7 @@ func TestChunkToEventsUsageRidesFinalContentChunk(t *testing.T) {
 	raw := `{"choices":[{"index":0,"delta":{"content":"","reasoning_content":null},"finish_reason":"stop"}],"usage":{"prompt_tokens":293,"prompt_cache_hit_tokens":0,"prompt_cache_miss_tokens":293,"completion_tokens":10,"total_tokens":303}}`
 	chunk := decodeChunk(t, raw)
 
-	events := chunkToEvents(chunk)
+	events := providerhttp.ChunkToEvents(chunk)
 
 	var sawFinish, sawUsage bool
 	for _, e := range events {
@@ -88,9 +89,9 @@ func TestChunkToEventsToolCallDelta(t *testing.T) {
 	raw := `{"choices":[{"index":0,"delta":{"content":null,"reasoning_content":null,"tool_calls":[{"index":0,"id":"call_00_x","type":"function","function":{"name":"get_weather","arguments":""}}]},"finish_reason":null}]}`
 	chunk := decodeChunk(t, raw)
 
-	events := chunkToEvents(chunk)
+	events := providerhttp.ChunkToEvents(chunk)
 	if len(events) != 1 {
-		t.Fatalf("chunkToEvents() returned %d events, want 1: %+v", len(events), events)
+		t.Fatalf("ChunkToEvents() returned %d events, want 1: %+v", len(events), events)
 	}
 	if events[0].Type != wire.EventToolCallDelta {
 		t.Fatalf("event type = %v, want EventToolCallDelta", events[0].Type)

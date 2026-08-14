@@ -7,10 +7,44 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 )
+
+// githubCache holds the last successful GET /api/github/repos fetch and its
+// time — the only mutable state on an otherwise stateless Server. get and
+// set are safe for concurrent use: two dialog-opens racing each other is the
+// only contention this ever sees, and a lost update between them is
+// harmless (two fetches of the same list), so the fetch itself runs outside
+// the lock (handleListGithubRepos).
+type githubCache struct {
+	mu        sync.Mutex
+	repos     []githubRepo
+	fetchedAt time.Time
+}
+
+// get returns the cached repo list and whether it is still fresh (fetched
+// less than githubCacheTTL ago). A never-populated cache — and a cache that
+// holds an empty list — is a miss, so the first fetch after a 60-second
+// silence re-hits GitHub.
+func (c *githubCache) get() ([]githubRepo, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.repos != nil && time.Since(c.fetchedAt) < githubCacheTTL {
+		return c.repos, true
+	}
+	return nil, false
+}
+
+// set stores a freshly fetched repo list and its fetch time.
+func (c *githubCache) set(repos []githubRepo) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.repos = repos
+	c.fetchedAt = time.Now()
+}
 
 // The GitHub repo list behind GET /api/github/repos (docs/DATA-API.md
 // "github repos"). A read-only, config-adjacent endpoint: it reads the
@@ -97,7 +131,7 @@ func (s *Server) handleListGithubRepos(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if repos, fresh := s.cachedGithubRepos(); fresh {
+	if repos, fresh := s.github.get(); fresh {
 		writeJSON(w, http.StatusOK, githubReposResponse{Repos: repos, Configured: true})
 		return
 	}
@@ -107,32 +141,8 @@ func (s *Server) handleListGithubRepos(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
 	}
-	s.setGithubReposCache(repos)
+	s.github.set(repos)
 	writeJSON(w, http.StatusOK, githubReposResponse{Repos: repos, Configured: true})
-}
-
-// cachedGithubRepos returns the cached repo list and whether it is still
-// fresh (fetched less than githubCacheTTL ago). A never-populated cache — and
-// a cache that holds an empty list — is a miss, so the first fetch after a
-// 60-second silence re-hits GitHub.
-func (s *Server) cachedGithubRepos() ([]githubRepo, bool) {
-	s.githubMu.Lock()
-	defer s.githubMu.Unlock()
-	if s.githubRepos != nil && time.Since(s.githubFetchedAt) < githubCacheTTL {
-		return s.githubRepos, true
-	}
-	return nil, false
-}
-
-// setGithubReposCache stores a freshly fetched repo list and its fetch time.
-// The mutex is what makes concurrent dialog-opens safe; a lost update is
-// harmless (two fetches of the same list), so the fetch itself runs outside
-// the lock.
-func (s *Server) setGithubReposCache(repos []githubRepo) {
-	s.githubMu.Lock()
-	defer s.githubMu.Unlock()
-	s.githubRepos = repos
-	s.githubFetchedAt = time.Now()
 }
 
 // fetchGithubRepos walks the GitHub repo list endpoint, following

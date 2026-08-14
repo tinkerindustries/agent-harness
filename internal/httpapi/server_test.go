@@ -25,6 +25,7 @@ import (
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
+	"github.com/mrgeoffrich/deepseek-harness/internal/redact"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
@@ -1962,7 +1963,7 @@ func TestGetSettingsMasksSecretsAndListsAllKeys(t *testing.T) {
 	}
 
 	key := byKey[settings.KeyDeepSeekAPIKey]
-	if !key.Set || key.Value != maskSecret("sk-very-secret-1234") || !key.Secret || key.Override != true {
+	if !key.Set || key.Value != redact.Secret("sk-very-secret-1234") || !key.Secret || key.Override != true {
 		t.Fatalf("deepseek.api_key entry = %+v, want set, masked, secret, override", key)
 	}
 	gkey := byKey[settings.KeyGoogleAPIKey]

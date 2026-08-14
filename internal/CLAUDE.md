@@ -23,17 +23,48 @@ Composition happens here and nowhere else; no `internal` package constructs
 another's dependencies.
 
 ### `internal/deepseek`
-The DeepSeek API client: base URL, per-request API key, the non-streaming and
-streaming completions calls, the auxiliary endpoints (`/models`,
-`/user/balance`), the error body, retry classification, and the narrow
-repairs for the quirks recorded in docs/OBSERVED.md (the misplaced brace in
-large arguments objects, and reasoning starvation under a small max_tokens
-budget). Implements the narrow `Client` seam `internal/session` declares
-(docs/KIMI-INTEGRATION.md §4.1): it turns the loop's `wire.ChatIntent` into
-DeepSeek's request shape — `thinking: {type}` and `reasoning_effort` — maps
-usage onto cache-hit and cache-miss counts, and owns the two response
-quirks. Speaks the shared vocabulary of `internal/wire`; knows nothing of
-sessions, tools, or storage. Depends on: `internal/wire`. §4.3, §4.4.
+The DeepSeek API client: the request body it builds from a `wire.ChatIntent`,
+the auxiliary endpoints (`/models`, `/user/balance`), the error body, retry
+classification, and the narrow repairs for the quirks recorded in
+docs/OBSERVED.md (the misplaced brace in large arguments objects, and
+reasoning starvation under a small max_tokens budget). Implements the narrow
+`Client` seam `internal/session` declares (docs/KIMI-INTEGRATION.md §4.1): it
+turns the loop's `wire.ChatIntent` into DeepSeek's request shape —
+`thinking: {type}` and `reasoning_effort` — maps usage onto cache-hit and
+cache-miss counts, and owns the two response quirks. The HTTP transport
+underneath — base URL, per-request key, retry-with-backoff, the SSE pump and
+its idle watchdog — is `internal/providerhttp`, shared with `internal/kimi`;
+what stays here is DeepSeek's own dialect. Knows nothing of sessions, tools,
+or storage. Depends on: `internal/wire`, `internal/providerhttp`. §4.3, §4.4.
+
+### `internal/providerhttp`
+The HTTP transport `internal/deepseek` and `internal/kimi` share: a request
+retried with backoff on a provider-supplied set of transient status codes,
+and a streaming response pumped as SSE frames into `wire.Event`s behind an
+idle watchdog. Carries no provider dialect — no request shape, no usage
+mapping, no error-body parsing, no quirk repairs — so each provider keeps its
+own `Client` type satisfying the narrow `session.Client` seam independently;
+this package only removes the near-verbatim duplication two full client
+implementations used to carry (docs/KIMI-INTEGRATION.md §4.1). Depends on:
+`internal/wire`.
+
+### `internal/attachment`
+Validates one image attachment a producer submitted — POST /api/runs
+(`internal/httpapi`) or the MCP `deepseek_agent` tool (`internal/mcp`) —
+before its bytes reach the store: the name must be a plain file name (the
+workspace writes the file under it, so a path-shaped name would be a way out
+of `scratch/attachments/`), the extension must be one of the image types
+`ReviewScreenshot` accepts, an asserted MIME type must match the extension,
+and the decoded bytes must fit the per-file cap. Also carries the
+image-extension-to-MIME-type table those two producers, the
+screenshot-serving endpoint (`internal/httpapi/screenshots.go`), and the
+vision tools (`internal/tools/vision.go`) all agree on — distinct from
+`internal/tools/screenshot.go`'s narrower `screenshotOutputExtensions`
+(no WebP, because that one names what Chromium's capture can produce, not
+what the harness can read back in). A leaf, deliberately: `internal/httpapi`
+imports neither `internal/session` nor `internal/worker`, and a validator
+that stays a leaf keeps that boundary legible for a second importer.
+Depends on: nothing internal.
 
 ### `internal/wire`
 The provider-neutral wire vocabulary every request path speaks: the message
@@ -62,7 +93,14 @@ worker's preparation window: `Create` inserts it as `creating` before the
 workspace is built, `FailSetup` moves it to `failed` with an error event when
 preparation fails, and `Run` promotes a pre-created row to `running` (or
 inserts when there is none). Consumed by `internal/worker` and by the
-CLI's `run` and `resume`. §4.5, §4.6.
+CLI's `run` and `resume`. §4.5, §4.6. `Runner`'s five jobs split by file, all
+on the same type (`runner.go`'s own package doc names which file holds
+which): `RunOptions` and the `Runner` type stay in `runner.go` beside the
+settings accessors; `lifecycle.go` is `Create`/`FailSetup`/`Run` and the loop
+that drives a run to a terminal result; `sinks.go` is where a sub-turn's
+output goes (the disk mirror, the hub); `tooldispatch.go` executes a
+sub-turn's tool calls; `livestate.go` persists the plan and recent-calls
+roll.
 
 ### `internal/tools`
 Every tool the model can call: schemas matching the trained-in shape, argument
@@ -74,7 +112,9 @@ provider→model table and subtracts the named variant's dropped tools
 (`internal/promptvariant`), so a variant session's row, head, and requests all
 carry the same smaller array. The catalogue and its wording are
 [`../docs/TOOLS.md`](../docs/TOOLS.md); a change here is a cache-prefix change.
-Depends on: `internal/wire`, `internal/provider`, `internal/promptvariant`.
+Depends on: `internal/wire`, `internal/provider`, `internal/promptvariant`,
+`internal/attachment` (the image-extension-to-MIME-type table the vision
+tools read images by).
 
 ### `internal/fold`
 Folds the event log into the wire `messages` array (`internal/wire`'s
@@ -91,7 +131,12 @@ read through `internal/settings`. Owns the session status vocabulary:
 `StatusRunning`, `StatusCreating` (the window while a queue-driven run's
 workspace is being prepared), the terminal statuses, and `IsLive` — every
 branch and SQL predicate that means "this session is live" builds off it,
-never a string literal. Depends on: nothing internal. §4.8.
+never a string literal. Split by concern, `store.go`'s own package doc names
+which file holds which: the `Store` type and the single-writer loop stay in
+`store.go`; `errors.go` is the error vocabulary; `schema.go` the SQL schema
+and column migration; `sessions.go` the status vocabulary and session CRUD;
+`events.go` the event payload types and the append-only log's queries;
+`leases.go` workspace leases. Depends on: nothing internal. §4.8.
 
 ### `internal/hub`
 In-process SSE fan-out: per-session transcript subscribers and a quieter
@@ -124,7 +169,9 @@ the session loop reads at its next sub-turn boundary. It holds the loaded
 price table for `GET /api/pricing`, which serves the rate schedule and no
 rates — `internal/pricing` depends on nothing internal, so this adds no edge
 worth worrying about, and the browser prices nothing (docs/DATA-API.md
-"pricing"). §4.2.
+"pricing"). §4.2. Split by resource, one file per group; `server.go`'s own
+package doc names which file holds which (the `Server` type and `routes()`
+stay there so the whole surface is still readable in one list).
 
 ### `internal/webassets`
 `go:embed` of the built frontend, so the binary ships with no runtime assets.

@@ -13,15 +13,17 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
-// pumpGoroutines counts goroutines currently inside pumpStream.
+// pumpGoroutines counts goroutines currently inside
+// providerhttp.Transport.PumpStream, the shared SSE pump
+// StreamChatCompletion runs on (internal/providerhttp).
 func pumpGoroutines() int {
 	buf := make([]byte, 1<<20)
 	n := runtime.Stack(buf, true)
-	return strings.Count(string(buf[:n]), "deepseek.(*Client).pumpStream")
+	return strings.Count(string(buf[:n]), "providerhttp.(*Transport).PumpStream")
 }
 
 // A caller may cancel its context and stop reading the event channel at the
-// same moment. Every send in pumpStream is guarded by ctx so that neither the
+// same moment. Every send in PumpStream is guarded by ctx so that neither the
 // goroutine nor the response body is stranded on an unbuffered send.
 func TestCancelledStreamDoesNotStrandPump(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

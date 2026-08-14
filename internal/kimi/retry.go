@@ -1,13 +1,9 @@
 package kimi
 
-import (
-	"math/rand"
-	"net/http"
-	"time"
-)
+import "net/http"
 
 // isRetryableStatus reports whether a response status code should be
-// retried with backoff, mirroring internal/deepseek/retry.go's shape but for
+// retried with backoff, mirroring internal/deepseek's classification but for
 // the statuses Kimi documents as transient (third_party/kimi-docs/api/errors.md):
 //
 //   - 429 is rate limiting or quota pressure, where the docs say to back off
@@ -23,7 +19,10 @@ import (
 // 400, 401, 403, and 404 are a malformed request, bad key, missing
 // permission, or unknown model — never transient, and a retry only burns a
 // turn. 499 (client_closed_request) names a client-side disconnect, which
-// retrying cannot fix, so it is not retried either.
+// retrying cannot fix, so it is not retried either. The backoff schedule
+// itself is internal/providerhttp.BackoffDelay, shared with
+// internal/deepseek — this predicate is the one place the two providers'
+// retry behaviour differs.
 func isRetryableStatus(code int) bool {
 	switch code {
 	case http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
@@ -31,15 +30,4 @@ func isRetryableStatus(code int) bool {
 	default:
 		return false
 	}
-}
-
-// backoffDelay returns a full-jitter exponential delay for the given retry
-// attempt (0-indexed), capped at max — the same schedule internal/deepseek
-// uses, so both providers back off identically.
-func backoffDelay(attempt int, base, max time.Duration) time.Duration {
-	ceiling := base << uint(attempt)
-	if ceiling <= 0 || ceiling > max {
-		ceiling = max
-	}
-	return time.Duration(rand.Int63n(int64(ceiling) + 1))
 }

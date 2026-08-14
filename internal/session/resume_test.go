@@ -355,3 +355,130 @@ func TestResumeWithoutPromptContinuesTheExistingTask(t *testing.T) {
 		t.Fatalf("expected exactly 1 session_started event when Resume's Prompt is empty, got %d", starts)
 	}
 }
+
+// TestCompactionAfterResumeKeepsProvenanceFields pins a regression compact
+// once had: Runner.Resume builds its RunOptions from the session row and
+// deliberately leaves Title, Description, Phase, TotalPhases, and Prompt
+// unset (resume.go — none of those is a resumed run's to choose again). A
+// version of compact that built the successor row from that RunOptions via
+// RunOptions.session was correct for a run that reached compaction through
+// Runner.Run but silently blanked those five fields for a run that reached
+// it through Runner.Resume. compact now copies the session row itself,
+// which cannot have that problem.
+//
+// The first run finishes normally (a plain answer with no tool calls);
+// Resume then continues it and, on its first sub-turn, reports usage over
+// a deliberately low compaction threshold, forcing a fork mid-resume — the
+// only way to observe what the successor row inherited.
+func TestCompactionAfterResumeKeepsProvenanceFields(t *testing.T) {
+	var call int32Counter
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var probe struct {
+			Stream bool `json:"stream"`
+		}
+		_ = json.Unmarshal(body, &probe)
+
+		if !probe.Stream {
+			// The compaction summary call.
+			resp := wire.ChatCompletionResponse{
+				Choices: []wire.Choice{{Message: wire.Message{Role: wire.RoleAssistant, Content: wire.TextContent("summary of resumed work")}, FinishReason: wire.FinishStop}},
+				Usage:   &wire.Usage{PromptTokens: 50, CompletionTokens: 10},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+
+		idx := call.next()
+		w.Header().Set("Content-Type", "text/event-stream")
+		switch idx {
+		case 0:
+			// The first run's only sub-turn: a plain answer, ends cleanly.
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{Role: "assistant", Content: strPtr("first answer")}}},
+			})
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishStop)}},
+				Usage:   &wire.Usage{PromptTokens: 100, CompletionTokens: 5},
+			})
+		case 1:
+			// The resumed run's first sub-turn: a tool call (so the loop
+			// does not finish on "no tool calls" before reaching the
+			// compaction check) with usage over the low threshold.
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
+					Role:      "assistant",
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_a", Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}}},
+				}}},
+			})
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishToolCalls)}},
+				Usage:   &wire.Usage{PromptTokens: 900, CompletionTokens: 5},
+			})
+		default:
+			// The compacted successor's sub-turn: a plain answer that ends
+			// the (resumed) run.
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{Role: "assistant", Content: strPtr("continued after resume")}}},
+			})
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishStop)}},
+				Usage:   &wire.Usage{PromptTokens: 300, CompletionTokens: 5},
+			})
+		}
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		w.(http.Flusher).Flush()
+	}))
+	defer srv.Close()
+
+	r := newTestRunner(t, srv.URL)
+	r.CompactionThresholdTokens = 500
+
+	ws := t.TempDir()
+	first, err := r.Run(t.Context(), RunOptions{
+		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "the original prompt",
+		Title: "Port the vision tools", Description: "a longer description",
+		Phase: 2, TotalPhases: 5,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if first.Status != store.StatusOK {
+		t.Fatalf("expected the first run to finish ok, got %s: %+v", first.Status, first)
+	}
+
+	resumed, err := r.Resume(t.Context(), ResumeOptions{
+		SessionID: first.SessionID, Prompt: "keep going", MaxTokens: 4000,
+	})
+	if err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	if resumed.Status != store.StatusOK {
+		t.Fatalf("expected the resumed run to finish ok, got %s: %+v", resumed.Status, resumed)
+	}
+	if resumed.SessionID == first.SessionID {
+		t.Fatalf("expected the low threshold to force a compaction fork, got the same session id back")
+	}
+
+	child, err := r.Store.GetSession(t.Context(), resumed.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child.ParentID != first.SessionID {
+		t.Fatalf("expected the child's parent_id to point at the resumed session, got %q", child.ParentID)
+	}
+	if child.Task != "the original prompt" {
+		t.Fatalf("expected the child to carry the original task, got %q", child.Task)
+	}
+	if child.Title != "Port the vision tools" {
+		t.Fatalf("expected the child to carry the parent's title, got %q", child.Title)
+	}
+	if child.Description != "a longer description" {
+		t.Fatalf("expected the child to carry the parent's description, got %q", child.Description)
+	}
+	if child.Phase != 2 || child.TotalPhases != 5 {
+		t.Fatalf("expected the child to carry the parent's phase 2/5, got %d/%d", child.Phase, child.TotalPhases)
+	}
+}

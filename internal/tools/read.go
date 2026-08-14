@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/mrgeoffrich/deepseek-harness/internal/attachment"
 )
 
 type readArgs struct {
@@ -60,7 +62,7 @@ func execRead(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 			// (docs/KIMI-INTEGRATION.md §4.5.)
 			return binaryFileError(args.FilePath, size)
 		}
-		if mime, ok := screenshotMIMEType(path); ok {
+		if mime, ok := attachment.MIMEType(path); ok {
 			return e.readImage(ctx, path, args.FilePath, mime)
 		}
 		// A binary file that is not one of the three image formats. SVG

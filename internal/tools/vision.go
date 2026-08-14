@@ -20,6 +20,7 @@ import (
 
 	"golang.org/x/image/draw"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/attachment"
 	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
@@ -720,7 +721,7 @@ func cropAndScale(src image.Image, box [4]int, scale int) image.Image {
 // cropOutputMIME picks the encoding from the output path's extension, falling
 // back to the source's when the extension names nothing we encode.
 func cropOutputMIME(outPath, sourceMIME string) string {
-	if mimeType, ok := screenshotMIMEType(outPath); ok {
+	if mimeType, ok := attachment.MIMEType(outPath); ok {
 		return mimeType
 	}
 	return sourceMIME
@@ -836,7 +837,7 @@ func imageDimensions(path string) (int, int, error) {
 
 // decodeVisionImage resolves, validates and decodes one image file.
 func decodeVisionImage(path string) (image.Image, string, error) {
-	mimeType, ok := screenshotMIMEType(path)
+	mimeType, ok := attachment.MIMEType(path)
 	if !ok {
 		return nil, "", fmt.Errorf("unsupported image type for %s: PNG, JPEG, and WebP are accepted", filepath.Base(path))
 	}
@@ -929,7 +930,7 @@ func loadVisionImages(ctx context.Context, e *Executor, paths []string) ([]gemin
 		if info.IsDir() {
 			return nil, nil, fmt.Errorf("%s is a directory, not an image", userPath)
 		}
-		mimeType, ok := screenshotMIMEType(path)
+		mimeType, ok := attachment.MIMEType(path)
 		if !ok {
 			return nil, nil, fmt.Errorf("unsupported image type for %s: PNG, JPEG, and WebP files are accepted", userPath)
 		}
@@ -1016,21 +1017,6 @@ func encodeScreenshot(img image.Image, mimeType string) ([]byte, string, error) 
 		return buf.Bytes(), "image/jpeg", err
 	default:
 		return nil, "", fmt.Errorf("cannot re-encode %s", mimeType)
-	}
-}
-
-// screenshotMIMEType reports the Gemini MIME type for an image file, by
-// extension, and whether the extension is one of the accepted ones.
-func screenshotMIMEType(path string) (string, bool) {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".png":
-		return "image/png", true
-	case ".jpg", ".jpeg":
-		return "image/jpeg", true
-	case ".webp":
-		return "image/webp", true
-	default:
-		return "", false
 	}
 }
 

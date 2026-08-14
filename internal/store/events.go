@@ -1,6 +1,13 @@
 package store
 
-import "encoding/json"
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+)
 
 // Event kinds, per docs/DESIGN.md §4.1. The event log is the one source of
 // truth the fold, the disk mirror, the SSE stream, and NATS progress
@@ -253,4 +260,173 @@ type SteerAppliedPayload struct {
 	// every operator steer is and what every row written before this field
 	// existed holds.
 	Role string `json:"role,omitempty"`
+}
+
+// Event is one row of a session's append-only log, keyed by (session_id,
+// seq). Payload's shape depends on Kind; see events.go. The JSON tags are
+// load-bearing: the HTTP layer marshals Event directly onto the wire, for
+// both the paged /events endpoint and the SSE stream's data field.
+type Event struct {
+	SessionID string          `json:"session_id"`
+	Seq       int64           `json:"seq"`
+	Kind      EventKind       `json:"kind"`
+	Payload   json.RawMessage `json:"payload"`
+	CreatedAt time.Time       `json:"created_at"`
+}
+
+// EventInput is one event to append. Payload is marshalled to JSON by
+// AppendEvents.
+type EventInput struct {
+	Kind    EventKind
+	Payload any
+}
+
+// AppendEvents assigns sequence numbers starting after the session's current
+// max and inserts inputs in order within one transaction. It returns the
+// stored Events, including their assigned Seq and CreatedAt, so callers can
+// mirror the same values to disk.
+func (s *Store) AppendEvents(ctx context.Context, sessionID string, inputs []EventInput) ([]Event, error) {
+	if len(inputs) == 0 {
+		return nil, nil
+	}
+	now := time.Now().UTC()
+	out := make([]Event, len(inputs))
+
+	err := s.submit(ctx, func(tx *sql.Tx) error {
+		// The fence sits inside the write transaction, beside the MAX(seq)
+		// read: one status lookup per batch, never per event, and a check
+		// outside the transaction would be a race against the stop, not a
+		// guard. Only "cancelled" refuses — compaction and resume append to
+		// sessions in every other terminal status (docs/RUN-CONTROL.md "Half
+		// two").
+		var status string
+		if err := tx.QueryRow(`SELECT status FROM sessions WHERE id = ?`, sessionID).Scan(&status); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		if status == StatusCancelled {
+			return ErrSessionCancelled
+		}
+
+		var maxSeq sql.NullInt64
+		if err := tx.QueryRow(`SELECT MAX(seq) FROM events WHERE session_id = ?`, sessionID).Scan(&maxSeq); err != nil {
+			return err
+		}
+		next := maxSeq.Int64 + 1
+
+		stmt, err := tx.Prepare(`INSERT INTO events (session_id, seq, kind, payload, created_at) VALUES (?, ?, ?, ?, ?)`)
+		if err != nil {
+			return err
+		}
+		defer stmt.Close()
+
+		createdAt := now.Format(time.RFC3339Nano)
+		for i, in := range inputs {
+			payload, err := json.Marshal(in.Payload)
+			if err != nil {
+				return fmt.Errorf("store: encode payload for %s: %w", in.Kind, err)
+			}
+			seq := next + int64(i)
+			if _, err := stmt.Exec(sessionID, seq, string(in.Kind), string(payload), createdAt); err != nil {
+				return err
+			}
+			out[i] = Event{SessionID: sessionID, Seq: seq, Kind: in.Kind, Payload: payload, CreatedAt: now}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetEvents returns every event for sessionID in seq order.
+func (s *Store) GetEvents(ctx context.Context, sessionID string) ([]Event, error) {
+	rows, err := s.readDB.QueryContext(ctx,
+		`SELECT session_id, seq, kind, payload, created_at FROM events WHERE session_id = ? ORDER BY seq ASC`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Event
+	for rows.Next() {
+		var e Event
+		var kind, createdAt string
+		var payload string
+		if err := rows.Scan(&e.SessionID, &e.Seq, &kind, &payload, &createdAt); err != nil {
+			return nil, err
+		}
+		e.Kind = EventKind(kind)
+		e.Payload = json.RawMessage(payload)
+		e.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt)
+		if err != nil {
+			return nil, fmt.Errorf("store: decode event created_at: %w", err)
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// SteerMessagesAfter returns the steer_message events for sessionID with seq
+// greater than afterSeq, in seq order, capped at limit. The session loop runs
+// this once per sub-turn (docs/RUN-CONTROL.md "How the loop picks one up"), so
+// the query filters by kind and seq in SQL: it must never pull reasoning or
+// content payloads off the disk, the same rule RequestStatus follows for its
+// own cheap polled query.
+func (s *Store) SteerMessagesAfter(ctx context.Context, sessionID string, afterSeq int64, limit int) ([]Event, error) {
+	rows, err := s.readDB.QueryContext(ctx,
+		`SELECT session_id, seq, kind, payload, created_at FROM events
+		 WHERE session_id = ? AND kind = ? AND seq > ? ORDER BY seq ASC LIMIT ?`,
+		sessionID, KindSteerMessage, afterSeq, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Event
+	for rows.Next() {
+		var e Event
+		var kind, createdAt, payload string
+		if err := rows.Scan(&e.SessionID, &e.Seq, &kind, &payload, &createdAt); err != nil {
+			return nil, err
+		}
+		e.Kind = EventKind(kind)
+		e.Payload = json.RawMessage(payload)
+		e.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt)
+		if err != nil {
+			return nil, fmt.Errorf("store: decode event created_at: %w", err)
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// LastAppliedSteerSeq returns the highest SourceSeq across the session's
+// steer_applied events, or 0 when there are none. The session loop runs this
+// once when a run starts or resumes — not per sub-turn — so reading the
+// steer_applied payloads and taking the max in Go is simpler than SQL JSON
+// extraction, and those payloads are tiny.
+func (s *Store) LastAppliedSteerSeq(ctx context.Context, sessionID string) (int64, error) {
+	rows, err := s.readDB.QueryContext(ctx,
+		`SELECT payload FROM events WHERE session_id = ? AND kind = ?`, sessionID, KindSteerApplied)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	var max int64
+	for rows.Next() {
+		var payload string
+		if err := rows.Scan(&payload); err != nil {
+			return 0, err
+		}
+		var p SteerAppliedPayload
+		if err := json.Unmarshal([]byte(payload), &p); err != nil {
+			return 0, fmt.Errorf("store: decode steer_applied payload: %w", err)
+		}
+		if p.SourceSeq > max {
+			max = p.SourceSeq
+		}
+	}
+	return max, rows.Err()
 }
