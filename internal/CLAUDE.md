@@ -149,8 +149,11 @@ the `work_requests` table. §4.10.
 
 ### `internal/workspace`
 Prepares the per-session directory — a `scratch/` subdirectory for files that
-are not part of the deliverable, and clones of the repositories a request
-names — including the remote-URL restrictions that keep `ext::` and local
+are not part of the deliverable, an empty `skills/` for skills given to the
+session rather than committed to a repository (scanned by `internal/skills`;
+the directory name is spelled in both packages and pinned equal by a test, so
+neither depends on the other at build time), and clones of the repositories a
+request names — including the remote-URL restrictions that keep `ext::` and local
 paths out. Each clone then gets its Node dependencies installed, with the
 lockfile choosing the package manager; the install is best-effort and never
 fails a run. §4.10.
@@ -187,9 +190,14 @@ is never a direct dependency. Depends on: `internal/queue` to publish,
 [../docs/EVALS.md](../docs/EVALS.md).
 
 ### `internal/skills`
-Scans each cloned repository for `.claude/skills/` and `.deepcode/skills/` and
-renders what it finds into a catalogue. Discovery never fails a run. Depends on:
-nothing internal. §4.11.
+Scans each cloned repository for `.claude/skills/` and `.deepcode/skills/`, and
+the workspace's own `skills/` (`WorkspaceSkillsDir`, created by
+`internal/workspace`), and renders what it finds into a catalogue. The
+workspace directory is how a skill reaches a session without being committed
+to any repository the session is working in — and it sits under the workspace
+root because the catalogue carries only descriptions, so the model opens each
+`SKILL.md` with `Read`, which is workspace-confined. Discovery never fails a
+run. Depends on: nothing internal. §4.11.
 
 ### `internal/claudemd`
 Scans the workspace and each cloned repository for a root `CLAUDE.md` and

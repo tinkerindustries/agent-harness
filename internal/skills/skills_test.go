@@ -247,3 +247,55 @@ func TestRenderNamesPathAndDescription(t *testing.T) {
 		t.Errorf("render should not mention dropped skills when none were:\n%s", got)
 	}
 }
+
+// The harness's own skills sit directly under <workspace>/skills, outside
+// every repository, so giving a session a skill never shows up in a clone's
+// diff.
+func TestDiscoverWorkspaceSkillsDir(t *testing.T) {
+	ws := t.TempDir()
+	writeSkill(t, filepath.Join(ws, WorkspaceSkillsDir, "vision-tools"), validSkill)
+
+	cat := Discover(ws)
+	if len(cat.Skills) != 1 {
+		t.Fatalf("got %d skills, want 1", len(cat.Skills))
+	}
+	if cat.Skills[0].Path != "skills/vision-tools/SKILL.md" {
+		t.Errorf("path = %q", cat.Skills[0].Path)
+	}
+}
+
+// A workspace skill and a repository skill coexist: the workspace's is not a
+// replacement for what a repository ships, and neither hides the other.
+func TestDiscoverWorkspaceAndRepoSkills(t *testing.T) {
+	ws := t.TempDir()
+	writeSkill(t, filepath.Join(ws, WorkspaceSkillsDir, "vision-tools"), validSkill)
+	writeSkill(t, filepath.Join(ws, "myrepo", ".claude", "skills", "test-runner"), validSkill)
+
+	cat := Discover(ws)
+	if len(cat.Skills) != 2 {
+		t.Fatalf("got %d skills, want 2", len(cat.Skills))
+	}
+	var paths []string
+	for _, s := range cat.Skills {
+		paths = append(paths, s.Path)
+	}
+	want := []string{"myrepo/.claude/skills/test-runner/SKILL.md", "skills/vision-tools/SKILL.md"}
+	for i, w := range want {
+		if paths[i] != w {
+			t.Errorf("path[%d] = %q, want %q", i, paths[i], w)
+		}
+	}
+}
+
+// An empty skills directory is the normal state — internal/workspace creates
+// it on every run whether or not anything ever lands in it.
+func TestDiscoverEmptyWorkspaceSkillsDir(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(ws, WorkspaceSkillsDir), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	if cat := Discover(ws); len(cat.Skills) != 0 {
+		t.Fatalf("got %d skills, want 0", len(cat.Skills))
+	}
+}

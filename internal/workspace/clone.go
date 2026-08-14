@@ -14,6 +14,13 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 )
 
+// skillsDir is the harness's own skill directory inside a session's
+// workspace. internal/skills owns the convention and scans it
+// (skills.WorkspaceSkillsDir); the name is repeated here rather than imported
+// so this package keeps depending on nothing but queue, and
+// clone_skills_test.go pins the two spellings equal.
+const skillsDir = "skills"
+
 // Attachment is one image a work request carried: the bytes the store held,
 // plus the file name and MIME type to write them under. workspace never
 // reads the store — the worker fetches the rows and passes them here — so
@@ -66,6 +73,17 @@ func Prepare(ctx context.Context, root, sessionID string, repos []queue.Repo, at
 	// clone does.
 	if err := os.MkdirAll(filepath.Join(dir, "scratch"), 0o755); err != nil {
 		return "", fmt.Errorf("workspace: create scratch dir in %q: %w", dir, err)
+	}
+
+	// skills is the harness's own skill directory, scanned by internal/skills
+	// alongside each repository's .claude/skills (skills.WorkspaceSkillsDir).
+	// It is created empty and beside the clones for the same reason scratch
+	// is: a skill placed inside a repository shows up in that repository's
+	// diff, and a session then has to remember not to commit it. Empty is a
+	// valid state — discovery of an empty directory yields no entries and no
+	// error, so nothing downstream cares whether anything ever populates it.
+	if err := os.MkdirAll(filepath.Join(dir, skillsDir), 0o755); err != nil {
+		return "", fmt.Errorf("workspace: create skills dir in %q: %w", dir, err)
 	}
 
 	if err := writeAttachments(dir, attachments); err != nil {
