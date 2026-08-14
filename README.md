@@ -142,7 +142,7 @@ The same loop runs interactively against a directory you already have, and this
 is the one caller that can prompt you to approve a call the policy would refuse:
 
 ```sh
-docker compose exec harness harness run -workspace /workspaces/scratch "..."
+docker compose exec harness sh -c 'harness run -workspace "$DEEPSEEK_WORKSPACE_ROOT/scratch" "..."'
 ```
 
 `harness ask "..."` is a plain streaming completion with no tools, useful for

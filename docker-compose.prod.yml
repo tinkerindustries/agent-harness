@@ -16,6 +16,13 @@
 # reads .env from this directory for substitution regardless of which -f it
 # was given, so a ${VAR} here would silently pick up the dev stack's values.
 # Container environment comes from .env.prod, named explicitly below.
+#
+# ${PWD} and ${HOME} are the two exceptions, and only because the rule's
+# hazard does not reach them: the shell's environment wins over .env, and
+# neither name is one the dev stack sets. They are unavoidable here — the
+# mounts below have to name an absolute host path, and that path is different
+# on every machine, so it cannot be written out. Run compose from the
+# repository root, which scripts/prod.sh does.
 name: deepseek-harness-prod
 
 services:
@@ -59,7 +66,13 @@ services:
       # The published port below keeps it loopback-only on the host.
       DEEPSEEK_HTTP_ADDR: 0.0.0.0:8080
       DEEPSEEK_DATA_DIR: /data
-      DEEPSEEK_WORKSPACE_ROOT: /workspaces
+      # The same path the mount below uses on both sides — see the note there.
+      DEEPSEEK_WORKSPACE_ROOT: ${PWD}/workspaces-prod
+      # The host path of the worktree registry, for a `docker compose` a
+      # session runs inside this container; ${HOME} there is /root, which is
+      # not the host's registry. The mount below is what shares the file
+      # itself; this is what a nested compose must name as its source.
+      HARNESS_REGISTRY_DIR: ${HOME}/.deepseek-harness
       # The harness service also serves /mcp on the published port below;
       # transcript links the MCP tools return point at what a browser on the
       # host can actually reach.
@@ -69,13 +82,25 @@ services:
     volumes:
       # Production runs get their workspaces here, beside the dev stack's
       # ./workspaces and never mixed with it.
-      - ./workspaces-prod:/workspaces
+      #
+      # Source and target are the same absolute path for the reason
+      # docker-compose.yml sets out at length: the socket below makes this a
+      # client of the host's daemon, which resolves a bind source on the host,
+      # so a session that runs docker compose inside its own clone can only be
+      # understood if the path it names is a host path.
+      - ${PWD}/workspaces-prod:${PWD}/workspaces-prod
       - harness-data:/data
       # The host's docker daemon, for sessions that build or run containers.
       # A session in full permission mode can do anything to the host through
       # this socket, including mounting the host's filesystem into a
       # container it starts.
       - /var/run/docker.sock:/var/run/docker.sock
+      # The host's worktree registry, for the same reason the dev stack shares
+      # it: a production session's `harness worktree init -standalone` must
+      # allocate a slot the host's real worktrees can see. Without this it
+      # allocated against the container's own empty registry and handed out
+      # slot 1 while a host worktree was already holding it.
+      - ${HOME}/.deepseek-harness:/root/.deepseek-harness
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/api/queue"]
       interval: 10s

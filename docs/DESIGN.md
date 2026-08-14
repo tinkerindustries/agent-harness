@@ -1032,9 +1032,10 @@ Tool call headers are built from the call the fold already keeps in
 `Edit`/`Write` show the path and the `+n −n` from the diff, `Bash` the
 command, `Read`/`Grep` the path or pattern, `Task` the description plus the
 child session's turn count and cost. A path is shown relative to the session's
-workspace root: the `/workspaces/<session id>/` prefix is the same fifty
-characters on every row of a long run, and it pushed the part that differs off
-the end of the line. A command keeps its absolute paths, because a command is
+workspace root: the `…/workspaces/<session id>/` prefix is the same tens of
+characters on every row of a long run — more since the root became the host's
+own absolute path (docs/WORKTREES.md, "Path parity") — and it pushed the part
+that differs off the end of the line. A command keeps its absolute paths, because a command is
 a literal someone may want to run. The opening block collapses to one summary
 line (word count and the files it names); filter chips over the cards
 (All/Edits/Bash/Errors/Churn) read their counts off the same pass that builds
