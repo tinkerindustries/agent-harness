@@ -210,10 +210,18 @@ became environment variables of every session running there — and compose
 prefers the environment to a `.env` file. A session's `init -standalone` wrote
 itself a correct `.env` that its own `docker compose up` then ignored,
 inheriting the parent's project name and recreating the parent's containers:
-the harness that was running the session, killed by the session. The compose
-file now blanks those keys in the container's environment (`${VAR:-default}`
-treats empty as unset), leaving `HARNESS_REGISTRY_DIR` as the only one a
-session inherits on purpose.
+the harness that was running the session, restarted by the session.
+`scripts/docker-entrypoint.sh` now unsets those keys before the harness
+process starts, so every session inherits an environment without them and its
+own `.env` is read. Unsetting is the only thing that works — a variable set to
+the empty string still shadows `.env`, and merely falls back to the compose
+file's directory name instead, which is how the same bug came back pointed at
+a different stack. `HARNESS_REGISTRY_DIR` is the one key a session inherits on
+purpose.
+
+The unset happens in the entrypoint rather than the compose file, which means
+a shell from `docker compose exec` — a human debugging, not a session — still
+carries them and should pass `-p` to compose, the way `scripts/test.sh` does.
 
 **The bind mounts have to resolve**, which they do because the session's
 workspace has the same path inside the container as it does on the host — see

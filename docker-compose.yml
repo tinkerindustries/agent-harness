@@ -51,24 +51,10 @@ services:
       # nested compose interpolating it would ask the host for
       # /root/.deepseek-harness, which is not the host's registry. This
       # carries the host's own path through so the nested mount finds it.
-      # The one value below that a session is *meant* to inherit.
+      # The one value from this block a session is meant to inherit; the
+      # entrypoint drops the rest of .env's compose controls before any
+      # session can see them (scripts/docker-entrypoint.sh).
       HARNESS_REGISTRY_DIR: ${HARNESS_REGISTRY_DIR:-${HOME}/.deepseek-harness}
-      # env_file above loads .env wholesale, which puts this stack's own
-      # compose controls into the environment of every session running here —
-      # and compose prefers the environment to a .env file. A session that ran
-      # `harness worktree init -standalone` therefore wrote itself a correct
-      # .env that its own `docker compose up` then ignored: it inherited
-      # COMPOSE_PROJECT_NAME from us and recreated *our* containers, killing
-      # the harness that was running it. Blank them, because `${VAR:-default}`
-      # treats empty as unset, so a nested compose falls back to its own .env
-      # and an unset project name falls back to its own directory name.
-      COMPOSE_PROJECT_NAME: ""
-      HARNESS_WORKSPACES: ""
-      HARNESS_HTTP_PORT: ""
-      NATS_CLIENT_PORT: ""
-      NATS_MONITOR_PORT: ""
-      HARNESS_TEST_NATS_PORT: ""
-      HARNESS_VITE_PORT: ""
       # Transcript links the MCP tools return are built from this URL, so a
       # browser on the host can follow them. The harness service also serves
       # /mcp on the published port below, so this is the same origin a caller
