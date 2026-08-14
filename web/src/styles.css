@@ -1418,18 +1418,87 @@ pre {
   overflow: auto;
 }
 
-.block-opening {
-  background: var(--muted);
-}
-
+/* The task and the skills catalogue are the run's opening conditions rather
+   than part of its conversation. Closed, each is a single line, so a card's
+   border, fill, padding and label row cost more height than the line they
+   frame. They read as two rows under the run header instead: the label in a
+   fixed column, the summary beside it, and the disclosure opening beneath. */
+/* Both rows are controls, and the facts above them are not. Without the
+   hover band they read as two more key/value pairs in the header's own
+   grammar, with no sign that a click opens anything. The negative margin
+   keeps the band's padding from shifting the label off the column the
+   header's facts start on. */
+.block-opening,
 .block-skills {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  background: none;
+  border: 0;
+  border-radius: calc(var(--radius) - 4px);
+  padding: 4px 6px;
+}
+
+.block-opening:hover,
+.block-skills:hover {
   background: var(--muted);
 }
 
+/* The task block is the last of the run's opening conditions (fold.ts pushes
+   skills before opening), so the hairline that closes the header group hangs
+   off it rather than off the header itself — above the rule, what the run
+   was set up to do; below it, what it did. */
+.block-opening {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+  margin-bottom: 8px;
+}
+
+.block-opening .block-label,
+.block-skills .block-label {
+  flex: none;
+  width: 3rem;
+  margin-bottom: 0;
+  font-size: 0.625rem;
+  letter-spacing: var(--label-tracking);
+}
+
+.block-opening > [data-slot="collapsible"],
+.block-skills > details {
+  min-width: 0;
+  flex: 1;
+}
+
+/* The caret is drawn rather than left to the native summary marker, which
+   the two rows sized and placed differently from the opening block's own
+   caret. Both rows now turn the same glyph from the same offset. */
 .skills-summary {
   cursor: pointer;
-  font-size: 0.85rem;
+  font-size: 0.8125rem;
   color: var(--muted-foreground);
+  list-style: none;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.skills-summary::-webkit-details-marker {
+  display: none;
+}
+
+.skills-summary::before {
+  content: "▸";
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  transition: transform var(--dur-caret) var(--ease);
+}
+
+.block-skills details[open] .skills-summary::before {
+  transform: rotate(90deg);
+}
+
+.skills-summary:hover {
+  color: var(--foreground);
 }
 
 .block-tool-error {
@@ -3664,6 +3733,15 @@ body.page .topnav {
 .turn-list > .block {
   margin: 0 0 24px;
 }
+/* The two opening rows sit close enough to read as one group with the run
+   header above them; the card rhythm above applies from the first turn on.
+   Both selectors match .turn-list > .block, so they need its specificity. */
+.turn-list > .block-skills {
+  margin: 0 -6px 2px;
+}
+.turn-list > .block-opening {
+  margin: 0 -6px 16px;
+}
 /* Live tool rows (a frozen turn awaiting its results) sit after the turn
    they belong to; the wrapper carries the same bottom margin so the next
    turn starts on the rhythm. */
@@ -4022,80 +4100,110 @@ kbd {
    A greyed-out input would have been worse than no input — a disabled
    control invites you to look for the way to enable it. */
 
-/* ---------- provenance strip ----------
-   For an agent-launched run this is the first question a person has: who
-   started this, and on whose behalf. It leads the transcript column as its
-   first block — the same border, radius, background and padding the
-   transcript's own blocks carry — and scrolls with the conversation. It is
-   a quiet strip, not an alert — this is the normal state for these
-   sessions, not a fault. */
-.prov {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) - 4px);
-  padding: var(--space);
-  background: var(--muted);
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  margin-bottom: 24px;
+/* ---------- run header ----------
+   The first screen of an agent-launched run: what it was called, who
+   launched it, and the settings it ran under. It is a page header rather
+   than a card — no fill, no border, closed by one hairline — because the
+   filled cards on this screen are the transcript, and three filled slabs
+   above it made the framing heavier than the content. */
+.runhead {
+  margin-bottom: 0;
 }
-.prov .who {
+/* The date wraps to its own line rather than squeezing the title: at a phone
+   width the two shared a row and the title reflowed around the timestamp. */
+.runhead-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+}
+/* The run's name, which this page never showed: it identified a run by the
+   40-character id in the crumb, and the id is the one thing on the row that
+   says nothing about what the run did. */
+.runhead-title {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.3;
   color: var(--foreground);
-  font-weight: 500;
-}
-
-/* The facts, as key/value chips rather than a dot-separated sentence: the
-   dim key names what the value is, the value sits in its own chip against
-   the strip's muted band, and the gap between chips does the separating a
-   row of "·" used to do badly. */
-.prov-facts {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 12px;
+  margin: 0;
+  flex: 1 1 24ch;
   min-width: 0;
 }
-.prov .fact {
+.runhead-when {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.runhead-desc {
+  margin: 4px 0 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--muted-foreground);
+  max-width: 78ch;
+}
+
+/* The facts, as key/value pairs rather than a dot-separated sentence: the
+   dim key names what the value is and the gap does the separating a row of
+   "·" used to do badly. */
+.runhead-facts {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 10px;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+  min-width: 0;
+}
+.runhead .fact {
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
   gap: 5px;
   min-width: 0;
 }
-.prov .fact .k {
+.runhead .fact .k {
   color: var(--muted-foreground);
   letter-spacing: var(--label-tracking);
   font-size: 0.625rem;
   text-transform: uppercase;
 }
-.prov code {
-  font-size: 0.6875rem;
+.runhead .fact .v {
   color: var(--foreground);
-  background: var(--background);
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) - 4px);
-  padding: 1px 5px;
-  max-width: 26ch;
+  font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* The sentence is the least urgent thing on the strip — it says the same
-   thing on every run of this kind — so it never competes with the facts: it
-   takes its own full row under the chips (flex-basis: 100%), so a wrapped
-   strip reads as rows of chips with the sentence below them rather than a
-   ragged mix. */
-.prov-note {
-  color: var(--muted-foreground);
-  flex-basis: 100%;
+/* full means the run could reach the host docker socket. It is the one
+   setting on the row with a consequence outside the run. */
+.runhead .fact-danger .v {
+  color: var(--status-gaveup);
 }
-.prov a {
+.runhead code {
+  font-size: 0.6875rem;
+  color: var(--foreground);
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 4px);
+  padding: 1px 5px;
+  /* Enough of a request id to recognise one, not enough to push the row on
+     to a second line. The whole of it is on the title. */
+  max-width: 16ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.runhead-note {
+  margin: 10px 0 0;
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
+}
+.runhead a {
   color: var(--status-running);
   text-decoration: none;
 }
-.prov a:hover {
+.runhead a:hover {
   text-decoration: underline;
 }
 
@@ -5070,9 +5178,9 @@ kbd {
     min-height: 44px;
     padding: 10px 4px;
   }
-  /* The provenance strip's eval link and the skills disclosure sit in
-     running text but are still links; a thumb needs them taller. */
-  .prov a {
+  /* The run header's eval link and the skills disclosure sit in running
+     text but are still links; a thumb needs them taller. */
+  .runhead a {
     display: inline-flex;
     align-items: center;
     min-height: 44px;
