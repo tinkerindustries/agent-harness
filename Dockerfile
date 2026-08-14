@@ -165,6 +165,14 @@ RUN mkdir -p /root/.playwright && \
 # to `docker run -v` name the host's filesystem, not this container's.
 RUN apk add --no-cache docker-cli docker-cli-compose docker-cli-buildx
 
+# tini reaps orphans as PID 1. A session's Bash calls run under a shell in
+# its own process group, and any of that shell's children still alive when it
+# exits are reparented to PID 1. `harness serve` is a Go program and reaps
+# only what it started itself, so without a reaper those orphans stay zombies
+# and hold their PID slots for the life of the container (TESTING.md, "A
+# container that cannot fork").
+RUN apk add --no-cache tini
+
 COPY --from=build /out/harness /usr/local/bin/harness
 COPY scripts/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 # The price table's default path is relative to the working directory, which
@@ -176,5 +184,5 @@ ENV DEEPSEEK_PRICE_TABLE=/etc/harness/prices.json \
 # Runs as root: agent sessions write into the mounted workspace, and a
 # fixed uid would collide with the host's ownership on a bind mount.
 WORKDIR /workspaces
-ENTRYPOINT ["docker-entrypoint.sh"]
+ENTRYPOINT ["/sbin/tini", "--", "docker-entrypoint.sh"]
 CMD ["serve"]
