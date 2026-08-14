@@ -884,6 +884,14 @@ pre {
   margin-top: var(--space);
 }
 
+/* The pager above the table carries its own spacing: the base rule's
+   margin-top would crowd the section head, and what it needs instead is a
+   little air between itself and the table it pages. */
+.pager-top {
+  margin-top: 0;
+  margin-bottom: var(--space);
+}
+
 .pager-info,
 .pager-range {
   font-size: 0.75rem;

@@ -365,6 +365,14 @@ export function SessionListScreen({ onOpen }: Props) {
               {finishedTotal} session{finishedTotal === 1 ? "" : "s"}
             </span>
           </div>
+          <Pager
+            className="pager-top"
+            label="Finished sessions, top pager"
+            page={page}
+            total={finishedTotal}
+            perPage={FINISHED_PAGE_SIZE}
+            onPage={setPage}
+          />
           <div className="table-scroll">
             <table className="session-table">
               <thead>
@@ -392,7 +400,13 @@ export function SessionListScreen({ onOpen }: Props) {
               </tbody>
             </table>
           </div>
-          <Pager page={page} total={finishedTotal} perPage={FINISHED_PAGE_SIZE} onPage={setPage} />
+          <Pager
+            label="Finished sessions, bottom pager"
+            page={page}
+            total={finishedTotal}
+            perPage={FINISHED_PAGE_SIZE}
+            onPage={setPage}
+          />
         </section>
       )}
     </div>
