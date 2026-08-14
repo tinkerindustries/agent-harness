@@ -148,6 +148,16 @@ Two checks worth knowing about because nothing else catches them:
   `document.scrollWidth` is not the measure: an ancestor that clips reports no
   document scroll while a table runs 179px off the side of a phone.
 
+`scripts/layout-metrics.sh <route>` is the sibling of that check and is not a
+check: it prints every element's box, type, colour, contrast and the gaps
+between siblings, grades nothing, and always exits 0. It is for the sessions
+that cannot see. The vision path says what a page looks like and cannot measure
+it — in `sess-e78152d6` it put a badge at x=70 that was at x=46, called a 28px
+nav link 40px and a 5.79:1 badge "barely legible" — so anything numeric should
+come from here and anything about appearance from a screenshot. Keep it that
+way round: a threshold in this script ("44px targets") would be the tool taking
+the design decision its caller is supposed to be taking.
+
 Cheapest first.
 
 1. `gofmt -l cmd internal` — no output. No linter is configured; `gofmt` and
