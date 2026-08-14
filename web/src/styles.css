@@ -851,6 +851,20 @@ pre {
   border-bottom: 1px solid var(--border);
   padding: 6px 8px;
   vertical-align: top;
+  /* Every cell except the Session column takes its intrinsic single-line
+     width; combined with .sess-col's width: 100% this is what lets the
+     Session column absorb all the width the other six do not need. */
+  white-space: nowrap;
+}
+
+/* The Session column takes the width the other six columns leave over:
+   width: 100% here plus white-space: nowrap on every other cell makes each
+   of the six take exactly its intrinsic single-line width and this one the
+   rest, so none of them ever wraps. The cell's own text still wraps
+   normally. */
+.session-table .sess-col {
+  width: 100%;
+  white-space: normal;
 }
 
 .session-row {
@@ -1233,13 +1247,14 @@ pre {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  /* Without a max-width a long plan summary stretches the Session column
-     until every column after it scrolls off the right edge — at 1600px
-     only Status and Session would stay visible. The subtitle ellipses
-     instead of pushing, and Elapsed/Cost sit right after Session so the
-     two prioritised numbers are never the ones that scroll away. */
-  max-width: 360px;
+  /* The Session column takes all the width the other six columns do not
+     need (see .sess-col above); this block just keeps its own lines
+     wrapping normally and breaks a long unbroken string — a workspace
+     path, a URL in a summary — anywhere rather than letting it push the
+     numeric columns out of the container. */
   min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .sess-id {

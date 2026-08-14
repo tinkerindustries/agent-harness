@@ -378,7 +378,7 @@ export function SessionListScreen({ onOpen }: Props) {
               <thead>
                 <tr>
                   <th>Status</th>
-                  <th>Session</th>
+                  <th className="sess-col">Session</th>
                   <th>Elapsed</th>
                   <th>Cost</th>
                   <th>Model</th>
