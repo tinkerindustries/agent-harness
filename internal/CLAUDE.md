@@ -68,8 +68,13 @@ CLI's `run` and `resume`. §4.5, §4.6.
 Every tool the model can call: schemas matching the trained-in shape, argument
 validation in Go, workspace confinement, per-tool timeouts and output caps, and
 the permission policy that gates execution. Also owns the frozen tool
-definitions the request head carries. The catalogue and its wording are
+definitions the request head carries — the per-provider arrays, and
+`DefinitionsForVariant`, which resolves a session's array through the
+provider→model table and subtracts the named variant's dropped tools
+(`internal/promptvariant`), so a variant session's row, head, and requests all
+carry the same smaller array. The catalogue and its wording are
 [`../docs/TOOLS.md`](../docs/TOOLS.md); a change here is a cache-prefix change.
+Depends on: `internal/wire`, `internal/provider`, `internal/promptvariant`.
 
 ### `internal/fold`
 Folds the event log into the wire `messages` array (`internal/wire`'s
