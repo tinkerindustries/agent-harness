@@ -133,7 +133,7 @@ func TestRunPromotesPreCreatedRow(t *testing.T) {
 	}
 }
 
-// TestPromotedRowKeepsResultSchema pins finding 01: a queue-driven run's
+// TestPromotedRowKeepsResultSchema pins that a queue-driven run's
 // ResultSchema must survive Create and the promotion Run performs on top of
 // it, exactly as it already did for the insert-only path
 // (TestRunInsertsWhenNoRowExists). Before the fix, Runner.Create's row

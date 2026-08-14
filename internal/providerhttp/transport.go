@@ -4,8 +4,7 @@
 // response's SSE frames into wire.Events behind an idle watchdog. Measured
 // with comments stripped, this was ~380 lines carrying seven lines of real
 // difference between the two providers' client.go, stream.go, errors.go and
-// retry.go — a near-verbatim fork the finding this package answers named
-// directly.
+// retry.go — a near-verbatim fork of one provider's plumbing into the other.
 //
 // It carries no provider dialect. Base URL, the retryable-status predicate
 // (DeepSeek and Kimi K3 disagree by one code), the "no API key configured"

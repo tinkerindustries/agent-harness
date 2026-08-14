@@ -21,16 +21,16 @@ import (
 // (docs/CACHE.md, docs/TOOLS.md).
 //
 // The new row is built from opts.session, the same builder Create and Run's
-// insert branch use, rather than copied field-by-field from sess — that
-// hand-copied shape is exactly how a field once reached Run's row and
-// Create's but not PromoteSession's UPDATE (finding 01). opts is the same
-// RunOptions this whole Run call has carried since the top, so its fields
-// agree with sess's by construction; ParentID, SystemPrompt and ToolSchema
-// are the three that must differ from a fresh row (the compacted session's
-// parent is the session it replaces, not the run's original parent, and its
-// prompt and schema are the compaction summary and the carried-over schema,
-// not what session() would compute from opts alone), so they are
-// overwritten after.
+// insert branch use, rather than copied field-by-field from sess — a
+// hand-copied field list is exactly how ResultSchema once reached Run's row
+// and Create's but not PromoteSession's UPDATE, so a queue-driven run's
+// schema silently vanished on promotion. opts is the same RunOptions this
+// whole Run call has carried since the top, so its fields agree with sess's
+// by construction; ParentID, SystemPrompt and ToolSchema are the three that
+// must differ from a fresh row (the compacted session's parent is the
+// session it replaces, not the run's original parent, and its prompt and
+// schema are the compaction summary and the carried-over schema, not what
+// session() would compute from opts alone), so they are overwritten after.
 func (r *Runner) compact(ctx context.Context, sess store.Session, allEvents []store.Event, opts RunOptions, workspace string) (store.Session, []store.Event, error) {
 	messages, err := fold.Fold(sess, allEvents)
 	if err != nil {
