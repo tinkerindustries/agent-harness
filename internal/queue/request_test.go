@@ -309,6 +309,81 @@ func TestValidateRejectsMalformedProvenanceFields(t *testing.T) {
 	}
 }
 
+// words returns n whitespace-separated words, for building a title or
+// description exactly at a word cap or one word over.
+func words(n int) string {
+	parts := make([]string, n)
+	for i := range parts {
+		parts[i] = "word"
+	}
+	return strings.Join(parts, " ")
+}
+
+// TestValidateTitleAndDescriptionCaps pins the word caps on the run's title
+// and description: ten words pass and eleven fail for the title, fifty pass
+// and fifty-one fail for the description, and empty stays valid — presence
+// is the producer's call at this layer (a browser start may leave both
+// blank, the same reasoning the prompt is optional).
+func TestValidateTitleAndDescriptionCaps(t *testing.T) {
+	base := Request{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: "full"}
+
+	base.Title = ""
+	base.Description = ""
+	if err := base.Validate(); err != nil {
+		t.Fatalf("empty title and description must pass validation: %v", err)
+	}
+
+	base.Title = words(agentmeta.MaxTitleWords)
+	if err := base.Validate(); err != nil {
+		t.Fatalf("a %d-word title must pass: %v", agentmeta.MaxTitleWords, err)
+	}
+	base.Title = words(agentmeta.MaxTitleWords + 1)
+	if err := base.Validate(); err == nil {
+		t.Fatal("an 11-word title must fail validation")
+	}
+
+	base.Title = ""
+	base.Description = words(agentmeta.MaxDescriptionWords)
+	if err := base.Validate(); err != nil {
+		t.Fatalf("a %d-word description must pass: %v", agentmeta.MaxDescriptionWords, err)
+	}
+	base.Description = words(agentmeta.MaxDescriptionWords + 1)
+	if err := base.Validate(); err == nil {
+		t.Fatal("a 51-word description must fail validation")
+	}
+}
+
+// TestValidatePhaseRelationship pins the phase pair on the wire: both zero
+// (unphased) passes, a set pair must satisfy phase <= total_phases, and the
+// failure is wrapped with the queue: prefix like every other agentmeta
+// rejection so a caller can see which layer refused the request.
+func TestValidatePhaseRelationship(t *testing.T) {
+	base := Request{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: "full"}
+
+	for _, tc := range []struct {
+		phase, total int
+		ok           bool
+	}{
+		{0, 0, true},
+		{1, 3, true},
+		{3, 3, true},
+		{2, 1, false},
+		{0, 3, false},
+		{2, 0, false},
+		{-1, 3, false},
+	} {
+		req := base
+		req.Phase, req.TotalPhases = tc.phase, tc.total
+		err := req.Validate()
+		if (err == nil) != tc.ok {
+			t.Errorf("phase %d/%d: error = %v, want error = %v", tc.phase, tc.total, err, !tc.ok)
+		}
+		if err != nil && !strings.HasPrefix(err.Error(), "queue: ") {
+			t.Errorf("phase %d/%d: error %q must be wrapped with the queue: prefix", tc.phase, tc.total, err)
+		}
+	}
+}
+
 // TestValidateAttachmentIDs pins the attachment_ids contract: valid ids
 // pass, and an empty id, whitespace, or a duplicate is refused with a
 // message naming the offending index. The count and byte caps live where
