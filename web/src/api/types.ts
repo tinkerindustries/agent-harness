@@ -240,6 +240,13 @@ export interface ToolStdoutPayload {
 export interface UsagePayload {
   sub_turn: number;
   attempt?: number;
+  /**
+   * Set only when the request was not the session's own — a ReviewScreenshot
+   * call bills a vision model and commits a second usage event on the same
+   * sub-turn. Absent means the session's own model, so the transcript names
+   * the model only when there is something to distinguish.
+   */
+  model?: string;
   prompt_tokens: number;
   prompt_cache_hit_tokens: number;
   prompt_cache_miss_tokens: number;

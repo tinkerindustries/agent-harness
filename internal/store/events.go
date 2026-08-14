@@ -164,9 +164,19 @@ type ToolStdoutPayload struct {
 // and distinguished by Attempt. Summing over every event is what gives a
 // session's true cost. Attempt is zero, and omitted, on the ordinary path
 // where the sub-turn made exactly one request.
+//
+// Model is set only when the request was not the session's own: a
+// ReviewScreenshot call bills a vision model and commits its usage as a
+// second event on the same sub-turn, and until this field existed the two
+// were distinguishable only by that collision. An empty Model therefore
+// means the session's own model, and a non-empty one names what else was
+// billed — which is what makes vision spend separable from the run's
+// (docs/reviews/vision-path-2026-08-14.md measured it at 39% of a session's
+// cost, invisible in the log).
 type UsagePayload struct {
 	SubTurn               int     `json:"sub_turn"`
 	Attempt               int     `json:"attempt,omitempty"`
+	Model                 string  `json:"model,omitempty"`
 	PromptTokens          int     `json:"prompt_tokens"`
 	PromptCacheHitTokens  int     `json:"prompt_cache_hit_tokens"`
 	PromptCacheMissTokens int     `json:"prompt_cache_miss_tokens"`

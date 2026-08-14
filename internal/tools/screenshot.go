@@ -40,16 +40,38 @@ func (e *Executor) screenshotTimeout(ctx context.Context) time.Duration {
 var screenshotDriver string
 
 type screenshotArgs struct {
-	URL             string `json:"url"`
-	Path            string `json:"path"`
-	Width           int    `json:"width"`
-	Height          int    `json:"height"`
-	Scale           int    `json:"device_scale_factor"`
-	ColorScheme     string `json:"color_scheme"`
-	FullPage        bool   `json:"full_page"`
-	Selector        string `json:"selector"`
-	WaitForSelector string `json:"wait_for_selector"`
-	WaitMS          int    `json:"wait_ms"`
+	URL             string             `json:"url"`
+	Path            string             `json:"path"`
+	Width           int                `json:"width"`
+	Height          int                `json:"height"`
+	Scale           int                `json:"device_scale_factor"`
+	ColorScheme     string             `json:"color_scheme"`
+	FullPage        bool               `json:"full_page"`
+	Selector        string             `json:"selector"`
+	WaitForSelector string             `json:"wait_for_selector"`
+	WaitMS          int                `json:"wait_ms"`
+	Actions         []screenshotAction `json:"actions"`
+}
+
+// screenshotAction is one step performed on the loaded page before the
+// capture. The tool exists to photograph a page, and for most of a real
+// frontend the state worth photographing is not the one a fresh load
+// produces: a dialog has to be opened, an overlay dismissed, a field filled.
+// Without these a session that needed any of that abandoned the tool
+// entirely and drove Playwright through Bash instead — which is exactly the
+// ad hoc invocation the tool was built to replace, so it went back to
+// capturing full-page desktop light-scheme images with none of the standard
+// this tool owns (docs/reviews/vision-path-2026-08-14.md).
+//
+// The vocabulary is deliberately small. These are the steps that get a page
+// into a state, not a browser automation language: anything more expressive
+// belongs in a script the session writes itself, and the moment this needs
+// conditionals it has become one.
+type screenshotAction struct {
+	Type     string `json:"type"`
+	Selector string `json:"selector"`
+	Key      string `json:"key"`
+	Value    string `json:"value"`
 }
 
 // The capture standard the tool owns. These are defaults rather than fixed
@@ -78,6 +100,11 @@ const (
 	// screenshotMaxWaitMS bounds the explicit settle a caller can ask for, so
 	// wait_ms cannot be used to hold a worker slot for the whole tool timeout.
 	screenshotMaxWaitMS = 30_000
+	// screenshotMaxActions bounds the pre-capture steps. A capture that needs
+	// more than this is a workflow rather than a state to photograph, and the
+	// cap is what keeps one call from spending the whole tool timeout on
+	// per-action selector waits.
+	screenshotMaxActions = 10
 	// screenshotSettleTimeout is how long the driver waits for the network to
 	// go idle after load before giving up and capturing anyway.
 	screenshotSettleTimeoutMS = 3_000
@@ -202,18 +229,64 @@ func resolveScreenshotOutput(workspace, userPath string) (string, error) {
 // and defaulted into this shape first, so the script does no validation of
 // its own.
 type screenshotDriverConfig struct {
-	URL                 string `json:"url"`
-	Path                string `json:"path"`
-	Width               int    `json:"width"`
-	Height              int    `json:"height"`
-	Scale               int    `json:"scale"`
-	ColorScheme         string `json:"colorScheme"`
-	FullPage            bool   `json:"fullPage"`
-	Selector            string `json:"selector"`
-	WaitForSelector     string `json:"waitForSelector"`
-	WaitMS              int    `json:"waitMs"`
-	NavigationTimeoutMS int    `json:"navigationTimeoutMs"`
-	SettleTimeoutMS     int    `json:"settleTimeoutMs"`
+	URL                 string             `json:"url"`
+	Path                string             `json:"path"`
+	Width               int                `json:"width"`
+	Height              int                `json:"height"`
+	Scale               int                `json:"scale"`
+	ColorScheme         string             `json:"colorScheme"`
+	FullPage            bool               `json:"fullPage"`
+	Selector            string             `json:"selector"`
+	WaitForSelector     string             `json:"waitForSelector"`
+	WaitMS              int                `json:"waitMs"`
+	Actions             []screenshotAction `json:"actions"`
+	ActionTimeoutMS     int                `json:"actionTimeoutMs"`
+	NavigationTimeoutMS int                `json:"navigationTimeoutMs"`
+	SettleTimeoutMS     int                `json:"settleTimeoutMs"`
+}
+
+// The action verbs the driver understands, and what each requires.
+const (
+	screenshotActionClick = "click"
+	screenshotActionFill  = "fill"
+	screenshotActionPress = "press"
+	screenshotActionHover = "hover"
+)
+
+// validateScreenshotActions checks the steps before the browser launches, so
+// a typo'd verb costs no browser start and names the set it should have come
+// from. Selectors are not validated here — whether one matches is a fact
+// about the page, and the driver reports it with the action's position.
+func validateScreenshotActions(actions []screenshotAction) ([]screenshotAction, error) {
+	if len(actions) > screenshotMaxActions {
+		return nil, fmt.Errorf("at most %d actions, got %d: a capture needing more than that is a workflow, and belongs in a script", screenshotMaxActions, len(actions))
+	}
+	out := make([]screenshotAction, 0, len(actions))
+	for i, a := range actions {
+		a.Type = strings.ToLower(strings.TrimSpace(a.Type))
+		a.Selector = strings.TrimSpace(a.Selector)
+		a.Key = strings.TrimSpace(a.Key)
+		switch a.Type {
+		case screenshotActionClick, screenshotActionHover:
+			if a.Selector == "" {
+				return nil, fmt.Errorf("action %d (%s) needs a selector", i+1, a.Type)
+			}
+		case screenshotActionFill:
+			if a.Selector == "" {
+				return nil, fmt.Errorf("action %d (fill) needs a selector", i+1)
+			}
+		case screenshotActionPress:
+			if a.Key == "" {
+				return nil, fmt.Errorf("action %d (press) needs a key, for example \"Escape\" or \"Enter\"", i+1)
+			}
+		case "":
+			return nil, fmt.Errorf("action %d has no type: each action needs one of click, fill, press, hover", i+1)
+		default:
+			return nil, fmt.Errorf("action %d has type %q: each action needs one of click, fill, press, hover", i+1, a.Type)
+		}
+		out = append(out, a)
+	}
+	return out, nil
 }
 
 func screenshotConfig(args screenshotArgs, path string, timeout time.Duration) (screenshotDriverConfig, error) {
@@ -270,6 +343,12 @@ func screenshotConfig(args screenshotArgs, path string, timeout time.Duration) (
 		return cfg, errors.New("selector and full_page cannot both be set: a selector already clips the capture to one element")
 	}
 
+	actions, err := validateScreenshotActions(args.Actions)
+	if err != nil {
+		return cfg, err
+	}
+	cfg.Actions = actions
+
 	// The driver's own navigation timeout sits inside the tool's wall-clock
 	// timeout, so a slow page fails with the driver's message rather than
 	// having the whole call killed with no output. The margin leaves room for
@@ -279,6 +358,18 @@ func screenshotConfig(args screenshotArgs, path string, timeout time.Duration) (
 		navigation = 5 * time.Second
 	}
 	cfg.NavigationTimeoutMS = int(navigation / time.Millisecond)
+
+	// Actions share the navigation budget between them rather than each
+	// getting it in full: ten steps at the navigation timeout apiece would
+	// overrun the tool's wall clock and the call would be killed with no
+	// output, which is the one failure mode that tells the model nothing.
+	cfg.ActionTimeoutMS = cfg.NavigationTimeoutMS
+	if n := len(cfg.Actions); n > 1 {
+		cfg.ActionTimeoutMS = cfg.NavigationTimeoutMS / n
+	}
+	if cfg.ActionTimeoutMS < 1000 {
+		cfg.ActionTimeoutMS = 1000
+	}
 	return cfg, nil
 }
 
@@ -289,6 +380,7 @@ type screenshotReport struct {
 	URL            string   `json:"url"`
 	Title          string   `json:"title"`
 	Clipped        bool     `json:"clipped"`
+	ActionsRun     []string `json:"actionsRun"`
 	DocumentHeight int      `json:"documentHeight"`
 	ViewportHeight int      `json:"viewportHeight"`
 	ConsoleErrors  []string `json:"consoleErrors"`
@@ -388,6 +480,14 @@ func formatScreenshotReport(report screenshotReport, path string, cfg screenshot
 	}
 	if report.URL != "" && report.URL != cfg.URL {
 		fmt.Fprintf(&b, "Redirected to: %s\n", report.URL)
+	}
+
+	// What the page was put through before the shutter. A capture that looks
+	// wrong is usually a state that was not reached, so the steps that did
+	// run are the first thing worth knowing — and it confirms the capture is
+	// of the state asked for rather than of the page as it loaded.
+	if len(report.ActionsRun) > 0 {
+		fmt.Fprintf(&b, "Before capturing, ran: %s\n", strings.Join(report.ActionsRun, ", "))
 	}
 
 	// The one fact a viewport capture cannot show is what it left out. Saying

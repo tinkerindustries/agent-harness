@@ -1455,6 +1455,16 @@ pre {
   padding: 4px 8px;
 }
 
+/* The model name prefixes a usage line only when the request was not the
+   session's own — today, a ReviewScreenshot call's vision spend. It carries
+   the row's own dim colour at full weight rather than a new one: the line is
+   already the quietest thing on the card, and this is the part of it that
+   says the cost belongs to something else. */
+.block-usage .usage-model {
+  font-weight: 500;
+  color: var(--foreground);
+}
+
 /* An operator steer (docs/RUN-CONTROL.md "The frontend"): a top-level block,
    deliberately distinct from the model's own turns — the amber (gave-up)
    family marks it as human input, and the two states are the point. Pending

@@ -25,9 +25,14 @@ import (
 // assertions from drifting apart. A single file for both arrays would save
 // nothing and blur which provider a change belongs to.
 //
-// The DeepSeek golden was captured from the pre-Phase-8 code and must keep
-// passing byte-for-byte (docs/KIMI-INTEGRATION.md §4.2); the Kimi golden
-// was captured from the new array and is the contract for it.
+// Neither file is a claim that the array never changes — it is a claim that
+// it never changes by accident. Regenerating one is a deliberate act with a
+// cost attached: the head is the shared prompt-cache prefix, so a moved byte
+// invalidates the cache for every session on that provider and the change is
+// at least a minor release (RELEASE.md). The DeepSeek golden was last moved
+// on purpose to carry the vision-tool changes in
+// docs/reviews/vision-path-2026-08-14.md; the Kimi array drops both vision
+// tools and so was untouched by them.
 func TestToolArrayGolden(t *testing.T) {
 	cases := []struct {
 		name   string

@@ -97,6 +97,39 @@ Ask for structured JSON output rather than free-text prose — makes it
 trivial to feed straight into the coding agent as a task list without a
 separate parsing step.
 
+## `response_format` is a type, not a schema — measured
+
+Everything above this line is the vendor's advice. This section is what the
+live API actually did on 2026-08-14, and it wins where the two disagree (the
+same rule [OBSERVED.md](OBSERVED.md) states for DeepSeek).
+
+`response_format` is a top-level request field carrying a single `type`. There
+is no schema field beside it on this surface, and that turns out to matter:
+the type constrains the *shape of the container* and tells the model nothing
+about what goes in it. One image, one instruction asking for
+`{"observed": ..., "elements": [...]}`, three requests differing only in this
+field:
+
+| `response_format` | What came back |
+| --- | --- |
+| `{"type":"object"}` | `{ }` — a literally empty object, 5 output tokens |
+| `{"type":"array"}` | A JSON array, but the object inside it mangled: `elements` came back as a list of the key *names* (`["image","text","role","styling"]`), and the whole entry was duplicated |
+| *omitted* | Exactly the requested object, fully populated and correct — wrapped in a ```` ```json ```` fence |
+
+So asking for `"object"` is worse than asking for nothing: it produces a
+well-formed answer with nothing in it, which is the single most expensive
+failure this pipeline has (a caller that cannot see the image cannot tell an
+empty answer from a correct one — [TOOLS.md](TOOLS.md), "Every answer says
+what it saw"). `"array"` is what the earlier bare-list shape used, and it
+worked only because that shape *was* a top-level array; it does not survive
+the move to an object.
+
+`internal/tools/reviewscreenshot.go` therefore sends no `response_format` at
+all and strips the fence. Letting the model choose its own container and
+paying three backticks for it is a far smaller problem than constraining the
+container and losing the contents. Re-measure before reintroducing the field —
+a schema parameter appearing on this endpoint would change the answer.
+
 ## Reducing unnecessary tool calls (if using function calling / agentic loop)
 
 If the model over-uses tools in an agentic setup:

@@ -49,11 +49,12 @@ const (
 // Setting keys. The registry below is the single source of truth; these
 // constants exist so Go call sites name a key without string literals.
 const (
-	KeyDeepSeekAPIKey    = "deepseek.api_key"
-	KeyKimiAPIKey        = "kimi.api_key"
-	KeyGoogleAPIKey      = "google.api_key"
-	KeyGoogleVisionModel = "google.vision_model"
-	KeyGitHubToken       = "github.token"
+	KeyDeepSeekAPIKey            = "deepseek.api_key"
+	KeyKimiAPIKey                = "kimi.api_key"
+	KeyGoogleAPIKey              = "google.api_key"
+	KeyGoogleVisionModel         = "google.vision_model"
+	KeyGoogleVisionThinkingLevel = "google.vision_thinking_level"
+	KeyGitHubToken               = "github.token"
 
 	KeyRunMaxTokens                 = "run.max_tokens"
 	KeyRunMaxSubTurns               = "run.max_sub_turns"
@@ -204,6 +205,9 @@ var registry = []Descriptor{
 		"Model the eval judge scores transcripts with, when an eval names none (docs/EVALS.md). Defaults to kimi-k3 — the expensive judge: K3 output costs $15.00/M against deepseek-v4-pro's $0.87 (configs/prices.json), and a verdict is bounded by the 384K-token JudgeMaxTokens ceiling, so a judge that runs to it costs ~$5.90 on K3 against ~$0.34 on pro. A verbose verdict on a big eval is a cost to see coming.", "kimi-k3", false, false),
 	stringSetting(KeyGoogleVisionModel, GroupModels,
 		"Gemini model ReviewScreenshot sends screenshots to", "gemini-3.5-flash", false, false),
+	stringSetting(KeyGoogleVisionThinkingLevel, GroupModels,
+		"How hard the vision model thinks before answering a ReviewScreenshot call. Thinking bills at the output rate and is where a review's cost goes — an empty findings list has been measured at 1,947 thinking tokens against one token of answer. \"auto\" lets the tool choose per call: medium to judge a page against a spec, low to describe one.", "auto", false, false).
+		withAllowed("auto", "minimal", "low", "medium", "high"),
 
 	// --- Requires a restart ---
 	intSetting(KeyWorkerPoolSize, GroupRequiresRestart, 4, 1, 100_000,

@@ -55,6 +55,50 @@ async function main() {
     if (cfg.waitForSelector) {
       await page.waitForSelector(cfg.waitForSelector, { timeout: cfg.navigationTimeoutMs });
     }
+
+    // Actions run on a page that has loaded and settled, and before the
+    // explicit wait: waitForSelector is how the caller says "the page is
+    // ready", the actions put it into the state worth photographing, and
+    // waitMs is the settle after them — an animation opening a dialog, say.
+    //
+    // A failure names the step by its position and what it was trying to do,
+    // because "selector not found" on its own does not say which of five
+    // clicks missed. The error propagates: a capture taken after a step
+    // silently failed is a screenshot of the wrong state, which is worse than
+    // no screenshot at all, since nothing downstream can tell.
+    const actionsRun = [];
+    for (const [i, action] of (cfg.actions || []).entries()) {
+      const label =
+        action.type === "press"
+          ? `press ${action.key}`
+          : `${action.type} ${action.selector}`;
+      try {
+        const opts = { timeout: cfg.actionTimeoutMs };
+        switch (action.type) {
+          case "click":
+            await page.locator(action.selector).first().click(opts);
+            break;
+          case "hover":
+            await page.locator(action.selector).first().hover(opts);
+            break;
+          case "fill":
+            await page.locator(action.selector).first().fill(action.value || "", opts);
+            break;
+          case "press":
+            if (action.selector) {
+              await page.locator(action.selector).first().press(action.key, opts);
+            } else {
+              await page.keyboard.press(action.key);
+            }
+            break;
+        }
+      } catch (err) {
+        const detail = err && err.message ? err.message.split("\n")[0] : String(err);
+        throw new Error(`action ${i + 1} (${label}) failed: ${detail}`);
+      }
+      actionsRun.push(label);
+    }
+
     if (cfg.waitMs > 0) {
       await page.waitForTimeout(cfg.waitMs);
     }
@@ -82,6 +126,7 @@ async function main() {
         url: page.url(),
         title: await page.title(),
         clipped,
+        actionsRun,
         documentHeight: dimensions.documentHeight,
         viewportHeight: dimensions.viewportHeight,
         consoleErrors,

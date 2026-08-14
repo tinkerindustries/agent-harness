@@ -346,3 +346,128 @@ func TestScreenshotDriverConfigMarshalsTheScriptsFieldNames(t *testing.T) {
 		}
 	}
 }
+
+// TestScreenshotActionValidation pins the checks that happen before the
+// browser launches, so a malformed step costs no browser start and names both
+// its position and the set it should have come from.
+func TestScreenshotActionValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		actions []screenshotAction
+		want    string
+	}{
+		{"unknown verb", []screenshotAction{{Type: "scroll", Selector: "#x"}}, "action 1 has type \"scroll\""},
+		{"no verb", []screenshotAction{{Selector: "#x"}}, "action 1 has no type"},
+		{"click without a selector", []screenshotAction{{Type: "click"}}, "action 1 (click) needs a selector"},
+		{"fill without a selector", []screenshotAction{{Type: "fill", Value: "hi"}}, "action 1 (fill) needs a selector"},
+		{"press without a key", []screenshotAction{{Type: "click", Selector: "#a"}, {Type: "press"}}, "action 2 (press) needs a key"},
+		{"too many", make([]screenshotAction, screenshotMaxActions+1), "at most 10 actions"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := screenshotConfig(screenshotArgs{URL: "http://x/", Actions: tc.actions}, "/ws/scratch/a.png", ScreenshotTimeout)
+			if err == nil {
+				t.Fatalf("expected a refusal for %s", tc.name)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %q, want it to contain %q", err, tc.want)
+			}
+		})
+	}
+
+	// A press with no selector is legal: the key goes to the page.
+	cfg, err := screenshotConfig(screenshotArgs{
+		URL:     "http://x/",
+		Actions: []screenshotAction{{Type: "press", Key: "Escape"}, {Type: "Click", Selector: " #open "}},
+	}, "/ws/scratch/a.png", ScreenshotTimeout)
+	if err != nil {
+		t.Fatalf("valid actions were refused: %v", err)
+	}
+	// Verbs are matched case-insensitively and selectors are trimmed, so a
+	// model's whitespace does not become a selector that matches nothing.
+	if cfg.Actions[1].Type != "click" || cfg.Actions[1].Selector != "#open" {
+		t.Errorf("action was not normalised: %+v", cfg.Actions[1])
+	}
+	// Ten steps each waiting the full navigation timeout would overrun the
+	// tool's wall clock and be killed with no output, so the budget is shared.
+	if cfg.ActionTimeoutMS <= 0 || cfg.ActionTimeoutMS > cfg.NavigationTimeoutMS {
+		t.Errorf("action timeout %d should sit inside the navigation timeout %d", cfg.ActionTimeoutMS, cfg.NavigationTimeoutMS)
+	}
+}
+
+// TestScreenshotRunsActionsBeforeCapturing is the end-to-end case the actions
+// exist for: a control that only appears once something has been clicked. A
+// session that could not do this abandoned the tool and drove Playwright
+// through Bash instead (docs/reviews/vision-path-2026-08-14.md).
+func TestScreenshotRunsActionsBeforeCapturing(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is not on PATH")
+	}
+	e, root := screenshotExecutor(t)
+
+	page := filepath.Join(root, "scratch", "page.html")
+	html := `<!doctype html><title>Actions test</title>
+<style>body{margin:0}#panel{display:none;width:300px;height:200px;background:#264}</style>
+<button id="open" onclick="document.getElementById('panel').style.display='block'">Open</button>
+<input id="name"><div id="panel">now visible</div>`
+	if err := os.WriteFile(page, []byte(html), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// #panel is display:none on load, so clipping to it can only succeed if
+	// the click ran first — which makes the capture itself the assertion.
+	res := runTool(t, e, "Screenshot", screenshotArgs{
+		URL:      "file://" + page,
+		Path:     "scratch/panel.png",
+		Selector: "#panel",
+		Actions: []screenshotAction{
+			{Type: "fill", Selector: "#name", Value: "geoff"},
+			{Type: "click", Selector: "#open"},
+		},
+	})
+	if res.IsError {
+		if strings.Contains(res.Content, "browser driver failed to run") {
+			t.Skipf("no usable Playwright browser here: %s", res.Content)
+		}
+		t.Fatalf("capture with actions failed: %s", res.Content)
+	}
+	if _, err := os.Stat(filepath.Join(root, "scratch", "panel.png")); err != nil {
+		t.Fatalf("no image written: %v", err)
+	}
+	// The result says what the page was put through, so a capture of the
+	// wrong state can be traced to the step that did or did not run.
+	if !strings.Contains(res.Content, "Before capturing, ran: fill #name, click #open") {
+		t.Errorf("result should list the actions it ran, got: %s", res.Content)
+	}
+}
+
+// A step whose selector never appears fails the call and names the step. The
+// alternative — capturing anyway — produces a screenshot of the wrong state
+// that nothing downstream can identify as wrong.
+func TestScreenshotFailsOnAnActionThatCannotRun(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is not on PATH")
+	}
+	e, root := screenshotExecutor(t)
+	page := filepath.Join(root, "scratch", "page.html")
+	if err := os.WriteFile(page, []byte("<!doctype html><title>t</title><p>hi"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	e.Timeouts.Screenshot = 20 * 1e9
+	res := runTool(t, e, "Screenshot", screenshotArgs{
+		URL: "file://" + page, Path: "scratch/x.png",
+		Actions: []screenshotAction{{Type: "click", Selector: "#missing"}},
+	})
+	if !res.IsError {
+		t.Fatal("expected a failure for a step that cannot run")
+	}
+	if strings.Contains(res.Content, "browser driver failed to run") {
+		t.Skipf("no usable Playwright browser here: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, "action 1 (click #missing) failed") {
+		t.Errorf("error should name the step by position and intent, got: %s", res.Content)
+	}
+	if _, err := os.Stat(filepath.Join(root, "scratch", "x.png")); err == nil {
+		t.Error("a failed action must not leave a capture of the wrong state behind")
+	}
+}
