@@ -205,6 +205,26 @@ func TestTypedAccessorsResolveDefaultsAndStoredValues(t *testing.T) {
 	}
 }
 
+// TestJudgeModel pins the model.judge contract: an eval that names no judge
+// model resolves to kimi-k3 — the judge runs on the provider's account, not
+// the run's — and a stored value wins. The same registry default is pinned
+// in TestRegistryDefaultsMatchTheConstantsTheyReplaced.
+func TestJudgeModel(t *testing.T) {
+	r := NewResolver(&fakeStore{values: map[string]string{}})
+	ctx := context.Background()
+
+	if v, err := r.String(ctx, KeyJudgeModel); err != nil || v != "kimi-k3" {
+		t.Fatalf("String(model.judge) on empty store = %q err=%v, want kimi-k3 nil", v, err)
+	}
+
+	if err := r.Set(ctx, KeyJudgeModel, "deepseek-v4-pro"); err != nil {
+		t.Fatalf("Set model.judge: %v", err)
+	}
+	if v, err := r.String(ctx, KeyJudgeModel); err != nil || v != "deepseek-v4-pro" {
+		t.Fatalf("String(model.judge) after Set = %q err=%v, want deepseek-v4-pro nil", v, err)
+	}
+}
+
 // TestSetRejectsValuesOutOfBounds pins that validation lives in the registry
 // and fires on every write: a negative bash timeout, an effort outside the
 // enum, a non-integer max_tokens, and an out-of-range page limit all fail

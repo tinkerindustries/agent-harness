@@ -149,8 +149,13 @@ Measures a prompt change. Publishes a suite of tasks under two or more prompt
 variants through the WORK stream, records the run and its members in
 `eval_runs` and `eval_members` as it goes, scores each run from its stored
 events, and
-compares the arms. Depends on: `internal/queue` to publish, `internal/store` to
-read, `internal/deepseek` for the optional judge.
+compares the arms. The optional judge speaks to a model provider through a
+narrow `Client` seam declared here — one non-streaming completion — and
+implemented by `internal/deepseek` and `internal/kimi`, with cmd/harness
+resolving which one a judge model gets through `internal/provider`
+(docs/KIMI-INTEGRATION.md §4.3); a boundary test pins that `internal/deepseek`
+is never a direct dependency. Depends on: `internal/queue` to publish,
+`internal/store` to read, `internal/wire` for the judge's request vocabulary.
 [../docs/EVALS.md](../docs/EVALS.md).
 
 ### `internal/skills`

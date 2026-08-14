@@ -45,6 +45,10 @@ func TestRegistryDefaultsMatchTheConstantsTheyReplaced(t *testing.T) {
 		{settings.KeyDefaultModel, "deepseek-v4-pro"},
 		{settings.KeyDefaultFlashModel, "deepseek-v4-flash"},
 		{settings.KeyDefaultEffort, "high"},
+		// The judge defaults to kimi-k3, not model.default: the judge runs on
+		// the provider's account, and K3 is the outside-the-family judge the
+		// eval exists to get (docs/EVALS.md).
+		{settings.KeyJudgeModel, "kimi-k3"},
 		{settings.KeyGoogleVisionModel, "gemini-3.5-flash"},
 		{settings.KeyWorkerPoolSize, "4"},
 		{settings.KeyWorkerConcurrencyPro, "500"},
