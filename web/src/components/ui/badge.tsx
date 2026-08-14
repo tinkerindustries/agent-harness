@@ -59,4 +59,26 @@ function Badge({
   )
 }
 
+// statusBadgeVariant maps the harness's status vocabulary onto badge
+// variants, shared so a badge means the same thing wherever it appears —
+// the session list, the transcript, and both eval screens. An unknown
+// status falls through to outline rather than disappearing.
+export function statusBadgeVariant(status: string): "running" | "done" | "gaveup" | "stopped" | "failed" | "outline" {
+  switch (status) {
+    case "running":
+      return "running";
+    case "ok":
+      return "done";
+    case "failed":
+      return "failed";
+    case "cancelled":
+    case "stopped":
+      return "stopped";
+    case "gaveup":
+      return "gaveup";
+    default:
+      return "outline";
+  }
+}
+
 export { Badge, badgeVariants }

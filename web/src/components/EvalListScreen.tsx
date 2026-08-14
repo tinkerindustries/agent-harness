@@ -4,7 +4,7 @@ import { openEvalListStream } from "../api/evalStreams";
 import { controlToken, formatDuration } from "../api/operations";
 import { EvalStartForm } from "./EvalStartForm";
 import { useNow } from "../hooks";
-import { Badge } from "./ui/badge";
+import { Badge, statusBadgeVariant } from "./ui/badge";
 import { Button } from "./ui/button";
 import { useNavRight } from "./TopNav";
 
@@ -126,7 +126,7 @@ function EvalRow({ run, onOpen }: { run: EvalRunRow; onOpen: (id: string) => voi
   return (
     <tr className="eval-row" onClick={() => onOpen(run.id)}>
       <td>
-        <Badge variant={evalStatusVariant(run.status)}>{run.status.toUpperCase()}</Badge>
+        <Badge variant={statusBadgeVariant(run.status)}>{run.status.toUpperCase()}</Badge>
       </td>
       <td data-label="Eval">
         <span className="eval-suite">{run.suite}</span>
@@ -166,21 +166,4 @@ function EvalRow({ run, onOpen }: { run: EvalRunRow; onOpen: (id: string) => voi
       </td>
     </tr>
   );
-}
-
-// evalStatusVariant reuses the session vocabulary so a badge means the same
-// thing wherever it appears.
-function evalStatusVariant(status: string): "running" | "done" | "failed" | "stopped" | "outline" {
-  switch (status) {
-    case "running":
-      return "running";
-    case "ok":
-      return "done";
-    case "failed":
-      return "failed";
-    case "cancelled":
-      return "stopped";
-    default:
-      return "outline";
-  }
 }
