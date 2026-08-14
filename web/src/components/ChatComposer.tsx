@@ -307,7 +307,7 @@ function StatusLine({
       )}
       <span className="spacer" />
       {running && (
-        <>
+        <span className="hints">
           <span>
             <kbd>⏎</kbd> send
           </span>
@@ -318,7 +318,7 @@ function StatusLine({
             <kbd>esc</kbd>
             <kbd>esc</kbd> stop run
           </span>
-        </>
+        </span>
       )}
     </div>
   );
