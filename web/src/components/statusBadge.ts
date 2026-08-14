@@ -41,14 +41,15 @@ export interface Outcome {
 // status ok splits on complete_status (done / gave_up) and, where the
 // transcript's run_finished block is available, on reason (no_tool_calls →
 // STOPPED). A status ok with neither signal is the pre-migration fallback:
-// the plain terminal status, OK, rather than a guess. Every other store
+// the plain terminal status renders as DONE, the one word the list already
+// uses for an ok run, rather than a guess. Every other store
 // status maps straight from the table.
 export function outcome(session: OutcomeSession): Outcome {
   if (session.status === "ok") {
     if (session.complete_status === "done") return { label: "DONE", variant: "done" };
     if (session.complete_status === "gave_up") return { label: "GAVE UP", variant: "gaveup" };
     if (session.reason === "no_tool_calls") return { label: "STOPPED", variant: "stopped" };
-    return { label: "OK", variant: statusVariant("ok") };
+    return { label: "DONE", variant: statusVariant("ok") };
   }
   switch (session.status) {
     case "running":
