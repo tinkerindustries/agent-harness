@@ -52,25 +52,27 @@ trying against `Edit` if exact-match replacement underperforms.
 | `WebFetch` | `url`, `prompt` | Fetch a URL and extract against a question |
 | `Screenshot` | `url`, `path`, `width?`, `height?`, `device_scale_factor?`, `color_scheme?`, `full_page?`, `selector?`, `wait_for_selector?`, `wait_ms?` | Capture a page with a headless browser into `scratch/` |
 | `Glance` | `image_paths[]`, `query?`, `ocr?`, `ocr_extra?`, `region?` | Ask Gemini's vision model about one or more images: describe, answer a question, or transcribe the text |
+| `Transcribe` | `image_path`, `region?` | Read all the text off an image too tall for one look: chunk it on blank bands, one vision call each, merged with a seam report |
 | `Ground` | `image_path`, `target`, `region?` | Locate something in an image; every match comes back as a pixel box |
 | `Detect` | `image_path`, `category?`, `region?` | Inventory every instance of a kind of thing in an image; a numbered list of pixel boxes |
 | `Crop` | `image_path`, `region`, `output?`, `scale?` | Cut a pixel box out of an image into its own file — local, no model call |
 | `Complete` | `summary`, `result?`, `status?` | Emit the run's machine-readable result |
 
-Nineteen tools. The first thirteen have a trained-in analogue in at least two
-of the three named harnesses. `Screenshot`, `Glance`, `Ground`, `Detect`,
-`Crop`, and `Complete` do not. The first five exist because DeepSeek cannot
-see images, so the harness builds the whole visual path itself — a capture it
-controls (`Screenshot`), a prose answer or a located pixel box from Gemini
-(`Glance`, `Ground`, `Detect`), and a local crop with no model call at all
+Twenty tools. The first thirteen have a trained-in analogue in at least two
+of the three named harnesses. `Screenshot`, `Glance`, `Transcribe`, `Ground`,
+`Detect`, `Crop`, and `Complete` do not. The first six exist because DeepSeek
+cannot see images, so the harness builds the whole visual path itself — a
+capture it controls (`Screenshot`), a prose answer or a located pixel box
+from Gemini (`Glance`, `Ground`, `Detect`), a chunked read of a page too tall
+for one call (`Transcribe`), and a local crop with no model call at all
 (`Crop`); the trained-vocabulary argument above says nothing about any of
 them, and each is named for what it does.
 
 The array is per-provider (docs/KIMI-INTEGRATION.md §4.5, decision 5). A Kimi
 K3 session gets the fourteen tools that remain when `Screenshot`, `Glance`,
-`Ground`, `Detect`, and `Crop` are dropped — K3 reads images natively, so all
-five are redundant for it, and capture happens through Bash and the
-`playwright-cli` skill instead. DeepSeek's array is the full nineteen,
+`Transcribe`, `Ground`, `Detect`, and `Crop` are dropped — K3 reads images
+natively, so all six are redundant for it, and capture happens through Bash
+and the `playwright-cli` skill instead. DeepSeek's array is the full twenty,
 unchanged byte for byte. Each array is a frozen request head shared by every
 session on its provider, pinned by its own golden file
 (`internal/tools/testdata/tools_*.golden.json`, asserted by
@@ -380,7 +382,7 @@ deserves reasoning — and truncation is the plain byte cap: safe here because
 there is no JSON document to sever. The model comes from the
 `google.vision_model` setting (default `gemini-3.7-flash`) and the key from
 `google.api_key`, both read through the settings table on every call so
-either can change without a restart; the call has its own timeout (60s,
+either can change without a restart; the call has its own timeout (120s,
 `tools.reviewscreenshot_timeout`) rather than the 30-second tool default. An
 operator can override the thinking default with `google.vision_thinking_level`;
 there is no longer a per-call `thinking_level` argument — `Glance`, `Ground`,
@@ -412,6 +414,114 @@ review — capture, judge, fix, re-capture, ask whether it is fixed — is now
 several independent `Glance` calls rather than one held conversation; each
 has to restate its own context, because nothing on the harness side carries
 it forward between them.
+
+### Transcribe
+
+`Glance` with `ocr` reads the text off an image in one call. `Transcribe`
+reads it off an image that one call cannot resolve.
+
+The reason there is a difference is a fixed cost, not a size limit. An image
+costs the vision model a flat ~1,120 input tokens at high resolution however
+large it is — the documented budget
+([`gemini-3.5-flash-ui-review-prompting.md`](gemini-3.5-flash-ui-review-prompting.md)),
+and 1,121–1,195 per image measured across a live run
+(docs/VISION-TOOLKIT.md §7). So a 1200×12000 page capture gets the same
+visual budget as a 1200×800 viewport shot: roughly fifteen times less detail
+per unit of page. That is not theoretical — a live `Glance` describing a
+"whole page" covered the 800px viewport rather than the 2,640px document, and
+said so unprompted. Cutting the image up buys effective resolution that no
+other argument to any of these tools can.
+
+**The cut.** The tool measures, for every row, how many pixels differ from
+that row's own background — its left and right margins, which is what makes
+the measurement work unchanged on a dark theme or a page with a coloured
+band. It then walks down the image choosing each cut inside a window around a
+target height (scaled from the width, so the pieces come out roughly
+page-shaped rather than ribbon-shaped), preferring the middle of the widest
+run of near-blank rows it can find there. A cut in the leading between two
+lines is clean by construction: a glyph crossing it would have put ink on
+those rows.
+
+**The overlap.** A clean cut gets no overlap at all — there is nothing at the
+boundary for two chunks to see twice, and showing them the same strip only
+gives the merge a chance to delete something real. A cut that had nowhere
+clean to land (a dense table, a terminal capture) gets a fixed overlap on
+each side, and that is the *only* case in which the merge dedupes anything.
+
+**The merge.** Chunks are joined in order, dropping from each the longest run
+of opening lines that exactly repeats the tail of what is already merged —
+compared case-folded with runs of whitespace collapsed, and nothing else. A
+run of blank lines does not count as a repeat. There is no fuzzy fallback:
+upstream reaches for `difflib.SequenceMatcher` at this point, and a ratio
+threshold on prose is a knob that silently deletes a real line for resembling
+its neighbour. Under-deleting leaves a visible duplicate; over-deleting
+leaves silence, which is worse.
+
+**The seam report**, which is the point of the tool as much as the transcript
+is. Every call returns, *ahead of* the text — so the output cap can never cut
+it off — where the image was cut, in the source file's own y coordinates,
+what happened at each boundary, and which boundaries are marked `CHECK`. A
+boundary is flagged exactly when overlap had to be sent, which is exactly
+when the cut went through content. The flag does not soften when the exact
+match fires: this tool cannot check its own merge, and a wrongly merged seam
+reads as ordinary prose rather than as anything broken. The y positions are
+reported against the original file (the `region` offset applied) precisely so
+a flagged seam can be handed to `Crop` and looked at without arithmetic.
+
+**Failure is all-or-nothing.** A chunk whose call fails fails the whole call,
+with no partial transcript: a document with one chunk's worth missing from
+the middle reads as a complete document, which is the exact failure the seam
+audit exists to prevent, and it would be perverse to guard the boundaries and
+then ship a gap. The chunks that did come back were billed, so their usage
+still rides home on the failed result.
+
+**Cost is one event, summed.** Every chunk is its own Gemini request, and
+they are sent concurrently (`tools.transcribe_concurrency`, four at a time by
+default) under one budget for the whole call (`tools.transcribe_timeout`,
+300s — not the per-call vision timeout, which would kill a tall page
+part-way through and bill for what had already returned). The chunk count is
+capped by `tools.transcribe_max_chunks`; an image that would need more is not
+refused, the split just stops and the last chunk keeps the remainder, which
+the per-chunk heights in the report make visible.
+
+The usage of all of them is summed into a **single** `usage` event carrying
+`calls`, rather than one event per chunk. Both would give the right session
+total — `SessionUsageSummaries` sums every usage event it finds — but the
+transcript card absorbs at most one usage block per sub-turn and a later one
+replaces an earlier one (`web/src/api/groups.ts`), so fifteen events would
+put one chunk's price on the card and drop the other fourteen from the
+display. Vision spend has already been a third of a run's cost once
+([`vision-path-2026-08-14.md`](reviews/vision-path-2026-08-14.md)), and
+under-reporting it on the screen where anyone would notice is a worse trade
+than losing the per-chunk breakdown, which nothing downstream reads and which
+the result's own text carries anyway. `calls` exists so a summed event cannot
+pass itself off as one enormous request. Any future tool that makes more than
+one provider call inherits this: sum, or the card shows whichever call
+happened to be last.
+
+**What the live runs actually measured**, because the premise above is not
+the whole story. Three runs on 2026-08-15 confirmed the flat budget twice —
+one call on an 8,370px capture took 1,172 input tokens, one on a 3,709px
+capture took 1,097 — and then found that chunking recovered **no more text**
+than a single `Glance` with `ocr` on either page: 44 setting keys against 43,
+and on the shorter page an exact tie. `gemini-3.7-flash` reads a tall rendered
+web page about as well in one call as in five. What `Transcribe` did win on
+the taller page was **cost** ($0.0209 against $0.0383, because five bounded
+per-chunk outputs came to less than one unbounded 9,984-token one) and the
+seam report, which is a statement about the transcript's own reliability that
+a single `Glance` does not make. Neither target had genuinely small text — a
+scan, a dense spreadsheet, a chat log — which is the case §6 of
+docs/VISION-TOOLKIT.md predicted and which remains untested. Prefer
+`Transcribe` for a long document you intend to rely on; do not assume it
+recovers text a `Glance` would miss until that has been measured on the kind
+of image in front of you.
+
+Every chunk goes at high resolution — buying resolution is the intent of the
+split, and sending the later ones at medium would hand back whatever it does
+buy. Thinking defaults to low: transcription is copying what is visible, and
+budget spent deciding what the text *means* is budget spent wrong. The tool
+writes nothing to disk, so like `Glance`, `Ground`, and `Detect` it runs in
+every permission mode.
 
 ### Ground and Detect
 
@@ -515,18 +625,19 @@ factor from 1 to 8, for a source small enough that a plain crop would still
 be hard to read; the resample is `x/image`'s CatmullRom, the same resampler
 the byte-cap downscale uses standing in for upstream's LANCZOS.
 
-Unlike `Glance`, `Ground`, and `Detect` — which read a file and send it over
-the network, changing nothing on disk, the same reasoning that puts
-`WebFetch` in read-only mode — `Crop` is not in the read-only mode's
-always-allowed set. Its output path resolves through the same
-workspace-wide confinement `Write` and `Edit` use, and its default output
-sits next to the source image rather than under `scratch/`, so a `Crop` call
-can leave a new file inside a cloned repository the way `Write` can. That is
-exactly the side effect read-only mode exists to prevent, so `Crop` is gated
-by permission mode like every other file-writing tool: denied in `readonly`,
-allowed in `full` (`internal/tools/policy.go`, "Permissions" below). It makes
-no Gemini call, so it also keeps the ordinary 30-second tool timeout rather
-than the vision tools' 60-second one.
+`Crop` writes a file, which is the one thing the other vision tools do not,
+and it is still in read-only mode's always-allowed set. What earns it that is
+where it is allowed to write: `output` resolves through
+`resolveScratchImageOutput`, the same `scratch/`-confined rule `Screenshot`'s
+path uses, so a relative path lands under `scratch/` whether or not the
+prefix is spelled and an absolute path outside it is refused. It therefore
+cannot touch a deliverable or a cloned repository. Gating it by mode instead
+— which it was, at first — put the whole `Ground`→`Crop`→`Glance` pipeline
+behind `full` permissions, the mode that also hands the session the host
+docker socket: a large grant to buy a closer look at a screenshot
+(`internal/tools/policy.go`, "Permissions" below). It makes no Gemini call,
+so it keeps the ordinary 30-second tool timeout rather than the vision
+tools'.
 
 ### Seeing the screenshots
 

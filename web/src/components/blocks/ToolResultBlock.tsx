@@ -92,6 +92,18 @@ function ToolResultContent({ block }: { block: ToolResultData }) {
         </>
       );
 
+    case "Transcribe":
+      // Transcribe answers with a seam report and then a verbatim
+      // transcript, so it gets the same plain rendering Glance's OCR does —
+      // Markdown would reformat text that is meant to be a copy of the page.
+      // The image above is what a flagged seam gets checked against.
+      return (
+        <>
+          <ScreenshotGallery paths={screenshotPaths(block.call)} />
+          <CollapsibleOutput text={block.content} />
+        </>
+      );
+
     case "Ground":
     case "Detect":
       // Ground and Detect answer in numbered plain-text lines — a position

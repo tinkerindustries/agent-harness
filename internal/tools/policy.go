@@ -4,7 +4,7 @@ import "strings"
 
 // Mode is the permission mode a session holds for its whole life
 // (docs/TOOLS.md, "Permissions"). Modes gate execution, never the tool
-// array sent to the model: all sixteen tools ship in every mode, and a
+// array sent to the model: all twenty tools ship in every mode, and a
 // disallowed call is refused at execution time.
 type Mode string
 
@@ -49,9 +49,13 @@ type Policy struct {
 }
 
 // alwaysAllowed tools have no side effects outside the session's own
-// bookkeeping and run in every mode. Glance, Ground, and Detect read a file
-// and send it over the network without changing anything on disk — the same
-// reasoning that puts WebFetch in read-only mode. The four task tools carry
+// bookkeeping and run in every mode. Glance, Ground, Detect, and Transcribe
+// read a file and send it over the network without changing anything on disk
+// — the same reasoning that puts WebFetch in read-only mode. Transcribe
+// makes several of those requests instead of one, which costs more but
+// changes nothing about what it touches: it writes no chunk files, and the
+// boundaries it reports are y positions in the source image rather than
+// anything on disk. The four task tools carry
 // the same "the plan is the session's own bookkeeping" reasoning TodoWrite
 // had, so read-only-mode sessions keep full plan tracking.
 //
@@ -65,14 +69,8 @@ type Policy struct {
 // for, but it spawns exactly one command it composed itself against a URL:
 // there is no argument that turns it into arbitrary execution.
 //
-// Crop also writes to disk, but does not get the same allowance: its output
-// argument resolves through plain ResolvePath (internal/tools/vision.go), the
-// same workspace-wide confinement Write and Edit use, and its default output
-// path sits next to the source image rather than under scratch/ — so a Crop
-// call can leave a new file inside a cloned repository the way Write can.
-// That is exactly the side effect read-only mode exists to prevent, so Crop
-// is gated by Mode like every other file-writing tool instead of joining this
-// map.
+// Crop writes to disk too, and gets the allowance for the same reason
+// Screenshot does — the entry below says why, beside the entry itself.
 var alwaysAllowed = map[string]bool{
 	"Read":       true,
 	"Glob":       true,
@@ -82,6 +80,7 @@ var alwaysAllowed = map[string]bool{
 	"Glance":     true,
 	"Ground":     true,
 	"Detect":     true,
+	"Transcribe": true,
 	"Screenshot": true,
 	// Crop writes a file, which is why it is worth saying why it sits
 	// here beside the readers rather than with Write and Edit: its output

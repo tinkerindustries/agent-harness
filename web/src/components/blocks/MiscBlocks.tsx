@@ -9,6 +9,11 @@ export const UsageBlock = memo(function UsageBlock({ block }: { block: Extract<B
           sub-turn, and without the name the two read as one turn billed
           twice (docs/TOOLS.md, "What it costs, and who can see that"). */}
       {block.model && <span className="usage-model">{block.model} · </span>}
+      {/* A summed event says so. Transcribe bills a call per chunk of a tall
+          image and commits one event for the lot (internal/tools/transcribe.go),
+          so without this the row reads as one request with fifteen times the
+          usual token count. Absent on every ordinary event, which is one call. */}
+      {block.calls !== undefined && block.calls > 1 && <span className="usage-calls">{block.calls} calls · </span>}
       prompt {block.prompt_tokens} (hit {block.prompt_cache_hit_tokens} / miss {block.prompt_cache_miss_tokens}), completion{" "}
       {block.completion_tokens}, cost ${block.cost_usd.toFixed(6)}
       {block.churn_point_index !== undefined && <span className="churn-warning"> — churn at message {block.churn_point_index}</span>}

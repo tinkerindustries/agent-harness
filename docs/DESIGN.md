@@ -17,7 +17,7 @@ docs present as mandatory and which measurement shows is not.
 ## 1. Scope
 
 Concurrent agent sessions in one process, NATS JetStream ingress and result
-publication, the nineteen tools in [TOOLS.md](TOOLS.md), a declarative
+publication, the twenty tools in [TOOLS.md](TOOLS.md), a declarative
 per-request permission policy, flash-backed subagents via `Task`, an
 append-only event log in SQLite mirrored to disk for review, cost and cache
 accounting, a browser transcript with a live plan panel driven by the plan

@@ -87,6 +87,11 @@ export function toolDetail(call: ToolCallPayload | undefined): string {
       return str(args.target);
     case "Detect":
       return str(args.category);
+    case "Transcribe":
+      // The image being read is the fact that identifies the call — there is
+      // no query or target to name, and the chunking is the tool's business
+      // rather than the caller's.
+      return trimWorkspace(str(args.image_path));
     case "Crop":
       // The file the call produced, the same way Write's target is the file
       // it wrote — computed the same way screenshotPaths derives it, so the
@@ -116,8 +121,8 @@ function cropDefaultOutput(imagePath: string): string {
 
 // screenshotPaths pulls the image path(s) a tool call names, or produces, for
 // the transcript's gallery to render. Glance takes several in image_paths;
-// Ground, Detect and Crop take one in image_path; Screenshot writes one file
-// and names it in path.
+// Ground, Detect and Transcribe take one in image_path; Crop takes one in
+// image_path too; Screenshot writes one file and names it in path.
 //
 // Crop is the odd one out: it makes no model call and its image_path is
 // usually already visible from an earlier call, so the gallery shows what it
@@ -143,6 +148,7 @@ export function screenshotPaths(call: ToolCallPayload | undefined): string[] {
       break;
     case "Ground":
     case "Detect":
+    case "Transcribe":
       raw = [args.image_path];
       break;
     case "Crop": {
@@ -277,18 +283,19 @@ const GLYPH_BY_NAME: Record<string, ToolGlyph> = {
   TaskGet: { letter: "P", family: "other" },
   TaskList: { letter: "P", family: "other" },
   TaskUpdate: { letter: "P", family: "other" },
-  // Screenshot keeps its first letter. None of the four vision tools can:
+  // Screenshot keeps its first letter. None of the five vision tools can:
   // Glance and Ground would both fall back to "G", clashing with Grep and
-  // Glob's own "G"; Crop's "C" would clash with Complete's fallback. V (the
-  // vision call Glance makes), X (the pixel coordinates Ground returns), D
-  // (Detect, free and undisputed) and K (a hard-C stand-in for Crop) are
-  // picked to keep clear of every other glyph in this table and of each
-  // other.
+  // Glob's own "G"; Crop's "C" would clash with Complete's fallback; and
+  // Transcribe's "T" is Task's. V (the vision call Glance makes), X (the
+  // pixel coordinates Ground returns), D (Detect, free and undisputed), K (a
+  // hard-C stand-in for Crop) and O (the OCR Transcribe does) are picked to
+  // keep clear of every other glyph in this table and of each other.
   Screenshot: { letter: "S", family: "other" },
   Glance: { letter: "V", family: "other" },
   Ground: { letter: "X", family: "other" },
   Detect: { letter: "D", family: "other" },
   Crop: { letter: "K", family: "other" },
+  Transcribe: { letter: "O", family: "other" },
 };
 
 export function toolGlyph(name: string): ToolGlyph {

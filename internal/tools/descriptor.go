@@ -50,7 +50,7 @@ func descriptorFor(name string, argsRaw json.RawMessage) string {
 				return name + " " + p
 			}
 		}
-	case "Ground", "Detect", "Crop":
+	case "Ground", "Detect", "Crop", "Transcribe":
 		if p := stringArg(args, "image_path"); p != "" {
 			return name + " " + p
 		}

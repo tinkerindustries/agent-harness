@@ -33,8 +33,8 @@ func TestToolArrayIdenticalAcrossModes(t *testing.T) {
 	if string(readonly) != string(after) {
 		t.Fatal("tool array changed after exercising permission checks across modes")
 	}
-	if len(Definitions()) != 19 {
-		t.Fatalf("expected 19 tools, got %d", len(Definitions()))
+	if len(Definitions()) != 20 {
+		t.Fatalf("expected 20 tools, got %d", len(Definitions()))
 	}
 }
 

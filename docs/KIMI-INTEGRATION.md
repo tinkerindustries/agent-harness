@@ -138,7 +138,7 @@ built. Kimi publishes its own
 [prompt guidance](../third_party/kimi-docs/guide/prompt-best-practice.md)
 to draw candidate wording from.
 
-One caveat: the prompt names its tools and says "All nineteen are always
+One caveat: the prompt names its tools and says "All twenty are always
 available" for DeepSeek, "All fourteen" for Kimi. Any prompt variant has to
 keep that inventory truthful.
 
@@ -309,7 +309,7 @@ sixteen unchanged byte for byte, Kimi's fourteen without `Screenshot` and
 `AskVision` tool was added, and then both `ReviewScreenshot` and `AskVision`
 were replaced by `Glance`, `Ground`, `Detect`, and `Crop`
 (docs/VISION-TOOLKIT.md) — but the golden-file mechanism this phase built is
-what still pins both providers' arrays, at their current sizes of nineteen
+what still pins both providers' arrays, at their current sizes of twenty
 and fourteen. `Read` returns an `image_url` part when
 the path is a PNG/JPEG/WebP and the provider can see images — the bytes
 base64-encoded into a data URI, capped by the existing screenshot cap

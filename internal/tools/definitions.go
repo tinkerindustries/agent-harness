@@ -9,11 +9,11 @@ import (
 )
 
 // The tool array is per-provider (docs/KIMI-INTEGRATION.md §4.5, decision 5):
-// DeepSeek gets all nineteen tools, and Kimi K3 gets the fourteen that remain
-// once the five vision tools are dropped — K3 reads images natively, so
-// Glance, Ground, Detect, Crop (the Gemini round-trips and the local image
-// operation that feeds them) and Screenshot (capture-and-describe) are all
-// redundant for it (docs/TOOLS.md). A provider's array is fixed and ordered,
+// DeepSeek gets all twenty tools, and Kimi K3 gets the fourteen that remain
+// once the six vision tools are dropped — K3 reads images natively, so
+// Glance, Ground, Detect, Transcribe, Crop (the Gemini round-trips and the
+// local image operation that feeds them) and Screenshot (capture-and-describe)
+// are all redundant for it (docs/TOOLS.md). A provider's array is fixed and ordered,
 // shared by every session on that provider in every permission mode; it
 // never varies by mode or by request — that is what keeps the shared prefix
 // stable (docs/CACHE.md). Each array is pinned by its own golden file
@@ -205,6 +205,19 @@ var definitionsDeepSeek = []wire.Tool{
 		},
 		"required": ["image_path", "region"]
 	}`),
+	// Transcribe is the one vision tool that makes more than one call, and
+	// its description says so in words rather than numbers for the same
+	// reason as the rest: the chunk cap and the concurrency are settings,
+	// and a figure here would vary per installation inside the frozen
+	// request head (docs/CACHE.md).
+	function("Transcribe", "Read all the text off an image too tall for one look — a full-page screenshot, a long document, a scrolling capture. It cuts the image into horizontal chunks along bands of blank pixels so no line of text is sliced, transcribes each chunk in its own vision call at full resolution, and joins the results back into one document. Use it instead of Glance with ocr whenever the image is much taller than it is wide: a vision model spends the same fixed budget on an image whatever its size, so a tall page read in one call comes back with the detail of a thumbnail, and the transcript quietly covers only the part it could still resolve. The result opens with a report — where the image was cut, what was removed as a repeat at each join, and which joins to check against the image — and then the transcript. Read that report: a merge that goes wrong drops or duplicates a line silently, so a seam marked CHECK is the one place the text may not match the page, and the y positions it names can be handed straight to Crop for a closer look. Costs one vision call per chunk, all of them billed together, and the result says what the lot cost. Images are PNG, JPEG, or WebP, workspace-relative or absolute paths.", `{
+		"type": "object",
+		"properties": {
+			"image_path": {"type": "string", "description": "Absolute or workspace-relative path to the PNG, JPEG, or WebP image to transcribe."},
+			"region": {"type": "string", "description": "Transcribe only this pixel box, X1,Y1,X2,Y2, instead of the whole image — the way to read one column or one section of a long page without paying for the rest. Reported cut positions stay in the original image's coordinates."}
+		},
+		"required": ["image_path"]
+	}`),
 	// Like the vision tools' descriptions, this one names no limits: the
 	// timeout is a setting and the dimension bounds are stated by the
 	// refusal message that quotes them, so nothing here varies per
@@ -246,12 +259,12 @@ var definitionsDeepSeek = []wire.Tool{
 	}`),
 }
 
-// definitionsKimi is Kimi K3's array: DeepSeek's nineteen minus the five
+// definitionsKimi is Kimi K3's array: DeepSeek's twenty minus the six
 // tools that exist only because DeepSeek cannot see images. Building it by
 // subtraction states that relationship and cannot drift from it — if a tool
 // is added to DeepSeek's array, Kimi's changes the same way unless it is
 // named here. The result is pinned by its own golden file like DeepSeek's.
-var definitionsKimi = without(definitionsDeepSeek, "Screenshot", "Glance", "Ground", "Detect", "Crop")
+var definitionsKimi = without(definitionsDeepSeek, "Screenshot", "Glance", "Ground", "Detect", "Transcribe", "Crop")
 
 // without returns tools minus every entry whose name is in drop. Callers
 // must not mutate the result.
@@ -283,7 +296,7 @@ func function(name, description, parameters string) wire.Tool {
 	}
 }
 
-// Definitions returns the DeepSeek tool array — the sixteen tools the
+// Definitions returns the DeepSeek tool array — the twenty tools the
 // harness has always shipped, unchanged byte for byte
 // (docs/KIMI-INTEGRATION.md §4.2). It is the array every pre-Phase-8 caller
 // meant, and the default for anything that does not resolve to a provider

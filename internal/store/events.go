@@ -190,9 +190,19 @@ type UsagePayload struct {
 	// this is the record of which one applied, on the event that already
 	// carries the figure. Empty on a session committed before the split,
 	// and on any usage the price table could not cost at all.
-	RateTier           string `json:"rate_tier,omitempty"`
-	ExpectedMissTokens int    `json:"expected_miss_tokens"`
-	ChurnPointIndex    *int   `json:"churn_point_index,omitempty"`
+	RateTier string `json:"rate_tier,omitempty"`
+	// Calls is how many provider requests this one event accounts for, set
+	// only where that is not one. Transcribe fans a tall image out over a
+	// call per chunk and sums them into a single event, because the
+	// transcript card shows one usage block per sub-turn and later ones
+	// replace earlier ones — fifteen events would display the price of one
+	// chunk (internal/tools/transcribe.go, sumTranscribeUsage). Zero means
+	// one call, which is every other usage event ever committed; the field
+	// exists so a summed event cannot pass itself off as a single enormous
+	// request.
+	Calls              int  `json:"calls,omitempty"`
+	ExpectedMissTokens int  `json:"expected_miss_tokens"`
+	ChurnPointIndex    *int `json:"churn_point_index,omitempty"`
 }
 
 // TurnFinishedPayload closes out a sub-turn's assistant message. ElapsedMs is

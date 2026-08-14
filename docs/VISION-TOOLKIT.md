@@ -16,7 +16,8 @@ advice is a skill-plus-CLI spike that touches no Go code.
 > in §5, the four tools were ported to Go directly (option C), `AskVision` and
 > `ReviewScreenshot` were removed, and the result has run twice against the
 > live API. §1-§5 are kept as the reasoning that led there — including the
-> parts that argued for a different route — and §7 is what actually happened.
+> parts that argued for a different route — §7 is what actually happened, and
+> §8 is the chunked-OCR tool §6 predicted would be needed next.
 
 ---
 
@@ -315,7 +316,104 @@ the Dockerfile's build context, so the image build failed outright once
 cannot catch that — only the container build can, which is what
 `scripts/build.sh` is for.
 
-## 8. Still not verified
+## 8. Transcribe, the chunked read §6 left open
+
+§6 named `long_screenshot_ocr.py` as "the failure mode we have not had to
+face yet but will", and §7 measured the number that makes it inevitable:
+1,121-1,195 input tokens per image, whatever the image. That is a flat budget,
+so a 2,640px document read in one call gets a fifth of the detail per pixel
+that the 800px viewport shot beside it does — and the first live run noticed,
+describing the viewport rather than the page it was asked about, unprompted.
+
+`Transcribe` is that gap closed: cut the image on bands of blank rows, one
+vision call per chunk at high resolution, merged back with a report of what
+happened at every join (docs/TOOLS.md, "Transcribe"). Two things about it are
+worth recording here rather than there.
+
+**What was ported and what was not.** The cut-band search and the
+overlap-merge are upstream's ideas; nothing else is. Upstream's own
+orchestration cannot apply for the same reason the proxy in §2 cannot — it
+is a Python script driving a `glance` CLI, and here vision is a tool the
+*model* calls, so there is no script in the loop to do the calling. Two of
+upstream's mechanisms were deliberately simplified: cut scoring measures ink
+alone rather than blending edge energy with foreground occupancy over a
+downscaled analysis image (rows are the axis being cut on, and the edge term
+mostly restates what the ink count already says), and the seam merge matches
+whole normalised lines with no `difflib.SequenceMatcher` fallback. The second
+is the one to defend: a ratio threshold on prose silently deletes a real line
+for resembling its neighbour, and under-deleting leaves a visible duplicate
+where over-deleting leaves silence.
+
+**The accounting decision, which came before any of the code.**
+`Result.GeminiUsage` carries one payload and the runner commits it as one
+usage event, so a tool making fifteen calls either sums them or emits
+fifteen. Both give the right session total — `SessionUsageSummaries` sums
+every usage event. Neither gives the right *display*: the transcript's
+sub-turn card absorbs at most one usage block into its header and each later
+one for the same sub-turn replaces it (`web/src/api/groups.ts`), so fifteen
+events would show one chunk's price on the card and drop fourteen. Given §3's
+finding — that losing vision spend from the figures is the thing not worth
+trading anything for, measured at 23% of one session's cost and 39% of
+another's — the sum wins, with a new `calls` field on the usage payload so a
+summed event cannot pass itself off as one enormous request. The consequence
+generalises and is written down where the next person will hit it
+(`internal/tools/registry.go`, `Result.GeminiUsage`): any tool that makes
+more than one provider call must sum, or the card shows whichever call
+happened to be last.
+
+### What the live runs showed, including the part that did not go as predicted
+
+Three runs against this branch's own stack on 2026-08-15, `deepseek-v4-flash`,
+against the harness's own settings screen.
+
+**The mechanism works.** A 1280x8370 capture (the settings page with every
+row expanded, at desktop width) cut into 5 chunks; a 390x3729 one into 3.
+Every cut in both landed inside a blank band — 9px and 11px respectively —
+so no overlap was sent, nothing was removed, and no seam was flagged. Reading
+across each boundary in the merged output shows the rows either side intact,
+contiguous, neither duplicated nor dropped. Cost came home as one summed
+usage event per call: 5 calls / 6,146 input tokens / $0.0209, and
+3 calls / 3,627 / $0.0054.
+
+**The flat token budget is confirmed, twice.** One `Glance` call on the whole
+8,370px image consumed **1,172** input tokens; one on the 3,709px image
+consumed **1,097**. Each individual chunk cost about 1,229. The budget really
+is flat in image size — §7's ~1,120 figure holds at a 6.5:1 aspect ratio just
+as it does at 4:3.
+
+**But chunking did not measurably recover more text, on either page.** Against
+a single `Glance` with `ocr`, on the 8,370px page: 44 setting keys to Glance's
+43 (`http.control_token` the only one missed), 44 metadata blocks to 44,
+14,658 characters to 14,727. On the 3,729px page the two were identical — 42
+keys each, no line in one absent from the other, differing only in whether the
+disclosure caret was transcribed and whether an em dash came back as a hyphen.
+
+That is a negative result for the premise, and it is the honest reading: at
+least for `gemini-3.7-flash` on a rendered UI page, a flat input budget does
+**not** translate into proportionally worse OCR of a tall image. Whatever the
+model does internally with a 6.5:1 image, it was reading the 12px description
+text at the bottom of an 8,370px page about as well as it read it in a
+1,836px slice.
+
+Two things keep the tool worth having anyway, and one qualification:
+
+- **It was cheaper on the page it was built for.** $0.0209 against $0.0383.
+  Not because the input was cheaper — it was five times the input — but
+  because the single call emitted 9,984 output tokens transcribing the whole
+  page in one unbounded go, where the five chunks emitted 4,355 between them.
+  A per-chunk output is a bounded output.
+- **It says whether its own output can be trusted.** A `Glance` OCR of a tall
+  page returns prose with no statement about what it might have missed;
+  `Transcribe` returns the cut positions and flags the boundaries that were
+  not clean. That is worth something independent of recall.
+- **The qualification: nothing here tested the case the premise describes.**
+  Both targets are rendered UI at ordinary web font sizes. A scan of a printed
+  page, a dense spreadsheet, a chat log at 8px, or a capture at
+  `device_scale_factor: 1` on a hidpi layout might all still degrade the way
+  §6 predicted. What is now known is that a tall *web page* is not
+  automatically that case.
+
+## 9. Still not verified
 
 - **Box accuracy has a floor nobody has measured.** Both runs located
   elements whose position was obvious from the layout. Nothing has tested a
@@ -329,6 +427,14 @@ cannot catch that — only the container build can, which is what
   (docs/reviews/vision-path-2026-08-14.md). Both live runs were structured
   tasks where the model verified itself, so they say nothing about the
   failure mode that instruction was measured against.
+- **Whether `Transcribe` recovers more text than one `Glance` is unproven,
+  and the two measurements so far say it does not.** §8 has the numbers: on
+  two rendered UI pages, one of them 8,370px tall, a single call recovered the
+  same text as five chunks. Its measured wins are a bounded output (and so a
+  lower cost on the bigger page) and a seam report. Before leaning on it for
+  recall, measure it against a target with genuinely small text — a scanned
+  page, a dense table, a chat log — because that is the case §6 predicted and
+  neither run tested.
 - **Licence read, not audited.** MIT at the root; vendoring anything beyond
   the attribution already shipped means checking the bundled `scripts/` and
   any optional dependency (Pillow, vtracer) separately.

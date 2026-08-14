@@ -201,6 +201,11 @@ describe("screenshotPaths", () => {
     expect(screenshotPaths(call("Detect", { image_path: "scratch/a.png", category: "buttons" }))).toEqual(["scratch/a.png"]);
   });
 
+  it("reads the image Transcribe was pointed at", () => {
+    const c = call("Transcribe", { image_path: "scratch/page.png" });
+    expect(screenshotPaths(c)).toEqual(["scratch/page.png"]);
+  });
+
   it("reads Crop's own output rather than the image it read", () => {
     const c = call("Crop", { image_path: "scratch/a.png", region: "0,0,10,10", output: "scratch/cropped.png" });
     expect(screenshotPaths(c)).toEqual(["scratch/cropped.png"]);
@@ -231,6 +236,7 @@ describe("screenshotPaths", () => {
     expect(screenshotPaths(call("Glance", { image_paths: [1, null, "", "  ", "ok.png"] }))).toEqual(["ok.png"]);
     expect(screenshotPaths(call("Ground", {}))).toEqual([]);
     expect(screenshotPaths(call("Crop", {}))).toEqual([]);
+    expect(screenshotPaths(call("Transcribe", {}))).toEqual([]);
   });
 
   // The endpoint serves three types and refuses the rest, so asking for
@@ -274,6 +280,12 @@ describe("toolDetail for the screenshot and vision tools", () => {
     expect(toolDetail(call("Detect", {}))).toBe("");
   });
 
+  it("shows the image Transcribe read, trimmed against the workspace", () => {
+    expect(toolDetail(call("Transcribe", { image_path: "/workspaces/sess-1/scratch/page.png" }))).toBe(
+      "scratch/page.png",
+    );
+  });
+
   it("shows the file Crop wrote, trimmed the same way a Read/Write path is", () => {
     const p = "/workspaces/sess-1/scratch/a.png";
     expect(toolDetail(call("Crop", { image_path: p, region: "0,0,10,10", output: "scratch/cropped.png" }))).toBe(
@@ -290,6 +302,9 @@ describe("toolGlyph for the screenshot and vision tools", () => {
     expect(toolGlyph("Ground").letter).toBe("X");
     expect(toolGlyph("Detect").letter).toBe("D");
     expect(toolGlyph("Crop").letter).toBe("K");
+    // Transcribe cannot keep its own first letter either: T is Task's.
+    expect(toolGlyph("Transcribe").letter).toBe("O");
+    expect(toolGlyph("Task").letter).toBe("T");
     expect(toolGlyph("Read").letter).toBe("R");
   });
 });
