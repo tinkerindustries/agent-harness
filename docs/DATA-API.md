@@ -376,6 +376,25 @@ GET here — no write guards, because there is nothing to guard.
 - A successful fetch is cached in memory for 60 seconds, so reopening the
   start-run dialog does not re-hit GitHub's rate-limited API on every open.
 
+### models
+
+`GET /api/models` — the model names the harness knows, straight from
+`internal/provider`'s table — the same list that validates a work request
+(`internal/queue`) and routes a run to its client. The start-run and eval
+forms' model dropdowns are fed from here, so a model added to the table shows
+up in the browser without a frontend change; a hardcoded copy in the frontend
+would be a second list to update, the same drift the system prompt's tool
+inventory was bitten by once (`TestPromptNamesExactlyTheToolArray`). It is a
+read of a compiled-in table — no store, no seams, no write guards, exactly
+like the GitHub repo list above.
+
+- `200 {"models": ["deepseek-v4-flash", "deepseek-v4-pro", "kimi-k3"]}` — the
+  names in `provider.KnownModels()`, sorted. Nothing here can fail, so this
+  is the only answer.
+- The browser falls back to the `model.default` and `model.flash` settings
+  rows when this endpoint is unreachable, so a failed fetch degrades to the
+  configured defaults rather than an empty dropdown.
+
 ## Pagination
 
 Every paginated list endpoint returns the same envelope — one shape, one

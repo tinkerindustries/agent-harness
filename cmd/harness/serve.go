@@ -255,16 +255,8 @@ func runServe(ctx context.Context, args []string) error {
 		Publisher: evalPublisher{js: js},
 		Store:     st,
 		OnChange:  eventHub.PublishEvalChanged,
-		NewJudge: func(model string) *evals.Judge {
-			if model == "" {
-				resolved, err := res.String(ctx, settings.KeyDefaultModel)
-				if err != nil {
-					log.Printf("evals: resolve judge model: %v", err)
-					return nil
-				}
-				model = resolved
-			}
-			return &evals.Judge{Client: deepSeekClient, Model: model}
+		NewJudge: func(model string) (*evals.Judge, error) {
+			return newJudge(ctx, res, model, deepSeekClient, kimiClient)
 		},
 	}
 
@@ -317,6 +309,34 @@ func runServe(ctx context.Context, args []string) error {
 	log.Printf("harness serve: MCP launch server mounted at %s/mcp (permission ceiling %s)",
 		cfg.HTTPAddr, mcpCfg.PermissionCeiling)
 	return pool.Run(ctx)
+}
+
+// newJudge builds the judge for one eval run: the model is the one the run
+// names, or model.judge when it names none, and the client is resolved
+// through the same model→provider table the runner uses (internal/provider,
+// docs/KIMI-INTEGRATION.md §4.3) — so a kimi-k3 judge speaks to the Kimi
+// client and a deepseek-v4-pro judge to the DeepSeek one. An unknown judge
+// model is an error here rather than a fallback, unlike clientForModel's
+// DeepSeek default: a judge that silently scored with the wrong provider's
+// account — or silently vanished from the eval — would cost money and say
+// nothing about the run.
+func newJudge(ctx context.Context, res *settings.Resolver, model string, deepSeekClient *deepseek.Client, kimiClient *kimi.Client) (*evals.Judge, error) {
+	if model == "" {
+		resolved, err := res.String(ctx, settings.KeyJudgeModel)
+		if err != nil {
+			return nil, fmt.Errorf("evals: resolve judge model: %w", err)
+		}
+		model = resolved
+	}
+	p, err := provider.ModelFor(model)
+	if err != nil {
+		return nil, fmt.Errorf("evals: judge model: %w", err)
+	}
+	var client evals.Client = deepSeekClient
+	if p == provider.Kimi {
+		client = kimiClient
+	}
+	return &evals.Judge{Client: client, Model: model}, nil
 }
 
 // publishAdapter is the RunPublisher implementation for harness serve: the

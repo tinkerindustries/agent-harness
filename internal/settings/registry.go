@@ -82,6 +82,7 @@ const (
 	KeyDefaultModel      = "model.default"
 	KeyDefaultFlashModel = "model.flash"
 	KeyDefaultEffort     = "model.effort"
+	KeyJudgeModel        = "model.judge"
 
 	KeyWorkerPoolSize            = "worker.pool_size"
 	KeyWorkerMaxDeliveryAttempts = "worker.max_delivery_attempts"
@@ -199,6 +200,8 @@ var registry = []Descriptor{
 	stringSetting(KeyDefaultEffort, GroupModels,
 		"Default reasoning effort for runs that omit effort", "high", false, false).
 		withAllowed("low", "high", "max"),
+	stringSetting(KeyJudgeModel, GroupModels,
+		"Model the eval judge scores transcripts with, when an eval names none (docs/EVALS.md). Defaults to kimi-k3 — the expensive judge: K3 output costs $15.00/M against deepseek-v4-pro's $0.87 (configs/prices.json), and a verdict is bounded by the 384K-token JudgeMaxTokens ceiling, so a judge that runs to it costs ~$5.90 on K3 against ~$0.34 on pro. A verbose verdict on a big eval is a cost to see coming.", "kimi-k3", false, false),
 	stringSetting(KeyGoogleVisionModel, GroupModels,
 		"Gemini model ReviewScreenshot sends screenshots to", "gemini-3.5-flash", false, false),
 

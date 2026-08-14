@@ -294,6 +294,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/evals/{id}", s.handleGetEval)
 	mux.HandleFunc("GET /api/sessions/{id}/eval", s.handleGetSessionEval)
 	mux.HandleFunc("GET /api/github/repos", s.handleListGithubRepos)
+	mux.HandleFunc("GET /api/models", s.handleListModels)
 	mux.Handle("/", s.Static)
 	return mux
 }

@@ -141,12 +141,14 @@ counters do not, so read the counters first and treat a judge difference
 smaller than its spread as no difference. It never sees which variant produced
 a transcript.
 
-The judge defaults to `model.default` and is overridden with `-judge-model`.
-Keep it off the model under test: a model scoring its own transcripts rates
-work that reasons the way it does more highly, and the arms of a prompt eval
-differ precisely in how the model was told to work. Running sessions on flash
-with a pro judge is the current arrangement; a judge from outside the family
-would be better still.
+The judge defaults to `model.judge`, which is `kimi-k3` unless an operator
+changes it, and is overridden with `-judge-model`. Keep it off the model
+under test: a model scoring its own transcripts rates work that reasons the
+way it does more highly, and the arms of a prompt eval differ precisely in
+how the model was told to work. Running sessions on flash with a K3 judge is
+the current arrangement — the judge from outside the family, at $15.00/M
+output against `deepseek-v4-pro`'s $0.87 (`configs/prices.json`), which is
+why `model.judge`'s description says what a verbose verdict costs.
 
 A metric with nothing to measure is absent rather than zero. A run that never
 searched has no search share, and averaging a zero in would report a behaviour
