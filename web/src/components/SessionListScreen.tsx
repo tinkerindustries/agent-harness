@@ -443,14 +443,12 @@ function StatStrip({ stats, poolSize }: { stats: DayStats; poolSize: number | nu
         <span className="label">Median duration</span>
         <span className="value">
           <Ticker value={stats.medianMs !== null ? formatMs(stats.medianMs) : "—"} />
-          {stats.count > 0 && <small>{stats.count} sessions today</small>}
         </span>
       </Card>
       <Card className="stat">
         <span className="label">Total time today</span>
         <span className="value">
           <Ticker value={stats.totalMs !== null ? formatMs(stats.totalMs) : "—"} />
-          {stats.totalMs !== null && <small>{stats.count} sessions today</small>}
         </span>
       </Card>
     </div>
