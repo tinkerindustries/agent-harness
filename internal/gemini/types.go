@@ -23,17 +23,21 @@ type InteractionRequest struct {
 	// ResponseFormat asks for structured output. It is a top-level request
 	// field, not part of generation_config (generation_config has no
 	// response_mime_type), and it is optional: a caller that wants prose
-	// omits it. ReviewScreenshot sets {"type":"array"} so the model's
-	// answer comes back as bare JSON rather than inside a ```json fence
-	// (measured against the live API: the fence disappears when the type is
-	// set).
+	// omits it. Setting it means the answer comes back as bare JSON rather
+	// than inside a ```json fence (measured against the live API: the fence
+	// disappears when the type is set).
 	ResponseFormat *ResponseFormat `json:"response_format,omitempty"`
 }
 
-// ResponseFormat is the top-level response_format request field. The only
-// value this harness sends is Type "array", for ReviewScreenshot's JSON
-// list; the API also accepts 'video', 'text', 'image', 'integer', 'string',
-// 'number', 'object', 'boolean', and 'audio'.
+// ResponseFormat is the top-level response_format request field.
+// ReviewScreenshot sends "object" for a review or a description and "array"
+// for the legacy bare-list shape; the API also accepts 'video', 'text',
+// 'image', 'integer', 'string', 'number', 'boolean', and 'audio'.
+//
+// It carries a type and nothing else. There is no field for a JSON schema on
+// this surface, so asking for a particular object shape is a matter for the
+// system instruction, and checking that the answer has that shape is a
+// matter for the caller — internal/tools/reviewscreenshot.go does both.
 type ResponseFormat struct {
 	Type string `json:"type"`
 }

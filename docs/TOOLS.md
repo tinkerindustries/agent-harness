@@ -248,13 +248,35 @@ So the defaults are the standard:
   to capture both.** A layout that holds in one scheme can break in the other,
   and one capture cannot cover both.
 
+- **`actions` drive the page before the shutter.** For most of a real
+  frontend the state worth photographing is not the one a fresh load
+  produces: a dialog has to be opened, an overlay dismissed, a field filled.
+  The vocabulary is four verbs — `click`, `fill`, `press`, `hover` — capped at
+  ten steps, and it is deliberately not a browser automation language: the
+  moment a capture needs a conditional it has become a script, and the session
+  should write one. They run after `wait_for_selector` (which is how the
+  caller says the page is ready) and before `wait_ms` (the settle after them,
+  for the animation opening the dialog). A step whose selector never appears
+  fails the whole call and names the step by position and intent — capturing
+  anyway would produce a screenshot of the wrong state, and nothing
+  downstream could tell.
+
+  This is the gap that cost the tool a whole session. Asked to photograph a
+  form that needed a click to open and an Escape to clear an overlay, a
+  production run used `Screenshot` zero times and drove Playwright through
+  `Bash` for all of it — which is exactly the ad hoc invocation the tool
+  exists to replace, so the capture went back to being full-page, desktop-
+  width and light-scheme with none of the standard above
+  ([`docs/reviews/vision-path-2026-08-14.md`](reviews/vision-path-2026-08-14.md)).
+
 Output is confined to `scratch/`, the directory the system prompt already
 reserves for files that are not part of the deliverable. That confinement is
 what lets the tool run in a read-only session (see "Permissions"): the capture
 cannot land in a cloned repository whatever the mode.
 
 The result carries what the page did while it was captured — its title, the
-document height against the viewport height, and any console or uncaught page
+steps that ran before the shutter, the document height against the viewport
+height, and any console or uncaught page
 errors, capped at twenty of each. A capture that came back blank therefore
 arrives with the reason it was blank, instead of costing a second sub-turn to
 go and find out. URLs are limited to `http`, `https`, and `file`; the timeout
@@ -285,22 +307,80 @@ thousand image tokens, which leaves a small control unreadable, so the
 description tells the model to screenshot the element itself when the question
 is about one.
 
-`spec` decides which system instruction the call carries. With a spec, the
-model is told the spec is the only standard of correctness and that anything
-it does not cover is intentional; without one, it is held to defects visible
-on their own terms — overlap, clipping, overflow, contrast — and told not to
-report stylistic judgements. A vision model given no standard falls back on
-general web-design convention and returns deliberate choices as breakage,
-which is why the tool description urges a spec on every call. Both forms ask
-for the same JSON list, each finding carrying a `confidence` and an `image`
-naming the screenshot it concerns, and both state
-that an empty list is a valid answer rather than a failure to retry
-([`docs/reviews/sess-b949743ff7766606eb210ae59f2c1bcd.md`](reviews/sess-b949743ff7766606eb210ae59f2c1bcd.md)
-measures what the earlier single instruction cost). The name comes from a
-label: each image part is preceded by a text part carrying its file's base
-name ("Image 1: home-dark.png"), so a finding on a multi-capture comparison
-says which screenshot it is about, and the transcript's rendered image sits
-under the same name.
+#### Every answer says what it saw
+
+The answer is an object, and its first field is `observed`: one or two plain
+sentences on what is actually on the screen. It is required, it is never
+empty, and the tool result leads with it, above the count.
+
+This is the tool's central fix and it is worth stating why, because the
+obvious design is the one that failed. An answer that is only a findings list
+makes "the page is correct" and "the page never rendered" the same two bytes —
+`[]` — and the caller cannot open the image to break the tie. DeepSeek noticed
+this unaided and said so in its reasoning: *"the '0 findings' answer is only
+meaningful if the page actually rendered the content […] 0 findings could also
+mean 'nothing rendered at all'"*. It then re-asked, got `[]` again, and in one
+measured session spent five calls and 23% of the run's entire cost
+establishing that a clean answer was clean.
+
+The previous attempt at this was a sentence in the instruction telling the
+model an empty list is an answer
+([`sess-b949743ff7766606eb210ae59f2c1bcd.md`](reviews/sess-b949743ff7766606eb210ae59f2c1bcd.md),
+recommendation 3). It shipped, and it did not work — the same session quotes
+that sentence back and overrides it anyway. The lesson is that the model was
+never disbelieving the claim; it was correctly observing that the result
+carried no evidence. Wording cannot fix a missing fact, so the fact is now in
+every answer, and a blank capture arrives as words rather than as an empty
+list ([`vision-path-2026-08-14.md`](reviews/vision-path-2026-08-14.md)).
+
+The shape is asked for and not enforced, and that is deliberate. The API's
+`response_format` carries a type with no schema beside it, and constraining
+the container costs the contents — asking for `"object"` returns a literally
+empty object
+([`gemini-3.5-flash-ui-review-prompting.md`](gemini-3.5-flash-ui-review-prompting.md)
+has the measurement). So the call sends no `response_format`, the model reads
+the instruction and picks its own container, and the harness handles whatever
+comes back:
+
+- A ```` ```json ```` fence is stripped. It is what the model wraps its answer
+  in when nothing constrains it, and it is a much smaller problem than an
+  empty answer.
+- A bare array is the pre-`observed` shape, still read as findings, with the
+  missing description called out in so many words.
+- An object without `observed` gets that same note.
+- Anything that is not JSON comes back as raw text, labelled as unparsed
+  prose rather than passed off as structure.
+
+#### Modes and the standard applied
+
+`mode` chooses what the call is for. `review`, the default, judges the
+screenshots; `describe` makes no judgement and returns what is on the screen —
+the layout, and each element's text, role and styling.
+
+Describe exists because the model kept asking for it through the review path
+and the review path kept refusing. A "what does this page actually show"
+question has no place in a findings schema, so it came back as `[]`. Left with
+no other route, DeepSeek asked for a verbatim transcription inside a review
+call — Gemini complied by abandoning the findings shape, and the harness
+reported the result as "15 findings, 0 high confidence", one of them the
+object `{"transcriptions": []}`. The workaround worked and the count line was
+a fiction; a mode is the honest version of it.
+
+Within `review`, `spec` decides which instruction the call carries. With a
+spec, the model is told the spec is the only standard of correctness and that
+anything it does not cover is intentional; without one, it is held to defects
+visible on their own terms — overlap, clipping, overflow, contrast — and told
+not to report stylistic judgements. A vision model given no standard falls
+back on general web-design convention and returns deliberate choices as
+breakage, which is why the tool description urges a spec on every call. Both
+forms ask for the same findings, each carrying a `confidence` and an `image`
+naming the screenshot it concerns. `describe` is held to neither: a spec is
+meaningless to a call that judges nothing.
+
+The image name comes from a label: each image part is preceded by a text part
+carrying its file's base name ("Image 1: home-dark.png"), so a finding on a
+multi-capture comparison says which screenshot it is about, and the
+transcript's rendered image sits under the same name.
 
 The model comes from the `google.vision_model` setting (default
 `gemini-3.5-flash`) and the key from `google.api_key`, both read through the
@@ -308,18 +388,37 @@ settings table on every call, so either can change without a restart. The call
 has its own timeout (default 60s, `tools.reviewscreenshot_timeout`) rather than
 the 30-second tool default.
 
-A review can be followed up without re-uploading. A call without
+How hard the vision model thinks is `google.vision_thinking_level`. It defaults
+to `auto`, which lets the mode decide: `medium` to judge a page against a spec,
+`low` to describe one, on the grounds that saying what is on a screen is not
+the part that needs reasoning. Thinking is where a call's money goes — it bills
+at the output rate, and an empty findings list has been measured at 1,947
+thinking tokens against a one-token answer — so this is the cheapest lever the
+tool has.
+
+#### Following up, and re-capturing
+
+A review can be continued without re-uploading. A call without
 `conversation_id` starts a conversation and its result carries the id; a call
-passing that id, a question, and no `image_paths` continues the conversation.
-The conversation is held on the session's Executor and stores the image paths
-and the prior question/answer pairs — never the image bytes — so a follow-up
-re-reads the files from disk (a file deleted since the first call fails with an
-ordinary error naming it), re-sends the images, the earlier exchanges, and the
-new question in one request. "Look closer at the header" therefore costs one
-Gemini interaction with the thread replayed, not a fresh review from scratch,
-and the spec is fixed for the conversation's life. Retained conversations are
-capped at the most recent five per session, so a long session cannot grow this
-without bound.
+passing that id and a question continues it. The conversation is held on the
+session's Executor and stores the image paths and the prior question/answer
+pairs — never the image bytes — so a follow-up re-reads the files from disk (a
+file deleted since the first call fails with an ordinary error naming it),
+re-sends the images, the earlier exchanges, and the new question in one
+request. "Look closer at the header" therefore costs one Gemini interaction
+with the thread replayed, not a fresh review from scratch. Retained
+conversations are capped at the most recent five per session, so a long
+session cannot grow this without bound.
+
+A follow-up may also carry new `image_paths`, which replace the ones under
+discussion while the thread survives — review, change something, capture it
+again, ask whether it is fixed. That loop is what the tool is used in, and it
+used to be the one shape refused: a model that had re-captured a page got its
+previous answer back, about the previous bytes, and paid for it. The
+replacement is announced inside the request, because a fresh capture replayed
+alongside the model's own earlier answer otherwise gets reconciled against
+that answer instead of being looked at. The spec and the mode stay fixed for
+the conversation's life — the thread being replayed was produced under them.
 
 An image can also arrive with the task. A work request may carry attachments
 (`POST /api/runs`, the MCP `deepseek_agent` tool — docs/DATA-API.md): the
@@ -332,6 +431,8 @@ itself instead of a prose description of it. Only PNG, JPEG, and WebP are
 accepted, capped in count and per-file bytes by
 `tools.attachments_max_count` and `tools.attachments_max_bytes`.
 
+#### What it costs, and who can see that
+
 A Gemini call bills separately from the sub-turn that made it. Its usage rides
 home on the tool result, and the runner stamps the sub-turn it happened in and
 commits it as its own usage event, priced against `configs/prices.json` under
@@ -339,6 +440,20 @@ the vision model that ran — so a session's cost total covers Gemini the same
 way it covers DeepSeek (docs/DESIGN.md §4.9). A model with no entry in the
 price table leaves the cost at zero rather than failing the call: the run
 succeeded, and the operator's price table is the incomplete thing.
+
+That event carries a `model`, and it is the only thing separating it from the
+session's own turns — it shares their shape and their sub-turn number. Without
+it, two measured sessions spent 39% and 24% of their budget here with nothing
+in the log to say so, because a two-cent vision call and a sub-cent DeepSeek
+turn were the same record twice.
+
+The cost also comes home **on the tool result**, in the place the model
+decides whether to make another call, along with how much of it was thinking.
+The tool description cannot carry the number: it is part of the frozen request
+head, so a figure there would vary per installation and per price table
+(docs/CACHE.md). It says a call is expensive in general; the result says what
+this one actually cost. An unpriced model prints no line at all, because an
+invented `$0.0000` reads as "this was free".
 
 ### Seeing the screenshots
 

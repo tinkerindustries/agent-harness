@@ -137,6 +137,44 @@ type Image struct {
 	Label      string
 }
 
+// interactConfig holds the per-call generation settings an InteractOption
+// can move. The defaults are what every call got before the options existed.
+type interactConfig struct {
+	thinkingLevel  string
+	responseFormat string
+}
+
+// InteractOption customises one Interact call.
+type InteractOption func(*interactConfig)
+
+// WithThinkingLevel sets generation_config.thinking_level for the call.
+//
+// Thinking is where a review's cost goes: measured over two production
+// sessions, an empty findings list cost 1,947 thinking tokens against one
+// token of answer (docs/reviews/vision-path-2026-08-14.md). Medium is right
+// for judging a page against a spec; a call that only has to say what is on
+// the screen does not need it, which is why ReviewScreenshot's describe mode
+// drops to low.
+func WithThinkingLevel(level string) InteractOption {
+	return func(c *interactConfig) {
+		if level != "" {
+			c.thinkingLevel = level
+		}
+	}
+}
+
+// WithResponseFormat sets the top-level response_format type — "array",
+// "object", and the rest of the set ResponseFormat documents. The empty
+// string omits the field, which is a deliberate choice rather than a no-op:
+// the type constrains the container and says nothing about its contents, so
+// asking for "object" returns a literally empty object. Leaving the model to
+// choose its own container is what actually produces the shape the system
+// instruction asked for (docs/gemini-3.5-flash-ui-review-prompting.md,
+// "response_format is a type, not a schema — measured").
+func WithResponseFormat(format string) InteractOption {
+	return func(c *interactConfig) { c.responseFormat = format }
+}
+
 // Interact sends one interaction to model with the screenshots first
 // and question last ("data first, question last", per the doc), plus
 // systemInstruction as the system instruction. It returns the model's text
@@ -144,20 +182,27 @@ type Image struct {
 // (internal/session commits it as its own usage event, the same way a
 // DeepSeek turn's usage is). The key is resolved per request; an empty key
 // fails before anything is sent.
-func (c *Client) Interact(ctx context.Context, model, systemInstruction, question string, images []Image) (string, *Usage, error) {
+//
+// With no options the call is what it has always been: medium thinking, and
+// an array response format so the answer arrives as bare JSON rather than
+// inside a ```json fence (measured against the live API, item
+// "response_format" in the follow-up brief).
+func (c *Client) Interact(ctx context.Context, model, systemInstruction, question string, images []Image, opts ...InteractOption) (string, *Usage, error) {
 	if model == "" {
 		model = DefaultModel
+	}
+	cfg := interactConfig{thinkingLevel: ThinkingLevelMedium, responseFormat: "array"}
+	for _, opt := range opts {
+		opt(&cfg)
 	}
 	req := InteractionRequest{
 		Model:             model,
 		SystemInstruction: systemInstruction,
-		GenerationConfig:  &GenerationConfig{ThinkingLevel: ThinkingLevelMedium},
-		// The system instruction already asks for a JSON list; asking the
-		// API for the same shape means the answer arrives as bare JSON, so
-		// no consumer has to strip a ```json fence (measured against the
-		// live API, item "response_format" in the follow-up brief).
-		ResponseFormat: &ResponseFormat{Type: "array"},
-		Input:          make([]Content, 0, len(images)+1),
+		GenerationConfig:  &GenerationConfig{ThinkingLevel: cfg.thinkingLevel},
+		Input:             make([]Content, 0, len(images)+1),
+	}
+	if cfg.responseFormat != "" {
+		req.ResponseFormat = &ResponseFormat{Type: cfg.responseFormat}
 	}
 	for i, img := range images {
 		// The label rides as its own text part immediately before the image,

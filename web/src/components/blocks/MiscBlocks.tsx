@@ -4,6 +4,11 @@ import type { Block } from "../../api/fold";
 export const UsageBlock = memo(function UsageBlock({ block }: { block: Extract<Block, { type: "usage" }> }) {
   return (
     <div className="block block-usage">
+      {/* Named only when it is not the session's own model — a vision call
+          bills separately and lands as a second usage row on the same
+          sub-turn, and without the name the two read as one turn billed
+          twice (docs/TOOLS.md, "What it costs, and who can see that"). */}
+      {block.model && <span className="usage-model">{block.model} · </span>}
       prompt {block.prompt_tokens} (hit {block.prompt_cache_hit_tokens} / miss {block.prompt_cache_miss_tokens}), completion{" "}
       {block.completion_tokens}, cost ${block.cost_usd.toFixed(6)}
       {block.churn_point_index !== undefined && <span className="churn-warning"> — churn at message {block.churn_point_index}</span>}

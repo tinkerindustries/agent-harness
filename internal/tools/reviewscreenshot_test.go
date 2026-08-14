@@ -18,6 +18,7 @@ import (
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
+	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 )
 
 // reviewScreenshotClient builds a Gemini client pointed at srv, so a test
@@ -498,11 +499,22 @@ func TestReviewScreenshotInstructionDependsOnSpec(t *testing.T) {
 			if !strings.Contains(instruction, tc.want) {
 				t.Errorf("instruction should contain %q, got: %s", tc.want, instruction)
 			}
-			if !strings.Contains(instruction, "empty list is a valid and expected answer") {
-				t.Errorf("instruction should state that an empty list is an answer, got: %s", instruction)
+			if !strings.Contains(instruction, `An empty "findings" list is a valid and expected answer`) {
+				t.Errorf("instruction should state that no findings is an answer, got: %s", instruction)
 			}
 			if !strings.Contains(instruction, `"confidence"`) {
 				t.Errorf("instruction should ask for a confidence per finding, got: %s", instruction)
+			}
+			// The description is what makes an empty findings list checkable
+			// by a reader who cannot open the image, so both review
+			// instructions must demand it and must say what to do with a
+			// capture that did not render
+			// (docs/reviews/vision-path-2026-08-14.md).
+			if !strings.Contains(instruction, `"observed" is required and is never empty`) {
+				t.Errorf("instruction should require a description of what was seen, got: %s", instruction)
+			}
+			if !strings.Contains(instruction, "failed to render") {
+				t.Errorf("instruction should tell the model to say so when an image did not render, got: %s", instruction)
 			}
 		})
 	}
@@ -651,19 +663,24 @@ func mustParseFindings(t *testing.T, text string) []map[string]string {
 	return out
 }
 
-// TestFormatReviewAnswer covers the four shapes Gemini's answer can take: a
-// long array that must be capped by dropping whole findings (never by cutting
-// bytes), a short array, an empty array, and unparseable prose.
+// TestFormatReviewAnswer covers the shapes Gemini's answer can take: the
+// object all three instructions now ask for, a long one that must be capped
+// by dropping whole findings (never by cutting bytes), an empty findings list
+// (which is the case the "observed" line exists for), describe mode's
+// elements, the bare array that predates "observed", and unparseable prose.
 func TestFormatReviewAnswer(t *testing.T) {
-	three := `[{"image":"a.png","element":"nav","issue":"overlaps the hero","expected":"64px","actual":"120px","confidence":"high"},{"image":"b.png","element":"footer","issue":"clipped","expected":"visible","actual":"cut","confidence":"medium"},{"image":"a.png","element":"logo","issue":"wrong colour","expected":"#123456","actual":"#654321","confidence":"low"}]`
+	const observed = "A dashboard with a dark header, a six-row table, and a footer."
+	three := `{"observed":"` + observed + `","findings":[{"image":"a.png","element":"nav","issue":"overlaps the hero","expected":"64px","actual":"120px","confidence":"high"},{"image":"b.png","element":"footer","issue":"clipped","expected":"visible","actual":"cut","confidence":"medium"},{"image":"a.png","element":"logo","issue":"wrong colour","expected":"#123456","actual":"#654321","confidence":"low"}]}`
 
-	t.Run("long array capped by finding count", func(t *testing.T) {
-		out, truncated := formatReviewAnswer(three, 260)
+	t.Run("long answer capped by finding count", func(t *testing.T) {
+		out, truncated := formatReviewAnswer(three, reviewModeReview, 400)
 		if !truncated {
-			t.Fatal("a long array must report truncation")
+			t.Fatal("a long answer must report truncation")
 		}
-		if !strings.HasPrefix(out, "3 findings, 1 high confidence\n") {
-			t.Errorf("result should lead with the full answer's count line, got: %q", out)
+		// The description survives the cap: it is the evidence the count is
+		// read against, so dropping it to fit findings would defeat the point.
+		if !strings.HasPrefix(out, "Observed: "+observed+"\n\n3 findings, 1 high confidence\n") {
+			t.Errorf("result should lead with the description then the full answer's count, got: %q", out)
 		}
 		findings := mustParseFindings(t, out)
 		if len(findings) == 0 || len(findings) >= 3 {
@@ -682,13 +699,13 @@ func TestFormatReviewAnswer(t *testing.T) {
 		}
 	})
 
-	t.Run("short array passes through whole", func(t *testing.T) {
-		short := `[{"image":"a.png","element":"nav","issue":"overlaps","confidence":"high"}]`
-		out, truncated := formatReviewAnswer(short, 200_000)
+	t.Run("short answer passes through whole", func(t *testing.T) {
+		short := `{"observed":"` + observed + `","findings":[{"image":"a.png","element":"nav","issue":"overlaps","confidence":"high"}]}`
+		out, truncated := formatReviewAnswer(short, reviewModeReview, 200_000)
 		if truncated {
-			t.Fatal("a short array must not be truncated")
+			t.Fatal("a short answer must not be truncated")
 		}
-		if !strings.HasPrefix(out, "1 finding, 1 high confidence\n") {
+		if !strings.Contains(out, "1 finding, 1 high confidence\n") {
 			t.Errorf("count line = %q, want the singular form", out)
 		}
 		findings := mustParseFindings(t, out)
@@ -697,29 +714,102 @@ func TestFormatReviewAnswer(t *testing.T) {
 		}
 	})
 
-	t.Run("empty array stays a valid answer", func(t *testing.T) {
-		out, truncated := formatReviewAnswer(`[]`, 200_000)
+	// The case the whole shape exists for. A bare "0 findings" reads
+	// identically to a blank page, so the description has to be there and has
+	// to be the first thing in the result
+	// (docs/reviews/vision-path-2026-08-14.md).
+	t.Run("no findings still carries what was seen", func(t *testing.T) {
+		out, truncated := formatReviewAnswer(`{"observed":"`+observed+`","findings":[]}`, reviewModeReview, 200_000)
 		if truncated {
-			t.Fatal("an empty array must not report truncation")
+			t.Fatal("an empty findings list must not report truncation")
 		}
-		if !strings.HasPrefix(out, "0 findings, 0 high confidence\n") {
+		if !strings.HasPrefix(out, "Observed: "+observed) {
+			t.Fatalf("a clean review must lead with what was seen, got: %q", out)
+		}
+		if !strings.Contains(out, "0 findings, 0 high confidence\n") {
 			t.Errorf("count line = %q, want 0 findings", out)
 		}
 		if find := mustParseFindings(t, out); len(find) != 0 {
 			t.Errorf("findings = %v, want none", find)
 		}
 		if strings.Contains(out, "truncated") {
-			t.Errorf("empty array must not carry a truncation note: %s", out)
+			t.Errorf("an empty findings list must not carry a truncation note: %s", out)
+		}
+	})
+
+	// A blank capture is the failure the description is there to catch, and it
+	// has to arrive as words rather than as an empty list.
+	t.Run("a blank page says so in words", func(t *testing.T) {
+		out, _ := formatReviewAnswer(`{"observed":"Image 1 is entirely white; nothing rendered.","findings":[]}`, reviewModeReview, 200_000)
+		if !strings.Contains(out, "nothing rendered") {
+			t.Errorf("a blank capture must reach the model as prose, got: %q", out)
+		}
+	})
+
+	t.Run("describe mode counts elements and quotes no confidence", func(t *testing.T) {
+		answer := `{"observed":"` + observed + `","elements":[{"image":"a.png","text":"Sessions","role":"heading","styling":"bold, 24px"},{"image":"a.png","text":"12","role":"badge","styling":"dim"}]}`
+		out, truncated := formatReviewAnswer(answer, reviewModeDescribe, 200_000)
+		if truncated {
+			t.Fatal("a short answer must not be truncated")
+		}
+		if !strings.Contains(out, "2 elements\n") {
+			t.Errorf("describe mode should count elements, got: %q", out)
+		}
+		if strings.Contains(out, "high confidence") {
+			t.Errorf("describe mode reports no confidence — its elements carry none: %q", out)
+		}
+	})
+
+	// The shape from before "observed" existed. Still legible, so it is still
+	// read — but the reader is told the corroboration is missing rather than
+	// being left to assume it was there.
+	t.Run("a bare array is read and flagged as uncorroborated", func(t *testing.T) {
+		out, truncated := formatReviewAnswer(`[{"image":"a.png","element":"nav","issue":"overlaps","confidence":"high"}]`, reviewModeReview, 200_000)
+		if truncated {
+			t.Fatal("a short array must not be truncated")
+		}
+		if !strings.Contains(out, "no description of what it saw") {
+			t.Errorf("a missing description must be called out, got: %q", out)
+		}
+		if find := mustParseFindings(t, out); len(find) != 1 {
+			t.Errorf("the findings must still reach the model: %v", find)
+		}
+	})
+
+	// The model wraps its answer in a fence when nothing constrains the
+	// container, and nothing does — see the mode/instruction notes above and
+	// docs/gemini-3.5-flash-ui-review-prompting.md.
+	t.Run("a fenced answer is unwrapped", func(t *testing.T) {
+		fenced := "```json\n{\"observed\":\"" + observed + "\",\"findings\":[]}\n```"
+		out, _ := formatReviewAnswer(fenced, reviewModeReview, 200_000)
+		if !strings.HasPrefix(out, "Observed: "+observed) {
+			t.Errorf("a fenced object must be read like a bare one, got: %q", out)
+		}
+		if strings.Contains(out, "```") {
+			t.Errorf("the fence must not reach the model: %q", out)
+		}
+	})
+
+	// A nil slice marshals to the literal "null", which reads as a broken
+	// answer rather than an empty one. Seen in a live run before it was
+	// fixed, on an answer that carried neither key.
+	t.Run("a missing list renders as empty, never null", func(t *testing.T) {
+		out, _ := formatReviewAnswer(`{"observed":"`+observed+`"}`, reviewModeDescribe, 200_000)
+		if strings.Contains(out, "null") {
+			t.Errorf("an absent list must not render as null, got: %q", out)
+		}
+		if !strings.Contains(out, "0 elements\n[]") {
+			t.Errorf("an absent list should render as an empty list, got: %q", out)
 		}
 	})
 
 	t.Run("unparseable prose is labelled", func(t *testing.T) {
 		prose := "The header overlaps the hero image on narrow screens."
-		out, truncated := formatReviewAnswer(prose, 200_000)
+		out, truncated := formatReviewAnswer(prose, reviewModeReview, 200_000)
 		if truncated {
 			t.Fatal("short prose must not report truncation")
 		}
-		if !strings.HasPrefix(out, "Gemini's answer was not a JSON list; unparsed text follows:") {
+		if !strings.HasPrefix(out, "Gemini's answer was not in the expected JSON shape; unparsed text follows:") {
 			t.Errorf("prose must be labelled as unparsed, got: %q", out)
 		}
 		if !strings.Contains(out, prose) {
@@ -729,11 +819,11 @@ func TestFormatReviewAnswer(t *testing.T) {
 
 	t.Run("prose over the cap is cut with the label", func(t *testing.T) {
 		prose := strings.Repeat("the header overlaps the hero. ", 50)
-		out, truncated := formatReviewAnswer(prose, 120)
+		out, truncated := formatReviewAnswer(prose, reviewModeReview, 120)
 		if !truncated {
 			t.Fatal("long prose must report truncation")
 		}
-		if !strings.HasPrefix(out, "Gemini's answer was not a JSON list; unparsed text follows:") {
+		if !strings.HasPrefix(out, "Gemini's answer was not in the expected JSON shape; unparsed text follows:") {
 			t.Errorf("prose must be labelled as unparsed, got: %q", out)
 		}
 		if !strings.Contains(out, "[truncated:") {
@@ -747,7 +837,7 @@ func TestFormatReviewAnswer(t *testing.T) {
 // tool result must come back as the count line plus an indented array that
 // still parses, with the truncated flag set when the output cap bites.
 func TestReviewScreenshotFormatsTheAnswer(t *testing.T) {
-	answer := `[{"image":"a.png","element":"nav","issue":"overlaps","confidence":"high"},{"image":"b.png","element":"footer","issue":"clipped","confidence":"medium"}]`
+	answer := `{"observed":"Two pages.","findings":[{"image":"a.png","element":"nav","issue":"overlaps","confidence":"high"},{"image":"b.png","element":"footer","issue":"clipped","confidence":"medium"}]}`
 	quoted, err := json.Marshal(answer)
 	if err != nil {
 		t.Fatal(err)
@@ -765,8 +855,9 @@ func TestReviewScreenshotFormatsTheAnswer(t *testing.T) {
 	}
 	e.Gemini = reviewScreenshotClient(srv)
 	// A small output cap forces the drop-by-count path while still leaving
-	// room for one whole finding plus the count line and the drop note.
-	e.OutputCap = 200
+	// room for the description, one whole finding, the count line and the
+	// drop note.
+	e.OutputCap = 250
 	writeFile(t, root, "a.png", "x")
 	writeFile(t, root, "b.png", "x")
 
@@ -783,8 +874,8 @@ func TestReviewScreenshotFormatsTheAnswer(t *testing.T) {
 	if !strings.HasPrefix(res.Content, "conversation_id: rvw-") {
 		t.Errorf("result should carry the conversation id first, got: %q", res.Content)
 	}
-	if !strings.Contains(res.Content, "\n2 findings, 1 high confidence\n") {
-		t.Errorf("result should lead with the count line after the id, got: %q", res.Content)
+	if !strings.Contains(res.Content, "Observed: Two pages.\n\n2 findings, 1 high confidence\n") {
+		t.Errorf("result should carry the description then the count line, got: %q", res.Content)
 	}
 	if find := mustParseFindings(t, res.Content); len(find) == 0 || len(find) >= 2 {
 		t.Errorf("capped result should keep some but not all findings, got: %s", res.Content)
@@ -992,15 +1083,6 @@ func TestReviewScreenshotConversationMisuse(t *testing.T) {
 
 	res = runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
 		ConversationID: id,
-		ImagePaths:     []string{"a.png"},
-		Question:       "look again",
-	})
-	if !res.IsError || !strings.Contains(res.Content, "no image_paths") {
-		t.Errorf("image_paths on a follow-up should be refused, got: %s", res.Content)
-	}
-
-	res = runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
-		ConversationID: id,
 		Question:       "look again",
 		Spec:           "a new spec",
 	})
@@ -1008,8 +1090,309 @@ func TestReviewScreenshotConversationMisuse(t *testing.T) {
 		t.Errorf("spec on a follow-up should be refused, got: %s", res.Content)
 	}
 
+	// The instruction is fixed for a conversation's life the same way the
+	// spec is: the thread being replayed was answered under it.
+	res = runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ConversationID: id,
+		Question:       "look again",
+		Mode:           reviewModeDescribe,
+	})
+	if !res.IsError || !strings.Contains(res.Content, "no mode") {
+		t.Errorf("a mode switch mid-conversation should be refused, got: %s", res.Content)
+	}
+
 	// The refused calls sent nothing: only the first call reached Gemini.
 	if len(requests) != 1 {
 		t.Errorf("Gemini saw %d requests, want 1 (the refused calls sent nothing)", len(requests))
+	}
+}
+
+// TestReviewScreenshotFollowUpReplacesImages pins the re-capture loop: a
+// follow-up carrying new image_paths sends those bytes, keeps the thread of
+// earlier questions and answers, and tells the vision model the images have
+// changed — so it looks at the new capture rather than reconciling it against
+// its own previous answer (docs/reviews/vision-path-2026-08-14.md).
+func TestReviewScreenshotFollowUpReplacesImages(t *testing.T) {
+	var requests reviewScreenshotRequests
+	srv := reviewConversationServer(t, &requests)
+	defer srv.Close()
+
+	root := t.TempDir()
+	e, err := NewExecutor(root, &Policy{Mode: ModeFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Gemini = reviewScreenshotClient(srv)
+	writeFile(t, root, "before.png", "first bytes")
+	writeFile(t, root, "after.png", "second bytes")
+
+	first := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ImagePaths: []string{"before.png"},
+		Question:   "is the dropdown covered?",
+	})
+	if first.IsError {
+		t.Fatalf("first call failed: %s", first.Content)
+	}
+	firstLine, _, _ := strings.Cut(first.Content, "\n")
+	id := strings.TrimPrefix(firstLine, "conversation_id: ")
+
+	res := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ConversationID: id,
+		ImagePaths:     []string{"after.png"},
+		Question:       "and now?",
+	})
+	if res.IsError {
+		t.Fatalf("a follow-up with new images should be accepted: %s", res.Content)
+	}
+	if len(requests) != 2 {
+		t.Fatalf("Gemini saw %d requests, want 2", len(requests))
+	}
+
+	second := requests[1].Input
+	var images, texts []string
+	for _, part := range second {
+		switch part.Type {
+		case gemini.ContentTypeImage:
+			decoded, err := base64.StdEncoding.DecodeString(part.Data)
+			if err != nil {
+				t.Fatalf("image part is not base64: %v", err)
+			}
+			images = append(images, string(decoded))
+		case gemini.ContentTypeText:
+			texts = append(texts, part.Text)
+		}
+	}
+	if len(images) != 1 || images[0] != "second bytes" {
+		t.Errorf("follow-up should send only the replacement image, got %v", images)
+	}
+	joined := strings.Join(texts, "\n")
+	if !strings.Contains(joined, "Image 1: after.png") {
+		t.Errorf("the replacement image should be labelled by its own name, got: %s", joined)
+	}
+	if !strings.Contains(joined, "is the dropdown covered?") {
+		t.Errorf("the earlier exchange should still be replayed, got: %s", joined)
+	}
+	if !strings.Contains(joined, "NEW captures") {
+		t.Errorf("the model must be told the images were replaced, got: %s", joined)
+	}
+
+	// A third follow-up with no images continues from the replacement, not
+	// from the capture the conversation opened with.
+	if res := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ConversationID: id,
+		Question:       "look closer",
+	}); res.IsError {
+		t.Fatalf("third call failed: %s", res.Content)
+	}
+	third := requests[2].Input
+	for _, part := range third {
+		if part.Type != gemini.ContentTypeImage {
+			continue
+		}
+		decoded, _ := base64.StdEncoding.DecodeString(part.Data)
+		if string(decoded) != "second bytes" {
+			t.Errorf("the conversation should have moved to the replacement image, got %q", decoded)
+		}
+	}
+}
+
+// captureReviewRequest runs one ReviewScreenshot call against a stub Gemini
+// and returns the request body it sent, so a test can assert on the
+// instruction and the generation config together.
+func captureReviewRequest(t *testing.T, e *Executor, args reviewScreenshotArgs, answer string) (gemini.InteractionRequest, Result) {
+	t.Helper()
+	var got gemini.InteractionRequest
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		quoted, err := json.Marshal(answer)
+		if err != nil {
+			t.Errorf("quote answer: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"i","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":` + string(quoted) + `}]}],` +
+			`"usage":{"total_tokens":300,"total_input_tokens":100,"total_output_tokens":50,"total_thought_tokens":150,"total_cached_tokens":0}}`))
+	}))
+	defer srv.Close()
+	e.Gemini = reviewScreenshotClient(srv)
+	return got, runTool(t, e, "ReviewScreenshot", args)
+}
+
+// TestReviewScreenshotDescribeMode pins the mode the review path could not
+// express: a question about what is on the screen gets an instruction that
+// judges nothing, a shape that carries elements rather than findings, and
+// less thinking — because saying what is there is not the part that needs
+// reasoning, and thinking is where a call's cost goes
+// (docs/reviews/vision-path-2026-08-14.md).
+func TestReviewScreenshotDescribeMode(t *testing.T) {
+	root := t.TempDir()
+	e, err := NewExecutor(root, &Policy{Mode: ModeFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, root, "shot.png", "x")
+
+	req, res := captureReviewRequest(t, e, reviewScreenshotArgs{
+		ImagePaths: []string{"shot.png"},
+		Question:   "what does this page show?",
+		Mode:       reviewModeDescribe,
+		// A spec is meaningless here and must not drag in the review
+		// instruction: describe mode judges against nothing.
+		Spec: "the rail is 244px wide",
+	}, `{"observed":"A settings form.","elements":[{"image":"shot.png","text":"Save","role":"button","styling":"bold"}]}`)
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+
+	if !strings.Contains(req.SystemInstruction, "You are describing a web page screenshot") {
+		t.Errorf("describe mode should send the describe instruction, got: %s", req.SystemInstruction)
+	}
+	if strings.Contains(req.SystemInstruction, "only standard of correctness") {
+		t.Errorf("describe mode must not be held to a spec, got: %s", req.SystemInstruction)
+	}
+	if req.GenerationConfig == nil || req.GenerationConfig.ThinkingLevel != gemini.ThinkingLevelLow {
+		t.Errorf("describe mode should think less than a review, got: %+v", req.GenerationConfig)
+	}
+	// No response_format: the model picks its own container and reads the
+	// instruction for what goes in it. Constraining the container is what
+	// returns an empty one
+	// (docs/gemini-3.5-flash-ui-review-prompting.md, measured).
+	if req.ResponseFormat != nil {
+		t.Errorf("no response_format should be sent, got: %+v", req.ResponseFormat)
+	}
+	if !strings.Contains(res.Content, "Observed: A settings form.") {
+		t.Errorf("result should lead with the description, got: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, "1 element\n") {
+		t.Errorf("describe mode should count elements, got: %s", res.Content)
+	}
+}
+
+// TestReviewScreenshotRejectsUnknownMode: a typo'd mode names the set it
+// should have come from rather than silently falling back to review, which
+// would answer a different question than the one asked.
+func TestReviewScreenshotRejectsUnknownMode(t *testing.T) {
+	root := t.TempDir()
+	e, err := NewExecutor(root, &Policy{Mode: ModeFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, root, "shot.png", "x")
+	// No Gemini client is needed: the mode is rejected before the call.
+	res := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ImagePaths: []string{"shot.png"},
+		Question:   "what is wrong?",
+		Mode:       "transcribe",
+	})
+	if !res.IsError || !strings.Contains(res.Content, `"review"`) || !strings.Contains(res.Content, `"describe"`) {
+		t.Errorf("an unknown mode should name the valid set, got: %s", res.Content)
+	}
+}
+
+// TestReviewScreenshotThinkingLevel pins both halves of the knob: review mode
+// thinks harder than describe by default, and an operator who pins
+// google.vision_thinking_level overrides both.
+func TestReviewScreenshotThinkingLevel(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		pinned string
+		mode   string
+		want   string
+	}{
+		{"review defaults to medium", "auto", reviewModeReview, gemini.ThinkingLevelMedium},
+		{"describe defaults to low", "auto", reviewModeDescribe, gemini.ThinkingLevelLow},
+		{"an unset setting behaves like auto", "", reviewModeDescribe, gemini.ThinkingLevelLow},
+		{"the setting overrides the mode", "high", reviewModeDescribe, gemini.ThinkingLevelHigh},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			e, err := NewExecutor(root, &Policy{Mode: ModeFull})
+			if err != nil {
+				t.Fatal(err)
+			}
+			e.Settings = settings.NewResolver(&fakeSettingsStore{values: map[string]string{
+				settings.KeyGoogleVisionThinkingLevel: tc.pinned,
+			}})
+			writeFile(t, root, "shot.png", "x")
+
+			req, res := captureReviewRequest(t, e, reviewScreenshotArgs{
+				ImagePaths: []string{"shot.png"},
+				Question:   "what is here?",
+				Mode:       tc.mode,
+			}, `{"observed":"A page.","findings":[],"elements":[]}`)
+			if res.IsError {
+				t.Fatalf("unexpected error: %s", res.Content)
+			}
+			if req.GenerationConfig == nil || req.GenerationConfig.ThinkingLevel != tc.want {
+				t.Errorf("thinking_level = %+v, want %q", req.GenerationConfig, tc.want)
+			}
+		})
+	}
+}
+
+// TestReviewScreenshotReportsItsCost pins the other half of the previous
+// review's recommendation: the tool description can only say a call is
+// expensive in general, because it is part of the frozen request head
+// (docs/CACHE.md), so the actual figure has to come home on the result — in
+// the place the model decides whether to make another call.
+func TestReviewScreenshotReportsItsCost(t *testing.T) {
+	root := t.TempDir()
+	e, err := NewExecutor(root, &Policy{Mode: ModeFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Prices = &pricing.Table{
+		CapturedAt: "2026-08-10",
+		Models: map[string]pricing.ModelPrices{
+			"gemini-3.5-flash": {InputCacheHitPerMillionUSD: 0.15, InputCacheMissPerMillionUSD: 1.5, OutputPerMillionUSD: 9.0},
+		},
+	}
+	writeFile(t, root, "shot.png", "x")
+
+	_, res := captureReviewRequest(t, e, reviewScreenshotArgs{
+		ImagePaths: []string{"shot.png"},
+		Question:   "what is wrong?",
+	}, `{"observed":"A page.","findings":[]}`)
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, "This call cost $") {
+		t.Errorf("the result should say what the call cost, got: %s", res.Content)
+	}
+	// Thinking is the part a caller can act on — by mode, or by the setting —
+	// so it is named rather than buried in a single total.
+	if !strings.Contains(res.Content, "were the model thinking") {
+		t.Errorf("the result should name the thinking share, got: %s", res.Content)
+	}
+	if res.GeminiUsage == nil {
+		t.Fatal("the call's usage must ride home for the runner to commit")
+	}
+	// Named, so the usage event is separable from the session's own turns.
+	if res.GeminiUsage.Model == "" {
+		t.Error("the usage event must name the model that was billed")
+	}
+}
+
+// TestReviewScreenshotCostLineOmittedWithoutAPrice: a price table with no
+// entry for the vision model leaves the cost at zero, and a zero must print
+// nothing rather than an invented $0.0000 that reads as "this was free".
+func TestReviewScreenshotCostLineOmittedWithoutAPrice(t *testing.T) {
+	root := t.TempDir()
+	e, err := NewExecutor(root, &Policy{Mode: ModeFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, root, "shot.png", "x")
+
+	_, res := captureReviewRequest(t, e, reviewScreenshotArgs{
+		ImagePaths: []string{"shot.png"},
+		Question:   "what is wrong?",
+	}, `{"observed":"A page.","findings":[]}`)
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	if strings.Contains(res.Content, "This call cost") {
+		t.Errorf("an unpriced model must not claim a cost, got: %s", res.Content)
 	}
 }
