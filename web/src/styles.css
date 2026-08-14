@@ -795,11 +795,18 @@ body.page .topnav-flush {
 
 /* The search inputs the screens hand to the nav's right slot: the design's
    .input height and monospace-ish density, sized to the nav row rather than
-   the shadcn Input's default 36px. */
+   the shadcn Input's default 36px. The 220px width clips the "Filter by id,
+   workspace, request…" placeholder, and an input clips its text without an
+   ellipsis by default — so the field ellipsizes like every other clipped
+   string in the product (the crumb, the workspace cell, the settings
+   values) instead of cutting "reque…" mid-word with no sign that there is
+   more. */
 .topnav .nav-search {
   height: 30px;
   width: 220px;
   font-size: 0.8125rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* A session's transcript isn't one of the three sections on its own — it is
@@ -1333,6 +1340,26 @@ pre {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* The finished table's four numeric columns — Elapsed, Cost, Sub-turns,
+   Cache — are right-aligned so the figures line up down the column: an
+   m:ss, a dollar amount, a count and a percentage left-aligned in a data
+   table start at ragged edges and do not read as a column at all. This is
+   the treatment numbers already get everywhere else in the product (the
+   rail's turn numbers, the diff's line numbers, the settings values), and
+   the Session and Model columns stay left. Scoped to .table-scroll so the
+   eval tables, which reuse .session-table with different columns, are
+   untouched; the phone stacked cards reset to left alignment below. */
+.table-scroll .session-table th:nth-child(3),
+.table-scroll .session-table th:nth-child(4),
+.table-scroll .session-table th:nth-child(6),
+.table-scroll .session-table th:nth-child(7),
+.table-scroll .session-table td:nth-child(3),
+.table-scroll .session-table td:nth-child(4),
+.table-scroll .session-table td:nth-child(6),
+.table-scroll .session-table td:nth-child(7) {
+  text-align: right;
 }
 
 /* ---------- session list: the stat strip ----------
@@ -4706,6 +4733,9 @@ kbd {
     border: none;
     padding: 0;
     white-space: normal;
+    /* The desktop rule right-aligns the numeric cells; a stacked card's
+       caption and figure read left, so the card layout resets it. */
+    text-align: left;
   }
 
   /* The badge sits beside the session text, level with its title. */
