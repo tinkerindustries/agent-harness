@@ -210,10 +210,14 @@ func (p *Pool) escalateStop(rec *inflight) {
 			log.Printf("worker: stop of session %s: cancel running session: %v", rec.sessionID, err)
 			return
 		}
-		// The session row never existed — the run was still wedged in
-		// workspace preparation. There is nothing to mark, but the caller
-		// still gets their answer below.
-		log.Printf("worker: stop of session %s: no session row to mark (run still in preparation); force-finishing anyway",
+		// The session row never existed — the stop landed in the instant
+		// between the run registering and its session row being created.
+		// There is nothing to mark, but the caller still gets their answer
+		// below. (A stop during workspace preparation itself is the reason
+		// the row is created before the clone starts: CancelRunningSession
+		// accepts "creating", so that case marks the row instead of reaching
+		// here.)
+		log.Printf("worker: stop of session %s: no session row to mark (run still starting); force-finishing anyway",
 			rec.sessionID)
 	}
 
