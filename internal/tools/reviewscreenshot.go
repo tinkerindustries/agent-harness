@@ -381,7 +381,11 @@ func loadReviewImages(ctx context.Context, e *Executor, paths []string) ([]gemin
 	images := make([]gemini.Image, 0, len(paths))
 	var downscaled []string
 	for i, userPath := range paths {
-		path, err := ResolvePath(e.Workspace, userPath)
+		// resolveImagePath rather than ResolvePath: a relative path that names
+		// nothing is tried once more under scratch/, which is where Screenshot
+		// puts a relative capture, so the path the model wrote the image to is
+		// the path it can read it back from (workspace.go).
+		path, err := resolveImagePath(e.Workspace, userPath)
 		if err != nil {
 			return nil, nil, err
 		}

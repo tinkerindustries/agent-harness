@@ -58,6 +58,61 @@ func ResolvePath(root, userPath string) (string, error) {
 	return resolved, nil
 }
 
+// scratchDir is the workspace subdirectory that holds what a run produces
+// but does not deliver: screenshots, attachments, scratch scripts. It is
+// named here rather than at each use because two rules now key off it — the
+// Screenshot tool's output confinement and the scratch-relative reading
+// below.
+const scratchDir = "scratch"
+
+// resolveScratchRelative resolves userPath as though it were relative to the
+// workspace's scratch directory rather than to the workspace root. The join
+// happens before resolution, so filepath.Join cleans any traversal in
+// userPath first and the result cannot climb out of scratch/ by spelling
+// "../"; whatever comes back is still checked against the workspace root by
+// ResolvePath.
+//
+// Only meaningful for a relative userPath. An absolute path is a statement
+// about where the file is, and re-rooting one would be guessing against what
+// the caller said.
+func resolveScratchRelative(root, userPath string) (string, error) {
+	return ResolvePath(root, filepath.Join(scratchDir, userPath))
+}
+
+// resolveImagePath resolves a path an image-reading tool was handed, taking a
+// relative path that names nothing as scratch-relative on a second attempt.
+//
+// The models this harness runs write a screenshot to "after/01.png" and then
+// hand that same string back to ReviewScreenshot, because that is how the
+// path reads in their own previous tool call — and the file is at
+// scratch/after/01.png, since Screenshot puts every relative path there
+// (resolveScreenshotOutput). Refusing the read teaches nothing the model does
+// not already believe it did right; it just costs a sub-turn per image. So a
+// path that resolves to nothing gets tried once more under scratch/.
+//
+// Existence is the whole test, and the original resolution is what comes back
+// when neither exists — the caller's own "file not found: <userPath>" is a
+// better error than one naming a scratch path the caller never asked for.
+// A path that does exist is never second-guessed, so "scratch/a.png" resolves
+// exactly as before and can never become "scratch/scratch/a.png".
+func resolveImagePath(root, userPath string) (string, error) {
+	path, err := ResolvePath(root, userPath)
+	if err != nil || filepath.IsAbs(userPath) {
+		return path, err
+	}
+	if _, statErr := os.Stat(path); statErr == nil {
+		return path, nil
+	}
+	alt, altErr := resolveScratchRelative(root, userPath)
+	if altErr != nil {
+		return path, nil
+	}
+	if _, statErr := os.Stat(alt); statErr == nil {
+		return alt, nil
+	}
+	return path, nil
+}
+
 // withinRoot reports whether p is root itself or a descendant of it,
 // comparing cleaned absolute paths with an explicit separator boundary so
 // "/ws-evil" is never mistaken for a child of "/ws".

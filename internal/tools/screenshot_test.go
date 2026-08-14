@@ -69,9 +69,10 @@ func TestScreenshotConfinesOutputToScratch(t *testing.T) {
 		path string
 		want string
 	}{
-		{"repository root", "repo/shot.png", "under scratch/"},
-		{"workspace root", "shot.png", "under scratch/"},
-		{"traversal out of scratch", "scratch/../repo/shot.png", "under scratch/"},
+		// An absolute path inside the workspace but outside scratch/ is the
+		// one case still refused: it says where the file goes, and the tool
+		// cannot write there.
+		{"absolute path in a repository", filepath.Join(root, "repo", "shot.png"), "under scratch/"},
 		{"escape from the workspace", "../shot.png", "escapes"},
 		{"absolute path elsewhere", "/tmp/shot.png", "escapes"},
 		{"scratch itself", "scratch", "must end in .png"},
@@ -92,6 +93,56 @@ func TestScreenshotConfinesOutputToScratch(t *testing.T) {
 		if _, err := resolveScreenshotOutput(root, ok); err != nil {
 			t.Errorf("resolveScreenshotOutput(%q) = %v, want it allowed", ok, err)
 		}
+	}
+}
+
+// A relative path is scratch-relative, however it is spelled. The prefix the
+// schema asks for is what a caller should write, but dropping it costs a
+// sub-turn per capture and buys nothing — so the path is relocated into
+// scratch/ instead of refused, and the confinement invariant a read-only
+// session depends on is the one that decides where it lands.
+func TestScreenshotRelocatesRelativePathsIntoScratch(t *testing.T) {
+	_, root := screenshotExecutor(t)
+	if err := os.MkdirAll(filepath.Join(root, "repo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// The expectations are built from the symlink-resolved root, which is what
+	// ResolvePath returns — on macOS a t.TempDir() sits under /var, itself a
+	// link to /private/var.
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scratch := filepath.Join(resolvedRoot, "scratch")
+
+	cases := []struct {
+		name string
+		path string
+		want string
+	}{
+		{"workspace root", "shot.png", filepath.Join(scratch, "shot.png")},
+		// The batch the live run kept getting wrong: a directory of captures
+		// named without the prefix (session sess-8df2a5f7, sub-turn 179).
+		{"nested directory", "after/01-session-list.png", filepath.Join(scratch, "after", "01-session-list.png")},
+		{"a repository path", "repo/shot.png", filepath.Join(scratch, "repo", "shot.png")},
+		// Traversal is cleaned by the join before it is resolved, so a path
+		// that used to point out of scratch/ now lands inside it rather than
+		// being refused. The invariant holds either way; only the answer to a
+		// mis-spelled path changed.
+		{"traversal out of scratch", "scratch/../repo/shot.png", filepath.Join(scratch, "repo", "shot.png")},
+		// Already prefixed: resolved as workspace-relative, never doubled.
+		{"already under scratch", "scratch/after/01.png", filepath.Join(scratch, "after", "01.png")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resolveScreenshotOutput(root, tc.path)
+			if err != nil {
+				t.Fatalf("resolveScreenshotOutput(%q) = %v, want it allowed", tc.path, err)
+			}
+			if got != tc.want {
+				t.Fatalf("resolveScreenshotOutput(%q) = %q, want %q", tc.path, got, tc.want)
+			}
+		})
 	}
 }
 
@@ -177,7 +228,9 @@ func TestScreenshotRequiresUrlAndPath(t *testing.T) {
 // the same ordering ReviewScreenshot uses for its capability check.
 func TestScreenshotValidatesArgumentsBeforeLaunchingTheBrowser(t *testing.T) {
 	e, _ := screenshotExecutor(t)
-	res := runTool(t, e, "Screenshot", screenshotArgs{URL: "http://127.0.0.1/", Path: "repo/a.png"})
+	// An absolute path outside scratch/, since a relative one is no longer a
+	// bad argument — it is relocated into scratch/ instead.
+	res := runTool(t, e, "Screenshot", screenshotArgs{URL: "http://127.0.0.1/", Path: filepath.Join(e.Workspace, "repo", "a.png")})
 	if !res.IsError {
 		t.Fatal("expected a refusal")
 	}

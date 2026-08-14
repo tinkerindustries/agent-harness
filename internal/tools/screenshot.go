@@ -202,6 +202,23 @@ var screenshotOutputExtensions = map[string]bool{".png": true, ".jpg": true, ".j
 // to allow in a read-only session: the capture cannot land in a cloned
 // repository, so it cannot turn into an unexplained diff, whatever the
 // permission mode.
+//
+// The rule is where a relative path lands, not whether it is spelled right: a
+// relative path that would fall outside scratch/ is taken as relative to
+// scratch/ instead of refused. Refusing it was the earlier behaviour and it
+// cost real sub-turns — a run capturing sixteen screens dropped the "scratch/"
+// prefix on three separate batches, twelve calls in all, correcting itself
+// each time and forgetting again after the next success (session
+// sess-8df2a5f7, sub-turns 112, 113 and 179). Nothing was gained by the
+// refusal: the confinement invariant is that the bytes land under scratch/,
+// and joining the path there satisfies it exactly as the model's own
+// "scratch/..." spelling does. The result line names the absolute path it
+// wrote (formatScreenshotReport), so a relocated capture is not silent.
+//
+// An absolute path is left to stand or fail as given. It says where the file
+// is meant to be, so re-rooting one under scratch/ would be overriding the
+// caller rather than completing what they meant, and the refusal below is
+// what tells them the tool cannot write there.
 func resolveScreenshotOutput(workspace, userPath string) (string, error) {
 	ext := strings.ToLower(filepath.Ext(userPath))
 	if !screenshotOutputExtensions[ext] {
@@ -211,11 +228,17 @@ func resolveScreenshotOutput(workspace, userPath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	scratch, err := ResolvePath(workspace, "scratch")
+	scratch, err := ResolvePath(workspace, scratchDir)
 	if err != nil {
 		return "", fmt.Errorf("resolve scratch directory: %w", err)
 	}
-	if path != scratch && !strings.HasPrefix(path, scratch+string(filepath.Separator)) {
+	if !withinRoot(scratch, path) && !filepath.IsAbs(userPath) {
+		path, err = resolveScratchRelative(workspace, userPath)
+		if err != nil {
+			return "", err
+		}
+	}
+	if !withinRoot(scratch, path) {
 		return "", fmt.Errorf("screenshots are written to the scratch directory: pass a path under scratch/, not %q", userPath)
 	}
 	if path == scratch {

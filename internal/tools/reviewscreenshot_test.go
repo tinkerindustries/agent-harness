@@ -83,6 +83,118 @@ func TestReviewScreenshotConfinesPaths(t *testing.T) {
 	}
 }
 
+// A relative path that names nothing is tried again under scratch/, which is
+// where Screenshot puts a relative capture. The pairing is the point: the
+// model writes "after/01.png", the bytes land in scratch/after/01.png, and it
+// hands that same string to the review it makes next — so the read has to
+// resolve the way the write did or the round trip costs a sub-turn per image
+// (workspace.go resolveImagePath).
+func TestReviewScreenshotReadsARelativePathFromScratch(t *testing.T) {
+	var got struct {
+		Input []gemini.Content `json:"input"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"i","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"[]"}]}]}`))
+	}))
+	defer srv.Close()
+
+	root := t.TempDir()
+	e, err := NewExecutor(root, &Policy{Mode: ModeFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Gemini = reviewScreenshotClient(srv)
+	want := testPNGBytes(t, 40, 30)
+	if err := os.MkdirAll(filepath.Join(root, "scratch", "after"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "scratch", "after", "01.png"), want, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ImagePaths: []string{"after/01.png"},
+		Question:   "what is wrong?",
+	})
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	var received []byte
+	for _, p := range got.Input {
+		if p.Type == gemini.ContentTypeImage {
+			raw, err := base64.StdEncoding.DecodeString(p.Data)
+			if err != nil {
+				t.Fatalf("received image is not valid base64: %v", err)
+			}
+			received = raw
+		}
+	}
+	if !bytes.Equal(received, want) {
+		t.Fatalf("server received %d bytes, want the %d bytes of scratch/after/01.png", len(received), len(want))
+	}
+}
+
+// The fallback never shadows a file that is really there: a path that resolves
+// to an existing file is sent as named, even when a same-named file also sits
+// under scratch/.
+func TestReviewScreenshotPrefersTheNamedPathOverScratch(t *testing.T) {
+	var got struct {
+		Input []gemini.Content `json:"input"`
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"i","status":"completed","steps":[{"type":"model_output","content":[{"type":"text","text":"[]"}]}]}`))
+	}))
+	defer srv.Close()
+
+	root := t.TempDir()
+	e, err := NewExecutor(root, &Policy{Mode: ModeFull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.Gemini = reviewScreenshotClient(srv)
+	named := testPNGBytes(t, 40, 30)
+	decoy := testPNGBytes(t, 12, 8)
+	for _, dir := range []string{filepath.Join(root, "shots"), filepath.Join(root, "scratch", "shots")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(root, "shots", "a.png"), named, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "scratch", "shots", "a.png"), decoy, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res := runTool(t, e, "ReviewScreenshot", reviewScreenshotArgs{
+		ImagePaths: []string{"shots/a.png"},
+		Question:   "what is wrong?",
+	})
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	for _, p := range got.Input {
+		if p.Type != gemini.ContentTypeImage {
+			continue
+		}
+		raw, err := base64.StdEncoding.DecodeString(p.Data)
+		if err != nil {
+			t.Fatalf("received image is not valid base64: %v", err)
+		}
+		if !bytes.Equal(raw, named) {
+			t.Fatalf("the scratch copy shadowed the named file: got %d bytes, want %d", len(raw), len(named))
+		}
+	}
+}
+
 // TestReviewScreenshotRefusesBadExtensions pins the PNG/JPEG/WebP allowlist:
 // anything else is refused with an error naming what was rejected, and the
 // refusal is an error result the model can read, not a panic.

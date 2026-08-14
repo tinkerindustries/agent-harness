@@ -63,6 +63,17 @@ func (s *Server) handleGetScreenshot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	path, err := resolveWithinWorkspace(sess.Workspace, userPath)
+	if err != nil && !filepath.IsAbs(userPath) {
+		// The path in the query string is the one the model passed to
+		// Screenshot, because that is what the transcript renders the gallery
+		// from (web/src/components/blocks/toolArgs.ts screenshotPaths). A
+		// relative path there lands under scratch/ whether or not it says so
+		// (internal/tools' resolveScreenshotOutput), so the same second
+		// attempt the tools make is what keeps the image addressable from the
+		// call that produced it. Join before resolve, so the containment check
+		// below still sees the whole path.
+		path, err = resolveWithinWorkspace(sess.Workspace, filepath.Join("scratch", userPath))
+	}
 	if err != nil {
 		// An escape and a missing file are both 404 with the same text. A
 		// caller probing for a path outside the workspace learns only that

@@ -276,6 +276,25 @@ reserves for files that are not part of the deliverable. That confinement is
 what lets the tool run in a read-only session (see "Permissions"): the capture
 cannot land in a cloned repository whatever the mode.
 
+A **relative path is taken as relative to `scratch/`**, so `after/01.png`
+writes `scratch/after/01.png`. The prefix the schema asks for is still what a
+caller should write, and the result line names the absolute path it wrote, so a
+relocated capture is visible rather than silent. Dropping the prefix used to be
+a refusal, and the refusal only cost sub-turns: one run capturing sixteen
+screens lost the prefix on three separate batches, twelve calls in all,
+correcting itself each time and forgetting again after the next success. The
+invariant that matters is that the bytes land under `scratch/`, and joining the
+path there satisfies it exactly as the explicit spelling does. An **absolute**
+path is left as given — it is a statement about where the file goes, so one
+outside `scratch/` is still refused rather than quietly re-rooted.
+
+The reading side matches, or the pairing would be pointless: `ReviewScreenshot`
+and `AskVision` retry a relative `image_paths` entry that names nothing under
+`scratch/`, and so does the transcript's own image endpoint (see "Seeing the
+screenshots"). A path that does resolve to a real file is never second-guessed,
+so a file at the workspace root is never shadowed by a same-named one in
+`scratch/`.
+
 The result carries what the page did while it was captured — its title, the
 steps that ran before the shutter, the document height against the viewport
 height, and any console or uncaught page
@@ -519,11 +538,19 @@ the transcript renders as "screenshot no longer available", keeping the path
 visible, rather than an error or a broken image. Storing a downscaled copy in
 the database is the alternative if that becomes the common case.
 
-Two properties keep it from being a general file read over the workspace: the
+The `path` is the one the model passed to the tool, because that is what the
+gallery renders from (`web/src/components/blocks/toolArgs.ts`), so the endpoint
+resolves it the way the tools do: a relative path that names nothing at the
+workspace root is tried once more under `scratch/`, which is where a relative
+capture lands. Without that second attempt the transcript reports "no longer
+available" over an image sitting on disk.
+
+Three properties keep it from being a general file read over the workspace: the
 path must resolve inside that session's own workspace with symlinks fully
-resolved, and the extension must be one of the three image types
-`ReviewScreenshot` accepts. An escape and a missing file return the same 404
-with the same text, so a caller probing for a path outside the workspace
+resolved, the `scratch/` attempt joins before it resolves so a traversal cannot
+climb out by spelling `../`, and the extension must be one of the three image
+types `ReviewScreenshot` accepts. An escape and a missing file return the same
+404 with the same text, so a caller probing for a path outside the workspace
 learns only that it cannot have it. Like every other `GET` on the surface it
 carries no control token; the write endpoints are the authenticated ones.
 

@@ -110,6 +110,58 @@ func TestScreenshotAcceptsAnAbsolutePathInsideTheWorkspace(t *testing.T) {
 	}
 }
 
+// The gallery addresses an image by the path the model passed to Screenshot
+// (web/src/components/blocks/toolArgs.ts), and a relative path there lands
+// under scratch/ whether or not it says so — internal/tools puts it there. So
+// a relative path that names nothing at the workspace root is tried once more
+// under scratch/, or the transcript renders "no longer available" over an
+// image that is sitting on disk.
+func TestScreenshotFallsBackToScratchForARelativePath(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	ws := t.TempDir()
+	mustCreateSessionInWorkspace(t, st, "sess-fallback", ws)
+	want := writePNG(t, filepath.Join(ws, "scratch", "after", "01-session-list.png"))
+
+	resp, err := http.Get(screenshotURL(srv.URL, "sess-fallback", "after/01-session-list.png"))
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if !bytes.Equal(body, want) {
+		t.Errorf("body is %d bytes, want the %d-byte PNG under scratch/", len(body), len(want))
+	}
+}
+
+// The fallback is a second attempt, not a rewrite: a path that names a real
+// file is served as named even when scratch/ holds one with the same name.
+func TestScreenshotPrefersTheNamedPathOverScratch(t *testing.T) {
+	srv, st, _ := newTestServer(t)
+	ws := t.TempDir()
+	mustCreateSessionInWorkspace(t, st, "sess-shadow", ws)
+	want := writePNG(t, filepath.Join(ws, "shots", "a.png"))
+	writePNG(t, filepath.Join(ws, "scratch", "shots", "a.png"))
+
+	resp, err := http.Get(screenshotURL(srv.URL, "sess-shadow", "shots/a.png"))
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if !bytes.Equal(body, want) {
+		t.Errorf("the scratch copy shadowed the named file: %d bytes, want %d", len(body), len(want))
+	}
+}
+
 func TestScreenshotHeadIsServedWithoutABody(t *testing.T) {
 	srv, st, _ := newTestServer(t)
 	ws := t.TempDir()
