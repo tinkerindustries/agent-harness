@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { QueueHealth, SessionState } from "./api/types";
+import { getPricing, peakNote, type Pricing } from "./api/pricing";
 import { TranscriptStore } from "./api/transcriptStore";
 
 // SessionIdContext carries the session a transcript's blocks belong to.
@@ -263,4 +264,33 @@ export function useSessionMeta(
   // `settled` stays a statement about the fetch alone: it is the "will a row
   // ever arrive" question, and only the fetch can answer it.
   return { meta: live ?? meta, settled };
+}
+
+// usePricingSchedule fetches the rate schedule once per mount. It is config,
+// not live data — the table changes when somebody redeploys — so a plain
+// fetch, not the SSE feed, and a failure leaves the caller with null, which
+// every consumer renders as saying nothing about peak hours. That is also
+// what a harness with no schedule shows, and it is correct for both.
+export function usePricingSchedule(): Pricing | null {
+  const [pricing, setPricing] = useState<Pricing | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getPricing().then((p) => {
+      if (!cancelled) setPricing(p);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return pricing;
+}
+
+// usePeakNote is usePricingSchedule turned into the sentence a screen shows,
+// recomputed on the caller's own clock: "" off-peak, "peak rate for 40m"
+// inside a window. The caller passes the `now` it already ticks on rather
+// than this starting a second interval — the session list re-renders every
+// second for its elapsed column regardless, so the note costs nothing there.
+export function usePeakNote(nowMs: number): string {
+  const pricing = usePricingSchedule();
+  return peakNote(pricing?.schedule, new Date(nowMs));
 }

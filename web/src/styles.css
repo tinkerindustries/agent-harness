@@ -1596,6 +1596,40 @@ pre {
   color: var(--status-gaveup);
 }
 
+/* A sub-turn billed at DeepSeek's peak rate. It borrows the same amber churn
+   uses, for the same reason: both mark a figure that is larger than the
+   numbers beside it explain, and neither is an error. Only "peak" is ever
+   drawn — off-peak is two thirds of the day and flat is every session before
+   the split, so a chip for those would sit on nearly every card. */
+.rate-peak {
+  color: var(--status-gaveup);
+  text-transform: uppercase;
+  font-size: 0.625rem;
+  letter-spacing: 0.06em;
+}
+
+/* The same fact on the session list's Spend today, only while a peak window
+   is open. It sits inside the stat card because it is about that number, and
+   it is absent — not greyed, not "off-peak" — the rest of the time: a strip
+   that speaks when everything is normal is a strip nobody reads by the time
+   it says something.
+
+   It flows after the figure and wraps under it at the card's width, which is
+   where it sits at every size the strip has. It is deliberately NOT hidden in
+   the compact strip: compact is what the page wears while runs are in flight,
+   which is exactly when peak rates are being paid, so a note that vanished
+   there would be missing from the only state that costs money. The line it
+   adds is worth the height for the seven hours a day it is there. */
+.stat-peak {
+  margin-left: 8px;
+  font-size: 0.6875rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--status-gaveup);
+  white-space: nowrap;
+}
+
 /* ---------- sub-turn cards ----------
    One card per sub-turn: reasoning, assistant text, tool calls and their
    results in one body, with the sub-turn's usage figures in the header.

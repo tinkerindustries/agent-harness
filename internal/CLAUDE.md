@@ -120,7 +120,11 @@ and holds no JetStream handle, only the narrow ability to enqueue one
 validated request (it imports `queue` for the request type and its `Validate`,
 deliberately, so a body validated here can never drift from the queue's).
 Steering (`POST /api/sessions/{id}/steer`) needs no seam: it is a store write
-the session loop reads at its next sub-turn boundary. §4.2.
+the session loop reads at its next sub-turn boundary. It holds the loaded
+price table for `GET /api/pricing`, which serves the rate schedule and no
+rates — `internal/pricing` depends on nothing internal, so this adds no edge
+worth worrying about, and the browser prices nothing (docs/DATA-API.md
+"pricing"). §4.2.
 
 ### `internal/webassets`
 `go:embed` of the built frontend, so the binary ships with no runtime assets.

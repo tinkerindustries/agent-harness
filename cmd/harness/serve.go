@@ -262,7 +262,7 @@ func runServe(ctx context.Context, args []string) error {
 
 	api := &httpapi.Server{
 		Store: st, Hub: eventHub, Static: static, Settings: res,
-		Consumer: consumer, Pool: pool, PriceTableDate: priceTable.CapturedAt,
+		Consumer: consumer, Pool: pool, PriceTableDate: priceTable.CapturedAt, Prices: priceTable,
 		Run: pool, Publisher: publishAdapter{js: js}, ControlToken: controlToken,
 		Evals:              evalControl{o: orchestrator},
 		DefaultEventsLimit: eventsLimitDefault,

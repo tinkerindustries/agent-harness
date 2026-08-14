@@ -48,6 +48,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/evals"
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
+	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 	"github.com/mrgeoffrich/deepseek-harness/internal/redact"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
@@ -214,7 +215,14 @@ type Server struct {
 	Evals          EvalController
 	ControlToken   string
 	PriceTableDate string
-	Settings       *settings.Resolver
+	// Prices is the loaded price table, for GET /api/pricing. Only its
+	// capture date and rate schedule are served — the rates themselves stay
+	// on the server, because no screen prices anything: every cost figure in
+	// the UI was computed when its usage event was committed and stored on
+	// it (docs/DESIGN.md §4.9). Nil in a test that does not care, which the
+	// endpoint answers with an empty schedule rather than a 500.
+	Prices   *pricing.Table
+	Settings *settings.Resolver
 
 	// GitHubBaseURL overrides the GitHub REST API root GET /api/github/repos
 	// fetches from (github.go). Empty means the real api.github.com; tests
@@ -279,6 +287,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("DELETE /api/leases/{workspace...}", s.handleDeleteLease)
 	mux.HandleFunc("GET /api/stream", s.handleListStream)
 	mux.HandleFunc("GET /api/queue", s.handleQueueHealth)
+	mux.HandleFunc("GET /api/pricing", s.handlePricing)
 	mux.HandleFunc("GET /api/settings", s.handleGetSettings)
 	mux.HandleFunc("PUT /api/settings/{key}", s.handlePutSetting)
 	mux.HandleFunc("DELETE /api/settings/{key}", s.handleDeleteSetting)
