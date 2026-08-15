@@ -193,7 +193,7 @@ func newTestHarnessWithRunner(t *testing.T, serverURL string, poolSize int, newR
 	pool := &Pool{
 		Store:             st,
 		Runner:            newRunner(st),
-		JS:                js,
+		Results:           queue.NewNATSSink(js),
 		Consumer:          consumer,
 		WorkspaceRoot:     resolvedRoot,
 		PrepareWorkspace:  fakePrepareWorkspace,
