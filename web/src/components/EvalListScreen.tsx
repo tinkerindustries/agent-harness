@@ -4,8 +4,10 @@ import { openEvalListStream } from "../api/evalStreams";
 import { controlToken, formatDuration } from "../api/operations";
 import { EvalStartForm } from "./EvalStartForm";
 import { useNow } from "../hooks";
+import { Broadcast, Play } from "@phosphor-icons/react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import { cn } from "@/lib/utils";
 import { useNavRight } from "./TopNav";
 
 // The eval list (docs/EVALS.md): every eval run over time, newest first, with
@@ -50,11 +52,15 @@ export function EvalListScreen({ onOpen }: { onOpen: (id: string) => void }) {
             (token === null ? (
               <span className="eval-absent">run control is not configured</span>
             ) : (
-              <Button size="sm" onClick={() => setStartOpen((open) => !open)}>
-                Start an eval
+              <Button size="sm" onClick={() => setStartOpen((open) => !open)} title="Start an eval">
+                <Play />
+                <span className="nav-label">Start an eval</span>
               </Button>
             ))}
-          <Badge variant={connected ? "running" : "outline"}>{connected ? "LIVE" : "OFFLINE"}</Badge>
+          <Badge variant={connected ? "running" : "outline"} title={connected ? "LIVE" : "OFFLINE"}>
+            <Broadcast weight="bold" size={12} className={cn(connected && "dot-pulse")} />
+            <span className="nav-label">{connected ? "LIVE" : "OFFLINE"}</span>
+          </Badge>
         </>
       ),
       [connected, token, tokenReady],

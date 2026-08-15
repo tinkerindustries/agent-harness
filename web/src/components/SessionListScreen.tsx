@@ -305,9 +305,10 @@ export function SessionListScreen({ onOpen }: Props) {
           onClick={() => setStartOpen((o) => !o)}
           disabled={!startTokenReady}
           aria-expanded={startOpen}
+          title={startOpen ? "Close" : "Start run"}
         >
           {startOpen ? <X /> : <Play />}
-          {startOpen ? "Close" : "Start run"}
+          <span className="nav-label">{startOpen ? "Close" : "Start run"}</span>
         </Button>
       )}
       <Input
@@ -328,7 +329,10 @@ export function SessionListScreen({ onOpen }: Props) {
         onChange={(ev) => setQuery(ev.target.value)}
         spellCheck={false}
       />
-      <Badge variant={snapshot.connection === "open" ? "running" : "outline"}>
+      <Badge
+        variant={snapshot.connection === "open" ? "running" : "outline"}
+        title={snapshot.connection === "open" ? "LIVE" : "connecting"}
+      >
         {/* Broadcast at bold rather than the app's light default: at 12px,
             beside an 11px uppercase label, the light stroke disappears. It
             takes the badge's currentColor and carries the pulse the plain dot
@@ -339,7 +343,7 @@ export function SessionListScreen({ onOpen }: Props) {
           size={12}
           className={cn(snapshot.connection === "open" && "dot-pulse")}
         />
-        {snapshot.connection === "open" ? "LIVE" : "connecting"}
+        <span className="nav-label">{snapshot.connection === "open" ? "LIVE" : "connecting"}</span>
       </Badge>
     </>,
   );

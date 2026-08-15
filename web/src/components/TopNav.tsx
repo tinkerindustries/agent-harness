@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { ArrowLeft } from "@phosphor-icons/react";
+import { ArrowLeft, ChartLineUp, GearSix, Stack, Wrench } from "@phosphor-icons/react";
 import type { Route } from "../App";
 import { cn } from "@/lib/utils";
 
@@ -77,23 +77,38 @@ export function TopNav({ route, onNavigate, children }: TopNavProps) {
                 e.preventDefault();
                 onNavigate("/");
               }}
+              title="Back to sessions"
             >
               <ArrowLeft aria-hidden />
-              Sessions
+              <span className="navlink-label">Sessions</span>
             </a>
           </nav>
         ) : (
           <nav className="topnav-links">
-            <NavLink label="Sessions" href="/" active={section === "sessions"} onNavigate={onNavigate} />
-            <NavLink label="Evals" href="/evals" active={section === "evals"} onNavigate={onNavigate} />
+            <NavLink
+              label="Sessions"
+              icon={<Stack aria-hidden />}
+              href="/"
+              active={section === "sessions"}
+              onNavigate={onNavigate}
+            />
+            <NavLink
+              label="Evals"
+              icon={<ChartLineUp aria-hidden />}
+              href="/evals"
+              active={section === "evals"}
+              onNavigate={onNavigate}
+            />
             <NavLink
               label="Operations"
+              icon={<Wrench aria-hidden />}
               href="/operations"
               active={section === "operations"}
               onNavigate={onNavigate}
             />
             <NavLink
               label="Settings"
+              icon={<GearSix aria-hidden />}
               href="/settings"
               active={section === "settings"}
               onNavigate={onNavigate}
@@ -120,11 +135,13 @@ export function TopNav({ route, onNavigate, children }: TopNavProps) {
 // the app the way the design's flat HTML pages do.
 function NavLink({
   label,
+  icon,
   href,
   active,
   onNavigate,
 }: {
   label: string;
+  icon: ReactNode;
   href: string;
   active: boolean;
   onNavigate: (path: string) => void;
@@ -133,13 +150,15 @@ function NavLink({
     <a
       className={cn("navlink", active && "navlink-active")}
       href={href}
+      title={label}
       aria-current={active ? "page" : undefined}
       onClick={(e) => {
         e.preventDefault();
         onNavigate(href);
       }}
     >
-      {label}
+      {icon}
+      <span className="navlink-label">{label}</span>
     </a>
   );
 }

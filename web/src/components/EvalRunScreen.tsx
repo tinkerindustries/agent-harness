@@ -10,7 +10,9 @@ import {
   type EvalMemberRow,
 } from "../api/evals";
 import { openEvalRunStream } from "../api/evalStreams";
+import { Broadcast } from "@phosphor-icons/react";
 import { Badge } from "./ui/badge";
+import { cn } from "@/lib/utils";
 import { useNavRight } from "./TopNav";
 
 // One eval run (docs/EVALS.md): the header, the comparison, and the runs it
@@ -31,7 +33,12 @@ export function EvalRunScreen({ id, onOpenSession }: { id: string; onOpenSession
 
   useNavRight(
     useMemo(
-      () => <Badge variant={connected ? "running" : "outline"}>{connected ? "LIVE" : "OFFLINE"}</Badge>,
+      () => (
+        <Badge variant={connected ? "running" : "outline"} title={connected ? "LIVE" : "OFFLINE"}>
+          <Broadcast weight="bold" size={12} className={cn(connected && "dot-pulse")} />
+          <span className="nav-label">{connected ? "LIVE" : "OFFLINE"}</span>
+        </Badge>
+      ),
       [connected],
     ),
   );

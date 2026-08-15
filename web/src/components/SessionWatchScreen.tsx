@@ -244,9 +244,10 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
               onClick={toggleStopConfirm}
               disabled={stopping}
               aria-expanded={confirmingStop}
+              title={stopping ? "Stopping…" : "Stop"}
             >
               <StopCircle />
-              {stopping ? "Stopping…" : "Stop"}
+              <span className="nav-label">{stopping ? "Stopping…" : "Stop"}</span>
             </Button>
           )}
         </>
