@@ -110,10 +110,11 @@ func (s *Store) AckWork(ctx context.Context, id int64) error {
 // NakWork defers id's row to now + delay, releasing its lease, or deletes it
 // when this delivery has reached the ceiling — delivery_count was already
 // incremented at claim time, so "at the ceiling" means the count this
-// delivery is running under is >= maxDeliveries. That reproduces JetStream
-// exactly: at MaxDeliver the message stops being redelivered and, on a
-// WorkQueue-retention stream, is discarded. The delivery_count < :max clause
-// in ClaimWork is a second guard on the same rule.
+// delivery is running under is >= maxDeliveries. That is the delivery
+// ceiling docs/DESIGN.md §4.10 asks for: at the ceiling the row stops being
+// redelivered and is discarded, the queue's replacement for MaxDeliver. The
+// delivery_count < :max clause in ClaimWork is a second guard on the same
+// rule.
 func (s *Store) NakWork(ctx context.Context, id int64, delay time.Duration, maxDeliveries int, now time.Time) error {
 	return s.submit(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.Exec(`DELETE FROM work_queue WHERE id = ? AND delivery_count >= ?`, id, maxDeliveries); err != nil {

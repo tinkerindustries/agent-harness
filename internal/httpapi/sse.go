@@ -10,10 +10,10 @@ import (
 )
 
 // The two SSE streams (docs/DESIGN.md §4.2): a per-session transcript and a
-// quieter session-list feed, both fed by internal/hub's in-process fan-out
-// rather than NATS — the browser reads the store and the hub, never the
-// queue. The frame-writing helpers themselves (setSSEHeaders, writeSSEEvent
-// and friends) are shared with evals.go's own stream and live in respond.go.
+// quieter session-list feed, both fed by internal/hub's in-process fan-out —
+// the browser reads the store and the hub, never the queue. The
+// frame-writing helpers themselves (setSSEHeaders, writeSSEEvent and
+// friends) are shared with evals.go's own stream and live in respond.go.
 
 // handleSessionStream serves one session's transcript: the full history
 // after Last-Event-ID (0 replays from the start), then live events as the

@@ -278,8 +278,8 @@ func TestHandleCollectRejectsMissingRequestID(t *testing.T) {
 
 // TestLaunchWritesAttachmentsToTheStore pins the attachment path of the
 // deepseek_agent tool: the bytes are stored before the publish and the
-// caller receives the ids on the work request, so the NATS request stays
-// small and the worker can materialise the files.
+// caller receives the ids on the work request, so the request stays small
+// and the worker can materialise the files.
 func TestLaunchWritesAttachmentsToTheStore(t *testing.T) {
 	dir := t.TempDir()
 	st, err := store.Open(filepath.Join(dir, "harness.db"))

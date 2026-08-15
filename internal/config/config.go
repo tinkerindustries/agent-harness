@@ -20,9 +20,6 @@ const (
 	defaultPriceTable = "configs/prices.json"
 	defaultDataDir    = "data"
 
-	// defaultNATSURL matches docker-compose.yml's default client port.
-	defaultNATSURL = "nats://127.0.0.1:4222"
-
 	// defaultHTTPAddr binds loopback only. Transcripts carry workspace
 	// paths, file contents, and command output, so the port is sensitive
 	// even though it is read-only (docs/DESIGN.md §4.2).
@@ -32,7 +29,7 @@ const (
 // Config is the harness's bootstrap configuration, read from the
 // environment. Everything operator-tunable beyond these lives in the
 // settings table (internal/settings/registry.go) and is read through a
-// resolver; only the five values below stay environment-only, because they
+// resolver; only the four values below stay environment-only, because they
 // are bootstrap: DataDir locates the database the settings live in, and a
 // bad address typed into a browser takes the service off the network with no
 // way back in.
@@ -55,9 +52,6 @@ type Config struct {
 	// installs no wrapper on the request path at all.
 	HTTPLogEnabled bool
 
-	// NATSURL is the JetStream server harness serve connects to
-	// (docs/DESIGN.md §4.10).
-	NATSURL string
 	// WorkspaceRoot is the directory each run's own workspace is created
 	// under, one folder per session id holding that run's clones
 	// (docs/DESIGN.md §4.10). Empty means every request fails before it
@@ -111,7 +105,6 @@ func Load() (Config, error) {
 		HTTPLogRoot:    filepath.Join(dataDir, "http"),
 		HTTPLogEnabled: httpLog,
 		Thinking:       thinking,
-		NATSURL:        envOr("NATS_URL", defaultNATSURL),
 		WorkspaceRoot:  os.Getenv("DEEPSEEK_WORKSPACE_ROOT"),
 		HTTPAddr:       envOr("DEEPSEEK_HTTP_ADDR", defaultHTTPAddr),
 		DevFrontendURL: os.Getenv("DEEPSEEK_DEV_FRONTEND_URL"),

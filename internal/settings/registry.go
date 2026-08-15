@@ -121,9 +121,9 @@ type Descriptor struct {
 	// (the last four characters show) and typed into a password field by the
 	// screen.
 	Secret bool
-	// Restart marks a setting read once at startup or baked into a JetStream
-	// stream: a change takes effect on the next start, not the next request.
-	// The CLI, the API payload, and the screen all surface it.
+	// Restart marks a setting read once at startup or baked into a stream
+	// definition: a change takes effect on the next start, not the next
+	// request. The CLI, the API payload, and the screen all surface it.
 	Restart bool
 }
 
@@ -219,9 +219,9 @@ var registry = []Descriptor{
 
 	// --- Requires a restart ---
 	intSetting(KeyWorkerPoolSize, GroupRequiresRestart, 4, 1, 100_000,
-		"Worker pool size, also the WORK consumer's MaxAckPending").withRestart(),
+		"Worker pool size, also how many queue rows the pool holds leased at once").withRestart(),
 	intSetting(KeyWorkerMaxDeliveryAttempts, GroupRequiresRestart, 5, 1, 100,
-		"Times one work request may be delivered before JetStream stops redelivering it. A work request is single-use once it has a session, so this is a backstop for requests that die before their session exists: one that keeps dying during workspace preparation would otherwise be redelivered forever. The last attempt publishes a failed result rather than vanishing.").withRestart(),
+		"Times one work request may be delivered before the queue stops redelivering it. A work request is single-use once it has a session, so this is a backstop for requests that die before their session exists: one that keeps dying during workspace preparation would otherwise be redelivered forever. The last attempt publishes a failed result rather than vanishing.").withRestart(),
 	intSetting(KeyWorkerConcurrencyPro, GroupRequiresRestart, 500, 1, 1_000_000,
 		"Account-wide concurrent-request ceiling for the pro model").withRestart(),
 	intSetting(KeyWorkerConcurrencyFlash, GroupRequiresRestart, 2500, 1, 1_000_000,

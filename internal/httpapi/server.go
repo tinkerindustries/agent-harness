@@ -7,9 +7,9 @@
 // the session list and metadata from the store, a paged read of one session's
 // event log, two SSE streams — a per-session transcript and a quiet
 // session-level list feed — fed by the in-process hub package rather than
-// NATS, the settings table, the work-request and workspace-lease rows, and a
-// read-only GitHub repo list (GET /api/github/repos) backing the start-run
-// form's repo picker (github.go).
+// the queue, the settings table, the work-request and workspace-lease rows,
+// and a read-only GitHub repo list (GET /api/github/repos) backing the
+// start-run form's repo picker (github.go).
 // The write surface is the data the harness manages: closing an abandoned
 // session, deleting a finished one, setting a key. Run control is a declared
 // seam, not an import: stopping goes through the RunController interface

@@ -98,21 +98,6 @@ ARG GH_VERSION=2.97.0
 RUN wget -qO- https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${TARGETARCH}.tar.gz \
     | tar xz -C /usr/local/bin --strip-components=2 gh_${GH_VERSION}_linux_${TARGETARCH}/bin/gh
 
-# nats-server is scripts/test.sh's fallback broker. The suite's broker
-# normally comes up through docker compose, but compose publishes onto the
-# host's loopback — a port a container that shares the docker socket (every
-# agent session) cannot reach, so the suite fails there even though the
-# broker is running. When scripts/test.sh finds the compose-published port
-# unreachable from where it runs, it starts this binary on the same port
-# instead, so the identical command works on a host and in a session
-# container. Like gh it is a statically linked Go binary, so the release
-# tarball drops in directly; TARGETARCH (declared above) matches NATS's
-# own asset naming for amd64 and arm64. Keep the version on the 2.10 line,
-# in step with the nats:2.10-alpine image docker-compose.test.yml uses.
-ARG NATS_SERVER_VERSION=2.10.29
-RUN wget -qO- https://github.com/nats-io/nats-server/releases/download/v${NATS_SERVER_VERSION}/nats-server-v${NATS_SERVER_VERSION}-linux-${TARGETARCH}.tar.gz \
-    | tar xz -C /usr/local/bin --strip-components=1 nats-server-v${NATS_SERVER_VERSION}-linux-${TARGETARCH}/nats-server
-
 # Playwright drives Alpine's own Chromium. The browsers `playwright install`
 # downloads are glibc-only and will not start on musl, so the symlinks below
 # put the system Chromium where Playwright looks for its downloaded one —

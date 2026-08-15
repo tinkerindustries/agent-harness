@@ -143,14 +143,14 @@ type RunOptions struct {
 	// closure reports its progress).
 	Progress func(SubTurnProgress)
 
-	// DebugChurnAtSubTurn, when equal to a sub-turn number, deliberately
+	// DebugChurnOnSubTurn, when equal to a sub-turn number, deliberately
 	// breaks that one sub-turn's shared prefix before sending it (via
 	// cache.Mutate on the opening message) so the churn diagnostic has
 	// something real to catch. Zero disables it. Nothing publishes this
 	// through a work request; it exists to exercise CACHE.md's diagnostic
 	// against the live API on purpose, not as something a production
 	// caller would ever set.
-	DebugChurnAtSubTurn int
+	DebugChurnOnSubTurn int
 }
 
 // session builds the store.Session row RunOptions describes, at the given

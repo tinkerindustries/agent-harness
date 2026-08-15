@@ -121,7 +121,7 @@ func TestPrimedDetectorContinuesAcrossResume(t *testing.T) {
 // named to the specific message": Mutate is the debug hook, this proves the
 // Detector catches what it produces and names the mutated index. The live
 // demonstration against the real API drives the same hook through
-// session.RunOptions.DebugChurnAtSubTurn (internal/session/turn.go).
+// session.RunOptions.DebugChurnOnSubTurn (internal/session/turn.go).
 func TestMutateChurnsAndNamesTheIndex(t *testing.T) {
 	d := NewDetector()
 	first := []wire.Message{

@@ -197,7 +197,7 @@ func runRun(ctx context.Context, args []string) error {
 				ResultSchema: resultSchema, MaxSubTurns: resolvedMaxSubTurns, Resolver: resolver,
 				JobType: *jobType, ParentAgentType: *parentAgentType, ParentAgentID: *parentAgentID,
 				ParentIsUser:        *parentIsUser,
-				DebugChurnAtSubTurn: *debugChurnAt,
+				DebugChurnOnSubTurn: *debugChurnAt,
 				Progress: func(p session.SubTurnProgress) {
 					out.Lock()
 					defer out.Unlock()

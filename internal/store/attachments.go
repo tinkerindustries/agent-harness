@@ -12,9 +12,9 @@ import (
 // Attachment is one image a work request carries (docs/DATA-API.md): the
 // bytes the worker materialises into scratch/attachments/ during workspace
 // preparation, plus the name and MIME type needed to write the file. Rows
-// live in the store rather than inline in the NATS request, so a mockup
-// that exceeds the 1 MB default max_payload still arrives whole and
-// `harness export` — which derives from the database — stays complete.
+// live in the store rather than inline in the work request, so a mockup
+// stays whole however large it is and `harness export` — which derives
+// from the database — stays complete.
 type Attachment struct {
 	ID        string
 	Name      string

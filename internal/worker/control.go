@@ -22,10 +22,10 @@ var ErrRunNotFound = errors.New("worker: no run in this process owns that sessio
 // Controller is the pool's registry of in-flight runs, keyed by session id.
 // One entry exists from the moment Pool.run generates a session id until
 // that run's message is disposed of, whether by the run finishing or by a
-// stop taking it over. Nothing about it touches NATS: control is real-time,
-// addressed at one specific in-flight goroutine, and actively wrong to make
-// redeliverable (docs/RUN-CONTROL.md "Stopping is addressed at one
-// goroutine, so the seam is a registry").
+// stop taking it over. Nothing about it touches the queue: control is
+// real-time, addressed at one specific in-flight goroutine, and actively
+// wrong to make redeliverable (docs/RUN-CONTROL.md "Stopping is addressed
+// at one goroutine, so the seam is a registry").
 type Controller struct {
 	mu   sync.Mutex
 	runs map[string]*inflight
@@ -88,9 +88,9 @@ type inflight struct {
 	// rather than timed out: a stop and a deadline both leave runCtx
 	// cancelled.
 	stopping atomic.Bool
-	// disposed records that the JetStream message has been answered. Whoever
-	// wins the CompareAndSwap owns the message; everyone else logs and drops
-	// its result.
+	// disposed records that the queue message has been answered. Whoever wins
+	// the CompareAndSwap owns the message; everyone else logs and drops its
+	// result.
 	disposed atomic.Bool
 	// reason is the stop's reason string, the cancelled result's message.
 	reason atomic.Pointer[string]

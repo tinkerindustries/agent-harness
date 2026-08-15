@@ -13,9 +13,9 @@ import (
 )
 
 // statusService builds a Service whose status handler can be exercised
-// without a NATS connection: handleStatus only reads the harness's read-only
-// HTTP API, so JS is left nil on purpose — a nil-pointer panic here would
-// itself be a bug (a status call should never touch the queue).
+// without a running harness: handleStatus only reads the harness's read-only
+// HTTP API, so the queue is left nil on purpose — a nil-pointer panic here
+// would itself be a bug (a status call should never touch the queue).
 func statusService(t *testing.T, baseURL string) *Service {
 	t.Helper()
 	return &Service{

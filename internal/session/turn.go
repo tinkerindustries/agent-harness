@@ -210,13 +210,13 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 		return subTurnOutcome{}, fmt.Errorf("session: fold: %w", err)
 	}
 
-	// The deliberate-churn debug hook (RunOptions.DebugChurnAtSubTurn):
+	// The deliberate-churn debug hook (RunOptions.DebugChurnOnSubTurn):
 	// break this one request's shared prefix on purpose so the diagnostic
 	// below has a real divergence to name. messages[1] is the opening user
 	// message, the earliest content that varies per session. The mutation
 	// only touches the copy sent on the wire; *allEvents, and therefore
 	// every later fold, is untouched.
-	if opts.DebugChurnAtSubTurn > 0 && opts.DebugChurnAtSubTurn == subTurn && len(messages) > 1 {
+	if opts.DebugChurnOnSubTurn > 0 && opts.DebugChurnOnSubTurn == subTurn && len(messages) > 1 {
 		messages = cache.Mutate(messages, 1)
 	}
 

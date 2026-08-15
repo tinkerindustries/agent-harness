@@ -40,19 +40,3 @@ func TestResultMarshalsExpectedShape(t *testing.T) {
 		t.Fatalf("expected no error field on an ok result, got %+v", round.Error)
 	}
 }
-
-// TestSubjectHelpers pins the production subject contract of
-// docs/DESIGN.md §4.10 — the one subject that still exists. TestMain has by
-// then renamed the package's subject prefix via IsolateForTest so the broker
-// tests do not share subjects with other packages, so this unit test
-// restores the production prefix for its own assertion; the helper's job is
-// to build a subject, and the contract it pins is the production one.
-func TestSubjectHelpers(t *testing.T) {
-	origReq := requestSubjectPrefix
-	requestSubjectPrefix = "harness.work.request."
-	defer func() { requestSubjectPrefix = origReq }()
-
-	if RequestSubject("req-1") != "harness.work.request.req-1" {
-		t.Fatalf("unexpected request subject: %s", RequestSubject("req-1"))
-	}
-}
