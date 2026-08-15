@@ -195,13 +195,22 @@ func TestStopHealthyRunCancels(t *testing.T) {
 	h.publish(t, queue.Request{RequestID: requestID, Prompt: "do it", Repos: testRepos(), PermissionMode: "full"})
 	sessionID := h.waitForSessionID(t, requestID, 5*time.Second)
 
+	// Wait for the session row to reach "running" before stopping: the stop
+	// must land on a run that is already inside Runner.Run, not one still in
+	// workspace preparation. The store-backed claim loop delivers the
+	// message fast enough that the session id can be visible while Create is
+	// still in flight, and a stop that lands there cancels runCtx mid-Create
+	// — the run then records a workspace_setup failure instead of the
+	// cancelled result this test asserts.
+	waitForSessionStatus(t, h, sessionID, store.StatusRunning, 5*time.Second)
+
 	if err := h.pool.Stop(sessionID, "the user asked"); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
 
 	res := h.fetchFinalResult(t, requestID, 10*time.Second)
 	if res.Status != queue.StatusCancelled {
-		t.Fatalf("expected a cancelled result, got %+v", res)
+		t.Fatalf("expected a cancelled result, got %+v (error: %+v)", res, res.Error)
 	}
 	if res.Error == nil || res.Error.Code != "cancelled" || res.Error.Message != "the user asked" {
 		t.Fatalf("expected error {cancelled, the user asked}, got %+v", res.Error)
@@ -372,6 +381,9 @@ func TestStopIsIdempotent(t *testing.T) {
 	requestID := uniqueID("req-stop-twice")
 	h.publish(t, queue.Request{RequestID: requestID, Prompt: "do it", Repos: testRepos(), PermissionMode: "full"})
 	sessionID := h.waitForSessionID(t, requestID, 5*time.Second)
+	// As in TestStopHealthyRunCancels: stop only once the run is inside
+	// Runner.Run, so the stop cancels the run rather than its preparation.
+	waitForSessionStatus(t, h, sessionID, store.StatusRunning, 5*time.Second)
 
 	if err := h.pool.Stop(sessionID, "first stop"); err != nil {
 		t.Fatalf("first Stop: %v", err)
