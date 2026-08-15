@@ -8,8 +8,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/nats-io/nats.go/jetstream"
-
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
@@ -24,10 +22,10 @@ var ErrRunNotFound = errors.New("worker: no run in this process owns that sessio
 // Controller is the pool's registry of in-flight runs, keyed by session id.
 // One entry exists from the moment Pool.run generates a session id until
 // that run's message is disposed of, whether by the run finishing or by a
-// stop taking it over. Nothing about it touches NATS: control is real-time,
-// addressed at one specific in-flight goroutine, and actively wrong to make
-// redeliverable (docs/RUN-CONTROL.md "Stopping is addressed at one
-// goroutine, so the seam is a registry").
+// stop taking it over. Nothing about it touches the queue: control is
+// real-time, addressed at one specific in-flight goroutine, and actively
+// wrong to make redeliverable (docs/RUN-CONTROL.md "Stopping is addressed
+// at one goroutine, so the seam is a registry").
 type Controller struct {
 	mu   sync.Mutex
 	runs map[string]*inflight
@@ -64,10 +62,10 @@ func (c *Controller) lookup(sessionID string) (*inflight, bool) {
 type inflight struct {
 	requestID string
 	sessionID string
-	// msg is the JetStream message this run answers, so the escalation can
+	// msg is the claimed queue message this run answers, so the escalation can
 	// run the same finish sequence — record the row, publish, ack — an
 	// ordinary run would have.
-	msg jetstream.Msg
+	msg queue.Msg
 	// cancel cancels runCtx: the soft stop. A healthy run ends at its next
 	// check point; a wedged one does not, which is what the escalation is for.
 	cancel context.CancelFunc
@@ -90,9 +88,9 @@ type inflight struct {
 	// rather than timed out: a stop and a deadline both leave runCtx
 	// cancelled.
 	stopping atomic.Bool
-	// disposed records that the JetStream message has been answered. Whoever
-	// wins the CompareAndSwap owns the message; everyone else logs and drops
-	// its result.
+	// disposed records that the queue message has been answered. Whoever wins
+	// the CompareAndSwap owns the message; everyone else logs and drops its
+	// result.
 	disposed atomic.Bool
 	// reason is the stop's reason string, the cancelled result's message.
 	reason atomic.Pointer[string]

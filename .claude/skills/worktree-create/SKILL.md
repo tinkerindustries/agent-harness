@@ -4,8 +4,8 @@ description: >
   Creates a fresh, fully isolated git worktree for deepseek-harness — pre-flights the main
   checkout, pulls the latest main, creates the worktree at .claude/worktrees/<slug> on branch
   <slug>, installs the frontend's node_modules, and runs `harness worktree init` followed by
-  `docker compose up -d --build` to allocate this worktree's own NATS/harness/MCP/test-broker/
-  vite ports and its own dev and test compose project names, so it cannot collide with any other
+  `docker compose up -d --build` to allocate this worktree's own harness/MCP/vite ports and its
+  own dev and test compose project names, so it cannot collide with any other
   worktree or with the deepseek-harness-prod stack. Takes an optional short slug (e.g.
   `/worktree-create tunnel-retry`); generates a random `adjective-animal` slug when omitted. Pass
   `--no-env` to create the worktree without allocating ports or starting compose — useful for
@@ -106,8 +106,10 @@ docker compose up -d --build
 
 `init` allocates the lowest free slot and writes `.worktree-env.xml` at the worktree root plus
 the matching block in `.env` — read ports and URLs from the descriptor rather than assuming any
-value, because they differ per worktree. `docker compose up -d --build` then reads that `.env`
-to bring up this worktree's own `nats`/`harness`/`mcp` containers under its own compose project.
+value, because they differ per worktree. (The descriptor of a worktree created before the
+broker left still carries the old broker port keys; `encoding/json` ignores them, so read
+`harness_http` and `vite_dev`.) `docker compose up -d --build` then reads that `.env`
+to bring up this worktree's own `harness`/`mcp` containers under its own compose project.
 
 If `init` reports "already initialised", that's fine — it's idempotent and just reconciled the
 existing slot; proceed to `docker compose up` regardless.

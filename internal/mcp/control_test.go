@@ -18,8 +18,8 @@ import (
 // serves exactly the endpoints the tool reaches — GET /api/control-token,
 // GET /api/requests/{request_id}, POST /api/sessions/{id}/stop — and records
 // what it saw, so the tests can pin the wire shape (path, bearer, body)
-// without a real server. No NATS is involved: these are pure HTTP-client
-// tests, unlike the launch/collect tests that need the broker.
+// without a real server. These are pure HTTP-client tests, unlike the
+// launch/collect tests that need a running harness.
 type fakeHarness struct {
 	// controlToken is what GET /api/control-token returns.
 	controlToken string

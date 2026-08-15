@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,11 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
-
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
-	"github.com/mrgeoffrich/deepseek-harness/internal/config"
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
@@ -30,47 +27,18 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/workspace"
 )
 
-// testNATSURL and connectOrSkip mirror internal/queue's test helpers: the
-// broker in docker-compose.test.yml. A missing broker is a failure, not a
-// skip, by default — a suite that could not run must not read as a pass in
-// `go test ./...` output — with HARNESS_TEST_NATS_OPTIONAL=1 as the
-// deliberate opt-out for a developer who genuinely has no Docker.
-// NATS_URL is ignored on purpose; it names the deployment's broker, whose
-// running pool would consume these requests and reject them against its own
-// workspace roots.
-func testNATSURL() string {
-	config.LoadDotEnv("../../.env")
-	if v := os.Getenv("HARNESS_TEST_NATS_URL"); v != "" {
-		return v
-	}
-	return "nats://127.0.0.1:4422"
-}
-
-func connectOrSkip(t *testing.T) (*nats.Conn, jetstream.JetStream) {
-	t.Helper()
-	nc, js, err := queue.Connect(testNATSURL())
-	if err != nil {
-		if os.Getenv("HARNESS_TEST_NATS_OPTIONAL") == "1" {
-			t.Skipf("no test NATS JetStream server reachable at %s (scripts/test.sh): %v", testNATSURL(), err)
-		}
-		t.Fatalf("no test NATS JetStream server reachable at %s: %v — run scripts/test.sh to start one, or set HARNESS_TEST_NATS_OPTIONAL=1 to skip instead of failing", testNATSURL(), err)
-	}
-	t.Cleanup(nc.Close)
-	return nc, js
-}
-
 func uniqueID(prefix string) string {
 	var b [8]byte
 	rand.Read(b[:])
 	return prefix + "-" + hex.EncodeToString(b[:])
 }
 
-// testHarness wires a Pool to a real local JetStream server and a fake
-// DeepSeek HTTP server, isolated per test by a fresh store and a fresh
-// durable consumer state (streams are cleaned up in t.Cleanup).
+// testHarness wires a Pool to a real store-backed queue (a fresh SQLite
+// file in a temp dir) and a fake DeepSeek HTTP server, isolated per test by
+// the fresh store.
 type testHarness struct {
 	pool *Pool
-	js   jetstream.JetStream
+	q    *queue.Queue
 	root string
 	hits *hitCounter
 }
@@ -159,21 +127,6 @@ func newTestHarness(t *testing.T, serverURL string, poolSize int) *testHarness {
 // wedge a run in a way no HTTP fake ever could.
 func newTestHarnessWithRunner(t *testing.T, serverURL string, poolSize int, newRunner func(*store.Store) Runner) *testHarness {
 	t.Helper()
-	nc, js := connectOrSkip(t)
-	_ = nc
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	consumer, err := queue.EnsureStreams(ctx, js, poolSize, queue.DefaultResultsMaxAge, queue.DefaultMaxDeliveryAttempts)
-	if err != nil {
-		t.Fatalf("EnsureStreams: %v", err)
-	}
-	t.Cleanup(func() {
-		js.DeleteStream(context.Background(), queue.StreamWork)
-		js.DeleteStream(context.Background(), queue.StreamResults)
-	})
-
 	dir := t.TempDir()
 	st, err := store.Open(filepath.Join(dir, "harness.db"))
 	if err != nil {
@@ -190,11 +143,19 @@ func newTestHarnessWithRunner(t *testing.T, serverURL string, poolSize int, newR
 		t.Fatal(err)
 	}
 
+	// The queue is the pool's Source: the same store-backed queue serve
+	// builds in production, with a fast poll interval so a test that relies
+	// on the ticker rather than a wake nudge does not wait a second.
+	q := &queue.Queue{
+		Store:         st,
+		MaxDeliveries: queue.DefaultMaxDeliveryAttempts,
+		PollInterval:  20 * time.Millisecond,
+	}
+
 	pool := &Pool{
 		Store:             st,
 		Runner:            newRunner(st),
-		JS:                js,
-		Consumer:          consumer,
+		Source:            q,
 		WorkspaceRoot:     resolvedRoot,
 		PrepareWorkspace:  fakePrepareWorkspace,
 		DefaultModel:      "test-model",
@@ -209,7 +170,7 @@ func newTestHarnessWithRunner(t *testing.T, serverURL string, poolSize int, newR
 		RetryLaterDelay:   300 * time.Millisecond,
 	}
 
-	return &testHarness{pool: pool, js: js, root: resolvedRoot}
+	return &testHarness{pool: pool, q: q, root: resolvedRoot}
 }
 
 func testPrices() *pricing.Table {
@@ -270,79 +231,58 @@ func testRepos() []queue.Repo {
 	return []queue.Repo{{URL: "https://example.com/org/app.git"}}
 }
 
+// publish enqueues req through the queue's own Enqueue — the same
+// marshal-and-enqueue path the browser's POST /api/runs and the MCP launch
+// tool use — so the pool claims a byte-identical request to production's.
 func (h *testHarness) publish(t *testing.T, req queue.Request) {
 	t.Helper()
-	data, err := json.Marshal(req)
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, err := h.js.Publish(ctx, queue.RequestSubject(req.RequestID), data); err != nil {
-		t.Fatalf("publish %s: %v", req.RequestID, err)
+	if err := h.q.Enqueue(ctx, req); err != nil {
+		t.Fatalf("enqueue %s: %v", req.RequestID, err)
 	}
 }
 
-func (h *testHarness) publishRaw(t *testing.T, subjectToken string, data []byte) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if _, err := h.js.Publish(ctx, queue.RequestSubject(subjectToken), data); err != nil {
-		t.Fatalf("publish raw %s: %v", subjectToken, err)
-	}
-}
-
-// fetchFinalResult waits up to timeout for a final result to appear on the
-// RESULTS stream for requestID, decoded into a queue.Result.
+// fetchFinalResult waits up to timeout for requestID's work_requests row to
+// become terminal, decoded into a queue.Result. The row is the result now
+// (docs/QUEUE-MIGRATION-PLAN.md §1.6): the worker writes the same JSON it
+// used to publish to the RESULTS stream, so the assertions stay about the
+// result contents, which the row holds verbatim.
 func (h *testHarness) fetchFinalResult(t *testing.T, requestID string, timeout time.Duration) queue.Result {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	consumer, err := h.js.OrderedConsumer(ctx, queue.StreamResults, jetstream.OrderedConsumerConfig{
-		FilterSubjects: []string{queue.FinalSubject(requestID)},
-	})
-	if err != nil {
-		t.Fatalf("ordered consumer for %s: %v", requestID, err)
-	}
-	batch, err := consumer.Fetch(1, jetstream.FetchMaxWait(timeout))
-	if err != nil {
-		t.Fatalf("fetch final result for %s: %v", requestID, err)
-	}
-	for msg := range batch.Messages() {
-		var res queue.Result
-		if err := json.Unmarshal(msg.Data(), &res); err != nil {
-			t.Fatalf("decode result for %s: %v", requestID, err)
+	deadline := time.Now().Add(timeout)
+	for {
+		row, err := h.pool.Store.GetWorkRequest(context.Background(), requestID)
+		if err == nil && row.FinishedAt != nil {
+			var res queue.Result
+			if err := json.Unmarshal(row.Result, &res); err != nil {
+				t.Fatalf("decode result for %s: %v", requestID, err)
+			}
+			return res
 		}
-		return res
+		if time.Now().After(deadline) {
+			t.Fatalf("no final result arrived for %s within %s", requestID, timeout)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("no final result arrived for %s within %s", requestID, timeout)
-	return queue.Result{}
 }
 
-// countFinalResults counts however many final-result messages arrived for
-// requestID within timeout, used to prove a duplicate request_id produced
-// exactly one.
-func (h *testHarness) countFinalResults(t *testing.T, requestID string, timeout time.Duration) int {
+// finalRowTerminal waits up to timeout for requestID's work_requests row to
+// exist with a terminal result, returning it raw — for assertions about the
+// row itself rather than the decoded result.
+func (h *testHarness) finalRowTerminal(t *testing.T, requestID string, timeout time.Duration) store.WorkRequest {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	consumer, err := h.js.OrderedConsumer(ctx, queue.StreamResults, jetstream.OrderedConsumerConfig{
-		FilterSubjects: []string{queue.FinalSubject(requestID)},
-	})
-	if err != nil {
-		t.Fatalf("ordered consumer for %s: %v", requestID, err)
+	deadline := time.Now().Add(timeout)
+	for {
+		row, err := h.pool.Store.GetWorkRequest(context.Background(), requestID)
+		if err == nil && row.FinishedAt != nil {
+			return row
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no terminal row arrived for %s within %s", requestID, timeout)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	batch, err := consumer.Fetch(10, jetstream.FetchMaxWait(timeout))
-	if err != nil {
-		t.Fatalf("fetch for %s: %v", requestID, err)
-	}
-	n := 0
-	for range batch.Messages() {
-		n++
-	}
-	return n
 }
 
 // TestPoolFourConcurrentRequests proves the pool runs concurrently:
@@ -425,8 +365,12 @@ func TestPoolDuplicateRequestIDRunsOnce(t *testing.T) {
 		t.Fatalf("expected exactly 1 session to have run against the fake server, got %d", hits.count())
 	}
 
-	if n := h.countFinalResults(t, requestID, 2*time.Second); n != 1 {
-		t.Fatalf("expected exactly 1 final result on the RESULTS stream, got %d", n)
+	// One request_id means one terminal row: the duplicate publish must not
+	// have produced a second run or a second result (the row is the single
+	// source of the result now, and the row's text is the first run's).
+	row := h.finalRowTerminal(t, requestID, 2*time.Second)
+	if row.Status != queue.StatusOK || !strings.Contains(string(row.Result), "done once") {
+		t.Fatalf("expected the single terminal row to carry the first run's result, got status %q result %s", row.Status, row.Result)
 	}
 }
 
@@ -492,13 +436,13 @@ func TestPoolMalformedRequestTermsWithoutRunning(t *testing.T) {
 }
 
 // TestPoolHandleSpentRequestClosesSessionFailsAndTerms drives Pool.handle
-// with a fake jetstream.Msg reporting a redelivery, against a work_requests
+// with a fake queue.Msg reporting a redelivery, against a work_requests
 // row shaped like one a dead process abandoned mid-run: the row carries the
 // session id, so the request is single-use and must never run again. The
 // spent-request path has to close the abandoned session (which otherwise sat
-// running in the list forever), publish a failed result naming the reason
+// running in the list forever), record a failed result naming the reason
 // and the retry, and Term the message. It covers the routing a kill-and-
-// restart exercises, without waiting on the real 60s AckWait.
+// restart exercises, without waiting on the real 60s lease.
 func TestPoolHandleSpentRequestClosesSessionFailsAndTerms(t *testing.T) {
 	hits := &hitCounter{}
 	srv := plainAnswerServer(t, "must never run", 0, hits)
@@ -557,7 +501,7 @@ func TestPoolHandleSpentRequestClosesSessionFailsAndTerms(t *testing.T) {
 		t.Fatalf("expected the stored result to name the reason and the retry, got %s", row.Result)
 	}
 
-	// The caller gets the failed result on the RESULTS stream.
+	// The caller reads the failed result off the work_requests row.
 	res := h.fetchFinalResult(t, requestID, 5*time.Second)
 	if res.Status != queue.StatusFailed {
 		t.Fatalf("expected a failed result on the stream, got %+v", res)
@@ -667,7 +611,7 @@ func mustCreatePoolSession(t *testing.T, h *testHarness, id string) {
 	}
 }
 
-// fakeMsg implements jetstream.Msg without a broker, for driving
+// fakeMsg implements queue.Msg without a broker, for driving
 // Pool.handle directly with a controlled delivery count.
 type fakeMsg struct {
 	data         []byte
@@ -680,13 +624,9 @@ type fakeMsg struct {
 	inProgress int
 }
 
-func (m *fakeMsg) Metadata() (*jetstream.MsgMetadata, error) {
-	return &jetstream.MsgMetadata{NumDelivered: m.numDelivered}, nil
-}
-func (m *fakeMsg) Data() []byte         { return m.data }
-func (m *fakeMsg) Headers() nats.Header { return nil }
-func (m *fakeMsg) Subject() string      { return "test.subject" }
-func (m *fakeMsg) Reply() string        { return "" }
+func (m *fakeMsg) Data() []byte { return m.data }
+
+func (m *fakeMsg) DeliveryCount() uint64 { return m.numDelivered }
 
 func (m *fakeMsg) Ack() error {
 	m.mu.Lock()
@@ -694,14 +634,12 @@ func (m *fakeMsg) Ack() error {
 	m.acked = true
 	return nil
 }
-func (m *fakeMsg) DoubleAck(context.Context) error { return m.Ack() }
-func (m *fakeMsg) Nak() error {
+func (m *fakeMsg) Nak(time.Duration) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.nakked = true
 	return nil
 }
-func (m *fakeMsg) NakWithDelay(time.Duration) error { return m.Nak() }
 func (m *fakeMsg) InProgress() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -714,7 +652,6 @@ func (m *fakeMsg) Term() error {
 	m.termed = true
 	return nil
 }
-func (m *fakeMsg) TermWithReason(string) error { return m.Term() }
 
 func (m *fakeMsg) wasAcked() bool {
 	m.mu.Lock()
@@ -734,7 +671,7 @@ func (m *fakeMsg) wasTermed() bool {
 	return m.termed
 }
 
-var _ jetstream.Msg = (*fakeMsg)(nil)
+var _ queue.Msg = (*fakeMsg)(nil)
 
 // alwaysToolCallServer answers every request with the same tool call, so a
 // run never reaches a no-tool-call response and exhausts its sub-turn budget.
@@ -817,7 +754,7 @@ func insufficientBalanceServer(t *testing.T) *httptest.Server {
 // TestPoolHaltsOnInsufficientBalance pins the balance behaviour: a 402 is
 // surfaced as an empty account and stops the pool
 // rather than failing each queued request in turn (docs/DESIGN.md §4.5).
-// The request that hit the 402 is left unacked (no final result published)
+// The request that hit the 402 is not finished (no final result published)
 // so it redelivers once the pool is restarted with balance restored, and a
 // second request queued behind it is never even pulled.
 func TestPoolHaltsOnInsufficientBalance(t *testing.T) {
@@ -845,41 +782,24 @@ func TestPoolHaltsOnInsufficientBalance(t *testing.T) {
 	}
 
 	// The halted request itself must not have a terminal result: it was
-	// left unacked for redelivery, not marked failed and finished.
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	consumer, err := h.js.OrderedConsumer(ctx, queue.StreamResults, jetstream.OrderedConsumerConfig{
-		FilterSubjects: []string{queue.FinalSubject(requestID)},
-	})
+	// left unacked for redelivery, not marked failed and finished — so its
+	// row still says running with no finished_at.
+	row, err := h.pool.Store.GetWorkRequest(context.Background(), requestID)
 	if err != nil {
-		t.Fatalf("ordered consumer: %v", err)
+		t.Fatalf("get work request: %v", err)
 	}
-	batch, err := consumer.Fetch(1, jetstream.FetchMaxWait(2*time.Second))
-	if err != nil {
-		t.Fatalf("fetch: %v", err)
-	}
-	for range batch.Messages() {
-		t.Fatal("expected no final result to be published for a request that hit an empty account")
+	if row.FinishedAt != nil {
+		t.Fatalf("expected no terminal result for a request that hit an empty account, row: %+v", row)
 	}
 
 	// A second request, published after the halt, must never be picked up
-	// either — the pool stopped pulling, it did not just fail this one.
+	// either — the pool stopped pulling, it did not just fail this one. The
+	// pool never claimed it, so no row exists at all.
 	second := uniqueID("req-402-second")
 	h.publish(t, queue.Request{RequestID: second, Prompt: "task", Repos: testRepos(), PermissionMode: "full"})
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-	defer cancel2()
-	consumer2, err := h.js.OrderedConsumer(ctx2, queue.StreamResults, jetstream.OrderedConsumerConfig{
-		FilterSubjects: []string{queue.FinalSubject(second)},
-	})
-	if err != nil {
-		t.Fatalf("ordered consumer: %v", err)
-	}
-	batch2, err := consumer2.Fetch(1, jetstream.FetchMaxWait(1500*time.Millisecond))
-	if err != nil {
-		t.Fatalf("fetch: %v", err)
-	}
-	for range batch2.Messages() {
-		t.Fatal("expected a request published after the halt never to be pulled, let alone finished")
+	time.Sleep(1500 * time.Millisecond)
+	if _, err := h.pool.Store.GetWorkRequest(context.Background(), second); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected a request published after the halt never to be pulled, let alone finished; GetWorkRequest error = %v", err)
 	}
 }
 
@@ -938,9 +858,9 @@ func TestPoolGaveUpPropagatesCompleteStatus(t *testing.T) {
 
 // TestPoolLastDeliveryPublishesFailedRatherThanVanishing pins the ceiling
 // docs/DESIGN.md §4.10 asks for: "On the last delivery attempt, publish
-// failed and Term." The consumer's MaxDeliver stops redelivering after N
-// attempts, so without this the request would simply stop existing and a
-// caller polling for its result would wait forever.
+// failed and Term." The queue's ceiling (MaxDeliveries) stops redelivering
+// after N attempts, so without this the request would simply stop existing
+// and a caller polling for its result would wait forever.
 func TestPoolLastDeliveryPublishesFailedRatherThanVanishing(t *testing.T) {
 	srv := plainAnswerServer(t, "unused", 0, &hitCounter{})
 	defer srv.Close()

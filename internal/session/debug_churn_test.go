@@ -14,7 +14,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
-// TestDebugChurnAtSubTurnIsCaughtAndNamed drives RunOptions.DebugChurnAtSubTurn
+// TestDebugChurnOnSubTurnIsCaughtAndNamed drives RunOptions.DebugChurnOnSubTurn
 // through the full loop against a fake server that reports usage the way the
 // real API would for a genuinely broken prefix (near-total miss on the
 // churned sub-turn). It is the session-level half of the guarantee that a
@@ -22,7 +22,7 @@ import (
 // specific message. The live demonstration against the real
 // API exercises the identical option through `harness run
 // -debug-churn-at-subturn` (cmd/harness/run.go).
-func TestDebugChurnAtSubTurnIsCaughtAndNamed(t *testing.T) {
+func TestDebugChurnOnSubTurnIsCaughtAndNamed(t *testing.T) {
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -57,7 +57,7 @@ func TestDebugChurnAtSubTurnIsCaughtAndNamed(t *testing.T) {
 			})
 		case 2:
 			// Sub-turn 2: this is the one turn.go mutates before sending
-			// (DebugChurnAtSubTurn == 2). Report usage the way DeepSeek
+			// (DebugChurnOnSubTurn == 2). Report usage the way DeepSeek
 			// would for a request whose common prefix collapsed: almost
 			// nothing hits, far more than the 127-token slack over what an
 			// honest append would predict.
@@ -90,7 +90,7 @@ func TestDebugChurnAtSubTurnIsCaughtAndNamed(t *testing.T) {
 	res, err := r.Run(t.Context(), RunOptions{
 		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "a task with several sub-turns",
-		DebugChurnAtSubTurn: 2,
+		DebugChurnOnSubTurn: 2,
 	})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -156,11 +156,11 @@ func TestDebugChurnAtSubTurnIsCaughtAndNamed(t *testing.T) {
 // value already cannot match; this keeps that true if numbering ever changes.
 func TestDebugChurnIsOffByDefault(t *testing.T) {
 	var opts RunOptions
-	if opts.DebugChurnAtSubTurn != 0 {
-		t.Fatalf("zero value of DebugChurnAtSubTurn = %d, want 0", opts.DebugChurnAtSubTurn)
+	if opts.DebugChurnOnSubTurn != 0 {
+		t.Fatalf("zero value of DebugChurnOnSubTurn = %d, want 0", opts.DebugChurnOnSubTurn)
 	}
 	for subTurn := 0; subTurn <= 3; subTurn++ {
-		if opts.DebugChurnAtSubTurn > 0 && opts.DebugChurnAtSubTurn == subTurn {
+		if opts.DebugChurnOnSubTurn > 0 && opts.DebugChurnOnSubTurn == subTurn {
 			t.Fatalf("default RunOptions would churn sub-turn %d", subTurn)
 		}
 	}

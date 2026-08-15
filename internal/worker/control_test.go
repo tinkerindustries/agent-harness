@@ -195,23 +195,30 @@ func TestStopHealthyRunCancels(t *testing.T) {
 	h.publish(t, queue.Request{RequestID: requestID, Prompt: "do it", Repos: testRepos(), PermissionMode: "full"})
 	sessionID := h.waitForSessionID(t, requestID, 5*time.Second)
 
+	// Wait for the session row to reach "running" before stopping: this test
+	// is about the soft stop of a live run, so the stop must land inside
+	// Runner.Run rather than in workspace preparation. The store-backed claim
+	// loop delivers the message fast enough that the session id can be
+	// visible while Create is still in flight; a stop landing there is a
+	// different, equally valid shape, covered by
+	// TestStopDuringPreparationSoftStopCancelsRowAndResult.
+	waitForSessionStatus(t, h, sessionID, store.StatusRunning, 5*time.Second)
+
 	if err := h.pool.Stop(sessionID, "the user asked"); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
 
 	res := h.fetchFinalResult(t, requestID, 10*time.Second)
 	if res.Status != queue.StatusCancelled {
-		t.Fatalf("expected a cancelled result, got %+v", res)
+		t.Fatalf("expected a cancelled result, got %+v (error: %+v)", res, res.Error)
 	}
 	if res.Error == nil || res.Error.Code != "cancelled" || res.Error.Message != "the user asked" {
 		t.Fatalf("expected error {cancelled, the user asked}, got %+v", res.Error)
 	}
-	if n := h.countFinalResults(t, requestID, 2*time.Second); n != 1 {
-		t.Fatalf("expected exactly 1 final result, got %d", n)
-	}
 
-	// The work_requests row is recorded cancelled and the message was
-	// answered: the run's registry entry is gone with it.
+	// The work_requests row is recorded cancelled (the one place a result
+	// lives) and the message was answered: the run's registry entry is gone
+	// with it.
 	row, err := h.pool.Store.GetWorkRequest(context.Background(), requestID)
 	if err != nil {
 		t.Fatalf("get work request: %v", err)
@@ -273,16 +280,13 @@ func TestStopWedgedRunFreesSlotAndCancels(t *testing.T) {
 		t.Fatal("expected the cancelled session to carry finished_at")
 	}
 
-	// A cancelled result is published and the message acked.
+	// A cancelled result is recorded and the message acked.
 	res := h.fetchFinalResult(t, requestID, 10*time.Second)
 	if res.Status != queue.StatusCancelled {
 		t.Fatalf("expected a cancelled result, got %+v", res)
 	}
 	if res.Error == nil || res.Error.Code != "cancelled" || res.Error.Message != "the operator gave up waiting" {
 		t.Fatalf("expected error {cancelled, the operator gave up waiting}, got %+v", res.Error)
-	}
-	if n := h.countFinalResults(t, requestID, 2*time.Second); n != 1 {
-		t.Fatalf("expected exactly 1 final result, got %d", n)
 	}
 	h.waitForNotRunning(t, sessionID, 2*time.Second)
 
@@ -303,11 +307,9 @@ func TestStopWedgedRunFreesSlotAndCancels(t *testing.T) {
 
 // TestWedgedRunCannotPublishTwice releases the blocked runner after the
 // force-finish has landed and asserts the wedged goroutine logs and drops its
-// own result instead of finishing a second time: no second result on the
-// stream, no second ack, and no second record of a finish. A second finish
-// would have bumped the work_requests row's version, so that is the
-// assertion that catches it even though the result publish would be
-// deduplicated by its Nats-Msg-Id.
+// own result instead of finishing a second time: no second record of a
+// finish. A second finish would have bumped the work_requests row's version,
+// so that is the assertion that catches it.
 func TestWedgedRunCannotPublishTwice(t *testing.T) {
 	runner := &wedgingRunner{gate: make(chan struct{}), wedged: make(chan struct{})}
 	h := newTestHarnessWithRunner(t, "", 1, func(st *store.Store) Runner {
@@ -362,9 +364,6 @@ func TestWedgedRunCannotPublishTwice(t *testing.T) {
 	if row.Status != queue.StatusCancelled {
 		t.Fatalf("expected the row to stay cancelled, got %q", row.Status)
 	}
-	if n := h.countFinalResults(t, requestID, 2*time.Second); n != 1 {
-		t.Fatalf("expected exactly 1 final result, got %d", n)
-	}
 	if sess := waitForSessionStatus(t, h, sessionID, store.StatusCancelled, 2*time.Second); sess.FinishedAt == nil {
 		t.Fatal("expected the cancelled session to carry finished_at")
 	}
@@ -382,6 +381,9 @@ func TestStopIsIdempotent(t *testing.T) {
 	requestID := uniqueID("req-stop-twice")
 	h.publish(t, queue.Request{RequestID: requestID, Prompt: "do it", Repos: testRepos(), PermissionMode: "full"})
 	sessionID := h.waitForSessionID(t, requestID, 5*time.Second)
+	// As in TestStopHealthyRunCancels: stop only once the run is inside
+	// Runner.Run, so the stop cancels the run rather than its preparation.
+	waitForSessionStatus(t, h, sessionID, store.StatusRunning, 5*time.Second)
 
 	if err := h.pool.Stop(sessionID, "first stop"); err != nil {
 		t.Fatalf("first Stop: %v", err)
@@ -397,8 +399,20 @@ func TestStopIsIdempotent(t *testing.T) {
 	if res.Error == nil || res.Error.Code != "cancelled" || res.Error.Message != "first stop" {
 		t.Fatalf("expected the first stop's reason to stick, got %+v", res.Error)
 	}
-	if n := h.countFinalResults(t, requestID, 2*time.Second); n != 1 {
-		t.Fatalf("expected one cancellation and one published result, got %d", n)
+	// One cancellation, one recorded finish: the row's version must not move
+	// after the result is in.
+	row, err := h.pool.Store.GetWorkRequest(context.Background(), requestID)
+	if err != nil {
+		t.Fatalf("get work request: %v", err)
+	}
+	version := row.Version
+	time.Sleep(300 * time.Millisecond)
+	row, err = h.pool.Store.GetWorkRequest(context.Background(), requestID)
+	if err != nil {
+		t.Fatalf("get work request: %v", err)
+	}
+	if row.Version != version {
+		t.Fatalf("expected one cancellation and one recorded result, got a second finish (version %d -> %d)", version, row.Version)
 	}
 }
 
@@ -465,8 +479,20 @@ func TestStopAfterRunFinished(t *testing.T) {
 	if res.Text != "completed" {
 		t.Fatalf("expected the run's own result text, got %q", res.Text)
 	}
-	if n := h.countFinalResults(t, requestID, 2*time.Second); n != 1 {
-		t.Fatalf("expected exactly 1 final result (the run's own ok), got %d", n)
+	// Exactly one recorded finish — the run's own ok — and no cancelled
+	// result written over it: the row's version must not move.
+	row, err := h.pool.Store.GetWorkRequest(context.Background(), requestID)
+	if err != nil {
+		t.Fatalf("get work request: %v", err)
+	}
+	version, result := row.Version, string(row.Result)
+	time.Sleep(300 * time.Millisecond)
+	row, err = h.pool.Store.GetWorkRequest(context.Background(), requestID)
+	if err != nil {
+		t.Fatalf("get work request: %v", err)
+	}
+	if row.Version != version || string(row.Result) != result {
+		t.Fatalf("expected the run's own ok result to be the one recorded, got version %d result %s", row.Version, row.Result)
 	}
 	sess, err = h.pool.Store.GetSession(context.Background(), sessionID)
 	if err != nil {

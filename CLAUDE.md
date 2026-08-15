@@ -5,8 +5,9 @@ DeepSeek is the default provider and the only one implemented today; Kimi
 K3 is being added behind a narrow dialect seam. Prefer the option that
 exercises a provider's real behaviour over a provider-agnostic abstraction.
 
-Work arrives on a NATS JetStream queue, runs as one of several concurrent agent
-sessions in a single Go process, and returns a result to a results stream.
+Work arrives on a durable work queue (the `work_queue` table in serve's
+SQLite store), runs as one of several concurrent agent sessions in a single
+Go process, and records its result on the request's `work_requests` row.
 [ARCHITECTURE.md](ARCHITECTURE.md) maps how the packages relate and the
 invariants between them, and [`internal/CLAUDE.md`](internal/CLAUDE.md) is the
 codemap — one entry per Go package, loaded automatically when you work in one;

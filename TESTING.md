@@ -9,7 +9,7 @@ smoke sequence at the bottom of this file the only gate there is.
 | Layer | Purpose here | Touches | Runner | Lives in |
 | --- | --- | --- | --- | --- |
 | Go unit | Everything that is a pure function of its inputs: folds, diffs, SSE parsing, tool-call assembly, permission decisions, pricing | Nothing external; a temp dir and a local shell at most | `go test` | Beside the code, `internal/<pkg>/*_test.go` |
-| Go integration | JetStream behaviour that only a real broker exhibits — stream convergence, ack discipline, redelivery, the MCP server over its wire transport | A NATS server from `docker-compose.test.yml` | `scripts/test.sh` | `internal/queue`, `internal/worker`, `internal/mcp` |
+| Go integration | The queue's edges against a real SQLite file — lease expiry, concurrent claim, the delivery ceiling — and the MCP server over its wire transport | A fresh SQLite file in a temp dir; `git` for the clone tests | `scripts/test.sh` | `internal/queue`, `internal/worker`, `internal/mcp` |
 | Frontend unit | The browser-side fold and the display helpers around it | Nothing; no DOM harness | `vitest` | Beside the code, `web/src/**/*.test.ts` |
 
 Nothing in either suite calls `api.deepseek.com`. Findings that needed the live
@@ -31,9 +31,9 @@ equivalent is the manual smoke check below.
 | One frontend file | `npm --prefix web run test -- src/api/fold.test.ts` |
 | Frontend watch mode | `npm --prefix web exec -- vitest` |
 
-`scripts/test.sh` brings the test broker up, runs the suite, and takes the
-broker down again however the run ends. Flags after the script name pass through
-to `go test`.
+`scripts/test.sh` runs the whole Go suite — no broker, no other service, every
+test on its own SQLite file in a temp dir. Flags after the script name pass
+through to `go test`.
 
 It runs `go list ./...` minus anything under a `workspaces` path rather than a
 bare `./...`, because agent workspaces live inside this checkout and their Go
@@ -42,37 +42,12 @@ listed packages rather than hardcoding `./cmd/... ./internal/...` is deliberate:
 a hardcoded pair of roots would silently stop covering a new top-level package,
 and tests that quietly do not run are worse than a build error.
 
-To iterate on one package without paying the broker's start-up on every run,
-start it yourself:
-
-```sh
-docker compose -f docker-compose.test.yml up -d --wait
-go test ./internal/queue/...
-docker compose -f docker-compose.test.yml down
-```
-
-### The broker the integration tests use is not the one the harness uses
-
-This is the trap. Those tests delete the WORK and RESULTS streams in their
-cleanup and share the `harness-workers` durable, so pointed at the stack in
-`docker-compose.yml` they fight the running pool: it consumes their requests and
-rejects them against its own workspace roots.
-
-So they deliberately ignore `NATS_URL` and read `HARNESS_TEST_NATS_URL`, which
-defaults to the loopback port `docker-compose.test.yml` publishes. Override
-`HARNESS_TEST_NATS_PORT` and `HARNESS_TEST_NATS_URL` together or the suite and
-the broker it starts disagree on the port. The test stack has its own compose
-project name and keeps its JetStream store in tmpfs, so no run inherits messages
-from the last.
-
 ### Prerequisites
 
-- **Docker**, for the test broker. Nothing else in the Go suite needs it.
 - **`git` on `PATH`** — `internal/workspace` clones for real, against local
   fixture repositories it creates.
 - **A POSIX shell** — the `Bash` tool tests run commands.
-- No API key, no `.env`, no network. The suite reads the repo's `.env` only to
-  pick up a `HARNESS_TEST_NATS_*` override.
+- No API key, no `.env`, no network.
 
 ## What to test where
 
@@ -91,9 +66,10 @@ from the last.
   *definitions* are unchanged by mode, which is the cache invariant in test form.
 - **`internal/fold`, `internal/store`** — pure transforms with obvious inputs and
   outputs; cheap, so cover the edges.
-- **`internal/queue`, `internal/worker`, `internal/mcp`** — integration only.
-  Assert against a real broker: nothing about JetStream's ack, redelivery, or
-  convergence behaviour is worth a mock.
+- **`internal/queue`, `internal/worker`, `internal/mcp`** — integration over a
+  real SQLite file in a temp dir. The queue is a table now; its edges — lease
+  expiry, concurrent claim, the delivery ceiling, the crash-then-redeliver
+  shape — are the things to cover, alongside the MCP server's wire transport.
 - **`web/src/api/fold.ts`** — the browser fold, which has to stay in shape
   agreement with the Go one. Test the event kinds, not the React tree.
 - **Don't bother** with the React components. There is no DOM test harness and
@@ -113,13 +89,9 @@ from the last.
 
 ## Known-awkward tests
 
-**Integration tests fail, they do not skip, when the broker is missing.** With
-no broker reachable the `queue`, `worker` and `mcp` suites call `t.Fatalf`
-naming the URL they tried and pointing at `scripts/test.sh`, so `go test ./...`
-never reads as a pass while the queue path went untested. The deliberate
-opt-out is `HARNESS_TEST_NATS_OPTIONAL=1`, which restores the old skip for a
-developer who genuinely has no Docker; `scripts/test.sh` never sets it, so its
-own broker being unreachable is loud.
+**The queue tests are deterministic, not timed.** Lease expiry and Nak delays
+are driven by an explicit `now` argument into the store, never by sleeping, so
+the queue and worker suites run in seconds and do not flake under load.
 
 **`workspaces/` holds real clones from local runs.** Each is its own Go module,
 so `./...` steps over them, but they are also why the directory is gitignored —
@@ -166,7 +138,7 @@ Cheapest first.
    are still in `workspaces/` and `workspaces-prod/` and still shadow the
    module — keep naming the roots.
 4. `scripts/test.sh` — all pass. Seconds for the unit tests, under a minute
-   including the broker's start-up.
+   for the whole suite.
 5. Frontend, if you touched `web/`: `npm --prefix web run build` then
    `npm --prefix web run test`. The build runs `tsc -b`, so it is the typecheck
    too.
@@ -175,7 +147,7 @@ Then, for anything on the request path, the queue path, or the HTTP surface:
 
 ```sh
 docker compose up -d --build          # --build, or you restart the old code
-curl -sf localhost:8080/api/queue     # the harness is up and sees its streams
+curl -sf localhost:8080/api/queue     # the harness is up and sees its queue
 ```
 
 Open `http://localhost:8080` and confirm the session list renders. For a real
@@ -213,16 +185,6 @@ pass rather than part of the suites.
   proxy buffers the response, so the transcript never loads past the initial
   fetch on a page served by `npm run dev`. Drive the browser against the
   **built image** (step 1's `--build`), never the dev server.
-- **`scripts/test.sh` works from inside a container that shares the docker
-  socket.** The test broker publishes onto the host's loopback, which such
-  a container does not share — so after bringing the compose broker up the
-  script probes the suite's URL and, when the port is not reachable from
-  where it runs, falls back to a local `nats-server` (pinned in the
-  Dockerfile, `ARG NATS_SERVER_VERSION`) on the same port with JetStream
-  on, and tears it down along with the compose broker however the run
-  ends. A host run still exercises the compose broker; the identical
-  `scripts/test.sh` command works in both places with nothing passed and
-  nothing configured.
 - **A container that cannot fork.** The image runs `tini` as PID 1 so
   orphaned processes get reaped. A session's Bash calls run under a shell in
   its own process group, and any of that shell's children outliving it are

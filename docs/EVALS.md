@@ -205,7 +205,7 @@ The endpoints, following the conventions in docs/DATA-API.md:
 The two POSTs are run control and carry the token, the rule
 docs/RUN-CONTROL.md sets for anything that starts or ends a run and spends
 money. PATCH and DELETE are row writes and carry the version. `harness serve`
-still holds no JetStream handle: the orchestrator has one, through the same
+still holds no queue handle: the orchestrator enqueues through the same
 one-method publisher seam the browser's start already uses, and
 `internal/httpapi` reaches it through the declared `EvalController`.
 

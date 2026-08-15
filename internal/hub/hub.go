@@ -3,9 +3,10 @@
 // store.Event values a session appends, and a session-list subscriber set,
 // fed the low-rate state changes docs/DESIGN.md §5.8 wants quiet.
 //
-// The browser reads the store and this hub, never NATS — RESULTS progress
-// messages are turn-level and rate-limited for a different consumer
-// (docs/DESIGN.md §4.10). Nothing here touches JetStream.
+// The browser reads the store and this hub, never the queue: progress
+// events are turn-level and rate-limited, and the queue carries only work
+// requests and their terminal results (docs/DESIGN.md §4.10). Nothing here
+// touches the queue.
 package hub
 
 import (

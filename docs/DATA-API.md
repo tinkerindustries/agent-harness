@@ -9,11 +9,11 @@ Two distinctions bracket what belongs here:
   closing an abandoned session, deleting a finished one, closing a dead work
   request — is data and belongs in this API. A write that *starts, steers, or
   stops a run* is run control and lives in [RUN-CONTROL.md](RUN-CONTROL.md),
-  whose seams are chosen: the HTTP server holds no JetStream handle and
+  whose seams are chosen: the HTTP server holds no queue handle and
   `internal/httpapi` imports neither `internal/session` nor
   `internal/worker` ([ARCHITECTURE.md](../ARCHITECTURE.md)). Three
-  run-control actions exist: `POST /api/runs`, which publishes a validated
-  work request to the WORK stream through the declared `RunPublisher`
+  run-control actions exist: `POST /api/runs`, which enqueues a validated
+  work request through the declared `RunPublisher`
   interface (implemented by `cmd/harness` over the queue's own handle);
   `POST /api/sessions/{id}/stop`, authenticated by the `http.control_token`
   bearer token and acting on a run through the declared `RunController`
@@ -276,11 +276,11 @@ Three boundaries this draws:
 ### attachments
 
 A work request may carry images — a mockup the task asks the agent to match,
-say. The bytes live in the `attachments` table, never inline in the NATS
-request: the default `max_payload` is 1 MB and a mockup exceeds it, and the
-store is the authority the disk mirror derives from, so `harness export`
-stays complete. The request carries only `attachment_ids`; the worker reads
-the rows back and the workspace materialises them into
+say. The bytes live in the `attachments` table, never inline in the work
+request: the store is the authority the disk mirror derives from, so
+`harness export` stays complete, and a request never carries bytes that
+could blow its size. The request carries only `attachment_ids`; the worker
+reads the rows back and the workspace materialises them into
 `scratch/attachments/`, which the run's opening message names.
 
 The two producers accept them in the same shape — `POST /api/runs` (a
@@ -310,7 +310,7 @@ A work request is the idempotency row for one queued job: request id, the
 session that ran it, status, result JSON, `received_at`, `finished_at`,
 delivery count. It is **single-use**: the row's `session_id` is attached the
 moment an attempt's session row exists, and once it is set the request never
-runs again, whatever its status ([DESIGN.md §4.10](DESIGN.md#410-work-ingress-over-nats-jetstream)).
+runs again, whatever its status ([DESIGN.md §4.10](DESIGN.md#410-work-ingress-and-the-durable-work-queue)).
 A request is retried by republishing it under a new `request_id`, never by
 re-running the old one.
 

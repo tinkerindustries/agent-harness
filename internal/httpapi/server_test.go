@@ -20,7 +20,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nats-io/nats.go/jetstream"
 	_ "modernc.org/sqlite"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
@@ -1780,13 +1779,13 @@ func mustGetSession(t *testing.T, st *store.Store, id string) store.Session {
 
 // --- queue health ---
 
-type fakeConsumer struct {
-	info *jetstream.ConsumerInfo
-	err  error
+type fakeQueueStats struct {
+	stats queue.Stats
+	err   error
 }
 
-func (f fakeConsumer) Info(ctx context.Context) (*jetstream.ConsumerInfo, error) {
-	return f.info, f.err
+func (f fakeQueueStats) Stats(ctx context.Context) (queue.Stats, error) {
+	return f.stats, f.err
 }
 
 type fakePool struct {
@@ -1813,10 +1812,10 @@ func getQueueHealth(t *testing.T, srv *httptest.Server) queueHealth {
 	return qh
 }
 
-// TestQueueHealthWithNoConsumerReportsUnavailable is the shape a CLI-only
-// harness gets: no NATS queue wired up at all, so the endpoint reports
-// unavailable rather than panicking on a nil Consumer.
-func TestQueueHealthWithNoConsumerReportsUnavailable(t *testing.T) {
+// TestQueueHealthWithNoQueueReportsUnavailable is the shape a CLI-only
+// harness gets: no queue wired up at all, so the endpoint reports
+// unavailable rather than panicking on a nil Queue.
+func TestQueueHealthWithNoQueueReportsUnavailable(t *testing.T) {
 	dir := t.TempDir()
 	st, err := store.Open(filepath.Join(dir, "harness.db"))
 	if err != nil {
@@ -1829,18 +1828,18 @@ func TestQueueHealthWithNoConsumerReportsUnavailable(t *testing.T) {
 
 	qh := getQueueHealth(t, srv)
 	if qh.Available {
-		t.Fatalf("expected available=false with no Consumer, got %+v", qh)
+		t.Fatalf("expected available=false with no Queue, got %+v", qh)
 	}
 	if qh.Halted {
 		t.Fatalf("expected halted=false with no Pool, got %+v", qh)
 	}
 }
 
-// TestQueueHealthReportsConsumerFiguresAndHaltState covers the three
-// figures the session list shows — consumer lag, in-flight count,
-// redelivery count — plus the pool's halted state, all
-// against fakes so the test needs no real NATS server.
-func TestQueueHealthReportsConsumerFiguresAndHaltState(t *testing.T) {
+// TestQueueHealthReportsQueueFiguresAndHaltState covers the four figures the
+// session list shows — queue depth, scheduled, in-flight count, redelivery
+// count — plus the pool's halted state, all against fakes so the test needs
+// no store queue behind it.
+func TestQueueHealthReportsQueueFiguresAndHaltState(t *testing.T) {
 	dir := t.TempDir()
 	st, err := store.Open(filepath.Join(dir, "harness.db"))
 	if err != nil {
@@ -1850,10 +1849,8 @@ func TestQueueHealthReportsConsumerFiguresAndHaltState(t *testing.T) {
 	api := &Server{
 		Store: st, Hub: hub.New(),
 		Static: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
-		Consumer: fakeConsumer{info: &jetstream.ConsumerInfo{
-			NumPending: 7, NumAckPending: 2, NumRedelivered: 1,
-		}},
-		Pool: fakePool{halted: true, reason: "account balance exhausted (402 from DeepSeek)"},
+		Queue:  fakeQueueStats{stats: queue.Stats{Depth: 7, Scheduled: 3, InFlight: 2, Redelivered: 1}},
+		Pool:   fakePool{halted: true, reason: "account balance exhausted (402 from DeepSeek)"},
 	}
 	srv := httptest.NewServer(api.Handler())
 	t.Cleanup(srv.Close)
@@ -1862,7 +1859,7 @@ func TestQueueHealthReportsConsumerFiguresAndHaltState(t *testing.T) {
 	if !qh.Available {
 		t.Fatalf("expected available=true, got %+v", qh)
 	}
-	if qh.ConsumerLag != 7 || qh.InFlight != 2 || qh.Redelivered != 1 {
+	if qh.QueueDepth != 7 || qh.Scheduled != 3 || qh.InFlight != 2 || qh.Redelivered != 1 {
 		t.Fatalf("unexpected queue figures: %+v", qh)
 	}
 	if !qh.Halted || qh.HaltReason == "" {
@@ -1870,10 +1867,10 @@ func TestQueueHealthReportsConsumerFiguresAndHaltState(t *testing.T) {
 	}
 }
 
-// TestQueueHealthSurfacesConsumerInfoError covers a live NATS call that
-// itself fails (server unreachable, say): reported through Error rather
-// than a 500, since the rest of the read-only surface still works fine.
-func TestQueueHealthSurfacesConsumerInfoError(t *testing.T) {
+// TestQueueHealthSurfacesStatsError covers a live stats read that itself
+// fails (the store is unreachable, say): reported through Error rather than
+// a 500, since the rest of the read-only surface still works fine.
+func TestQueueHealthSurfacesStatsError(t *testing.T) {
 	dir := t.TempDir()
 	st, err := store.Open(filepath.Join(dir, "harness.db"))
 	if err != nil {
@@ -1882,18 +1879,18 @@ func TestQueueHealthSurfacesConsumerInfoError(t *testing.T) {
 	t.Cleanup(func() { st.Close() })
 	api := &Server{
 		Store: st, Hub: hub.New(),
-		Static:   http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
-		Consumer: fakeConsumer{err: errors.New("nats: no responders available for request")},
+		Static: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+		Queue:  fakeQueueStats{err: errors.New("queue stats unavailable")},
 	}
 	srv := httptest.NewServer(api.Handler())
 	t.Cleanup(srv.Close)
 
 	qh := getQueueHealth(t, srv)
 	if qh.Available {
-		t.Fatalf("expected available=false when Consumer.Info errors, got %+v", qh)
+		t.Fatalf("expected available=false when Queue.Stats errors, got %+v", qh)
 	}
 	if qh.Error == "" {
-		t.Fatal("expected the Consumer.Info error to be surfaced")
+		t.Fatal("expected the Queue.Stats error to be surfaced")
 	}
 }
 
@@ -4099,8 +4096,8 @@ func TestSteerAppendsEventAndPublishes(t *testing.T) {
 
 // fakeRunPublisher is the test double for RunPublisher: records the requests
 // it was asked to publish, and an optional error every call returns. It
-// stands in for the adapter cmd/harness wires over the JetStream handle, so
-// these tests need no broker.
+// stands in for the adapter cmd/harness wires over the store-backed queue,
+// so these tests need no broker.
 type fakeRunPublisher struct {
 	requests []queue.Request
 	err      error // when set, every PublishRequest returns it
@@ -4583,8 +4580,8 @@ func TestStartRunStampsConfiguredOperator(t *testing.T) {
 // TestStartRunWritesAttachmentsBeforePublishing pins the attachment path
 // end to end: a browser start carrying images stores their bytes in the
 // store's attachments table before the publish, and the published request
-// carries the ids — never the bytes — so the NATS request stays small and
-// the worker can materialise the files into scratch/attachments/.
+// carries the ids — never the bytes — so the request stays small and the
+// worker can materialise the files into scratch/attachments/.
 func TestStartRunWritesAttachmentsBeforePublishing(t *testing.T) {
 	pub := &fakeRunPublisher{}
 	srv, st := newStartTestServer(t, pub)

@@ -65,7 +65,7 @@ func TestLoadKeepsBootstrapFieldsOnly(t *testing.T) {
 	if cfg.Thinking != true {
 		t.Errorf("Thinking = %v, want true", cfg.Thinking)
 	}
-	if cfg.DataDir == "" || cfg.NATSURL == "" || cfg.HTTPAddr == "" || cfg.BaseURL == "" {
+	if cfg.DataDir == "" || cfg.HTTPAddr == "" || cfg.BaseURL == "" {
 		t.Errorf("bootstrap fields must survive Load: %+v", cfg)
 	}
 }

@@ -1,6 +1,7 @@
-// Package worker is the harness's worker pool: it pulls work requests off
-// the WORK stream, runs each as a session.Runner call, and publishes the
-// result to the RESULTS stream (docs/DESIGN.md §4.10).
+// Package worker is the harness's worker pool: it claims work requests off
+// the store-backed queue (internal/queue), runs each as a session.Runner
+// call, and records the result on the request's work_requests row
+// (docs/DESIGN.md §4.10).
 package worker
 
 import (
@@ -15,8 +16,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/kimi"
@@ -43,15 +42,14 @@ type Runner interface {
 	Run(ctx context.Context, opts session.RunOptions) (*session.RunResult, error)
 }
 
-// Pool pulls from Consumer and dispatches each message to a session
+// Pool claims from Source and dispatches each message to a session
 // goroutine, bounded by Size. Nothing here holds per-request state outside
 // the handler for that request — the property docs/DESIGN.md §4.5 asks
 // every caller of session.Runner to preserve.
 type Pool struct {
-	Store    *store.Store
-	Runner   Runner
-	JS       jetstream.JetStream
-	Consumer jetstream.Consumer
+	Store  *store.Store
+	Runner Runner
+	Source queue.Source
 
 	// WorkspaceRoot is the parent directory each run's own workspace is
 	// created under, named for its session id (docs/DESIGN.md §4.10).
@@ -71,17 +69,20 @@ type Pool struct {
 	// below, apply.
 	Settings *settings.Resolver
 
-	// Size bounds concurrent runs. It must equal the consumer's
-	// MaxAckPending (docs/DESIGN.md §4.10) so JetStream never delivers more
-	// than the pool can work on; Size is the local backstop, not the flow
-	// controller.
+	// Size bounds concurrent runs. The pool is the flow controller now:
+	// Run claims at most Size rows — one per free slot — and holds them
+	// leased for as long as their runs last, so the queue never hands the
+	// pool more than it can work on and the backlog stays in the table
+	// (docs/DESIGN.md §4.10).
 	Size int
 
-	// MaxDeliveryAttempts must equal the consumer's MaxDeliver. The server
-	// enforces the ceiling; the pool needs to know it so the last attempt
-	// can publish a terminal result before the message goes away, rather
-	// than leaving the caller waiting on a request that will never be
-	// delivered again (docs/DESIGN.md §4.10). Zero means
+	// MaxDeliveryAttempts must equal the queue's MaxDeliveries (both from
+	// worker.max_delivery_attempts). The queue enforces the ceiling —
+	// NakWork discards a row whose delivery count has reached it — and the
+	// pool needs to know the number so the last attempt can publish a
+	// terminal result before the row goes away, rather than leaving the
+	// caller waiting on a request that will never be delivered again
+	// (docs/DESIGN.md §4.10). Zero means
 	// queue.DefaultMaxDeliveryAttempts.
 	MaxDeliveryAttempts int
 
@@ -114,8 +115,6 @@ type Pool struct {
 	ctrl     *Controller
 	ctrlOnce sync.Once
 
-	haltMu     sync.Mutex
-	stopPull   func()
 	halted     atomic.Bool
 	haltReason atomic.Pointer[string]
 }
@@ -233,60 +232,74 @@ func (p *Pool) defaultMaxTokens(ctx context.Context) int {
 	return 48000
 }
 
-// Run pulls and processes messages until ctx is done. On shutdown it stops
-// pulling new work but lets in-flight runs finish and publish normally —
-// an agent run takes minutes, and cutting one off on a routine restart
-// would waste it for no reason. Only a process that dies outright leaves a
-// message for the spent-request path to pick up.
+// Run claims and processes messages until ctx is done or the pool halts.
+// On shutdown it stops claiming new work but lets in-flight runs finish and
+// publish normally — an agent run takes minutes, and cutting one off on a
+// routine restart would waste it for no reason. Only a process that dies
+// outright leaves a leased row for the spent-request path to pick up.
+//
+// The loop is the flow controller: it claims at most one row per free slot
+// (Size minus the slots in flight), spawns a goroutine per row, and blocks
+// on Source.Wait between rounds — woken by an enqueue, by a freed slot, or
+// by the poll interval (a lease expiring or a Nak delay maturing).
 func (p *Pool) Run(ctx context.Context) error {
 	sem := make(chan struct{}, p.size())
-	consumeCtx, err := p.Consumer.Consume(func(msg jetstream.Msg) {
-		sem <- struct{}{}
-		p.wg.Add(1)
-		go func() {
-			defer p.wg.Done()
-			// The release is an idempotent closure (sync.Once over <-sem)
-			// rather than a plain defer, so the stop escalation can free the
-			// pool slot for a run whose own goroutine is wedged and whose
-			// deferred release would otherwise never run (docs/RUN-CONTROL.md
-			// "Half two"). The run goroutine's own deferred call becomes a
-			// no-op once the escalation has released the slot.
-			release := sync.OnceFunc(func() { <-sem })
-			defer release()
-			p.handle(msg, release)
-		}()
-	}, jetstream.PullMaxMessages(p.size()))
-	if err != nil {
-		return errors.New("worker: consume: " + err.Error())
+	for {
+		if ctx.Err() != nil || p.halted.Load() {
+			break
+		}
+		if free := p.size() - len(sem); free > 0 {
+			msgs, err := p.Source.Claim(ctx, free)
+			if err != nil {
+				// A claim failure is transient (the store's writer is busy,
+				// say); log it and try again on the next round rather than
+				// taking the pool down.
+				log.Printf("worker: claim: %v", err)
+			}
+			for _, m := range msgs {
+				sem <- struct{}{}
+				p.wg.Add(1)
+				go func(m queue.Msg) {
+					defer p.wg.Done()
+					// The release is an idempotent closure (sync.Once over
+					// <-sem plus a wake nudge) rather than a plain defer, so
+					// the stop escalation can free the pool slot for a run
+					// whose own goroutine is wedged and whose deferred
+					// release would otherwise never run (docs/RUN-CONTROL.md
+					// "Half two"). The run goroutine's own deferred call
+					// becomes a no-op once the escalation has released the
+					// slot.
+					//
+					// The Wake is the other half of the flow control: a
+					// freed slot must immediately let the loop claim the
+					// next row, or a saturated pool draining a backlog would
+					// claim one job per poll interval instead.
+					release := sync.OnceFunc(func() { <-sem; p.Source.Wake() })
+					defer release()
+					p.handle(m, release)
+				}(m)
+			}
+		}
+		p.Source.Wait(ctx)
 	}
-	p.haltMu.Lock()
-	p.stopPull = consumeCtx.Stop
-	p.haltMu.Unlock()
-
-	<-ctx.Done()
-	consumeCtx.Stop()
 	p.wg.Wait()
 	return nil
 }
 
-// Halt stops the pool from pulling any further work; runs already in flight
-// keep going and still publish their results normally. An empty account —
-// DeepSeek's 402, Kimi's 429 with error type exceeded_current_quota_error —
-// means the balance is gone and every other queued request would hit the
-// identical wall, so the pool stops instead of failing them one at a time
-// (docs/DESIGN.md §4.5, §4.10). Calling Halt more than once, or before
-// Run has started pulling, is safe; only the first call's reason sticks.
+// Halt stops the pool from claiming any further work; runs already in
+// flight keep going and still publish their results normally. An empty
+// account — DeepSeek's 402, Kimi's 429 with error type
+// exceeded_current_quota_error — means the balance is gone and every other
+// queued request would hit the identical wall, so the pool stops instead of
+// failing them one at a time (docs/DESIGN.md §4.5, §4.10). Calling Halt
+// more than once, or before Run has started claiming, is safe; only the
+// first call's reason sticks. The claim loop notices via the halted flag at
+// the top of its next round.
 func (p *Pool) Halt(reason string) {
 	if !p.halted.CompareAndSwap(false, true) {
 		return
 	}
 	p.haltReason.Store(&reason)
-	p.haltMu.Lock()
-	stop := p.stopPull
-	p.haltMu.Unlock()
-	if stop != nil {
-		stop()
-	}
 	log.Printf("worker: pool halted: %s", reason)
 }
 
@@ -312,17 +325,17 @@ func (p *Pool) maxDeliveryAttempts() uint64 {
 }
 
 // retryLater defers a request to a later delivery, except on the delivery
-// the consumer's MaxDeliver makes the last one — there is no later delivery
-// then, and a bare Nak would drop the request without the caller ever
-// learning why. docs/DESIGN.md §4.10: "On the last delivery attempt, publish
-// failed and Term."
+// the queue's ceiling (MaxDeliveries) makes the last one — there is no
+// later delivery then, and a bare Nak would drop the request without the
+// caller ever learning why. docs/DESIGN.md §4.10: "On the last delivery
+// attempt, publish failed and Term."
 //
 // code and message describe the transient failure that stopped this attempt;
 // they only reach anyone on the final attempt, which is the one where the
 // caller has no other way to find out.
-func (p *Pool) retryLater(msg jetstream.Msg, requestID, code, message string) {
-	if requestID == "" || deliveryCount(msg) < p.maxDeliveryAttempts() {
-		msg.NakWithDelay(p.retryLaterDelay())
+func (p *Pool) retryLater(msg queue.Msg, requestID, code, message string) {
+	if requestID == "" || msg.DeliveryCount() < p.maxDeliveryAttempts() {
+		msg.Nak(p.retryLaterDelay())
 		return
 	}
 	log.Printf("worker: %s exhausted %d delivery attempts (%s); publishing a failed result and terminating the message",
@@ -346,24 +359,16 @@ func (p *Pool) retryLater(msg jetstream.Msg, requestID, code, message string) {
 	}, true)
 }
 
-func deliveryCount(msg jetstream.Msg) uint64 {
-	meta, err := msg.Metadata()
-	if err != nil || meta == nil {
-		return 1
-	}
-	return meta.NumDelivered
-}
-
 // handle is one message's whole lifecycle: parse, claim the idempotency
 // row, and either run a session, record a validation failure, republish a
 // terminal row, or defer to a later delivery. releaseSlot is the run's
 // idempotent pool-slot release, threaded down to the run path so the stop
 // escalation can free the slot of a run that wedges (docs/RUN-CONTROL.md
 // "Half two"); the other paths never register and never release.
-func (p *Pool) handle(msg jetstream.Msg, releaseSlot func()) {
+func (p *Pool) handle(msg queue.Msg, releaseSlot func()) {
 	defer p.recoverPanic(msg)
 
-	numDelivered := deliveryCount(msg)
+	numDelivered := msg.DeliveryCount()
 
 	req, err := queue.ParseRequest(msg.Data())
 	if err != nil {
@@ -405,13 +410,14 @@ func (p *Pool) handle(msg jetstream.Msg, releaseSlot func()) {
 			// running row only falls through here when this message is on its
 			// first delivery; a redelivered one would have been claimed as an
 			// attempt that died during preparation). Nak would redeliver this
-			// exact message and bump its own NumDelivered, which is
-			// indistinguishable from the server's own "nobody is heartbeating
-			// this" signal — after one such cycle shouldClaim would wrongly
-			// read this message as abandoned and start a second session for a
-			// request that never stopped being owned. Wait and heartbeat
-			// instead, so the only way NumDelivered ever climbs past 1 is
-			// JetStream deciding so on its own.
+			// exact row and bump its own delivery count, which is
+			// indistinguishable from the queue's own "nobody is heartbeating
+			// this" signal — a lease expiring — so after one such cycle
+			// shouldClaim would wrongly read this row as abandoned and start
+			// a second session for a request that never stopped being owned.
+			// Wait and heartbeat instead, so the only way the delivery count
+			// ever climbs past 1 is the queue's own claim machinery deciding
+			// so on its own.
 			p.waitForResolution(msg, req)
 			return
 		}
@@ -440,7 +446,7 @@ const abandonedSessionIdleThreshold = 10 * time.Minute
 // abandoned session — the row CloseSession was built for — publishes a
 // failed result telling the caller what happened and how to retry, and
 // terminates the message: no further delivery can help.
-func (p *Pool) handleSpent(msg jetstream.Msg, req queue.Request, outcome store.ClaimOutcome) {
+func (p *Pool) handleSpent(msg queue.Msg, req queue.Request, outcome store.ClaimOutcome) {
 	ctx := context.Background()
 	sessionID := outcome.Existing.SessionID
 
@@ -536,7 +542,7 @@ func (p *Pool) closeAbandonedSession(ctx context.Context, sessionID string) (pro
 // finishes (then republishes its result) or this request's own deadline
 // passes (then Naks as a last resort — see the comment at the call site for
 // why that resort is safe). It never runs a session itself.
-func (p *Pool) waitForResolution(msg jetstream.Msg, req queue.Request) {
+func (p *Pool) waitForResolution(msg queue.Msg, req queue.Request) {
 	deadline := p.defaultDeadline(context.Background())
 	if req.DeadlineMS > 0 {
 		deadline = time.Duration(req.DeadlineMS) * time.Millisecond
@@ -566,10 +572,10 @@ func (p *Pool) waitForResolution(msg jetstream.Msg, req queue.Request) {
 	}
 }
 
-func (p *Pool) recoverPanic(msg jetstream.Msg) {
+func (p *Pool) recoverPanic(msg queue.Msg) {
 	if r := recover(); r != nil {
 		log.Printf("worker: recovered panic handling message: %v\n%s", r, debug.Stack())
-		msg.NakWithDelay(p.retryLaterDelay())
+		msg.Nak(p.retryLaterDelay())
 	}
 }
 
@@ -577,7 +583,7 @@ func (p *Pool) recoverPanic(msg jetstream.Msg) {
 // its Term path: a request that never
 // authorizes itself is recorded as failed under no session (sessionID ""),
 // published once, and Term'd so it is never redelivered.
-func (p *Pool) recordValidationFailure(ctx context.Context, msg jetstream.Msg, requestID string, verr error) {
+func (p *Pool) recordValidationFailure(ctx context.Context, msg queue.Msg, requestID string, verr error) {
 	if err := p.Store.SetWorkRequestSession(ctx, requestID, ""); err != nil {
 		log.Printf("worker: clear session for invalid request %s: %v", requestID, err)
 	}
@@ -593,7 +599,7 @@ func (p *Pool) recordValidationFailure(ctx context.Context, msg jetstream.Msg, r
 
 // run drives one claimed, valid request through workspace preparation and
 // the session loop to a terminal result.
-func (p *Pool) run(msg jetstream.Msg, req queue.Request, releaseSlot func()) {
+func (p *Pool) run(msg queue.Msg, req queue.Request, releaseSlot func()) {
 	started := time.Now().UTC()
 	sessionID := session.NewSessionID()
 
@@ -631,7 +637,9 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, releaseSlot func()) {
 	if err := p.Store.SetWorkRequestSession(runCtx, req.RequestID, sessionID); err != nil {
 		log.Printf("worker: attach session for %s: %v", req.RequestID, err)
 	}
-	p.publishAccepted(req.RequestID, sessionID, started)
+	// The session id is on the row now, which is what deepseek_agent's
+	// accepted wait reads back (docs/QUEUE-MIGRATION-PLAN.md §5.2); there is
+	// no separate accepted message to publish.
 
 	// Validate has already rejected an absent or unknown mode.
 	mode := tools.Mode(req.PermissionMode)
@@ -648,9 +656,7 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, releaseSlot func()) {
 	// with the workspace path this attempt is about to clone into, so the
 	// run is visible on the session list and stoppable from the moment it is
 	// claimed — a stop during a clone has a row to mark. Runner.Run promotes
-	// the row to "running" once preparation succeeds. A Create failure is a
-	// setup failure on the existing path: there is no row to mark, because
-	// it never existed.
+	// the row to "running" once preparation succeeds.
 	runOpts := session.RunOptions{
 		SessionID:       sessionID,
 		Model:           model,
@@ -679,7 +685,15 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, releaseSlot func()) {
 			log.Printf("worker: %s: message for session %s already answered; dropping the setup failure", req.RequestID, sessionID)
 			return
 		}
-		result := setupFailedResult(req.RequestID, sessionID, started, err)
+		// A cancelled context is the one Create failure that can leave a row
+		// behind: the insert is a store job that lands even though the caller
+		// saw the cancellation, so the row exists as "creating" and must be
+		// marked. Any other Create failure predates the row — there is
+		// nothing to mark.
+		if rec.stopping.Load() {
+			p.failSetup(rec, req.RequestID, sessionID, err)
+		}
+		result := p.setupResult(rec, req.RequestID, sessionID, started, err)
 		p.finish(msg, req.RequestID, sessionID, result, false)
 		return
 	}
@@ -697,8 +711,8 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, releaseSlot func()) {
 			log.Printf("worker: %s: message for session %s already answered; dropping the setup failure", req.RequestID, sessionID)
 			return
 		}
-		p.failSetup(req.RequestID, sessionID, err)
-		result := setupFailedResult(req.RequestID, sessionID, started, err)
+		p.failSetup(rec, req.RequestID, sessionID, err)
+		result := p.setupResult(rec, req.RequestID, sessionID, started, err)
 		p.finish(msg, req.RequestID, sessionID, result, false)
 		return
 	}
@@ -710,8 +724,8 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, releaseSlot func()) {
 			log.Printf("worker: %s: message for session %s already answered; dropping the setup failure", req.RequestID, sessionID)
 			return
 		}
-		p.failSetup(req.RequestID, sessionID, err)
-		result := setupFailedResult(req.RequestID, sessionID, started, err)
+		p.failSetup(rec, req.RequestID, sessionID, err)
+		result := p.setupResult(rec, req.RequestID, sessionID, started, err)
 		p.finish(msg, req.RequestID, sessionID, result, false)
 		return
 	}
@@ -731,19 +745,13 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, releaseSlot func()) {
 
 	runOpts.Workspace = ws
 	runOpts.AttachmentNames = attachmentNames
-	progressLimiter := queue.NewProgressLimiter(time.Second)
-	runOpts.Progress = func(sp session.SubTurnProgress) {
-		if progressLimiter.Allow(time.Now()) {
-			p.publishProgress(req.RequestID, sp)
-		}
-	}
 	runResult, runErr := p.Runner.Run(runCtx, runOpts)
 
 	// An empty account is distinct from an ordinary run failure: every other
 	// queued request is about to hit the same wall, so the pool stops
 	// pulling more work instead of finishing (and burning) each one in turn.
 	// This request's own session already recorded its failure through
-	// Runner.Run's normal error path; leaving the JetStream message unacked
+	// Runner.Run's normal error path; leaving the queue message unacked
 	// here, rather than publishing a terminal result, is what lets it
 	// redeliver and run as a fresh attempt once the pool is restarted with
 	// balance restored — the one retry this phase keeps, because the
@@ -787,7 +795,7 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, releaseSlot func()) {
 	p.finish(msg, req.RequestID, sessionID, result, false)
 }
 
-func (p *Pool) heartbeat(msg jetstream.Msg, done <-chan struct{}) {
+func (p *Pool) heartbeat(msg queue.Msg, done <-chan struct{}) {
 	t := time.NewTicker(p.heartbeatInterval())
 	defer t.Stop()
 	for {
@@ -862,6 +870,25 @@ func (p *Pool) classify(requestID, sessionID string, started time.Time, runResul
 	return res
 }
 
+// setupResult is setupFailedResult with the stop case distinguished: a run
+// stopped during workspace preparation reports cancelled with the operator's
+// reason — the same classification the run path gives a stopped live run
+// (classify) — and only a preparation that failed for some other reason
+// reports a workspace_setup failure. stopped and reason come from the run's
+// own record, the same signal classify uses, never a pattern-match on the
+// error text.
+func (p *Pool) setupResult(rec *inflight, requestID, sessionID string, started time.Time, err error) queue.Result {
+	if rec.stopping.Load() {
+		return queue.Result{
+			RequestID: requestID, SessionID: sessionID, Status: queue.StatusCancelled,
+			Error:      &queue.ResultError{Code: "cancelled", Message: rec.stopReason()},
+			StartedAt:  started,
+			FinishedAt: time.Now().UTC(),
+		}
+	}
+	return setupFailedResult(requestID, sessionID, started, err)
+}
+
 // setupFailedResult reports a request that never reached the session loop
 // because its workspace could not be built: a clone that was refused, a
 // branch that does not exist, an unwritable root. The session id is carried
@@ -876,22 +903,34 @@ func setupFailedResult(requestID, sessionID string, started time.Time, err error
 }
 
 // failSetup marks a session whose workspace preparation failed, so no row is
-// ever left stuck in "creating": the row moves to failed with an error event
-// (Runner.FailSetup), and the session page shows why the run never started.
-// A failure to record is logged rather than changing the setup result — the
-// caller already won the message, and the result publish is what matters.
-func (p *Pool) failSetup(requestID, sessionID string, cause error) {
+// ever left stuck in "creating": the session page shows the run never
+// started instead of a row that sits there forever. The mark follows the
+// result the caller is about to get (docs/DESIGN.md §4.10) — a run stopped
+// mid-preparation marks the row cancelled through CancelRunningSession, the
+// same writer and status the stop escalation uses, which accepts a
+// "creating" row and treats ErrNotFound (the row never got inserted) as
+// nothing to mark; any other failure marks the row failed with an error
+// event saying why (Runner.FailSetup). A failure to record is logged rather
+// than changing the setup result — the caller already won the message, and
+// the result publish is what matters.
+func (p *Pool) failSetup(rec *inflight, requestID, sessionID string, cause error) {
+	if rec.stopping.Load() {
+		if err := p.Store.CancelRunningSession(context.Background(), sessionID, time.Now().UTC()); err != nil && !errors.Is(err, store.ErrNotFound) {
+			log.Printf("worker: %s: cancel setup session %s: %v", requestID, sessionID, err)
+		}
+		return
+	}
 	if err := p.Runner.FailSetup(context.Background(), sessionID, cause); err != nil {
 		log.Printf("worker: %s: fail setup for session %s: %v", requestID, sessionID, err)
 	}
 }
 
-// finish records requestID's outcome, publishes it, and disposes of msg.
-// The store write happens before the publish so that a crash between the
-// two leaves a terminal row behind: redelivery then republishes the stored
-// result instead of running the whole session again. The publish happens
-// before the ack (or Term) so a crash between those two redelivers the
-// request rather than losing the result docs/DESIGN.md §4.10 asks for.
+// finish records requestID's outcome on the work_requests row and disposes
+// of msg. The row is the result: the worker writes it with FinishWorkRequest
+// and then acks (or Terms), so there is no separate publish to fail. A crash
+// between the write and the ack redelivers the request, and the spent path
+// then reads the terminal row back out instead of running the session again
+// (docs/QUEUE-MIGRATION-PLAN.md §1.6).
 //
 // finish is also where a registered run's registry entry is torn down: the
 // entry lives exactly as long as the message does, so a stop arriving while
@@ -899,20 +938,20 @@ func (p *Pool) failSetup(requestID, sessionID string, cause error) {
 // itself is disposed of exactly once by whichever path won the record's
 // disposed CompareAndSwap — the run finishing, or the stop escalation —
 // which is why finish itself carries no guard of its own.
-func (p *Pool) finish(msg jetstream.Msg, requestID, sessionID string, result queue.Result, term bool) {
+func (p *Pool) finish(msg queue.Msg, requestID, sessionID string, result queue.Result, term bool) {
 	defer p.controller().remove(sessionID)
 
 	data, err := json.Marshal(result)
 	if err != nil {
 		log.Printf("worker: encode result for %s: %v", requestID, err)
-		msg.NakWithDelay(p.retryLaterDelay())
+		msg.Nak(p.retryLaterDelay())
 		return
 	}
 
 	matched, err := p.Store.FinishWorkRequest(context.Background(), requestID, sessionID, result.Status, data, result.FinishedAt)
 	if err != nil {
 		log.Printf("worker: record finish for %s: %v", requestID, err)
-		msg.NakWithDelay(p.retryLaterDelay())
+		msg.Nak(p.retryLaterDelay())
 		return
 	}
 	if !matched {
@@ -926,13 +965,6 @@ func (p *Pool) finish(msg jetstream.Msg, requestID, sessionID string, result que
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if _, err := p.JS.Publish(ctx, queue.FinalSubject(requestID), data, jetstream.WithMsgID(queue.FinalMsgID(requestID))); err != nil {
-		log.Printf("worker: publish final result for %s: %v", requestID, err)
-		msg.NakWithDelay(p.retryLaterDelay())
-		return
-	}
 	if term {
 		msg.Term()
 	} else {
@@ -940,60 +972,11 @@ func (p *Pool) finish(msg jetstream.Msg, requestID, sessionID string, result que
 	}
 }
 
-// republish resends a terminal row's stored result under the same
-// Nats-Msg-Id, for a redelivery or a duplicate publish that arrived after
-// the original attempt already finished. No store write and no session
-// run: the row already says what happened.
-func (p *Pool) republish(msg jetstream.Msg, existing store.WorkRequest) {
-	if len(existing.Result) > 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if _, err := p.JS.Publish(ctx, queue.FinalSubject(existing.RequestID), existing.Result, jetstream.WithMsgID(queue.FinalMsgID(existing.RequestID))); err != nil {
-			log.Printf("worker: republish result for %s: %v", existing.RequestID, err)
-			msg.NakWithDelay(p.retryLaterDelay())
-			return
-		}
-	}
+// republish acks a redelivery or a duplicate publish that arrived after the
+// original attempt already finished. No store write, no publish, and no
+// session run: the row already holds the terminal result, which is what the
+// caller reads back over GET /api/requests/{request_id}, so there is
+// nothing to resend (docs/QUEUE-MIGRATION-PLAN.md §1.6).
+func (p *Pool) republish(msg queue.Msg, existing store.WorkRequest) {
 	msg.Ack()
-}
-
-func (p *Pool) publishAccepted(requestID, sessionID string, started time.Time) {
-	data, err := json.Marshal(queue.Accepted{RequestID: requestID, SessionID: sessionID, StartedAt: started})
-	if err != nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if _, err := p.JS.Publish(ctx, queue.AcceptedSubject(requestID), data); err != nil {
-		log.Printf("worker: publish accepted for %s: %v", requestID, err)
-	}
-}
-
-func (p *Pool) publishProgress(requestID string, sp session.SubTurnProgress) {
-	data, err := json.Marshal(queue.Progress{
-		RequestID: requestID,
-		SessionID: sp.SessionID,
-		SubTurn:   sp.SubTurn,
-		ToolCalls: sp.ToolCalls,
-		Usage: &queue.ResultUsage{
-			CacheHitTokens:  sp.Usage.PromptCacheHitTokens,
-			CacheMissTokens: sp.Usage.PromptCacheMissTokens,
-			OutputTokens:    sp.Usage.CompletionTokens,
-			ReasoningTokens: sp.Usage.ReasoningTokens,
-			CostUSD:         sp.Usage.CostUSD,
-			PriceTableDate:  p.PriceTableDate,
-		},
-		ExpectedMissTokens: sp.Usage.ExpectedMissTokens,
-		Churned:            sp.Churned,
-		ChurnPointIndex:    sp.Usage.ChurnPointIndex,
-		Timestamp:          time.Now().UTC(),
-	})
-	if err != nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if _, err := p.JS.Publish(ctx, queue.ProgressSubject(requestID), data); err != nil {
-		log.Printf("worker: publish progress for %s: %v", requestID, err)
-	}
 }

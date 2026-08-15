@@ -55,24 +55,24 @@ This is the design. The build order, file by file, is
 ## The two seams
 
 `harness serve` runs the worker pool and the HTTP surface in one process
-(ARCHITECTURE.md). CLAUDE.md's warning against giving `httpapi` a NATS
+(ARCHITECTURE.md). CLAUDE.md's warning against giving `httpapi` a queue
 handle is not a ban on run control — it is a warning against *that specific
 handle* getting smuggled in rather than a declared seam. Run control uses two
 seams, different shapes because starting and stopping are different problems.
 
 ### Starting is a publish, so the seam is a publisher
 
-NATS stays what §4.10 designed it to be: durable, decoupled, at-least-once
-ingress for work. A browser-started run is one more producer among several —
-the claim/heartbeat/redelivery machinery in §4.10 stays the *only* way a
-session ever starts, with no second code path to keep in sync. The seam is
-therefore the narrowest thing that can publish:
+The queue stays what §4.10 designed it to be: durable, decoupled,
+at-least-once ingress for work. A browser-started run is one more producer
+among several — the claim/heartbeat/redelivery machinery in §4.10 stays the
+*only* way a session ever starts, with no second code path to keep in sync.
+The seam is therefore the narrowest thing that can enqueue:
 
 ```go
-// RunPublisher is the subset of the queue a start endpoint needs: publish
-// one validated work request to the WORK stream. Declared here and
-// implemented in cmd/harness, so this package never holds a JetStream
-// handle — only the ability to enqueue one request.
+// RunPublisher is the subset of the queue a start endpoint needs: enqueue
+// one validated work request. Declared here and implemented in cmd/harness,
+// so this package never holds a queue handle — only the ability to enqueue
+// one request.
 type RunPublisher interface {
     PublishRequest(ctx context.Context, req queue.Request) error
 }
@@ -84,16 +84,18 @@ and it is a second way for a session to begin.
 
 `httpapi` imports `internal/queue` for `queue.Request` and its `Validate`
 rather than a copy of the rules, because a copy is a validator that eventually
-disagrees with the queue's. It holds no JetStream handle — it already imports
-`jetstream` for `QueueConsumer`'s types, so the import graph barely moves;
-the change is that one narrow interface can now write.
+disagrees with the queue's. It holds no queue handle — the request type and
+its validator are already the whole of its `internal/queue` import, so the
+import graph barely moves; the change is that one narrow interface can now
+write.
 
 ### Stopping is addressed at one goroutine, so the seam is a registry
 
 Control is the opposite of durable ingress — real-time, addressed at one
 specific in-flight goroutine, and actively wrong to make redeliverable. So
-stop does not go over NATS. A new in-process registry in `internal/worker`
-maps a running session id to the handle for the goroutine running it:
+stop does not go through the queue. A new in-process registry in
+`internal/worker` maps a running session id to the handle for the goroutine
+running it:
 
 ```go
 // Controller is the pool's registry of in-flight runs, keyed by session id.
@@ -108,14 +110,14 @@ type Controller struct {
 type inflight struct {
     requestID string
     sessionID string
-    msg       jetstream.Msg      // so the escalation can run the same finish
+    msg       queue.Msg          // so the escalation can run the same finish
     cancel    context.CancelFunc // cancels runCtx: the soft stop
     done      chan struct{}      // closed when Runner.Run returns
     releaseSlot   func()         // idempotent; frees the pool semaphore
     stopHeartbeat func()         // idempotent; stops the message heartbeat
     started   time.Time
     stopping  atomic.Bool        // a stop has been accepted
-    disposed  atomic.Bool        // the JetStream message has been answered
+    disposed  atomic.Bool        // the queue message has been answered
     reason    atomic.Pointer[string]
 }
 ```
@@ -228,7 +230,7 @@ the model, so say what to do differently.
    publishes a `cancelled` result and acks, exactly as it publishes any other
    terminal result.
 4. If the grace period passes, force-finish: mark the session row cancelled,
-   publish the terminal result, dispose of the JetStream message, stop the
+   record the terminal result, dispose of the queue message, stop the
    heartbeat, release the pool slot, and log a leaked-goroutine warning
    naming the session and request ids.
 
@@ -248,14 +250,14 @@ idempotent closure (`sync.Once` over `<-sem`) held on the `inflight` record, so
 the control path can release it and the wedged goroutine's own deferred call
 becomes a no-op if it ever wakes.
 
-**The JetStream message must be disposed of by whoever gets there first.**
-Freeing the local semaphore alone would not help: `Size` equals the consumer's
-`MaxAckPending`, so an un-acked message counts against the server's ceiling
-whatever the local count says. The force-finish path therefore runs the same
-`finish` sequence the run would have — `FinishWorkRequest`, publish to
-`harness.work.result.<id>.final`, `Ack` — guarded by the `disposed` flag, so a
+**The queue message must be disposed of by whoever gets there first.**
+Freeing the local semaphore alone would not help: `Size` equals the number of
+rows the pool holds leased at once, so an undisposed row counts against the
+pool's slots whatever the local count says. The force-finish path therefore
+runs the same `finish` sequence the run would have — record the result on
+`work_requests`, ack the queue row — guarded by the `disposed` flag, so a
 wedged goroutine that wakes up an hour later logs and returns instead of
-publishing a second, contradictory result over the top of the first.
+recording a second, contradictory result over the top of the first.
 
 The flag's home is the `inflight` record rather than the registry, and that
 placement is load-bearing: `finish` deregisters the run, so a guard that lived
@@ -493,7 +495,7 @@ are about the *run*, not the row, and they are:
 `{"request_id": "..."}`. Nothing waits for the outcome — §5's existing rule
 that "a request that starts a run is not answered by the response to it"
 applies to ending one too. The terminal state arrives over the session's own
-SSE stream and, for a queue caller, over the RESULTS stream.
+SSE stream and, for a queue caller, on the request's `work_requests` row.
 
 Stop is idempotent: a second stop for a session already stopping is another
 202, not a 409. Steer is not — two steers are two instructions, which is why
@@ -687,9 +689,9 @@ it, covering two distinct causes with one vocabulary: a session marked
 - **Multi-instance `serve`.** If this ever runs as more than one replica, the
   in-process registry stops being sufficient for stop: control has to find the
   right instance. Steering already works in that world, and start does too.
-  The likely answer is a control subject on NATS with instances subscribing
-  for their own session ids — not built, because it is a mechanism for a
-  problem nobody has.
+  The likely answer is a control channel — a shared subject or a store table
+  — with instances subscribing for their own session ids. Not built, because
+  it is a mechanism for a problem nobody has.
 - **Rate-limiting stop and steer.** A control token is authorization, not a
   throttle. A misbehaving caller, or a leaked token, could steer a session in
   a tight loop and drive its cost up; nothing here bounds that.

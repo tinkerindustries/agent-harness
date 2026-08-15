@@ -34,7 +34,7 @@ const usage = `usage: harness <command> [flags]
 commands:
   ask "..."                    send a prompt and stream reasoning and content to the terminal
   run -workspace P "..."       run the agent loop against a workspace until it finishes or gives up
-  serve                        pull work requests from NATS JetStream and run them as a worker pool,
+  serve                        pull work requests off the durable work queue and run them as a worker pool,
                                serving the web UI, /api/..., and /mcp on one HTTP port
   publish -repo URL "..."      publish a work request to the queue "harness serve" reads
   resume <session-id> ["..."]  continue a finished, failed, or timed-out session

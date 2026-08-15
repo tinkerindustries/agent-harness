@@ -55,7 +55,6 @@ func TestRegistryDefaultsMatchTheConstantsTheyReplaced(t *testing.T) {
 		{settings.KeyWorkerPoolSize, "4"},
 		{settings.KeyWorkerConcurrencyPro, "500"},
 		{settings.KeyWorkerConcurrencyFlash, "2500"},
-		{settings.KeyQueueResultsMaxAge, "168h"},
 		{settings.KeyHTTPEventsLimitDefault, "500"},
 		{settings.KeyHTTPEventsLimitMax, "5000"},
 		// The control token defaults to empty: it is generated at startup when

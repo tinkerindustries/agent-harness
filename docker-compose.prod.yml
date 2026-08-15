@@ -26,42 +26,14 @@
 name: deepseek-harness-prod
 
 services:
-  nats:
-    image: nats:2.10-alpine
-    command:
-      - "--jetstream"
-      - "--store_dir=/data"
-      - "--http_port=8222"
-    ports:
-      # Loopback only, and clear of both the dev stack (4322/8322) and the
-      # test broker (4422). Published at all only so `harness` on the host can
-      # reach this broker for a one-off publish or inspection.
-      - "127.0.0.1:4522:4222"
-      - "127.0.0.1:8522:8222"
-    volumes:
-      - nats-data:/data
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 5s
-    restart: unless-stopped
-
   harness:
     image: deepseek-harness:prod
-    depends_on:
-      nats:
-        condition: service_healthy
     env_file:
       # Production's own credentials and model settings. Separate from .env so
       # an edit made while developing does not reach this stack.
       - path: .env.prod
         required: true
     environment:
-      # .env.prod's NATS_URL points at the published host port, which does not
-      # exist inside the network. Reach the broker by service name instead.
-      NATS_URL: nats://nats:4222
       # The default binds loopback, unreachable from outside the container.
       # The published port below keeps it loopback-only on the host.
       DEEPSEEK_HTTP_ADDR: 0.0.0.0:8080
@@ -119,5 +91,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  nats-data:
   harness-data:

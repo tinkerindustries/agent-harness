@@ -79,6 +79,78 @@ func TestPoolPrepareWorkspaceFailureMarksSessionFailed(t *testing.T) {
 	}
 }
 
+// TestStopDuringPreparationSoftStopCancelsRowAndResult is the soft half of
+// the stop-during-a-clone shape: preparation that answers a cancelled
+// context — as a real clone does — fails with context.Canceled, and the run
+// goroutine's own setup-failure path must report the stop as cancelled: a
+// cancelled result carrying the operator's reason, and the "creating" row
+// marked cancelled, not left dangling and not marked failed.
+// (TestStopDuringPreparationMarksRowCancelled covers the wedged half, where
+// preparation ignores ctx and the escalation force-finishes; this one covers
+// the ordinary case where a stop lands mid-clone and the clone gives up.)
+func TestStopDuringPreparationSoftStopCancelsRowAndResult(t *testing.T) {
+	runner := &ctxBlockingRunner{}
+	h := newTestHarnessWithRunner(t, "", 1, func(st *store.Store) Runner {
+		runner.store = st
+		return runner
+	})
+	h.pool.StopGracePeriod = 150 * time.Millisecond
+
+	// Preparation blocks until the stop cancels its context, then reports
+	// the cancellation — the way a real clone answers a cancelled ctx. It
+	// must never reach Runner.Run.
+	preparing := make(chan struct{})
+	h.pool.PrepareWorkspace = func(ctx context.Context, root, sessionID string, _ []queue.Repo, _ []workspace.Attachment) (string, error) {
+		close(preparing)
+		<-ctx.Done()
+		return "", ctx.Err()
+	}
+	defer h.startPool(t)()
+
+	requestID := uniqueID("req-prep-soft-stop")
+	h.publish(t, queue.Request{RequestID: requestID, Prompt: "do it", Repos: testRepos(), PermissionMode: "full"})
+
+	select {
+	case <-preparing:
+	case <-time.After(10 * time.Second):
+		t.Fatal("preparation never started")
+	}
+	sessionID := h.waitForSessionID(t, requestID, 5*time.Second)
+	waitForSessionStatus(t, h, sessionID, store.StatusCreating, 5*time.Second)
+
+	if err := h.pool.Stop(sessionID, "the operator stopped the clone"); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+
+	// The run's own setup-failure path answers: a cancelled result with the
+	// operator's reason, not a workspace_setup failure.
+	res := h.fetchFinalResult(t, requestID, 10*time.Second)
+	if res.Status != queue.StatusCancelled {
+		t.Fatalf("expected a cancelled result, got %+v", res)
+	}
+	if res.Error == nil || res.Error.Code != "cancelled" || res.Error.Message != "the operator stopped the clone" {
+		t.Fatalf("expected error {cancelled, the operator stopped the clone}, got %+v", res.Error)
+	}
+
+	// The creating session row is marked cancelled with finished_at — the
+	// §4.10 promise that a stop during a clone marks the row instead of
+	// finding no row to mark.
+	sess := waitForSessionStatus(t, h, sessionID, store.StatusCancelled, 5*time.Second)
+	if sess.FinishedAt == nil {
+		t.Fatal("expected the cancelled session to carry finished_at")
+	}
+
+	// The work_requests row agrees with the result the caller reads back.
+	row, err := h.pool.Store.GetWorkRequest(context.Background(), requestID)
+	if err != nil {
+		t.Fatalf("get work request: %v", err)
+	}
+	if row.Status != queue.StatusCancelled {
+		t.Fatalf("expected the row to be recorded cancelled, got %q", row.Status)
+	}
+	h.waitForNotRunning(t, sessionID, 2*time.Second)
+}
+
 // TestStopDuringPreparationMarksRowCancelled is the stop-during-a-clone
 // shape the creating status exists for: the row is "creating" while
 // preparation is wedged, and a stop must mark that row cancelled (the
@@ -143,13 +215,17 @@ func TestStopDuringPreparationMarksRowCancelled(t *testing.T) {
 
 	// Release the wedged preparation: the run wakes, finds the message
 	// already answered, and drops its own result — the row stays cancelled
-	// and no second result appears.
+	// and no second finish lands (a second finish would bump the version).
 	release()
 	time.Sleep(300 * time.Millisecond)
-	if n := h.countFinalResults(t, requestID, 2*time.Second); n != 1 {
-		t.Fatalf("expected exactly 1 final result, got %d", n)
+	row, err := h.pool.Store.GetWorkRequest(context.Background(), requestID)
+	if err != nil {
+		t.Fatalf("get work request: %v", err)
+	}
+	if row.Status != queue.StatusCancelled {
+		t.Fatalf("expected the row to stay cancelled, got %q", row.Status)
 	}
 	if sess := waitForSessionStatus(t, h, sessionID, store.StatusCancelled, 2*time.Second); sess.Status != store.StatusCancelled {
-		t.Fatalf("expected the row to stay cancelled, got %q", sess.Status)
+		t.Fatalf("expected the session to stay cancelled, got %q", sess.Status)
 	}
 }

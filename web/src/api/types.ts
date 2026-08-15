@@ -347,11 +347,12 @@ export interface Page<T> {
 // QueueHealth mirrors internal/httpapi's queueHealth: GET /api/queue's
 // response, the queue health the session list shows. Available
 // is false whenever there is nothing to report — no queue wired up, or the
-// live NATS call itself failed (Error then says why) — which the session
+// stats read itself failed (Error then says why) — which the session
 // list treats as "say nothing" rather than an error state of its own.
 export interface QueueHealth {
   available: boolean;
-  consumer_lag?: number;
+  queue_depth?: number;
+  scheduled?: number;
   in_flight?: number;
   redelivered?: number;
   halted: boolean;

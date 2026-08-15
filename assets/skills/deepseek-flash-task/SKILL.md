@@ -5,8 +5,9 @@ description: Delegate a coding task to a DeepSeek V4 flash agent running with fu
 
 # Delegating a task to a flash agent
 
-A harness run is a fire-and-forget agent session on the other side of a NATS
-queue. It clones the repositories you name into a directory of its own inside
+A harness run is a fire-and-forget agent session on the other side of the
+harness's durable work queue. It clones the repositories you name into a
+directory of its own inside
 the harness container, works there with the tool set the permission mode
 allows, and publishes one result. You never see that directory, which is what
 makes the push mandatory rather than a nicety. The workspace does outlive the
