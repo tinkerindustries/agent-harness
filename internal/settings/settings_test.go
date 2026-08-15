@@ -266,7 +266,7 @@ func TestSetRejectsValuesOutOfBounds(t *testing.T) {
 func TestRestartFlags(t *testing.T) {
 	for _, key := range []string{
 		KeyWorkerPoolSize, KeyWorkerConcurrencyPro, KeyWorkerConcurrencyFlash,
-		KeyQueueResultsMaxAge, KeyHTTPEventsLimitDefault, KeyHTTPEventsLimitMax,
+		KeyHTTPEventsLimitDefault, KeyHTTPEventsLimitMax,
 	} {
 		d, ok := Lookup(key)
 		if !ok || !d.Restart {

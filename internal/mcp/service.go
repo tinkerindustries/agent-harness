@@ -1,10 +1,10 @@
 // Package mcp is the harness's MCP launch server: it lets an external agent
 // harness (Claude Code, Cursor) start and collect agent-harness runs by
-// publishing work requests to the WORK stream and reading results back over
-// the RESULTS stream and the harness's HTTP API (docs/DESIGN.md §4.10).
+// publishing work requests through serve's publish seam and reading results
+// back over the harness's HTTP API (docs/DESIGN.md §4.10).
 // `harness serve` mounts it at /mcp on its own HTTP server, handing it
-// serve's own JetStream handle and run-control token directly; it never
-// opens a SQLite handle, since `harness serve` is the single writer.
+// serve's own publisher and run-control token directly; it never opens a
+// SQLite handle, since `harness serve` is the single writer.
 //
 // This is the opposite direction from the MCP integration docs/DESIGN.md §1
 // lists as not built. That entry is about the harness *consuming*
@@ -15,13 +15,13 @@
 package mcp
 
 import (
+	"context"
 	"net/http"
-
-	"github.com/nats-io/nats.go/jetstream"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/config"
+	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
@@ -33,12 +33,23 @@ import (
 // here claims a release that does not exist and collides with the next one.
 const serverVersion = "0.35.0"
 
+// Publisher is the one-method seam through which deepseek_agent enqueues a
+// work request. It is implemented in cmd/harness/serve.go over the same
+// publish path the browser's POST /api/runs uses, so a launch is
+// byte-identical in the store to one started from the web UI or the CLI
+// (docs/RUN-CONTROL.md "Starting is a publish"). Declared here as an
+// interface rather than a concrete handle so this package needs no knowledge
+// of the transport the queue sits on.
+type Publisher interface {
+	Publish(ctx context.Context, req queue.Request) error
+}
+
 // Service holds everything the MCP tool and resource handlers need: the
-// JetStream context to publish work requests and read results, an HTTP
-// client for the harness's read-only API, the configuration that bounds a
-// permission mode, and this process's own record of what it has launched.
+// publisher to enqueue work requests, an HTTP client for the harness's
+// read-only API, the configuration that bounds a permission mode, and this
+// process's own record of what it has launched.
 type Service struct {
-	JS         jetstream.JetStream
+	Publisher  Publisher
 	Cfg        config.MCPConfig
 	HTTPClient *http.Client
 	Registry   *Registry

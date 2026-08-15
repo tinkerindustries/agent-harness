@@ -37,8 +37,10 @@ type ResultUsage struct {
 	PriceTableDate  string  `json:"price_table_date"`
 }
 
-// Result is the terminal message published to
-// harness.work.result.<request_id>.final (docs/DESIGN.md §4.10).
+// Result is the terminal outcome of a work request, stored as the
+// work_requests.result column (docs/DESIGN.md §4.10) — the same JSON the
+// worker used to publish to the RESULTS stream, so the wire shape is
+// unchanged for every caller.
 type Result struct {
 	RequestID  string          `json:"request_id"`
 	SessionID  string          `json:"session_id,omitempty"`
@@ -57,44 +59,4 @@ type Result struct {
 	// model itself characterised finishing it. Additive: it does not
 	// change the meaning of any of the four Status values above.
 	CompleteStatus string `json:"complete_status,omitempty"`
-}
-
-// Accepted is published once to harness.work.result.<request_id>.accepted
-// when a worker begins a request, before it is known whether the run will
-// succeed.
-type Accepted struct {
-	RequestID string    `json:"request_id"`
-	SessionID string    `json:"session_id"`
-	StartedAt time.Time `json:"started_at"`
-}
-
-// Progress is published to harness.work.result.<request_id>.progress at
-// most once a second (docs/DESIGN.md §4.10). It carries turn-level
-// summaries only — never content deltas — because full fidelity already
-// lives in the event log, on disk, and (in a later phase) on the SSE
-// stream.
-//
-// ExpectedMissTokens, Churned, and ChurnPointIndex are the churn diagnostic
-// (docs/CACHE.md) surfaced to a queue consumer, not just the CLI and the
-// browser: a requester watching progress can tell a healthy sub-turn from a
-// churned one without reading the database.
-type Progress struct {
-	RequestID          string       `json:"request_id"`
-	SessionID          string       `json:"session_id"`
-	SubTurn            int          `json:"sub_turn"`
-	ToolCalls          []string     `json:"tool_calls,omitempty"`
-	Usage              *ResultUsage `json:"usage,omitempty"`
-	ExpectedMissTokens int          `json:"expected_miss_tokens"`
-	Churned            bool         `json:"churned,omitempty"`
-	ChurnPointIndex    *int         `json:"churn_point_index,omitempty"`
-	Timestamp          time.Time    `json:"timestamp"`
-}
-
-// FinalMsgID is the Nats-Msg-Id set on a final-result publish. Deriving it
-// from request_id, rather than from anything about this particular attempt,
-// is what makes a redelivered or republished final result deduplicate
-// inside the stream's window instead of producing a second message
-// (docs/DESIGN.md §4.10).
-func FinalMsgID(requestID string) string {
-	return requestID + ".final"
 }

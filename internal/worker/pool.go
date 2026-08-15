@@ -1,6 +1,6 @@
 // Package worker is the harness's worker pool: it pulls work requests off
-// the WORK stream, runs each as a session.Runner call, and publishes the
-// result to the RESULTS stream (docs/DESIGN.md §4.10).
+// the WORK stream, runs each as a session.Runner call, and records the
+// result on the request's work_requests row (docs/DESIGN.md §4.10).
 package worker
 
 import (
@@ -50,7 +50,6 @@ type Runner interface {
 type Pool struct {
 	Store    *store.Store
 	Runner   Runner
-	Results  queue.ResultSink
 	Consumer jetstream.Consumer
 
 	// WorkspaceRoot is the parent directory each run's own workspace is
@@ -623,7 +622,9 @@ func (p *Pool) run(msg queue.Msg, req queue.Request, releaseSlot func()) {
 	if err := p.Store.SetWorkRequestSession(runCtx, req.RequestID, sessionID); err != nil {
 		log.Printf("worker: attach session for %s: %v", req.RequestID, err)
 	}
-	p.publishAccepted(req.RequestID, sessionID, started)
+	// The session id is on the row now, which is what deepseek_agent's
+	// accepted wait reads back (docs/QUEUE-MIGRATION-PLAN.md §5.2); there is
+	// no separate accepted message to publish.
 
 	// Validate has already rejected an absent or unknown mode.
 	mode := tools.Mode(req.PermissionMode)
@@ -723,12 +724,6 @@ func (p *Pool) run(msg queue.Msg, req queue.Request, releaseSlot func()) {
 
 	runOpts.Workspace = ws
 	runOpts.AttachmentNames = attachmentNames
-	progressLimiter := queue.NewProgressLimiter(time.Second)
-	runOpts.Progress = func(sp session.SubTurnProgress) {
-		if progressLimiter.Allow(time.Now()) {
-			p.publishProgress(req.RequestID, sp)
-		}
-	}
 	runResult, runErr := p.Runner.Run(runCtx, runOpts)
 
 	// An empty account is distinct from an ordinary run failure: every other
@@ -878,12 +873,12 @@ func (p *Pool) failSetup(requestID, sessionID string, cause error) {
 	}
 }
 
-// finish records requestID's outcome, publishes it, and disposes of msg.
-// The store write happens before the publish so that a crash between the
-// two leaves a terminal row behind: redelivery then republishes the stored
-// result instead of running the whole session again. The publish happens
-// before the ack (or Term) so a crash between those two redelivers the
-// request rather than losing the result docs/DESIGN.md §4.10 asks for.
+// finish records requestID's outcome on the work_requests row and disposes
+// of msg. The row is the result: the worker writes it with FinishWorkRequest
+// and then acks (or Terms), so there is no separate publish to fail. A crash
+// between the write and the ack redelivers the request, and the spent path
+// then reads the terminal row back out instead of running the session again
+// (docs/QUEUE-MIGRATION-PLAN.md §1.6).
 //
 // finish is also where a registered run's registry entry is torn down: the
 // entry lives exactly as long as the message does, so a stop arriving while
@@ -918,11 +913,6 @@ func (p *Pool) finish(msg queue.Msg, requestID, sessionID string, result queue.R
 		return
 	}
 
-	if err := p.Results.Final(context.Background(), requestID, data); err != nil {
-		log.Printf("worker: publish final result for %s: %v", requestID, err)
-		msg.Nak(p.retryLaterDelay())
-		return
-	}
 	if term {
 		msg.Term()
 	} else {
@@ -930,46 +920,11 @@ func (p *Pool) finish(msg queue.Msg, requestID, sessionID string, result queue.R
 	}
 }
 
-// republish resends a terminal row's stored result under the same
-// Nats-Msg-Id, for a redelivery or a duplicate publish that arrived after
-// the original attempt already finished. No store write and no session
-// run: the row already says what happened.
+// republish acks a redelivery or a duplicate publish that arrived after the
+// original attempt already finished. No store write, no publish, and no
+// session run: the row already holds the terminal result, which is what the
+// caller reads back over GET /api/requests/{request_id}, so there is
+// nothing to resend (docs/QUEUE-MIGRATION-PLAN.md §1.6).
 func (p *Pool) republish(msg queue.Msg, existing store.WorkRequest) {
-	if len(existing.Result) > 0 {
-		if err := p.Results.Final(context.Background(), existing.RequestID, existing.Result); err != nil {
-			log.Printf("worker: republish result for %s: %v", existing.RequestID, err)
-			msg.Nak(p.retryLaterDelay())
-			return
-		}
-	}
 	msg.Ack()
-}
-
-func (p *Pool) publishAccepted(requestID, sessionID string, started time.Time) {
-	if err := p.Results.Accepted(context.Background(), queue.Accepted{RequestID: requestID, SessionID: sessionID, StartedAt: started}); err != nil {
-		log.Printf("worker: publish accepted for %s: %v", requestID, err)
-	}
-}
-
-func (p *Pool) publishProgress(requestID string, sp session.SubTurnProgress) {
-	if err := p.Results.Progress(context.Background(), queue.Progress{
-		RequestID: requestID,
-		SessionID: sp.SessionID,
-		SubTurn:   sp.SubTurn,
-		ToolCalls: sp.ToolCalls,
-		Usage: &queue.ResultUsage{
-			CacheHitTokens:  sp.Usage.PromptCacheHitTokens,
-			CacheMissTokens: sp.Usage.PromptCacheMissTokens,
-			OutputTokens:    sp.Usage.CompletionTokens,
-			ReasoningTokens: sp.Usage.ReasoningTokens,
-			CostUSD:         sp.Usage.CostUSD,
-			PriceTableDate:  p.PriceTableDate,
-		},
-		ExpectedMissTokens: sp.Usage.ExpectedMissTokens,
-		Churned:            sp.Churned,
-		ChurnPointIndex:    sp.Usage.ChurnPointIndex,
-		Timestamp:          time.Now().UTC(),
-	}); err != nil {
-		log.Printf("worker: publish progress for %s: %v", requestID, err)
-	}
 }

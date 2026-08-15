@@ -8,11 +8,12 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
 	"os"
 	"strings"
 	"time"
-
-	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
@@ -115,20 +116,6 @@ func runPublish(ctx context.Context, args []string) error {
 	}
 	defer nc.Close()
 
-	var waitConsumer jetstream.Consumer
-	if *wait {
-		// Set up the result subscription before publishing, so a fast
-		// response cannot land before this is listening.
-		waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		waitConsumer, err = js.OrderedConsumer(waitCtx, queue.StreamResults, jetstream.OrderedConsumerConfig{
-			FilterSubjects: []string{queue.FinalSubject(id)},
-		})
-		cancel()
-		if err != nil {
-			return fmt.Errorf("subscribe for result: %w", err)
-		}
-	}
-
 	pubCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	err = queue.PublishRequest(pubCtx, js, req)
 	cancel()
@@ -144,32 +131,105 @@ func runPublish(ctx context.Context, args []string) error {
 	timeout := *waitTimeout
 	if timeout <= 0 {
 		// The run deadline is a setting now (run.deadline); publish has no
-		// database handle — it only talks to NATS — so it mirrors the
-		// setting's default (60 minutes) here. -deadline-ms and -wait-timeout
-		// still override.
+		// database handle, so it mirrors the setting's default (60 minutes)
+		// here. -deadline-ms and -wait-timeout still override.
 		timeout = 60 * time.Minute
 		if *deadlineMS > 0 {
 			timeout = time.Duration(*deadlineMS) * time.Millisecond
 		}
 	}
 	fmt.Printf("waiting up to %s for the final result...\n", timeout)
-	batch, err := waitConsumer.Fetch(1, jetstream.FetchMaxWait(timeout))
-	if err != nil {
-		return fmt.Errorf("fetch result: %w", err)
+
+	// -wait polls the running service's own HTTP API (GET
+	// /api/requests/{id}, the same endpoint the browser and the MCP tools
+	// read) instead of subscribing to a results stream, so `harness serve`
+	// has to be up for it to work. The base URL resolves from
+	// DEEPSEEK_HARNESS_BASE_URL, falling back to the loopback address
+	// DEEPSEEK_HTTP_ADDR names.
+	baseURL := os.Getenv("DEEPSEEK_HARNESS_BASE_URL")
+	if baseURL == "" {
+		baseURL = "http://127.0.0.1:" + httpAddrPort(cfg.HTTPAddr)
 	}
-	for msg := range batch.Messages() {
-		var res queue.Result
-		if err := json.Unmarshal(msg.Data(), &res); err != nil {
-			return fmt.Errorf("decode result: %w", err)
+	client := &http.Client{Timeout: 30 * time.Second}
+	deadline := time.Now().Add(timeout)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+	for {
+		var row publishRequestRow
+		found, err := fetchPublishRequest(ctx, client, baseURL, id, &row)
+		if err != nil {
+			return fmt.Errorf("could not reach the harness at %s: %v — harness publish -wait polls the running service; start `harness serve` first", baseURL, err)
 		}
-		b, _ := json.MarshalIndent(res, "", "  ")
-		fmt.Println(string(b))
-		return nil
-	}
-	if err := batch.Error(); err != nil {
-		return fmt.Errorf("no result arrived: %w", err)
+		// A 404 means the pool has not claimed the request yet; it keeps
+		// polling. A claimed row whose finished_at is set holds the result.
+		if found && row.FinishedAt != nil {
+			var res queue.Result
+			if err := json.Unmarshal(row.Result, &res); err != nil {
+				return fmt.Errorf("decode result: %w", err)
+			}
+			b, _ := json.MarshalIndent(res, "", "  ")
+			fmt.Println(string(b))
+			return nil
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
 	}
 	return errors.New("no result arrived before the wait timed out")
+}
+
+// publishRequestRow is the subset of GET /api/requests/{id}'s wire shape
+// -wait needs: the stored result JSON and whether the run has finished. A
+// request whose row exists but is not finished has a nil FinishedAt.
+type publishRequestRow struct {
+	Result     json.RawMessage `json:"result,omitempty"`
+	FinishedAt *time.Time      `json:"finished_at,omitempty"`
+}
+
+// fetchPublishRequest reads one work-request row over HTTP. A 404 — the pool
+// has not claimed the request yet, because work_requests rows are created at
+// claim time — is reported as found=false with no error: that is the "still
+// queued" signal, not a failure (docs/QUEUE-MIGRATION-PLAN.md §5). Every
+// other non-200 and every transport error is an error naming the status or
+// cause.
+func fetchPublishRequest(ctx context.Context, client *http.Client, baseURL, requestID string, out *publishRequestRow) (found bool, err error) {
+	url := baseURL + "/api/requests/" + requestID
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return false, fmt.Errorf("build request for %s: %w", url, err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return false, fmt.Errorf("GET %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return false, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return false, fmt.Errorf("GET %s: status %d: %s", url, resp.StatusCode, string(body))
+	}
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return false, fmt.Errorf("decode response from %s: %w", url, err)
+	}
+	return true, nil
+}
+
+// httpAddrPort extracts the port from a host:port HTTP address, for building
+// the loopback base URL -wait falls back to when DEEPSEEK_HARNESS_BASE_URL
+// is unset. A malformed address falls back to the default port.
+func httpAddrPort(addr string) string {
+	_, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "8080"
+	}
+	return port
 }
 
 // parseRepoFlags splits each -repo value on the last "#" into a URL and a

@@ -143,13 +143,17 @@ func TestStopDuringPreparationMarksRowCancelled(t *testing.T) {
 
 	// Release the wedged preparation: the run wakes, finds the message
 	// already answered, and drops its own result — the row stays cancelled
-	// and no second result appears.
+	// and no second finish lands (a second finish would bump the version).
 	release()
 	time.Sleep(300 * time.Millisecond)
-	if n := h.countFinalResults(t, requestID, 2*time.Second); n != 1 {
-		t.Fatalf("expected exactly 1 final result, got %d", n)
+	row, err := h.pool.Store.GetWorkRequest(context.Background(), requestID)
+	if err != nil {
+		t.Fatalf("get work request: %v", err)
+	}
+	if row.Status != queue.StatusCancelled {
+		t.Fatalf("expected the row to stay cancelled, got %q", row.Status)
 	}
 	if sess := waitForSessionStatus(t, h, sessionID, store.StatusCancelled, 2*time.Second); sess.Status != store.StatusCancelled {
-		t.Fatalf("expected the row to stay cancelled, got %q", sess.Status)
+		t.Fatalf("expected the session to stay cancelled, got %q", sess.Status)
 	}
 }

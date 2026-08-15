@@ -34,11 +34,12 @@ import (
 )
 
 // runServe starts the harness as a service: a durable pull consumer on the
-// WORK stream, a worker pool sized from config, and results published back
-// to the RESULTS stream (docs/DESIGN.md §4.10). One process serves the web
-// UI, the /api/... HTTP API, and the MCP launch server at /mcp on the same
-// *http.Server. It runs until ctx is cancelled (SIGINT/SIGTERM, wired in
-// main), draining in-flight runs rather than cutting them off.
+// WORK stream and a worker pool sized from config, with results recorded on
+// each request's work_requests row (docs/DESIGN.md §4.10). One process
+// serves the web UI, the /api/... HTTP API, and the MCP launch server at
+// /mcp on the same *http.Server. It runs until ctx is cancelled
+// (SIGINT/SIGTERM, wired in main), draining in-flight runs rather than
+// cutting them off.
 func runServe(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	poolSize := fs.Int("pool-size", 0, "override worker pool size (default: the worker.pool_size setting)")
@@ -125,10 +126,10 @@ func runServe(ctx context.Context, args []string) error {
 	}
 
 	// Restart-required settings, resolved once at startup: the worker pool
-	// size, the two model-concurrency ceilings, the RESULTS stream
-	// retention, and the events paging bounds are read at startup or baked
-	// into the JetStream stream, so a change takes effect on the next start
-	// (the settings screen marks each of these; docs/DESIGN.md §4.2).
+	// size, the two model-concurrency ceilings, and the events paging bounds
+	// are read at startup or baked into the JetStream stream, so a change
+	// takes effect on the next start (the settings screen marks each of
+	// these; docs/DESIGN.md §4.2).
 	workerPoolSize, err := res.Int(ctx, settings.KeyWorkerPoolSize)
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", settings.KeyWorkerPoolSize, err)
@@ -147,10 +148,6 @@ func runServe(ctx context.Context, args []string) error {
 	concurrencyFlash, err := res.Int(ctx, settings.KeyWorkerConcurrencyFlash)
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", settings.KeyWorkerConcurrencyFlash, err)
-	}
-	resultsMaxAge, err := res.Duration(ctx, settings.KeyQueueResultsMaxAge)
-	if err != nil {
-		return fmt.Errorf("resolve %s: %w", settings.KeyQueueResultsMaxAge, err)
 	}
 	eventsLimitDefault, err := res.Int(ctx, settings.KeyHTTPEventsLimitDefault)
 	if err != nil {
@@ -213,7 +210,7 @@ func runServe(ctx context.Context, args []string) error {
 	defer nc.Close()
 
 	ensureCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	consumer, err := queue.EnsureStreams(ensureCtx, js, workerPoolSize, resultsMaxAge, maxDeliveryAttempts)
+	consumer, err := queue.EnsureStreams(ensureCtx, js, workerPoolSize, maxDeliveryAttempts)
 	cancel()
 	if err != nil {
 		return fmt.Errorf("declare streams: %w", err)
@@ -234,7 +231,6 @@ func runServe(ctx context.Context, args []string) error {
 	pool := &worker.Pool{
 		Store:               st,
 		Runner:              runner,
-		Results:             queue.NewNATSSink(js),
 		Consumer:            consumer,
 		WorkspaceRoot:       cfg.WorkspaceRoot,
 		DefaultThinking:     cfg.Thinking,
@@ -274,16 +270,16 @@ func runServe(ctx context.Context, args []string) error {
 		MaxEventsLimit:     eventsLimitMax,
 	}
 	// The MCP launch server mounts on the same *http.Server as /api/... and
-	// the web UI: one process, one port. It reuses serve's own JetStream
-	// handle, control token, settings resolver, and store — the launch tool
-	// writes its attachments through the store's single writer, never
-	// opening a SQLite handle of its own (ARCHITECTURE.md) — and keeps
-	// calling /api/... over loopback HTTP for the reads. The outer mux
-	// lives here in cmd/, not inside internal/httpapi, because api.Handler()
-	// is methodGate(s.routes()) and its allowlist would 405 a path it has
-	// not been taught.
+	// the web UI: one process, one port. It reuses serve's own publish seam,
+	// control token, settings resolver, and store — the launch tool writes
+	// its attachments through the store's single writer, never opening a
+	// SQLite handle of its own (ARCHITECTURE.md) — and keeps calling
+	// /api/... over loopback HTTP for the reads. The outer mux lives here in
+	// cmd/, not inside internal/httpapi, because api.Handler() is
+	// methodGate(s.routes()) and its allowlist would 405 a path it has not
+	// been taught.
 	mcpSvc := &harnessmcp.Service{
-		JS:         js,
+		Publisher:  publishAdapter{js: js},
 		Cfg:        mcpCfg,
 		HTTPClient: &http.Client{Timeout: 30 * time.Second},
 		Registry:   harnessmcp.NewRegistry(),
@@ -385,6 +381,16 @@ func (c evalControl) RunningEval(evalRunID string) bool { return c.o.Running(eva
 
 func (a publishAdapter) PublishRequest(ctx context.Context, req queue.Request) error {
 	return queue.PublishRequest(ctx, a.js, req)
+}
+
+// Publish is the same publish in the one-method shape internal/mcp asks
+// for: the MCP launch server enqueues through the identical path as the
+// browser's POST /api/runs, bounded by a 10-second timeout so a stalled
+// broker cannot wedge the launch.
+func (a publishAdapter) Publish(ctx context.Context, req queue.Request) error {
+	pubCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	return queue.PublishRequest(pubCtx, a.js, req)
 }
 
 // generateControlToken returns a fresh http.control_token value: 32 bytes of

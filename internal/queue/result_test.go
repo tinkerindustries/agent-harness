@@ -41,38 +41,18 @@ func TestResultMarshalsExpectedShape(t *testing.T) {
 	}
 }
 
-func TestFinalMsgIDIsDerivedFromRequestID(t *testing.T) {
-	if got, want := FinalMsgID("req-1"), "req-1.final"; got != want {
-		t.Fatalf("FinalMsgID = %q, want %q", got, want)
-	}
-	// Two calls for the same request_id must agree, since that agreement is
-	// what lets a redelivered publish deduplicate.
-	if FinalMsgID("req-1") != FinalMsgID("req-1") {
-		t.Fatal("FinalMsgID must be deterministic")
-	}
-}
-
 // TestSubjectHelpers pins the production subject contract of
-// docs/DESIGN.md §4.10. TestMain has by then renamed the package's subject
-// prefixes via IsolateForTest so the broker tests do not share subjects
-// with other packages, so this unit test restores the production prefixes
-// for its own assertions; the helpers' job is to build subjects, and the
-// contract they pin is the production one.
+// docs/DESIGN.md §4.10 — the one subject that still exists. TestMain has by
+// then renamed the package's subject prefix via IsolateForTest so the broker
+// tests do not share subjects with other packages, so this unit test
+// restores the production prefix for its own assertion; the helper's job is
+// to build a subject, and the contract it pins is the production one.
 func TestSubjectHelpers(t *testing.T) {
-	origReq, origRes := requestSubjectPrefix, resultSubjectPrefix
-	requestSubjectPrefix, resultSubjectPrefix = "harness.work.request.", "harness.work.result."
-	defer func() { requestSubjectPrefix, resultSubjectPrefix = origReq, origRes }()
+	origReq := requestSubjectPrefix
+	requestSubjectPrefix = "harness.work.request."
+	defer func() { requestSubjectPrefix = origReq }()
 
 	if RequestSubject("req-1") != "harness.work.request.req-1" {
 		t.Fatalf("unexpected request subject: %s", RequestSubject("req-1"))
-	}
-	if AcceptedSubject("req-1") != "harness.work.result.req-1.accepted" {
-		t.Fatalf("unexpected accepted subject: %s", AcceptedSubject("req-1"))
-	}
-	if ProgressSubject("req-1") != "harness.work.result.req-1.progress" {
-		t.Fatalf("unexpected progress subject: %s", ProgressSubject("req-1"))
-	}
-	if FinalSubject("req-1") != "harness.work.result.req-1.final" {
-		t.Fatalf("unexpected final subject: %s", FinalSubject("req-1"))
 	}
 }

@@ -10,8 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nats-io/nats.go/jetstream"
-
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
@@ -225,20 +223,13 @@ func (svc *Service) handleLaunch(ctx context.Context, req *mcpsdk.CallToolReques
 		return errorResult("%s", err.Error()), nil, nil
 	}
 
-	// Subscribe to the accepted subject before publishing (the way
-	// cmd/harness/publish.go does for the final subject), so a worker that
-	// picks this request up immediately cannot be missed.
-	subCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	acceptedConsumer, err := svc.JS.OrderedConsumer(subCtx, queue.StreamResults, jetstream.OrderedConsumerConfig{
-		FilterSubjects: []string{queue.AcceptedSubject(requestID)},
-	})
-	cancel()
-	if err != nil {
-		return errorResult("subscribe for accepted: %v", err), nil, nil
-	}
-
+	// Publish through serve's publish seam (the same path the browser's POST
+	// /api/runs uses), then wait for the pool to claim the request by polling
+	// its work-request row. No subscription is taken out before publishing:
+	// the row is durable and readable at any time afterwards, so there is no
+	// race to guard against (docs/QUEUE-MIGRATION-PLAN.md §5.2).
 	pubCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	err = queue.PublishRequest(pubCtx, svc.JS, workReq)
+	err = svc.Publisher.Publish(pubCtx, workReq)
 	cancel()
 	if err != nil {
 		// The one genuine launch error (docs/DESIGN.md's three outcomes):
@@ -263,20 +254,35 @@ func (svc *Service) handleLaunch(ctx context.Context, req *mcpsdk.CallToolReques
 	status, sessionID := "queued", ""
 	waitMS := svc.Cfg.AcceptedWaitMS
 	if waitMS <= 0 {
+		// The <= 0 path keeps its meaning: one immediate read, the HTTP
+		// equivalent of a 1 ms Fetch.
 		waitMS = 1
 	}
-	batch, err := acceptedConsumer.Fetch(1, jetstream.FetchMaxWait(time.Duration(waitMS)*time.Millisecond))
-	if err == nil {
-		for msg := range batch.Messages() {
-			var accepted queue.Accepted
-			if json.Unmarshal(msg.Data(), &accepted) == nil {
-				status, sessionID = "running", accepted.SessionID
-			}
+	// Poll the work-request row until the pool has claimed it (the row then
+	// carries the session id) or the wait window elapses, roughly every 50ms
+	// and never past context cancellation. A 404 — the pool has not claimed
+	// the request yet — keeps polling; any other read failure is treated the
+	// same as "not yet", because the queued outcome is never an error
+	// (docs/QUEUE-MIGRATION-PLAN.md §5.2).
+	deadline := time.Now().Add(time.Duration(waitMS) * time.Millisecond)
+pollAccepted:
+	for {
+		var row workRequestRow
+		if err := getJSONOrNotFound(ctx, svc.HTTPClient, svc.Cfg.HarnessBaseURL, "/api/requests/"+requestID, &row); err == nil && row.SessionID != "" {
+			status, sessionID = "running", row.SessionID
+			break
+		}
+		if time.Now().After(deadline) {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			break pollAccepted
+		case <-time.After(50 * time.Millisecond):
 		}
 	}
-	// A timeout with nothing delivered is not an error (docs/DESIGN.md):
-	// the request is legitimately still queued behind a full worker pool.
-	// batch.Error() is deliberately not inspected here.
+	// A timeout with nothing claimed is not an error (docs/DESIGN.md): the
+	// request is legitimately still queued behind a full worker pool.
 
 	if status == "running" {
 		svc.Registry.updateStatus(requestID, "running", sessionID, "")
@@ -288,7 +294,7 @@ func (svc *Service) handleLaunch(ctx context.Context, req *mcpsdk.CallToolReques
 		b = []byte(fmt.Sprintf("status: running\nrequest_id: %s\nsession_id: %s\ntranscript: %s\n",
 			requestID, sessionID, out.TranscriptURL))
 	} else {
-		b = []byte(fmt.Sprintf("status: queued\nrequest_id: %s\nno accepted message within the wait window; the pool is likely full. Call deepseek_result with this request_id to check later.\n",
+		b = []byte(fmt.Sprintf("status: queued\nrequest_id: %s\nthe pool had not claimed the request within the wait window; it is likely full. Call deepseek_result with this request_id to check later.\n",
 			requestID))
 	}
 
