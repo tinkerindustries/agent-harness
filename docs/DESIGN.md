@@ -3,10 +3,11 @@
 A coding harness: an agent loop that reads and writes files in a workspace, runs
 commands, and iterates until a task is done. Go owns the loop and the tools.
 
-The harness runs as a service. Work requests arrive on a NATS JetStream queue,
-execute as one of several concurrent agent sessions inside a single Go process,
-and return a result to a JetStream results stream (§4.10). A CLI drives the same
-loop for interactive use. A React frontend shows what the sessions are doing
+The harness runs as a service. Work requests arrive on the durable work
+queue — the `work_queue` table in serve's SQLite store — execute as one of
+several concurrent agent sessions inside a single Go process, and record
+their result on the request's `work_requests` row (§4.10). A CLI drives the
+same loop for interactive use. A React frontend shows what the sessions are doing
 and, on the settings screen, configures the harness's keys (§4.2).
 
 One DeepSeek behaviour drives most of the decisions below: the prompt cache is
@@ -16,8 +17,9 @@ docs present as mandatory and which measurement shows is not.
 
 ## 1. Scope
 
-Concurrent agent sessions in one process, NATS JetStream ingress and result
-publication, the twenty tools in [TOOLS.md](TOOLS.md), a declarative
+Concurrent agent sessions in one process, durable work-queue ingress and
+row-backed result publication, the twenty tools in [TOOLS.md](TOOLS.md), a
+declarative
 per-request permission policy, flash-backed subagents via `Task`, an
 append-only event log in SQLite mirrored to disk for review, cost and cache
 accounting, a browser transcript with a live plan panel driven by the plan
@@ -34,9 +36,9 @@ harness *consuming* MCP tools as part of its own DeepSeek tool array, which
 would put a variable, request-dependent set of tool definitions in front of
 the frozen cached prefix (§3.2). The other direction is in scope and shipped:
 an MCP server that lets an external agent harness launch and collect
-agent-harness runs by publishing to the WORK stream below. It is a
-separate process (`harness mcp`) that never touches the system prompt or the
-tool array DeepSeek sees.
+agent-harness runs by enqueueing work requests through the same queue
+`harness serve` consumes (§4.10). It is a separate process (`harness mcp`)
+that never touches the system prompt or the tool array DeepSeek sees.
 
 No control in the UI can approve a tool call, so approval is never a question
 the loop asks a human and waits on. Section 4.6 covers what replaces it. That
@@ -175,7 +177,7 @@ schema go in the opening user message, where they append rather than divide.
 ### 4.1 Event-sourced session
 
 A session is an append-only log of events. The log is what streams to the
-browser, what persists, what a NATS progress message summarises, and what the
+browser, what persists, and what the
 DeepSeek `messages` array folds from. One source of truth, four consumers.
 
 The frontend runs its own fold over the same log. It mirrors the Go fold in
@@ -215,9 +217,9 @@ specified in [RUN-CONTROL.md](RUN-CONTROL.md), and the seams are: stopping
 goes through the `RunController` interface declared in `internal/httpapi` and
 implemented by `*worker.Pool`; starting goes through the `RunPublisher`
 interface, declared in `internal/httpapi` and implemented by `cmd/harness`
-over the queue's own JetStream handle — so the HTTP server holds no NATS
-handle itself, only the narrow ability to enqueue one validated request, and
-work enters over NATS whichever surface asked for it. `POST
+over the store-backed queue — so the HTTP server holds no queue handle
+itself, only the narrow ability to enqueue one validated request, and work
+enters through the queue whichever surface asked for it. `POST
 /api/sessions/{id}/stop` and `POST /api/runs` are authenticated by the
 `http.control_token` bearer token. Steering is a store write by the handler
 and a store read by the loop, so `POST /api/sessions/{id}/steer` needs no seam
@@ -288,8 +290,8 @@ an HTTP `PUT`, and the screen reject the same values with the same message.
 (the screen's heading), type, default, description, and flags, plus whether
 the stored value is an override. Settings flagged "requires a restart" — the
 worker pool size, the model-concurrency ceilings, the results retention, and
-the events paging bounds — are read once at startup or baked into the
-JetStream stream; the CLI and the screen both mark them, because a setting
+the events paging bounds — are read once at startup or baked into a queue
+definition; the CLI and the screen both mark them, because a setting
 that silently does nothing until an unrelated restart is worse than one that
 cannot be changed at all.
 
@@ -304,8 +306,8 @@ the stream. Compaction is the case worth naming: it marks a session
 `compacted` without appending a terminal event to that session's own log, so
 the stream ends on session status rather than on an event kind.
 
-The run lives in Go and is driven by NATS, so closing the tab has never had any
-bearing on it.
+The run lives in Go and is driven by the queue, so closing the tab has never
+had any bearing on it.
 
 The origin and content-type guards above are what stands between a page in the
 operator's browser and the write endpoints, and they are not much. Nothing here
@@ -366,12 +368,12 @@ integration configurations; sources in [VALIDATION.md](VALIDATION.md).
 ### 4.5 Concurrency, scheduling, and retries
 
 Concurrent sessions are goroutines in one process, not child processes. One
-binary owns the SQLite handle, the NATS connection, the SSE hub, and the
-per-model rate limiter, and each running session is a goroutine holding only its
-own state.
+binary owns the SQLite handle, the store-backed queue, the SSE hub, and the
+per-model rate limiter, and each running session is a goroutine holding only
+its own state.
 
     harness (one process)
-      NATS pull consumer  ──▶ dispatcher ──▶ worker pool, size N
+      work_queue table   ──▶ claim loop ──▶ worker pool, size N
       session goroutine × N   each owns: message buffer, churn state, workspace
       store writer goroutine  serialises every append to SQLite
       HTTP server + SSE hub   fan-out to browser subscribers
@@ -419,7 +421,7 @@ run can see:
 A per-model semaphore sits under the account limits: 500 concurrent for pro,
 2500 for flash, counted account-wide rather than per key. The queue makes these
 reachable in a way a single-user harness never did. Size the worker pool from
-the semaphore rather than the other way around, and let JetStream hold the
+the semaphore rather than the other way around, and let the queue hold the
 backlog.
 
 Retry 429, 500, and 503 with exponential backoff and jitter. Do not retry 400,
@@ -578,36 +580,36 @@ Track per turn and per session: cache-hit input tokens, cache-miss input tokens,
 output tokens, reasoning tokens, and derived cost. A work request's result
 carries the same figures, so a caller can price its own job (§4.10).
 
-### 4.10 Work ingress over NATS JetStream
+### 4.10 Work ingress and the durable work queue
 
-Requests arrive on a JetStream work queue and results go to a separate stream.
-An agent run takes minutes, so core request/reply does not fit: the requester
-would have to hold a connection open for the whole run and would lose the result
-to any disconnect. Two streams decouple the two sides, and the requester can
-collect a result long after it stopped listening.
+Requests arrive on a durable work queue — the `work_queue` table in serve's own
+SQLite file — and results live on the request's `work_requests` row. An agent
+run takes minutes, so core request/reply does not fit: the requester would have
+to hold a connection open for the whole run and would lose the result to any
+disconnect. The queue row decouples the two sides, and the requester can collect
+a result long after it stopped listening, by reading the row back over
+`GET /api/requests/{request_id}` (docs/DATA-API.md).
 
-    Stream WORK      subjects harness.work.request.*
-                     retention WorkQueue
-                     consumer  durable pull, AckExplicit,
-                               AckWait 60s, MaxAckPending = pool size,
-                               MaxDeliver = worker.max_delivery_attempts
+    Table work_queue   one row per enqueued request, deleted on ack
+                       claim   one UPDATE ... RETURNING over rows that are
+                               visible, unleased (or lease expired), and under
+                               the delivery ceiling, in (visible_at_ms, id)
+                               order — FIFO redelivery
+                       lease   60s (queue.LeaseDuration), extended by the
+                               pool's heartbeat every 20s
 
-    Stream RESULTS   subjects harness.work.result.>
-                     retention Limits, MaxAge 7d
-                     harness.work.result.<request_id>.accepted
-                     harness.work.result.<request_id>.progress
-                     harness.work.result.<request_id>.final
+The pool is the flow controller: it claims at most one row per free slot
+(`Size` minus the slots in flight), so the queue never hands it more than it
+can work on, and the backlog stays in the table — visible (`GET /api/queue`)
+and surviving a restart in the same `harness-data` volume that holds the
+sessions.
 
-`MaxAckPending` set to the worker pool size makes JetStream the flow controller.
-The harness pulls only what it can run and the backlog stays in the stream,
-where it is visible and survives a restart.
-
-`docker-compose.yml` runs the local server: `nats:2.10-alpine` with `--jetstream`
-and a named volume for the store. Host ports come from the environment, because
-one NATS on the default ports is a normal thing for a machine to already have.
-The harness declares both streams and the consumer at startup and treats an
-existing definition as satisfied, so an empty server converges rather than
-needing a setup script.
+The queue is co-located with `serve`: it lives in the same SQLite file the
+store writes, and the process that consumes it is the process that enqueues
+through it. A second `harness serve` on another machine cannot consume it.
+That is a deliberate constraint. If horizontal scaling is ever wanted, the
+answer is a Postgres-backed store — the queue's contract is the claim query,
+not a particular store — not re-adding a broker.
 
 Request body:
 
@@ -635,11 +637,21 @@ Request body:
 The browser is one producer among several. `POST /api/runs` (docs/RUN-CONTROL.md)
 accepts this body over HTTP — `request_id` optional there and generated when
 absent, because a browser form has no idempotency key to offer — validates it
-with the queue's own `Request.Validate`, and publishes it to the WORK stream
-through the `RunPublisher` seam; a caller that supplies a `request_id` gets
-the same deduplication every other producer gets. `harness publish` and
-`deepseek_agent` are the other two producers, and all three share the one
-marshal-and-publish path, `queue.PublishRequest`.
+with the queue's own `Request.Validate`, and enqueues it through the
+`RunPublisher` seam; a caller that supplies a `request_id` gets the same
+deduplication every other producer gets. `harness publish` and `deepseek_agent`
+are the other two producers, and all three share the one marshal-and-enqueue
+path, `queue.Queue.Enqueue`: `deepseek_agent` runs in the same process and
+enqueues directly, and `harness publish` is an HTTP client of `POST /api/runs`
+like any other remote caller.
+
+The queue's old form had one ingress property HTTP does not: a NATS client in
+any language could publish the same JSON body directly to the stream, without
+the service being up. That is gone — `POST /api/runs` is the replacement
+(HTTP, validated with the same `Request.Validate`, provenance stamped
+server-side), and what is genuinely lost is publishing while the service is
+down. Nothing in this repo depends on that, and `restart: unless-stopped`
+covers the operational case.
 
 What each producer stamps onto the provenance fields, because a calling agent
 cannot be trusted to report its own provenance:
@@ -677,6 +689,12 @@ Result body:
       "sub_turns":       n, "started_at": "...", "finished_at": "...",
       "complete_status": "done" | "gave_up" | ""
     }
+
+The result is the row: `Pool.finish` records it with one guarded `UPDATE` on
+`work_requests` and then acks — deletes the queue row — and the caller reads
+it back over `GET /api/requests/{request_id}`. There is no separate
+publication to subscribe to and nothing to deduplicate: the row is the single
+source of the result.
 
 Every run works in a directory of its own: the worker creates
 `<workspace root>/<session id>` — with a `scratch/` subdirectory for files
@@ -736,19 +754,25 @@ prompt or the tool definition, both of which are shared and frozen (§3.2).
 
 Acknowledgement discipline:
 
-- Heartbeat `InProgress` every 20 seconds while a run holds a message, so an
-  hour-long run does not trip the 60-second `AckWait`.
-- Publish the terminal result, then ack. Doing it in that order means a crash in
-  between redelivers the request rather than losing it.
-- Publish `final` with `Nats-Msg-Id` set to `<request_id>.final`, so the
-  redelivered publish deduplicates inside the stream's window instead of
-  producing a second result.
-- `Term` a malformed request after publishing a `failed` result. It will never
-  parse, and redelivering it burns the pool.
-- `Nak` with a delay when the failure is transient and retries are exhausted.
-  On the last delivery attempt, publish `failed` and `Term`.
-- `MaxDeliver` bounds how many times one request may be delivered, from
-  `worker.max_delivery_attempts` (default 5, restart-required). Its job
+- Heartbeat the lease every 20 seconds while a run holds a row, so an
+  hour-long run does not trip the 60-second lease expiry.
+- Publish-then-ack collapses into one write: the result *is* the row, so
+  `finish`'s guarded `UPDATE` on `work_requests` is the publish, and the ack
+  that follows deletes the queue row. A crash between the two redelivers the
+  request once its lease expires, and the redelivery reads the now-terminal
+  row back and acks without running anything — the crash window the stream
+  design had to describe, with its separate result stream and its
+  `Nats-Msg-Id` dedup, is closed.
+- `Nats-Msg-Id` dedup is gone with the streams: `request_id` is the primary
+  key, and the guarded `UPDATE ... WHERE request_id = ? AND session_id = ?`
+  already prevents a stale attempt overwriting a newer result.
+- Delete a malformed request's row after recording a `failed` result. It will
+  never parse, and redelivering it burns the pool.
+- `Nak` with a delay when the failure is transient and retries are exhausted:
+  the row's `visible_at_ms` moves to now + delay and its lease is released.
+  On the last delivery attempt, record `failed` and delete the row.
+- The delivery ceiling bounds how many times one request may be delivered,
+  from `worker.max_delivery_attempts` (default 5, restart-required). Its job
   changed with single-use requests: it is no longer the main defence against
   runaway retries — that is the session id, which stops a request that ever
   produced a session from running again — but a **backstop for requests that
@@ -757,10 +781,12 @@ Acknowledgement discipline:
   workspace root that stays unwritable, say) would otherwise be redelivered
   forever, each attempt burning a pool slot. The two mechanisms are not
   redundant: the ceiling caps pre-session attempts, the session id caps
-  everything after the first session. `MaxDeliveryAttempts` on the pool must
-  equal the consumer's `MaxDeliver`: the server enforces the ceiling, and the
-  pool needs to know it so the final attempt can publish a terminal result
-  instead of the request silently ceasing to exist.
+  everything after the first session. The store enforces the ceiling —
+  `NakWork` deletes a row that has reached it and `ClaimWork` never returns
+  one at or over it — and the pool must know the number so the final attempt
+  can record a terminal result instead of the request silently ceasing to
+  exist (`MaxDeliveryAttempts` on the pool equals the queue's
+  `MaxDeliveries`).
 - A run wedged inside a tool call is not reaped by `deadline_ms`. The run
   context carries the deadline, so a loop that checks it stops; a tool call
   blocked on something that ignores cancellation does not, and the run holds
@@ -808,11 +834,10 @@ the operator-facing close is: the spent path passes a real idle threshold to
 refused as still active, leaving the row alone and letting the message fall
 through to the duplicate-handling path instead.
 
-Progress messages are turn-level, never token-level. Publishing content deltas
-to JetStream would persist thousands of messages per run for no reader's
-benefit. `progress` carries `turn_started`, `tool_call`, a truncated
-`tool_result`, and `usage`, rate-limited to at most one message per second. Full
-fidelity lives in the event log, on disk, and on the SSE stream.
+Progress is the SSE stream's job, not the queue's: turn-level events fan out
+through the hub (§4.2), rate-limited to at most one message per second, and
+full fidelity lives in the event log, on disk, and on the SSE stream. The
+queue carries a request in and a terminal result out, nothing in between.
 
 ### 4.11 Skills
 

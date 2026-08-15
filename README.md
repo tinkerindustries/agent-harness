@@ -6,8 +6,9 @@ clones repositories, reads and writes files, runs commands, and iterates until
 a task is done — targeting a provider's real behaviour rather than a
 provider-agnostic abstraction.
 
-Work arrives on a NATS JetStream queue, runs as one of several concurrent agent
-sessions in a single Go process, and returns a result to a results stream. A
+Work arrives on a durable work queue (the `work_queue` table in serve's
+SQLite store), runs as one of several concurrent agent sessions in a single
+Go process, and records its result on the request's `work_requests` row. A
 web UI shows what the sessions are doing and lets an operator set the
 harness's API keys. An MCP server lets another
 agent harness — Claude Code, Cursor — launch runs here and collect them later.
@@ -35,7 +36,7 @@ cp .env.example .env
 ```
 
 `.env` holds the bootstrap overrides only — where the database lives, the
-ports, the NATS address — all documented inline in `.env.example`. Everything
+ports — all documented inline in `.env.example`. Everything
 else the operator tunes — API keys, models, run budgets, tool limits, worker
 pool size, retention — lives in the harness's SQLite settings table and is
 changed with `harness config set` (or from the settings screen) without a
@@ -76,10 +77,10 @@ Then:
 docker compose up -d --build
 ```
 
-Two services come up: NATS with JetStream and the harness itself. The harness
-declares its streams and consumer at startup, serves the web UI and the
-`/api/...` API, and mounts the MCP launch server at `/mcp` on the same HTTP
-port — there is no setup script and an empty broker converges on its own.
+One service comes up: the harness itself. It applies the queue schema to its
+SQLite store at startup, serves the web UI and the `/api/...` API, and
+mounts the MCP launch server at `/mcp` on the same HTTP port — there is no
+setup script and an empty store converges on its own.
 
 ### Check it worked
 
@@ -91,7 +92,7 @@ docker compose exec harness harness balance
 Then open <http://localhost:8080> for the session list. It will be empty until
 you send some work.
 
-Both ports bind to loopback only. Transcripts carry workspace paths, file
+The port binds to loopback only. Transcripts carry workspace paths, file
 contents, and command output, so treat them as sensitive — and note that the
 HTTP port also serves `/mcp`, which starts sessions that run commands as root
 inside the workspace mount.
@@ -117,9 +118,11 @@ the socket is mounted in. Narrow it with repeatable `-deny` patterns if you want
 Every run gets its own directory under `workspaces/`, named for its session id,
 holding that run's clones. Nothing is shared between runs.
 
-`harness publish` is an operator's tool, not the only ingress: a NATS client in
-any language can publish the same JSON body. The request and result shapes are
-in [`docs/DESIGN.md`](docs/DESIGN.md) §4.10.
+`harness publish` is an operator's tool, not the only ingress: any HTTP
+client can `POST` the same JSON body to `/api/runs`, and `harness publish`
+requires `harness serve` to be running — it is a client of that endpoint.
+The request and result shapes are in [`docs/DESIGN.md`](docs/DESIGN.md)
+§4.10.
 
 ### From another agent harness
 
@@ -163,18 +166,18 @@ checking the key works.
 `up -d` restarts the old code.
 
 Shutdown drains in-flight runs rather than cutting them off, so `down` can take
-up to a minute. A run that dies with its process leaves its queue message
-unacked and is redelivered.
+up to a minute. A run that dies with its process leaves its queue row leased
+and is redelivered once the lease expires.
 
 ### Where state lives
 
 - `workspaces/` — one directory per run, bind-mounted into the container. Local
   only; gitignored.
-- `harness-data` volume — SQLite database and the human-readable session mirror
-  under `sessions/<date>/<session-id>/`.
-- `nats-data` volume — JetStream's store, so a queue backlog survives a restart.
+- `harness-data` volume — the SQLite database (the sessions, the work queue,
+  the results) and the human-readable session mirror under
+  `sessions/<date>/<session-id>/`. A queue backlog survives a restart in it.
 
-`docker compose down -v` removes both volumes and every session with them.
+`docker compose down -v` removes the volume and every session with it.
 
 ## A production stack beside the dev one
 
@@ -188,7 +191,6 @@ containers, network and volumes, on separate ports.
 | Compose project | `deepseek-harness` | `deepseek-harness-prod` |
 | Web UI | <http://localhost:8080> | <http://localhost:8180> |
 | MCP | `http://127.0.0.1:8080/mcp` | `http://127.0.0.1:8180/mcp` |
-| NATS client / monitor | 4322 / 8322 | 4522 / 8522 |
 | Workspaces | `HARNESS_WORKSPACES` | `HARNESS_WORKSPACES_PROD` |
 | Environment | `.env` | `.env.prod` |
 
@@ -238,10 +240,9 @@ go build -o bin/harness ./cmd/harness
 
 Skip that first step and the binary compiles fine and serves no UI at all.
 
-Then point it at a broker and give it somewhere to work:
+Then give it somewhere to work:
 
 ```sh
-docker compose up -d nats                 # or your own NATS with JetStream
 export DEEPSEEK_WORKSPACE_ROOT=$PWD/workspaces
 bin/harness serve
 ```
@@ -257,9 +258,8 @@ bin/harness serve -dev-frontend http://127.0.0.1:5173
 
 ## Troubleshooting
 
-**A port is already in use.** NATS on 4222 is a normal thing for a machine to
-have. Set `NATS_CLIENT_PORT`, `NATS_MONITOR_PORT`, or `HARNESS_HTTP_PORT`
-(which serves `/mcp` too) in `.env` and bring the stack back up.
+**A port is already in use.** Set `HARNESS_HTTP_PORT` (which serves `/mcp`
+too) in `.env` and bring the stack back up.
 
 **`{"halted":true}` from `/api/queue`.** The account balance ran out. The pool
 stops taking work rather than burning through redeliveries; top up and restart.

@@ -1,7 +1,6 @@
 // Package worktree allocates per-worktree ports and compose project names so
-// sibling git worktrees of this repo can run docker-compose.yml and
-// docker-compose.test.yml at the same time without colliding. See
-// docs/WORKTREES.md.
+// sibling git worktrees of this repo can run docker compose at the same time
+// without colliding. See docs/WORKTREES.md.
 package worktree
 
 import (

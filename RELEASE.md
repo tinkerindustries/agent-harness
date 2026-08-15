@@ -95,10 +95,10 @@ unchanged and only the image behind the tag has moved.
 
 **`deploy` drains rather than cuts.** `serve` handles SIGTERM by finishing
 in-flight runs, and the compose file gives it 60 seconds, so a deploy can take
-about that long. A run that does not finish in time leaves its queue message
-unacked and is redelivered to the new container. The `harness-data` and
-`nats-data` volumes are untouched by a deploy, so sessions and any queue backlog
-survive it.
+about that long. A run that does not finish in time leaves its queue row leased
+and is redelivered to the new container once the lease expires. The
+`harness-data` volume is untouched by a deploy, so sessions and any queue
+backlog survive it.
 
 **One-off, the first deploy of the settings-screen change: set the DeepSeek
 key in the database.** Since the settings table landed, the harness reads its
@@ -119,6 +119,19 @@ need to touch it. Skip it and the stack still comes up and serves the UI, but
 every run fails with `no DeepSeek API key configured` until the key is set.
 (`google.api_key` and `google.vision_model` can stay unset — the loop runs
 without them; only the DeepSeek key is required.)
+
+**One-off, the deploy that removes NATS: drain the WORK stream first.**
+Requests sitting in JetStream at the moment of the deploy are not migrated —
+the new binary never connects to the broker and cannot see them. Confirm
+`GET /api/queue` reports zero depth and zero in flight before promoting;
+anything left in WORK is lost and must be republished under a new
+`request_id`. Results in flight need no care: the durable result has always
+been the `work_requests` row, which the new binary reads.
+
+**After a successful deploy, `docker volume rm deepseek-harness-prod_nats-data`.**
+The volume is orphaned; leaving it costs disk and misleads the next reader.
+This makes the release one-way in the sense "State does not roll back with
+the image" below already describes.
 
 Then confirm it landed:
 
@@ -183,9 +196,9 @@ Constraints worth knowing before you need them:
   `gh release delete vX.Y.Z` and `git push --delete origin vX.Y.Z` if it was
   never really out.
 - **State does not roll back with the image.** A release that changed the shape
-  of anything in the SQLite store or in a JetStream stream leaves that change
-  behind in the `harness-data` and `nats-data` volumes when you go back. There
-  is no migration tooling here, so a schema change is a one-way deploy in
-  practice — treat it as major and be sure before promoting.
+  of anything in the SQLite store leaves that change behind in the
+  `harness-data` volume when you go back. There is no migration tooling here,
+  so a schema change is a one-way deploy in practice — treat it as major and
+  be sure before promoting.
 - **The dev stack is not a rollback path.** Different project, different volumes,
   different ports. Bringing dev up does not restore production.

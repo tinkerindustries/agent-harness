@@ -233,22 +233,19 @@ Landed as PR #80, squashed onto the integration branch as `b1ca077`. 13 files,
 It surfaced Phase 2: `scripts/test.sh` cannot run from inside an agent
 container, so the run verified itself by hand instead.
 
-### Phase 2 — Make the test script work from inside a container
+### Phase 2 — Make the test script work from inside a container — done, and since superseded
 
 Every remaining phase is a Go change verified by an agent running in the
-harness image, and none of them can run `scripts/test.sh` as it stands. The
-script starts its broker with `docker compose`, published on the host's
-loopback, which the container cannot reach. `TESTING.md` documents the trap and
-prescribes a local `nats-server` instead — but that binary is not in the image,
-so the Phase 1 agent installed it mid-run and its workaround does not
-reproduce.
-
-Two parts: bake `nats-server` into the Dockerfile beside `gh`, and teach
-`scripts/test.sh` to start it directly when the compose broker is unreachable,
-keeping the compose path for a normal host run.
-
-Verify: `scripts/test.sh` green on the host, and green from inside the
-container.
+harness image, and none of them could run `scripts/test.sh` as it stood: the
+script started its broker with `docker compose`, published on the host's
+loopback, which the container cannot reach, and the local broker-binary
+fallback it prescribed was not in the image. The phase baked that broker
+binary into the Dockerfile and taught the script to start it directly when
+the compose broker was unreachable, keeping the compose path for a normal
+host run. Both halves are gone now: the queue migration removed the broker
+entirely (docs/QUEUE-MIGRATION-PLAN.md), and `scripts/test.sh` is plain
+`go test` again — the container-reachability problem this phase existed to
+solve no longer exists.
 
 ### Phase 3 — Extract the wire vocabulary
 

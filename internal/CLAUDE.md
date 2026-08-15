@@ -140,8 +140,9 @@ and column migration; `sessions.go` the status vocabulary and session CRUD;
 
 ### `internal/hub`
 In-process SSE fan-out: per-session transcript subscribers and a quieter
-session-list subscriber set. Fed the same events a session appends. Touches no
-JetStream — the browser reads the store and the hub, never NATS. Owns the two
+session-list subscriber set. Fed the same events a session appends. Touches
+no queue — the browser reads the store and the hub, never the queue. Owns
+the two
 shapes a session row goes out in, and the projection between them:
 `SessionState`, the whole row, which the REST endpoints return and which one
 session's own stream carries as `state` frames, and `ListRow`, what the list
@@ -157,12 +158,12 @@ manages (docs/DATA-API.md) and the run-control endpoints (docs/RUN-CONTROL.md).
 Serves the store and the hub and writes through the store; the reach into the
 run loop is through two declared seams rather than imports: `RunController`,
 implemented by `*worker.Pool`, for the stop endpoint, and `RunPublisher`,
-implemented by `cmd/harness` over the queue's own JetStream handle, for the
-start endpoint; and `EvalController`, implemented over `*evals.Orchestrator`,
-for starting and cancelling an eval — so this package still imports neither
+implemented by `cmd/harness` over the store-backed queue, for the start
+endpoint; and `EvalController`, implemented over `*evals.Orchestrator`, for
+starting and cancelling an eval — so this package still imports neither
 `session` nor `worker`
-and holds no JetStream handle, only the narrow ability to enqueue one
-validated request (it imports `queue` for the request type and its `Validate`,
+and holds no queue handle, only the narrow ability to enqueue one validated
+request (it imports `queue` for the request type and its `Validate`,
 deliberately, so a body validated here can never drift from the queue's).
 Steering (`POST /api/sessions/{id}/steer`) needs no seam: it is a store write
 the session loop reads at its next sub-turn boundary. It holds the loaded
@@ -178,8 +179,9 @@ stay there so the whole surface is still readable in one list).
 `dist/` is Vite output and is not in git.
 
 ### `internal/queue`
-JetStream wiring shared by every NATS caller: stream and consumer declaration,
-the work request and result bodies, and the progress rate limiter. Request
+The request and result shapes, their validation, and the store-backed work
+queue: `Queue` (enqueue, claim, dispose, the wake channel) over the store's
+`work_queue` table, plus the `Msg` seam the worker pool consumes. Request
 validation checks a named model against the model→provider table
 (`internal/provider`), so an unknown model fails at validation rather than
 reaching a provider. §4.10.
@@ -190,11 +192,12 @@ so the run is visible and stoppable while the workspace is being prepared),
 builds the workspace, installs the shipped skills into it
 (`internal/skills.Install`, best-effort — a skill that fails to land is one
 catalogue entry missing, not a failed run), runs it as a session (which
-promotes the row to `running`), publishes the result, then acks — in that order, so a crash
-redelivers rather than loses. A preparation failure marks the row `failed`
-(Runner.FailSetup) before the setup result is published, so no row is left
-stuck in `creating`. Owns acknowledgement discipline and idempotency against
-the `work_requests` table. §4.10.
+promotes the row to `running`), records the result on the `work_requests`
+row, then acks the queue row — in that order, so a crash redelivers rather
+than loses. A preparation failure marks the row `failed` (Runner.FailSetup),
+and a stop during preparation marks it `cancelled`, before the setup result
+is published, so no row is left stuck in `creating`. Owns acknowledgement
+discipline and idempotency against the `work_requests` table. §4.10.
 
 ### `internal/workspace`
 Prepares the per-session directory — a `scratch/` subdirectory for files that
@@ -269,11 +272,11 @@ run. Depends on: nothing internal.
 ### `internal/mcp`
 The MCP launch server: tools and resources over streamable HTTP, mounted at
 `/mcp` by `harness serve` on its own HTTP server and handed serve's own
-JetStream handle, control token, settings resolver, and store. Backed by the
-WORK and RESULTS streams and the harness's HTTP API. It opens no database —
-the store handle it writes attachments through is serve's own, so `serve`
-stays the single writer (docs/DATA-API.md, "attachments"). It never touches
-the system prompt or the tool array.
+queue, control token, settings resolver, and store. Backed by the work queue
+and the harness's HTTP API (`GET /api/requests/{id}` for results). It opens
+no database — the store handle it writes attachments through is serve's own,
+so `serve` stays the single writer (docs/DATA-API.md, "attachments"). It
+never touches the system prompt or the tool array.
 
 ### `internal/cache`
 The prompt-cache churn diagnostic from [`../docs/CACHE.md`](../docs/CACHE.md):

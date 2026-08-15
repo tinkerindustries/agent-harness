@@ -184,7 +184,6 @@ non-trivial query; the joins between `sessions`, `work_requests` and
 docker compose -p deepseek-harness-prod logs --tail 300 harness
 docker compose -p deepseek-harness-prod logs --since 2h harness | grep sess-84df48
 scripts/prod.sh logs                                    # follows harness
-scripts/prod.sh logs nats
 ```
 
 These are plain `log.Printf` lines, `2026/08/14 06:44:43 message`, not
@@ -259,8 +258,9 @@ Four identifiers thread through everything:
 
 - `session_id` (`sess-…`) — the session row, its events, its trace directory,
   its workspace path, and the log lines that mention it.
-- `request_id` (`mcp-…` for MCP launches) — the work request, the JetStream
-  subject `harness.work.request.<request_id>`, and `sessions.request_id`.
+- `request_id` (`mcp-…` for MCP launches) — the work request, the
+  `work_requests` row (`GET /api/requests/<request_id>`), and
+  `sessions.request_id`.
 - `workspace` — an absolute path, the key of a workspace lease.
 - The day — trace directories are per UTC day, so a run that crossed midnight
   has its exchanges split across two directories.
@@ -288,20 +288,19 @@ Use this skill to find *which* session, and that one to read it.
 
 ## The queue
 
-`GET /api/queue` is the first stop and usually the last. For stream-level
-detail the broker's monitoring port is published on the host at `8522`:
+`GET /api/queue` is the first stop and usually the last. The queue is the
+`work_queue` table in the harness's SQLite store — there is no broker to
+inspect. The endpoint reports depth (claimable now), scheduled (Nak-delayed),
+in flight (leased), and redelivered rows:
 
 ```bash
-curl -s 'http://127.0.0.1:8522/jsz?streams=1&consumers=1' | python3 -m json.tool
-curl -s  http://127.0.0.1:8522/healthz
+curl -s http://127.0.0.1:8180/api/queue | python3 -m json.tool
 ```
 
-Streams are `WORK` (work-queue policy, subjects `harness.work.request.*`)
-and `RESULTS` (limits policy, aged out at `queue.results_max_age`, default
-7 days), with one durable consumer `harness-workers`. There is no `nats`
-CLI in either image. A result older than the retention window is gone from
-`RESULTS` but its session and events are still in the database — reach for
-those instead of concluding the run vanished.
+A result lives on the request's `work_requests` row, not in any stream, so a
+result never ages out: `GET /api/requests/<request_id>` finds it however old
+it is. Its session and events are in the same database — reach for those
+when the question is what the run did.
 
 ## Reporting what you found
 

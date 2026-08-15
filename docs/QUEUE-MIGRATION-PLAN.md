@@ -3,6 +3,37 @@
 Plan against HEAD `775e772`. The WORK stream becomes a table in
 `internal/store`; the RESULTS stream is deleted entirely.
 
+## As executed
+
+This document is the record of the change, kept the way
+`docs/RUN-CONTROL-PLAN.md` records its own; where the code differs from the
+plan, the code is the authority. Four divergences are worth recording.
+
+- **The `ResultSink` interface shipped with a third method.** §1.6 sketched
+  two methods, `Final` and `Accepted`; what landed had three — `Final(ctx,
+  requestID string, data []byte)`, `Accepted`, and `Progress` — because the
+  call sites needed the progress path while the sink still existed. It was
+  deleted exactly as §1.6 predicted once `finish` wrote the row and `republish`
+  became a bare ack.
+- **The `UPDATE ... RETURNING` claim never needed the SELECT-then-UPDATE
+  fallback.** §1.3 allowed for `modernc.org/sqlite` not supporting
+  `RETURNING`; it was verified to work on the first try, so the fallback was
+  never written.
+- **The stop-during-preparation gap (§4.10's "a stop during a clone marks the
+  creating row cancelled") was found by phase 5, not part of the original
+  plan.** `TestStopHealthyRunCancels` failed about half the time because a
+  fast store-backed claim let a stop land mid-preparation, where the old code
+  reported `workspace_setup` regardless of cause. Phase 5 settled the suite
+  by waiting for `running`; phase 6 fixed the code — a stopped preparation
+  now reports `cancelled` with the operator's reason and marks the `creating`
+  row — and restored the coverage with
+  `TestStopDuringPreparationSoftStopCancelsRowAndResult`.
+- **One more divergence the §4 table predicted optimistically:** "the guarded
+  UPDATE and the queue-row DELETE **in one submit transaction**". The two
+  writes are separate store submits. The crash window is closed all the same:
+  the result is the row, and a crash between the writes leaves a terminal row
+  that the redelivered request reads back and acks without running anything.
+
 ---
 
 ## 0. What the code actually says

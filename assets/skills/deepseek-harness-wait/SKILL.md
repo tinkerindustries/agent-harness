@@ -70,11 +70,11 @@ Using the wrong one is what makes waiting expensive:
 
 So: poll the endpoint, call `deepseek_status` when a human asks, call `deepseek_result` once at the end, and read a resource only when you are digging into a specific run.
 
-Nothing here blocks. `deepseek_result` keeps a 300 ms floor on its fetch, which is not a wait for the run — a JetStream fetch needs a non-zero window to notice a message already sitting in the stream, and without it an already-finished run would report as queued.
+Nothing here blocks. `deepseek_result` keeps a 300 ms floor on its fetch, which is not a wait for the run — the floor exists so an already-finished run is not reported as queued because the row had not been read yet.
 
 ## Collecting the result
 
-`deepseek_result` only reads the results stream and the read-only API, so it is safe to call more than once, and it will still find the result later — from a different session, hours afterwards. There is no window you can miss, which is another reason not to hover.
+`deepseek_result` only reads the request's `work_requests` row over the read-only API, so it is safe to call more than once, and it will still find the result later — from a different session, hours afterwards. There is no window you can miss, which is another reason not to hover.
 
 It inlines at most 4000 characters of the run's answer. When it truncates, the footer names the `harness://session/{id}/transcript` resource, which holds the whole thing.
 
