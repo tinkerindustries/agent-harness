@@ -41,7 +41,10 @@ type MCPConfig struct {
 	// handed back to a caller so a human can watch a run. Defaults to
 	// HarnessBaseURL, which is correct outside compose (both on loopback)
 	// and wrong inside it (HarnessBaseURL is an internal service name a
-	// browser cannot resolve) — set it explicitly there.
+	// browser cannot resolve) — set it explicitly there. The
+	// http.external_url setting (internal/settings.KeyHTTPExternalURL),
+	// when set in the settings table, overrides this at startup
+	// (cmd/harness/serve.go).
 	HarnessPublicURL string
 	// PermissionCeiling clamps every launched run's permission mode,
 	// regardless of what a caller requests: a request for "full" against a
