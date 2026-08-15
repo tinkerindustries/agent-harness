@@ -231,6 +231,20 @@ func runServe(ctx context.Context, args []string) error {
 		}
 	}
 
+	// The public transcript URL is a restart-required setting too, read once
+	// into mcpCfg at startup like the other GroupRequiresRestart keys: when
+	// set, http.external_url overrides whatever LoadMCP() produced from the
+	// DEEPSEEK_HARNESS_PUBLIC_URL env var, so an operator can repoint the MCP
+	// tools' transcript links without a redeploy. Empty (the default) keeps
+	// the env var, or the loopback base URL derived above, exactly as before.
+	externalURL, err := res.String(ctx, settings.KeyHTTPExternalURL)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", settings.KeyHTTPExternalURL, err)
+	}
+	if externalURL != "" {
+		mcpCfg.HarnessPublicURL = externalURL
+	}
+
 	pool := &worker.Pool{
 		Store:               st,
 		Runner:              runner,
