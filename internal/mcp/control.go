@@ -2,9 +2,11 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -28,14 +30,21 @@ type stopOutput struct {
 }
 
 // workRequestRow mirrors the part of GET /api/requests/{request_id}'s wire
-// shape (internal/httpapi.workRequestRow) that request-to-session resolution
-// needs: the row's id, the session it produced (absent for a request that
-// never ran), and its status. Redefined here rather than imported, the same
-// way statusResponse redefines the status endpoint's shape.
+// shape (internal/httpapi.workRequestRow) that this package needs: the row's
+// id, the session it produced (absent for a request that never ran), its
+// status, the stored result JSON (the queue.Result the worker finished with,
+// absent until the run is terminal), and finished_at (nil until then).
+// Redefined here rather than imported, the same way statusResponse redefines
+// the status endpoint's shape. Result and FinishedAt are the fields the
+// RESULTS-stream waiters (deepseek_result, and the launch tool's accepted
+// wait) now read from the row instead of the stream
+// (docs/QUEUE-MIGRATION-PLAN.md §5).
 type workRequestRow struct {
-	RequestID string `json:"request_id"`
-	SessionID string `json:"session_id,omitempty"`
-	Status    string `json:"status"`
+	RequestID  string          `json:"request_id"`
+	SessionID  string          `json:"session_id,omitempty"`
+	Status     string          `json:"status"`
+	Result     json.RawMessage `json:"result,omitempty"`
+	FinishedAt *time.Time      `json:"finished_at,omitempty"`
 }
 
 func (svc *Service) registerStopTool(server *mcpsdk.Server) {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -49,6 +50,46 @@ func getJSON(ctx context.Context, client *http.Client, baseURL, path string, out
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("GET %s: status %d: %s", path, resp.StatusCode, string(body))
+	}
+	if out == nil {
+		return nil
+	}
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return fmt.Errorf("decode response from %s: %w", path, err)
+	}
+	return nil
+}
+
+// errNotFound marks a 404 from getJSONOrNotFound. A 404 from GET
+// /api/requests/{request_id} is a state, not an error: work_requests rows
+// are created at claim time, so a 404 means "the pool has not claimed this
+// request yet" (docs/QUEUE-MIGRATION-PLAN.md §5). getJSON collapses every
+// non-200 into one status error and keeps doing so for its existing callers;
+// this sentinel is what the waiters unwrap instead.
+var errNotFound = errors.New("not found")
+
+// getJSONOrNotFound is getJSON with the 404 case reported distinctly: it
+// returns errNotFound for a 404 (the resource does not exist) and every
+// other non-200 stays the same status error getJSON returns. Callers that
+// treat a missing resource as an ordinary state check errors.Is against
+// errNotFound rather than parsing the error string.
+func getJSONOrNotFound(ctx context.Context, client *http.Client, baseURL, path string, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+path, nil)
+	if err != nil {
+		return fmt.Errorf("build request for %s: %w", path, err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("GET %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return errNotFound
+	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		return fmt.Errorf("GET %s: status %d: %s", path, resp.StatusCode, string(body))
