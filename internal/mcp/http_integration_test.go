@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -51,8 +50,7 @@ func startTestServerWithClient(t *testing.T, svc *Service, impl *mcpsdk.Implemen
 // MCP client speaking streamable HTTP, under the exact names docs/DESIGN.md
 // promises a caller.
 func TestMCPServerListsToolsAndResources(t *testing.T) {
-	_, js := connectOrSkip(t)
-	svc := newIntegrationService(t, js)
+	svc, _ := newIntegrationService(t)
 	cs := startTestServer(t, svc)
 
 	tools, err := cs.ListTools(context.Background(), nil)
@@ -88,11 +86,10 @@ func TestMCPServerListsToolsAndResources(t *testing.T) {
 
 // TestMCPServerCallToolLaunchOverHTTP drives deepseek_agent through the real
 // transport end to end and checks the queued outcome comes back with the
-// structured content a caller would parse.
+// structured content a caller would parse. The accepted wait sees a 404 —
+// nothing has claimed the request — so the launch reports queued.
 func TestMCPServerCallToolLaunchOverHTTP(t *testing.T) {
-	_, js := connectOrSkip(t)
-	ensureTestStreams(t, js)
-	svc := newIntegrationService(t, js)
+	svc, _ := newIntegrationService(t)
 	cs := startTestServer(t, svc)
 
 	res, err := cs.CallTool(context.Background(), &mcpsdk.CallToolParams{
@@ -129,11 +126,8 @@ func TestMCPServerCallToolLaunchOverHTTP(t *testing.T) {
 // ParentAgentID stays whatever the caller asserted, and parent_is_user stays
 // false.
 func TestMCPServerLaunchStampsParentAgentTypeFromClientInfo(t *testing.T) {
-	_, js := connectOrSkip(t)
-	ensureTestStreams(t, js)
-	svc := newIntegrationService(t, js)
-	captured := &capturingJS{JetStream: js}
-	svc.JS = captured
+	svc, _ := newIntegrationService(t)
+	captured := svc.Publisher.(*capturePublisher)
 
 	cs := startTestServerWithClient(t, svc, &mcpsdk.Implementation{Name: "Claude Code", Title: "Claude Code", Version: "2.1.227"})
 
@@ -157,7 +151,7 @@ func TestMCPServerLaunchStampsParentAgentTypeFromClientInfo(t *testing.T) {
 	}
 
 	var got queue.Request
-	if err := json.Unmarshal(captured.published, &got); err != nil {
+	if err := json.Unmarshal(captured.lastPublished(), &got); err != nil {
 		t.Fatalf("parse published work request: %v", err)
 	}
 	if got.ParentAgentType != "claude-code" {
@@ -190,10 +184,8 @@ func TestMCPServerReadSessionTranscriptResourceProxiesHarnessAPI(t *testing.T) {
 	}))
 	defer fake.Close()
 
-	_, js := connectOrSkip(t)
-	svc := newIntegrationService(t, js)
+	svc := newIntegrationServiceOverStore(t, openTestStore(t))
 	svc.Cfg.HarnessBaseURL = fake.URL
-	svc.HTTPClient = &http.Client{Timeout: 5 * time.Second}
 	cs := startTestServer(t, svc)
 
 	res, err := cs.ReadResource(context.Background(), &mcpsdk.ReadResourceParams{URI: "harness://session/sess-fake/transcript"})

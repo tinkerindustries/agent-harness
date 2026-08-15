@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/nats-io/nats.go/jetstream"
+	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -19,10 +20,10 @@ import (
 )
 
 // newValidationService builds a Service whose validation-only handler paths
-// can be exercised without a NATS connection: every case below is rejected
-// before handleLaunch or handleCollect ever touches svc.JS, so JS is left
-// nil on purpose — a nil-pointer panic here would itself be a bug (an
-// argument error should never reach the network).
+// can be exercised without any wiring: every case below is rejected before
+// handleLaunch or handleCollect ever touches svc.Publisher or the HTTP
+// client, so both are left nil on purpose — a nil-pointer panic here would
+// itself be a bug (an argument error should never reach the network).
 func newValidationService(t *testing.T) *Service {
 	t.Helper()
 	return &Service{
@@ -83,51 +84,29 @@ func TestHandleLaunchRejectsOverLengthTitle(t *testing.T) {
 	}
 }
 
-// captureJS is a JetStream handle that records the one publish handleLaunch
-// makes and answers the accepted subscription with an empty batch, so a
-// good launch's happy path runs to the queued outcome without a broker: the
-// request validates, publishes, and reports "queued" because nothing
-// accepted it within the wait window. The embedded interfaces stay nil —
-// handleLaunch's queued path never reaches any other JetStream method.
-type captureJS struct {
-	jetstream.JetStream
-	published []byte
+// newQueuedHarnessService builds a Service whose publish is captured and
+// whose accepted wait sees a 404 — the "the pool has not claimed it"
+// signal — so a good launch's happy path runs to the queued outcome without
+// a broker: the request validates, publishes, and reports "queued" because
+// nothing claimed it within the wait window.
+func newQueuedHarnessService(t *testing.T) (*Service, *capturePublisher) {
+	t.Helper()
+	svc := newValidationService(t)
+	captured := &capturePublisher{}
+	svc.Publisher = captured
+	api := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(api.Close)
+	svc.Cfg.HarnessBaseURL = api.URL
+	svc.HTTPClient = &http.Client{Timeout: 5 * time.Second}
+	return svc, captured
 }
-
-func (c *captureJS) Publish(ctx context.Context, subject string, payload []byte, opts ...jetstream.PublishOpt) (*jetstream.PubAck, error) {
-	c.published = append([]byte(nil), payload...)
-	return &jetstream.PubAck{}, nil
-}
-
-func (c *captureJS) OrderedConsumer(ctx context.Context, stream string, cfg jetstream.OrderedConsumerConfig) (jetstream.Consumer, error) {
-	return &emptyConsumer{}, nil
-}
-
-type emptyConsumer struct {
-	jetstream.Consumer
-}
-
-func (c *emptyConsumer) Fetch(batch int, opts ...jetstream.FetchOpt) (jetstream.MessageBatch, error) {
-	ch := make(chan jetstream.Msg)
-	close(ch)
-	return &emptyBatch{msgs: ch}, nil
-}
-
-type emptyBatch struct {
-	msgs chan jetstream.Msg
-}
-
-func (b *emptyBatch) Messages() <-chan jetstream.Msg { return b.msgs }
-func (b *emptyBatch) Error() error                   { return nil }
 
 // TestLaunchCarriesAllFourFieldsOntoTheRequest launches with a title,
 // description, and a phase position and captures the published work request,
 // asserting all four reach the wire exactly as given — the launch path is
 // where a phased chain stamps its position.
 func TestLaunchCarriesAllFourFieldsOntoTheRequest(t *testing.T) {
-	svc := newValidationService(t)
-	captured := &captureJS{}
-	svc.JS = captured
+	svc, captured := newQueuedHarnessService(t)
 
 	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{
 		Title:          "Add session title fields",
@@ -149,7 +128,7 @@ func TestLaunchCarriesAllFourFieldsOntoTheRequest(t *testing.T) {
 	}
 
 	var got queue.Request
-	if err := json.Unmarshal(captured.published, &got); err != nil {
+	if err := json.Unmarshal(captured.lastPublished(), &got); err != nil {
 		t.Fatalf("parse published work request: %v", err)
 	}
 	if got.Title != "Add session title fields" {
@@ -249,9 +228,9 @@ func TestHandleLaunchRejectsNegativeMaxSubTurns(t *testing.T) {
 }
 
 // TestHandleLaunchRejectsUnknownJobType checks the provenance validation
-// that runs before the publish: JS is nil on this service, so a launch that
-// reached the network would panic, and the error result alone means nothing
-// was published.
+// that runs before the publish: Publisher is nil on this service, so a
+// launch that reached the publish would panic, and the error result alone
+// means nothing was published.
 func TestHandleLaunchRejectsUnknownJobType(t *testing.T) {
 	svc := newValidationService(t)
 	res, _, err := svc.handleLaunch(context.Background(), nil, launchInput{

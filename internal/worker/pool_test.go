@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -165,13 +166,12 @@ func newTestHarnessWithRunner(t *testing.T, serverURL string, poolSize int, newR
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	consumer, err := queue.EnsureStreams(ctx, js, poolSize, queue.DefaultResultsMaxAge, queue.DefaultMaxDeliveryAttempts)
+	consumer, err := queue.EnsureStreams(ctx, js, poolSize, queue.DefaultMaxDeliveryAttempts)
 	if err != nil {
 		t.Fatalf("EnsureStreams: %v", err)
 	}
 	t.Cleanup(func() {
 		js.DeleteStream(context.Background(), queue.StreamWork)
-		js.DeleteStream(context.Background(), queue.StreamResults)
 	})
 
 	dir := t.TempDir()
@@ -193,7 +193,6 @@ func newTestHarnessWithRunner(t *testing.T, serverURL string, poolSize int, newR
 	pool := &Pool{
 		Store:             st,
 		Runner:            newRunner(st),
-		Results:           queue.NewNATSSink(js),
 		Consumer:          consumer,
 		WorkspaceRoot:     resolvedRoot,
 		PrepareWorkspace:  fakePrepareWorkspace,
@@ -292,57 +291,46 @@ func (h *testHarness) publishRaw(t *testing.T, subjectToken string, data []byte)
 	}
 }
 
-// fetchFinalResult waits up to timeout for a final result to appear on the
-// RESULTS stream for requestID, decoded into a queue.Result.
+// fetchFinalResult waits up to timeout for requestID's work_requests row to
+// become terminal, decoded into a queue.Result. The row is the result now
+// (docs/QUEUE-MIGRATION-PLAN.md §1.6): the worker writes the same JSON it
+// used to publish to the RESULTS stream, so the assertions stay about the
+// result contents, which the row holds verbatim.
 func (h *testHarness) fetchFinalResult(t *testing.T, requestID string, timeout time.Duration) queue.Result {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	consumer, err := h.js.OrderedConsumer(ctx, queue.StreamResults, jetstream.OrderedConsumerConfig{
-		FilterSubjects: []string{queue.FinalSubject(requestID)},
-	})
-	if err != nil {
-		t.Fatalf("ordered consumer for %s: %v", requestID, err)
-	}
-	batch, err := consumer.Fetch(1, jetstream.FetchMaxWait(timeout))
-	if err != nil {
-		t.Fatalf("fetch final result for %s: %v", requestID, err)
-	}
-	for msg := range batch.Messages() {
-		var res queue.Result
-		if err := json.Unmarshal(msg.Data(), &res); err != nil {
-			t.Fatalf("decode result for %s: %v", requestID, err)
+	deadline := time.Now().Add(timeout)
+	for {
+		row, err := h.pool.Store.GetWorkRequest(context.Background(), requestID)
+		if err == nil && row.FinishedAt != nil {
+			var res queue.Result
+			if err := json.Unmarshal(row.Result, &res); err != nil {
+				t.Fatalf("decode result for %s: %v", requestID, err)
+			}
+			return res
 		}
-		return res
+		if time.Now().After(deadline) {
+			t.Fatalf("no final result arrived for %s within %s", requestID, timeout)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("no final result arrived for %s within %s", requestID, timeout)
-	return queue.Result{}
 }
 
-// countFinalResults counts however many final-result messages arrived for
-// requestID within timeout, used to prove a duplicate request_id produced
-// exactly one.
-func (h *testHarness) countFinalResults(t *testing.T, requestID string, timeout time.Duration) int {
+// finalRowTerminal waits up to timeout for requestID's work_requests row to
+// exist with a terminal result, returning it raw — for assertions about the
+// row itself rather than the decoded result.
+func (h *testHarness) finalRowTerminal(t *testing.T, requestID string, timeout time.Duration) store.WorkRequest {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	consumer, err := h.js.OrderedConsumer(ctx, queue.StreamResults, jetstream.OrderedConsumerConfig{
-		FilterSubjects: []string{queue.FinalSubject(requestID)},
-	})
-	if err != nil {
-		t.Fatalf("ordered consumer for %s: %v", requestID, err)
+	deadline := time.Now().Add(timeout)
+	for {
+		row, err := h.pool.Store.GetWorkRequest(context.Background(), requestID)
+		if err == nil && row.FinishedAt != nil {
+			return row
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no terminal row arrived for %s within %s", requestID, timeout)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	batch, err := consumer.Fetch(10, jetstream.FetchMaxWait(timeout))
-	if err != nil {
-		t.Fatalf("fetch for %s: %v", requestID, err)
-	}
-	n := 0
-	for range batch.Messages() {
-		n++
-	}
-	return n
 }
 
 // TestPoolFourConcurrentRequests proves the pool runs concurrently:
@@ -425,8 +413,12 @@ func TestPoolDuplicateRequestIDRunsOnce(t *testing.T) {
 		t.Fatalf("expected exactly 1 session to have run against the fake server, got %d", hits.count())
 	}
 
-	if n := h.countFinalResults(t, requestID, 2*time.Second); n != 1 {
-		t.Fatalf("expected exactly 1 final result on the RESULTS stream, got %d", n)
+	// One request_id means one terminal row: the duplicate publish must not
+	// have produced a second run or a second result (the row is the single
+	// source of the result now, and the row's text is the first run's).
+	row := h.finalRowTerminal(t, requestID, 2*time.Second)
+	if row.Status != queue.StatusOK || !strings.Contains(string(row.Result), "done once") {
+		t.Fatalf("expected the single terminal row to carry the first run's result, got status %q result %s", row.Status, row.Result)
 	}
 }
 
@@ -838,41 +830,24 @@ func TestPoolHaltsOnInsufficientBalance(t *testing.T) {
 	}
 
 	// The halted request itself must not have a terminal result: it was
-	// left unacked for redelivery, not marked failed and finished.
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	consumer, err := h.js.OrderedConsumer(ctx, queue.StreamResults, jetstream.OrderedConsumerConfig{
-		FilterSubjects: []string{queue.FinalSubject(requestID)},
-	})
+	// left unacked for redelivery, not marked failed and finished — so its
+	// row still says running with no finished_at.
+	row, err := h.pool.Store.GetWorkRequest(context.Background(), requestID)
 	if err != nil {
-		t.Fatalf("ordered consumer: %v", err)
+		t.Fatalf("get work request: %v", err)
 	}
-	batch, err := consumer.Fetch(1, jetstream.FetchMaxWait(2*time.Second))
-	if err != nil {
-		t.Fatalf("fetch: %v", err)
-	}
-	for range batch.Messages() {
-		t.Fatal("expected no final result to be published for a request that hit an empty account")
+	if row.FinishedAt != nil {
+		t.Fatalf("expected no terminal result for a request that hit an empty account, row: %+v", row)
 	}
 
 	// A second request, published after the halt, must never be picked up
-	// either — the pool stopped pulling, it did not just fail this one.
+	// either — the pool stopped pulling, it did not just fail this one. The
+	// pool never claimed it, so no row exists at all.
 	second := uniqueID("req-402-second")
 	h.publish(t, queue.Request{RequestID: second, Prompt: "task", Repos: testRepos(), PermissionMode: "full"})
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 1500*time.Millisecond)
-	defer cancel2()
-	consumer2, err := h.js.OrderedConsumer(ctx2, queue.StreamResults, jetstream.OrderedConsumerConfig{
-		FilterSubjects: []string{queue.FinalSubject(second)},
-	})
-	if err != nil {
-		t.Fatalf("ordered consumer: %v", err)
-	}
-	batch2, err := consumer2.Fetch(1, jetstream.FetchMaxWait(1500*time.Millisecond))
-	if err != nil {
-		t.Fatalf("fetch: %v", err)
-	}
-	for range batch2.Messages() {
-		t.Fatal("expected a request published after the halt never to be pulled, let alone finished")
+	time.Sleep(1500 * time.Millisecond)
+	if _, err := h.pool.Store.GetWorkRequest(context.Background(), second); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected a request published after the halt never to be pulled, let alone finished; GetWorkRequest error = %v", err)
 	}
 }
 
