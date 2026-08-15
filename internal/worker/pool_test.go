@@ -17,11 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nats-io/nats.go"
-	"github.com/nats-io/nats.go/jetstream"
-
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
-	"github.com/mrgeoffrich/deepseek-harness/internal/config"
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
@@ -31,47 +27,18 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/workspace"
 )
 
-// testNATSURL and connectOrSkip mirror internal/queue's test helpers: the
-// broker in docker-compose.test.yml. A missing broker is a failure, not a
-// skip, by default — a suite that could not run must not read as a pass in
-// `go test ./...` output — with HARNESS_TEST_NATS_OPTIONAL=1 as the
-// deliberate opt-out for a developer who genuinely has no Docker.
-// NATS_URL is ignored on purpose; it names the deployment's broker, whose
-// running pool would consume these requests and reject them against its own
-// workspace roots.
-func testNATSURL() string {
-	config.LoadDotEnv("../../.env")
-	if v := os.Getenv("HARNESS_TEST_NATS_URL"); v != "" {
-		return v
-	}
-	return "nats://127.0.0.1:4422"
-}
-
-func connectOrSkip(t *testing.T) (*nats.Conn, jetstream.JetStream) {
-	t.Helper()
-	nc, js, err := queue.Connect(testNATSURL())
-	if err != nil {
-		if os.Getenv("HARNESS_TEST_NATS_OPTIONAL") == "1" {
-			t.Skipf("no test NATS JetStream server reachable at %s (scripts/test.sh): %v", testNATSURL(), err)
-		}
-		t.Fatalf("no test NATS JetStream server reachable at %s: %v — run scripts/test.sh to start one, or set HARNESS_TEST_NATS_OPTIONAL=1 to skip instead of failing", testNATSURL(), err)
-	}
-	t.Cleanup(nc.Close)
-	return nc, js
-}
-
 func uniqueID(prefix string) string {
 	var b [8]byte
 	rand.Read(b[:])
 	return prefix + "-" + hex.EncodeToString(b[:])
 }
 
-// testHarness wires a Pool to a real local JetStream server and a fake
-// DeepSeek HTTP server, isolated per test by a fresh store and a fresh
-// durable consumer state (streams are cleaned up in t.Cleanup).
+// testHarness wires a Pool to a real store-backed queue (a fresh SQLite
+// file in a temp dir) and a fake DeepSeek HTTP server, isolated per test by
+// the fresh store.
 type testHarness struct {
 	pool *Pool
-	js   jetstream.JetStream
+	q    *queue.Queue
 	root string
 	hits *hitCounter
 }
@@ -160,20 +127,6 @@ func newTestHarness(t *testing.T, serverURL string, poolSize int) *testHarness {
 // wedge a run in a way no HTTP fake ever could.
 func newTestHarnessWithRunner(t *testing.T, serverURL string, poolSize int, newRunner func(*store.Store) Runner) *testHarness {
 	t.Helper()
-	nc, js := connectOrSkip(t)
-	_ = nc
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	consumer, err := queue.EnsureStreams(ctx, js, poolSize, queue.DefaultMaxDeliveryAttempts)
-	if err != nil {
-		t.Fatalf("EnsureStreams: %v", err)
-	}
-	t.Cleanup(func() {
-		js.DeleteStream(context.Background(), queue.StreamWork)
-	})
-
 	dir := t.TempDir()
 	st, err := store.Open(filepath.Join(dir, "harness.db"))
 	if err != nil {
@@ -190,10 +143,19 @@ func newTestHarnessWithRunner(t *testing.T, serverURL string, poolSize int, newR
 		t.Fatal(err)
 	}
 
+	// The queue is the pool's Source: the same store-backed queue serve
+	// builds in production, with a fast poll interval so a test that relies
+	// on the ticker rather than a wake nudge does not wait a second.
+	q := &queue.Queue{
+		Store:         st,
+		MaxDeliveries: queue.DefaultMaxDeliveryAttempts,
+		PollInterval:  20 * time.Millisecond,
+	}
+
 	pool := &Pool{
 		Store:             st,
 		Runner:            newRunner(st),
-		Consumer:          consumer,
+		Source:            q,
 		WorkspaceRoot:     resolvedRoot,
 		PrepareWorkspace:  fakePrepareWorkspace,
 		DefaultModel:      "test-model",
@@ -208,7 +170,7 @@ func newTestHarnessWithRunner(t *testing.T, serverURL string, poolSize int, newR
 		RetryLaterDelay:   300 * time.Millisecond,
 	}
 
-	return &testHarness{pool: pool, js: js, root: resolvedRoot}
+	return &testHarness{pool: pool, q: q, root: resolvedRoot}
 }
 
 func testPrices() *pricing.Table {
@@ -269,25 +231,15 @@ func testRepos() []queue.Repo {
 	return []queue.Repo{{URL: "https://example.com/org/app.git"}}
 }
 
+// publish enqueues req through the queue's own Enqueue — the same
+// marshal-and-enqueue path the browser's POST /api/runs and the MCP launch
+// tool use — so the pool claims a byte-identical request to production's.
 func (h *testHarness) publish(t *testing.T, req queue.Request) {
 	t.Helper()
-	data, err := json.Marshal(req)
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if _, err := h.js.Publish(ctx, queue.RequestSubject(req.RequestID), data); err != nil {
-		t.Fatalf("publish %s: %v", req.RequestID, err)
-	}
-}
-
-func (h *testHarness) publishRaw(t *testing.T, subjectToken string, data []byte) {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if _, err := h.js.Publish(ctx, queue.RequestSubject(subjectToken), data); err != nil {
-		t.Fatalf("publish raw %s: %v", subjectToken, err)
+	if err := h.q.Enqueue(ctx, req); err != nil {
+		t.Fatalf("enqueue %s: %v", req.RequestID, err)
 	}
 }
 
@@ -488,9 +440,9 @@ func TestPoolMalformedRequestTermsWithoutRunning(t *testing.T) {
 // row shaped like one a dead process abandoned mid-run: the row carries the
 // session id, so the request is single-use and must never run again. The
 // spent-request path has to close the abandoned session (which otherwise sat
-// running in the list forever), publish a failed result naming the reason
+// running in the list forever), record a failed result naming the reason
 // and the retry, and Term the message. It covers the routing a kill-and-
-// restart exercises, without waiting on the real 60s AckWait.
+// restart exercises, without waiting on the real 60s lease.
 func TestPoolHandleSpentRequestClosesSessionFailsAndTerms(t *testing.T) {
 	hits := &hitCounter{}
 	srv := plainAnswerServer(t, "must never run", 0, hits)
@@ -549,7 +501,7 @@ func TestPoolHandleSpentRequestClosesSessionFailsAndTerms(t *testing.T) {
 		t.Fatalf("expected the stored result to name the reason and the retry, got %s", row.Result)
 	}
 
-	// The caller gets the failed result on the RESULTS stream.
+	// The caller reads the failed result off the work_requests row.
 	res := h.fetchFinalResult(t, requestID, 5*time.Second)
 	if res.Status != queue.StatusFailed {
 		t.Fatalf("expected a failed result on the stream, got %+v", res)
@@ -802,7 +754,7 @@ func insufficientBalanceServer(t *testing.T) *httptest.Server {
 // TestPoolHaltsOnInsufficientBalance pins the balance behaviour: a 402 is
 // surfaced as an empty account and stops the pool
 // rather than failing each queued request in turn (docs/DESIGN.md §4.5).
-// The request that hit the 402 is left unacked (no final result published)
+// The request that hit the 402 is not finished (no final result published)
 // so it redelivers once the pool is restarted with balance restored, and a
 // second request queued behind it is never even pulled.
 func TestPoolHaltsOnInsufficientBalance(t *testing.T) {
@@ -906,9 +858,9 @@ func TestPoolGaveUpPropagatesCompleteStatus(t *testing.T) {
 
 // TestPoolLastDeliveryPublishesFailedRatherThanVanishing pins the ceiling
 // docs/DESIGN.md §4.10 asks for: "On the last delivery attempt, publish
-// failed and Term." The consumer's MaxDeliver stops redelivering after N
-// attempts, so without this the request would simply stop existing and a
-// caller polling for its result would wait forever.
+// failed and Term." The queue's ceiling (MaxDeliveries) stops redelivering
+// after N attempts, so without this the request would simply stop existing
+// and a caller polling for its result would wait forever.
 func TestPoolLastDeliveryPublishesFailedRatherThanVanishing(t *testing.T) {
 	srv := plainAnswerServer(t, "unused", 0, &hitCounter{})
 	defer srv.Close()
