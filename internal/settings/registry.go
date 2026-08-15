@@ -96,6 +96,7 @@ const (
 	KeyHTTPEventsLimitDefault    = "http.events_limit_default"
 	KeyHTTPEventsLimitMax        = "http.events_limit_max"
 	KeyHTTPControlToken          = "http.control_token"
+	KeyHTTPExternalURL           = "http.external_url"
 	KeyIdentityOperator          = "identity.operator"
 )
 
@@ -233,6 +234,8 @@ var registry = []Descriptor{
 		"Default page size for GET /api/sessions/{id}/events").withRestart(),
 	intSetting(KeyHTTPEventsLimitMax, GroupRequiresRestart, 5000, 1, 1_000_000,
 		"Largest page size GET /api/sessions/{id}/events accepts").withRestart(),
+	stringSetting(KeyHTTPExternalURL, GroupRequiresRestart,
+		"Base URL the deepseek_agent / deepseek_status / deepseek_result MCP tools build their transcript_url link from (internal/mcp/render.go's transcriptURL). When set here it overrides the DEEPSEEK_HARNESS_PUBLIC_URL env var; empty (the default) keeps today's behavior — the env var, or the harness's own bind address, is used instead.", "", false, false).withRestart(),
 }
 
 func stringSetting(key, group, description, def string, secret, restart bool) Descriptor {

@@ -64,6 +64,10 @@ func TestRegistryDefaultsMatchTheConstantsTheyReplaced(t *testing.T) {
 		// The operator name defaults to empty: unset means runs from the web
 		// UI are recorded as started by an unnamed person (D7).
 		{settings.KeyIdentityOperator, ""},
+		// The external URL defaults to empty: unset means the
+		// DEEPSEEK_HARNESS_PUBLIC_URL env var (or the harness's own bind
+		// address) still decides the MCP tools' transcript links.
+		{settings.KeyHTTPExternalURL, ""},
 	}
 	for _, tc := range cases {
 		d, ok := settings.Lookup(tc.key)
