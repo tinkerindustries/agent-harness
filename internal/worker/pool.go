@@ -253,7 +253,7 @@ func (p *Pool) Run(ctx context.Context) error {
 			// no-op once the escalation has released the slot.
 			release := sync.OnceFunc(func() { <-sem })
 			defer release()
-			p.handle(msg, release)
+			p.handle(queue.WrapNATS(msg), release)
 		}()
 	}, jetstream.PullMaxMessages(p.size()))
 	if err != nil {
@@ -320,9 +320,9 @@ func (p *Pool) maxDeliveryAttempts() uint64 {
 // code and message describe the transient failure that stopped this attempt;
 // they only reach anyone on the final attempt, which is the one where the
 // caller has no other way to find out.
-func (p *Pool) retryLater(msg jetstream.Msg, requestID, code, message string) {
-	if requestID == "" || deliveryCount(msg) < p.maxDeliveryAttempts() {
-		msg.NakWithDelay(p.retryLaterDelay())
+func (p *Pool) retryLater(msg queue.Msg, requestID, code, message string) {
+	if requestID == "" || msg.DeliveryCount() < p.maxDeliveryAttempts() {
+		msg.Nak(p.retryLaterDelay())
 		return
 	}
 	log.Printf("worker: %s exhausted %d delivery attempts (%s); publishing a failed result and terminating the message",
@@ -346,24 +346,16 @@ func (p *Pool) retryLater(msg jetstream.Msg, requestID, code, message string) {
 	}, true)
 }
 
-func deliveryCount(msg jetstream.Msg) uint64 {
-	meta, err := msg.Metadata()
-	if err != nil || meta == nil {
-		return 1
-	}
-	return meta.NumDelivered
-}
-
 // handle is one message's whole lifecycle: parse, claim the idempotency
 // row, and either run a session, record a validation failure, republish a
 // terminal row, or defer to a later delivery. releaseSlot is the run's
 // idempotent pool-slot release, threaded down to the run path so the stop
 // escalation can free the slot of a run that wedges (docs/RUN-CONTROL.md
 // "Half two"); the other paths never register and never release.
-func (p *Pool) handle(msg jetstream.Msg, releaseSlot func()) {
+func (p *Pool) handle(msg queue.Msg, releaseSlot func()) {
 	defer p.recoverPanic(msg)
 
-	numDelivered := deliveryCount(msg)
+	numDelivered := msg.DeliveryCount()
 
 	req, err := queue.ParseRequest(msg.Data())
 	if err != nil {
@@ -440,7 +432,7 @@ const abandonedSessionIdleThreshold = 10 * time.Minute
 // abandoned session — the row CloseSession was built for — publishes a
 // failed result telling the caller what happened and how to retry, and
 // terminates the message: no further delivery can help.
-func (p *Pool) handleSpent(msg jetstream.Msg, req queue.Request, outcome store.ClaimOutcome) {
+func (p *Pool) handleSpent(msg queue.Msg, req queue.Request, outcome store.ClaimOutcome) {
 	ctx := context.Background()
 	sessionID := outcome.Existing.SessionID
 
@@ -536,7 +528,7 @@ func (p *Pool) closeAbandonedSession(ctx context.Context, sessionID string) (pro
 // finishes (then republishes its result) or this request's own deadline
 // passes (then Naks as a last resort — see the comment at the call site for
 // why that resort is safe). It never runs a session itself.
-func (p *Pool) waitForResolution(msg jetstream.Msg, req queue.Request) {
+func (p *Pool) waitForResolution(msg queue.Msg, req queue.Request) {
 	deadline := p.defaultDeadline(context.Background())
 	if req.DeadlineMS > 0 {
 		deadline = time.Duration(req.DeadlineMS) * time.Millisecond
@@ -566,10 +558,10 @@ func (p *Pool) waitForResolution(msg jetstream.Msg, req queue.Request) {
 	}
 }
 
-func (p *Pool) recoverPanic(msg jetstream.Msg) {
+func (p *Pool) recoverPanic(msg queue.Msg) {
 	if r := recover(); r != nil {
 		log.Printf("worker: recovered panic handling message: %v\n%s", r, debug.Stack())
-		msg.NakWithDelay(p.retryLaterDelay())
+		msg.Nak(p.retryLaterDelay())
 	}
 }
 
@@ -577,7 +569,7 @@ func (p *Pool) recoverPanic(msg jetstream.Msg) {
 // its Term path: a request that never
 // authorizes itself is recorded as failed under no session (sessionID ""),
 // published once, and Term'd so it is never redelivered.
-func (p *Pool) recordValidationFailure(ctx context.Context, msg jetstream.Msg, requestID string, verr error) {
+func (p *Pool) recordValidationFailure(ctx context.Context, msg queue.Msg, requestID string, verr error) {
 	if err := p.Store.SetWorkRequestSession(ctx, requestID, ""); err != nil {
 		log.Printf("worker: clear session for invalid request %s: %v", requestID, err)
 	}
@@ -593,7 +585,7 @@ func (p *Pool) recordValidationFailure(ctx context.Context, msg jetstream.Msg, r
 
 // run drives one claimed, valid request through workspace preparation and
 // the session loop to a terminal result.
-func (p *Pool) run(msg jetstream.Msg, req queue.Request, releaseSlot func()) {
+func (p *Pool) run(msg queue.Msg, req queue.Request, releaseSlot func()) {
 	started := time.Now().UTC()
 	sessionID := session.NewSessionID()
 
@@ -787,7 +779,7 @@ func (p *Pool) run(msg jetstream.Msg, req queue.Request, releaseSlot func()) {
 	p.finish(msg, req.RequestID, sessionID, result, false)
 }
 
-func (p *Pool) heartbeat(msg jetstream.Msg, done <-chan struct{}) {
+func (p *Pool) heartbeat(msg queue.Msg, done <-chan struct{}) {
 	t := time.NewTicker(p.heartbeatInterval())
 	defer t.Stop()
 	for {
@@ -899,20 +891,20 @@ func (p *Pool) failSetup(requestID, sessionID string, cause error) {
 // itself is disposed of exactly once by whichever path won the record's
 // disposed CompareAndSwap — the run finishing, or the stop escalation —
 // which is why finish itself carries no guard of its own.
-func (p *Pool) finish(msg jetstream.Msg, requestID, sessionID string, result queue.Result, term bool) {
+func (p *Pool) finish(msg queue.Msg, requestID, sessionID string, result queue.Result, term bool) {
 	defer p.controller().remove(sessionID)
 
 	data, err := json.Marshal(result)
 	if err != nil {
 		log.Printf("worker: encode result for %s: %v", requestID, err)
-		msg.NakWithDelay(p.retryLaterDelay())
+		msg.Nak(p.retryLaterDelay())
 		return
 	}
 
 	matched, err := p.Store.FinishWorkRequest(context.Background(), requestID, sessionID, result.Status, data, result.FinishedAt)
 	if err != nil {
 		log.Printf("worker: record finish for %s: %v", requestID, err)
-		msg.NakWithDelay(p.retryLaterDelay())
+		msg.Nak(p.retryLaterDelay())
 		return
 	}
 	if !matched {
@@ -930,7 +922,7 @@ func (p *Pool) finish(msg jetstream.Msg, requestID, sessionID string, result que
 	defer cancel()
 	if _, err := p.JS.Publish(ctx, queue.FinalSubject(requestID), data, jetstream.WithMsgID(queue.FinalMsgID(requestID))); err != nil {
 		log.Printf("worker: publish final result for %s: %v", requestID, err)
-		msg.NakWithDelay(p.retryLaterDelay())
+		msg.Nak(p.retryLaterDelay())
 		return
 	}
 	if term {
@@ -944,13 +936,13 @@ func (p *Pool) finish(msg jetstream.Msg, requestID, sessionID string, result que
 // Nats-Msg-Id, for a redelivery or a duplicate publish that arrived after
 // the original attempt already finished. No store write and no session
 // run: the row already says what happened.
-func (p *Pool) republish(msg jetstream.Msg, existing store.WorkRequest) {
+func (p *Pool) republish(msg queue.Msg, existing store.WorkRequest) {
 	if len(existing.Result) > 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		if _, err := p.JS.Publish(ctx, queue.FinalSubject(existing.RequestID), existing.Result, jetstream.WithMsgID(queue.FinalMsgID(existing.RequestID))); err != nil {
 			log.Printf("worker: republish result for %s: %v", existing.RequestID, err)
-			msg.NakWithDelay(p.retryLaterDelay())
+			msg.Nak(p.retryLaterDelay())
 			return
 		}
 	}

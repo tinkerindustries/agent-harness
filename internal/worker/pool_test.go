@@ -492,7 +492,7 @@ func TestPoolMalformedRequestTermsWithoutRunning(t *testing.T) {
 }
 
 // TestPoolHandleSpentRequestClosesSessionFailsAndTerms drives Pool.handle
-// with a fake jetstream.Msg reporting a redelivery, against a work_requests
+// with a fake queue.Msg reporting a redelivery, against a work_requests
 // row shaped like one a dead process abandoned mid-run: the row carries the
 // session id, so the request is single-use and must never run again. The
 // spent-request path has to close the abandoned session (which otherwise sat
@@ -667,7 +667,7 @@ func mustCreatePoolSession(t *testing.T, h *testHarness, id string) {
 	}
 }
 
-// fakeMsg implements jetstream.Msg without a broker, for driving
+// fakeMsg implements queue.Msg without a broker, for driving
 // Pool.handle directly with a controlled delivery count.
 type fakeMsg struct {
 	data         []byte
@@ -680,13 +680,9 @@ type fakeMsg struct {
 	inProgress int
 }
 
-func (m *fakeMsg) Metadata() (*jetstream.MsgMetadata, error) {
-	return &jetstream.MsgMetadata{NumDelivered: m.numDelivered}, nil
-}
-func (m *fakeMsg) Data() []byte         { return m.data }
-func (m *fakeMsg) Headers() nats.Header { return nil }
-func (m *fakeMsg) Subject() string      { return "test.subject" }
-func (m *fakeMsg) Reply() string        { return "" }
+func (m *fakeMsg) Data() []byte { return m.data }
+
+func (m *fakeMsg) DeliveryCount() uint64 { return m.numDelivered }
 
 func (m *fakeMsg) Ack() error {
 	m.mu.Lock()
@@ -694,14 +690,12 @@ func (m *fakeMsg) Ack() error {
 	m.acked = true
 	return nil
 }
-func (m *fakeMsg) DoubleAck(context.Context) error { return m.Ack() }
-func (m *fakeMsg) Nak() error {
+func (m *fakeMsg) Nak(time.Duration) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.nakked = true
 	return nil
 }
-func (m *fakeMsg) NakWithDelay(time.Duration) error { return m.Nak() }
 func (m *fakeMsg) InProgress() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -714,7 +708,6 @@ func (m *fakeMsg) Term() error {
 	m.termed = true
 	return nil
 }
-func (m *fakeMsg) TermWithReason(string) error { return m.Term() }
 
 func (m *fakeMsg) wasAcked() bool {
 	m.mu.Lock()
@@ -734,7 +727,7 @@ func (m *fakeMsg) wasTermed() bool {
 	return m.termed
 }
 
-var _ jetstream.Msg = (*fakeMsg)(nil)
+var _ queue.Msg = (*fakeMsg)(nil)
 
 // alwaysToolCallServer answers every request with the same tool call, so a
 // run never reaches a no-tool-call response and exhausts its sub-turn budget.
