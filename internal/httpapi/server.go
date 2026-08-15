@@ -15,8 +15,8 @@
 // seam, not an import: stopping goes through the RunController interface
 // below, satisfied by *worker.Pool without this package knowing the package
 // exists; starting goes through the RunPublisher interface, satisfied by
-// cmd/harness over the queue's own JetStream handle — so this package holds
-// no JetStream handle, only the narrow ability to enqueue one request.
+// cmd/harness over the store-backed queue — so this package holds no queue
+// handle, only the narrow ability to enqueue one request.
 // Steering is the one control that needs no seam at all — it is a store
 // write by the handler and a store read by the loop, with the database as
 // the boundary (docs/RUN-CONTROL.md "Steering: augment, don't gate").
@@ -38,8 +38,6 @@ import (
 	"context"
 	"net/http"
 	"time"
-
-	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/evals"
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
@@ -117,12 +115,11 @@ const (
 	maxEventsLimit     = 5000
 )
 
-// QueueConsumer is the subset of *jetstream.Consumer the queue health
-// endpoint reads. A narrow interface here, rather than a direct
-// jetstream.Consumer field, is what lets a test supply a fake with no real
-// NATS server behind it.
-type QueueConsumer interface {
-	Info(ctx context.Context) (*jetstream.ConsumerInfo, error)
+// QueueStats is the subset of the queue the queue health endpoint reads. A
+// narrow interface here, rather than a direct *queue.Queue field, is what
+// lets a test supply a fake with no store behind it.
+type QueueStats interface {
+	Stats(ctx context.Context) (queue.Stats, error)
 }
 
 // QueuePool is the subset of *worker.Pool's halted state the queue health
@@ -152,13 +149,12 @@ type RunController interface {
 }
 
 // RunPublisher is the subset of the queue a start endpoint needs: publish
-// one validated work request to the WORK stream. Declared here and
-// implemented in cmd/harness, so this package never holds a JetStream handle
-// — only the ability to enqueue one request (docs/RUN-CONTROL.md "Starting
-// is a publish, so the seam is a publisher"). It is deliberately an import
-// of internal/queue's Request and Validate rather than a copy of either: a
-// request body validated by a copy of the rules is a request body that
-// eventually disagrees with the queue's.
+// one validated work request. Declared here and implemented in cmd/harness,
+// so this package never holds a queue handle — only the ability to enqueue
+// one request (docs/RUN-CONTROL.md "Starting is a publish, so the seam is a
+// publisher"). It is deliberately an import of internal/queue's Request and
+// Validate rather than a copy of either: a request body validated by a copy
+// of the rules is a request body that eventually disagrees with the queue's.
 type RunPublisher interface {
 	PublishRequest(ctx context.Context, req queue.Request) error
 }
@@ -166,7 +162,7 @@ type RunPublisher interface {
 // EvalController is the subset of the eval orchestrator the eval endpoints
 // need. Declared here and implemented in cmd/harness over *evals.Orchestrator,
 // the shape RunController and RunPublisher already use: this package asks a
-// seam to begin and end an orchestration and still holds no JetStream handle —
+// seam to begin and end an orchestration and still holds no queue handle —
 // the orchestrator has one, through the same one-method publisher seam.
 //
 // StartEval returns as soon as the run is recorded and its first requests are
@@ -178,31 +174,31 @@ type EvalController interface {
 }
 
 // Server holds the things every handler reads: the store, for everything
-// historical; the hub, for everything live; and, optionally, the queue's
-// consumer and pool, for /api/queue's consumer lag, in-flight count, and
-// redelivery count (docs/DESIGN.md §5.8). The write surface is the data the
-// harness manages (docs/DATA-API.md): the settings endpoints and the session
-// close/delete endpoints read and write through Store, and nothing else in
-// Server is mutated by a request — the run surface stays read-only except
-// for the run-control endpoints: stop, which acts on a run through the
-// RunController seam; steer, which is a plain store write the session loop
-// reads at its next sub-turn boundary and needs no seam at all; and start,
-// which publishes a work request through the RunPublisher seam
-// (docs/RUN-CONTROL.md). Consumer and Pool are nil in any caller that has no
-// queue at all (a CLI-only harness never wires one up); the handler degrades
-// to reporting the queue as unavailable rather than panicking. Run is nil the
-// same way in a caller with no pool, and the stop handler then answers 409
-// for every existing session — this process is running nothing. Publisher is
-// nil in any caller that has no queue, and the start handler then answers 503
-// — no publisher wired means no run can be started, and that must fail
-// closed, the same shape the missing token has. ControlToken is the
-// process's copy of http.control_token; empty means run control is not
-// configured and the run-control endpoints fail closed with 503.
+// historical; the hub, for everything live; and, optionally, the queue and
+// pool, for /api/queue's depth, scheduled, in-flight, and redelivery counts
+// (docs/DESIGN.md §5.8). The write surface is the data the harness manages
+// (docs/DATA-API.md): the settings endpoints and the session close/delete
+// endpoints read and write through Store, and nothing else in Server is
+// mutated by a request — the run surface stays read-only except for the
+// run-control endpoints: stop, which acts on a run through the RunController
+// seam; steer, which is a plain store write the session loop reads at its
+// next sub-turn boundary and needs no seam at all; and start, which
+// enqueues a work request through the RunPublisher seam
+// (docs/RUN-CONTROL.md). Queue and Pool are nil in any caller that has no
+// queue at all (a CLI-only harness never wires one up); the handler
+// degrades to reporting the queue as unavailable rather than panicking. Run
+// is nil the same way in a caller with no pool, and the stop handler then
+// answers 409 for every existing session — this process is running nothing.
+// Publisher is nil in any caller that has no queue, and the start handler
+// then answers 503 — no publisher wired means no run can be started, and
+// that must fail closed, the same shape the missing token has. ControlToken
+// is the process's copy of http.control_token; empty means run control is
+// not configured and the run-control endpoints fail closed with 503.
 type Server struct {
 	Store          *store.Store
 	Hub            *hub.Hub
 	Static         http.Handler
-	Consumer       QueueConsumer
+	Queue          QueueStats
 	Pool           QueuePool
 	Run            RunController
 	Publisher      RunPublisher
