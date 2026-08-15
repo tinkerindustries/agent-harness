@@ -92,7 +92,6 @@ const (
 	KeyWorkerMaxDeliveryAttempts = "worker.max_delivery_attempts"
 	KeyWorkerConcurrencyPro      = "worker.model_concurrency_pro"
 	KeyWorkerConcurrencyFlash    = "worker.model_concurrency_flash"
-	KeyQueueResultsMaxAge        = "queue.results_max_age"
 	KeyHTTPEventsLimitDefault    = "http.events_limit_default"
 	KeyHTTPEventsLimitMax        = "http.events_limit_max"
 	KeyHTTPControlToken          = "http.control_token"
@@ -227,8 +226,6 @@ var registry = []Descriptor{
 		"Account-wide concurrent-request ceiling for the pro model").withRestart(),
 	intSetting(KeyWorkerConcurrencyFlash, GroupRequiresRestart, 2500, 1, 1_000_000,
 		"Account-wide concurrent-request ceiling for the flash model").withRestart(),
-	durationSetting(KeyQueueResultsMaxAge, GroupRequiresRestart, "168h", time.Hour, 365*24*time.Hour,
-		"RESULTS stream retention window").withRestart(),
 	intSetting(KeyHTTPEventsLimitDefault, GroupRequiresRestart, 500, 1, 1_000_000,
 		"Default page size for GET /api/sessions/{id}/events").withRestart(),
 	intSetting(KeyHTTPEventsLimitMax, GroupRequiresRestart, 5000, 1, 1_000_000,
