@@ -192,14 +192,15 @@ func (s *Server) handleSteerSession(w http.ResponseWriter, r *http.Request) {
 // --- run control: start ---
 
 // handleStartRun serves POST /api/runs: accepts a work request in the
-// queue's own wire shape and publishes it to the WORK stream, making the
-// browser one more producer among the existing ones — harness publish and
-// deepseek_agent — so the claim/heartbeat/redelivery machinery stays the
-// only way a session ever starts, with no second code path to keep in sync
-// (docs/RUN-CONTROL.md "Starting is a publish, so the seam is a publisher").
-// The 202 is an acceptance, not an outcome: the session appears on the
-// existing GET /api/stream list feed once the pool claims the request, and
-// this handler never waits for, or answers with, the run's result.
+// queue's own wire shape and enqueues it through the RunPublisher seam,
+// making the browser one more producer among the existing ones — harness
+// publish and deepseek_agent — so the claim/heartbeat/redelivery machinery
+// stays the only way a session ever starts, with no second code path to
+// keep in sync (docs/RUN-CONTROL.md "Starting is a publish, so the seam is
+// a publisher"). The 202 is an acceptance, not an outcome: the session
+// appears on the existing GET /api/stream list feed once the pool claims
+// the request, and this handler never waits for, or answers with, the run's
+// result.
 //
 // The guards and preconditions, in order: the content-type and origin guards
 // every write carries; the bearer token (401 missing or wrong, 503 when no
@@ -259,8 +260,9 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	req.ParentAgentID = s.operatorName(r.Context())
 	// Attachments are written to the store before validation, so a request
 	// that passes Validate is already complete: the bytes never ride the
-	// NATS request (the default max_payload is 1 MB and a mockup exceeds
-	// it), only the ids do (docs/DATA-API.md).
+	// queue request (one request is one row of the work_queue table, and a
+	// multi-megabyte payload would bloat it), only the ids do
+	// (docs/DATA-API.md).
 	ids, err := s.writeAttachments(r.Context(), body.Attachments)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -284,7 +286,7 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 
 // startRunBody is the POST /api/runs body: the queue request's own wire
 // shape plus an optional attachments array. The bytes are base64 in the
-// body but never on the NATS request — the handler writes them to the
+// body but never on the queue request — the handler writes them to the
 // store's attachments table and the request carries the ids
 // (docs/DATA-API.md). Embedding keeps every request field the queue owns
 // flowing through unchanged.

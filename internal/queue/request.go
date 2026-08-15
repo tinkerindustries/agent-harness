@@ -1,19 +1,15 @@
-// Package queue is the NATS JetStream ingress and result publication layer
-// docs/DESIGN.md §4.10 specifies: the WORK and RESULTS streams, the request
-// and result wire shapes, subject naming, and the pieces of that layer that
-// do not need a broker to test — parsing, validation, and progress
-// rate-limiting.
+// Package queue is the work queue layer docs/DESIGN.md §4.10 specifies:
+// the request and result wire shapes, validation, and the store-backed
+// queue (the work_queue table in internal/store) that replaced the WORK and
+// RESULTS streams.
 package queue
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"regexp"
 	"strings"
-
-	"github.com/nats-io/nats.go/jetstream"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/promptvariant"
@@ -66,13 +62,13 @@ type Request struct {
 	// mid-conversation (internal/session/reminders.go). Empty is none.
 	ReminderPolicy string `json:"reminder_policy,omitempty"`
 	// AttachmentIDs names the images the request carries. The bytes never
-	// ride the NATS request — the default max_payload is 1 MB and a mockup
-	// exceeds it — they live in the store's attachments table, written by the
-	// producer (POST /api/runs, the MCP launch tool) before publishing. The
-	// worker reads the rows back and internal/workspace materialises them
-	// into scratch/attachments/ during Prepare, so the request stays small
-	// and `harness export` — which derives from the store — stays complete
-	// (docs/DATA-API.md).
+	// ride the queue request — one request is one row of the work_queue
+	// table, and a multi-megabyte payload would bloat it — they live in the
+	// store's attachments table, written by the producer (POST /api/runs,
+	// the MCP launch tool) before enqueuing. The worker reads the rows back
+	// and internal/workspace materialises them into scratch/attachments/
+	// during Prepare, so the request stays small and `harness export` —
+	// which derives from the store — stays complete (docs/DATA-API.md).
 	AttachmentIDs []string `json:"attachment_ids,omitempty"`
 }
 
@@ -109,10 +105,9 @@ func (r Repo) Dir() string {
 }
 
 // ParseRequest decodes a work request's JSON body. A syntax error here has
-// no request_id to key a work_requests row or a result subject on, so it is
-// the one failure the worker cannot turn into a stored, published result —
-// it can only Term the message and log (docs/DESIGN.md §4.10, "Term a
-// malformed request").
+// no request_id to key a work_requests row on, so it is the one failure the
+// worker cannot turn into a stored, published result — it can only Term the
+// message and log (docs/DESIGN.md §4.10, "Term a malformed request").
 func ParseRequest(data []byte) (Request, error) {
 	var req Request
 	if err := json.Unmarshal(data, &req); err != nil {
@@ -121,29 +116,11 @@ func ParseRequest(data []byte) (Request, error) {
 	return req, nil
 }
 
-// PublishRequest marshals req and publishes it to the WORK stream on the
-// request's own subject. It is the one marshal-and-publish path every
-// producer uses — harness publish, deepseek_agent, and the browser's POST
-// /api/runs (docs/RUN-CONTROL.md "Starting is a publish, so the seam is a
-// publisher") — so the wire shape is defined once, in the package that owns
-// it, rather than re-marshalled by every caller. The caller owns the
-// context; a producer that wants a bounded publish wraps it in a timeout,
-// as cmd/harness/publish.go does.
-func PublishRequest(ctx context.Context, js jetstream.JetStream, req Request) error {
-	data, err := json.Marshal(req)
-	if err != nil {
-		return fmt.Errorf("queue: encode request: %w", err)
-	}
-	if _, err := js.Publish(ctx, RequestSubject(req.RequestID), data); err != nil {
-		return fmt.Errorf("queue: publish request %s: %w", req.RequestID, err)
-	}
-	return nil
-}
-
 // requestIDCharset bars characters that are structurally significant in a
-// NATS subject. request_id becomes a subject token in every result subject
-// this package builds, so a stray "." would silently misroute a result
-// rather than fail loudly at validation.
+// URL path. request_id is a path segment in GET /api/requests/{request_id}
+// and the other request-keyed endpoints, so a stray "." or "*" would
+// silently misroute a read (or fail a client's URL build) rather than fail
+// loudly at validation.
 const requestIDDisallowed = ". \t\n\r*>"
 
 // Validate checks the fields docs/DESIGN.md §4.10 calls out: the
@@ -159,7 +136,7 @@ func (r Request) Validate() error {
 		return errors.New("queue: request_id is required")
 	}
 	if strings.ContainsAny(r.RequestID, requestIDDisallowed) {
-		return fmt.Errorf("queue: request_id %q contains a character not allowed in a NATS subject token", r.RequestID)
+		return fmt.Errorf("queue: request_id %q contains a character not allowed in a URL path segment", r.RequestID)
 	}
 	if err := validateRepos(r.Repos); err != nil {
 		return err

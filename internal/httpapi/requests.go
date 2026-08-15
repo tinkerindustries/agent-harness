@@ -232,16 +232,17 @@ func (s *Server) handleRequestStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-// queueHealth is /api/queue's response shape: consumer lag, in-flight
-// count, and redelivery count, which the session list shows as queue
-// health, plus whether the pool has halted itself and why — the
-// visible form of docs/DESIGN.md §4.5's "A 402 stops the pool". Available
-// is false whenever there is nothing to report from, which happens for any
-// harness that has no queue wired up (Consumer nil) or when the live NATS
-// call itself fails; Error then carries why.
+// queueHealth is /api/queue's response shape: queue depth (claimable now),
+// the Nak-scheduled backlog, in-flight count, and redelivery count, which
+// the session list shows as queue health, plus whether the pool has halted
+// itself and why — the visible form of docs/DESIGN.md §4.5's "A 402 stops
+// the pool". Available is false whenever there is nothing to report from,
+// which happens for any harness that has no queue wired up (Queue nil) or
+// when the stats read itself fails; Error then carries why.
 type queueHealth struct {
 	Available   bool   `json:"available"`
-	ConsumerLag uint64 `json:"consumer_lag,omitempty"`
+	QueueDepth  int    `json:"queue_depth,omitempty"`
+	Scheduled   int    `json:"scheduled,omitempty"`
 	InFlight    int    `json:"in_flight,omitempty"`
 	Redelivered int    `json:"redelivered,omitempty"`
 	Halted      bool   `json:"halted"`
@@ -254,19 +255,20 @@ func (s *Server) handleQueueHealth(w http.ResponseWriter, r *http.Request) {
 	if s.Pool != nil {
 		health.Halted, health.HaltReason = s.Pool.Halted()
 	}
-	if s.Consumer == nil {
+	if s.Queue == nil {
 		writeJSON(w, http.StatusOK, health)
 		return
 	}
-	info, err := s.Consumer.Info(r.Context())
+	stats, err := s.Queue.Stats(r.Context())
 	if err != nil {
 		health.Error = err.Error()
 		writeJSON(w, http.StatusOK, health)
 		return
 	}
 	health.Available = true
-	health.ConsumerLag = info.NumPending
-	health.InFlight = info.NumAckPending
-	health.Redelivered = info.NumRedelivered
+	health.QueueDepth = stats.Depth
+	health.Scheduled = stats.Scheduled
+	health.InFlight = stats.InFlight
+	health.Redelivered = stats.Redelivered
 	writeJSON(w, http.StatusOK, health)
 }
