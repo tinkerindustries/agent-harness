@@ -8,12 +8,13 @@ Where things live and what they may depend on. Why they are that way is
 A work request names a prompt, one or more repositories, and a permission mode.
 The harness clones those repositories into a directory of its own, runs an agent
 loop that reads and writes files and runs commands in there, and publishes a
-result. Requests arrive over NATS JetStream; results go back over a second
-stream. A browser can watch, change settings, and start, steer, and stop a run.
-Start and stop act on the run through two declared seams
+result. Requests arrive on the durable work queue — the `work_queue` table in
+serve's SQLite store — and results are recorded on the request's
+`work_requests` row. A browser can watch, change settings, and start, steer,
+and stop a run. Start and stop act on the run through two declared seams
 (docs/RUN-CONTROL.md): `RunPublisher`, a narrow interface declared in
-`internal/httpapi` and implemented by `cmd/harness` over the queue's own
-JetStream handle, publishes a validated work request to the WORK stream; and
+`internal/httpapi` and implemented by `cmd/harness` over the store-backed
+queue, enqueues a validated work request; and
 `RunController`, declared in `internal/httpapi` and implemented by
 `*worker.Pool`, ends a run in this process. Steer needs no seam at all — it is
 a store write by the handler and a store read by the loop, with the database
@@ -25,14 +26,15 @@ service and the rest are one-shot CLI:
 - **`harness serve`** — the worker pool, the SQLite store, the HTTP
   surface, and the MCP launch server, in a single process. It serves the web
   UI, `/api/...`, and `/mcp` on one HTTP port; the embedded MCP service lets
-  an external agent harness launch and collect runs on the same streams and
-  the same HTTP API. It holds no database handle of its own — `serve` is the
-  single writer. Concurrent sessions are goroutines, not child processes
+  an external agent harness launch and collect runs through the same queue
+  and the same HTTP API. It holds no database handle of its own — `serve` is
+  the single writer. Concurrent sessions are goroutines, not child processes
   (§4.5).
 
 ```mermaid
 flowchart LR
-    caller[MCP client / CLI publish] -->|harness.work.request| WORK[(WORK stream)]
+    caller[MCP client / CLI publish] -->|POST /api/runs| http
+    http[internal/httpapi<br/>SSE; GET/HEAD, writes, run control] -->|enqueue| WORK[(work_queue table)]
     WORK --> worker[internal/worker pool]
     worker --> ws[internal/workspace<br/>clone per session]
     worker --> session[internal/session<br/>agent loop]
@@ -41,11 +43,9 @@ flowchart LR
     session --> tools[internal/tools<br/>in the workspace]
     session --> store[(SQLite + disk mirror)]
     session --> hub[internal/hub]
-    hub --> http[internal/httpapi<br/>SSE; GET/HEAD, writes, run control]
     store --> http
     http --> web[web/ React]
-    worker -->|result| RESULTS[(RESULTS stream)]
-    RESULTS --> caller
+    caller -->|GET /api/requests/{id}| http
 ```
 
 One property shapes the arrangement: the head of every request — system prompt,
@@ -110,8 +110,8 @@ The edges that matter:
   than by an import appearing: the stop endpoint holds a narrow `RunController`
   interface implemented by `*worker.Pool`, and the start endpoint holds a
   narrow `RunPublisher` interface implemented by `cmd/harness` over the
-  queue's own JetStream handle (docs/RUN-CONTROL.md), exactly the shape
-  `QueuePool` already uses for `/api/queue`. Steering is the exception that
+  store-backed queue (docs/RUN-CONTROL.md), exactly the shape `QueuePool`
+  already uses for `/api/queue`. Steering is the exception that
   proves the rule — it needs no seam because it is a store write by the
   handler and a store read by the loop, and the store is already here.
 - **`internal/session` is the only package that speaks to both the model API
@@ -122,16 +122,16 @@ The edges that matter:
   when it builds the Runner — the same declared-seam shape `RunPublisher`
   and `RunController` take (docs/KIMI-INTEGRATION.md §4.1). A change that
   needs both belongs there.
-- **`internal/worker` is the only package that acks a JetStream message.**
+- **`internal/worker` is the only package that acks a queue message.**
 - Nothing imports `cmd/`.
 
 ## Cross-cutting concerns
 
 **Configuration.** Two sources, and the split is deliberate. Bootstrap —
-where the database lives, where the service binds, the NATS address, the
-price table path, the workspace root — comes through `internal/config` from
-the environment, with `.env` loaded best-effort at startup and real
-environment variables winning over it. Everything operator-tunable — API
+where the database lives, where the service binds, the price table path,
+the workspace root — comes through `internal/config` from the environment,
+with `.env` loaded best-effort at startup and real environment variables
+winning over it. Everything operator-tunable — API
 keys, models, run budgets, tool limits, worker sizes, retention — lives in
 the `settings` table and resolves through `internal/settings`' registry, so
 an operator changes a limit with `harness config set` (or the settings
@@ -188,8 +188,8 @@ are here.
   standing state — the cache detector on resume — takes the last.
 - **The HTTP API serves `GET` and `HEAD` on every path, and the writing
   methods only where a write route exists.** The three actions that touch a
-  run are `POST /api/runs`, which publishes a validated work request to the
-  WORK stream through the declared `RunPublisher` seam; `POST
+  run are `POST /api/runs`, which enqueues a validated work request through
+  the declared `RunPublisher` seam; `POST
   /api/sessions/{id}/stop`, which goes through the declared `RunController`
   seam; and `POST /api/sessions/{id}/steer`, which is a store write the loop
   reads at its next sub-turn boundary — all authenticated by a bearer token

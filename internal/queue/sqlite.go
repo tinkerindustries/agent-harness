@@ -21,6 +21,27 @@ type Source interface {
 	Wake()
 }
 
+// Lease and delivery-ceiling defaults, fixed by docs/DESIGN.md §4.10.
+const (
+	// LeaseDuration is how long a claim holds a row before it becomes
+	// claimable again, 60s (docs/DESIGN.md §4.10); the pool's InProgress
+	// heartbeat interval is sized well under it so a multi-minute run never
+	// trips it.
+	LeaseDuration = 60 * time.Second
+
+	// DefaultMaxDeliveryAttempts is the delivery ceiling when a caller passes
+	// zero. Production resolves worker.max_delivery_attempts from the
+	// settings registry and passes it in.
+	//
+	// A ceiling has to exist. Once a request carries a session id it is
+	// single-use and a redelivery fails it rather than re-runs it (§4.10), so
+	// the ceiling's job is the requests that die *before* their session
+	// exists — the only ones redelivery still claims. One of those that keeps
+	// dying during preparation would otherwise be redelivered forever, each
+	// attempt burning a pool slot; the ceiling caps that.
+	DefaultMaxDeliveryAttempts = 5
+)
+
 // Queue is the store-backed work queue, the WORK stream's successor
 // (docs/QUEUE-MIGRATION-PLAN.md §1.4). The pool claims rows and disposes of
 // them through queue.Msg; producers enqueue through Enqueue. The wake
@@ -31,7 +52,7 @@ type Queue struct {
 	Store *store.Store
 
 	// Lease is how long a claim holds a row before it becomes claimable
-	// again, the AckWait of the NATS era (60s). Zero means the default.
+	// again (LeaseDuration, 60s). Zero means the default.
 	Lease time.Duration
 
 	// MaxDeliveries is the delivery ceiling: a Nak on the attempt that
@@ -64,7 +85,7 @@ func (q *Queue) lease() time.Duration {
 	if q.Lease > 0 {
 		return q.Lease
 	}
-	return AckWait
+	return LeaseDuration
 }
 
 func (q *Queue) maxDeliveries() int {
@@ -194,8 +215,8 @@ func (m sqliteMsg) Ack() error {
 }
 
 // Nak defers the row by delay, or — on the delivery that reaches the
-// ceiling — discards it, exactly as JetStream's MaxDeliver discarded a
-// WorkQueue-retention message.
+// ceiling — discards it, exactly as the store's delivery ceiling discards a
+// row that has been redelivered too often.
 func (m sqliteMsg) Nak(delay time.Duration) error {
 	return m.q.Store.NakWork(context.Background(), m.row.ID, delay, m.q.maxDeliveries(), time.Now().UTC())
 }

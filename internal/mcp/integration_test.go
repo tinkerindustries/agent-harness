@@ -90,7 +90,8 @@ func newWorkRequestAPIServer(st *store.Store) *httpapi.Server {
 // with a fresh Registry and a capturePublisher per test. The MCP service
 // reads work requests over loopback HTTP exactly as it does in production;
 // the store is where a test seeds the rows the tools read (the pool creates
-// them at claim time in production). No NATS is involved anywhere.
+// them at claim time in production). No broker or queue seam is involved
+// anywhere.
 func newIntegrationService(t *testing.T) (*Service, *store.Store) {
 	t.Helper()
 	st := openTestStore(t)

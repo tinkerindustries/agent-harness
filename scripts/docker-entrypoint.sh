@@ -21,8 +21,7 @@ set -e
 #
 # HARNESS_REGISTRY_DIR is deliberately not in this list: a nested compose
 # needs it to find the host's worktree registry.
-unset COMPOSE_PROJECT_NAME HARNESS_WORKSPACES HARNESS_HTTP_PORT \
-    NATS_CLIENT_PORT NATS_MONITOR_PORT HARNESS_TEST_NATS_PORT HARNESS_VITE_PORT
+unset COMPOSE_PROJECT_NAME HARNESS_WORKSPACES HARNESS_HTTP_PORT HARNESS_VITE_PORT
 
 if [ -n "${GITHUB_TOKEN}" ]; then
     umask 077

@@ -656,9 +656,7 @@ func (p *Pool) run(msg queue.Msg, req queue.Request, releaseSlot func()) {
 	// with the workspace path this attempt is about to clone into, so the
 	// run is visible on the session list and stoppable from the moment it is
 	// claimed — a stop during a clone has a row to mark. Runner.Run promotes
-	// the row to "running" once preparation succeeds. A Create failure is a
-	// setup failure on the existing path: there is no row to mark, because
-	// it never existed.
+	// the row to "running" once preparation succeeds.
 	runOpts := session.RunOptions{
 		SessionID:       sessionID,
 		Model:           model,
@@ -687,7 +685,15 @@ func (p *Pool) run(msg queue.Msg, req queue.Request, releaseSlot func()) {
 			log.Printf("worker: %s: message for session %s already answered; dropping the setup failure", req.RequestID, sessionID)
 			return
 		}
-		result := setupFailedResult(req.RequestID, sessionID, started, err)
+		// A cancelled context is the one Create failure that can leave a row
+		// behind: the insert is a store job that lands even though the caller
+		// saw the cancellation, so the row exists as "creating" and must be
+		// marked. Any other Create failure predates the row — there is
+		// nothing to mark.
+		if rec.stopping.Load() {
+			p.failSetup(rec, req.RequestID, sessionID, err)
+		}
+		result := p.setupResult(rec, req.RequestID, sessionID, started, err)
 		p.finish(msg, req.RequestID, sessionID, result, false)
 		return
 	}
@@ -705,8 +711,8 @@ func (p *Pool) run(msg queue.Msg, req queue.Request, releaseSlot func()) {
 			log.Printf("worker: %s: message for session %s already answered; dropping the setup failure", req.RequestID, sessionID)
 			return
 		}
-		p.failSetup(req.RequestID, sessionID, err)
-		result := setupFailedResult(req.RequestID, sessionID, started, err)
+		p.failSetup(rec, req.RequestID, sessionID, err)
+		result := p.setupResult(rec, req.RequestID, sessionID, started, err)
 		p.finish(msg, req.RequestID, sessionID, result, false)
 		return
 	}
@@ -718,8 +724,8 @@ func (p *Pool) run(msg queue.Msg, req queue.Request, releaseSlot func()) {
 			log.Printf("worker: %s: message for session %s already answered; dropping the setup failure", req.RequestID, sessionID)
 			return
 		}
-		p.failSetup(req.RequestID, sessionID, err)
-		result := setupFailedResult(req.RequestID, sessionID, started, err)
+		p.failSetup(rec, req.RequestID, sessionID, err)
+		result := p.setupResult(rec, req.RequestID, sessionID, started, err)
 		p.finish(msg, req.RequestID, sessionID, result, false)
 		return
 	}
@@ -864,6 +870,25 @@ func (p *Pool) classify(requestID, sessionID string, started time.Time, runResul
 	return res
 }
 
+// setupResult is setupFailedResult with the stop case distinguished: a run
+// stopped during workspace preparation reports cancelled with the operator's
+// reason — the same classification the run path gives a stopped live run
+// (classify) — and only a preparation that failed for some other reason
+// reports a workspace_setup failure. stopped and reason come from the run's
+// own record, the same signal classify uses, never a pattern-match on the
+// error text.
+func (p *Pool) setupResult(rec *inflight, requestID, sessionID string, started time.Time, err error) queue.Result {
+	if rec.stopping.Load() {
+		return queue.Result{
+			RequestID: requestID, SessionID: sessionID, Status: queue.StatusCancelled,
+			Error:      &queue.ResultError{Code: "cancelled", Message: rec.stopReason()},
+			StartedAt:  started,
+			FinishedAt: time.Now().UTC(),
+		}
+	}
+	return setupFailedResult(requestID, sessionID, started, err)
+}
+
 // setupFailedResult reports a request that never reached the session loop
 // because its workspace could not be built: a clone that was refused, a
 // branch that does not exist, an unwritable root. The session id is carried
@@ -878,11 +903,23 @@ func setupFailedResult(requestID, sessionID string, started time.Time, err error
 }
 
 // failSetup marks a session whose workspace preparation failed, so no row is
-// ever left stuck in "creating": the row moves to failed with an error event
-// (Runner.FailSetup), and the session page shows why the run never started.
-// A failure to record is logged rather than changing the setup result — the
-// caller already won the message, and the result publish is what matters.
-func (p *Pool) failSetup(requestID, sessionID string, cause error) {
+// ever left stuck in "creating": the session page shows the run never
+// started instead of a row that sits there forever. The mark follows the
+// result the caller is about to get (docs/DESIGN.md §4.10) — a run stopped
+// mid-preparation marks the row cancelled through CancelRunningSession, the
+// same writer and status the stop escalation uses, which accepts a
+// "creating" row and treats ErrNotFound (the row never got inserted) as
+// nothing to mark; any other failure marks the row failed with an error
+// event saying why (Runner.FailSetup). A failure to record is logged rather
+// than changing the setup result — the caller already won the message, and
+// the result publish is what matters.
+func (p *Pool) failSetup(rec *inflight, requestID, sessionID string, cause error) {
+	if rec.stopping.Load() {
+		if err := p.Store.CancelRunningSession(context.Background(), sessionID, time.Now().UTC()); err != nil && !errors.Is(err, store.ErrNotFound) {
+			log.Printf("worker: %s: cancel setup session %s: %v", requestID, sessionID, err)
+		}
+		return
+	}
 	if err := p.Runner.FailSetup(context.Background(), sessionID, cause); err != nil {
 		log.Printf("worker: %s: fail setup for session %s: %v", requestID, sessionID, err)
 	}

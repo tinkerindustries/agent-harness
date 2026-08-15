@@ -20,6 +20,14 @@ const (
 // duplicate wins (config.LoadDotEnv keeps the *first*; docker compose's own
 // parser keeps the *last*), so two conflicting definitions is a bug either
 // way, not a matter of ordering them correctly.
+//
+// The five NATS keys stay listed for this release even though the managed
+// block no longer sets them: stripManagedKeys is what removes them from an
+// existing worktree's .env on the next `harness worktree init`, so leaving
+// them listed is how stale definitions get cleaned up rather than lingering
+// as dead lines that shadow nothing. Drop them from this list a release
+// later, once no worktree predating the removal is still in use
+// (docs/QUEUE-MIGRATION-PLAN.md §8).
 var managedKeys = []string{
 	"COMPOSE_PROJECT_NAME",
 	"NATS_CLIENT_PORT", "NATS_MONITOR_PORT", "NATS_URL",
@@ -57,14 +65,7 @@ func managedBlock(d Descriptor) string {
 	fmt.Fprintln(&b, managedBlockStart)
 	fmt.Fprintf(&b, "COMPOSE_PROJECT_NAME=%s\n", d.Compose.DevProjectName)
 	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "NATS_CLIENT_PORT=%d\n", d.Ports.NATSClient)
-	fmt.Fprintf(&b, "NATS_MONITOR_PORT=%d\n", d.Ports.NATSMonitor)
-	fmt.Fprintf(&b, "NATS_URL=nats://127.0.0.1:%d\n", d.Ports.NATSClient)
-	fmt.Fprintln(&b)
 	fmt.Fprintf(&b, "HARNESS_HTTP_PORT=%d\n", d.Ports.HarnessHTTP)
-	fmt.Fprintln(&b)
-	fmt.Fprintf(&b, "HARNESS_TEST_NATS_PORT=%d\n", d.Ports.TestNATS)
-	fmt.Fprintf(&b, "HARNESS_TEST_NATS_URL=nats://127.0.0.1:%d\n", d.Ports.TestNATS)
 	fmt.Fprintln(&b)
 	fmt.Fprintln(&b, "# For `harness serve` run directly on the host (not through")
 	fmt.Fprintln(&b, "# docker compose) from inside this worktree. serve also mounts /mcp")

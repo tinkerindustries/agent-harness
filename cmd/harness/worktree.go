@@ -186,10 +186,7 @@ func printWorktreeSummary(d worktree.Descriptor, withNextSteps bool) {
 	fmt.Printf("  dev compose      %s\n", d.Compose.DevProjectName)
 	fmt.Printf("  test compose     %s\n", d.Compose.TestProjectName)
 	fmt.Println("  ports:")
-	fmt.Printf("    nats client    %d\n", d.Ports.NATSClient)
-	fmt.Printf("    nats monitor   %d\n", d.Ports.NATSMonitor)
 	fmt.Printf("    harness http   %d   (http://127.0.0.1:%d, /mcp included)\n", d.Ports.HarnessHTTP, d.Ports.HarnessHTTP)
-	fmt.Printf("    test nats      %d\n", d.Ports.TestNATS)
 	fmt.Printf("    vite dev       %d\n", d.Ports.Vite)
 	if len(d.Shared) > 0 {
 		fmt.Println("  shared (not isolated by this tool):")

@@ -195,13 +195,13 @@ func TestStopHealthyRunCancels(t *testing.T) {
 	h.publish(t, queue.Request{RequestID: requestID, Prompt: "do it", Repos: testRepos(), PermissionMode: "full"})
 	sessionID := h.waitForSessionID(t, requestID, 5*time.Second)
 
-	// Wait for the session row to reach "running" before stopping: the stop
-	// must land on a run that is already inside Runner.Run, not one still in
-	// workspace preparation. The store-backed claim loop delivers the
-	// message fast enough that the session id can be visible while Create is
-	// still in flight, and a stop that lands there cancels runCtx mid-Create
-	// — the run then records a workspace_setup failure instead of the
-	// cancelled result this test asserts.
+	// Wait for the session row to reach "running" before stopping: this test
+	// is about the soft stop of a live run, so the stop must land inside
+	// Runner.Run rather than in workspace preparation. The store-backed claim
+	// loop delivers the message fast enough that the session id can be
+	// visible while Create is still in flight; a stop landing there is a
+	// different, equally valid shape, covered by
+	// TestStopDuringPreparationSoftStopCancelsRowAndResult.
 	waitForSessionStatus(t, h, sessionID, store.StatusRunning, 5*time.Second)
 
 	if err := h.pool.Stop(sessionID, "the user asked"); err != nil {

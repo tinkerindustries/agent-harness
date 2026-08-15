@@ -554,10 +554,11 @@ export function SettingsScreen() {
               </div>
               {groupEntries.some((e) => e.restart) && (
                 <div className="notice notice-quiet">
-                  These are read once at startup or baked into a JetStream stream. A write here is
-                  accepted and stored immediately and changes nothing until the process restarts —
-                  which is worse than a setting that cannot be changed at all, so the group says so
-                  rather than each row repeating it.
+                  These are read once at startup or baked into a queue
+                  definition. A write here is accepted and stored immediately
+                  and changes nothing until the process restarts — which is
+                  worse than a setting that cannot be changed at all, so the
+                  group says so rather than each row repeating it.
                 </div>
               )}
               <div className="settings-group-card">

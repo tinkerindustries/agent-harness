@@ -71,7 +71,7 @@ type launchInput struct {
 }
 
 // launchAttachment is one image a launch carries. The bytes are base64 in
-// the tool input but never on the NATS request: the launch stores them and
+// the tool input but never on the work request: the launch stores them and
 // the request carries the ids (docs/DATA-API.md).
 type launchAttachment struct {
 	Name     string `json:"name" jsonschema:"Plain file name ending in .png, .jpg, .jpeg, or .webp — the name the file is materialised under in scratch/attachments/."`
@@ -123,7 +123,7 @@ func (svc *Service) registerLaunchTool(server *mcpsdk.Server) {
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "deepseek_agent",
 		Description: "Launch an agent-harness agent session. Publishes a work request to the harness's " +
-			"NATS work queue and returns immediately with a handle — it does not wait for the run to " +
+			"work queue and returns immediately with a handle — it does not wait for the run to " +
 			"finish. Use deepseek_result to collect the outcome. The run works in a fresh directory " +
 			"holding a clone of every repository named in repos, each on its own branch or main. " +
 			"Skills those repositories ship under .claude/skills or .deepcode/skills are listed to " +

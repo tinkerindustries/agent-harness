@@ -1,30 +1,7 @@
 services:
-  nats:
-    image: nats:2.10-alpine
-    command:
-      - "--jetstream"
-      - "--store_dir=/data"
-      - "--http_port=8222"
-    ports:
-      # Host ports are overridable because a machine may already run NATS on the
-      # defaults. Set NATS_CLIENT_PORT and NATS_MONITOR_PORT in .env if so.
-      - "${NATS_CLIENT_PORT:-4222}:4222"
-      - "${NATS_MONITOR_PORT:-8222}:8222"
-    volumes:
-      - nats-data:/data
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8222/healthz"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-      start_period: 5s
-
   harness:
     build:
       context: .
-    depends_on:
-      nats:
-        condition: service_healthy
     env_file:
       # Supplies GITHUB_TOKEN and any model overrides. The DeepSeek API key
       # is not an environment variable: it lives in the harness's SQLite
@@ -34,9 +11,6 @@ services:
       - path: .env
         required: false
     environment:
-      # .env's NATS_URL points at the published host port, which does not
-      # exist inside the network. Reach the broker by service name instead.
-      NATS_URL: nats://nats:4222
       # The default binds loopback, unreachable from outside the container.
       # The published port below keeps it loopback-only on the host.
       DEEPSEEK_HTTP_ADDR: 0.0.0.0:8080
@@ -109,5 +83,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  nats-data:
   harness-data:

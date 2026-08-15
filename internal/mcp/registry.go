@@ -33,11 +33,11 @@ type runRecord struct {
 const registryCap = 500
 
 // Registry is this MCP process's own record of what it has launched, kept
-// in memory only — the safety section's "holds a NATS connection and
+// in memory only — the safety section's "holds a queue connection and
 // nothing else" rules out a database here, so a process restart starts a
 // clean list. It is not the durable history of a request; deepseek_result
-// and harness://sessions read that from the RESULTS stream and the
-// harness's store respectively, which is why calling deepseek_result is
+// and harness://sessions read that from the harness's work-request rows and
+// its store respectively, which is why calling deepseek_result is
 // what refreshes an entry here rather than this registry polling anything
 // on its own.
 type Registry struct {

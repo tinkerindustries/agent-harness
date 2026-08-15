@@ -4096,8 +4096,8 @@ func TestSteerAppendsEventAndPublishes(t *testing.T) {
 
 // fakeRunPublisher is the test double for RunPublisher: records the requests
 // it was asked to publish, and an optional error every call returns. It
-// stands in for the adapter cmd/harness wires over the JetStream handle, so
-// these tests need no broker.
+// stands in for the adapter cmd/harness wires over the store-backed queue,
+// so these tests need no broker.
 type fakeRunPublisher struct {
 	requests []queue.Request
 	err      error // when set, every PublishRequest returns it
@@ -4580,8 +4580,8 @@ func TestStartRunStampsConfiguredOperator(t *testing.T) {
 // TestStartRunWritesAttachmentsBeforePublishing pins the attachment path
 // end to end: a browser start carrying images stores their bytes in the
 // store's attachments table before the publish, and the published request
-// carries the ids — never the bytes — so the NATS request stays small and
-// the worker can materialise the files into scratch/attachments/.
+// carries the ids — never the bytes — so the request stays small and the
+// worker can materialise the files into scratch/attachments/.
 func TestStartRunWritesAttachmentsBeforePublishing(t *testing.T) {
 	pub := &fakeRunPublisher{}
 	srv, st := newStartTestServer(t, pub)

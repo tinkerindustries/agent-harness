@@ -236,8 +236,8 @@ func TestQueueZeroDefaultsFallBack(t *testing.T) {
 	q := &Queue{Store: st}
 	ctx := context.Background()
 
-	if q.lease() != AckWait {
-		t.Fatalf("zero Lease fell back to %v, want AckWait %v", q.lease(), AckWait)
+	if q.lease() != LeaseDuration {
+		t.Fatalf("zero Lease fell back to %v, want LeaseDuration %v", q.lease(), LeaseDuration)
 	}
 	if q.maxDeliveries() != DefaultMaxDeliveryAttempts {
 		t.Fatalf("zero MaxDeliveries fell back to %d, want %d", q.maxDeliveries(), DefaultMaxDeliveryAttempts)

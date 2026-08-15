@@ -138,9 +138,9 @@ func TestWorkQueueLeaseExpiryRedelivers(t *testing.T) {
 // path, end to end: claim the queue row, do not ack, expire the lease,
 // re-claim it, and feed the re-claimed message's delivery count to
 // ClaimWorkRequest against the sessionless running row the first claim
-// created. The re-delivered attempt must claim the row, exactly as it would
-// have under JetStream — this is the semantic the surrogate-key decision
-// exists to protect. The converse assertion is the same one
+// created. The re-delivered attempt must claim the row, exactly as a
+// redelivered message would — this is the semantic the surrogate-key
+// decision exists to protect. The converse assertion is the same one
 // TestClaimWorkRequestDuplicateWhileRunning makes: a second, independently
 // published message (delivery count 1) must fall through to
 // RefusalOwnedElsewhere instead of running twice.

@@ -10,8 +10,7 @@ import (
 )
 
 // Event kinds, per docs/DESIGN.md §4.1. The event log is the one source of
-// truth the fold, the disk mirror, the SSE stream, and NATS progress
-// messages all read from.
+// truth the fold, the disk mirror, and the SSE stream all read from.
 const (
 	KindSessionStarted EventKind = "session_started"
 	KindTurnStarted    EventKind = "turn_started"

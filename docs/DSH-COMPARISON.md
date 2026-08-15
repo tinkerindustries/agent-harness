@@ -234,8 +234,8 @@ and the default filling of it is wrong for this harness's economics.
 
 ## 3. Is there a multi-session service in there?
 
-**No. Plainly: `dsh` has nothing equivalent to this harness's NATS queue plus
-worker pool.** It has the *pieces* to run many sessions in one process, and an
+**No. Plainly: `dsh` has nothing equivalent to this harness's durable work
+queue plus worker pool.** It has the *pieces* to run many sessions in one process, and an
 SDK for driving a runtime from outside, but no durable work intake, no
 distributed queue, and no result stream.
 
@@ -268,8 +268,8 @@ What is actually there (**observed**, via a dedicated read of each package):
 - **`packages/bundle/web-app`** — mounts an HTTP server only to serve its own
   browser client and the gateway RPC bridge (`packages/bundle/web-app/README.md:5`).
 
-Grepping `packages/` and `docs/` for NATS, JetStream, worker pool and message
-queue returns nothing related to job dispatch (**observed**).
+Grepping `packages/` and `docs/` for work queue, worker pool and message
+dispatch returns nothing related to job dispatch (**observed**).
 
 **How far it partly goes, stated exactly.** Two things do exist and matter:
 
@@ -292,8 +292,8 @@ So the honest summary is: `dsh` gives you a *runtime* you can drive
 programmatically, one subprocess at a time, and expects the queue, the
 durability, the retry discipline, the idempotency and the result fan-out to
 live outside it. Everything in `internal/queue` and `internal/worker` — the
-JetStream streams, `MaxAckPending` as flow control, the single-use
-`request_id` row, ack-after-publish ordering — has no counterpart and no home
+`work_queue` table, the pool as flow control, the single-use
+`request_id` row, result-then-ack ordering — has no counterpart and no home
 in `dsh`.
 
 ---
@@ -303,7 +303,7 @@ in `dsh`.
 Taken one at a time, they rank very differently. One is easy, one is
 awkward-but-possible, one has no home at all.
 
-### (a) The NATS work intake and worker pool — expressible, but it is not a plugin, it is a host
+### (a) The durable work intake and worker pool — expressible, but it is not a plugin, it is a host
 
 **Seam**: `ctx.agents` (`create()` / `resume()` / `list()`, **observed**,
 `docs/subsystems/core.md:24,51,710`), plus `session/event` for progress and
@@ -311,16 +311,16 @@ awkward-but-possible, one has no home at all.
 
 **Verdict**: expressible in principle, and the concurrency model does not fight
 it (§3). But what you would write is not a plugin that extends `dsh` — it is a
-process that *owns* `dsh`, holding the JetStream consumer, calling
+process that *owns* `dsh`, holding the queue consumer, calling
 `ctx.agents.create()` per delivery, and translating `session/event` into
 progress publishes. Everything that makes the current worker correct —
-heartbeating `InProgress` against `AckWait`, publishing the terminal result
-*before* acking, `Nats-Msg-Id` dedup, the single-use `session_id` discriminator
+heartbeating the lease, recording the terminal result *before* acking, the
+single-use `session_id` discriminator
 that stops a redelivered request re-cloning and re-spending — is ack-discipline
 logic that has no `dsh` vocabulary to reuse (**observed**, `docs/DESIGN.md`
 §4.10; **inferred** for the absence of a counterpart, from §3's package sweep).
 
-**Cost**: a new host application plus a NATS plugin, in TypeScript, with the
+**Cost**: a new host application plus a queue consumer, in TypeScript, with the
 whole of `internal/worker`'s idempotency reasoning rewritten and re-tested. The
 alternative — drive `dsh` subprocesses from the *existing* Go worker over the
 SDK's stdio JSON-RPC (**observed**, `packages/sdk/client/README.md:5`) — is
@@ -494,9 +494,9 @@ the tools, or the store (`docs/DESIGN.md` §4.5). `dsh` ships exactly the
 protocol for that — a runtime driven as a subprocess over stdio JSON-RPC
 (`packages/sdk/client/README.md:5`). If a future task needs something `dsh` has
 and this harness does not — an LSP-aware session, a live fork, real image
-input — that is the shape: NATS, worker pool, store, ack discipline and cache
-diagnostics stay in Go; one `dsh` subprocess per session sits where the session
-runner is today. Nothing above needs building now, and I would not build it
+input — that is the shape: queue, worker pool, store, ack discipline and
+cache diagnostics stay in Go; one `dsh` subprocess per session sits where the
+session runner is today. Nothing above needs building now, and I would not build it
 speculatively.
 
 **Steal this regardless of the decision.** The mandated `#### KV Cache effect`
