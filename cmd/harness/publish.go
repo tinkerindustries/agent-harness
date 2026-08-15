@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -19,10 +20,11 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 )
 
-// runPublish sends one work request to the WORK stream "harness serve"
-// reads from. It is an operator and demonstration tool, not the harness's
-// only ingress path — a NATS client in any language can publish the same
-// JSON body directly (docs/DESIGN.md §4.10).
+// runPublish sends one work request to the running harness over POST
+// /api/runs — the same endpoint the browser's start form uses — so `harness
+// serve` has to be up for it to work. It is an operator and demonstration
+// tool, not the harness's only ingress path: any HTTP client can POST the
+// same JSON body to /api/runs (docs/DESIGN.md §4.10).
 func runPublish(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("publish", flag.ContinueOnError)
 	var repoFlags stringList
@@ -44,16 +46,19 @@ func runPublish(ctx context.Context, args []string) error {
 	description := fs.String("description", "", "what change this run is making, at most 50 words, shown under the title on the main page")
 	phase := fs.Int("phase", 0, "this run's 1-based position in a multi-phase chain; omit (or pair with -total-phases 0) for a standalone run")
 	totalPhases := fs.Int("total-phases", 0, "how many phases the chain has in total; omit (or pair with -phase 0) for a standalone run")
-	parentAgentType := fs.String("parent-agent-type", "", "the launching agent's kind, as a lowercase slug (claude-code, cursor, ...)")
-	parentAgentID := fs.String("parent-agent-id", "", "the launching agent's session id")
-	parentIsUser := fs.Bool("parent-is-user", false, "record this run as started by a person rather than an agent; the -parent-agent-id is then that person's name")
+	// The three provenance flags are kept for command-line compatibility,
+	// but POST /api/runs stamps provenance server-side: handleStartRun
+	// overwrites parent_is_user, parent_agent_type and parent_agent_id
+	// before validation (docs/RUN-CONTROL.md "Start"), so a value passed
+	// here is discarded. The help text says so rather than pretending the
+	// flag still has an effect.
+	parentAgentType := fs.String("parent-agent-type", "", "the launching agent's kind, as a lowercase slug (claude-code, cursor, ...); has no effect on this path — the API stamps provenance server-side")
+	parentAgentID := fs.String("parent-agent-id", "", "the launching agent's session id; has no effect on this path — the API stamps provenance server-side")
+	parentIsUser := fs.Bool("parent-is-user", false, "record this run as started by a person rather than an agent; has no effect on this path — the API stamps provenance server-side")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if err := agentmeta.ValidateJobType(*jobType); err != nil {
-		return err
-	}
-	if err := agentmeta.ValidateParent(*parentIsUser, *parentAgentType, *parentAgentID); err != nil {
 		return err
 	}
 	if len(repoFlags) == 0 {
@@ -110,19 +115,36 @@ func runPublish(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	nc, js, err := queue.Connect(cfg.NATSURL)
-	if err != nil {
-		return err
+	// The base URL resolves from DEEPSEEK_HARNESS_BASE_URL, falling back to
+	// the loopback address DEEPSEEK_HTTP_ADDR names — the same resolution
+	// the -wait poll uses, now shared by the publish itself.
+	baseURL := os.Getenv("DEEPSEEK_HARNESS_BASE_URL")
+	if baseURL == "" {
+		baseURL = "http://127.0.0.1:" + httpAddrPort(cfg.HTTPAddr)
 	}
-	defer nc.Close()
+	client := &http.Client{Timeout: 30 * time.Second}
+
+	// POST /api/runs requires the run-control bearer token, fetched from
+	// GET /api/control-token the way internal/mcp/control.go fetches it:
+	// the endpoint is loopback-only and unauthenticated
+	// (docs/RUN-CONTROL.md "Authentication"). An unreachable harness is
+	// named as the cause — the publish posts to the running service, so
+	// `harness serve` has to be up.
+	token, err := publishControlToken(ctx, client, baseURL)
+	if err != nil {
+		return fmt.Errorf("could not reach the harness at %s: %v — harness publish posts to the running service; start `harness serve` first", baseURL, err)
+	}
 
 	pubCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	err = queue.PublishRequest(pubCtx, js, req)
+	var out struct {
+		RequestID string `json:"request_id"`
+	}
+	err = publishPost(pubCtx, client, baseURL, token, req, &out)
 	cancel()
 	if err != nil {
 		return fmt.Errorf("publish request: %w", err)
 	}
-	fmt.Printf("published request_id %s\n", id)
+	fmt.Printf("published request_id %s\n", out.RequestID)
 
 	if !*wait {
 		return nil
@@ -142,15 +164,8 @@ func runPublish(ctx context.Context, args []string) error {
 
 	// -wait polls the running service's own HTTP API (GET
 	// /api/requests/{id}, the same endpoint the browser and the MCP tools
-	// read) instead of subscribing to a results stream, so `harness serve`
-	// has to be up for it to work. The base URL resolves from
-	// DEEPSEEK_HARNESS_BASE_URL, falling back to the loopback address
-	// DEEPSEEK_HTTP_ADDR names.
-	baseURL := os.Getenv("DEEPSEEK_HARNESS_BASE_URL")
-	if baseURL == "" {
-		baseURL = "http://127.0.0.1:" + httpAddrPort(cfg.HTTPAddr)
-	}
-	client := &http.Client{Timeout: 30 * time.Second}
+	// read) for the stored result, so `harness serve` has to be up for it
+	// to work.
 	deadline := time.Now().Add(timeout)
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
@@ -221,9 +236,75 @@ func fetchPublishRequest(ctx context.Context, client *http.Client, baseURL, requ
 	return true, nil
 }
 
+// publishControlToken fetches the run-control bearer token POST /api/runs
+// requires, from GET /api/control-token — the same loopback-only,
+// unauthenticated fetch internal/mcp/control.go makes
+// (docs/RUN-CONTROL.md "Authentication"). An empty token is an error: a
+// harness that never generated one must fail closed, never send an empty
+// bearer that would 503 anyway.
+func publishControlToken(ctx context.Context, client *http.Client, baseURL string) (string, error) {
+	var out struct {
+		Token string `json:"token"`
+	}
+	url := baseURL + "/api/control-token"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("build request for %s: %w", url, err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("GET %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return "", fmt.Errorf("GET %s: status %d: %s", url, resp.StatusCode, string(body))
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return "", fmt.Errorf("decode response from %s: %w", url, err)
+	}
+	if out.Token == "" {
+		return "", errors.New("the harness has no control token configured")
+	}
+	return out.Token, nil
+}
+
+// publishPost POSTs req to /api/runs with the bearer token, the way the
+// browser's start form and the MCP launch tool do, and decodes the
+// {"request_id": ...} acceptance into out. Any 2xx counts as success (the
+// endpoint answers 202); everything else is an error carrying the status
+// and the server's own {"error": "..."} message.
+func publishPost(ctx context.Context, client *http.Client, baseURL, token string, req queue.Request, out any) error {
+	data, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("encode request: %w", err)
+	}
+	url := baseURL + "/api/runs"
+	r, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("build request for %s: %w", url, err)
+	}
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Authorization", "Bearer "+token)
+	resp, err := client.Do(r)
+	if err != nil {
+		return fmt.Errorf("POST %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("POST %s: status %d: %s", url, resp.StatusCode, string(body))
+	}
+	if out == nil {
+		return nil
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
 // httpAddrPort extracts the port from a host:port HTTP address, for building
-// the loopback base URL -wait falls back to when DEEPSEEK_HARNESS_BASE_URL
-// is unset. A malformed address falls back to the default port.
+// the loopback base URL the publish and its -wait poll fall back to when
+// DEEPSEEK_HARNESS_BASE_URL is unset. A malformed address falls back to the
+// default port.
 func httpAddrPort(addr string) string {
 	_, port, err := net.SplitHostPort(addr)
 	if err != nil {
