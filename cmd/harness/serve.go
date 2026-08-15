@@ -13,8 +13,6 @@ import (
 	"os/user"
 	"time"
 
-	"github.com/nats-io/nats.go/jetstream"
-
 	"github.com/mrgeoffrich/deepseek-harness/assets"
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/config"
@@ -33,11 +31,11 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/worker"
 )
 
-// runServe starts the harness as a service: a durable pull consumer on the
-// WORK stream and a worker pool sized from config, with results recorded on
-// each request's work_requests row (docs/DESIGN.md §4.10). One process
-// serves the web UI, the /api/... HTTP API, and the MCP launch server at
-// /mcp on the same *http.Server. It runs until ctx is cancelled
+// runServe starts the harness as a service: a claim loop on the
+// store-backed work queue and a worker pool sized from config, with results
+// recorded on each request's work_requests row (docs/DESIGN.md §4.10). One
+// process serves the web UI, the /api/... HTTP API, and the MCP launch
+// server at /mcp on the same *http.Server. It runs until ctx is cancelled
 // (SIGINT/SIGTERM, wired in main), draining in-flight runs rather than
 // cutting them off.
 func runServe(ctx context.Context, args []string) error {
@@ -126,10 +124,10 @@ func runServe(ctx context.Context, args []string) error {
 	}
 
 	// Restart-required settings, resolved once at startup: the worker pool
-	// size, the two model-concurrency ceilings, and the events paging bounds
-	// are read at startup or baked into the JetStream stream, so a change
-	// takes effect on the next start (the settings screen marks each of
-	// these; docs/DESIGN.md §4.2).
+	// size, the two model-concurrency ceilings, the queue's delivery
+	// ceiling, and the events paging bounds are read at startup, so a
+	// change takes effect on the next start (the settings screen marks each
+	// of these; docs/DESIGN.md §4.2).
 	workerPoolSize, err := res.Int(ctx, settings.KeyWorkerPoolSize)
 	if err != nil {
 		return fmt.Errorf("resolve %s: %w", settings.KeyWorkerPoolSize, err)
@@ -203,18 +201,13 @@ func runServe(ctx context.Context, args []string) error {
 		},
 	}
 
-	nc, js, err := queue.Connect(cfg.NATSURL)
-	if err != nil {
-		return err
-	}
-	defer nc.Close()
-
-	ensureCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	consumer, err := queue.EnsureStreams(ensureCtx, js, workerPoolSize, maxDeliveryAttempts)
-	cancel()
-	if err != nil {
-		return fmt.Errorf("declare streams: %w", err)
-	}
+	// The work queue lives in the store, built here and shared by the pool
+	// (which claims rows), the browser start and the MCP launch server
+	// (which enqueue through the same seam), and the eval orchestrator. Its
+	// delivery ceiling is worker.max_delivery_attempts, the same setting
+	// the pool's MaxDeliveryAttempts comes from, so the two sides of the
+	// ceiling agree.
+	q := &queue.Queue{Store: st, MaxDeliveries: maxDeliveryAttempts}
 
 	// The MCP service reaches the harness's own API over loopback HTTP (the
 	// documented internal/mcp → hub/store boundary; it opens no SQLite
@@ -231,7 +224,7 @@ func runServe(ctx context.Context, args []string) error {
 	pool := &worker.Pool{
 		Store:               st,
 		Runner:              runner,
-		Consumer:            consumer,
+		Source:              q,
 		WorkspaceRoot:       cfg.WorkspaceRoot,
 		DefaultThinking:     cfg.Thinking,
 		PriceTableDate:      priceTable.CapturedAt,
@@ -251,9 +244,9 @@ func runServe(ctx context.Context, args []string) error {
 	// The orchestrator runs evals inside this process, so a run survives the
 	// terminal that started it and the browser can start one. It publishes
 	// through the same one-method seam the browser's start uses; httpapi
-	// still holds no JetStream handle (docs/EVALS.md).
+	// still holds no queue handle (docs/EVALS.md).
 	orchestrator := &evals.Orchestrator{
-		Publisher: evalPublisher{js: js},
+		Publisher: evalPublisher{q: q},
 		Store:     st,
 		OnChange:  eventHub.PublishEvalChanged,
 		NewJudge: func(model string) (*evals.Judge, error) {
@@ -263,8 +256,8 @@ func runServe(ctx context.Context, args []string) error {
 
 	api := &httpapi.Server{
 		Store: st, Hub: eventHub, Static: static, Settings: res,
-		Consumer: consumer, Pool: pool, PriceTableDate: priceTable.CapturedAt, Prices: priceTable,
-		Run: pool, Publisher: publishAdapter{js: js}, ControlToken: controlToken,
+		Queue: q, Pool: pool, PriceTableDate: priceTable.CapturedAt, Prices: priceTable,
+		Run: pool, Publisher: publishAdapter{q: q}, ControlToken: controlToken,
 		Evals:              evalControl{o: orchestrator},
 		DefaultEventsLimit: eventsLimitDefault,
 		MaxEventsLimit:     eventsLimitMax,
@@ -279,7 +272,7 @@ func runServe(ctx context.Context, args []string) error {
 	// methodGate(s.routes()) and its allowlist would 405 a path it has not
 	// been taught.
 	mcpSvc := &harnessmcp.Service{
-		Publisher:  publishAdapter{js: js},
+		Publisher:  publishAdapter{q: q},
 		Cfg:        mcpCfg,
 		HTTPClient: &http.Client{Timeout: 30 * time.Second},
 		Registry:   harnessmcp.NewRegistry(),
@@ -304,8 +297,8 @@ func runServe(ctx context.Context, args []string) error {
 		}
 	}()
 
-	log.Printf("harness serve: connected to %s, pool size %d, model %s (flash %s), workspace root %s",
-		cfg.NATSURL, workerPoolSize, defaultModel, defaultFlashModel, cfg.WorkspaceRoot)
+	log.Printf("harness serve: queue backed by %s, pool size %d, model %s (flash %s), workspace root %s",
+		cfg.DataDir, workerPoolSize, defaultModel, defaultFlashModel, cfg.WorkspaceRoot)
 	log.Printf("harness serve: http listening on %s", cfg.HTTPAddr)
 	log.Printf("harness serve: MCP launch server mounted at %s/mcp (permission ceiling %s)",
 		cfg.HTTPAddr, mcpCfg.PermissionCeiling)
@@ -341,28 +334,28 @@ func newJudge(ctx context.Context, res *settings.Resolver, model string, deepSee
 }
 
 // publishAdapter is the RunPublisher implementation for harness serve: the
-// browser's POST /api/runs enqueues through the same JetStream handle the
-// pool reads, so a browser-started run is byte-identical in the store to one
-// started from MCP or the CLI — same event kinds, same validation, same
-// idempotency on a duplicate request_id (docs/RUN-CONTROL.md "Starting is a
-// publish, so the seam is a publisher"). The interface is declared in
+// browser's POST /api/runs enqueues through the same store-backed queue the
+// pool claims from, so a browser-started run is byte-identical in the store
+// to one started from MCP or the CLI — same event kinds, same validation,
+// same idempotency on a duplicate request_id (docs/RUN-CONTROL.md "Starting
+// is a publish, so the seam is a publisher"). The interface is declared in
 // internal/httpapi and implemented here, in cmd/, because composition
 // happens in cmd/ and nowhere else (ARCHITECTURE.md).
 type publishAdapter struct {
-	js jetstream.JetStream
+	q *queue.Queue
 }
 
 // evalPublisher is the same publish, in the shape internal/evals declares.
-// Two one-method interfaces over one handle rather than one shared interface,
+// Two one-method interfaces over one queue rather than one shared interface,
 // so neither package imports the other's vocabulary.
 type evalPublisher struct {
-	js jetstream.JetStream
+	q *queue.Queue
 }
 
 func (a evalPublisher) Publish(ctx context.Context, req queue.Request) error {
 	pubCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	return queue.PublishRequest(pubCtx, a.js, req)
+	return a.q.Enqueue(pubCtx, req)
 }
 
 // evalControl is the EvalController implementation: the orchestrator, named
@@ -380,17 +373,17 @@ func (c evalControl) CancelEval(evalRunID string) error { return c.o.Cancel(eval
 func (c evalControl) RunningEval(evalRunID string) bool { return c.o.Running(evalRunID) }
 
 func (a publishAdapter) PublishRequest(ctx context.Context, req queue.Request) error {
-	return queue.PublishRequest(ctx, a.js, req)
+	return a.q.Enqueue(ctx, req)
 }
 
 // Publish is the same publish in the one-method shape internal/mcp asks
 // for: the MCP launch server enqueues through the identical path as the
-// browser's POST /api/runs, bounded by a 10-second timeout so a stalled
-// broker cannot wedge the launch.
+// browser's POST /api/runs, bounded by a 10-second timeout so a wedged
+// store writer cannot wedge the launch.
 func (a publishAdapter) Publish(ctx context.Context, req queue.Request) error {
 	pubCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	return queue.PublishRequest(pubCtx, a.js, req)
+	return a.q.Enqueue(pubCtx, req)
 }
 
 // generateControlToken returns a fresh http.control_token value: 32 bytes of
