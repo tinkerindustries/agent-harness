@@ -80,13 +80,13 @@ const (
 // session id — a work request is single-use once an attempt actually
 // started, and an agent run is not idempotent — and when it is terminal,
 // which republishes its stored result instead of running. A running,
-// sessionless row is claimed only when numDelivered shows JetStream
-// redelivered this exact message, meaning the process that held it died
-// during workspace preparation and nothing happened that matters.
-// numDelivered from a second, independently published message for the same
-// request_id starts back at 1, so a genuine race between two live attempts
-// never satisfies this and falls through to "still owned elsewhere" instead
-// of running twice.
+// sessionless row is claimed only when numDelivered shows the queue
+// redelivered this exact row, meaning the process that held it died during
+// workspace preparation and nothing happened that matters. numDelivered
+// from a second, independently enqueued row for the same request_id starts
+// back at 1, so a genuine race between two live attempts never satisfies
+// this and falls through to "still owned elsewhere" instead of running
+// twice.
 func shouldClaim(found bool, status, sessionID string, numDelivered uint64) bool {
 	if !found {
 		return true
@@ -118,9 +118,9 @@ func refusalFor(row WorkRequest) ClaimRefusal {
 // claim in the same transaction on the store's single writer goroutine — so
 // two goroutines racing to claim the same request_id can never both
 // succeed, without needing a database-level compare-and-swap. numDelivered
-// is the JetStream message's redelivery count, the only signal that
-// distinguishes an attempt that died during workspace preparation from a
-// live one (see shouldClaim).
+// is the work_queue row's own delivery count (incremented at each claim by
+// ClaimWork), the only signal that distinguishes an attempt that died
+// during workspace preparation from a live one (see shouldClaim).
 func (s *Store) ClaimWorkRequest(ctx context.Context, requestID string, numDelivered uint64, now time.Time) (ClaimOutcome, error) {
 	var out ClaimOutcome
 	deliveryCount := int(numDelivered)

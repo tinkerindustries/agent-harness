@@ -10,6 +10,17 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 )
 
+// Source is the subset of *Queue the worker pool consumes: claim up to
+// limit rows, wait for a nudge or the poll interval, and nudge back when a
+// slot frees. Declared here and satisfied by *Queue, so the pool depends on
+// the narrow interface rather than the concrete queue
+// (docs/QUEUE-MIGRATION-PLAN.md §1.5).
+type Source interface {
+	Claim(ctx context.Context, limit int) ([]Msg, error)
+	Wait(ctx context.Context)
+	Wake()
+}
+
 // Queue is the store-backed work queue, the WORK stream's successor
 // (docs/QUEUE-MIGRATION-PLAN.md §1.4). The pool claims rows and disposes of
 // them through queue.Msg; producers enqueue through Enqueue. The wake
