@@ -214,9 +214,9 @@ export function OperationsScreen() {
 
   // The nav's right slot for this screen: the refresh button.
   useNavRight(
-    <Button variant="outline" size="sm" onClick={refresh} disabled={busy || data === null}>
+    <Button variant="outline" size="sm" onClick={refresh} disabled={busy || data === null} title="Refresh">
       <ArrowsClockwise />
-      Refresh
+      <span className="nav-label">Refresh</span>
     </Button>,
   );
 

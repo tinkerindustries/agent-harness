@@ -312,9 +312,16 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
             </Badge>
           )}
           {token !== null && (
-            <Button variant="outline" size="sm" onClick={toggleStopConfirm} disabled={stopping} aria-expanded={confirmingStop}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={toggleStopConfirm}
+              disabled={stopping}
+              aria-expanded={confirmingStop}
+              title={stopping ? "Stopping…" : "Stop"}
+            >
               <StopCircle />
-              {stopping ? "Stopping…" : "Stop"}
+              <span className="nav-label">{stopping ? "Stopping…" : "Stop"}</span>
             </Button>
           )}
         </>

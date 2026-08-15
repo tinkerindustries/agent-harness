@@ -726,6 +726,7 @@ body.page .topnav-flush {
 
 .topnav .wordmark {
   margin-right: 10px;
+  white-space: nowrap;
 }
 
 .topnav-links {
@@ -737,6 +738,7 @@ body.page .topnav-flush {
 .navlink {
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   height: 28px;
   padding: 0 10px;
   border-radius: calc(var(--radius) - 2px);
@@ -744,6 +746,17 @@ body.page .topnav-flush {
   font-size: 0.8125rem;
   font-weight: 500;
   text-decoration: none;
+}
+
+/* The icon exists for the ≤720px pass below, where it stands in for a
+   label that's gone visually-hidden; the wide layout is the text-only nav
+   it always was, so the icon stays out of the flow rather than widening
+   every link. */
+.navlink svg {
+  display: none;
+  width: 14px;
+  height: 14px;
+  flex: none;
 }
 
 .navlink:hover {
@@ -795,10 +808,20 @@ body.page .topnav-flush {
 
 /* The search inputs the screens hand to the nav's right slot: the design's
    .input height and monospace-ish density, sized to the nav row rather than
-   the shadcn Input's default 36px. */
+   the shadcn Input's default 36px. The wrapper — the actual flex item in
+   the nav's right group, the icon input's own DOM shape — carries the
+   shrink: a fixed-width input has no floor below its `width`, so a nav
+   whose links alone (no icon-only pass, no wordmark to give up) already
+   fill a tablet-width row pushed this into the page's own scrollbar rather
+   than yielding the last 60-odd px the row needed. */
+.topnav-right [data-slot="input-wrapper"] {
+  flex: 1 1 140px;
+  min-width: 0;
+}
 .topnav .nav-search {
   height: 30px;
-  width: 220px;
+  width: 100%;
+  max-width: 220px;
   font-size: 0.8125rem;
 }
 
@@ -4698,42 +4721,65 @@ kbd {
   }
 }
 @media (max-width: 720px) {
-  /* The shared nav wraps at this width into two rows: the wordmark and the
-     section links (or, on a session page, the back link and the crumb) on
-     the first, the right-hand group — the start-run trigger, the search
-     input, the LIVE badge, and on a session page the connection badge and
-     the finished run's statusline figures — on the second, forced onto its
-     own full-width row by `.topnav-right { flex: 1 0 100% }` below so it
-     never shares row 1 with a link that happens to leave it enough space.
-     Wrapping at the row level rather than the item level is what keeps the
-     right group reachable and left-aligned instead of overflowing or
-     floating off against the far edge. */
-  .topnav {
-    flex-wrap: wrap;
-    row-gap: 6px;
+  /* The nav stays one row at every width: the section links (or, on a
+     session page, the back link) and every right-slot control that carries
+     its own icon — the start-run trigger, the LIVE badge, Refresh, Stop —
+     drop their text label in favour of the icon alone, visually-hidden the
+     same way the finished table's column headers are below, so the row
+     shrinks instead of wrapping and a screen reader still gets the word.
+     `title` on the control gives the icon a hover tooltip standing in for
+     the label. The search input collapses to its icon and expands over the
+     row on focus (further down). Right-slot content this doesn't cover —
+     a finished watch run's statusline, a running session's permission
+     badge — is content that only ever appears on a session page, already
+     narrower than the list's controls, and rare enough that letting the
+     slot itself scroll sideways (`.topnav-right` below) is the right
+     trade-off over hand-shrinking every one of those, too. */
+  .navlink-label,
+  .nav-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border-width: 0;
   }
-  /* Left-aligned to the same gutter row 1 starts from, not flush against the
-     right edge: at these widths the right group reads as a second row of
-     the same nav, not a stray control stranded past empty space. */
+  .navlink,
+  .navback {
+    padding: 0 8px;
+  }
+  .navlink svg {
+    display: inline;
+  }
+  .topnav-links {
+    gap: 0;
+  }
+  /* The row never wraps; a right slot wider than the space left after the
+     links and the crumb scrolls horizontally inside itself instead of
+     pushing the nav to a second line. */
   .topnav-right {
-    flex: 1 0 100%;
-    flex-wrap: wrap;
-    justify-content: flex-start;
+    flex: 0 1 auto;
+    min-width: 0;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
   }
-  /* The finished watch run's statusline (sub-turn, cache %, cost, output
-     tokens, elapsed) rides in the nav's right slot; it must wrap inside the
-     slot rather than push the page wider. */
+  .topnav-right::-webkit-scrollbar {
+    display: none;
+  }
   .topnav-right .statusline {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
   }
-  /* The session/eval crumb shares row 1 with the back link instead of
-     claiming a row of its own: a zero flex-basis means the wrap algorithm
-     never tests it against its full un-ellipsised content width, so it
-     always fits beside the back link and takes whatever room is left,
-     shrinking the sess-… id with its existing ellipsis rather than pushing
-     the connection badge down to a third row. */
+  /* A zero flex-basis means the wrap algorithm never tests the crumb
+     against its full un-ellipsised content width, so it always fits beside
+     the back link and takes whatever room is left, shrinking the sess-…
+     id with its existing ellipsis rather than crowding the right slot. */
   .nav-crumb {
     flex: 1 1 0%;
+    min-width: 0;
   }
   /* Four stat cards across a ~388px content box leave ~90px cards whose
      small print ("0 of 4 slots") breaks over three
@@ -4778,14 +4824,24 @@ kbd {
     padding: calc(var(--space) * 2) 12px;
   }
 
-  /* The nav's right group already dropped onto its own row at 720px; here
-     the search input shares that row with the start trigger and the LIVE
-     badge instead of claiming a full-width line of its own — a min-width
-     rather than a fixed one, so it still shrinks below the button and badge
-     if the row is tight, but never so far the placeholder is unreadable. */
   .topnav {
     padding-left: 12px;
     padding-right: 12px;
+  }
+  /* `.app .topnav-flush` / `body.page .topnav-flush` set this same property
+     at equal specificity in the base layer; the later rule wins the tie, so
+     repeating it here is what actually narrows a session page's padding
+     instead of the flush rule silently keeping it at 16px. Same reasoning
+     for the wordmark below: a session page already carries its own context
+     in the back link and the crumb, so the brand mark is the one thing this
+     width doesn't have room to keep. */
+  .app .topnav-flush,
+  body.page .topnav-flush {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+  .topnav-flush .wordmark {
+    display: none;
   }
 
   .topnav .nav-search {
@@ -4795,16 +4851,35 @@ kbd {
     width: auto;
   }
 
+  /* The search field collapses to its icon so the right slot has room for
+     the start trigger and the badge beside it on the same row, and expands
+     to cover the row — over the top of both — while it is focused or holds
+     a query, so what was typed is still visible. `position: relative` on
+     the slot below is the expanded copy's containing block; `:has()` is
+     what keeps it open after a tap elsewhere once there's a query to show,
+     not just while the input has focus. */
+  .topnav-right {
+    position: relative;
+  }
   .topnav-right [data-slot="input-wrapper"] {
-    /* A basis rather than `auto`: the wrap test that decides whether the
-       badge fits beside the trigger and the search on the same line runs
-       against this hypothetical size, not the grown one, so a fixed basis
-       is what leaves the badge room instead of the search's growth eating
-       every free pixel first. Still free to grow past it (240px+ screens
-       give it back) or shrink below it, floored so the placeholder stays
-       legible. */
-    flex: 1 1 7rem;
-    min-width: 6rem;
+    flex: 0 0 auto;
+    width: 36px;
+    overflow: hidden;
+  }
+  .topnav-right [data-slot="input-wrapper"] input {
+    opacity: 0;
+  }
+  .topnav-right [data-slot="input-wrapper"]:is(:focus-within, :has(input:not(:placeholder-shown))) {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    width: auto;
+    overflow: visible;
+    background: var(--background);
+    padding: 0 2px;
+  }
+  .topnav-right [data-slot="input-wrapper"]:is(:focus-within, :has(input:not(:placeholder-shown))) input {
+    opacity: 1;
   }
 
   /* The in-flight card's headline row: the badge and the model name share
@@ -5225,16 +5300,10 @@ kbd {
    and a touch-sized composer. Every rule is inside the media query; the wide
    layout is untouched. */
 @media (max-width: 560px) {
-  /* --- the nav: brand and links on one row, controls on the next ---
-     Tightening the links' type and padding keeps brand + links on their
-     single 44px-tall row down to a 320px phone instead of the wordmark
-     wrapping onto a line of its own; the right slot's own row below is
-     tightened the same way, gutter and row-gap included, since two rows of
-     44px tap targets already spend most of the height budget. */
+  /* --- the nav: everything on its one row, sized for a thumb --- */
   .topnav {
     padding-top: 4px;
     padding-bottom: 4px;
-    row-gap: 3px;
   }
   .topnav .wordmark {
     font-size: 0.75rem;
@@ -5244,17 +5313,16 @@ kbd {
   .navback {
     height: 44px;
     padding: 0 6px;
-    font-size: 0.75rem;
   }
   .topnav .nav-search {
     height: 44px;
   }
   /* The sticky nav is shorter now; anchors and the page-mode rail must clear
      it by the same amount (--nav-height is the sticky nav's height in the
-     base layer) — two 44px rows, the tightened padding and row-gap above,
-     and the bottom rule. */
+     base layer): the 44px row, the tightened padding above, and the bottom
+     rule. */
   :root {
-    --nav-height: 100px;
+    --nav-height: 53px;
   }
 
   /* --- tap targets: every interactive control to a thumb --- */
@@ -5558,14 +5626,17 @@ kbd {
 }
 
 /* ---------- nav, narrowest phones (≤360px) ----------
-   The 560px pass above tightens the wordmark and the links enough to hold
-   the brand + links row at 390px, but at 320-360px the four links still
-   overflow it and the wordmark wraps onto a row of its own. One more notch
-   off the wordmark's margin and the links' padding and type is what a
-   320px phone needs; nothing here fires above 360px; the 390px shape is
-   untouched. */
+   The icon-only links and controls above hold the row at 390px down to
+   360px; below that the wordmark and the icon buttons' own padding are
+   what's left to give up. Nothing here fires above 360px; the 390px shape
+   is untouched. */
 @media (max-width: 360px) {
   .topnav {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .app .topnav-flush,
+  body.page .topnav-flush {
     padding-left: 8px;
     padding-right: 8px;
   }
@@ -5576,10 +5647,6 @@ kbd {
   .navlink,
   .navback {
     padding: 0 3px;
-    font-size: 0.6875rem;
-  }
-  .topnav-links {
-    gap: 0;
   }
 }
 
