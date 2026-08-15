@@ -1336,17 +1336,33 @@ pre {
 }
 
 /* ---------- session list: the stat strip ----------
-   The four cards above the queue health bar: Running (of the pool's
-   slots), Spend today, Median duration today, Done vs gave up today. All
-   four are computed client-side over the session list the screen already
-   holds, plus worker.pool_size off the settings endpoint — no new backend
-   field, no new endpoint. */
+   The four cards below the queue banner and the In flight section (when
+   there is one): Running (of the pool's slots), Spend today, Median
+   duration today, Done vs gave up today. All four are computed client-side
+   over the session list the screen already holds, plus worker.pool_size off
+   the settings endpoint — no new backend field, no new endpoint. */
 
 .stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   margin-bottom: 14px;
+}
+
+/* The strip sits between the In flight section and Finished rather than
+   before both of them, so the `.list-section + .list-section` rhythm
+   further down no longer reaches across it — .stats is not a .list-section,
+   and the two sections it now separates are no longer adjacent siblings.
+   These give it the same 2.5×space separation on both sides that rule gives
+   two adjacent sections. `.list-section + .stats` only matches while In
+   flight is rendered, so the empty case (no In flight section) is
+   untouched: the strip keeps its plain margin-bottom above and sits at the
+   top of the page as the hero, exactly as before. */
+.list-section + .stats {
+  margin-top: calc(var(--space) * 2.5);
+}
+.stats + .list-section {
+  margin-top: calc(var(--space) * 2.5);
 }
 
 /* A stat card is the shadcn Card with the design's tighter padding and no
@@ -1388,14 +1404,14 @@ pre {
 }
 
 /* ---------- the stat strip, compact ----------
-   The strip is the page's hero while nothing is running, and gets out of the
-   way the moment something is: the four cards keep every figure and lose
-   roughly half their height, so the In flight section arriving below them
-   lands near the top of the page instead of below a full-size hero.
-   .stats-compact is the size; .stats-anim is whether it was reached while
-   somebody was watching (SessionListScreen's StatStrip) — a page that loads
-   with a run already going gets the compact size with no transition, because
-   nothing changed.
+   The strip is the page's hero while nothing is running, and shrinks the
+   moment something is: the four cards keep every figure and lose roughly
+   half their height, making room above the strip for the In flight section
+   that lands there instead of pushing the whole page down by a full-size
+   hero's worth. .stats-compact is the size; .stats-anim is whether it was
+   reached while somebody was watching (SessionListScreen's StatStrip) — a
+   page that loads with a run already going gets the compact size with no
+   transition, because nothing changed.
 
    Only type and box metrics move. The column count deliberately does not,
    here or on the phone layout below: a grid track count cannot be
@@ -4682,26 +4698,42 @@ kbd {
   }
 }
 @media (max-width: 720px) {
-  /* The shared nav wraps at this width: its right-hand group (the start-run
-     trigger, the search input, the LIVE badge — and on a session page the
-     crumb and the finished run's statusline figures) is wider than the
-     viewport on its own, and a non-wrapping row pushed the page's scrollWidth
-     past clientWidth at 420px with no way to reach the overflow. Wrapping
-     lets the groups reflow onto their own rows, where everything stays
-     reachable by vertical scroll. */
+  /* The shared nav wraps at this width into two rows: the wordmark and the
+     section links (or, on a session page, the back link and the crumb) on
+     the first, the right-hand group — the start-run trigger, the search
+     input, the LIVE badge, and on a session page the connection badge and
+     the finished run's statusline figures — on the second, forced onto its
+     own full-width row by `.topnav-right { flex: 1 0 100% }` below so it
+     never shares row 1 with a link that happens to leave it enough space.
+     Wrapping at the row level rather than the item level is what keeps the
+     right group reachable and left-aligned instead of overflowing or
+     floating off against the far edge. */
   .topnav {
     flex-wrap: wrap;
     row-gap: 6px;
   }
+  /* Left-aligned to the same gutter row 1 starts from, not flush against the
+     right edge: at these widths the right group reads as a second row of
+     the same nav, not a stray control stranded past empty space. */
   .topnav-right {
+    flex: 1 0 100%;
     flex-wrap: wrap;
-    justify-content: flex-end;
+    justify-content: flex-start;
   }
   /* The finished watch run's statusline (sub-turn, cache %, cost, output
      tokens, elapsed) rides in the nav's right slot; it must wrap inside the
      slot rather than push the page wider. */
   .topnav-right .statusline {
     flex-wrap: wrap;
+  }
+  /* The session/eval crumb shares row 1 with the back link instead of
+     claiming a row of its own: a zero flex-basis means the wrap algorithm
+     never tests it against its full un-ellipsised content width, so it
+     always fits beside the back link and takes whatever room is left,
+     shrinking the sess-… id with its existing ellipsis rather than pushing
+     the connection badge down to a third row. */
+  .nav-crumb {
+    flex: 1 1 0%;
   }
   /* Four stat cards across a ~388px content box leave ~90px cards whose
      small print ("0 of 4 slots") breaks over three
@@ -4733,60 +4765,46 @@ kbd {
 
 /* ---------- phone layout (≤560px) ----------
    The session list was laid out for a desktop browser, and at a phone
-   viewport it does two things badly: the seven-column Finished table
-   squeezes the Session column down to one letter per line, and the nav's
-   right group (Start run, the search input, the LIVE badge) crams the
-   search input into a truncated stub. The table becomes stacked cards —
-   the header visually hidden (not display:none, so the column names stay
-   in the accessibility tree), the same seven cells rearranged into a
-   grid, with the numeric cells carrying their column name as a small
-   label (the data-label attributes FinishedRow renders; invisible on the
-   wide layout, where the header still names them) — and the nav's right
-   group wraps onto its own rows with the search input taking the whole
-   line. Everything here is inside the media query: the wide layout is
-   the same page it always was. */
+   viewport it does one thing badly: the seven-column Finished table
+   squeezes the Session column down to one letter per line. The table
+   becomes stacked cards — the header visually hidden (not display:none, so
+   the column names stay in the accessibility tree), the same seven cells
+   rearranged into a grid, with the numeric cells carrying their column name
+   as a small label (the data-label attributes FinishedRow renders; invisible
+   on the wide layout, where the header still names them). Everything here is
+   inside the media query: the wide layout is the same page it always was. */
 @media (max-width: 560px) {
   .screen {
     padding: calc(var(--space) * 2) 12px;
   }
 
-  /* The nav: the right group drops below the wordmark and section links
-     (already wrapping at 720px), the Start run trigger and the LIVE badge
-     share one line, and the search input takes the next line in full so
-     its placeholder reads instead of truncating. */
+  /* The nav's right group already dropped onto its own row at 720px; here
+     the search input shares that row with the start trigger and the LIVE
+     badge instead of claiming a full-width line of its own — a min-width
+     rather than a fixed one, so it still shrinks below the button and badge
+     if the row is tight, but never so far the placeholder is unreadable. */
   .topnav {
     padding-left: 12px;
     padding-right: 12px;
   }
 
-  .topnav-right {
-    flex: 1 0 100%;
-  }
-
   .topnav .nav-search {
     /* The icon input renders as a wrapper span around the input, and the
        span is the flex item in the nav's right group; the input inside it
-       is w-full. Flex-shrink 0 is the point: with shrink allowed, the
-       wrapper squeezes onto the trigger's line and the input truncates its
-       placeholder; unsqueezable, it wraps to a full line of its own. */
-    flex: 1 0 100%;
-    width: 100%;
+       is w-full and follows the wrapper's width. */
+    width: auto;
   }
 
   .topnav-right [data-slot="input-wrapper"] {
-    flex: 1 0 100%;
-  }
-  /* The search input sits between the start trigger and the LIVE badge in
-     the DOM, so with the input taking a full line the badge wraps onto a
-     row of its own. Reordering the three lets the trigger and the badge
-     share the line above the search, which is the intended two-row layout
-     (only the session list has a search; the other screens' slots are
-     unaffected). */
-  .topnav-right [data-slot="input-wrapper"] {
-    order: 3;
-  }
-  .topnav-right [data-slot="input-wrapper"] + * {
-    order: 2;
+    /* A basis rather than `auto`: the wrap test that decides whether the
+       badge fits beside the trigger and the search on the same line runs
+       against this hypothetical size, not the grown one, so a fixed basis
+       is what leaves the badge room instead of the search's growth eating
+       every free pixel first. Still free to grow past it (240px+ screens
+       give it back) or shrink below it, floored so the placeholder stays
+       legible. */
+    flex: 1 1 7rem;
+    min-width: 6rem;
   }
 
   /* The in-flight card's headline row: the badge and the model name share
@@ -5198,20 +5216,26 @@ kbd {
 
 /* ---------- phone pass (≤560px) ----------
    The phone block above stacks the finished table and reflows the nav, but
-   a 390px phone still gets a nav stacked five rows tall, 26-28px tap
-   targets, eval tables whose headers vanish while the table still scrolls
-   sideways, operations tables squeezed into a scroll strip, and a composer
-   whose Send control is thumb-sized. This pass fixes those — tap targets
-   to a thumb, the eval list and operations tables to the same stacked-card
-   shape the finished table already has, eval-run tables keeping their
-   headers inside their scroller, and a touch-sized composer. Every rule is
-   inside the media query; the wide layout is untouched. */
+   a 390px phone still gets 26-28px tap targets throughout, eval tables whose
+   headers vanish while the table still scrolls sideways, operations tables
+   squeezed into a scroll strip, and a composer whose Send control is
+   thumb-sized. This pass fixes those — tap targets to a thumb, the eval list
+   and operations tables to the same stacked-card shape the finished table
+   already has, eval-run tables keeping their headers inside their scroller,
+   and a touch-sized composer. Every rule is inside the media query; the wide
+   layout is untouched. */
 @media (max-width: 560px) {
   /* --- the nav: brand and links on one row, controls on the next ---
-     At this width the wordmark, the four links, the start trigger, the
-     search and the badge wrap into five separate rows (~150px of chrome).
-     Tightening the links' type and padding pulls brand + links onto a
-     single 44px-tall row; the right slot keeps its own row below. */
+     Tightening the links' type and padding keeps brand + links on their
+     single 44px-tall row down to a 320px phone instead of the wordmark
+     wrapping onto a line of its own; the right slot's own row below is
+     tightened the same way, gutter and row-gap included, since two rows of
+     44px tap targets already spend most of the height budget. */
+  .topnav {
+    padding-top: 4px;
+    padding-bottom: 4px;
+    row-gap: 3px;
+  }
   .topnav .wordmark {
     font-size: 0.75rem;
     margin-right: 6px;
@@ -5225,11 +5249,12 @@ kbd {
   .topnav .nav-search {
     height: 44px;
   }
-  /* The sticky nav is taller now; anchors and the page-mode rail must clear
+  /* The sticky nav is shorter now; anchors and the page-mode rail must clear
      it by the same amount (--nav-height is the sticky nav's height in the
-     base layer). 8px padding twice + 44px links + the bottom rule. */
+     base layer) — two 44px rows, the tightened padding and row-gap above,
+     and the bottom rule. */
   :root {
-    --nav-height: 61px;
+    --nav-height: 100px;
   }
 
   /* --- tap targets: every interactive control to a thumb --- */
@@ -5529,6 +5554,32 @@ kbd {
   }
   .msg-user .body {
     font-size: 0.875rem;
+  }
+}
+
+/* ---------- nav, narrowest phones (≤360px) ----------
+   The 560px pass above tightens the wordmark and the links enough to hold
+   the brand + links row at 390px, but at 320-360px the four links still
+   overflow it and the wordmark wraps onto a row of its own. One more notch
+   off the wordmark's margin and the links' padding and type is what a
+   320px phone needs; nothing here fires above 360px; the 390px shape is
+   untouched. */
+@media (max-width: 360px) {
+  .topnav {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .topnav .wordmark {
+    font-size: 0.6875rem;
+    margin-right: 4px;
+  }
+  .navlink,
+  .navback {
+    padding: 0 3px;
+    font-size: 0.6875rem;
+  }
+  .topnav-links {
+    gap: 0;
   }
 }
 

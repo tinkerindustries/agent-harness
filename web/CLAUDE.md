@@ -55,22 +55,25 @@ What the screens are:
   span's `title`, so the row leaves room for the stat figures beside it.
   Outcomes render as `DONE` / `GAVE UP` / `STOPPED` (`statusBadge.ts`), and a
   bare `ok` with no Complete status renders DONE too — the list shows one word
-  for both, never an OK of its own. A stat strip above the queue banner —
-  Running (of the pool's
-  slots, from `worker.pool_size`), Spend today, Median duration today, Total
-  time today — is a client-side reduction over the same session list, with
-  no backend field behind it. The strip has two sizes: it is the page's hero
-  while nothing is in flight and compacts to roughly half its height —
-  every figure kept — the moment the In flight section has anything in it,
+  for both, never an OK of its own. The queue banner sits at the top of the
+  page, below the start-run form when it is open — it renders only when the
+  pool halts (or the health poll reports an error), the routine pending /
+  in-flight / redelivered counters are gone — and above the In flight
+  section, when there is one. Below both of those, a stat strip — Running
+  (of the pool's slots, from `worker.pool_size`), Spend today, Median
+  duration today, Total time today — is a client-side reduction over the
+  same session list, with no backend field behind it. The strip has two
+  sizes: it is the page's hero, the first thing below the banner, while
+  nothing is in flight, and compacts to roughly half its height — every
+  figure kept — the moment the In flight section has anything in it,
+  landing above the strip rather than displacing it below a full-size hero,
   on the phone layout as much as the wide one. The change is a transition
   only when it happens while somebody is watching (`hooks.ts`
   `useSettledFlip`, gated on the list's snapshot having landed, with
   `useHeldFrames` standing in for it on an empty harness): a page that loads
   with a run already going renders the compact strip and the section without
-  either animating, because neither of those facts just happened. The queue
-  banner below it renders only when the
-  pool halts (or the health poll reports an error) — the routine pending /
-  in-flight / redelivered counters are gone. The finished table's columns run Status, Session,
+  either animating, because neither of those facts just happened. The
+  finished table's columns run Status, Session,
   Elapsed, Cost, Model, Sub-turns, Cache: the two numbers an operator
   scans for sit right after Session, where they stay visible before any column
   that still needs the scroll container. The nav's right slot carries the

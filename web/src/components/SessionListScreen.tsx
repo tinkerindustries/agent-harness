@@ -269,12 +269,14 @@ export function SessionListScreen({ onOpen }: Props) {
   const emptyState = tableEmptyState(snapshot.sessions.length, finishedTotal);
 
   // Whether anything is in flight, and whether that answer has changed since
-  // the page settled. The strip is the page's hero while nothing is running
-  // and gets out of the way the moment something is: `busy` compacts the four
-  // cards, and `flipped` is what allows the change to be a gesture rather than
-  // the size the cards simply are. A page that loads with a run already going
-  // renders the compact strip and the section without either animating —
-  // neither of those facts just happened (hooks.ts useSettledFlip).
+  // the page settled. The strip is the page's hero — the first thing below
+  // the nav — while nothing is running, and shrinks the moment something is,
+  // making room for the In flight section that then lands above it: `busy`
+  // compacts the four cards, and `flipped` is what allows the change to be a
+  // gesture rather than the size the cards simply are. A page that loads with
+  // a run already going renders the compact strip and the section without
+  // either animating — neither of those facts just happened (hooks.ts
+  // useSettledFlip).
   //
   // Settled is the list's own snapshot having landed, with the connection
   // holding open across two frames standing in for it on an empty harness,
@@ -347,11 +349,22 @@ export function SessionListScreen({ onOpen }: Props) {
       {startOpen && startToken !== null && (
         <StartRunForm token={startToken} onClose={() => setStartOpen(false)} onOpen={onOpen} />
       )}
-      <StatStrip stats={stats} poolSize={poolSize} compact={busy} animate={flipped} peak={peak} />
       <QueueHaltBanner health={queueHealth} />
 
+      {/* No `anim-section-in` here: that fade/blur/lift reveal used to run on
+          a section landing below the strip, where its instant full-height
+          mount (only the reveal's own opacity/transform/filter animate, not
+          layout) went unnoticed — nothing above it had to move. Now this
+          section lands above the strip, so the same instant mount shoves the
+          strip (and the transition it's mid-way through) straight down by
+          the section's whole height before a single pixel of the reveal has
+          drawn — a blank gap opening, then filling, on top of the strip's
+          own shrink. Two competing gestures read worse than one: better to
+          drop this reveal than ship the judder. The strip still shrinks
+          smoothly on `flipped`; the section just appears at its settled
+          position instead of animating into it. */}
       {busy && (
-        <section className={cn("list-section", flipped && "anim-section-in")}>
+        <section className="list-section">
           <div className="section-head">
             <h2>In flight</h2>
             <span className="count">
@@ -373,6 +386,8 @@ export function SessionListScreen({ onOpen }: Props) {
           </div>
         </section>
       )}
+
+      <StatStrip stats={stats} poolSize={poolSize} compact={busy} animate={flipped} peak={peak} />
 
       {(finishedTotal > 0 || emptyState !== "none") && (
         <section className="list-section">
