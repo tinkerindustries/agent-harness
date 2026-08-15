@@ -122,11 +122,51 @@ CREATE TABLE IF NOT EXISTS eval_members (
 	PRIMARY KEY (eval_run_id, request_id)
 );
 
+-- The work queue: the WORK stream's successor (docs/QUEUE-MIGRATION-PLAN.md
+-- §1.2). One row per enqueued request, claimed by the worker pool, acked by
+-- deleting the row.
+--
+-- The primary key is a surrogate id, NOT request_id, on purpose: the WORK
+-- stream never deduplicated requests, so two publishes of one request_id are
+-- two independent messages, each with its own delivery counter starting at
+-- 1. store.shouldClaim depends on exactly that — a second, independently
+-- published message for the same request_id starts back at 1, which is what
+-- makes a genuine race between two live attempts fall through to "still
+-- owned elsewhere" instead of running twice. A request_id primary key with
+-- INSERT OR IGNORE would collapse the second enqueue into the first and
+-- destroy the RefusalOwnedElsewhere and RefusalSpent paths. One enqueue =
+-- one row = one independent delivery counter. Do not "fix" this.
+--
+-- visible_at_ms and lease_expires_ms are integer Unix milliseconds, not the
+-- RFC3339Nano TEXT every other table uses, on purpose: Go's RFC3339Nano
+-- trims trailing zeros from the fraction, so "…:00Z" and "…:00.5Z" compare
+-- as '.'(0x2E) < 'Z'(0x5A) — the half-second timestamp sorts BEFORE the
+-- whole-second one. Elsewhere in this schema that is a cosmetic ordering
+-- wart; here it is the claim predicate, so it would be a correctness bug.
+-- enqueued_at stays RFC3339Nano TEXT because it is only ever displayed.
+-- lease_expires_ms = 0 means unleased, so a single
+-- "lease_expires_ms <= now_ms" covers both "never leased" and "lease
+-- expired".
+CREATE TABLE IF NOT EXISTS work_queue (
+	id               INTEGER PRIMARY KEY AUTOINCREMENT,
+	request_id       TEXT    NOT NULL,
+	payload          TEXT    NOT NULL,
+	enqueued_at      TEXT    NOT NULL,
+	visible_at_ms    INTEGER NOT NULL,
+	lease_expires_ms INTEGER NOT NULL DEFAULT 0,
+	delivery_count   INTEGER NOT NULL DEFAULT 0
+);
+
 -- Read paths: the session list's usage summary filters events down to two
 -- kinds before scanning, and looks a session up by the request that
 -- created it.
 CREATE INDEX IF NOT EXISTS idx_events_session_kind ON events (session_id, kind);
 CREATE INDEX IF NOT EXISTS idx_work_requests_session_id ON work_requests (session_id);
+
+-- The claim scans visible_at_ms in (visible_at_ms, id) order and the
+-- operator-facing queries look rows up by request_id.
+CREATE INDEX IF NOT EXISTS idx_work_queue_claimable ON work_queue (visible_at_ms, id);
+CREATE INDEX IF NOT EXISTS idx_work_queue_request_id ON work_queue (request_id);
 
 -- The session page asks "which eval does this session belong to?" on every
 -- load, which is the reverse of the membership table's own key.
