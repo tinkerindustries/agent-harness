@@ -274,6 +274,21 @@
   --color-ring: var(--ring);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
+
+  --text-micro: var(--text-micro);
+  --text-xs: var(--text-xs);
+  --text-sm: var(--text-sm);
+  --text-md: var(--text-md);
+  --text-lg: var(--text-lg);
+
+  --breakpoint-xs: 360px;
+  --breakpoint-phone: 560px;
+  --breakpoint-touch: 700px;
+  --breakpoint-nav: 720px;
+  --breakpoint-panel: 860px;
+  --breakpoint-tablet: 900px;
+  --breakpoint-rail: 1100px;
+  --breakpoint-watch: 1120px;
 }
 
 @media (prefers-color-scheme: dark) {
