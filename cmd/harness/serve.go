@@ -234,7 +234,7 @@ func runServe(ctx context.Context, args []string) error {
 	pool := &worker.Pool{
 		Store:               st,
 		Runner:              runner,
-		JS:                  js,
+		Results:             queue.NewNATSSink(js),
 		Consumer:            consumer,
 		WorkspaceRoot:       cfg.WorkspaceRoot,
 		DefaultThinking:     cfg.Thinking,

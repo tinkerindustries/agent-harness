@@ -50,7 +50,7 @@ type Runner interface {
 type Pool struct {
 	Store    *store.Store
 	Runner   Runner
-	JS       jetstream.JetStream
+	Results  queue.ResultSink
 	Consumer jetstream.Consumer
 
 	// WorkspaceRoot is the parent directory each run's own workspace is
@@ -918,9 +918,7 @@ func (p *Pool) finish(msg queue.Msg, requestID, sessionID string, result queue.R
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if _, err := p.JS.Publish(ctx, queue.FinalSubject(requestID), data, jetstream.WithMsgID(queue.FinalMsgID(requestID))); err != nil {
+	if err := p.Results.Final(context.Background(), requestID, data); err != nil {
 		log.Printf("worker: publish final result for %s: %v", requestID, err)
 		msg.Nak(p.retryLaterDelay())
 		return
@@ -938,9 +936,7 @@ func (p *Pool) finish(msg queue.Msg, requestID, sessionID string, result queue.R
 // run: the row already says what happened.
 func (p *Pool) republish(msg queue.Msg, existing store.WorkRequest) {
 	if len(existing.Result) > 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if _, err := p.JS.Publish(ctx, queue.FinalSubject(existing.RequestID), existing.Result, jetstream.WithMsgID(queue.FinalMsgID(existing.RequestID))); err != nil {
+		if err := p.Results.Final(context.Background(), existing.RequestID, existing.Result); err != nil {
 			log.Printf("worker: republish result for %s: %v", existing.RequestID, err)
 			msg.Nak(p.retryLaterDelay())
 			return
@@ -950,19 +946,13 @@ func (p *Pool) republish(msg queue.Msg, existing store.WorkRequest) {
 }
 
 func (p *Pool) publishAccepted(requestID, sessionID string, started time.Time) {
-	data, err := json.Marshal(queue.Accepted{RequestID: requestID, SessionID: sessionID, StartedAt: started})
-	if err != nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if _, err := p.JS.Publish(ctx, queue.AcceptedSubject(requestID), data); err != nil {
+	if err := p.Results.Accepted(context.Background(), queue.Accepted{RequestID: requestID, SessionID: sessionID, StartedAt: started}); err != nil {
 		log.Printf("worker: publish accepted for %s: %v", requestID, err)
 	}
 }
 
 func (p *Pool) publishProgress(requestID string, sp session.SubTurnProgress) {
-	data, err := json.Marshal(queue.Progress{
+	if err := p.Results.Progress(context.Background(), queue.Progress{
 		RequestID: requestID,
 		SessionID: sp.SessionID,
 		SubTurn:   sp.SubTurn,
@@ -979,13 +969,7 @@ func (p *Pool) publishProgress(requestID string, sp session.SubTurnProgress) {
 		Churned:            sp.Churned,
 		ChurnPointIndex:    sp.Usage.ChurnPointIndex,
 		Timestamp:          time.Now().UTC(),
-	})
-	if err != nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if _, err := p.JS.Publish(ctx, queue.ProgressSubject(requestID), data); err != nil {
+	}); err != nil {
 		log.Printf("worker: publish progress for %s: %v", requestID, err)
 	}
 }
