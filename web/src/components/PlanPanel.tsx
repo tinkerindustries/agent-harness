@@ -13,8 +13,8 @@ import { PlanList } from "./PlanList";
 export function PlanPanel({ todos }: { todos: Todo[] }) {
   if (todos.length === 0) return null;
   return (
-    <aside className="plan-panel">
-      <h2>Plan</h2>
+    <aside className="sticky top-2 flex-none basis-[240px] rounded-[calc(var(--radius)-4px)] border border-border bg-card p-2 text-[0.85rem] max-panel:static max-panel:w-full">
+      <h2 className="mb-2 text-xs text-muted-foreground uppercase">Plan</h2>
       <PlanList todos={todos} />
     </aside>
   );

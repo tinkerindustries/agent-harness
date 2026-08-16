@@ -693,6 +693,12 @@ pre {
 }
 
 .run-plan .plan-list .todo-mark {
+  /* color/width used to come for free from the bare .todo-mark rule below,
+     which PlanPanel's own (Tailwind) rendering no longer needs and has
+     lost; inlined here so this in-flight-card override stays correct on
+     its own (PlanList.tsx, SessionListScreen.tsx's InFlightCard). */
+  color: var(--muted-foreground);
+  width: 1em;
   text-align: center;
   line-height: 1.5;
 }
@@ -953,52 +959,6 @@ pre {
   transform: rotate(90deg);
 }
 
-.transcript-toolbar {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 14px 0 16px;
-  padding: 10px 0;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  background: var(--background);
-}
-
-.toolbar-sep {
-  width: 1px;
-  align-self: stretch;
-  background: var(--border);
-  margin: 2px 2px;
-}
-
-.chip-toggle {
-  height: 26px;
-  min-width: 0;
-  padding: 0 10px;
-  gap: 5px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--background);
-  color: var(--muted-foreground);
-  font-size: 0.75rem;
-  cursor: pointer;
-}
-
-.chip-toggle:hover {
-  background: var(--muted);
-}
-
-.chip-toggle-active,
-.chip-toggle[data-state="on"] {
-  background: var(--secondary);
-  color: var(--foreground);
-  border-color: var(--ring);
-}
-
 .churn-banner {
   margin-bottom: 16px;
 }
@@ -1180,62 +1140,9 @@ pre {
   gap: calc(var(--space) * 3);
 }
 
-.plan-panel {
-  position: sticky;
-  top: var(--space);
-  flex: 0 0 240px;
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) - 4px);
-  padding: var(--space);
-  font-size: 0.85rem;
-  background: var(--card);
-}
-
-.plan-panel h2 {
-  margin: 0 0 var(--space) 0;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  color: var(--muted-foreground);
-}
-
-.plan-panel ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.todo-item {
-  display: flex;
-  gap: 6px;
-  align-items: baseline;
-}
-
-.todo-mark {
-  color: var(--muted-foreground);
-  width: 1em;
-  flex: none;
-}
-
-.todo-completed {
-  color: var(--muted-foreground);
-  text-decoration: line-through;
-}
-
-.todo-in_progress .todo-mark {
-  color: var(--status-running);
-}
-
 @media (max-width: 860px) {
   .transcript-layout {
     flex-direction: column-reverse;
-  }
-  .plan-panel {
-    position: static;
-    flex: none;
-    width: 100%;
   }
 }
 
@@ -1244,165 +1151,6 @@ pre {
   min-width: 0;
   display: flex;
   flex-direction: column;
-}
-
-.timeline-rail {
-  flex: 0 0 220px;
-  align-self: flex-start;
-  position: sticky;
-  top: 54px;
-  max-height: calc(100vh - 70px);
-  overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) - 4px);
-  background: var(--card);
-  font-size: 0.8125rem;
-  padding: 6px 0 10px;
-}
-
-.rail-head {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 6px 12px 8px;
-  font-size: 0.6875rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted-foreground);
-}
-
-.rail-count {
-  margin-left: auto;
-  font-variant-numeric: tabular-nums;
-}
-
-.rail-phase {
-  border-bottom: 0;
-}
-
-.rail-phase-trigger {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 5px 10px;
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  text-align: left;
-  cursor: pointer;
-  border: 0;
-  background: transparent;
-  font: inherit;
-}
-
-.rail-phase-trigger:hover {
-  background: var(--accent);
-}
-
-.rail-caret {
-  flex: none;
-}
-
-.rail-phase-trigger[data-state="open"] .rail-caret {
-  transform: rotate(90deg);
-}
-
-.phase-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-}
-
-.rail-phase-trigger[data-state="open"] .phase-name {
-  color: var(--foreground);
-  font-weight: 600;
-}
-
-.phase-range {
-  flex: none;
-  font-variant-numeric: tabular-nums;
-}
-
-.rail-phase-content {
-  padding-bottom: 2px;
-}
-
-.rail-turn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 10px 3px 26px;
-  border-left: 2px solid transparent;
-  text-decoration: none;
-  color: var(--foreground);
-}
-
-.rail-turn:hover {
-  background: var(--accent);
-}
-
-.rail-turn[aria-current="true"] {
-  border-left-color: var(--foreground);
-  background: var(--secondary);
-  font-weight: 600;
-}
-
-.rail-turn .n {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  width: 26px;
-  flex: none;
-  text-align: right;
-}
-
-.rail-turn[aria-current="true"] .n {
-  color: var(--foreground);
-}
-
-.glyphs {
-  display: flex;
-  gap: 3px;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.g {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 17px;
-  height: 17px;
-  border-radius: 4px;
-  background: var(--secondary);
-  color: var(--muted-foreground);
-  font-size: 0.625rem;
-  font-weight: 700;
-  font-family: var(--font-mono);
-  flex: none;
-}
-
-.g-write {
-  background: var(--diff-add-bg);
-  color: var(--diff-add-fg);
-}
-
-.g-bash {
-  background: var(--status-running-bg);
-  color: var(--status-running);
-}
-
-.g-err {
-  background: var(--status-failed-bg);
-  color: var(--status-failed);
-}
-
-@media (max-width: 1100px) {
-  .timeline-rail {
-    display: none;
-  }
 }
 
 .diff-table {

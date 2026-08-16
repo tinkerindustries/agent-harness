@@ -28,16 +28,24 @@ const FILTERS: { key: TranscriptFilter; label: string }[] = [
 
 export function TranscriptToolbar({ filter, onFilterChange, counts }: Props) {
   return (
-    <div className="transcript-toolbar" role="toolbar" aria-label="Transcript">
+    <div
+      className="sticky top-0 z-20 my-3.5 flex flex-wrap items-center gap-2 border-y border-border bg-background py-2.5"
+      role="toolbar"
+      aria-label="Transcript"
+    >
       {FILTERS.map(({ key, label }) => (
         <Toggle
           key={key}
           pressed={filter === key}
           // The chips are radio-like: pressing one selects it, and pressing
           // the selected one again keeps it selected (there is no "no
-          // filter" state other than All).
+          // filter" state other than All). Radix already reflects that as
+          // data-state="on", so the active look reads off that rather than
+          // a second filter === key comparison.
           onPressedChange={() => onFilterChange(key)}
-          className={cn("chip-toggle", filter === key && "chip-toggle-active")}
+          className={cn(
+            "h-[26px] min-w-0 gap-[5px] rounded-full border border-border bg-background px-2.5 text-xs text-muted-foreground hover:bg-muted data-[state=on]:border-ring data-[state=on]:bg-secondary data-[state=on]:text-foreground",
+          )}
         >
           {label} {filterCount(counts, key)}
         </Toggle>

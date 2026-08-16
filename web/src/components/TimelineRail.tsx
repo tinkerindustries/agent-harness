@@ -4,6 +4,7 @@ import type { RailPhaseRef } from "../api/groups";
 import type { ToolCallPayload } from "../api/types";
 import { toolGlyph, type ToolGlyph } from "./blocks/toolArgs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "./ui/accordion";
+import { cn } from "@/lib/utils";
 
 // TimelineRail is the timeline browsing affordance: every sub-turn as one
 // entry, grouped under the plan item that was
@@ -163,10 +164,14 @@ export const TimelineRail = memo(function TimelineRail({ items, getToolCall, fil
   const totalTurns = phases.reduce((n, p) => n + p.entries.length, 0);
 
   return (
-    <nav className="timeline-rail" aria-label="Timeline" data-current-seq={currentSeq ?? ""}>
-      <div className="rail-head">
+    <nav
+      className="sticky top-[54px] max-h-[calc(100vh-70px)] flex-none basis-[220px] self-start overflow-y-auto rounded-[calc(var(--radius)-4px)] border border-border bg-card pt-1.5 pb-2.5 text-sm max-rail:hidden"
+      aria-label="Timeline"
+      data-current-seq={currentSeq ?? ""}
+    >
+      <div className="flex items-baseline gap-1.5 px-3 pt-1.5 pb-2 text-micro tracking-[0.06em] text-muted-foreground uppercase">
         <span>Timeline</span>
-        <span className="rail-count">{totalTurns} turns</span>
+        <span className="ml-auto tabular-nums">{totalTurns} turns</span>
       </div>
       <Accordion
         type="multiple"
@@ -176,17 +181,19 @@ export const TimelineRail = memo(function TimelineRail({ items, getToolCall, fil
         defaultValue={phases.length > 0 ? [String(phases[0].id)] : []}
       >
         {phases.map((phase) => (
-          <AccordionItem key={phase.id} value={String(phase.id)} className="rail-phase">
-            <AccordionTrigger className="rail-phase-trigger">
-              <span className="caret rail-caret" aria-hidden>
+          <AccordionItem key={phase.id} value={String(phase.id)} className="border-b-0">
+            <AccordionTrigger className="group w-full cursor-pointer gap-1.5 border-0 bg-transparent px-2.5 py-[5px] text-left font-[inherit] text-xs text-muted-foreground hover:bg-accent">
+              <span className="caret flex-none group-data-[state=open]:rotate-90" aria-hidden>
                 ▸
               </span>
-              <span className="phase-name">{phase.label ? `${phase.index} · ${phase.label}` : phase.label}</span>
-              <span className="phase-range">
+              <span className="min-w-0 flex-1 truncate group-data-[state=open]:font-semibold group-data-[state=open]:text-foreground">
+                {phase.label ? `${phase.index} · ${phase.label}` : phase.label}
+              </span>
+              <span className="flex-none tabular-nums">
                 {phase.firstSubTurn}–{phase.lastSubTurn}
               </span>
             </AccordionTrigger>
-            <AccordionContent className="rail-phase-content">
+            <AccordionContent className="pb-0.5">
               {phase.entries.map((entry) => (
                 <RailTurn key={entry.seq} entry={entry} current={currentSeq === entry.seq} />
               ))}
@@ -204,9 +211,18 @@ export const TimelineRail = memo(function TimelineRail({ items, getToolCall, fil
 // path — re-renders at most two entries, not the whole rail.
 const RailTurn = memo(function RailTurn({ entry, current }: { entry: RailEntry; current: boolean }) {
   return (
-    <a className="rail-turn" href={`#sub-turn-${entry.subTurn}`} aria-current={current ? "true" : undefined}>
-      <span className="n">{entry.subTurn}</span>
-      <span className="glyphs">
+    <a
+      className={cn(
+        "flex items-center gap-1.5 border-l-2 border-transparent py-[3px] pr-2.5 pl-[26px] text-foreground no-underline hover:bg-accent",
+        current && "border-l-foreground bg-secondary font-semibold",
+      )}
+      href={`#sub-turn-${entry.subTurn}`}
+      aria-current={current ? "true" : undefined}
+    >
+      <span className={cn("w-[26px] flex-none text-right font-mono text-xs", current ? "text-foreground" : "text-muted-foreground")}>
+        {entry.subTurn}
+      </span>
+      <span className="flex min-w-0 gap-[3px] overflow-hidden">
         {entry.glyphs.map((glyph, i) => (
           <span key={i} className={glyphClass(glyph)}>
             {glyph.letter}
@@ -217,15 +233,21 @@ const RailTurn = memo(function RailTurn({ entry, current }: { entry: RailEntry; 
   );
 });
 
+// glyphClass computes the one-letter tool-family badge's Tailwind classes
+// directly from the glyph the fold already classified — the same "read the
+// value already in scope" swap Turn.tsx's ToolRow made for its own
+// error/edit/ok colouring, in place of the old .g-write/.g-bash/.g-err
+// classes and their descendant selectors.
 function glyphClass(glyph: ToolGlyph): string {
+  const base = "inline-flex h-[17px] w-[17px] flex-none items-center justify-center rounded font-mono text-[0.625rem] font-bold";
   switch (glyph.family) {
     case "write":
-      return "g g-write";
+      return cn(base, "bg-[var(--diff-add-bg)] text-[var(--diff-add-fg)]");
     case "shell":
-      return "g g-bash";
+      return cn(base, "bg-[var(--status-running-bg)] text-[var(--status-running)]");
     case "err":
-      return "g g-err";
+      return cn(base, "bg-[var(--status-failed-bg)] text-[var(--status-failed)]");
     default:
-      return "g";
+      return cn(base, "bg-secondary text-muted-foreground");
   }
 }
