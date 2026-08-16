@@ -251,10 +251,10 @@ export function OperationsScreen() {
             <span>“quiet” means no event — or no heartbeat — for more than 10 minutes</span>
           </div>
 
-          <section className="list-section">
-            <div className="section-head">
-              <h2>Stuck sessions</h2>
-              <span className="count">
+          <section className="[&+&]:mt-5">
+            <div className="flex items-baseline gap-2 mb-2">
+              <h2 className="m-0 text-[0.85rem] font-semibold">Stuck sessions</h2>
+              <span className="text-xs text-muted-foreground">
                 {stuck.length} session{stuck.length === 1 ? "" : "s"} still running, quiet past the idle
                 threshold
               </span>
@@ -294,10 +294,10 @@ export function OperationsScreen() {
             )}
           </section>
 
-          <section className="list-section">
-            <div className="section-head">
-              <h2>Work requests</h2>
-              <span className="count">
+          <section className="[&+&]:mt-5">
+            <div className="flex items-baseline gap-2 mb-2">
+              <h2 className="m-0 text-[0.85rem] font-semibold">Work requests</h2>
+              <span className="text-xs text-muted-foreground">
                 {data.requests.length} running request{data.requests.length === 1 ? "" : "s"}
               </span>
             </div>
@@ -335,10 +335,10 @@ export function OperationsScreen() {
             )}
           </section>
 
-          <section className="list-section">
-            <div className="section-head">
-              <h2>Workspace leases</h2>
-              <span className="count">
+          <section className="[&+&]:mt-5">
+            <div className="flex items-baseline gap-2 mb-2">
+              <h2 className="m-0 text-[0.85rem] font-semibold">Workspace leases</h2>
+              <span className="text-xs text-muted-foreground">
                 {data.leases.length} lease{data.leases.length === 1 ? "" : "s"}
               </span>
             </div>
@@ -428,9 +428,9 @@ function StuckSessionRow({
   return (
     <RTRow>
       <RTCell label="Session" wide>
-        <div className="sess-cell">
-          <span className="sess-id">{session.id}</span>
-          <span className="sess-sub truncate">
+        <div className="flex min-w-0 flex-col gap-px whitespace-normal wrap-anywhere">
+          <span className="font-mono text-sm">{session.id}</span>
+          <span className="line-clamp-3 text-xs text-muted-foreground">
             <ElidedPath path={session.workspace} keepSession />
             {session.model && <> · {session.model}</>}
           </span>

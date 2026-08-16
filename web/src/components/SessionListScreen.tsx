@@ -369,14 +369,14 @@ export function SessionListScreen({ onOpen }: Props) {
           smoothly on `flipped`; the section just appears at its settled
           position instead of animating into it. */}
       {busy && (
-        <section className="list-section">
-          <div className="section-head">
-            <h2>In flight</h2>
-            <span className="count">
+        <section className="[&+&]:mt-5">
+          <div className="mb-2 flex items-baseline gap-2">
+            <h2 className="m-0 text-[0.85rem] font-semibold">In flight</h2>
+            <span className="text-xs text-muted-foreground">
               {running.length} session{running.length === 1 ? "" : "s"}
             </span>
           </div>
-          <div className="inflight-list">
+          <div className="flex flex-col gap-2">
             {running.map((sess) => (
               <InFlightCard
                 key={sess.id}
@@ -395,15 +395,15 @@ export function SessionListScreen({ onOpen }: Props) {
       <StatStrip stats={stats} poolSize={poolSize} compact={busy} animate={flipped} peak={peak} />
 
       {(finishedTotal > 0 || emptyState !== "none") && (
-        <section className="list-section mt-5">
-          <div className="section-head">
-            <h2>Finished</h2>
-            <span className="count">
+        <section className="[&+&]:mt-5 mt-5">
+          <div className="mb-2 flex items-baseline gap-2">
+            <h2 className="m-0 text-[0.85rem] font-semibold">Finished</h2>
+            <span className="text-xs text-muted-foreground">
               {finishedTotal} session{finishedTotal === 1 ? "" : "s"}
             </span>
           </div>
           <Pager
-            className="pager-top"
+            className="mt-0 mb-2"
             label="Finished sessions, top pager"
             page={page}
             total={finishedTotal}
@@ -709,9 +709,9 @@ function InFlightCard({
         <CollapsibleContent>
           <div className="border-t border-border">
             {plan.length > 0 && (
-              <div className="run-plan pt-3 pr-3.5 pb-3.5 pl-[34px]">
+              <div className="pt-3 pr-3.5 pb-3.5 pl-[34px]">
                 <div className="mb-2 text-xs tracking-[0.06em] text-muted-foreground uppercase">Plan</div>
-                <PlanList todos={plan} />
+                <PlanList todos={plan} compact />
               </div>
             )}
             <div className={cn("flex gap-2 px-3.5 py-3", plan.length > 0 && "border-t border-border")}>
@@ -800,9 +800,9 @@ function FinishedRow({
         <Badge variant={badge.variant}>{badge.label}</Badge>
       </RTLead>
       <RTMain>
-        <div className="sess-cell">
+        <div className="flex min-w-0 flex-col gap-px whitespace-normal wrap-anywhere">
           {lines.title && (
-            <span className="sess-title">
+            <span className="flex items-baseline gap-2 font-semibold text-foreground">
               {lines.title}
               {lines.phase && (
                 <span className="flex-none rounded-full border border-border px-1.5 text-micro leading-[1.5] whitespace-nowrap text-muted-foreground">
@@ -811,8 +811,8 @@ function FinishedRow({
               )}
             </span>
           )}
-          {lines.desc !== "" && <span className="sess-desc">{lines.desc}</span>}
-          <span className="sess-sub">{subtitle || "—"}</span>
+          {lines.desc !== "" && <span className="line-clamp-2 text-sm">{lines.desc}</span>}
+          <span className="line-clamp-3 text-xs text-muted-foreground">{subtitle || "—"}</span>
         </div>
       </RTMain>
       <RTCell label="Elapsed" className="whitespace-nowrap font-semibold tabular-nums">
@@ -844,7 +844,12 @@ function FinishedRow({
 function QueueHaltBanner({ health }: { health: QueueHealth | null }) {
   if (!health || (!health.halted && !health.error)) return null;
   return (
-    <div className={`queue-health${health.halted ? " queue-health-halted" : ""}`}>
+    <div
+      className={cn(
+        "mb-2 flex items-center gap-1.5 rounded-[calc(var(--radius)-4px)] border border-border px-2 py-1 text-[0.8rem] text-muted-foreground [&_svg]:h-[13px] [&_svg]:w-[13px] [&_svg]:flex-none",
+        health.halted && "border-[var(--status-gaveup)] font-semibold text-[var(--status-gaveup)]",
+      )}
+    >
       <Queue aria-hidden />
       {health.halted && <span>queue halted — {health.halt_reason || "reason unknown"}</span>}
       {health.error && <span className="text-muted-foreground"> ({health.error})</span>}

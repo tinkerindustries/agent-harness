@@ -24,7 +24,7 @@ export const STATUS_MARK: Record<Todo["status"], string> = {
 // has to stay the longer of the two — see the motion layer in styles.css.
 const MARK_HOLD_MS = 340;
 
-export function PlanList({ todos }: { todos: Todo[] }) {
+export function PlanList({ todos, compact = false }: { todos: Todo[]; compact?: boolean }) {
   // .anim-mark-done fires on the item whose status changed, and on no other:
   // the previous statuses are compared by index, so one item completing does
   // not pop the whole plan. The set clears a margin past the end of the
@@ -57,37 +57,43 @@ export function PlanList({ todos }: { todos: Todo[] }) {
 
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
+  // compact is the in-flight card's own rendering (SessionListScreen.tsx),
+  // denser than the transcript's plan panel and with its own status
+  // vocabulary: a grid row instead of a flex row, a completed item stays
+  // struck through in the plan panel but not here (its ✓ still turns
+  // --status-done), and an in_progress item goes semibold rather than
+  // changing the row's own color.
   return (
-    // "plan-list"/"todo-item"/"todo-${status}"/"todo-mark" survive as
-    // literal classes even though every property below is now a direct
-    // Tailwind utility: SessionListScreen.tsx's InFlightCard wraps this
-    // same list in a "run-plan" div and layers a `.run-plan .plan-list
-    // .todo-*` scoped override in styles.css on top, out of scope here.
-    // That block is unlayered CSS and always wins over these (layered)
-    // utilities wherever the two set the same property, so it still drives
-    // the in-flight card's compact rendering unchanged; these utilities are
-    // what actually paints the plain PlanPanel context, where no such
-    // override exists.
-    <ul className="plan-list m-0 flex list-none flex-col gap-1 p-0">
+    <ul className={cn("m-0 list-none p-0", compact ? "flex flex-col gap-px" : "flex flex-col gap-1")}>
       {todos.map((t, i) => (
         <li
           key={i}
           className={cn(
-            `todo-item todo-${t.status} flex items-baseline gap-1.5`,
-            t.status === "completed" && "text-muted-foreground line-through",
+            compact
+              ? "grid grid-cols-[16px_minmax(0,1fr)] items-baseline gap-2 border-l-2 border-transparent py-[3px] pr-0 pl-2 text-sm"
+              : "flex items-baseline gap-1.5",
+            !compact && t.status === "completed" && "text-muted-foreground line-through",
+            compact && t.status === "completed" && "text-muted-foreground",
+            compact && t.status === "in_progress" && "font-medium",
+            compact && t.status === "pending" && "text-foreground",
           )}
           title={t.description}
         >
           <span
             className={cn(
-              "todo-mark w-[1em] flex-none",
-              t.status === "in_progress" ? "text-[var(--status-running)]" : "text-muted-foreground",
+              "w-[1em] flex-none",
+              compact && "text-center leading-[1.5]",
+              t.status === "in_progress"
+                ? "text-[var(--status-running)]"
+                : compact && t.status === "completed"
+                  ? "text-[var(--status-done)]"
+                  : "text-muted-foreground",
               justDone.has(i) && "anim-mark-done",
             )}
           >
             {STATUS_MARK[t.status]}
           </span>
-          <span className="todo-text">{t.status === "in_progress" ? t.activeForm : t.subject}</span>
+          <span>{t.status === "in_progress" ? t.activeForm : t.subject}</span>
         </li>
       ))}
     </ul>
