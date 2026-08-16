@@ -771,14 +771,18 @@ body.app #root {
   text-align: left;
 }
 
-.turn-list {
-  flex: 1;
-  min-width: 0;
-}
+/* .turn-list's own flex/min-width are a direct Tailwind utility on
+   TurnTranscript.tsx's wrapper now; "turn-list" survives as a literal class
+   only to scope these three margin overrides, for the same reason
+   .block-opening's own margin-bottom survives above — RunFinishedBlock/
+   ErrorBlock/SteerBlock/InstructionBlock/OpeningBlock/SkillsBlock all
+   render here directly (a session page's own top-level blocks) as well as
+   inside .transcript's flex gap (a Task tool's nested child transcript),
+   and only the first of those two spacing regimes wants a per-child
+   margin at all. */
 .turn-list > .block {
   margin: 0 0 24px;
 }
-
 .turn-list > .block-skills {
   margin: 0 -6px 2px;
 }
@@ -900,29 +904,12 @@ kbd {
     min-height: 44px;
     min-width: 44px;
   }
-  .opening-summary {
-    min-height: 44px;
-    padding: 6px 0;
-  }
-  .skills-summary {
-    min-height: 44px;
-    display: flex;
-    align-items: center;
-  }
   .statusline {
     flex-wrap: wrap;
     row-gap: 4px;
   }
   .footer .statusline .hints {
     display: none;
-  }
-
-
-  .code-block {
-    font-size: 0.875rem;
-  }
-  .block-pre {
-    font-size: 0.875rem;
   }
 }
 
