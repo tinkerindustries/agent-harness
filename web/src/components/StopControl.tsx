@@ -82,11 +82,11 @@ export function StopControl({ sessionId, running, className }: StopControlProps)
   return (
     <div className={className}>
       {confirming ? (
-        <div className="ops-confirm">
+        <div className="flex flex-col items-start gap-[6px] text-sm text-foreground">
           <span>
-            Stop session <code>{sessionId}</code>? The run cannot be got back.
+            Stop session <code className="rounded bg-muted px-1 font-mono">{sessionId}</code>? The run cannot be got back.
           </span>
-          <div className="ops-confirm-buttons">
+          <div className="flex gap-2">
             <Button variant="destructive" size="sm" onClick={confirmStop} disabled={stopping}>
               Stop
             </Button>
@@ -96,7 +96,7 @@ export function StopControl({ sessionId, running, className }: StopControlProps)
           </div>
         </div>
       ) : stopping ? (
-        <span className="stop-pending dim">stopping…</span>
+        <span className="dim text-sm">stopping…</span>
       ) : (
         <Button variant="destructive" size="sm" onClick={() => setConfirming(true)}>
           <StopCircle />
