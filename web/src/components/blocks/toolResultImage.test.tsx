@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { ToolCallPayload, ToolResultPayload } from "../../api/types";
 import { InlineImage } from "./InlineImage";
 import { ToolResultBlock } from "./ToolResultBlock";
+import { GALLERY_CLS, TILE_CLS } from "./ScreenshotGallery";
 
 // The inline image a tool result carries: a data URI (image_url) is rendered
 // as a bounded tile whose full-size view is a new tab, and a tool result
@@ -35,8 +36,8 @@ describe("InlineImage", () => {
     expect(html).toContain(`src="${DATA_URI}"`);
     // The tile classes are the gallery's own, so a data URI gets the same
     // size bounds a workspace screenshot gets.
-    expect(html).toContain('class="screenshot-gallery"');
-    expect(html).toContain('class="screenshot-tile"');
+    expect(html).toContain(`class="${GALLERY_CLS}"`);
+    expect(html).toContain(`class="${TILE_CLS}"`);
   });
 
   it("opens the full-size view in a new tab, like the screenshot gallery", () => {

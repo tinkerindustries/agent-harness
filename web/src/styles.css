@@ -614,56 +614,6 @@ pre {
   display: none;
 }
 
-.screenshot-gallery {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin: 6px 0;
-}
-
-.screenshot-tile {
-  margin: 0;
-  min-width: 0;
-  flex: 0 1 320px;
-}
-
-.screenshot-tile img {
-  display: block;
-  width: 100%;
-  max-height: 380px;
-  object-fit: contain;
-  object-position: top;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-
-  background: var(--background);
-}
-
-.screenshot-tile figcaption {
-  margin-top: 4px;
-  font-size: 0.75rem;
-  overflow-wrap: anywhere;
-}
-
-.screenshot-missing-body {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 96px;
-  padding: 0 12px;
-  border: 1px dashed var(--border);
-  border-radius: 4px;
-  color: var(--muted-foreground);
-  font-size: 0.8125rem;
-  text-align: center;
-}
-
-.screenshot-paths {
-  margin: 6px 0;
-  padding-left: 18px;
-  font-size: 0.8125rem;
-}
-
 .collapse-toggle {
   color: var(--status-running);
 }
