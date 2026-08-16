@@ -963,51 +963,6 @@ pre {
   flex-direction: column;
 }
 
-.diff-table {
-  border-collapse: collapse;
-  font-size: 0.8rem;
-  width: 100%;
-}
-
-.diff-table td {
-  padding: 0 6px;
-  vertical-align: top;
-}
-
-.diff-table pre {
-  margin: 0;
-  white-space: pre-wrap;
-}
-
-.diff-lineno {
-  color: var(--diff-gutter);
-  text-align: right;
-  width: 3em;
-  user-select: none;
-}
-
-.diff-marker {
-  width: 1em;
-  text-align: center;
-  user-select: none;
-}
-
-.diff-add {
-  background: var(--diff-add-bg);
-}
-
-.diff-add .diff-marker {
-  color: var(--diff-add-fg);
-}
-
-.diff-remove {
-  background: var(--diff-remove-bg);
-}
-
-.diff-remove .diff-marker {
-  color: var(--diff-remove-fg);
-}
-
 .perf-harness {
   max-width: 1200px;
 }
