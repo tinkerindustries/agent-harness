@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSyncExternalStore } from "react";
 import { Broadcast, CaretRight, Copy, MagnifyingGlass, Play, Queue, X } from "@phosphor-icons/react";
 import { sessionListStore } from "../api/sessionListStore";
@@ -395,7 +395,7 @@ export function SessionListScreen({ onOpen }: Props) {
       <StatStrip stats={stats} poolSize={poolSize} compact={busy} animate={flipped} peak={peak} />
 
       {(finishedTotal > 0 || emptyState !== "none") && (
-        <section className="list-section">
+        <section className="list-section mt-5">
           <div className="section-head">
             <h2>Finished</h2>
             <span className="count">
@@ -486,38 +486,91 @@ function StatStrip({
   peak: string;
 }) {
   return (
-    <div className={cn("stats", compact && "stats-compact", animate && "stats-anim")}>
-      <Card className="stat">
-        <span className="label">Running</span>
-        <span className="value">
-          <Ticker value={stats.running} />
-          {poolSize !== null && <small>of {poolSize} slots</small>}
-        </span>
-      </Card>
-      <Card className="stat">
-        <span className="label">Spend today</span>
-        <span className="value">
-          <Ticker value={formatCost(stats.spendUsd)} />
-          {peak && (
-            <span className="stat-peak" title="DeepSeek bills peak hours at twice off-peak (docs/DESIGN.md §4.9)">
-              {peak}
-            </span>
-          )}
-        </span>
-      </Card>
-      <Card className="stat">
-        <span className="label">Median duration</span>
-        <span className="value">
-          <Ticker value={stats.medianMs !== null ? formatMs(stats.medianMs) : "—"} />
-        </span>
-      </Card>
-      <Card className="stat">
-        <span className="label">Total time today</span>
-        <span className="value">
-          <Ticker value={stats.totalMs !== null ? formatMs(stats.totalMs) : "—"} />
-        </span>
-      </Card>
+    <div
+      className={cn(
+        "mb-3.5 grid grid-cols-4 gap-2 motion-reduce:transition-none",
+        compact && "mt-5 mb-2.5 gap-1.5",
+        animate &&
+          "transition-[gap,margin-bottom] [transition-duration:var(--dur-reveal)] [transition-timing-function:var(--ease-out)]",
+      )}
+    >
+      <StatCard label="Running" compact={compact} animate={animate}>
+        <Ticker value={stats.running} />
+        {poolSize !== null && <StatFigureNote compact={compact} animate={animate}>of {poolSize} slots</StatFigureNote>}
+      </StatCard>
+      <StatCard label="Spend today" compact={compact} animate={animate}>
+        <Ticker value={formatCost(stats.spendUsd)} />
+        {peak && (
+          <span
+            className="ml-2 text-[0.6875rem] font-normal whitespace-nowrap text-[var(--status-gaveup)]"
+            title="DeepSeek bills peak hours at twice off-peak (docs/DESIGN.md §4.9)"
+          >
+            {peak}
+          </span>
+        )}
+      </StatCard>
+      <StatCard label="Median duration" compact={compact} animate={animate}>
+        <Ticker value={stats.medianMs !== null ? formatMs(stats.medianMs) : "—"} />
+      </StatCard>
+      <StatCard label="Total time today" compact={compact} animate={animate}>
+        <Ticker value={stats.totalMs !== null ? formatMs(stats.totalMs) : "—"} />
+      </StatCard>
     </div>
+  );
+}
+
+// The transition-list utilities StatCard/StatFigureNote share, only while
+// `animate` says the strip's size just changed under a watcher (never on
+// the load a page already settled at).
+const statFigureTransition =
+  "transition-[font-size,line-height,margin-top] [transition-duration:var(--dur-reveal)] [transition-timing-function:var(--ease-out)] motion-reduce:transition-none";
+
+function StatCard({
+  label,
+  compact,
+  animate,
+  children,
+}: {
+  label: string;
+  compact: boolean;
+  animate: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <Card
+      className={cn(
+        "gap-0 rounded-[var(--radius)] px-3 py-2.5 shadow-none motion-reduce:transition-none",
+        compact && "px-2.5 py-1",
+        animate && "transition-[padding] [transition-duration:var(--dur-reveal)] [transition-timing-function:var(--ease-out)]",
+      )}
+    >
+      <span className={cn("text-[11px] tracking-[0.06em] text-muted-foreground uppercase", compact && "text-[10px] leading-[1.3]", statFigureTransition)}>
+        {label}
+      </span>
+      <span
+        className={cn(
+          "mt-0.5 text-[1.375rem] font-semibold tracking-[-0.02em] tabular-nums",
+          compact && "mt-0 text-sm leading-[1.3]",
+          statFigureTransition,
+        )}
+      >
+        {children}
+      </span>
+    </Card>
+  );
+}
+
+function StatFigureNote({ compact, animate, children }: { compact: boolean; animate: boolean; children: ReactNode }) {
+  return (
+    <small
+      className={cn(
+        "mt-px [display:block] text-xs font-normal tracking-normal text-muted-foreground",
+        compact && "text-[10px] leading-[1.3]",
+        animate && statFigureTransition,
+      )}
+    >
+      {children}
+    </small>
   );
 }
 
@@ -570,9 +623,9 @@ function InFlightCard({
   const metaTitle = [sess.effort, sess.job_type, startedBy(sess)].filter(Boolean).join(" · ");
 
   return (
-    <Card className={cn("run-card", arrived && "anim-row-in")} interactive>
+    <Card className={cn("gap-0 overflow-hidden p-0", arrived && "anim-row-in")} interactive>
       <Collapsible open={open} onOpenChange={onOpenChange}>
-        <div className="run-head">
+        <div className="flex items-stretch">
           <CollapsibleTrigger asChild>
             <button
               type="button"
@@ -585,52 +638,62 @@ function InFlightCard({
               <CaretRight className={cn("caret", open && "caret-open")} />
             </button>
           </CollapsibleTrigger>
-          <button type="button" className="run-summary" onClick={() => onOpen(sess.id)}>
-            <span className="run-line1">
+          <button
+            type="button"
+            className="min-w-0 flex-1 cursor-pointer border-none bg-transparent py-3 pr-3.5 pl-2 text-left font-[inherit] text-inherit hover:bg-[var(--surface-hover)]"
+            onClick={() => onOpen(sess.id)}
+          >
+            <span className="flex items-center gap-2.5 max-phone:flex-wrap max-phone:gap-y-1">
               <Badge key={badge.label} variant={badge.variant} className={flip}>
                 {badge.label}
               </Badge>
-              <span className="run-meta" title={metaTitle}>
+              <span className="min-w-0 overflow-hidden text-sm whitespace-nowrap text-ellipsis text-muted-foreground" title={metaTitle}>
                 {sess.model}
               </span>
               {/* The two figures a running session is judged by — elapsed
                   in full weight, sub-turns dimmer — the finished table's
                   columns minus Cost and Cache. */}
-              <span className="run-stats">
-                <span className="primary">
+              <span className="ml-auto flex flex-none items-center gap-4 text-sm whitespace-nowrap tabular-nums max-phone:ml-0 max-phone:w-full">
+                <span className="text-[0.875rem] font-semibold text-foreground">
                   {/* Elapsed is the one figure on this card that moves every
                       second, so it rolls; sub-turns beside it does not. */}
                   <Ticker value={formatElapsed(sess, now)} />
-                  <span className="unit">elapsed</span>
+                  <span className="ml-[3px] font-normal text-muted-foreground">elapsed</span>
                 </span>
-                <span className="secondary">
-                  <b>{sess.sub_turns}</b> sub-turns
+                <span className="text-muted-foreground">
+                  <b className="font-semibold text-foreground">{sess.sub_turns}</b> sub-turns
                 </span>
               </span>
             </span>
             {(lines.title || lines.desc) && (
-              <span className="run-desc" title={sess.task}>
+              <span className="mt-[7px] [display:block] text-sm" title={sess.task}>
                 {lines.title && (
-                  <span className="run-desc-title">
+                  <span className="flex items-baseline gap-2 font-semibold text-foreground">
                     {lines.title}
-                    {lines.phase && <span className="phase-chip">{lines.phase}</span>}
+                    {lines.phase && (
+                      <span className="flex-none rounded-full border border-border px-1.5 text-micro leading-[1.5] whitespace-nowrap text-muted-foreground">
+                        {lines.phase}
+                      </span>
+                    )}
                   </span>
                 )}
-                {lines.desc !== "" && <span className="run-desc-text">{lines.desc}</span>}
+                {lines.desc !== "" && (
+                  <span className="line-clamp-3 overflow-hidden text-ellipsis">{lines.desc}</span>
+                )}
               </span>
             )}
             {plan.length > 0 && (
-              <span className="run-line2">
-                <span className="run-now truncate">
+              <span className="mt-[7px] flex items-center gap-2.5">
+                <span className="min-w-0 truncate text-sm whitespace-normal">
                   {prog.activeForm !== "" && (
                     <>
-                      <span className="verb">{verb}</span>
+                      <span className="font-medium text-[var(--status-running)]">{verb}</span>
                       {rest && <> {rest}</>}
                     </>
                   )}
                 </span>
-                <span className="run-progress">
-                  <span className="ratio">
+                <span className="ml-auto flex flex-none items-center gap-2">
+                  <span className="text-xs whitespace-nowrap text-muted-foreground tabular-nums">
                     {prog.done} / {prog.total}
                   </span>
                 </span>
@@ -639,14 +702,14 @@ function InFlightCard({
           </button>
         </div>
         <CollapsibleContent>
-          <div className="run-body">
+          <div className="border-t border-border">
             {plan.length > 0 && (
-              <div className="run-plan">
-                <div className="panel-label">Plan</div>
+              <div className="run-plan pt-3 pr-3.5 pb-3.5 pl-[34px]">
+                <div className="mb-2 text-xs tracking-[0.06em] text-muted-foreground uppercase">Plan</div>
                 <PlanList todos={plan} />
               </div>
             )}
-            <div className="run-actions">
+            <div className={cn("flex gap-2 px-3.5 py-3", plan.length > 0 && "border-t border-border")}>
               <StopControl sessionId={sess.id} running={true} />
               <CopyIdButton sessionId={sess.id} />
             </div>
@@ -736,7 +799,11 @@ function FinishedRow({
           {lines.title && (
             <span className="sess-title">
               {lines.title}
-              {lines.phase && <span className="phase-chip">{lines.phase}</span>}
+              {lines.phase && (
+                <span className="flex-none rounded-full border border-border px-1.5 text-micro leading-[1.5] whitespace-nowrap text-muted-foreground">
+                  {lines.phase}
+                </span>
+              )}
             </span>
           )}
           {lines.desc !== "" && <span className="sess-desc">{lines.desc}</span>}
