@@ -2069,68 +2069,12 @@ kbd {
   display: none;
 }
 
-.result {
-  border: 1px solid var(--status-done);
-  border-radius: var(--radius);
-  background: var(--status-done-bg);
-  padding: 12px 14px;
-  margin: 4px 0 24px 40px;
-}
-.result-gaveup {
-  border-color: var(--status-gaveup);
-  background: var(--status-gaveup-bg);
-}
-
-.result-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 6px;
-}
-.result h4 {
-  margin: 0;
-  font-size: 0.75rem;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--status-done);
-}
-.result-gaveup h4 {
-  color: var(--status-gaveup);
-}
-.result p {
-  margin: 0 0 10px;
-  font-size: 0.875rem;
-  line-height: 1.6;
-  color: var(--foreground);
-}
-
-.result-json > summary {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 0;
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  cursor: pointer;
-  list-style: none;
-}
+/* .result-json survives as a bare selector only to scope this cross-browser
+   <details> marker hider (ResultPanel.tsx keeps the literal class for
+   exactly this reason) — everything else about the panel is now a
+   Tailwind utility. */
 .result-json > summary::-webkit-details-marker {
   display: none;
-}
-.result-json > summary:hover {
-  color: var(--foreground);
-}
-.result pre {
-  margin: 6px 0 0;
-  max-height: 420px;
-  overflow: auto;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: var(--muted-foreground);
 }
 
 .plan-mini {
@@ -2150,14 +2094,15 @@ kbd {
   .work {
     grid-template-columns: minmax(0, 1fr) !important;
   }
+  /* Both footers (ChatComposer.tsx, WatchFooter.tsx) keep "footer" as a
+     literal class for .footer .statusline's margin-top; this collapse to a
+     single column rides the same class, in step with the rail's own
+     display:none right above. WatchFooter.tsx's inner column un-offsets
+     itself at the same breakpoint (max-watch:col-start-1 max-watch:ml-0) —
+     what .footer-watch .footer-inner did before the grid columns became a
+     Tailwind utility. */
   .footer {
     grid-template-columns: minmax(0, 1fr) !important;
-  }
-
-  .footer-watch .footer-inner {
-    grid-column: 1;
-
-    margin-left: 0;
   }
 
   .plan-mini {
@@ -2559,10 +2504,6 @@ kbd {
     min-height: 44px;
     display: flex;
     align-items: center;
-  }
-  .result-json > summary {
-    min-height: 44px;
-    padding: 10px 12px;
   }
   .start-select {
     height: 44px;

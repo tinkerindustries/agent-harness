@@ -100,7 +100,12 @@ export function WatchFooter({
     // is a direct Tailwind utility, since the two footers' grid columns
     // differ enough that a shared modifier class wasn't worth keeping.
     <div className="footer grid grid-cols-[244px_minmax(0,1fr)] border-t border-border bg-background px-6 pt-2.5 pb-[9px]">
-      <div className="col-start-2 ml-4 max-w-[840px]">
+      {/* .footer's own grid-template-columns collapses to a single column
+          below 1120px with !important (styles.css, alongside the rail's own
+          display:none at the same breakpoint) — max-watch here un-offsets
+          this inner column to match, the same job .footer-watch .footer-inner
+          did before the grid columns became a Tailwind utility. */}
+      <div className="col-start-2 ml-4 max-w-[840px] max-watch:col-start-1 max-watch:ml-0">
         {stop.confirming && (
           <div className="flex flex-wrap items-center gap-2.5 rounded-[calc(var(--radius)-2px)] border border-[var(--status-failed)] bg-[var(--status-failed-bg)] px-3 py-2.5 text-sm">
             <b>Stop this run?</b>
