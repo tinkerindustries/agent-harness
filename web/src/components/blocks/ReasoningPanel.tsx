@@ -1,3 +1,6 @@
+import { BLOCK_TEXT_CLS } from "./blockStyles";
+import { cn } from "@/lib/utils";
+
 // ReasoningPanel is voluminous and mostly skimmed (docs/DESIGN.md §5.6): it
 // expands while streaming and collapses on completion, showing elapsed time
 // and a token count. Completed sub-turns show the API's own reasoning_tokens
@@ -29,11 +32,15 @@ export function ReasoningPanel({ text, defaultOpen, elapsedMs, startedAt, tokens
   const elapsedLabel = elapsed !== undefined ? formatElapsed(elapsed) : "";
   const tokenLabel = tokens !== undefined ? `${tokens} tokens` : `~${approxTokens(text)} tokens`;
   return (
-    <details className="reasoning" open={defaultOpen}>
-      <summary>
+    // .reasoning's own CSS never styled the <details> itself, only its
+    // <summary> (a plain descendant selector, not a pseudo-element or a
+    // Markdown-rendered child) — so unlike .think/.tool it needs no residual
+    // class at all once that moves onto the <summary> directly.
+    <details open={defaultOpen}>
+      <summary className="cursor-pointer text-[0.85rem] text-muted-foreground">
         reasoning{elapsedLabel && ` · ${elapsedLabel}`} · {tokenLabel}
       </summary>
-      <pre className="block-text reasoning-text">{text}</pre>
+      <pre className={cn(BLOCK_TEXT_CLS, "text-[0.85rem] text-muted-foreground")}>{text}</pre>
     </details>
   );
 }

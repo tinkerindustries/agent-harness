@@ -59,7 +59,15 @@ export function TurnTranscript({
 }) {
   const empty = items.length === 0 && !live.turn && live.pendingTools.size === 0;
   return (
-    <div className="turn-list">
+    // "turn-list" stays a literal residual class only to scope
+    // .turn-list > .block(-skills/-opening)'s margin overrides (styles.css)
+    // — a session page's top-level blocks (opening/skills/run_finished/
+    // error/steer/instruction) space themselves against normal document
+    // flow here, but the same shared components also render inside
+    // .transcript's flex gap when nested in a Task tool's child transcript
+    // (BlockList.tsx), and a component's own className can't express which
+    // ancestor is doing the spacing.
+    <div className="turn-list flex-1 min-w-0">
       <TurnList
         items={items}
         replayed={replayed}

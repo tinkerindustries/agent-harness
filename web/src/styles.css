@@ -595,294 +595,30 @@ pre {
   font-family: var(--font-mono);
 }
 
-.transcript {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space);
-}
-
-.block {
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) - 4px);
-  padding: var(--space);
-  background: var(--card);
-}
-
-.block-label {
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  text-transform: uppercase;
-  margin-bottom: 4px;
-}
-
-.block-text {
-  white-space: pre-wrap;
-  margin: 0;
-}
-
-.block-pre {
-  white-space: pre-wrap;
-  margin: 0;
-  font-size: 0.85rem;
-  max-height: 400px;
-  overflow: auto;
-}
-
-.block-opening,
-.block-skills {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  background: none;
-  border: 0;
-  border-radius: calc(var(--radius) - 4px);
-  padding: 4px 6px;
-}
-
-.block-opening:hover,
-.block-skills:hover {
-  background: var(--muted);
-}
-
+/* .block-opening survives as a bare selector only for its own margin-bottom:
+   OpeningBlock.tsx's own comment covers why (a spacing regime that depends
+   on which of two parents renders it, .turn-list vs .transcript) — every
+   other property .block-opening/.block-skills/.skills-summary/
+   .opening-summary(-text) set is now a direct Tailwind utility on the
+   elements that carry them. */
 .block-opening {
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 12px;
   margin-bottom: 8px;
 }
 
-.block-opening .block-label,
-.block-skills .block-label {
-  flex: none;
-  width: 3rem;
-  margin-bottom: 0;
-  font-size: 0.625rem;
-  letter-spacing: var(--label-tracking);
-}
-
-.block-opening > [data-slot="collapsible"],
-.block-skills > details {
-  min-width: 0;
-  flex: 1;
-}
-
-.skills-summary {
-  cursor: pointer;
-  font-size: 0.8125rem;
-  color: var(--muted-foreground);
-  list-style: none;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-
+/* Safari's <details> marker needs the ::-webkit pseudo-element (no
+   className equivalent exists), the same pattern as .think/.tool/.phase/
+   .result-json's own disclosures (turns/Turn.tsx, WatchRail.tsx,
+   ResultPanel.tsx) — "skills-summary" survives on the <summary> only to
+   scope this. */
 .skills-summary::-webkit-details-marker {
   display: none;
 }
 
-.skills-summary::before {
-  content: "▸";
-  color: var(--muted-foreground);
-  font-size: 0.75rem;
-  transition: transform var(--dur-caret) var(--ease);
-}
-
-.block-skills details[open] .skills-summary::before {
-  transform: rotate(90deg);
-}
-
-.skills-summary:hover {
-  color: var(--foreground);
-}
-
-.block-tool-error {
-  border-color: var(--status-failed);
-}
-
-.block-denied {
-  border-color: var(--status-gaveup);
-}
-
-.block-error {
-  border-color: var(--status-failed);
-  color: var(--status-failed);
-}
-
-.block-run-finished {
-  border-color: var(--status-running);
-}
-
-.block-usage {
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  padding: 4px 8px;
-}
-
-.block-usage .usage-model {
-  font-weight: 500;
-  color: var(--foreground);
-}
-
-.block-steer {
-  border-left: 3px solid var(--status-gaveup);
-}
-
-.block-steer-pending {
-  border-style: dashed;
-  border-color: var(--status-gaveup);
-  background: var(--status-gaveup-bg);
-}
-
-.block-steer-pending .block-label {
-  color: var(--status-gaveup);
-  font-weight: 600;
-}
-
-.block-steer-delivered {
-  border-color: var(--border);
-  background: color-mix(in srgb, var(--muted) 40%, transparent);
-}
-
-.block-steer-delivered .block-label {
-  color: var(--status-done);
-}
-
-.churn-warning {
-  color: var(--status-gaveup);
-}
-
-.opening-summary {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 2px 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.opening-summary:hover {
-  color: var(--foreground);
-}
-
-.opening-summary-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--muted-foreground);
-  font-size: 0.8125rem;
-}
-
-.tool-call {
-  margin-top: 4px;
-  font-size: 0.85rem;
-}
-
-.tool-detail {
-  color: var(--muted-foreground);
-  font-weight: normal;
-  text-transform: none;
-}
-
-.screenshot-gallery {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin: 6px 0;
-}
-
-.screenshot-tile {
-  margin: 0;
-  min-width: 0;
-  flex: 0 1 320px;
-}
-
-.screenshot-tile img {
-  display: block;
-  width: 100%;
-  max-height: 380px;
-  object-fit: contain;
-  object-position: top;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-
-  background: var(--background);
-}
-
-.screenshot-tile figcaption {
-  margin-top: 4px;
-  font-size: 0.75rem;
-  overflow-wrap: anywhere;
-}
-
-.screenshot-missing-body {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 96px;
-  padding: 0 12px;
-  border: 1px dashed var(--border);
-  border-radius: 4px;
-  color: var(--muted-foreground);
-  font-size: 0.8125rem;
-  text-align: center;
-}
-
-.screenshot-paths {
-  margin: 6px 0;
-  padding-left: 18px;
-  font-size: 0.8125rem;
-}
-
-.block-tool-pending {
-  border-style: dashed;
-  color: var(--muted-foreground);
-}
-
-.block-live {
-  border-style: dashed;
-}
-
-.live-pre {
-  white-space: pre-wrap;
-  margin: 0;
-  font-size: 0.85rem;
-  color: var(--foreground);
-}
-
-.collapse-toggle {
-  color: var(--status-running);
-}
-
-.reasoning summary {
-  cursor: pointer;
-  color: var(--muted-foreground);
-  font-size: 0.85rem;
-}
-
-.reasoning-text {
-  color: var(--muted-foreground);
-  font-size: 0.85rem;
-}
-
-.code-block {
-  margin: 0;
-  overflow-x: auto;
-  font-size: 0.85rem;
-  max-height: 480px;
-  overflow-y: auto;
-}
-
-.markdown {
-  font-size: 0.95rem;
-}
-
+/* .markdown stays a literal class only to scope these descendant rules:
+   Markdown.tsx writes this content through dangerouslySetInnerHTML, so it
+   is not JSX the component renders itself and a className on the wrapper
+   can't reach it (the same reason .say p/.say code survive in Turn.tsx).
+   The wrapper's own font-size is a direct Tailwind utility now. */
 .markdown p {
   margin: 0 0 1em;
 }
@@ -904,18 +640,6 @@ pre {
   border-radius: 3px;
   padding: 1px 4px;
   font-size: 0.9em;
-}
-
-.task-child {
-  margin-top: var(--space);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space);
-}
-
-.task-child-body {
-  border-left: 2px solid var(--border);
-  padding-left: var(--space);
 }
 
 .transcript-layout {
@@ -1047,14 +771,18 @@ body.app #root {
   text-align: left;
 }
 
-.turn-list {
-  flex: 1;
-  min-width: 0;
-}
+/* .turn-list's own flex/min-width are a direct Tailwind utility on
+   TurnTranscript.tsx's wrapper now; "turn-list" survives as a literal class
+   only to scope these three margin overrides, for the same reason
+   .block-opening's own margin-bottom survives above — RunFinishedBlock/
+   ErrorBlock/SteerBlock/InstructionBlock/OpeningBlock/SkillsBlock all
+   render here directly (a session page's own top-level blocks) as well as
+   inside .transcript's flex gap (a Task tool's nested child transcript),
+   and only the first of those two spacing regimes wants a per-child
+   margin at all. */
 .turn-list > .block {
   margin: 0 0 24px;
 }
-
 .turn-list > .block-skills {
   margin: 0 -6px 2px;
 }
@@ -1176,29 +904,12 @@ kbd {
     min-height: 44px;
     min-width: 44px;
   }
-  .opening-summary {
-    min-height: 44px;
-    padding: 6px 0;
-  }
-  .skills-summary {
-    min-height: 44px;
-    display: flex;
-    align-items: center;
-  }
   .statusline {
     flex-wrap: wrap;
     row-gap: 4px;
   }
   .footer .statusline .hints {
     display: none;
-  }
-
-
-  .code-block {
-    font-size: 0.875rem;
-  }
-  .block-pre {
-    font-size: 0.875rem;
   }
 }
 

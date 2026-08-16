@@ -1,6 +1,17 @@
 import { useState } from "react";
 import { useSessionId } from "../../hooks";
 import { screenshotUrl, trimWorkspace } from "./toolArgs";
+import { TOOL_DETAIL_CLS } from "./blockStyles";
+import { cn } from "@/lib/utils";
+
+// The tile bounds a workspace screenshot and a tool result's inline data-URI
+// image (InlineImage.tsx) share, so a data URI gets exactly the same size
+// caps a fetched screenshot gets — never stretched, capped at the tile width
+// and 380px tall. Exported so InlineImage.tsx reuses the values rather than
+// copying them, matching its own comment ("deliberately reuses the
+// gallery's own classes").
+export const GALLERY_CLS = "flex flex-wrap gap-3 my-1.5";
+export const TILE_CLS = "m-0 min-w-0 flex-[0_1_320px]";
 
 // ScreenshotGallery renders the images a Screenshot, Glance, Ground, Detect
 // or Crop call names, read from the session's live workspace through
@@ -23,10 +34,10 @@ export function ScreenshotGallery({ paths }: { paths: string[] }) {
   // showing — they are what the call was made with.
   if (sessionId === "") {
     return (
-      <ul className="screenshot-paths">
+      <ul className="my-1.5 pl-[18px] text-sm">
         {paths.map((path) => (
           <li key={path}>
-            <code className="tool-detail">{trimWorkspace(path)}</code>
+            <code className={TOOL_DETAIL_CLS}>{trimWorkspace(path)}</code>
           </li>
         ))}
       </ul>
@@ -34,7 +45,7 @@ export function ScreenshotGallery({ paths }: { paths: string[] }) {
   }
 
   return (
-    <div className="screenshot-gallery">
+    <div className={GALLERY_CLS}>
       {paths.map((path) => (
         <ScreenshotTile key={path} sessionId={sessionId} path={path} />
       ))}
@@ -49,25 +60,33 @@ function ScreenshotTile({ sessionId, path }: { sessionId: string; path: string }
 
   if (failed) {
     return (
-      <figure className="screenshot-tile screenshot-missing">
-        <div className="screenshot-missing-body">screenshot no longer available</div>
-        <figcaption>
-          <code className="tool-detail">{label}</code>
+      <figure className={cn(TILE_CLS, "screenshot-missing")}>
+        <div className="flex h-24 items-center justify-center px-3 text-center text-sm text-muted-foreground border border-dashed border-border rounded">
+          screenshot no longer available
+        </div>
+        <figcaption className="mt-1 text-xs wrap-anywhere">
+          <code className={TOOL_DETAIL_CLS}>{label}</code>
         </figcaption>
       </figure>
     );
   }
 
   return (
-    <figure className="screenshot-tile">
+    <figure className={TILE_CLS}>
       {/* The full-size image opens in a tab rather than a lightbox: a
           screenshot is worth looking at at its real size, and the browser
           already has a good viewer for one image. */}
       <a href={url} target="_blank" rel="noreferrer">
-        <img src={url} alt={label} loading="lazy" onError={() => setFailed(true)} />
+        <img
+          className="block w-full max-h-[380px] object-contain object-top border border-border rounded bg-background"
+          src={url}
+          alt={label}
+          loading="lazy"
+          onError={() => setFailed(true)}
+        />
       </a>
-      <figcaption>
-        <code className="tool-detail">{label}</code>
+      <figcaption className="mt-1 text-xs wrap-anywhere">
+        <code className={TOOL_DETAIL_CLS}>{label}</code>
       </figcaption>
     </figure>
   );

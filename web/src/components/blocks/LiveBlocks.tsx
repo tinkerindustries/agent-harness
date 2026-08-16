@@ -1,6 +1,8 @@
 import type { LiveTurn, PendingTool } from "../../api/fold";
 import { ReasoningPanel } from "./ReasoningPanel";
 import { toolDetail } from "./toolArgs";
+import { BLOCK_CLS, BLOCK_LABEL_CLS, BLOCK_PRE_CLS, BLOCK_TEXT_CLS, TOOL_CALL_CLS, TOOL_DETAIL_CLS } from "./blockStyles";
+import { cn } from "@/lib/utils";
 
 // LiveAssistantBlock and LivePendingToolBlock are the "streaming block
 // renders as plain preformatted text" half of docs/DESIGN.md §5.3: no
@@ -12,15 +14,15 @@ import { toolDetail } from "./toolArgs";
 
 export function LiveAssistantBlock({ turn }: { turn: LiveTurn }) {
   return (
-    <section className="block block-assistant block-live">
-      <div className="block-label">sub-turn {turn.subTurn} — streaming…</div>
+    <section className={cn(BLOCK_CLS, "border-border bg-card border-dashed", "block-assistant")}>
+      <div className={BLOCK_LABEL_CLS}>sub-turn {turn.subTurn} — streaming…</div>
       {turn.reasoning && <ReasoningPanel text={turn.reasoning} defaultOpen startedAt={turn.startedAt} />}
-      {turn.content && <pre className="block-text live-pre">{turn.content}</pre>}
+      {turn.content && <pre className={cn(BLOCK_TEXT_CLS, "text-[0.85rem] text-foreground")}>{turn.content}</pre>}
       {turn.toolCalls.map((call) => (
-        <div className="tool-call" key={call.id}>
+        <div className={TOOL_CALL_CLS} key={call.id}>
           <code>
             {call.name}
-            {toolDetail(call) && <span className="tool-detail"> → {toolDetail(call)}</span>}
+            {toolDetail(call) && <span className={TOOL_DETAIL_CLS}> → {toolDetail(call)}</span>}
           </code>
         </div>
       ))}
@@ -31,12 +33,15 @@ export function LiveAssistantBlock({ turn }: { turn: LiveTurn }) {
 export function LivePendingToolBlock({ toolCallId, pending }: { toolCallId: string; pending: PendingTool }) {
   const detail = toolDetail(pending.call);
   return (
-    <section className={`block block-tool-pending tool-${pending.call.name}`} data-tool-call-id={toolCallId}>
-      <div className="block-label">
+    <section
+      className={cn(BLOCK_CLS, "border-border bg-card border-dashed text-muted-foreground", `tool-${pending.call.name}`)}
+      data-tool-call-id={toolCallId}
+    >
+      <div className={BLOCK_LABEL_CLS}>
         {pending.call.name}
-        {detail && <code className="tool-detail"> {detail}</code>} — running…
+        {detail && <code className={TOOL_DETAIL_CLS}> {detail}</code>} — running…
       </div>
-      {pending.stdout && <pre className="block-pre live-pre">{pending.stdout}</pre>}
+      {pending.stdout && <pre className={cn(BLOCK_PRE_CLS, "text-foreground")}>{pending.stdout}</pre>}
     </section>
   );
 }

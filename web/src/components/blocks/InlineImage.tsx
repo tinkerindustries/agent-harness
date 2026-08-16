@@ -1,3 +1,5 @@
+import { GALLERY_CLS, TILE_CLS } from "./ScreenshotGallery";
+
 // InlineImage renders the image bytes a tool result already carries — the
 // image_url data URI Read returned to a vision provider
 // (docs/KIMI-INTEGRATION.md §4.5, ToolResultPayload.ImageURL). It is the
@@ -15,10 +17,14 @@
 // through a blob URL created from the bytes on click.
 export function InlineImage({ url }: { url: string }) {
   return (
-    <div className="screenshot-gallery">
-      <figure className="screenshot-tile">
+    <div className={GALLERY_CLS}>
+      <figure className={TILE_CLS}>
         <a href={url} target="_blank" rel="noreferrer" onClick={openFullSize}>
-          <img src={url} alt="the image the model read" />
+          <img
+            className="block w-full max-h-[380px] object-contain object-top border border-border rounded bg-background"
+            src={url}
+            alt="the image the model read"
+          />
         </a>
       </figure>
     </div>

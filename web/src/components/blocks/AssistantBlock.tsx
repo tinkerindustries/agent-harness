@@ -3,6 +3,8 @@ import type { Block } from "../../api/fold";
 import { Markdown } from "../../render/Markdown";
 import { ReasoningPanel } from "./ReasoningPanel";
 import { toolDetail } from "./toolArgs";
+import { BLOCK_CLS, BLOCK_LABEL_CLS, TOOL_CALL_CLS, TOOL_DETAIL_CLS } from "./blockStyles";
+import { cn } from "@/lib/utils";
 
 // AssistantBlock is frozen the moment turn_finished lands: reasoning and
 // content are complete text, parsed and highlighted exactly once by
@@ -17,8 +19,8 @@ import { toolDetail } from "./toolArgs";
 // comes through here (docs/DESIGN.md §5.2).
 export const AssistantBlock = memo(function AssistantBlock({ block }: { block: Extract<Block, { type: "assistant" }> }) {
   return (
-    <section className="block block-assistant anim-stream-in">
-      <div className="block-label">sub-turn {block.subTurn}</div>
+    <section className={cn(BLOCK_CLS, "border-border bg-card anim-stream-in")}>
+      <div className={BLOCK_LABEL_CLS}>sub-turn {block.subTurn}</div>
       <AssistantBody block={block} />
     </section>
   );
@@ -39,10 +41,10 @@ export function AssistantBody({ block }: { block: Extract<Block, { type: "assist
       )}
       {block.content && <Markdown text={block.content} />}
       {block.toolCalls.map((call) => (
-        <div className="tool-call" key={call.id}>
+        <div className={TOOL_CALL_CLS} key={call.id}>
           <code>
             {call.name}
-            {toolDetail(call) && <span className="tool-detail"> → {toolDetail(call)}</span>}
+            {toolDetail(call) && <span className={TOOL_DETAIL_CLS}> → {toolDetail(call)}</span>}
           </code>
         </div>
       ))}

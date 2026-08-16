@@ -10,6 +10,7 @@ import { ReasoningPanel, formatElapsed } from "./ReasoningPanel";
 import { ToolResultBody } from "./ToolResultBlock";
 import { childStat, exitCode, formatCost, toolHeader } from "./toolArgs";
 import { deniedBody } from "../turns/turnHelpers";
+import { BLOCK_TEXT_CLS } from "./blockStyles";
 import { cn } from "@/lib/utils";
 
 // SubTurnCard renders one sub-turn as a single card, always full:
@@ -104,7 +105,7 @@ function UsageHeader({ usage, elapsedMs }: { usage: UsageBlock; elapsedMs?: numb
       )}
       {elapsedMs !== undefined && <span>{formatElapsed(elapsedMs)}</span>}
       {usage.churn_point_index !== undefined && (
-        <span className="churn-warning" title="cache prefix churn — see docs/CACHE.md">
+        <span className="text-[var(--status-gaveup)]" title="cache prefix churn — see docs/CACHE.md">
           churn @{usage.churn_point_index}
         </span>
       )}
@@ -230,11 +231,11 @@ function DeniedBody({ rule, content }: { rule: string; content: string }) {
   return (
     <div className="flex flex-col gap-2 border-t border-border px-2.5 py-2">
       {body.rule !== null && (
-        <p className="block-text">
+        <p className={BLOCK_TEXT_CLS}>
           rule: <code>{body.rule}</code>
         </p>
       )}
-      {body.content && <p className="block-text">{body.content}</p>}
+      {body.content && <p className={BLOCK_TEXT_CLS}>{body.content}</p>}
     </div>
   );
 }

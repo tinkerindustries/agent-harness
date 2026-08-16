@@ -25,7 +25,7 @@ export function CollapsibleOutput({ text, language }: Props) {
     return (
       <>
         <CodeBlock code={text} language={language} />
-        <Button variant="outline" size="sm" className="collapse-toggle" onClick={() => setExpanded(false)}>
+        <Button variant="outline" size="sm" className="text-[var(--status-running)]" onClick={() => setExpanded(false)}>
           Show less
         </Button>
       </>
@@ -38,7 +38,7 @@ export function CollapsibleOutput({ text, language }: Props) {
   return (
     <>
       <CodeBlock code={head} language={language} />
-      <Button variant="outline" size="sm" className="collapse-toggle" onClick={() => setExpanded(true)}>
+      <Button variant="outline" size="sm" className="text-[var(--status-running)]" onClick={() => setExpanded(true)}>
         Show {hidden} more lines
       </Button>
       <CodeBlock code={tail} language={language} />
