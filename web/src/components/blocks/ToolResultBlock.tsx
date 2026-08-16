@@ -8,6 +8,8 @@ import { InlineImage } from "./InlineImage";
 import { ScreenshotGallery } from "./ScreenshotGallery";
 import { TaskChildTranscript } from "./TaskChildTranscript";
 import { parseToolArgs, screenshotPaths, toolDetail } from "./toolArgs";
+import { BLOCK_CLS, BLOCK_LABEL_CLS, BLOCK_TEXT_CLS, TOOL_DETAIL_CLS } from "./blockStyles";
+import { cn } from "@/lib/utils";
 
 type ToolResultData = Extract<Block, { type: "tool_result" }>;
 
@@ -18,10 +20,17 @@ type ToolResultData = Extract<Block, { type: "tool_result" }>;
 // falls back to plain collapsible text.
 export const ToolResultBlock = memo(function ToolResultBlock({ block }: { block: ToolResultData }) {
   return (
-    <section className={`block block-tool-result tool-${block.name}${block.is_error ? " block-tool-error" : ""}`}>
-      <div className="block-label">
+    <section
+      className={cn(
+        BLOCK_CLS,
+        "bg-card",
+        block.is_error ? "border-[var(--status-failed)]" : "border-border",
+        `block-tool-result tool-${block.name}`,
+      )}
+    >
+      <div className={BLOCK_LABEL_CLS}>
         {block.name}
-        {toolDetail(block.call) && <code className="tool-detail"> {toolDetail(block.call)}</code>}
+        {toolDetail(block.call) && <code className={TOOL_DETAIL_CLS}> {toolDetail(block.call)}</code>}
         {block.is_error && " (error)"}
         {block.truncated && " (truncated)"}
       </div>
@@ -73,7 +82,7 @@ function ToolResultContent({ block }: { block: ToolResultData }) {
       return (
         <>
           <ScreenshotGallery paths={screenshotPaths(block.call)} />
-          <p className="block-text text-muted-foreground">{block.content}</p>
+          <p className={cn(BLOCK_TEXT_CLS, "text-muted-foreground")}>{block.content}</p>
         </>
       );
 
@@ -126,7 +135,7 @@ function ToolResultContent({ block }: { block: ToolResultData }) {
       return (
         <>
           <ScreenshotGallery paths={screenshotPaths(block.call)} />
-          <p className="block-text text-muted-foreground">{block.content}</p>
+          <p className={cn(BLOCK_TEXT_CLS, "text-muted-foreground")}>{block.content}</p>
         </>
       );
 
@@ -135,12 +144,12 @@ function ToolResultContent({ block }: { block: ToolResultData }) {
       // The plan mutations' result (the rendered checklist / the patched
       // line) is exactly what the plan panel shows, so the transcript keeps
       // a dim one-liner rather than echoing the whole list.
-      return <p className="block-text text-muted-foreground">Plan updated — see the panel.</p>;
+      return <p className={cn(BLOCK_TEXT_CLS, "text-muted-foreground")}>Plan updated — see the panel.</p>;
 
     case "Task":
       return (
         <>
-          <p className="block-text">{block.content}</p>
+          <p className={BLOCK_TEXT_CLS}>{block.content}</p>
           {block.child_session_id && <TaskChildTranscript sessionId={block.child_session_id} />}
         </>
       );

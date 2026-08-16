@@ -595,41 +595,6 @@ pre {
   font-family: var(--font-mono);
 }
 
-.transcript {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space);
-}
-
-.block {
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) - 4px);
-  padding: var(--space);
-  background: var(--card);
-}
-
-.block-label {
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  text-transform: uppercase;
-  margin-bottom: 4px;
-}
-
-.block-text {
-  white-space: pre-wrap;
-  margin: 0;
-}
-
-.block-pre {
-  white-space: pre-wrap;
-  margin: 0;
-  font-size: 0.85rem;
-  max-height: 400px;
-  overflow: auto;
-}
-
 .block-opening,
 .block-skills {
   display: flex;
@@ -696,62 +661,6 @@ pre {
   color: var(--foreground);
 }
 
-.block-tool-error {
-  border-color: var(--status-failed);
-}
-
-.block-denied {
-  border-color: var(--status-gaveup);
-}
-
-.block-error {
-  border-color: var(--status-failed);
-  color: var(--status-failed);
-}
-
-.block-run-finished {
-  border-color: var(--status-running);
-}
-
-.block-usage {
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  padding: 4px 8px;
-}
-
-.block-usage .usage-model {
-  font-weight: 500;
-  color: var(--foreground);
-}
-
-.block-steer {
-  border-left: 3px solid var(--status-gaveup);
-}
-
-.block-steer-pending {
-  border-style: dashed;
-  border-color: var(--status-gaveup);
-  background: var(--status-gaveup-bg);
-}
-
-.block-steer-pending .block-label {
-  color: var(--status-gaveup);
-  font-weight: 600;
-}
-
-.block-steer-delivered {
-  border-color: var(--border);
-  background: color-mix(in srgb, var(--muted) 40%, transparent);
-}
-
-.block-steer-delivered .block-label {
-  color: var(--status-done);
-}
-
-.churn-warning {
-  color: var(--status-gaveup);
-}
-
 .opening-summary {
   display: flex;
   align-items: center;
@@ -777,17 +686,6 @@ pre {
   white-space: nowrap;
   color: var(--muted-foreground);
   font-size: 0.8125rem;
-}
-
-.tool-call {
-  margin-top: 4px;
-  font-size: 0.85rem;
-}
-
-.tool-detail {
-  color: var(--muted-foreground);
-  font-weight: normal;
-  text-transform: none;
 }
 
 .screenshot-gallery {
@@ -840,35 +738,8 @@ pre {
   font-size: 0.8125rem;
 }
 
-.block-tool-pending {
-  border-style: dashed;
-  color: var(--muted-foreground);
-}
-
-.block-live {
-  border-style: dashed;
-}
-
-.live-pre {
-  white-space: pre-wrap;
-  margin: 0;
-  font-size: 0.85rem;
-  color: var(--foreground);
-}
-
 .collapse-toggle {
   color: var(--status-running);
-}
-
-.reasoning summary {
-  cursor: pointer;
-  color: var(--muted-foreground);
-  font-size: 0.85rem;
-}
-
-.reasoning-text {
-  color: var(--muted-foreground);
-  font-size: 0.85rem;
 }
 
 .code-block {

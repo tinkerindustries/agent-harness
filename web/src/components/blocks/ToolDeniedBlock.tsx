@@ -2,6 +2,8 @@ import { memo } from "react";
 import type { Block } from "../../api/fold";
 import { deniedBody } from "../turns/turnHelpers";
 import { toolDetail } from "./toolArgs";
+import { BLOCK_CLS, BLOCK_LABEL_CLS, BLOCK_TEXT_CLS, TOOL_DETAIL_CLS } from "./blockStyles";
+import { cn } from "@/lib/utils";
 
 // A denied tool call renders as its own block, showing the call and the
 // policy that refused it — the main thing an operator wants to find after a
@@ -12,17 +14,17 @@ export const ToolDeniedBlock = memo(function ToolDeniedBlock({ block }: { block:
   const detail = toolDetail(block.call);
   const body = deniedBody(block.rule, block.content);
   return (
-    <section className="block block-denied">
-      <div className="block-label">
+    <section className={cn(BLOCK_CLS, "border-[var(--status-gaveup)] bg-card")}>
+      <div className={BLOCK_LABEL_CLS}>
         denied: {block.name}
-        {detail && <code className="tool-detail"> {detail}</code>}
+        {detail && <code className={TOOL_DETAIL_CLS}> {detail}</code>}
       </div>
       {body.rule !== null && (
-        <p className="block-text">
+        <p className={BLOCK_TEXT_CLS}>
           rule: <code>{body.rule}</code>
         </p>
       )}
-      {body.content && <p className="block-text">{body.content}</p>}
+      {body.content && <p className={BLOCK_TEXT_CLS}>{body.content}</p>}
     </section>
   );
 });
