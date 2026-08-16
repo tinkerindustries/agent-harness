@@ -64,6 +64,17 @@ export interface SubTurnGroup {
   // forever, and the rail can group the sub-turns without walking the
   // session's TaskCreate/TaskUpdate history itself.
   phase: RailPhaseRef;
+  // burstPhases are plan items that progressed (pending -> in_progress ->
+  // completed) during this same sub-turn but are not `phase` itself — a
+  // sub-turn that fires several TaskUpdate calls back to back (a burst) can
+  // complete more than one item before the next sub-turn even starts, and
+  // `phase` only ever names one of them (phaseFromTodos's single pick, the
+  // in_progress item or the plan's last one). Without these, every other
+  // item the burst touched never gets a rail row at all — the bug this
+  // field exists to fix. Empty in the common case (one status change per
+  // sub-turn); ordered by plan position. The rail gives each one its own
+  // row with no ticks of its own, since no sub-turn ran under it alone.
+  burstPhases: RailPhaseRef[];
 }
 
 // RailPhaseRef is a sub-turn's phase membership for the timeline rail: the
@@ -119,6 +130,39 @@ export function phaseFromTodos(todos: Todo[], id: number): RailPhaseRef {
     subject = todos[index].subject;
   }
   return index < 0 ? { id, index: 0, label: "" } : { id, index: index + 1, label: subject };
+}
+
+// statusRank orders a plan item's status by how far it has progressed, so
+// changedExistingItems can tell a forward move (pending -> in_progress ->
+// completed) from a no-op or a backward edit.
+function statusRank(status: Todo["status"]): number {
+  switch (status) {
+    case "completed":
+      return 2;
+    case "in_progress":
+      return 1;
+    default:
+      return 0;
+  }
+}
+
+// changedExistingItems finds every item present in `before` whose status
+// progressed by the time `after` was read, in ascending plan-position
+// order — the burst a single sub-turn's several TaskUpdate calls can
+// produce. Items TaskCreate adds fresh in this same call (not in `before`)
+// are deliberately excluded: a plan's initial statuses, however varied, are
+// named by phaseFromTodos's single pick, not fanned out into one row per
+// item — only status changes to a plan item that already existed count as
+// a burst.
+export function changedExistingItems(before: Todo[], after: Todo[]): { index: number; subject: string }[] {
+  const priorById = new Map(before.map((t) => [t.taskId, t]));
+  const out: { index: number; subject: string }[] = [];
+  for (let i = 0; i < after.length; i++) {
+    const prior = priorById.get(after[i].taskId);
+    if (!prior) continue;
+    if (statusRank(after[i].status) > statusRank(prior.status)) out.push({ index: i, subject: after[i].subject });
+  }
+  return out;
 }
 
 // ChurnPoint is the first sub-turn whose usage carried a cache-churn
@@ -234,6 +278,12 @@ export class SubTurnGroupState {
   private currentPhase: RailPhaseRef = { id: 0, index: 0, label: "" };
   private latestTodos: Todo[] = [];
   private todosAtBlock: Todo[][] = [];
+  // lastMutationTodos is the plan as of just before the most recent
+  // TaskCreate/TaskUpdate-bearing sub-turn — the "before" side of
+  // changedExistingItems's diff, which is what finds every item a burst of
+  // TaskUpdate calls in one sub-turn moved forward, not just the one
+  // phaseFromTodos names the sub-turn after.
+  private lastMutationTodos: Todo[] = [];
 
   // sync folds the current blocks array into items incrementally. Called on
   // every store snapshot; the fast path (same array reference — a live-only
@@ -270,19 +320,37 @@ export class SubTurnGroupState {
   // (todosAtBlock) the boundary sub-turn wrote.
   private pushBlock(block: Block, blocks: Block[], blockIndex: number): void {
     switch (block.type) {
-      case "assistant":
+      case "assistant": {
         // A TaskCreate or TaskUpdate in the sub-turn's own calls marks a new
         // phase: the boundary is free — every plan-mutating call in the
         // event stream starts one, while the TaskGet/TaskList reads do not —
         // and the fold's already-applied plan, as of this block
         // (todosAtBlock), names it. The group below freezes with that phase
         // forever.
+        const burst: RailPhaseRef[] = [];
         if (block.toolCalls.some((c) => c.name === "TaskCreate" || c.name === "TaskUpdate")) {
+          const after = this.todosAt(blockIndex);
           this.phaseSeq++;
-          this.currentPhase = phaseFromTodos(this.todosAt(blockIndex), this.phaseSeq);
+          const primary = phaseFromTodos(after, this.phaseSeq);
+          // Every other item that already existed and moved forward during
+          // this sub-turn gets its own placeholder phase — a burst of
+          // TaskUpdate calls can complete several items at once, and
+          // phaseFromTodos (primary, above) only ever names one of them.
+          // The one it already named is excluded here so it isn't
+          // duplicated as its own placeholder too.
+          for (const item of changedExistingItems(this.lastMutationTodos, after)) {
+            if (item.index + 1 === primary.index) continue;
+            this.phaseSeq++;
+            burst.push({ id: this.phaseSeq, index: item.index + 1, label: item.subject });
+          }
+          this.currentPhase = primary;
+          this.lastMutationTodos = after;
         }
-        this.addGroup(withTags({ subTurn: block.subTurn, seq: block.seq, blocks: [block], phase: this.currentPhase }));
+        this.addGroup(
+          withTags({ subTurn: block.subTurn, seq: block.seq, blocks: [block], phase: this.currentPhase, burstPhases: burst }),
+        );
         break;
+      }
       case "tool_result":
       case "tool_denied": {
         const last = this.lastGroup();

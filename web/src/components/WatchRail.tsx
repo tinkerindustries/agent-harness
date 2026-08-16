@@ -265,6 +265,20 @@ export function buildWatchPhases(
   for (const item of items) {
     if (item.kind !== "group") continue;
     const group = item.group;
+    // burstPhases are the other plan items this sub-turn's TaskUpdate calls
+    // moved forward, ahead of the one group.phase names it after (groups.ts
+    // SubTurnGroup.burstPhases) — each gets its own row, with no ticks of
+    // its own, so a burst of completions within one sub-turn doesn't drop
+    // every item but the last from the rail. The same merge-on-name rule
+    // applies: a burst item naming the phase already current (typically the
+    // sub-turn's own predecessor, still open from an earlier sub-turn) is a
+    // no-op rather than a duplicate row.
+    for (const burst of group.burstPhases) {
+      if (!current || current.index !== burst.index || current.label !== burst.label) {
+        current = { id: burst.id, index: burst.index, label: burst.label, ticks: [] };
+        phases.push(current);
+      }
+    }
     // A new phase id is minted on every TaskCreate or TaskUpdate, so the
     // common create-then-mark-in_progress pair names two phases after the
     // same plan item; merge on the captured name, keeping the first phase's

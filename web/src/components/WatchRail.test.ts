@@ -265,6 +265,69 @@ describe("buildWatchPhases", () => {
     expect(tail.ticks.map((t) => t.subTurn)).toEqual([1, 2]);
   });
 
+  it("keeps every item in the rail when a burst of TaskUpdate calls completes several in one sub-turn", () => {
+    // The observed 8/8 session: a burst sub-turn fires TaskUpdate(3,
+    // completed), TaskUpdate(4, completed), TaskUpdate(5, completed),
+    // TaskUpdate(6, completed), TaskUpdate(7, in_progress) all in the same
+    // assistant block. Before the fix, only item 7 (phaseFromTodos's single
+    // pick) became a phase; items 3-6 appeared in neither `phases` nor
+    // `notStarted` and vanished from the rail even though the plan counter
+    // (built straight off the fold's todos, PlanHead's job) read correctly.
+    const mkPlan = (statuses: Todo["status"][]) =>
+      statuses.map((status, i) => todo(String(i + 1), `Step ${i + 1}`, status));
+    const events = [
+      ev(1, "session_started", { opening_message: "x" }),
+      // sub-turn 1: create the plan, item 1 in_progress
+      ...turn(2, 1, [taskCreate(3, "p1", mkPlan(["in_progress", "pending", "pending", "pending", "pending", "pending", "pending", "pending"]))]),
+      // sub-turn 2: complete 1, start 2
+      ...turn(6, 2, [taskUpdate(7, "u1", { taskId: "1", status: "completed" }), taskUpdate(8, "u2", { taskId: "2", status: "in_progress" })]),
+      // sub-turn 3: complete 2, start 3
+      ...turn(10, 3, [taskUpdate(11, "u3", { taskId: "2", status: "completed" }), taskUpdate(12, "u4", { taskId: "3", status: "in_progress" })]),
+      // sub-turn 4: the burst — completes 3, 4, 5, 6 and starts 7, all in
+      // one sub-turn's tool calls.
+      ...turn(15, 4, [
+        taskUpdate(16, "u5", { taskId: "3", status: "completed" }),
+        taskUpdate(17, "u6", { taskId: "4", status: "completed" }),
+        taskUpdate(18, "u7", { taskId: "5", status: "completed" }),
+        taskUpdate(19, "u8", { taskId: "6", status: "completed" }),
+        taskUpdate(20, "u9", { taskId: "7", status: "in_progress" }),
+      ]),
+      // sub-turn 5: complete 7 and 8 — every item done, counter reads 8/8.
+      ...turn(24, 5, [taskUpdate(25, "u10", { taskId: "7", status: "completed" }), taskUpdate(26, "u11", { taskId: "8", status: "completed" })]),
+    ];
+    const finalTodos = mkPlan(["completed", "completed", "completed", "completed", "completed", "completed", "completed", "completed"]);
+    const view = buildWatchPhases(foldedItems(events), null, finalTodos, false, NOOP_GET_TOOL_CALL);
+
+    // Every one of the 8 plan items has its own rail row — including 4, 5
+    // and 6, which no sub-turn ever ran under on its own (before the fix
+    // they appeared in neither `phases` nor `notStarted`).
+    expect(view.phases.map((p) => p.index)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(view.phases.map((p) => p.label)).toEqual([
+      "Step 1",
+      "Step 2",
+      "Step 3",
+      "Step 4",
+      "Step 5",
+      "Step 6",
+      "Step 7",
+      "Step 8",
+    ]);
+    // Items 4, 5 and 6 completed inside the burst with no sub-turn of their
+    // own: their rows carry no ticks, but they are still rows.
+    expect(view.phases.filter((p) => [4, 5, 6].includes(p.index)).map((p) => p.ticks)).toEqual([[], [], []]);
+    // The burst sub-turn's own tick lands on item 7's row (the item
+    // phaseFromTodos picked as this sub-turn's name, since it went
+    // in_progress); item 8's row gets the following sub-turn's tick.
+    expect(view.phases.find((p) => p.index === 7)!.ticks).toHaveLength(1);
+    expect(view.phases.find((p) => p.index === 8)!.ticks).toHaveLength(1);
+    // Every plan item is done, so nothing is left over as "not started".
+    expect(view.notStarted).toEqual([]);
+    // The overall counter (PlanHead, computed directly off `todos`) was
+    // never wrong — this pins that it stays right alongside the fixed list.
+    const done = finalTodos.filter((t) => t.status === "completed").length;
+    expect(`${done}/${finalTodos.length}`).toBe("8/8");
+  });
+
   it("merges consecutive phases that name the same plan item even when their phase ids differ", () => {
     // The create-then-mark-in_progress pair mints two phase ids naming the
     // same item; the groups collapse into one phase keyed on the first id,
