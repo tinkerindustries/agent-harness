@@ -140,7 +140,7 @@ function HeightMount({
       {children}
       <TranscriptToolbar filter={filter} onFilterChange={setFilter} counts={snapshot.counts} />
       {snapshot.churnPoint && (
-        <div className="notice churn-banner">
+        <div className="mb-4 rounded-md border border-border border-l-[3px] border-l-[var(--status-gaveup)] bg-[var(--status-gaveup-bg)] px-3 py-2 text-sm text-foreground [&_a]:font-semibold [&_a]:text-[var(--status-gaveup)]">
           <b>
             Cache churn at sub-turn {snapshot.churnPoint.subTurn}: {snapshot.churnPoint.excessTokens.toLocaleString("en-US")} tokens
             re-sent above the expected miss.
