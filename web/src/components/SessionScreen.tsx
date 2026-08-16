@@ -72,8 +72,11 @@ export function SessionScreen({ sessionId, onNavigate }: Props) {
   // must never lose the ability to steer it because a fetch failed.
   if (!settled) {
     return (
-      <div className="work">
-        <main className="stream" />
+      <div className="grid min-h-0 flex-1">
+        {/* "stream" stays a literal class only for .app .stream's
+            overflow-y:auto — a body-level class this component sets above,
+            the same residual pattern .app .rail uses. */}
+        <main className="stream relative pt-5 px-6 [scrollbar-gutter:stable]" />
       </div>
     );
   }
