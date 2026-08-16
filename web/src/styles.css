@@ -1033,36 +1033,6 @@ pre {
   color: var(--muted-foreground);
 }
 
-.badge-running {
-  background: var(--status-running-bg);
-  color: var(--status-running);
-}
-
-.badge-done {
-  background: var(--status-done-bg);
-  color: var(--status-done);
-}
-
-.badge-gaveup {
-  background: var(--status-gaveup-bg);
-  color: var(--status-gaveup);
-}
-
-.badge-stopped {
-  background: var(--status-stopped-bg);
-  color: var(--status-stopped);
-}
-
-.badge-failed {
-  background: var(--status-failed-bg);
-  color: var(--status-failed);
-}
-
-.badge-restart {
-  border-color: var(--status-gaveup);
-  color: var(--status-gaveup);
-}
-
 .perf-harness {
   max-width: 1200px;
 }
