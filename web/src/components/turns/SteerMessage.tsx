@@ -105,7 +105,7 @@ export function SteerMessage({ block, sentAt, wait, runEnded }: Props) {
     <div className={cn(MSG_CLS, MSG_USER_CLS)}>
       <div className={MSG_BODY_CLS}>{block.text}</div>
       <div className={cn(MSG_STATE_CLS, "text-[var(--status-gaveup)]")}>
-        <span className="dot dot-pulse" aria-hidden />
+        <span className="h-1.5 w-1.5 flex-none rounded-full bg-current dot-pulse" aria-hidden />
         pending{age ? ` · ${age}` : ""} · {pendingWaitLabel(wait.hasToolRound, wait.liveSubTurn)}
       </div>
     </div>

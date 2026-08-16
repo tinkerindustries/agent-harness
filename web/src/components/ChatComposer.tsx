@@ -224,10 +224,10 @@ export function ChatComposer({
                 </span>
               </div>
             )}
-            {stop.error && <span className="field-error">{stop.error}</span>}
+            {stop.error && <span className="text-xs font-mono text-[var(--status-failed)] basis-full">{stop.error}</span>}
             {pendingCount > 0 && (
               <div className="mb-1.5 flex items-center gap-1.5 text-micro text-[var(--status-gaveup)]">
-                <span className="dot dot-pulse" aria-hidden />
+                <span className="h-1.5 w-1.5 flex-none rounded-full bg-current dot-pulse" aria-hidden />
                 {pendingCount} message{pendingCount === 1 ? "" : "s"} waiting — it reaches the model at the next
                 sub-turn boundary. The run does not pause.
               </div>

@@ -131,9 +131,9 @@ export function WatchFooter({
             </span>
           </div>
         )}
-        {stop.error && <span className="field-error">{stop.error}</span>}
+        {stop.error && <span className="text-xs font-mono text-[var(--status-failed)] basis-full">{stop.error}</span>}
         <div className="mb-1.5 flex items-center gap-2 text-sm">
-          <span className="dot dot-pulse" style={{ color: "var(--status-running)" }} aria-hidden />
+          <span className="h-1.5 w-1.5 flex-none rounded-full bg-current dot-pulse" style={{ color: "var(--status-running)" }} aria-hidden />
           <span className="font-mono text-xs font-semibold">{activity.name}</span>
           {activity.arg && <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">{activity.arg}</span>}
           <span className="max-w-[45%] flex-none truncate text-xs text-muted-foreground">
@@ -146,7 +146,7 @@ export function WatchFooter({
             className="inline-flex h-[26px] cursor-pointer items-center gap-1.5 rounded-full border border-ring bg-secondary px-2.5 font-[inherit] text-xs text-foreground max-phone:min-h-11 max-phone:px-4"
             onClick={onToggleFollow}
           >
-            <span className="dot" style={{ color: following ? "var(--status-running)" : "var(--muted-foreground)" }} aria-hidden />
+            <span className="h-1.5 w-1.5 flex-none rounded-full bg-current" style={{ color: following ? "var(--status-running)" : "var(--muted-foreground)" }} aria-hidden />
             {following ? "Following live" : "Follow live"}
           </button>
         </div>

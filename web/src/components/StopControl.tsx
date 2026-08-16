@@ -96,14 +96,14 @@ export function StopControl({ sessionId, running, className }: StopControlProps)
           </div>
         </div>
       ) : stopping ? (
-        <span className="dim text-sm">stopping…</span>
+        <span className="text-muted-foreground text-sm">stopping…</span>
       ) : (
         <Button variant="destructive" size="sm" onClick={() => setConfirming(true)}>
           <StopCircle />
           Stop
         </Button>
       )}
-      {error && <span className="field-error">{error}</span>}
+      {error && <span className="text-xs font-mono text-[var(--status-failed)] basis-full">{error}</span>}
     </div>
   );
 }

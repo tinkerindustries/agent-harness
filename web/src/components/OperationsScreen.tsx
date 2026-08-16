@@ -228,7 +228,7 @@ export function OperationsScreen() {
           could not load operations: {loadError}
         </div>
       )}
-      {data === null && !loadError && <p className="dim">Loading operations…</p>}
+      {data === null && !loadError && <p className="text-muted-foreground">Loading operations…</p>}
 
       {data && (
         <>
@@ -260,9 +260,9 @@ export function OperationsScreen() {
               </span>
             </div>
             {stuck.length === 0 ? (
-              <p className="dim py-2">No stuck sessions.</p>
+              <p className="text-muted-foreground py-2">No stuck sessions.</p>
             ) : (
-              <div className="table-scroll">
+              <div className="overflow-x-auto">
                 <RTTable>
                   <RTHead>
                     <tr>
@@ -302,9 +302,9 @@ export function OperationsScreen() {
               </span>
             </div>
             {data.requests.length === 0 ? (
-              <p className="dim py-2">No running work requests.</p>
+              <p className="text-muted-foreground py-2">No running work requests.</p>
             ) : (
-              <div className="table-scroll">
+              <div className="overflow-x-auto">
                 <RTTable>
                   <RTHead>
                     <tr>
@@ -343,9 +343,9 @@ export function OperationsScreen() {
               </span>
             </div>
             {data.leases.length === 0 ? (
-              <p className="dim py-2">No leases.</p>
+              <p className="text-muted-foreground py-2">No leases.</p>
             ) : (
-              <div className="table-scroll">
+              <div className="overflow-x-auto">
                 <RTTable>
                   <RTHead>
                     <tr>
@@ -469,7 +469,7 @@ function StuckSessionRow({
             </Button>
           </div>
         )}
-        {error && <span className="field-error">{error}</span>}
+        {error && <span className="text-xs font-mono text-[var(--status-failed)] basis-full">{error}</span>}
       </RTActions>
     </RTRow>
   );
@@ -535,7 +535,7 @@ function WorkRequestRowView({
             </Button>
           </div>
         )}
-        {error && <span className="field-error">{error}</span>}
+        {error && <span className="text-xs font-mono text-[var(--status-failed)] basis-full">{error}</span>}
       </RTActions>
     </RTRow>
   );
@@ -600,7 +600,7 @@ function LeaseRow({ row, now, busy, confirming, error, onRelease, onConfirmRelea
             </Button>
           </div>
         )}
-        {error && <span className="field-error">{error}</span>}
+        {error && <span className="text-xs font-mono text-[var(--status-failed)] basis-full">{error}</span>}
       </RTActions>
     </RTRow>
   );

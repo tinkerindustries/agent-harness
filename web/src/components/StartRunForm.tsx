@@ -420,9 +420,9 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
           <Button variant="outline" size="sm" onClick={() => setRepoSpecs((prev) => [...prev, ""])}>
             Add another repository
           </Button>
-          {githubError && <p className="hint">{githubError}</p>}
+          {githubError && <p className="text-xs text-muted-foreground">{githubError}</p>}
           {!githubConfigured && !githubLoading && !githubError && (
-            <p className="hint">Add a GitHub token in Settings to search your repositories.</p>
+            <p className="text-xs text-muted-foreground">Add a GitHub token in Settings to search your repositories.</p>
           )}
         </div>
 
@@ -436,12 +436,12 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
             onChange={handleAttachmentChange}
             aria-label="Image attachments (PNG, JPEG, WebP) — the mockups the run works against"
           />
-          {attachmentCapsError && <p className="hint">{attachmentCapsError}</p>}
+          {attachmentCapsError && <p className="text-xs text-muted-foreground">{attachmentCapsError}</p>}
           {!attachmentCaps && !attachmentCapsError && (
-            <p className="hint">Loading attachment limits…</p>
+            <p className="text-xs text-muted-foreground">Loading attachment limits…</p>
           )}
           {attachmentCaps && (
-            <p className="hint">
+            <p className="text-xs text-muted-foreground">
               Mockups the agent reviews against, e.g. the page it should match. PNG, JPEG or WebP, up to{" "}
               {attachmentCaps.maxCount} files of {formatFileSize(attachmentCaps.maxBytes)} each.
             </p>
@@ -475,7 +475,7 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
                 </option>
               ))}
             </select>
-            {modelsError && <p className="hint">{modelsError}</p>}
+            {modelsError && <p className="text-xs text-muted-foreground">{modelsError}</p>}
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-xs tracking-[0.04em] text-muted-foreground uppercase">Thinking</span>
@@ -495,7 +495,7 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
               <ToggleGroupItem value="readonly">readonly</ToggleGroupItem>
               <ToggleGroupItem value="full">full</ToggleGroupItem>
             </ToggleGroup>
-            <p className="hint">
+            <p className="text-xs text-muted-foreground">
               Defaults to full. full: everything, as root, in the workspace — and the harness container has
               the host&rsquo;s docker socket, so a full run has the host daemon. readonly: read-only tools only.
             </p>
@@ -576,7 +576,7 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
           <Button onClick={submit} disabled={sending}>
             {sending ? "Starting…" : "Start run"}
           </Button>
-          {error && <span className="field-error">{error}</span>}
+          {error && <span className="text-xs font-mono text-[var(--status-failed)] basis-full">{error}</span>}
         </div>
 
         {accepted && (

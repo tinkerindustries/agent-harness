@@ -261,8 +261,8 @@ function RailMount({
       </header>
       <div className="session-meta">
         <Badge variant="done">DONE</Badge>
-        <span className="dim">synthetic feed</span>
-        <span className="dim">turn renderer</span>
+        <span className="text-muted-foreground">synthetic feed</span>
+        <span className="text-muted-foreground">turn renderer</span>
       </div>
       <p className="perf-height-result" data-testid="rail-result" data-measure={measure ? JSON.stringify(measure) : ""}>
         {measure ? (

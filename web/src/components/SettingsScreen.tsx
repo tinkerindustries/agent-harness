@@ -284,7 +284,7 @@ function SettingRow({
                     </ToggleGroupItem>
                   ))}
                 </ToggleGroup>
-                <span className="hint">
+                <span className="text-xs text-muted-foreground">
                   Saves on selection. The default is the pressed one until it differs.
                 </span>
               </>
@@ -322,18 +322,18 @@ function SettingRow({
               </>
             )}
             {entry.type === "duration" && (
-              <span className="hint">
+              <span className="text-xs text-muted-foreground">
                 Go duration text: <code>30s</code>, <code>10m</code>, <code>1h</code>.
               </span>
             )}
             {entry.secret && (
-              <span className="hint">
+              <span className="text-xs text-muted-foreground">
                 The full value never leaves the process — the API masks it to its last four
                 characters and has no reveal parameter. Reading one back is{" "}
                 <code>harness config get -reveal</code>, at a terminal.
               </span>
             )}
-            {row.error && <span className="field-error">{row.error}</span>}
+            {row.error && <span className="text-xs font-mono text-[var(--status-failed)] basis-full">{row.error}</span>}
           </div>
         </div>
       </CollapsibleContent>
@@ -507,7 +507,7 @@ export function SettingsScreen() {
           could not load settings: {loadError}
         </div>
       )}
-      {entries === null && !loadError && <p className="dim">Loading settings…</p>}
+      {entries === null && !loadError && <p className="text-muted-foreground">Loading settings…</p>}
       {entries !== null && counts && (
         <>
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[calc(var(--radius)-2px)] border border-border px-3 py-[7px] text-sm text-muted-foreground">

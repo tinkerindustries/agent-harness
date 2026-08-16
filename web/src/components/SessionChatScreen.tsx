@@ -304,7 +304,7 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
       {running && (
         <>
           <Badge variant="running">
-            <span className="dot dot-pulse" aria-hidden />
+            <span className="h-1.5 w-1.5 flex-none rounded-full bg-current dot-pulse" aria-hidden />
             RUNNING
           </Badge>
           {navElapsed && <span>{navElapsed}</span>}

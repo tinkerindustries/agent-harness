@@ -63,7 +63,10 @@ export const Turn = memo(function Turn({
         // that carry it.
         <details className="think">
           <summary className="-ml-1 inline-flex list-none items-center gap-1.5 rounded px-1 py-px text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:[outline:2px_solid_var(--ring)] focus-visible:outline-offset-1 max-phone:min-h-11 max-phone:px-2 max-phone:py-2.5">
-            <span className="caret" aria-hidden>
+            <span
+              className="text-muted-foreground transition-transform [transition-duration:var(--dur-caret)] motion-reduce:transition-none"
+              aria-hidden
+            >
               ▸
             </span>
             Thought{assistant.reasoningElapsedMs !== undefined ? ` for ${formatElapsed(assistant.reasoningElapsedMs)}` : ""} ·{" "}
@@ -168,7 +171,7 @@ function TurnMeta({ usage, elapsedMs }: { usage: UsageBlock; elapsedMs?: number 
           not (docs/DESIGN.md §4.9). .rate-peak stays a residual class: it is
           shared with blocks/SubTurnCard.tsx, out of scope here. */}
       {usage.rate_tier === "peak" && (
-        <span className="rate-peak" title="billed at DeepSeek's peak rate — twice off-peak">
+        <span className="uppercase text-[0.625rem] tracking-[0.06em] text-[var(--status-gaveup)]" title="billed at DeepSeek's peak rate — twice off-peak">
           peak
         </span>
       )}

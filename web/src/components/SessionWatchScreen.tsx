@@ -230,7 +230,7 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
       {running && (
         <>
           <Badge key="running" variant="running" className={navOutcomeFlip}>
-            <span className="dot dot-pulse" aria-hidden />
+            <span className="h-1.5 w-1.5 flex-none rounded-full bg-current dot-pulse" aria-hidden />
             RUNNING
           </Badge>
           {navElapsed && <span>{navElapsed}</span>}

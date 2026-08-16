@@ -70,7 +70,7 @@ export function TurnTranscript({
         renderRunFinished={renderRunFinished}
       />
       <LiveTurnSection turn={live.turn} pendingTools={live.pendingTools} />
-      {empty && <p className="empty-row">Waiting for the run to start…</p>}
+      {empty && <p className="p-4 text-muted-foreground">Waiting for the run to start…</p>}
     </div>
   );
 }

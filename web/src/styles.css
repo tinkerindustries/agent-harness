@@ -588,30 +588,9 @@ body.page .topnav-flush {
   font-size: 0.8125rem;
 }
 
-.dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: currentColor;
-  flex: none;
-}
-
-.dim {
-  color: var(--muted-foreground);
-}
-
-.table-scroll {
-  overflow-x: auto;
-}
-
 code,
 pre {
   font-family: var(--font-mono);
-}
-
-.empty-row {
-  color: var(--muted-foreground);
-  padding: calc(var(--space) * 2);
 }
 
 .pager {
@@ -965,17 +944,6 @@ pre {
   font-weight: 600;
 }
 
-.rate-peak {
-  color: var(--status-gaveup);
-  text-transform: uppercase;
-  font-size: 0.625rem;
-  letter-spacing: 0.06em;
-}
-
-.opening-summary[aria-expanded="true"] .caret {
-  transform: rotate(90deg);
-}
-
 .opening-summary {
   display: flex;
   align-items: center;
@@ -1230,41 +1198,12 @@ pre {
   font-weight: 600;
 }
 
-.caret {
-  color: var(--muted-foreground);
-  transition: transform var(--dur-caret) var(--ease);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .caret {
-    transition: none;
-  }
-}
-
 .facts {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 18px;
   font-size: 0.75rem;
   color: var(--muted-foreground);
-}
-
-.field-error {
-  font-size: 0.75rem;
-  color: var(--status-failed);
-  font-family: var(--font-mono);
-  flex-basis: 100%;
-}
-
-.hint {
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-}
-
-.nav-note {
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  white-space: nowrap;
 }
 
 .badge-running {

@@ -98,7 +98,7 @@ function UsageHeader({ usage, elapsedMs }: { usage: UsageBlock; elapsedMs?: numb
           time it says something. Peak is the one that explains a figure the
           token counts beside it do not. */}
       {usage.rate_tier === "peak" && (
-        <span className="rate-peak" title="billed at DeepSeek's peak rate — twice off-peak (docs/DESIGN.md §4.9)">
+        <span className="uppercase text-[0.625rem] tracking-[0.06em] text-[var(--status-gaveup)]" title="billed at DeepSeek's peak rate — twice off-peak (docs/DESIGN.md §4.9)">
           peak
         </span>
       )}

@@ -402,7 +402,7 @@ export function PerfHarnessScreen() {
       <header className="screen-header">
         <h1>Performance harness</h1>
       </header>
-      <p className="dim">
+      <p className="text-muted-foreground">
         Synthetic delta feed at a fixed rate against N mounted blocks. "delta" commits are a reasoning/content/
         tool_stdout update with the frozen list unchanged — the token-rate hot path docs/DESIGN.md §5.1 names.
         "append" commits are the ones that just froze a new block, which costs React an O(n) reconciliation pass
@@ -415,7 +415,7 @@ export function PerfHarnessScreen() {
       <p data-testid="perf-status">
         status: <strong>{status}</strong>
       </p>
-      <div className="table-scroll">
+      <div className="overflow-x-auto">
         <table className="session-table perf-results" data-testid="perf-results">
           <thead>
             <tr>

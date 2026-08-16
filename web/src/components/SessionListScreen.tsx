@@ -296,7 +296,7 @@ export function SessionListScreen({ onOpen }: Props) {
   useNavRight(
     <>
       {startTokenReady && startToken === null ? (
-        <span className="nav-note" title="start harness serve once to generate http.control_token">
+        <span className="text-xs whitespace-nowrap text-muted-foreground" title="start harness serve once to generate http.control_token">
           run control not configured — starting is disabled
         </span>
       ) : (
@@ -410,7 +410,7 @@ export function SessionListScreen({ onOpen }: Props) {
             perPage={FINISHED_PAGE_SIZE}
             onPage={setPage}
           />
-          <div className="table-scroll">
+          <div className="overflow-x-auto">
             <RTTable>
               <RTHead>
                 <tr>
@@ -847,7 +847,7 @@ function QueueHaltBanner({ health }: { health: QueueHealth | null }) {
     <div className={`queue-health${health.halted ? " queue-health-halted" : ""}`}>
       <Queue aria-hidden />
       {health.halted && <span>queue halted — {health.halt_reason || "reason unknown"}</span>}
-      {health.error && <span className="dim"> ({health.error})</span>}
+      {health.error && <span className="text-muted-foreground"> ({health.error})</span>}
     </div>
   );
 }

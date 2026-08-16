@@ -89,7 +89,7 @@ export function HeightHarness() {
     <HeightMount store={store} seeded={seeded} onHeight={setHeight}>
       <p className="perf-height-result" data-testid="perf-height" data-blocks={blocks} data-sub-turns={subTurns}>
         Scroll height: <strong>{height === null ? "…" : height.toLocaleString("en-US")} px</strong>{" "}
-        <span className="dim">(baseline 86,674 px, card transcript)</span>
+        <span className="text-muted-foreground">(baseline 86,674 px, card transcript)</span>
       </p>
     </HeightMount>
   );
@@ -134,8 +134,8 @@ function HeightMount({
       </header>
       <div className="session-meta">
         <Badge variant="done">DONE</Badge>
-        <span className="dim">synthetic feed</span>
-        <span className="dim">turn renderer</span>
+        <span className="text-muted-foreground">synthetic feed</span>
+        <span className="text-muted-foreground">turn renderer</span>
       </div>
       {children}
       <TranscriptToolbar filter={filter} onFilterChange={setFilter} counts={snapshot.counts} />
