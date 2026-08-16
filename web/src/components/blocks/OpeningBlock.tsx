@@ -17,8 +17,15 @@ export const OpeningBlock = memo(function OpeningBlock({ block }: { block: Extra
       <div className="block-label">task</div>
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger asChild>
-          <button type="button" className="opening-summary" title={open ? "collapse the task" : "expand the task"}>
-            <span className="caret" aria-hidden>
+          <button
+            type="button"
+            className="group opening-summary"
+            title={open ? "collapse the task" : "expand the task"}
+          >
+            <span
+              className="text-muted-foreground transition-transform [transition-duration:var(--dur-caret)] motion-reduce:transition-none group-data-[state=open]:rotate-90"
+              aria-hidden
+            >
               ▸
             </span>
             <span className="opening-summary-text">{summary}</span>

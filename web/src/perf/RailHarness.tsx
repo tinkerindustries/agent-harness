@@ -255,16 +255,16 @@ function RailMount({
           ← sessions
         </Button>
         <h1>perf-rail</h1>
-        <Badge variant="outline" className="connection-badge connection-closed">
+        <Badge variant="outline" className="text-muted-foreground connection-closed">
           closed
         </Badge>
       </header>
-      <div className="session-meta">
+      <div className="flex flex-wrap gap-3 border-b border-border pb-2 mb-4 text-[0.85rem]">
         <Badge variant="done">DONE</Badge>
-        <span className="dim">synthetic feed</span>
-        <span className="dim">turn renderer</span>
+        <span className="text-muted-foreground">synthetic feed</span>
+        <span className="text-muted-foreground">turn renderer</span>
       </div>
-      <p className="perf-height-result" data-testid="rail-result" data-measure={measure ? JSON.stringify(measure) : ""}>
+      <p className="mb-4 font-mono" data-testid="rail-result" data-measure={measure ? JSON.stringify(measure) : ""}>
         {measure ? (
           <>
             Rail: <strong>{measure.entries} entries</strong> · {measure.phases} phases ·{" "}

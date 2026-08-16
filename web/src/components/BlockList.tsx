@@ -48,7 +48,7 @@ export function BlockList({ items, live, filter = "all", getToolCall = NOOP_GET_
       {[...live.pendingTools.entries()].map(([id, pending]) => (
         <LivePendingToolBlock key={id} toolCallId={id} pending={pending} />
       ))}
-      {empty && <p className="empty-row">Waiting for the run to start…</p>}
+      {empty && <p className="p-4 text-muted-foreground">Waiting for the run to start…</p>}
     </div>
   );
 }

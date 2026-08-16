@@ -51,7 +51,7 @@ export function EvalListScreen({ onOpen }: { onOpen: (id: string) => void }) {
         <>
           {tokenReady &&
             (token === null ? (
-              <span className="eval-absent">run control is not configured</span>
+              <span className="text-muted-foreground">run control is not configured</span>
             ) : (
               <Button size="sm" onClick={() => setStartOpen((open) => !open)} title="Start an eval">
                 <Play />
@@ -83,14 +83,14 @@ export function EvalListScreen({ onOpen }: { onOpen: (id: string) => void }) {
   if (runs === null)
     return (
       <div className="screen">
-        <p className="eval-empty">Loading…</p>
+        <p className="py-8 text-muted-foreground">Loading…</p>
       </div>
     );
   if (runs.length === 0) {
     return (
-      <div className="screen eval-list">
+      <div className="screen pt-8">
         {form}
-        <p className="eval-empty">
+        <p className="py-8 text-muted-foreground">
           No eval runs yet. Start one above, or with{" "}
           <code>harness eval run -suite search -variants base,search-first</code>.
         </p>
@@ -99,9 +99,9 @@ export function EvalListScreen({ onOpen }: { onOpen: (id: string) => void }) {
   }
 
   return (
-    <div className="screen eval-list">
+    <div className="screen pt-8">
       {form}
-      <div className="eval-table-scroll">
+      <div className="overflow-x-auto">
         <RTTable>
           <RTHead>
             <tr>
@@ -136,11 +136,11 @@ function EvalRow({ run, onOpen }: { run: EvalRunRow; onOpen: (id: string) => voi
         <Badge variant={evalStatusVariant(run.status)}>{run.status.toUpperCase()}</Badge>
       </RTLead>
       <RTCell label="Eval" wide>
-        <span className="eval-suite">{run.suite}</span>
-        {run.note && <span className="eval-note">{run.note}</span>}
+        <span className="block font-medium">{run.suite}</span>
+        {run.note && <span className="block text-[0.85em] text-muted-foreground">{run.note}</span>}
       </RTCell>
       <RTCell label="Compared" wide>
-        <span className="eval-variants">
+        <span className="inline-flex flex-wrap gap-1">
           {run.variants.map((v) => (
             <Badge key={v} variant="outline">
               {v}
@@ -149,13 +149,13 @@ function EvalRow({ run, onOpen }: { run: EvalRunRow; onOpen: (id: string) => voi
         </span>
       </RTCell>
       <RTCell label="Runs" wide>
-        <span className="eval-runs">
+        <span>
           {run.finished}/{run.total}
-          {run.failed > 0 && <span className="eval-failed"> · {run.failed} failed</span>}
+          {run.failed > 0 && <span className="text-destructive"> · {run.failed} failed</span>}
         </span>
         {isRunning(run) && (
-          <span className="eval-progress" aria-hidden>
-            <span style={{ width: `${Math.round(evalRunProgress(run) * 100)}%` }} />
+          <span className="mt-[5px] block h-[5px] w-[6ch] overflow-hidden rounded-full bg-border" aria-hidden>
+            <span className="block h-full bg-primary" style={{ width: `${Math.round(evalRunProgress(run) * 100)}%` }} />
           </span>
         )}
       </RTCell>
@@ -167,12 +167,12 @@ function EvalRow({ run, onOpen }: { run: EvalRunRow; onOpen: (id: string) => voi
       </RTCell>
       <RTCell label="Headline" wide>
         {run.headline ? (
-          <span className={run.headline.significant ? "eval-headline is-significant" : "eval-headline"}>
+          <span className={cn("tabular-nums", run.headline.significant && "font-semibold")}>
             {metricLabel(run.headline.metric)} {formatDelta(run.headline.metric, run.headline.diff)}
-            {run.headline.significant && <span className="eval-star"> *</span>}
+            {run.headline.significant && <span className="text-primary"> *</span>}
           </span>
         ) : (
-          <span className="eval-absent">—</span>
+          <span className="text-muted-foreground">—</span>
         )}
       </RTCell>
     </RTRow>

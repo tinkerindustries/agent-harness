@@ -34,7 +34,7 @@ export function Pager({
   const first = offsetFor(safe, perPage) + 1;
   const last = Math.min(safe * perPage, total);
   return (
-    <div className={cn("pager", className)} aria-label={label}>
+    <div className={cn("flex items-center gap-3 mt-2", className)} aria-label={label}>
       <Button
         variant="outline"
         size="sm"
@@ -44,7 +44,7 @@ export function Pager({
       >
         Prev
       </Button>
-      <span className="pager-info">
+      <span className="text-xs text-muted-foreground">
         Page {safe} of {count}
       </span>
       <Button
@@ -56,7 +56,7 @@ export function Pager({
       >
         Next
       </Button>
-      <span className="pager-range">
+      <span className="ml-auto text-xs text-muted-foreground">
         {first}–{last} of {total}
       </span>
     </div>

@@ -73,7 +73,7 @@ function ToolResultContent({ block }: { block: ToolResultData }) {
       return (
         <>
           <ScreenshotGallery paths={screenshotPaths(block.call)} />
-          <p className="block-text dim">{block.content}</p>
+          <p className="block-text text-muted-foreground">{block.content}</p>
         </>
       );
 
@@ -126,7 +126,7 @@ function ToolResultContent({ block }: { block: ToolResultData }) {
       return (
         <>
           <ScreenshotGallery paths={screenshotPaths(block.call)} />
-          <p className="block-text dim">{block.content}</p>
+          <p className="block-text text-muted-foreground">{block.content}</p>
         </>
       );
 
@@ -135,7 +135,7 @@ function ToolResultContent({ block }: { block: ToolResultData }) {
       // The plan mutations' result (the rendered checklist / the patched
       // line) is exactly what the plan panel shows, so the transcript keeps
       // a dim one-liner rather than echoing the whole list.
-      return <p className="block-text dim">Plan updated — see the panel.</p>;
+      return <p className="block-text text-muted-foreground">Plan updated — see the panel.</p>;
 
     case "Task":
       return (

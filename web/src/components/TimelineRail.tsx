@@ -183,7 +183,10 @@ export const TimelineRail = memo(function TimelineRail({ items, getToolCall, fil
         {phases.map((phase) => (
           <AccordionItem key={phase.id} value={String(phase.id)} className="border-b-0">
             <AccordionTrigger className="group w-full cursor-pointer gap-1.5 border-0 bg-transparent px-2.5 py-[5px] text-left font-[inherit] text-xs text-muted-foreground hover:bg-accent">
-              <span className="caret flex-none group-data-[state=open]:rotate-90" aria-hidden>
+              <span
+                className="flex-none text-muted-foreground transition-transform [transition-duration:var(--dur-caret)] motion-reduce:transition-none group-data-[state=open]:rotate-90"
+                aria-hidden
+              >
                 ▸
               </span>
               <span className="min-w-0 flex-1 truncate group-data-[state=open]:font-semibold group-data-[state=open]:text-foreground">

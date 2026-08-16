@@ -224,40 +224,45 @@ export function OperationsScreen() {
   return (
     <div className="screen">
       {loadError && (
-        <div className="ops-error ops-error-banner">could not load operations: {loadError}</div>
+        <div className="mb-2 rounded-sm border border-[var(--status-failed)] p-2 text-[0.85rem] text-[var(--status-failed)]">
+          could not load operations: {loadError}
+        </div>
       )}
-      {data === null && !loadError && <p className="dim">Loading operations…</p>}
+      {data === null && !loadError && <p className="text-muted-foreground">Loading operations…</p>}
 
       {data && (
         <>
-          <div className="ops-strip">
+          <div className="mb-5 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-border px-3 py-[7px] text-sm text-muted-foreground">
             <span>
-              <b>{stuck.length}</b> stuck session{stuck.length === 1 ? "" : "s"}
+              <b className="font-semibold text-foreground tabular-nums">{stuck.length}</b> stuck session
+              {stuck.length === 1 ? "" : "s"}
             </span>
-            <span className="sep">·</span>
+            <span className="text-border">·</span>
             <span>
-              <b>{data.requests.length}</b> running work request{data.requests.length === 1 ? "" : "s"}
+              <b className="font-semibold text-foreground tabular-nums">{data.requests.length}</b> running work
+              request{data.requests.length === 1 ? "" : "s"}
             </span>
-            <span className="sep">·</span>
+            <span className="text-border">·</span>
             <span>
-              <b>{data.leases.length}</b> workspace lease{data.leases.length === 1 ? "" : "s"}
+              <b className="font-semibold text-foreground tabular-nums">{data.leases.length}</b> workspace lease
+              {data.leases.length === 1 ? "" : "s"}
             </span>
-            <span className="spacer" />
+            <span className="flex-1" />
             <span>“quiet” means no event — or no heartbeat — for more than 10 minutes</span>
           </div>
 
-          <section className="list-section">
-            <div className="section-head">
-              <h2>Stuck sessions</h2>
-              <span className="count">
+          <section className="[&+&]:mt-5">
+            <div className="flex items-baseline gap-2 mb-2">
+              <h2 className="m-0 text-[0.85rem] font-semibold">Stuck sessions</h2>
+              <span className="text-xs text-muted-foreground">
                 {stuck.length} session{stuck.length === 1 ? "" : "s"} still running, quiet past the idle
                 threshold
               </span>
             </div>
             {stuck.length === 0 ? (
-              <p className="dim ops-empty">No stuck sessions.</p>
+              <p className="text-muted-foreground py-2">No stuck sessions.</p>
             ) : (
-              <div className="table-scroll">
+              <div className="overflow-x-auto">
                 <RTTable>
                   <RTHead>
                     <tr>
@@ -289,17 +294,17 @@ export function OperationsScreen() {
             )}
           </section>
 
-          <section className="list-section">
-            <div className="section-head">
-              <h2>Work requests</h2>
-              <span className="count">
+          <section className="[&+&]:mt-5">
+            <div className="flex items-baseline gap-2 mb-2">
+              <h2 className="m-0 text-[0.85rem] font-semibold">Work requests</h2>
+              <span className="text-xs text-muted-foreground">
                 {data.requests.length} running request{data.requests.length === 1 ? "" : "s"}
               </span>
             </div>
             {data.requests.length === 0 ? (
-              <p className="dim ops-empty">No running work requests.</p>
+              <p className="text-muted-foreground py-2">No running work requests.</p>
             ) : (
-              <div className="table-scroll">
+              <div className="overflow-x-auto">
                 <RTTable>
                   <RTHead>
                     <tr>
@@ -330,17 +335,17 @@ export function OperationsScreen() {
             )}
           </section>
 
-          <section className="list-section">
-            <div className="section-head">
-              <h2>Workspace leases</h2>
-              <span className="count">
+          <section className="[&+&]:mt-5">
+            <div className="flex items-baseline gap-2 mb-2">
+              <h2 className="m-0 text-[0.85rem] font-semibold">Workspace leases</h2>
+              <span className="text-xs text-muted-foreground">
                 {data.leases.length} lease{data.leases.length === 1 ? "" : "s"}
               </span>
             </div>
             {data.leases.length === 0 ? (
-              <p className="dim ops-empty">No leases.</p>
+              <p className="text-muted-foreground py-2">No leases.</p>
             ) : (
-              <div className="table-scroll">
+              <div className="overflow-x-auto">
                 <RTTable>
                   <RTHead>
                     <tr>
@@ -423,9 +428,9 @@ function StuckSessionRow({
   return (
     <RTRow>
       <RTCell label="Session" wide>
-        <div className="sess-cell">
-          <span className="sess-id">{session.id}</span>
-          <span className="sess-sub truncate">
+        <div className="flex min-w-0 flex-col gap-px whitespace-normal wrap-anywhere">
+          <span className="font-mono text-sm">{session.id}</span>
+          <span className="line-clamp-3 text-xs text-muted-foreground">
             <ElidedPath path={session.workspace} keepSession />
             {session.model && <> · {session.model}</>}
           </span>
@@ -439,11 +444,11 @@ function StuckSessionRow({
       </RTCell>
       <RTActions className="min-w-[180px]">
         {confirming ? (
-          <div className="ops-confirm max-phone:w-full">
+          <div className="flex flex-col items-start gap-[6px] text-sm text-foreground max-phone:w-full">
             <span>
-              Delete session <code>{session.id}</code> and its entire event log? This cannot be undone.
+              Delete session <code className="rounded bg-muted px-1 font-mono">{session.id}</code> and its entire event log? This cannot be undone.
             </span>
-            <div className="ops-confirm-buttons">
+            <div className="flex gap-2">
               <Button variant="destructive" size="sm" onClick={onConfirmDelete} disabled={busy}>
                 <Trash />
                 Delete
@@ -454,7 +459,7 @@ function StuckSessionRow({
             </div>
           </div>
         ) : (
-          <div className="ops-actions max-phone:self-end">
+          <div className="flex items-center gap-2 max-phone:self-end">
             <Button variant="outline" size="sm" onClick={onClose} disabled={busy}>
               Close
             </Button>
@@ -464,7 +469,7 @@ function StuckSessionRow({
             </Button>
           </div>
         )}
-        {error && <span className="field-error">{error}</span>}
+        {error && <span className="text-xs font-mono text-[var(--status-failed)] basis-full">{error}</span>}
       </RTActions>
     </RTRow>
   );
@@ -505,11 +510,11 @@ function WorkRequestRowView({
       </RTCell>
       <RTActions className="min-w-[180px]">
         {confirming ? (
-          <div className="ops-confirm max-phone:w-full">
+          <div className="flex flex-col items-start gap-[6px] text-sm text-foreground max-phone:w-full">
             <span>
-              Delete work request <code>{row.request_id}</code> and its row? This cannot be undone.
+              Delete work request <code className="rounded bg-muted px-1 font-mono">{row.request_id}</code> and its row? This cannot be undone.
             </span>
-            <div className="ops-confirm-buttons">
+            <div className="flex gap-2">
               <Button variant="destructive" size="sm" onClick={onConfirmDelete} disabled={busy}>
                 <Trash />
                 Delete
@@ -520,7 +525,7 @@ function WorkRequestRowView({
             </div>
           </div>
         ) : (
-          <div className="ops-actions max-phone:self-end">
+          <div className="flex items-center gap-2 max-phone:self-end">
             <Button variant="outline" size="sm" onClick={onClose} disabled={busy}>
               Close
             </Button>
@@ -530,7 +535,7 @@ function WorkRequestRowView({
             </Button>
           </div>
         )}
-        {error && <span className="field-error">{error}</span>}
+        {error && <span className="text-xs font-mono text-[var(--status-failed)] basis-full">{error}</span>}
       </RTActions>
     </RTRow>
   );
@@ -567,17 +572,17 @@ function LeaseRow({ row, now, busy, confirming, error, onRelease, onConfirmRelea
       </RTCell>
       <RTActions className="min-w-[180px]">
         {confirming ? (
-          <div className="ops-confirm max-phone:w-full">
+          <div className="flex flex-col items-start gap-[6px] text-sm text-foreground max-phone:w-full">
             <span>
               Release the lease on{" "}
-              <code>
+              <code className="rounded bg-muted px-1 font-mono">
                 {/* The session directory is what identifies the lease, so the
                     confirmation stays unambiguous with the root elided. */}
                 <ElidedPath path={row.workspace} keepSession />
               </code>
               ? Its row is removed.
             </span>
-            <div className="ops-confirm-buttons">
+            <div className="flex gap-2">
               <Button variant="destructive" size="sm" onClick={onConfirmRelease} disabled={busy}>
                 <LockOpen />
                 Release
@@ -588,14 +593,14 @@ function LeaseRow({ row, now, busy, confirming, error, onRelease, onConfirmRelea
             </div>
           </div>
         ) : (
-          <div className="ops-actions max-phone:self-end">
+          <div className="flex items-center gap-2 max-phone:self-end">
             <Button variant="destructive" size="sm" onClick={onRelease} disabled={busy}>
               <LockOpen />
               Release
             </Button>
           </div>
         )}
-        {error && <span className="field-error">{error}</span>}
+        {error && <span className="text-xs font-mono text-[var(--status-failed)] basis-full">{error}</span>}
       </RTActions>
     </RTRow>
   );

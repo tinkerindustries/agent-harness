@@ -60,7 +60,10 @@ function LiveTurn({ turn }: { turn: LiveTurn }) {
         // same as Turn.tsx's own disclosure.
         <details className="think" open>
           <summary className="-ml-1 inline-flex list-none items-center gap-1.5 rounded px-1 py-px text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:[outline:2px_solid_var(--ring)] focus-visible:outline-offset-1 max-phone:min-h-11 max-phone:px-2 max-phone:py-2.5">
-            <span className="caret" aria-hidden>
+            <span
+              className="text-muted-foreground transition-transform [transition-duration:var(--dur-caret)] motion-reduce:transition-none"
+              aria-hidden
+            >
               ▸
             </span>
             Thinking…{elapsed && ` ${elapsed}`}
@@ -145,7 +148,7 @@ function LiveToolRow({ call, pending }: { call: ToolCallPayload; pending?: Pendi
     <details className="tool rounded-[calc(var(--radius)-2px)] border border-[var(--status-running)] bg-card [&+&]:mt-1" open>
       <summary className="flex list-none items-center gap-2 rounded-[calc(var(--radius)-3px)] px-2.5 py-[7px] text-sm cursor-pointer hover:bg-accent focus-visible:[outline:2px_solid_var(--ring)] focus-visible:outline-offset-[-2px] max-phone:min-h-11 max-phone:px-3 max-phone:py-2.5">
         <span aria-hidden className="flex w-[13px] flex-none justify-center text-center text-xs text-[var(--status-running)]">
-          <span className="dot dot-pulse" />
+          <span className="h-1.5 w-1.5 flex-none rounded-full bg-current dot-pulse" />
         </span>
         <span className="flex-none font-mono text-xs font-semibold">{call.name}</span>
         {target && <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">{target}</span>}

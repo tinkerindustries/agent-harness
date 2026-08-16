@@ -10,7 +10,7 @@ import { cn } from "@/lib/utils";
 // rendering, which draws the same shape for the run's opening instruction.
 export const MSG_CLS = "mb-[22px] ml-10 max-nav:ml-0";
 export const MSG_USER_CLS = "border-l-2 border-[var(--status-running)] py-px pl-[13px]";
-export const MSG_BODY_CLS = "font-mono text-sm leading-[1.55] whitespace-pre-wrap";
+export const MSG_BODY_CLS = "font-mono text-sm leading-[1.55] whitespace-pre-wrap max-phone:text-base";
 export const MSG_STATE_CLS = "flex items-center gap-1.5 mt-[5px] text-micro text-muted-foreground";
 
 // SteerMessage is a sent operator message on the chat page (.msg-user,
@@ -105,7 +105,7 @@ export function SteerMessage({ block, sentAt, wait, runEnded }: Props) {
     <div className={cn(MSG_CLS, MSG_USER_CLS)}>
       <div className={MSG_BODY_CLS}>{block.text}</div>
       <div className={cn(MSG_STATE_CLS, "text-[var(--status-gaveup)]")}>
-        <span className="dot dot-pulse" aria-hidden />
+        <span className="h-1.5 w-1.5 flex-none rounded-full bg-current dot-pulse" aria-hidden />
         pending{age ? ` · ${age}` : ""} · {pendingWaitLabel(wait.hasToolRound, wait.liveSubTurn)}
       </div>
     </div>

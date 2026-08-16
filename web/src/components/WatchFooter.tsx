@@ -94,11 +94,12 @@ export function WatchFooter({
   }, [live.pendingTools, live.turn, items, getToolCall, now]);
 
   return (
-    // "footer" stays a literal class only to keep the shared
-    // .footer .statusline margin-top scoped (ChatComposer.tsx's footer
-    // carries the same class) — every other footer/footer-inner property
-    // is a direct Tailwind utility, since the two footers' grid columns
-    // differ enough that a shared modifier class wasn't worth keeping.
+    // "footer" stays a literal class only for the grid-collapse and padding
+    // overrides in styles.css (max-width: 1120px/720px, alongside the
+    // rail's own display:none at the first) — every other footer/
+    // footer-inner property is a direct Tailwind utility, since the two
+    // footers' grid columns differ enough that a shared modifier class
+    // wasn't worth keeping.
     <div className="footer grid grid-cols-[244px_minmax(0,1fr)] border-t border-border bg-background px-6 pt-2.5 pb-[9px]">
       {/* .footer's own grid-template-columns collapses to a single column
           below 1120px with !important (styles.css, alongside the rail's own
@@ -131,9 +132,9 @@ export function WatchFooter({
             </span>
           </div>
         )}
-        {stop.error && <span className="field-error">{stop.error}</span>}
+        {stop.error && <span className="text-xs font-mono text-[var(--status-failed)] basis-full">{stop.error}</span>}
         <div className="mb-1.5 flex items-center gap-2 text-sm">
-          <span className="dot dot-pulse" style={{ color: "var(--status-running)" }} aria-hidden />
+          <span className="h-1.5 w-1.5 flex-none rounded-full bg-current dot-pulse" style={{ color: "var(--status-running)" }} aria-hidden />
           <span className="font-mono text-xs font-semibold">{activity.name}</span>
           {activity.arg && <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">{activity.arg}</span>}
           <span className="max-w-[45%] flex-none truncate text-xs text-muted-foreground">
@@ -146,36 +147,36 @@ export function WatchFooter({
             className="inline-flex h-[26px] cursor-pointer items-center gap-1.5 rounded-full border border-ring bg-secondary px-2.5 font-[inherit] text-xs text-foreground max-phone:min-h-11 max-phone:px-4"
             onClick={onToggleFollow}
           >
-            <span className="dot" style={{ color: following ? "var(--status-running)" : "var(--muted-foreground)" }} aria-hidden />
+            <span className="h-1.5 w-1.5 flex-none rounded-full bg-current" style={{ color: following ? "var(--status-running)" : "var(--muted-foreground)" }} aria-hidden />
             {following ? "Following live" : "Follow live"}
           </button>
         </div>
-        <div className="statusline">
+        <div className="mt-[7px] flex flex-wrap items-center gap-2 max-phone:gap-y-1 text-[0.6875rem] text-muted-foreground tabular-nums">
           {status.subTurn !== null ? (
             <>
               <span>sub-turn {status.subTurn}</span>
-              <span className="sep">·</span>
+              <span className="text-[color-mix(in_srgb,var(--muted-foreground)_50%,transparent)]">·</span>
               {/* Cost and cache rate move while the run is live, so they roll;
                   the rest of the line is either static or ticking too fast to
                   be worth a gesture. */}
               <Ticker value={cachePercent(status.cacheHitTokens, status.cacheMissTokens)} suffix="% cache" />
-              <span className="sep">·</span>
+              <span className="text-[color-mix(in_srgb,var(--muted-foreground)_50%,transparent)]">·</span>
               <span title="Price table captured by the server's pricing config">
                 <Ticker value={formatCost(status.costUsd)} prefix="$" />
               </span>
-              <span className="sep">·</span>
+              <span className="text-[color-mix(in_srgb,var(--muted-foreground)_50%,transparent)]">·</span>
               <span>{status.completionTokens.toLocaleString("en-US")} out</span>
-              <span className="sep">·</span>
+              <span className="text-[color-mix(in_srgb,var(--muted-foreground)_50%,transparent)]">·</span>
               <span>{formatRunDuration(elapsedMs)} elapsed</span>
             </>
           ) : (
             <>
               <span>{meta.model}</span>
-              <span className="sep">·</span>
+              <span className="text-[color-mix(in_srgb,var(--muted-foreground)_50%,transparent)]">·</span>
               <span>effort {meta.effort}</span>
             </>
           )}
-          <span className="spacer" />
+          <span className="flex-1" />
           <span>read-only — no steering on an agent-launched run</span>
         </div>
       </div>

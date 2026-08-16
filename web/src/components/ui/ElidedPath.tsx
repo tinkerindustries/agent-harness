@@ -39,7 +39,7 @@ export function ElidedPath({
     <span className={cn(className, expanded && "path-full")}>
       <button
         type="button"
-        className="path-elide"
+        className="mr-0.5 cursor-pointer rounded-[3px] border border-dashed border-border bg-muted px-[3px] py-px align-baseline font-mono text-[0.6875rem] leading-none text-muted-foreground select-none hover:border-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-[var(--ring)] focus-visible:outline-offset-1 max-phone:inline-flex max-phone:min-h-11 max-phone:min-w-11 max-phone:items-center max-phone:justify-center max-phone:px-1.5 max-phone:py-0 max-phone:align-middle"
         aria-expanded={expanded}
         title={expanded ? "Shorten the path" : "Show the full path"}
         aria-label={expanded ? "Shorten the path" : "Show the full path"}

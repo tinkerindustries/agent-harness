@@ -87,9 +87,9 @@ export function HeightHarness() {
 
   return (
     <HeightMount store={store} seeded={seeded} onHeight={setHeight}>
-      <p className="perf-height-result" data-testid="perf-height" data-blocks={blocks} data-sub-turns={subTurns}>
+      <p className="mb-4 font-mono" data-testid="perf-height" data-blocks={blocks} data-sub-turns={subTurns}>
         Scroll height: <strong>{height === null ? "…" : height.toLocaleString("en-US")} px</strong>{" "}
-        <span className="dim">(baseline 86,674 px, card transcript)</span>
+        <span className="text-muted-foreground">(baseline 86,674 px, card transcript)</span>
       </p>
     </HeightMount>
   );
@@ -128,19 +128,19 @@ function HeightMount({
           ← sessions
         </Button>
         <h1>perf-height</h1>
-        <Badge variant="outline" className="connection-badge connection-closed">
+        <Badge variant="outline" className="text-muted-foreground connection-closed">
           closed
         </Badge>
       </header>
-      <div className="session-meta">
+      <div className="flex flex-wrap gap-3 border-b border-border pb-2 mb-4 text-[0.85rem]">
         <Badge variant="done">DONE</Badge>
-        <span className="dim">synthetic feed</span>
-        <span className="dim">turn renderer</span>
+        <span className="text-muted-foreground">synthetic feed</span>
+        <span className="text-muted-foreground">turn renderer</span>
       </div>
       {children}
       <TranscriptToolbar filter={filter} onFilterChange={setFilter} counts={snapshot.counts} />
       {snapshot.churnPoint && (
-        <div className="notice churn-banner">
+        <div className="mb-4 rounded-md border border-border border-l-[3px] border-l-[var(--status-gaveup)] bg-[var(--status-gaveup-bg)] px-3 py-2 text-sm text-foreground [&_a]:font-semibold [&_a]:text-[var(--status-gaveup)]">
           <b>
             Cache churn at sub-turn {snapshot.churnPoint.subTurn}: {snapshot.churnPoint.excessTokens.toLocaleString("en-US")} tokens
             re-sent above the expected miss.

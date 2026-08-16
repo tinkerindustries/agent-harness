@@ -539,6 +539,10 @@ html {
   }
 }
 
+/* .screen is the shared page container every screen sits inside (a screen
+   that rolls its own padding runs edge to edge under the inset nav —
+   styles.test.ts guards this one staying defined), kept as CSS rather than
+   duplicated inline across the ~10 files that use it. */
 .screen {
   max-width: 960px;
   margin: 0 auto;
@@ -566,224 +570,29 @@ html {
   white-space: nowrap;
 }
 
-.topnav-flush {
-  max-width: none;
-  margin-left: 0;
-  margin-right: 0;
-}
+/* .topnav-flush's own max-width/margin are inline Tailwind on the header
+   now (TopNav.tsx); this pair survives because they key off .app/.page,
+   which SessionScreen.tsx sets on <body> outside React — no className on
+   a component can reach that ancestor. */
 .app .topnav-flush,
 body.page .topnav-flush {
   padding-left: 16px;
   padding-right: 16px;
 }
 
+/* .topnav-right stays a literal class only to reach into markup it does
+   not render itself: [data-slot="input-wrapper"] belongs to whatever
+   Input a screen puts in the nav's right slot (ui/input.tsx), and
+   .statusline below belongs to SessionWatchScreen's own nav content —
+   both opaque children TopNav.tsx only wraps. */
 .topnav-right [data-slot="input-wrapper"] {
   flex: 1 1 140px;
   min-width: 0;
-}
-.topnav .nav-search {
-  height: 30px;
-  width: 100%;
-  max-width: 220px;
-  font-size: 0.8125rem;
-}
-
-.dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: currentColor;
-  flex: none;
-}
-
-.dim {
-  color: var(--muted-foreground);
-}
-
-.table-scroll {
-  overflow-x: auto;
 }
 
 code,
 pre {
   font-family: var(--font-mono);
-}
-
-.empty-row {
-  color: var(--muted-foreground);
-  padding: calc(var(--space) * 2);
-}
-
-.pager {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: var(--space);
-}
-
-.pager-top {
-  margin-top: 0;
-  margin-bottom: var(--space);
-}
-
-.pager-info,
-.pager-range {
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-}
-
-.pager-range {
-  margin-left: auto;
-}
-
-.list-section + .list-section {
-  margin-top: calc(var(--space) * 2.5);
-}
-
-.section-head {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-bottom: var(--space);
-}
-
-.section-head h2 {
-  font-size: 0.85rem;
-  font-weight: 600;
-  margin: 0;
-}
-
-.section-head .count {
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-}
-
-.inflight-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space);
-}
-
-.run-plan .plan-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.run-plan .plan-list .todo-item {
-  display: grid;
-  grid-template-columns: 16px minmax(0, 1fr);
-  gap: 8px;
-  padding: 3px 0 3px 8px;
-  font-size: 0.8125rem;
-  border-left: 2px solid transparent;
-  align-items: baseline;
-}
-
-.run-plan .plan-list .todo-mark {
-  /* color/width used to come for free from the bare .todo-mark rule below,
-     which PlanPanel's own (Tailwind) rendering no longer needs and has
-     lost; inlined here so this in-flight-card override stays correct on
-     its own (PlanList.tsx, SessionListScreen.tsx's InFlightCard). */
-  color: var(--muted-foreground);
-  width: 1em;
-  text-align: center;
-  line-height: 1.5;
-}
-
-.run-plan .plan-list li.todo-completed {
-  color: var(--muted-foreground);
-}
-
-.run-plan .plan-list li.todo-completed .todo-mark {
-  color: var(--status-done);
-}
-
-.run-plan .plan-list li.todo-in_progress {
-
-  font-weight: 500;
-}
-
-.run-plan .plan-list li.todo-in_progress .todo-mark {
-  color: var(--status-running);
-}
-
-.run-plan .plan-list li.todo-pending {
-  color: var(--foreground);
-}
-
-.run-plan .todo-completed {
-  text-decoration: none;
-}
-
-
-.sess-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-
-  min-width: 0;
-  white-space: normal;
-  overflow-wrap: anywhere;
-}
-
-.sess-id {
-  font-family: var(--font-mono);
-  font-size: 0.8125rem;
-}
-
-.sess-title {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-weight: 600;
-  color: var(--foreground);
-}
-
-.sess-desc {
-  font-size: 0.8125rem;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.sess-sub {
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.session-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: calc(var(--space) * 1.5);
-  font-size: 0.85rem;
-  margin-bottom: calc(var(--space) * 2);
-  padding-bottom: var(--space);
-  border-bottom: 1px solid var(--border);
-}
-
-/* SessionWatchScreen.tsx's/SessionChatScreen.tsx's own connection badge now
-   computes its colour from snapshot.connection directly; these two survive
-   only for web/src/perf/HeightHarness.tsx and RailHarness.tsx, out of
-   scope for this pass. */
-.connection-badge {
-  color: var(--muted-foreground);
-}
-
-.connection-open {
-  color: var(--status-done);
-  border-color: var(--status-done);
 }
 
 .transcript {
@@ -941,43 +750,6 @@ pre {
 
 .churn-warning {
   color: var(--status-gaveup);
-}
-
-/* .notice/.churn-banner: every product-screen consumer (SettingsScreen's
-   unset-secret notice, SessionWatchScreen's/SessionChatScreen's churn
-   banner) converted to Tailwind utilities in this pass, but
-   web/src/perf/HeightHarness.tsx still renders the same
-   `className="notice churn-banner"` shape and is out of scope here — a
-   perf-measurement harness, not a screen. Kept as residual CSS rather
-   than converting a file this pass isn't touching. */
-.notice {
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--status-gaveup);
-  background: var(--status-gaveup-bg);
-  color: var(--foreground);
-  border-radius: calc(var(--radius) - 2px);
-  padding: 8px 12px;
-  font-size: 0.8125rem;
-}
-
-.churn-banner {
-  margin-bottom: 16px;
-}
-
-.churn-banner a {
-  color: var(--status-gaveup);
-  font-weight: 600;
-}
-
-.rate-peak {
-  color: var(--status-gaveup);
-  text-transform: uppercase;
-  font-size: 0.625rem;
-  letter-spacing: 0.06em;
-}
-
-.opening-summary[aria-expanded="true"] .caret {
-  transform: rotate(90deg);
 }
 
 .opening-summary {
@@ -1165,229 +937,8 @@ pre {
   flex-direction: column;
 }
 
-.diff-table {
-  border-collapse: collapse;
-  font-size: 0.8rem;
-  width: 100%;
-}
-
-.diff-table td {
-  padding: 0 6px;
-  vertical-align: top;
-}
-
-.diff-table pre {
-  margin: 0;
-  white-space: pre-wrap;
-}
-
-.diff-lineno {
-  color: var(--diff-gutter);
-  text-align: right;
-  width: 3em;
-  user-select: none;
-}
-
-.diff-marker {
-  width: 1em;
-  text-align: center;
-  user-select: none;
-}
-
-.diff-add {
-  background: var(--diff-add-bg);
-}
-
-.diff-add .diff-marker {
-  color: var(--diff-add-fg);
-}
-
-.diff-remove {
-  background: var(--diff-remove-bg);
-}
-
-.diff-remove .diff-marker {
-  color: var(--diff-remove-fg);
-}
-
-.queue-health {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.8rem;
-  color: var(--muted-foreground);
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) - 4px);
-  padding: 4px 8px;
-  margin-bottom: var(--space);
-}
-
-.queue-health svg {
-  flex: none;
-  width: var(--icon-xs);
-  height: var(--icon-xs);
-}
-
-.queue-health-halted {
-  color: var(--status-gaveup);
-  border-color: var(--status-gaveup);
-  font-weight: 600;
-}
-
-.caret {
-  color: var(--muted-foreground);
-  transition: transform var(--dur-caret) var(--ease);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .caret {
-    transition: none;
-  }
-}
-
-.facts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 18px;
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-}
-
-.field-error {
-  font-size: 0.75rem;
-  color: var(--status-failed);
-  font-family: var(--font-mono);
-  flex-basis: 100%;
-}
-
-.hint {
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-}
-
-.nav-note {
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  white-space: nowrap;
-}
-
-.ops-strip {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  padding: 7px 12px;
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) - 2px);
-  font-size: 0.8125rem;
-  color: var(--muted-foreground);
-
-  margin-bottom: calc(var(--space) * 2.5);
-}
-
-.ops-strip b {
-  color: var(--foreground);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.ops-strip .sep {
-  color: var(--border);
-}
-
-.ops-strip .spacer {
-  flex: 1;
-}
-
-.ops-empty {
-  padding: var(--space) 0;
-}
-
-.ops-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.ops-confirm {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-items: flex-start;
-  font-size: 0.8125rem;
-  color: var(--foreground);
-}
-
-.ops-confirm code {
-  font-family: var(--font-mono);
-  background: var(--muted);
-  padding: 0 4px;
-  border-radius: 4px;
-}
-
-.ops-confirm-buttons {
-  display: flex;
-  gap: 8px;
-}
-
-.stop-pending {
-  font-size: 0.8125rem;
-}
-
-.ops-error {
-  color: var(--status-failed);
-  font-size: 0.85rem;
-}
-
-.ops-error-banner {
-  border: 1px solid var(--status-failed);
-  border-radius: calc(var(--radius) - 4px);
-  padding: var(--space);
-  margin-bottom: var(--space);
-}
-
-.badge-running {
-  background: var(--status-running-bg);
-  color: var(--status-running);
-}
-
-.badge-done {
-  background: var(--status-done-bg);
-  color: var(--status-done);
-}
-
-.badge-gaveup {
-  background: var(--status-gaveup-bg);
-  color: var(--status-gaveup);
-}
-
-.badge-stopped {
-  background: var(--status-stopped-bg);
-  color: var(--status-stopped);
-}
-
-.badge-failed {
-  background: var(--status-failed-bg);
-  color: var(--status-failed);
-}
-
-.badge-restart {
-  border-color: var(--status-gaveup);
-  color: var(--status-gaveup);
-}
-
 .perf-harness {
   max-width: 1200px;
-}
-
-.perf-results {
-  font-family: var(--font-mono);
-  white-space: nowrap;
-}
-
-.perf-height-result {
-  margin: 0 0 16px;
-  font-family: var(--font-mono);
 }
 
 html,
@@ -1407,26 +958,19 @@ body.app #root {
   display: flex;
   flex-direction: column;
 }
-.app .topnav {
-
-  margin-top: 0;
-  margin-bottom: 0;
-  padding: 8px 20px;
-}
+/* .app/.page are the two mutually-exclusive body classes SessionScreen.tsx
+   sets outside React (docs comment there): .topnav-right's own dimming
+   here belongs to .app's fixed-shell mode specifically. The nav's own
+   sticky positioning and .topnav-flush's padding — both bodies wanted —
+   are inline Tailwind on TopNav.tsx's header now (`route.kind ===
+   "session"` is the same condition SessionScreen mounts under), and
+   .topnav-flush's padding pair stay just below since a className on a
+   component still can't reach a body-level ancestor. */
 .app .topnav-right {
   gap: 10px;
   font-size: 0.75rem;
   color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
-}
-
-body.page .topnav {
-  position: sticky;
-  top: 0;
-  z-index: 30;
-  margin-top: 0;
-  margin-bottom: 0;
-  background: var(--background);
 }
 
 /* .work-watch-page is a modifier class SessionWatchScreen.tsx adds only for
@@ -1484,30 +1028,6 @@ body.page .topnav {
   border-radius: 3px;
 }
 
-.path-elide {
-  border: 1px dashed var(--border);
-  border-radius: 3px;
-  background: var(--muted);
-  color: var(--muted-foreground);
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  line-height: 1;
-  padding: 1px 3px;
-  margin-right: 2px;
-  cursor: pointer;
-
-  user-select: none;
-  vertical-align: baseline;
-}
-.path-elide:hover {
-  color: var(--foreground);
-  border-color: var(--muted-foreground);
-}
-.path-elide:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 1px;
-}
-
 .path-full {
   white-space: normal;
   overflow: visible;
@@ -1519,8 +1039,11 @@ body.page .topnav {
 /* The rail's workspace-path value right-aligns as a Tailwind utility
    (WatchRail.tsx/ChatRail.tsx); .v survives there as a literal class only so
    this one override — flipping to left when ElidedPath expands it — still
-   applies on top. */
-.rail .facts .v.path-full {
+   applies on top. (Was scoped as ".rail .facts .v.path-full"; ".facts" was
+   dead weight — the fact row it named went fully Tailwind before this pass
+   and never carried the class — and .v is unique to these two rail rows
+   regardless, so the ancestor scoping was never load-bearing.) */
+.v.path-full {
   text-align: left;
 }
 
@@ -1539,21 +1062,6 @@ body.page .topnav {
   margin: 0 -6px 16px;
 }
 
-.statusline {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.6875rem;
-  color: var(--muted-foreground);
-  font-variant-numeric: tabular-nums;
-}
-
-.statusline .sep {
-  color: color-mix(in srgb, var(--muted-foreground) 50%, transparent);
-}
-.statusline .spacer {
-  flex: 1;
-}
 kbd {
   font-family: var(--font-mono);
   font-size: 0.6875rem;
@@ -1564,28 +1072,9 @@ kbd {
   color: var(--muted-foreground);
 }
 
-/* .footer survives as a bare selector only to scope this margin — both
-   footers (ChatComposer.tsx, WatchFooter.tsx) keep the literal class for
-   exactly this reason, since everything else about their chrome is now a
-   Tailwind utility. */
-.footer .statusline {
-  margin-top: 7px;
-}
-
-.banner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--status-gaveup);
-  background: var(--status-gaveup-bg);
-  border-radius: calc(var(--radius) - 2px);
-  padding: 8px 12px;
-  font-size: 0.8125rem;
-}
-.banner .spacer {
-  flex: 1;
-}
+/* .footer stays a literal class only for the grid-collapse and padding
+   overrides below (max-width: 1120px/720px) — the statusline it used to
+   scope a margin onto is inline Tailwind on the two footers directly now. */
 
 /* .phase survives as a bare selector only to scope this cross-browser
    <details> marker hider (WatchRail.tsx keeps the literal class for exactly
@@ -1625,14 +1114,6 @@ kbd {
   }
 }
 @media (max-width: 720px) {
-
-  .topnav-right .statusline {
-    flex-wrap: nowrap;
-  }
-
-  .stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
   /* "stream"/"footer" stay literal classes for .app .stream and
      .footer .statusline; this 14px override rides the same classes and
      layers correctly under SessionWatchScreen.tsx's own max-watch:pl-6 —
@@ -1654,11 +1135,6 @@ kbd {
   body.page .topnav-flush {
     padding-left: 12px;
     padding-right: 12px;
-  }
-
-  .topnav .nav-search {
-
-    width: auto;
   }
 
   .topnav-right {
@@ -1687,261 +1163,7 @@ kbd {
 
 }
 
-.eval-list,
-.eval-run {
-  padding-top: var(--space-4);
-}
-
-.eval-empty,
-.eval-error {
-  padding: var(--space-4) 0;
-  color: var(--muted-foreground);
-}
-
-.eval-error {
-  color: var(--destructive);
-}
-
-.eval-suite {
-  display: block;
-  font-weight: 500;
-}
-
-.eval-note {
-  display: block;
-  color: var(--muted-foreground);
-  font-size: 0.85em;
-}
-
-.eval-variants {
-  display: inline-flex;
-  gap: var(--space-half);
-  flex-wrap: wrap;
-}
-
-.eval-failed {
-  color: var(--destructive);
-}
-
-.eval-progress {
-  display: block;
-  width: 6ch;
-  height: 5px;
-  margin-top: 5px;
-  border-radius: 999px;
-  background: var(--border);
-  overflow: hidden;
-}
-
-.eval-progress > span {
-  display: block;
-  height: 100%;
-  background: var(--primary);
-}
-
-.eval-header h1 {
-  margin: 0;
-  font-size: 1.4rem;
-}
-
-.eval-facts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-4);
-  margin: var(--space-4) 0 0;
-}
-
-.eval-fact dt {
-  color: var(--muted-foreground);
-  font-size: 0.8em;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.eval-fact dd {
-  margin: 2px 0 0;
-}
-
-.eval-section {
-  margin-top: var(--space-4);
-}
-
-.eval-section h2 {
-  font-size: 1rem;
-  margin: 0 0 var(--space-3);
-}
-
-.eval-table-scroll {
-  overflow-x: auto;
-}
-
-.eval-mean {
-  display: block;
-}
-
-.eval-spread {
-  display: block;
-  color: var(--muted-foreground);
-  font-size: 0.8em;
-}
-
-.eval-delta,
-.eval-headline {
-  font-variant-numeric: tabular-nums;
-}
-
-.eval-delta.is-significant,
-.eval-headline.is-significant {
-  font-weight: 600;
-}
-
-.eval-star {
-  color: var(--primary);
-}
-
-.eval-absent {
-  color: var(--muted-foreground);
-}
-
-.eval-caption,
-.eval-warning {
-  margin: var(--space-3) 0 0;
-  color: var(--muted-foreground);
-  font-size: 0.85em;
-  max-width: 62ch;
-}
-
-.eval-warning {
-  color: var(--destructive);
-}
-
-
-.eval-session-link {
-  background: none;
-  border: 0;
-  padding: 0;
-  color: var(--primary);
-  cursor: pointer;
-  font: inherit;
-  text-decoration: underline;
-}
-
-.eval-start {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: var(--space-3);
-  margin-bottom: var(--space-4);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  max-width: 70ch;
-}
-
-.eval-start h2 {
-  margin: 0;
-  font-size: 1rem;
-}
-
-.eval-field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-half);
-}
-
-.eval-field > span {
-  color: var(--muted-foreground);
-  font-size: 0.8em;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.eval-field select {
-  background: var(--background);
-  color: var(--foreground);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 6px 8px;
-  font: inherit;
-}
-
-.eval-field-row {
-  display: flex;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-
-.eval-field-row > .eval-field {
-  flex: 1 1 18ch;
-  min-width: 18ch;
-}
-
-.eval-field-row > .eval-field input {
-  min-width: 0;
-}
-
-.eval-variant-picker {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-half);
-}
-
-.eval-variant-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-half);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: none;
-  color: inherit;
-  padding: 4px 10px;
-  font: inherit;
-  cursor: pointer;
-}
-
-.eval-variant-chip.is-on {
-  border-color: var(--primary);
-  background: var(--accent);
-}
-
-.eval-checkbox {
-  display: flex;
-  align-items: center;
-  gap: var(--space-half);
-}
-
-.eval-cost {
-  margin: 0;
-  color: var(--muted-foreground);
-}
-
-.eval-actions {
-  display: flex;
-  gap: var(--space-half);
-}
-
-.eval-variant-order {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 1.3em;
-  height: 1.3em;
-  border-radius: 999px;
-  background: var(--primary);
-  color: var(--primary-foreground);
-  font-size: 0.75em;
-  font-variant-numeric: tabular-nums;
-}
-
-.statusline .hints {
-  display: contents;
-}
-
 @media (max-width: 560px) {
-
-  .topnav .nav-search {
-    height: 44px;
-  }
-
   :root {
     --nav-height: 53px;
   }
@@ -1958,21 +1180,6 @@ kbd {
     min-height: 44px;
     padding: 6px 0;
   }
-  .path-elide {
-    min-height: 44px;
-    min-width: 44px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    vertical-align: middle;
-    padding: 0 6px;
-  }
-  .eval-session-link {
-    display: inline-block;
-    min-height: 44px;
-    padding: 10px 4px;
-  }
-
   .skills-summary {
     min-height: 44px;
     display: flex;
@@ -1991,9 +1198,6 @@ kbd {
     font-size: 0.875rem;
   }
   .block-pre {
-    font-size: 0.875rem;
-  }
-  .msg-user .body {
     font-size: 0.875rem;
   }
 }

@@ -13,6 +13,7 @@ import { FLASH_MODEL_KEY, listModels, resolveModelOptions, settingModel } from "
 import { listSettings } from "../api/settings";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
+import { cn } from "@/lib/utils";
 
 // The start form (docs/EVALS.md): a card above the eval list, following the
 // start-run form's shape. It names only suites and variants this build
@@ -146,13 +147,16 @@ export function EvalStartForm({ token, priorRuns, onClose, onStarted }: Props) {
     }
   }
 
-  return (
-    <div className="eval-start">
-      <h2>Start an eval</h2>
+  const fieldLabel = "text-xs tracking-[0.04em] text-muted-foreground uppercase";
+  const fieldSelect = "bg-background text-foreground border border-border rounded-sm px-2 py-1.5 font-[inherit]";
 
-      <label className="eval-field">
-        <span>Suite</span>
-        <select value={suite} onChange={(e) => setSuite(e.target.value)}>
+  return (
+    <div className="mb-8 flex max-w-[70ch] flex-col gap-4 rounded-lg border border-border p-6">
+      <h2 className="m-0 text-base">Start an eval</h2>
+
+      <label className="flex flex-col gap-1">
+        <span className={fieldLabel}>Suite</span>
+        <select className={fieldSelect} value={suite} onChange={(e) => setSuite(e.target.value)}>
           {suites.map((s) => (
             <option key={s.name} value={s.name}>
               {s.name} ({s.task_ids.length} tasks)
@@ -160,24 +164,33 @@ export function EvalStartForm({ token, priorRuns, onClose, onStarted }: Props) {
           ))}
         </select>
       </label>
-      {selectedSuite?.description && <p className="eval-note">{selectedSuite.description}</p>}
+      {selectedSuite?.description && (
+        <p className="block text-[0.85em] text-muted-foreground">{selectedSuite.description}</p>
+      )}
 
-      <div className="eval-field">
-        <span>Variants — the first is the baseline</span>
-        <div className="eval-variant-picker">
+      <div className="flex flex-col gap-1">
+        <span className={fieldLabel}>Variants — the first is the baseline</span>
+        <div className="flex flex-wrap gap-1">
           {variants.map((v) => {
             const at = chosen.indexOf(v.name);
             return (
               <button
                 key={v.name}
                 type="button"
-                className={at >= 0 ? "eval-variant-chip is-on" : "eval-variant-chip"}
+                className={cn(
+                  "inline-flex cursor-pointer items-center gap-1 rounded-sm border border-border bg-transparent px-2.5 py-1 font-[inherit] text-inherit",
+                  at >= 0 && "border-primary bg-accent",
+                )}
                 onClick={() => toggleVariant(v.name)}
                 title={v.description}
               >
                 {/* The ordinal, not the word "baseline": one of the variants
                     is itself named base, and the two read as a stutter. */}
-                {at >= 0 && <span className="eval-variant-order">{at + 1}</span>}
+                {at >= 0 && (
+                  <span className="inline-flex h-[1.3em] min-w-[1.3em] items-center justify-center rounded-full bg-primary text-[0.75em] text-primary-foreground tabular-nums">
+                    {at + 1}
+                  </span>
+                )}
                 {v.name}
               </button>
             );
@@ -185,14 +198,14 @@ export function EvalStartForm({ token, priorRuns, onClose, onStarted }: Props) {
         </div>
       </div>
 
-      <div className="eval-field-row">
-        <label className="eval-field">
-          <span>Replicates</span>
-          <Input value={replicates} onChange={(e) => setReplicates(e.target.value)} inputMode="numeric" />
+      <div className="flex flex-wrap gap-4">
+        <label className="flex flex-[1_1_18ch] min-w-[18ch] flex-col gap-1">
+          <span className={fieldLabel}>Replicates</span>
+          <Input className="min-w-0" value={replicates} onChange={(e) => setReplicates(e.target.value)} inputMode="numeric" />
         </label>
-        <label className="eval-field">
-          <span>Model</span>
-          <select value={model} onChange={(e) => setModel(e.target.value)}>
+        <label className="flex flex-[1_1_18ch] min-w-[18ch] flex-col gap-1">
+          <span className={fieldLabel}>Model</span>
+          <select className={fieldSelect} value={model} onChange={(e) => setModel(e.target.value)}>
             {models.map((m) => (
               <option key={m} value={m}>
                 {m}
@@ -200,9 +213,10 @@ export function EvalStartForm({ token, priorRuns, onClose, onStarted }: Props) {
             ))}
           </select>
         </label>
-        <label className="eval-field">
-          <span>Max sub-turns</span>
+        <label className="flex flex-[1_1_18ch] min-w-[18ch] flex-col gap-1">
+          <span className={fieldLabel}>Max sub-turns</span>
           <Input
+            className="min-w-0"
             value={maxSubTurns}
             onChange={(e) => setMaxSubTurns(e.target.value)}
             inputMode="numeric"
@@ -211,17 +225,17 @@ export function EvalStartForm({ token, priorRuns, onClose, onStarted }: Props) {
         </label>
       </div>
 
-      <label className="eval-field">
-        <span>Note</span>
+      <label className="flex flex-col gap-1">
+        <span className={fieldLabel}>Note</span>
         <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="what is this run asking?" />
       </label>
 
-      <label className="eval-checkbox">
+      <label className="flex items-center gap-1">
         <input type="checkbox" checked={judge} onChange={(e) => setJudge(e.target.checked)} />
         <span>Judge each transcript with a model as well as the counters</span>
       </label>
 
-      <p className="eval-cost">
+      <p className="m-0 text-muted-foreground">
         {blocker ?? (
           <>
             <strong>{totalRuns} runs</strong>
@@ -231,9 +245,9 @@ export function EvalStartForm({ token, priorRuns, onClose, onStarted }: Props) {
         )}
       </p>
 
-      {error && <p className="eval-error">{error}</p>}
+      {error && <p className="text-destructive">{error}</p>}
 
-      <div className="eval-actions">
+      <div className="flex gap-1">
         <Button onClick={() => void submit()} disabled={!ready}>
           {sending ? "Starting…" : `Start ${totalRuns} runs`}
         </Button>

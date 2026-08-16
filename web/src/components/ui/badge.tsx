@@ -23,15 +23,14 @@ const badgeVariants = cva(
         ghost: "[a&]:hover:bg-accent [a&]:hover:text-accent-foreground",
         link: "text-primary underline-offset-4 [a&]:hover:underline",
         // The harness's own status vocabulary on top of the shadcn badge:
-        // the class names carry the --status-* tints defined in
-        // src/styles.css, ported verbatim. Uppercase matches what the
-        // pre-shadcn .status-badge rendered.
-        running: "badge-running uppercase",
-        done: "badge-done uppercase",
-        gaveup: "badge-gaveup uppercase",
-        stopped: "badge-stopped uppercase",
-        failed: "badge-failed uppercase",
-        restart: "badge-restart uppercase",
+        // the --status-* tints defined in src/styles.css, applied directly.
+        // Uppercase matches what the pre-shadcn .status-badge rendered.
+        running: "bg-[var(--status-running-bg)] text-[var(--status-running)] uppercase",
+        done: "bg-[var(--status-done-bg)] text-[var(--status-done)] uppercase",
+        gaveup: "bg-[var(--status-gaveup-bg)] text-[var(--status-gaveup)] uppercase",
+        stopped: "bg-[var(--status-stopped-bg)] text-[var(--status-stopped)] uppercase",
+        failed: "bg-[var(--status-failed-bg)] text-[var(--status-failed)] uppercase",
+        restart: "border-[var(--status-gaveup)] text-[var(--status-gaveup)] uppercase",
       },
     },
     defaultVariants: {

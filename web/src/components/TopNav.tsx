@@ -65,6 +65,12 @@ export function TopNav({ route, onNavigate, children }: TopNavProps) {
           // A session page runs its bands to the viewport's edges; the nav
           // has to do the same or its rule stops short of them.
           route.kind === "session" && "topnav-flush max-w-none mx-0",
+          // A session page stays sticky at the top so a long, ordinarily-
+          // scrolling transcript (body.page — SessionScreen.tsx) never
+          // scrolls the nav (and its Stop control) out of reach; harmless
+          // when the same route is in the fixed app-shell (body.app)
+          // instead, since nothing there scrolls past the header at all.
+          route.kind === "session" && "sticky top-0 z-30 bg-background",
         )}
       >
         <span

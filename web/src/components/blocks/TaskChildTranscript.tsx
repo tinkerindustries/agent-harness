@@ -20,7 +20,7 @@ export function TaskChildTranscript({ sessionId }: { sessionId: string }) {
         {open ? "Hide" : "Show"} subagent transcript <code className="tool-detail">{sessionId}</code>
       </Button>
       {open && (
-        <Suspense fallback={<p className="dim">Loading…</p>}>
+        <Suspense fallback={<p className="text-muted-foreground">Loading…</p>}>
           <TaskChildBody sessionId={sessionId} />
         </Suspense>
       )}
