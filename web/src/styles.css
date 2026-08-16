@@ -609,15 +609,6 @@ pre {
   font-family: var(--font-mono);
 }
 
-.workspace-cell {
-  max-width: 320px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: 0.85rem;
-}
-
 .empty-row {
   color: var(--muted-foreground);
   padding: calc(var(--space) * 2);
@@ -1209,10 +1200,6 @@ pre {
   transition: transform var(--dur-caret) var(--ease);
 }
 
-.caret-open {
-  transform: rotate(90deg);
-}
-
 @media (prefers-reduced-motion: reduce) {
   .caret {
     transition: none;
@@ -1306,32 +1293,6 @@ pre {
 
 .stop-pending {
   font-size: 0.8125rem;
-}
-
-.stop-nav {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.stop-nav .ops-confirm {
-  flex-direction: row;
-  align-items: center;
-  flex-wrap: nowrap;
-  white-space: nowrap;
-}
-
-.steer-control {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 14px 0 16px;
-}
-
-.steer-input {
-  flex: 1;
-  min-width: 240px;
 }
 
 .ops-error {
@@ -1702,10 +1663,6 @@ kbd {
   color: var(--destructive);
 }
 
-.eval-row {
-  cursor: pointer;
-}
-
 .eval-suite {
   display: block;
   font-weight: 500;
@@ -1962,10 +1919,6 @@ kbd {
     min-height: 44px;
     padding: 6px 0;
   }
-  .subturn-header {
-    min-height: 44px;
-  }
-
   .path-elide {
     min-height: 44px;
     min-width: 44px;
