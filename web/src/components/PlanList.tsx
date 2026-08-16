@@ -58,10 +58,35 @@ export function PlanList({ todos }: { todos: Todo[] }) {
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
   return (
-    <ul className="plan-list">
+    // "plan-list"/"todo-item"/"todo-${status}"/"todo-mark" survive as
+    // literal classes even though every property below is now a direct
+    // Tailwind utility: SessionListScreen.tsx's InFlightCard wraps this
+    // same list in a "run-plan" div and layers a `.run-plan .plan-list
+    // .todo-*` scoped override in styles.css on top, out of scope here.
+    // That block is unlayered CSS and always wins over these (layered)
+    // utilities wherever the two set the same property, so it still drives
+    // the in-flight card's compact rendering unchanged; these utilities are
+    // what actually paints the plain PlanPanel context, where no such
+    // override exists.
+    <ul className="plan-list m-0 flex list-none flex-col gap-1 p-0">
       {todos.map((t, i) => (
-        <li key={i} className={`todo-item todo-${t.status}`} title={t.description}>
-          <span className={cn("todo-mark", justDone.has(i) && "anim-mark-done")}>{STATUS_MARK[t.status]}</span>
+        <li
+          key={i}
+          className={cn(
+            `todo-item todo-${t.status} flex items-baseline gap-1.5`,
+            t.status === "completed" && "text-muted-foreground line-through",
+          )}
+          title={t.description}
+        >
+          <span
+            className={cn(
+              "todo-mark w-[1em] flex-none",
+              t.status === "in_progress" ? "text-[var(--status-running)]" : "text-muted-foreground",
+              justDone.has(i) && "anim-mark-done",
+            )}
+          >
+            {STATUS_MARK[t.status]}
+          </span>
           <span className="todo-text">{t.status === "in_progress" ? t.activeForm : t.subject}</span>
         </li>
       ))}

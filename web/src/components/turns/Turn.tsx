@@ -39,18 +39,30 @@ export const Turn = memo(function Turn({
 
   return (
     <div
-      className={cn("turn", arrived && "anim-row-in")}
+      className={cn(
+        "group relative mb-6 scroll-mt-[var(--nav-height)] pl-10 [&>*+*]:mt-2 max-nav:pl-0",
+        arrived && "anim-row-in",
+      )}
       id={`sub-turn-${group.subTurn}`}
       data-seq={group.seq}
     >
-      <a className="gutter" href={`#sub-turn-${group.subTurn}`} title={`Sub-turn ${group.subTurn}`}>
+      <a
+        className="absolute top-px left-0 w-[30px] text-right font-mono text-micro text-muted-foreground tabular-nums no-underline group-hover:text-foreground focus-visible:text-foreground max-nav:static max-nav:mb-0.5 max-nav:block max-nav:w-auto max-nav:text-left max-phone:min-h-11 max-phone:pt-3 max-phone:pb-2"
+        href={`#sub-turn-${group.subTurn}`}
+        title={`Sub-turn ${group.subTurn}`}
+      >
         {group.subTurn}
         {group.usage && <ChurnWarn usage={group.usage} />}
       </a>
       {group.usage && <TurnMeta usage={group.usage} elapsedMs={assistant.reasoningElapsedMs} />}
       {assistant.reasoning && (
+        // "think" stays as a literal class only so the cross-browser
+        // <details> marker hiding below stays scoped to it
+        // (.think > summary::-webkit-details-marker in styles.css) — every
+        // other property here is a direct Tailwind utility on the elements
+        // that carry it.
         <details className="think">
-          <summary>
+          <summary className="-ml-1 inline-flex list-none items-center gap-1.5 rounded px-1 py-px text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:[outline:2px_solid_var(--ring)] focus-visible:outline-offset-1 max-phone:min-h-11 max-phone:px-2 max-phone:py-2.5">
             <span className="caret" aria-hidden>
               ▸
             </span>
@@ -60,7 +72,9 @@ export const Turn = memo(function Turn({
               : `~${Math.max(1, Math.round(assistant.reasoning.length / 4))}`}{" "}
             tokens
           </summary>
-          <div className="thought">{assistant.reasoning}</div>
+          <div className="mt-1.5 border-l border-border pl-[13px] text-sm leading-[1.6] whitespace-pre-wrap text-muted-foreground">
+            {assistant.reasoning}
+          </div>
         </details>
       )}
       {assistant.content && (
@@ -77,7 +91,18 @@ export const Turn = memo(function Turn({
         // together they cancel at the start and the text sits still through
         // the part of the curve where all the movement is. Backlog prose,
         // which no row-in touches, keeps the reveal.
-        <div className={cn("say", !arrived && "anim-stream-in")}>
+        //
+        // "say" stays as a literal class so the Markdown output's own <p>
+        // and <code> tags — DOM this component doesn't control — keep their
+        // spacing and inline-code chrome (.say p/.say code in styles.css);
+        // the container's own font size and line height are direct
+        // utilities.
+        <div
+          className={cn(
+            "say text-md leading-[1.65] max-phone:text-base max-phone:leading-[1.7]",
+            !arrived && "anim-stream-in",
+          )}
+        >
           {/* Prose parses once, on completion, memoised inside Markdown on
               the block's own immutable text (docs/DESIGN.md §5.3). */}
           <Markdown text={assistant.content} />
@@ -96,12 +121,18 @@ function churnExcess(usage: UsageBlock): number {
 }
 
 // ChurnWarn is the gutter's amber warn glyph: a churn point is the one
-// thing on this page that states itself without being asked.
+// thing on this page that states itself without being asked. Forced to
+// `[display:block]` rather than the bare `block` utility — a real custom
+// `.block` class (unconverted transcript block styling) still exists in
+// styles.css and collides on the compiled class name.
 function ChurnWarn({ usage }: { usage: UsageBlock }) {
   if (usage.churn_point_index === undefined) return null;
   const excess = churnExcess(usage);
   return (
-    <span className="warn" title={`Cache churn: ${excess.toLocaleString("en-US")} tokens re-sent above the expected miss`}>
+    <span
+      className="[display:block] text-[var(--status-gaveup)]"
+      title={`Cache churn: ${excess.toLocaleString("en-US")} tokens re-sent above the expected miss`}
+    >
       ⚠
     </span>
   );
@@ -116,9 +147,12 @@ function TurnMeta({ usage, elapsedMs }: { usage: UsageBlock; elapsedMs?: number 
   const churn = usage.churn_point_index !== undefined;
   const excess = churnExcess(usage);
   return (
-    <div className="turnmeta">
+    <div className="absolute top-0 right-0 flex gap-2.5 bg-background pl-2.5 text-micro text-muted-foreground tabular-nums opacity-0 [transition:opacity_100ms_ease] group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none">
       {churn && (
-        <span className="warn" title={`Cache churn: ${excess.toLocaleString("en-US")} tokens re-sent above the expected miss`}>
+        <span
+          className="text-[var(--status-gaveup)]"
+          title={`Cache churn: ${excess.toLocaleString("en-US")} tokens re-sent above the expected miss`}
+        >
           churn · {excess.toLocaleString("en-US")} re-sent
         </span>
       )}
@@ -131,7 +165,8 @@ function TurnMeta({ usage, elapsedMs }: { usage: UsageBlock; elapsedMs?: number 
           one, so a chip for those would sit on nearly every turn in the
           transcript — and a mark that is always there is a mark nobody reads.
           Peak is the one that explains a cost the token counts beside it do
-          not (docs/DESIGN.md §4.9). */}
+          not (docs/DESIGN.md §4.9). .rate-peak stays a residual class: it is
+          shared with blocks/SubTurnCard.tsx, out of scope here. */}
       {usage.rate_tier === "peak" && (
         <span className="rate-peak" title="billed at DeepSeek's peak rate — twice off-peak">
           peak
@@ -182,8 +217,8 @@ function ToolRows({
   const rowsEl = rows.map((row) => <ToolRow key={row.result.tool_call_id} call={row.call} result={row.result} />);
   if (rows.length >= 2) {
     return (
-      <div className="toolset">
-        <div className="setlabel">{rows.length} calls in parallel</div>
+      <div className="border-l border-border pl-[11px]">
+        <div className="mb-[5px] text-micro text-muted-foreground">{rows.length} calls in parallel</div>
         {rowsEl}
       </div>
     );
@@ -195,23 +230,60 @@ function ToolRows({
 // target, and the single most useful number for that
 // tool; open it shows the result. A failed call is .tool-err and open by
 // default — an error you have to click to see is an error you will miss.
+// The error/edit/ok state reads straight off isError/isEdit rather than a
+// tool-err/tool-ok class plus a descendant selector — the same "boolean
+// already in scope" swap the SubTurnCard pass made for its own error
+// background. "tool" survives as a literal class only to keep the
+// marker-hiding rule scoped (.tool > summary::-webkit-details-marker).
 function ToolRow({ call, result }: { call: ToolCallPayload | undefined; result: ToolResultLike }) {
   const isError = result.type === "tool_denied" || result.is_error === true;
   const isEdit = result.name === "Edit" || result.name === "Write";
   const stat = toolStat(result);
   const target = toolDetail(call);
   return (
-    <details className={`tool${isError ? " tool-err" : isEdit ? "" : " tool-ok"}`} open={isError}>
-      <summary>
-        <span className="glyph" aria-hidden>
+    <details
+      className={cn(
+        "tool rounded-[calc(var(--radius)-2px)] border bg-card [&+&]:mt-1",
+        isError ? "border-[var(--status-failed)]" : "border-border",
+      )}
+      open={isError}
+    >
+      <summary className="flex list-none items-center gap-2 rounded-[calc(var(--radius)-3px)] px-2.5 py-[7px] text-sm cursor-pointer hover:bg-accent focus-visible:[outline:2px_solid_var(--ring)] focus-visible:outline-offset-[-2px] max-phone:min-h-11 max-phone:px-3 max-phone:py-2.5">
+        <span
+          aria-hidden
+          className={cn(
+            "w-[13px] flex-none text-center text-xs",
+            isError ? "text-[var(--status-failed)]" : isEdit ? "text-muted-foreground" : "text-[var(--status-done)]",
+          )}
+        >
           {isError ? "✗" : isEdit ? "±" : "✓"}
         </span>
-        <span className="name">{result.name}</span>
-        {target && <span className="target">{target}</span>}
+        <span className="flex-none font-mono text-xs font-semibold">{result.name}</span>
+        {target && <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">{target}</span>}
         {stat.length > 0 && (
-          <span className={`timing${stat.some((p) => p.cls) ? " diffstat" : ""}`}>
+          <span
+            className={cn(
+              "flex-none text-micro tabular-nums",
+              isError ? "text-[var(--status-failed)]" : "text-muted-foreground",
+            )}
+          >
             {stat.map((part, i) => (
-              <span key={i} className={part.cls}>
+              <span
+                key={i}
+                // A diffstat's own +/− colour only shows through when the
+                // call did not also fail — the same outcome the old
+                // .tool-err > summary .timing / .diffstat .add /.del
+                // specificity fight produced (three classes beat two).
+                className={
+                  isError
+                    ? undefined
+                    : part.cls === "add"
+                      ? "text-[var(--diff-add-fg)]"
+                      : part.cls === "del"
+                        ? "text-[var(--diff-remove-fg)]"
+                        : undefined
+                }
+              >
                 {i > 0 ? " " : ""}
                 {part.text}
               </span>
@@ -232,7 +304,7 @@ function ToolBody({ call, result }: { call: ToolCallPayload | undefined; result:
   if (result.type === "tool_denied") {
     const body = deniedBody(result.rule, result.content);
     return (
-      <pre className="tool-out">
+      <pre className="m-0 border-t border-border px-2.5 py-2 font-mono text-xs leading-[1.55] whitespace-pre-wrap wrap-anywhere text-muted-foreground max-phone:text-sm">
         {[body.rule === null ? "" : `rule: ${body.rule}`, body.content].filter(Boolean).join("\n")}
       </pre>
     );
@@ -241,7 +313,10 @@ function ToolBody({ call, result }: { call: ToolCallPayload | undefined; result:
     // The diff was already computed server-side and arrives as a structured
     // line array (docs/DESIGN.md §5.4); the browser only renders the table.
     return (
-      <div className="tool-out">
+      // The diff table sets its own font-size but inherits font-family, so
+      // this wrapper still needs font-mono even though it carries no text
+      // of its own — matching what it inherited from the old .tool-out div.
+      <div className="border-t border-border px-2.5 py-2 font-mono">
         <DiffTable diff={result.diff} />
       </div>
     );
@@ -279,12 +354,17 @@ function ToolBody({ call, result }: { call: ToolCallPayload | undefined; result:
 function ElidedOutput({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
   const split = useMemo(() => elideLines(text), [text]);
-  if (!split) return <pre className="tool-out">{text}</pre>;
+  const outCls = "m-0 border-t border-border px-2.5 py-2 font-mono text-xs leading-[1.55] whitespace-pre-wrap wrap-anywhere text-muted-foreground max-phone:text-sm";
+  // `[display:block]` rather than the bare `block` utility — see ChurnWarn's
+  // comment above on the collision with the real .block class.
+  const elidedCls =
+    "[display:block] w-full cursor-pointer border-y border-dashed border-border bg-muted px-2.5 py-[5px] text-left font-mono text-micro text-muted-foreground hover:text-foreground max-phone:min-h-11 max-phone:px-3 max-phone:py-2.5";
+  if (!split) return <pre className={outCls}>{text}</pre>;
   if (expanded) {
     return (
       <>
-        <pre className="tool-out">{text}</pre>
-        <button type="button" className="elided" onClick={() => setExpanded(false)}>
+        <pre className={outCls}>{text}</pre>
+        <button type="button" className={elidedCls} onClick={() => setExpanded(false)}>
           Show less
         </button>
       </>
@@ -292,11 +372,11 @@ function ElidedOutput({ text }: { text: string }) {
   }
   return (
     <>
-      <pre className="tool-out">{split.head}</pre>
-      <button type="button" className="elided" onClick={() => setExpanded(true)}>
+      <pre className={outCls}>{split.head}</pre>
+      <button type="button" className={elidedCls} onClick={() => setExpanded(true)}>
         ⋯ {split.hidden.toLocaleString("en-US")} lines hidden — show all
       </button>
-      <pre className="tool-out">{split.tail}</pre>
+      <pre className={cn(outCls, "border-t-0")}>{split.tail}</pre>
     </>
   );
 }

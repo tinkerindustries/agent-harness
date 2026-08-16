@@ -94,15 +94,25 @@ export function WatchFooter({
   }, [live.pendingTools, live.turn, items, getToolCall, now]);
 
   return (
-    <div className="footer footer-watch">
-      <div className="footer-inner">
+    // "footer" stays a literal class only to keep the shared
+    // .footer .statusline margin-top scoped (ChatComposer.tsx's footer
+    // carries the same class) — every other footer/footer-inner property
+    // is a direct Tailwind utility, since the two footers' grid columns
+    // differ enough that a shared modifier class wasn't worth keeping.
+    <div className="footer grid grid-cols-[244px_minmax(0,1fr)] border-t border-border bg-background px-6 pt-2.5 pb-[9px]">
+      {/* .footer's own grid-template-columns collapses to a single column
+          below 1120px with !important (styles.css, alongside the rail's own
+          display:none at the same breakpoint) — max-watch here un-offsets
+          this inner column to match, the same job .footer-watch .footer-inner
+          did before the grid columns became a Tailwind utility. */}
+      <div className="col-start-2 ml-4 max-w-[840px] max-watch:col-start-1 max-watch:ml-0">
         {stop.confirming && (
-          <div className="confirm">
+          <div className="flex flex-wrap items-center gap-2.5 rounded-[calc(var(--radius)-2px)] border border-[var(--status-failed)] bg-[var(--status-failed-bg)] px-3 py-2.5 text-sm">
             <b>Stop this run?</b>
-            <span className="muted">
+            <span className="text-muted-foreground">
               It is {formatRunDuration(elapsedMs)} in{activity.name === "Between sub-turns" ? "" : `, mid ${activity.name}${activity.arg ? ` ${activity.arg}` : ""}`}. The work it has done stays in the workspace.
             </span>
-            <span className="spacer" />
+            <span className="flex-1" />
             <Button variant="outline" size="sm" onClick={stop.onCancelStop} disabled={stop.stopping}>
               Keep running
             </Button>
@@ -122,17 +132,21 @@ export function WatchFooter({
           </div>
         )}
         {stop.error && <span className="field-error">{stop.error}</span>}
-        <div className="nowline">
+        <div className="mb-1.5 flex items-center gap-2 text-sm">
           <span className="dot dot-pulse" style={{ color: "var(--status-running)" }} aria-hidden />
-          <span className="name">{activity.name}</span>
-          {activity.arg && <span className="arg">{activity.arg}</span>}
-          <span className="under">
+          <span className="font-mono text-xs font-semibold">{activity.name}</span>
+          {activity.arg && <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">{activity.arg}</span>}
+          <span className="max-w-[45%] flex-none truncate text-xs text-muted-foreground">
             {activity.ageMs !== null ? formatRunDuration(activity.ageMs) : ""}
             {activity.phaseLabel ? `${activity.ageMs !== null ? " · " : ""}under “${activity.phaseLabel}”` : ""}
           </span>
-          <span className="spacer" />
-          <button type="button" className={`follow${following ? "" : " follow-off"}`} onClick={onToggleFollow}>
-            <span className="dot" aria-hidden />
+          <span className="flex-1" />
+          <button
+            type="button"
+            className="inline-flex h-[26px] cursor-pointer items-center gap-1.5 rounded-full border border-ring bg-secondary px-2.5 font-[inherit] text-xs text-foreground max-phone:min-h-11 max-phone:px-4"
+            onClick={onToggleFollow}
+          >
+            <span className="dot" style={{ color: following ? "var(--status-running)" : "var(--muted-foreground)" }} aria-hidden />
             {following ? "Following live" : "Follow live"}
           </button>
         </div>

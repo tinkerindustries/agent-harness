@@ -171,10 +171,14 @@ export function ChatComposer({
   if (finished === null && token === null && status === null && facts.model === "") return null;
 
   return (
-    <div className="footer">
-      <div className="footer-inner">
+    // "footer" stays a literal class only to keep the shared
+    // .footer .statusline margin-top scoped (WatchFooter.tsx's footer
+    // carries the same class) — every other footer/footer-inner property is
+    // a direct Tailwind utility.
+    <div className="footer grid grid-cols-[minmax(0,1fr)_288px] border-t border-border bg-background px-6 pt-2.5 pb-[9px]">
+      <div className="col-start-1 mx-auto w-full max-w-[800px]">
         {finished ? (
-          <div className="box-done">
+          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-border bg-muted px-3.5 py-3 text-sm text-muted-foreground">
             {/* The one badge on this page that genuinely flips in place: the
                 composer stays mounted and the band replaces it when the run
                 ends, so the outcome arrives rather than having always been
@@ -184,7 +188,7 @@ export function ChatComposer({
               {finished.label}
             </Badge>
             <span>{finished.text}</span>
-            <span className="spacer" />
+            <span className="flex-1" />
             {token !== null && (
               <Button variant="outline" size="sm" onClick={onFollowUp}>
                 Start a follow-up run here
@@ -194,14 +198,14 @@ export function ChatComposer({
         ) : (
           <>
             {stop.confirming && (
-              <div className="confirm">
+              <div className="flex flex-wrap items-center gap-2.5 rounded-[calc(var(--radius)-2px)] border border-[var(--status-failed)] bg-[var(--status-failed-bg)] px-3 py-2.5 text-sm">
                 <b>Stop this run?</b>
-                <span className="muted">
+                <span className="text-muted-foreground">
                   {activity
                     ? `It is ${formatRunDuration(activity.elapsedMs)} in, ${activity.detail}. The work it has done stays in the workspace.`
                     : "The work it has done stays in the workspace."}
                 </span>
-                <span className="spacer" />
+                <span className="flex-1" />
                 <Button variant="outline" size="sm" onClick={stop.onCancelStop} disabled={stop.stopping}>
                   Keep running
                 </Button>
@@ -222,19 +226,20 @@ export function ChatComposer({
             )}
             {stop.error && <span className="field-error">{stop.error}</span>}
             {pendingCount > 0 && (
-              <div className="queued">
+              <div className="mb-1.5 flex items-center gap-1.5 text-micro text-[var(--status-gaveup)]">
                 <span className="dot dot-pulse" aria-hidden />
                 {pendingCount} message{pendingCount === 1 ? "" : "s"} waiting — it reaches the model at the next
                 sub-turn boundary. The run does not pause.
               </div>
             )}
             {token !== null && running && (
-              <div className="box">
-                <span className="prompt" aria-hidden>
+              <div className="flex items-end gap-2 rounded-lg border border-input bg-card py-2 pr-2 pl-2.5 focus-within:border-ring focus-within:[box-shadow:0_0_0_3px_hsl(217_91%_48%/0.09)] max-phone:pl-3">
+                <span className="flex-none self-start font-mono font-semibold leading-[1.55] text-[var(--status-running)]" aria-hidden>
                   &gt;
                 </span>
                 <textarea
                   ref={taRef}
+                  className="min-h-[38px] flex-1 resize-none border-0 bg-transparent p-0 font-mono text-sm leading-[1.55] text-foreground outline-none placeholder:text-muted-foreground max-phone:min-h-11"
                   value={text}
                   rows={1}
                   placeholder={status && status.subTurn === null ? "Describe the task…" : "Send a message to the run…"}
@@ -249,7 +254,12 @@ export function ChatComposer({
                   aria-label="Message the running session"
                   spellCheck={false}
                 />
-                <button type="button" className="send" onClick={() => void sendNow()} disabled={sending || text.trim() === ""}>
+                <button
+                  type="button"
+                  className="h-[26px] flex-none cursor-pointer rounded-[calc(var(--radius)-3px)] border border-border bg-secondary px-2.5 font-[inherit] text-xs text-secondary-foreground hover:bg-accent max-phone:h-11 max-phone:px-4"
+                  onClick={() => void sendNow()}
+                  disabled={sending || text.trim() === ""}
+                >
                   Send
                 </button>
               </div>

@@ -1,31 +1,13 @@
-/* The frontend's stylesheet, in three layers.
- *
- * 1. The shadcn/ui layer: Tailwind v4 plus the theme block below. The
- *    variable values are ported verbatim — shadcn's names carry shadcn's
- *    values, and the --status- / --diff- names survive unchanged as the
- *    vocabulary on top that shadcn has no opinion about.
- *    The dark block responds to prefers-color-scheme; there is no theme
- *    switcher.
- * 2. The base layer: preflight plus the app's default body styling.
- * 3. The bespoke layer: everything shadcn has no opinion about — the
- *    transcript block styles, the diff table, the status and diff tokens,
- *    and the layout that holds them. Rules the component layer now provides
- *    (badge, button, input) live in the components, not here.
- */
 
 @import "tailwindcss";
 @plugin "tailwindcss-animate";
 @import "shadcn/tailwind.css";
 
-/* The tokens respond to prefers-color-scheme rather than a .dark class, so
-   the `dark:` variant follows the media query too. */
 @custom-variant dark {
   @media (prefers-color-scheme: dark) {
     @slot;
   }
 }
-
-/* ---------- theme: the design token set ---------- */
 
 :root {
   --background: hsl(0 0% 100%);
@@ -48,7 +30,6 @@
   --input: hsl(240 6% 90%);
   --ring: hsl(240 5% 65%);
 
-  /* Session outcome vocabulary. One colour per meaning. */
   --status-running: hsl(217 91% 48%);
   --status-running-bg: hsl(217 91% 96%);
   --status-done: hsl(142 66% 32%);
@@ -66,15 +47,9 @@
   --diff-remove-fg: hsl(0 65% 36%);
   --diff-gutter: hsl(240 4% 62%);
 
-  /* The watch rail's read tick. Edit, bash, error and churn all borrow a
-     colour that already means that thing elsewhere; a file read has no
-     outcome colour to borrow, so it gets the one hue the palette does not
-     otherwise use. */
   --tick-read: hsl(268 60% 52%);
   --tick-read-bg: hsl(268 70% 96%);
 
-  /* Semantic aliases. The base names above are what the product writes; these
-     say what each one is for when a new surface needs to choose. */
   --text-body: var(--foreground);
   --text-dim: var(--muted-foreground);
   --text-inverse: var(--primary-foreground);
@@ -89,14 +64,11 @@
   --accent-warn: var(--status-gaveup);
   --accent-bad: var(--status-failed);
 
-  /* Interaction surfaces, so a hover reads at the same strength in both
-     schemes instead of each screen mixing its own. */
   --surface-hover: color-mix(in srgb, var(--accent) 55%, transparent);
   --surface-active: color-mix(in srgb, var(--accent) 80%, transparent);
   --overlay: hsl(240 10% 4% / 0.45);
   --focus-ring: color-mix(in srgb, var(--ring) 50%, transparent);
 
-  /* shadcn's generated defaults for what the app has no opinion about. */
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -147,23 +119,17 @@
   }
 }
 
-/* ---------- type ---------- */
-
 :root {
-  /* Sans is a system stack (minus the Inter fallback the app never shipped and
-     could not guarantee). Mono is JetBrains Mono, self-hosted through
-     @fontsource (the imports are in main.tsx), over the product's own stack as
-     the fallback chain. */
+
   --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
 
-  /* Sizes, as used in the product. */
-  --text-micro: 0.6875rem;  /* 11px — telemetry, gutter numbers, kbd, legends */
-  --text-xs: 0.75rem;       /* 12px — labels, chips, glyphs, tool timings */
-  --text-sm: 0.8125rem;     /* 13px — the workhorse: rows, buttons, mono ids */
-  --text-base: 0.875rem;    /* 14px — body default */
-  --text-md: 0.9375rem;     /* 15px — agent prose on a session page */
-  --text-lg: 1.375rem;      /* 22px — a stat card's figure */
+  --text-micro: 0.6875rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.875rem;
+  --text-md: 0.9375rem;
+  --text-lg: 1.375rem;
 
   --leading-tight: 1.35;
   --leading-ui: 1.5;
@@ -175,17 +141,12 @@
   --weight-semibold: 600;
   --weight-bold: 700;
 
-  /* An uppercase section label: 11px, semibold, tracked out. */
   --label-tracking: 0.06em;
   --tracking-badge: 0.04em;
 
-  /* The prose measure on a session page, and the widest a paragraph of
-     settings copy is allowed to run. */
   --measure-prose: 800px;
   --measure-copy: 78ch;
 }
-
-/* ---------- space, radii, layout ---------- */
 
 :root {
   --space: 8px;
@@ -200,56 +161,39 @@
   --radius-lg: var(--radius);
   --radius-pill: 999px;
 
-  /* Control heights. Density is the point: nothing in the harness is 44px. */
-  --control-h: 30px;      /* .btn, .input on a nav row */
-  --control-h-sm: 26px;   /* chips, segmented buttons, the send button */
-  --control-h-xs: 24px;   /* a chip inside a rail */
+  --control-h: 30px;
+  --control-h-sm: 26px;
+  --control-h-xs: 24px;
   --badge-h: 20px;
   --navlink-h: 28px;
 
-  /* Layout. The nav's height is 10px padding above and below the 28px links,
-     plus the 1px bottom border; the sticky page-mode rail clears the nav by
-     this much. */
   --nav-height: 49px;
   --screen: 960px;
   --screen-wide: 1200px;
   --stream: 800px;
   --stream-watch: 840px;
-  --rail-right: 288px;     /* chat page: plan rail, right */
-  --rail-left: 244px;      /* watch page: navigator rail, left */
+  --rail-right: 288px;
+  --rail-left: 244px;
   --rail-timeline: 220px;
   --plan-panel: 240px;
 
-  /* Borders and shadows. The system is hairline-first: one 1px border in
-     --border, and shadow only where an element floats. */
   --border-hairline: 1px;
-  --rule-accent: 3px;      /* a notice's left rule */
-  --rule-quote: 2px;       /* an operator message, a live turn */
-  --shadow-raised: 0 1px 2px hsl(240 6% 10% / 0.08);   /* a pressed segment */
-  --shadow-float: 0 2px 8px hsl(240 6% 10% / 0.12);    /* jump-to-tail pill */
-  --shadow-pop: 0 4px 12px rgb(0 0 0 / 0.15);          /* a suggestion list */
-  /* A hairline drawn as a ring rather than a border, for anything that must not
-     change size when it gains an edge (a badge, a pressed chip, a card the
-     cursor is over). */
+  --rule-accent: 3px;
+  --rule-quote: 2px;
+  --shadow-raised: 0 1px 2px hsl(240 6% 10% / 0.08);
+  --shadow-float: 0 2px 8px hsl(240 6% 10% / 0.12);
+  --shadow-pop: 0 4px 12px rgb(0 0 0 / 0.15);
+
   --ring-inset: inset 0 0 0 1px hsl(240 6% 10% / 0.06);
 }
 
-/* ---------- icon sizes ---------- */
-
 :root {
-  --icon-xs: 13px;  /* inline with 11–12px text */
-  --icon-sm: 16px;  /* the default: buttons, rows, nav */
-  --icon-md: 20px;  /* an empty state's mark, a section affordance */
-  --icon-lg: 28px;  /* the largest the product ever needs */
+  --icon-xs: 13px;
+  --icon-sm: 16px;
+  --icon-md: 20px;
+  --icon-lg: 28px;
 }
 
-/* ---------- terminal scope ---------- */
-/* Opt-in per subtree. NOT a theme switcher, and nothing in the product sets
- * it.
- *
- * The :root[data-theme="terminal"] selector is load-bearing: at (0,1,0) the bare
- * attribute selector loses to any :root block that comes later in the cascade,
- * which silently kills every type override below. */
 :root[data-theme="terminal"],
 [data-theme="terminal"] {
   --font-sans: "JetBrains Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
@@ -330,11 +274,23 @@
   --color-ring: var(--ring);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
+
+  --text-micro: var(--text-micro);
+  --text-xs: var(--text-xs);
+  --text-sm: var(--text-sm);
+  --text-md: var(--text-md);
+  --text-lg: var(--text-lg);
+
+  --breakpoint-xs: 360px;
+  --breakpoint-phone: 560px;
+  --breakpoint-touch: 700px;
+  --breakpoint-nav: 720px;
+  --breakpoint-panel: 860px;
+  --breakpoint-tablet: 900px;
+  --breakpoint-rail: 1100px;
+  --breakpoint-watch: 1120px;
 }
 
-/* highlight.js is imported light-only (github.css, in main.tsx); swap its
-   palette for github-dark's under the same media query the tokens use, so
-   code blocks stay readable on the dark page. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .hljs {
     color: #c9d1d9;
@@ -428,18 +384,6 @@ html {
   color-scheme: light dark;
 }
 
-/* ---------- the bespoke layer ----------
-   Layout, the transcript blocks, the diff table, and the status and diff
-   tokens. This is the layer shadcn has no opinion about; the component
-   styles (badge, button, input) live in src/components/ui. */
-
-/* ---------- motion ----------
-   Seven animations, each tied to a fact changing on screen. Nothing animates
-   height, nothing animates on mount that was already true, and the one
-   animation that runs per character — the ticker's roll — runs only on the
-   characters that changed; the gating for both of those lives in the
-   components. One media query at the bottom turns all of them off. */
-
 :root {
   --dur-instant: 0.08s;
   --dur-fast: 0.1s;
@@ -450,32 +394,9 @@ html {
   --dur-roll: 0.34s;
 
   --ease: ease;
-  /* --dur-swap: a badge flipping, a plan item's mark landing. --dur-roll: a
-     digit of a figure rolling. --dur-reveal: streamed text landing.
-     --dur-turn: a row arriving in a list already on screen.
-     Out-quart: fast start, long settle. Everything that arrives uses it.
 
-     READ THIS BEFORE CHANGING A DURATION OR A TRAVEL DISTANCE.
-
-     Out-quart is 49% done at a tenth of its duration and 88% done at a
-     third, so the duration is NOT how long the gesture is visible for —
-     the travel distance is. What the eye follows is how far the element
-     still has to move once the opacity is up, and past ~75% progress
-     there is nothing left to see however long the tail runs.
-
-     Measured against the running app, the useful figure is the travel
-     remaining at 60ms. The ticker's roll sits at 2.8px there and reads as
-     a digit turning over. Everything else used to sit at 0.2–0.6px on
-     2–4px of total travel: technically animating, perceptually a
-     flicker, and the reason nothing but the ticker looked alive. The
-     travel distances below are set so each gesture has ~2–3px left at
-     60ms, and the durations are stretched to match rather than shortened,
-     because shortening moves the whole curve earlier and makes it worse.
-
-     If you shrink a translate here, re-check that number or you will
-     quietly delete the animation while leaving it in the file. */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  /* Symmetric, for something leaving and arriving in the same gesture. */
+
   --ease-inout: cubic-bezier(0.4, 0, 0.2, 1);
 
   --pulse-period: 1.6s;
@@ -492,11 +413,6 @@ html {
   }
 }
 
-/* Streamed text: the block lands out of focus and a little low, then settles.
-   The blur does most of the work — text coming into focus reads as arriving at
-   a travel distance that would look like a lurch if it were movement alone.
-   Applied per block as it commits — never per character, which turns a
-   transcript into a slot machine. */
 @keyframes stream-in {
   from {
     opacity: 0;
@@ -510,11 +426,6 @@ html {
   }
 }
 
-/* A status badge flipping to its terminal value: the new label arrives from
-   below over --dur-swap. There is no matching leave — the caller keys the
-   badge on its label, so the old element is simply gone on the render that
-   brings the new one in, and the arrival carries the whole gesture. That is
-   why it travels further than a badge's own height would suggest. */
 @keyframes badge-in {
   from {
     opacity: 0;
@@ -526,11 +437,6 @@ html {
   }
 }
 
-/* A character of a figure that changed: the new one rolls up into place while
-   the one it replaced leaves upward with roll-out, so the two never overlap
-   mid-flight. The travel is close to the line box the character sits in
-   (components/ui/Ticker.tsx clips it), so it reads as a digit turning over
-   rather than a nudge. */
 @keyframes roll-in {
   from {
     opacity: 0;
@@ -552,7 +458,6 @@ html {
   }
 }
 
-/* A plan item completing: the mark pops once and the row's tint drains away. */
 @keyframes mark-done {
   0% {
     transform: scale(0.6);
@@ -568,8 +473,6 @@ html {
   }
 }
 
-/* A row arriving in a list that was already on screen (a new sub-turn, a new
-   session). Height is not animated — only the content settles. */
 @keyframes row-in {
   from {
     opacity: 0;
@@ -581,14 +484,6 @@ html {
   }
 }
 
-/* A whole section arriving on a page that was already settled — the session
-   list's In flight section, when the first run of the moment starts. It is
-   the one gesture here that carries a section rather than a row, so it
-   travels further than row-in and comes out of focus the way streamed text
-   does: the strip above it is shrinking to its compact size over the same
-   duration, and a section that only faded would read as a reflow rather than
-   as an arrival. Height is still not animated — the section takes its space
-   at once and the content settles into it. */
 @keyframes section-in {
   from {
     opacity: 0;
@@ -638,16 +533,11 @@ html {
   .anim-section-in {
     animation: none;
   }
-  /* The outgoing character is only invisible because roll-out ends at opacity
-     0 and holds it with `both`. With the animation off it would paint at full
-     strength on top of the character that replaced it, for as long as the
-     Ticker holds it — so pin the same end state by hand. */
+
   .anim-roll-out {
     opacity: 0;
   }
 }
-
-/* ---------- layout ---------- */
 
 .screen {
   max-width: 960px;
@@ -676,43 +566,6 @@ html {
   white-space: nowrap;
 }
 
-/* ---------- shared top nav ----------
-   One header, identical on every product screen: the wordmark, the three
-   sections as real links with an active state, then whatever is page-specific
-   (the search inputs, the LIVE/connection badge, the refresh button) pinned
-   right via the nav's right slot. Ported from the mock, adapted to
-   the app's own column: the mock's .page was 1360px wide, the real screens
-   are the .screen column (960px, 1200px for the transcript), so the nav rides
-   in the same centered column as the screen below it with the same horizontal
-   gutter, and .topnav-wide widens it for the transcript. "/perf" is a
-   developer tool and renders no nav at all. */
-
-.wordmark {
-  font-family: var(--font-mono);
-  font-weight: 600;
-  font-size: 0.875rem;
-  letter-spacing: -0.01em;
-}
-
-.topnav {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 10px calc(var(--space) * 2);
-  border-bottom: 1px solid var(--border);
-  margin: calc(var(--space) * 2) auto 20px;
-  max-width: 960px;
-}
-
-.topnav-wide {
-  max-width: 1200px;
-}
-
-/* A session page is full-bleed below the nav — the provenance strip, the
-   rail and the stream all run to the viewport's edges — so a nav centred in
-   a 1200px column drew its bottom rule stopping short of both edges with a
-   full-width band butting against it. Flush, and the wordmark lines up with
-   the rail's headings instead of floating in from nowhere. */
 .topnav-flush {
   max-width: none;
   margin-left: 0;
@@ -724,96 +577,6 @@ body.page .topnav-flush {
   padding-right: 16px;
 }
 
-.topnav .wordmark {
-  margin-right: 10px;
-  white-space: nowrap;
-}
-
-.topnav-links {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.navlink {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px;
-  border-radius: calc(var(--radius) - 2px);
-  color: var(--muted-foreground);
-  font-size: 0.8125rem;
-  font-weight: 500;
-  text-decoration: none;
-}
-
-/* The icon exists for the ≤720px pass below, where it stands in for a
-   label that's gone visually-hidden; the wide layout is the text-only nav
-   it always was, so the icon stays out of the flow rather than widening
-   every link. */
-.navlink svg {
-  display: none;
-  width: 14px;
-  height: 14px;
-  flex: none;
-}
-
-.navlink:hover {
-  background: var(--accent);
-  color: var(--foreground);
-}
-
-.navlink-active {
-  background: var(--secondary);
-  color: var(--foreground);
-}
-
-/* A session detail's nav carries one back link where the sections are: the
-   page is a place you arrive at from the list, and the way out is back to
-   it. Same metrics as a navlink so the row's height does not move between
-   screens; the arrow is what says "back" rather than "another section". */
-.navback {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px 0 6px;
-  border-radius: calc(var(--radius) - 2px);
-  color: var(--muted-foreground);
-  font-size: 0.8125rem;
-  font-weight: 500;
-  text-decoration: none;
-}
-
-.navback:hover {
-  background: var(--accent);
-  color: var(--foreground);
-}
-
-.navback svg {
-  width: 14px;
-  height: 14px;
-}
-
-.topnav .spacer {
-  flex: 1;
-}
-
-.topnav-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* The search inputs the screens hand to the nav's right slot: the design's
-   .input height and monospace-ish density, sized to the nav row rather than
-   the shadcn Input's default 36px. The wrapper — the actual flex item in
-   the nav's right group, the icon input's own DOM shape — carries the
-   shrink: a fixed-width input has no floor below its `width`, so a nav
-   whose links alone (no icon-only pass, no wordmark to give up) already
-   fill a tablet-width row pushed this into the page's own scrollbar rather
-   than yielding the last 60-odd px the row needed. */
 .topnav-right [data-slot="input-wrapper"] {
   flex: 1 1 140px;
   min-width: 0;
@@ -825,35 +588,6 @@ body.page .topnav-flush {
   font-size: 0.8125rem;
 }
 
-/* A session's transcript isn't one of the three sections on its own — it is
-   a session, so Sessions stays the active link — and the crumb
-   says exactly which one, in the slot a page title would otherwise sit in. */
-.nav-crumb {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted-foreground);
-  font-size: 0.8125rem;
-  min-width: 0;
-}
-
-.nav-crumb .sep {
-  color: var(--border);
-  flex: none;
-}
-
-.nav-crumb .current {
-  color: var(--foreground);
-  font-family: var(--font-mono);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
-
-/* The LIVE badge's pulse dot. The dot takes its colour from the badge's
-   currentColor, so it reads blue on the running badge and goes still
-   while the stream reconnects. */
 .dot {
   width: 6px;
   height: 6px;
@@ -861,9 +595,6 @@ body.page .topnav-flush {
   background: currentColor;
   flex: none;
 }
-
-/* .dot-pulse, @keyframes pulse and the reduced-motion cutout for both live in
-   the motion layer at the top of this section. */
 
 .dim {
   color: var(--muted-foreground);
@@ -878,67 +609,11 @@ pre {
   font-family: var(--font-mono);
 }
 
-/* ---------- session list ---------- */
-
-.session-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-
-.session-table th {
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-  padding: 6px 8px;
-  color: var(--muted-foreground);
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.session-table td {
-  border-bottom: 1px solid var(--border);
-  padding: 6px 8px;
-  vertical-align: top;
-  /* Every cell except the Session column takes its intrinsic single-line
-     width; combined with .sess-col's width: 100% this is what lets the
-     Session column absorb all the width the other six do not need. */
-  white-space: nowrap;
-}
-
-/* The Session column takes the width the other six columns leave over:
-   width: 100% here plus white-space: nowrap on every other cell makes each
-   of the six take exactly its intrinsic single-line width and this one the
-   rest, so none of them ever wraps. The cell's own text still wraps
-   normally. */
-.session-table .sess-col {
-  width: 100%;
-  white-space: normal;
-}
-
-.session-row {
-  cursor: pointer;
-}
-
-.session-row:hover {
-  background: var(--muted);
-}
-
-.workspace-cell {
-  max-width: 320px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: 0.85rem;
-}
-
 .empty-row {
   color: var(--muted-foreground);
   padding: calc(var(--space) * 2);
 }
 
-/* The pager under a paged table: Prev and Next at the ends, the page
-   counter and the row range dimmed between them. */
 .pager {
   display: flex;
   align-items: center;
@@ -946,9 +621,6 @@ pre {
   margin-top: var(--space);
 }
 
-/* The pager above the table carries its own spacing: the base rule's
-   margin-top would crowd the section head, and what it needs instead is a
-   little air between itself and the table it pages. */
 .pager-top {
   margin-top: 0;
   margin-bottom: var(--space);
@@ -963,11 +635,6 @@ pre {
 .pager-range {
   margin-left: auto;
 }
-
-/* ---------- session list: in-flight cards and the finished table ----------
-   Running sessions leave the table and become collapsible plan cards;
-   finished sessions keep the dense table, whose Session cell gains a
-   one-line subtitle per row. */
 
 .list-section + .list-section {
   margin-top: calc(var(--space) * 2.5);
@@ -997,240 +664,6 @@ pre {
   gap: var(--space);
 }
 
-.run-card {
-  overflow: hidden;
-  /* The Card component's default padding and gap are for its own
-     header/content parts; the disclosure inside owns the card's layout. */
-  padding: 0;
-  gap: 0;
-}
-
-/* The card's summary row is two sibling interactive elements: the caret
-   button (CollapsibleTrigger) and the summary button that opens the session
-   page. Siblings, never nested — each is reachable by keyboard, and
-   toggling the plan never navigates. */
-.run-head {
-  display: flex;
-  align-items: stretch;
-}
-
-.caret-btn {
-  flex: none;
-  display: flex;
-  /* Level with line1's badge, not with the middle of a card whose height
-     now depends on how long the description is. */
-  align-items: flex-start;
-  padding: 13px 4px 0 14px;
-  background: transparent;
-  border: none;
-  font: inherit;
-  cursor: pointer;
-}
-
-.caret-btn:hover .caret {
-  color: var(--foreground);
-}
-
-.run-summary {
-  flex: 1;
-  min-width: 0;
-  text-align: left;
-  padding: 12px 14px 12px 8px;
-  cursor: pointer;
-  background: transparent;
-  border: none;
-  font: inherit;
-  color: inherit;
-}
-
-.run-summary:hover {
-  background: var(--surface-hover);
-}
-
-.run-line1 {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.caret {
-  color: var(--muted-foreground);
-  flex: none;
-  transition: transform var(--dur-turn) var(--ease);
-}
-
-.caret-open {
-  transform: rotate(90deg);
-}
-
-/* The title and description are the card's description block, on lines of
-   their own under the badge row: the run's name in bold with the account of
-   the change beneath it. The raw prompt rides on the block's title attribute
-   (reachable on hover) and becomes the description line only when the run
-   has no title at all — a pre-migration row or a blank browser start — so
-   the block is
-   never empty. The description wraps normally and only a description still
-   too long after three lines is ellipsized — the same -webkit-box line
-   clamp .sess-sub uses. The block gets its own lines rather than a share of
-   line1 because the meta beside it is nowrap: as a flex sibling it was
-   squeezed to zero width on every card whose meta line carried a
-   started-by, which is all of them. */
-.run-desc {
-  font-size: 0.8125rem;
-  margin-top: 7px;
-}
-
-.run-desc-title {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-weight: 600;
-  color: var(--foreground);
-}
-
-.run-desc-text {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-/* The small "phase N/M" chip next to a run's title: the run's position in a
-   multi-phase chain (the deepseek-flash-plan skill cuts a job into phases),
-   drawn with the list's existing border and muted-foreground vocabulary at
-   the same size as the plan panel's label. */
-.phase-chip {
-  flex: none;
-  font-size: 0.6875rem;
-  font-weight: 500;
-  color: var(--muted-foreground);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0 6px;
-  line-height: 1.5;
-  white-space: nowrap;
-}
-
-.run-meta {
-  color: var(--muted-foreground);
-  font-size: 0.8125rem;
-  white-space: nowrap;
-  /* The meta line is the one element on the row that yields: it carries the
-     model name (the effort, job type and provenance ride on its title) and
-     ellipsizes when the card is too narrow, while the stat figures beside
-     it keep their full width. */
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.run-stats {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  font-size: 0.8125rem;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  /* The stat row is the card's garnish — elapsed and sub-turns — and the
-     two figures must never come out clipped mid-word, so on a card too
-     narrow for everything the stats keep their full width and the meta
-     line is the element that gives up width and ellipsizes. */
-  flex: none;
-}
-
-/* The two figures a running session is judged by, matching the finished
-   table's columns minus Cost and Cache: elapsed in full weight,
-   sub-turns dimmer. */
-.run-stats .primary {
-  color: var(--foreground);
-  font-weight: 600;
-  font-size: 0.875rem;
-}
-
-.run-stats .primary .unit {
-  font-weight: 400;
-  color: var(--muted-foreground);
-  margin-left: 3px;
-}
-
-.run-stats .secondary {
-  color: var(--muted-foreground);
-}
-
-.run-stats .secondary b {
-  color: var(--foreground);
-  font-weight: 600;
-}
-
-.run-line2 {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 7px;
-  /* The summary's own padding now carries the indent the caret used to
-     occupy, so the activeForm line starts level with line1's badge. */
-  padding-left: 0;
-}
-
-.run-now {
-  font-size: 0.8125rem;
-  min-width: 0;
-  /* The activeForm is the card's "what is it doing": it wraps rather than
-     ellipsizing (overriding the truncate utility), so the description line
-     never clips while the ratio keeps its corner. */
-  white-space: normal;
-}
-
-.run-now .verb {
-  color: var(--status-running);
-  font-weight: 500;
-}
-
-.run-progress {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: none;
-}
-
-.run-progress .ratio {
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-/* The expanded body is one full-width column: the plan list when there is
-   one, then the actions row. No side panel — the card itself is the
-   affordance that opens the transcript now, and a session with no plan
-   still expands to the actions row so Stop stays reachable from the list. */
-.run-body {
-  border-top: 1px solid var(--border);
-}
-
-.run-plan {
-  padding: 12px 14px 14px 34px;
-}
-
-.panel-label {
-  font-size: 0.6875rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted-foreground);
-  margin-bottom: 8px;
-}
-
-/* The plan list as the in-flight card renders it: the same todo-item glyphs
-   and status classes PlanList renders in the transcript panel, drawn at the
-   card's density with the running item found by its heavier weight alone —
-   no band, no left rule, so the current step stays findable without
-   shouting over the plan.
-   Every rule is scoped under .run-plan so the transcript's own
-   `.plan-panel ul` rendering — and its strikethrough, which the card
-   deliberately drops — is untouched. */
 .run-plan .plan-list {
   list-style: none;
   margin: 0;
@@ -1251,6 +684,12 @@ pre {
 }
 
 .run-plan .plan-list .todo-mark {
+  /* color/width used to come for free from the bare .todo-mark rule below,
+     which PlanPanel's own (Tailwind) rendering no longer needs and has
+     lost; inlined here so this in-flight-card override stays correct on
+     its own (PlanList.tsx, SessionListScreen.tsx's InFlightCard). */
+  color: var(--muted-foreground);
+  width: 1em;
   text-align: center;
   line-height: 1.5;
 }
@@ -1264,11 +703,7 @@ pre {
 }
 
 .run-plan .plan-list li.todo-in_progress {
-  /* The current step is found by weight alone: font-weight 500 keeps it
-     standing out from the pending and completed items without the blue band
-     and left rule the transcript's plan panel still carries. The transparent
-     left border from the base .todo-item rule stays, so nothing shifts
-     sideways when the highlight is gone. */
+
   font-weight: 500;
 }
 
@@ -1284,27 +719,12 @@ pre {
   text-decoration: none;
 }
 
-.run-actions {
-  display: flex;
-  gap: 8px;
-  padding: 12px 14px;
-}
-
-/* The divider between the plan and the actions row; with no plan the body's
-   own top border already separates the actions from the summary. */
-.run-plan + .run-actions {
-  border-top: 1px solid var(--border);
-}
 
 .sess-cell {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  /* The Session column takes all the width the other six columns do not
-     need (see .sess-col above); this block just keeps its own lines
-     wrapping normally and breaks a long unbroken string — a workspace
-     path, a URL in a summary — anywhere rather than letting it push the
-     numeric columns out of the container. */
+
   min-width: 0;
   white-space: normal;
   overflow-wrap: anywhere;
@@ -1315,11 +735,6 @@ pre {
   font-size: 0.8125rem;
 }
 
-/* The finished table's Session cell now carries three stacked lines: the
-   run's title bold with its phase chip, the description under it, and the
-   old subtitle dimmest at the bottom. The description clamps to two lines
-   (the -webkit-box line clamp, like .sess-sub) so a long account never
-   stretches the row or pushes the numeric columns out of the container. */
 .sess-title {
   display: flex;
   align-items: baseline;
@@ -1340,171 +755,12 @@ pre {
 .sess-sub {
   font-size: 0.75rem;
   color: var(--muted-foreground);
-  /* Subtitle text wraps normally; only a subtitle that is still too long
-     after three lines is ellipsized (the -webkit-box line clamp), instead of
-     the old single-line nowrap truncation. */
+
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-/* The finished table's Elapsed and Cost cells carry the same primary weight
-   as the in-flight card's stat row. */
-.session-table .primary {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-/* ---------- session list: the stat strip ----------
-   The four cards below the queue banner and the In flight section (when
-   there is one): Running (of the pool's slots), Spend today, Median
-   duration today, Done vs gave up today. All four are computed client-side
-   over the session list the screen already holds, plus worker.pool_size off
-   the settings endpoint — no new backend field, no new endpoint. */
-
-.stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  margin-bottom: 14px;
-}
-
-/* The strip sits between the In flight section and Finished rather than
-   before both of them, so the `.list-section + .list-section` rhythm
-   further down no longer reaches across it — .stats is not a .list-section,
-   and the two sections it now separates are no longer adjacent siblings.
-   These give it the same 2.5×space separation on both sides that rule gives
-   two adjacent sections. `.list-section + .stats` only matches while In
-   flight is rendered, so the empty case (no In flight section) is
-   untouched: the strip keeps its plain margin-bottom above and sits at the
-   top of the page as the hero, exactly as before. */
-.list-section + .stats {
-  margin-top: calc(var(--space) * 2.5);
-}
-.stats + .list-section {
-  margin-top: calc(var(--space) * 2.5);
-}
-
-/* A stat card is the shadcn Card with the design's tighter padding and no
-   shadow; the label/value stack replaces the Card parts' default gap. */
-.stat {
-  padding: 10px 12px;
-  gap: 0;
-  border-radius: var(--radius);
-  box-shadow: none;
-}
-
-.stat .label {
-  font-size: 0.6875rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted-foreground);
-}
-
-.stat .value {
-  font-size: 1.375rem;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  font-variant-numeric: tabular-nums;
-  margin-top: 2px;
-}
-
-/* The qualifying note — the Running card's pool-size denominator — goes
-   under the figure rather than trailing it. Beside a 22px number a
-   12px note reads as part of the value; under it, it reads as what it is, and
-   the figure keeps the card's baseline to itself. The duration cards carry
-   no note at all. */
-.stat .value small {
-  display: block;
-  font-size: 0.75rem;
-  font-weight: 400;
-  letter-spacing: 0;
-  color: var(--muted-foreground);
-  margin-top: 1px;
-}
-
-/* ---------- the stat strip, compact ----------
-   The strip is the page's hero while nothing is running, and shrinks the
-   moment something is: the four cards keep every figure and lose roughly
-   half their height, making room above the strip for the In flight section
-   that lands there instead of pushing the whole page down by a full-size
-   hero's worth. .stats-compact is the size; .stats-anim is whether it was
-   reached while somebody was watching (SessionListScreen's StatStrip) — a
-   page that loads with a run already going gets the compact size with no
-   transition, because nothing changed.
-
-   Only type and box metrics move. The column count deliberately does not,
-   here or on the phone layout below: a grid track count cannot be
-   interpolated, so it would snap the strip's height at the first frame and
-   turn the one gesture the section and the strip share into a jump. */
-.stats-compact {
-  gap: 6px;
-  margin-bottom: 10px;
-}
-
-.stats-compact .stat {
-  padding: 4px 10px;
-}
-
-.stats-compact .stat .label {
-  font-size: 0.625rem;
-  line-height: 1.3;
-}
-
-.stats-compact .stat .value {
-  font-size: 0.875rem;
-  line-height: 1.3;
-  margin-top: 0;
-}
-
-.stats-compact .stat .value small {
-  font-size: 0.625rem;
-  line-height: 1.3;
-}
-
-/* The transition rides the same duration and curve as the section arriving
-   below, so the two read as one gesture. font-size is the thing actually
-   being animated on three of these — twelve short strings reflowing, not a
-   layout pass over the list. */
-.stats-anim {
-  transition:
-    gap var(--dur-reveal) var(--ease-out),
-    margin-bottom var(--dur-reveal) var(--ease-out);
-}
-
-.stats-anim .stat {
-  transition: padding var(--dur-reveal) var(--ease-out);
-}
-
-.stats-anim .stat .label,
-.stats-anim .stat .value,
-.stats-anim .stat .value small {
-  transition:
-    font-size var(--dur-reveal) var(--ease-out),
-    line-height var(--dur-reveal) var(--ease-out),
-    margin-top var(--dur-reveal) var(--ease-out);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .stats-anim,
-  .stats-anim .stat,
-  .stats-anim .stat .label,
-  .stats-anim .stat .value,
-  .stats-anim .stat .value small {
-    transition: none;
-  }
-}
-
-.connection-badge {
-  color: var(--muted-foreground);
-}
-
-.connection-open {
-  color: var(--status-done);
-  border-color: var(--status-done);
 }
 
 .session-meta {
@@ -1517,7 +773,18 @@ pre {
   border-bottom: 1px solid var(--border);
 }
 
-/* ---------- transcript blocks ---------- */
+/* SessionWatchScreen.tsx's/SessionChatScreen.tsx's own connection badge now
+   computes its colour from snapshot.connection directly; these two survive
+   only for web/src/perf/HeightHarness.tsx and RailHarness.tsx, out of
+   scope for this pass. */
+.connection-badge {
+  color: var(--muted-foreground);
+}
+
+.connection-open {
+  color: var(--status-done);
+  border-color: var(--status-done);
+}
 
 .transcript {
   flex: 1;
@@ -1554,16 +821,6 @@ pre {
   overflow: auto;
 }
 
-/* The task and the skills catalogue are the run's opening conditions rather
-   than part of its conversation. Closed, each is a single line, so a card's
-   border, fill, padding and label row cost more height than the line they
-   frame. They read as two rows under the run header instead: the label in a
-   fixed column, the summary beside it, and the disclosure opening beneath. */
-/* Both rows are controls, and the facts above them are not. Without the
-   hover band they read as two more key/value pairs in the header's own
-   grammar, with no sign that a click opens anything. The negative margin
-   keeps the band's padding from shifting the label off the column the
-   header's facts start on. */
 .block-opening,
 .block-skills {
   display: flex;
@@ -1580,10 +837,6 @@ pre {
   background: var(--muted);
 }
 
-/* The task block is the last of the run's opening conditions (fold.ts pushes
-   skills before opening), so the hairline that closes the header group hangs
-   off it rather than off the header itself — above the rule, what the run
-   was set up to do; below it, what it did. */
 .block-opening {
   border-bottom: 1px solid var(--border);
   padding-bottom: 12px;
@@ -1605,9 +858,6 @@ pre {
   flex: 1;
 }
 
-/* The caret is drawn rather than left to the native summary marker, which
-   the two rows sized and placed differently from the opening block's own
-   caret. Both rows now turn the same glyph from the same offset. */
 .skills-summary {
   cursor: pointer;
   font-size: 0.8125rem;
@@ -1660,23 +910,11 @@ pre {
   padding: 4px 8px;
 }
 
-/* The model name prefixes a usage line only when the request was not the
-   session's own — today, a vision-tool call's spend (Glance, Ground or
-   Detect; Crop makes no model call and carries no usage line). It carries
-   the row's own dim colour at full weight rather than a new one: the line is
-   already the quietest thing on the card, and this is the part of it that
-   says the cost belongs to something else. */
 .block-usage .usage-model {
   font-weight: 500;
   color: var(--foreground);
 }
 
-/* An operator steer (docs/RUN-CONTROL.md "The frontend"): a top-level block,
-   deliberately distinct from the model's own turns — the amber (gave-up)
-   family marks it as human input, and the two states are the point. Pending
-   (only the steer_message exists) is the operator's signal that the run is
-   wedged or still mid-tool-call; delivered (the steer_applied arrived) is
-   the loop having actually folded it in. */
 .block-steer {
   border-left: 3px solid var(--status-gaveup);
 }
@@ -1705,247 +943,21 @@ pre {
   color: var(--status-gaveup);
 }
 
-/* A sub-turn billed at DeepSeek's peak rate. It borrows the same amber churn
-   uses, for the same reason: both mark a figure that is larger than the
-   numbers beside it explain, and neither is an error. Only "peak" is ever
-   drawn — off-peak is two thirds of the day and flat is every session before
-   the split, so a chip for those would sit on nearly every card. */
-.rate-peak {
-  color: var(--status-gaveup);
-  text-transform: uppercase;
-  font-size: 0.625rem;
-  letter-spacing: 0.06em;
-}
-
-/* The same fact on the session list's Spend today, only while a peak window
-   is open. It sits inside the stat card because it is about that number, and
-   it is absent — not greyed, not "off-peak" — the rest of the time: a strip
-   that speaks when everything is normal is a strip nobody reads by the time
-   it says something.
-
-   It flows after the figure and wraps under it at the card's width, which is
-   where it sits at every size the strip has. It is deliberately NOT hidden in
-   the compact strip: compact is what the page wears while runs are in flight,
-   which is exactly when peak rates are being paid, so a note that vanished
-   there would be missing from the only state that costs money. The line it
-   adds is worth the height for the seven hours a day it is there. */
-.stat-peak {
-  margin-left: 8px;
-  font-size: 0.6875rem;
-  font-weight: 400;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--status-gaveup);
-  white-space: nowrap;
-}
-
-/* ---------- sub-turn cards ----------
-   One card per sub-turn: reasoning, assistant text, tool calls and their
-   results in one body, with the sub-turn's usage figures in the header.
-   The inner blocks render exactly as they do outside a group; only the
-   container and the header are new. The card surface itself is the shadcn
-   Card with Tailwind utilities overriding its defaults; these rules are the
-   header and body layout shadcn has no opinion about. */
-
-/* The header carries disclosure-button styling (the caret rotates via
-   [data-state]); SubTurnCard renders it as a plain div, always expanded. */
-.subturn-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space);
-  padding: 8px 12px;
-  width: 100%;
-  border: 0;
-  border-bottom: 1px solid var(--border);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.subturn-header:hover {
-  background: var(--accent);
-}
-
-/* A closed card in Compact mode is the header alone, so the hairline only
-   belongs under an open header, above the body. */
-.subturn-header[data-state="closed"] {
-  border-bottom: 0;
-}
-
-.subturn-header .caret {
-  flex: none;
-}
-
-.subturn-header[data-state="open"] .caret,
-.opening-summary[aria-expanded="true"] .caret {
-  transform: rotate(90deg);
-}
-
-.subturn-n {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  flex: none;
-}
-
-.subturn-sum {
-  font-size: 0.8125rem;
-  color: var(--muted-foreground);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-}
-
-.subturn-cost {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font-size: 0.75rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted-foreground);
-  flex: none;
-  white-space: nowrap;
-}
-
-.subturn-body {
-  padding: 10px 12px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space);
-}
-
-/* Anchors for the churn banner's "Jump to it" link and the rail: keep the
-   target clear of the sticky header. On a session page the header is the
-   shared top nav, which sticks to the top of the viewport in page mode
-   (body.page .topnav) at exactly --nav-height — the anchor margin must equal
-   that height, or the named sub-turn lands under it. The child transcript's
-   cards keep their own. */
-.turn,
-.subturn {
-  scroll-margin-top: var(--nav-height);
-}
-
-/* A tool card inside a sub-turn body: header row of name, target, and
-   trailing stat over the result body. */
-.tool-card {
+/* .notice/.churn-banner: every product-screen consumer (SettingsScreen's
+   unset-secret notice, SessionWatchScreen's/SessionChatScreen's churn
+   banner) converted to Tailwind utilities in this pass, but
+   web/src/perf/HeightHarness.tsx still renders the same
+   `className="notice churn-banner"` shape and is out of scope here — a
+   perf-measurement harness, not a screen. Kept as residual CSS rather
+   than converting a file this pass isn't touching. */
+.notice {
   border: 1px solid var(--border);
-  border-radius: calc(var(--radius) - 2px);
-  overflow: hidden;
-}
-
-.tool-card-error {
-  border-color: color-mix(in srgb, var(--status-failed) 45%, var(--border));
-}
-
-.tool-card-error .tool-header {
-  background: var(--status-failed-bg);
-}
-
-.tool-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  background: color-mix(in srgb, var(--muted) 45%, transparent);
-  font-size: 0.8125rem;
-}
-
-.tool-name {
-  font-family: var(--font-mono);
-  font-weight: 700;
-  font-size: 0.75rem;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--secondary);
-  flex: none;
-}
-
-.tool-target {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-}
-
-.tool-stat {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 0.75rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted-foreground);
-  flex: none;
-}
-
-.tool-body {
-  border-top: 1px solid var(--border);
-  padding: 8px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space);
-}
-
-/* ---------- transcript toolbar and chips ----------
-   The filter chips over the folded blocks. Counts come from the snapshot,
-   computed in the same pass that builds the cards. */
-
-.transcript-toolbar {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 14px 0 16px;
-  padding: 10px 0;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  background: var(--background);
-}
-
-.toolbar-sep {
-  width: 1px;
-  align-self: stretch;
-  background: var(--border);
-  margin: 2px 2px;
-}
-
-/* The filter chips: a pill Toggle in the same vocabulary as .chip,
-   on top of the shadcn Toggle's pressed state. */
-.chip-toggle {
-  height: 26px;
-  min-width: 0;
-  padding: 0 10px;
-  gap: 5px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--background);
-  color: var(--muted-foreground);
-  font-size: 0.75rem;
-  cursor: pointer;
-}
-
-.chip-toggle:hover {
-  background: var(--muted);
-}
-
-.chip-toggle-active,
-.chip-toggle[data-state="on"] {
-  background: var(--secondary);
+  border-left: 3px solid var(--status-gaveup);
+  background: var(--status-gaveup-bg);
   color: var(--foreground);
-  border-color: var(--ring);
+  border-radius: calc(var(--radius) - 2px);
+  padding: 8px 12px;
+  font-size: 0.8125rem;
 }
 
 .churn-banner {
@@ -1957,7 +969,16 @@ pre {
   font-weight: 600;
 }
 
-/* ---------- the collapsed opening block ---------- */
+.rate-peak {
+  color: var(--status-gaveup);
+  text-transform: uppercase;
+  font-size: 0.625rem;
+  letter-spacing: 0.06em;
+}
+
+.opening-summary[aria-expanded="true"] .caret {
+  transform: rotate(90deg);
+}
 
 .opening-summary {
   display: flex;
@@ -1997,14 +1018,6 @@ pre {
   text-transform: none;
 }
 
-/* The screenshot gallery a Screenshot, Glance, Ground, Detect or Crop result
-   carries (components/blocks/ScreenshotGallery.tsx), and the inline image a Read
-   result carries as a data URI (components/blocks/InlineImage.tsx) — the
-   inline tile reuses these classes so a data URI gets the same bounds and
-   the same new-tab full-size view. Tiles wrap and each is capped rather than
-   stretched: a screenshot is usually much taller than the transcript column
-   is wide, and a full-height one would push the finding that goes with it
-   off the screen. Clicking opens the image at its real size. */
 .screenshot-gallery {
   display: flex;
   flex-wrap: wrap;
@@ -2026,8 +1039,7 @@ pre {
   object-position: top;
   border: 1px solid var(--border);
   border-radius: 4px;
-  /* A page screenshot is usually white, and on a dark transcript an
-     unbordered one reads as a hole punched in the page. */
+
   background: var(--background);
 }
 
@@ -2037,9 +1049,6 @@ pre {
   overflow-wrap: anywhere;
 }
 
-/* The workspace is gone, which is the ordinary end state of a finished run
-   rather than a failure — so this is a plain placeholder, not an error
-   colour. */
 .screenshot-missing-body {
   display: flex;
   align-items: center;
@@ -2053,7 +1062,6 @@ pre {
   text-align: center;
 }
 
-/* The fallback when there is no session to address the images against. */
 .screenshot-paths {
   margin: 6px 0;
   padding-left: 18px;
@@ -2103,8 +1111,6 @@ pre {
   font-size: 0.95rem;
 }
 
-/* Preflight zeroes element margins, so paragraph spacing is explicit here
-   rather than inherited from the browser's defaults. */
 .markdown p {
   margin: 0 0 1em;
 }
@@ -2140,79 +1146,17 @@ pre {
   padding-left: var(--space);
 }
 
-/* ---------- the plan column ---------- */
-
 .transcript-layout {
   display: flex;
   align-items: flex-start;
   gap: calc(var(--space) * 3);
 }
 
-.plan-panel {
-  position: sticky;
-  top: var(--space);
-  flex: 0 0 240px;
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) - 4px);
-  padding: var(--space);
-  font-size: 0.85rem;
-  background: var(--card);
-}
-
-.plan-panel h2 {
-  margin: 0 0 var(--space) 0;
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  color: var(--muted-foreground);
-}
-
-.plan-panel ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.todo-item {
-  display: flex;
-  gap: 6px;
-  align-items: baseline;
-}
-
-.todo-mark {
-  color: var(--muted-foreground);
-  width: 1em;
-  flex: none;
-}
-
-.todo-completed {
-  color: var(--muted-foreground);
-  text-decoration: line-through;
-}
-
-.todo-in_progress .todo-mark {
-  color: var(--status-running);
-}
-
 @media (max-width: 860px) {
   .transcript-layout {
     flex-direction: column-reverse;
   }
-  .plan-panel {
-    position: static;
-    flex: none;
-    width: 100%;
-  }
 }
-
-/* ---------- the timeline rail ----------
-   The sticky left column that lists every sub-turn under the plan item that
-   was in_progress when it ran. The column sticks below the toolbar and
-   scrolls its own content with plain overflow — NOT
-   ScrollArea (a custom scroll container costs a wrapper and a listener per
-   column on a screen that is already frame-budget sensitive). */
 
 .transcript-col {
   flex: 1;
@@ -2220,177 +1164,6 @@ pre {
   display: flex;
   flex-direction: column;
 }
-
-.timeline-rail {
-  flex: 0 0 220px;
-  align-self: flex-start;
-  position: sticky;
-  top: 54px;
-  max-height: calc(100vh - 70px);
-  overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) - 4px);
-  background: var(--card);
-  font-size: 0.8125rem;
-  padding: 6px 0 10px;
-}
-
-.rail-head {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 6px 12px 8px;
-  font-size: 0.6875rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted-foreground);
-}
-
-.rail-count {
-  margin-left: auto;
-  font-variant-numeric: tabular-nums;
-}
-
-/* A phase is one AccordionItem (type multiple — several open at once while
-   browsing); the summary row is the trigger, styled as
-   .rail-phase > summary. */
-.rail-phase {
-  border-bottom: 0;
-}
-
-.rail-phase-trigger {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 5px 10px;
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  text-align: left;
-  cursor: pointer;
-  border: 0;
-  background: transparent;
-  font: inherit;
-}
-
-.rail-phase-trigger:hover {
-  background: var(--accent);
-}
-
-.rail-caret {
-  flex: none;
-}
-
-.rail-phase-trigger[data-state="open"] .rail-caret {
-  transform: rotate(90deg);
-}
-
-.phase-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-}
-
-.rail-phase-trigger[data-state="open"] .phase-name {
-  color: var(--foreground);
-  font-weight: 600;
-}
-
-.phase-range {
-  flex: none;
-  font-variant-numeric: tabular-nums;
-}
-
-.rail-phase-content {
-  padding-bottom: 2px;
-}
-
-/* One sub-turn entry: number and the glyph row, an anchor to the turn (the
-   .turn scroll-margin-top keeps the target clear of the sticky toolbar).
-   The current entry is marked by aria-current and the observer's marker. */
-.rail-turn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 10px 3px 26px;
-  border-left: 2px solid transparent;
-  text-decoration: none;
-  color: var(--foreground);
-}
-
-.rail-turn:hover {
-  background: var(--accent);
-}
-
-.rail-turn[aria-current="true"] {
-  border-left-color: var(--foreground);
-  background: var(--secondary);
-  font-weight: 600;
-}
-
-.rail-turn .n {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  width: 26px;
-  flex: none;
-  text-align: right;
-}
-
-.rail-turn[aria-current="true"] .n {
-  color: var(--foreground);
-}
-
-/* The glyph row: one monospace letter per tool call, coloured by family —
-   writes green, shell blue, failed results red. */
-.glyphs {
-  display: flex;
-  gap: 3px;
-  min-width: 0;
-  overflow: hidden;
-}
-
-.g {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 17px;
-  height: 17px;
-  border-radius: 4px;
-  background: var(--secondary);
-  color: var(--muted-foreground);
-  font-size: 0.625rem;
-  font-weight: 700;
-  font-family: var(--font-mono);
-  flex: none;
-}
-
-.g-write {
-  background: var(--diff-add-bg);
-  color: var(--diff-add-fg);
-}
-
-.g-bash {
-  background: var(--status-running-bg);
-  color: var(--status-running);
-}
-
-.g-err {
-  background: var(--status-failed-bg);
-  color: var(--status-failed);
-}
-
-/* A narrow viewport has no room for a third column; the rail is a
-   navigation aid, not the transcript itself. */
-@media (max-width: 1100px) {
-  .timeline-rail {
-    display: none;
-  }
-}
-
-/* ---------- diff table ---------- */
 
 .diff-table {
   border-collapse: collapse;
@@ -2437,8 +1210,6 @@ pre {
   color: var(--diff-remove-fg);
 }
 
-/* ---------- queue health on the session list ---------- */
-
 .queue-health {
   display: flex;
   align-items: center;
@@ -2463,210 +1234,9 @@ pre {
   font-weight: 600;
 }
 
-/* ---------- settings screen ---------- */
-
-/* The screen reads as a list: one registry entry per collapsible row, closed
-   to a single grid line. Reading is the default state and writing is an
-   act, so a freshly opened screen has nothing in the tab order but the
-   disclosures, the filter chips, and the expand-all button. */
-
-.settings-strip {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 8px;
-  padding: 7px 12px;
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) - 2px);
-  font-size: 0.8125rem;
-  color: var(--muted-foreground);
-}
-
-.settings-strip b {
-  color: var(--foreground);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-
-.settings-strip .sep {
-  color: var(--border);
-}
-
-.settings-strip .spacer {
-  flex: 1;
-}
-
-.settings-summary-warn {
-  color: var(--status-gaveup);
-}
-
-.settings-filters {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
-  margin-bottom: 8px;
-}
-
-.settings-filters .spacer {
-  flex: 1;
-}
-
-/* The filter chips: a pill toggle in the same vocabulary as .chip. */
-.chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 26px;
-  padding: 0 9px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--background);
-  color: var(--muted-foreground);
-  font-size: 0.75rem;
-  cursor: pointer;
-}
-
-.chip:hover {
-  background: var(--muted);
-}
-
-.chip-active {
-  background: var(--secondary);
-  color: var(--foreground);
-  border-color: var(--ring);
-}
-
-/* A group of settings: one card, rows separated by a hairline. */
-.settings-group {
-  margin-top: 20px;
-}
-
-/* The restart badge is shrink-0 and nowrap (it is one phrase, and breaking
-   "takes effect on the next start" mid-sentence reads as two facts), so the
-   head has to wrap instead: on a narrow viewport the badge drops to its own
-   line rather than running past the column and giving the page a horizontal
-   scrollbar. The spacer earns its flex here, as it does in the nav and the
-   settings strip — it is what pins the badge right once there is room. */
-.settings-group-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 10px;
-  margin: 0 0 8px;
-}
-
-.settings-group-head .spacer {
-  flex: 1;
-}
-
-.settings-group-head h2 {
-  margin: 0;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted-foreground);
-}
-
-.settings-group-count {
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  font-variant-numeric: tabular-nums;
-}
-
-.settings-group-head .spacer {
-  flex: 1;
-}
-
-.settings-group-card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--card);
-  overflow: hidden;
-}
-
-.settings-group-card .settings-row + .settings-row {
-  border-top: 1px solid var(--border);
-}
-
-/* One setting row. Closed it is the summary grid; open it adds the body
-   below it. The value column is the one an operator scans: a stored value at
-   full weight, a default muted, a missing credential in the gave-up colour —
-   so the rows this installation has changed are findable without reading a
-   badge on every row. */
-.settings-row {
-  background: var(--card);
-}
-
-.settings-summary {
-  display: grid;
-  grid-template-columns: 10px minmax(150px, 250px) minmax(80px, 160px) minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 8px 12px;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.settings-summary:hover {
-  background: var(--surface-hover);
-}
-
-.settings-summary-open {
-  background: color-mix(in srgb, var(--accent) 40%, transparent);
-}
-
-.settings-key {
-  font-family: var(--font-mono);
-  font-size: 0.8125rem;
-}
-
-.settings-val {
-  font-family: var(--font-mono);
-  font-size: 0.8125rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--muted-foreground);
-  text-align: right;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.settings-val-set {
-  color: var(--foreground);
-  font-weight: 600;
-}
-
-.settings-val-unset {
-  color: var(--status-gaveup);
-}
-
-.settings-desc {
-  font-size: 0.8125rem;
-  color: var(--muted-foreground);
-  min-width: 0;
-}
-
-.settings-flags {
-  display: flex;
-  gap: 6px;
-  justify-content: flex-end;
-}
-
 .caret {
   color: var(--muted-foreground);
   transition: transform var(--dur-caret) var(--ease);
-}
-
-.caret-open {
-  transform: rotate(90deg);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2675,54 +1245,12 @@ pre {
   }
 }
 
-/* The open row: full description, the unset-credential notice, the facts the
-   registry knows, and the write controls. */
-.settings-body {
-  padding: 2px 12px 14px 32px;
-  display: grid;
-  gap: 10px;
-  max-width: 92ch;
-}
-
-.settings-body p {
-  margin: 0;
-  font-size: 0.8125rem;
-  max-width: 78ch;
-}
-
 .facts {
   display: flex;
   flex-wrap: wrap;
   gap: 6px 18px;
   font-size: 0.75rem;
   color: var(--muted-foreground);
-}
-
-.facts .k {
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  font-size: 0.6875rem;
-  margin-right: 5px;
-}
-
-.facts code {
-  background: var(--muted);
-  padding: 1px 5px;
-  border-radius: 4px;
-  color: var(--foreground);
-}
-
-.write {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.settings-input {
-  min-width: 300px;
-  flex: 0 1 320px;
-  font-family: var(--font-mono);
 }
 
 .field-error {
@@ -2737,311 +1265,11 @@ pre {
   color: var(--muted-foreground);
 }
 
-/* The notices: .notice for "this breaks until you fix it", .notice-quiet for
-   the restart caveat that colours nothing. */
-.notice {
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--status-gaveup);
-  background: var(--status-gaveup-bg);
-  color: var(--foreground);
-  border-radius: calc(var(--radius) - 2px);
-  padding: 8px 12px;
-  font-size: 0.8125rem;
-}
-
-.notice-quiet {
-  border-left-color: var(--muted-foreground);
-  background: color-mix(in srgb, var(--muted) 50%, transparent);
-  color: var(--muted-foreground);
-}
-
-.settings-error {
-  color: var(--status-failed);
-  font-size: 0.85rem;
-}
-
-.settings-error-banner {
-  border: 1px solid var(--status-failed);
-  border-radius: calc(var(--radius) - 4px);
-  padding: var(--space);
-  margin-bottom: var(--space);
-}
-
-@media (max-width: 900px) {
-  .settings-summary {
-    grid-template-columns: 10px minmax(0, 1fr) auto;
-  }
-  .settings-val {
-    grid-column: 2;
-    text-align: left;
-  }
-  .settings-desc {
-    display: none;
-  }
-}
-
-/* ---------- the start form (docs/RUN-CONTROL.md "The frontend") ----------
-   The browser write path for starting a run: a card at the top of the
-   session list, opened by the trigger in the nav's right slot. It mirrors
-   harness publish's flags — prompt, repos (URL#branch), an explicit
-   permission mode, and the optional fields behind a disclosure — and the
-   permission mode carries the warning that must not be buried: full runs as
-   root in the workspace and the harness container has the host's docker
-   socket. */
-
 .nav-note {
   font-size: 0.75rem;
   color: var(--muted-foreground);
   white-space: nowrap;
 }
-
-.start-form-card {
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--card);
-  margin-bottom: calc(var(--space) * 2);
-}
-
-.start-form {
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.start-form-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.start-title {
-  font-weight: 600;
-  flex: 1;
-}
-
-.start-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.start-field-wide {
-  grid-column: 1 / -1;
-}
-
-.start-label {
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.start-primary-row {
-  display: flex;
-  align-items: flex-end;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-
-.start-schema {
-  width: 100%;
-  min-width: 0;
-  border: 1px solid var(--input);
-  border-radius: calc(var(--radius) - 2px);
-  background: transparent;
-  padding: 6px 10px;
-  font: inherit;
-  font-size: 0.875rem;
-  line-height: 1.5;
-  resize: vertical;
-  outline: none;
-}
-
-.start-schema:focus {
-  border-color: var(--ring);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 50%, transparent);
-}
-
-.start-input {
-  font-family: var(--font-mono);
-  font-size: 0.8125rem;
-}
-
-.start-repo-row {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-/* The attachment input and the list of files the operator has chosen. The
-   rows reuse .start-repo-row's layout; the name takes the remaining width
-   and truncates, with the size dimmed beside it and the remove control at
-   the row's end. */
-
-.start-attachment-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.start-attachment-name {
-  flex: 1;
-  min-width: 0;
-  font-family: var(--font-mono);
-  font-size: 0.8125rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.start-attachment-meta {
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  white-space: nowrap;
-}
-
-/* The repo row's searchable combobox: the input plus its absolutely
-   positioned suggestion list. The list sits below the input, on top of
-   whatever the form draws beneath it, so typing in a repo row floats the
-   matching repos without reflowing the form. */
-
-.start-repo-combobox {
-  position: relative;
-  flex: 1;
-  min-width: 0;
-}
-
-.start-repo-suggestions {
-  /* The list ends at a row boundary: --repo-row is the one row height, and
-     the max-height is exactly five rows plus the 2px gaps between them and
-     the container's 4px padding. A taller list scrolls, and the sixth row
-     hides whole behind the fold — the scroll affordance — instead of being
-     cut through the middle. */
-  --repo-row: 48px;
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  z-index: 20;
-  max-height: calc(var(--repo-row) * 5 + 2px * 4 + 4px * 2);
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 4px;
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) - 2px);
-  background: var(--card);
-  box-shadow: 0 4px 12px rgb(0 0 0 / 0.15);
-}
-
-.start-repo-suggestion {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 1px;
-  width: 100%;
-  height: var(--repo-row);
-  border: none;
-  border-radius: calc(var(--radius) - 4px);
-  background: transparent;
-  color: var(--foreground);
-  padding: 5px 8px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.start-repo-suggestion:hover,
-.start-repo-suggestion-active {
-  background: var(--muted);
-}
-
-.start-repo-suggestion-name {
-  font-family: var(--font-mono);
-  font-size: 0.8125rem;
-  /* One line per row, ellipsised — the row height above is fixed so the
-     list ends at a row boundary, and a wrapped name would break that. */
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.start-repo-suggestion-meta {
-  font-size: 0.6875rem;
-  color: var(--muted-foreground);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.start-optional-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px 14px;
-  padding-top: 10px;
-}
-
-.start-select {
-  height: 36px;
-  border: 1px solid var(--input);
-  border-radius: calc(var(--radius) - 2px);
-  background: var(--card);
-  color: var(--foreground);
-  padding: 0 8px;
-  font: inherit;
-  font-size: 0.8125rem;
-  outline: none;
-}
-
-.start-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.start-accepted {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--status-done);
-  background: var(--status-done-bg);
-  border-radius: calc(var(--radius) - 2px);
-  padding: 8px 12px;
-  font-size: 0.8125rem;
-}
-
-.start-accepted code {
-  font-family: var(--font-mono);
-  background: var(--muted);
-  padding: 0 4px;
-  border-radius: 4px;
-}
-
-@media (max-width: 700px) {
-  .start-optional-grid {
-    grid-template-columns: 1fr;
-  }
-  .start-primary-row {
-    flex-direction: column;
-    align-items: stretch;
-  }
-}
-
-/* ---------- operations screen ----------
-
-   The first screen where the browser acts on the harness (docs/DATA-API.md):
-   stuck sessions, running work requests, and workspace leases,
-   each with the writes that rewrite operational state. It follows the
-   settings screen's density and the session list's table conventions — same
-   strip up top for the counts, same dense table, same destructive vocabulary
-   — rather than inventing a third visual language. */
 
 .ops-strip {
   display: flex;
@@ -3053,10 +1281,7 @@ pre {
   border-radius: calc(var(--radius) - 2px);
   font-size: 0.8125rem;
   color: var(--muted-foreground);
-  /* The first section ("Stuck sessions") sits right under this strip and
-     must get the same gap the sections give each other
-     (.list-section + .list-section's 2.5 × space) — without this the
-     heading used to sit flush against the strip. */
+
   margin-bottom: calc(var(--space) * 2.5);
 }
 
@@ -3078,58 +1303,12 @@ pre {
   padding: var(--space) 0;
 }
 
-.ops-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-
-.ops-table th {
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-  padding: 6px 8px;
-  color: var(--muted-foreground);
-  font-weight: 600;
-}
-
-.ops-table td {
-  border-bottom: 1px solid var(--border);
-  padding: 6px 8px;
-  vertical-align: top;
-}
-
-.ops-row:hover {
-  background: var(--muted);
-}
-
-/* The headline figure of a quiet row: the duration since its last event or
-   heartbeat, at full weight so the rows this screen exists to find are the
-   ones that catch the eye. */
-.ops-quiet {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.ops-mono {
-  font-family: var(--font-mono);
-  font-size: 0.85rem;
-}
-
-.ops-actions-cell {
-  min-width: 180px;
-}
-
 .ops-actions {
   display: flex;
   gap: 8px;
   align-items: center;
 }
 
-/* The inline confirm step a delete/release requires (no window.confirm — a
-   modal blocks the page and automation cannot dismiss it). It names what is
-   about to be destroyed and sits in the row itself, so the row's context
-   stays visible. */
 .ops-confirm {
   display: flex;
   flex-direction: column;
@@ -3151,50 +1330,8 @@ pre {
   gap: 8px;
 }
 
-/* The stop control (docs/RUN-CONTROL.md "The frontend"): the hard-to-reverse
-   run control that ends a run an operator cannot get back, behind the same
-   inline confirm the operations screen gives a delete. Between the 202 and
-   the terminal event it shows *stopping…* (stop-pending); the terminal state
-   arrives over the SSE stream, never by polling. On the session card the
-   confirm uses the column shape above; in the transcript header it renders
-   inline so it fits the header row. */
 .stop-pending {
   font-size: 0.8125rem;
-}
-
-/* The transcript has no header of its own, so this lives in the nav's
-   right slot (web/CLAUDE.md): a row, and the confirm lays out inline rather
-   than stacking, so arming it does not change the nav's height. */
-.stop-nav {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.stop-nav .ops-confirm {
-  flex-direction: row;
-  align-items: center;
-  flex-wrap: nowrap;
-  white-space: nowrap;
-}
-
-/* The steer control (docs/RUN-CONTROL.md "The frontend"): an input on the
-   transcript screen, visible only while the session is running, that appends
-   an instruction the loop picks up at the next sub-turn boundary. The write
-   is an acceptance, not a delivery — the transcript's steer block carries
-   the pending/delivered states, so this control only reports a refused
-   write, never a delivery. */
-.steer-control {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 14px 0 16px;
-}
-
-.steer-input {
-  flex: 1;
-  min-width: 240px;
 }
 
 .ops-error {
@@ -3208,10 +1345,6 @@ pre {
   padding: var(--space);
   margin-bottom: var(--space);
 }
-
-/* ---------- status and diff tokens on the shadcn Badge ----------
-   The badge itself is the component; these are the harness's own vocabulary
-   tints on top of it. */
 
 .badge-running {
   background: var(--status-running-bg);
@@ -3238,14 +1371,10 @@ pre {
   color: var(--status-failed);
 }
 
-/* Outlined rather than filled: "takes effect on the next start" is a caveat
-   on a setting, not a state a session is in. */
 .badge-restart {
   border-color: var(--status-gaveup);
   color: var(--status-gaveup);
 }
-
-/* ---------- web/src/perf: the measurement harness page ---------- */
 
 .perf-harness {
   max-width: 1200px;
@@ -3256,63 +1385,22 @@ pre {
   white-space: nowrap;
 }
 
-/* The height measurement's headline figure (web/src/perf/HeightHarness). */
 .perf-height-result {
   margin: 0 0 16px;
   font-family: var(--font-mono);
 }
 
-/* ---------- the two session pages' shared layer ----------
-   Ported wholesale from the flat mockups' shared layer: the interactive
-   page (a run a person started) and the read-only page (a run an agent
-   started) both draw on it. The vocabulary lands here so the two screens
-   only write markup; phases 2-4 of the session-pages work build on it.
-
-/* Session-screen layer, shared by the two session pages.
- *
- * Which page a session gets is decided by one field on the row:
- * SessionState.parent_is_user (internal/hub, producer-stamped). True means a
- * person started this run and can talk to it; false means another agent did,
- * and the person looking at it is a spectator who may stop it but not steer
- * it. Everything below is the vocabulary both pages share — the app shell,
- * the turn, the tool row, the rails — so the two screens differ in what they
- * let you do, not in how a turn reads.
- *
- * Layered on tokens.css. No JavaScript; every collapsible is a <details>.
- */
-
-/* ---------- app shell ----------
-   The page does not scroll; the conversation column does. That is the one
-   structural difference from every other screen in this design pass, and it
-   is what buys a footer that never moves — a composer on one page, a live
-   status bar on the other — and a stream that stays pinned to the tail.
-
-   One header row, not two. A session bar under the nav cost ~46px of
-   permanent vertical space to say things that either never change
-   (workspace, permission) or already sit in the footer's status line (cost,
-   cache). The facts that never change moved to a rail; the live numbers
-   stayed at the bottom, where the eye already is. */
 html,
 body {
   height: 100%;
 }
-/* Flex, not a grid template. The two pages have a different number of bands
-   — the watch page carries a provenance strip the chat page does not — and a
-   fixed `grid-template-rows` silently mis-assigns the flexible row when the
-   child count changes, which pushed the chat page's composer off the bottom
-   of the viewport. A column flex with `flex: 1` on the one band that
-   stretches cannot get this wrong however many bands there are. */
+
 body.app {
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
-/* In the app the mock's body-level column passes through #root: the mock's
-   <body class="app"> is a direct parent of the nav and the bands, while here
-   App.tsx mounts the nav and the session screen as children of #root. With
-   the class on body, #root becomes the flex item that stretches, and its own
-   column carries the nav (auto height) and the screen's `.work` band (the
-   one band with `flex: 1`). */
+
 body.app #root {
   flex: 1;
   min-height: 0;
@@ -3320,9 +1408,7 @@ body.app #root {
   flex-direction: column;
 }
 .app .topnav {
-  /* The base .topnav rule's 16px top margin is page-scrolling breathing
-     room; in the fixed shell it is dead space above the nav, which the
-     mock's own .topnav does not have. */
+
   margin-top: 0;
   margin-bottom: 0;
   padding: 8px 20px;
@@ -3333,11 +1419,7 @@ body.app #root {
   color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
 }
-/* A finished watch run is an ordinary scrolling page again, so the nav
-   sticks to the top of the viewport and keeps the crumb, the outcome badge
-   and the status line in view over the transcript. The base rule's margins
-   are page-scrolling breathing room; a stuck nav needs them gone, or the
-   transcript shows through the gaps above and below it. */
+
 body.page .topnav {
   position: sticky;
   top: 0;
@@ -3347,37 +1429,13 @@ body.page .topnav {
   background: var(--background);
 }
 
-/* Permission mode is a safety fact, so it is stated next to the stop button
-   rather than filed in a rail with the workspace path: "full" means this run
-   can reach the host docker socket. */
-.badge-perm {
-  border-color: var(--status-gaveup);
-  color: var(--status-gaveup);
-  font-weight: 600;
-}
-
-/* ---------- body ---------- */
-.work {
-  display: grid;
-  flex: 1;
-  min-height: 0;
-}
-/* The chat page's work band: the conversation column and the 288px plan
-   rail. The watch page has its own, separate column layout. */
-.work-chat {
-  grid-template-columns: minmax(0, 1fr) 288px;
-}
-/* The watch page's work band: the 244px navigator rail on the left and
-   the conversation column. Same silhouette rule as the chat page — the
-   rail is a peer pane — with the rail on the other side, so the two
-   pages are told apart before reading a word. */
-.work-watch {
-  grid-template-columns: 244px minmax(0, 1fr);
-}
-/* A finished watch run is an ordinary page: the rail stays beside the
-   transcript, pinned below the sticky nav while the page scrolls, with a
-   max-height that keeps it inside the viewport and its own scroll for a
-   long plan. */
+/* .work-watch-page is a modifier class SessionWatchScreen.tsx adds only for
+   this override: the app-shell layout's rail (WatchRail.tsx's own
+   sticky/max-height, set directly as Tailwind) needs different values when
+   the run has finished and the page drops the shell, so the finished-page
+   layout keeps this residual rather than threading a variant prop through
+   an already-converted child. .stream survives as a bare selector for
+   .app .stream below, the same body-level-class pattern as .app .rail. */
 .work-watch-page .rail {
   position: sticky;
   top: var(--nav-height);
@@ -3385,201 +1443,35 @@ body.page .topnav {
   max-height: calc(100vh - var(--nav-height));
   overflow-y: auto;
 }
-/* The watch page's stream measure is a touch wider than the chat page's:
-   the reader here is a spectator hunting through history, not a typist, and
-   the extra 40px buys room for the provenance strip's longer lines.
 
-   It hangs off the rail rather than floating in the middle of what is left.
-   Centred, an 840px measure in a 1196px column put ~180px of nothing between
-   the rail and the first character of every line, so the two panes read as
-   unrelated and the sub-turn numbers — which the rail's ticks link to — sat
-   marooned in the gap. Left-anchored with a 40px gutter, the eye goes rail →
-   transcript, and the slack all collects on the outside edge where nothing
-   needs it. */
-.work-watch .stream-inner {
-  max-width: 840px;
-  margin-left: 0;
-  margin-right: auto;
-}
-.work-watch .stream {
-  padding-left: 40px;
-}
-.stream {
-  padding: 20px 24px 0;
-  scrollbar-gutter: stable;
-  position: relative;
-}
-/* The conversation column scrolls only in the shell; a page-mode stream
-   grows and the page scrolls instead. */
 .app .stream {
   overflow-y: auto;
 }
-.stream-inner {
-  max-width: 800px;
-  margin: 0 auto;
-  padding-bottom: 24px;
-}
 
-/* A rail is a peer pane, not a scroller nested in the turn list: it scrolls
-   only when its own content is longer than the viewport, and the wheel over
-   the conversation never lands in it. */
-.rail {
-  padding: 16px 16px 24px;
-}
-/* The rail's own scroll belongs to the shell; a page-mode rail is sticky
-   with its own max-height instead. */
+/* .rail survives as a bare selector only for .app .rail below: a body-level
+   class SessionScreen computes outside React (the same reason TopNav's own
+   .app/.page rules stayed). Everything else about the rail chrome is now a
+   Tailwind utility in WatchRail.tsx/ChatRail.tsx. */
 .app .rail {
   overflow-y: auto;
 }
-.rail-right {
-  border-left: 1px solid var(--border);
+
+/* .think and .tool survive as bare selectors only to scope the two rules
+   below: Safari's <details> marker needs the ::-webkit pseudo-element (no
+   className equivalent exists), and everything else about both disclosures
+   is a Tailwind utility on the <details>/<summary> directly
+   (turns/Turn.tsx, turns/LiveTurn.tsx). */
+.think > summary::-webkit-details-marker {
+  display: none;
 }
-.rail-left {
-  border-right: 1px solid var(--border);
-}
-.railsec + .railsec {
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-}
-.railsec h3 {
-  margin: 0 0 10px;
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted-foreground);
-}
-/* A rail section with nothing to show (a plan the run never wrote) states
-   so in one line rather than drawing an empty card. */
-.rail-note {
-  margin: 0;
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
+.tool > summary::-webkit-details-marker {
+  display: none;
 }
 
-/* ---------- the conversation ---------- */
-.msg {
-  margin: 0 0 22px 40px;
-}
-
-/* An operator message. Not a card and not a bubble: a quoted block with a
-   left rule, the way a TUI echoes what you typed. Bubbles would imply
-   turn-taking, and this conversation does not take turns — the run never
-   waits for you (docs/RUN-CONTROL.md "Steering: augment, don't gate"). */
-.msg-user {
-  border-left: 2px solid var(--status-running);
-  padding: 1px 0 1px 13px;
-}
-.msg-user .body {
-  font-family: var(--font-mono);
-  font-size: 0.8125rem;
-  line-height: 1.55;
-  white-space: pre-wrap;
-}
-.msg-user .state {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 5px;
-  font-size: 0.6875rem;
-  color: var(--muted-foreground);
-}
-.state-pending {
-  color: var(--status-gaveup);
-}
-/* A steer the run never applied because it ended first (a steer sent while
-   the final sub-turn's request was in flight, and the run ends before it
-   is delivered). The pending vocabulary — "waiting for the current tool
-   call to finish" — would claim a boundary is coming that is not. The gaveup colour stays
-   (the message was accepted, not delivered) but the pulse dot goes, because
-   nothing is in motion. */
-.state-undelivered {
-  color: var(--status-gaveup);
-}
-/* A sent message whose POST itself failed ("the POST itself failed —
-   nothing landed in the log"): the failed left rule and state colour, the
-   server's error in the state line, and the Retry and dismiss controls.
-   This state is composer-local — nothing is in the log, so
-   nothing the fold knows can flip it; the chat screen holds it until the
-   send is retried or dismissed. */
-.msg-user-failed {
-  border-left-color: var(--status-failed);
-}
-.state-failed {
-  color: var(--status-failed);
-}
-.msg-user .state .retry {
-  height: 22px;
-  font-size: 0.75rem;
-  padding: 0 8px;
-}
-.msg-user .dismiss {
-  border: 0;
-  background: transparent;
-  color: var(--muted-foreground);
-  font-size: 0.75rem;
-  line-height: 1;
-  padding: 2px 4px;
-  cursor: pointer;
-  border-radius: 3px;
-  margin-left: auto;
-}
-.msg-user .dismiss:hover {
-  color: var(--foreground);
-  background: var(--accent);
-}
-
-/* An agent turn. Also not a card — a card around every turn is what makes the
-   transcript screen read as a log table rather than a conversation.
-
-   The sub-turn number lives in a left gutter rather than a footer line under
-   the turn. As a footer it was an orphan: a dim label on its own row, costing
-   20px of vertical rhythm per turn to say something you only want when
-   hunting for a specific turn. In the gutter it costs nothing, it sits in the
-   margin the prose measure creates anyway, and it gives every turn a stable
-   anchor to link to. */
-.turn {
-  margin: 0 0 24px;
-  position: relative;
-  padding-left: 40px;
-}
-.turn > * + * {
-  margin-top: 8px;
-}
-/* The sub-turn number is the transcript's only coordinate — it is what the
-   rail's ticks link to and what a person quotes when they say where
-   something went wrong — so it is legible at rest rather than a hover
-   reveal. Quiet, not hidden: muted at full opacity, and it comes up to the
-   foreground with its turn. */
-.gutter {
-  position: absolute;
-  left: 0;
-  top: 1px;
-  width: 30px;
-  text-align: right;
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  color: var(--muted-foreground);
-  font-variant-numeric: tabular-nums;
-  text-decoration: none;
-}
-.turn:hover .gutter,
-.gutter:focus-visible {
-  color: var(--foreground);
-}
-.gutter .warn {
-  display: block;
-  color: var(--status-gaveup);
-  opacity: 1;
-}
-
-/* Prose is the most readable thing on the page. Everything else — tool rows,
-   telemetry, reasoning — is smaller or dimmer than it. */
-.say {
-  font-size: 0.9375rem;
-  line-height: 1.65;
-}
+/* .say's own font size/line height are Tailwind utilities on the wrapping
+   div now; these two rules survive because they style <p>/<code> tags
+   Markdown renders inside it (render/Markdown.tsx), which a className on
+   the wrapper can't reach. */
 .say p {
   margin: 0 0 10px;
 }
@@ -3592,145 +1484,6 @@ body.page .topnav {
   border-radius: 3px;
 }
 
-/* Reasoning: one dim line, opens in place. */
-.think > summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  border-radius: 4px;
-  padding: 1px 4px;
-  margin-left: -4px;
-  /* The design draws its own caret (the <span class="caret">▸</span> the
-     markup carries); the native disclosure triangle is hidden so the closed
-     line reads as drawn. */
-  list-style: none;
-  cursor: pointer;
-}
-.think > summary::-webkit-details-marker {
-  display: none;
-}
-.think > summary:hover {
-  color: var(--foreground);
-  background: var(--accent);
-}
-.think > summary:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 1px;
-}
-.think .thought {
-  margin-top: 6px;
-  padding-left: 13px;
-  border-left: 1px solid var(--border);
-  font-size: 0.8125rem;
-  line-height: 1.6;
-  color: var(--muted-foreground);
-  white-space: pre-wrap;
-}
-
-/* A tool call. One line closed: glyph, verb, target, and the single most
-   useful number for that tool — lines for a read, exit code for a command,
-   ± for an edit. */
-.tool {
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) - 2px);
-  background: var(--card);
-}
-.tool + .tool {
-  margin-top: 4px;
-}
-.tool > summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  font-size: 0.8125rem;
-  border-radius: calc(var(--radius) - 3px);
-  /* Same drawn-caret treatment as .think: the native disclosure triangle
-     stays hidden (see the .think rule's comment). */
-  list-style: none;
-  cursor: pointer;
-}
-.tool > summary::-webkit-details-marker {
-  display: none;
-}
-.tool > summary:hover {
-  background: var(--accent);
-}
-.tool > summary:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: -2px;
-}
-.tool .glyph {
-  width: 13px;
-  text-align: center;
-  flex: none;
-  color: var(--muted-foreground);
-  font-size: 0.75rem;
-}
-.tool .name {
-  font-family: var(--font-mono);
-  font-weight: 600;
-  font-size: 0.75rem;
-  flex: none;
-}
-.tool .target {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-  min-width: 0;
-}
-.tool .timing {
-  font-size: 0.6875rem;
-  color: var(--muted-foreground);
-  flex: none;
-  font-variant-numeric: tabular-nums;
-}
-
-/* Output grows the page. No inner scroller anywhere in the turn list: a
-   scroll container inside a scroll container steals the wheel, hides its
-   content from find-in-page, and makes the scrollbar lie about how much is
-   left. Long output truncates to a head and a tail with an expand row
-   instead — the disclosure the transcript already uses (web/CLAUDE.md:
-   "Large tool outputs collapse to a head and tail preview"). */
-.tool-out {
-  border-top: 1px solid var(--border);
-  padding: 8px 10px;
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: var(--muted-foreground);
-}
-.elided {
-  display: block;
-  width: 100%;
-  text-align: left;
-  border: 0;
-  border-top: 1px dashed var(--border);
-  border-bottom: 1px dashed var(--border);
-  background: var(--muted);
-  color: var(--muted-foreground);
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  padding: 5px 10px;
-  cursor: pointer;
-}
-.elided:hover {
-  color: var(--foreground);
-}
-/* .path-elide is .elided's inline sibling: the control standing in for a
-   workspace path's hidden prefix (components/ui/ElidedPath.tsx). Same muted
-   treatment and dashed border, sized to sit inside a line of text rather
-   than to span a block, so a row reads as "something was shortened here"
-   without the prefix taking the width back. */
 .path-elide {
   border: 1px dashed var(--border);
   border-radius: 3px;
@@ -3742,8 +1495,7 @@ body.page .topnav {
   padding: 1px 3px;
   margin-right: 2px;
   cursor: pointer;
-  /* The glyph is the whole control, so it must not be pulled apart by a
-     selection that runs across the path text beside it. */
+
   user-select: none;
   vertical-align: baseline;
 }
@@ -3755,148 +1507,23 @@ body.page .topnav {
   outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
-/* An expanded path is the one value in these rows that must be allowed to
-   wrap. Both the rail's facts and the operations table's session subtitle
-   ellipsise their contents, which is correct for the collapsed form and
-   exactly wrong for the expanded one — the reader clicked to see the whole
-   string, and an ellipsis would hand back a shorter path than they started
-   with. The rail selector is repeated because .rail .facts .v outranks a
-   bare class. */
-.path-full,
-.rail .facts .v.path-full {
+
+.path-full {
   white-space: normal;
   overflow: visible;
   text-overflow: clip;
-  /* Paths have no spaces to break at, so the break has to be allowed
-     anywhere or the string overflows its column instead of wrapping. */
+
   overflow-wrap: anywhere;
 }
-/* A one-line value reads fine flush right, but a path wrapped over four
-   lines gives every line a different left edge — the segment boundaries stop
-   lining up and the string becomes hard to follow. Left-align it once it
-   wraps. */
+
+/* The rail's workspace-path value right-aligns as a Tailwind utility
+   (WatchRail.tsx/ChatRail.tsx); .v survives there as a literal class only so
+   this one override — flipping to left when ElidedPath expands it — still
+   applies on top. */
 .rail .facts .v.path-full {
   text-align: left;
 }
-/* The tail half of an elided output sits directly under the elision row,
-   whose dashed bottom border already draws the separator — the design's
-   sub-turn 2 (its tail pre carries no border-top of its own). */
-.elided + .tool-out {
-  border-top: 0;
-}
-.tool-err {
-  border-color: var(--status-failed);
-}
-.tool-err > summary .glyph,
-.tool-err > summary .timing {
-  color: var(--status-failed);
-}
-.tool-ok .glyph {
-  color: var(--status-done);
-}
 
-/* An edit's glyph stays neutral: blue is these pages' "live" colour (the
-   running badge, your message rule, the plan item in progress, the caret).
-   The change itself carries the diff colours. */
-.diffstat .add {
-  color: var(--diff-add-fg);
-}
-.diffstat .del {
-  color: var(--diff-remove-fg);
-}
-.tool-live {
-  border-color: var(--status-running);
-}
-.tool-live > summary .glyph {
-  color: var(--status-running);
-  display: flex;
-  justify-content: center;
-}
-.tool-live > summary .timing {
-  color: var(--status-running);
-}
-
-/* Parallel calls in one turn read as a set, not three strangers. */
-.toolset {
-  border-left: 1px solid var(--border);
-  padding-left: 11px;
-}
-.toolset .setlabel {
-  font-size: 0.6875rem;
-  color: var(--muted-foreground);
-  margin-bottom: 5px;
-}
-
-/* Per-turn telemetry. Four numbers under every turn is clutter in a page you
-   read like a conversation, so it rides at the top-right of the turn and
-   appears on hover or keyboard focus — never taking a row of its own.
-   Anything abnormal (a churn point, a retry) is not hover-only: it states
-   itself in the gutter without being asked. */
-.turnmeta {
-  position: absolute;
-  right: 0;
-  top: 0;
-  display: flex;
-  gap: 10px;
-  font-size: 0.6875rem;
-  color: var(--muted-foreground);
-  font-variant-numeric: tabular-nums;
-  background: var(--background);
-  padding-left: 10px;
-  opacity: 0;
-  transition: opacity 0.1s ease;
-}
-.turn:hover .turnmeta,
-.turn:focus-within .turnmeta {
-  opacity: 1;
-}
-.turnmeta .warn {
-  color: var(--status-gaveup);
-}
-@media (prefers-reduced-motion: reduce) {
-  .turnmeta {
-    transition: none;
-  }
-}
-
-/* The turn currently streaming. */
-.live .say {
-  border-left: 2px solid var(--status-running);
-  padding-left: 13px;
-}
-/* The streaming prose is plain preformatted text (docs/DESIGN.md §5.3 — no
-   markdown parse while the text is still growing), on the same measure as
-   the completed prose; the .live .say rule above gives it the running-state
-   left rule. */
-.live .say pre {
-  margin: 0;
-  font: inherit;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.cursor {
-  display: inline-block;
-  width: 7px;
-  height: 14px;
-  background: var(--status-running);
-  vertical-align: -2px;
-  animation: pulse var(--cursor-period) steps(2, start) infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .cursor {
-    animation: none;
-  }
-}
-
-/* The turn list (components/turns/TurnTranscript) is the design's stream
-   content: the .turn rule's own 24px bottom margin is the rhythm, so a
-   top-level block — opening, skills, run_finished, error, steer — that
-   sits between turns is a card that gets the same margin. Direct children
-   only: a child transcript nested inside a tool result keeps its own
-   compact card rhythm. flex: 1 / min-width: 0 are the same flex-item rules
-   the old .transcript wrapper carried — without min-width: 0 the list
-   refuses to shrink below its content's min-content width and shoves the
-   plan column off the viewport. */
 .turn-list {
   flex: 1;
   min-width: 0;
@@ -3904,175 +1531,14 @@ body.page .topnav {
 .turn-list > .block {
   margin: 0 0 24px;
 }
-/* The two opening rows sit close enough to read as one group with the run
-   header above them; the card rhythm above applies from the first turn on.
-   Both selectors match .turn-list > .block, so they need its specificity. */
+
 .turn-list > .block-skills {
   margin: 0 -6px 2px;
 }
 .turn-list > .block-opening {
   margin: 0 -6px 16px;
 }
-/* Live tool rows (a frozen turn awaiting its results) sit after the turn
-   they belong to; the wrapper carries the same bottom margin so the next
-   turn starts on the rhythm. */
-.pending-live {
-  margin-bottom: 24px;
-}
 
-/* Jump-to-tail, shown only when the stream is scrolled off the bottom.
-   Sticky inside the scroll container so it floats above the last turn without
-   a fixed overlay that would sit over the rail. */
-/* align-items: flex-end is load-bearing. The wrapper is a zero-height sticky
-   line, so a 28px pill laid out from its top edge hangs 28px BELOW the line and
-   disappears under the composer band; ending the item on the line instead
-   floats it above the last turn, which is where a control that says "jump
-   down" has to be to be clickable. */
-.jumpwrap {
-  position: sticky;
-  bottom: 10px;
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  pointer-events: none;
-  height: 0;
-}
-.jump {
-  pointer-events: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 12px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--card);
-  box-shadow: var(--shadow-float);
-  font-size: 0.75rem;
-  cursor: pointer;
-  color: var(--foreground);
-}
-
-/* 13px beside 12px text: the pill's arrow sits inline with the label rather
-   than over it (--icon-xs). */
-.jump svg {
-  width: var(--icon-xs);
-  height: var(--icon-xs);
-  flex: none;
-}
-
-/* ---------- plan ---------- */
-.planhead {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-.planhead .progress {
-  flex: 1;
-}
-.planhead .count {
-  font-size: 0.6875rem;
-  color: var(--muted-foreground);
-  font-variant-numeric: tabular-nums;
-}
-/* The plan's progress bar: a 4px track with the running-colour fill at
-   the completed ratio. The fill is an inline width, set by the rail from
-   the plan's completed count. */
-.progress {
-  height: 4px;
-  border-radius: 999px;
-  background: var(--muted);
-  overflow: hidden;
-  flex: none;
-}
-.progress > span {
-  display: block;
-  height: 100%;
-  background: var(--status-running);
-}
-.planrow {
-  display: flex;
-  gap: 8px;
-  font-size: 0.8125rem;
-  padding: 4px 0;
-  line-height: 1.45;
-}
-.planrow .mark {
-  flex: none;
-  width: 12px;
-  color: var(--muted-foreground);
-  font-family: var(--font-mono);
-}
-.plan-done {
-  color: var(--muted-foreground);
-}
-.plan-done .mark {
-  color: var(--status-done);
-}
-
-/* The item in progress is the one thing in a rail worth finding at a glance,
-   so it is the only row with a background. */
-.plan-now {
-  font-weight: 500;
-  background: var(--status-running-bg);
-  margin: 2px -8px;
-  padding: 5px 8px;
-  border-radius: calc(var(--radius) - 3px);
-}
-.plan-now .mark {
-  color: var(--status-running);
-}
-
-/* ---------- fact list ----------
-   Scoped under .rail because the settings screen's own .facts (a flex-wrap
-   row of inline facts, above) claims the bare class name; the session rail's
-   facts are one stacked row per fact, label left, value right. */
-.rail .facts {
-  display: block;
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-}
-.rail .facts div {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 3px 0;
-}
-.rail .facts .v {
-  color: var(--foreground);
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  text-align: right;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  /* A flex item's min-width: auto would refuse to shrink below its content
-     and push the overflow past the rail's own clip, truncating without the
-     ellipsis — the row must let the value shrink. */
-  min-width: 0;
-}
-
-/* ---------- footer ---------- */
-/* The band is a grid with the same two columns as the work band above it:
-   the composer's 800px measure centres inside the conversation column,
-   not across the whole page — the footer sits under the conversation,
-   never under the rail. */
-.footer {
-  border-top: 1px solid var(--border);
-  background: var(--background);
-  padding: 10px 24px 9px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 288px;
-}
-.footer-inner {
-  grid-column: 1;
-  max-width: 800px;
-  margin: 0 auto;
-  width: 100%;
-}
-/* The status line's figures, shared by the footers and a finished watch
-   run's nav slot, so the numbers look the same in both places. */
 .statusline {
   display: flex;
   align-items: center;
@@ -4081,10 +1547,7 @@ body.page .topnav {
   color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
 }
-/* A separator coloured --border is invisible: on these surfaces the border
-   token is within a shade of the background (about 1.1:1), so the figures
-   ran together as one string. Half the secondary text colour is visible in
-   both schemes and still subordinate to the figures it divides. */
+
 .statusline .sep {
   color: color-mix(in srgb, var(--muted-foreground) 50%, transparent);
 }
@@ -4101,128 +1564,14 @@ kbd {
   color: var(--muted-foreground);
 }
 
-/* ---------- the composer ----------
-   The chat page's footer band: the queued line, the .box with the >
-   prompt, the auto-growing textarea and the Send button, and the status
-   line of live numbers under it. The footer never moves — the page does
-   not scroll, the conversation column does (the app shell above). */
-
-/* The one thing this page must not lie about: a message is accepted now and
-   delivered at the next sub-turn boundary. The run does not pause to read
-   it, so the composer never implies a reply is owed. The line appears only
-   while a steer is accepted but not yet applied. */
-.queued {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.6875rem;
-  color: var(--status-gaveup);
-  margin-bottom: 6px;
-}
-.box {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  border: 1px solid var(--input);
-  border-radius: var(--radius);
-  padding: 8px 8px 8px 10px;
-  background: var(--card);
-}
-.box:focus-within {
-  border-color: var(--ring);
-  box-shadow: 0 0 0 3px hsl(217 91% 48% / 0.09);
-}
-.box .prompt {
-  font-family: var(--font-mono);
-  color: var(--status-running);
-  font-weight: 600;
-  line-height: 1.55;
-  flex: none;
-  align-self: flex-start;
-}
-.box textarea {
-  flex: 1;
-  border: 0;
-  background: transparent;
-  color: var(--foreground);
-  font-family: var(--font-mono);
-  font-size: 0.8125rem;
-  line-height: 1.55;
-  resize: none;
-  outline: none;
-  min-height: 38px;
-  padding: 0;
-}
-.box textarea::placeholder {
-  color: var(--muted-foreground);
-}
-/* A send button as well as the Enter binding: the keyboard path is the fast
-   one, but a control you can see is how a first-time user learns the page
-   has one. */
-.send {
-  flex: none;
-  height: 26px;
-  padding: 0 10px;
-  border-radius: calc(var(--radius) - 3px);
-  border: 1px solid var(--border);
-  background: var(--secondary);
-  color: var(--secondary-foreground);
-  font: inherit;
-  font-size: 0.75rem;
-  cursor: pointer;
-}
-.send:hover {
-  background: var(--accent);
-}
+/* .footer survives as a bare selector only to scope this margin — both
+   footers (ChatComposer.tsx, WatchFooter.tsx) keep the literal class for
+   exactly this reason, since everything else about their chrome is now a
+   Tailwind utility. */
 .footer .statusline {
   margin-top: 7px;
 }
 
-/* The empty state ("before the first message"): POST /api/runs creates a
-   run with no prompt, so a claimed session with zero sub-turns is
-   normal, not an error — the composer below is where the first message
-   goes. */
-.empty {
-  text-align: center;
-  padding: 40px 20px 28px;
-  color: var(--muted-foreground);
-}
-.empty h3 {
-  margin: 0 0 6px;
-  font-size: 1rem;
-  color: var(--foreground);
-  font-weight: 600;
-}
-.empty p {
-  margin: 0 auto;
-  max-width: 46ch;
-  font-size: 0.8125rem;
-  line-height: 1.6;
-}
-
-/* The stop confirmation, inline where the stop lives — a strip in the
-   footer band, not a modal over the transcript. */
-.confirm {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  border: 1px solid var(--status-failed);
-  background: var(--status-failed-bg);
-  border-radius: calc(var(--radius) - 2px);
-  padding: 10px 12px;
-  font-size: 0.8125rem;
-}
-.confirm .spacer {
-  flex: 1;
-}
-.confirm .muted {
-  color: var(--muted-foreground);
-}
-
-/* The stopping banner: between the 202 and the terminal event, the
-   control says *stopping…* — the loop finishes its current tool call
-   first, and the stream delivers the terminal state. */
 .banner {
   display: flex;
   align-items: center;
@@ -4238,626 +1587,80 @@ kbd {
   flex: 1;
 }
 
-/* The finished composer ("the run is over"): the composer is removed
-   rather than disabled — a greyed-out box invites the reader to hunt for
-   the way to enable it, and the endpoint refuses a steer on a finished
-   run anyway. In its place, the outcome, the duration and cost, and the
-   action the reader actually wants. */
-.box-done {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
-  padding: 12px 14px;
-  background: var(--muted);
-  font-size: 0.8125rem;
-  color: var(--muted-foreground);
-}
-.box-done .spacer {
-  flex: 1;
-}
-.box-done b {
-  color: var(--foreground);
-}
-
-/* ---------- the watch page ----------
-   The read-only session page: a run another agent started
-   (SessionState.parent_is_user is false, and the row carries
-   parent_agent_type / parent_agent_id). You may stop it. You may not talk
-   to it — its instructions come from the agent that launched it. Same turn
-   vocabulary as the chat page, opposite silhouette: rail left, no composer.
-   A greyed-out input would have been worse than no input — a disabled
-   control invites you to look for the way to enable it. */
-
-/* ---------- run header ----------
-   The first screen of an agent-launched run: what it was called, who
-   launched it, and the settings it ran under. It is a page header rather
-   than a card — no fill, no border, closed by one hairline — because the
-   filled cards on this screen are the transcript, and three filled slabs
-   above it made the framing heavier than the content. */
-.runhead {
-  margin-bottom: 0;
-}
-/* The date wraps to its own line rather than squeezing the title: at a phone
-   width the two shared a row and the title reflowed around the timestamp. */
-.runhead-line {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 2px 12px;
-}
-/* The run's name, which this page never showed: it identified a run by the
-   40-character id in the crumb, and the id is the one thing on the row that
-   says nothing about what the run did. */
-.runhead-title {
-  font-size: 1.0625rem;
-  font-weight: 600;
-  line-height: 1.3;
-  color: var(--foreground);
-  margin: 0;
-  flex: 1 1 24ch;
-  min-width: 0;
-}
-.runhead-when {
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  white-space: nowrap;
-}
-.runhead-desc {
-  margin: 4px 0 0;
-  font-size: 0.8125rem;
-  line-height: 1.45;
-  color: var(--muted-foreground);
-  max-width: 78ch;
-}
-
-/* The facts, as key/value pairs rather than a dot-separated sentence: the
-   dim key names what the value is and the gap does the separating a row of
-   "·" used to do badly. */
-.runhead-facts {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 4px 16px;
-  margin-top: 10px;
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  min-width: 0;
-}
-.runhead .fact {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 5px;
-  min-width: 0;
-}
-.runhead .fact .k {
-  color: var(--muted-foreground);
-  letter-spacing: var(--label-tracking);
-  font-size: 0.625rem;
-  text-transform: uppercase;
-}
-.runhead .fact .v {
-  color: var(--foreground);
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-/* full means the run could reach the host docker socket. It is the one
-   setting on the row with a consequence outside the run. */
-.runhead .fact-danger .v {
-  color: var(--status-gaveup);
-}
-.runhead code {
-  font-size: 0.6875rem;
-  color: var(--foreground);
-  background: var(--muted);
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) - 4px);
-  padding: 1px 5px;
-  /* Enough of a request id to recognise one, not enough to push the row on
-     to a second line. The whole of it is on the title. */
-  max-width: 16ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.runhead-note {
-  margin: 10px 0 0;
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-}
-.runhead a {
-  color: var(--status-running);
-  text-decoration: none;
-}
-.runhead a:hover {
-  text-decoration: underline;
-}
-
-/* ---------- the left rail's timeline ----------
-   Sub-turns grouped under the plan item that was in progress when they ran
-   — plan and navigation in one column, one disclosure per phase, one tick
-   per sub-turn. */
-.phase {
-  margin-bottom: 4px;
-}
-.phase > summary {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 5px 6px;
-  border-radius: calc(var(--radius) - 3px);
-  font-size: 0.8125rem;
-  line-height: 1.35;
-  cursor: pointer;
-  list-style: none;
-}
+/* .phase survives as a bare selector only to scope this cross-browser
+   <details> marker hider (WatchRail.tsx keeps the literal class for exactly
+   this reason, the same pattern as .think/.tool in turns/Turn.tsx).
+   Everything else about the rail's phase disclosures, ticks and legend is
+   now a Tailwind utility. */
 .phase > summary::-webkit-details-marker {
   display: none;
 }
-.phase > summary:hover {
-  background: var(--accent);
-}
-.phase > summary:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: -2px;
-}
-.phase > summary .caret {
-  transition: transform 0.15s ease;
-}
-.phase[open] > summary .caret {
-  transform: rotate(90deg);
-}
-.phase .idx {
-  flex: none;
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  color: var(--muted-foreground);
-}
-.phase-done > summary {
-  color: var(--muted-foreground);
-}
-.phase-unnamed {
-  font-style: italic;
-  color: var(--muted-foreground);
-}
-.phase-now > summary {
-  background: var(--status-running-bg);
-  font-weight: 500;
-}
-.ticks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 3px;
-  padding: 4px 6px 8px 24px;
-}
-/* A plan item the run has not reached yet ("not started"): a quiet line
-   inside the ticks row. */
-.ticks .not-started {
-  font-size: 0.6875rem;
-  color: var(--muted-foreground);
-}
-/* One tick per sub-turn, coloured by what happened in it. A row of these is
-   a shape you learn to read: a wall of green with one red is a run that hit
-   one snag, alternating amber is a run going in circles, a long violet run
-   is a model still reading its way in. Edit green, bash blue and error red
-   are the timeline rail's glyph families (.g-write, .g-bash, .g-err), so a
-   colour means the same thing in both rails. */
-/* Each tick is the family's colour mixed down over its own tint, not the
-   tint with a hairline round it: at 13px a pale fill with a 1px border reads
-   as an empty box, and a row of empty boxes is not a shape you can learn to
-   read across a rail. The mix keeps the hue unmistakable while staying under
-   the prose beside it. */
-.tick {
-  width: 13px;
-  height: 13px;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--muted-foreground) 28%, var(--secondary));
-  border: 1px solid color-mix(in srgb, var(--muted-foreground) 45%, transparent);
-  display: block;
-}
-.tick-edit {
-  background: color-mix(in srgb, var(--diff-add-fg) 55%, var(--diff-add-bg));
-  border-color: var(--diff-add-fg);
-}
-.tick-bash {
-  background: color-mix(in srgb, var(--status-running) 55%, var(--status-running-bg));
-  border-color: var(--status-running);
-}
-.tick-read {
-  background: color-mix(in srgb, var(--tick-read) 55%, var(--tick-read-bg));
-  border-color: var(--tick-read);
-}
-.tick-err {
-  background: color-mix(in srgb, var(--status-failed) 55%, var(--status-failed-bg));
-  border-color: var(--status-failed);
-}
-.tick-churn {
-  background: color-mix(in srgb, var(--status-gaveup) 55%, var(--status-gaveup-bg));
-  border-color: var(--status-gaveup);
-}
-.tick-now {
-  background: var(--status-running);
-  border-color: var(--status-running);
-  animation: pulse var(--pulse-period) ease-in-out infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .tick-now {
-    animation: none;
-  }
-}
-.legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  font-size: 0.6875rem;
-  color: var(--muted-foreground);
-}
-.legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-.legend .tick {
-  width: 9px;
-  height: 9px;
-}
 
-/* ---------- footer: what it is doing right now ----------
-   The chat page's footer is a composer. This page's footer is the answer to
-   the only question a spectator has while the run is live, kept visible
-   even when they have scrolled back through history — that is the point of
-   it. The band lines up under the conversation column, exactly as the
-   chat page's does. */
-.footer-watch {
-  grid-template-columns: 244px minmax(0, 1fr);
-}
-/* The live footer's band sits under the same measure as the stream above
-   it, and on the same left edge: the band's own 24px padding puts column 2
-   at 268px where the stream's first character is at 284px, so the 16px
-   makes up the difference. */
-.footer-watch .footer-inner {
-  grid-column: 2;
-  max-width: 840px;
-  margin-left: 16px;
-}
-.nowline {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.8125rem;
-  margin-bottom: 6px;
-}
-.nowline .name {
-  font-family: var(--font-mono);
-  font-weight: 600;
-  font-size: 0.75rem;
-}
-.nowline .arg {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-  min-width: 0;
-}
-.nowline .under {
-  color: var(--muted-foreground);
-  font-size: 0.75rem;
-  flex: none;
-  max-width: 45%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.nowline .spacer {
-  flex: 1;
-}
-.follow {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid var(--ring);
-  background: var(--secondary);
-  color: var(--foreground);
-  font: inherit;
-  font-size: 0.75rem;
-  cursor: pointer;
-}
-.follow .dot {
-  background: var(--status-running);
-}
-.follow-off .dot {
-  background: var(--muted-foreground);
-}
-
-/* ---------- the result ----------
-   For a run an agent launched, the result payload is the point: it is what
-   the parent gets back. It renders at the end of the stream, where the run
-   ended, not in a panel off to the side. */
-.result {
-  border: 1px solid var(--status-done);
-  border-radius: var(--radius);
-  background: var(--status-done-bg);
-  padding: 12px 14px;
-  margin: 4px 0 24px 40px;
-}
-.result-gaveup {
-  border-color: var(--status-gaveup);
-  background: var(--status-gaveup-bg);
-}
-/* The heading and the copy control share a row. The control used to float
-   over the payload's first lines, which is where a reader's eye lands. */
-.result-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 6px;
-}
-.result h4 {
-  margin: 0;
-  font-size: 0.75rem;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  color: var(--status-done);
-}
-.result-gaveup h4 {
-  color: var(--status-gaveup);
-}
-.result p {
-  margin: 0 0 10px;
-  font-size: 0.875rem;
-  line-height: 1.6;
-  color: var(--foreground);
-}
-/* The payload is a disclosure: a long one is a reference the reader opens
-   when they want it, not a wall between the run's last sub-turn and the end
-   of the page. The summary line states its size so the choice is informed. */
-.result-json > summary {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 0;
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  cursor: pointer;
-  list-style: none;
-}
+/* .result-json survives as a bare selector only to scope this cross-browser
+   <details> marker hider (ResultPanel.tsx keeps the literal class for
+   exactly this reason) — everything else about the panel is now a
+   Tailwind utility. */
 .result-json > summary::-webkit-details-marker {
   display: none;
 }
-.result-json > summary:hover {
-  color: var(--foreground);
-}
-.result-json > summary .caret {
-  transition: transform 0.15s ease;
-}
-.result-json[open] > summary .caret {
-  transform: rotate(90deg);
-}
-.result pre {
-  margin: 6px 0 0;
-  max-height: 420px;
-  overflow: auto;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: var(--muted-foreground);
-}
 
-/* ---------- narrow ----------
-   The rail is the first thing to go: at this width it is squeezing the prose
-   measure, and the one thing it carries that you cannot do without — which
-   plan item is running — collapses into a single line above the stream. The
-   conversation, the footer and the run controls never move, because they are
-   what the page is for. */
-.plan-mini {
-  display: none;
-}
 @media (max-width: 1120px) {
   .rail {
     display: none;
   }
-  /* The stream hangs off the rail on the watch page; with no rail it goes
-     back to the band's own gutter and centres like the chat page's. */
-  .work-watch .stream {
-    padding-left: 24px;
-  }
-  .work-watch .stream-inner {
-    margin-left: auto;
-  }
-  .work {
-    grid-template-columns: minmax(0, 1fr) !important;
-  }
+
+  /* Both footers (ChatComposer.tsx, WatchFooter.tsx) keep "footer" as a
+     literal class for .footer .statusline's margin-top; this collapse to a
+     single column rides the same class, in step with the rail's own
+     display:none right above. WatchFooter.tsx's inner column un-offsets
+     itself at the same breakpoint (max-watch:col-start-1 max-watch:ml-0) —
+     what .footer-watch .footer-inner did before the grid columns became a
+     Tailwind utility. SessionWatchScreen.tsx/SessionChatScreen.tsx's own
+     work/stream/stream-inner grid collapse (max-watch:grid-cols-[...],
+     max-watch:pl-6, max-watch:ml-auto) and plan-mini band
+     (hidden max-watch:flex ...) are Tailwind utilities at the same
+     breakpoint now. */
   .footer {
     grid-template-columns: minmax(0, 1fr) !important;
   }
-  /* The watch footer's inner band is normally anchored to the second grid
-     column (the conversation column); collapsed to one column, column 2 no
-     longer exists and the anchor would strand the band in an implicit
-     zero-width track (the media rule's !important overrides the template,
-     not the child's grid-column). */
-  .footer-watch .footer-inner {
-    grid-column: 1;
-    /* No rail to hang off at this width, so the band goes back to the
-       column's own edge. */
-    margin-left: 0;
-  }
-  /* Its own band between the nav and the stream, not a sticky element
-     inside it: a sticky row has to repaint a background over the turn
-     scrolling under it, and every version of that trick leaks an edge. */
-  .plan-mini {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 7px 20px;
-    border-bottom: 1px solid var(--border);
-    background: var(--card);
-    font-size: 0.8125rem;
-  }
-  .plan-mini .mark {
-    color: var(--status-running);
-    font-family: var(--font-mono);
-    flex: none;
-  }
-  .plan-mini .count {
-    margin-left: auto;
-    flex: none;
-    font-size: 0.6875rem;
-    color: var(--muted-foreground);
-    font-variant-numeric: tabular-nums;
-  }
 }
 @media (max-width: 720px) {
-  /* The nav stays one row at every width: the section links (or, on a
-     session page, the back link) and every right-slot control that carries
-     its own icon — the start-run trigger, the LIVE badge, Refresh, Stop —
-     drop their text label in favour of the icon alone, visually-hidden the
-     same way the finished table's column headers are below, so the row
-     shrinks instead of wrapping and a screen reader still gets the word.
-     `title` on the control gives the icon a hover tooltip standing in for
-     the label. The search input collapses to its icon and expands over the
-     row on focus (further down). Right-slot content this doesn't cover —
-     a finished watch run's statusline, a running session's permission
-     badge — is content that only ever appears on a session page, already
-     narrower than the list's controls, and rare enough that letting the
-     slot itself scroll sideways (`.topnav-right` below) is the right
-     trade-off over hand-shrinking every one of those, too. */
-  .navlink-label,
-  .nav-label {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border-width: 0;
-  }
-  .navlink,
-  .navback {
-    padding: 0 8px;
-  }
-  .navlink svg {
-    display: inline;
-  }
-  .topnav-links {
-    gap: 0;
-  }
-  /* The row never wraps; a right slot wider than the space left after the
-     links and the crumb scrolls horizontally inside itself instead of
-     pushing the nav to a second line. */
-  .topnav-right {
-    flex: 0 1 auto;
-    min-width: 0;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .topnav-right::-webkit-scrollbar {
-    display: none;
-  }
+
   .topnav-right .statusline {
     flex-wrap: nowrap;
   }
-  /* A zero flex-basis means the wrap algorithm never tests the crumb
-     against its full un-ellipsised content width, so it always fits beside
-     the back link and takes whatever room is left, shrinking the sess-…
-     id with its existing ellipsis rather than crowding the right slot. */
-  .nav-crumb {
-    flex: 1 1 0%;
-    min-width: 0;
-  }
-  /* Four stat cards across a ~388px content box leave ~90px cards whose
-     small print ("0 of 4 slots") breaks over three
-     lines; two columns keeps both the value and its qualifier on one line. */
+
   .stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  /* "stream"/"footer" stay literal classes for .app .stream and
+     .footer .statusline; this 14px override rides the same classes and
+     layers correctly under SessionWatchScreen.tsx's own max-watch:pl-6 —
+     unlayered always wins, so the narrower breakpoint here still applies
+     on top of it. */
   .stream,
   .footer {
     padding-left: 14px;
     padding-right: 14px;
   }
-  /* The gutter's sub-turn number is a convenience, not a necessity; at this
-     width the 40px it costs is a tenth of the measure. */
-  .turn {
-    padding-left: 0;
-  }
-  .gutter {
-    position: static;
-    display: block;
-    width: auto;
-    text-align: left;
-    margin-bottom: 2px;
-  }
-  .msg {
-    margin-left: 0;
-  }
 }
 
-/* ---------- phone layout (≤560px) ----------
-   The session list was laid out for a desktop browser, and at a phone
-   viewport it does one thing badly: the seven-column Finished table
-   squeezes the Session column down to one letter per line. The table
-   becomes stacked cards — the header visually hidden (not display:none, so
-   the column names stay in the accessibility tree), the same seven cells
-   rearranged into a grid, with the numeric cells carrying their column name
-   as a small label (the data-label attributes FinishedRow renders; invisible
-   on the wide layout, where the header still names them). Everything here is
-   inside the media query: the wide layout is the same page it always was. */
 @media (max-width: 560px) {
   .screen {
     padding: calc(var(--space) * 2) 12px;
   }
 
-  .topnav {
-    padding-left: 12px;
-    padding-right: 12px;
-  }
-  /* `.app .topnav-flush` / `body.page .topnav-flush` set this same property
-     at equal specificity in the base layer; the later rule wins the tie, so
-     repeating it here is what actually narrows a session page's padding
-     instead of the flush rule silently keeping it at 16px. Same reasoning
-     for the wordmark below: a session page already carries its own context
-     in the back link and the crumb, so the brand mark is the one thing this
-     width doesn't have room to keep. */
   .app .topnav-flush,
   body.page .topnav-flush {
     padding-left: 12px;
     padding-right: 12px;
   }
-  .topnav-flush .wordmark {
-    display: none;
-  }
 
   .topnav .nav-search {
-    /* The icon input renders as a wrapper span around the input, and the
-       span is the flex item in the nav's right group; the input inside it
-       is w-full and follows the wrapper's width. */
+
     width: auto;
   }
 
-  /* The search field collapses to its icon so the right slot has room for
-     the start trigger and the badge beside it on the same row, and expands
-     to cover the row — over the top of both — while it is focused or holds
-     a query, so what was typed is still visible. `position: relative` on
-     the slot below is the expanded copy's containing block; `:has()` is
-     what keeps it open after a tap elsewhere once there's a query to show,
-     not just while the input has focus. */
   .topnav-right {
     position: relative;
   }
@@ -4882,129 +1685,8 @@ kbd {
     opacity: 1;
   }
 
-  /* The in-flight card's headline row: the badge and the model name share
-     the first line, and the two figures (elapsed, sub-turns) drop onto a
-     line of their own instead of squeezing the model down to an ellipsis —
-     on 358px of content, four items on one line is what truncated
-     "deepse…" in the first place. */
-  .run-line1 {
-    flex-wrap: wrap;
-    row-gap: 4px;
-  }
-
-  .run-stats {
-    margin-left: 0;
-    width: 100%;
-  }
-
-  /* The finished table, as stacked cards. The row keeps every figure the
-     desktop row carries — nothing is dropped on the phone, the cells just
-     re-flow: the badge beside the session text, then the labeled figures
-     in symmetric pairs (elapsed · cost, sub-turns · cache) with the model
-     name on its own line. The cells are flex items with bases that wrap
-     into those lines; a row that grows or shrinks keeps the pairs equal
-     width, and the description column takes what the badge does not. */
-  /* The finished table, as stacked cards. Scoped to the session list's own
-     table (inside .table-scroll): the eval tables reuse the .session-table
-     class and must stay tables in their own scroll container, with their
-     headers on. */
-  .table-scroll .session-table,
-  .table-scroll .session-table tbody {
-    display: block;
-  }
-
-  /* Visually hidden rather than display:none, so a screen reader still
-     hears the column names the visible labels below echo. */
-  .table-scroll .session-table thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border-width: 0;
-  }
-
-  .table-scroll .session-table tr {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 12px;
-    border: 1px solid var(--border);
-    border-radius: calc(var(--radius) - 2px);
-    background: var(--card);
-    padding: 10px 12px;
-    margin-bottom: 10px;
-  }
-
-  .table-scroll .session-table td {
-    border: none;
-    padding: 0;
-    white-space: normal;
-  }
-
-  /* The badge sits beside the session text, level with its title. */
-  .table-scroll .session-table td:nth-child(1) {
-    flex: 0 0 auto;
-    align-self: flex-start;
-    padding-top: 2px;
-  }
-
-  /* The session text takes the rest of the badge's line — and the whole
-     line's width, so nothing else can share it: a basis of 78% plus the
-     badge's intrinsic width fills the row (85% was 13px too wide for a
-     DONE badge and pushed the title onto its own line) and pushes every
-     figure below. A badge wider than that — COMPACTED — wraps the title
-     onto its own line rather than squeezing it. */
-  .table-scroll .session-table td:nth-child(2) {
-    flex: 1 1 78%;
-    min-width: 0;
-  }
-
-  /* Elapsed and cost share a line as equal halves; sub-turns and cache
-     do the same on the line below the model. */
-  .table-scroll .session-table td:nth-child(3),
-  .table-scroll .session-table td:nth-child(4),
-  .table-scroll .session-table td:nth-child(6),
-  .table-scroll .session-table td:nth-child(7) {
-    flex: 1 1 40%;
-  }
-
-  /* The model name spans the card on its own line. */
-  .table-scroll .session-table td:nth-child(5) {
-    flex: 1 1 100%;
-  }
-
-  /* The column name above the figure, in the design's panel-label
-     vocabulary, rendered only at this width (the header names the same
-     columns on the wide layout). */
-  .table-scroll .session-table td[data-label]::before {
-    content: attr(data-label);
-    display: block;
-    font-size: 0.6875rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--muted-foreground);
-    margin-bottom: 1px;
-  }
-
-  /* The empty-row message is a single cell of its own row, not one of the
-     seven; keep it full-width and centred. */
-  .table-scroll .session-table tr .empty-row {
-    flex: 1 1 100%;
-    text-align: center;
-  }
 }
 
-
-/* --- Evals (docs/EVALS.md) ------------------------------------------------
-   The comparison table is the one layout here with no existing analogue: a
-   mean and its spread in every cell, and a delta column whose marker is the
-   server's own significance decision. Everything else reuses the session
-   table. */
-
-/* Both screens wrap in .screen, which owns the width and the gutters. */
 .eval-list,
 .eval-run {
   padding-top: var(--space-4);
@@ -5018,10 +1700,6 @@ kbd {
 
 .eval-error {
   color: var(--destructive);
-}
-
-.eval-row {
-  cursor: pointer;
 }
 
 .eval-suite {
@@ -5045,8 +1723,6 @@ kbd {
   color: var(--destructive);
 }
 
-/* A bar under the counter while a run is going. Two pixels tall and only as
-   wide as the text read as an underline rather than a progress indicator. */
 .eval-progress {
   display: block;
   width: 6ch;
@@ -5095,16 +1771,8 @@ kbd {
   margin: 0 0 var(--space-3);
 }
 
-/* Wide content scrolls inside its own container; the page never scrolls
-   sideways. */
 .eval-table-scroll {
   overflow-x: auto;
-}
-
-.eval-comparison .eval-metric {
-  text-align: left;
-  font-weight: 500;
-  white-space: nowrap;
 }
 
 .eval-mean {
@@ -5131,7 +1799,6 @@ kbd {
   color: var(--primary);
 }
 
-/* An absent measurement is a dash, never a zero. */
 .eval-absent {
   color: var(--muted-foreground);
 }
@@ -5148,15 +1815,6 @@ kbd {
   color: var(--destructive);
 }
 
-.eval-task {
-  font-weight: 500;
-}
-
-.eval-error-row td {
-  color: var(--destructive);
-  font-size: 0.85em;
-  padding-top: 0;
-}
 
 .eval-session-link {
   background: none;
@@ -5168,8 +1826,6 @@ kbd {
   text-decoration: underline;
 }
 
-/* The start form: a card above the eval list, the shape the start-run form
-   uses on the session list. */
 .eval-start {
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -5214,8 +1870,6 @@ kbd {
   flex-wrap: wrap;
 }
 
-/* Wide enough that a model name is not clipped mid-word; wrapping rather
-   than shrinking below it on a phone. */
 .eval-field-row > .eval-field {
   flex: 1 1 18ch;
   min-width: 18ch;
@@ -5265,8 +1919,6 @@ kbd {
   gap: var(--space-half);
 }
 
-/* The selection ordinal on a chosen variant chip: the first is the baseline
-   the delta measures against. */
 .eval-variant-order {
   display: inline-flex;
   align-items: center;
@@ -5280,52 +1932,20 @@ kbd {
   font-variant-numeric: tabular-nums;
 }
 
-/* The statusline's keyboard hints, wrapped in ChatComposer so a phone can
-   drop them without the numbers shifting (a phone has no esc or shift-enter
-   to advertise). display: contents keeps the wrapper invisible to the
-   desktop flex layout — the spans stay direct flex items, so this changes
-   nothing above 560px. */
 .statusline .hints {
   display: contents;
 }
 
-/* ---------- phone pass (≤560px) ----------
-   The phone block above stacks the finished table and reflows the nav, but
-   a 390px phone still gets 26-28px tap targets throughout, eval tables whose
-   headers vanish while the table still scrolls sideways, operations tables
-   squeezed into a scroll strip, and a composer whose Send control is
-   thumb-sized. This pass fixes those — tap targets to a thumb, the eval list
-   and operations tables to the same stacked-card shape the finished table
-   already has, eval-run tables keeping their headers inside their scroller,
-   and a touch-sized composer. Every rule is inside the media query; the wide
-   layout is untouched. */
 @media (max-width: 560px) {
-  /* --- the nav: everything on its one row, sized for a thumb --- */
-  .topnav {
-    padding-top: 4px;
-    padding-bottom: 4px;
-  }
-  .topnav .wordmark {
-    font-size: 0.75rem;
-    margin-right: 6px;
-  }
-  .navlink,
-  .navback {
-    height: 44px;
-    padding: 0 6px;
-  }
+
   .topnav .nav-search {
     height: 44px;
   }
-  /* The sticky nav is shorter now; anchors and the page-mode rail must clear
-     it by the same amount (--nav-height is the sticky nav's height in the
-     base layer): the 44px row, the tightened padding above, and the bottom
-     rule. */
+
   :root {
     --nav-height: 53px;
   }
 
-  /* --- tap targets: every interactive control to a thumb --- */
   [data-slot="button"] {
     min-height: 44px;
   }
@@ -5334,54 +1954,10 @@ kbd {
     min-height: 44px;
     min-width: 44px;
   }
-  .send {
-    height: 44px;
-    padding: 0 16px;
-  }
-  .box textarea {
-    min-height: 44px;
-  }
-  .jump {
-    height: 44px;
-    padding: 0 16px;
-  }
-  .chip {
-    min-height: 44px;
-    padding: 0 14px;
-  }
-  .caret-btn {
-    min-width: 44px;
-  }
-  /* The sub-turn number is the transcript's coordinate system, so it keeps
-     its row on a phone too — but it is an anchor, and an anchor smaller
-     than a thumb is a dead link. Padding grows the hit area without moving
-     the number out of the turn's own vertical rhythm. */
-  .gutter {
-    min-height: 44px;
-    padding: 12px 0 8px;
-  }
   .opening-summary {
     min-height: 44px;
     padding: 6px 0;
   }
-  .think > summary {
-    min-height: 44px;
-    padding: 10px 8px;
-  }
-  .tool > summary {
-    min-height: 44px;
-    padding: 10px 12px;
-  }
-  .subturn-header {
-    min-height: 44px;
-  }
-  .elided {
-    min-height: 44px;
-    padding: 10px 12px;
-  }
-  /* The shortened-path control is a button that lives inline in a row of
-     text; on a phone it grows to a square thumb, which the stacked ops
-     cards have room for. */
   .path-elide {
     min-height: 44px;
     min-width: 44px;
@@ -5391,58 +1967,17 @@ kbd {
     vertical-align: middle;
     padding: 0 6px;
   }
-  .msg-user .dismiss {
-    min-height: 44px;
-    min-width: 44px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
   .eval-session-link {
     display: inline-block;
     min-height: 44px;
     padding: 10px 4px;
   }
-  /* The run header's eval link and the skills disclosure sit in running
-     text but are still links; a thumb needs them taller. */
-  .runhead a {
-    display: inline-flex;
-    align-items: center;
-    min-height: 44px;
-    padding: 0 4px;
-  }
+
   .skills-summary {
     min-height: 44px;
     display: flex;
     align-items: center;
   }
-  .follow {
-    min-height: 44px;
-    padding: 0 16px;
-  }
-  /* The result payload's disclosure is the last interactive thing on the
-     watch page; it gets a thumb too. */
-  .result-json > summary {
-    min-height: 44px;
-    padding: 10px 12px;
-  }
-  .start-select {
-    height: 44px;
-  }
-  .settings-input {
-    min-width: 0;
-    flex-basis: 100%;
-  }
-
-  /* --- the composer --- */
-  .box {
-    padding: 8px 8px 8px 12px;
-  }
-  .queued {
-    line-height: 1.5;
-  }
-  /* The status line's live numbers wrap onto their own lines when they do
-     not fit; the keyboard hints are desktop-only and go entirely. */
   .statusline {
     flex-wrap: wrap;
     row-gap: 4px;
@@ -5451,169 +1986,7 @@ kbd {
     display: none;
   }
 
-  /* --- eval list: the finished table's stacked-card treatment ---
-     The eval rows carry the same data-label attributes the session table's
-     cells do; here they become cards: badge and suite on the first line,
-     the compared variants and the run count on their own lines, cost and
-     elapsed as labeled halves, the headline spanning the card. */
-  .eval-list .session-table,
-  .eval-list .session-table tbody {
-    display: block;
-  }
-  /* Visually hidden rather than display:none, so a screen reader still
-     hears the column names the visible labels below echo. */
-  .eval-list .session-table thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border-width: 0;
-  }
-  .eval-list .session-table tr {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 12px;
-    border: 1px solid var(--border);
-    border-radius: calc(var(--radius) - 2px);
-    background: var(--card);
-    padding: 10px 12px;
-    margin-bottom: 10px;
-  }
-  .eval-list .session-table td {
-    border: none;
-    padding: 0;
-    white-space: normal;
-    min-width: 0;
-  }
-  .eval-list .session-table td:nth-child(1) {
-    flex: 0 0 auto;
-    align-self: flex-start;
-    padding-top: 2px;
-  }
-  .eval-list .session-table td:nth-child(2) {
-    flex: 1 1 60%;
-  }
-  .eval-list .session-table td:nth-child(3),
-  .eval-list .session-table td:nth-child(4),
-  .eval-list .session-table td:nth-child(7) {
-    flex: 1 1 100%;
-  }
-  .eval-list .session-table td:nth-child(5),
-  .eval-list .session-table td:nth-child(6) {
-    flex: 1 1 40%;
-  }
-  .eval-list .session-table td[data-label]::before {
-    content: attr(data-label);
-    display: block;
-    font-size: 0.6875rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--muted-foreground);
-    margin-bottom: 1px;
-  }
 
-  /* The eval run's comparison table keeps its headers and scrolls inside
-     .eval-table-scroll — horizontal scroll is the treatment for dense
-     numeric tables. The first column is the primary content; give it a
-     floor so the table's natural width starts from a readable metric
-     name. */
-  .eval-run .eval-comparison .eval-metric {
-    min-width: 11em;
-  }
-
-  /* --- operations: the same stacked-card treatment ---
-     The ops tables carry one long value per row (a session id, a request
-     id, a workspace path) and the Close/Delete controls. Squeezed into a
-     390px scroll strip the long value truncates and the controls sit off
-     the right edge; as cards the value gets the row, the labelled figures
-     wrap beneath, and the actions row takes the card's width with the
-     buttons at its end. */
-  .ops-table,
-  .ops-table tbody {
-    display: block;
-  }
-  .ops-table thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border-width: 0;
-  }
-  .ops-table tr {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 12px;
-    border: 1px solid var(--border);
-    border-radius: calc(var(--radius) - 2px);
-    background: var(--card);
-    padding: 10px 12px;
-    margin-bottom: 10px;
-  }
-  .ops-table td {
-    border: none;
-    padding: 0;
-    white-space: normal;
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-  .ops-table td:first-child {
-    flex: 1 1 100%;
-  }
-  /* The card's session subtitle is the row's primary identifier; on a
-     phone it wraps onto its own lines instead of ellipsizing mid-path (the
-     ⋯/ control still shortens it when collapsed). */
-  .ops-table .sess-sub {
-    white-space: normal;
-    overflow: visible;
-  }
-  .ops-table td[data-label]::before {
-    content: attr(data-label);
-    display: block;
-    font-size: 0.6875rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--muted-foreground);
-    margin-bottom: 1px;
-  }
-  /* The actions row: its own dashed rule, buttons at the card's end. The
-     confirm block replaces the buttons inline and spans the card. */
-  .ops-table td:last-child {
-    flex: 1 1 100%;
-    margin-top: 4px;
-    padding-top: 8px;
-    border-top: 1px dashed var(--border);
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
-  }
-  .ops-table .ops-actions {
-    align-self: flex-end;
-  }
-  .ops-table .ops-confirm {
-    width: 100%;
-  }
-
-  /* --- phone type scale ---
-     The prose is the most-read thing on the page; a phone holds it at arm's
-     length, so it gets a step up and the code that surrounds it a half
-     step. Everything else keeps the desktop size — this is a refinement of
-     the existing scale, not a re-skin. */
-  .say {
-    font-size: 1rem;
-    line-height: 1.7;
-  }
-  .tool-out {
-    font-size: 0.8125rem;
-  }
   .code-block {
     font-size: 0.875rem;
   }
@@ -5625,40 +1998,18 @@ kbd {
   }
 }
 
-/* ---------- nav, narrowest phones (≤360px) ----------
-   The icon-only links and controls above hold the row at 390px down to
-   360px; below that the wordmark and the icon buttons' own padding are
-   what's left to give up. Nothing here fires above 360px; the 390px shape
-   is untouched. */
 @media (max-width: 360px) {
-  .topnav {
-    padding-left: 8px;
-    padding-right: 8px;
-  }
   .app .topnav-flush,
   body.page .topnav-flush {
     padding-left: 8px;
     padding-right: 8px;
   }
-  .topnav .wordmark {
-    font-size: 0.6875rem;
-    margin-right: 4px;
-  }
-  .navlink,
-  .navback {
-    padding: 0 3px;
-  }
 }
 
-/* ---------- narrow-screen refinements (≤720px) ----------
-   The 720px block above handles the nav wrap and the stream gutters; these
-   are the follow-ups a phone needs that a 700px tablet does not. */
 @media (max-width: 720px) {
-  /* The plan-mini band is a full-width band; its gutter should match the
-     stream's, not the desktop band's 20px. */
+
   .plan-mini {
     padding-left: 14px;
     padding-right: 14px;
   }
 }
-

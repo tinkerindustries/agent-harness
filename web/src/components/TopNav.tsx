@@ -60,18 +60,29 @@ export function TopNav({ route, onNavigate, children }: TopNavProps) {
     <NavRightContext.Provider value={setRight}>
       <header
         className={cn(
-          "topnav",
-          (route.kind === "session" || route.kind === "evalRun") && "topnav-wide",
+          "mx-auto mt-4 mb-5 flex max-w-[960px] items-center gap-1 border-b border-border px-4 py-2.5 max-phone:px-3 max-phone:py-1 max-xs:px-2",
+          (route.kind === "session" || route.kind === "evalRun") && "max-w-[1200px]",
           // A session page runs its bands to the viewport's edges; the nav
           // has to do the same or its rule stops short of them.
-          route.kind === "session" && "topnav-flush",
+          route.kind === "session" && "topnav-flush max-w-none mx-0",
         )}
       >
-        <span className="wordmark">agent-harness</span>
+        <span
+          className={cn(
+            "mr-2.5 font-mono text-[0.875rem] font-semibold whitespace-nowrap tracking-[-0.01em]",
+            "max-phone:mr-1.5 max-phone:text-xs max-xs:mr-1 max-xs:text-micro",
+            // A session page already carries its own context in the back
+            // link and the crumb, so the brand mark is the one thing a
+            // phone-width session page doesn't have room to keep.
+            route.kind === "session" && "max-phone:hidden",
+          )}
+        >
+          agent-harness
+        </span>
         {route.kind === "session" ? (
-          <nav className="topnav-links">
+          <nav className="flex items-center gap-0.5">
             <a
-              className="navback"
+              className="inline-flex h-7 items-center gap-1.5 rounded-md py-0 pr-2.5 pl-1.5 text-sm font-medium text-muted-foreground no-underline hover:bg-accent hover:text-foreground max-nav:px-2 max-phone:h-11 max-phone:px-1.5 max-xs:px-[3px]"
               href="/"
               onClick={(e) => {
                 e.preventDefault();
@@ -79,36 +90,36 @@ export function TopNav({ route, onNavigate, children }: TopNavProps) {
               }}
               title="Back to sessions"
             >
-              <ArrowLeft aria-hidden />
-              <span className="navlink-label">Sessions</span>
+              <ArrowLeft aria-hidden className="h-3.5 w-3.5 shrink-0" />
+              <span className="max-nav:sr-only">Sessions</span>
             </a>
           </nav>
         ) : (
-          <nav className="topnav-links">
+          <nav className="flex items-center gap-0.5">
             <NavLink
               label="Sessions"
-              icon={<Stack aria-hidden />}
+              icon={<Stack aria-hidden className="hidden h-3.5 w-3.5 shrink-0 max-nav:inline" />}
               href="/"
               active={section === "sessions"}
               onNavigate={onNavigate}
             />
             <NavLink
               label="Evals"
-              icon={<ChartLineUp aria-hidden />}
+              icon={<ChartLineUp aria-hidden className="hidden h-3.5 w-3.5 shrink-0 max-nav:inline" />}
               href="/evals"
               active={section === "evals"}
               onNavigate={onNavigate}
             />
             <NavLink
               label="Operations"
-              icon={<Wrench aria-hidden />}
+              icon={<Wrench aria-hidden className="hidden h-3.5 w-3.5 shrink-0 max-nav:inline" />}
               href="/operations"
               active={section === "operations"}
               onNavigate={onNavigate}
             />
             <NavLink
               label="Settings"
-              icon={<GearSix aria-hidden />}
+              icon={<GearSix aria-hidden className="hidden h-3.5 w-3.5 shrink-0 max-nav:inline" />}
               href="/settings"
               active={section === "settings"}
               onNavigate={onNavigate}
@@ -116,13 +127,17 @@ export function TopNav({ route, onNavigate, children }: TopNavProps) {
           </nav>
         )}
         {(route.kind === "session" || route.kind === "evalRun") && (
-          <span className="nav-crumb">
-            <span className="sep">/</span>
-            <span className="current">{route.id}</span>
+          <span className="flex min-w-0 items-center gap-1.5 text-sm text-muted-foreground max-nav:min-w-0 max-nav:flex-1">
+            <span className="shrink-0 text-border">/</span>
+            <span className="min-w-0 overflow-hidden font-mono whitespace-nowrap text-ellipsis text-foreground">
+              {route.id}
+            </span>
           </span>
         )}
-        <span className="spacer" />
-        <div className="topnav-right">{right}</div>
+        <span className="flex-1" />
+        <div className="flex items-center gap-2 max-nav:min-w-0 max-nav:flex-nowrap max-nav:overflow-x-auto max-nav:[scrollbar-width:none] max-nav:[&::-webkit-scrollbar]:hidden topnav-right">
+          {right}
+        </div>
       </header>
       {children}
     </NavRightContext.Provider>
@@ -148,7 +163,10 @@ function NavLink({
 }) {
   return (
     <a
-      className={cn("navlink", active && "navlink-active")}
+      className={cn(
+        "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium text-muted-foreground no-underline hover:bg-accent hover:text-foreground max-nav:px-2 max-phone:h-11 max-phone:px-1.5 max-xs:px-[3px]",
+        active && "bg-secondary text-foreground",
+      )}
       href={href}
       title={label}
       aria-current={active ? "page" : undefined}
@@ -158,7 +176,7 @@ function NavLink({
       }}
     >
       {icon}
-      <span className="navlink-label">{label}</span>
+      <span className="max-nav:sr-only">{label}</span>
     </a>
   );
 }

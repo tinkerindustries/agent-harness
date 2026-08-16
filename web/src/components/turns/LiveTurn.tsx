@@ -21,7 +21,7 @@ export function LiveTurnSection({ turn, pendingTools }: { turn: LiveTurn | null;
         // the turn they belong to, until each result lands and the group
         // absorbs it. The wrapper carries the turn's bottom margin so the
         // next turn starts on the same rhythm.
-        <div className="pending-live">{toolRows([...pendingTools.values()].map((p) => p.call), pendingTools)}</div>
+        <div className="mb-6">{toolRows([...pendingTools.values()].map((p) => p.call), pendingTools)}</div>
       )}
     </>
   );
@@ -43,27 +43,37 @@ function LiveTurn({ turn }: { turn: LiveTurn }) {
   const reasoning = turn.liveReasoning || turn.reasoning;
   const content = turn.liveContent || turn.content;
   return (
-    <div className="turn live" id={`sub-turn-${turn.subTurn}`}>
-      <a className="gutter" href={`#sub-turn-${turn.subTurn}`} title={`Sub-turn ${turn.subTurn}`}>
+    <div
+      className="group relative mb-6 scroll-mt-[var(--nav-height)] pl-10 [&>*+*]:mt-2 max-nav:pl-0"
+      id={`sub-turn-${turn.subTurn}`}
+    >
+      <a
+        className="absolute top-px left-0 w-[30px] text-right font-mono text-micro text-muted-foreground tabular-nums no-underline group-hover:text-foreground focus-visible:text-foreground max-nav:static max-nav:mb-0.5 max-nav:block max-nav:w-auto max-nav:text-left max-phone:min-h-11 max-phone:pt-3 max-phone:pb-2"
+        href={`#sub-turn-${turn.subTurn}`}
+        title={`Sub-turn ${turn.subTurn}`}
+      >
         {turn.subTurn}
       </a>
       {reasoning && (
+        // "think" stays a literal class only to keep the marker-hiding rule
+        // scoped (.think > summary::-webkit-details-marker in styles.css),
+        // same as Turn.tsx's own disclosure.
         <details className="think" open>
-          <summary>
+          <summary className="-ml-1 inline-flex list-none items-center gap-1.5 rounded px-1 py-px text-xs text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:[outline:2px_solid_var(--ring)] focus-visible:outline-offset-1 max-phone:min-h-11 max-phone:px-2 max-phone:py-2.5">
             <span className="caret" aria-hidden>
               ▸
             </span>
             Thinking…{elapsed && ` ${elapsed}`}
           </summary>
-          <div className="thought">
+          <div className="mt-1.5 border-l border-border pl-[13px] text-sm leading-[1.6] whitespace-pre-wrap text-muted-foreground">
             {reasoning}
-            <span className="cursor" />
+            <span className="inline-block h-3.5 w-[7px] align-[-2px] bg-[var(--status-running)] [animation:pulse_var(--cursor-period)_steps(2,start)_infinite] motion-reduce:animate-none" />
           </div>
         </details>
       )}
       {content && (
-        <div className="say">
-          <pre>
+        <div className="border-l-2 border-[var(--status-running)] pl-[13px] text-md leading-[1.65] max-phone:text-base max-phone:leading-[1.7]">
+          <pre className="m-0 font-[inherit] whitespace-pre-wrap wrap-anywhere">
             {/* The reveal rides the live frames, which is the only text here
                 that actually arrives a piece at a time: the committed
                 content_delta events are written in one batch with the
@@ -75,7 +85,7 @@ function LiveTurn({ turn }: { turn: LiveTurn }) {
                 fallback has no frames to speak of and renders as it always
                 did. */}
             {turn.liveContent ? <StreamText chunks={turn.liveContentChunks} /> : content}
-            <span className="cursor" />
+            <span className="inline-block h-3.5 w-[7px] align-[-2px] bg-[var(--status-running)] [animation:pulse_var(--cursor-period)_steps(2,start)_infinite] motion-reduce:animate-none" />
           </pre>
         </div>
       )}
@@ -90,15 +100,16 @@ function LiveTurn({ turn }: { turn: LiveTurn }) {
 // call's own start stamp, so a running row can count its own age
 // ("running · 42s") the way the footer's nowline does. A
 // streaming turn's announced calls have not started running yet and carry
-// neither. Two or more rows read as a set, wrapped in a .toolset.
+// neither. Two or more rows read as a set, wrapped in the same
+// bordered/labelled group Turn.tsx's toolset uses.
 function toolRows(calls: ToolCallPayload[], pendingTools: Map<string, PendingTool> | null): React.ReactNode {
   const rows = calls.map((call) => (
     <LiveToolRow key={call.id} call={call} pending={pendingTools?.get(call.id)} />
   ));
   if (rows.length >= 2) {
     return (
-      <div className="toolset">
-        <div className="setlabel">{rows.length} calls in parallel</div>
+      <div className="border-l border-border pl-[11px]">
+        <div className="mb-[5px] text-micro text-muted-foreground">{rows.length} calls in parallel</div>
         {rows}
       </div>
     );
@@ -109,7 +120,10 @@ function toolRows(calls: ToolCallPayload[], pendingTools: Map<string, PendingToo
 // LiveToolRow is one running tool call (.tool.tool-live): open by
 // default, pulsing dot, target, "running" plus
 // the wall time so far when the fold knows when the call started, and the
-// streamed stdout as plain preformatted text when there is any.
+// streamed stdout as plain preformatted text when there is any. "tool"
+// stays a literal class only to keep the marker-hiding rule scoped, same as
+// Turn.tsx's ToolRow — everything else is a direct Tailwind utility, always
+// in the "running" colour since a live row has no other state.
 //
 // The age ticks on its own clock rather than riding the flush loop, which is
 // the difference between a counter and a timestamp: the section around it
@@ -128,19 +142,21 @@ function LiveToolRow({ call, pending }: { call: ToolCallPayload; pending?: Pendi
   const target = toolDetail(call);
   const age = pending?.startedAt ? formatElapsed(now - Date.parse(pending.startedAt)) : "";
   return (
-    <details className="tool tool-live" open>
-      <summary>
-        <span className="glyph" aria-hidden>
+    <details className="tool rounded-[calc(var(--radius)-2px)] border border-[var(--status-running)] bg-card [&+&]:mt-1" open>
+      <summary className="flex list-none items-center gap-2 rounded-[calc(var(--radius)-3px)] px-2.5 py-[7px] text-sm cursor-pointer hover:bg-accent focus-visible:[outline:2px_solid_var(--ring)] focus-visible:outline-offset-[-2px] max-phone:min-h-11 max-phone:px-3 max-phone:py-2.5">
+        <span aria-hidden className="flex w-[13px] flex-none justify-center text-center text-xs text-[var(--status-running)]">
           <span className="dot dot-pulse" />
         </span>
-        <span className="name">{call.name}</span>
-        {target && <span className="target">{target}</span>}
-        <span className="timing">running{age ? ` · ${age}` : ""}</span>
+        <span className="flex-none font-mono text-xs font-semibold">{call.name}</span>
+        {target && <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">{target}</span>}
+        <span className="flex-none text-micro tabular-nums text-[var(--status-running)]">
+          running{age ? ` · ${age}` : ""}
+        </span>
       </summary>
       {pending?.stdout && (
-        <pre className="tool-out">
+        <pre className="m-0 border-t border-border px-2.5 py-2 font-mono text-xs leading-[1.55] whitespace-pre-wrap wrap-anywhere text-muted-foreground max-phone:text-sm">
           {pending.stdout}
-          <span className="cursor" />
+          <span className="inline-block h-3.5 w-[7px] align-[-2px] bg-[var(--status-running)] [animation:pulse_var(--cursor-period)_steps(2,start)_infinite] motion-reduce:animate-none" />
         </pre>
       )}
     </details>

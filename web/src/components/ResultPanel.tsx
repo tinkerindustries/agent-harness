@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Block } from "../api/fold";
 import { Button } from "./ui/button";
+import { cn } from "@/lib/utils";
 
 export type RunFinishedBlock = Extract<Block, { type: "run_finished" }>;
 
@@ -30,39 +31,51 @@ export function ResultPanel({ block, parentAgent }: { block: RunFinishedBlock; p
   const lines = json === null ? 0 : json.split("\n").length;
 
   return (
-    <section className={`result${gaveUp ? " result-gaveup" : ""}`}>
-      <div className="result-head">
-        <h4>{gaveUp ? "Result · gave up" : `Result${parentAgent ? ` · returned to ${parentAgent}` : ""}`}</h4>
+    <section
+      className={cn(
+        "mt-1 mb-6 ml-10 rounded-lg border px-3.5 py-3",
+        gaveUp ? "border-[var(--status-gaveup)] bg-[var(--status-gaveup-bg)]" : "border-[var(--status-done)] bg-[var(--status-done-bg)]",
+      )}
+    >
+      <div className="mb-1.5 flex items-baseline justify-between gap-3">
+        <h4 className={cn("m-0 text-xs tracking-[0.05em] uppercase", gaveUp ? "text-[var(--status-gaveup)]" : "text-[var(--status-done)]")}>
+          {gaveUp ? "Result · gave up" : `Result${parentAgent ? ` · returned to ${parentAgent}` : ""}`}
+        </h4>
         {json !== null && <CopyButton json={json} />}
       </div>
-      {summary && <p>{summary}</p>}
+      {summary && <p className="m-0 mb-2.5 text-base leading-[1.6] text-foreground">{summary}</p>}
       {json !== null && (
-        <details className="result-json" open={lines <= COLLAPSE_OVER_LINES}>
-          <summary>
-            <span className="caret" aria-hidden>
+        // "result-json" stays a literal class only to scope the
+        // cross-browser <details> marker hider (.result-json > summary::
+        // -webkit-details-marker in styles.css) — the caret's own rotation
+        // was already converted in an earlier commit.
+        <details className="result-json group" open={lines <= COLLAPSE_OVER_LINES}>
+          <summary className="flex list-none items-center gap-1.5 py-[3px] text-xs text-muted-foreground cursor-pointer hover:text-foreground max-phone:min-h-11 max-phone:px-3 max-phone:py-2.5">
+            <span className="text-muted-foreground [transition:transform_150ms_ease] group-open:rotate-90" aria-hidden>
               ▸
             </span>
             payload · {lines.toLocaleString("en-US")} line{lines === 1 ? "" : "s"}
           </summary>
-          <pre>{json}</pre>
+          <pre className="mt-1.5 max-h-[420px] overflow-auto font-mono text-xs leading-[1.55] whitespace-pre-wrap wrap-anywhere text-muted-foreground">
+            {json}
+          </pre>
         </details>
       )}
     </section>
   );
 }
 
-// CopyButton is the panel's copy control (.result .copy): it sits in the
-// panel's header row, beside the heading, and confirms itself — "Copied" for
-// a beat — rather than making the reader wonder whether anything
-// happened. A clipboard that refuses (a non-secure context) just leaves the
-// button at its label; the JSON is right there to select by hand.
+// CopyButton is the panel's copy control: it sits in the panel's header row,
+// beside the heading, and confirms itself — "Copied" for a beat — rather
+// than making the reader wonder whether anything happened. A clipboard that
+// refuses (a non-secure context) just leaves the button at its label; the
+// JSON is right there to select by hand.
 function CopyButton({ json }: { json: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <Button
       variant="ghost"
       size="sm"
-      className="copy"
       onClick={() => {
         navigator.clipboard?.writeText(json).then(
           () => {

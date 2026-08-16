@@ -13,6 +13,8 @@ import { isLive } from "../api/status";
 import { getSessionEval, type EvalMembership } from "../api/evals";
 import { startedBy } from "../api/provenance";
 import { SessionIdContext, useLabelFlip, useNow } from "../hooks";
+import { MSG_BODY_CLS, MSG_CLS, MSG_STATE_CLS, MSG_USER_CLS } from "./turns/SteerMessage";
+import { cn } from "@/lib/utils";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { outcome } from "./statusBadge";
@@ -179,11 +181,9 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
   // result panel above.
   const renderInstruction = useCallback(
     (block: Extract<Block, { type: "instruction" }>) => (
-      <div className="msg msg-user" key={`${block.seq}-instruction`}>
-        <div className="body">{block.text}</div>
-        <div className="state">
-          from {who} · delivered · sub-turn 1
-        </div>
+      <div className={cn(MSG_CLS, MSG_USER_CLS)} key={`${block.seq}-instruction`}>
+        <div className={MSG_BODY_CLS}>{block.text}</div>
+        <div className={MSG_STATE_CLS}>from {who} · delivered · sub-turn 1</div>
       </div>
     ),
     [who],
@@ -234,7 +234,11 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
             RUNNING
           </Badge>
           {navElapsed && <span>{navElapsed}</span>}
-          <Badge variant="outline" className="badge-perm" title="This run can reach the host docker socket when full">
+          <Badge
+            variant="outline"
+            className="border-[var(--status-gaveup)] font-semibold text-[var(--status-gaveup)]"
+            title="This run can reach the host docker socket when full"
+          >
             {meta.permission_mode}
           </Badge>
           {token !== null && (
@@ -247,7 +251,7 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
               title={stopping ? "Stopping…" : "Stop"}
             >
               <StopCircle />
-              <span className="nav-label">{stopping ? "Stopping…" : "Stop"}</span>
+              <span className="max-nav:sr-only">{stopping ? "Stopping…" : "Stop"}</span>
             </Button>
           )}
         </>
@@ -286,7 +290,13 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
           ever and sits next to the outcome badge competing with it. A stream
           that drops while it still mattered is the banner's job. */}
       {running && (
-        <Badge variant="outline" className={`connection-badge connection-${snapshot.connection}`}>
+        <Badge
+          variant="outline"
+          className={cn(
+            "text-muted-foreground",
+            snapshot.connection === "open" && "border-[var(--status-done)] text-[var(--status-done)]",
+          )}
+        >
           {snapshot.connection}
         </Badge>
       )}
@@ -297,17 +307,22 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
     <>
       <DroppedStreamBanner connection={snapshot.connection} everOpen={everOpen} />
       {planMini && (
-        <div className="plan-mini">
-          <span className="mark" aria-hidden>
+        <div className="hidden max-watch:flex max-watch:items-center max-watch:gap-2.5 max-watch:border-b max-watch:border-border max-watch:bg-card max-watch:px-5 max-watch:py-[7px] max-watch:text-sm">
+          <span className="flex-none font-mono text-[var(--status-running)]" aria-hidden>
             ▸
           </span>
           <span className="truncate">{planMini.label}</span>
-          <span className="count">
+          <span className="ml-auto flex-none text-micro text-muted-foreground tabular-nums">
             {planMini.done}/{planMini.total}
           </span>
         </div>
       )}
-      <div className={`work work-watch${running ? "" : " work-watch-page"}`}>
+      <div
+        className={cn(
+          "grid min-h-0 flex-1 grid-cols-[244px_minmax(0,1fr)] max-watch:grid-cols-[minmax(0,1fr)]",
+          !running && "work-watch-page",
+        )}
+      >
         <WatchRail
           items={snapshot.items}
           live={snapshot.live}
@@ -315,8 +330,12 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
           meta={meta}
           getToolCall={snapshot.getToolCall}
         />
-        <main className="stream" ref={streamRef} onScroll={onStreamScroll}>
-          <div className="stream-inner">
+        <main
+          className="stream relative pt-5 pr-6 pl-10 [scrollbar-gutter:stable] max-watch:pl-6"
+          ref={streamRef}
+          onScroll={onStreamScroll}
+        >
+          <div className="mr-auto ml-0 max-w-[840px] pb-6 max-watch:ml-auto">
             {/* The run header leads the transcript column: what this run was
                 called, who launched it, and the settings it ran under. It is
                 unfilled and closed by a hairline, so the filled cards below
@@ -327,17 +346,19 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
                 said FINISHED stated one fact three times over — badge,
                 sentence, nav. What a spectator may do is a live-run fact, so
                 the note renders only while the run is going. */}
-            <header className="runhead">
-              <div className="runhead-line">
-                <h1 className="runhead-title">{meta.title || `Run ${sessionId.replace(/^sess-/, "").slice(0, 8)}`}</h1>
+            <header className="mb-0">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+                <h1 className="m-0 min-w-0 flex-[1_1_24ch] text-[1.0625rem] leading-[1.3] font-semibold text-foreground">
+                  {meta.title || `Run ${sessionId.replace(/^sess-/, "").slice(0, 8)}`}
+                </h1>
                 {!running && (
-                  <span className="runhead-when" title={new Date(meta.created_at).toString()}>
+                  <span className="text-xs whitespace-nowrap text-muted-foreground" title={new Date(meta.created_at).toString()}>
                     started {runWhen(meta.created_at)}
                   </span>
                 )}
               </div>
-              {meta.description && <p className="runhead-desc">{meta.description}</p>}
-              <div className="runhead-facts">
+              {meta.description && <p className="mt-1 mb-0 max-w-[78ch] text-sm leading-[1.45] text-muted-foreground">{meta.description}</p>}
+              <div className="mt-2.5 flex min-w-0 flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-muted-foreground">
                 {/* The launcher's own id is a claude-code session id: nothing
                     on this page or any other resolves it, so it rides on the
                     title rather than taking a third of the row. */}
@@ -359,9 +380,10 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
                 )}
                 {membership && (
                   <>
-                    <span className="fact">
-                      <span className="k">eval</span>
+                    <span className="inline-flex min-w-0 items-baseline gap-[5px]">
+                      <span className="text-[0.625rem] tracking-[0.06em] text-muted-foreground uppercase">eval</span>
                       <a
+                        className="text-[var(--status-running)] no-underline hover:underline max-phone:inline-flex max-phone:min-h-11 max-phone:items-center max-phone:px-1"
                         href={`/evals/${encodeURIComponent(membership.eval_run_id)}`}
                         onClick={(e) => {
                           e.preventDefault();
@@ -378,18 +400,21 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
                 )}
               </div>
               {running && (
-                <p className="runhead-note">
+                <p className="mt-2.5 mb-0 text-xs text-muted-foreground">
                   {`This run takes its instructions from ${who}. You can stop it, but not message it.`}
                 </p>
               )}
             </header>
             {snapshot.churnPoint && (
-              <div className="notice churn-banner">
+              <div className="mb-4 rounded-[calc(var(--radius)-2px)] border border-border border-l-[3px] border-l-[var(--status-gaveup)] bg-[var(--status-gaveup-bg)] px-3 py-2 text-sm text-foreground">
                 <b>
                   Cache churn at sub-turn {snapshot.churnPoint.subTurn}: {snapshot.churnPoint.excessTokens.toLocaleString("en-US")} tokens
                   re-sent above the expected miss.
                 </b>{" "}
-                The prefix moved — see docs/CACHE.md. <a href={`#sub-turn-${snapshot.churnPoint.subTurn}`}>Jump to it →</a>
+                The prefix moved — see docs/CACHE.md.{" "}
+                <a className="font-semibold text-[var(--status-gaveup)]" href={`#sub-turn-${snapshot.churnPoint.subTurn}`}>
+                  Jump to it →
+                </a>
               </div>
             )}
             <SessionIdContext.Provider value={sessionId}>
@@ -407,9 +432,13 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
           {/* The jump pill is for a live run; a finished session's stream has
               no tail left to jump to. */}
           {running && !following && (
-            <div className="jumpwrap">
-              <button type="button" className="jump" onClick={toggleFollow}>
-                <ArrowDown aria-hidden />
+            <div className="pointer-events-none sticky bottom-2.5 flex h-0 items-end justify-center">
+              <button
+                type="button"
+                className="pointer-events-auto inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-full border border-border bg-card px-3 text-xs text-foreground [box-shadow:var(--shadow-float)] max-phone:h-11 max-phone:px-4"
+                onClick={toggleFollow}
+              >
+                <ArrowDown className="h-[13px] w-[13px] flex-none" aria-hidden />
                 Jump to live
               </button>
             </div>
@@ -467,14 +496,19 @@ function Fact({
   title?: string;
 }) {
   return (
-    <span className={`fact${danger ? " fact-danger" : ""}`}>
-      <span className="k">{label}</span>
+    <span className="inline-flex min-w-0 items-baseline gap-[5px]">
+      <span className="text-[0.625rem] tracking-[0.06em] text-muted-foreground uppercase">{label}</span>
       {/* The chip clips a long id to keep the strip one line; the title is
           how the whole of it is still available. */}
       {mono ? (
-        <code title={title ?? value}>{value}</code>
+        <code
+          className="max-w-[16ch] truncate rounded-[calc(var(--radius)-4px)] border border-border bg-muted px-[5px] py-px text-micro text-foreground"
+          title={title ?? value}
+        >
+          {value}
+        </code>
       ) : (
-        <span className="v" title={title ?? value}>
+        <span className={cn("truncate font-medium text-foreground", danger && "text-[var(--status-gaveup)]")} title={title ?? value}>
           {value}
         </span>
       )}
