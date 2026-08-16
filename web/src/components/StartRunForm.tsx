@@ -19,6 +19,7 @@ import {
   CollapsibleTrigger,
 } from "./ui/collapsible";
 import { ToggleGroup, ToggleGroupItem } from "./ui/toggle-group";
+import { cn } from "@/lib/utils";
 
 // StartRunForm is the browser's start form (docs/RUN-CONTROL.md "The
 // frontend"): repos (URL#branch, repeatable), a model, a thinking effort, a
@@ -334,25 +335,25 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
   };
 
   return (
-    <div className="start-form-card">
-      <div className="start-form">
-        <div className="start-form-head">
-          <span className="start-title">Start a run</span>
+    <div className="mb-4 rounded-lg border border-border bg-card">
+      <div className="flex flex-col gap-3 px-4 py-3.5">
+        <div className="flex items-center gap-2">
+          <span className="flex-1 font-semibold">Start a run</span>
           <Button variant="outline" size="sm" onClick={onClose}>
             Close
           </Button>
         </div>
 
-        <div className="start-field start-field-wide">
-          <span className="start-label">Repositories</span>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs tracking-[0.04em] text-muted-foreground uppercase">Repositories</span>
           {repoSpecs.map((spec, i) => {
             const matches = matchesFor(i);
             return (
-              <div className="start-repo-row" key={i}>
-                <div className="start-repo-combobox">
+              <div className="flex items-center gap-2" key={i}>
+                <div className="relative min-w-0 flex-1">
                   <Input
                     ref={i === 0 ? firstRepoInputRef : undefined}
-                    className="start-input"
+                    className="font-mono text-sm"
                     value={spec}
                     onChange={(e) => {
                       setRepoAt(i, e.target.value);
@@ -374,7 +375,7 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
                   {openRow === i && matches.length > 0 && (
                     <div
                       id={`repo-suggestions-${i}`}
-                      className="start-repo-suggestions"
+                      className="absolute top-[calc(100%+4px)] right-0 left-0 z-20 flex max-h-[256px] flex-col gap-0.5 overflow-y-auto rounded-[calc(var(--radius)-2px)] border border-border bg-card p-1 [box-shadow:0_4px_12px_rgb(0_0_0/0.15)]"
                       role="listbox"
                       aria-label="Repository suggestions"
                     >
@@ -384,19 +385,18 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
                           type="button"
                           role="option"
                           aria-selected={j === activeIndex}
-                          className={
-                            j === activeIndex
-                              ? "start-repo-suggestion start-repo-suggestion-active"
-                              : "start-repo-suggestion"
-                          }
+                          className={cn(
+                            "flex h-12 w-full cursor-pointer flex-col justify-center gap-px rounded-[calc(var(--radius)-4px)] border-0 bg-transparent px-2 py-[5px] text-left text-foreground hover:bg-muted",
+                            j === activeIndex && "bg-muted",
+                          )}
                           // mousedown preventDefault keeps the input focused,
                           // so the input's onBlur cannot close the list
                           // before the click lands.
                           onMouseDown={(e) => e.preventDefault()}
                           onClick={() => selectRepo(i, repo)}
                         >
-                          <span className="start-repo-suggestion-name">{repo.full_name}</span>
-                          <span className="start-repo-suggestion-meta">
+                          <span className="truncate font-mono text-sm">{repo.full_name}</span>
+                          <span className="truncate text-micro text-muted-foreground">
                             {repo.default_branch}
                             {repo.private ? " · private" : ""}
                           </span>
@@ -426,8 +426,8 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
           )}
         </div>
 
-        <div className="start-field start-field-wide">
-          <span className="start-label">Image attachments</span>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs tracking-[0.04em] text-muted-foreground uppercase">Image attachments</span>
           <input
             type="file"
             accept=".png,.jpg,.jpeg,.webp"
@@ -447,11 +447,11 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
             </p>
           )}
           {chosen.length > 0 && (
-            <ul className="start-attachment-list">
+            <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
               {chosen.map(({ attachment, size }) => (
-                <li className="start-repo-row" key={attachment.name}>
-                  <span className="start-attachment-name">{attachment.name}</span>
-                  <span className="start-attachment-meta">{formatFileSize(size)}</span>
+                <li className="flex items-center gap-2" key={attachment.name}>
+                  <span className="min-w-0 flex-1 truncate font-mono text-sm">{attachment.name}</span>
+                  <span className="text-xs whitespace-nowrap text-muted-foreground">{formatFileSize(size)}</span>
                   <Button variant="outline" size="sm" onClick={() => removeAttachment(attachment.name)}>
                     Remove
                   </Button>
@@ -461,10 +461,14 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
           )}
         </div>
 
-        <div className="start-primary-row start-field-wide">
-          <label className="start-field">
-            <span className="start-label">Model</span>
-            <select className="start-select" value={model} onChange={(e) => setModel(e.target.value)}>
+        <div className="flex flex-wrap items-end gap-3.5 max-touch:flex-col max-touch:items-stretch">
+          <label className="flex flex-col gap-1">
+            <span className="text-xs tracking-[0.04em] text-muted-foreground uppercase">Model</span>
+            <select
+              className="h-9 rounded-[calc(var(--radius)-2px)] border border-input bg-card px-2 font-[inherit] text-sm text-foreground outline-none max-phone:h-11"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+            >
               {models.map((m) => (
                 <option key={m} value={m}>
                   {m}
@@ -473,16 +477,20 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
             </select>
             {modelsError && <p className="hint">{modelsError}</p>}
           </label>
-          <label className="start-field">
-            <span className="start-label">Thinking</span>
-            <select className="start-select" value={effort} onChange={(e) => setEffort(e.target.value)}>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs tracking-[0.04em] text-muted-foreground uppercase">Thinking</span>
+            <select
+              className="h-9 rounded-[calc(var(--radius)-2px)] border border-input bg-card px-2 font-[inherit] text-sm text-foreground outline-none max-phone:h-11"
+              value={effort}
+              onChange={(e) => setEffort(e.target.value)}
+            >
               <option value="max">max</option>
               <option value="high">high</option>
               <option value="low">low</option>
             </select>
           </label>
-          <div className="start-field">
-            <span className="start-label">Permission mode</span>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs tracking-[0.04em] text-muted-foreground uppercase">Permission mode</span>
             <ToggleGroup type="single" value={permission} onValueChange={(v) => v && setPermission(v)}>
               <ToggleGroupItem value="readonly">readonly</ToggleGroupItem>
               <ToggleGroupItem value="full">full</ToggleGroupItem>
@@ -494,22 +502,22 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
           </div>
         </div>
 
-        <Collapsible className="start-optional">
+        <Collapsible>
           <CollapsibleTrigger asChild>
-            <Button variant="outline" size="sm" className="start-optional-trigger">
+            <Button variant="outline" size="sm">
               Optional fields
             </Button>
           </CollapsibleTrigger>
           <CollapsibleContent>
-            <div className="start-optional-grid">
-              <label className="start-field">
-                <span className="start-label">Title</span>
-                <Input className="start-input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="(optional, up to 10 words)" spellCheck={false} />
+            <div className="grid grid-cols-2 gap-x-3.5 gap-y-2.5 pt-2.5 max-touch:grid-cols-1">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs tracking-[0.04em] text-muted-foreground uppercase">Title</span>
+                <Input className="font-mono text-sm" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="(optional, up to 10 words)" spellCheck={false} />
               </label>
-              <label className="start-field start-field-wide">
-                <span className="start-label">Description</span>
+              <label className="col-span-full flex flex-col gap-1">
+                <span className="text-xs tracking-[0.04em] text-muted-foreground uppercase">Description</span>
                 <textarea
-                  className="start-schema"
+                  className="w-full min-w-0 resize-y rounded-[calc(var(--radius)-2px)] border border-input bg-transparent px-2.5 py-1.5 font-[inherit] text-base leading-normal outline-none focus:border-ring focus:[box-shadow:0_0_0_3px_color-mix(in_srgb,var(--ring)_50%,transparent)]"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="(optional, up to 50 words) — what change this run is making; shown under the title on the main page"
@@ -517,38 +525,42 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
                   spellCheck={false}
                 />
               </label>
-              <label className="start-field">
-                <span className="start-label">Deny patterns</span>
-                <Input className="start-input" value={deny} onChange={(e) => setDeny(e.target.value)} placeholder="comma-separated substrings, e.g. git push" spellCheck={false} />
+              <label className="flex flex-col gap-1">
+                <span className="text-xs tracking-[0.04em] text-muted-foreground uppercase">Deny patterns</span>
+                <Input className="font-mono text-sm" value={deny} onChange={(e) => setDeny(e.target.value)} placeholder="comma-separated substrings, e.g. git push" spellCheck={false} />
               </label>
-              <label className="start-field">
-                <span className="start-label">Job type</span>
-                <select className="start-select" value={jobType} onChange={(e) => setJobType(e.target.value)}>
+              <label className="flex flex-col gap-1">
+                <span className="text-xs tracking-[0.04em] text-muted-foreground uppercase">Job type</span>
+                <select
+                  className="h-9 rounded-[calc(var(--radius)-2px)] border border-input bg-card px-2 font-[inherit] text-sm text-foreground outline-none max-phone:h-11"
+                  value={jobType}
+                  onChange={(e) => setJobType(e.target.value)}
+                >
                   <option value="">(implementation)</option>
                   <option value="implementation">implementation</option>
                   <option value="orchestration">orchestration</option>
                 </select>
               </label>
-              <label className="start-field">
-                <span className="start-label">Max sub-turns</span>
-                <Input className="start-input" type="number" min={0} value={maxSubTurns} onChange={(e) => setMaxSubTurns(e.target.value)} placeholder="(config default)" />
+              <label className="flex flex-col gap-1">
+                <span className="text-xs tracking-[0.04em] text-muted-foreground uppercase">Max sub-turns</span>
+                <Input className="font-mono text-sm" type="number" min={0} value={maxSubTurns} onChange={(e) => setMaxSubTurns(e.target.value)} placeholder="(config default)" />
               </label>
-              <label className="start-field">
-                <span className="start-label">Deadline (ms)</span>
-                <Input className="start-input" type="number" min={0} value={deadlineMs} onChange={(e) => setDeadlineMs(e.target.value)} placeholder="(config default)" />
+              <label className="flex flex-col gap-1">
+                <span className="text-xs tracking-[0.04em] text-muted-foreground uppercase">Deadline (ms)</span>
+                <Input className="font-mono text-sm" type="number" min={0} value={deadlineMs} onChange={(e) => setDeadlineMs(e.target.value)} placeholder="(config default)" />
               </label>
-              <label className="start-field">
-                <span className="start-label">Parent agent type</span>
-                <Input className="start-input" value={parentAgentType} onChange={(e) => setParentAgentType(e.target.value)} placeholder="claude-code, cursor, or user" spellCheck={false} />
+              <label className="flex flex-col gap-1">
+                <span className="text-xs tracking-[0.04em] text-muted-foreground uppercase">Parent agent type</span>
+                <Input className="font-mono text-sm" value={parentAgentType} onChange={(e) => setParentAgentType(e.target.value)} placeholder="claude-code, cursor, or user" spellCheck={false} />
               </label>
-              <label className="start-field">
-                <span className="start-label">Parent agent id</span>
-                <Input className="start-input" value={parentAgentID} onChange={(e) => setParentAgentID(e.target.value)} placeholder="(empty when type is user)" spellCheck={false} />
+              <label className="flex flex-col gap-1">
+                <span className="text-xs tracking-[0.04em] text-muted-foreground uppercase">Parent agent id</span>
+                <Input className="font-mono text-sm" value={parentAgentID} onChange={(e) => setParentAgentID(e.target.value)} placeholder="(empty when type is user)" spellCheck={false} />
               </label>
-              <label className="start-field start-field-wide">
-                <span className="start-label">Result schema</span>
+              <label className="col-span-full flex flex-col gap-1">
+                <span className="text-xs tracking-[0.04em] text-muted-foreground uppercase">Result schema</span>
                 <textarea
-                  className="start-schema"
+                  className="w-full min-w-0 resize-y rounded-[calc(var(--radius)-2px)] border border-input bg-transparent px-2.5 py-1.5 font-[inherit] text-base leading-normal outline-none focus:border-ring focus:[box-shadow:0_0_0_3px_color-mix(in_srgb,var(--ring)_50%,transparent)]"
                   value={resultSchema}
                   onChange={(e) => setResultSchema(e.target.value)}
                   placeholder='{"type": "object", ...} — JSON Schema the Complete result must satisfy'
@@ -560,7 +572,7 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
           </CollapsibleContent>
         </Collapsible>
 
-        <div className="start-actions">
+        <div className="flex flex-wrap items-center gap-3">
           <Button onClick={submit} disabled={sending}>
             {sending ? "Starting…" : "Start run"}
           </Button>
@@ -568,18 +580,19 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
         </div>
 
         {accepted && (
-          <div className="start-accepted">
+          <div className="flex flex-wrap items-center gap-2 rounded-[calc(var(--radius)-2px)] border border-border border-l-[3px] border-l-[var(--status-done)] bg-[var(--status-done-bg)] px-3 py-2 text-sm">
             {started ? (
               <>
-                Session <code>{started.id}</code> started — it is in the list above.
+                Session <code className="rounded bg-muted px-1 font-mono">{started.id}</code> started — it is in the
+                list above.
                 <Button variant="outline" size="sm" onClick={() => onOpen(started.id)}>
                   Open transcript
                 </Button>
               </>
             ) : (
               <>
-                Accepted as <code>{accepted}</code>. Waiting for the pool to claim it — the session
-                will appear in the list when it starts.
+                Accepted as <code className="rounded bg-muted px-1 font-mono">{accepted}</code>. Waiting for the pool
+                to claim it — the session will appear in the list when it starts.
               </>
             )}
           </div>
