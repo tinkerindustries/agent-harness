@@ -2,6 +2,16 @@ import type { Block } from "../../api/fold";
 import { formatDuration } from "../../api/operations";
 import { useNow } from "../../hooks";
 import { pendingWaitLabel } from "./turnHelpers";
+import { cn } from "@/lib/utils";
+
+// The sent-message shell (.msg .msg-user): a mono body behind the
+// running-colour left rule, and a state line under it. Shared by every
+// variant below and by SessionWatchScreen.tsx's launcher-instruction
+// rendering, which draws the same shape for the run's opening instruction.
+export const MSG_CLS = "mb-[22px] ml-10 max-nav:ml-0";
+export const MSG_USER_CLS = "border-l-2 border-[var(--status-running)] py-px pl-[13px]";
+export const MSG_BODY_CLS = "font-mono text-sm leading-[1.55] whitespace-pre-wrap";
+export const MSG_STATE_CLS = "flex items-center gap-1.5 mt-[5px] text-micro text-muted-foreground";
 
 // SteerMessage is a sent operator message on the chat page (.msg-user,
 // three states): the text in mono behind the running-colour left rule,
@@ -71,9 +81,9 @@ export function SteerMessage({ block, sentAt, wait, runEnded }: Props) {
 
   if (block.state === "delivered") {
     return (
-      <div className="msg msg-user">
-        <div className="body">{block.text}</div>
-        <div className="state">
+      <div className={cn(MSG_CLS, MSG_USER_CLS)}>
+        <div className={MSG_BODY_CLS}>{block.text}</div>
+        <div className={MSG_STATE_CLS}>
           delivered{block.appliedSubTurn != null ? ` · sub-turn ${block.appliedSubTurn}` : ""}
         </div>
       </div>
@@ -83,18 +93,18 @@ export function SteerMessage({ block, sentAt, wait, runEnded }: Props) {
   const age = sentAt !== undefined ? `sent ${formatDuration(Math.max(0, now - sentAt))} ago` : null;
   if (runEnded) {
     return (
-      <div className="msg msg-user">
-        <div className="body">{block.text}</div>
-        <div className="state state-undelivered">
+      <div className={cn(MSG_CLS, MSG_USER_CLS)}>
+        <div className={MSG_BODY_CLS}>{block.text}</div>
+        <div className={cn(MSG_STATE_CLS, "text-[var(--status-gaveup)]")}>
           {age ? `${age} · ` : ""}not delivered — the run ended before this message reached the model
         </div>
       </div>
     );
   }
   return (
-    <div className="msg msg-user">
-      <div className="body">{block.text}</div>
-      <div className="state state-pending">
+    <div className={cn(MSG_CLS, MSG_USER_CLS)}>
+      <div className={MSG_BODY_CLS}>{block.text}</div>
+      <div className={cn(MSG_STATE_CLS, "text-[var(--status-gaveup)]")}>
         <span className="dot dot-pulse" aria-hidden />
         pending{age ? ` · ${age}` : ""} · {pendingWaitLabel(wait.hasToolRound, wait.liveSubTurn)}
       </div>

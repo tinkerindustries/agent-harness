@@ -10,6 +10,8 @@ import { controlToken, errorMessage, steerSession, stopSession } from "../api/op
 import { canSteer, isLive } from "../api/status";
 import { isUserStarted } from "../api/provenance";
 import { SessionIdContext, useNow } from "../hooks";
+import { MSG_BODY_CLS, MSG_CLS, MSG_STATE_CLS, MSG_USER_CLS } from "./turns/SteerMessage";
+import { cn } from "@/lib/utils";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { ChatComposer, type ComposerStatus, type FinishedBand } from "./ChatComposer";
@@ -307,7 +309,11 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
           </Badge>
           {navElapsed && <span>{navElapsed}</span>}
           {meta && (
-            <Badge variant="outline" className="badge-perm" title="This run can reach the host docker socket when full">
+            <Badge
+              variant="outline"
+              className="border-[var(--status-gaveup)] font-semibold text-[var(--status-gaveup)]"
+              title="This run can reach the host docker socket when full"
+            >
               {meta.permission_mode}
             </Badge>
           )}
@@ -326,7 +332,13 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
           )}
         </>
       )}
-      <Badge variant="outline" className={`connection-badge connection-${snapshot.connection}`}>
+      <Badge
+        variant="outline"
+        className={cn(
+          "text-muted-foreground",
+          snapshot.connection === "open" && "border-[var(--status-done)] text-[var(--status-done)]",
+        )}
+      >
         {snapshot.connection}
       </Badge>
     </>,
@@ -372,35 +384,38 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
     <>
       <DroppedStreamBanner connection={snapshot.connection} everOpen={everOpen} />
       {planMini && (
-        <div className="plan-mini">
-          <span className="mark" aria-hidden>
+        <div className="hidden max-watch:flex max-watch:items-center max-watch:gap-2.5 max-watch:border-b max-watch:border-border max-watch:bg-card max-watch:px-5 max-watch:py-[7px] max-watch:text-sm">
+          <span className="flex-none font-mono text-[var(--status-running)]" aria-hidden>
             ▸
           </span>
           <span className="truncate">{planMini.label}</span>
-          <span className="count">
+          <span className="ml-auto flex-none text-micro text-muted-foreground tabular-nums">
             {planMini.done}/{planMini.total}
           </span>
         </div>
       )}
-      <div className="work work-chat">
-        <main className="stream" ref={streamRef} onScroll={onStreamScroll}>
-          <div className="stream-inner">
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_288px] max-watch:grid-cols-[minmax(0,1fr)]">
+        <main className="stream relative pt-5 px-6 [scrollbar-gutter:stable]" ref={streamRef} onScroll={onStreamScroll}>
+          <div className="mx-auto max-w-[800px] pb-6">
             {showEmpty && (
-              <div className="empty">
-                <h3>Waiting for your first message</h3>
-                <p>
+              <div className="px-5 pt-10 pb-7 text-center text-muted-foreground">
+                <h3 className="m-0 mb-1.5 text-base font-semibold text-foreground">Waiting for your first message</h3>
+                <p className="mx-auto mb-0 max-w-[46ch] text-sm leading-[1.6]">
                   The workspace is prepared and a worker has claimed this run. Nothing has been sent to the model yet
                   — your first message is the task.
                 </p>
               </div>
             )}
             {snapshot.churnPoint && (
-              <div className="notice churn-banner">
+              <div className="mb-4 rounded-[calc(var(--radius)-2px)] border border-border border-l-[3px] border-l-[var(--status-gaveup)] bg-[var(--status-gaveup-bg)] px-3 py-2 text-sm text-foreground">
                 <b>
                   Cache churn at sub-turn {snapshot.churnPoint.subTurn}: {snapshot.churnPoint.excessTokens.toLocaleString("en-US")} tokens
                   re-sent above the expected miss.
                 </b>{" "}
-                The prefix moved — see docs/CACHE.md. <a href={`#sub-turn-${snapshot.churnPoint.subTurn}`}>Jump to it →</a>
+                The prefix moved — see docs/CACHE.md.{" "}
+                <a className="font-semibold text-[var(--status-gaveup)]" href={`#sub-turn-${snapshot.churnPoint.subTurn}`}>
+                  Jump to it →
+                </a>
               </div>
             )}
             <SessionIdContext.Provider value={sessionId}>
@@ -414,14 +429,19 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
               />
             </SessionIdContext.Provider>
             {failed.map((f) => (
-              <div className="msg msg-user msg-user-failed" key={f.id}>
-                <div className="body">{f.text}</div>
-                <div className="state state-failed">
+              <div className={cn(MSG_CLS, MSG_USER_CLS, "border-l-[var(--status-failed)]")} key={f.id}>
+                <div className={MSG_BODY_CLS}>{f.text}</div>
+                <div className={cn(MSG_STATE_CLS, "text-[var(--status-failed)]")}>
                   not sent — {f.error}
-                  <Button variant="ghost" size="sm" className="retry" onClick={() => void retryFailed(f.id, f.text)}>
+                  <Button variant="ghost" size="sm" className="h-[22px] px-2 text-xs" onClick={() => void retryFailed(f.id, f.text)}>
                     Retry
                   </Button>
-                  <button type="button" className="dismiss" onClick={() => dismissFailed(f.id)} aria-label="Dismiss">
+                  <button
+                    type="button"
+                    className="ml-auto cursor-pointer rounded-[3px] border-0 bg-transparent px-1 py-0.5 text-xs leading-none text-muted-foreground hover:bg-accent hover:text-foreground max-phone:inline-flex max-phone:min-h-11 max-phone:min-w-11 max-phone:items-center max-phone:justify-center"
+                    onClick={() => dismissFailed(f.id)}
+                    aria-label="Dismiss"
+                  >
                     ✕
                   </button>
                 </div>
@@ -432,9 +452,13 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
               no tail left to jump to, and the pill offered to follow a run
               that had already ended. Same guard the watch page carries. */}
           {running && !following && (
-            <div className="jumpwrap">
-              <button type="button" className="jump" onClick={jumpToTail}>
-                <ArrowDown aria-hidden />
+            <div className="pointer-events-none sticky bottom-2.5 flex h-0 items-end justify-center">
+              <button
+                type="button"
+                className="pointer-events-auto inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-full border border-border bg-card px-3 text-xs text-foreground [box-shadow:var(--shadow-float)] max-phone:h-11 max-phone:px-4"
+                onClick={jumpToTail}
+              >
+                <ArrowDown className="h-[13px] w-[13px] flex-none" aria-hidden />
                 Jump to live
               </button>
             </div>
