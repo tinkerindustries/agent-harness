@@ -217,7 +217,7 @@ export function OperationsScreen() {
   useNavRight(
     <Button variant="outline" size="sm" onClick={refresh} disabled={busy || data === null} title="Refresh">
       <ArrowsClockwise />
-      <span className="nav-label">Refresh</span>
+      <span className="max-nav:sr-only">Refresh</span>
     </Button>,
   );
 

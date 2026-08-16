@@ -321,7 +321,7 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
               title={stopping ? "Stopping…" : "Stop"}
             >
               <StopCircle />
-              <span className="nav-label">{stopping ? "Stopping…" : "Stop"}</span>
+              <span className="max-nav:sr-only">{stopping ? "Stopping…" : "Stop"}</span>
             </Button>
           )}
         </>

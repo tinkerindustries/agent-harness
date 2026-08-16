@@ -55,12 +55,12 @@ export function EvalListScreen({ onOpen }: { onOpen: (id: string) => void }) {
             ) : (
               <Button size="sm" onClick={() => setStartOpen((open) => !open)} title="Start an eval">
                 <Play />
-                <span className="nav-label">Start an eval</span>
+                <span className="max-nav:sr-only">Start an eval</span>
               </Button>
             ))}
           <Badge variant={connected ? "running" : "outline"} title={connected ? "LIVE" : "OFFLINE"}>
             <Broadcast weight="bold" size={12} className={cn(connected && "dot-pulse")} />
-            <span className="nav-label">{connected ? "LIVE" : "OFFLINE"}</span>
+            <span className="max-nav:sr-only">{connected ? "LIVE" : "OFFLINE"}</span>
           </Badge>
         </>
       ),

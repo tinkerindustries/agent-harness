@@ -566,27 +566,6 @@ html {
   white-space: nowrap;
 }
 
-.wordmark {
-  font-family: var(--font-mono);
-  font-weight: 600;
-  font-size: 0.875rem;
-  letter-spacing: -0.01em;
-}
-
-.topnav {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 10px calc(var(--space) * 2);
-  border-bottom: 1px solid var(--border);
-  margin: calc(var(--space) * 2) auto 20px;
-  max-width: 960px;
-}
-
-.topnav-wide {
-  max-width: 1200px;
-}
-
 .topnav-flush {
   max-width: none;
   margin-left: 0;
@@ -598,80 +577,6 @@ body.page .topnav-flush {
   padding-right: 16px;
 }
 
-.topnav .wordmark {
-  margin-right: 10px;
-  white-space: nowrap;
-}
-
-.topnav-links {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.navlink {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px;
-  border-radius: calc(var(--radius) - 2px);
-  color: var(--muted-foreground);
-  font-size: 0.8125rem;
-  font-weight: 500;
-  text-decoration: none;
-}
-
-.navlink svg {
-  display: none;
-  width: 14px;
-  height: 14px;
-  flex: none;
-}
-
-.navlink:hover {
-  background: var(--accent);
-  color: var(--foreground);
-}
-
-.navlink-active {
-  background: var(--secondary);
-  color: var(--foreground);
-}
-
-.navback {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px 0 6px;
-  border-radius: calc(var(--radius) - 2px);
-  color: var(--muted-foreground);
-  font-size: 0.8125rem;
-  font-weight: 500;
-  text-decoration: none;
-}
-
-.navback:hover {
-  background: var(--accent);
-  color: var(--foreground);
-}
-
-.navback svg {
-  width: 14px;
-  height: 14px;
-}
-
-.topnav .spacer {
-  flex: 1;
-}
-
-.topnav-right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .topnav-right [data-slot="input-wrapper"] {
   flex: 1 1 140px;
   min-width: 0;
@@ -681,29 +586,6 @@ body.page .topnav-flush {
   width: 100%;
   max-width: 220px;
   font-size: 0.8125rem;
-}
-
-.nav-crumb {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted-foreground);
-  font-size: 0.8125rem;
-  min-width: 0;
-}
-
-.nav-crumb .sep {
-  color: var(--border);
-  flex: none;
-}
-
-.nav-crumb .current {
-  color: var(--foreground);
-  font-family: var(--font-mono);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
 }
 
 .dot {
@@ -3900,46 +3782,8 @@ kbd {
 }
 @media (max-width: 720px) {
 
-  .navlink-label,
-  .nav-label {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border-width: 0;
-  }
-  .navlink,
-  .navback {
-    padding: 0 8px;
-  }
-  .navlink svg {
-    display: inline;
-  }
-  .topnav-links {
-    gap: 0;
-  }
-
-  .topnav-right {
-    flex: 0 1 auto;
-    min-width: 0;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-  .topnav-right::-webkit-scrollbar {
-    display: none;
-  }
   .topnav-right .statusline {
     flex-wrap: nowrap;
-  }
-
-  .nav-crumb {
-    flex: 1 1 0%;
-    min-width: 0;
   }
 
   .stats {
@@ -3971,18 +3815,10 @@ kbd {
     padding: calc(var(--space) * 2) 12px;
   }
 
-  .topnav {
-    padding-left: 12px;
-    padding-right: 12px;
-  }
-
   .app .topnav-flush,
   body.page .topnav-flush {
     padding-left: 12px;
     padding-right: 12px;
-  }
-  .topnav-flush .wordmark {
-    display: none;
   }
 
   .topnav .nav-search {
@@ -4296,19 +4132,6 @@ kbd {
 
 @media (max-width: 560px) {
 
-  .topnav {
-    padding-top: 4px;
-    padding-bottom: 4px;
-  }
-  .topnav .wordmark {
-    font-size: 0.75rem;
-    margin-right: 6px;
-  }
-  .navlink,
-  .navback {
-    height: 44px;
-    padding: 0 6px;
-  }
   .topnav .nav-search {
     height: 44px;
   }
@@ -4456,22 +4279,10 @@ kbd {
 }
 
 @media (max-width: 360px) {
-  .topnav {
-    padding-left: 8px;
-    padding-right: 8px;
-  }
   .app .topnav-flush,
   body.page .topnav-flush {
     padding-left: 8px;
     padding-right: 8px;
-  }
-  .topnav .wordmark {
-    font-size: 0.6875rem;
-    margin-right: 4px;
-  }
-  .navlink,
-  .navback {
-    padding: 0 3px;
   }
 }
 

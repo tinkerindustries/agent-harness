@@ -309,7 +309,7 @@ export function SessionListScreen({ onOpen }: Props) {
           title={startOpen ? "Close" : "Start run"}
         >
           {startOpen ? <X /> : <Play />}
-          <span className="nav-label">{startOpen ? "Close" : "Start run"}</span>
+          <span className="max-nav:sr-only">{startOpen ? "Close" : "Start run"}</span>
         </Button>
       )}
       <Input
@@ -344,7 +344,7 @@ export function SessionListScreen({ onOpen }: Props) {
           size={12}
           className={cn(snapshot.connection === "open" && "dot-pulse")}
         />
-        <span className="nav-label">{snapshot.connection === "open" ? "LIVE" : "connecting"}</span>
+        <span className="max-nav:sr-only">{snapshot.connection === "open" ? "LIVE" : "connecting"}</span>
       </Badge>
     </>,
   );

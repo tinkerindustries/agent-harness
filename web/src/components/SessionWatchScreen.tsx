@@ -247,7 +247,7 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
               title={stopping ? "Stopping…" : "Stop"}
             >
               <StopCircle />
-              <span className="nav-label">{stopping ? "Stopping…" : "Stop"}</span>
+              <span className="max-nav:sr-only">{stopping ? "Stopping…" : "Stop"}</span>
             </Button>
           )}
         </>

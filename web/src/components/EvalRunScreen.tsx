@@ -36,7 +36,7 @@ export function EvalRunScreen({ id, onOpenSession }: { id: string; onOpenSession
       () => (
         <Badge variant={connected ? "running" : "outline"} title={connected ? "LIVE" : "OFFLINE"}>
           <Broadcast weight="bold" size={12} className={cn(connected && "dot-pulse")} />
-          <span className="nav-label">{connected ? "LIVE" : "OFFLINE"}</span>
+          <span className="max-nav:sr-only">{connected ? "LIVE" : "OFFLINE"}</span>
         </Badge>
       ),
       [connected],
