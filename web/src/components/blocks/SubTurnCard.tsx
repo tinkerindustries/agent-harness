@@ -10,6 +10,7 @@ import { ReasoningPanel, formatElapsed } from "./ReasoningPanel";
 import { ToolResultBody } from "./ToolResultBlock";
 import { childStat, exitCode, formatCost, toolHeader } from "./toolArgs";
 import { deniedBody } from "../turns/turnHelpers";
+import { cn } from "@/lib/utils";
 
 // SubTurnCard renders one sub-turn as a single card, always full:
 // reasoning, assistant text, tool calls and their results in one body,
@@ -43,19 +44,21 @@ export const SubTurnCard = memo(function SubTurnCard({
       // .anim-stream-in rides the memoised card, which renders exactly once
       // when its group freezes — never the live buffer, where the tail would
       // re-animate on every rAF flush (docs/DESIGN.md §5.3, web/CLAUDE.md).
-      className="subturn gap-0 py-0 shadow-none overflow-hidden rounded-lg anim-stream-in"
+      className="scroll-mt-[var(--nav-height)] gap-0 overflow-hidden rounded-lg py-0 shadow-none anim-stream-in"
     >
-      <div className="subturn-header">
-        <span className="caret" aria-hidden>
+      <div className="flex w-full items-center gap-2 border-0 border-b border-border bg-transparent px-3 py-2 text-left font-[inherit] text-inherit hover:bg-accent">
+        <span className="flex-none text-muted-foreground" aria-hidden>
           ▸
         </span>
-        <span className="subturn-n">SUB-TURN {group.subTurn}</span>
-        <span className="subturn-sum">{turnSummary(group)}</span>
+        <span className="flex-none font-mono text-xs font-bold tracking-[0.04em]">SUB-TURN {group.subTurn}</span>
+        <span className="min-w-0 flex-1 overflow-hidden text-sm text-ellipsis whitespace-nowrap text-muted-foreground">
+          {turnSummary(group)}
+        </span>
         {group.usage && (
           <UsageHeader usage={group.usage} elapsedMs={assistant.type === "assistant" ? assistant.reasoningElapsedMs : undefined} />
         )}
       </div>
-      <div className="subturn-body">
+      <div className="flex flex-col gap-2 px-3 pt-2.5 pb-3">
         <SubTurnBody group={group} getToolCall={getToolCall} />
       </div>
     </Card>
@@ -80,7 +83,7 @@ function turnSummary(group: SubTurnGroup): string {
 function UsageHeader({ usage, elapsedMs }: { usage: UsageBlock; elapsedMs?: number }) {
   const hit = usage.prompt_cache_hit_tokens + usage.prompt_cache_miss_tokens;
   return (
-    <span className="subturn-cost">
+    <span className="ml-auto flex flex-none items-center gap-3 text-xs whitespace-nowrap text-muted-foreground tabular-nums">
       {hit > 0 && (
         <span title={`prompt ${usage.prompt_tokens} · hit ${usage.prompt_cache_hit_tokens} · miss ${usage.prompt_cache_miss_tokens}`}>
           {((usage.prompt_cache_hit_tokens / hit) * 100).toFixed(1)}% hit
@@ -183,11 +186,25 @@ function ToolCallCard({
     ) : null;
 
   return (
-    <div className={`tool-card${isError ? " tool-card-error" : ""}`}>
-      <div className="tool-header">
-        <span className="tool-name">{header.name}</span>
-        {header.target && <span className="tool-target">{header.target}</span>}
-        <span className="tool-stat">
+    <div
+      className={cn(
+        "overflow-hidden rounded-md border border-border",
+        isError && "border-[color-mix(in_srgb,var(--status-failed)_45%,var(--border))]",
+      )}
+    >
+      <div
+        className={cn(
+          "flex items-center gap-2 bg-[color-mix(in_srgb,var(--muted)_45%,transparent)] px-2.5 py-1.5 text-sm",
+          isError && "bg-[var(--status-failed-bg)]",
+        )}
+      >
+        <span className="flex-none rounded bg-secondary px-1.5 py-px font-mono text-xs font-bold">{header.name}</span>
+        {header.target && (
+          <span className="min-w-0 flex-1 overflow-hidden font-mono text-xs text-ellipsis whitespace-nowrap text-muted-foreground">
+            {header.target}
+          </span>
+        )}
+        <span className="ml-auto flex flex-none items-center gap-2.5 text-xs text-muted-foreground tabular-nums">
           {header.stat && <span>{header.stat}</span>}
           {childStatNode}
           {isError && <Badge variant="failed">{exitCode(result.name, result.content) || "failed"}</Badge>}
@@ -211,7 +228,7 @@ function ToolCallCard({
 function DeniedBody({ rule, content }: { rule: string; content: string }) {
   const body = deniedBody(rule, content);
   return (
-    <div className="tool-body">
+    <div className="flex flex-col gap-2 border-t border-border px-2.5 py-2">
       {body.rule !== null && (
         <p className="block-text">
           rule: <code>{body.rule}</code>
