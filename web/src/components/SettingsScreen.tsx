@@ -85,9 +85,9 @@ function displayValue(entry: SettingEntry): string {
 // valueClass carries the state by weight: a stored value at full weight,
 // a missing credential in the gave-up colour, and a value that is only
 // the registry default muted.
-function valueClass(entry: SettingEntry): string | null {
-  if (entry.secret && !entry.set) return "settings-val-unset";
-  return entry.set ? "settings-val-set" : null;
+function valueClass(entry: SettingEntry): string | undefined {
+  if (entry.secret && !entry.set) return "text-[var(--status-gaveup)]";
+  return entry.set ? "font-semibold text-foreground" : undefined;
 }
 
 // typeLabel names the registry type the way the mock's facts row does,
@@ -176,11 +176,18 @@ function SettingRow({
   const current = entry.set ? (entry.value ?? "") : entry.default;
 
   return (
-    <Collapsible className="settings-row" open={open} onOpenChange={onOpenChange}>
+    <Collapsible
+      className="bg-card [&+&]:border-t [&+&]:border-border"
+      open={open}
+      onOpenChange={onOpenChange}
+    >
       <CollapsibleTrigger asChild>
         <button
           type="button"
-          className={cn("settings-summary", open && "settings-summary-open")}
+          className={cn(
+            "grid w-full cursor-pointer grid-cols-[10px_minmax(150px,250px)_minmax(80px,160px)_minmax(0,1fr)_auto] items-center gap-2.5 border-0 bg-transparent px-3 py-2 text-left font-[inherit] text-inherit hover:bg-[var(--surface-hover)] max-tablet:grid-cols-[10px_minmax(0,1fr)_auto]",
+            open && "bg-[color-mix(in_srgb,var(--accent)_40%,transparent)]",
+          )}
         >
           <CaretRight
             className={cn(
@@ -188,13 +195,17 @@ function SettingRow({
               open && "rotate-90",
             )}
           />
-          <span className="settings-key">{entry.key}</span>
-          <span className={cn("settings-val", valueClass(entry))}>{displayValue(entry)}</span>
+          <span className="font-mono text-sm">{entry.key}</span>
+          <span className={cn("truncate text-right font-mono text-sm text-muted-foreground tabular-nums max-tablet:col-start-2 max-tablet:text-left", valueClass(entry))}>
+            {displayValue(entry)}
+          </span>
           {/* The truncated description stays in the closed header line only;
               the expanded body repeats it in full below, so an open row must
               not show it twice. */}
-          {!open && <span className="settings-desc truncate">{entry.description}</span>}
-          <span className="settings-flags">
+          {!open && (
+            <span className="min-w-0 truncate text-sm text-muted-foreground max-tablet:hidden">{entry.description}</span>
+          )}
+          <span className="flex justify-end gap-1.5">
             {badge && <Badge variant={badge.variant}>{badge.label}</Badge>}
           </span>
         </button>
@@ -204,48 +215,57 @@ function SettingRow({
             open and never on load — the same "it just arrived" gesture the
             transcript's committed prose gets. Height is not animated: the row
             below moves once, when the content appears. */}
-        <div className="settings-body anim-stream-in">
-          <p className="settings-desc-full">{entry.description}</p>
+        <div className="anim-stream-in grid max-w-[92ch] gap-2.5 pt-0.5 pr-3 pb-3.5 pl-8">
+          <p className="m-0 max-w-[78ch] text-sm">{entry.description}</p>
           {notice && (
-            <div className="notice">
+            <div className="rounded-[calc(var(--radius)-2px)] border border-border border-l-[3px] border-l-[var(--status-gaveup)] bg-[var(--status-gaveup-bg)] px-3 py-2 text-sm text-foreground">
               <b>{notice.lead}</b>
               {notice.rest}
             </div>
           )}
           <div className="facts">
             <span>
-              <span className="k">Type</span> {typeLabel(entry)}
+              <span className="mr-[5px] text-micro tracking-[0.06em] uppercase">Type</span> {typeLabel(entry)}
             </span>
             {entry.set && (
               <span>
-                <span className="k">Stored</span>{" "}
-                <code>{entry.secret ? secretMask(entry.value ?? "") : entry.value}</code>
+                <span className="mr-[5px] text-micro tracking-[0.06em] uppercase">Stored</span>{" "}
+                <code className="rounded bg-muted px-[5px] py-px text-foreground">
+                  {entry.secret ? secretMask(entry.value ?? "") : entry.value}
+                </code>
               </span>
             )}
             {(!entry.secret || !entry.set) && (
               <span>
-                <span className="k">Default</span>{" "}
-                <code>{entry.default === "" ? "none" : entry.default}</code>
+                <span className="mr-[5px] text-micro tracking-[0.06em] uppercase">Default</span>{" "}
+                <code className="rounded bg-muted px-[5px] py-px text-foreground">
+                  {entry.default === "" ? "none" : entry.default}
+                </code>
               </span>
             )}
             {entry.min !== undefined && entry.max !== undefined && (
               <span>
-                <span className="k">Range</span> <code>{entry.min}</code> – <code>{entry.max}</code>
+                <span className="mr-[5px] text-micro tracking-[0.06em] uppercase">Range</span>{" "}
+                <code className="rounded bg-muted px-[5px] py-px text-foreground">{entry.min}</code> –{" "}
+                <code className="rounded bg-muted px-[5px] py-px text-foreground">{entry.max}</code>
               </span>
             )}
             {entry.allowed && entry.allowed.length > 0 && (
               <span>
-                <span className="k">Allowed</span>{" "}
+                <span className="mr-[5px] text-micro tracking-[0.06em] uppercase">Allowed</span>{" "}
                 {entry.allowed.map((v) => (
-                  <code key={v}>{v}</code>
+                  <code key={v} className="rounded bg-muted px-[5px] py-px text-foreground">
+                    {v}
+                  </code>
                 ))}
               </span>
             )}
             <span>
-              <span className="k">Takes effect</span> {entry.restart ? "next start" : "next run"}
+              <span className="mr-[5px] text-micro tracking-[0.06em] uppercase">Takes effect</span>{" "}
+              {entry.restart ? "next start" : "next run"}
             </span>
           </div>
-          <div className="write">
+          <div className="flex flex-wrap items-center gap-2">
             {entry.allowed && entry.allowed.length > 0 ? (
               <>
                 <ToggleGroup
@@ -271,7 +291,7 @@ function SettingRow({
             ) : (
               <>
                 <Input
-                  className="settings-input"
+                  className="min-w-[300px] flex-[0_1_320px] font-mono max-phone:min-w-0 max-phone:basis-full"
                   type={inputType(entry)}
                   placeholder={placeholder}
                   value={row.draft}
@@ -483,39 +503,44 @@ export function SettingsScreen() {
   return (
     <div className="screen">
       {loadError && (
-        <div className="settings-error settings-error-banner">
+        <div className="rounded-[calc(var(--radius)-4px)] border border-[var(--status-failed)] p-2 mb-2 text-[0.85rem] text-[var(--status-failed)]">
           could not load settings: {loadError}
         </div>
       )}
       {entries === null && !loadError && <p className="dim">Loading settings…</p>}
       {entries !== null && counts && (
         <>
-          <div className="settings-strip">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-[calc(var(--radius)-2px)] border border-border px-3 py-[7px] text-sm text-muted-foreground">
             <span>
-              <b>{counts.total}</b> setting{counts.total === 1 ? "" : "s"}
+              <b className="font-semibold text-foreground tabular-nums">{counts.total}</b> setting{counts.total === 1 ? "" : "s"}
             </span>
-            <span className="sep">·</span>
+            <span className="text-border">·</span>
             <span>
-              <b>{counts.overridden}</b> overridden
+              <b className="font-semibold text-foreground tabular-nums">{counts.overridden}</b> overridden
             </span>
-            <span className="sep">·</span>
+            <span className="text-border">·</span>
             <span>
-              <b>{counts.restart}</b> take{counts.restart === 1 ? "s" : ""} effect on the next start
+              <b className="font-semibold text-foreground tabular-nums">{counts.restart}</b> take
+              {counts.restart === 1 ? "s" : ""} effect on the next start
             </span>
-            <span className="sep">·</span>
+            <span className="text-border">·</span>
             {/* A zero count is good news: it renders neutral like the counts
                 beside it, and only a non-zero count carries the amber. */}
-            <span className={counts.notSet > 0 ? "settings-summary-warn" : undefined}>
-              <b>{counts.notSet}</b> credential{counts.notSet === 1 ? "" : "s"} not set
+            <span className={counts.notSet > 0 ? "text-[var(--status-gaveup)]" : undefined}>
+              <b className="font-semibold text-foreground tabular-nums">{counts.notSet}</b> credential
+              {counts.notSet === 1 ? "" : "s"} not set
             </span>
-            <span className="spacer" />
+            <span className="flex-1" />
             <span>rows without a badge are at their default</span>
           </div>
 
-          <div className="settings-filters">
+          <div className="mt-3 mb-2 flex flex-wrap items-center gap-2">
             <button
               type="button"
-              className={cn("chip", filter === "all" && "chip-active")}
+              className={cn(
+                "inline-flex h-[26px] items-center gap-[5px] rounded-full border border-border bg-background px-[9px] text-xs text-muted-foreground hover:bg-muted",
+                filter === "all" && "border-ring bg-secondary text-foreground",
+              )}
               aria-pressed={filter === "all"}
               onClick={() => setFilter("all")}
             >
@@ -523,7 +548,10 @@ export function SettingsScreen() {
             </button>
             <button
               type="button"
-              className={cn("chip", filter === "override" && "chip-active")}
+              className={cn(
+                "inline-flex h-[26px] items-center gap-[5px] rounded-full border border-border bg-background px-[9px] text-xs text-muted-foreground hover:bg-muted",
+                filter === "override" && "border-ring bg-secondary text-foreground",
+              )}
               aria-pressed={filter === "override"}
               onClick={() => setFilter("override")}
             >
@@ -531,34 +559,37 @@ export function SettingsScreen() {
             </button>
             <button
               type="button"
-              className={cn("chip", filter === "attention" && "chip-active")}
+              className={cn(
+                "inline-flex h-[26px] items-center gap-[5px] rounded-full border border-border bg-background px-[9px] text-xs text-muted-foreground hover:bg-muted",
+                filter === "attention" && "border-ring bg-secondary text-foreground",
+              )}
               aria-pressed={filter === "attention"}
               onClick={() => setFilter("attention")}
             >
               Needs attention {counts.notSet}
             </button>
-            <span className="spacer" />
+            <span className="flex-1" />
             <Button variant="outline" size="sm" onClick={toggleAll}>
               {allOpen ? "Collapse all" : "Expand all"}
             </Button>
           </div>
 
           {groupBy(visibleEntries).map(([group, groupEntries]) => (
-            <section className="settings-group" key={group}>
-              <div className="settings-group-head">
-                <h2>{group}</h2>
-                <span className="settings-group-count">
+            <section className="mt-5" key={group}>
+              <div className="mb-2 flex flex-wrap items-baseline gap-2.5">
+                <h2 className="m-0 text-sm font-semibold tracking-[0.06em] text-muted-foreground uppercase">{group}</h2>
+                <span className="text-xs text-muted-foreground tabular-nums">
                   {groupEntries.length} setting{groupEntries.length === 1 ? "" : "s"}
                 </span>
                 {groupEntries.some((e) => e.restart) && (
                   <>
-                    <span className="spacer" />
+                    <span className="flex-1" />
                     <Badge variant="restart">takes effect on the next start</Badge>
                   </>
                 )}
               </div>
               {groupEntries.some((e) => e.restart) && (
-                <div className="notice notice-quiet">
+                <div className="rounded-[calc(var(--radius)-2px)] border border-border border-l-[3px] border-l-muted-foreground bg-[color-mix(in_srgb,var(--muted)_50%,transparent)] px-3 py-2 text-sm text-muted-foreground">
                   These are read once at startup or baked into a queue
                   definition. A write here is accepted and stored immediately
                   and changes nothing until the process restarts — which is
@@ -566,7 +597,7 @@ export function SettingsScreen() {
                   group says so rather than each row repeating it.
                 </div>
               )}
-              <div className="settings-group-card">
+              <div className="overflow-hidden rounded-lg border border-border bg-card">
                 {groupEntries.map((entry) => (
                   <SettingRow
                     key={entry.key}
