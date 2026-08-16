@@ -595,97 +595,23 @@ pre {
   font-family: var(--font-mono);
 }
 
-.block-opening,
-.block-skills {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  background: none;
-  border: 0;
-  border-radius: calc(var(--radius) - 4px);
-  padding: 4px 6px;
-}
-
-.block-opening:hover,
-.block-skills:hover {
-  background: var(--muted);
-}
-
+/* .block-opening survives as a bare selector only for its own margin-bottom:
+   OpeningBlock.tsx's own comment covers why (a spacing regime that depends
+   on which of two parents renders it, .turn-list vs .transcript) — every
+   other property .block-opening/.block-skills/.skills-summary/
+   .opening-summary(-text) set is now a direct Tailwind utility on the
+   elements that carry them. */
 .block-opening {
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 12px;
   margin-bottom: 8px;
 }
 
-.block-opening .block-label,
-.block-skills .block-label {
-  flex: none;
-  width: 3rem;
-  margin-bottom: 0;
-  font-size: 0.625rem;
-  letter-spacing: var(--label-tracking);
-}
-
-.block-opening > [data-slot="collapsible"],
-.block-skills > details {
-  min-width: 0;
-  flex: 1;
-}
-
-.skills-summary {
-  cursor: pointer;
-  font-size: 0.8125rem;
-  color: var(--muted-foreground);
-  list-style: none;
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-
+/* Safari's <details> marker needs the ::-webkit pseudo-element (no
+   className equivalent exists), the same pattern as .think/.tool/.phase/
+   .result-json's own disclosures (turns/Turn.tsx, WatchRail.tsx,
+   ResultPanel.tsx) — "skills-summary" survives on the <summary> only to
+   scope this. */
 .skills-summary::-webkit-details-marker {
   display: none;
-}
-
-.skills-summary::before {
-  content: "▸";
-  color: var(--muted-foreground);
-  font-size: 0.75rem;
-  transition: transform var(--dur-caret) var(--ease);
-}
-
-.block-skills details[open] .skills-summary::before {
-  transform: rotate(90deg);
-}
-
-.skills-summary:hover {
-  color: var(--foreground);
-}
-
-.opening-summary {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 2px 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.opening-summary:hover {
-  color: var(--foreground);
-}
-
-.opening-summary-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--muted-foreground);
-  font-size: 0.8125rem;
 }
 
 .screenshot-gallery {
