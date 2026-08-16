@@ -609,30 +609,6 @@ pre {
   font-family: var(--font-mono);
 }
 
-.session-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-
-.session-table th {
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-  padding: 6px 8px;
-  color: var(--muted-foreground);
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.session-table td {
-  border-bottom: 1px solid var(--border);
-  padding: 6px 8px;
-  vertical-align: top;
-
-  white-space: nowrap;
-}
-
-
 .workspace-cell {
   max-width: 320px;
   overflow: hidden;
@@ -3664,12 +3640,6 @@ kbd {
   overflow-x: auto;
 }
 
-.eval-comparison .eval-metric {
-  text-align: left;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
 .eval-mean {
   display: block;
 }
@@ -3710,15 +3680,6 @@ kbd {
   color: var(--destructive);
 }
 
-.eval-task {
-  font-weight: 500;
-}
-
-.eval-error-row td {
-  color: var(--destructive);
-  font-size: 0.85em;
-  padding-top: 0;
-}
 
 .eval-session-link {
   background: none;
@@ -3966,9 +3927,6 @@ kbd {
     display: none;
   }
 
-  .eval-run .eval-comparison .eval-metric {
-    min-width: 11em;
-  }
 
   .say {
     font-size: 1rem;

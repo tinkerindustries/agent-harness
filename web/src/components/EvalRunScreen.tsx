@@ -12,8 +12,11 @@ import {
 import { openEvalRunStream } from "../api/evalStreams";
 import { Broadcast } from "@phosphor-icons/react";
 import { Badge } from "./ui/badge";
+import { RTTh } from "./ui/ResponsiveTable";
 import { cn } from "@/lib/utils";
 import { useNavRight } from "./TopNav";
+
+const tableCell = "border-b border-border px-2 py-1.5 align-top whitespace-nowrap";
 
 // One eval run (docs/EVALS.md): the header, the comparison, and the runs it
 // is built from. The comparison is the point of the screen and leads; the
@@ -91,14 +94,14 @@ export function EvalRunScreen({ id, onOpenSession }: { id: string; onOpenSession
       <section className="eval-section">
         <h2>Comparison</h2>
         <div className="eval-table-scroll">
-          <table className="session-table eval-comparison">
+          <table className="w-full border-collapse text-[0.9rem]">
             <thead>
               <tr>
-                <th>Metric</th>
+                <RTTh>Metric</RTTh>
                 {detail.variants.map((v) => (
-                  <th key={v}>{v}</th>
+                  <RTTh key={v}>{v}</RTTh>
                 ))}
-                <th>Delta</th>
+                <RTTh>Delta</RTTh>
               </tr>
             </thead>
             <tbody>
@@ -125,17 +128,17 @@ export function EvalRunScreen({ id, onOpenSession }: { id: string; onOpenSession
       <section className="eval-section">
         <h2>Runs</h2>
         <div className="eval-table-scroll">
-          <table className="session-table">
+          <table className="w-full border-collapse text-[0.9rem]">
             <thead>
               <tr>
-                <th>Task</th>
-                <th>Variant</th>
-                <th>Rep</th>
-                <th>Status</th>
-                <th>Sub-turns</th>
-                <th>Cost</th>
-                <th>Judge</th>
-                <th>Session</th>
+                <RTTh>Task</RTTh>
+                <RTTh>Variant</RTTh>
+                <RTTh>Rep</RTTh>
+                <RTTh>Status</RTTh>
+                <RTTh>Sub-turns</RTTh>
+                <RTTh>Cost</RTTh>
+                <RTTh>Judge</RTTh>
+                <RTTh>Session</RTTh>
               </tr>
             </thead>
             <tbody>
@@ -160,12 +163,15 @@ export function EvalRunScreen({ id, onOpenSession }: { id: string; onOpenSession
 function ComparisonTableRow({ row }: { row: ComparisonRow }) {
   return (
     <tr>
-      <th scope="row" className="eval-metric">
+      <th
+        scope="row"
+        className={cn(tableCell, "text-left font-medium whitespace-nowrap text-muted-foreground max-phone:min-w-[11em]")}
+      >
         {metricLabel(row.metric)}
       </th>
       {row.cells.map((cell, i) =>
         cell ? (
-          <td key={i}>
+          <td key={i} className={tableCell}>
             <span className="eval-mean">{formatMetric(row.metric, cell.mean)}</span>
             <span className="eval-spread">
               {cell.stderr === null ? "no spread" : `±${formatMetric(row.metric, cell.stderr)}`} (n=
@@ -175,12 +181,12 @@ function ComparisonTableRow({ row }: { row: ComparisonRow }) {
         ) : (
           // Absent, never zero: a run that never searched has no share, and a
           // 0% would claim it searched badly.
-          <td key={i} className="eval-absent">
+          <td key={i} className={cn(tableCell, "eval-absent")}>
             —
           </td>
         ),
       )}
-      <td>
+      <td className={tableCell}>
         {row.delta ? (
           <span className={row.delta.significant ? "eval-delta is-significant" : "eval-delta"}>
             {formatDelta(row.metric, row.delta.diff)}
@@ -206,18 +212,22 @@ function MemberTableRow({
   return (
     <>
       <tr>
-        <td className="eval-task">{taskLabel}</td>
-        <td>{member.variant}</td>
-        <td>{member.replicate}</td>
-        <td>
+        <td className={cn(tableCell, "font-medium")}>{taskLabel}</td>
+        <td className={tableCell}>{member.variant}</td>
+        <td className={tableCell}>{member.replicate}</td>
+        <td className={tableCell}>
           <Badge variant={member.error ? "failed" : "outline"}>{member.status}</Badge>
         </td>
-        <td>{member.sub_turns || "—"}</td>
+        <td className={tableCell}>{member.sub_turns || "—"}</td>
         {/* A member that has not run cost nothing because it has not
             happened, which is not the same as having been free. */}
-        <td>{member.cost_usd > 0 ? `$${member.cost_usd.toFixed(4)}` : <span className="eval-absent">—</span>}</td>
-        <td>{member.verdict ? `${member.verdict.score}/5` : <span className="eval-absent">—</span>}</td>
-        <td>
+        <td className={tableCell}>
+          {member.cost_usd > 0 ? `$${member.cost_usd.toFixed(4)}` : <span className="eval-absent">—</span>}
+        </td>
+        <td className={tableCell}>
+          {member.verdict ? `${member.verdict.score}/5` : <span className="eval-absent">—</span>}
+        </td>
+        <td className={tableCell}>
           {member.session_id ? (
             <button className="eval-session-link" onClick={() => onOpenSession(member.session_id!)}>
               {member.session_id.slice(0, 16)}…
@@ -228,8 +238,10 @@ function MemberTableRow({
         </td>
       </tr>
       {member.error && (
-        <tr className="eval-error-row">
-          <td colSpan={8}>{member.error}</td>
+        <tr>
+          <td colSpan={8} className={cn(tableCell, "pt-0 text-[0.85em] text-destructive")}>
+            {member.error}
+          </td>
         </tr>
       )}
     </>
