@@ -24,10 +24,10 @@ export function ChatRail({
   return (
     // "rail" stays a literal class: .app .rail's overflow-y:auto reaches in
     // from a body-level class SessionScreen computes outside React. Every
-    // other rail/railsec/facts property below is now a direct Tailwind
+    // other rail/facts property below is now a direct Tailwind
     // utility, shared with WatchRail.tsx's identical chrome.
     <aside className="rail border-l border-border px-4 pt-4 pb-6">
-      <div className="railsec [&+&]:mt-5 [&+&]:border-t [&+&]:border-border [&+&]:pt-4">
+      <div className="[&+&]:mt-5 [&+&]:border-t [&+&]:border-border [&+&]:pt-4">
         <h3 className="m-0 mb-2.5 text-micro font-semibold tracking-[0.06em] text-muted-foreground uppercase">Plan</h3>
         {todos.length === 0 ? (
           <p className="m-0 text-xs text-muted-foreground">No plan — this run never wrote one.</p>
@@ -35,7 +35,7 @@ export function ChatRail({
           <PlanProgress todos={todos} />
         )}
       </div>
-      <div className="railsec [&+&]:mt-5 [&+&]:border-t [&+&]:border-border [&+&]:pt-4">
+      <div className="[&+&]:mt-5 [&+&]:border-t [&+&]:border-border [&+&]:pt-4">
         <h3 className="m-0 mb-2.5 text-micro font-semibold tracking-[0.06em] text-muted-foreground uppercase">Session</h3>
         <div className="[display:block] text-xs text-muted-foreground">
           <div className="flex justify-between gap-2.5 py-[3px]">

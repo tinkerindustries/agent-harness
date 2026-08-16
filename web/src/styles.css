@@ -773,6 +773,19 @@ pre {
   border-bottom: 1px solid var(--border);
 }
 
+/* SessionWatchScreen.tsx's/SessionChatScreen.tsx's own connection badge now
+   computes its colour from snapshot.connection directly; these two survive
+   only for web/src/perf/HeightHarness.tsx and RailHarness.tsx, out of
+   scope for this pass. */
+.connection-badge {
+  color: var(--muted-foreground);
+}
+
+.connection-open {
+  color: var(--status-done);
+  border-color: var(--status-done);
+}
+
 .transcript {
   flex: 1;
   min-width: 0;
@@ -928,6 +941,32 @@ pre {
 
 .churn-warning {
   color: var(--status-gaveup);
+}
+
+/* .notice/.churn-banner: every product-screen consumer (SettingsScreen's
+   unset-secret notice, SessionWatchScreen's/SessionChatScreen's churn
+   banner) converted to Tailwind utilities in this pass, but
+   web/src/perf/HeightHarness.tsx still renders the same
+   `className="notice churn-banner"` shape and is out of scope here — a
+   perf-measurement harness, not a screen. Kept as residual CSS rather
+   than converting a file this pass isn't touching. */
+.notice {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--status-gaveup);
+  background: var(--status-gaveup-bg);
+  color: var(--foreground);
+  border-radius: calc(var(--radius) - 2px);
+  padding: 8px 12px;
+  font-size: 0.8125rem;
+}
+
+.churn-banner {
+  margin-bottom: 16px;
+}
+
+.churn-banner a {
+  color: var(--status-gaveup);
+  font-weight: 600;
 }
 
 .rate-peak {

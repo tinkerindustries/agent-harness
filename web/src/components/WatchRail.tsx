@@ -53,10 +53,10 @@ export function WatchRail({
     // "rail" stays a literal class: .app .rail's overflow-y:auto reaches in
     // from a body-level class SessionScreen computes outside React
     // (TopNav's own residual .app/.page rules are the same pattern). Every
-    // other rail/railsec/rail-note/facts property below is now a direct
+    // other rail/rail-note/facts property below is now a direct
     // Tailwind utility, shared with ChatRail.tsx's identical chrome.
     <aside className="rail border-r border-border px-4 pt-4 pb-6" aria-label="Navigator">
-      <div className="railsec [&+&]:mt-5 [&+&]:border-t [&+&]:border-border [&+&]:pt-4">
+      <div className="[&+&]:mt-5 [&+&]:border-t [&+&]:border-border [&+&]:pt-4">
         <h3 className="m-0 mb-2.5 text-micro font-semibold tracking-[0.06em] text-muted-foreground uppercase">Plan</h3>
         {todos.length === 0 ? (
           // A run that never wrote a plan ("a run with no plan"): no
@@ -134,7 +134,7 @@ export function WatchRail({
         )}
       </div>
 
-      <div className="railsec [&+&]:mt-5 [&+&]:border-t [&+&]:border-border [&+&]:pt-4">
+      <div className="[&+&]:mt-5 [&+&]:border-t [&+&]:border-border [&+&]:pt-4">
         <h3 className="m-0 mb-2.5 text-micro font-semibold tracking-[0.06em] text-muted-foreground uppercase">Legend</h3>
         <div className="flex flex-wrap gap-x-2.5 gap-y-1 text-micro text-muted-foreground">
           <span className="inline-flex items-center gap-1">
@@ -158,7 +158,7 @@ export function WatchRail({
         </div>
       </div>
 
-      <div className="railsec [&+&]:mt-5 [&+&]:border-t [&+&]:border-border [&+&]:pt-4">
+      <div className="[&+&]:mt-5 [&+&]:border-t [&+&]:border-border [&+&]:pt-4">
         <h3 className="m-0 mb-2.5 text-micro font-semibold tracking-[0.06em] text-muted-foreground uppercase">Session</h3>
         <div className="[display:block] text-xs text-muted-foreground">
           <div className="flex justify-between gap-2.5 py-[3px]">
