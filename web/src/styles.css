@@ -953,10 +953,6 @@ pre {
   transform: rotate(90deg);
 }
 
-.turn {
-  scroll-margin-top: var(--nav-height);
-}
-
 .transcript-toolbar {
   display: flex;
   align-items: center;
@@ -2326,41 +2322,22 @@ body.page .topnav {
   background: var(--accent);
 }
 
-.turn {
-  margin: 0 0 24px;
-  position: relative;
-  padding-left: 40px;
+/* .think and .tool survive as bare selectors only to scope the two rules
+   below: Safari's <details> marker needs the ::-webkit pseudo-element (no
+   className equivalent exists), and everything else about both disclosures
+   is a Tailwind utility on the <details>/<summary> directly
+   (turns/Turn.tsx, turns/LiveTurn.tsx). */
+.think > summary::-webkit-details-marker {
+  display: none;
 }
-.turn > * + * {
-  margin-top: 8px;
-}
-
-.gutter {
-  position: absolute;
-  left: 0;
-  top: 1px;
-  width: 30px;
-  text-align: right;
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  color: var(--muted-foreground);
-  font-variant-numeric: tabular-nums;
-  text-decoration: none;
-}
-.turn:hover .gutter,
-.gutter:focus-visible {
-  color: var(--foreground);
-}
-.gutter .warn {
-  display: block;
-  color: var(--status-gaveup);
-  opacity: 1;
+.tool > summary::-webkit-details-marker {
+  display: none;
 }
 
-.say {
-  font-size: 0.9375rem;
-  line-height: 1.65;
-}
+/* .say's own font size/line height are Tailwind utilities on the wrapping
+   div now; these two rules survive because they style <p>/<code> tags
+   Markdown renders inside it (render/Markdown.tsx), which a className on
+   the wrapper can't reach. */
 .say p {
   margin: 0 0 10px;
 }
@@ -2371,128 +2348,6 @@ body.page .topnav {
   background: var(--muted);
   padding: 1px 4px;
   border-radius: 3px;
-}
-
-.think > summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  border-radius: 4px;
-  padding: 1px 4px;
-  margin-left: -4px;
-
-  list-style: none;
-  cursor: pointer;
-}
-.think > summary::-webkit-details-marker {
-  display: none;
-}
-.think > summary:hover {
-  color: var(--foreground);
-  background: var(--accent);
-}
-.think > summary:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 1px;
-}
-.think .thought {
-  margin-top: 6px;
-  padding-left: 13px;
-  border-left: 1px solid var(--border);
-  font-size: 0.8125rem;
-  line-height: 1.6;
-  color: var(--muted-foreground);
-  white-space: pre-wrap;
-}
-
-.tool {
-  border: 1px solid var(--border);
-  border-radius: calc(var(--radius) - 2px);
-  background: var(--card);
-}
-.tool + .tool {
-  margin-top: 4px;
-}
-.tool > summary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  font-size: 0.8125rem;
-  border-radius: calc(var(--radius) - 3px);
-
-  list-style: none;
-  cursor: pointer;
-}
-.tool > summary::-webkit-details-marker {
-  display: none;
-}
-.tool > summary:hover {
-  background: var(--accent);
-}
-.tool > summary:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: -2px;
-}
-.tool .glyph {
-  width: 13px;
-  text-align: center;
-  flex: none;
-  color: var(--muted-foreground);
-  font-size: 0.75rem;
-}
-.tool .name {
-  font-family: var(--font-mono);
-  font-weight: 600;
-  font-size: 0.75rem;
-  flex: none;
-}
-.tool .target {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-  min-width: 0;
-}
-.tool .timing {
-  font-size: 0.6875rem;
-  color: var(--muted-foreground);
-  flex: none;
-  font-variant-numeric: tabular-nums;
-}
-
-.tool-out {
-  border-top: 1px solid var(--border);
-  padding: 8px 10px;
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  line-height: 1.55;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  color: var(--muted-foreground);
-}
-.elided {
-  display: block;
-  width: 100%;
-  text-align: left;
-  border: 0;
-  border-top: 1px dashed var(--border);
-  border-bottom: 1px dashed var(--border);
-  background: var(--muted);
-  color: var(--muted-foreground);
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  padding: 5px 10px;
-  cursor: pointer;
-}
-.elided:hover {
-  color: var(--foreground);
 }
 
 .path-elide {
@@ -2532,100 +2387,6 @@ body.page .topnav {
   text-align: left;
 }
 
-.elided + .tool-out {
-  border-top: 0;
-}
-.tool-err {
-  border-color: var(--status-failed);
-}
-.tool-err > summary .glyph,
-.tool-err > summary .timing {
-  color: var(--status-failed);
-}
-.tool-ok .glyph {
-  color: var(--status-done);
-}
-
-.diffstat .add {
-  color: var(--diff-add-fg);
-}
-.diffstat .del {
-  color: var(--diff-remove-fg);
-}
-.tool-live {
-  border-color: var(--status-running);
-}
-.tool-live > summary .glyph {
-  color: var(--status-running);
-  display: flex;
-  justify-content: center;
-}
-.tool-live > summary .timing {
-  color: var(--status-running);
-}
-
-.toolset {
-  border-left: 1px solid var(--border);
-  padding-left: 11px;
-}
-.toolset .setlabel {
-  font-size: 0.6875rem;
-  color: var(--muted-foreground);
-  margin-bottom: 5px;
-}
-
-.turnmeta {
-  position: absolute;
-  right: 0;
-  top: 0;
-  display: flex;
-  gap: 10px;
-  font-size: 0.6875rem;
-  color: var(--muted-foreground);
-  font-variant-numeric: tabular-nums;
-  background: var(--background);
-  padding-left: 10px;
-  opacity: 0;
-  transition: opacity 0.1s ease;
-}
-.turn:hover .turnmeta,
-.turn:focus-within .turnmeta {
-  opacity: 1;
-}
-.turnmeta .warn {
-  color: var(--status-gaveup);
-}
-@media (prefers-reduced-motion: reduce) {
-  .turnmeta {
-    transition: none;
-  }
-}
-
-.live .say {
-  border-left: 2px solid var(--status-running);
-  padding-left: 13px;
-}
-
-.live .say pre {
-  margin: 0;
-  font: inherit;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.cursor {
-  display: inline-block;
-  width: 7px;
-  height: 14px;
-  background: var(--status-running);
-  vertical-align: -2px;
-  animation: pulse var(--cursor-period) steps(2, start) infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .cursor {
-    animation: none;
-  }
-}
-
 .turn-list {
   flex: 1;
   min-width: 0;
@@ -2639,10 +2400,6 @@ body.page .topnav {
 }
 .turn-list > .block-opening {
   margin: 0 -6px 16px;
-}
-
-.pending-live {
-  margin-bottom: 24px;
 }
 
 .jumpwrap {
@@ -3324,16 +3081,6 @@ kbd {
     padding-right: 14px;
   }
 
-  .turn {
-    padding-left: 0;
-  }
-  .gutter {
-    position: static;
-    display: block;
-    width: auto;
-    text-align: left;
-    margin-bottom: 2px;
-  }
   .msg {
     margin-left: 0;
   }
@@ -3668,28 +3415,12 @@ kbd {
     padding: 0 14px;
   }
 
-  .gutter {
-    min-height: 44px;
-    padding: 12px 0 8px;
-  }
   .opening-summary {
     min-height: 44px;
     padding: 6px 0;
   }
-  .think > summary {
-    min-height: 44px;
-    padding: 10px 8px;
-  }
-  .tool > summary {
-    min-height: 44px;
-    padding: 10px 12px;
-  }
   .subturn-header {
     min-height: 44px;
-  }
-  .elided {
-    min-height: 44px;
-    padding: 10px 12px;
   }
 
   .path-elide {
@@ -3758,13 +3489,6 @@ kbd {
   }
 
 
-  .say {
-    font-size: 1rem;
-    line-height: 1.7;
-  }
-  .tool-out {
-    font-size: 0.8125rem;
-  }
   .code-block {
     font-size: 0.875rem;
   }
