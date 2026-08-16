@@ -51,11 +51,11 @@ export function EvalRunScreen({ id, onOpenSession }: { id: string; onOpenSession
   if (!detail) {
     return connected ? (
       <div className="screen">
-        <p className="eval-empty">Loading…</p>
+        <p className="py-8 text-muted-foreground">Loading…</p>
       </div>
     ) : (
       <div className="screen">
-        <p className="eval-error">No eval run with id {id}. It may have been deleted.</p>
+        <p className="py-8 text-destructive">No eval run with id {id}. It may have been deleted.</p>
       </div>
     );
   }
@@ -70,11 +70,11 @@ export function EvalRunScreen({ id, onOpenSession }: { id: string; onOpenSession
   );
 
   return (
-    <div className="screen eval-run">
-      <header className="eval-header">
-        <h1>{detail.suite}</h1>
-        {detail.note && <p className="eval-note">{detail.note}</p>}
-        <dl className="eval-facts">
+    <div className="screen pt-8">
+      <header>
+        <h1 className="m-0 text-[1.4rem]">{detail.suite}</h1>
+        {detail.note && <p className="block text-[0.85em] text-muted-foreground">{detail.note}</p>}
+        <dl className="mt-8 flex flex-wrap gap-8">
           <Fact label="Comparing">{detail.variants.join(" against ")}</Fact>
           <Fact label="Replicates">{String(detail.replicates)}</Fact>
           <Fact label="Runs">
@@ -91,9 +91,9 @@ export function EvalRunScreen({ id, onOpenSession }: { id: string; onOpenSession
         </dl>
       </header>
 
-      <section className="eval-section">
-        <h2>Comparison</h2>
-        <div className="eval-table-scroll">
+      <section className="mt-8">
+        <h2 className="m-0 mb-6 text-base">Comparison</h2>
+        <div className="overflow-x-auto">
           <table className="w-full border-collapse text-[0.9rem]">
             <thead>
               <tr>
@@ -111,12 +111,12 @@ export function EvalRunScreen({ id, onOpenSession }: { id: string; onOpenSession
             </tbody>
           </table>
         </div>
-        <p className="eval-caption">
+        <p className="mt-6 max-w-[62ch] text-[0.85em] text-muted-foreground">
           ± is the standard error of the mean. A delta smaller than the two standard errors combined is
           not a result; add replicates.
         </p>
         {terminated.length > 0 && (
-          <p className="eval-warning">
+          <p className="mt-6 max-w-[62ch] text-[0.85em] text-destructive">
             {terminated.length} of {detail.total} runs did not finish cleanly (
             {[...new Set(terminated.map((m) => m.status))].join(", ")}). Their metrics stop where the
             run stopped, not where the work did — read this comparison with that in mind, or run it
@@ -125,9 +125,9 @@ export function EvalRunScreen({ id, onOpenSession }: { id: string; onOpenSession
         )}
       </section>
 
-      <section className="eval-section">
-        <h2>Runs</h2>
-        <div className="eval-table-scroll">
+      <section className="mt-8">
+        <h2 className="m-0 mb-6 text-base">Runs</h2>
+        <div className="overflow-x-auto">
           <table className="w-full border-collapse text-[0.9rem]">
             <thead>
               <tr>
@@ -172,8 +172,8 @@ function ComparisonTableRow({ row }: { row: ComparisonRow }) {
       {row.cells.map((cell, i) =>
         cell ? (
           <td key={i} className={tableCell}>
-            <span className="eval-mean">{formatMetric(row.metric, cell.mean)}</span>
-            <span className="eval-spread">
+            <span className="block">{formatMetric(row.metric, cell.mean)}</span>
+            <span className="block text-[0.8em] text-muted-foreground">
               {cell.stderr === null ? "no spread" : `±${formatMetric(row.metric, cell.stderr)}`} (n=
               {cell.n})
             </span>
@@ -181,19 +181,19 @@ function ComparisonTableRow({ row }: { row: ComparisonRow }) {
         ) : (
           // Absent, never zero: a run that never searched has no share, and a
           // 0% would claim it searched badly.
-          <td key={i} className={cn(tableCell, "eval-absent")}>
+          <td key={i} className={cn(tableCell, "text-muted-foreground")}>
             —
           </td>
         ),
       )}
       <td className={tableCell}>
         {row.delta ? (
-          <span className={row.delta.significant ? "eval-delta is-significant" : "eval-delta"}>
+          <span className={cn("tabular-nums", row.delta.significant && "font-semibold")}>
             {formatDelta(row.metric, row.delta.diff)}
-            {row.delta.significant && <span className="eval-star"> *</span>}
+            {row.delta.significant && <span className="text-primary"> *</span>}
           </span>
         ) : (
-          <span className="eval-absent">—</span>
+          <span className="text-muted-foreground">—</span>
         )}
       </td>
     </tr>
@@ -222,18 +222,21 @@ function MemberTableRow({
         {/* A member that has not run cost nothing because it has not
             happened, which is not the same as having been free. */}
         <td className={tableCell}>
-          {member.cost_usd > 0 ? `$${member.cost_usd.toFixed(4)}` : <span className="eval-absent">—</span>}
+          {member.cost_usd > 0 ? `$${member.cost_usd.toFixed(4)}` : <span className="text-muted-foreground">—</span>}
         </td>
         <td className={tableCell}>
-          {member.verdict ? `${member.verdict.score}/5` : <span className="eval-absent">—</span>}
+          {member.verdict ? `${member.verdict.score}/5` : <span className="text-muted-foreground">—</span>}
         </td>
         <td className={tableCell}>
           {member.session_id ? (
-            <button className="eval-session-link" onClick={() => onOpenSession(member.session_id!)}>
+            <button
+              className="cursor-pointer border-0 bg-transparent p-0 font-[inherit] text-primary underline"
+              onClick={() => onOpenSession(member.session_id!)}
+            >
               {member.session_id.slice(0, 16)}…
             </button>
           ) : (
-            <span className="eval-absent">—</span>
+            <span className="text-muted-foreground">—</span>
           )}
         </td>
       </tr>
@@ -250,9 +253,9 @@ function MemberTableRow({
 
 function Fact({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="eval-fact">
-      <dt>{label}</dt>
-      <dd>{children}</dd>
+    <div>
+      <dt className="text-[0.8em] tracking-[0.04em] text-muted-foreground uppercase">{label}</dt>
+      <dd className="mt-0.5">{children}</dd>
     </div>
   );
 }
