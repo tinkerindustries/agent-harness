@@ -1901,20 +1901,6 @@ body.page .topnav {
   flex: none;
 }
 
-.footer {
-  border-top: 1px solid var(--border);
-  background: var(--background);
-  padding: 10px 24px 9px;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 288px;
-}
-.footer-inner {
-  grid-column: 1;
-  max-width: 800px;
-  margin: 0 auto;
-  width: 100%;
-}
-
 .statusline {
   display: flex;
   align-items: center;
@@ -1940,67 +1926,10 @@ kbd {
   color: var(--muted-foreground);
 }
 
-.queued {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.6875rem;
-  color: var(--status-gaveup);
-  margin-bottom: 6px;
-}
-.box {
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  border: 1px solid var(--input);
-  border-radius: var(--radius);
-  padding: 8px 8px 8px 10px;
-  background: var(--card);
-}
-.box:focus-within {
-  border-color: var(--ring);
-  box-shadow: 0 0 0 3px hsl(217 91% 48% / 0.09);
-}
-.box .prompt {
-  font-family: var(--font-mono);
-  color: var(--status-running);
-  font-weight: 600;
-  line-height: 1.55;
-  flex: none;
-  align-self: flex-start;
-}
-.box textarea {
-  flex: 1;
-  border: 0;
-  background: transparent;
-  color: var(--foreground);
-  font-family: var(--font-mono);
-  font-size: 0.8125rem;
-  line-height: 1.55;
-  resize: none;
-  outline: none;
-  min-height: 38px;
-  padding: 0;
-}
-.box textarea::placeholder {
-  color: var(--muted-foreground);
-}
-
-.send {
-  flex: none;
-  height: 26px;
-  padding: 0 10px;
-  border-radius: calc(var(--radius) - 3px);
-  border: 1px solid var(--border);
-  background: var(--secondary);
-  color: var(--secondary-foreground);
-  font: inherit;
-  font-size: 0.75rem;
-  cursor: pointer;
-}
-.send:hover {
-  background: var(--accent);
-}
+/* .footer survives as a bare selector only to scope this margin — both
+   footers (ChatComposer.tsx, WatchFooter.tsx) keep the literal class for
+   exactly this reason, since everything else about their chrome is now a
+   Tailwind utility. */
 .footer .statusline {
   margin-top: 7px;
 }
@@ -2023,24 +1952,6 @@ kbd {
   line-height: 1.6;
 }
 
-.confirm {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  border: 1px solid var(--status-failed);
-  background: var(--status-failed-bg);
-  border-radius: calc(var(--radius) - 2px);
-  padding: 10px 12px;
-  font-size: 0.8125rem;
-}
-.confirm .spacer {
-  flex: 1;
-}
-.confirm .muted {
-  color: var(--muted-foreground);
-}
-
 .banner {
   display: flex;
   align-items: center;
@@ -2054,25 +1965,6 @@ kbd {
 }
 .banner .spacer {
   flex: 1;
-}
-
-.box-done {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
-  padding: 12px 14px;
-  background: var(--muted);
-  font-size: 0.8125rem;
-  color: var(--muted-foreground);
-}
-.box-done .spacer {
-  flex: 1;
-}
-.box-done b {
-  color: var(--foreground);
 }
 
 .runhead {
@@ -2175,70 +2067,6 @@ kbd {
    now a Tailwind utility. */
 .phase > summary::-webkit-details-marker {
   display: none;
-}
-
-.footer-watch {
-  grid-template-columns: 244px minmax(0, 1fr);
-}
-
-.footer-watch .footer-inner {
-  grid-column: 2;
-  max-width: 840px;
-  margin-left: 16px;
-}
-.nowline {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.8125rem;
-  margin-bottom: 6px;
-}
-.nowline .name {
-  font-family: var(--font-mono);
-  font-weight: 600;
-  font-size: 0.75rem;
-}
-.nowline .arg {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-  min-width: 0;
-}
-.nowline .under {
-  color: var(--muted-foreground);
-  font-size: 0.75rem;
-  flex: none;
-  max-width: 45%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.nowline .spacer {
-  flex: 1;
-}
-.follow {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid var(--ring);
-  background: var(--secondary);
-  color: var(--foreground);
-  font: inherit;
-  font-size: 0.75rem;
-  cursor: pointer;
-}
-.follow .dot {
-  background: var(--status-running);
-}
-.follow-off .dot {
-  background: var(--muted-foreground);
 }
 
 .result {
@@ -2687,22 +2515,10 @@ kbd {
     min-height: 44px;
     min-width: 44px;
   }
-  .send {
-    height: 44px;
-    padding: 0 16px;
-  }
-  .box textarea {
-    min-height: 44px;
-  }
   .jump {
     height: 44px;
     padding: 0 16px;
   }
-  .chip {
-    min-height: 44px;
-    padding: 0 14px;
-  }
-
   .opening-summary {
     min-height: 44px;
     padding: 6px 0;
@@ -2744,24 +2560,12 @@ kbd {
     display: flex;
     align-items: center;
   }
-  .follow {
-    min-height: 44px;
-    padding: 0 16px;
-  }
-
   .result-json > summary {
     min-height: 44px;
     padding: 10px 12px;
   }
   .start-select {
     height: 44px;
-  }
-
-  .box {
-    padding: 8px 8px 8px 12px;
-  }
-  .queued {
-    line-height: 1.5;
   }
 
   .statusline {

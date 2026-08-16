@@ -538,7 +538,7 @@ export function SettingsScreen() {
             <button
               type="button"
               className={cn(
-                "inline-flex h-[26px] items-center gap-[5px] rounded-full border border-border bg-background px-[9px] text-xs text-muted-foreground hover:bg-muted",
+                "inline-flex h-[26px] items-center gap-[5px] rounded-full border border-border bg-background px-[9px] text-xs text-muted-foreground hover:bg-muted max-phone:min-h-11 max-phone:px-3.5",
                 filter === "all" && "border-ring bg-secondary text-foreground",
               )}
               aria-pressed={filter === "all"}
@@ -549,7 +549,7 @@ export function SettingsScreen() {
             <button
               type="button"
               className={cn(
-                "inline-flex h-[26px] items-center gap-[5px] rounded-full border border-border bg-background px-[9px] text-xs text-muted-foreground hover:bg-muted",
+                "inline-flex h-[26px] items-center gap-[5px] rounded-full border border-border bg-background px-[9px] text-xs text-muted-foreground hover:bg-muted max-phone:min-h-11 max-phone:px-3.5",
                 filter === "override" && "border-ring bg-secondary text-foreground",
               )}
               aria-pressed={filter === "override"}
@@ -560,7 +560,7 @@ export function SettingsScreen() {
             <button
               type="button"
               className={cn(
-                "inline-flex h-[26px] items-center gap-[5px] rounded-full border border-border bg-background px-[9px] text-xs text-muted-foreground hover:bg-muted",
+                "inline-flex h-[26px] items-center gap-[5px] rounded-full border border-border bg-background px-[9px] text-xs text-muted-foreground hover:bg-muted max-phone:min-h-11 max-phone:px-3.5",
                 filter === "attention" && "border-ring bg-secondary text-foreground",
               )}
               aria-pressed={filter === "attention"}
