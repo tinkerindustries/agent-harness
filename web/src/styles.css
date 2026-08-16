@@ -1722,37 +1722,12 @@ body.page .topnav {
   padding-bottom: 24px;
 }
 
-.rail {
-  padding: 16px 16px 24px;
-}
-
+/* .rail survives as a bare selector only for .app .rail below: a body-level
+   class SessionScreen computes outside React (the same reason TopNav's own
+   .app/.page rules stayed). Everything else about the rail chrome is now a
+   Tailwind utility in WatchRail.tsx/ChatRail.tsx. */
 .app .rail {
   overflow-y: auto;
-}
-.rail-right {
-  border-left: 1px solid var(--border);
-}
-.rail-left {
-  border-right: 1px solid var(--border);
-}
-.railsec + .railsec {
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-}
-.railsec h3 {
-  margin: 0 0 10px;
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted-foreground);
-}
-
-.rail-note {
-  margin: 0;
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
 }
 
 .msg {
@@ -1864,8 +1839,7 @@ body.page .topnav {
   outline-offset: 1px;
 }
 
-.path-full,
-.rail .facts .v.path-full {
+.path-full {
   white-space: normal;
   overflow: visible;
   text-overflow: clip;
@@ -1873,6 +1847,10 @@ body.page .topnav {
   overflow-wrap: anywhere;
 }
 
+/* The rail's workspace-path value right-aligns as a Tailwind utility
+   (WatchRail.tsx/ChatRail.tsx); .v survives there as a literal class only so
+   this one override — flipping to left when ElidedPath expands it — still
+   applies on top. */
 .rail .facts .v.path-full {
   text-align: left;
 }
@@ -1921,87 +1899,6 @@ body.page .topnav {
   width: var(--icon-xs);
   height: var(--icon-xs);
   flex: none;
-}
-
-.planhead {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-.planhead .progress {
-  flex: 1;
-}
-.planhead .count {
-  font-size: 0.6875rem;
-  color: var(--muted-foreground);
-  font-variant-numeric: tabular-nums;
-}
-
-.progress {
-  height: 4px;
-  border-radius: 999px;
-  background: var(--muted);
-  overflow: hidden;
-  flex: none;
-}
-.progress > span {
-  display: block;
-  height: 100%;
-  background: var(--status-running);
-}
-.planrow {
-  display: flex;
-  gap: 8px;
-  font-size: 0.8125rem;
-  padding: 4px 0;
-  line-height: 1.45;
-}
-.planrow .mark {
-  flex: none;
-  width: 12px;
-  color: var(--muted-foreground);
-  font-family: var(--font-mono);
-}
-.plan-done {
-  color: var(--muted-foreground);
-}
-.plan-done .mark {
-  color: var(--status-done);
-}
-
-.plan-now {
-  font-weight: 500;
-  background: var(--status-running-bg);
-  margin: 2px -8px;
-  padding: 5px 8px;
-  border-radius: calc(var(--radius) - 3px);
-}
-.plan-now .mark {
-  color: var(--status-running);
-}
-
-.rail .facts {
-  display: block;
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-}
-.rail .facts div {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 3px 0;
-}
-.rail .facts .v {
-  color: var(--foreground);
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  text-align: right;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-
-  min-width: 0;
 }
 
 .footer {
@@ -2271,112 +2168,13 @@ kbd {
   text-decoration: underline;
 }
 
-.phase {
-  margin-bottom: 4px;
-}
-.phase > summary {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  padding: 5px 6px;
-  border-radius: calc(var(--radius) - 3px);
-  font-size: 0.8125rem;
-  line-height: 1.35;
-  cursor: pointer;
-  list-style: none;
-}
+/* .phase survives as a bare selector only to scope this cross-browser
+   <details> marker hider (WatchRail.tsx keeps the literal class for exactly
+   this reason, the same pattern as .think/.tool in turns/Turn.tsx).
+   Everything else about the rail's phase disclosures, ticks and legend is
+   now a Tailwind utility. */
 .phase > summary::-webkit-details-marker {
   display: none;
-}
-.phase > summary:hover {
-  background: var(--accent);
-}
-.phase > summary:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: -2px;
-}
-.phase .idx {
-  flex: none;
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  color: var(--muted-foreground);
-}
-.phase-done > summary {
-  color: var(--muted-foreground);
-}
-.phase-unnamed {
-  font-style: italic;
-  color: var(--muted-foreground);
-}
-.phase-now > summary {
-  background: var(--status-running-bg);
-  font-weight: 500;
-}
-.ticks {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 3px;
-  padding: 4px 6px 8px 24px;
-}
-
-.ticks .not-started {
-  font-size: 0.6875rem;
-  color: var(--muted-foreground);
-}
-
-.tick {
-  width: 13px;
-  height: 13px;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--muted-foreground) 28%, var(--secondary));
-  border: 1px solid color-mix(in srgb, var(--muted-foreground) 45%, transparent);
-  display: block;
-}
-.tick-edit {
-  background: color-mix(in srgb, var(--diff-add-fg) 55%, var(--diff-add-bg));
-  border-color: var(--diff-add-fg);
-}
-.tick-bash {
-  background: color-mix(in srgb, var(--status-running) 55%, var(--status-running-bg));
-  border-color: var(--status-running);
-}
-.tick-read {
-  background: color-mix(in srgb, var(--tick-read) 55%, var(--tick-read-bg));
-  border-color: var(--tick-read);
-}
-.tick-err {
-  background: color-mix(in srgb, var(--status-failed) 55%, var(--status-failed-bg));
-  border-color: var(--status-failed);
-}
-.tick-churn {
-  background: color-mix(in srgb, var(--status-gaveup) 55%, var(--status-gaveup-bg));
-  border-color: var(--status-gaveup);
-}
-.tick-now {
-  background: var(--status-running);
-  border-color: var(--status-running);
-  animation: pulse var(--pulse-period) ease-in-out infinite;
-}
-@media (prefers-reduced-motion: reduce) {
-  .tick-now {
-    animation: none;
-  }
-}
-.legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  font-size: 0.6875rem;
-  color: var(--muted-foreground);
-}
-.legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-.legend .tick {
-  width: 9px;
-  height: 9px;
 }
 
 .footer-watch {
