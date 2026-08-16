@@ -182,7 +182,12 @@ function SettingRow({
           type="button"
           className={cn("settings-summary", open && "settings-summary-open")}
         >
-          <CaretRight className={cn("caret", open && "caret-open")} />
+          <CaretRight
+            className={cn(
+              "text-muted-foreground [transition:transform_var(--dur-caret)_var(--ease)]",
+              open && "rotate-90",
+            )}
+          />
           <span className="settings-key">{entry.key}</span>
           <span className={cn("settings-val", valueClass(entry))}>{displayValue(entry)}</span>
           {/* The truncated description stays in the closed header line only;

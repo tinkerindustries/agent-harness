@@ -629,13 +629,18 @@ function InFlightCard({
           <CollapsibleTrigger asChild>
             <button
               type="button"
-              className="caret-btn"
+              className="group flex flex-none cursor-pointer items-start border-none bg-transparent pt-[13px] pr-1 pb-0 pl-3.5 font-[inherit] max-phone:min-w-11"
               aria-label={open ? "Collapse the plan" : "Expand the plan"}
             >
               {/* The one place the design's ▸ caret becomes an icon: it is an
                   affordance here, a button of its own, not the plan and rail
                   vocabulary the text glyph carries elsewhere. */}
-              <CaretRight className={cn("caret", open && "caret-open")} />
+              <CaretRight
+                className={cn(
+                  "text-muted-foreground [transition:transform_var(--dur-caret)_var(--ease)] group-hover:text-foreground",
+                  open && "rotate-90",
+                )}
+              />
             </button>
           </CollapsibleTrigger>
           <button

@@ -74,7 +74,7 @@ export function WatchRail({
             {view.phases.map((phase) => (
               <details
                 key={phase.id}
-                className={`phase${phase.id === view.nowPhaseId ? " phase-now" : " phase-done"}`}
+                className={`phase group${phase.id === view.nowPhaseId ? " phase-now" : " phase-done"}`}
                 // While the run is live only the phase it is in matters, so
                 // the rest stay shut. Once it is over the rail is a review
                 // instrument and the ticks are the whole of it — a column of
@@ -82,7 +82,7 @@ export function WatchRail({
                 open={runLive ? phase.id === view.nowPhaseId : true}
               >
                 <summary>
-                  <span className="caret" aria-hidden>
+                  <span className="text-muted-foreground [transition:transform_150ms_ease] group-open:rotate-90" aria-hidden>
                     ▸
                   </span>
                   <span className="idx">{phase.index > 0 ? phase.index : "·"}</span>
@@ -99,9 +99,9 @@ export function WatchRail({
               </details>
             ))}
             {view.notStarted.map((item) => (
-              <details key={item.index} className="phase">
+              <details key={item.index} className="phase group">
                 <summary>
-                  <span className="caret" aria-hidden>
+                  <span className="text-muted-foreground [transition:transform_150ms_ease] group-open:rotate-90" aria-hidden>
                     ▸
                   </span>
                   <span className="idx">{item.index}</span>

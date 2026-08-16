@@ -37,9 +37,9 @@ export function ResultPanel({ block, parentAgent }: { block: RunFinishedBlock; p
       </div>
       {summary && <p>{summary}</p>}
       {json !== null && (
-        <details className="result-json" open={lines <= COLLAPSE_OVER_LINES}>
+        <details className="result-json group" open={lines <= COLLAPSE_OVER_LINES}>
           <summary>
-            <span className="caret" aria-hidden>
+            <span className="text-muted-foreground [transition:transform_150ms_ease] group-open:rotate-90" aria-hidden>
               ▸
             </span>
             payload · {lines.toLocaleString("en-US")} line{lines === 1 ? "" : "s"}

@@ -673,32 +673,6 @@ pre {
   gap: var(--space);
 }
 
-.caret-btn {
-  flex: none;
-  display: flex;
-
-  align-items: flex-start;
-  padding: 13px 4px 0 14px;
-  background: transparent;
-  border: none;
-  font: inherit;
-  cursor: pointer;
-}
-
-.caret-btn:hover .caret {
-  color: var(--foreground);
-}
-
-.caret {
-  color: var(--muted-foreground);
-  flex: none;
-  transition: transform var(--dur-turn) var(--ease);
-}
-
-.caret-open {
-  transform: rotate(90deg);
-}
-
 .run-plan .plan-list {
   list-style: none;
   margin: 0;
@@ -3203,12 +3177,6 @@ kbd {
   outline: 2px solid var(--ring);
   outline-offset: -2px;
 }
-.phase > summary .caret {
-  transition: transform 0.15s ease;
-}
-.phase[open] > summary .caret {
-  transform: rotate(90deg);
-}
 .phase .idx {
   flex: none;
   font-family: var(--font-mono);
@@ -3408,12 +3376,6 @@ kbd {
 }
 .result-json > summary:hover {
   color: var(--foreground);
-}
-.result-json > summary .caret {
-  transition: transform 0.15s ease;
-}
-.result-json[open] > summary .caret {
-  transform: rotate(90deg);
 }
 .result pre {
   margin: 6px 0 0;
@@ -3833,9 +3795,6 @@ kbd {
   .chip {
     min-height: 44px;
     padding: 0 14px;
-  }
-  .caret-btn {
-    min-width: 44px;
   }
 
   .gutter {
