@@ -1054,30 +1054,6 @@ body.app #root {
   border-radius: 3px;
 }
 
-.path-elide {
-  border: 1px dashed var(--border);
-  border-radius: 3px;
-  background: var(--muted);
-  color: var(--muted-foreground);
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  line-height: 1;
-  padding: 1px 3px;
-  margin-right: 2px;
-  cursor: pointer;
-
-  user-select: none;
-  vertical-align: baseline;
-}
-.path-elide:hover {
-  color: var(--foreground);
-  border-color: var(--muted-foreground);
-}
-.path-elide:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 1px;
-}
-
 .path-full {
   white-space: normal;
   overflow: visible;
@@ -1112,21 +1088,6 @@ body.app #root {
   margin: 0 -6px 16px;
 }
 
-.statusline {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 0.6875rem;
-  color: var(--muted-foreground);
-  font-variant-numeric: tabular-nums;
-}
-
-.statusline .sep {
-  color: color-mix(in srgb, var(--muted-foreground) 50%, transparent);
-}
-.statusline .spacer {
-  flex: 1;
-}
 kbd {
   font-family: var(--font-mono);
   font-size: 0.6875rem;
@@ -1137,28 +1098,9 @@ kbd {
   color: var(--muted-foreground);
 }
 
-/* .footer survives as a bare selector only to scope this margin — both
-   footers (ChatComposer.tsx, WatchFooter.tsx) keep the literal class for
-   exactly this reason, since everything else about their chrome is now a
-   Tailwind utility. */
-.footer .statusline {
-  margin-top: 7px;
-}
-
-.banner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--status-gaveup);
-  background: var(--status-gaveup-bg);
-  border-radius: calc(var(--radius) - 2px);
-  padding: 8px 12px;
-  font-size: 0.8125rem;
-}
-.banner .spacer {
-  flex: 1;
-}
+/* .footer stays a literal class only for the grid-collapse and padding
+   overrides below (max-width: 1120px/720px) — the statusline it used to
+   scope a margin onto is inline Tailwind on the two footers directly now. */
 
 /* .phase survives as a bare selector only to scope this cross-browser
    <details> marker hider (WatchRail.tsx keeps the literal class for exactly
@@ -1198,14 +1140,6 @@ kbd {
   }
 }
 @media (max-width: 720px) {
-
-  .topnav-right .statusline {
-    flex-wrap: nowrap;
-  }
-
-  .stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
   /* "stream"/"footer" stay literal classes for .app .stream and
      .footer .statusline; this 14px override rides the same classes and
      layers correctly under SessionWatchScreen.tsx's own max-watch:pl-6 —
@@ -1255,10 +1189,6 @@ kbd {
 
 }
 
-.statusline .hints {
-  display: contents;
-}
-
 @media (max-width: 560px) {
   :root {
     --nav-height: 53px;
@@ -1275,15 +1205,6 @@ kbd {
   .opening-summary {
     min-height: 44px;
     padding: 6px 0;
-  }
-  .path-elide {
-    min-height: 44px;
-    min-width: 44px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    vertical-align: middle;
-    padding: 0 6px;
   }
   .skills-summary {
     min-height: 44px;

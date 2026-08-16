@@ -261,23 +261,23 @@ export function SessionWatchScreen({ sessionId, meta, snapshot, onNavigate, ever
           <Badge key={finishedNav.outcome.label} variant={finishedNav.outcome.variant} className={navOutcomeFlip}>
             {finishedNav.outcome.label}
           </Badge>
-          <span className="statusline">
+          <span className="flex flex-wrap items-center gap-2 max-phone:gap-y-1 text-[0.6875rem] text-muted-foreground tabular-nums max-nav:flex-nowrap">
             {finishedNav.status.subTurn !== null ? (
               <>
                 <span>sub-turn {finishedNav.status.subTurn}</span>
-                <span className="sep">·</span>
+                <span className="text-[color-mix(in_srgb,var(--muted-foreground)_50%,transparent)]">·</span>
                 <span>{cachePercent(finishedNav.status.cacheHitTokens, finishedNav.status.cacheMissTokens)}% cache</span>
-                <span className="sep">·</span>
+                <span className="text-[color-mix(in_srgb,var(--muted-foreground)_50%,transparent)]">·</span>
                 <span title="Price table captured by the server's pricing config">${formatCost(finishedNav.status.costUsd)}</span>
-                <span className="sep">·</span>
+                <span className="text-[color-mix(in_srgb,var(--muted-foreground)_50%,transparent)]">·</span>
                 <span>{finishedNav.status.completionTokens.toLocaleString("en-US")} out</span>
-                <span className="sep">·</span>
+                <span className="text-[color-mix(in_srgb,var(--muted-foreground)_50%,transparent)]">·</span>
                 <span>{formatRunDuration(finishedNav.elapsedMs)} elapsed</span>
               </>
             ) : (
               <>
                 <span>{meta.model}</span>
-                <span className="sep">·</span>
+                <span className="text-[color-mix(in_srgb,var(--muted-foreground)_50%,transparent)]">·</span>
                 <span>effort {meta.effort}</span>
               </>
             )}

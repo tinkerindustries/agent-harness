@@ -171,10 +171,9 @@ export function ChatComposer({
   if (finished === null && token === null && status === null && facts.model === "") return null;
 
   return (
-    // "footer" stays a literal class only to keep the shared
-    // .footer .statusline margin-top scoped (WatchFooter.tsx's footer
-    // carries the same class) — every other footer/footer-inner property is
-    // a direct Tailwind utility.
+    // "footer" stays a literal class only for the grid-collapse and padding
+    // overrides in styles.css (max-width: 1120px/720px) — every other
+    // footer/footer-inner property is a direct Tailwind utility.
     <div className="footer grid grid-cols-[minmax(0,1fr)_288px] border-t border-border bg-background px-6 pt-2.5 pb-[9px]">
       <div className="col-start-1 mx-auto w-full max-w-[800px]">
         {finished ? (
@@ -293,31 +292,31 @@ function StatusLine({
   // printing dashes.
   if (!status && facts.model === "") return null;
   return (
-    <div className="statusline">
+    <div className="mt-[7px] flex flex-wrap items-center gap-2 max-phone:gap-y-1 text-[0.6875rem] text-muted-foreground tabular-nums">
       {status && status.subTurn !== null ? (
         <>
           <span>sub-turn {status.subTurn}</span>
-          <span className="sep">·</span>
+          <span className="text-[color-mix(in_srgb,var(--muted-foreground)_50%,transparent)]">·</span>
           <span>
             {cachePercent(status.cacheHitTokens, status.cacheMissTokens)}% cache
           </span>
-          <span className="sep">·</span>
+          <span className="text-[color-mix(in_srgb,var(--muted-foreground)_50%,transparent)]">·</span>
           <span title="Price table captured by the server's pricing config">${formatCost(status.costUsd)}</span>
-          <span className="sep">·</span>
+          <span className="text-[color-mix(in_srgb,var(--muted-foreground)_50%,transparent)]">·</span>
           <span>{status.completionTokens.toLocaleString("en-US")} out</span>
         </>
       ) : (
         <>
           <span>{facts.model}</span>
-          <span className="sep">·</span>
+          <span className="text-[color-mix(in_srgb,var(--muted-foreground)_50%,transparent)]">·</span>
           <span>effort {facts.effort}</span>
-          <span className="sep">·</span>
+          <span className="text-[color-mix(in_srgb,var(--muted-foreground)_50%,transparent)]">·</span>
           <span>permission {facts.permission}</span>
         </>
       )}
-      <span className="spacer" />
+      <span className="flex-1" />
       {running && (
-        <span className="hints">
+        <span className="contents max-phone:hidden">
           <span>
             <kbd>⏎</kbd> send
           </span>

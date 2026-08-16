@@ -33,7 +33,7 @@ export function DroppedStreamBanner({
 }) {
   if (!everOpen || connection !== "connecting") return null;
   return (
-    <div className="banner">
+    <div className="flex items-center gap-2.5 rounded-md border border-border border-l-[3px] border-l-[var(--status-gaveup)] bg-[var(--status-gaveup-bg)] px-3 py-2 text-sm">
       <span className="h-1.5 w-1.5 flex-none rounded-full bg-current" style={{ color: "var(--status-gaveup)" }} aria-hidden />
       <span>
         <b>Not receiving updates.</b> The run is unaffected — this page lost its connection. Reconnecting…
