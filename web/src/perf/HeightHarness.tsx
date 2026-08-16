@@ -87,7 +87,7 @@ export function HeightHarness() {
 
   return (
     <HeightMount store={store} seeded={seeded} onHeight={setHeight}>
-      <p className="perf-height-result" data-testid="perf-height" data-blocks={blocks} data-sub-turns={subTurns}>
+      <p className="mb-4 font-mono" data-testid="perf-height" data-blocks={blocks} data-sub-turns={subTurns}>
         Scroll height: <strong>{height === null ? "…" : height.toLocaleString("en-US")} px</strong>{" "}
         <span className="text-muted-foreground">(baseline 86,674 px, card transcript)</span>
       </p>
@@ -128,11 +128,11 @@ function HeightMount({
           ← sessions
         </Button>
         <h1>perf-height</h1>
-        <Badge variant="outline" className="connection-badge connection-closed">
+        <Badge variant="outline" className="text-muted-foreground connection-closed">
           closed
         </Badge>
       </header>
-      <div className="session-meta">
+      <div className="flex flex-wrap gap-3 border-b border-border pb-2 mb-4 text-[0.85rem]">
         <Badge variant="done">DONE</Badge>
         <span className="text-muted-foreground">synthetic feed</span>
         <span className="text-muted-foreground">turn renderer</span>

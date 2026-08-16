@@ -416,7 +416,7 @@ export function PerfHarnessScreen() {
         status: <strong>{status}</strong>
       </p>
       <div className="overflow-x-auto">
-        <table className="session-table perf-results" data-testid="perf-results">
+        <table className="session-table font-mono whitespace-nowrap" data-testid="perf-results">
           <thead>
             <tr>
               <th>blocks</th>

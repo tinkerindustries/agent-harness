@@ -223,7 +223,7 @@ function SettingRow({
               {notice.rest}
             </div>
           )}
-          <div className="facts">
+          <div className="flex flex-wrap gap-x-[18px] gap-y-1.5 text-xs text-muted-foreground">
             <span>
               <span className="mr-[5px] text-micro tracking-[0.06em] uppercase">Type</span> {typeLabel(entry)}
             </span>
@@ -492,7 +492,7 @@ export function SettingsScreen() {
     <Input
       type="search"
       icon={<MagnifyingGlass />}
-      className="nav-search"
+      className="h-[30px] w-full max-w-[220px] text-sm"
       placeholder="Filter by key or description…"
       value={query}
       onChange={(ev) => setQuery(ev.target.value)}

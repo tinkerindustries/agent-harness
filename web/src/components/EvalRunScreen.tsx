@@ -230,7 +230,7 @@ function MemberTableRow({
         <td className={tableCell}>
           {member.session_id ? (
             <button
-              className="cursor-pointer border-0 bg-transparent p-0 font-[inherit] text-primary underline"
+              className="cursor-pointer border-0 bg-transparent p-0 font-[inherit] text-primary underline max-phone:inline-block max-phone:min-h-11 max-phone:py-2.5 max-phone:px-1"
               onClick={() => onOpenSession(member.session_id!)}
             >
               {member.session_id.slice(0, 16)}…

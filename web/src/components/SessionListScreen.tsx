@@ -315,7 +315,7 @@ export function SessionListScreen({ onOpen }: Props) {
       <Input
         type="search"
         icon={<MagnifyingGlass />}
-        className="nav-search"
+        className="h-[30px] w-full max-w-[220px] text-sm"
         placeholder="Filter by id, workspace, request…"
         // Uncontrolled on purpose: the input is rendered into the shared
         // nav's right slot through useNavRight, so a controlled value would

@@ -539,6 +539,10 @@ html {
   }
 }
 
+/* .screen is the shared page container every screen sits inside (a screen
+   that rolls its own padding runs edge to edge under the inset nav —
+   styles.test.ts guards this one staying defined), kept as CSS rather than
+   duplicated inline across the ~10 files that use it. */
 .screen {
   max-width: 960px;
   margin: 0 auto;
@@ -566,50 +570,29 @@ html {
   white-space: nowrap;
 }
 
-.topnav-flush {
-  max-width: none;
-  margin-left: 0;
-  margin-right: 0;
-}
+/* .topnav-flush's own max-width/margin are inline Tailwind on the header
+   now (TopNav.tsx); this pair survives because they key off .app/.page,
+   which SessionScreen.tsx sets on <body> outside React — no className on
+   a component can reach that ancestor. */
 .app .topnav-flush,
 body.page .topnav-flush {
   padding-left: 16px;
   padding-right: 16px;
 }
 
+/* .topnav-right stays a literal class only to reach into markup it does
+   not render itself: [data-slot="input-wrapper"] belongs to whatever
+   Input a screen puts in the nav's right slot (ui/input.tsx), and
+   .statusline below belongs to SessionWatchScreen's own nav content —
+   both opaque children TopNav.tsx only wraps. */
 .topnav-right [data-slot="input-wrapper"] {
   flex: 1 1 140px;
   min-width: 0;
-}
-.topnav .nav-search {
-  height: 30px;
-  width: 100%;
-  max-width: 220px;
-  font-size: 0.8125rem;
 }
 
 code,
 pre {
   font-family: var(--font-mono);
-}
-
-.session-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: calc(var(--space) * 1.5);
-  font-size: 0.85rem;
-  margin-bottom: calc(var(--space) * 2);
-  padding-bottom: var(--space);
-  border-bottom: 1px solid var(--border);
-}
-
-/* SessionWatchScreen.tsx's/SessionChatScreen.tsx's own connection badge now
-   computes its colour from snapshot.connection directly; this survives only
-   for web/src/perf/HeightHarness.tsx and RailHarness.tsx, out of scope for
-   this pass. (.connection-open, the other variant this used to pair with, is
-   gone — the harnesses only ever render connection-closed.) */
-.connection-badge {
-  color: var(--muted-foreground);
 }
 
 .transcript {
@@ -1025,26 +1008,8 @@ pre {
   color: var(--diff-remove-fg);
 }
 
-.facts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 18px;
-  font-size: 0.75rem;
-  color: var(--muted-foreground);
-}
-
 .perf-harness {
   max-width: 1200px;
-}
-
-.perf-results {
-  font-family: var(--font-mono);
-  white-space: nowrap;
-}
-
-.perf-height-result {
-  margin: 0 0 16px;
-  font-family: var(--font-mono);
 }
 
 html,
@@ -1064,26 +1029,19 @@ body.app #root {
   display: flex;
   flex-direction: column;
 }
-.app .topnav {
-
-  margin-top: 0;
-  margin-bottom: 0;
-  padding: 8px 20px;
-}
+/* .app/.page are the two mutually-exclusive body classes SessionScreen.tsx
+   sets outside React (docs comment there): .topnav-right's own dimming
+   here belongs to .app's fixed-shell mode specifically. The nav's own
+   sticky positioning and .topnav-flush's padding — both bodies wanted —
+   are inline Tailwind on TopNav.tsx's header now (`route.kind ===
+   "session"` is the same condition SessionScreen mounts under), and
+   .topnav-flush's padding pair stay just below since a className on a
+   component still can't reach a body-level ancestor. */
 .app .topnav-right {
   gap: 10px;
   font-size: 0.75rem;
   color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
-}
-
-body.page .topnav {
-  position: sticky;
-  top: 0;
-  z-index: 30;
-  margin-top: 0;
-  margin-bottom: 0;
-  background: var(--background);
 }
 
 /* .work-watch-page is a modifier class SessionWatchScreen.tsx adds only for
@@ -1176,8 +1134,11 @@ body.page .topnav {
 /* The rail's workspace-path value right-aligns as a Tailwind utility
    (WatchRail.tsx/ChatRail.tsx); .v survives there as a literal class only so
    this one override — flipping to left when ElidedPath expands it — still
-   applies on top. */
-.rail .facts .v.path-full {
+   applies on top. (Was scoped as ".rail .facts .v.path-full"; ".facts" was
+   dead weight — the fact row it named went fully Tailwind before this pass
+   and never carried the class — and .v is unique to these two rail rows
+   regardless, so the ancestor scoping was never load-bearing.) */
+.v.path-full {
   text-align: left;
 }
 
@@ -1313,11 +1274,6 @@ kbd {
     padding-right: 12px;
   }
 
-  .topnav .nav-search {
-
-    width: auto;
-  }
-
   .topnav-right {
     position: relative;
   }
@@ -1349,11 +1305,6 @@ kbd {
 }
 
 @media (max-width: 560px) {
-
-  .topnav .nav-search {
-    height: 44px;
-  }
-
   :root {
     --nav-height: 53px;
   }
@@ -1379,12 +1330,6 @@ kbd {
     vertical-align: middle;
     padding: 0 6px;
   }
-  .eval-session-link {
-    display: inline-block;
-    min-height: 44px;
-    padding: 10px 4px;
-  }
-
   .skills-summary {
     min-height: 44px;
     display: flex;
@@ -1403,9 +1348,6 @@ kbd {
     font-size: 0.875rem;
   }
   .block-pre {
-    font-size: 0.875rem;
-  }
-  .msg-user .body {
     font-size: 0.875rem;
   }
 }
