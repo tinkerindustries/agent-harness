@@ -24,5 +24,11 @@ export function Markdown({ text }: Props) {
     ref.current?.querySelectorAll("pre code").forEach((el) => hljs.highlightElement(el as HTMLElement));
   }, [html]);
 
-  return <div className="markdown" ref={ref} dangerouslySetInnerHTML={{ __html: html }} />;
+  // "markdown" stays a literal class only to scope the descendant rules
+  // below (styles.css) — p/first-child/last-child/pre/code style content
+  // this dangerouslySetInnerHTML writes, not JSX this component renders
+  // itself, so a className on the wrapper can't reach it. The wrapper's own
+  // font-size is a direct Tailwind utility, the same split .say uses
+  // (turns/Turn.tsx).
+  return <div className="markdown text-[0.95rem]" ref={ref} dangerouslySetInnerHTML={{ __html: html }} />;
 }

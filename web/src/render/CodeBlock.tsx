@@ -25,7 +25,7 @@ export function CodeBlock({ code, language }: Props) {
   }, []);
 
   return (
-    <pre className="code-block">
+    <pre className="m-0 overflow-x-auto overflow-y-auto max-h-[480px] text-[0.85rem] max-phone:text-[0.875rem]">
       <code ref={ref} className={language ? `language-${language}` : undefined}>
         {code}
       </code>

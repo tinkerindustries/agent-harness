@@ -614,22 +614,11 @@ pre {
   display: none;
 }
 
-.collapse-toggle {
-  color: var(--status-running);
-}
-
-.code-block {
-  margin: 0;
-  overflow-x: auto;
-  font-size: 0.85rem;
-  max-height: 480px;
-  overflow-y: auto;
-}
-
-.markdown {
-  font-size: 0.95rem;
-}
-
+/* .markdown stays a literal class only to scope these descendant rules:
+   Markdown.tsx writes this content through dangerouslySetInnerHTML, so it
+   is not JSX the component renders itself and a className on the wrapper
+   can't reach it (the same reason .say p/.say code survive in Turn.tsx).
+   The wrapper's own font-size is a direct Tailwind utility now. */
 .markdown p {
   margin: 0 0 1em;
 }
@@ -651,18 +640,6 @@ pre {
   border-radius: 3px;
   padding: 1px 4px;
   font-size: 0.9em;
-}
-
-.task-child {
-  margin-top: var(--space);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space);
-}
-
-.task-child-body {
-  border-left: 2px solid var(--border);
-  padding-left: var(--space);
 }
 
 .transcript-layout {

@@ -42,7 +42,7 @@ const NOOP_GET_TOOL_CALL = (): ToolCallPayload | undefined => undefined;
 export function BlockList({ items, live, filter = "all", getToolCall = NOOP_GET_TOOL_CALL }: Props) {
   const empty = items.length === 0 && !live.turn && live.pendingTools.size === 0;
   return (
-    <div className="transcript">
+    <div className="flex min-w-0 flex-1 flex-col gap-2">
       <SubTurnList items={items} filter={filter} getToolCall={getToolCall} />
       {live.turn && <LiveAssistantBlock turn={live.turn} />}
       {[...live.pendingTools.entries()].map(([id, pending]) => (

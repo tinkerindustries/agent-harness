@@ -22,7 +22,7 @@ export default function TaskChildBody({ sessionId }: { sessionId: string }) {
 
   const snapshot = useSyncExternalStore(ref.current.subscribe, ref.current.getSnapshot);
   return (
-    <div className="task-child-body">
+    <div className="border-l-2 border-border pl-2">
       {/* Re-provided with the child's own id: a subagent ran in its own
           workspace, so its screenshots resolve against that session and not
           the parent whose transcript this is nested inside. */}
