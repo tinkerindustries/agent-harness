@@ -750,18 +750,6 @@ pre {
   white-space: nowrap;
 }
 
-.session-table .sess-col {
-  width: 100%;
-  white-space: normal;
-}
-
-.session-row {
-  cursor: pointer;
-}
-
-.session-row:hover {
-  background: var(--muted);
-}
 
 .workspace-cell {
   max-width: 320px;
@@ -1115,12 +1103,6 @@ pre {
   -webkit-line-clamp: 3;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.session-table .primary {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }
 
 .stats {
@@ -2628,45 +2610,6 @@ pre {
   padding: var(--space) 0;
 }
 
-.ops-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.9rem;
-}
-
-.ops-table th {
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-  padding: 6px 8px;
-  color: var(--muted-foreground);
-  font-weight: 600;
-}
-
-.ops-table td {
-  border-bottom: 1px solid var(--border);
-  padding: 6px 8px;
-  vertical-align: top;
-}
-
-.ops-row:hover {
-  background: var(--muted);
-}
-
-.ops-quiet {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.ops-mono {
-  font-family: var(--font-mono);
-  font-size: 0.85rem;
-}
-
-.ops-actions-cell {
-  min-width: 180px;
-}
-
 .ops-actions {
   display: flex;
   gap: 8px;
@@ -4081,76 +4024,6 @@ kbd {
     width: 100%;
   }
 
-  .table-scroll .session-table,
-  .table-scroll .session-table tbody {
-    display: block;
-  }
-
-  .table-scroll .session-table thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border-width: 0;
-  }
-
-  .table-scroll .session-table tr {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 12px;
-    border: 1px solid var(--border);
-    border-radius: calc(var(--radius) - 2px);
-    background: var(--card);
-    padding: 10px 12px;
-    margin-bottom: 10px;
-  }
-
-  .table-scroll .session-table td {
-    border: none;
-    padding: 0;
-    white-space: normal;
-  }
-
-  .table-scroll .session-table td:nth-child(1) {
-    flex: 0 0 auto;
-    align-self: flex-start;
-    padding-top: 2px;
-  }
-
-  .table-scroll .session-table td:nth-child(2) {
-    flex: 1 1 78%;
-    min-width: 0;
-  }
-
-  .table-scroll .session-table td:nth-child(3),
-  .table-scroll .session-table td:nth-child(4),
-  .table-scroll .session-table td:nth-child(6),
-  .table-scroll .session-table td:nth-child(7) {
-    flex: 1 1 40%;
-  }
-
-  .table-scroll .session-table td:nth-child(5) {
-    flex: 1 1 100%;
-  }
-
-  .table-scroll .session-table td[data-label]::before {
-    content: attr(data-label);
-    display: block;
-    font-size: 0.6875rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--muted-foreground);
-    margin-bottom: 1px;
-  }
-
-  .table-scroll .session-table tr .empty-row {
-    flex: 1 1 100%;
-    text-align: center;
-  }
 }
 
 .eval-list,
@@ -4560,134 +4433,8 @@ kbd {
     display: none;
   }
 
-  .eval-list .session-table,
-  .eval-list .session-table tbody {
-    display: block;
-  }
-
-  .eval-list .session-table thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border-width: 0;
-  }
-  .eval-list .session-table tr {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 12px;
-    border: 1px solid var(--border);
-    border-radius: calc(var(--radius) - 2px);
-    background: var(--card);
-    padding: 10px 12px;
-    margin-bottom: 10px;
-  }
-  .eval-list .session-table td {
-    border: none;
-    padding: 0;
-    white-space: normal;
-    min-width: 0;
-  }
-  .eval-list .session-table td:nth-child(1) {
-    flex: 0 0 auto;
-    align-self: flex-start;
-    padding-top: 2px;
-  }
-  .eval-list .session-table td:nth-child(2) {
-    flex: 1 1 60%;
-  }
-  .eval-list .session-table td:nth-child(3),
-  .eval-list .session-table td:nth-child(4),
-  .eval-list .session-table td:nth-child(7) {
-    flex: 1 1 100%;
-  }
-  .eval-list .session-table td:nth-child(5),
-  .eval-list .session-table td:nth-child(6) {
-    flex: 1 1 40%;
-  }
-  .eval-list .session-table td[data-label]::before {
-    content: attr(data-label);
-    display: block;
-    font-size: 0.6875rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--muted-foreground);
-    margin-bottom: 1px;
-  }
-
   .eval-run .eval-comparison .eval-metric {
     min-width: 11em;
-  }
-
-  .ops-table,
-  .ops-table tbody {
-    display: block;
-  }
-  .ops-table thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border-width: 0;
-  }
-  .ops-table tr {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 12px;
-    border: 1px solid var(--border);
-    border-radius: calc(var(--radius) - 2px);
-    background: var(--card);
-    padding: 10px 12px;
-    margin-bottom: 10px;
-  }
-  .ops-table td {
-    border: none;
-    padding: 0;
-    white-space: normal;
-    flex: 1 1 auto;
-    min-width: 0;
-  }
-  .ops-table td:first-child {
-    flex: 1 1 100%;
-  }
-
-  .ops-table .sess-sub {
-    white-space: normal;
-    overflow: visible;
-  }
-  .ops-table td[data-label]::before {
-    content: attr(data-label);
-    display: block;
-    font-size: 0.6875rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--muted-foreground);
-    margin-bottom: 1px;
-  }
-
-  .ops-table td:last-child {
-    flex: 1 1 100%;
-    margin-top: 4px;
-    padding-top: 8px;
-    border-top: 1px dashed var(--border);
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
-  }
-  .ops-table .ops-actions {
-    align-self: flex-end;
-  }
-  .ops-table .ops-confirm {
-    width: 100%;
   }
 
   .say {

@@ -18,6 +18,7 @@ import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { Input } from "./ui/input";
 import { Pager } from "./ui/Pager";
+import { RTBody, RTCell, RTEmptyRow, RTHead, RTLead, RTMain, RTRow, RTTable, RTTh } from "./ui/ResponsiveTable";
 import { Ticker } from "./ui/Ticker";
 import {
   Collapsible,
@@ -410,31 +411,29 @@ export function SessionListScreen({ onOpen }: Props) {
             onPage={setPage}
           />
           <div className="table-scroll">
-            <table className="session-table">
-              <thead>
+            <RTTable>
+              <RTHead>
                 <tr>
-                  <th>Status</th>
-                  <th className="sess-col">Session</th>
-                  <th>Elapsed</th>
-                  <th>Cost</th>
-                  <th>Model</th>
-                  <th>Sub-turns</th>
-                  <th>Cache</th>
+                  <RTTh>Status</RTTh>
+                  <RTTh className="w-full whitespace-normal">Session</RTTh>
+                  <RTTh>Elapsed</RTTh>
+                  <RTTh>Cost</RTTh>
+                  <RTTh>Model</RTTh>
+                  <RTTh>Sub-turns</RTTh>
+                  <RTTh>Cache</RTTh>
                 </tr>
-              </thead>
-              <tbody>
+              </RTHead>
+              <RTBody>
                 {finishedItems.map((sess) => (
                   <FinishedRow key={sess.id} sess={sess} now={now} onOpen={onOpen} arrived={arrived(sess.id)} />
                 ))}
                 {emptyState !== "none" && (
-                  <tr>
-                    <td colSpan={7} className="empty-row">
-                      {emptyState === "no-sessions" ? "No sessions yet." : "No sessions match this query."}
-                    </td>
-                  </tr>
+                  <RTEmptyRow colSpan={7}>
+                    {emptyState === "no-sessions" ? "No sessions yet." : "No sessions match this query."}
+                  </RTEmptyRow>
                 )}
-              </tbody>
-            </table>
+              </RTBody>
+            </RTTable>
           </div>
           <Pager
             label="Finished sessions, bottom pager"
@@ -728,11 +727,11 @@ function FinishedRow({
   // and pushed the Sub-turns and Cache columns out of the table's container.
   const modelTitle = [sess.effort, sess.job_type, startedBy(sess)].filter(Boolean).join(" · ");
   return (
-    <tr className={cn("session-row", arrived && "anim-row-in")} onClick={() => onOpen(sess.id)}>
-      <td>
+    <RTRow className={cn(arrived && "anim-row-in")} onClick={() => onOpen(sess.id)}>
+      <RTLead>
         <Badge variant={badge.variant}>{badge.label}</Badge>
-      </td>
-      <td>
+      </RTLead>
+      <RTMain>
         <div className="sess-cell">
           {lines.title && (
             <span className="sess-title">
@@ -743,17 +742,23 @@ function FinishedRow({
           {lines.desc !== "" && <span className="sess-desc">{lines.desc}</span>}
           <span className="sess-sub">{subtitle || "—"}</span>
         </div>
-      </td>
-      <td data-label="Elapsed" className="primary">{formatElapsed(sess, now)}</td>
-      <td data-label="Cost" className="primary" title={costTitle(sess)}>
+      </RTMain>
+      <RTCell label="Elapsed" className="whitespace-nowrap font-semibold tabular-nums">
+        {formatElapsed(sess, now)}
+      </RTCell>
+      <RTCell label="Cost" className="whitespace-nowrap font-semibold tabular-nums" title={costTitle(sess)}>
         {formatCost(sess.usage.cost_usd)}
-      </td>
-      <td data-label="Model" title={modelTitle}>{sess.model}</td>
-      <td data-label="Sub-turns">{sess.sub_turns}</td>
-      <td data-label="Cache" className="dim" title={hitRateTitle(sess.usage)}>
+      </RTCell>
+      <RTCell label="Model" wide className="truncate" title={modelTitle}>
+        {sess.model}
+      </RTCell>
+      <RTCell label="Sub-turns" className="whitespace-nowrap">
+        {sess.sub_turns}
+      </RTCell>
+      <RTCell label="Cache" className="whitespace-nowrap text-muted-foreground" title={hitRateTitle(sess.usage)}>
         {formatHitRate(sess.usage)}
-      </td>
-    </tr>
+      </RTCell>
+    </RTRow>
   );
 }
 

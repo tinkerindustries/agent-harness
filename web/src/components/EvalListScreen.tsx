@@ -7,6 +7,7 @@ import { useNow } from "../hooks";
 import { Broadcast, Play } from "@phosphor-icons/react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import { RTBody, RTCell, RTHead, RTLead, RTRow, RTTable, RTTh } from "./ui/ResponsiveTable";
 import { cn } from "@/lib/utils";
 import { useNavRight } from "./TopNav";
 
@@ -101,24 +102,24 @@ export function EvalListScreen({ onOpen }: { onOpen: (id: string) => void }) {
     <div className="screen eval-list">
       {form}
       <div className="eval-table-scroll">
-        <table className="session-table">
-        <thead>
-          <tr>
-            <th>Status</th>
-            <th>Eval</th>
-            <th>Compared</th>
-            <th>Runs</th>
-            <th>Cost</th>
-            <th>Elapsed</th>
-            <th>Headline</th>
-          </tr>
-        </thead>
-        <tbody>
-          {runs.map((run) => (
-            <EvalRow key={run.id} run={run} onOpen={onOpen} />
-          ))}
-          </tbody>
-        </table>
+        <RTTable>
+          <RTHead>
+            <tr>
+              <RTTh>Status</RTTh>
+              <RTTh>Eval</RTTh>
+              <RTTh>Compared</RTTh>
+              <RTTh>Runs</RTTh>
+              <RTTh>Cost</RTTh>
+              <RTTh>Elapsed</RTTh>
+              <RTTh>Headline</RTTh>
+            </tr>
+          </RTHead>
+          <RTBody>
+            {runs.map((run) => (
+              <EvalRow key={run.id} run={run} onOpen={onOpen} />
+            ))}
+          </RTBody>
+        </RTTable>
       </div>
     </div>
   );
@@ -130,15 +131,15 @@ function EvalRow({ run, onOpen }: { run: EvalRunRow; onOpen: (id: string) => voi
   const ended = run.finished_at ? new Date(run.finished_at).getTime() : now;
 
   return (
-    <tr className="eval-row" onClick={() => onOpen(run.id)}>
-      <td>
+    <RTRow onClick={() => onOpen(run.id)}>
+      <RTLead>
         <Badge variant={evalStatusVariant(run.status)}>{run.status.toUpperCase()}</Badge>
-      </td>
-      <td data-label="Eval">
+      </RTLead>
+      <RTCell label="Eval" wide>
         <span className="eval-suite">{run.suite}</span>
         {run.note && <span className="eval-note">{run.note}</span>}
-      </td>
-      <td data-label="Compared">
+      </RTCell>
+      <RTCell label="Compared" wide>
         <span className="eval-variants">
           {run.variants.map((v) => (
             <Badge key={v} variant="outline">
@@ -146,8 +147,8 @@ function EvalRow({ run, onOpen }: { run: EvalRunRow; onOpen: (id: string) => voi
             </Badge>
           ))}
         </span>
-      </td>
-      <td data-label="Runs">
+      </RTCell>
+      <RTCell label="Runs" wide>
         <span className="eval-runs">
           {run.finished}/{run.total}
           {run.failed > 0 && <span className="eval-failed"> · {run.failed} failed</span>}
@@ -157,10 +158,14 @@ function EvalRow({ run, onOpen }: { run: EvalRunRow; onOpen: (id: string) => voi
             <span style={{ width: `${Math.round(evalRunProgress(run) * 100)}%` }} />
           </span>
         )}
-      </td>
-      <td data-label="Cost">${run.cost_usd.toFixed(run.cost_usd > 0 && run.cost_usd < 0.01 ? 4 : 2)}</td>
-      <td data-label="Elapsed">{formatDuration(ended - started)}</td>
-      <td data-label="Headline">
+      </RTCell>
+      <RTCell label="Cost" className="whitespace-nowrap">
+        ${run.cost_usd.toFixed(run.cost_usd > 0 && run.cost_usd < 0.01 ? 4 : 2)}
+      </RTCell>
+      <RTCell label="Elapsed" className="whitespace-nowrap">
+        {formatDuration(ended - started)}
+      </RTCell>
+      <RTCell label="Headline" wide>
         {run.headline ? (
           <span className={run.headline.significant ? "eval-headline is-significant" : "eval-headline"}>
             {metricLabel(run.headline.metric)} {formatDelta(run.headline.metric, run.headline.diff)}
@@ -169,8 +174,8 @@ function EvalRow({ run, onOpen }: { run: EvalRunRow; onOpen: (id: string) => voi
         ) : (
           <span className="eval-absent">—</span>
         )}
-      </td>
-    </tr>
+      </RTCell>
+    </RTRow>
   );
 }
 

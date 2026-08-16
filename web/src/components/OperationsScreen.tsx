@@ -20,6 +20,7 @@ import type { SessionState } from "../api/types";
 import { useNow } from "../hooks";
 import { Button } from "./ui/button";
 import { ElidedPath } from "./ui/ElidedPath";
+import { RTActions, RTBody, RTCell, RTHead, RTRow, RTTable, RTTh } from "./ui/ResponsiveTable";
 import { useNavRight } from "./TopNav";
 
 // The operations screen (docs/DATA-API.md): the one place the
@@ -257,16 +258,16 @@ export function OperationsScreen() {
               <p className="dim ops-empty">No stuck sessions.</p>
             ) : (
               <div className="table-scroll">
-                <table className="ops-table">
-                  <thead>
+                <RTTable>
+                  <RTHead>
                     <tr>
-                      <th>Session</th>
-                      <th>Quiet</th>
-                      <th>Last event</th>
-                      <th />
+                      <RTTh>Session</RTTh>
+                      <RTTh>Quiet</RTTh>
+                      <RTTh>Last event</RTTh>
+                      <RTTh />
                     </tr>
-                  </thead>
-                  <tbody>
+                  </RTHead>
+                  <RTBody>
                     {stuck.map(({ session, lastEventAt }) => (
                       <StuckSessionRow
                         key={session.id}
@@ -282,8 +283,8 @@ export function OperationsScreen() {
                         onCancel={() => setConfirming(null)}
                       />
                     ))}
-                  </tbody>
-                </table>
+                  </RTBody>
+                </RTTable>
               </div>
             )}
           </section>
@@ -299,17 +300,17 @@ export function OperationsScreen() {
               <p className="dim ops-empty">No running work requests.</p>
             ) : (
               <div className="table-scroll">
-                <table className="ops-table">
-                  <thead>
+                <RTTable>
+                  <RTHead>
                     <tr>
-                      <th>Request</th>
-                      <th>Session</th>
-                      <th>Deliveries</th>
-                      <th>Received</th>
-                      <th />
+                      <RTTh>Request</RTTh>
+                      <RTTh>Session</RTTh>
+                      <RTTh>Deliveries</RTTh>
+                      <RTTh>Received</RTTh>
+                      <RTTh />
                     </tr>
-                  </thead>
-                  <tbody>
+                  </RTHead>
+                  <RTBody>
                     {data.requests.map((r) => (
                       <WorkRequestRowView
                         key={r.request_id}
@@ -323,8 +324,8 @@ export function OperationsScreen() {
                         onCancel={() => setConfirming(null)}
                       />
                     ))}
-                  </tbody>
-                </table>
+                  </RTBody>
+                </RTTable>
               </div>
             )}
           </section>
@@ -340,18 +341,18 @@ export function OperationsScreen() {
               <p className="dim ops-empty">No leases.</p>
             ) : (
               <div className="table-scroll">
-                <table className="ops-table">
-                  <thead>
+                <RTTable>
+                  <RTHead>
                     <tr>
-                      <th>Workspace</th>
-                      <th>Session</th>
-                      <th>Acquired</th>
-                      <th>Last heartbeat</th>
-                      <th>Quiet</th>
-                      <th />
+                      <RTTh>Workspace</RTTh>
+                      <RTTh>Session</RTTh>
+                      <RTTh>Acquired</RTTh>
+                      <RTTh>Last heartbeat</RTTh>
+                      <RTTh>Quiet</RTTh>
+                      <RTTh />
                     </tr>
-                  </thead>
-                  <tbody>
+                  </RTHead>
+                  <RTBody>
                     {data.leases.map((l) => (
                       <LeaseRow
                         key={l.workspace}
@@ -365,8 +366,8 @@ export function OperationsScreen() {
                         onCancel={() => setConfirming(null)}
                       />
                     ))}
-                  </tbody>
-                </table>
+                  </RTBody>
+                </RTTable>
               </div>
             )}
           </section>
@@ -420,8 +421,8 @@ function StuckSessionRow({
   onCancel,
 }: StuckSessionRowProps) {
   return (
-    <tr className="ops-row">
-      <td data-label="Session">
+    <RTRow>
+      <RTCell label="Session" wide>
         <div className="sess-cell">
           <span className="sess-id">{session.id}</span>
           <span className="sess-sub truncate">
@@ -429,12 +430,16 @@ function StuckSessionRow({
             {session.model && <> · {session.model}</>}
           </span>
         </div>
-      </td>
-      <td className="ops-quiet" data-label="Quiet">{quietCell(parseStamp(lastEventAt), now)}</td>
-      <td className="dim" data-label="Last event">{lastEventAt ? formatStamp(lastEventAt) : "no events"}</td>
-      <td className="ops-actions-cell">
+      </RTCell>
+      <RTCell label="Quiet" className="whitespace-nowrap font-semibold tabular-nums">
+        {quietCell(parseStamp(lastEventAt), now)}
+      </RTCell>
+      <RTCell label="Last event" className="text-muted-foreground">
+        {lastEventAt ? formatStamp(lastEventAt) : "no events"}
+      </RTCell>
+      <RTActions className="min-w-[180px]">
         {confirming ? (
-          <div className="ops-confirm">
+          <div className="ops-confirm max-phone:w-full">
             <span>
               Delete session <code>{session.id}</code> and its entire event log? This cannot be undone.
             </span>
@@ -449,7 +454,7 @@ function StuckSessionRow({
             </div>
           </div>
         ) : (
-          <div className="ops-actions">
+          <div className="ops-actions max-phone:self-end">
             <Button variant="outline" size="sm" onClick={onClose} disabled={busy}>
               Close
             </Button>
@@ -460,8 +465,8 @@ function StuckSessionRow({
           </div>
         )}
         {error && <span className="field-error">{error}</span>}
-      </td>
-    </tr>
+      </RTActions>
+    </RTRow>
   );
 }
 
@@ -487,14 +492,20 @@ function WorkRequestRowView({
   onCancel,
 }: WorkRequestRowProps) {
   return (
-    <tr className="ops-row">
-      <td className="ops-mono" data-label="Request">{row.request_id}</td>
-      <td className="ops-mono dim" data-label="Session">{row.session_id ?? "—"}</td>
-      <td data-label="Deliveries">{row.delivery_count}</td>
-      <td className="dim" data-label="Received">{formatStamp(row.received_at)}</td>
-      <td className="ops-actions-cell">
+    <RTRow>
+      <RTCell label="Request" wide className="font-mono text-[0.85rem]">
+        {row.request_id}
+      </RTCell>
+      <RTCell label="Session" wide className="font-mono text-[0.85rem] text-muted-foreground">
+        {row.session_id ?? "—"}
+      </RTCell>
+      <RTCell label="Deliveries" className="whitespace-nowrap">{row.delivery_count}</RTCell>
+      <RTCell label="Received" className="text-muted-foreground">
+        {formatStamp(row.received_at)}
+      </RTCell>
+      <RTActions className="min-w-[180px]">
         {confirming ? (
-          <div className="ops-confirm">
+          <div className="ops-confirm max-phone:w-full">
             <span>
               Delete work request <code>{row.request_id}</code> and its row? This cannot be undone.
             </span>
@@ -509,7 +520,7 @@ function WorkRequestRowView({
             </div>
           </div>
         ) : (
-          <div className="ops-actions">
+          <div className="ops-actions max-phone:self-end">
             <Button variant="outline" size="sm" onClick={onClose} disabled={busy}>
               Close
             </Button>
@@ -520,8 +531,8 @@ function WorkRequestRowView({
           </div>
         )}
         {error && <span className="field-error">{error}</span>}
-      </td>
-    </tr>
+      </RTActions>
+    </RTRow>
   );
 }
 
@@ -538,17 +549,25 @@ interface LeaseRowProps {
 
 function LeaseRow({ row, now, busy, confirming, error, onRelease, onConfirmRelease, onCancel }: LeaseRowProps) {
   return (
-    <tr className="ops-row">
-      <td className="ops-mono" data-label="Workspace">
+    <RTRow>
+      <RTCell label="Workspace" wide className="font-mono text-[0.85rem]">
         <ElidedPath path={row.workspace} keepSession />
-      </td>
-      <td className="ops-mono dim" data-label="Session">{row.session_id}</td>
-      <td className="dim" data-label="Acquired">{formatStamp(row.acquired_at)}</td>
-      <td className="dim" data-label="Last heartbeat">{formatStamp(row.heartbeat_at)}</td>
-      <td className="ops-quiet" data-label="Quiet">{quietCell(parseStamp(row.heartbeat_at), now)}</td>
-      <td className="ops-actions-cell">
+      </RTCell>
+      <RTCell label="Session" wide className="font-mono text-[0.85rem] text-muted-foreground">
+        {row.session_id}
+      </RTCell>
+      <RTCell label="Acquired" className="text-muted-foreground">
+        {formatStamp(row.acquired_at)}
+      </RTCell>
+      <RTCell label="Last heartbeat" className="text-muted-foreground">
+        {formatStamp(row.heartbeat_at)}
+      </RTCell>
+      <RTCell label="Quiet" className="whitespace-nowrap font-semibold tabular-nums">
+        {quietCell(parseStamp(row.heartbeat_at), now)}
+      </RTCell>
+      <RTActions className="min-w-[180px]">
         {confirming ? (
-          <div className="ops-confirm">
+          <div className="ops-confirm max-phone:w-full">
             <span>
               Release the lease on{" "}
               <code>
@@ -569,7 +588,7 @@ function LeaseRow({ row, now, busy, confirming, error, onRelease, onConfirmRelea
             </div>
           </div>
         ) : (
-          <div className="ops-actions">
+          <div className="ops-actions max-phone:self-end">
             <Button variant="destructive" size="sm" onClick={onRelease} disabled={busy}>
               <LockOpen />
               Release
@@ -577,7 +596,7 @@ function LeaseRow({ row, now, busy, confirming, error, onRelease, onConfirmRelea
           </div>
         )}
         {error && <span className="field-error">{error}</span>}
-      </td>
-    </tr>
+      </RTActions>
+    </RTRow>
   );
 }
