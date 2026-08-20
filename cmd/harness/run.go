@@ -13,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
+	"github.com/mrgeoffrich/deepseek-harness/internal/mcpclient"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/session"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
@@ -158,6 +159,12 @@ func runRun(ctx context.Context, args []string) error {
 	deepSeekClient := withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res))
 	kimiClient := withKimiHTTPLog(cfg, rec, kimiAPIKeyProvider(res))
 
+	// harness run gets the same MCP tools a queue-driven run does: its own
+	// Manager over this process's store, closed when the command exits
+	// (docs/MCP.md).
+	mcpMgr := mcpclient.New(st)
+	defer mcpMgr.Close()
+
 	r := &session.Runner{
 		Store:       st,
 		Mirror:      store.NewMirror(cfg.DataDir),
@@ -168,6 +175,7 @@ func runRun(ctx context.Context, args []string) error {
 		Gemini:      withGeminiHTTPLog(cfg, rec, googleAPIKeyProvider(res)),
 		GeminiModel: googleVisionModelProvider(res),
 		Settings:    res,
+		MCP:         mcpMgr,
 	}
 
 	fmt.Printf("model %s (effort %s, %s), permission mode %s, %d job(s)\n\n", resolvedModel, resolvedEffort, reasoningClaim(resolvedModel, *thinking), mode, len(workspaces))

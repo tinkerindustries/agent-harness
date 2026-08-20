@@ -49,7 +49,7 @@ func TestPerRequestDataStaysOutOfTheSystemPrompt(t *testing.T) {
 	schema := json.RawMessage(`{"type":"object","properties":{"unlikelyField42":{"type":"string"}}}`)
 
 	sys := RenderSystemPrompt()
-	opening := RenderOpeningMessage(workspace, task, schema, "", "", nil)
+	opening := RenderOpeningMessage(workspace, task, schema, "", "", "", nil)
 
 	for _, needle := range []string{workspace, task, "unlikelyField42"} {
 		if !strings.Contains(opening, needle) {
@@ -68,7 +68,7 @@ func TestPerRequestDataStaysOutOfTheSystemPrompt(t *testing.T) {
 func TestOpeningMessageShowsTheCompleteCallShape(t *testing.T) {
 	schema := json.RawMessage(`{"type":"object","properties":{"branch":{"type":"string"},` +
 		`"files_changed":{"type":"array"}},"required":["branch"]}`)
-	opening := RenderOpeningMessage("/ws", "do the thing", schema, "", "", nil)
+	opening := RenderOpeningMessage("/ws", "do the thing", schema, "", "", "", nil)
 
 	if !strings.Contains(opening, `result={"branch": …, "files_changed": …}`) {
 		t.Errorf("opening message should show the nested call shape with the schema's own fields:\n%s", opening)
@@ -86,7 +86,7 @@ func TestOpeningMessageHandlesSchemaWithoutProperties(t *testing.T) {
 		json.RawMessage(`{"type":"array","items":{"type":"string"}}`),
 		json.RawMessage(`not json at all`),
 	} {
-		opening := RenderOpeningMessage("/ws", "do the thing", schema, "", "", nil)
+		opening := RenderOpeningMessage("/ws", "do the thing", schema, "", "", "", nil)
 		if !strings.Contains(opening, "result={…}") {
 			t.Errorf("schema %s should fall back to an elided example:\n%s", schema, opening)
 		}
@@ -96,7 +96,7 @@ func TestOpeningMessageHandlesSchemaWithoutProperties(t *testing.T) {
 // A run without a result schema never sees any of this. The opening message
 // for those runs must stay byte-identical to what it was.
 func TestOpeningMessageUnchangedWithoutAResultSchema(t *testing.T) {
-	opening := RenderOpeningMessage("/ws", "do the thing", nil, "", "", nil)
+	opening := RenderOpeningMessage("/ws", "do the thing", nil, "", "", "", nil)
 	if opening != "Workspace: /ws\n\nTask:\ndo the thing\n" {
 		t.Errorf("no-schema opening message changed shape: %q", opening)
 	}

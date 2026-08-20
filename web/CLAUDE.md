@@ -144,6 +144,27 @@ What the screens are:
   validates against. A closed set renders a `ToggleGroup`; only overrides and
   unset secrets are badged. The nav's right slot carries the key/description
   search input, which filters the rows client-side on top of the chip filter.
+- **MCP.** One card per configured server (docs/MCP.md): its name, a status
+  badge (OK with the tool count and a relative "probed N minutes ago", ERROR
+  with the server's own `probe_error` verbatim, or NEVER PROBED), and the
+  command it runs or its URL in monospace. Enable/disable is a `Toggle` on
+  the card and the one write on this screen that is optimistic rather than
+  re-fetching (`web/src/components/MCPScreen.tsx`, `web/src/api/mcp.ts`) — it
+  flips immediately and rolls back with the server's message on a failed
+  write, because turning a server on and off is the action this screen exists
+  to make a single click. The tools a server contributes are a `Collapsible`,
+  closed by default, each row the tool's `mcp__<server>__<tool>` qualified
+  name in monospace beside its description. Refresh, Edit and Delete are
+  per-card; Delete confirms inline, not `window.confirm`. The add form sits
+  behind an "Add server" button and opens with a paste box wired to
+  `web/src/api/mcpCommand.ts`'s `parseMCPCommand` — it reads a
+  `claude mcp add ...` line, a bare command, or a bare URL, fills the fields
+  below it, and those fields stay editable either way; editing reuses the
+  same form pre-filled, with masked env/header values shown as the server
+  sent them and a note that leaving one untouched keeps the stored secret
+  (`mcpStatus.ts`'s `buildKVPatch` is what turns "untouched" into the
+  keep-or-remove convention docs/MCP.md describes for a PATCH). The nav's
+  right slot carries a refresh-all button.
 
 Build output lands in `../internal/webassets/dist`, which the Go binary embeds.
 Don't change `build.outDir`.

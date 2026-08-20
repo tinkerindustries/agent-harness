@@ -100,7 +100,14 @@ settings accessors; `lifecycle.go` is `Create`/`FailSetup`/`Run` and the loop
 that drives a run to a terminal result; `sinks.go` is where a sub-turn's
 output goes (the disk mirror, the hub); `tooldispatch.go` executes a
 sub-turn's tool calls; `livestate.go` persists the plan and recent-calls
-roll.
+roll. MCP support (`mcp.go`, [`../docs/MCP.md`](../docs/MCP.md)) is resolved
+once, not read live: `resolveMCPDefinitions` asks the `Runner`'s own `MCP
+tools.MCPProvider` seam — nil for a caller with none wired, the CLI and every
+existing test among them — for the enabled servers' tool array and
+per-server readonly map, and `Run` and `Resume` each call it exactly once and
+freeze the result onto the row's `tool_schema` and the policy's
+`MCPReadOnlyServers`, so a server an operator toggles mid-run cannot change
+what a running session sends.
 
 ### `internal/tools`
 Every tool the model can call: schemas matching the trained-in shape, argument
@@ -112,6 +119,15 @@ provider→model table and subtracts the named variant's dropped tools
 (`internal/promptvariant`), so a variant session's row, head, and requests all
 carry the same smaller array. The catalogue and its wording are
 [`../docs/TOOLS.md`](../docs/TOOLS.md); a change here is a cache-prefix change.
+It also declares `MCPProvider`, the narrow seam `internal/mcpclient`
+implements, and owns the `mcp__` naming vocabulary
+(`MCPToolPrefix`, `MCPServerOf`) both packages share; `execMCP`
+(`mcpexec.go`) is what flattens one MCP server's raw reply into a `Result` —
+text under the ordinary output cap, an image written into the session's
+`scratch/mcp/`, a server-reported `isError` carried through as an ordinary
+failed result rather than a Go error — and the permission policy's
+`MCPReadOnlyServers` map is the per-server readonly allowance frozen onto it
+at run start ([`../docs/MCP.md`](../docs/MCP.md)).
 Depends on: `internal/wire`, `internal/provider`, `internal/promptvariant`,
 `internal/attachment` (the image-extension-to-MIME-type table the vision
 tools read images by).
@@ -136,7 +152,13 @@ which file holds which: the `Store` type and the single-writer loop stay in
 `store.go`; `errors.go` is the error vocabulary; `schema.go` the SQL schema
 and column migration; `sessions.go` the status vocabulary and session CRUD;
 `events.go` the event payload types and the append-only log's queries;
-`leases.go` workspace leases. Depends on: nothing internal. §4.8.
+`leases.go` workspace leases; `mcp.go` is the `mcp_servers` table
+([`../docs/MCP.md`](../docs/MCP.md)) — CRUD plus `SaveMCPProbe`, whose one
+asymmetry is the whole point of the table: a successful probe overwrites
+`tools_json`, a failed one only ever writes `probe_error`, so a session
+resolving its tool array from a stored row never sees it shrink because a
+server happened to be unreachable the moment that row was read. Depends on:
+nothing internal. §4.8.
 
 ### `internal/hub`
 In-process SSE fan-out: per-session transcript subscribers and a quieter
@@ -170,9 +192,17 @@ the session loop reads at its next sub-turn boundary. It holds the loaded
 price table for `GET /api/pricing`, which serves the rate schedule and no
 rates — `internal/pricing` depends on nothing internal, so this adds no edge
 worth worrying about, and the browser prices nothing (docs/DATA-API.md
-"pricing"). §4.2. Split by resource, one file per group; `server.go`'s own
-package doc names which file holds which (the `Server` type and `routes()`
-stay there so the whole surface is still readable in one list).
+"pricing"). The MCP server registry (`mcp.go`, [`../docs/MCP.md`](../docs/MCP.md))
+is a fifth write surface with the same shape: `GET`, `POST`, `PATCH`, and
+`DELETE` on `/api/mcp/servers` read and write `store`'s `mcp_servers` rows
+directly, and probing goes through `MCPProber`, a seam this package declares
+for itself narrower than `MCPProvider` and implemented by the same
+`*mcpclient.Manager` — so triggering a probe from the browser still never
+gives this package a reach into `session` or `worker`. §4.2. Split by
+resource, one file per
+group; `server.go`'s own package doc names which file holds which (the
+`Server` type and `routes()` stay there so the whole surface is still
+readable in one list).
 
 ### `internal/webassets`
 `go:embed` of the built frontend, so the binary ships with no runtime assets.
@@ -268,6 +298,27 @@ Scans the workspace and each cloned repository for a root `CLAUDE.md` and
 renders their contents into the opening user message, ahead of the skill
 catalogue and the task, capped per file and in total. Discovery never fails a
 run. Depends on: nothing internal.
+
+### `internal/mcpclient`
+The client side of MCP support ([`../docs/MCP.md`](../docs/MCP.md)) — not to
+be confused with `internal/mcp` just below, the *server* this harness
+exposes at `/mcp`; the two never meet, and the three letters they share are
+the only thing they share. `Manager` implements `MCPProvider`, the narrow
+seam `internal/tools` declares: `Definitions` is a pure function of the
+`mcp_servers` table's stored snapshot — no server is dialled to build a
+session's tool array — and `Call`, plus the `Refresh` probe, are the only
+paths that open a connection, over a cache of one live session per server,
+redialled when the row's connection configuration has moved on since the
+cached session was dialled or a liveness ping says it has quietly died.
+`cmd/harness` wires the one `Manager` per process into `internal/session`
+through `MCPProvider` and into `internal/httpapi` through the narrower
+`MCPProber` seam that package declares for itself, so probing from the
+`/mcp-servers` screen never gives `internal/httpapi` a reach into `session` or
+`worker`. Depends on: `internal/store` (the `mcp_servers` rows),
+`internal/wire` (the tool array shape the request head carries),
+`internal/tools` (the `MCPProvider` seam and its
+`MCPContent`/`MCPImage`/`MCPServerOf` vocabulary), and the MCP Go SDK
+(`github.com/modelcontextprotocol/go-sdk/mcp`).
 
 ### `internal/mcp`
 The MCP launch server: tools and resources over streamable HTTP, mounted at

@@ -22,6 +22,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
 	"github.com/mrgeoffrich/deepseek-harness/internal/kimi"
 	harnessmcp "github.com/mrgeoffrich/deepseek-harness/internal/mcp"
+	"github.com/mrgeoffrich/deepseek-harness/internal/mcpclient"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/provider"
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
@@ -83,6 +84,16 @@ func runServe(ctx context.Context, args []string) error {
 	}
 	defer st.Close()
 	res := settings.NewResolver(st)
+
+	// The one MCP client manager for this process, shared by the session
+	// runner (which resolves a run's tool array and dispatches calls
+	// through it, internal/session, docs/MCP.md) and the HTTP API (which
+	// uses only its narrower MCPProber slice to serve and refresh the
+	// server registry, internal/httpapi/mcp.go). Composition happens here
+	// and nowhere else (ARCHITECTURE.md), so this is the only place either
+	// package learns a *mcpclient.Manager exists.
+	mcpMgr := mcpclient.New(st)
+	defer mcpMgr.Close()
 
 	// The run-control bearer token: http.control_token, generated when the
 	// setting is empty so an installation that has never had one gets one on
@@ -195,6 +206,7 @@ func runServe(ctx context.Context, args []string) error {
 		GeminiModel: googleVisionModelProvider(res),
 		Hub:         eventHub,
 		Settings:    res,
+		MCP:         mcpMgr,
 		ModelLimits: map[string]int{
 			defaultModel:      concurrencyPro,
 			defaultFlashModel: concurrencyFlash,
@@ -273,6 +285,7 @@ func runServe(ctx context.Context, args []string) error {
 		Queue: q, Pool: pool, PriceTableDate: priceTable.CapturedAt, Prices: priceTable,
 		Run: pool, Publisher: publishAdapter{q: q}, ControlToken: controlToken,
 		Evals:              evalControl{o: orchestrator},
+		MCP:                mcpMgr,
 		DefaultEventsLimit: eventsLimitDefault,
 		MaxEventsLimit:     eventsLimitMax,
 	}

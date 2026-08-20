@@ -249,7 +249,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	// wall time the run waited on the API.
 	streamStart := time.Now()
 	live := newLiveSink(r.Hub, sess.ID, subTurn)
-	reasoning, content, assembler, finishReason, usage, err := r.stream(httplog.WithSessionID(ctx, sess.ID), sess.Model, opts.PromptVariant, messages, opts.Effort, opts.Thinking, opts.MaxTokens, live)
+	reasoning, content, assembler, finishReason, usage, err := r.stream(httplog.WithSessionID(ctx, sess.ID), sess.Model, opts.Tools, messages, opts.Effort, opts.Thinking, opts.MaxTokens, live)
 	if err != nil {
 		return subTurnOutcome{}, fmt.Errorf("session: sub-turn %d: %w", subTurn, err)
 	}
@@ -266,7 +266,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	var starved *wire.Usage
 	if r.clientFor(sess.Model).IsReasoningStarved(finishReason, content) && len(assembler.Finalize()) == 0 {
 		starved = usage
-		reasoning, content, assembler, finishReason, usage, err = r.stream(ctx, sess.Model, opts.PromptVariant, messages, opts.Effort, opts.Thinking, opts.MaxTokens*2, live)
+		reasoning, content, assembler, finishReason, usage, err = r.stream(ctx, sess.Model, opts.Tools, messages, opts.Effort, opts.Thinking, opts.MaxTokens*2, live)
 		if err != nil {
 			return subTurnOutcome{}, fmt.Errorf("session: sub-turn %d retry: %w", subTurn, err)
 		}
@@ -499,15 +499,17 @@ func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestMessa
 // bytes (docs/CACHE.md). This function does not re-serialise between
 // attempts.
 //
-// The tool list is resolved variant-aware: a tool-dropping variant's
-// session sends the same smaller array on every request
-// (tools.DefinitionsForVariant), matching the head it renders and the
-// schema stored on its row. The variant string comes from the run's
-// options — on a fresh run from the request, on a resume from the session
-// row, where the variant name is frozen (store.Session.PromptVariant) — so
-// a resumed variant session sends the same array it sent before it was
-// interrupted.
-func (r *Runner) stream(ctx context.Context, model, variant string, messages []wire.Message, effort string, thinking bool, maxTokens int, live *liveSink) (
+// toolArray is sent as-is, never recomputed here: Run resolves it once, at
+// run start (tools.DefinitionsForVariant plus the MCP snapshot,
+// tools.WithMCP), and Resume reads the same bytes back from the session's
+// stored tool_schema rather than re-resolving (docs/MCP.md, "Resolution
+// happens once per run"). Every request of a run — the reasoning-starved
+// retry included — passes the one array RunOptions.Tools carries, so a
+// tool-dropping variant's smaller array, and an MCP-configured run's larger
+// one, both match the head rendered from the same array and the schema
+// stored on the row. A resumed session's array cannot drift even if a
+// server is enabled or disabled, or a variant redefined, while it runs.
+func (r *Runner) stream(ctx context.Context, model string, toolArray []wire.Tool, messages []wire.Message, effort string, thinking bool, maxTokens int, live *liveSink) (
 	reasoning, content string, assembler *wire.ToolCallAssembler, finishReason string, usage *wire.Usage, err error) {
 
 	intent := wire.ChatIntent{
@@ -516,7 +518,7 @@ func (r *Runner) stream(ctx context.Context, model, variant string, messages []w
 		Effort:    effort,
 		Thinking:  thinking,
 		MaxTokens: maxTokens,
-		Tools:     tools.DefinitionsForVariant(model, variant),
+		Tools:     toolArray,
 	}
 
 	release, err := r.acquireModelSlot(ctx, model)

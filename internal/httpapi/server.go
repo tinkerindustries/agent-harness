@@ -3,15 +3,18 @@
 // cannot reach the run loop. GET and HEAD are served on every path, including
 // ones that do not exist; the writing methods are allowed where a write route
 // exists — PUT and DELETE on a settings key, PATCH and DELETE on one session,
-// and POST on the run-control endpoints (docs/RUN-CONTROL.md). It serves
+// POST/PATCH/DELETE on the MCP server registry, and POST on the run-control
+// endpoints (docs/RUN-CONTROL.md). It serves
 // the session list and metadata from the store, a paged read of one session's
 // event log, two SSE streams — a per-session transcript and a quiet
 // session-level list feed — fed by the in-process hub package rather than
 // the queue, the settings table, the work-request and workspace-lease rows,
-// and a read-only GitHub repo list (GET /api/github/repos) backing the
+// the MCP server registry (mcp.go, docs/MCP.md), and a read-only GitHub repo
+// list (GET /api/github/repos) backing the
 // start-run form's repo picker (github.go).
 // The write surface is the data the harness manages: closing an abandoned
-// session, deleting a finished one, setting a key. Run control is a declared
+// session, deleting a finished one, setting a key, registering or editing an
+// MCP server. Run control is a declared
 // seam, not an import: stopping goes through the RunController interface
 // below, satisfied by *worker.Pool without this package knowing the package
 // exists; starting goes through the RunPublisher interface, satisfied by
@@ -31,7 +34,7 @@
 // event log and its two streams; respond.go is the small helpers shared
 // across more than one of the above. evals.go, github.go, models.go,
 // pricing.go, screenshots.go, paging.go, and static.go were already split
-// out before this list existed.
+// out before this list existed; mcp.go is the MCP server registry.
 package httpapi
 
 import (
@@ -159,6 +162,15 @@ type RunPublisher interface {
 	PublishRequest(ctx context.Context, req queue.Request) error
 }
 
+// MCPProber is the subset of the MCP client manager the server needs:
+// re-read one server's tool list and store it. Declared here and
+// implemented by *mcpclient.Manager in cmd/harness, so this package still
+// holds no MCP client and no subprocess — only the ability to ask for one
+// probe (docs/MCP.md).
+type MCPProber interface {
+	Refresh(ctx context.Context, name string) (store.MCPServer, error)
+}
+
 // EvalController is the subset of the eval orchestrator the eval endpoints
 // need. Declared here and implemented in cmd/harness over *evals.Orchestrator,
 // the shape RunController and RunPublisher already use: this package asks a
@@ -193,7 +205,11 @@ type EvalController interface {
 // then answers 503 — no publisher wired means no run can be started, and
 // that must fail closed, the same shape the missing token has. ControlToken
 // is the process's copy of http.control_token; empty means run control is
-// not configured and the run-control endpoints fail closed with 503.
+// not configured and the run-control endpoints fail closed with 503. MCP is
+// nil in any caller with no client manager wired (a CLI-only harness, or
+// most tests): creating and editing an MCP server still work, they simply
+// record no probe on the row, and POST .../refresh answers 503 the same way
+// the missing publisher does (docs/MCP.md).
 type Server struct {
 	Store          *store.Store
 	Hub            *hub.Hub
@@ -203,6 +219,7 @@ type Server struct {
 	Run            RunController
 	Publisher      RunPublisher
 	Evals          EvalController
+	MCP            MCPProber
 	ControlToken   string
 	PriceTableDate string
 	// Prices is the loaded price table, for GET /api/pricing. Only its
@@ -236,9 +253,11 @@ type Server struct {
 // routing, so a request outside the method allowlist is rejected on every
 // path, including ones nothing here recognises: GET and HEAD everywhere, and
 // the writing methods where a write route exists — PUT and DELETE on a
-// settings key path, PATCH and DELETE on one session's path, and POST on the
+// settings key path, PATCH and DELETE on one session's path, POST on the MCP
+// server collection and its refresh subresource and PATCH/DELETE on one MCP
+// server, and POST on the
 // run-control subresources (docs/DESIGN.md §4.2, docs/DATA-API.md,
-// docs/RUN-CONTROL.md).
+// docs/RUN-CONTROL.md, docs/MCP.md).
 func (s *Server) Handler() http.Handler {
 	return methodGate(s.routes())
 }
@@ -292,6 +311,11 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/sessions/{id}/eval", s.handleGetSessionEval)
 	mux.HandleFunc("GET /api/github/repos", s.handleListGithubRepos)
 	mux.HandleFunc("GET /api/models", s.handleListModels)
+	mux.HandleFunc("GET /api/mcp/servers", s.handleListMCPServers)
+	mux.HandleFunc("POST /api/mcp/servers", s.handleCreateMCPServer)
+	mux.HandleFunc("PATCH /api/mcp/servers/{name}", s.handlePatchMCPServer)
+	mux.HandleFunc("DELETE /api/mcp/servers/{name}", s.handleDeleteMCPServer)
+	mux.HandleFunc("POST /api/mcp/servers/{name}/refresh", s.handleRefreshMCPServer)
 	mux.Handle("/", s.Static)
 	return mux
 }

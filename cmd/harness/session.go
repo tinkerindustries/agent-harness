@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/mcpclient"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/session"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
@@ -87,6 +88,13 @@ func runResume(ctx context.Context, args []string) error {
 	deepSeekClient := withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(settingsRes))
 	kimiClient := withKimiHTTPLog(cfg, rec, kimiAPIKeyProvider(settingsRes))
 
+	// harness resume reads the same session-level MCP tool_schema the run
+	// stored (internal/session/resume.go), but Resume still calls
+	// Definitions for the fresh read-only map (docs/MCP.md, "Permissions"),
+	// so this command needs its own Manager too.
+	mcpMgr := mcpclient.New(st)
+	defer mcpMgr.Close()
+
 	r := &session.Runner{
 		Store:       st,
 		Mirror:      store.NewMirror(cfg.DataDir),
@@ -97,6 +105,7 @@ func runResume(ctx context.Context, args []string) error {
 		Gemini:      withGeminiHTTPLog(cfg, rec, googleAPIKeyProvider(settingsRes)),
 		GeminiModel: googleVisionModelProvider(settingsRes),
 		Settings:    settingsRes,
+		MCP:         mcpMgr,
 	}
 
 	fmt.Printf("resuming %s: %s (effort %s), workspace %s\n\n", sessionID, sess.Model, sess.Effort, sess.Workspace)

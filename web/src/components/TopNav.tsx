@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { ArrowLeft, ChartLineUp, GearSix, Stack, Wrench } from "@phosphor-icons/react";
+import { ArrowLeft, ChartLineUp, GearSix, Plug, Stack, Wrench } from "@phosphor-icons/react";
 import type { Route } from "../App";
 import { cn } from "@/lib/utils";
 
@@ -31,14 +31,15 @@ export function useNavRight(node: ReactNode): void {
   }, [setRight, node]);
 }
 
-// section is which of the three links the current route belongs to: the
+// section is which of the links the current route belongs to: the
 // session list and a session's transcript are both the Sessions section,
 // and only the transcript additionally renders the crumb below, in the
 // slot a page title would otherwise sit in.
-function sectionOf(route: Route): "sessions" | "evals" | "operations" | "settings" {
+function sectionOf(route: Route): "sessions" | "evals" | "operations" | "mcp" | "settings" {
   if (route.kind === "list" || route.kind === "session") return "sessions";
   if (route.kind === "evals" || route.kind === "evalRun") return "evals";
   if (route.kind === "operations") return "operations";
+  if (route.kind === "mcp") return "mcp";
   return "settings";
 }
 
@@ -121,6 +122,13 @@ export function TopNav({ route, onNavigate, children }: TopNavProps) {
               icon={<Wrench aria-hidden className="hidden h-3.5 w-3.5 shrink-0 max-nav:inline" />}
               href="/operations"
               active={section === "operations"}
+              onNavigate={onNavigate}
+            />
+            <NavLink
+              label="MCP"
+              icon={<Plug aria-hidden className="hidden h-3.5 w-3.5 shrink-0 max-nav:inline" />}
+              href="/mcp-servers"
+              active={section === "mcp"}
               onNavigate={onNavigate}
             />
             <NavLink

@@ -110,10 +110,26 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 		return nil, fmt.Errorf("session: permission mode %q must be readonly or full", opts.PermissionMode)
 	}
 
+	if opts.SessionID == "" {
+		opts.SessionID = newID("sess")
+	}
+	sessID := opts.SessionID
+
+	// MCP definitions are resolved once, here, for the whole run
+	// (docs/MCP.md, "Resolution happens once per run"): the provider's
+	// frozen array plus whatever servers are enabled right now, appended
+	// after it so the built-in portion's own bytes never move. Every
+	// request this run sends, and the schema stored on the session row,
+	// come from this one resolution — never a second call to
+	// tools.DefinitionsForVariant or r.MCP.Definitions later in the run.
+	mcpDefs, mcpReadOnly := r.resolveMCPDefinitions(ctx, sessID)
+	opts.Tools = tools.WithMCP(tools.DefinitionsForVariant(opts.Model, opts.PromptVariant), mcpDefs)
+
 	policy := &tools.Policy{
-		Mode:     opts.PermissionMode,
-		Deny:     opts.Deny,
-		Resolver: opts.Resolver,
+		Mode:               opts.PermissionMode,
+		Deny:               opts.Deny,
+		Resolver:           opts.Resolver,
+		MCPReadOnlyServers: mcpReadOnly,
 	}
 	executor, err := tools.NewExecutor(opts.Workspace, policy)
 	if err != nil {
@@ -127,12 +143,13 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	executor.GeminiModel = r.GeminiModel
 	executor.Settings = r.Settings
 	executor.ResultSchema = opts.ResultSchema
+	executor.MCP = r.MCP
 
-	// The schema stored on the session row is resolved variant-aware, like
-	// the prompt above it and the per-request tool list (turn.go): a
-	// variant that drops a tool ships a session whose row, head and
-	// requests all carry the same smaller array.
-	toolSchema, err := json.Marshal(tools.DefinitionsForVariant(opts.Model, opts.PromptVariant))
+	// The schema stored on the session row is exactly the array every
+	// request of this run sends — opts.Tools, resolved once above — so the
+	// row, the head, and every request agree by construction rather than by
+	// each re-deriving the same thing.
+	toolSchema, err := json.Marshal(opts.Tools)
 	if err != nil {
 		return nil, fmt.Errorf("session: encode tool schema: %w", err)
 	}
@@ -142,10 +159,6 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 		return nil, err
 	}
 
-	if opts.SessionID == "" {
-		opts.SessionID = newID("sess")
-	}
-	sessID := opts.SessionID
 	executor.RunSubagent = r.subagentRunner(sessID, opts, executor.Workspace)
 
 	// The worker creates the row as "creating" before it prepares the
@@ -188,7 +201,8 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	// repository instructions.
 	catalogue := skills.Discover(executor.Workspace).Render()
 	claudeMD := claudemd.Discover(executor.Workspace).Render()
-	opening := RenderOpeningMessage(executor.Workspace, opts.Prompt, opts.ResultSchema, claudeMD, catalogue, opts.AttachmentNames)
+	mcpBlock := RenderMCPBlock(opts.Tools)
+	opening := RenderOpeningMessage(executor.Workspace, opts.Prompt, opts.ResultSchema, claudeMD, catalogue, mcpBlock, opts.AttachmentNames)
 	appended, err := r.Store.AppendEvents(ctx, sessID, []store.EventInput{
 		{Kind: store.KindSessionStarted, Payload: store.SessionStartedPayload{
 			OpeningMessage: opening,

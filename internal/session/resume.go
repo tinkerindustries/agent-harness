@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/cache"
 	"github.com/mrgeoffrich/deepseek-harness/internal/fold"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // ResumeOptions is what Resume needs beyond the session it is continuing.
@@ -55,10 +57,27 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 	detector := primeDetector(sess, allEvents)
 	startSubTurn := countTurns(allEvents) + 1
 
+	// The tool array comes from the session's own stored tool_schema, not a
+	// fresh resolution: a server enabled or disabled since the run started
+	// must not change what a resumed session sends (docs/MCP.md,
+	// "Resolution happens once per run"). An unmarshal failure — a row from
+	// before tool_schema existed, or corrupt JSON — falls back to resolving
+	// fresh, logged, rather than failing the resume outright. The read-only
+	// map is different: it is the policy a call is checked against, not
+	// prefix bytes in the frozen head, so it always comes from a fresh call
+	// to the provider regardless of which branch the array took.
+	toolArray, err := unmarshalToolSchema(sess.ToolSchema)
+	mcpDefs, mcpReadOnly := r.resolveMCPDefinitions(ctx, sess.ID)
+	if err != nil {
+		log.Printf("session: resume: unmarshal stored tool schema for %s, resolving fresh: %v", sess.ID, err)
+		toolArray = tools.WithMCP(tools.DefinitionsForVariant(sess.Model, sess.PromptVariant), mcpDefs)
+	}
+
 	policy := &tools.Policy{
-		Mode:     tools.Mode(sess.PermissionMode),
-		Deny:     sess.DenyPatterns,
-		Resolver: opts.Resolver,
+		Mode:               tools.Mode(sess.PermissionMode),
+		Deny:               sess.DenyPatterns,
+		Resolver:           opts.Resolver,
+		MCPReadOnlyServers: mcpReadOnly,
 	}
 	executor, err := tools.NewExecutor(sess.Workspace, policy)
 	if err != nil {
@@ -72,6 +91,7 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 	executor.GeminiModel = r.GeminiModel
 	executor.Settings = r.Settings
 	executor.ResultSchema = sess.ResultSchema
+	executor.MCP = r.MCP
 
 	runOpts := RunOptions{
 		Model: sess.Model, Effort: sess.Effort, Thinking: sess.Thinking,
@@ -83,6 +103,7 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 		JobType: sess.JobType, ParentAgentType: sess.ParentAgentType, ParentAgentID: sess.ParentAgentID,
 		ParentIsUser: sess.ParentIsUser,
 		SessionID:    sess.ID, Progress: opts.Progress,
+		Tools: toolArray,
 	}
 	executor.RunSubagent = r.subagentRunner(sess.ID, runOpts, executor.Workspace)
 
@@ -110,6 +131,31 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 
 	r.openLog(curSess)
 	return r.runLoop(ctx, curSess, allEvents, runOpts, executor, detector, startSubTurn)
+}
+
+// unmarshalToolSchema decodes sess.ToolSchema back into the array Resume
+// sends, so a resumed session's requests match the row it already promised
+// (docs/CACHE.md). A nil or empty payload is not valid JSON and is reported
+// as an error like any other decode failure, rather than silently resolving
+// to an empty array — the caller's fallback path is what handles it.
+func unmarshalToolSchema(raw json.RawMessage) ([]wire.Tool, error) {
+	var toolArray []wire.Tool
+	if err := json.Unmarshal(raw, &toolArray); err != nil {
+		return nil, err
+	}
+	// An empty array is treated as a decode failure rather than as an
+	// answer, so the caller resolves fresh. Both shapes that produce one —
+	// a stored "null" (a nil slice marshalled by some earlier version) and
+	// a literal "[]" — unmarshal without error, and a resumed session that
+	// took them at their word would send no tools at all: the model would
+	// go quiet with nothing in the log saying why, which reads as a model
+	// failure rather than the data problem it is. No live run can store
+	// either shape (Run always marshals a non-empty array), so this costs
+	// nothing and closes the one silent way to lose every tool.
+	if len(toolArray) == 0 {
+		return nil, fmt.Errorf("stored tool schema decoded to no tools")
+	}
+	return toolArray, nil
 }
 
 // countTurns reports how many sub-turns a session's event log already

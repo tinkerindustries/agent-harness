@@ -12,7 +12,8 @@
 // events.go the event payload types and the append-only log's queries;
 // leases.go workspace leases; work_requests.go work requests; settings.go
 // the settings table; evals.go eval runs and members; mirror.go and diff.go
-// the disk mirror; summary.go the session-list usage summaries.
+// the disk mirror; summary.go the session-list usage summaries; mcp.go the
+// mcp_servers table and its validation.
 package store
 
 import (

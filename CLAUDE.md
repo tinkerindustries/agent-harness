@@ -55,6 +55,12 @@ cutting a version and deploying it to the production stack.
   sides — [`docs/WORKTREES.md`](docs/WORKTREES.md), "Path parity". Keep the two
   sides of that mount equal: unequal, a session cannot run `docker compose` in
   its own clone, which is most of what `scripts/build.sh` is for.
+- **`docs/MCP.md`** is the reference for the harness's own MCP *client*
+  support — an operator registers an external MCP server and its tools join
+  every session's array (`internal/mcpclient`). Do not confuse this with
+  `internal/mcp`, the MCP *server* this harness itself exposes at `/mcp` so
+  another agent harness can launch runs here — same three letters, opposite
+  direction, and the two packages never meet.
 - **Sibling git worktrees each get their own ports and compose project**,
   allocated by `harness worktree init` and torn down by `harness worktree rm`.
   Create one with `/worktree-create <slug>`, remove one with

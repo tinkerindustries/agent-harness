@@ -98,6 +98,23 @@ ARG GH_VERSION=2.97.0
 RUN wget -qO- https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${TARGETARCH}.tar.gz \
     | tar xz -C /usr/local/bin --strip-components=2 gh_${GH_VERSION}_linux_${TARGETARCH}/bin/gh
 
+# uv, so a stdio MCP server registered as `uvx <package>` has something to
+# launch (docs/MCP.md). Astral ship a static musl build, so the release
+# tarball drops straight in the way gh's does above; uvx is a second binary
+# in the same archive, not a shim that needs a Python on the path. Node-based
+# servers are already covered by the npx installed above. uv's own arch names
+# are not Docker's, hence the case: TARGETARCH is amd64/arm64 and uv ships
+# x86_64/aarch64.
+ARG UV_VERSION=0.12.5
+RUN case "${TARGETARCH}" in \
+      amd64) uv_arch=x86_64 ;; \
+      arm64) uv_arch=aarch64 ;; \
+      *) echo "unsupported TARGETARCH ${TARGETARCH}" >&2; exit 1 ;; \
+    esac && \
+    wget -qO- https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${uv_arch}-unknown-linux-musl.tar.gz \
+    | tar xz -C /usr/local/bin --strip-components=1 \
+        uv-${uv_arch}-unknown-linux-musl/uv uv-${uv_arch}-unknown-linux-musl/uvx
+
 # Playwright drives Alpine's own Chromium. The browsers `playwright install`
 # downloads are glibc-only and will not start on musl, so the symlinks below
 # put the system Chromium where Playwright looks for its downloaded one —

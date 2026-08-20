@@ -68,6 +68,12 @@ const (
 	// from this one so a slow page fails with a message rather than being
 	// killed silently (docs/TOOLS.md, "Screenshot").
 	ScreenshotTimeout = 90 * time.Second
+	// DefaultMCPTimeout bounds one MCP tool call (docs/MCP.md, "Calling").
+	// Longer than DefaultToolTimeout: the calls that motivated MCP support —
+	// rendering a viewport, driving an external application through a
+	// browser — routinely run past the harness's own 30-second default for
+	// its built-in tools.
+	DefaultMCPTimeout = 120 * time.Second
 )
 
 // Result is what one tool execution returns. Content is what goes back to
@@ -166,6 +172,7 @@ type Timeouts struct {
 	ReviewScreenshot time.Duration
 	Screenshot       time.Duration
 	Transcribe       time.Duration
+	MCP              time.Duration
 }
 
 // ChatClient is the narrow seam the executor's own model calls use —
@@ -212,6 +219,15 @@ type Executor struct {
 	// never fails the run.
 	Gemini *gemini.Client
 
+	// MCP is the seam to every configured MCP server (internal/mcpclient
+	// implements it), the one Execute routes a call whose name carries the
+	// mcp__ prefix through instead of toolFuncs (docs/MCP.md, "Calling").
+	// Nil — no MCP client wired, the shape every existing test and the CLI
+	// path without one take — makes such a call return an ordinary error
+	// result naming the tool, the same shape WebFetch and Gemini use for a
+	// nil dependency: never a panic, never a failed run.
+	MCP MCPProvider
+
 	// GeminiModel resolves the vision model name per call, the same
 	// read-through-the-store shape as the DeepSeek API key provider, so a
 	// model changed with `harness config set google.vision_model` takes
@@ -239,6 +255,18 @@ type Executor struct {
 	todosMu    sync.Mutex
 	todos      []Todo
 	nextTaskID int
+
+	// mcpImageMu guards the counter that makes each image an MCP tool
+	// returns land on its own path. Naming a file from the call's own
+	// arguments alone is not enough: calling one tool twice — render, look,
+	// change something, render again — would write both images to the same
+	// name, so the second silently replaces the first and the transcript's
+	// earlier reference starts pointing at bytes that are not what it
+	// showed. The counter belongs to the Executor because an Executor
+	// belongs to exactly one session (docs/DESIGN.md §4.5), which is also
+	// what keeps the numbers readable rather than globally unique.
+	mcpImageMu   sync.Mutex
+	nextMCPImage int
 
 	// Glance conversation state, held here because an Executor belongs to
 	// exactly one session (docs/DESIGN.md §4.5). See glanceConversation.
@@ -274,6 +302,12 @@ func (e *Executor) outputCap(ctx context.Context) int {
 }
 
 func (e *Executor) timeoutFor(ctx context.Context, name string, argsRaw json.RawMessage) time.Duration {
+	// An MCP tool's name is dynamic — server and tool names an operator
+	// configured, not a literal the switch below can case on — so it is
+	// checked ahead of the switch rather than folded into it.
+	if _, ok := MCPServerOf(name); ok {
+		return e.mcpTimeout(ctx)
+	}
 	switch name {
 	case "Bash":
 		def, max := e.bashTimeouts(ctx)
@@ -345,6 +379,24 @@ func (e *Executor) timeoutFor(ctx context.Context, name string, argsRaw json.Raw
 		}
 		return DefaultToolTimeout
 	}
+}
+
+// mcpTimeout returns the wall-clock bound on one MCP call: tools.mcp_timeout,
+// resolved through settings exactly like every other tool's timeout, longer
+// by default than DefaultToolTimeout because the calls that motivated MCP
+// support drive external applications — rendering a viewport, driving a
+// browser — which routinely run past the harness's own tools' 30-second
+// default (docs/MCP.md, "Calling").
+func (e *Executor) mcpTimeout(ctx context.Context) time.Duration {
+	if e.Timeouts.MCP > 0 {
+		return e.Timeouts.MCP
+	}
+	if e.Settings != nil {
+		if v, err := e.Settings.Duration(ctx, settings.KeyToolMCPTimeout); err == nil {
+			return v
+		}
+	}
+	return DefaultMCPTimeout
 }
 
 // bashTimeouts returns the Bash default and ceiling timeouts, honouring an
@@ -447,6 +499,13 @@ func (e *Executor) Execute(ctx context.Context, call wire.ToolCall) Outcome {
 
 	ctx, cancel := context.WithTimeout(ctx, e.timeoutFor(ctx, name, argsRaw))
 	defer cancel()
+
+	// An MCP call is routed to the configured provider instead of
+	// toolFuncs, inside the same per-tool timeout and after the same policy
+	// check every other tool just passed (docs/MCP.md, "Calling").
+	if server, ok := MCPServerOf(name); ok {
+		return Outcome{Name: name, Result: e.execMCP(ctx, server, name, argsRaw)}
+	}
 
 	if name == "Complete" {
 		res, payload, ok := e.execComplete(argsRaw)

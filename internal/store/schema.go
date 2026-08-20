@@ -157,6 +157,38 @@ CREATE TABLE IF NOT EXISTS work_queue (
 	delivery_count   INTEGER NOT NULL DEFAULT 0
 );
 
+-- The operator's global MCP server registry (docs/MCP.md, "The table"). One
+-- row per server, no per-request scoping, which is what makes enable/disable
+-- a single toggle with an obvious meaning. tools_json is the tool list as it
+-- was read the last time a probe against that server succeeded, not a live
+-- read: the request head's tool array is built from this stored snapshot, so
+-- a server that is enabled but unreachable when a session starts contributes
+-- the tools it contributed last time rather than silently shrinking the
+-- array — and the array is the frozen request head, so a resumed session
+-- whose array shrank under it would invalidate its own prompt-cache prefix
+-- (docs/MCP.md, "The tool array is built from a stored snapshot, never from
+-- a live connection"). That asymmetry is why a failed probe
+-- (internal/store/mcp.go, SaveMCPProbe) writes only probe_error and leaves
+-- tools_json and probed_at untouched: the array a session builds must not
+-- depend on whether a subprocess happened to start this minute.
+CREATE TABLE IF NOT EXISTS mcp_servers (
+	name           TEXT PRIMARY KEY,
+	transport      TEXT NOT NULL,               -- 'stdio' or 'http'
+	command        TEXT NOT NULL DEFAULT '',    -- stdio: the executable
+	args           TEXT NOT NULL DEFAULT '[]',  -- stdio: JSON array of strings
+	env            TEXT NOT NULL DEFAULT '{}',  -- stdio: JSON object of strings
+	url            TEXT NOT NULL DEFAULT '',    -- http: the endpoint
+	headers        TEXT NOT NULL DEFAULT '{}',  -- http: JSON object of strings
+	enabled        INTEGER NOT NULL DEFAULT 1,
+	allow_readonly INTEGER NOT NULL DEFAULT 0,
+	tools_json     TEXT NOT NULL DEFAULT '[]',  -- last successful probe
+	probed_at      TEXT NOT NULL DEFAULT '',
+	probe_error    TEXT NOT NULL DEFAULT '',
+	created_at     TEXT NOT NULL,
+	updated_at     TEXT NOT NULL,
+	version        INTEGER NOT NULL DEFAULT 1
+);
+
 -- Read paths: the session list's usage summary filters events down to two
 -- kinds before scanning, and looks a session up by the request that
 -- created it.

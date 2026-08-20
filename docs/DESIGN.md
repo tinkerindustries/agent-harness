@@ -27,18 +27,29 @@ tools (`TaskCreate`/`TaskUpdate`), session resume, and run control from the
 browser — starting, steering, and stopping a run (§4.2).
 
 Not built: auth and multi-user identity, remote or containerised workspaces,
-an editor pane, FIM inline completion, MCP tools inside the agent loop, prefix
+an editor pane, FIM inline completion, prefix
 completion, background shells, edit checkpointing and rollback. Each is
 additive against this architecture.
 
-"MCP tools inside the agent loop" names one direction specifically: the
-harness *consuming* MCP tools as part of its own DeepSeek tool array, which
-would put a variable, request-dependent set of tool definitions in front of
-the frozen cached prefix (§3.2). The other direction is in scope and shipped:
-an MCP server that lets an external agent harness launch and collect
-agent-harness runs by enqueueing work requests through the same queue
-`harness serve` consumes (§4.10). It is a separate process (`harness mcp`)
-that never touches the system prompt or the tool array DeepSeek sees.
+Both MCP directions are now in scope, and they are unrelated to each other
+beyond the name. Outward: an MCP server that lets an external agent harness
+launch and collect agent-harness runs by enqueueing work requests through
+the same queue `harness serve` consumes (§4.10), mounted at `/mcp` and never
+touching the system prompt or the tool array the model sees. Inward: the
+harness *consuming* tools from MCP servers an operator has registered, which
+join its own tool array ([`MCP.md`](MCP.md)).
+
+That inward direction was ruled out here for a long time, and the objection
+was a real one worth recording rather than deleting: a set of tool
+definitions that varied per request would sit in front of the frozen cached
+prefix (§3.2) and cost the shared cache on every call. What makes it
+tractable is that the set does not vary per request. Configuration is global
+and stored, a session's array is resolved once at `Run` from a *stored*
+snapshot of each server's tools and frozen on the session row, and the
+snapshot is only ever rewritten by a successful probe — so an unreachable
+server contributes what it contributed last time instead of silently
+reshaping the head. The prefix moves when an operator changes the
+configuration, which is a deliberate act, and not otherwise.
 
 No control in the UI can approve a tool call, so approval is never a question
 the loop asks a human and waits on. Section 4.6 covers what replaces it. That

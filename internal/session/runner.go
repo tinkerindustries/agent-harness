@@ -28,6 +28,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // seesImages reports whether the provider serving model reads images
@@ -142,6 +143,19 @@ type RunOptions struct {
 	// session holds no state outside itself, and that includes which
 	// closure reports its progress).
 	Progress func(SubTurnProgress)
+
+	// Tools is the session's tool array — the frozen head's second half —
+	// resolved once, by Run or Resume, and passed unchanged through the
+	// whole run (docs/MCP.md, "Resolution happens once per run";
+	// docs/CACHE.md). Run resolves it from tools.DefinitionsForVariant plus
+	// the MCP snapshot at call time and stores the same bytes as the
+	// session's tool_schema; Resume instead reads that stored tool_schema
+	// back rather than re-resolving, so a server enabled or disabled since
+	// the run started cannot change what a resumed session sends. A caller
+	// building a RunOptions does not set this field: Run and Resume each
+	// overwrite it before runLoop's first request, from their own source of
+	// truth.
+	Tools []wire.Tool
 
 	// DebugChurnOnSubTurn, when equal to a sub-turn number, deliberately
 	// breaks that one sub-turn's shared prefix before sending it (via
@@ -295,6 +309,18 @@ type Runner struct {
 	// the tool then reports itself unavailable instead of failing the run
 	// (internal/tools, Glance).
 	Gemini *gemini.Client
+
+	// MCP is the seam to every configured MCP server (internal/mcpclient
+	// implements it, cmd/harness builds and shares the one Manager). Run
+	// resolves its Definitions once, at run start, into the session's
+	// frozen tool array and read-only map (docs/MCP.md, "Resolution
+	// happens once per run"); Resume reads the array back from the stored
+	// row but still calls this for the read-only map, which is policy
+	// rather than prefix bytes (resume.go). Nil is every existing test path
+	// and the CLI without a manager wired: a run then carries no MCP tools
+	// at all, and a failure reading it here is logged and treated the same
+	// as nil rather than failing the run.
+	MCP tools.MCPProvider
 
 	// GeminiModel resolves the vision model name per call — the same
 	// read-through-the-store shape as the DeepSeek API key provider, so a

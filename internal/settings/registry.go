@@ -82,6 +82,7 @@ const (
 	KeyToolReviewScreenshotMaxBytes  = "tools.reviewscreenshot_max_bytes"
 	KeyToolAttachmentsMaxCount       = "tools.attachments_max_count"
 	KeyToolAttachmentsMaxBytes       = "tools.attachments_max_bytes"
+	KeyToolMCPTimeout                = "tools.mcp_timeout"
 
 	KeyDefaultModel      = "model.default"
 	KeyDefaultFlashModel = "model.flash"
@@ -201,6 +202,8 @@ var registry = []Descriptor{
 		"Maximum image attachments one work request may carry (POST /api/runs and the MCP deepseek_agent tool)"),
 	intSetting(KeyToolAttachmentsMaxBytes, GroupToolLimits, 5<<20, 1024, 1<<30,
 		"Maximum bytes per image attachment, matching the vision tools' per-file cap so an attachment can always be looked at (5 MB at the default)"),
+	durationSetting(KeyToolMCPTimeout, GroupToolLimits, "120s", time.Second, 24*time.Hour,
+		"Wall-clock timeout for one MCP tool call (docs/MCP.md). Longer than the 30-second default for the harness's own tools: the calls that motivated MCP support drive external applications — rendering a viewport, driving a browser — which routinely run past that default."),
 
 	// --- Models ---
 	stringSetting(KeyDefaultModel, GroupModels,
