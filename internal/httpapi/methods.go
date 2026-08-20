@@ -16,8 +16,11 @@ import (
 // methodGate enforces the method allowlist ahead of any routing decision. GET
 // and HEAD pass on every path; the writing methods pass only where a write
 // route exists — PUT and DELETE on a settings key path, PATCH and DELETE on a
-// session or work-request path, DELETE on a lease path, and POST on the
-// run-control subresources (docs/DATA-API.md, docs/RUN-CONTROL.md). A
+// session or work-request path, DELETE on a lease path, POST on the MCP
+// server collection and one server's refresh subresource and PATCH/DELETE on
+// one server's own path, and POST on the
+// run-control subresources (docs/DATA-API.md, docs/RUN-CONTROL.md,
+// docs/MCP.md). A
 // pattern registered with a method already 405s a wrong-method request that
 // matches its path (net/http's ServeMux does this since Go 1.22), but that
 // only covers paths this package recognises; the static handler's "/" pattern
@@ -56,9 +59,11 @@ func methodGate(next http.Handler) http.Handler {
 //
 // Order is significant and preserved from the two switches this replaced:
 // isEvalPath must keep losing to isEvalsCollectionPath and
-// isEvalCancelPath, and isStopPath/isSteerPath must keep being distinct
-// from isSessionPath, for the reasons each predicate's own doc comment
-// gives below.
+// isEvalCancelPath, isStopPath/isSteerPath must keep being distinct
+// from isSessionPath, and isMCPServerRefreshPath must keep being consulted
+// before isMCPServerPath — the same shape isStopPath takes against
+// isSessionPath — for the reasons each predicate's own doc comment gives
+// below.
 type writeRoute struct {
 	match   func(path string) bool
 	methods []string
@@ -75,6 +80,9 @@ var writeRoutes = []writeRoute{
 	{isEvalsCollectionPath, []string{http.MethodPost}},
 	{isEvalCancelPath, []string{http.MethodPost}},
 	{isEvalPath, []string{http.MethodPatch, http.MethodDelete}},
+	{isMCPServersCollectionPath, []string{http.MethodPost}},
+	{isMCPServerRefreshPath, []string{http.MethodPost}},
+	{isMCPServerPath, []string{http.MethodPatch, http.MethodDelete}},
 }
 
 // writeAllowed reports whether method is a writing method the surface allows
@@ -208,6 +216,43 @@ func isLeasePath(path string) bool {
 	}
 	rest := strings.TrimPrefix(path, prefix)
 	return rest != ""
+}
+
+// isMCPServersCollectionPath reports whether path is the MCP server
+// collection — /api/mcp/servers, with no further segments. POST may pass the
+// gate here and nowhere else: registering a server is a create on the
+// collection, the same shape /api/runs and /api/evals take (docs/MCP.md).
+func isMCPServersCollectionPath(path string) bool {
+	return path == "/api/mcp/servers"
+}
+
+// isMCPServerRefreshPath reports whether path is one MCP server's refresh
+// subresource — /api/mcp/servers/<name>/refresh, exactly one name segment
+// and the literal "refresh". POST may pass the gate here and nowhere else.
+// It is deliberately checked before isMCPServerPath, the same ordering
+// isStopPath takes against isSessionPath: a refresh is an action (probe now),
+// not an edit of the row, and isMCPServerPath must not be widened to cover
+// it.
+func isMCPServerRefreshPath(path string) bool {
+	const prefix = "/api/mcp/servers/"
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	name, tail, ok := strings.Cut(strings.TrimPrefix(path, prefix), "/")
+	return ok && name != "" && tail == "refresh"
+}
+
+// isMCPServerPath reports whether path is exactly one MCP server's own
+// resource — /api/mcp/servers/<name> with no further segments. PATCH and
+// DELETE may pass the gate here and nowhere else; the refresh subresource
+// carries its own rule above and must be checked first.
+func isMCPServerPath(path string) bool {
+	const prefix = "/api/mcp/servers/"
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	rest := strings.TrimPrefix(path, prefix)
+	return rest != "" && !strings.Contains(rest, "/")
 }
 
 // allowedMethods names the methods the surface actually allows for path, for

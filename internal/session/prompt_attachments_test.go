@@ -12,7 +12,7 @@ import (
 // tool call can use — so the model can pass the mockup to Glance
 // instead of trying to describe it.
 func TestRenderOpeningMessageNamesAttachments(t *testing.T) {
-	msg := RenderOpeningMessage("/ws", "make the page match the mockup", nil, "", "", []string{"mockup.png", "light.webp"})
+	msg := RenderOpeningMessage("/ws", "make the page match the mockup", nil, "", "", "", []string{"mockup.png", "light.webp"})
 
 	if !strings.Contains(msg, "Image files attached to this task, materialised into scratch/attachments/") {
 		t.Errorf("opening message should introduce the attachments, got: %s", msg)
@@ -34,8 +34,8 @@ func TestRenderOpeningMessageNamesAttachments(t *testing.T) {
 // feature existed — the opening message is part of the conversation, and an
 // empty attachment list must not perturb it.
 func TestRenderOpeningMessageWithoutAttachmentsIsUnchanged(t *testing.T) {
-	withNil := RenderOpeningMessage("/ws", "do the thing", json.RawMessage(`{"type":"object"}`), "claude-md", "skills", nil)
-	withEmpty := RenderOpeningMessage("/ws", "do the thing", json.RawMessage(`{"type":"object"}`), "claude-md", "skills", []string{})
+	withNil := RenderOpeningMessage("/ws", "do the thing", json.RawMessage(`{"type":"object"}`), "claude-md", "skills", "", nil)
+	withEmpty := RenderOpeningMessage("/ws", "do the thing", json.RawMessage(`{"type":"object"}`), "claude-md", "skills", "", []string{})
 	if withNil != withEmpty {
 		t.Fatal("a nil and an empty attachment list must render identically")
 	}

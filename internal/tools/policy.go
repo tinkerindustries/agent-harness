@@ -1,6 +1,9 @@
 package tools
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
 // Mode is the permission mode a session holds for its whole life
 // (docs/TOOLS.md, "Permissions"). Modes gate execution, never the tool
@@ -46,6 +49,17 @@ type Policy struct {
 	// subtracts from what Mode allows; it can never widen it.
 	Deny     []string
 	Resolver Resolver
+	// MCPReadOnlyServers is the per-server read-only allowance
+	// (docs/MCP.md, "Permissions"): a server named true here may be called
+	// by a readonly-mode session even though it reaches outside the
+	// workspace by definition. It is frozen on the policy at run start the
+	// same way Mode and Deny are — Runner.Run and Runner.Resume take it from
+	// tools.MCPProvider.Definitions once, never a live read of the
+	// mcp_servers table mid-run — so a server an operator flips mid-run
+	// cannot change what a running session is allowed to call. A server
+	// absent from the map (no MCP configured, or one this policy's snapshot
+	// never saw) behaves as false: readonly denies its tools.
+	MCPReadOnlyServers map[string]bool
 }
 
 // alwaysAllowed tools have no side effects outside the session's own
@@ -116,6 +130,25 @@ func (p *Policy) Check(toolName, descriptor string) Decision {
 func (p *Policy) evaluate(toolName, descriptor string) Decision {
 	if rule, denied := p.matchDeny(descriptor); denied {
 		return Decision{Allow: false, Rule: "denied by configured pattern: " + rule}
+	}
+
+	// An MCP call is gated by its own table (docs/MCP.md, "Permissions")
+	// rather than by the mode switch below or by alwaysAllowed: full always
+	// allows it, readonly allows it only when the server it belongs to was
+	// probed with allow_readonly set, and it is denied otherwise with a rule
+	// that names the server so the model knows what to route around.
+	if server, ok := MCPServerOf(toolName); ok {
+		switch p.Mode {
+		case ModeFull:
+			return Decision{Allow: true, Rule: "full access mode"}
+		case ModeReadOnly:
+			if p.MCPReadOnlyServers[server] {
+				return Decision{Allow: true, Rule: fmt.Sprintf("MCP server %q allows read-only calls", server)}
+			}
+			return Decision{Allow: false, Rule: fmt.Sprintf("MCP server %q is not marked read-only; readonly mode denies its tools", server)}
+		default:
+			return Decision{Allow: false, Rule: "unknown permission mode " + string(p.Mode)}
+		}
 	}
 
 	if alwaysAllowed[toolName] {

@@ -5,6 +5,13 @@ import "encoding/json"
 // descriptorFor builds the string a Policy matches deny patterns against
 // and shows the model on denial. Bash uses the literal command, so a deny
 // pattern like "git push" reads naturally; other tools use "Name arg".
+//
+// An MCP call has no case of its own here: it falls through to the bare
+// name below, which for an MCP call is already its full
+// "mcp__<server>__<tool>" name — so a deny pattern naming a server's prefix
+// ("mcp__blender__") matches every tool call reaches over that prefix, and
+// "-deny mcp__blender__" keeps a run off one server entirely (docs/MCP.md,
+// "Permissions").
 func descriptorFor(name string, argsRaw json.RawMessage) string {
 	var args map[string]any
 	_ = json.Unmarshal(argsRaw, &args)

@@ -37,6 +37,7 @@ concurrency on the row, and a JSON error body.
 | work_requests | `/api/requests` | GET (list), GET `/api/requests/{request_id}` (row), GET `/api/requests/{request_id}/status` (poll snapshot) | PATCH, DELETE `/api/requests/{request_id}` |
 | workspace_leases | `/api/leases` | GET (list) | DELETE `/api/leases/{workspace}` |
 | settings | `/api/settings` | GET `/api/settings` | PUT, DELETE `/api/settings/{key}` |
+| mcp_servers | `/api/mcp/servers` | GET (list) | POST `/api/mcp/servers`, PATCH/DELETE `/api/mcp/servers/{name}`, POST `/api/mcp/servers/{name}/refresh` |
 | pricing | `/api/pricing` | GET (the rate schedule, no rates) | **none** |
 
 ### sessions
@@ -400,6 +401,63 @@ The pattern the other resources follow: the write guards, the JSON error
 body, `{"ok": true}` on success. Settings has no version column — it is a
 key/value table whose writes are last-write-wins by design — so it does not
 carry the concurrency mechanism; every *row* resource does.
+
+### MCP servers
+
+`/api/mcp/servers` is the registry an operator edits to give every session
+after this moment a new set of tools ([MCP.md](MCP.md)). It is one table,
+`mcp_servers`, and unlike settings it carries child data — the last
+successful probe's tool list — alongside the operator's own configuration,
+so a row is bigger than a key/value pair and the write shapes differ from
+`/api/settings` in the ways below.
+
+- **`GET /api/mcp/servers`** — every configured server, name-ascending,
+  masked (below). Always a JSON array, even with nothing configured — never
+  `null`.
+- **`POST /api/mcp/servers`** — create. The body is the writable subset:
+  `name`, `transport` (`"stdio"` or `"http"`), `command`, `args`, `env`,
+  `url`, `headers`, `enabled` (defaults to `true` when absent), and
+  `allow_readonly` (defaults to `false`). A shape failure — a bad name, a
+  stdio server carrying a `url`, an http server carrying a `command` — is a
+  **400** carrying `store.ValidateMCPServer`'s message; a name already
+  registered is a **409**. On success the row is created and, when the
+  harness has an MCP client manager wired, probed once before the response
+  is sent — but **a failed probe is not a failed create**: the row exists
+  either way, the failure lands on the row's own `probe_error`, and the
+  response is **201** carrying whichever the freshest read of the row is.
+- **`PATCH /api/mcp/servers/{name}`** — partial update. Every writable field
+  is optional; a field absent from the body leaves the stored value alone,
+  which is what lets an operator flip `allow_readonly` without resending
+  `command`, `args`, and every other field verbatim. **404** when `name` is
+  unknown, **400** on a shape failure the merged row fails
+  `store.ValidateMCPServer` on. A body that touches only `enabled` is the
+  toggle path and never disturbs anything else on the row, connection
+  details included. A re-probe follows the write only when a connection
+  field changed (`transport`, `command`, `args`, `env`, `url`, or `headers`)
+  or the server was just enabled — toggling `allow_readonly`, or disabling a
+  server, must not restart a subprocess or reopen an HTTP connection for no
+  reason.
+- **`DELETE /api/mcp/servers/{name}`** — **204** with no body on success,
+  **404** when `name` is unknown.
+- **`POST /api/mcp/servers/{name}/refresh`** — probe now, the button beside
+  a row on the screen. **503** when the harness has no MCP client manager
+  wired at all (the same fail-closed shape the missing run publisher gives
+  `POST /api/runs`), **404** when `name` is unknown. Otherwise **200** with
+  the row — including when the probe itself failed: `probe_error` is what
+  the screen shows, and a probe failure is never turned into a 5xx here.
+
+**Secrets.** `env` and `headers` values can hold API keys, so `GET
+/api/mcp/servers` masks every value the same way the settings endpoints mask
+a secret (`redact.Secret` — keys stay in the clear, values are masked to at
+most their last four characters). A write reverses that asymmetrically
+rather than symmetrically: `env` and `headers` in a `PATCH` body describe the
+server's *complete* desired key set, not a diff, except that **a key sent
+with an empty string keeps whatever value is already stored for that key**.
+That one exception is the whole point — it is the only way an operator can
+edit a server's command or arguments without re-typing every API key `GET`
+only ever showed them masked. A key that is simply absent from the body is
+removed. `POST /api/mcp/servers` (create) carries no such exception: there is
+nothing stored yet, so every value in the body is taken literally.
 
 ### github repos
 

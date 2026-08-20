@@ -44,6 +44,7 @@ func TestRegistryDefaultsMatchTheConstantsTheyReplaced(t *testing.T) {
 		{settings.KeyToolReviewScreenshotMaxBytes, "5242880"},
 		{settings.KeyToolAttachmentsMaxCount, "8"},
 		{settings.KeyToolAttachmentsMaxBytes, "5242880"},
+		{settings.KeyToolMCPTimeout, "120s"},
 		{settings.KeyDefaultModel, "deepseek-v4-pro"},
 		{settings.KeyDefaultFlashModel, "deepseek-v4-flash"},
 		{settings.KeyDefaultEffort, "high"},
@@ -86,6 +87,9 @@ func TestRegistryDefaultsMatchTheConstantsTheyReplaced(t *testing.T) {
 	}
 	if got := tools.DefaultBashWaitDelay; got != 2*time.Second {
 		t.Errorf("tools.DefaultBashWaitDelay = %s, want 2s", got)
+	}
+	if got := tools.DefaultMCPTimeout; got != 120*time.Second {
+		t.Errorf("tools.DefaultMCPTimeout = %s, want 120s", got)
 	}
 	if got := session.DefaultMaxSubTurns; got != 400 {
 		t.Errorf("session.DefaultMaxSubTurns = %d, want 400", got)

@@ -402,6 +402,47 @@ func TestNonGetMethodsReturn405EverywhereExceptWriteRoutes(t *testing.T) {
 	if got := resp.Header.Get("Allow"); got != "GET, HEAD" {
 		t.Errorf("POST /api/runs/extra: Allow = %q, want %q", got, "GET, HEAD")
 	}
+
+	// The MCP server collection allows POST (docs/MCP.md); every other
+	// method still 405s there with the same Allow header. Per-resource
+	// coverage (the refresh subresource's ordering against the single-server
+	// path, PATCH/DELETE on one server) lives in mcp_test.go, alongside the
+	// rest of that resource's tests.
+	resp = doWrite(t, srv, http.MethodPost, "/api/mcp/servers", `{"name":"blender","transport":"stdio","command":"uvx"}`, map[string]string{"Content-Type": "application/json"})
+	resp.Body.Close()
+	if resp.StatusCode == http.StatusMethodNotAllowed {
+		t.Errorf("POST /api/mcp/servers: gate refused a permitted write")
+	}
+	req, err = http.NewRequest(http.MethodPut, srv.URL+"/api/mcp/servers", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("PUT /api/mcp/servers: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("PUT /api/mcp/servers: got status %d, want 405", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Allow"); got != "GET, HEAD, POST" {
+		t.Errorf("PUT /api/mcp/servers: Allow = %q, want %q", got, "GET, HEAD, POST")
+	}
+	req, err = http.NewRequest(http.MethodPost, srv.URL+"/api/mcp/servers/blender", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("POST /api/mcp/servers/blender: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Errorf("POST /api/mcp/servers/blender: got status %d, want 405", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Allow"); got != "GET, HEAD, PATCH, DELETE" {
+		t.Errorf("POST /api/mcp/servers/blender: Allow = %q, want %q", got, "GET, HEAD, PATCH, DELETE")
+	}
 }
 
 func TestGetOnUnregisteredPathIsNot405(t *testing.T) {

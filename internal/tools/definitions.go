@@ -357,3 +357,23 @@ func DefinitionsForVariant(model, variant string) []wire.Tool {
 	}
 	return without(defs, dropped...)
 }
+
+// WithMCP returns base followed by mcp, as a new slice: the frozen
+// provider/variant array's bytes first, then a configured MCP server's
+// tools appended after them, so the built-in portion's own bytes are
+// unchanged by whatever is or is not configured (docs/MCP.md, "Ordering is
+// deterministic"). Runner.Run calls this once per run to build the array
+// every request of that run sends.
+//
+// It must copy. base is one of the package-level frozen arrays (or
+// whatever DefinitionsForVariant handed back, which may itself be that
+// frozen array unchanged) — appending to it in place would grow into that
+// shared backing array's spare capacity and corrupt every other session
+// reading the same slice header. A fresh slice, sized for exactly base plus
+// mcp, is the only way to guarantee this call cannot mutate anything the
+// caller did not hand it.
+func WithMCP(base, mcp []wire.Tool) []wire.Tool {
+	out := make([]wire.Tool, len(base), len(base)+len(mcp))
+	copy(out, base)
+	return append(out, mcp...)
+}

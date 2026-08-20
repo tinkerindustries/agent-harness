@@ -29,7 +29,10 @@ service and the rest are one-shot CLI:
   an external agent harness launch and collect runs through the same queue
   and the same HTTP API. It holds no database handle of its own — `serve` is
   the single writer. Concurrent sessions are goroutines, not child processes
-  (§4.5).
+  (§4.5). The other direction is a separate thing sharing only the name: a
+  session's own tool array can pull in tools from MCP servers the operator
+  has configured, through `internal/mcpclient` rather than through anything
+  above ([`docs/MCP.md`](docs/MCP.md)).
 
 ```mermaid
 flowchart LR
@@ -41,6 +44,8 @@ flowchart LR
     session -->|wire.ChatIntent| ds[internal/deepseek client<br/>implements the Client seam]
     ds --> api[api.deepseek.com]
     session --> tools[internal/tools<br/>in the workspace]
+    session --> mcpclient[internal/mcpclient<br/>configured MCP servers]
+    mcpclient --> store
     session --> store[(SQLite + disk mirror)]
     session --> hub[internal/hub]
     store --> http
@@ -83,6 +88,8 @@ workspace       session ──────┘        │        │
  worker ─────────────┘                 │        │
                                        │        │
  mcp ──────────────────────────────────┘        │  (types only)
+
+ mcpclient ─────────────────────────────┘        │  (store, wire, tools)
 ```
 
 `deepseek`, `tools`, `session`, and `fold` all read their vocabulary from
@@ -122,6 +129,16 @@ The edges that matter:
   when it builds the Runner — the same declared-seam shape `RunPublisher`
   and `RunController` take (docs/KIMI-INTEGRATION.md §4.1). A change that
   needs both belongs there.
+- **`internal/mcpclient` sits above `internal/store`, `internal/wire`, and
+  `internal/tools`.** It reads the `mcp_servers` rows, speaks the tool-array
+  vocabulary, and implements `MCPProvider`, the narrow seam `internal/tools`
+  declares — the same declared-seam shape `Client`, `RunPublisher`, and
+  `RunController` take, with `cmd/harness` wiring the one concrete `Manager`
+  into `internal/session`. `internal/httpapi` reaches it only through a
+  second, narrower seam it declares for itself, `MCPProber`, so it can
+  trigger a probe from the `/mcp-servers` screen without gaining a path into the
+  running loop — the "imports neither `session` nor `worker`" boundary above
+  holds exactly as before ([`docs/MCP.md`](docs/MCP.md)).
 - **`internal/worker` is the only package that acks a queue message.**
 - Nothing imports `cmd/`.
 
@@ -164,6 +181,19 @@ are here.
   session creation, stored on the `sessions` row, and never recomputed. Adding a
   tool, reordering the array, or reworded prompt text is a cache-prefix change
   for every session (§3.2, [`docs/CACHE.md`](docs/CACHE.md)).
+- **A session's MCP tools are resolved once, at `Run`.** The array is built
+  from the *stored* `mcp_servers` snapshot, not a live connection, marshalled
+  onto the session row alongside the rest of the frozen head, and read back
+  from that row on resume rather than re-resolved — a server an operator
+  toggles mid-run cannot change what the run is sending
+  ([`docs/MCP.md`](docs/MCP.md), "Resolution happens once per run").
+- **`tools_json` is only ever written by a successful probe.** A failed probe
+  writes `probe_error` and leaves the snapshot alone, so an MCP server that is
+  enabled but briefly unreachable contributes the tools it contributed last
+  time rather than silently shrinking the frozen head out from under a
+  session that is about to freeze it
+  ([`docs/MCP.md`](docs/MCP.md), "The tool array is built from a stored
+  snapshot").
 - **A queue-driven run's session row exists before its workspace does.** The
   worker creates the row as `creating` before cloning (§4.10), so the run is
   visible on the session list and stoppable during preparation; `Runner.Run`
@@ -242,6 +272,25 @@ transcript blocks key on sequence number *and* type.
 `full` mode can therefore do anything to the host daemon, including mounting the
 host filesystem into a container it starts. Paths given to `docker run -v` inside
 a session name the host, not the container.
+
+**A configured MCP server reaches outside the workspace by definition.** The
+built-in tools are confined to it (paths resolve and are checked for escape
+there, `docs/TOOLS.md` "Execution rules"); an MCP tool is under no such
+constraint — it can read, write, or drive anything the server it calls into
+can reach. A `full`-mode session with a server configured is therefore a
+wider grant than the workspace confinement the rest of the tool array
+promises, on top of the docker-socket grant `full` already carries
+([`docs/MCP.md`](docs/MCP.md) "Permissions").
+
+**The stdio transport spawns a subprocess inside the harness container, not
+on the operator's machine.** `uvx <package>` or `npx <package>` has to
+resolve on the container's own `PATH` and talk to whatever it is bridging to
+over the container's own network — both binaries are installed in the image
+for exactly this (the Dockerfile's `uv` install), but a server that expects
+to reach something running on the operator's host (Blender's own MCP
+add-on, listening on `localhost:9876`, is the motivating case) needs that
+something reachable from inside the container, not just from the operator's
+own terminal ([`docs/MCP.md`](docs/MCP.md) "Adding a server").
 
 **The two folds must agree in shape.** `internal/fold` produces the API
 `messages` array and `web/src/api/fold.ts` produces display blocks, from the

@@ -16,6 +16,16 @@ var ErrWorkspaceLeased = errors.New("store: workspace already leased")
 // ErrNotFound is returned when a lookup by id finds no row.
 var ErrNotFound = errors.New("store: not found")
 
+// ErrMCPServerNotFound is returned when an mcp_servers lookup or write
+// targets a name with no row.
+var ErrMCPServerNotFound = errors.New("store: mcp server not found")
+
+// ErrMCPServerExists is returned when CreateMCPServer targets a name that
+// already has a row: server names are the primary key, and there is no
+// per-request scoping to disambiguate a second one (docs/MCP.md, "The
+// table").
+var ErrMCPServerExists = errors.New("store: mcp server already exists")
+
 // ErrSessionCancelled is returned when a write targets a session that was
 // stopped: its status is "cancelled", which is terminal and final
 // (docs/RUN-CONTROL.md "Half two"). AppendEvents refuses a cancelled session

@@ -2,6 +2,7 @@ package tools
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
@@ -83,6 +84,60 @@ func TestFullModeAllowsEverything(t *testing.T) {
 	}
 	if d := p.Check("Bash", "anything at all"); !d.Allow {
 		t.Error("full mode should allow an arbitrary Bash command")
+	}
+}
+
+// TestMCPPermissionTable pins the four combinations docs/MCP.md's
+// "Permissions" table names: full always allows an MCP call regardless of
+// the server's own read-only allowance, readonly denies it unless the
+// server was probed with allow_readonly set, and a denial names the server
+// so the model can tell which one to route around.
+func TestMCPPermissionTable(t *testing.T) {
+	const tool = "mcp__blender__get_objects_summary"
+
+	full := &Policy{Mode: ModeFull, MCPReadOnlyServers: map[string]bool{"blender": false}}
+	if d := full.Check(tool, tool); !d.Allow {
+		t.Errorf("full mode should allow an MCP call from a non-read-only server, got denied: %s", d.Rule)
+	}
+
+	fullReadOnlyServer := &Policy{Mode: ModeFull, MCPReadOnlyServers: map[string]bool{"blender": true}}
+	if d := fullReadOnlyServer.Check(tool, tool); !d.Allow {
+		t.Errorf("full mode should allow an MCP call from a read-only server too, got denied: %s", d.Rule)
+	}
+
+	readOnlyDenied := &Policy{Mode: ModeReadOnly, MCPReadOnlyServers: map[string]bool{"blender": false}}
+	if d := readOnlyDenied.Check(tool, tool); d.Allow {
+		t.Error("readonly mode should deny an MCP call from a server not marked read-only")
+	} else if !strings.Contains(d.Rule, "blender") {
+		t.Errorf("denial rule should name the server, got: %s", d.Rule)
+	}
+
+	// A server absent from the map at all — no MCP configured, or one this
+	// policy's snapshot never saw — behaves the same as false.
+	readOnlyAbsent := &Policy{Mode: ModeReadOnly}
+	if d := readOnlyAbsent.Check(tool, tool); d.Allow {
+		t.Error("readonly mode should deny an MCP call whose server is entirely absent from the map")
+	}
+
+	readOnlyAllowed := &Policy{Mode: ModeReadOnly, MCPReadOnlyServers: map[string]bool{"blender": true}}
+	if d := readOnlyAllowed.Check(tool, tool); !d.Allow {
+		t.Errorf("readonly mode should allow an MCP call from a server marked read-only, got denied: %s", d.Rule)
+	}
+}
+
+// TestMCPDenyPatternMatchesFullPrefixedName pins the descriptor contract
+// for MCP calls (docs/MCP.md, "Deny patterns match against the descriptor
+// exactly as they do for built-in tools; the descriptor for an MCP call is
+// its full prefixed name"): "-deny mcp__blender__" keeps a full-mode
+// session off every tool that server offers, without touching another
+// server's tools.
+func TestMCPDenyPatternMatchesFullPrefixedName(t *testing.T) {
+	p := &Policy{Mode: ModeFull, Deny: []string{"mcp__blender__"}}
+	if d := p.Check("mcp__blender__get_objects_summary", "mcp__blender__get_objects_summary"); d.Allow {
+		t.Error("a deny pattern naming the server prefix should refuse every one of its tools")
+	}
+	if d := p.Check("mcp__chrome__navigate", "mcp__chrome__navigate"); !d.Allow {
+		t.Errorf("a deny pattern for one server must not affect another server's tools, got denied: %s", d.Rule)
 	}
 }
 

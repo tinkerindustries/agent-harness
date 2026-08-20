@@ -729,6 +729,37 @@ the stray arguments.
 `Complete` ships in every session including CLI ones that will never call it.
 One tool array across every caller is what keeps the stable head shared.
 
+### MCP tools
+
+A server an operator has registered through the `/mcp-servers` screen
+([`MCP.md`](MCP.md)) contributes its own tools, appended *after* the twenty
+above rather than woven into the trained-vocabulary set — the whole point of
+the array above is that its bytes never depend on what is or is not
+configured, and MCP configuration is global rather than per-run, so what
+gets appended is whatever was enabled the moment a session resolved its
+array, not a per-request choice. A tool from server `blender` called
+`get_objects_summary` is offered as `mcp__blender__get_objects_summary`, the
+`mcp__<server>__<tool>` convention Claude Code uses.
+
+An MCP call is gated the same way `Bash`, `Write`, and `Edit` are: it reaches
+outside the workspace by definition, so `readonly` denies it unless the
+server itself is marked `allow_readonly`, and `full` always allows it. Each
+call is bounded by `tools.mcp_timeout` (120s by default, longer than the
+ordinary 30-second tool timeout, because the calls that motivated MCP
+support drive external applications — rendering a viewport, driving a
+browser — rather than returning promptly). Whatever the server returns is
+flattened the same way every time: text content joins into the result body
+under the ordinary output cap, an image is written into the workspace at
+`scratch/mcp/<server>-<tool>-<n>.<ext>` (`n` a running per-session counter,
+so repeated calls to the same tool never collide) and named in the result so
+a vision tool can be pointed at it, and a server-reported `isError` comes
+back as an ordinary failed `Result` rather than a Go error — a tool call
+that failed is something the model reads and routes around, never a reason
+to end the run.
+
+[`MCP.md`](MCP.md) is the full reference: registering and probing a server,
+the naming and collision rules, and the permission table.
+
 ## Two decisions this changes
 
 ### Strict mode is now per-tool, not global
@@ -882,6 +913,6 @@ visible rather than an unexplained cost spike.
 
 ## Deferred
 
-Background shells with output polling and kill. Notebook editing. MCP tool
-import. FIM-backed inline completion. Edit checkpointing and rollback. Each is
-additive against this set.
+Background shells with output polling and kill. Notebook editing. FIM-backed
+inline completion. Edit checkpointing and rollback. Each is additive against
+this set.

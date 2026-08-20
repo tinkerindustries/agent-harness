@@ -403,6 +403,50 @@ func RenderSystemPromptFor(model, variant string) (string, error) {
 	return promptvariant.Apply(variant, base)
 }
 
+// RenderMCPBlock builds the opening message's MCP section from array — the
+// session's resolved tool array, which carries a configured MCP server's
+// tools appended after the built-in ones when any are configured
+// (tools.WithMCP). Empty when array carries none, so a session with no MCP
+// servers configured renders the same opening message it always has
+// (docs/MCP.md, "What the model is told": nothing here touches the system
+// prompt, and the opening message stays byte-identical for a run with no
+// MCP tools). This rides on every request of the run, so it stays a naming
+// — which servers, and how many tools each contributes — rather than a
+// catalogue of every tool: grouped by server with tools.MCPServerOf, server
+// names sorted so the rendering is deterministic regardless of the array's
+// own tool order.
+func RenderMCPBlock(array []wire.Tool) string {
+	counts := map[string]int{}
+	var servers []string
+	for _, t := range array {
+		server, ok := tools.MCPServerOf(t.Function.Name)
+		if !ok {
+			continue
+		}
+		if counts[server] == 0 {
+			servers = append(servers, server)
+		}
+		counts[server]++
+	}
+	if len(servers) == 0 {
+		return ""
+	}
+	sort.Strings(servers)
+
+	var b strings.Builder
+	b.WriteString("MCP servers: this session also has tools from configured MCP servers, named\n")
+	b.WriteString("mcp__<server>__<tool>, which reach systems outside the workspace.\n")
+	for _, server := range servers {
+		n := counts[server]
+		suffix := "s"
+		if n == 1 {
+			suffix = ""
+		}
+		fmt.Fprintf(&b, "- %s (%d tool%s)\n", server, n, suffix)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
 // RenderOpeningMessage builds the first user message: everything specific
 // to this run, which is why it lives here and not in the system prompt
 // (docs/DESIGN.md §3.2). resultSchema, when non-empty, is shown here too —
@@ -422,7 +466,15 @@ func RenderSystemPromptFor(model, variant string) (string, error) {
 // here, ahead of the task, with the path a tool call can use; the common
 // use is passing one to Glance as the mockup the page should be judged
 // against.
-func RenderOpeningMessage(workspace, task string, resultSchema json.RawMessage, claudeMDBlock, skillCatalogue string, attachments []string) string {
+//
+// mcpBlock, when non-empty, is RenderMCPBlock's output — naming the
+// session's configured MCP servers, beside the CLAUDE.md excerpts and the
+// skills catalogue rather than in the system prompt (docs/MCP.md, "What
+// the model is told": the head stays byte-identical to a session with no
+// MCP tools). Empty leaves the message byte-identical to a run before this
+// parameter existed, the same contract claudeMDBlock and skillCatalogue
+// already keep.
+func RenderOpeningMessage(workspace, task string, resultSchema json.RawMessage, claudeMDBlock, skillCatalogue, mcpBlock string, attachments []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Workspace: %s\n\n", workspace)
 	if claudeMDBlock != "" {
@@ -431,6 +483,10 @@ func RenderOpeningMessage(workspace, task string, resultSchema json.RawMessage, 
 	}
 	if skillCatalogue != "" {
 		b.WriteString(skillCatalogue)
+		b.WriteString("\n")
+	}
+	if mcpBlock != "" {
+		b.WriteString(mcpBlock)
 		b.WriteString("\n")
 	}
 	if len(attachments) > 0 {
