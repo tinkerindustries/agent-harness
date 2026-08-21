@@ -20,13 +20,21 @@ import (
 // server it connects to, alongside the fixed name "deepseek-harness".
 const clientVersion = "0.1.0"
 
-// dialTimeout bounds one dial when the caller's context carries no deadline
-// of its own (Manager.dial). 60s rather than the 30s a plain process start
-// or TCP connect would need: the servers that motivated this — `uvx
-// blender-mcp`, `uvx some-other-server` — resolve and install a package
-// before they ever speak MCP on a cold start, and that routinely runs
-// longer than a bare dial would.
-const dialTimeout = 60 * time.Second
+// dialTimeout bounds one dial (Manager.dial). Minutes, not the 30s a plain
+// process start or TCP connect would need, for two reasons that compound on
+// a first run: a server launched as `uvx <package>` or `npx <package>`
+// resolves and installs before it ever speaks MCP, and a server that drives
+// an external application may talk to it during startup — one observed
+// server spent forty seconds per handshake attempt against an application
+// that answered slowly, before it would answer tools/list at all.
+//
+// It is applied even when the caller already has a deadline, capped to
+// whichever is shorter, and it is deliberately shorter than
+// internal/httpapi's probe budget. That ordering is what makes a stuck dial
+// diagnosable: the inner bound fires first and reports what the dial was
+// waiting for, instead of the outer one firing and leaving a bare "context
+// deadline exceeded" on the row.
+const dialTimeout = 3 * time.Minute
 
 // defaultDial is the real dialer Manager.dial falls back to when Dial is
 // nil: stdio via mcp.CommandTransport, http via

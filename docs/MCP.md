@@ -139,13 +139,31 @@ tool array that never changes underneath them.
 the child's stdin/stdout (`mcp.CommandTransport`). `transport: "http"` speaks
 streamable HTTP to `url` with `headers` (`mcp.StreamableClientTransport`).
 
-A dial that starts cold is given up to 60 seconds rather than the shorter
-bound a bare process start or TCP connect would need: the servers that
-motivated this are launched as `uvx <package>` or `npx <package>`, and both
-routinely resolve and install a package before ever speaking MCP on a first
-run. `Refresh` always dials fresh — bypassing whatever is cached, since the
+A dial is given minutes rather than the seconds a bare process start or TCP
+connect would need, because two slow things compound on a first run: a
+server launched as `uvx <package>` or `npx <package>` resolves and installs
+before it ever speaks MCP, and a server that drives an external application
+may talk to that application during startup, before it will answer
+`tools/list` at all. The two bounds are deliberately unequal — the dial's
+own is shorter than the probe budget around it — so the inner one fires
+first and the row records what the dial was waiting for instead of a bare
+`context deadline exceeded`.
+
+A failed probe's reason is written on a fresh context, not the one that just
+expired. This is the same rule `Runner.FailSetup` follows for a run's
+terminal bookkeeping, and for the same reason: a deadline is the most common
+way a probe fails, so the caller's context is already dead by the time there
+is something to record, and a write through it leaves the row saying nothing
+about a probe that plainly did not work.
+
+`Refresh` always dials fresh — bypassing whatever is cached, since the
 point of an explicit probe is to prove the *current* configuration actually
 connects, not that some earlier connection is still alive.
+
+A probe failure is never an error to the caller of the HTTP surface: create
+still answers 201 and refresh still answers 200, both carrying the row with
+`probe_error` on it. The screen renders that reason, and replacing it with
+a 5xx would take away the one thing an operator can act on.
 
 ## Connections
 

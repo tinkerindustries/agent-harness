@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -47,7 +48,19 @@ func (f *fakeMCPProber) Refresh(ctx context.Context, name string) (store.MCPServ
 		if err := f.st.SaveMCPProbe(ctx, name, nil, errMsg, time.Now()); err != nil {
 			return store.MCPServer{}, err
 		}
-	} else if err := f.st.SaveMCPProbe(ctx, name, f.tools, "", time.Now()); err != nil {
+		// The reloaded row *and* the error, which is what
+		// mcpclient.Manager.Refresh returns for a failed probe. Returning
+		// a nil error here instead made this double disagree with the
+		// contract it stands in for, and every handler test that exercised
+		// a probe failure passed while the handler was answering 500 to
+		// the real thing.
+		row, err := f.st.GetMCPServer(ctx, name)
+		if err != nil {
+			return store.MCPServer{}, err
+		}
+		return row, errors.New(errMsg)
+	}
+	if err := f.st.SaveMCPProbe(ctx, name, f.tools, "", time.Now()); err != nil {
 		return store.MCPServer{}, err
 	}
 	return f.st.GetMCPServer(ctx, name)
@@ -355,9 +368,36 @@ func TestMCPServerRefreshReturns200OnProbeFailure(t *testing.T) {
 	resp.Body.Close()
 
 	resp = mcpPost(t, srv, "/api/mcp/servers/blender/refresh", `{}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("refresh after a failed probe status = %d, want 200: a probe that could not "+
+			"connect is reported on the row, never as a 5xx", resp.StatusCode)
+	}
 	row := decodeMCPWire(t, resp)
 	if row.ProbeError != "connection refused" {
 		t.Fatalf("probe_error = %q, want the recorded failure", row.ProbeError)
+	}
+	if row.Name != "blender" {
+		t.Fatalf("row name = %q, want the server the probe failed for", row.Name)
+	}
+}
+
+// TestMCPServerCreateReportsProbeFailureOnTheRow pins the other half of the
+// same contract: a create whose probe fails is still a 201, and the body
+// carries the reason rather than an empty probe_error. It answered with an
+// empty one while the row moments later held the failure, because the
+// handler discarded the row Refresh returned and re-read instead.
+func TestMCPServerCreateReportsProbeFailureOnTheRow(t *testing.T) {
+	prober := &fakeMCPProber{fail: map[string]string{"blender": "dialling MCP server \"blender\" timed out"}}
+	srv, st := newMCPTestServer(t, prober)
+	prober.st = st
+
+	resp := mcpPost(t, srv, "/api/mcp/servers", `{"name":"blender","transport":"stdio","command":"uvx"}`)
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create status = %d, want 201 even when the probe fails", resp.StatusCode)
+	}
+	row := decodeMCPWire(t, resp)
+	if row.ProbeError == "" {
+		t.Fatal("create response carried an empty probe_error; the reason the probe failed must be on the row it returns")
 	}
 }
 
