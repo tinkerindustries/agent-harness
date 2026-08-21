@@ -33,6 +33,15 @@ func (r *ctxBlockingRunner) Create(ctx context.Context, opts session.RunOptions)
 
 func (r *ctxBlockingRunner) FailSetup(context.Context, string, error) error { return nil }
 
+// Resume satisfies the Runner seam. These three doubles exist to exercise
+// stop, and stopping a resumed run is the same code path as stopping a fresh
+// one (the registry entry is keyed on the session id either way), so none of
+// them needs a distinct resume behaviour; the tests that cover the resume
+// branch itself drive it through a runner of their own.
+func (r *ctxBlockingRunner) Resume(context.Context, session.ResumeOptions) (*session.RunResult, error) {
+	return nil, errors.New("resume: not used by this test double")
+}
+
 func (r *ctxBlockingRunner) Run(ctx context.Context, opts session.RunOptions) (*session.RunResult, error) {
 	if err := fakePromoteSession(r.store, ctx, opts); err != nil {
 		return nil, err
@@ -66,6 +75,15 @@ func (r *wedgingRunner) Create(ctx context.Context, opts session.RunOptions) err
 
 func (r *wedgingRunner) FailSetup(context.Context, string, error) error { return nil }
 
+// Resume satisfies the Runner seam. These three doubles exist to exercise
+// stop, and stopping a resumed run is the same code path as stopping a fresh
+// one (the registry entry is keyed on the session id either way), so none of
+// them needs a distinct resume behaviour; the tests that cover the resume
+// branch itself drive it through a runner of their own.
+func (r *wedgingRunner) Resume(context.Context, session.ResumeOptions) (*session.RunResult, error) {
+	return nil, errors.New("resume: not used by this test double")
+}
+
 func (r *wedgingRunner) Run(ctx context.Context, opts session.RunOptions) (*session.RunResult, error) {
 	if err := fakePromoteSession(r.store, ctx, opts); err != nil {
 		return nil, err
@@ -98,6 +116,15 @@ func (r *finishThenBlockRunner) Create(ctx context.Context, opts session.RunOpti
 }
 
 func (r *finishThenBlockRunner) FailSetup(context.Context, string, error) error { return nil }
+
+// Resume satisfies the Runner seam. These three doubles exist to exercise
+// stop, and stopping a resumed run is the same code path as stopping a fresh
+// one (the registry entry is keyed on the session id either way), so none of
+// them needs a distinct resume behaviour; the tests that cover the resume
+// branch itself drive it through a runner of their own.
+func (r *finishThenBlockRunner) Resume(context.Context, session.ResumeOptions) (*session.RunResult, error) {
+	return nil, errors.New("resume: not used by this test double")
+}
 
 func (r *finishThenBlockRunner) Run(ctx context.Context, opts session.RunOptions) (*session.RunResult, error) {
 	if err := fakePromoteSession(r.store, ctx, opts); err != nil {

@@ -184,10 +184,14 @@ The browser can write to the data the harness manages, and it can control a
 running session — no approve button, and run control in full: a **start**
 form on the session list (prompt, repos, a model, a thinking effort, an
 explicit permission mode with the docker-socket warning stated next to the
-control, and the optional fields behind a disclosure), a **steer** input and a
-**stop** on the transcript
-screen, both visible only while the session is running, the stop behind a
-confirmation (docs/RUN-CONTROL.md "The frontend"). The steer write is an
+control, and the optional fields behind a disclosure), a **composer** and a
+**stop** on the transcript screen, the stop visible only while the session is
+running and behind a confirmation (docs/RUN-CONTROL.md "The frontend"). The
+composer outlives the run: what it sends is a **steer** while the loop is
+alive and a **resume** once it is over, and the screen decides which at send
+time (`api/status.ts` `canSteer`/`canResume`), so a person keeps talking to
+one session instead of starting a fresh run per message
+(docs/RUN-CONTROL.md "Continuing"). The steer write is an
 acceptance, not a delivery: the text lands in the log and reaches the model
 at the next sub-turn boundary, and the transcript's steer block shows it as
 *pending* until the matching `steer_applied` arrives — a steer that sits
@@ -231,7 +235,10 @@ blocks; the naive shape re-parses the whole transcript tens of times a second.
   control. A huge file read is a disclosure problem, not a virtualisation one.
 - **`src/api/fold.ts` must stay in shape agreement with `internal/fold`.** Both
   walk the same event log — one produces the API `messages` array, the other
-  display blocks. A new event kind needs both. The sub-turn grouping and the
+  display blocks. A new event kind needs both. Agreeing in shape is not
+  agreeing block for event: a resumed session has one `session_started` per
+  run, and the Go fold makes every one a user message while this one makes the
+  first an opening block and the rest continuations. The sub-turn grouping and the
   rail (`src/api/groups.ts`, `components/TimelineRail.tsx`) are display-side
   views over the fold's output and never add a `Block` variant.
 - **A `live` SSE frame is not an event.** `ingestLive` takes model output the
@@ -246,6 +253,12 @@ blocks; the naive shape re-parses the whole transcript tens of times a second.
   exists, and why it is what the streaming reveal renders from
   (`components/ui/StreamText.tsx`). It is append-only, and an entry rewritten
   in place replays its animation on every flush.
+- **`closed` is the other server-sent marker, and it is what ends a stream.**
+  Never infer the end from an event kind: a resumed session appends after its
+  terminal event, and a replay of its history carries that event mid-log
+  (docs/RUN-CONTROL.md "Continuing"). The store closes its `EventSource` on
+  the `closed` frame and reopens through `reopen()` when the session-list feed
+  says the session went live again.
 - **`replayed` is the seam, and it comes from the server.** One named,
   id-less frame after the history and before the first live event
   (`internal/httpapi` `handleSessionStream`). It reaches the snapshot as

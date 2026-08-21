@@ -77,6 +77,8 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 	// for a session still cloning too, so a browser that opened it before
 	// the first event stays connected through the preparation window.
 	if sess, err := s.Store.GetSession(r.Context(), id); err == nil && !store.IsLive(sess.Status) {
+		writeSSEClosed(w)
+		flusher.Flush()
 		return
 	}
 
@@ -121,10 +123,14 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 			sent = ev.Seq
 			flusher.Flush()
 			if ev.Kind == store.KindRunFinished || ev.Kind == store.KindError {
+				writeSSEClosed(w)
+				flusher.Flush()
 				return
 			}
 		case <-keepalive.C:
 			if cur, err := s.Store.GetSession(r.Context(), id); err == nil && !store.IsLive(cur.Status) {
+				writeSSEClosed(w)
+				flusher.Flush()
 				return
 			}
 			fmt.Fprint(w, ": keep-alive\n\n")

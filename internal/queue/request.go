@@ -70,6 +70,17 @@ type Request struct {
 	// during Prepare, so the request stays small and `harness export` —
 	// which derives from the store — stays complete (docs/DATA-API.md).
 	AttachmentIDs []string `json:"attachment_ids,omitempty"`
+	// ResumeSessionID continues an existing session instead of creating one
+	// (docs/RUN-CONTROL.md, "Continuing"). Set, this request builds no
+	// workspace and clones nothing: the session's own frozen row supplies the
+	// workspace, the model, the effort, the permission mode, the deny
+	// patterns and the tool array, because a resumed session's prefix cannot
+	// change (docs/CACHE.md). Prompt is the continuation message. Repos must
+	// be empty, and that is the only rule Validate relaxes — the producer
+	// copies permission_mode and model off the session row before publishing,
+	// so a resume request satisfies every other check unchanged rather than
+	// weakening it for the producers that do start a session.
+	ResumeSessionID string `json:"resume_session_id,omitempty"`
 }
 
 // Repo is one checkout a request asks for. The worker clones each one into
@@ -138,7 +149,16 @@ func (r Request) Validate() error {
 	if strings.ContainsAny(r.RequestID, requestIDDisallowed) {
 		return fmt.Errorf("queue: request_id %q contains a character not allowed in a URL path segment", r.RequestID)
 	}
-	if err := validateRepos(r.Repos); err != nil {
+	// A resume names a session instead of naming repositories: its workspace
+	// already exists, with the clones the original request made still in it,
+	// and re-cloning over them is neither wanted nor possible. Repos carried
+	// alongside one are refused rather than ignored, so a producer that meant
+	// to start a run and set both fields hears about it here.
+	if r.ResumeSessionID != "" {
+		if len(r.Repos) > 0 {
+			return errors.New("queue: repos must be empty on a resume request: a resumed session keeps the workspace it already has")
+		}
+	} else if err := validateRepos(r.Repos); err != nil {
 		return err
 	}
 

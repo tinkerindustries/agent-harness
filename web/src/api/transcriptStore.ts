@@ -64,8 +64,6 @@ export interface TranscriptSnapshot {
   getToolCall: (id: string) => ToolCallPayload | undefined;
 }
 
-const TERMINAL_KINDS = new Set<StoreEvent["kind"]>(["run_finished", "error"]);
-
 export interface TranscriptStoreOptions {
   connect?: boolean;
   // scheduleFlush/cancelFlush override what coalesces a dirty store into a
@@ -164,21 +162,39 @@ export class TranscriptStore {
       this.state = JSON.parse((m as MessageEvent).data) as SessionState;
       this.markDirty();
     });
+    // The server's own word that this stream is over, because the session
+    // will not append again (internal/httpapi writeSSEClosed). Closing here
+    // is what stops the browser's automatic reconnect from polling a session
+    // with nothing left to say.
+    //
+    // The kind of the last event is deliberately not what decides it. This
+    // used to close on run_finished or error, which resume makes wrong in
+    // both directions: a continued session appends after its terminal event,
+    // and a replay of its history carries that terminal event in the middle
+    // of the log, which would tear down a stream following a run that is
+    // going right now.
+    this.es.addEventListener("closed", () => {
+      this.es?.close();
+      this.es = undefined;
+      this.setConnection("closed");
+    });
     this.es.onmessage = (m) => {
-      const ev = JSON.parse(m.data) as StoreEvent;
-      this.ingest(ev);
-      if (TERMINAL_KINDS.has(ev.kind)) {
-        // No more events will ever arrive for this session id (compaction
-        // aside, which the server already accounts for by closing its end
-        // of a compacted session's stream). Closing here stops the
-        // browser's automatic reconnect from polling a session that will
-        // never have anything new to say.
-        this.es!.close();
-        this.es = undefined;
-        this.setConnection("closed");
-      }
+      this.ingest(JSON.parse(m.data) as StoreEvent);
     };
     this.markDirty();
+  }
+
+  // reopen re-opens a stream the server closed, for a session that has since
+  // gone back to running — a resume (docs/RUN-CONTROL.md "Continuing"), from
+  // this browser or from anywhere else. It is connect() by another name; the
+  // name is the point, because connect()'s own contract is "open this
+  // session's stream" and the caller here is answering a different question,
+  // which is whether a finished session came back to life.
+  //
+  // Calling it while a stream is already open is a no-op, so the caller may
+  // fire it on any signal without tracking which one got there first.
+  reopen(): void {
+    this.connect();
   }
 
   // resetFold drops everything folded from an earlier connection. The

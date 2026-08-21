@@ -286,6 +286,31 @@ export async function steerSession(id: string, token: string, text: string): Pro
   return (await res.json()) as SteerResponse;
 }
 
+// ResumeResponse is POST /api/sessions/{id}/resume's 202 body: the session
+// being continued and the request_id the continuation was accepted under.
+export interface ResumeResponse {
+  session_id: string;
+  request_id: string;
+}
+
+// resumeSession continues a session that has already finished, via POST
+// /api/sessions/{id}/resume (docs/RUN-CONTROL.md "Continuing"). It is the
+// other half of the composer: steerSession is what a message becomes while
+// the run is alive, this is what it becomes once the run is over. Like a
+// start it is a publish, so the 202 says the continuation was queued and not
+// that it has begun — the session goes back to "running" when a worker claims
+// it, which the page learns from the session's own stream rather than by
+// polling. The bearer token is required, exactly as for steerSession.
+export async function resumeSession(id: string, token: string, text: string): Promise<ResumeResponse> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/resume`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ text }),
+  });
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as ResumeResponse;
+}
+
 // StartRunResponse is POST /api/runs's 202 body: the request_id the run was
 // accepted under. A start is not answered by the run's outcome — the session
 // appears on the existing GET /api/stream list feed once the pool claims the

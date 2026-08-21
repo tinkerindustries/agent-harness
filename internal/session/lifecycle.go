@@ -77,7 +77,10 @@ func (r *Runner) FailSetup(ctx context.Context, sessionID string, cause error) e
 		log.Printf("session: fail setup for %s: append error event: %v", sessionID, appendErr)
 	} else {
 		r.mirrorAppend(sess, appended)
-		r.publishEvents(sess, appended)
+		// Deferred for the reason finishRun defers its own: the error event
+		// closes the stream, so the "failed" row below has to go out first
+		// (publishTerminalEvents).
+		defer r.publishTerminalEvents(sess, appended)
 	}
 
 	finished := time.Now().UTC()
@@ -472,7 +475,11 @@ func (r *Runner) finishRun(ctx context.Context, sess store.Session, allEvents []
 		return &RunResult{SessionID: sess.ID, Status: store.StatusFailed, SubTurns: subTurns, Usage: agg, CompleteStatus: completeStatus, Reason: reason}, err
 	}
 	r.mirrorAppend(sess, appended)
-	r.publishEvents(sess, appended)
+	// Deferred, not called here: run_finished closes the session's stream, so
+	// the terminal row below has to reach subscribers first
+	// (publishTerminalEvents). The defer is what keeps that true on the error
+	// return in between, which still owes the browser the event.
+	defer r.publishTerminalEvents(sess, appended)
 	allEvents = append(allEvents, appended...)
 
 	finished := time.Now().UTC()
@@ -511,7 +518,10 @@ func (r *Runner) fail(ctx context.Context, sess store.Session, allEvents []store
 	})
 	if appendErr == nil {
 		r.mirrorAppend(sess, appended)
-		r.publishEvents(sess, appended)
+		// Deferred for the reason finishRun defers its own: the error event
+		// closes the stream, so the terminal row has to go out first
+		// (publishTerminalEvents).
+		defer r.publishTerminalEvents(sess, appended)
 		allEvents = append(allEvents, appended...)
 	}
 

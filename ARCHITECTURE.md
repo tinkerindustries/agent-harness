@@ -11,10 +11,11 @@ loop that reads and writes files and runs commands in there, and publishes a
 result. Requests arrive on the durable work queue — the `work_queue` table in
 serve's SQLite store — and results are recorded on the request's
 `work_requests` row. A browser can watch, change settings, and start, steer,
-and stop a run. Start and stop act on the run through two declared seams
-(docs/RUN-CONTROL.md): `RunPublisher`, a narrow interface declared in
-`internal/httpapi` and implemented by `cmd/harness` over the store-backed
-queue, enqueues a validated work request; and
+continue, and stop a run. Start, continue and stop act on the run through two
+declared seams (docs/RUN-CONTROL.md): `RunPublisher`, a narrow interface
+declared in `internal/httpapi` and implemented by `cmd/harness` over the
+store-backed queue, enqueues a validated work request — a start, or a
+continuation naming the session it resumes; and
 `RunController`, declared in `internal/httpapi` and implemented by
 `*worker.Pool`, ends a run in this process. Steer needs no seam at all — it is
 a store write by the handler and a store read by the loop, with the database
@@ -224,9 +225,12 @@ are here.
   `attempt`. A cost total sums every event; anything wanting the turn's
   standing state — the cache detector on resume — takes the last.
 - **The HTTP API serves `GET` and `HEAD` on every path, and the writing
-  methods only where a write route exists.** The three actions that touch a
+  methods only where a write route exists.** The four actions that touch a
   run are `POST /api/runs`, which enqueues a validated work request through
-  the declared `RunPublisher` seam; `POST
+  the declared `RunPublisher` seam; `POST /api/sessions/{id}/resume`, which
+  enqueues one naming an existing session through the same seam, so continuing
+  a session needs no third seam and no affinity to the process that ran it;
+  `POST
   /api/sessions/{id}/stop`, which goes through the declared `RunController`
   seam; and `POST /api/sessions/{id}/steer`, which is a store write the loop
   reads at its next sub-turn boundary — all authenticated by a bearer token
@@ -310,3 +314,11 @@ with them what its own consumer needs — the Go fold appends the applied
 steer's text as a user message, and the browser fold emits a pending block
 and flips it to delivered, which is the one place the browser fold completes a
 block it has already emitted (docs/RUN-CONTROL.md "The frontend").
+
+Agreeing in shape is not the same as agreeing block for event, and
+`session_started` is where the two diverge on purpose. A resumed session has
+one per run (docs/RUN-CONTROL.md "Continuing"): the Go fold turns every one of
+them into a plain user message, because that is what each is to the model,
+while the browser fold makes the first an opening block and the rest
+continuation blocks, because only the first opened the session and the rest
+are somebody typing again.

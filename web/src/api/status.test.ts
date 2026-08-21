@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canSteer, isLive } from "./status";
+import { canResume, canSteer, isLive } from "./status";
 
 // The session-status vocabulary: every place that means "live" or "steerable"
 // goes through these two helpers (status.ts), so the list, the screens and
@@ -23,6 +23,32 @@ describe("canSteer", () => {
     expect(canSteer("creating")).toBe(false);
     for (const status of ["ok", "failed", "timeout", "max_turns", "cancelled", "compacted"]) {
       expect(canSteer(status)).toBe(false);
+    }
+  });
+});
+
+describe("canResume", () => {
+  it("covers every terminal status, not just a clean finish", () => {
+    for (const status of ["ok", "failed", "timeout", "max_turns", "cancelled"]) {
+      expect(canResume(status)).toBe(true);
+    }
+  });
+
+  it("refuses a live session, which wants a steer instead", () => {
+    expect(canResume("running")).toBe(false);
+    expect(canResume("creating")).toBe(false);
+  });
+
+  it("refuses a compacted session, whose continuation is its child", () => {
+    expect(canResume("compacted")).toBe(false);
+  });
+
+  it("is canSteer's other half: between them they cover all but creating and compacted", () => {
+    for (const status of ["running", "ok", "failed", "timeout", "max_turns", "cancelled"]) {
+      expect(canSteer(status) || canResume(status)).toBe(true);
+    }
+    for (const status of ["creating", "compacted"]) {
+      expect(canSteer(status) || canResume(status)).toBe(false);
     }
   });
 });

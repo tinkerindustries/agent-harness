@@ -24,6 +24,21 @@ export function canSteer(status: string): boolean {
   return status === "running";
 }
 
+// canResume reports whether a session can be continued from where it stopped
+// (docs/RUN-CONTROL.md "Continuing"). It is canSteer's other half: a message
+// typed into the composer is a steer while the loop is alive and a resume
+// once it is over, and between them they cover every status but "creating",
+// which is neither — the workspace is still being built.
+//
+// Every terminal status qualifies, not just a clean finish: a run that failed,
+// timed out or was stopped is exactly the kind a person wants to talk their
+// way out of, and the loop continues it the same way (internal/session's
+// Resume). "compacted" is the one exclusion — that session was retired and
+// its continuation is its child, which the server says in the 409.
+export function canResume(status: string): boolean {
+  return !isLive(status) && status !== "compacted";
+}
+
 // finishedSignature is the cheap fingerprint of the terminal-session set:
 // the count plus the newest terminal session's id (newest because sessions
 // arrive sorted by created_at DESC, so the first terminal row is the newest

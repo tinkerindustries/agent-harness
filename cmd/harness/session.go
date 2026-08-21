@@ -18,9 +18,15 @@ import (
 )
 
 // runResume continues a session the CLI already ran to a terminal state:
-// finished, failed, timed out, or stopped at its sub-turn limit. The
-// browser only lists sessions (docs/DESIGN.md §5); resume and delete are
-// CLI-only session management.
+// finished, failed, timed out, or stopped at its sub-turn limit.
+//
+// It runs the loop in this process against this process's own data
+// directory, which is what distinguishes it from the browser's resume
+// (POST /api/sessions/{id}/resume, docs/RUN-CONTROL.md "Continuing"): that
+// one publishes a work request onto a running serve's queue and a worker
+// continues the session there. This is the way to continue a session on a
+// machine with no server up, and the two do not replace each other. Delete
+// remains CLI-only session management.
 func runResume(ctx context.Context, args []string) error {
 	fs := flag.NewFlagSet("resume", flag.ContinueOnError)
 	maxTokens := fs.Int("max-tokens", 0, "override max_tokens (default from config)")

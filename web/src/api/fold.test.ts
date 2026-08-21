@@ -703,3 +703,37 @@ describe("live deltas", () => {
     expect(state.live.turn).toBeNull();
   });
 });
+
+// A resumed session has one session_started per run (docs/RUN-CONTROL.md
+// "Continuing"), and only the first of them is this session's opening
+// message. The rest are somebody typing again, and they fold to their own
+// block so the chat page can render them as sent messages rather than as a
+// second opening card. internal/fold makes the matching call on the Go side:
+// every one of them becomes a plain user message for the model.
+describe("continuation", () => {
+  it("keeps the first session_started as the opening block", () => {
+    const state = new FoldState();
+    state.ingest(ev(1, "session_started", { opening_message: "do the task" }));
+    expect(state.blocks.map((b) => b.type)).toEqual(["opening"]);
+  });
+
+  it("folds a later session_started as a continuation", () => {
+    const state = new FoldState();
+    state.ingest(ev(1, "session_started", { opening_message: "do the task" }));
+    state.ingest(ev(2, "run_finished", { reason: "complete", status: "done", text: "did it" }));
+    state.ingest(ev(3, "session_started", { opening_message: "now change the front panel" }));
+    const types = state.blocks.map((b) => b.type);
+    expect(types).toEqual(["opening", "run_finished", "continuation"]);
+    const continuation = state.blocks[2];
+    expect(continuation.type === "continuation" && continuation.text).toBe("now change the front panel");
+  });
+
+  it("does not unpack a continuation the way an opening message is unpacked", () => {
+    const state = new FoldState();
+    state.ingest(ev(1, "session_started", { opening_message: "cat\ndo the task", skill_catalogue: "cat", task: "do the task" }));
+    state.ingest(ev(2, "session_started", { opening_message: "keep going", skill_catalogue: "cat", task: "ignored" }));
+    // The opening message yields its skills catalogue, the opening block and
+    // the launcher's instruction; the continuation is one block of its own.
+    expect(state.blocks.map((b) => b.type)).toEqual(["skills", "opening", "instruction", "continuation"]);
+  });
+});

@@ -1,5 +1,6 @@
 import { memo } from "react";
 import type { Block } from "../../api/fold";
+import { Markdown } from "../../render/Markdown";
 import { BLOCK_CLS, BLOCK_LABEL_CLS, BLOCK_TEXT_CLS } from "./blockStyles";
 import { cn } from "@/lib/utils";
 
@@ -42,6 +43,33 @@ export const RunFinishedBlock = memo(function RunFinishedBlock({ block }: { bloc
   );
 });
 
+// isCleanFinish reports whether a run ended the way a turn of a conversation
+// ends: the model called Complete and said done. It is the same first branch
+// outcome() takes to reach DONE, read off the block instead of the session
+// row — a resumed session has one of these blocks per run, and only the last
+// of them is described by the row's status (statusBadge.ts).
+export function isCleanFinish(block: Extract<Block, { type: "run_finished" }>): boolean {
+  return block.status === "done";
+}
+
+// ClosingMessage renders a clean run's closing words as the model's reply
+// rather than as a run-finished card: on the chat page a run ending is a turn
+// boundary, not an event of its own, and the banner, outcome label and cost
+// line around this text are what make a conversation read as a series of
+// jobs (docs/RUN-CONTROL.md "Continuing"). Every number the card carried is
+// still on the page — the composer's status line, the nav badge, the session
+// list. Markdown, not preformatted text: this is the model's prose, and it
+// renders the way its prose renders everywhere else.
+export const ClosingMessage = memo(function ClosingMessage({ text }: { text: string }) {
+  // "block" residual — see RunFinishedBlock's comment above; this borrows the
+  // top-level block's spacing without its frame.
+  return (
+    <section className="block">
+      <Markdown text={text} />
+    </section>
+  );
+});
+
 export const ErrorBlock = memo(function ErrorBlock({ block }: { block: Extract<Block, { type: "error" }> }) {
   return (
     // "block" residual — see RunFinishedBlock's comment above.
@@ -62,6 +90,25 @@ export const InstructionBlock = memo(function InstructionBlock({ block }: { bloc
     // "block" residual — see RunFinishedBlock's comment above.
     <section className={cn(BLOCK_CLS, "border-border bg-card", "block")}>
       <div className={BLOCK_LABEL_CLS}>instruction</div>
+      <p className={BLOCK_TEXT_CLS}>{block.text}</p>
+    </section>
+  );
+});
+
+// ContinuationBlock renders a message somebody sent to continue a finished
+// session (docs/RUN-CONTROL.md "Continuing"). It is the block rendering, for
+// the watch page and the perf harnesses; the chat page — where a person's own
+// message is a message and not a block — overrides it with the .msg-user
+// shell, exactly as it does for steer.
+export const ContinuationBlock = memo(function ContinuationBlock({
+  block,
+}: {
+  block: Extract<Block, { type: "continuation" }>;
+}) {
+  return (
+    // "block" residual — see RunFinishedBlock's comment above.
+    <section className={cn(BLOCK_CLS, "border-border bg-card", "block")}>
+      <div className={BLOCK_LABEL_CLS}>continued</div>
       <p className={BLOCK_TEXT_CLS}>{block.text}</p>
     </section>
   );
