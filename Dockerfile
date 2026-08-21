@@ -173,6 +173,65 @@ RUN mkdir -p /root/.playwright && \
 # to `docker run -v` name the host's filesystem, not this container's.
 RUN apk add --no-cache docker-cli docker-cli-compose docker-cli-buildx
 
+# `unity`, forwarded to a sibling container by the shim (scripts/unity-shim.sh
+# carries the reasoning; docs/UNITY.md is the reference).
+#
+# It is a shim rather than a binary because it cannot be a binary here: the
+# Unity CLI is a C# Native AOT build requiring glibc 2.34+, and Unity's own
+# installer refuses musl by name. Dropped onto this image it does not fail
+# legibly — it fails with `no such file or directory` naming a file that is
+# plainly there, because what is missing is the glibc loader. So the CLI lives
+# in its own glibc image (Dockerfile.unity) and this forwards to it across the
+# docker socket already mounted above.
+#
+# Deliberately placed after the docker-cli layer: the shim is inert without
+# it, and a session calling `unity` on an image that had lost that layer
+# should fail on the missing `docker` rather than somewhere stranger.
+COPY scripts/unity-shim.sh /usr/local/bin/unity
+RUN chmod +x /usr/local/bin/unity
+
+# Blender, for the `*_for_cli` half of the official Blender MCP server's tool
+# array (docs/MCP.md, "Blender"). Those tools do not talk to the operator's
+# running Blender over the add-on's socket the way the rest do — they shell
+# out to `blender --background` from the MCP server subprocess, and that
+# subprocess runs *here*, inside this container. Without a binary on this
+# PATH exactly half of that server's tools fail on every call, and the
+# failure names Python, not the missing Blender.
+#
+# From edge, not the base's own release, and pinned exactly. Alpine 3.21
+# carries Blender 4.3.0 and 3.22 carries 4.4.3, while the add-on side of the
+# same MCP server is whatever Blender the operator is running — 5.2 LTS here.
+# A .blend written by a 5.x Blender is not a file a 4.x one reads back
+# faithfully, so a mismatched pair gives the CLI tools a subtly different
+# scene than the interactive tools see, which is worse than not having them.
+# edge/community has 5.2.0, and edge/main is where its dependencies live.
+#
+# The exact `=` pin is the point of using edge at all: edge moves, and an
+# unpinned `blender` would silently bake whichever version it had drifted to
+# on the day of a rebuild. Pinned, a moved edge fails this build loudly and
+# an operator bumps the ARG to match the Blender they actually run.
+#
+# What it drags in: ~98 packages, about two dozen of them upgrades of imaging
+# and codec libraries — OpenEXR, x265, libvpx, libjxl and the ffmpeg
+# libraries. musl, chromium, node, python and the go toolchain are not
+# touched, and the ffmpeg binary the playwright layer above symlinks for
+# video capture stays the base's own 6.1.2 and still encodes.
+#
+# `--upgrade` and the explicit spirv-tools are not decoration, and dropping
+# either reproduces a failure that looks nothing like its cause. edge's
+# glslang-libs needs edge's SPIRV-Tools, but SPIRV-Tools ships *unversioned*
+# sonames (libSPIRV-Tools.so, not .so.N), so apk reads the base's 3.21 copy
+# as already satisfying the dependency and leaves it in place. The image then
+# has a new glslang against an old SPIRV-Tools, and everything linking
+# glslang — Blender and ffmpeg both — dies at load with `Error relocating
+# /usr/lib/libglslang.so.16: symbol not found`. Naming the package and
+# forcing the upgrade keeps the pair in lockstep.
+ARG BLENDER_VERSION=5.2.0-r0
+RUN apk add --no-cache --upgrade \
+        --repository https://dl-cdn.alpinelinux.org/alpine/edge/community \
+        --repository https://dl-cdn.alpinelinux.org/alpine/edge/main \
+        "blender=${BLENDER_VERSION}" spirv-tools
+
 # tini reaps orphans as PID 1. A session's Bash calls run under a shell in
 # its own process group, and any of that shell's children still alive when it
 # exits are reparented to PID 1. `harness serve` is a Go program and reaps

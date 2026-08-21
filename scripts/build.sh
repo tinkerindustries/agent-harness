@@ -76,6 +76,29 @@ if [ "$DOCKER" -eq 0 ]; then
 	exit 0
 fi
 
+stage "unity image"
+
+# The image `unity` forwards to. It is built here, before the harness
+# container, because the shim baked into that container is useless without it
+# and a session's first `unity` call is a poor place to discover that.
+#
+# A separate image rather than a layer: the Unity CLI needs glibc 2.34+ and
+# refuses musl, so it cannot live on the Alpine harness image at all
+# (Dockerfile.unity has the full reasoning, docs/UNITY.md the reference).
+#
+# Not part of the compose project deliberately — nothing runs it as a service.
+# It is a host-level image that `docker run --rm` reaches per invocation, and
+# both the dev stack and deepseek-harness-prod share one host daemon, so a
+# single build here serves both.
+docker build -f Dockerfile.unity -t "${HARNESS_UNITY_IMAGE:-harness-unity:latest}" .
+
+# Prove the binary loads rather than that the build exited zero. This is the
+# check that would have caught the musl problem on day one: a `unity` whose
+# loader is missing still builds a perfectly good image.
+docker run --rm "${HARNESS_UNITY_IMAGE:-harness-unity:latest}" unity --version >/dev/null \
+	|| die "the unity image built but \`unity --version\` does not run in it"
+echo "harness-unity ok"
+
 stage "container"
 
 # Inside a container, `docker` talks to a daemon that does not share this

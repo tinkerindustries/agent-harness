@@ -257,15 +257,57 @@ an earlier success to fall back to for a server that has never probed
 successfully. The usual causes are mundane: a command that doesn't exist on
 the image (a runtime the container doesn't carry), a malformed URL or header
 for an `http` server, an env var the operator meant to set and didn't — and,
-for `blender-mcp` specifically, the one below.
+for a server that bridges to an application, the one the next section is
+about.
 
-**The one thing likely to catch a first-time user out.** `blender-mcp` is a
-bridge, not the whole story: it talks over TCP to a Blender instance running
-its own MCP add-on on port 9876, and the probe dials from *inside* the
-harness container. A Blender running on the operator's own machine and
-nowhere else is a `localhost:9876` the container cannot reach, so the probe
-fails with a connection error naming `blender-mcp`, not Blender — that is as
-far as the subprocess itself got. Blender has to be reachable from the
-container's own network for the probe to succeed, the same "which side of
-the docker socket" question that already governs what a `full`-mode session
-can reach (ARCHITECTURE.md, "Gotchas").
+## Blender, the worked example
+
+Both stacks here run the official Blender MCP server, which is not on PyPI —
+it is a subdirectory of Blender's own repository, so the row pins a commit
+rather than a version:
+
+```
+uvx --from git+https://projects.blender.org/lab/blender_mcp@<sha>#subdirectory=mcp \
+    --with 'mcp[cli]<2' blender-mcp
+```
+
+with `BLENDER_MCP_HOST=host.docker.internal` in `env`. Do not confuse it with
+the community `uvx blender-mcp` package, which is a different server with a
+different tool list (Poly Haven, Sketchfab and Hyper3D asset tools) and reads
+a differently named `BLENDER_HOST`.
+
+**Its twenty-six tools reach two different Blenders, and that is the thing to
+understand before debugging one.** Fourteen of them — `execute_blender_code`,
+the `jump_to_*` navigation, the screenshots — talk over TCP to the add-on
+running inside the operator's *interactive* Blender, the one with the scene
+open on screen. The other twelve, every name ending `_for_cli`, do not: they
+shell out to `blender --background` from the MCP server subprocess, which
+runs inside the harness container. So one half drives the operator's live
+session and the other half opens a `.blend` in a throwaway process, and a
+tool that fails tells you which half you were in.
+
+The add-on half is the one likely to catch a first-time user out, because the
+subprocess dials from *inside* the container. A Blender running on the
+operator's own machine and nowhere else is a `localhost:9876` the container
+cannot reach, so the probe fails with a connection error naming the MCP
+server, not Blender — that is as far as the subprocess itself got. On Docker
+Desktop `host.docker.internal` reaches the host's loopback and the add-on's
+default bind is enough; anywhere else Blender has to be reachable from the
+container's own network, the same "which side of the docker socket" question
+that already governs what a `full`-mode session can reach (ARCHITECTURE.md,
+"Gotchas").
+
+The CLI half needs no network and a binary instead: the image carries Blender
+itself, pinned in the Dockerfile to the same version the operator runs, for
+exactly these twelve tools. The comment on that layer is the reference for
+why it comes from Alpine's `edge` repository and why `spirv-tools` is named
+alongside it. Without it the twelve fail on every call with an error naming
+Python rather than the missing Blender.
+
+Paths cross the same divide. The add-on resolves a path on the *host*, the
+CLI tools resolve one inside the *container*, and the two agree only where
+the workspace mount makes them agree — source and target are the same
+absolute path there by design (docs/WORKTREES.md, "Path parity"), so a
+`render_viewport_to_path` written under the workspace root is a file the
+session can then read back. A path anywhere else means whichever filesystem
+that half happens to be standing on.

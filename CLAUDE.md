@@ -61,6 +61,15 @@ cutting a version and deploying it to the production stack.
   `internal/mcp`, the MCP *server* this harness itself exposes at `/mcp` so
   another agent harness can launch runs here — same three letters, opposite
   direction, and the two packages never meet.
+- **`unity` in a session is a shim, not a binary.** The Unity CLI needs glibc
+  2.34+ and refuses musl, so it cannot live on this Alpine image — it fails
+  there with `no such file or directory` naming a file that exists, because
+  the missing piece is the loader. It lives in its own image
+  (`Dockerfile.unity`, built by `scripts/build.sh`) and
+  `scripts/unity-shim.sh` forwards to it over the mounted docker socket.
+  [`docs/UNITY.md`](docs/UNITY.md) is the reference, including why no Editor
+  is reachable from a container and why `unity mcp` is deliberately not
+  registered as an MCP server.
 - **Sibling git worktrees each get their own ports and compose project**,
   allocated by `harness worktree init` and torn down by `harness worktree rm`.
   Create one with `/worktree-create <slug>`, remove one with

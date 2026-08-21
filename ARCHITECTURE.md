@@ -297,7 +297,10 @@ for exactly this (the Dockerfile's `uv` install), but a server that expects
 to reach something running on the operator's host (Blender's own MCP
 add-on, listening on `localhost:9876`, is the motivating case) needs that
 something reachable from inside the container, not just from the operator's
-own terminal ([`docs/MCP.md`](docs/MCP.md) "Adding a server").
+own terminal. The same rule cuts the other way for a server that shells out
+rather than bridges: Blender's `_for_cli` tools run `blender --background`
+in *this* container, which is why the image carries Blender itself
+([`docs/MCP.md`](docs/MCP.md) "Blender, the worked example").
 
 **The two folds must agree in shape.** `internal/fold` produces the API
 `messages` array and `web/src/api/fold.ts` produces display blocks, from the

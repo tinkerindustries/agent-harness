@@ -1,0 +1,125 @@
+# syntax=docker/dockerfile:1
+#
+# The Unity CLI, on its own image.
+#
+# This is deliberately NOT a layer on the main Dockerfile, and the reason is
+# the one fact that governs this whole integration: the `unity` binary is a
+# C# Native AOT build that requires **glibc 2.34 or newer**, and Unity's own
+# installer refuses musl outright — "Alpine and other musl distributions are
+# not supported". The harness image is alpine:3.21 (musl 1.2.5). Dropping the
+# binary in there does not fail with a diagnosable error; it fails with
+#
+#     exec /usr/local/bin/unity: no such file or directory
+#
+# which names the file that plainly exists, because what is actually missing
+# is the glibc dynamic loader the binary asks for. Verified both ways on this
+# machine: the same binary prints `1.0.0-beta.5` on debian:bookworm-slim and
+# gives the error above on alpine:3.21.
+#
+# So the choice is a glibc base for the whole harness or a separate image.
+# This file is the separate image, built up on its own so the main stack keeps
+# building while the Unity side is still finding its shape.
+#
+# bookworm is glibc 2.36 — over the 2.34 floor with room to spare, and the
+# floor is real: Ubuntu 20.04, Debian 11, RHEL/CentOS 8 and Amazon Linux 2 are
+# all below it and are named as unsupported by Unity.
+#
+# ── What this image can and cannot do, by architecture ──────────────────────
+#
+# The CLI itself is fully cross-architecture: Unity publishes linux-arm64 and
+# linux-x64 binaries, and on arm64 `unity doctor` reports every check passing.
+# The Unity *Editor* is a different matter, and it is the constraint that
+# decides what this image is for.
+#
+# There is no Linux arm64 Editor. `unity releases --json` reports
+# "architecture": "x86_64" for every Linux release, and asking for the other
+# one is refused outright:
+#
+#   $ unity install 6000.0.82f1 --architecture arm64 --dry-run
+#   Error: No editor version matched
+#
+# while the x86_64 dry run resolves normally (6000.0.82f1 LTS, a 4.4 GB
+# download). So on an Apple Silicon host a native linux/arm64 build of this
+# image gets a working CLI that can never install an Editor, which rules out
+# `unity build` and `unity test` — the headless work that is the whole reason
+# to want a glibc image in the first place.
+#
+# Everything that does not need an Editor works on either architecture today:
+# `auth`, `releases`, `doctor`, `mcp configure`, `projects`, `templates`, and
+# the `status`/`command`/`list` family (which report cleanly with nothing
+# connected). Editor-backed work needs `--platform linux/amd64`, and on this
+# host that means emulation. Build it that way deliberately rather than
+# discovering it from a build failure four gigabytes in.
+FROM debian:bookworm-slim
+
+# ca-certificates for TLS to the Unity CDN, curl to fetch from it. git because
+# a Unity project is a repository like any other and anything that works in
+# this image will want it.
+#
+# libsqlite3-0 is not padding. The CLI keeps its sign-in state in a SQLite
+# database and dlopen()s the *distro's* libsqlite3 at run time rather than
+# linking it statically, so without the package `unity auth status` — and
+# everything downstream of being signed in — fails with
+#
+#   Unable to check sign-in status: libsqlite3.so.0 not found in any of: ...
+#
+# It is a clean error rather than a crash, and the CLI names the fix itself,
+# but it turns every authenticated command into a puzzle on a slim base that
+# would otherwise look complete. bookworm-slim does not carry it.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates curl git libsqlite3-0 && \
+    rm -rf /var/lib/apt/lists/*
+
+# The CLI is fetched as a bare pinned binary rather than through Unity's
+# install.sh. The script's job is mostly the part a container does not want —
+# it picks an install layout, edits shell rc files to put its bin dir on PATH,
+# and writes env files — and its glibc/musl preflight is a check this image
+# satisfies by construction. What is worth keeping from it is the integrity
+# check, so the sha256 below is pinned per architecture and verified before
+# the binary is ever made executable.
+#
+# Pinned exactly, and pinned to a *beta*, because at the time of writing that
+# is the only channel that exists: the CDN's stable manifest (latest.json)
+# 404s and only latest-beta.json resolves. An unpinned fetch would therefore
+# not merely drift, it would have nothing stable to drift towards. Bump
+# UNITY_CLI_VERSION and both sums together — they come from
+# https://public-cdn.cloud.unity3d.com/hub/prod/cli/latest-beta.json
+#
+# Unity's asset names are not Docker's: TARGETARCH is amd64/arm64 and the
+# manifest ships x64/arm64, hence the case — the same shape the main image's
+# uv layer uses for the same reason.
+ARG TARGETARCH
+ARG UNITY_CLI_VERSION=1.0.0-beta.5
+ARG UNITY_CLI_SHA256_AMD64=7fb0edbe2e6c889d38b0982c030713855edca82c3cda01758b0bd50a3ffd356a
+ARG UNITY_CLI_SHA256_ARM64=757494c2fefd9bec1d88f42ebac77a4588d81963756dbae2ea770b297c38742b
+RUN case "${TARGETARCH}" in \
+      amd64) unity_arch=x64;   unity_sha="${UNITY_CLI_SHA256_AMD64}" ;; \
+      arm64) unity_arch=arm64; unity_sha="${UNITY_CLI_SHA256_ARM64}" ;; \
+      *) echo "unsupported TARGETARCH ${TARGETARCH}" >&2; exit 1 ;; \
+    esac && \
+    curl -fsSL -o /usr/local/bin/unity \
+      "https://public-cdn.cloud.unity3d.com/hub/prod/cli/${UNITY_CLI_VERSION}/unity-linux-${unity_arch}" && \
+    echo "${unity_sha}  /usr/local/bin/unity" | sha256sum -c - && \
+    chmod +x /usr/local/bin/unity
+
+# Prove the binary actually loads, in the build rather than at first use. This
+# is the one line that would have caught the musl problem above on day one:
+# a `unity` that cannot find its loader fails here and fails the build, rather
+# than shipping an image whose only symptom appears when a session finally
+# runs it.
+RUN unity --version
+
+# The CLI is built for exactly this and says so on every relevant flag: no
+# interactive prompts, no pager waiting on a TTY, no banner in captured
+# output, and machine-readable output by default. Set as env rather than
+# asked for per-invocation so anything running here inherits them.
+ENV UNITY_NON_INTERACTIVE=1 \
+    UNITY_NO_PAGER=1 \
+    UNITY_NO_BANNER=1
+
+# Background update checks reach the network on unrelated commands and would
+# have this image quietly disagree with its own pin. The pin is the point.
+RUN unity config update-check off || true
+
+CMD ["unity", "--help"]
