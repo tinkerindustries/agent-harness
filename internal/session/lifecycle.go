@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
+	"github.com/mrgeoffrich/deepseek-harness/internal/attachment"
 	"github.com/mrgeoffrich/deepseek-harness/internal/cache"
 	"github.com/mrgeoffrich/deepseek-harness/internal/claudemd"
 	"github.com/mrgeoffrich/deepseek-harness/internal/promptvariant"
@@ -228,20 +229,14 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	return r.runLoop(ctx, curSess, allEvents, opts, executor, cache.NewDetector(), 1)
 }
 
-// attachmentPaths turns the request's attachment names into the workspace
-// paths they were materialised under: scratch/attachments/<name>
-// (internal/workspace), exactly the paths RenderOpeningMessage lists and
-// GET /api/sessions/{id}/screenshot resolves. Nil when there are none, so
-// the payload field stays absent for a run without attachments.
+// attachmentPaths turns attachment names into the workspace paths they were
+// materialised under, from the one spelling every package that touches them
+// reads (internal/attachment.WorkspacePaths) — exactly the paths
+// RenderAttachmentBlock lists and GET /api/sessions/{id}/screenshot
+// resolves. Nil when there are none, so the payload field stays absent for a
+// run without attachments.
 func attachmentPaths(names []string) []string {
-	if len(names) == 0 {
-		return nil
-	}
-	out := make([]string, len(names))
-	for i, name := range names {
-		out[i] = "scratch/attachments/" + name
-	}
-	return out
+	return attachment.WorkspacePaths(names)
 }
 
 // runLoop iterates sub-turns from startSubTurn through opts.MaxSubTurns (or

@@ -24,11 +24,17 @@ type ResumeOptions struct {
 	// loop continues. Left empty, Resume just re-runs sub-turns against the
 	// session's existing log — the shape a run that stopped at
 	// MaxSubTurns without finishing needs.
-	Prompt      string
-	MaxTokens   int
-	MaxSubTurns int
-	Resolver    tools.Resolver
-	Progress    func(SubTurnProgress)
+	Prompt string
+	// AttachmentIDs names the images the continuation carries, as rows of
+	// the attachments table (docs/RUN-CONTROL.md, "Images in the composer").
+	// A resumed session keeps the workspace it already has, so nothing
+	// prepares one for it — Resume materialises them into that existing
+	// workspace itself, before the message naming them is appended.
+	AttachmentIDs []string
+	MaxTokens     int
+	MaxSubTurns   int
+	Resolver      tools.Resolver
+	Progress      func(SubTurnProgress)
 }
 
 // Resume continues a session that reached a terminal status. It refuses a
@@ -107,9 +113,32 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 	}
 	executor.RunSubagent = r.subagentRunner(sess.ID, runOpts, executor.Workspace)
 
-	if opts.Prompt != "" {
+	// The continuation's images land in the workspace before the message
+	// naming them is appended, so the model never reads a path that is not
+	// there yet. Unlike a steer's, this failure is fatal: a resume is one
+	// message and nothing has happened yet, so refusing it leaves the
+	// session exactly as it was and the browser shows the 500 against the
+	// message still in the box — whereas a steer's failure arrives mid-run,
+	// where ending the run would cost work already done.
+	attachmentNames, err := r.materialiseAttachments(ctx, sess.Workspace, opts.AttachmentIDs)
+	if err != nil {
+		return nil, fmt.Errorf("session: resume: %w", err)
+	}
+
+	if opts.Prompt != "" || len(attachmentNames) > 0 {
+		// The message the model reads is the attachment block and then the
+		// person's words, exactly the order the opening message puts them
+		// in. Task keeps the words alone, which is what the transcript
+		// renders — the block is addressed to the model, and showing it back
+		// to the person who just pasted the images would be repeating the
+		// file names at them (web/src/api/fold.ts, the continuation block).
+		message := RenderAttachmentBlock("message", attachmentNames) + opts.Prompt
 		appended, err := r.Store.AppendEvents(ctx, sess.ID, []store.EventInput{
-			{Kind: store.KindSessionStarted, Payload: store.SessionStartedPayload{OpeningMessage: opts.Prompt}},
+			{Kind: store.KindSessionStarted, Payload: store.SessionStartedPayload{
+				OpeningMessage: message,
+				Task:           opts.Prompt,
+				Attachments:    attachmentPaths(attachmentNames),
+			}},
 		})
 		if err != nil {
 			return nil, fmt.Errorf("session: resume: record continuation: %w", err)

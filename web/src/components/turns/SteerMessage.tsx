@@ -2,6 +2,8 @@ import type { Block } from "../../api/fold";
 import { formatDuration } from "../../api/operations";
 import { useNow } from "../../hooks";
 import { pendingWaitLabel } from "./turnHelpers";
+import { ScreenshotGallery } from "../blocks/ScreenshotGallery";
+import { trimWorkspace } from "../blocks/toolArgs";
 import { cn } from "@/lib/utils";
 
 // The sent-message shell (.msg .msg-user): a mono body behind the
@@ -38,6 +40,15 @@ export const MSG_STATE_CLS = "flex items-center gap-1.5 mt-[5px] text-micro text
 //   transcript order. A delivered block folded before that field existed
 //   renders without naming a sub-turn: the fallback is a plain "delivered",
 //   so an old log still renders.
+//
+// Images pasted into the composer render under the words, and which way
+// depends on the same two states. A pending message names its files and does
+// not show them: the bytes are in the store but the loop has not written them
+// into the workspace yet — it does that at the boundary it applies the
+// message at — so the gallery would have nothing to fetch and would report
+// every one as "no longer available", which is both wrong and alarming. Once
+// delivered the files are on disk and the gallery is the same one every other
+// workspace image on the page goes through.
 //
 // The third state — not sent, a POST that failed so nothing is in the log —
 // is composer-local and never becomes a block; the chat screen renders those
@@ -83,6 +94,7 @@ export function SteerMessage({ block, sentAt, wait, runEnded }: Props) {
     return (
       <div className={cn(MSG_CLS, MSG_USER_CLS)}>
         <div className={MSG_BODY_CLS}>{block.text}</div>
+        <ScreenshotGallery paths={block.attachments} />
         <div className={MSG_STATE_CLS}>
           delivered{block.appliedSubTurn != null ? ` · sub-turn ${block.appliedSubTurn}` : ""}
         </div>
@@ -95,6 +107,7 @@ export function SteerMessage({ block, sentAt, wait, runEnded }: Props) {
     return (
       <div className={cn(MSG_CLS, MSG_USER_CLS)}>
         <div className={MSG_BODY_CLS}>{block.text}</div>
+        <PendingAttachments paths={block.attachments} />
         <div className={cn(MSG_STATE_CLS, "text-[var(--status-gaveup)]")}>
           {age ? `${age} · ` : ""}not delivered — the run ended before this message reached the model
         </div>
@@ -104,10 +117,27 @@ export function SteerMessage({ block, sentAt, wait, runEnded }: Props) {
   return (
     <div className={cn(MSG_CLS, MSG_USER_CLS)}>
       <div className={MSG_BODY_CLS}>{block.text}</div>
+      <PendingAttachments paths={block.attachments} />
       <div className={cn(MSG_STATE_CLS, "text-[var(--status-gaveup)]")}>
         <span className="h-1.5 w-1.5 flex-none rounded-full bg-current dot-pulse" aria-hidden />
         pending{age ? ` · ${age}` : ""} · {pendingWaitLabel(wait.hasToolRound, wait.liveSubTurn)}
       </div>
     </div>
+  );
+}
+
+// PendingAttachments names the images a message carries but has not delivered
+// — the file names alone, in the workspace-relative form the model will be
+// given them under, so somebody reading a wedged run can see exactly what is
+// waiting and where it will land. It is not a gallery, and the comment at the
+// top of this file says why: the files do not exist yet.
+function PendingAttachments({ paths }: { paths: string[] }) {
+  if (paths.length === 0) return null;
+  return (
+    <ul className="my-1 pl-[18px] text-xs text-muted-foreground">
+      {paths.map((path) => (
+        <li key={path}>{trimWorkspace(path)}</li>
+      ))}
+    </ul>
   );
 }

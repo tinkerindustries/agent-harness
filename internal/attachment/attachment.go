@@ -46,6 +46,36 @@ var ImageMIMETypes = map[string]string{
 	".webp": "image/webp",
 }
 
+// WorkspaceDir is the directory, relative to a session's workspace root,
+// that every attachment is materialised into: the images a work request
+// carried, written by internal/workspace.Prepare, and the ones somebody
+// pasted into the composer of a session that already has a workspace,
+// written by internal/session (docs/RUN-CONTROL.md, "Images in the
+// composer").
+//
+// It lives here because four packages have to agree on it and two of them
+// must not import each other: internal/httpapi records the paths on a steer
+// it accepts, internal/session writes the files and names them to the model,
+// internal/workspace creates the directory, and the browser addresses each
+// file on GET /api/sessions/{id}/screenshot by exactly this path. A leaf
+// they all already depend on is the only place all four can read one
+// spelling.
+const WorkspaceDir = "scratch/attachments"
+
+// WorkspacePaths turns attachment file names into the workspace-relative
+// paths they are materialised under. Nil for none, so a payload field built
+// from it stays absent rather than empty.
+func WorkspacePaths(names []string) []string {
+	if len(names) == 0 {
+		return nil
+	}
+	out := make([]string, len(names))
+	for i, name := range names {
+		out[i] = WorkspaceDir + "/" + name
+	}
+	return out
+}
+
 // MIMEType reports the MIME type name claims by extension, from
 // ImageMIMETypes, and whether the extension is one of them.
 func MIMEType(name string) (string, bool) {

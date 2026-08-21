@@ -663,11 +663,16 @@ func (p *Pool) run(msg queue.Msg, req queue.Request, releaseSlot func()) {
 	// clone, the shipped skills — is not skipped conditionally so much as
 	// simply not this path's job.
 	if req.ResumeSessionID != "" {
+		// The attachment ids ride through untouched: a resumed session keeps
+		// the workspace it already has, so there is no Prepare to hand the
+		// bytes to, and Resume materialises them into that workspace itself
+		// (docs/RUN-CONTROL.md, "Images in the composer").
 		runResult, runErr := p.Runner.Resume(runCtx, session.ResumeOptions{
-			SessionID:   sessionID,
-			Prompt:      req.Prompt,
-			MaxTokens:   p.defaultMaxTokens(runCtx),
-			MaxSubTurns: req.MaxSubTurns,
+			SessionID:     sessionID,
+			Prompt:        req.Prompt,
+			AttachmentIDs: req.AttachmentIDs,
+			MaxTokens:     p.defaultMaxTokens(runCtx),
+			MaxSubTurns:   req.MaxSubTurns,
 		})
 		p.settle(msg, req, rec, sessionID, started, runCtx, runResult, runErr)
 		return

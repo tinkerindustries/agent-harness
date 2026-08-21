@@ -276,11 +276,23 @@ export interface SteerResponse {
 // tool call is in flight, and the transcript's steer block shows it as
 // pending until then. The text is carried verbatim. The bearer token is
 // required, exactly as for stopSession.
-export async function steerSession(id: string, token: string, text: string): Promise<SteerResponse> {
+//
+// attachments are the images pasted into the composer alongside the words
+// (docs/RUN-CONTROL.md, "Images in the composer"), in the same wire shape
+// POST /api/runs takes. The server stores the bytes and the log carries only
+// the ids; the files reach the session's workspace when the loop applies the
+// message, so a message with images is accepted no differently from one
+// without and waits on exactly the same boundary.
+export async function steerSession(
+  id: string,
+  token: string,
+  text: string,
+  attachments: RunAttachment[] = [],
+): Promise<SteerResponse> {
   const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/steer`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ text, source: "web" }),
+    body: JSON.stringify({ text, source: "web", ...(attachments.length > 0 ? { attachments } : {}) }),
   });
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as SteerResponse;
@@ -301,11 +313,22 @@ export interface ResumeResponse {
 // that it has begun — the session goes back to "running" when a worker claims
 // it, which the page learns from the session's own stream rather than by
 // polling. The bearer token is required, exactly as for steerSession.
-export async function resumeSession(id: string, token: string, text: string): Promise<ResumeResponse> {
+//
+// attachments are steer's, unchanged: the composer outlives the run, so a
+// message somebody pasted images into has to carry them whichever verb it
+// turns out to be. A resumed session keeps the workspace it already has, and
+// the continuation's images are written into it before the message naming
+// them is appended.
+export async function resumeSession(
+  id: string,
+  token: string,
+  text: string,
+  attachments: RunAttachment[] = [],
+): Promise<ResumeResponse> {
   const res = await fetch(`/api/sessions/${encodeURIComponent(id)}/resume`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, ...(attachments.length > 0 ? { attachments } : {}) }),
   });
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as ResumeResponse;

@@ -196,7 +196,20 @@ acceptance, not a delivery: the text lands in the log and reaches the model
 at the next sub-turn boundary, and the transcript's steer block shows it as
 *pending* until the matching `steer_applied` arrives — a steer that sits
 pending for minutes is the operator's signal that the run is wedged, which is
-a feature of the display, not an accident of it. The stop and the start are
+a feature of the display, not an accident of it. The composer also takes
+**images by paste** — several at a time, staged as thumbnails above the box
+and sent with the next message whichever verb it turns out to be
+(docs/RUN-CONTROL.md, "Images in the composer"). Paste is the only way in
+here; the file input lives on the start form, where choosing from disk is the
+normal act. Two rules follow from where the files get written, and both are
+about not lying to the reader: every pasted image is **renamed**
+(`api/attachments.ts` `pastedImageName`), because the clipboard calls every
+screenshot `image.png` and two of those in one session would overwrite each
+other in the workspace; and a **pending** steer's images are *named*, not
+shown, because the loop writes them to the workspace only when it applies the
+message — a gallery would report every one as "no longer available". A
+delivered steer and a continuation both show the gallery, because by then the
+files are there. The stop and the start are
 acceptances, not outcomes: the stop shows *stopping…* between the 202 and the
 terminal event, and a started run appears on the session list when the pool
 claims it — the screen never polls and never invents a row, because the SSE

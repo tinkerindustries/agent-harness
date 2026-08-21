@@ -439,13 +439,13 @@ describe("steer block", () => {
     state.ingest(ev(2, "steer_message", { text: "be terse", source: "web" }));
     expect(state.blocks).toEqual([
       { type: "opening", seq: 1, text: "x", attachments: [] },
-      { type: "steer", seq: 2, text: "be terse", state: "pending" },
+      { type: "steer", seq: 2, text: "be terse", state: "pending", attachments: []  },
     ]);
 
     state.ingest(ev(3, "steer_applied", { source_seq: 2, text: "be terse", sub_turn: 1 }));
     expect(state.blocks).toEqual([
       { type: "opening", seq: 1, text: "x", attachments: [] },
-      { type: "steer", seq: 2, text: "be terse", state: "delivered", appliedSubTurn: 1 },
+      { type: "steer", seq: 2, text: "be terse", state: "delivered", appliedSubTurn: 1, attachments: []  },
     ]);
   });
 
@@ -455,8 +455,8 @@ describe("steer block", () => {
     state.ingest(ev(2, "steer_message", { text: "second" }));
     state.ingest(ev(3, "steer_applied", { source_seq: 2, text: "second", sub_turn: 1 }));
     expect(state.blocks).toEqual([
-      { type: "steer", seq: 1, text: "first", state: "pending" },
-      { type: "steer", seq: 2, text: "second", state: "delivered", appliedSubTurn: 1 },
+      { type: "steer", seq: 1, text: "first", state: "pending", attachments: []  },
+      { type: "steer", seq: 2, text: "second", state: "delivered", appliedSubTurn: 1, attachments: []  },
     ]);
   });
 
@@ -469,7 +469,7 @@ describe("steer block", () => {
     state.ingest(ev(5, "steer_applied", { source_seq: 2, text: "be terse", sub_turn: 1 }));
 
     const steer = state.blocks.find((b) => b.type === "steer");
-    expect(steer).toEqual({ type: "steer", seq: 2, text: "be terse", state: "delivered", appliedSubTurn: 1 });
+    expect(steer).toEqual({ type: "steer", seq: 2, text: "be terse", state: "delivered", appliedSubTurn: 1, attachments: []  });
     expect(state.blocks.map((b) => b.type)).toEqual(["opening", "steer", "assistant"]);
   });
 
@@ -487,7 +487,31 @@ describe("steer block", () => {
     state.ingest(ev(5, "steer_applied", { source_seq: 3, text: "be terse", sub_turn: 2 }));
 
     const steer = state.blocks.find((b) => b.type === "steer");
-    expect(steer).toEqual({ type: "steer", seq: 3, text: "be terse", state: "delivered", appliedSubTurn: 2 });
+    expect(steer).toEqual({ type: "steer", seq: 3, text: "be terse", state: "delivered", appliedSubTurn: 2, attachments: []  });
+  });
+
+  it("carries the images a steer was sent with, from the moment it is accepted", () => {
+    // The paths are on steer_message, not steer_applied: the transcript can
+    // name what a still-pending message carries even though the files reach
+    // the workspace only when the loop applies it. The flip keeps them.
+    const state = new FoldState();
+    state.ingest(ev(1, "steer_message", { text: "match this", attachments: ["scratch/attachments/pasted-1.png"] }));
+    expect(state.blocks[0]).toEqual({
+      type: "steer",
+      seq: 1,
+      text: "match this",
+      state: "pending",
+      attachments: ["scratch/attachments/pasted-1.png"],
+    });
+    state.ingest(ev(2, "steer_applied", { source_seq: 1, text: "match this", sub_turn: 1 }));
+    expect(state.blocks[0]).toEqual({
+      type: "steer",
+      seq: 1,
+      text: "match this",
+      state: "delivered",
+      appliedSubTurn: 1,
+      attachments: ["scratch/attachments/pasted-1.png"],
+    });
   });
 
   it("is the one deliberate divergence from the append-only property", () => {
@@ -502,8 +526,8 @@ describe("steer block", () => {
     ];
     const prefix = foldEvents(events.slice(0, 2));
     const full = foldEvents(events);
-    expect(prefix[1]).toEqual({ type: "steer", seq: 2, text: "be terse", state: "pending" });
-    expect(full[1]).toEqual({ type: "steer", seq: 2, text: "be terse", state: "delivered", appliedSubTurn: 1 });
+    expect(prefix[1]).toEqual({ type: "steer", seq: 2, text: "be terse", state: "pending", attachments: []  });
+    expect(full[1]).toEqual({ type: "steer", seq: 2, text: "be terse", state: "delivered", appliedSubTurn: 1, attachments: []  });
     // Everything else still agrees: the opening block is untouched.
     expect(prefix[0]).toEqual(full[0]);
   });
@@ -731,9 +755,37 @@ describe("continuation", () => {
   it("does not unpack a continuation the way an opening message is unpacked", () => {
     const state = new FoldState();
     state.ingest(ev(1, "session_started", { opening_message: "cat\ndo the task", skill_catalogue: "cat", task: "do the task" }));
-    state.ingest(ev(2, "session_started", { opening_message: "keep going", skill_catalogue: "cat", task: "ignored" }));
+    state.ingest(ev(2, "session_started", { opening_message: "keep going", skill_catalogue: "cat", task: "keep going" }));
     // The opening message yields its skills catalogue, the opening block and
     // the launcher's instruction; the continuation is one block of its own.
     expect(state.blocks.map((b) => b.type)).toEqual(["skills", "opening", "instruction", "continuation"]);
+  });
+
+  it("shows the person's own words, not the attachment block the model reads", () => {
+    // A continuation carrying images has the block naming them prepended to
+    // opening_message; task is the words alone. Rendering opening_message
+    // would read the file names back at the person who just pasted them.
+    const state = new FoldState();
+    state.ingest(ev(1, "session_started", { opening_message: "do the task" }));
+    state.ingest(
+      ev(2, "session_started", {
+        opening_message: "Image files attached to this message…\n\nmatch this",
+        task: "match this",
+        attachments: ["scratch/attachments/pasted-1.png"],
+      }),
+    );
+    expect(state.blocks[1]).toEqual({
+      type: "continuation",
+      seq: 2,
+      text: "match this",
+      attachments: ["scratch/attachments/pasted-1.png"],
+    });
+  });
+
+  it("falls back to opening_message for a continuation folded before task rode one", () => {
+    const state = new FoldState();
+    state.ingest(ev(1, "session_started", { opening_message: "do the task" }));
+    state.ingest(ev(2, "session_started", { opening_message: "keep going" }));
+    expect(state.blocks[1]).toEqual({ type: "continuation", seq: 2, text: "keep going", attachments: [] });
   });
 });

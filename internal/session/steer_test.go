@@ -6,7 +6,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 
@@ -22,8 +24,13 @@ import (
 // first request is still in flight, the exact shape a mid-run steer takes
 // (docs/RUN-CONTROL.md "How the loop picks one up"). It returns the messages
 // arrays of the two requests the fake API received, in order, for the prefix
-// and ordering assertions.
-func runSteerScenario(t *testing.T, sessionID string, steers []store.SteerMessagePayload) [][]wire.Message {
+// and ordering assertions, and the run's workspace, which a steer carrying
+// images writes into.
+//
+// The steers are built from the store rather than passed in ready-made, so a
+// test can write an attachment row first and name its id on the message —
+// the id is minted by the store, and the store belongs to this harness.
+func runSteerScenario(t *testing.T, sessionID string, steers func(*store.Store) []store.SteerMessagePayload) ([][]wire.Message, string) {
 	t.Helper()
 	var mu sync.Mutex
 	var requests [][]wire.Message
@@ -34,6 +41,8 @@ func runSteerScenario(t *testing.T, sessionID string, steers []store.SteerMessag
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { st.Close() })
+	pending := steers(st)
+	workspace := t.TempDir()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -50,8 +59,8 @@ func runSteerScenario(t *testing.T, sessionID string, steers []store.SteerMessag
 		if n == 1 {
 			// The steer lands while this request — the start of the run's
 			// first tool round — is still in flight.
-			inputs := make([]store.EventInput, 0, len(steers))
-			for _, s := range steers {
+			inputs := make([]store.EventInput, 0, len(pending))
+			for _, s := range pending {
 				inputs = append(inputs, store.EventInput{Kind: store.KindSteerMessage, Payload: s})
 			}
 			if _, err := st.AppendEvents(r.Context(), sessionID, inputs); err != nil {
@@ -90,7 +99,7 @@ func runSteerScenario(t *testing.T, sessionID string, steers []store.SteerMessag
 	}
 	res, err := r.Run(t.Context(), RunOptions{
 		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
-		Workspace: t.TempDir(), PermissionMode: tools.ModeFull, Prompt: "do the task",
+		Workspace: workspace, PermissionMode: tools.ModeFull, Prompt: "do the task",
 		SessionID: sessionID,
 	})
 	if err != nil {
@@ -102,7 +111,7 @@ func runSteerScenario(t *testing.T, sessionID string, steers []store.SteerMessag
 
 	mu.Lock()
 	defer mu.Unlock()
-	return requests
+	return requests, workspace
 }
 
 // requireMessageJSON marshals m the way the wire serialises it, so two
@@ -125,7 +134,9 @@ func requireMessageJSON(t *testing.T, m wire.Message) string {
 // tool round in between is undisturbed: the assistant(tool_calls) and tool
 // messages sit intact ahead of the steer.
 func TestSteerAppearsAsNextUserMessage(t *testing.T) {
-	requests := runSteerScenario(t, "sess-steer-1", []store.SteerMessagePayload{{Text: "be terse now", Source: "web"}})
+	requests, _ := runSteerScenario(t, "sess-steer-1", func(*store.Store) []store.SteerMessagePayload {
+		return []store.SteerMessagePayload{{Text: "be terse now", Source: "web"}}
+	})
 	if len(requests) != 2 {
 		t.Fatalf("expected 2 requests, got %d", len(requests))
 	}
@@ -163,9 +174,11 @@ func TestSteerAppearsAsNextUserMessage(t *testing.T) {
 // back to back fold to two user messages in the order they were sent, not in
 // any completion order.
 func TestTwoSteersArriveInOrder(t *testing.T) {
-	requests := runSteerScenario(t, "sess-steer-2", []store.SteerMessagePayload{
-		{Text: "first instruction", Source: "cli"},
-		{Text: "second instruction", Source: "mcp"},
+	requests, _ := runSteerScenario(t, "sess-steer-2", func(*store.Store) []store.SteerMessagePayload {
+		return []store.SteerMessagePayload{
+			{Text: "first instruction", Source: "cli"},
+			{Text: "second instruction", Source: "mcp"},
+		}
 	})
 	if len(requests) != 2 {
 		t.Fatalf("expected 2 requests, got %d", len(requests))
@@ -313,5 +326,54 @@ func TestSteerHighWaterSurvivesResume(t *testing.T) {
 		if got != tc.want {
 			t.Fatalf("user message %q appears %d times, want %d", tc.text, got, tc.want)
 		}
+	}
+}
+
+// TestSteerAttachmentsReachTheWorkspaceAndTheMessage is the image half of
+// steering (docs/RUN-CONTROL.md, "Images in the composer"): a steer naming
+// attachment rows has its files written into the running session's workspace
+// and the message the model reads names the paths they landed under.
+//
+// The ordering is the property worth pinning. The bytes are stored when the
+// HTTP handler accepts the message, but nothing writes them to disk until
+// the loop applies it — so the assertion is not just that the file exists at
+// the end, but that the model's message and the file agree on where it is.
+func TestSteerAttachmentsReachTheWorkspaceAndTheMessage(t *testing.T) {
+	png := []byte("\x89PNG fake bytes")
+	requests, workspace := runSteerScenario(t, "sess-steer-att", func(st *store.Store) []store.SteerMessagePayload {
+		id, err := st.WriteAttachment(t.Context(), "mockup.png", "image/png", png)
+		if err != nil {
+			t.Fatalf("write attachment: %v", err)
+		}
+		return []store.SteerMessagePayload{{Text: "match this mockup", Source: "web", AttachmentIDs: []string{id}}}
+	})
+
+	// The file is in the workspace, under the plain name it was stored with.
+	path := filepath.Join(workspace, "scratch", "attachments", "mockup.png")
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read materialised attachment: %v", err)
+	}
+	if string(got) != string(png) {
+		t.Errorf("materialised bytes = %q, want %q", got, png)
+	}
+
+	// And the message the model reads names that path, ahead of the words.
+	if len(requests) != 2 {
+		t.Fatalf("expected 2 requests, got %d", len(requests))
+	}
+	last := requests[1][len(requests[1])-1]
+	if last.Role != wire.RoleUser {
+		t.Fatalf("last message role = %q, want user", last.Role)
+	}
+	content := last.Content.String()
+	if !strings.Contains(content, "scratch/attachments/mockup.png") {
+		t.Errorf("steer message does not name the attachment path:\n%s", content)
+	}
+	if !strings.Contains(content, "match this mockup") {
+		t.Errorf("steer message lost the operator's own words:\n%s", content)
+	}
+	if strings.Index(content, "scratch/attachments/mockup.png") > strings.Index(content, "match this mockup") {
+		t.Errorf("the attachment block should come before the words:\n%s", content)
 	}
 }

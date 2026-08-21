@@ -11,20 +11,23 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/attachment"
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
 )
 
 // skillsDir is the harness's own skill directory inside a session's
 // workspace. internal/skills owns the convention and scans it
-// (skills.WorkspaceSkillsDir); the name is repeated here rather than imported
-// so this package keeps depending on nothing but queue, and
-// clone_skills_test.go pins the two spellings equal.
+// (skills.WorkspaceSkillsDir); the name is repeated here rather than
+// imported to avoid pulling a heavier package in for one string, and
+// clone_skills_test.go pins the two spellings equal. The attachments
+// directory a few lines down goes the other way — internal/attachment is a
+// leaf with no internal dependencies at all, and four packages have to agree
+// on that one — so it is imported rather than repeated.
 const skillsDir = "skills"
 
 // Attachment is one image a work request carried: the bytes the store held,
 // plus the file name and MIME type to write them under. workspace never
-// reads the store — the worker fetches the rows and passes them here — so
-// this package keeps depending on nothing but queue.
+// reads the store — the worker fetches the rows and passes them here.
 type Attachment struct {
 	Name     string
 	MIMEType string
@@ -86,7 +89,7 @@ func Prepare(ctx context.Context, root, sessionID string, repos []queue.Repo, at
 		return "", fmt.Errorf("workspace: create skills dir in %q: %w", dir, err)
 	}
 
-	if err := writeAttachments(dir, attachments); err != nil {
+	if err := WriteAttachments(dir, attachments); err != nil {
 		return dir, err
 	}
 
@@ -99,16 +102,26 @@ func Prepare(ctx context.Context, root, sessionID string, repos []queue.Repo, at
 	return dir, nil
 }
 
-// writeAttachments materialises the request's attachments into
+// WriteAttachments materialises attachments into dir's
 // scratch/attachments/, each under its own name. The name must be a plain
 // file name — no separators, no ".." — so an attachment can never escape
 // the attachments directory however it was accepted; the producers enforce
 // the same rule, and this is the second line of defence.
-func writeAttachments(dir string, attachments []Attachment) error {
+//
+// Prepare calls it while building a fresh workspace. It is exported because
+// a workspace that already exists takes images too: the images a person
+// pastes into the composer of a session that is already running, or of one
+// being continued, land in the same directory through internal/session
+// rather than through Prepare (docs/RUN-CONTROL.md, "Images in the
+// composer"). Writing into a live workspace is safe for the same reason
+// writing into a fresh one is — the name check above — and the loop is the
+// only writer, because it is the only place that knows when the message
+// carrying them is about to be read.
+func WriteAttachments(dir string, attachments []Attachment) error {
 	if len(attachments) == 0 {
 		return nil
 	}
-	attDir := filepath.Join(dir, "scratch", "attachments")
+	attDir := filepath.Join(dir, filepath.FromSlash(attachment.WorkspaceDir))
 	if err := os.MkdirAll(attDir, 0o755); err != nil {
 		return fmt.Errorf("workspace: create scratch/attachments in %q: %w", dir, err)
 	}

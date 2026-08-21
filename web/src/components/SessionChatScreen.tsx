@@ -6,7 +6,9 @@ import type { TranscriptSnapshot } from "../api/transcriptStore";
 import { TurnTranscript } from "./turns/TurnTranscript";
 import { SteerMessage, type SteerBlock, type SteerWait } from "./turns/SteerMessage";
 import { finishedBandText, formatRunDuration } from "./turns/turnHelpers";
-import { controlToken, errorMessage, resumeSession, steerSession, stopSession } from "../api/operations";
+import { controlToken, errorMessage, resumeSession, steerSession, stopSession, type RunAttachment } from "../api/operations";
+import { attachmentCapsFromSettings, type AttachmentCaps } from "../api/attachments";
+import { listSettings } from "../api/settings";
 import { canResume, canSteer, isLive } from "../api/status";
 import { isUserStarted } from "../api/provenance";
 import { SessionIdContext, useNow } from "../hooks";
@@ -19,6 +21,7 @@ import { ChatRail } from "./ChatRail";
 import { DroppedStreamBanner } from "./DroppedStreamBanner";
 import { outcome, type OutcomeSession } from "./statusBadge";
 import { ClosingMessage, isCleanFinish } from "./blocks/MiscBlocks";
+import { ScreenshotGallery } from "./blocks/ScreenshotGallery";
 import { toolDetail } from "./blocks/toolArgs";
 import { useNavRight } from "./TopNav";
 
@@ -77,6 +80,29 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
     };
   }, []);
 
+  // The caps a pasted image is checked against, read once per page load from
+  // the settings registry — the same two the start form reads and the steer
+  // and resume endpoints enforce, so an operator who changes
+  // tools.attachments_max_count or tools.attachments_max_bytes sees the
+  // composer change with them. A failed fetch leaves them null, which the
+  // composer renders as "images cannot be attached" while the box keeps
+  // taking text: the caps are the images' precondition, not the message's.
+  const [attachmentCaps, setAttachmentCaps] = useState<AttachmentCaps | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    listSettings()
+      .then((entries) => {
+        if (!cancelled) setAttachmentCaps(attachmentCapsFromSettings(entries));
+      })
+      .catch(() => {
+        // Deliberately silent: nothing on this page is broken by it, and the
+        // composer already says what a person can and cannot do without it.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // --- the sent-message ledger (three states)
   // Two of the three states live in the fold's steer blocks; the ledger
   // completes them with what the fold cannot know. sentAt holds the local
@@ -88,6 +114,11 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
   interface FailedSend {
     id: number;
     text: string;
+    // The images that went with it, kept so Retry re-sends the whole message
+    // rather than the words of it — a screenshot the person pasted is half of
+    // what they said, and a retry that quietly dropped it would send
+    // something they never wrote.
+    attachments: RunAttachment[];
     error: string;
   }
   const [failed, setFailed] = useState<FailedSend[]>([]);
@@ -108,14 +139,14 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
   // continuation block when the resumed run starts. Nothing here polls or
   // guesses at either.
   const postMessage = useCallback(
-    async (text: string): Promise<{ ok: boolean; error: string | null }> => {
+    async (text: string, attachments: RunAttachment[]): Promise<{ ok: boolean; error: string | null }> => {
       if (token === null) return { ok: false, error: "run control is not configured" };
       try {
         if (!running && resumable) {
-          await resumeSession(sessionId, token, text);
+          await resumeSession(sessionId, token, text, attachments);
           return { ok: true, error: null };
         }
-        const res = await steerSession(sessionId, token, text);
+        const res = await steerSession(sessionId, token, text, attachments);
         setSentAt((prev) => {
           const m = new Map(prev);
           m.set(res.seq, Date.now());
@@ -130,10 +161,10 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
   );
 
   const send = useCallback(
-    async (text: string): Promise<boolean> => {
-      const res = await postMessage(text);
+    async (text: string, attachments: RunAttachment[]): Promise<boolean> => {
+      const res = await postMessage(text, attachments);
       if (!res.ok) {
-        setFailed((prev) => [...prev, { id: failedId.current++, text, error: res.error ?? "send failed" }]);
+        setFailed((prev) => [...prev, { id: failedId.current++, text, attachments, error: res.error ?? "send failed" }]);
         return false;
       }
       return true;
@@ -142,12 +173,12 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
   );
 
   const retryFailed = useCallback(
-    async (id: number, text: string) => {
+    async (failure: FailedSend) => {
       // A retry is the same POST, not a fresh send: only its own entry
       // disappears on success, and a second refusal keeps the entry rather
       // than stacking a duplicate failed message.
-      const res = await postMessage(text);
-      if (res.ok) setFailed((prev) => prev.filter((f) => f.id !== id));
+      const res = await postMessage(failure.text, failure.attachments);
+      if (res.ok) setFailed((prev) => prev.filter((f) => f.id !== failure.id));
     },
     [postMessage],
   );
@@ -264,6 +295,11 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
     (block: Extract<Block, { type: "continuation" }>) => (
       <div className={cn(MSG_CLS, MSG_USER_CLS)} key={`${block.seq}-continuation`}>
         <div className={MSG_BODY_CLS}>{block.text}</div>
+        {/* The images that rode the message, through the same gallery every
+            other workspace image on this page uses — a continuation's
+            attachments are written into the workspace before the message is
+            appended, so by the time this block exists the files are there. */}
+        <ScreenshotGallery paths={block.attachments} />
       </div>
     ),
     [],
@@ -490,8 +526,16 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
               <div className={cn(MSG_CLS, MSG_USER_CLS, "border-l-[var(--status-failed)]")} key={f.id}>
                 <div className={MSG_BODY_CLS}>{f.text}</div>
                 <div className={cn(MSG_STATE_CLS, "text-[var(--status-failed)]")}>
-                  not sent — {f.error}
-                  <Button variant="ghost" size="sm" className="h-[22px] px-2 text-xs" onClick={() => void retryFailed(f.id, f.text)}>
+                  not sent
+                  {/* The images are still held against this entry, so Retry
+                      re-sends the whole message. Saying so is the difference
+                      between a retry somebody trusts and one they redo by
+                      hand. */}
+                  {f.attachments.length > 0 &&
+                    ` · ${f.attachments.length} image${f.attachments.length === 1 ? "" : "s"} still attached`}
+                  {" — "}
+                  {f.error}
+                  <Button variant="ghost" size="sm" className="h-[22px] px-2 text-xs" onClick={() => void retryFailed(f)}>
                     Retry
                   </Button>
                   <button
@@ -541,6 +585,7 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
         resumable={resumable}
         pendingCount={pendingCount}
         send={send}
+        attachmentCaps={attachmentCaps}
         stop={{ confirming: confirmingStop, stopping, error: stopError, onRequestStop: toggleStopConfirm, onCancelStop: cancelStop, onConfirmStop: () => void confirmStop() }}
         activity={activity}
         status={status}

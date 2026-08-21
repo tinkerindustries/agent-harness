@@ -2,6 +2,7 @@ import { memo } from "react";
 import type { Block } from "../../api/fold";
 import { Markdown } from "../../render/Markdown";
 import { BLOCK_CLS, BLOCK_LABEL_CLS, BLOCK_TEXT_CLS } from "./blockStyles";
+import { ScreenshotGallery } from "./ScreenshotGallery";
 import { cn } from "@/lib/utils";
 
 export const UsageBlock = memo(function UsageBlock({ block }: { block: Extract<Block, { type: "usage" }> }) {
@@ -110,6 +111,11 @@ export const ContinuationBlock = memo(function ContinuationBlock({
     <section className={cn(BLOCK_CLS, "border-border bg-card", "block")}>
       <div className={BLOCK_LABEL_CLS}>continued</div>
       <p className={BLOCK_TEXT_CLS}>{block.text}</p>
+      {/* Images pasted into the composer alongside the words. A
+          continuation's are written into the workspace before the message
+          is appended, so by the time this block exists the files are there
+          — unlike a steer's, which land only when the loop applies it. */}
+      <ScreenshotGallery paths={block.attachments} />
     </section>
   );
 });
@@ -148,6 +154,20 @@ export const SteerBlock = memo(function SteerBlock({ block }: { block: Extract<B
         {pending ? "steer · sent, not yet delivered" : "steer · delivered"}
       </div>
       <p className={BLOCK_TEXT_CLS}>{block.text}</p>
+      {/* The images the message carries, shown only once it is delivered:
+          the loop writes them into the workspace at the boundary it applies
+          the message at, so a pending steer's files are not on disk to fetch
+          and are named instead (SteerMessage.tsx says the same at length). */}
+      {block.attachments.length > 0 &&
+        (pending ? (
+          <ul className="my-1 pl-[18px] text-xs text-muted-foreground">
+            {block.attachments.map((path) => (
+              <li key={path}>{path}</li>
+            ))}
+          </ul>
+        ) : (
+          <ScreenshotGallery paths={block.attachments} />
+        ))}
     </section>
   );
 });

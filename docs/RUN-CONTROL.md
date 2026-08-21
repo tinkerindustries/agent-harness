@@ -556,10 +556,18 @@ Four endpoints, all `POST`, all actions rather than row edits.
 
 ```
 POST /api/sessions/{id}/stop     {"reason": "..."}          → 202
-POST /api/sessions/{id}/steer    {"text": "..."}            → 202
-POST /api/sessions/{id}/resume   {"text": "..."}            → 202
+POST /api/sessions/{id}/steer    {"text": "...", attachments?} → 202
+POST /api/sessions/{id}/resume   {"text": "...", attachments?} → 202
 POST /api/runs                   <work request body>        → 202
 ```
+
+`attachments` on the two message endpoints is the same array `POST /api/runs`
+takes, and is what "Images in the composer" below is about. Because it can
+carry several multi-megabyte images, both bodies are read under the 64 MB
+ceiling `POST /api/runs` already reads under rather than the 1 MB one they
+read text under. `text` may be empty when `attachments` is not: a pasted
+screenshot with no words is a complete message, and only a body carrying
+neither is a 400.
 
 `methodGate` learns `POST` on exactly these four path shapes, extending the
 `writeAllowed`/`allowedMethods` switch the way the phase-3 resources did, so a
@@ -651,6 +659,56 @@ stored before the publish so the request carries only `attachment_ids`, never
 the bytes (docs/DATA-API.md, "attachments"). The caps come from
 `tools.attachments_max_count` and `tools.attachments_max_bytes`, and the
 materialised files are named in the run's opening message.
+
+### Images in the composer
+
+A person mid-conversation can paste images into the composer and they ride the
+next message, whichever verb that message turns out to be. Pasting is the only
+way in on this surface — no file input beside the box — because the thing
+people actually do is screenshot something and hit paste, and the start form
+already covers choosing a file from disk.
+
+The bytes take the route a work request's attachments already take: the
+endpoint validates each image against the same allowlist and caps
+(`internal/attachment`), writes it to the `attachments` table, and carries
+only the ids onward. Nothing multi-megabyte goes into the event log or onto a
+`work_queue` row — both are read whole, repeatedly, and one screenshot in
+either would be paid for on every fold.
+
+**Where the files get written is the part worth stating.** A run's attachments
+are materialised by `internal/workspace.Prepare`, before there is a loop at
+all. Neither of these messages has a Prepare: a steer goes to a session whose
+workspace exists and is in use, and a resume keeps the workspace it already
+has. So the loop writes them, through
+`internal/workspace.WriteAttachments` — the same confinement check, so a
+name that could climb out of `scratch/attachments/` is refused by the same
+code — and it writes them at the moment it is about to read the message:
+
+- **A steer**: `pickUpSteers` materialises the images at the sub-turn boundary
+  it applies the message at, then folds the attachment block and the
+  operator's words as one user message. The order is the guarantee — the file
+  exists before the model is told the path. A write that fails is *not* fatal:
+  the message still reaches the model, saying that the images could not be
+  written, because a full disk should not end a run that was going fine, and a
+  message naming files the model cannot open is worse than one that never
+  claimed they were there.
+- **A resume**: `Runner.Resume` materialises them before appending the
+  continuation's `session_started`. Here a failure *is* fatal — nothing has
+  happened yet, so refusing leaves the session exactly as it was, and the
+  browser shows the refusal with the message still in the box.
+
+The transcript follows the same fact. A continuation's images render as a
+gallery as soon as the block exists, because the files were written before it
+was. A steer's do not: its `steer_message` records the paths at acceptance so
+a *pending* message can name what it carries, but the gallery only appears
+once the message is delivered, because until then there is nothing on disk to
+fetch and every tile would report the image as gone.
+
+One more consequence of the clipboard: **the browser renames every pasted
+image**. Chrome hands each screenshot over as `image.png`, so honouring the
+name would have the second paste into a session overwrite the first while the
+model had been told about both. Each becomes `pasted-<stamp>-<n>.<ext>`
+(`web/src/api/attachments.ts`).
 
 ### Authentication
 

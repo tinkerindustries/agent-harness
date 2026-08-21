@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { HourglassMedium } from "@phosphor-icons/react";
+import { HourglassMedium, X } from "@phosphor-icons/react";
 import { formatCost } from "./blocks/toolArgs";
+import { formatFileSize, pasteStamp, readPastedImages, type AttachmentCaps, type ChosenAttachment } from "../api/attachments";
+import type { RunAttachment } from "../api/operations";
 import { useLabelFlip } from "../hooks";
 import type { Outcome } from "./statusBadge";
 import { cachePercent, formatRunDuration } from "./turns/turnHelpers";
@@ -41,6 +43,15 @@ import { Button } from "./ui/button";
 // hint, and a finished one gets none of them, because there is nothing to
 // stop and nothing waiting on a sub-turn boundary.
 //
+// Images arrive by paste, and only by paste (docs/RUN-CONTROL.md, "Images in
+// the composer"). There is no file input here the way there is on the start
+// form: the thing people actually do mid-conversation is screenshot something
+// and hit paste, and a second control for the rarer case would cost the band
+// height it does not have. A paste carrying images stages them above the box
+// as thumbnails and rides the next send, whichever verb that send turns out
+// to be — the images are part of the message, not a separate act, so there is
+// nothing to upload and nothing to wait for before typing.
+//
 // The done band is what is left for a session that cannot be continued at all
 // — one retired by compaction, whose continuation is its child. There the
 // composer is removed rather than disabled, for the reason it always was: a
@@ -76,11 +87,17 @@ interface ChatComposerProps {
   resumable: boolean;
   // Steers accepted but not yet applied, for the queued line.
   pendingCount: number;
-  // The write itself, owned by the screen: POSTs the text as a steer or a
-  // resume depending on the run's state, records the acceptance in the
-  // screen's ledger, and returns whether the 202 landed (false leaves the
-  // text in the box for the operator to see).
-  send: (text: string) => Promise<boolean>;
+  // The write itself, owned by the screen: POSTs the text and its images as a
+  // steer or a resume depending on the run's state, records the acceptance in
+  // the screen's ledger, and returns whether the 202 landed (false leaves the
+  // text and the images in the box for the operator to see).
+  send: (text: string, attachments: RunAttachment[]) => Promise<boolean>;
+  // The caps a pasted image is checked against, from GET /api/settings — the
+  // same two the start form reads and the endpoint enforces. Null means they
+  // have not arrived (or their fetch failed), and a paste then says so
+  // rather than staging bytes the server may refuse: the box still takes
+  // text, because text never needed them.
+  attachmentCaps: AttachmentCaps | null;
   // The stop flow: the nav's Stop button (and esc esc) arm the inline
   // confirm strip; the strip's Stop run posts the stop; the banner shows
   // between the 202 and the terminal event.
@@ -114,6 +131,7 @@ export function ChatComposer({
   resumable,
   pendingCount,
   send,
+  attachmentCaps,
   stop,
   activity,
   status,
@@ -123,6 +141,13 @@ export function ChatComposer({
 }: ChatComposerProps) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  // The images staged for the next send, and the one refusal a paste can
+  // produce (over the count cap, over the per-image cap, or the caps never
+  // arrived). The error clears on the next paste rather than on a timer —
+  // it is about the paste that just happened, and it stops being about
+  // anything the moment another one does.
+  const [staged, setStaged] = useState<ChosenAttachment[]>([]);
+  const [pasteError, setPasteError] = useState<string | null>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
   // Text survives the run ending, because the box does: a half-typed message
@@ -134,6 +159,8 @@ export function ChatComposer({
   useEffect(() => {
     if (!usable) {
       setText("");
+      setStaged([]);
+      setPasteError(null);
       setSending(false);
     }
   }, [usable]);
@@ -147,13 +174,50 @@ export function ChatComposer({
     ta.style.height = `${Math.min(ta.scrollHeight, 180)}px`;
   }, [text]);
 
+  // A message is sendable with words, with images, or with both: a pasted
+  // screenshot and nothing else is a complete thing to say, and the endpoints
+  // accept it on the same terms.
+  const empty = text.trim() === "" && staged.length === 0;
   const sendNow = async () => {
-    const t = text.trim();
-    if (sending || t === "") return;
+    if (sending || empty) return;
     setSending(true);
-    const accepted = await send(t);
+    const accepted = await send(
+      text.trim(),
+      staged.map((c) => c.attachment),
+    );
     setSending(false);
-    if (accepted) setText("");
+    if (accepted) {
+      setText("");
+      setStaged([]);
+      setPasteError(null);
+    }
+  };
+
+  // A paste is intercepted only when it actually carries images; a paste of
+  // text is left entirely alone, so the box behaves exactly as it did for
+  // everyone who never pastes a picture into it. preventDefault is called
+  // only on the image branch, and only after that check, because a clipboard
+  // holding both a screenshot and its alt text should still drop the text in.
+  const onPaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData?.files ?? []);
+    if (!files.some((f) => f.type.startsWith("image/"))) return;
+    e.preventDefault();
+    if (!attachmentCaps) {
+      setPasteError("Attachment limits are unavailable, so images cannot be attached to this message.");
+      return;
+    }
+    const result = await readPastedImages(files, attachmentCaps, staged, pasteStamp(new Date()));
+    if (!result.ok) {
+      setPasteError(result.error);
+      return;
+    }
+    setPasteError(null);
+    setStaged((prev) => [...prev, ...result.chosen]);
+  };
+
+  const removeStaged = (name: string) => {
+    setStaged((prev) => prev.filter((c) => c.attachment.name !== name));
+    setPasteError(null);
   };
 
   // esc esc is the stop shortcut the status line advertises: two Escapes
@@ -249,6 +313,9 @@ export function ChatComposer({
                 sub-turn boundary. The run does not pause.
               </div>
             )}
+            {token !== null && usable && (staged.length > 0 || pasteError !== null) && (
+              <StagedImages staged={staged} error={pasteError} onRemove={removeStaged} disabled={sending} />
+            )}
             {token !== null && usable && (
               <div className="flex items-end gap-2 rounded-lg border border-input bg-card py-2 pr-2 pl-2.5 focus-within:border-ring focus-within:[box-shadow:0_0_0_3px_hsl(217_91%_48%/0.09)] max-phone:pl-3">
                 <span className="flex-none self-start font-mono font-semibold leading-[1.55] text-[var(--status-running)]" aria-hidden>
@@ -267,6 +334,7 @@ export function ChatComposer({
                         : "Continue this session…"
                   }
                   onChange={(e) => setText(e.target.value)}
+                  onPaste={(e) => void onPaste(e)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
@@ -281,7 +349,7 @@ export function ChatComposer({
                   type="button"
                   className="h-[26px] flex-none cursor-pointer rounded-[calc(var(--radius)-3px)] border border-border bg-secondary px-2.5 font-[inherit] text-xs text-secondary-foreground hover:bg-accent max-phone:h-11 max-phone:px-4"
                   onClick={() => void sendNow()}
-                  disabled={sending || text.trim() === ""}
+                  disabled={sending || empty}
                 >
                   Send
                 </button>
@@ -291,6 +359,60 @@ export function ChatComposer({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+// StagedImages is the strip of pasted images waiting on the next send, and
+// the one refusal a paste can produce. The thumbnails are drawn from the
+// base64 the payload already carries rather than an object URL, so there is
+// no revoke to get wrong and the tile survives a re-render for free — the
+// bytes are in memory either way, and each is capped at a few megabytes by
+// the same limit the endpoint enforces.
+//
+// Each tile is its own remove button rather than carrying one: the tile is
+// small, the only thing anybody wants to do to a staged image is take it back
+// out, and a hit target that is the whole thumbnail is the one that works on
+// a phone.
+function StagedImages({
+  staged,
+  error,
+  onRemove,
+  disabled,
+}: {
+  staged: ChosenAttachment[];
+  error: string | null;
+  onRemove: (name: string) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="mb-1.5">
+      {staged.length > 0 && (
+        <ul className="flex flex-wrap gap-2 m-0 p-0 list-none">
+          {staged.map(({ attachment, size }) => (
+            <li key={attachment.name}>
+              <button
+                type="button"
+                className="group relative block cursor-pointer overflow-hidden rounded-[calc(var(--radius)-3px)] border border-border bg-card p-0 disabled:cursor-default"
+                onClick={() => onRemove(attachment.name)}
+                disabled={disabled}
+                title={`${attachment.name} · ${formatFileSize(size)} — click to remove`}
+                aria-label={`Remove ${attachment.name} from this message`}
+              >
+                <img
+                  src={`data:${attachment.mime_type};base64,${attachment.data}`}
+                  alt=""
+                  className="block h-14 w-14 object-cover"
+                />
+                <span className="absolute inset-0 flex items-center justify-center bg-background/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+                  <X aria-hidden />
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {error && <p className="mt-1 mb-0 text-xs text-[var(--status-failed)]">{error}</p>}
     </div>
   );
 }
@@ -346,6 +468,9 @@ function StatusLine({
           </span>
           <span>
             <kbd>⇧⏎</kbd> newline
+          </span>
+          <span>
+            <kbd>⌘V</kbd> attach image
           </span>
           <span>
             <kbd>esc</kbd>

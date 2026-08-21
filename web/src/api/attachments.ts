@@ -1,10 +1,17 @@
-// The start form's attachment handling, split out of the component so it can
-// be unit-tested without a DOM (web/CLAUDE.md: components are not
-// unit-tested): the file-to-payload conversion (a File into the
-// {name, mime_type, data} shape POST /api/runs accepts) and the cap
-// validation, with the limits read from GET /api/settings rather than
-// hardcoded, so an operator who changes tools.attachments_max_count or
-// tools.attachments_max_bytes sees the form change with it.
+// Attachment handling for the two places a person puts an image into a
+// session — the start form's file input and the chat composer's paste — split
+// out of the components so it can be unit-tested without a DOM
+// (web/CLAUDE.md: components are not unit-tested): the file-to-payload
+// conversion (a File into the {name, mime_type, data} shape POST /api/runs,
+// /steer and /resume all accept) and the cap validation, with the limits read
+// from GET /api/settings rather than hardcoded, so an operator who changes
+// tools.attachments_max_count or tools.attachments_max_bytes sees both
+// surfaces change with it.
+//
+// The two entry points differ only in where the name comes from. A file
+// chosen from disk has one worth keeping; a pasted screenshot does not, and
+// pastedImageName below is the whole reason this module needed a second
+// function rather than a flag.
 
 import type { SettingEntry } from "./settings";
 import type { RunAttachment } from "./operations";
@@ -102,6 +109,92 @@ async function fileBytesToBase64(file: File): Promise<string> {
     binary += String.fromCharCode(...buf.subarray(i, i + chunk));
   }
   return btoa(binary);
+}
+
+// pastedImageName is the file name a pasted image is stored and materialised
+// under. It exists because the clipboard has no useful one: Chrome hands
+// every screenshot over as "image.png", so two pastes into the same session
+// would be two attachments fighting over one path in
+// scratch/attachments/ — the second overwriting the first, and the model
+// reading the wrong picture for a name it was told about.
+//
+// stamp is a caller-supplied compact timestamp (see pasteStamp) and index
+// disambiguates a multi-image paste within it, so a name is unique across
+// pastes, across messages, and within one clipboard's worth of files without
+// this module ever reading the clock itself — which is what keeps it
+// testable.
+export function pastedImageName(mime: string, stamp: string, index: number): string {
+  const ext = pastedExtensions[mime] ?? ".png";
+  return `pasted-${stamp}-${index + 1}${ext}`;
+}
+
+// The reverse of attachmentMIMEByExtension: a pasted image is named from its
+// type, since its own name is thrown away. JPEG resolves to ".jpg" — either
+// spelling is accepted on the way back in, and one of them has to be the one
+// we write. It doubles as the paste allowlist, so a clipboard carrying an SVG
+// or a GIF stages nothing rather than staging something the server refuses.
+const pastedExtensions: Record<string, string> = {
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/webp": ".webp",
+};
+
+// pasteStamp renders a Date as the compact, sortable stamp pastedImageName
+// builds on: YYYYMMDD-HHMMSS-mmm, local time, milliseconds included so two
+// pastes in the same second still land on different names.
+export function pasteStamp(at: Date): string {
+  const p = (n: number, width = 2) => String(n).padStart(width, "0");
+  return (
+    `${at.getFullYear()}${p(at.getMonth() + 1)}${p(at.getDate())}-` +
+    `${p(at.getHours())}${p(at.getMinutes())}${p(at.getSeconds())}-${p(at.getMilliseconds(), 3)}`
+  );
+}
+
+// readPastedImages turns the image files off a paste into the same wire
+// payload readAttachmentFiles produces, applying the same caps against the
+// whole staged set rather than against this paste alone — the caps are what
+// the endpoint enforces on the message, and a second paste that pushes the
+// total over the count limit has to be refused here rather than at send.
+//
+// Every image is renamed, including one that arrived with a name of its own:
+// the clipboard's names are not merely useless but actively harmful — the
+// commonest of them, "image.png", is the same for every screenshot anybody
+// ever pastes, so honouring it would have the second paste into a session
+// overwrite the first in scratch/attachments/ while the model was told about
+// both, and the earlier message's gallery would quietly start showing the
+// later picture. One minted name per image closes that off for the price of
+// a dragged mockup.png reading as pasted-<stamp>-1.png in the transcript,
+// which is a name a person can still find on disk.
+//
+// Non-image files in the paste are ignored rather than refused: a paste is
+// usually text, and text that happens to arrive alongside a file is the
+// composer's business, not an error.
+export async function readPastedImages(
+  files: File[],
+  caps: AttachmentCaps,
+  staged: ChosenAttachment[],
+  stamp: string,
+): Promise<{ ok: true; chosen: ChosenAttachment[] } | { ok: false; error: string }> {
+  const images = files.filter((f) => f.type in pastedExtensions);
+  if (images.length === 0) return { ok: true, chosen: [] };
+  if (staged.length + images.length > caps.maxCount) {
+    return {
+      ok: false,
+      error: `At most ${caps.maxCount} images can be attached to one message; this paste would make ${staged.length + images.length}.`,
+    };
+  }
+  const chosen: ChosenAttachment[] = [];
+  for (const [i, file] of images.entries()) {
+    if (file.size > caps.maxBytes) {
+      return {
+        ok: false,
+        error: `A pasted image is ${formatFileSize(file.size)}, over the ${formatFileSize(caps.maxBytes)} per-image limit.`,
+      };
+    }
+    const name = pastedImageName(file.type, stamp, i);
+    chosen.push({ attachment: { name, mime_type: file.type, data: await fileBytesToBase64(file) }, size: file.size });
+  }
+  return { ok: true, chosen };
 }
 
 // formatFileSize renders a byte count the way the chosen-file list shows it.

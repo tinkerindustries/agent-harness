@@ -284,9 +284,20 @@ could blow its size. The request carries only `attachment_ids`; the worker
 reads the rows back and the workspace materialises them into
 `scratch/attachments/`, which the run's opening message names.
 
-The two producers accept them in the same shape — `POST /api/runs` (a
-top-level `attachments` array beside the work-request fields) and the MCP
-`deepseek_agent` tool:
+The same rows carry the images a person pastes into the composer of a session
+that is already running or already finished. There is no Prepare on those two
+paths — the workspace exists — so the agent loop materialises them into it
+instead, into the same directory and through the same confinement check, at
+the moment it is about to read the message that names them
+(docs/RUN-CONTROL.md, "Images in the composer"). The table does not
+distinguish the two cases: a row is a row, and only who reads it back
+differs.
+
+The producers accept them in the same shape — `POST /api/runs` (a
+top-level `attachments` array beside the work-request fields), the MCP
+`deepseek_agent` tool, and the two message endpoints a person talks to a
+session through, `POST /api/sessions/{id}/steer` and
+`.../resume` (docs/RUN-CONTROL.md, "Images in the composer"):
 
 ```json
 {"name": "mockup.png", "mime_type": "image/png", "data": "<base64>"}

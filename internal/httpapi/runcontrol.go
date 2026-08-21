@@ -104,9 +104,17 @@ func (s *Server) handleStopSession(w http.ResponseWriter, r *http.Request) {
 // absent (the browser is the HTTP surface's primary client). The text is
 // carried verbatim into the user message the loop folds, so a caller's
 // formatting survives (docs/RUN-CONTROL.md "Steering").
+//
+// attachments is the same array POST /api/runs accepts, for the images
+// somebody pastes into the composer alongside the words
+// (docs/RUN-CONTROL.md, "Images in the composer"). The bytes are validated
+// and stored here and the event carries only the ids, exactly as a work
+// request does — the loop materialises them into the running session's
+// workspace when it picks the message up.
 type steerSessionBody struct {
-	Text   string `json:"text"`
-	Source string `json:"source,omitempty"`
+	Text        string               `json:"text"`
+	Source      string               `json:"source,omitempty"`
+	Attachments []startRunAttachment `json:"attachments,omitempty"`
 }
 
 // handleSteerSession serves POST /api/sessions/{id}/steer: appends a
@@ -122,9 +130,12 @@ type steerSessionBody struct {
 //
 // The guards and preconditions, in order: the content-type and origin guards
 // every write carries; the bearer token (401 missing or wrong, 503 when no
-// token is configured); a body whose text is empty or whitespace only (400 —
-// an empty steer would be a user message with nothing to say); the session
-// existing in the store (404); the session being `running` (409 — a steer for
+// token is configured); a body whose text is empty or whitespace only and
+// which carries no attachments (400 — an empty steer would be a user message
+// with nothing to say, but a pasted image with no words says something); the
+// attachments themselves (400, the same validation POST /api/runs applies);
+// the session existing in the store (404); the session being `running`
+// (409 — a steer for
 // a finished run would sit in the log forever, unapplied and unexplained);
 // and 202 {"session_id", "seq"} otherwise, where seq is the sequence number
 // the steer_message landed at. Unlike stop, steering is deliberately NOT
@@ -141,12 +152,16 @@ func (s *Server) handleSteerSession(w http.ResponseWriter, r *http.Request) {
 	if !s.requireControlToken(w, r) {
 		return
 	}
+	// The same ceiling POST /api/runs reads under, and for the same reason:
+	// a steer can now carry several multi-megabyte images, and the 1 MB
+	// limit this endpoint read text under would refuse the first screenshot
+	// anybody pasted.
 	var body steerSessionBody
-	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<26)).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `invalid JSON body: expected {"text": "..."}`})
 		return
 	}
-	if strings.TrimSpace(body.Text) == "" {
+	if strings.TrimSpace(body.Text) == "" && len(body.Attachments) == 0 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "text must not be empty"})
 		return
 	}
@@ -174,9 +189,22 @@ func (s *Server) handleSteerSession(w http.ResponseWriter, r *http.Request) {
 	if source == "" {
 		source = "web"
 	}
+	// Stored before the event is appended, so a steer_message that lands in
+	// the log always names rows that exist. The workspace paths ride along
+	// so the transcript can say what a still-pending message carries; the
+	// files themselves appear when the loop applies it, which is the only
+	// moment their being on disk means anything.
+	ids, names, err := s.writeAttachments(r.Context(), body.Attachments)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
 	appended, err := s.Store.AppendEvents(r.Context(), id, []store.EventInput{{
-		Kind:    store.KindSteerMessage,
-		Payload: store.SteerMessagePayload{Text: body.Text, Source: source},
+		Kind: store.KindSteerMessage,
+		Payload: store.SteerMessagePayload{
+			Text: body.Text, Source: source,
+			AttachmentIDs: ids, Attachments: attachment.WorkspacePaths(names),
+		},
 	}})
 	if err != nil {
 		writeInternalError(w, err)
@@ -195,8 +223,14 @@ func (s *Server) handleSteerSession(w http.ResponseWriter, r *http.Request) {
 // the person's next message, carried verbatim into the user message the loop
 // folds, exactly as steer's text is. There is no source field — a resume is
 // the browser's own verb (docs/RUN-CONTROL.md "Continuing").
+//
+// attachments is steer's, for the same reason and in the same shape: the
+// composer outlives the run, so the images somebody pastes into it have to
+// travel whichever verb the message turns out to be
+// (docs/RUN-CONTROL.md, "Images in the composer").
 type resumeSessionBody struct {
-	Text string `json:"text"`
+	Text        string               `json:"text"`
+	Attachments []startRunAttachment `json:"attachments,omitempty"`
 }
 
 // handleResumeSession serves POST /api/sessions/{id}/resume: continues a
@@ -239,11 +273,11 @@ func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body resumeSessionBody
-	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<26)).Decode(&body); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `invalid JSON body: expected {"text": "..."}`})
 		return
 	}
-	if strings.TrimSpace(body.Text) == "" {
+	if strings.TrimSpace(body.Text) == "" && len(body.Attachments) == 0 {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "text must not be empty"})
 		return
 	}
@@ -276,9 +310,19 @@ func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
 	// session's prefix cannot change (docs/CACHE.md) — and carrying them on
 	// the request is what lets it satisfy queue.Request.Validate unchanged
 	// instead of the queue having to relax its rules for this producer.
+	// The attachments are stored before the request is published, so the
+	// request that reaches the queue names rows that already exist — the
+	// same order POST /api/runs writes in, and for the same reason: the
+	// bytes must never ride the work_queue row.
+	attachmentIDs, _, err := s.writeAttachments(r.Context(), body.Attachments)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
 	req := queue.Request{
 		RequestID:       randomRequestID(),
 		ResumeSessionID: sess.ID,
+		AttachmentIDs:   attachmentIDs,
 		Prompt:          body.Text,
 		Model:           sess.Model,
 		PermissionMode:  sess.PermissionMode,
@@ -380,7 +424,7 @@ func (s *Server) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	// queue request (one request is one row of the work_queue table, and a
 	// multi-megabyte payload would bloat it), only the ids do
 	// (docs/DATA-API.md).
-	ids, err := s.writeAttachments(r.Context(), body.Attachments)
+	ids, _, err := s.writeAttachments(r.Context(), body.Attachments)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 		return
@@ -450,32 +494,40 @@ func (s *Server) attachmentMaxBytes(ctx context.Context) int {
 
 // writeAttachments validates each attachment (name, MIME type, base64, the
 // per-file byte cap, and the count cap) and stores its bytes, returning the
-// ids the request then carries. A nil store — a Server built without one —
-// refuses attachments rather than dropping them silently: a run that cannot
-// deliver the file its caller sent must not start without it.
-func (s *Server) writeAttachments(ctx context.Context, attachments []startRunAttachment) ([]string, error) {
+// ids the request then carries and the validated file names beside them. A
+// nil store — a Server built without one — refuses attachments rather than
+// dropping them silently: a run that cannot deliver the file its caller sent
+// must not start without it.
+//
+// The names come back because the steer endpoint records the workspace paths
+// its images will land under, and deriving those from the caller's own
+// strings would be deriving them from the very thing this function exists to
+// check.
+func (s *Server) writeAttachments(ctx context.Context, attachments []startRunAttachment) (ids, names []string, err error) {
 	if len(attachments) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	maxCount := s.attachmentMaxCount(ctx)
 	if len(attachments) > maxCount {
-		return nil, fmt.Errorf("at most %d attachments are accepted, got %d", maxCount, len(attachments))
+		return nil, nil, fmt.Errorf("at most %d attachments are accepted, got %d", maxCount, len(attachments))
 	}
 	if s.Store == nil {
-		return nil, errors.New("attachments cannot be stored: no store is wired")
+		return nil, nil, errors.New("attachments cannot be stored: no store is wired")
 	}
 	maxBytes := s.attachmentMaxBytes(ctx)
-	ids := make([]string, 0, len(attachments))
+	ids = make([]string, 0, len(attachments))
+	names = make([]string, 0, len(attachments))
 	for _, att := range attachments {
 		name, mime, data, err := attachment.Validate(att.Name, att.MIMEType, att.Data, maxBytes)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		id, err := s.Store.WriteAttachment(ctx, name, mime, data)
 		if err != nil {
-			return nil, fmt.Errorf("store attachment %q: %w", name, err)
+			return nil, nil, fmt.Errorf("store attachment %q: %w", name, err)
 		}
 		ids = append(ids, id)
+		names = append(names, name)
 	}
-	return ids, nil
+	return ids, names, nil
 }

@@ -259,6 +259,22 @@ type ErrorPayload struct {
 type SteerMessagePayload struct {
 	Text   string `json:"text"`
 	Source string `json:"source,omitempty"` // "web", "mcp", "cli"
+	// AttachmentIDs names the images this message carries, as rows of the
+	// attachments table. The bytes are not here for the same reason they are
+	// not on a work request: the log is read whole on every resume, and a
+	// multi-megabyte payload in it would be paid for on every fold. The loop
+	// materialises them into the running session's workspace when it picks
+	// the steer up, which is what puts the files on disk before the message
+	// that names them reaches the model (internal/session, pickUpSteers).
+	AttachmentIDs []string `json:"attachment_ids,omitempty"`
+	// Attachments are the workspace paths those images will be materialised
+	// under — "scratch/attachments/<name>", the same shape
+	// SessionStartedPayload.Attachments carries, so the browser addresses
+	// them on GET /api/sessions/{id}/screenshot exactly as it addresses a
+	// task's attachments. They are recorded at acceptance rather than at
+	// delivery so the transcript can name what a still-pending message
+	// carries; the files themselves appear only when the loop applies it.
+	Attachments []string `json:"attachments,omitempty"`
 }
 
 // SteerAppliedPayload is the point in the log where a steer_message became a

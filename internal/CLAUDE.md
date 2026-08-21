@@ -95,21 +95,27 @@ other two clients. Depends on: `internal/wire`, `internal/providerhttp` (just
 `Transport`, for retry-with-backoff — never `PumpStream`).
 
 ### `internal/attachment`
-Validates one image attachment a producer submitted — POST /api/runs
-(`internal/httpapi`) or the MCP `deepseek_agent` tool (`internal/mcp`) —
-before its bytes reach the store: the name must be a plain file name (the
-workspace writes the file under it, so a path-shaped name would be a way out
-of `scratch/attachments/`), the extension must be one of the image types
-`ReviewScreenshot` accepts, an asserted MIME type must match the extension,
-and the decoded bytes must fit the per-file cap. Also carries the
-image-extension-to-MIME-type table those two producers, the
+Validates one image attachment a producer submitted — POST /api/runs, POST
+/api/sessions/{id}/steer and .../resume (`internal/httpapi`), or the MCP
+`deepseek_agent` tool (`internal/mcp`) — before its bytes reach the store:
+the name must be a plain file name (the workspace writes the file under it,
+so a path-shaped name would be a way out of `scratch/attachments/`), the
+extension must be one of the image types `ReviewScreenshot` accepts, an
+asserted MIME type must match the extension, and the decoded bytes must fit
+the per-file cap. Also carries the
+image-extension-to-MIME-type table every one of those producers, the
 screenshot-serving endpoint (`internal/httpapi/screenshots.go`), and the
 vision tools (`internal/tools/vision.go`) all agree on — distinct from
 `internal/tools/screenshot.go`'s narrower `screenshotOutputExtensions`
 (no WebP, because that one names what Chromium's capture can produce, not
-what the harness can read back in). A leaf, deliberately: `internal/httpapi`
-imports neither `internal/session` nor `internal/worker`, and a validator
-that stays a leaf keeps that boundary legible for a second importer.
+what the harness can read back in). It also owns `WorkspaceDir` and
+`WorkspacePaths`, the one spelling of `scratch/attachments/` — the directory
+`internal/workspace` creates, `internal/session` writes into and names to the
+model, `internal/httpapi` records on an accepted steer, and the browser
+addresses each image by on GET /api/sessions/{id}/screenshot. A leaf,
+deliberately: `internal/httpapi` imports neither `internal/session` nor
+`internal/worker`, and a validator that stays a leaf is the only place all
+those packages can read one string.
 Depends on: nothing internal.
 
 ### `internal/wire`
@@ -158,7 +164,14 @@ existing test among them — for the enabled servers' tool array and
 per-server readonly map, and `Run` and `Resume` each call it exactly once and
 freeze the result onto the row's `tool_schema` and the policy's
 `MCPReadOnlyServers`, so a server an operator toggles mid-run cannot change
-what a running session sends.
+what a running session sends. `attachments.go` is the one thing this package
+writes to a workspace it did not create: the images a person pasted into the
+composer, loaded from the store by id and materialised into the live
+workspace by `pickUpSteers` (at the boundary the steer is applied) and by
+`Resume` (before the continuation is appended), so the file always exists
+before the message naming it reaches the model
+([`../docs/RUN-CONTROL.md`](../docs/RUN-CONTROL.md), "Images in the
+composer").
 
 ### `internal/tools`
 Every tool the model can call: schemas matching the trained-in shape, argument
@@ -289,7 +302,12 @@ neither depends on the other at build time), and clones of the repositories a
 request names — including the remote-URL restrictions that keep `ext::` and local
 paths out. Each clone then gets its Node dependencies installed, with the
 lockfile choosing the package manager; the install is best-effort and never
-fails a run. §4.10.
+fails a run. `WriteAttachments` is exported out of `Prepare` because a
+workspace that already exists takes images too — the ones somebody pastes into
+the composer of a running or finished session, written by `internal/session`
+through this same confinement check
+([`../docs/RUN-CONTROL.md`](../docs/RUN-CONTROL.md), "Images in the
+composer"). §4.10.
 
 ### `internal/promptvariant`
 The named alternatives to the shipped system prompt, and the reminder cadences

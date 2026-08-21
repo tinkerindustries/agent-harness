@@ -491,13 +491,7 @@ func RenderOpeningMessage(workspace, task string, resultSchema json.RawMessage, 
 		b.WriteString(mcpBlock)
 		b.WriteString("\n")
 	}
-	if len(attachments) > 0 {
-		b.WriteString("Image files attached to this task, materialised into scratch/attachments/:\n")
-		for _, name := range attachments {
-			fmt.Fprintf(&b, "- scratch/attachments/%s\n", name)
-		}
-		b.WriteString("You can pass one of these paths to Glance — the image is already in the workspace, so the spec you were working to is something you can show rather than describe.\n\n")
-	}
+	b.WriteString(RenderAttachmentBlock("task", attachments))
 	fmt.Fprintf(&b, "Task:\n%s\n", task)
 	if len(resultSchema) > 0 {
 		b.WriteString("\nWhen you call Complete, its result argument must validate against this JSON Schema:\n")
@@ -508,6 +502,34 @@ func RenderOpeningMessage(workspace, task string, resultSchema json.RawMessage, 
 		b.WriteString(completeExample(resultSchema))
 		b.WriteString("\n")
 	}
+	return b.String()
+}
+
+// RenderAttachmentBlock names the image files an attachment-carrying message
+// was materialised into under scratch/attachments/ (internal/workspace). The
+// model cannot guess they exist — nothing in the message text says so — so
+// they are named ahead of the words, with the path a tool call can use; the
+// common use is passing one to Glance as the mockup the page should be
+// judged against.
+//
+// subject is the noun the block calls the thing the images came with: "task"
+// for the opening message, "message" for a steer or a continuation somebody
+// typed into the composer. Three callers share it so the model reads the
+// same sentence wherever an image arrives from, and so the phrasing the
+// opening message has always used stays exactly one string in the tree.
+//
+// No attachments renders the empty string, which leaves every caller's
+// message byte-identical to what it produced before this block existed.
+func RenderAttachmentBlock(subject string, attachments []string) string {
+	if len(attachments) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Image files attached to this %s, materialised into scratch/attachments/:\n", subject)
+	for _, name := range attachments {
+		fmt.Fprintf(&b, "- scratch/attachments/%s\n", name)
+	}
+	b.WriteString("You can pass one of these paths to Glance — the image is already in the workspace, so the spec you were working to is something you can show rather than describe.\n\n")
 	return b.String()
 }
 

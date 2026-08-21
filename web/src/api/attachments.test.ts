@@ -2,8 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   attachmentCapsFromSettings,
   formatFileSize,
+  pasteStamp,
+  pastedImageName,
   readAttachmentFiles,
+  readPastedImages,
   type AttachmentCaps,
+  type ChosenAttachment,
 } from "./attachments";
 import type { SettingEntry } from "./settings";
 
@@ -96,5 +100,75 @@ describe("formatFileSize", () => {
     expect(formatFileSize(512)).toBe("512 B");
     expect(formatFileSize(2048)).toBe("2.0 KB");
     expect(formatFileSize(3 * 1024 * 1024)).toBe("3.0 MB");
+  });
+});
+
+// A pasted image has no name worth keeping — Chrome hands every screenshot
+// over as "image.png" — so the composer mints one. The whole point is that
+// two pastes into the same session never collide: they are two rows in the
+// attachments table and two files in scratch/attachments/, and a shared name
+// would make the second overwrite the first while the model was told about
+// both.
+describe("readPastedImages", () => {
+  const caps: AttachmentCaps = { maxCount: 3, maxBytes: 1024 };
+  const staged = (...names: string[]): ChosenAttachment[] =>
+    names.map((name) => ({ attachment: { name, mime_type: "image/png", data: "" }, size: 1 }));
+
+  it("names a clipboard screenshot from the stamp, not from its useless file name", async () => {
+    const result = await readPastedImages([pngFile("image.png", 8)], caps, [], "20260821-090102-345");
+    if (!result.ok) throw new Error(`expected success, got: ${result.error}`);
+    expect(result.chosen.map((c) => c.attachment.name)).toEqual(["pasted-20260821-090102-345-1.png"]);
+    expect(result.chosen[0].attachment.mime_type).toBe("image/png");
+  });
+
+  it("gives every image in one paste its own name", async () => {
+    const files = [pngFile("image.png", 8), pngFile("image.png", 8)];
+    const result = await readPastedImages(files, caps, [], "20260821-090102-345");
+    if (!result.ok) throw new Error(`expected success, got: ${result.error}`);
+    const names = result.chosen.map((c) => c.attachment.name);
+    expect(new Set(names).size).toBe(2);
+  });
+
+  it("renames a file that arrived with a name of its own, because that name is what collides", async () => {
+    const result = await readPastedImages([pngFile("mockup.png", 8)], caps, [], "20260821-090102-345");
+    if (!result.ok) throw new Error(`expected success, got: ${result.error}`);
+    expect(result.chosen[0].attachment.name).toBe("pasted-20260821-090102-345-1.png");
+  });
+
+  it("counts the already-staged images against the count cap, not just this paste", async () => {
+    const result = await readPastedImages(
+      [pngFile("image.png", 8), pngFile("image.png", 8)],
+      caps,
+      staged("a.png", "b.png"),
+      "20260821-090102-345",
+    );
+    if (result.ok) throw new Error("expected a rejection");
+    expect(result.error).toContain(`At most ${caps.maxCount} images`);
+  });
+
+  it("rejects an image over the per-image cap, naming the limit in human units", async () => {
+    const result = await readPastedImages([pngFile("image.png", caps.maxBytes + 1)], caps, [], "s");
+    if (result.ok) throw new Error("expected a rejection");
+    expect(result.error).toContain(formatFileSize(caps.maxBytes));
+  });
+
+  it("ignores non-image files rather than refusing the paste", async () => {
+    const result = await readPastedImages([new File([new Uint8Array(1)], "notes.txt")], caps, [], "s");
+    if (!result.ok) throw new Error(`expected success, got: ${result.error}`);
+    expect(result.chosen).toEqual([]);
+  });
+});
+
+describe("pastedImageName", () => {
+  it("takes its extension from the MIME type, since the clipboard's name is not to be trusted", () => {
+    expect(pastedImageName("image/jpeg", "s", 0)).toBe("pasted-s-1.jpg");
+    expect(pastedImageName("image/webp", "s", 1)).toBe("pasted-s-2.webp");
+    expect(pastedImageName("image/png", "s", 2)).toBe("pasted-s-3.png");
+  });
+});
+
+describe("pasteStamp", () => {
+  it("renders a sortable local stamp down to the millisecond", () => {
+    expect(pasteStamp(new Date(2026, 7, 21, 9, 1, 2, 345))).toBe("20260821-090102-345");
   });
 });

@@ -51,7 +51,14 @@ export type Block =
   // plain user message for the model — the opening message of the run that
   // is starting now. Only the first session_started is this session's
   // opening block; every one after it is somebody typing again.
-  | { type: "continuation"; seq: number; text: string }
+  //
+  // text is the person's own words, not the message the model reads: a
+  // continuation carrying images has the attachment block prepended to the
+  // message and the words kept separately (session_started's task), because
+  // showing that block back to the person who just pasted the files would be
+  // reading their own file names at them. attachments are the workspace
+  // paths those images landed under, rendered as a gallery under the words.
+  | { type: "continuation"; seq: number; text: string; attachments: string[] }
   | {
       type: "assistant";
       seq: number;
@@ -81,7 +88,20 @@ export type Block =
   // block flips to delivered. Absent on a block folded before the field
   // existed, or still pending; the chat page's message then renders without
   // naming a sub-turn rather than guessing.
-  | { type: "steer"; seq: number; text: string; state: "pending" | "delivered"; appliedSubTurn?: number };
+  //
+  // attachments are the workspace paths the images pasted alongside the
+  // message will be materialised under. They come off steer_message, so they
+  // are known from the moment the message is accepted — but the files are
+  // written by the loop when it applies the message, which is why the chat
+  // page names them while pending and shows them once delivered.
+  | {
+      type: "steer";
+      seq: number;
+      text: string;
+      state: "pending" | "delivered";
+      appliedSubTurn?: number;
+      attachments: string[];
+    };
 
 // LiveTurn is the sub-turn currently streaming, discarded (folded into a
 // frozen Block) the moment turn_finished lands.
@@ -319,9 +339,18 @@ export class FoldState {
         if (this.opened) {
           // A continuation: the run that just started is a resume, and its
           // opening message is what a person typed into the composer. No
-          // skills catalogue and no attachments ride one, so none of the
-          // opening block's unpacking below applies.
-          this.pushBlock({ type: "continuation", seq: ev.seq, text: p.opening_message });
+          // skills catalogue rides one, so the catalogue unpacking below does
+          // not apply — but images do, and they are unpacked the same way the
+          // opening block unpacks its own: task is the words alone, and
+          // opening_message (the fallback for a continuation folded before
+          // task was carried on one) is the words with the attachment block
+          // the model reads in front of them.
+          this.pushBlock({
+            type: "continuation",
+            seq: ev.seq,
+            text: p.task ?? p.opening_message,
+            attachments: p.attachments ?? [],
+          });
           break;
         }
         this.opened = true;
@@ -442,7 +471,7 @@ export class FoldState {
       }
       case "steer_message": {
         const p = ev.payload as SteerMessagePayload;
-        this.pushBlock({ type: "steer", seq: ev.seq, text: p.text, state: "pending" });
+        this.pushBlock({ type: "steer", seq: ev.seq, text: p.text, state: "pending", attachments: p.attachments ?? [] });
         break;
       }
       case "steer_applied": {

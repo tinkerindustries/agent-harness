@@ -4150,6 +4150,147 @@ func TestSteerAppendsEventAndPublishes(t *testing.T) {
 	}
 }
 
+// TestSteerCarriesPastedImages is the image half of steering
+// (docs/RUN-CONTROL.md, "Images in the composer"): the handler stores the
+// bytes and the event carries only the ids, plus the workspace paths the
+// transcript names a still-pending message's files by. The bytes never go in
+// the log, for the same reason they never go on a queue request — the log is
+// read whole on every fold.
+func TestSteerCarriesPastedImages(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "harness.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	api := &Server{
+		Store: st, Hub: hub.New(), Settings: settings.NewResolver(st),
+		Static:       http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+		ControlToken: "test-control-token",
+	}
+	srv := httptest.NewServer(api.Handler())
+	t.Cleanup(srv.Close)
+	mustCreateSession(t, st, "sess-1", time.Now())
+
+	png := base64.StdEncoding.EncodeToString([]byte("fake png bytes"))
+	body := fmt.Sprintf(`{"text":"match this","attachments":[{"name":"pasted-1.png","mime_type":"image/png","data":%q}]}`, png)
+	resp := doWrite(t, srv, http.MethodPost, "/api/sessions/sess-1/steer", body, controlAuth)
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("got status %d, want 202", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	events, err := st.GetEvents(context.Background(), "sess-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("store events = %d, want exactly the steer_message", len(events))
+	}
+	var p store.SteerMessagePayload
+	if err := json.Unmarshal(events[0].Payload, &p); err != nil {
+		t.Fatal(err)
+	}
+	if len(p.AttachmentIDs) != 1 {
+		t.Fatalf("attachment_ids = %v, want one id", p.AttachmentIDs)
+	}
+	if len(p.Attachments) != 1 || p.Attachments[0] != "scratch/attachments/pasted-1.png" {
+		t.Fatalf("attachments = %v, want the workspace path the browser addresses", p.Attachments)
+	}
+	if strings.Contains(string(events[0].Payload), png) {
+		t.Error("the image bytes are in the event log; only the ids belong there")
+	}
+
+	att, err := st.GetAttachment(context.Background(), p.AttachmentIDs[0])
+	if err != nil {
+		t.Fatalf("the id on the event does not name a stored row: %v", err)
+	}
+	if att.Name != "pasted-1.png" || string(att.Data) != "fake png bytes" {
+		t.Fatalf("stored attachment = %+v, want the posted name and bytes", att)
+	}
+}
+
+// TestSteerAcceptsImagesWithNoWords pins the empty-text case: pasting a
+// screenshot and sending it without typing is a complete thing to say, so the
+// endpoint's "text must not be empty" refusal applies only to a message that
+// carries nothing at all.
+func TestSteerAcceptsImagesWithNoWords(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "harness.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	api := &Server{
+		Store: st, Hub: hub.New(), Settings: settings.NewResolver(st),
+		Static:       http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+		ControlToken: "test-control-token",
+	}
+	srv := httptest.NewServer(api.Handler())
+	t.Cleanup(srv.Close)
+	mustCreateSession(t, st, "sess-1", time.Now())
+
+	png := base64.StdEncoding.EncodeToString([]byte("fake png bytes"))
+	body := fmt.Sprintf(`{"text":"","attachments":[{"name":"pasted-1.png","mime_type":"image/png","data":%q}]}`, png)
+	resp := doWrite(t, srv, http.MethodPost, "/api/sessions/sess-1/steer", body, controlAuth)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("got status %d, want 202 — images with no words are a message", resp.StatusCode)
+	}
+
+	// And a message with neither is still refused.
+	empty := doWrite(t, srv, http.MethodPost, "/api/sessions/sess-1/steer", `{"text":"  "}`, controlAuth)
+	defer empty.Body.Close()
+	if empty.StatusCode != http.StatusBadRequest {
+		t.Fatalf("empty steer got status %d, want 400", empty.StatusCode)
+	}
+}
+
+// TestSteerRefusesAnUnacceptableImage pins that the paste path gets the same
+// validation POST /api/runs gets — the allowlist is the one the vision tools
+// can read, and a refusal happens before anything lands in the log.
+func TestSteerRefusesAnUnacceptableImage(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(filepath.Join(dir, "harness.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+
+	api := &Server{
+		Store: st, Hub: hub.New(), Settings: settings.NewResolver(st),
+		Static:       http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+		ControlToken: "test-control-token",
+	}
+	srv := httptest.NewServer(api.Handler())
+	t.Cleanup(srv.Close)
+	mustCreateSession(t, st, "sess-1", time.Now())
+
+	data := base64.StdEncoding.EncodeToString([]byte("not an image"))
+	for _, tc := range []struct{ name, attachment string }{
+		{"a type the vision tools cannot read", `{"name":"notes.txt","mime_type":"text/plain","data":"` + data + `"}`},
+		{"a path-shaped name", `{"name":"../escape.png","mime_type":"image/png","data":"` + data + `"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := `{"text":"look","attachments":[` + tc.attachment + `]}`
+			resp := doWrite(t, srv, http.MethodPost, "/api/sessions/sess-1/steer", body, controlAuth)
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("got status %d, want 400", resp.StatusCode)
+			}
+			events, err := st.GetEvents(context.Background(), "sess-1")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(events) != 0 {
+				t.Fatalf("a refused steer left %d events in the log", len(events))
+			}
+		})
+	}
+}
+
 // --- run control: start ---
 
 // fakeRunPublisher is the test double for RunPublisher: records the requests

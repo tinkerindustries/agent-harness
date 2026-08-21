@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -480,5 +482,133 @@ func TestCompactionAfterResumeKeepsProvenanceFields(t *testing.T) {
 	}
 	if child.Phase != 2 || child.TotalPhases != 5 {
 		t.Fatalf("expected the child to carry the parent's phase 2/5, got %d/%d", child.Phase, child.TotalPhases)
+	}
+}
+
+// TestResumeMaterialisesAttachmentsBeforeTheContinuation is the image half of
+// continuing a session (docs/RUN-CONTROL.md, "Images in the composer"). A
+// resumed session keeps the workspace it already has, so nothing prepares one
+// for it and Resume writes the continuation's images into that existing
+// workspace itself, before appending the message that names them.
+//
+// Three things are pinned, and the split between the last two is the point:
+// the file lands under scratch/attachments/; the message the model reads
+// names that path; and the payload's task keeps the person's own words alone,
+// so the transcript never reads the file names back at whoever pasted them.
+func TestResumeMaterialisesAttachmentsBeforeTheContinuation(t *testing.T) {
+	srv := plainAnswerServer(t, "first answer")
+	defer srv.Close()
+	r := newTestRunner(t, srv.URL)
+
+	ws := t.TempDir()
+	first, err := r.Run(t.Context(), RunOptions{
+		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "first task",
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	png := []byte("\x89PNG fake bytes")
+	id, err := r.Store.WriteAttachment(t.Context(), "mockup.png", "image/png", png)
+	if err != nil {
+		t.Fatalf("write attachment: %v", err)
+	}
+	if _, err := r.Resume(t.Context(), ResumeOptions{
+		SessionID: first.SessionID, Prompt: "match this mockup", AttachmentIDs: []string{id}, MaxTokens: 4000,
+	}); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+
+	got, err := os.ReadFile(filepath.Join(ws, "scratch", "attachments", "mockup.png"))
+	if err != nil {
+		t.Fatalf("read materialised attachment: %v", err)
+	}
+	if string(got) != string(png) {
+		t.Errorf("materialised bytes = %q, want %q", got, png)
+	}
+
+	events, err := r.Store.GetEvents(t.Context(), first.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var starts []store.SessionStartedPayload
+	for _, e := range events {
+		if e.Kind != store.KindSessionStarted {
+			continue
+		}
+		var p store.SessionStartedPayload
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			t.Fatal(err)
+		}
+		starts = append(starts, p)
+	}
+	if len(starts) != 2 {
+		t.Fatalf("expected 2 session_started events, got %d", len(starts))
+	}
+	cont := starts[1]
+	if !strings.Contains(cont.OpeningMessage, "scratch/attachments/mockup.png") {
+		t.Errorf("the continuation the model reads does not name the attachment:\n%s", cont.OpeningMessage)
+	}
+	if !strings.HasSuffix(cont.OpeningMessage, "match this mockup") {
+		t.Errorf("the words should come after the attachment block:\n%s", cont.OpeningMessage)
+	}
+	if cont.Task != "match this mockup" {
+		t.Errorf("task = %q, want the person's own words alone", cont.Task)
+	}
+	if len(cont.Attachments) != 1 || cont.Attachments[0] != "scratch/attachments/mockup.png" {
+		t.Errorf("attachments = %v, want the one workspace path the browser addresses", cont.Attachments)
+	}
+}
+
+// TestResumeWithImagesAndNoWordsIsAMessage pins the empty-text case: pasting
+// a screenshot and sending it without typing anything is a complete thing to
+// say, and the continuation it produces is the attachment block alone rather
+// than nothing at all — a resume with neither words nor images still appends
+// no session_started, which is the shape a run that stopped at MaxSubTurns
+// needs.
+func TestResumeWithImagesAndNoWordsIsAMessage(t *testing.T) {
+	srv := plainAnswerServer(t, "first answer")
+	defer srv.Close()
+	r := newTestRunner(t, srv.URL)
+
+	ws := t.TempDir()
+	first, err := r.Run(t.Context(), RunOptions{
+		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "first task",
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	id, err := r.Store.WriteAttachment(t.Context(), "mockup.png", "image/png", []byte("png"))
+	if err != nil {
+		t.Fatalf("write attachment: %v", err)
+	}
+	if _, err := r.Resume(t.Context(), ResumeOptions{
+		SessionID: first.SessionID, AttachmentIDs: []string{id}, MaxTokens: 4000,
+	}); err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+
+	events, err := r.Store.GetEvents(t.Context(), first.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	starts := 0
+	var last store.SessionStartedPayload
+	for _, e := range events {
+		if e.Kind != store.KindSessionStarted {
+			continue
+		}
+		starts++
+		if err := json.Unmarshal(e.Payload, &last); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if starts != 2 {
+		t.Fatalf("expected the images alone to append a continuation, got %d session_started events", starts)
+	}
+	if !strings.Contains(last.OpeningMessage, "scratch/attachments/mockup.png") {
+		t.Errorf("the wordless continuation should still name the image:\n%s", last.OpeningMessage)
 	}
 }

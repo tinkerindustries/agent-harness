@@ -1,7 +1,10 @@
 package httpapi
 
 import (
+	"context"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -256,5 +259,60 @@ func TestResumeSessionRefusesALegacyPermissionMode(t *testing.T) {
 	}
 	if len(pub.requests) != 0 {
 		t.Fatalf("a refused resume published %d requests, want 0", len(pub.requests))
+	}
+}
+
+// TestResumeSessionCarriesPastedImages is the image half of continuing a
+// session (docs/RUN-CONTROL.md, "Images in the composer"). The bytes are
+// stored before the publish, so the request that reaches the queue names rows
+// that already exist and carries only their ids — the same discipline
+// POST /api/runs keeps, and for the same reason: one request is one row of
+// the work_queue table.
+func TestResumeSessionCarriesPastedImages(t *testing.T) {
+	pub := &fakeRunPublisher{}
+	srv, st := newStartTestServer(t, pub)
+	mustCreateResumableSession(t, st, "sess-1")
+	mustFinishSession(t, st, "sess-1", store.StatusOK)
+
+	png := base64.StdEncoding.EncodeToString([]byte("fake png bytes"))
+	body := fmt.Sprintf(`{"text":"match this","attachments":[{"name":"pasted-1.png","mime_type":"image/png","data":%q}]}`, png)
+	resp := doWrite(t, srv, http.MethodPost, "/api/sessions/sess-1/resume", body, controlAuth)
+	if resp.StatusCode != http.StatusAccepted {
+		got, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		t.Fatalf("got status %d, want 202 (body %s)", resp.StatusCode, got)
+	}
+	resp.Body.Close()
+
+	if len(pub.requests) != 1 {
+		t.Fatalf("publisher saw %d requests, want 1", len(pub.requests))
+	}
+	published := pub.requests[0]
+	if len(published.AttachmentIDs) != 1 {
+		t.Fatalf("published attachment_ids = %v, want one id", published.AttachmentIDs)
+	}
+	att, err := st.GetAttachment(context.Background(), published.AttachmentIDs[0])
+	if err != nil {
+		t.Fatalf("the id on the request does not name a stored row: %v", err)
+	}
+	if att.Name != "pasted-1.png" || string(att.Data) != "fake png bytes" {
+		t.Fatalf("stored attachment = %+v, want the posted name and bytes", att)
+	}
+}
+
+// A screenshot pasted with no words is a complete message, so the endpoint's
+// empty-text refusal applies only to a request carrying nothing at all.
+func TestResumeSessionAcceptsImagesWithNoWords(t *testing.T) {
+	pub := &fakeRunPublisher{}
+	srv, st := newStartTestServer(t, pub)
+	mustCreateResumableSession(t, st, "sess-1")
+	mustFinishSession(t, st, "sess-1", store.StatusOK)
+
+	png := base64.StdEncoding.EncodeToString([]byte("fake png bytes"))
+	body := fmt.Sprintf(`{"text":"","attachments":[{"name":"pasted-1.png","mime_type":"image/png","data":%q}]}`, png)
+	resp := doWrite(t, srv, http.MethodPost, "/api/sessions/sess-1/resume", body, controlAuth)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("got status %d, want 202 — images with no words are a message", resp.StatusCode)
 	}
 }

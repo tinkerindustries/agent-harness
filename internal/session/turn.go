@@ -168,7 +168,7 @@ func (r *Runner) pickUpSteers(ctx context.Context, sess store.Session, allEvents
 			return fmt.Errorf("session: decode steer_message at seq %d: %w", s.Seq, err)
 		}
 		inputs = append(inputs, store.EventInput{Kind: store.KindSteerApplied, Payload: store.SteerAppliedPayload{
-			SourceSeq: s.Seq, Text: p.Text, SubTurn: subTurn,
+			SourceSeq: s.Seq, Text: r.steerText(ctx, sess, p), SubTurn: subTurn,
 		}})
 	}
 	appended, err := r.Store.AppendEvents(ctx, sess.ID, inputs)
@@ -182,6 +182,43 @@ func (r *Runner) pickUpSteers(ctx context.Context, sess store.Session, allEvents
 	// that order, so the last one carries the new high-water mark.
 	*appliedSeq = steers[len(steers)-1].Seq
 	return nil
+}
+
+// steerText is the message a steer folds to: the operator's own words, with
+// the images they attached materialised into the session's workspace and
+// named ahead of them (docs/RUN-CONTROL.md, "Images in the composer"). A
+// steer with no attachments returns its text untouched, so the overwhelming
+// majority of steers are byte-identical to what they were before images
+// could ride one.
+//
+// The write happens here, at the boundary the steer is being applied at,
+// rather than when the HTTP handler accepted it: the file must exist before
+// the message that names it reaches the model, and this is the moment that
+// is known. A failure to write is deliberately not fatal to the run — a full
+// disk should not end a session that was going fine — but it is also not
+// silent, because a message naming files the model then cannot open is worse
+// than one that never claimed they were there. The text says what happened
+// and the model reads it as part of the message.
+func (r *Runner) steerText(ctx context.Context, sess store.Session, p store.SteerMessagePayload) string {
+	if len(p.AttachmentIDs) == 0 {
+		return p.Text
+	}
+	names, err := r.materialiseAttachments(ctx, sess.Workspace, p.AttachmentIDs)
+	if err != nil {
+		log.Printf("session: steer attachments for %s: %v", sess.ID, err)
+		return fmt.Sprintf("(%d image%s were attached to this message but could not be written into the workspace: %v)\n\n%s",
+			len(p.AttachmentIDs), plural(len(p.AttachmentIDs)), err, p.Text)
+	}
+	return RenderAttachmentBlock("message", names) + p.Text
+}
+
+// plural is the "s" a count of more than one takes, for the one sentence
+// above that has to name a number of files in prose.
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 // runSubTurn folds the log, sends one request, and commits the result. The

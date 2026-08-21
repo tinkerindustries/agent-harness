@@ -164,13 +164,16 @@ export interface SessionStartedPayload {
   // block can render the images through GET /api/sessions/{id}/screenshot
   // without parsing the message text.
   attachments?: string[];
-  // task is the launching agent's own instruction — the "Task:\n..." tail of
-  // opening_message — when the run was created with one (an agent-started
-  // run; a browser start is created empty and waits for its first message).
-  // Carried separately, the way skill_catalogue is, so the watch page can
-  // render the launcher's instruction as its own message without parsing
-  // the message text. Only the run-creating session_started carries it;
-  // a resume instruction is a continuation, not the launch instruction.
+  // task is the words a person or an agent wrote, as against the message the
+  // model reads. On the run-creating session_started it is the launching
+  // agent's own instruction — the "Task:\n..." tail of opening_message — when
+  // the run was created with one (a browser start is created empty and waits
+  // for its first message). On a continuation it is what somebody typed into
+  // the composer, with the attachment block opening_message carries left
+  // off. Either way it is carried separately, the way skill_catalogue is, so
+  // a screen can render the human half of the message without parsing the
+  // rendered one; a continuation written before this field carried it has
+  // none, and falls back to opening_message.
   task?: string;
 }
 
@@ -307,6 +310,14 @@ export interface ErrorPayload {
 export interface SteerMessagePayload {
   text: string;
   source?: string;
+  // The workspace paths — scratch/attachments/<name> — the images pasted
+  // into the composer alongside this message will be materialised under
+  // (docs/RUN-CONTROL.md, "Images in the composer"). They are recorded when
+  // the message is accepted, so the transcript can name what a still-pending
+  // message carries; the files themselves are written by the loop when it
+  // picks the message up, which is why the transcript shows the images only
+  // once the message is delivered.
+  attachments?: string[];
 }
 
 // SteerAppliedPayload mirrors internal/store.SteerAppliedPayload: the point
