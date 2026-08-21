@@ -45,8 +45,12 @@ idle watchdog. Carries no provider dialect — no request shape, no usage
 mapping, no error-body parsing, no quirk repairs — so each provider keeps its
 own `Client` type satisfying the narrow `session.Client` seam independently;
 this package only removes the near-verbatim duplication two full client
-implementations used to carry (docs/KIMI-INTEGRATION.md §4.1). Depends on:
-`internal/wire`.
+implementations used to carry (docs/KIMI-INTEGRATION.md §4.1). `Transport.Do`
+has a third caller, `internal/gemini`, which supplies `SetAuth` to send its
+`x-goog-api-key` header instead of the `Authorization: Bearer` `Do` sends by
+default (docs/GEMINI-INTEGRATION.md §8) — `Transport.PumpStream` stays
+DeepSeek's and Kimi's alone, since it decodes `wire.ChatCompletionChunk`, a
+shape Gemini's SSE frames don't carry. Depends on: `internal/wire`.
 
 ### `internal/kimi`
 The Kimi K3 client, Moonshot AI's OpenAI-compatible endpoint
@@ -67,22 +71,28 @@ Google's Gemini API client, hand-rolled rather than the official SDK because
 the SDK targets the legacy `generateContent` surface, not
 `POST /v1beta/interactions` (docs/GEMINI-INTEGRATION.md §2). Two callers: the
 vision tools — `Glance`, `Ground`, `Detect` (docs/TOOLS.md) — through
-`Interact`, unchanged since before this package spoke chat completions at
-all; and the agent loop, through `StreamChatCompletion` and
-`CreateChatCompletion`, the same narrow `Client` seam `internal/deepseek` and
-`internal/kimi` implement. Owns the parts of the Interactions surface with no
-counterpart in the OpenAI-format dialect the other two share: `thought` steps
-carrying an opaque, mandatory signature that must be replayed verbatim
-(`wire.Message.ThoughtSignature`, docs/GEMINI-INTEGRATION.md §5.2), a request
-shape typed by step kind rather than a flat message array, `arguments` as a
-genuine JSON object rather than a string, and errors that can arrive
-SSE-framed even under a plain 400. No retry-with-backoff of its own — a
-known gap, not an oversight (docs/GEMINI-INTEGRATION.md §8) — because
-`internal/providerhttp` hardcodes an `Authorization: Bearer` header this
-provider does not send (`X-Goog-Api-Key` instead); it runs its own SSE pump
-rather than share that transport. Request and response bodies are Go
+`Interact`, whose request and response shapes are unchanged since before this
+package spoke chat completions at all; and the agent loop, through
+`StreamChatCompletion` and `CreateChatCompletion`, the same narrow `Client`
+seam `internal/deepseek` and `internal/kimi` implement. Owns the parts of the
+Interactions surface with no counterpart in the OpenAI-format dialect the
+other two share: `thought` steps carrying an opaque, mandatory signature that
+must be replayed verbatim (`wire.Message.ThoughtSignature`,
+docs/GEMINI-INTEGRATION.md §5.2), a request shape typed by step kind rather
+than a flat message array, `arguments` as a genuine JSON object rather than a
+string, and errors that can arrive SSE-framed even under a plain 400. All
+three HTTP-issuing methods, `Interact` included, now retry a transient
+429/500/503 with backoff through `internal/providerhttp.Transport`
+(`chatTransport`, docs/GEMINI-INTEGRATION.md §8) via `Transport.SetAuth`, the
+seam that lets this provider's `x-goog-api-key` header ride the same
+`Transport.Do` DeepSeek's and Kimi's `Authorization: Bearer` do. `PumpStream`
+is not shared — it decodes `wire.ChatCompletionChunk`, the OpenAI-format
+chunk shape, and Gemini's SSE frames carry a different vocabulary entirely —
+so `stream.go`'s own `pumpChatEvents` still reads the body `Transport.Do`
+retried into existence. Request and response bodies are Go
 structs, never `map[string]any`, for the same byte-stability reason as the
-other two clients. Depends on: `internal/wire`.
+other two clients. Depends on: `internal/wire`, `internal/providerhttp` (just
+`Transport`, for retry-with-backoff — never `PumpStream`).
 
 ### `internal/attachment`
 Validates one image attachment a producer submitted — POST /api/runs

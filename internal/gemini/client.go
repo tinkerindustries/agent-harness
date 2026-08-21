@@ -20,21 +20,25 @@
 // about a field name or type. Both surfaces use snake_case JSON, so this
 // package does too.
 //
-// Interact, InteractionRequest, InteractionResponse, Step and decodeStream
-// are the vision path and are untouched by the agentic addition: they are
-// in production (internal/tools/vision.go depends on Interact directly) and
-// must keep producing identical request bytes. Everything the agentic path
-// needs — ChatInteractionRequest and its step types (chat_types.go),
-// requestFromIntent (intent.go), pumpChatEvents and IsReasoningStarved
-// (stream.go), RepairArguments (toolcall.go), and the SSE-and-plain error
-// parsing errors.go adds — is additive, not a refactor of what Interact
-// already does. The one dependency this adds package-wide is
-// internal/wire, for wire.ChatIntent, wire.Event and the message and tool
-// vocabulary the session.Client seam is built from.
+// InteractionRequest, InteractionResponse, Step and decodeStream are the
+// vision path's own request and response shapes and are untouched by the
+// agentic addition: they are in production (internal/tools/vision.go depends
+// on Interact directly) and must keep producing identical request bytes.
+// Interact's own request bytes are equally untouched, but what carries them
+// is not: it moved onto the same internal/providerhttp.Transport
+// StreamChatCompletion and CreateChatCompletion use (chatTransport,
+// docs/GEMINI-INTEGRATION.md §8), so a transient 429/500/503 no longer costs
+// a Glance/Ground/Detect call the way it used to. Everything else the
+// agentic path needs — ChatInteractionRequest and its step types
+// (chat_types.go), requestFromIntent (intent.go), pumpChatEvents and
+// IsReasoningStarved (stream.go), RepairArguments (toolcall.go), and the
+// SSE-and-plain error parsing errors.go adds — is additive, not a refactor
+// of what Interact already does. The one dependency this adds
+// package-wide is internal/wire, for wire.ChatIntent, wire.Event and the
+// message and tool vocabulary the session.Client seam is built from.
 package gemini
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -46,6 +50,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mrgeoffrich/deepseek-harness/internal/providerhttp"
 	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
@@ -97,6 +102,20 @@ type Client struct {
 	// response-header timeout — but the agentic streaming path keeps a
 	// watchdog, matching DeepSeek's and Kimi's streams.
 	chatIdleTimeout time.Duration
+	// chatTransport is StreamChatCompletion's and CreateChatCompletion's own
+	// internal/providerhttp.Transport — retry-with-backoff on a transient
+	// status, the thing Interact still lacks (docs/GEMINI-INTEGRATION.md
+	// §8). It is not Interact's transport: Interact keeps building and
+	// sending its own request directly through httpClient, in production
+	// since before this package spoke chat completions at all and pinned
+	// byte-for-byte by TestRequestShapePinsTheDoc, so this addition is
+	// additive rather than a rebuild of a path already trusted. chatTransport
+	// always shares httpClient by pointer, never a copy — WithTransportWrapper
+	// mutates httpClient.Transport in place, and TestWithTransportWrapperCovers
+	// EveryCaller pins that every HTTP-issuing method, this pair included,
+	// still goes through whatever wrapper cmd/harness installed for
+	// internal/httplog.
+	chatTransport *providerhttp.Transport
 }
 
 // ClientOption customises a Client built by NewClient.
@@ -105,13 +124,27 @@ type ClientOption func(*Client)
 // WithAPIKeyProvider replaces the key supplied at construction time with one
 // resolved per request. The provider is called before every request is sent;
 // an empty key returned from it fails the request locally with ErrNoAPIKey.
+// Both httpClient consumers read the key this way — Interact through
+// c.apiKeyProvider directly, StreamChatCompletion and CreateChatCompletion
+// through chatTransport.APIKeyProvider — so this sets both rather than
+// leaving the agentic path on whatever NewClient saw first.
 func WithAPIKeyProvider(fn func() (string, error)) ClientOption {
-	return func(c *Client) { c.apiKeyProvider = fn }
+	return func(c *Client) {
+		c.apiKeyProvider = fn
+		c.chatTransport.APIKeyProvider = fn
+	}
 }
 
-// WithHTTPClient overrides the default HTTP client, e.g. in tests.
+// WithHTTPClient overrides the default HTTP client, e.g. in tests. Both
+// httpClient and chatTransport.HTTPClient move together, for the same reason
+// WithAPIKeyProvider sets both fields: whichever *http.Client
+// WithTransportWrapper wraps has to be the one every HTTP-issuing method
+// actually sends through.
 func WithHTTPClient(h *http.Client) ClientOption {
-	return func(c *Client) { c.httpClient = h }
+	return func(c *Client) {
+		c.httpClient = h
+		c.chatTransport.HTTPClient = h
+	}
 }
 
 // WithChatIdleTimeout overrides the agentic streaming path's idle watchdog
@@ -147,8 +180,9 @@ func NewClient(baseURL string, opts ...ClientOption) *Client {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
+	trimmedBaseURL := strings.TrimRight(baseURL, "/")
 	c := &Client{
-		baseURL: strings.TrimRight(baseURL, "/"),
+		baseURL: trimmedBaseURL,
 		apiKeyProvider: func() (string, error) {
 			return "", nil
 		},
@@ -159,6 +193,32 @@ func NewClient(baseURL string, opts ...ClientOption) *Client {
 				IdleConnTimeout:     90 * time.Second,
 			},
 		},
+	}
+	c.chatTransport = &providerhttp.Transport{
+		BaseURL: trimmedBaseURL,
+		APIKeyProvider: func() (string, error) {
+			return "", nil
+		},
+		HTTPClient: c.httpClient,
+		MaxRetries: 4,
+		RetryBase:  500 * time.Millisecond,
+		RetryMax:   20 * time.Second,
+		Retryable:  isRetryableStatus,
+		NoAPIKey:   ErrNoAPIKey,
+		ErrPrefix:  "gemini",
+		// x-goog-api-key, not Authorization: Bearer (client.go's own
+		// newRequest, and providerhttp.Transport.SetAuth's own doc comment
+		// on why this is a field). Accept rides along here too: the agentic
+		// surface always sends text/event-stream, even for a stream:false
+		// body — CreateChatCompletion's own comment records the live
+		// measurement that makes that harmless — so SetAuth resets it to
+		// match newRequest's, rather than trusting Transport's
+		// vision-path-shaped default of application/json for a surface that
+		// has never been measured against it.
+		SetAuth: func(req *http.Request, apiKey string) {
+			req.Header.Set("x-goog-api-key", apiKey)
+		},
+		Accept: "text/event-stream",
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -288,14 +348,9 @@ func (c *Client) interact(ctx context.Context, req InteractionRequest) (*Interac
 		return nil, fmt.Errorf("gemini: encode request: %w", err)
 	}
 
-	httpReq, err := c.newRequest(ctx, "/v1beta/interactions", body)
+	resp, err := c.chatTransport.Do(ctx, http.MethodPost, "/v1beta/interactions", body)
 	if err != nil {
-		return nil, wrapClientError("interaction request", err)
-	}
-
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("gemini: interaction request: %w", err)
+		return nil, c.chatTransport.WrapError("interaction request", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		// A refused request answers in JSON even when it asked for a stream,
@@ -305,38 +360,6 @@ func (c *Client) interact(ctx context.Context, req InteractionRequest) (*Interac
 	defer resp.Body.Close()
 
 	return decodeStream(resp.Body)
-}
-
-// newRequest resolves the API key and builds the request. The key rides in
-// the x-goog-api-key header, never in the URL: a URL carrying a secret ends
-// up in logs and error messages.
-func (c *Client) newRequest(ctx context.Context, path string, body []byte) (*http.Request, error) {
-	apiKey, err := c.apiKeyProvider()
-	if err != nil {
-		return nil, fmt.Errorf("gemini: resolve api key: %w", err)
-	}
-	if apiKey == "" {
-		return nil, ErrNoAPIKey
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(body))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("x-goog-api-key", apiKey)
-	req.Header.Set("Accept", "text/event-stream")
-	req.Header.Set("Content-Type", "application/json")
-	return req, nil
-}
-
-// wrapClientError adds operation context to err, except for ErrNoAPIKey:
-// that one surfaces verbatim, so the operator sees the fix — "no Google API
-// key configured; set one with: harness config set google.api_key <key>" —
-// without a transport prefix in front of it.
-func wrapClientError(op string, err error) error {
-	if errors.Is(err, ErrNoAPIKey) {
-		return err
-	}
-	return fmt.Errorf("gemini: %s: %w", op, err)
 }
 
 // parseAPIError reads and closes resp.Body, building an error from Gemini's
@@ -368,6 +391,14 @@ func parseAPIError(resp *http.Response) error {
 // error; a terminal wire.Event with Type EventError or EventFinish is
 // always the last event sent before it closes (stream.go's
 // pumpChatEvents).
+//
+// The request goes through c.chatTransport.Do rather than c.newRequest and
+// c.httpClient.Do directly, so a transient 429/500/503 (retry.go's
+// isRetryableStatus) is retried with backoff before the failure ever
+// reaches the loop — the gap docs/GEMINI-INTEGRATION.md §8 recorded.
+// Transport.Do returns the response before any body is read, so the
+// retrying stops there and pumpChatEvents, this package's own SSE reader,
+// still owns everything downstream of a 200.
 func (c *Client) StreamChatCompletion(ctx context.Context, intent wire.ChatIntent) (<-chan wire.Event, error) {
 	req := requestFromIntent(intent)
 	req.Stream = true
@@ -376,13 +407,9 @@ func (c *Client) StreamChatCompletion(ctx context.Context, intent wire.ChatInten
 		return nil, fmt.Errorf("gemini: encode request: %w", err)
 	}
 
-	httpReq, err := c.newRequest(ctx, "/v1beta/interactions", body)
+	resp, err := c.chatTransport.Do(ctx, http.MethodPost, "/v1beta/interactions", body)
 	if err != nil {
-		return nil, wrapClientError("stream request", err)
-	}
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("gemini: stream request: %w", err)
+		return nil, c.chatTransport.WrapError("stream request", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		// docs/OBSERVED.md's central finding for this phase: a bad or
@@ -406,12 +433,15 @@ func (c *Client) StreamChatCompletion(ctx context.Context, intent wire.ChatInten
 // on the step object, not nested in a delta, which is exactly the shape
 // chatStep.Signature and chatCompletionResponseFromRaw below read.
 //
-// c.newRequest below sets Accept: text/event-stream unconditionally, the
-// same header Interact and StreamChatCompletion send; a live measurement
+// c.chatTransport's SetAuth sets Accept: text/event-stream unconditionally,
+// the same header Interact and StreamChatCompletion send; a live measurement
 // confirmed this is harmless for a stream:false body — both
 // Accept: text/event-stream and Accept: application/json against
 // stream:false return Content-Type: application/json — so the request's
-// own stream field controls the response shape, not the Accept header.
+// own stream field controls the response shape, not the Accept header. Like
+// StreamChatCompletion, this goes through c.chatTransport.Do for
+// retry-with-backoff on a transient status rather than c.newRequest and
+// c.httpClient.Do directly.
 func (c *Client) CreateChatCompletion(ctx context.Context, intent wire.ChatIntent) (*wire.ChatCompletionResponse, error) {
 	req := requestFromIntent(intent)
 	req.Stream = false
@@ -420,13 +450,9 @@ func (c *Client) CreateChatCompletion(ctx context.Context, intent wire.ChatInten
 		return nil, fmt.Errorf("gemini: encode request: %w", err)
 	}
 
-	httpReq, err := c.newRequest(ctx, "/v1beta/interactions", body)
+	resp, err := c.chatTransport.Do(ctx, http.MethodPost, "/v1beta/interactions", body)
 	if err != nil {
-		return nil, wrapClientError("chat completion request", err)
-	}
-	resp, err := c.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("gemini: chat completion request: %w", err)
+		return nil, c.chatTransport.WrapError("chat completion request", err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, parseAgenticAPIError(resp)

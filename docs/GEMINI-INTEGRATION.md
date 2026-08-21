@@ -674,15 +674,35 @@ via the codemap entries already current) are updated; `internal/gemini`'s
 
 ## 8. What this plan does not cover
 
-- **Retry with backoff on the Gemini agentic path.** DeepSeek and Kimi retry
-  through `internal/providerhttp.Transport`; Phase 4 could not reuse it because
-  that transport hardcodes an `Authorization: Bearer` header Gemini does not
-  use, and wrote a bespoke SSE pump instead. This matches the existing
-  `Interact()` path, so it is not a regression — but it does mean a Gemini run
-  has no retry where a DeepSeek run has one, and a transient 5xx will fail a
-  sub-turn that would have survived on the other providers. Lifting the Bearer
-  assumption out of `providerhttp` and sharing it is the fix. Worth doing
-  before Gemini carries real work.
+- ~~**Retry with backoff on the Gemini agentic path.**~~ Closed.
+  `internal/providerhttp.Transport` gained a `SetAuth` field —
+  `func(req *http.Request, apiKey string)`, nil meaning "keep sending
+  `Authorization: Bearer <key>`" — so a provider whose credential rides on a
+  different header can still take `Transport.Do`'s retry-with-backoff without
+  DeepSeek or Kimi changing a byte of what they send (pinned by
+  `TestSetAuthNilKeepsBearerDefault` and the existing header-assertion tests
+  in both packages). `internal/gemini`'s `chatTransport` sets it to
+  `x-goog-api-key` plus the `Accept: text/event-stream` header
+  `StreamChatCompletion`, `CreateChatCompletion`, and `Interact` all send;
+  `Retryable` is `retry.go`'s `isRetryableStatus`, retrying 429/500/503 —
+  DeepSeek's own set, since `third_party/gemini-docs/` documents no error
+  behaviour at all for `/v1beta/interactions` (`openapi.json` lists only the
+  200 response on every operation) and 504 was left out rather than guessed
+  at, unlike Kimi's documented 900-second gateway timeout. `PumpStream` is
+  still not shared — it decodes `wire.ChatCompletionChunk`, the OpenAI shape,
+  and Gemini's step-typed SSE frames have no counterpart in it — so
+  `stream.go`'s `pumpChatEvents` stays this package's own reader, now started
+  after `Transport.Do` has already retried its way to a response.
+  `Interact` moved onto the same `chatTransport` too: its request bytes are
+  untouched (`Transport.Do` forwards the `[]byte` `json.Marshal` produced
+  without reading it), its headers are unchanged byte-for-byte
+  (`TestInteractHeadersUnchangedAfterTransportMigration`), and it sets no
+  response-header timeout either, because `chatTransport.HTTPClient` is the
+  same `*http.Client` `Interact` always used, not a fresh one — so a
+  Glance/Ground/Detect call now survives a transient 5xx the same way a
+  coding sub-turn does. `internal/gemini/client.go`'s `newRequest` and
+  `wrapClientError`, both now unreachable, were removed rather than left as
+  dead code beside `chatTransport`.
 
 - `previous_interaction_id` and server-side state, as an optimisation.
 - Per-step usage attribution from `step.stop`.

@@ -251,9 +251,14 @@ func appendText(parts *[]Content, text string) {
 // ErrIdleTimeout is sent when no SSE frame, including a keep-alive comment,
 // arrives within the idle window — the same watchdog internal/deepseek and
 // internal/kimi run on their own streams (docs/DESIGN.md §4.3), reimplemented
-// here rather than shared because internal/providerhttp.Transport's request
-// half assumes an Authorization: Bearer header, which is DeepSeek's and
-// Kimi's scheme, not Gemini's x-goog-api-key (client.go's newRequest).
+// here rather than shared because internal/providerhttp.Transport.PumpStream
+// decodes wire.ChatCompletionChunk, DeepSeek's and Kimi's OpenAI-format
+// shape, and has no notion of Gemini's step-typed frames — arguments as a
+// delta string, thought signatures, step.start/step.stop — so pumpChatEvents
+// below stays this package's own reader even though request retry now comes
+// from that Transport (client.go's chatTransport, docs/GEMINI-INTEGRATION.md
+// §8: the fix was a SetAuth seam on Transport.Do, not a rewrite of
+// PumpStream).
 var ErrIdleTimeout = errors.New("gemini: stream idle timeout")
 
 // defaultIdleTimeout is pumpChatEvents' watchdog window when none is set.
