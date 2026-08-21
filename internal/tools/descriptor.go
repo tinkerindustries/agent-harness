@@ -45,6 +45,16 @@ func descriptorFor(name string, argsRaw json.RawMessage) string {
 		if u, _ := args["url"].(string); u != "" {
 			return name + " " + u
 		}
+	case "MCPReadResource", "MCPGetPrompt", "MCPListResources", "MCPListPrompts":
+		// The server, because these four reach a server the same way an
+		// mcp__<server>__<tool> call does and an operator denying one
+		// server should be able to deny it here too — and because the
+		// permission gate for the two that dial reads the server back out
+		// of this string (policy.go, mcpAccessServerOf), the server name
+		// being unreachable from the tool name alone.
+		if srv, _ := args["server"].(string); srv != "" {
+			return name + " " + srv
+		}
 	case "Screenshot":
 		// The URL, so a deny pattern can keep a session off a host the same
 		// way it can for WebFetch — the browser reaches the network too.

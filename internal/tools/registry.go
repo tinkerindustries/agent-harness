@@ -477,6 +477,13 @@ var toolFuncs = map[string]toolFunc{
 	"Crop":       execCrop,
 	"Transcribe": execTranscribe,
 	"Screenshot": execScreenshot,
+	// The four fixed MCP tools (mcpresources.go). They are in this table
+	// unconditionally — a name the model was never offered is a name it
+	// cannot call — while whether they are *offered* is WithMCP's decision.
+	"MCPListResources": execMCPListResources,
+	"MCPReadResource":  execMCPReadResource,
+	"MCPListPrompts":   execMCPListPrompts,
+	"MCPGetPrompt":     execMCPGetPrompt,
 }
 
 // Execute evaluates permission for call, then runs it (or Complete's
@@ -527,11 +534,11 @@ func (e *Executor) Execute(ctx context.Context, call wire.ToolCall) Outcome {
 type stdoutSinkKey struct{}
 
 // WithStdoutSink attaches sink to ctx so a tool that produces incremental
-// output can forward it as it runs, ahead of the final Result. Bash is
-// currently the only caller; session builds one sink per tool call, keyed to
-// that call's tool_call_id, before invoking Execute. A context with no sink
-// attached — every existing caller, every test — makes the forwarding a
-// silent no-op (docs/DESIGN.md §5.2, "streaming command output").
+// output can forward it as it runs, ahead of the final Result. Bash and MCP
+// tool calls are the callers; session builds one sink per tool call, keyed
+// to that call's tool_call_id, before invoking Execute. A context with no
+// sink attached — a CLI run with no hub, every test — makes the forwarding
+// a silent no-op (docs/DESIGN.md §5.2, "streaming command output").
 func WithStdoutSink(ctx context.Context, sink func(chunk string)) context.Context {
 	return context.WithValue(ctx, stdoutSinkKey{}, sink)
 }
@@ -539,4 +546,13 @@ func WithStdoutSink(ctx context.Context, sink func(chunk string)) context.Contex
 func stdoutSinkFromContext(ctx context.Context) func(string) {
 	sink, _ := ctx.Value(stdoutSinkKey{}).(func(string))
 	return sink
+}
+
+// StdoutSinkFrom is stdoutSinkFromContext for the one caller outside this
+// package: internal/mcpclient, which forwards a server's progress
+// notifications down the same channel a running Bash command's output uses
+// (docs/MCP.md, "What a server sends back unasked"). Nil when the context
+// carries no sink.
+func StdoutSinkFrom(ctx context.Context) func(string) {
+	return stdoutSinkFromContext(ctx)
 }

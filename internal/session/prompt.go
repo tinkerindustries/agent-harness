@@ -412,12 +412,26 @@ func RenderSystemPromptFor(model, variant string) (string, error) {
 // servers configured renders the same opening message it always has
 // (docs/MCP.md, "What the model is told": nothing here touches the system
 // prompt, and the opening message stays byte-identical for a run with no
-// MCP tools). This rides on every request of the run, so it stays a naming
-// — which servers, and how many tools each contributes — rather than a
-// catalogue of every tool: grouped by server with tools.MCPServerOf, server
-// names sorted so the rendering is deterministic regardless of the array's
-// own tool order.
-func RenderMCPBlock(array []wire.Tool) string {
+// MCP tools). The naming stays a naming — which servers, and how many tools
+// each contributes — rather than a catalogue of every tool: grouped by
+// server with tools.MCPServerOf, server names sorted so the rendering is
+// deterministic regardless of the array's own tool order.
+//
+// instructions is what each server said about itself at initialize, keyed
+// by server name (store.MCPServer.Instructions). A server that sent any has
+// its text quoted verbatim under its own heading, in the same sorted order,
+// and only when that server actually contributed tools to array — prose
+// about tools the session cannot call is prose the model has no use for.
+// A nil or empty map renders exactly the block this function produced
+// before instructions were plumbed through at all.
+//
+// Verbatim is the whole point: this text is written by the server's authors
+// for a model to read, and it is where the operational knowledge lives that
+// a tool schema has no room for — the official Blender server's explains
+// the datablock model, that operators clobber the selection, and that an
+// unflushed bmesh silently loses every edit. Summarising it here would be
+// this harness second-guessing the one party that knows.
+func RenderMCPBlock(array []wire.Tool, instructions map[string]string) string {
 	counts := map[string]int{}
 	var servers []string
 	for _, t := range array {
@@ -445,6 +459,13 @@ func RenderMCPBlock(array []wire.Tool) string {
 			suffix = ""
 		}
 		fmt.Fprintf(&b, "- %s (%d tool%s)\n", server, n, suffix)
+	}
+	for _, server := range servers {
+		text := strings.TrimSpace(instructions[server])
+		if text == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "\nWhat the %s server says about using it:\n\n%s\n", server, text)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

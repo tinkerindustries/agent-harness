@@ -40,14 +40,17 @@ func TestWithMCPCopiesAndDoesNotCorruptTheFrozenArray(t *testing.T) {
 
 	// The two results must be independent: first must carry only blender's
 	// tool, second only chrome's, and neither must have picked up the
-	// other's.
-	if len(first) != baseLen+1 {
-		t.Fatalf("first result has %d tools, want %d (base + 1)", len(first), baseLen+1)
+	// other's. Both also carry the four fixed MCP access tools, which sit
+	// between the base array and the servers' own (docs/MCP.md,
+	// "Resources") — hence the offset on every index below.
+	access := tools.MCPAccessToolCount
+	if len(first) != baseLen+access+1 {
+		t.Fatalf("first result has %d tools, want %d (base + access + 1)", len(first), baseLen+access+1)
 	}
-	if len(second) != baseLen+2 {
-		t.Fatalf("second result has %d tools, want %d (base + 2)", len(second), baseLen+2)
+	if len(second) != baseLen+access+2 {
+		t.Fatalf("second result has %d tools, want %d (base + access + 2)", len(second), baseLen+access+2)
 	}
-	if got := first[baseLen].Function.Name; got != "mcp__blender__get_objects_summary" {
+	if got := first[baseLen+access].Function.Name; got != "mcp__blender__get_objects_summary" {
 		t.Fatalf("first result's MCP tool = %q, want blender's", got)
 	}
 	for _, name := range []string{"mcp__chrome__navigate", "mcp__chrome__click"} {
@@ -61,10 +64,10 @@ func TestWithMCPCopiesAndDoesNotCorruptTheFrozenArray(t *testing.T) {
 			t.Fatalf("first result carries %q, which only the second call's MCP slice named", name)
 		}
 	}
-	if got := second[baseLen].Function.Name; got != "mcp__chrome__navigate" {
+	if got := second[baseLen+access].Function.Name; got != "mcp__chrome__navigate" {
 		t.Fatalf("second result's first MCP tool = %q, want chrome's navigate", got)
 	}
-	if got := second[baseLen+1].Function.Name; got != "mcp__chrome__click" {
+	if got := second[baseLen+access+1].Function.Name; got != "mcp__chrome__click" {
 		t.Fatalf("second result's second MCP tool = %q, want chrome's click", got)
 	}
 }
@@ -80,6 +83,7 @@ func TestWithMCPDoesNotWriteIntoSpareCapacity(t *testing.T) {
 	base[0] = mcpTool("Read")
 	base[1] = mcpTool("Write")
 
+	access := tools.MCPAccessToolCount
 	first := tools.WithMCP(base, []wire.Tool{mcpTool("mcp__blender__a")})
 	// The append below reuses base's spare capacity (len 2, cap 5) exactly
 	// the way an in-place WithMCP would have already written its own MCP
@@ -88,11 +92,11 @@ func TestWithMCPDoesNotWriteIntoSpareCapacity(t *testing.T) {
 	base = append(base, mcpTool("mcp__intruder__b"))
 	_ = base
 
-	if len(first) != 3 {
-		t.Fatalf("got %d tools, want 3", len(first))
+	if len(first) != 2+access+1 {
+		t.Fatalf("got %d tools, want %d", len(first), 2+access+1)
 	}
-	if first[2].Function.Name != "mcp__blender__a" {
-		t.Fatalf("first result's third tool = %q, want blender's — a later append to base corrupted it", first[2].Function.Name)
+	if first[2+access].Function.Name != "mcp__blender__a" {
+		t.Fatalf("first result's last tool = %q, want blender's — a later append to base corrupted it", first[2+access].Function.Name)
 	}
 }
 

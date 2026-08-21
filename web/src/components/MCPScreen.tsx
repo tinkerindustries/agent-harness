@@ -49,6 +49,7 @@ interface FormState {
   env: KVRow[];
   headers: KVRow[];
   allowReadonly: boolean;
+  allowSampling: boolean;
 }
 
 function emptyForm(): FormState {
@@ -61,6 +62,7 @@ function emptyForm(): FormState {
     env: [],
     headers: [],
     allowReadonly: false,
+    allowSampling: false,
   };
 }
 
@@ -74,6 +76,7 @@ function formFromServer(server: MCPServer): FormState {
     env: Object.entries(server.env).map(([key, value]) => ({ key, value, touched: false })),
     headers: Object.entries(server.headers).map(([key, value]) => ({ key, value, touched: false })),
     allowReadonly: server.allow_readonly,
+    allowSampling: server.allow_sampling,
   };
 }
 
@@ -346,6 +349,11 @@ function ServerCard({
           <span className="font-mono text-base font-semibold">{server.name}</span>
           <Badge variant={status.variant}>{status.label}</Badge>
           {server.allow_readonly && <Badge variant="outline">READONLY OK</Badge>}
+          {server.allow_sampling && <Badge variant="outline">SAMPLING</Badge>}
+          {/* Stale means the server itself said its lists moved on since
+              this snapshot. Nothing re-probes on that — a run's tool array
+              is frozen — so the badge is the prompt to press Refresh. */}
+          {server.stale && <Badge variant="outline">REFRESH DUE</Badge>}
           <span className="flex-1" />
           <Toggle
             pressed={server.enabled}
@@ -382,11 +390,29 @@ function ServerCard({
               <CaretRight className={cn("h-3 w-3 [transition:transform_var(--dur-caret)_var(--ease)]", toolsOpen && "rotate-90")} />
               {/* Not the tool count again — the status line above already
                   carries it, and a card that says "25 tools" twice reads
-                  like one of them means something else. */}
-              {toolsOpen ? "Hide tools" : "Show tools"}
+                  like one of them means something else. "Details" rather
+                  than "tools" because this now opens onto everything the
+                  last probe read: the server's instructions, its tools, and
+                  its resources and prompts when it has any. */}
+              {toolsOpen ? "Hide details" : "Show details"}
             </button>
           </CollapsibleTrigger>
           <CollapsibleContent>
+            {/* Behind the same disclosure as the tools, and above them,
+                because it is the same thing: what this server told us about
+                itself at the last probe. Every run gets this text verbatim
+                while the server is enabled, so an operator deciding whether
+                to enable one needs to be able to read it. */}
+            {server.instructions && (
+              <div className="mt-2 flex flex-col gap-1 border-l border-border py-0 pl-3">
+                <span className="text-xs text-muted-foreground">
+                  Instructions this server sends to every run:
+                </span>
+                <pre className="m-0 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 font-mono text-xs text-muted-foreground">
+                  {server.instructions}
+                </pre>
+              </div>
+            )}
             <ul className="m-0 mt-2 flex list-none flex-col gap-1.5 border-l border-border py-0 pl-3">
               {server.tools.length === 0 ? (
                 <li className="text-xs text-muted-foreground">No tools yet — refresh to probe the server.</li>
@@ -401,6 +427,53 @@ function ServerCard({
                 ))
               )}
             </ul>
+
+            {/* Resources and prompts are listed only when the server has
+                any, because most servers have none and an empty heading
+                per card would be noise on every row. Unlike tools they
+                carry no mcp__ name: a session reaches them through the
+                fixed MCPListResources / MCPReadResource tools. */}
+            {server.resources.length > 0 && (
+              <>
+                <span className="mt-3 block text-xs text-muted-foreground">
+                  Resources ({server.resource_count}) — read with MCPReadResource
+                </span>
+                <ul className="m-0 mt-1 flex list-none flex-col gap-1.5 border-l border-border py-0 pl-3">
+                  {server.resources.map((resource) => (
+                    <li key={resource.uri} className="flex flex-col gap-0.5">
+                      <span className="flex items-center gap-1.5">
+                        <code className="w-fit rounded bg-muted px-1 font-mono text-xs">{resource.uri}</code>
+                        {resource.template && <Badge variant="outline">TEMPLATE</Badge>}
+                      </span>
+                      {resource.description && (
+                        <span className="text-xs text-muted-foreground">{resource.description}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+
+            {server.prompts.length > 0 && (
+              <>
+                <span className="mt-3 block text-xs text-muted-foreground">
+                  Prompts ({server.prompt_count}) — render with MCPGetPrompt
+                </span>
+                <ul className="m-0 mt-1 flex list-none flex-col gap-1.5 border-l border-border py-0 pl-3">
+                  {server.prompts.map((prompt) => (
+                    <li key={prompt.name} className="flex flex-col gap-0.5">
+                      <code className="w-fit rounded bg-muted px-1 font-mono text-xs">{prompt.name}</code>
+                      {prompt.description && (
+                        <span className="text-xs text-muted-foreground">{prompt.description}</span>
+                      )}
+                      {prompt.arguments && (
+                        <span className="text-xs text-muted-foreground">arguments: {prompt.arguments}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
           </CollapsibleContent>
         </Collapsible>
 
@@ -580,6 +653,7 @@ function ServerForm({ mode, server, onCancel, onSaved }: ServerFormProps) {
           // to whatever a server-side default for an absent field would be.
           enabled: true,
           allow_readonly: form.allowReadonly,
+          allow_sampling: form.allowSampling,
         };
         await createMCPServer(input);
       } else if (server) {
@@ -591,6 +665,7 @@ function ServerForm({ mode, server, onCancel, onSaved }: ServerFormProps) {
           url: form.transport === "http" ? form.url.trim() : "",
           headers: form.transport === "http" ? buildKVPatch(form.headers, "edit") : {},
           allow_readonly: form.allowReadonly,
+          allow_sampling: form.allowSampling,
         };
         await updateMCPServer(server.name, patch);
       }
@@ -728,6 +803,22 @@ function ServerForm({ mode, server, onCancel, onSaved }: ServerFormProps) {
             />
           </>
         )}
+
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={form.allowSampling}
+            onChange={(e) => updateField("allowSampling", e.target.checked)}
+          />
+          <span className="flex flex-col gap-0.5">
+            <span>Allow this server to run model turns</span>
+            <span className="text-xs text-muted-foreground">
+              Sampling lets the server ask the harness to run a model turn on a prompt the server wrote, billed
+              to this installation. Off unless you turn it on (docs/MCP.md &ldquo;Sampling&rdquo;).
+            </span>
+          </span>
+        </label>
 
         <label className="flex items-start gap-2 text-sm">
           <input

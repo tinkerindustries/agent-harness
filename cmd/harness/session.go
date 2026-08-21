@@ -103,6 +103,10 @@ func runResume(ctx context.Context, args []string) error {
 	// so this command needs its own Manager too.
 	mcpMgr := mcpclient.New(st)
 	defer mcpMgr.Close()
+	// Sampling for a server that has been allowed it (docs/MCP.md,
+	// "Sampling"), on the default flash model — this command resolves no
+	// flash model of its own, and a server's turn is side work either way.
+	mcpMgr.Sampler = deepSeekClient
 
 	r := &session.Runner{
 		Store:  st,

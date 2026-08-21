@@ -18,12 +18,45 @@ import (
 // connection. Call answers keyed by the qualified tool name Execute passes
 // in, matching what a real MCPProvider.Call receives.
 type fakeMCPProvider struct {
-	content map[string]MCPContent
-	err     map[string]error
+	content   map[string]MCPContent
+	err       map[string]error
+	resources []MCPResource
+	prompts   []MCPPrompt
+	// readContent answers ReadResource and GetPrompt, keyed by the server
+	// and URI or prompt name the call named, joined by a space.
+	readContent map[string]MCPContent
+	readErr     map[string]error
 }
 
 func (f *fakeMCPProvider) Definitions(ctx context.Context) ([]wire.Tool, map[string]bool, error) {
 	return nil, nil, nil
+}
+
+func (f *fakeMCPProvider) Instructions(ctx context.Context) (map[string]string, error) {
+	return nil, nil
+}
+
+func (f *fakeMCPProvider) Resources(ctx context.Context) ([]MCPResource, error) {
+	return f.resources, nil
+}
+
+func (f *fakeMCPProvider) Prompts(ctx context.Context) ([]MCPPrompt, error) {
+	return f.prompts, nil
+}
+
+func (f *fakeMCPProvider) ReadResource(ctx context.Context, server, uri string) (MCPContent, error) {
+	return f.answer(server + " " + uri)
+}
+
+func (f *fakeMCPProvider) GetPrompt(ctx context.Context, server, name string, _ map[string]string) (MCPContent, error) {
+	return f.answer(server + " " + name)
+}
+
+func (f *fakeMCPProvider) answer(key string) (MCPContent, error) {
+	if err, ok := f.readErr[key]; ok {
+		return MCPContent{}, err
+	}
+	return f.readContent[key], nil
 }
 
 func (f *fakeMCPProvider) Call(ctx context.Context, toolName string, args json.RawMessage) (MCPContent, error) {

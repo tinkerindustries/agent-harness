@@ -369,12 +369,65 @@ func DefinitionsForVariant(model, variant string) []wire.Tool {
 	return without(defs, dropped...)
 }
 
-// WithMCP returns base followed by mcp, as a new slice: the frozen
-// provider/variant array's bytes first, then a configured MCP server's
-// tools appended after them, so the built-in portion's own bytes are
-// unchanged by whatever is or is not configured (docs/MCP.md, "Ordering is
-// deterministic"). Runner.Run calls this once per run to build the array
-// every request of that run sends.
+// mcpAccessTools are the four fixed tools that reach a server's resources
+// and prompts (mcpresources.go, docs/MCP.md "Resources"). They sit between
+// the built-in array and the servers' own tools, and only when there are
+// servers' own tools to sit in front of: a session with nothing configured
+// has nothing for them to list, and offering them anyway would change the
+// frozen head of every run that uses no MCP at all.
+// A compile-time check that MCPAccessToolCount and the slice agree.
+var _ = [1]struct{}{}[len(mcpAccessTools)-MCPAccessToolCount]
+
+var mcpAccessTools = []wire.Tool{
+	function("MCPListResources", "List the resources and resource templates the configured MCP servers advertise. "+
+		"A resource is data a server exposes for reading — a file, a record, a document — reached with MCPReadResource. "+
+		"A template has {placeholders} in its URI and must be filled in before it can be read.", `{
+		"type": "object",
+		"properties": {
+			"server": {"type": "string", "description": "Only list this server's resources. Omit for all of them."}
+		}
+	}`),
+	function("MCPReadResource", "Read one resource from one MCP server, by the URI MCPListResources gave.", `{
+		"type": "object",
+		"properties": {
+			"server": {"type": "string", "description": "The MCP server holding the resource"},
+			"uri": {"type": "string", "description": "The resource's URI, with any {placeholders} already filled in"}
+		},
+		"required": ["server", "uri"]
+	}`),
+	function("MCPListPrompts", "List the prompts the configured MCP servers advertise, with the arguments each takes. "+
+		"A prompt is a message template its server composed for a task it supports; render one with MCPGetPrompt.", `{
+		"type": "object",
+		"properties": {
+			"server": {"type": "string", "description": "Only list this server's prompts. Omit for all of them."}
+		}
+	}`),
+	function("MCPGetPrompt", "Render one prompt from one MCP server and return the messages it produces.", `{
+		"type": "object",
+		"properties": {
+			"server": {"type": "string", "description": "The MCP server holding the prompt"},
+			"name": {"type": "string", "description": "The prompt's name, as MCPListPrompts gave it"},
+			"arguments": {"type": "object", "description": "The prompt's arguments, as name/value string pairs"}
+		},
+		"required": ["server", "name"]
+	}`),
+}
+
+// MCPAccessToolCount is how many fixed tools WithMCP inserts ahead of a
+// server's own. Exported for tests that assert on array lengths, so a fifth
+// access tool does not silently turn a meaningful assertion into an
+// arithmetic one.
+const MCPAccessToolCount = 4
+
+// WithMCP returns base, then the four fixed MCP access tools, then mcp — as
+// a new slice, with the frozen provider/variant array's bytes first, so the
+// built-in portion's own bytes are unchanged by whatever is or is not
+// configured (docs/MCP.md, "Ordering is deterministic"). Runner.Run calls
+// this once per run to build the array every request of that run sends.
+//
+// An empty mcp returns base unchanged, access tools included: they exist to
+// reach configured servers, and a run with none configured must send the
+// array it sent before any of this existed.
 //
 // It must copy. base is one of the package-level frozen arrays (or
 // whatever DefinitionsForVariant handed back, which may itself be that
@@ -384,7 +437,13 @@ func DefinitionsForVariant(model, variant string) []wire.Tool {
 // mcp, is the only way to guarantee this call cannot mutate anything the
 // caller did not hand it.
 func WithMCP(base, mcp []wire.Tool) []wire.Tool {
-	out := make([]wire.Tool, len(base), len(base)+len(mcp))
+	if len(mcp) == 0 {
+		out := make([]wire.Tool, len(base))
+		copy(out, base)
+		return out
+	}
+	out := make([]wire.Tool, len(base), len(base)+len(mcpAccessTools)+len(mcp))
 	copy(out, base)
+	out = append(out, mcpAccessTools...)
 	return append(out, mcp...)
 }

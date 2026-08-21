@@ -120,10 +120,10 @@ func TestUnknownMCPServerNotFound(t *testing.T) {
 	if err := s.DeleteMCPServer(ctx, "ghost"); !errors.Is(err, ErrMCPServerNotFound) {
 		t.Fatalf("Delete: expected ErrMCPServerNotFound, got %v", err)
 	}
-	if err := s.SaveMCPProbe(ctx, "ghost", nil, "", time.Now().UTC()); !errors.Is(err, ErrMCPServerNotFound) {
+	if err := s.SaveMCPProbe(ctx, "ghost", MCPProbe{}, "", time.Now().UTC()); !errors.Is(err, ErrMCPServerNotFound) {
 		t.Fatalf("SaveMCPProbe success: expected ErrMCPServerNotFound, got %v", err)
 	}
-	if err := s.SaveMCPProbe(ctx, "ghost", nil, "boom", time.Now().UTC()); !errors.Is(err, ErrMCPServerNotFound) {
+	if err := s.SaveMCPProbe(ctx, "ghost", MCPProbe{}, "boom", time.Now().UTC()); !errors.Is(err, ErrMCPServerNotFound) {
 		t.Fatalf("SaveMCPProbe failure: expected ErrMCPServerNotFound, got %v", err)
 	}
 }
@@ -183,7 +183,7 @@ func TestUpdateMCPServerLeavesProbeAndCreatedAt(t *testing.T) {
 	}
 	tools := []MCPToolSnapshot{{Name: "get_objects", Description: "list objects"}}
 	probedAt := time.Now().UTC()
-	if err := s.SaveMCPProbe(ctx, "blender", tools, "", probedAt); err != nil {
+	if err := s.SaveMCPProbe(ctx, "blender", MCPProbe{Tools: tools}, "", probedAt); err != nil {
 		t.Fatalf("probe: %v", err)
 	}
 	before, err := s.GetMCPServer(ctx, "blender")
@@ -274,8 +274,8 @@ func TestDeleteMCPServer(t *testing.T) {
 	}
 }
 
-// TestSaveMCPProbeSuccess pins the success half of the asymmetry: tools and
-// probed_at are written and a previous error is cleared.
+// TestSaveMCPProbeSuccess pins the success half of the asymmetry: tools,
+// instructions and probed_at are written and a previous error is cleared.
 func TestSaveMCPProbeSuccess(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
@@ -283,7 +283,7 @@ func TestSaveMCPProbeSuccess(t *testing.T) {
 	if err := s.CreateMCPServer(ctx, testStdioServer("blender")); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	if err := s.SaveMCPProbe(ctx, "blender", nil, "connection refused", time.Now().UTC()); err != nil {
+	if err := s.SaveMCPProbe(ctx, "blender", MCPProbe{}, "connection refused", time.Now().UTC()); err != nil {
 		t.Fatalf("seed failing probe: %v", err)
 	}
 
@@ -291,7 +291,7 @@ func TestSaveMCPProbeSuccess(t *testing.T) {
 		{Name: "get_objects_summary", Description: "list scene objects", InputSchema: json.RawMessage(`{"type":"object"}`)},
 	}
 	at := time.Now().UTC()
-	if err := s.SaveMCPProbe(ctx, "blender", tools, "", at); err != nil {
+	if err := s.SaveMCPProbe(ctx, "blender", MCPProbe{Tools: tools, Instructions: "inspect the scene first"}, "", at); err != nil {
 		t.Fatalf("save success probe: %v", err)
 	}
 
@@ -301,6 +301,9 @@ func TestSaveMCPProbeSuccess(t *testing.T) {
 	}
 	if len(got.Tools) != 1 || got.Tools[0].Name != "get_objects_summary" {
 		t.Fatalf("expected the new tool snapshot, got %+v", got.Tools)
+	}
+	if got.Instructions != "inspect the scene first" {
+		t.Fatalf("instructions = %q, want the probe's own", got.Instructions)
 	}
 	if got.ProbeError != "" {
 		t.Fatalf("expected a successful probe to clear probe_error, got %q", got.ProbeError)
@@ -313,7 +316,7 @@ func TestSaveMCPProbeSuccess(t *testing.T) {
 
 // TestSaveMCPProbeFailureLeavesSnapshot is the invariant the whole design
 // rests on (docs/MCP.md): a failed probe writes only the error and leaves
-// the previous tools and probed_at exactly as they were.
+// the previous tools, instructions and probed_at exactly as they were.
 func TestSaveMCPProbeFailureLeavesSnapshot(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
@@ -323,12 +326,12 @@ func TestSaveMCPProbeFailureLeavesSnapshot(t *testing.T) {
 	}
 	tools := []MCPToolSnapshot{{Name: "get_objects_summary", Description: "list scene objects"}}
 	at := time.Now().UTC()
-	if err := s.SaveMCPProbe(ctx, "blender", tools, "", at); err != nil {
+	if err := s.SaveMCPProbe(ctx, "blender", MCPProbe{Tools: tools, Instructions: "inspect the scene first"}, "", at); err != nil {
 		t.Fatalf("seed successful probe: %v", err)
 	}
 
 	time.Sleep(2 * time.Millisecond)
-	if err := s.SaveMCPProbe(ctx, "blender", nil, "dial tcp: connection refused", time.Now().UTC()); err != nil {
+	if err := s.SaveMCPProbe(ctx, "blender", MCPProbe{}, "dial tcp: connection refused", time.Now().UTC()); err != nil {
 		t.Fatalf("save failing probe: %v", err)
 	}
 
@@ -341,6 +344,9 @@ func TestSaveMCPProbeFailureLeavesSnapshot(t *testing.T) {
 	}
 	if len(got.Tools) != 1 || got.Tools[0].Name != "get_objects_summary" {
 		t.Fatalf("a failed probe must leave the previous tools intact, got %+v", got.Tools)
+	}
+	if got.Instructions != "inspect the scene first" {
+		t.Fatalf("a failed probe must leave the previous instructions intact, got %q", got.Instructions)
 	}
 	wantProbedAt := at.Format(time.RFC3339Nano)
 	if got.ProbedAt != wantProbedAt {

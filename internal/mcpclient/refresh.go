@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -18,6 +19,15 @@ import (
 // what the /mcp screen has any use for.
 const maxProbeErrorLen = 500
 
+// maxInstructionsLen bounds how much of a server's initialize instructions
+// SaveMCPProbe stores, and so how much of them can reach the opening
+// message. The official Blender server's are around five kilobytes, which
+// is the scale this is sized for: generous enough that no server writing
+// instructions for a model to read gets clipped, small enough that a server
+// echoing a manual into the field cannot quietly cost every session in the
+// process thousands of prompt tokens on every request of every run.
+const maxInstructionsLen = 32000
+
 // probeWriteTimeout bounds recording a failed probe's reason. It is small
 // because the write is local — one row in SQLite — and it exists only so
 // the bookkeeping cannot itself hang forever on a context nothing will
@@ -28,8 +38,8 @@ const probeWriteTimeout = 10 * time.Second
 // entirely, since the point of Refresh is to prove the server's *current*
 // configuration actually connects, not that some earlier connection is
 // still alive — lists its tools to the end of pagination, qualifies their
-// names, and records the outcome with SaveMCPProbe (docs/MCP.md,
-// "Probing").
+// names, reads the instructions the server sent at initialize, and records
+// the outcome with SaveMCPProbe (docs/MCP.md, "Probing").
 //
 // On success it returns the freshly reloaded row. On failure it still
 // returns the reloaded row, now carrying the new probe_error, alongside the
@@ -54,7 +64,7 @@ func (m *Manager) Refresh(ctx context.Context, name string) (store.MCPServer, er
 		// out and answered with an empty probe_error.
 		writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), probeWriteTimeout)
 		defer cancel()
-		if err := m.Store.SaveMCPProbe(writeCtx, name, nil, truncateProbeError(probeErr), time.Now().UTC()); err != nil {
+		if err := m.Store.SaveMCPProbe(writeCtx, name, store.MCPProbe{}, truncateProbeError(probeErr), time.Now().UTC()); err != nil {
 			return store.MCPServer{}, err
 		}
 		reloaded, err := m.Store.GetMCPServer(writeCtx, name)
@@ -70,30 +80,43 @@ func (m *Manager) Refresh(ctx context.Context, name string) (store.MCPServer, er
 	return m.Store.GetMCPServer(ctx, name)
 }
 
-// probe dials srv fresh, lists its tools to the end of pagination, and
-// returns them as store snapshots with QualifiedName already computed —
-// the one place that computation happens, so every reader of tools_json
-// afterwards treats it as data rather than re-deriving it (internal/store's
-// MCPToolSnapshot.QualifiedName doc comment).
-func (m *Manager) probe(ctx context.Context, srv store.MCPServer) ([]store.MCPToolSnapshot, error) {
-	sess, err := m.dial(ctx, srv)
+// probe dials srv fresh and reads everything it advertises: its tools to
+// the end of pagination, with QualifiedName already computed — the one
+// place that computation happens, so every reader of tools_json afterwards
+// treats it as data rather than re-deriving it (internal/store's
+// MCPToolSnapshot.QualifiedName doc comment) — its resources and resource
+// templates, its prompts, and the instructions it sent in its
+// InitializeResult.
+//
+// Each list is read only when the server's own capabilities say it has one.
+// That is not an optimisation: a server that does not advertise resources
+// answers resources/list with a method-not-found error, and a probe that
+// asked anyway would turn every tools-only server — which is most of them,
+// the official Blender server included — into a failed probe with a
+// confusing reason.
+//
+// The instructions come from the handshake the dial already performed, so
+// reading them costs no extra round trip: the SDK keeps the
+// InitializeResult on the session. A server that sends none, and an SDK
+// that has no result to give (a transport that seeded the session without
+// a handshake), both yield "" — the same value a server has always
+// effectively contributed here.
+func (m *Manager) probe(ctx context.Context, srv store.MCPServer) (store.MCPProbe, error) {
+	c, err := m.dial(ctx, srv)
 	if err != nil {
-		return nil, err
+		return store.MCPProbe{}, err
 	}
-	defer sess.Close()
+	defer c.session.Close()
+	sess := c.session
+
+	snap := store.MCPProbe{Instructions: serverInstructions(sess)}
 
 	var raw []*mcpsdk.Tool
-	cursor := ""
-	for {
-		res, err := sess.ListTools(ctx, &mcpsdk.ListToolsParams{Cursor: cursor})
+	for tool, err := range sess.Tools(ctx, nil) {
 		if err != nil {
-			return nil, err
+			return store.MCPProbe{}, err
 		}
-		raw = append(raw, res.Tools...)
-		if res.NextCursor == "" {
-			break
-		}
-		cursor = res.NextCursor
+		raw = append(raw, tool)
 	}
 
 	names := make([]string, len(raw))
@@ -102,20 +125,87 @@ func (m *Manager) probe(ctx context.Context, srv store.MCPServer) ([]store.MCPTo
 	}
 	qualified := QualifyToolNames(srv.Name, names)
 
-	snapshot := make([]store.MCPToolSnapshot, len(raw))
+	snap.Tools = make([]store.MCPToolSnapshot, len(raw))
 	for i, t := range raw {
 		schema, err := json.Marshal(t.InputSchema)
 		if err != nil {
-			return nil, fmt.Errorf("mcpclient: encode input schema for tool %q: %w", t.Name, err)
+			return store.MCPProbe{}, fmt.Errorf("mcpclient: encode input schema for tool %q: %w", t.Name, err)
 		}
-		snapshot[i] = store.MCPToolSnapshot{
+		snap.Tools[i] = store.MCPToolSnapshot{
 			Name:          t.Name,
 			QualifiedName: qualified[i],
 			Description:   t.Description,
 			InputSchema:   schema,
 		}
 	}
-	return snapshot, nil
+
+	caps := sess.InitializeResult().Capabilities
+	if caps != nil && caps.Resources != nil {
+		for r, err := range sess.Resources(ctx, nil) {
+			if err != nil {
+				return store.MCPProbe{}, err
+			}
+			snap.Resources = append(snap.Resources, store.MCPResourceSnapshot{
+				URI: r.URI, Name: r.Name, Description: r.Description, MIMEType: r.MIMEType,
+			})
+		}
+		for t, err := range sess.ResourceTemplates(ctx, nil) {
+			if err != nil {
+				return store.MCPProbe{}, err
+			}
+			snap.Resources = append(snap.Resources, store.MCPResourceSnapshot{
+				URI: t.URITemplate, Name: t.Name, Description: t.Description,
+				MIMEType: t.MIMEType, Template: true,
+			})
+		}
+	}
+
+	if caps != nil && caps.Prompts != nil {
+		for p, err := range sess.Prompts(ctx, nil) {
+			if err != nil {
+				return store.MCPProbe{}, err
+			}
+			args := make([]store.MCPPromptArgSnapshot, 0, len(p.Arguments))
+			for _, a := range p.Arguments {
+				args = append(args, store.MCPPromptArgSnapshot{
+					Name: a.Name, Description: a.Description, Required: a.Required,
+				})
+			}
+			snap.Prompts = append(snap.Prompts, store.MCPPromptSnapshot{
+				Name: p.Name, Description: p.Description, Arguments: args,
+			})
+		}
+	}
+
+	return snap, nil
+}
+
+// serverInstructions returns the instructions sess's server sent at
+// initialize, trimmed and capped at maxInstructionsLen. The nil check is
+// not defensive padding: ClientSession.InitializeResult returns a pointer
+// that is only populated once a handshake has completed, and a session
+// seeded some other way would panic on a bare field read.
+func serverInstructions(sess *mcpsdk.ClientSession) string {
+	res := sess.InitializeResult()
+	if res == nil {
+		return ""
+	}
+	return truncateInstructions(strings.TrimSpace(res.Instructions))
+}
+
+// truncateInstructions cuts s to maxInstructionsLen bytes on a rune
+// boundary, the same way truncateProbeError bounds a stored failure, and
+// says so in the stored text: instructions that stop mid-sentence with no
+// marker read to a model as a server that simply had nothing more to say.
+func truncateInstructions(s string) string {
+	if len(s) <= maxInstructionsLen {
+		return s
+	}
+	b := []byte(s)[:maxInstructionsLen]
+	for len(b) > 0 && !utf8.RuneStart(b[len(b)-1]) {
+		b = b[:len(b)-1]
+	}
+	return string(b) + "\n… (truncated)"
 }
 
 // truncateProbeError renders err's message, cut to maxProbeErrorLen bytes

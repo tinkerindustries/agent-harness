@@ -205,7 +205,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	// repository instructions.
 	catalogue := skills.Discover(executor.Workspace).Render()
 	claudeMD := claudemd.Discover(executor.Workspace).Render()
-	mcpBlock := RenderMCPBlock(opts.Tools)
+	mcpBlock := RenderMCPBlock(opts.Tools, r.resolveMCPInstructions(ctx, sessID))
 	opening := RenderOpeningMessage(executor.Workspace, opts.Prompt, opts.ResultSchema, claudeMD, catalogue, mcpBlock, opts.AttachmentNames)
 	appended, err := r.Store.AppendEvents(ctx, sessID, []store.EventInput{
 		{Kind: store.KindSessionStarted, Payload: store.SessionStartedPayload{

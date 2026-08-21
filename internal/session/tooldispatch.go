@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"log"
+	"strings"
 	"sync"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/httplog"
@@ -103,7 +104,12 @@ func (r *Runner) executeToolCall(ctx context.Context, sess store.Session, execut
 		},
 	}
 	callCtx := httplog.WithSessionID(ctx, sess.ID)
-	if r.Hub != nil && c.Name == "Bash" {
+	// Bash streams its command's output; an MCP tool streams whatever
+	// progress its server reports while the call is still running, which
+	// is the only thing standing between a three-minute render and a
+	// transcript that looks like a hang (docs/MCP.md, "What a server sends
+	// back unasked").
+	if r.Hub != nil && (c.Name == "Bash" || strings.HasPrefix(c.Name, tools.MCPToolPrefix)) {
 		callCtx = tools.WithStdoutSink(callCtx, r.stdoutSink(ctx, sess, c.ID))
 	}
 	return executor.Execute(callCtx, call)

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/redact"
@@ -51,6 +52,25 @@ type mcpToolWire struct {
 	Description   string `json:"description"`
 }
 
+// mcpResourceWire is one resource, or one resource template, from the last
+// successful probe.
+type mcpResourceWire struct {
+	URI         string `json:"uri"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	MIMEType    string `json:"mime_type"`
+	Template    bool   `json:"template"`
+}
+
+// mcpPromptWire is one prompt from the last successful probe, with the
+// arguments it takes rendered as a single readable line — the screen shows
+// them, it does not build a form from them.
+type mcpPromptWire struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Arguments   string `json:"arguments"`
+}
+
 // mcpServerWire is the wire shape of one mcp_servers row — the exact field
 // set and order the frontend is built against. Env and Headers values are
 // masked (maskMCPSecretMap); everything else is the row as stored.
@@ -64,12 +84,30 @@ type mcpServerWire struct {
 	Headers       map[string]string `json:"headers"`
 	Enabled       bool              `json:"enabled"`
 	AllowReadOnly bool              `json:"allow_readonly"`
+	AllowSampling bool              `json:"allow_sampling"`
 	Tools         []mcpToolWire     `json:"tools"`
 	ToolCount     int               `json:"tool_count"`
-	ProbedAt      string            `json:"probed_at"`
-	ProbeError    string            `json:"probe_error"`
-	CreatedAt     time.Time         `json:"created_at"`
-	UpdatedAt     time.Time         `json:"updated_at"`
+	Resources     []mcpResourceWire `json:"resources"`
+	ResourceCount int               `json:"resource_count"`
+	Prompts       []mcpPromptWire   `json:"prompts"`
+	PromptCount   int               `json:"prompt_count"`
+	// Stale is set when a connected server has said its lists moved on
+	// since this snapshot was taken, and cleared by the next successful
+	// probe. The screen shows it as a prompt to Refresh, which is the only
+	// thing that acts on it (docs/MCP.md, "What a server sends back
+	// unasked").
+	Stale bool `json:"stale"`
+	// Instructions is what the server sent at initialize, as the last
+	// successful probe stored it, and as the opening message quotes it to
+	// the model (docs/MCP.md, "What the model is told"). Served in full
+	// rather than counted, because an operator deciding whether to enable a
+	// server needs to read what enabling it will put in front of every
+	// session.
+	Instructions string    `json:"instructions"`
+	ProbedAt     string    `json:"probed_at"`
+	ProbeError   string    `json:"probe_error"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // mcpServerToWire projects a store row onto the wire shape, masking Env and
@@ -82,11 +120,36 @@ func mcpServerToWire(srv store.MCPServer) mcpServerWire {
 	for _, t := range srv.Tools {
 		tools = append(tools, mcpToolWire{Name: t.Name, QualifiedName: t.QualifiedName, Description: t.Description})
 	}
+	resources := make([]mcpResourceWire, 0, len(srv.Resources))
+	for _, r := range srv.Resources {
+		resources = append(resources, mcpResourceWire{
+			URI: r.URI, Name: r.Name, Description: r.Description, MIMEType: r.MIMEType, Template: r.Template,
+		})
+	}
+	prompts := make([]mcpPromptWire, 0, len(srv.Prompts))
+	for _, p := range srv.Prompts {
+		names := make([]string, 0, len(p.Arguments))
+		for _, a := range p.Arguments {
+			if a.Required {
+				names = append(names, a.Name+" (required)")
+				continue
+			}
+			names = append(names, a.Name)
+		}
+		prompts = append(prompts, mcpPromptWire{
+			Name: p.Name, Description: p.Description, Arguments: strings.Join(names, ", "),
+		})
+	}
 	return mcpServerWire{
 		Name: srv.Name, Transport: srv.Transport, Command: srv.Command,
 		Args: srv.Args, Env: maskMCPSecretMap(srv.Env), URL: srv.URL,
 		Headers: maskMCPSecretMap(srv.Headers), Enabled: srv.Enabled, AllowReadOnly: srv.AllowReadOnly,
-		Tools: tools, ToolCount: len(srv.Tools), ProbedAt: srv.ProbedAt, ProbeError: srv.ProbeError,
+		AllowSampling: srv.AllowSampling,
+		Tools:         tools, ToolCount: len(srv.Tools),
+		Resources: resources, ResourceCount: len(srv.Resources),
+		Prompts: prompts, PromptCount: len(srv.Prompts),
+		Stale: srv.Stale, Instructions: srv.Instructions,
+		ProbedAt: srv.ProbedAt, ProbeError: srv.ProbeError,
 		CreatedAt: srv.CreatedAt, UpdatedAt: srv.UpdatedAt,
 	}
 }
@@ -193,6 +256,7 @@ type createMCPServerBody struct {
 	Headers       map[string]string `json:"headers"`
 	Enabled       *bool             `json:"enabled"`
 	AllowReadOnly *bool             `json:"allow_readonly"`
+	AllowSampling *bool             `json:"allow_sampling"`
 }
 
 // handleCreateMCPServer serves POST /api/mcp/servers: validates with
@@ -213,13 +277,16 @@ func (s *Server) handleCreateMCPServer(w http.ResponseWriter, r *http.Request) {
 	srv := store.MCPServer{
 		Name: body.Name, Transport: body.Transport, Command: body.Command,
 		Args: body.Args, Env: body.Env, URL: body.URL, Headers: body.Headers,
-		Enabled: true, AllowReadOnly: false,
+		Enabled: true, AllowReadOnly: false, AllowSampling: false,
 	}
 	if body.Enabled != nil {
 		srv.Enabled = *body.Enabled
 	}
 	if body.AllowReadOnly != nil {
 		srv.AllowReadOnly = *body.AllowReadOnly
+	}
+	if body.AllowSampling != nil {
+		srv.AllowSampling = *body.AllowSampling
 	}
 	if err := store.ValidateMCPServer(srv); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -255,6 +322,7 @@ type patchMCPServerBody struct {
 	Headers       *map[string]string `json:"headers"`
 	Enabled       *bool              `json:"enabled"`
 	AllowReadOnly *bool              `json:"allow_readonly"`
+	AllowSampling *bool              `json:"allow_sampling"`
 }
 
 // handlePatchMCPServer serves PATCH /api/mcp/servers/{name}: a partial
@@ -289,7 +357,8 @@ func (s *Server) handlePatchMCPServer(w http.ResponseWriter, r *http.Request) {
 
 	connectionTouched := body.Transport != nil || body.Command != nil || body.Args != nil ||
 		body.Env != nil || body.URL != nil || body.Headers != nil
-	onlyEnabledTouched := body.Enabled != nil && !connectionTouched && body.AllowReadOnly == nil
+	onlyEnabledTouched := body.Enabled != nil && !connectionTouched &&
+		body.AllowReadOnly == nil && body.AllowSampling == nil
 	reprobe := connectionTouched || (body.Enabled != nil && *body.Enabled)
 
 	if onlyEnabledTouched {
@@ -322,6 +391,9 @@ func (s *Server) handlePatchMCPServer(w http.ResponseWriter, r *http.Request) {
 		}
 		if body.AllowReadOnly != nil {
 			merged.AllowReadOnly = *body.AllowReadOnly
+		}
+		if body.AllowSampling != nil {
+			merged.AllowSampling = *body.AllowSampling
 		}
 		if err := store.ValidateMCPServer(merged); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -396,4 +468,61 @@ func (s *Server) handleRefreshMCPServer(w http.ResponseWriter, r *http.Request) 
 	// MCP initialisation", say — with a generic error the operator
 	// cannot act on.
 	writeJSON(w, http.StatusOK, mcpServerToWire(srv))
+}
+
+// completeMCPBody is the JSON body POST /api/mcp/servers/{name}/complete
+// accepts: which prompt or resource template an argument belongs to, the
+// argument's name, and what has been typed so far.
+type completeMCPBody struct {
+	// Kind is "prompt" or "resource" — which of the two things Ref names.
+	// There is no default: a reference resolved against the wrong list is
+	// not a mistake the server can report usefully.
+	Kind     string `json:"kind"`
+	Ref      string `json:"ref"`
+	Argument string `json:"argument"`
+	Value    string `json:"value"`
+}
+
+// handleCompleteMCPServer serves POST /api/mcp/servers/{name}/complete: ask
+// the server what values an argument could take (docs/MCP.md,
+// "Completions"). 503 when no client manager is wired, the same shape
+// refresh takes; 400 for a body that names no argument or an unknown kind;
+// 200 with the values otherwise, including an empty list — a server that
+// suggests nothing has answered the question.
+//
+// A server that does not support completion answers with an error, which
+// arrives here as a 502: the operator asked a specific server something it
+// cannot do, and saying so names the server rather than blaming the request.
+func (s *Server) handleCompleteMCPServer(w http.ResponseWriter, r *http.Request) {
+	if !writeGuards(w, r) {
+		return
+	}
+	if s.MCP == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "no MCP client is configured in this process"})
+		return
+	}
+	var body completeMCPBody
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid JSON body: expected a completion request"})
+		return
+	}
+	switch body.Kind {
+	case "prompt", "resource":
+	default:
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `kind must be "prompt" or "resource"`})
+		return
+	}
+	if body.Ref == "" || body.Argument == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "ref and argument are both required"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), mcpProbeTimeout)
+	defer cancel()
+	values, err := s.MCP.Complete(ctx, r.PathValue("name"), body.Kind, body.Ref, body.Argument, body.Value)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"values": values})
 }

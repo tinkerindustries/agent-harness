@@ -107,7 +107,12 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
 	headers        TEXT NOT NULL DEFAULT '{}',  -- http: JSON object of strings
 	enabled        INTEGER NOT NULL DEFAULT 1,
 	allow_readonly INTEGER NOT NULL DEFAULT 0,
+	allow_sampling INTEGER NOT NULL DEFAULT 0,  -- may it spend model tokens?
 	tools_json     TEXT NOT NULL DEFAULT '[]',  -- last successful probe
+	resources_json TEXT NOT NULL DEFAULT '[]',  -- last successful probe
+	prompts_json   TEXT NOT NULL DEFAULT '[]',  -- last successful probe
+	instructions   TEXT NOT NULL DEFAULT '',    -- last successful probe
+	stale          INTEGER NOT NULL DEFAULT 0,  -- the server says they moved on
 	probed_at      TEXT NOT NULL DEFAULT '',
 	probe_error    TEXT NOT NULL DEFAULT '',
 	created_at     TEXT NOT NULL,
@@ -116,10 +121,18 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
 );
 ```
 
-`tools_json` is only ever written by a successful probe, and a failed probe
-writes `probe_error` and leaves the snapshot alone. That asymmetry is the
-whole point of the column: the array a session builds must not depend on
-whether a subprocess happened to start this minute.
+The four snapshot columns — `tools_json`, `resources_json`, `prompts_json`,
+`instructions` — are only ever written by a successful probe, and a failed
+probe writes `probe_error` and leaves the snapshot alone. That
+asymmetry is the whole point of the columns: what a session builds must not
+depend on whether a subprocess happened to start this minute. The two are
+written in one statement, because they come from one handshake — a session
+must never read this probe's tools under an earlier probe's instructions.
+
+`instructions` is what the server sent in its `InitializeResult`, capped at
+32 KB. A row written before the column existed backfills to `''`, which is
+indistinguishable from a server that sends none; the operator's next Refresh
+fills it in.
 
 Secrets: `env` values and `headers` values can hold API keys. `GET
 /api/mcp/servers` masks them the way the settings surface masks a secret key
@@ -129,8 +142,18 @@ the key removes the value. The full values never leave the process.
 
 ## Probing
 
-A probe connects, initialises, calls `tools/list`, and writes the result:
-`tools_json`, `probed_at`, and `probe_error` cleared. It runs when a server is
+A probe connects, initialises, and reads everything the server advertises:
+`tools/list` to the end of pagination, then `resources/list`,
+`resources/templates/list` and `prompts/list` — each only when the server's
+own capabilities say it has one. That guard is not an optimisation. A
+tools-only server, which is most of them and includes the official Blender
+server, answers `resources/list` with method-not-found, and a probe that
+asked anyway would turn every such server into a failed probe with a
+baffling reason.
+
+It writes the result in one statement: the three lists, `instructions` from
+the handshake it just completed, `probed_at`, `stale` cleared, and
+`probe_error` cleared. It runs when a server is
 created, when its connection details change, and when the operator presses
 Refresh. Nothing probes on a schedule — an operator who changes nothing gets a
 tool array that never changes underneath them.
@@ -206,6 +229,157 @@ server and the reason. A run never fails because an MCP server is down.
 30-second default because the calls that motivated this — rendering a
 viewport, driving an external application — routinely are.
 
+## Resources
+
+A resource is data a server exposes for reading — a file, a record, a
+document. A *resource template* is the same thing with `{placeholders}` in
+its URI, a shape to be filled in rather than something readable as it
+stands. Both are snapshotted by the probe into `resources_json`.
+
+They are **not** tools on the model's array, and that is the whole design.
+The array is frozen for the life of a run, so a server holding a
+documentation set would either flood every request with hundreds of entries
+or change the array whenever its contents changed — invalidating the
+prompt-cache prefix of a session already running. Instead, four fixed tools
+appear whenever a session has any MCP tools at all:
+
+| Tool | What it does |
+| --- | --- |
+| `MCPListResources` | lists resources and templates from the stored snapshot |
+| `MCPReadResource` | reads one, live, by server and URI |
+| `MCPListPrompts` | lists prompts and the arguments each takes |
+| `MCPGetPrompt` | renders one, live |
+
+Four definitions, no matter how much is behind them. Listing reads the
+snapshot — so an unreachable server still lists what it had; reading dials,
+because the contents are the point and a stale copy would be worse than an
+error.
+
+`MCPReadResource` refuses a URI containing `{}`. Reading a template
+literally may well *succeed*, returning the server's answer for a record
+called `{id}` — a plausible wrong answer the model cannot tell from a right
+one.
+
+## Prompts
+
+A prompt is a message template its server composed for a task it supports,
+with named arguments. Snapshotted into `prompts_json` and reached through
+`MCPListPrompts` / `MCPGetPrompt`, for the same reason resources are. A
+prompt is listed with its arguments always: a prompt named alone is a prompt
+the model can only call wrong.
+
+`GetPrompt` flattens the messages a server returns into text with each
+message's role in front of it. The roles stay because a prompt is a
+conversation the server composed, and running two speakers together loses
+where the turn changed.
+
+## Roots
+
+Roots are the client's answer to "which directories are you working in",
+offered to every server. This harness answers with the workspaces of its
+live sessions, read from the `workspace_leases` table — one row per running
+session, acquired at start and released at the end.
+
+They follow the *process*, not any one session, and they have to: a server
+is dialled once and shared by every session in this process, so it cannot be
+told a different set per caller. Claiming otherwise would be a lie told per
+tool call.
+
+A cached connection's roots are updated in place when that set changes,
+which sends the server a `roots/list_changed` notification. It is deliberately
+not a redial: tearing down a `uvx`-launched subprocess every time a session
+starts would spend seconds of process startup to deliver one line of
+bookkeeping.
+
+## Sampling
+
+Sampling is a server asking the *harness* to run a model turn on its behalf.
+It runs on the flash model, non-thinking, capped at 4000 output tokens
+regardless of what the server asked for — a server naming its own token
+budget is a server spending somebody else's money, so its request is a
+ceiling to lower, never an instruction to follow.
+
+Two separate gates stand in front of it:
+
+1. **Is a model wired at all?** `Manager.Sampler` is nil on the CLI paths and
+   in every test, and a server that asks is told so.
+2. **Is *this* server allowed?** `allow_sampling` is off by default, per
+   server, and an operator turns it on. Connecting a server and letting it
+   spend your tokens on prompts it wrote are different decisions, and only
+   one of them is implied by pressing Add.
+
+A refusal is an *error*, not an empty completion. The server asked for
+something it did not get, and telling it so lets it fall back; answering with
+silence dressed as a model turn would be a lie it cannot detect.
+
+## Elicitation
+
+Elicitation is a server asking the *user* a question mid-call. This harness
+always declines, and that is the design rather than a stub: work here arrives
+on a durable queue and runs unattended, so the operator who submitted it is
+not sitting in front of a form and may not be awake. The protocol has a word
+for exactly this situation. A server that is declined can take its other
+path; a server left waiting would hang a queued run behind a question nobody
+will ever see. The ask is logged in full, because a server asking for input
+is telling the operator something about how it expects to be driven.
+
+## Completions
+
+`POST /api/mcp/servers/{name}/complete` asks a server what values an argument
+could take — `{"kind":"prompt"|"resource","ref":…,"argument":…,"value":…}`.
+It is an operator-surface endpoint only: nothing in a run calls it, because a
+model does not autocomplete. A server without the capability answers with an
+error, which surfaces as a 502 naming the server rather than a 500 that reads
+like the harness broke.
+
+## What a server sends back unasked
+
+Four things arrive on a connection that are not replies to a request, and
+they route differently because only one of them can be tied back to a caller.
+
+**Progress.** A notification names the call it belongs to, via a token this
+client attaches when — and only when — something is listening. It is
+streamed into the transcript as `tool_stdout`, the same channel a running
+`Bash` command's output uses, so a three-minute render shows progress
+instead of looking like a hang. A token is not issued for a call nobody is
+watching: asking a server to narrate itself into a log nothing reads is
+traffic for its own sake.
+
+A straggler that arrives after the call has answered goes to the harness log
+instead. That is ordinary rather than exceptional — the reply can reach the
+caller while the last notification is still queued behind it — and holding
+the sink open to catch it would put "still working" into a transcript that
+has already shown the work finish.
+
+**Log messages.** `logging/setLevel` is sent at `info` on connect, to servers
+that advertise the capability. The messages go to the harness log under the
+server's name, beside the stderr a stdio server already writes there. They
+carry no request correlation, so there is nowhere else honest to put them.
+
+**List-changed.** A server saying its tools, prompts, or resources have moved
+on sets `stale` on its row and nothing else. It deliberately does not
+re-probe: a run's tool array is frozen, and replacing it under a session in
+flight would invalidate the prompt-cache prefix every request of that run
+shares. The flag is a note for the operator; the next Refresh is what acts on
+it, and clears it.
+
+**Resource updated.** Logged under the server's name.
+
+## Since protocol 2026-07-28, servers do not call clients
+
+Worth knowing before reading the handler code. Sampling, elicitation, and
+`roots/list` used to be server-initiated JSON-RPC requests. From protocol
+version 2026-07-28 they are forbidden as such (SEP-2322): a server embeds the
+ask in the *result* of the call it is already serving, and the client's
+multi-round-trip middleware fulfils it and re-invokes the server's handler
+with the answer.
+
+Two consequences. The middleware is on by default, so there is no retry loop
+in this package — only handlers and the policy each applies. And a server
+cannot ask for roots from inside a tool handler by calling `roots/list`; it
+returns an `InputRequests` map instead. The tests are written that way
+because it is the only way that works.
+
 ## Permissions
 
 | Session mode | `allow_readonly` | Outcome |
@@ -228,6 +402,26 @@ The opening user message gains a short MCP section — beside the `CLAUDE.md`
 excerpts and the skills catalogue, rendered only when the session's array
 carries MCP tools — naming the connected servers and saying that their tools
 are named `mcp__<server>__<tool>` and reach systems outside the workspace.
+
+Under that listing, each server's own `instructions` are quoted verbatim,
+attributed to the server that sent them, in the same sorted order — and only
+for a server that actually contributed tools to this session's array, since
+prose about tools the session cannot call is prose it has no use for.
+
+**Verbatim is deliberate.** This text is written by a server's authors for a
+model to read, and it is where the operational knowledge lives that a tool
+schema has no room for: the official Blender server's explains the datablock
+model, warns that operators clobber the selection as a side effect, and says
+that an unflushed bmesh silently loses every edit. None of that is derivable
+from twenty-six function signatures. Summarising it here would be this
+harness second-guessing the only party that knows, and dropping it — which
+is what happened until the `instructions` column existed — leaves a model
+holding a large tool array and no idea how the thing behind it works.
+
+A server that sends none renders nothing, so the block is byte-identical to
+what it was before any of this existed. A failure reading the instructions
+costs a log line, not the run: the tools are still on the array, and the
+session still starts.
 
 ## Adding a server
 
@@ -276,6 +470,13 @@ the community `uvx blender-mcp` package, which is a different server with a
 different tool list (Poly Haven, Sketchfab and Hyper3D asset tools) and reads
 a differently named `BLENDER_HOST`.
 
+It is also the server the `instructions` column was built for. It sends
+around five kilobytes at initialize — the datablock model, the active-object
+versus selection distinction, the depsgraph update, the bmesh flush — and
+until that column existed the SDK read them and this harness dropped them,
+leaving a session holding twenty-six Blender tools and nothing about how
+Blender behaves.
+
 **Its twenty-six tools reach two different Blenders, and that is the thing to
 understand before debugging one.** Fourteen of them — `execute_blender_code`,
 the `jump_to_*` navigation, the screenshots — talk over TCP to the add-on
@@ -303,6 +504,19 @@ exactly these twelve tools. The comment on that layer is the reference for
 why it comes from Alpine's `edge` repository and why `spirv-tools` is named
 alongside it. Without it the twelve fail on every call with an error naming
 Python rather than the missing Blender.
+
+**The two image screenshot tools need `size_limit_in_bytes` set.** Left at
+its default of `0` — no limit — `get_screenshot_of_window_as_image` and
+`get_screenshot_of_area_as_image` fail against a normal-sized Blender window
+with `Invalid response from Blender at …:9876: Unterminated string`: a
+full-resolution PNG, base64'd, overruns the framing of the add-on's TCP
+bridge, and the MCP server is left parsing a truncated JSON string. Any
+non-zero limit works — measured down from 300000 to 8000 bytes, all fine —
+and the same window answers `get_screenshot_of_window_as_json` without
+complaint, because that payload is small. The other twenty-four tools work
+with their defaults. Nothing here can fix it from this side; it is the
+vendored server's own wire format, and the workaround is to pass the
+argument.
 
 Paths cross the same divide. The add-on resolves a path on the *host*, the
 CLI tools resolve one inside the *container*, and the two agree only where

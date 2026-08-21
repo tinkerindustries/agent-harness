@@ -30,7 +30,7 @@ func mustCreateServer(t *testing.T, s *store.Store, srv store.MCPServer) {
 
 func mustSaveProbe(t *testing.T, s *store.Store, name string, tools []store.MCPToolSnapshot) {
 	t.Helper()
-	if err := s.SaveMCPProbe(context.Background(), name, tools, "", time.Now().UTC()); err != nil {
+	if err := s.SaveMCPProbe(context.Background(), name, store.MCPProbe{Tools: tools}, "", time.Now().UTC()); err != nil {
 		t.Fatalf("save probe for %q: %v", name, err)
 	}
 }
@@ -233,7 +233,7 @@ func TestDefinitionsServerWithFailedProbeStillContributesLastSnapshot(t *testing
 	mustSaveProbe(t, s, "flaky", []store.MCPToolSnapshot{
 		{Name: "still_here", QualifiedName: "mcp__flaky__still_here", Description: "d"},
 	})
-	if err := s.SaveMCPProbe(ctx, "flaky", nil, "dial tcp: connection refused", time.Now().UTC()); err != nil {
+	if err := s.SaveMCPProbe(ctx, "flaky", store.MCPProbe{}, "dial tcp: connection refused", time.Now().UTC()); err != nil {
 		t.Fatalf("save failing probe: %v", err)
 	}
 

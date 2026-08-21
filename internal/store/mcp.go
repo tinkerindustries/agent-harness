@@ -33,6 +33,46 @@ type MCPToolSnapshot struct {
 	InputSchema   json.RawMessage `json:"input_schema"`
 }
 
+// MCPProbe is everything one successful probe read from a server: the three
+// lists it advertises and the instructions it sent at initialize. It is one
+// value rather than four parameters because SaveMCPProbe writes it in one
+// statement, and because a caller that could supply three of the four would
+// be a caller able to mix two probes together.
+type MCPProbe struct {
+	Tools        []MCPToolSnapshot
+	Resources    []MCPResourceSnapshot
+	Prompts      []MCPPromptSnapshot
+	Instructions string
+}
+
+// MCPResourceSnapshot is one resource, or one resource template, as the
+// last successful probe read it. Template says which: a template's URI is a
+// pattern with {placeholders} in it rather than something readable as it
+// stands, so the two cannot be told apart from the URI alone and a reader
+// that tried would eventually try to read a pattern.
+type MCPResourceSnapshot struct {
+	URI         string `json:"uri"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	MIMEType    string `json:"mime_type"`
+	Template    bool   `json:"template"`
+}
+
+// MCPPromptSnapshot is one prompt a server advertises, as the last
+// successful probe read it.
+type MCPPromptSnapshot struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Arguments   []MCPPromptArgSnapshot `json:"arguments"`
+}
+
+// MCPPromptArgSnapshot is one argument a prompt takes.
+type MCPPromptArgSnapshot struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Required    bool   `json:"required"`
+}
+
 // MCPServer is one row of the mcp_servers table: the operator's
 // configuration for one MCP server, plus the last successful probe's tool
 // list (docs/MCP.md, "The table"). Args, Env, Headers, and Tools are never
@@ -50,11 +90,42 @@ type MCPServer struct {
 	Headers       map[string]string
 	Enabled       bool
 	AllowReadOnly bool
+	// AllowSampling lets this server ask the harness to run a model turn on
+	// its behalf (docs/MCP.md, "Sampling"). Off by default and per server,
+	// because sampling spends the operator's tokens on a prompt the server
+	// wrote: it is the one MCP capability where connecting a server and
+	// letting it run are different decisions.
+	AllowSampling bool
 	Tools         []MCPToolSnapshot
-	ProbedAt      string // RFC3339Nano; "" when never probed successfully
-	ProbeError    string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	// Resources and Prompts are the other two lists a server advertises,
+	// from the same probe as Tools and kept under the same rule: a failed
+	// probe leaves them as they were. Unlike Tools they contribute no
+	// entries to the model's tool array — they are reached through the
+	// fixed mcp_* tools instead, so that a server gaining a hundred
+	// resources cannot move the array a session froze (docs/MCP.md,
+	// "Resources").
+	Resources []MCPResourceSnapshot
+	Prompts   []MCPPromptSnapshot
+	// Instructions is the server's own initialize instructions — the
+	// `instructions` field of its InitializeResult — as the last successful
+	// probe read them, and "" for a server that sends none or has never been
+	// probed. It travels with Tools because it comes from the same probe and
+	// means the same kind of thing: what this server told us about itself,
+	// frozen, so what a session tells the model does not depend on whether a
+	// subprocess happened to start this minute (docs/MCP.md, "What the model
+	// is told").
+	Instructions string
+	// Stale is set when a connected server notified that its advertised
+	// lists changed after the snapshot in this row was taken, and cleared
+	// by the next successful probe. Nothing re-probes on the notification:
+	// a run's tool array is frozen for the life of the run, so the honest
+	// response is to tell the operator a Refresh is worth pressing, not to
+	// move the array under a session already using it.
+	Stale      bool
+	ProbedAt   string // RFC3339Nano; "" when never probed successfully
+	ProbeError string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
 }
 
 // mcpServerNameRE is the server name grammar (docs/MCP.md, "Naming"): a
@@ -142,22 +213,26 @@ func validHTTPFieldName(k string) bool {
 // mcpColumns is the column list every mcp_servers read uses, so a column
 // added for one query cannot silently miss another.
 const mcpColumns = `name, transport, command, args, env, url, headers, enabled, allow_readonly,
-	tools_json, probed_at, probe_error, created_at, updated_at`
+	allow_sampling, tools_json, resources_json, prompts_json, instructions, stale, probed_at,
+	probe_error, created_at, updated_at`
 
 func scanMCPServer(row interface {
 	Scan(dest ...any) error
 }) (MCPServer, error) {
 	var srv MCPServer
-	var argsJSON, envJSON, headersJSON, toolsJSON string
-	var enabled, allowReadOnly int
+	var argsJSON, envJSON, headersJSON, toolsJSON, resourcesJSON, promptsJSON string
+	var enabled, allowReadOnly, allowSampling, stale int
 	var createdAt, updatedAt string
 	err := row.Scan(&srv.Name, &srv.Transport, &srv.Command, &argsJSON, &envJSON, &srv.URL, &headersJSON,
-		&enabled, &allowReadOnly, &toolsJSON, &srv.ProbedAt, &srv.ProbeError, &createdAt, &updatedAt)
+		&enabled, &allowReadOnly, &allowSampling, &toolsJSON, &resourcesJSON, &promptsJSON,
+		&srv.Instructions, &stale, &srv.ProbedAt, &srv.ProbeError, &createdAt, &updatedAt)
 	if err != nil {
 		return MCPServer{}, err
 	}
 	srv.Enabled = enabled != 0
 	srv.AllowReadOnly = allowReadOnly != 0
+	srv.AllowSampling = allowSampling != 0
+	srv.Stale = stale != 0
 	if err := json.Unmarshal([]byte(argsJSON), &srv.Args); err != nil {
 		return MCPServer{}, fmt.Errorf("store: decode mcp server %q args: %w", srv.Name, err)
 	}
@@ -169,6 +244,12 @@ func scanMCPServer(row interface {
 	}
 	if err := json.Unmarshal([]byte(toolsJSON), &srv.Tools); err != nil {
 		return MCPServer{}, fmt.Errorf("store: decode mcp server %q tools_json: %w", srv.Name, err)
+	}
+	if err := json.Unmarshal([]byte(resourcesJSON), &srv.Resources); err != nil {
+		return MCPServer{}, fmt.Errorf("store: decode mcp server %q resources_json: %w", srv.Name, err)
+	}
+	if err := json.Unmarshal([]byte(promptsJSON), &srv.Prompts); err != nil {
+		return MCPServer{}, fmt.Errorf("store: decode mcp server %q prompts_json: %w", srv.Name, err)
 	}
 	if srv.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt); err != nil {
 		return MCPServer{}, fmt.Errorf("store: decode mcp server %q created_at: %w", srv.Name, err)
@@ -233,10 +314,10 @@ func (s *Store) GetMCPServer(ctx context.Context, name string) (MCPServer, error
 
 // CreateMCPServer inserts srv. ErrMCPServerExists when a row with srv.Name
 // already exists. It stamps CreatedAt and UpdatedAt with time.Now().UTC(),
-// ignoring any caller-set CreatedAt, UpdatedAt, Tools, ProbedAt, or
-// ProbeError — a server that has never been probed has no snapshot to carry,
-// and its own timestamps are a fact this write establishes, not one a
-// caller gets to assert.
+// ignoring any caller-set CreatedAt, UpdatedAt, Tools, Instructions,
+// ProbedAt, or ProbeError — a server that has never been probed has no
+// snapshot to carry, and its own timestamps are a fact this write
+// establishes, not one a caller gets to assert.
 func (s *Store) CreateMCPServer(ctx context.Context, srv MCPServer) error {
 	argsJSON, err := marshalMCPStrings(srv.Args)
 	if err != nil {
@@ -262,19 +343,20 @@ func (s *Store) CreateMCPServer(ctx context.Context, srv MCPServer) error {
 		}
 		_, err = tx.Exec(`
 			INSERT INTO mcp_servers (name, transport, command, args, env, url, headers, enabled, allow_readonly,
-				tools_json, probed_at, probe_error, created_at, updated_at, version)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '', '', ?, ?, 1)`,
+				allow_sampling, tools_json, resources_json, prompts_json, instructions, stale, probed_at,
+				probe_error, created_at, updated_at, version)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', '[]', '[]', '', 0, '', '', ?, ?, 1)`,
 			srv.Name, srv.Transport, srv.Command, argsJSON, envJSON, srv.URL, headersJSON,
-			boolToInt(srv.Enabled), boolToInt(srv.AllowReadOnly), now, now)
+			boolToInt(srv.Enabled), boolToInt(srv.AllowReadOnly), boolToInt(srv.AllowSampling), now, now)
 		return err
 	})
 }
 
 // UpdateMCPServer overwrites srv.Name's configuration columns — transport,
 // command, args, env, url, headers, enabled, allow_readonly — and
-// updated_at. It leaves tools_json, probed_at, probe_error, and created_at
-// alone: a configuration edit is not a probe, and the snapshot from the last
-// one that succeeded must survive it (docs/MCP.md, "The tool array is built
+// updated_at. It leaves tools_json, instructions, probed_at, probe_error,
+// and created_at alone: a configuration edit is not a probe, and the
+// snapshot from the last one that succeeded must survive it (docs/MCP.md, "The tool array is built
 // from a stored snapshot"). ErrMCPServerNotFound when absent.
 func (s *Store) UpdateMCPServer(ctx context.Context, srv MCPServer) error {
 	argsJSON, err := marshalMCPStrings(srv.Args)
@@ -293,10 +375,10 @@ func (s *Store) UpdateMCPServer(ctx context.Context, srv MCPServer) error {
 	return s.submit(ctx, func(tx *sql.Tx) error {
 		res, err := tx.Exec(`
 			UPDATE mcp_servers SET transport = ?, command = ?, args = ?, env = ?, url = ?, headers = ?,
-				enabled = ?, allow_readonly = ?, updated_at = ?, version = version + 1
+				enabled = ?, allow_readonly = ?, allow_sampling = ?, updated_at = ?, version = version + 1
 			WHERE name = ?`,
 			srv.Transport, srv.Command, argsJSON, envJSON, srv.URL, headersJSON,
-			boolToInt(srv.Enabled), boolToInt(srv.AllowReadOnly), now, srv.Name)
+			boolToInt(srv.Enabled), boolToInt(srv.AllowReadOnly), boolToInt(srv.AllowSampling), now, srv.Name)
 		if err != nil {
 			return err
 		}
@@ -333,26 +415,42 @@ func (s *Store) DeleteMCPServer(ctx context.Context, name string) error {
 // SaveMCPProbe records the outcome of one probe against name
 // (docs/MCP.md, "Probing"). The two outcomes are asymmetric on purpose, and
 // the asymmetry is the point of the whole table: a successful probe
-// (probeErr == "") writes tools_json from tools, sets probed_at to at, and
-// clears probe_error — the new snapshot the request head's tool array will
-// be built from. A failed probe (probeErr != "") writes probe_error only,
-// leaving tools_json and probed_at exactly as they were: the array a
-// session builds must not shrink because a subprocess happened not to start
-// this minute (docs/MCP.md, "The tool array is built from a stored
-// snapshot, never from a live connection"). ErrMCPServerNotFound when name
-// has no row.
-func (s *Store) SaveMCPProbe(ctx context.Context, name string, tools []MCPToolSnapshot, probeErr string, at time.Time) error {
+// (probeErr == "") writes tools_json from tools and instructions from
+// instructions, sets probed_at to at, and clears probe_error — the new
+// snapshot the request head's tool array and the opening message's MCP
+// section will both be built from. A failed probe (probeErr != "") writes
+// probe_error only, leaving tools_json, instructions and probed_at exactly
+// as they were: the array a session builds must not shrink because a
+// subprocess happened not to start this minute (docs/MCP.md, "The tool
+// array is built from a stored snapshot, never from a live connection").
+// ErrMCPServerNotFound when name has no row.
+//
+// Everything a probe read travels together in one MCPProbe and lands in one
+// statement, because it all came from one handshake: a server that revises
+// its instructions alongside its tool list must not leave a session reading
+// one probe's tools under an earlier probe's instructions.
+func (s *Store) SaveMCPProbe(ctx context.Context, name string, snap MCPProbe, probeErr string, at time.Time) error {
 	return s.submit(ctx, func(tx *sql.Tx) error {
 		var res sql.Result
 		if probeErr == "" {
-			toolsJSON, err := marshalMCPTools(tools)
+			toolsJSON, err := marshalMCPJSON(snap.Tools, []MCPToolSnapshot{})
+			if err != nil {
+				return err
+			}
+			resourcesJSON, err := marshalMCPJSON(snap.Resources, []MCPResourceSnapshot{})
+			if err != nil {
+				return err
+			}
+			promptsJSON, err := marshalMCPJSON(snap.Prompts, []MCPPromptSnapshot{})
 			if err != nil {
 				return err
 			}
 			res, err = tx.Exec(`
-				UPDATE mcp_servers SET tools_json = ?, probed_at = ?, probe_error = '', version = version + 1
+				UPDATE mcp_servers SET tools_json = ?, resources_json = ?, prompts_json = ?,
+					instructions = ?, stale = 0, probed_at = ?, probe_error = '', version = version + 1
 				WHERE name = ?`,
-				toolsJSON, at.UTC().Format(time.RFC3339Nano), name)
+				toolsJSON, resourcesJSON, promptsJSON, snap.Instructions,
+				at.UTC().Format(time.RFC3339Nano), name)
 			if err != nil {
 				return err
 			}
@@ -363,6 +461,30 @@ func (s *Store) SaveMCPProbe(ctx context.Context, name string, tools []MCPToolSn
 			if err != nil {
 				return err
 			}
+		}
+		return mustAffectOne(res, ErrMCPServerNotFound)
+	})
+}
+
+// SetMCPServerStale marks name's stored snapshot as out of date, or marks
+// it current again. It is the one write a *notification* triggers rather
+// than an operator action: a connected server saying its tool, prompt or
+// resource list has changed since the probe that filled this row
+// (docs/MCP.md, "What a server sends back unasked").
+//
+// It deliberately does not re-probe. A run's tool array is frozen for the
+// life of the run, and replacing it underneath a session in flight would
+// invalidate the prompt-cache prefix every request of that run shares — so
+// the flag is a note for the operator, and the next Refresh is what acts on
+// it. Unlike every other write here it leaves updated_at and version alone:
+// nothing the operator configured has changed, and bumping the version
+// would make a server chattering about its own lists collide with an
+// operator's edit. ErrMCPServerNotFound when absent.
+func (s *Store) SetMCPServerStale(ctx context.Context, name string, stale bool) error {
+	return s.submit(ctx, func(tx *sql.Tx) error {
+		res, err := tx.Exec(`UPDATE mcp_servers SET stale = ? WHERE name = ?`, boolToInt(stale), name)
+		if err != nil {
+			return err
 		}
 		return mustAffectOne(res, ErrMCPServerNotFound)
 	})
@@ -410,12 +532,14 @@ func marshalMCPStringMap(m map[string]string) (string, error) {
 	return string(b), err
 }
 
-// marshalMCPTools encodes tools as a JSON array, normalising nil to empty
-// the same way marshalMCPStrings does for a slice.
-func marshalMCPTools(tools []MCPToolSnapshot) (string, error) {
-	if tools == nil {
-		tools = []MCPToolSnapshot{}
+// marshalMCPJSON encodes a probe snapshot slice as JSON, substituting empty
+// for nil the same way marshalMCPStrings does — so a round trip through the
+// database always returns an empty slice, never nil, whichever of the three
+// lists it holds.
+func marshalMCPJSON[T any](v []T, empty []T) (string, error) {
+	if v == nil {
+		v = empty
 	}
-	b, err := json.Marshal(tools)
+	b, err := json.Marshal(v)
 	return string(b), err
 }

@@ -110,6 +110,13 @@ var alwaysAllowed = map[string]bool{
 	"TaskList":   true,
 	"TaskUpdate": true,
 	"Complete":   true,
+	// The two MCP listing tools read this harness's own stored snapshot of
+	// what its servers advertise. No server is dialled and nothing leaves
+	// the process, which puts them with the readers rather than behind the
+	// per-server gate their two dialling siblings answer to (see
+	// mcpAccessServerOf).
+	"MCPListResources": true,
+	"MCPListPrompts":   true,
 }
 
 // Check evaluates one tool call. descriptor is what a deny pattern matches
@@ -151,6 +158,25 @@ func (p *Policy) evaluate(toolName, descriptor string) Decision {
 		}
 	}
 
+	// MCPReadResource and MCPGetPrompt dial a server, so they answer to the
+	// same per-server gate its tools do (docs/MCP.md, "Permissions"). The
+	// server is not in the tool name — these four names are fixed — so it
+	// comes from the descriptor, which descriptor.go builds from the call's
+	// own server argument.
+	if server, ok := mcpAccessServerOf(toolName, descriptor); ok {
+		switch p.Mode {
+		case ModeFull:
+			return Decision{Allow: true, Rule: "full access mode"}
+		case ModeReadOnly:
+			if p.MCPReadOnlyServers[server] {
+				return Decision{Allow: true, Rule: fmt.Sprintf("MCP server %q allows read-only calls", server)}
+			}
+			return Decision{Allow: false, Rule: fmt.Sprintf("MCP server %q is not marked read-only; readonly mode denies reading from it", server)}
+		default:
+			return Decision{Allow: false, Rule: "unknown permission mode " + string(p.Mode)}
+		}
+	}
+
 	if alwaysAllowed[toolName] {
 		return Decision{Allow: true, Rule: "always allowed"}
 	}
@@ -165,6 +191,30 @@ func (p *Policy) evaluate(toolName, descriptor string) Decision {
 	default:
 		return Decision{Allow: false, Rule: "unknown permission mode " + string(p.Mode)}
 	}
+}
+
+// mcpAccessServerOf returns the server one of the two dialling MCP access
+// tools was pointed at, and whether toolName is one of them at all.
+//
+// The two listing tools are deliberately absent: they read this harness's
+// own stored snapshot and touch no server, so gating them per server would
+// deny a session the ability to find out what it is not allowed to read —
+// a refusal it cannot act on. They fall through to alwaysAllowed instead.
+//
+// A call with no server argument yields false, and so falls through to the
+// mode switch: readonly denies it, which is the right answer for a call
+// that names no server to check.
+func mcpAccessServerOf(toolName, descriptor string) (string, bool) {
+	switch toolName {
+	case "MCPReadResource", "MCPGetPrompt":
+	default:
+		return "", false
+	}
+	server, ok := strings.CutPrefix(descriptor, toolName+" ")
+	if !ok || server == "" {
+		return "", false
+	}
+	return server, true
 }
 
 func (p *Policy) matchDeny(descriptor string) (string, bool) {

@@ -39,10 +39,13 @@ const dialTimeout = 3 * time.Minute
 // defaultDial is the real dialer Manager.dial falls back to when Dial is
 // nil: stdio via mcp.CommandTransport, http via
 // mcp.StreamableClientTransport (docs/MCP.md, "Probing").
-func defaultDial(ctx context.Context, srv store.MCPServer) (*mcpsdk.ClientSession, error) {
-	impl := &mcpsdk.Implementation{Name: "deepseek-harness", Version: clientVersion}
-	client := mcpsdk.NewClient(impl, nil)
-
+//
+// It builds the transport and stops there — the *mcp.Client, and so the
+// roots and the notification handlers hung off it, belong to the Manager
+// (manager.go, connect). The split is what lets a test swap in an
+// in-memory transport and still exercise every handler the real client
+// carries, rather than a client the test built itself with none of them.
+func defaultDial(ctx context.Context, srv store.MCPServer) (mcpsdk.Transport, error) {
 	switch srv.Transport {
 	case store.MCPTransportStdio:
 		cmd := exec.CommandContext(ctx, srv.Command, srv.Args...)
@@ -52,16 +55,16 @@ func defaultDial(ctx context.Context, srv store.MCPServer) (*mcpsdk.ClientSessio
 		// operator configured for it.
 		cmd.Env = append(os.Environ(), envPairs(srv.Env)...)
 		cmd.Stderr = &stderrLogger{server: srv.Name}
-		return client.Connect(ctx, &mcpsdk.CommandTransport{Command: cmd}, nil)
+		return &mcpsdk.CommandTransport{Command: cmd}, nil
 
 	case store.MCPTransportHTTP:
 		hc := &http.Client{
 			Transport: &headerRoundTripper{headers: srv.Headers, base: http.DefaultTransport},
 		}
-		return client.Connect(ctx, &mcpsdk.StreamableClientTransport{
+		return &mcpsdk.StreamableClientTransport{
 			Endpoint:   srv.URL,
 			HTTPClient: hc,
-		}, nil)
+		}, nil
 
 	default:
 		// ValidateMCPServer rejects any other transport before a row can

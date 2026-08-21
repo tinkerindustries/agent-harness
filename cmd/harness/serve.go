@@ -192,6 +192,14 @@ func runServe(ctx context.Context, args []string) error {
 	clientFor := func(model string) session.Client {
 		return clientForModel(model, deepSeekClient, kimiClient, geminiClient)
 	}
+	// An MCP server that asks this harness to run a model turn on its
+	// behalf gets the flash model, through the same pool everything else
+	// routes by (docs/MCP.md, "Sampling"). Wiring it here rather than in
+	// mcpclient.New is what keeps that package free of any knowledge of
+	// which providers exist. A server still cannot sample until an
+	// operator turns it on for that server.
+	mcpMgr.Sampler = clientFor(defaultFlashModel)
+	mcpMgr.SamplingModel = defaultFlashModel
 	switch providerFor(defaultModel) {
 	case provider.Kimi:
 		logStartupKimiBalance(ctx, kimiClient)

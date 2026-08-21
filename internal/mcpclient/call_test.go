@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -75,19 +76,49 @@ func newTestMCPServer() *mcpsdk.Server {
 // every dial, ignoring srv — used to inject a Manager.Dial that never
 // touches the network, exercising Call end-to-end over a real (if
 // in-memory) MCP session.
-func inMemoryDial(t *testing.T) func(ctx context.Context, srv store.MCPServer) (*mcpsdk.ClientSession, error) {
+func inMemoryDial(t *testing.T) func(ctx context.Context, srv store.MCPServer) (mcpsdk.Transport, error) {
 	t.Helper()
-	return func(ctx context.Context, _ store.MCPServer) (*mcpsdk.ClientSession, error) {
+	return inMemoryTransportTo(t, newTestMCPServer())
+}
+
+// inMemoryTransportTo is the Dial seam every in-process test uses: it
+// stands server up on one half of an in-memory pair and hands the Manager
+// the other half. Returning a transport rather than a session is what keeps
+// these tests honest — the client the Manager builds around it is the real
+// one, with the real roots and the real notification handlers, not a bare
+// client a test assembled itself.
+//
+// The server sessions it opens are closed by a cleanup registered *here*,
+// when the helper is built, not inside the dial closure where they are
+// created. That is not tidiness: a real client holds a channel open for the
+// notifications a server sends unasked, so closing the server while a
+// client is still attached blocks until that client goes away. Cleanups run
+// last-registered-first, and a test's `t.Cleanup(m.Close)` is always
+// registered after this helper is built — so registering here is what puts
+// the client's teardown ahead of the server's. Registering inside the
+// closure, which runs later still, inverts the pair and deadlocks. The
+// streamable-HTTP test states the same ordering rule in its own words.
+func inMemoryTransportTo(t *testing.T, server *mcpsdk.Server) func(ctx context.Context, srv store.MCPServer) (mcpsdk.Transport, error) {
+	t.Helper()
+	var mu sync.Mutex
+	var sessions []*mcpsdk.ServerSession
+	t.Cleanup(func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, ss := range sessions {
+			ss.Close()
+		}
+	})
+	return func(ctx context.Context, _ store.MCPServer) (mcpsdk.Transport, error) {
 		clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
-		server := newTestMCPServer()
 		serverSession, err := server.Connect(ctx, serverTransport, nil)
 		if err != nil {
 			return nil, err
 		}
-		t.Cleanup(func() { serverSession.Close() })
-
-		client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test-client", Version: "0.0.1"}, nil)
-		return client.Connect(ctx, clientTransport, nil)
+		mu.Lock()
+		sessions = append(sessions, serverSession)
+		mu.Unlock()
+		return clientTransport, nil
 	}
 }
 

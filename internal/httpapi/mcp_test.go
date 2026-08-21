@@ -36,6 +36,24 @@ type fakeMCPProber struct {
 	fail map[string]string
 	// tools is the snapshot a successful probe writes.
 	tools []store.MCPToolSnapshot
+	// completions is what Complete answers with, and completeErr makes it
+	// fail the way a server that does not support completion would.
+	completions   []string
+	completeErr   error
+	completeCalls []string
+}
+
+func (f *fakeMCPProber) Complete(_ context.Context, server, kind, ref, argName, argValue string) ([]string, error) {
+	f.mu.Lock()
+	f.completeCalls = append(f.completeCalls, strings.Join([]string{server, kind, ref, argName, argValue}, "|"))
+	f.mu.Unlock()
+	if f.completeErr != nil {
+		return nil, f.completeErr
+	}
+	if f.completions == nil {
+		return []string{}, nil
+	}
+	return f.completions, nil
 }
 
 func (f *fakeMCPProber) Refresh(ctx context.Context, name string) (store.MCPServer, error) {
@@ -45,7 +63,7 @@ func (f *fakeMCPProber) Refresh(ctx context.Context, name string) (store.MCPServ
 	f.mu.Unlock()
 
 	if errMsg != "" {
-		if err := f.st.SaveMCPProbe(ctx, name, nil, errMsg, time.Now()); err != nil {
+		if err := f.st.SaveMCPProbe(ctx, name, store.MCPProbe{}, errMsg, time.Now()); err != nil {
 			return store.MCPServer{}, err
 		}
 		// The reloaded row *and* the error, which is what
@@ -60,7 +78,7 @@ func (f *fakeMCPProber) Refresh(ctx context.Context, name string) (store.MCPServ
 		}
 		return row, errors.New(errMsg)
 	}
-	if err := f.st.SaveMCPProbe(ctx, name, f.tools, "", time.Now()); err != nil {
+	if err := f.st.SaveMCPProbe(ctx, name, store.MCPProbe{Tools: f.tools}, "", time.Now()); err != nil {
 		return store.MCPServer{}, err
 	}
 	return f.st.GetMCPServer(ctx, name)
@@ -596,5 +614,80 @@ func TestMCPServerMethodGate(t *testing.T) {
 		if got := resp.Header.Get("Allow"); got != "GET, HEAD, POST" {
 			t.Errorf("%s /api/mcp/servers/blender/refresh: Allow = %q, want %q", m, got, "GET, HEAD, POST")
 		}
+	}
+}
+
+// completionFixture stands a server up with prober wired in and one MCP
+// server registered, the shape all three completion tests need.
+func completionFixture(t *testing.T, prober *fakeMCPProber) *httptest.Server {
+	t.Helper()
+	srv, st := newMCPTestServer(t, prober)
+	prober.st = st
+	resp := mcpPost(t, srv, "/api/mcp/servers",
+		`{"name":"git","transport":"stdio","command":"git-mcp"}`)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create: status = %d", resp.StatusCode)
+	}
+	return srv
+}
+
+// TestCompleteMCPServerReturnsTheServersSuggestions covers the completion
+// endpoint's happy path, including that the reference kind and the typed
+// value both reach the server.
+func TestCompleteMCPServerReturnsTheServersSuggestions(t *testing.T) {
+	prober := &fakeMCPProber{completions: []string{"main", "master"}}
+	srv := completionFixture(t, prober)
+
+	resp := mcpPost(t, srv, "/api/mcp/servers/git/complete",
+		`{"kind":"prompt","ref":"review","argument":"branch","value":"ma"}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d", resp.StatusCode)
+	}
+	var got struct {
+		Values []string `json:"values"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Values) != 2 || got.Values[0] != "main" {
+		t.Fatalf("values = %v, want the server's suggestions", got.Values)
+	}
+	if len(prober.completeCalls) != 1 || prober.completeCalls[0] != "git|prompt|review|branch|ma" {
+		t.Fatalf("complete calls = %v, want the reference and the typed value carried through", prober.completeCalls)
+	}
+}
+
+// TestCompleteMCPServerRejectsAnUnknownKind pins the one piece of the body
+// with no sensible default: a reference resolved against the wrong list is
+// not a mistake the server can report usefully.
+func TestCompleteMCPServerRejectsAnUnknownKind(t *testing.T) {
+	srv := completionFixture(t, &fakeMCPProber{})
+
+	resp := mcpPost(t, srv, "/api/mcp/servers/git/complete",
+		`{"kind":"neither","ref":"review","argument":"branch"}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+// TestCompleteMCPServerReportsAServerThatCannotComplete pins that a server
+// without the capability produces a 502 naming it, not a 500 that reads
+// like the harness broke.
+func TestCompleteMCPServerReportsAServerThatCannotComplete(t *testing.T) {
+	prober := &fakeMCPProber{completeErr: errors.New(`mcpclient: complete "branch" on "git": method not found`)}
+	srv := completionFixture(t, prober)
+
+	resp := mcpPost(t, srv, "/api/mcp/servers/git/complete",
+		`{"kind":"prompt","ref":"review","argument":"branch"}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "method not found") {
+		t.Fatalf("body = %s, want the server's own reason", body)
 	}
 }

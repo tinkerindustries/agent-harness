@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -31,19 +32,9 @@ func pagedTestServer(n int) *mcpsdk.Server {
 	return server
 }
 
-func dialInMemoryServer(t *testing.T, server *mcpsdk.Server) func(ctx context.Context, srv store.MCPServer) (*mcpsdk.ClientSession, error) {
+func dialInMemoryServer(t *testing.T, server *mcpsdk.Server) func(ctx context.Context, srv store.MCPServer) (mcpsdk.Transport, error) {
 	t.Helper()
-	return func(ctx context.Context, _ store.MCPServer) (*mcpsdk.ClientSession, error) {
-		clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
-		serverSession, err := server.Connect(ctx, serverTransport, nil)
-		if err != nil {
-			return nil, err
-		}
-		t.Cleanup(func() { serverSession.Close() })
-
-		client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test-client", Version: "0.0.1"}, nil)
-		return client.Connect(ctx, clientTransport, nil)
-	}
+	return inMemoryTransportTo(t, server)
 }
 
 func TestRefreshWritesQualifiedNamesFollowingPagination(t *testing.T) {
@@ -102,7 +93,7 @@ func TestRefreshFailureWritesErrorLeavingPreviousSnapshotIntact(t *testing.T) {
 
 	m := New(s)
 	wantErr := errors.New("dial: connection refused")
-	m.Dial = func(ctx context.Context, srv store.MCPServer) (*mcpsdk.ClientSession, error) {
+	m.Dial = func(ctx context.Context, srv store.MCPServer) (mcpsdk.Transport, error) {
 		return nil, wantErr
 	}
 
@@ -131,7 +122,7 @@ func TestRefreshReturnsReloadedRowAlongsideError(t *testing.T) {
 	mustCreateServer(t, s, store.MCPServer{Name: "srv", Transport: store.MCPTransportStdio, Command: "unused", Enabled: true})
 
 	m := New(s)
-	m.Dial = func(ctx context.Context, srv store.MCPServer) (*mcpsdk.ClientSession, error) {
+	m.Dial = func(ctx context.Context, srv store.MCPServer) (mcpsdk.Transport, error) {
 		return nil, errors.New("boom")
 	}
 
@@ -154,7 +145,7 @@ func TestRefreshTruncatesHugeErrors(t *testing.T) {
 	for range 2000 {
 		huge += "x"
 	}
-	m.Dial = func(ctx context.Context, srv store.MCPServer) (*mcpsdk.ClientSession, error) {
+	m.Dial = func(ctx context.Context, srv store.MCPServer) (mcpsdk.Transport, error) {
 		return nil, errors.New(huge)
 	}
 
@@ -176,17 +167,9 @@ func TestRefreshUsesFreshDialNotTheCache(t *testing.T) {
 
 	dials := 0
 	m := New(s)
-	m.Dial = func(ctx context.Context, srv store.MCPServer) (*mcpsdk.ClientSession, error) {
+	m.Dial = func(ctx context.Context, srv store.MCPServer) (mcpsdk.Transport, error) {
 		dials++
-		clientTransport, serverTransport := mcpsdk.NewInMemoryTransports()
-		server := pagedTestServer(1)
-		serverSession, err := server.Connect(ctx, serverTransport, nil)
-		if err != nil {
-			return nil, err
-		}
-		t.Cleanup(func() { serverSession.Close() })
-		client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "test-client", Version: "0.0.1"}, nil)
-		return client.Connect(ctx, clientTransport, nil)
+		return inMemoryTransportTo(t, pagedTestServer(1))(ctx, srv)
 	}
 
 	if _, err := m.Refresh(ctx, "srv"); err != nil {
@@ -212,7 +195,7 @@ func TestRefreshRecordsFailureOnAnExpiredContext(t *testing.T) {
 	mustCreateServer(t, s, store.MCPServer{Name: "srv", Transport: store.MCPTransportStdio, Command: "unused", Enabled: true})
 
 	m := New(s)
-	m.Dial = func(ctx context.Context, srv store.MCPServer) (*mcpsdk.ClientSession, error) {
+	m.Dial = func(ctx context.Context, srv store.MCPServer) (mcpsdk.Transport, error) {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
@@ -240,5 +223,153 @@ func TestRefreshRecordsFailureOnAnExpiredContext(t *testing.T) {
 	}
 	if stored.ProbeError == "" {
 		t.Fatal("stored probe_error is empty: the row kept no account of why the probe failed")
+	}
+}
+
+// instructingTestServer builds an in-process MCP server that sends
+// instructions at initialize, the way the official Blender server does —
+// one trivial tool, so the server has something to be instructive about.
+func instructingTestServer(instructions string) *mcpsdk.Server {
+	server := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "instructing-server", Version: "0.0.1"},
+		&mcpsdk.ServerOptions{Instructions: instructions})
+	server.AddTool(&mcpsdk.Tool{
+		Name:        "do_thing",
+		Description: "does the thing",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{}}`),
+	}, func(_ context.Context, _ *mcpsdk.CallToolRequest) (*mcpsdk.CallToolResult, error) {
+		return &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: "ok"}}}, nil
+	})
+	return server
+}
+
+// TestRefreshStoresServerInstructions is the reason the instructions column
+// exists: a server's own prose about how to use it arrives in the
+// initialize handshake, not in any tool schema, and before this it was read
+// by the SDK and then dropped on the floor.
+func TestRefreshStoresServerInstructions(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	mustCreateServer(t, s, store.MCPServer{Name: "srv", Transport: store.MCPTransportStdio, Command: "unused", Enabled: true})
+
+	const text = "NEVER assume missing values - inspect the scene first."
+	m := New(s)
+	m.Dial = dialInMemoryServer(t, instructingTestServer(text))
+
+	got, err := m.Refresh(ctx, "srv")
+	if err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	if got.Instructions != text {
+		t.Fatalf("Instructions = %q, want %q", got.Instructions, text)
+	}
+
+	// And they must be on the row a later reader sees, not only on the
+	// value Refresh happened to return.
+	reloaded, err := s.GetMCPServer(ctx, "srv")
+	if err != nil {
+		t.Fatalf("GetMCPServer: %v", err)
+	}
+	if reloaded.Instructions != text {
+		t.Fatalf("reloaded Instructions = %q, want %q", reloaded.Instructions, text)
+	}
+}
+
+// TestRefreshLeavesInstructionsEmptyWhenServerSendsNone pins that a silent
+// server stores "" rather than anything synthesised on its behalf — the
+// opening message renders no section for it at all.
+func TestRefreshLeavesInstructionsEmptyWhenServerSendsNone(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	mustCreateServer(t, s, store.MCPServer{Name: "srv", Transport: store.MCPTransportStdio, Command: "unused", Enabled: true})
+
+	m := New(s)
+	m.Dial = dialInMemoryServer(t, pagedTestServer(2))
+
+	got, err := m.Refresh(ctx, "srv")
+	if err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	if got.Instructions != "" {
+		t.Fatalf("Instructions = %q, want empty", got.Instructions)
+	}
+}
+
+// TestRefreshFailureKeepsInstructions extends the invariant the whole table
+// is built around to the new column: a probe that cannot connect must not
+// strip a session of prose the last working probe read, for exactly the
+// reason it must not strip it of tools.
+func TestRefreshFailureKeepsInstructions(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	mustCreateServer(t, s, store.MCPServer{Name: "srv", Transport: store.MCPTransportStdio, Command: "unused", Enabled: true})
+
+	const text = "Respect existing structure and naming conventions."
+	m := New(s)
+	m.Dial = dialInMemoryServer(t, instructingTestServer(text))
+	if _, err := m.Refresh(ctx, "srv"); err != nil {
+		t.Fatalf("first Refresh: %v", err)
+	}
+
+	m.Dial = func(context.Context, store.MCPServer) (mcpsdk.Transport, error) {
+		return nil, errors.New("dial tcp: connection refused")
+	}
+	got, err := m.Refresh(ctx, "srv")
+	if err == nil {
+		t.Fatal("second Refresh: expected the dial failure")
+	}
+	if got.Instructions != text {
+		t.Fatalf("Instructions = %q, want the surviving %q", got.Instructions, text)
+	}
+	if got.ProbeError == "" {
+		t.Fatal("probe_error is empty, want the dial failure recorded")
+	}
+}
+
+// TestRefreshTruncatesOversizedInstructions bounds what a server can put in
+// front of every session: the text is capped, and says that it was.
+func TestRefreshTruncatesOversizedInstructions(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	mustCreateServer(t, s, store.MCPServer{Name: "srv", Transport: store.MCPTransportStdio, Command: "unused", Enabled: true})
+
+	m := New(s)
+	m.Dial = dialInMemoryServer(t, instructingTestServer(strings.Repeat("x", maxInstructionsLen+500)))
+
+	got, err := m.Refresh(ctx, "srv")
+	if err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	if len(got.Instructions) <= maxInstructionsLen {
+		t.Fatalf("len(Instructions) = %d, want the cap plus the marker", len(got.Instructions))
+	}
+	if !strings.HasSuffix(got.Instructions, "… (truncated)") {
+		t.Fatalf("Instructions = %q…, want the truncation marker", got.Instructions[:60])
+	}
+}
+
+// TestInstructionsSkipsServersWithNone pins the shape Instructions hands
+// the renderer: only servers that actually said something, so the opening
+// message never grows a heading with nothing under it.
+func TestInstructionsSkipsServersWithNone(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	mustCreateServer(t, s, store.MCPServer{Name: "chatty", Transport: store.MCPTransportStdio, Command: "unused", Enabled: true})
+	mustCreateServer(t, s, store.MCPServer{Name: "quiet", Transport: store.MCPTransportStdio, Command: "unused", Enabled: true})
+	mustCreateServer(t, s, store.MCPServer{Name: "off", Transport: store.MCPTransportStdio, Command: "unused", Enabled: false})
+
+	if err := s.SaveMCPProbe(ctx, "chatty", store.MCPProbe{Instructions: "inspect first"}, "", time.Now().UTC()); err != nil {
+		t.Fatalf("save chatty: %v", err)
+	}
+	if err := s.SaveMCPProbe(ctx, "off", store.MCPProbe{Instructions: "never read"}, "", time.Now().UTC()); err != nil {
+		t.Fatalf("save off: %v", err)
+	}
+
+	got, err := New(s).Instructions(ctx)
+	if err != nil {
+		t.Fatalf("Instructions: %v", err)
+	}
+	want := map[string]string{"chatty": "inspect first"}
+	if len(got) != len(want) || got["chatty"] != want["chatty"] {
+		t.Fatalf("Instructions = %v, want %v", got, want)
 	}
 }

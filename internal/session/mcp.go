@@ -27,3 +27,24 @@ func (r *Runner) resolveMCPDefinitions(ctx context.Context, sessionID string) ([
 	}
 	return defs, readOnly
 }
+
+// resolveMCPInstructions reads the per-server initialize instructions the
+// opening message's MCP section carries (docs/MCP.md, "What the model is
+// told"). Only Run calls it: Resume rebuilds no opening message, since the
+// one its session started with is already in its history.
+//
+// It fails the same way resolveMCPDefinitions does, and for the same
+// reason. A run whose servers are configured and whose tools are on the
+// array is a run that can work; losing the prose that came with them is
+// worth a log line, not a dead request.
+func (r *Runner) resolveMCPInstructions(ctx context.Context, sessionID string) map[string]string {
+	if r.MCP == nil {
+		return nil
+	}
+	instructions, err := r.MCP.Instructions(ctx)
+	if err != nil {
+		log.Printf("session: resolve MCP instructions for %s: %v", sessionID, err)
+		return nil
+	}
+	return instructions
+}

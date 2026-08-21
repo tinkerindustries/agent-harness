@@ -219,9 +219,10 @@ and column migration; `sessions.go` the status vocabulary and session CRUD;
 `leases.go` workspace leases; `mcp.go` is the `mcp_servers` table
 ([`../docs/MCP.md`](../docs/MCP.md)) — CRUD plus `SaveMCPProbe`, whose one
 asymmetry is the whole point of the table: a successful probe overwrites
-`tools_json`, a failed one only ever writes `probe_error`, so a session
-resolving its tool array from a stored row never sees it shrink because a
-server happened to be unreachable the moment that row was read. Depends on:
+`tools_json` and `instructions`, a failed one only ever writes
+`probe_error`, so a session resolving its tool array from a stored row never
+sees it shrink because a server happened to be unreachable the moment that
+row was read. Depends on:
 nothing internal. §4.8.
 
 ### `internal/hub`
@@ -389,10 +390,12 @@ The client side of MCP support ([`../docs/MCP.md`](../docs/MCP.md)) — not to
 be confused with `internal/mcp` just below, the *server* this harness
 exposes at `/mcp`; the two never meet, and the three letters they share are
 the only thing they share. `Manager` implements `MCPProvider`, the narrow
-seam `internal/tools` declares: `Definitions` is a pure function of the
-`mcp_servers` table's stored snapshot — no server is dialled to build a
-session's tool array — and `Call`, plus the `Refresh` probe, are the only
-paths that open a connection, over a cache of one live session per server,
+seam `internal/tools` declares: `Definitions`, `Instructions`, `Resources`
+and `Prompts` are pure functions of the `mcp_servers` table's stored
+snapshot — no server is dialled to build a session's tool array, to quote
+what a server said about itself at initialize into the opening message, or
+to list what it holds — while `Call`, `ReadResource`, `GetPrompt`,
+`Complete`, and the `Refresh` probe are the paths that open a connection, over a cache of one live session per server,
 redialled when the row's connection configuration has moved on since the
 cached session was dialled or a liveness ping says it has quietly died.
 `cmd/harness` wires the one `Manager` per process into `internal/session`
@@ -400,7 +403,8 @@ through `MCPProvider` and into `internal/httpapi` through the narrower
 `MCPProber` seam that package declares for itself, so probing from the
 `/mcp-servers` screen never gives `internal/httpapi` a reach into `session` or
 `worker`. Depends on: `internal/store` (the `mcp_servers` rows),
-`internal/wire` (the tool array shape the request head carries),
+`internal/wire` (the tool array shape the request head carries, and the
+chat intent a server's sampling request runs as),
 `internal/tools` (the `MCPProvider` seam and its
 `MCPContent`/`MCPImage`/`MCPServerOf` vocabulary), and the MCP Go SDK
 (`github.com/modelcontextprotocol/go-sdk/mcp`).

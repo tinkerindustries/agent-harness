@@ -30,6 +30,33 @@ type MCPContent struct {
 	IsError bool
 }
 
+// MCPResource is one resource, or one resource template, a configured
+// server advertises. Server names which one, since a URI is only unique
+// within the server that serves it.
+type MCPResource struct {
+	Server      string
+	URI         string
+	Name        string
+	Description string
+	MIMEType    string
+	Template    bool
+}
+
+// MCPPrompt is one prompt a configured server advertises.
+type MCPPrompt struct {
+	Server      string
+	Name        string
+	Description string
+	Arguments   []MCPPromptArg
+}
+
+// MCPPromptArg is one argument a prompt takes.
+type MCPPromptArg struct {
+	Name        string
+	Description string
+	Required    bool
+}
+
 // MCPProvider is the narrow seam the executor reaches configured MCP
 // servers through, declared here where it is consumed and implemented by
 // internal/mcpclient (docs/MCP.md). It is the same shape as session.Client
@@ -43,6 +70,33 @@ type MCPProvider interface {
 	// freezes at run start. Runner.Run calls this once, when it resolves
 	// the frozen array a session's requests all carry.
 	Definitions(ctx context.Context) ([]wire.Tool, map[string]bool, error)
+
+	// Instructions returns the initialize instructions of every enabled
+	// server that sent any, keyed by server name, from the same stored
+	// snapshot Definitions reads rather than a live connection. Run calls
+	// this once, alongside Definitions, to build the opening message's MCP
+	// section; a resumed session does not, because its opening message was
+	// written when the run started and lives in its history.
+	Instructions(ctx context.Context) (map[string]string, error)
+
+	// Resources returns every enabled server's advertised resources and
+	// resource templates, from the stored snapshot. It is read at call
+	// time rather than frozen into the tool array, which is the whole
+	// point of reaching resources through a fixed tool: a server that
+	// gains a thousand resources must not move the array a session froze
+	// (docs/MCP.md, "Resources").
+	Resources(ctx context.Context) ([]MCPResource, error)
+
+	// ReadResource reads one resource by server and URI.
+	ReadResource(ctx context.Context, server, uri string) (MCPContent, error)
+
+	// Prompts returns every enabled server's advertised prompts, from the
+	// same stored snapshot and for the same reason as Resources.
+	Prompts(ctx context.Context) ([]MCPPrompt, error)
+
+	// GetPrompt renders one prompt to the messages a server built for it,
+	// flattened to text.
+	GetPrompt(ctx context.Context, server, name string, args map[string]string) (MCPContent, error)
 
 	// Call invokes toolName — an already-qualified "mcp__<server>__<tool>"
 	// name, as Definitions offered it — with args, the tool call's raw JSON

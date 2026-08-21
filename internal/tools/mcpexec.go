@@ -48,12 +48,25 @@ func (e *Executor) execMCP(ctx context.Context, server, name string, argsRaw jso
 	if err != nil {
 		return errorResult("MCP server %q: %v", server, err)
 	}
+	return e.placeMCPContent(ctx, server, strings.TrimPrefix(name, MCPToolPrefix+server+"__"), content)
+}
 
+// placeMCPContent turns one server's raw reply into a Result: text under
+// the output cap, images written into the session's scratch/mcp/ and named
+// in the text, a server-reported isError carried through as an ordinary
+// failed result. Shared by the mcp__<server>__<tool> path above and by the
+// fixed MCPReadResource and MCPGetPrompt tools (mcpresources.go), which
+// receive exactly the same kind of content and have no reason to place it
+// differently.
+//
+// toolPart names the half of the filename that says where an image came
+// from — a tool's own name for a tool call, "resource" or "prompt" for the
+// other two.
+func (e *Executor) placeMCPContent(ctx context.Context, server, toolPart string, content MCPContent) Result {
 	text, truncated := truncate(content.Text, e.outputCap(ctx))
 	var b strings.Builder
 	b.WriteString(text)
 
-	toolPart := strings.TrimPrefix(name, MCPToolPrefix+server+"__")
 	var imageURL string
 	for i, img := range content.Images {
 		rel, writeErr := e.writeMCPImage(server, toolPart, img)

@@ -83,6 +83,7 @@ var writeRoutes = []writeRoute{
 	{isEvalPath, []string{http.MethodPatch, http.MethodDelete}},
 	{isMCPServersCollectionPath, []string{http.MethodPost}},
 	{isMCPServerRefreshPath, []string{http.MethodPost}},
+	{isMCPServerCompletePath, []string{http.MethodPost}},
 	{isMCPServerPath, []string{http.MethodPatch, http.MethodDelete}},
 }
 
@@ -228,12 +229,27 @@ func isMCPServersCollectionPath(path string) bool {
 // not an edit of the row, and isMCPServerPath must not be widened to cover
 // it.
 func isMCPServerRefreshPath(path string) bool {
+	return isMCPServerActionPath(path, "refresh")
+}
+
+// isMCPServerCompletePath is the same rule for the completion subresource —
+// /api/mcp/servers/<name>/complete, which asks a server what values an
+// argument could take (docs/MCP.md, "Completions"). POST, and for the same
+// reason refresh is a POST: it is an action against a server, not an edit
+// of its row, and it carries a body describing what is being completed.
+func isMCPServerCompletePath(path string) bool {
+	return isMCPServerActionPath(path, "complete")
+}
+
+// isMCPServerActionPath is what both of the above are: one name segment
+// under /api/mcp/servers/ followed by exactly the named action.
+func isMCPServerActionPath(path, action string) bool {
 	const prefix = "/api/mcp/servers/"
 	if !strings.HasPrefix(path, prefix) {
 		return false
 	}
 	name, tail, ok := strings.Cut(strings.TrimPrefix(path, prefix), "/")
-	return ok && name != "" && tail == "refresh"
+	return ok && name != "" && tail == action
 }
 
 // isMCPServerPath reports whether path is exactly one MCP server's own

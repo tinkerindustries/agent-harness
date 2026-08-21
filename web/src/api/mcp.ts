@@ -33,7 +33,31 @@ export interface MCPTool {
 // independent, since a probe can fail after an earlier one succeeded, in
 // which case probed_at still names that earlier success and probe_error
 // names why the most recent attempt didn't replace it (docs/MCP.md
-// "Probing").
+// "Probing"). instructions is what the server sent at initialize, as that
+// same probe read it — "" for a server that sends none — and is quoted
+// verbatim to the model in the opening message of every run while the
+// server is enabled (docs/MCP.md, "What the model is told"), which is why
+// the screen shows it rather than counting it.
+// MCPResource is one resource, or one resource template, from the last
+// successful probe. template says which: a template's uri carries
+// {placeholders} and cannot be read until they are filled in.
+export interface MCPResource {
+  uri: string;
+  name: string;
+  description: string;
+  mime_type: string;
+  template: boolean;
+}
+
+// MCPPrompt is one prompt from the last successful probe. arguments is
+// already rendered as one readable line by the server — the screen shows
+// what a prompt takes, it does not build a form from it.
+export interface MCPPrompt {
+  name: string;
+  description: string;
+  arguments: string;
+}
+
 export interface MCPServer {
   name: string;
   transport: "stdio" | "http";
@@ -44,8 +68,15 @@ export interface MCPServer {
   headers: Record<string, string>;
   enabled: boolean;
   allow_readonly: boolean;
+  allow_sampling: boolean;
   tools: MCPTool[];
   tool_count: number;
+  resources: MCPResource[];
+  resource_count: number;
+  prompts: MCPPrompt[];
+  prompt_count: number;
+  stale: boolean;
+  instructions: string;
   probed_at: string;
   probe_error: string;
   created_at: string;
@@ -66,6 +97,7 @@ export interface MCPServerInput {
   headers?: Record<string, string>;
   enabled?: boolean;
   allow_readonly?: boolean;
+  allow_sampling?: boolean;
 }
 
 // MCPServerPatch is the body PATCH /api/mcp/servers/{name} accepts: every

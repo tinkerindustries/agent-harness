@@ -1096,3 +1096,69 @@ func TestCloseSessionDoesNotRelabelATerminalSession(t *testing.T) {
 		t.Fatalf("version = %d, want %d — a re-close still bumps the version so a stale retry fails", again.Version, closed.Version+1)
 	}
 }
+
+// TestOpenMigratesLegacyMCPServersTable covers an mcp_servers table written
+// by a binary from before instructions were plumbed through: the column is
+// added, the row survives it with its probe snapshot intact, and the
+// backfilled value is "" — which reads as "this server said nothing", so
+// the operator's next Refresh is all it takes to start carrying the real
+// text. Opened twice, because a migration that is not a no-op the second
+// time is a migration that breaks every restart after the first.
+func TestOpenMigratesLegacyMCPServersTable(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "legacy-mcp.db")
+
+	legacy := `
+CREATE TABLE mcp_servers (
+	name           TEXT PRIMARY KEY,
+	transport      TEXT NOT NULL,
+	command        TEXT NOT NULL DEFAULT '',
+	args           TEXT NOT NULL DEFAULT '[]',
+	env            TEXT NOT NULL DEFAULT '{}',
+	url            TEXT NOT NULL DEFAULT '',
+	headers        TEXT NOT NULL DEFAULT '{}',
+	enabled        INTEGER NOT NULL DEFAULT 1,
+	allow_readonly INTEGER NOT NULL DEFAULT 0,
+	tools_json     TEXT NOT NULL DEFAULT '[]',
+	probed_at      TEXT NOT NULL DEFAULT '',
+	probe_error    TEXT NOT NULL DEFAULT '',
+	created_at     TEXT NOT NULL,
+	updated_at     TEXT NOT NULL,
+	version        INTEGER NOT NULL DEFAULT 1
+);
+INSERT INTO mcp_servers (name, transport, command, tools_json, probed_at, created_at, updated_at)
+VALUES ('blender', 'stdio', 'blender-mcp',
+	'[{"name":"get_objects_summary","qualified_name":"mcp__blender__get_objects_summary","description":"list scene objects","input_schema":null}]',
+	'2026-01-02T03:04:05Z', '2026-01-02T03:04:05Z', '2026-01-02T03:04:05Z');`
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(legacy); err != nil {
+		t.Fatalf("build legacy db: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	for attempt := 1; attempt <= 2; attempt++ {
+		s, err := Open(path)
+		if err != nil {
+			t.Fatalf("open %d: %v", attempt, err)
+		}
+		srv, err := s.GetMCPServer(ctx, "blender")
+		if err != nil {
+			t.Fatalf("get mcp server after open %d: %v", attempt, err)
+		}
+		if srv.Instructions != "" {
+			t.Fatalf("open %d: expected a pre-migration row to backfill to empty, got %q", attempt, srv.Instructions)
+		}
+		if len(srv.Tools) != 1 || srv.Tools[0].Name != "get_objects_summary" {
+			t.Fatalf("open %d: migration must not disturb the probe snapshot, got %+v", attempt, srv.Tools)
+		}
+		if err := s.Close(); err != nil {
+			t.Fatalf("close %d: %v", attempt, err)
+		}
+	}
+}

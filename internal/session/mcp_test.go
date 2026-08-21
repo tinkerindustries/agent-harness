@@ -20,12 +20,17 @@ import (
 // fakeMCPProvider is a tools.MCPProvider test double: Definitions returns
 // whatever defs/readOnly/err currently hold, mutable mid-test under mu so a
 // test can simulate an operator enabling, disabling, or reconfiguring a
-// server between a Run and a later Resume.
+// server between a Run and a later Resume. instructions is the same for
+// the initialize instructions Run quotes into the opening message, and
+// instructionsErr fails that read alone — the two resolutions are separate
+// calls on the seam, so a test can break one and leave the other working.
 type fakeMCPProvider struct {
-	mu       sync.Mutex
-	defs     []wire.Tool
-	readOnly map[string]bool
-	err      error
+	mu              sync.Mutex
+	defs            []wire.Tool
+	readOnly        map[string]bool
+	err             error
+	instructions    map[string]string
+	instructionsErr error
 }
 
 func (f *fakeMCPProvider) Definitions(ctx context.Context) ([]wire.Tool, map[string]bool, error) {
@@ -37,6 +42,15 @@ func (f *fakeMCPProvider) Definitions(ctx context.Context) ([]wire.Tool, map[str
 	return f.defs, f.readOnly, nil
 }
 
+func (f *fakeMCPProvider) Instructions(ctx context.Context) (map[string]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.instructionsErr != nil {
+		return nil, f.instructionsErr
+	}
+	return f.instructions, nil
+}
+
 func (f *fakeMCPProvider) set(defs []wire.Tool, readOnly map[string]bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -45,6 +59,18 @@ func (f *fakeMCPProvider) set(defs []wire.Tool, readOnly map[string]bool) {
 
 func (f *fakeMCPProvider) Call(ctx context.Context, toolName string, args json.RawMessage) (tools.MCPContent, error) {
 	return tools.MCPContent{Text: "ok"}, nil
+}
+
+func (f *fakeMCPProvider) Resources(context.Context) ([]tools.MCPResource, error) { return nil, nil }
+
+func (f *fakeMCPProvider) Prompts(context.Context) ([]tools.MCPPrompt, error) { return nil, nil }
+
+func (f *fakeMCPProvider) ReadResource(context.Context, string, string) (tools.MCPContent, error) {
+	return tools.MCPContent{}, nil
+}
+
+func (f *fakeMCPProvider) GetPrompt(context.Context, string, string, map[string]string) (tools.MCPContent, error) {
+	return tools.MCPContent{}, nil
 }
 
 func mcpToolDef(name string) wire.Tool {
@@ -70,6 +96,15 @@ func toolNames(t *testing.T, body []byte) []string {
 		names[i] = tool.Function.Name
 	}
 	return names
+}
+
+// mcpAccessToolNames are the four fixed tools tools.WithMCP inserts between
+// the built-in array and a server's own whenever any MCP tool is present
+// (docs/MCP.md, "Resources"). Spelled out rather than derived from
+// tools.WithMCP, so these tests still assert the order the model is offered
+// rather than agreeing with whatever that function does today.
+func mcpAccessToolNames() []string {
+	return []string{"MCPListResources", "MCPReadResource", "MCPListPrompts", "MCPGetPrompt"}
 }
 
 func baseToolNames(model string) []string {
@@ -147,7 +182,7 @@ func TestRunSendsMCPToolsOnEveryRequestOfTheRun(t *testing.T) {
 		t.Fatalf("expected status ok, got %s", res.Status)
 	}
 
-	want := append(baseToolNames("test-model"), "mcp__blender__get_objects_summary")
+	want := append(append(baseToolNames("test-model"), mcpAccessToolNames()...), "mcp__blender__get_objects_summary")
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -267,7 +302,7 @@ func TestResumeSendsStoredToolArrayNotAFreshResolution(t *testing.T) {
 		t.Fatalf("expected status ok, got %s", resumed.Status)
 	}
 
-	want := append(baseToolNames("test-model"), "mcp__blender__get_objects_summary")
+	want := append(append(baseToolNames("test-model"), mcpAccessToolNames()...), "mcp__blender__get_objects_summary")
 	if len(bodies) != 2 {
 		t.Fatalf("expected 2 requests (run then resume), got %d", len(bodies))
 	}
@@ -619,5 +654,125 @@ func TestResumeEmptyStoredToolSchemaResolvesFresh(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Function.Name != "Read" {
 		t.Fatalf("unmarshalToolSchema(one tool) = %+v, want the single Read tool", got)
+	}
+}
+
+// openingMessageOf reads back the opening message Run recorded on the
+// session-started event, the only place the rendered MCP section can be
+// observed from outside.
+func openingMessageOf(t *testing.T, r *Runner, sessionID string) string {
+	t.Helper()
+	events, err := r.Store.GetEvents(t.Context(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var started store.SessionStartedPayload
+	for _, e := range events {
+		if e.Kind == store.KindSessionStarted {
+			if err := json.Unmarshal(e.Payload, &started); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	return started.OpeningMessage
+}
+
+// TestRunOpeningMessageCarriesServerInstructions is the end of the plumbing
+// this whole column exists for: what a server said about itself at
+// initialize reaches the model, verbatim, in the run's first message.
+func TestRunOpeningMessageCarriesServerInstructions(t *testing.T) {
+	srv := plainAnswerServer(t, "all done")
+	defer srv.Close()
+
+	const text = "NEVER assume missing values - inspect the scene first."
+	r := newTestRunner(t, srv.URL)
+	r.MCP = &fakeMCPProvider{
+		defs:         []wire.Tool{mcpToolDef("mcp__blender__get_objects_summary")},
+		instructions: map[string]string{"blender": text},
+	}
+
+	res, err := r.Run(t.Context(), RunOptions{
+		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Workspace: t.TempDir(), PermissionMode: tools.ModeFull, Prompt: "say something",
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	opening := openingMessageOf(t, r, res.SessionID)
+	if !strings.Contains(opening, text) {
+		t.Errorf("opening message should carry blender's instructions verbatim, got: %s", opening)
+	}
+	if !strings.Contains(opening, "What the blender server says about using it:") {
+		t.Errorf("opening message should attribute the instructions to their server, got: %s", opening)
+	}
+}
+
+// TestRunOpeningMessageSurvivesAnInstructionsReadFailure pins that losing
+// the prose costs a log line, not the run: the tools are still on the array
+// and the session still starts.
+func TestRunOpeningMessageSurvivesAnInstructionsReadFailure(t *testing.T) {
+	srv := plainAnswerServer(t, "all done")
+	defer srv.Close()
+
+	r := newTestRunner(t, srv.URL)
+	r.MCP = &fakeMCPProvider{
+		defs:            []wire.Tool{mcpToolDef("mcp__blender__get_objects_summary")},
+		instructionsErr: errors.New("mcp_servers: disk on fire"),
+	}
+
+	res, err := r.Run(t.Context(), RunOptions{
+		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Workspace: t.TempDir(), PermissionMode: tools.ModeFull, Prompt: "say something",
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	opening := openingMessageOf(t, r, res.SessionID)
+	if !strings.Contains(opening, "blender (1 tool)") {
+		t.Errorf("opening message should still name the server, got: %s", opening)
+	}
+	if strings.Contains(opening, "says about using it") {
+		t.Errorf("opening message should carry no instructions heading, got: %s", opening)
+	}
+}
+
+// TestRenderMCPBlockInstructions covers the rendering rules directly, which
+// is cheaper than driving a run per case: attribution and sorted order for
+// servers that sent instructions, silence for a server that sent none, and
+// — the one that matters — nothing at all for a server whose instructions
+// are stored but whose tools are not on this session's array.
+func TestRenderMCPBlockInstructions(t *testing.T) {
+	array := []wire.Tool{
+		mcpToolDef("mcp__zebra__stripe"),
+		mcpToolDef("mcp__alpha__first"),
+	}
+	got := RenderMCPBlock(array, map[string]string{
+		"zebra":   "zebra says hello",
+		"alpha":   "alpha says hello",
+		"missing": "nobody should read this",
+	})
+
+	alpha := strings.Index(got, "What the alpha server says about using it:")
+	zebra := strings.Index(got, "What the zebra server says about using it:")
+	if alpha < 0 || zebra < 0 {
+		t.Fatalf("both servers should be attributed, got: %s", got)
+	}
+	if alpha > zebra {
+		t.Errorf("instruction sections should follow the same sorted order as the listing, got: %s", got)
+	}
+	if strings.Contains(got, "nobody should read this") {
+		t.Errorf("a server contributing no tools should contribute no instructions, got: %s", got)
+	}
+
+	// A server with tools and no instructions renders exactly what it
+	// rendered before any of this existed.
+	plain := RenderMCPBlock(array, nil)
+	if strings.Contains(plain, "says about using it") {
+		t.Errorf("no instructions should render no heading, got: %s", plain)
+	}
+	if plain != RenderMCPBlock(array, map[string]string{"alpha": "   "}) {
+		t.Error("whitespace-only instructions should render identically to none")
 	}
 }

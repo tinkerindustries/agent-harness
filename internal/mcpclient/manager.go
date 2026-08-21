@@ -33,6 +33,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
@@ -49,6 +52,10 @@ import (
 // deadline before the redial even starts.
 const pingTimeout = 5 * time.Second
 
+// defaultSamplingModel is what a sampling turn runs on when the operator
+// has named no other.
+const defaultSamplingModel = "deepseek-v4-flash"
+
 // Manager is the Manager the internal/tools.MCPProvider seam is implemented
 // against (docs/MCP.md). One Manager is shared by every session in the
 // process: the configuration it reads is global (docs/MCP.md, "Configuration
@@ -61,30 +68,87 @@ type Manager struct {
 	// tool snapshot come from.
 	Store *store.Store
 
-	// Dial overrides how a session is opened, for tests. Nil uses the real
-	// transports (dial.go's defaultDial): stdio via mcp.CommandTransport,
-	// http via mcp.StreamableClientTransport.
-	Dial func(ctx context.Context, srv store.MCPServer) (*mcpsdk.ClientSession, error)
+	// Dial overrides how a server's transport is built, for tests. Nil uses
+	// the real ones (dial.go's defaultDial): stdio via mcp.CommandTransport,
+	// http via mcp.StreamableClientTransport. It returns a transport rather
+	// than a session because the client — and the roots and notification
+	// handlers hung off it — belongs to this Manager, so a test that swaps
+	// the transport still exercises the real client.
+	Dial func(ctx context.Context, srv store.MCPServer) (mcpsdk.Transport, error)
+
+	// Sampler runs the model turns servers ask for (docs/MCP.md,
+	// "Sampling"). Nil — the CLI paths, every test — means this client
+	// cannot sample, and says so to any server that asks. A server must
+	// also be allowed to ask at all: see store.MCPServer.AllowSampling.
+	Sampler SamplingClient
+
+	// SamplingModel is the model those turns run on. Empty uses
+	// defaultSamplingModel: a server's work is side work, and side work
+	// runs on flash (docs/MODELS.md).
+	SamplingModel string
+
+	// Roots reports the filesystem roots this client is currently working
+	// in, offered to every server over `roots/list` (docs/MCP.md, "Roots").
+	// Nil declares the capability with an empty list, which is what an
+	// operator running no sessions honestly has.
+	Roots func(ctx context.Context) []string
 
 	mu    sync.Mutex
 	conns map[string]*cachedConn
+	// sinks routes a server's progress notifications back to the call they
+	// belong to, keyed by the progress token Call issued (notify.go). One
+	// entry exists only while one call is in flight.
+	sinks map[string]func(string)
 }
 
-// cachedConn is one live session the connection cache is holding, plus the
-// fingerprint of the configuration it was dialled against — the value
-// connFingerprint compares a fresh read of the row to, to decide whether the
-// cached session still matches what the operator has configured.
+// cachedConn is one live connection the cache is holding: the session calls
+// ride on, the client that owns it, the fingerprint of the configuration it
+// was dialled against — the value connFingerprint compares a fresh read of
+// the row to, to decide whether the cached session still matches what the
+// operator has configured — and the root set the client was last told
+// about.
+//
+// The client is kept because roots live on it, not on the session. A
+// workspace appearing or disappearing has to reach a connected server, and
+// the protocol's answer is a roots/list_changed notification, not a
+// redial: tearing down a `uvx`-launched subprocess every time a session
+// starts would cost seconds of process startup to deliver one line of
+// bookkeeping.
 type cachedConn struct {
+	client      *mcpsdk.Client
 	session     *mcpsdk.ClientSession
 	fingerprint string
+	roots       []string
 }
 
-// New builds a Manager reading through st, with the real dialer.
+// New builds a Manager reading through st, with the real dialer and roots
+// backed by the workspace leases st already holds.
+//
+// Leases are the honest answer to "which directories is this client working
+// in": one row per live session's workspace, acquired when a run starts and
+// released when it ends (internal/store/leases.go), which is exactly the
+// set a server is entitled to know about. It also means roots follow the
+// process rather than any one session — a server connected once and shared
+// by every session in the process cannot be told a different set per
+// caller, and claiming otherwise would be a lie told per tool call.
 func New(st *store.Store) *Manager {
-	return &Manager{
+	m := &Manager{
 		Store: st,
 		conns: make(map[string]*cachedConn),
 	}
+	m.Roots = func(ctx context.Context) []string {
+		leases, err := st.ListWorkspaceLeases(ctx)
+		if err != nil {
+			log.Printf("mcpclient: read workspace leases for roots: %v", err)
+			return nil
+		}
+		out := make([]string, 0, len(leases))
+		for _, l := range leases {
+			out = append(out, l.Workspace)
+		}
+		return out
+	}
+	return m
 }
 
 // emptyObjectSchema is what an empty or unparseable tool input schema
@@ -126,6 +190,38 @@ func (m *Manager) Definitions(ctx context.Context) ([]wire.Tool, map[string]bool
 		}
 	}
 	return out, readOnly, nil
+}
+
+// Instructions implements tools.MCPProvider. Like Definitions it never
+// dials: it reads the instructions column of every enabled server's row,
+// which the last successful probe wrote from that server's
+// InitializeResult (docs/MCP.md, "Probing"). Servers that sent none are
+// left out entirely, so the returned map is empty — never a map of empty
+// strings — for a registry of servers that say nothing about themselves,
+// and nil only when there are no enabled servers at all.
+//
+// It is a second read of the same table rather than a third return value
+// from Definitions because the two are consumed by different halves of a
+// run: Definitions feeds the frozen tool array a resumed session must
+// reproduce byte for byte, while these feed the opening message, which is
+// written once and then lives in the session's own history. Nothing reads
+// them together, so nothing needs them read atomically.
+func (m *Manager) Instructions(ctx context.Context) (map[string]string, error) {
+	servers, err := m.Store.ListEnabledMCPServers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out map[string]string
+	for _, srv := range servers {
+		if srv.Instructions == "" {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]string, len(servers))
+		}
+		out[srv.Name] = srv.Instructions
+	}
+	return out, nil
 }
 
 // toolDescription returns t's own description, or — for a tool a server
@@ -198,7 +294,18 @@ func (m *Manager) Call(ctx context.Context, toolName string, args json.RawMessag
 		return tools.MCPContent{}, fmt.Errorf("mcpclient: connect to %q: %w", srv.Name, err)
 	}
 
-	res, err := sess.CallTool(ctx, &mcpsdk.CallToolParams{Name: serverToolName, Arguments: arguments})
+	params := &mcpsdk.CallToolParams{Name: serverToolName, Arguments: arguments}
+	// A progress token is only worth issuing when something is listening
+	// for what comes back: with no sink attached, a server's progress has
+	// nowhere to go but the harness log, and asking for it would be asking
+	// for traffic nobody reads.
+	if sink := callSink(ctx); sink != nil {
+		token, release := m.registerSink(sink)
+		defer release()
+		params.SetProgressToken(token)
+	}
+
+	res, err := sess.CallTool(ctx, params)
 	if err != nil {
 		return tools.MCPContent{}, fmt.Errorf("mcpclient: call %q on %q: %w", serverToolName, srv.Name, err)
 	}
@@ -223,6 +330,7 @@ func (m *Manager) session(ctx context.Context, srv store.MCPServer) (*mcpsdk.Cli
 		err := cached.session.Ping(pingCtx, nil)
 		cancel()
 		if err == nil {
+			m.syncRoots(ctx, cached)
 			return cached.session, nil
 		}
 		m.dropCached(srv.Name, cached)
@@ -233,15 +341,43 @@ func (m *Manager) session(ctx context.Context, srv store.MCPServer) (*mcpsdk.Cli
 		m.dropCached(srv.Name, cached)
 	}
 
-	sess, err := m.dial(ctx, srv)
+	c, err := m.dial(ctx, srv)
 	if err != nil {
 		return nil, err
 	}
+	c.fingerprint = fp
 
 	m.mu.Lock()
-	m.conns[srv.Name] = &cachedConn{session: sess, fingerprint: fp}
+	m.conns[srv.Name] = c
 	m.mu.Unlock()
-	return sess, nil
+	return c.session, nil
+}
+
+// syncRoots brings a cached connection's root set up to date with what
+// Roots reports now, sending the server a roots/list_changed notification
+// if anything moved. A server that never asked for roots ignores it; one
+// that did re-reads the list and sees the workspace that appeared since it
+// connected.
+//
+// Failures are silent by design. Roots are an offer, not a dependency: a
+// server that cannot be told about a new workspace still answers every tool
+// call it answered a moment ago, and turning that into a failed tool call
+// would trade a real capability for a bookkeeping detail.
+func (m *Manager) syncRoots(ctx context.Context, c *cachedConn) {
+	want := m.roots(ctx)
+	m.mu.Lock()
+	same := equalStrings(c.roots, want)
+	if !same {
+		c.roots = want
+	}
+	m.mu.Unlock()
+	if same {
+		return
+	}
+	c.client.RemoveRoots() // clears every root, whatever it currently holds
+	if len(want) > 0 {
+		c.client.AddRoots(rootsOf(want)...)
+	}
 }
 
 // dropCached removes name's cache entry if it is still exactly cur — a
@@ -265,7 +401,7 @@ func (m *Manager) dropCached(name string, cur *cachedConn) {
 // legible: the caller's bound expiring first produces nothing but "context
 // deadline exceeded", whereas this one expiring says which server was being
 // dialled and for how long it was waited on.
-func (m *Manager) dial(ctx context.Context, srv store.MCPServer) (*mcpsdk.ClientSession, error) {
+func (m *Manager) dial(ctx context.Context, srv store.MCPServer) (*cachedConn, error) {
 	if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > dialTimeout {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, dialTimeout)
@@ -275,7 +411,16 @@ func (m *Manager) dial(ctx context.Context, srv store.MCPServer) (*mcpsdk.Client
 	if dial == nil {
 		dial = defaultDial
 	}
-	sess, err := dial(ctx, srv)
+	// The transport and the handshake share one error path: both are
+	// "dialling this server did not work", and both fail the same way when
+	// the deadline is what ran out.
+	c, err := func() (*cachedConn, error) {
+		transport, err := dial(ctx, srv)
+		if err != nil {
+			return nil, err
+		}
+		return m.connect(ctx, srv, transport)
+	}()
 	if err != nil {
 		// A bare context error names nothing an operator can act on. Say
 		// what was being waited for, because the usual causes — a server
@@ -287,7 +432,67 @@ func (m *Manager) dial(ctx context.Context, srv store.MCPServer) (*mcpsdk.Client
 		}
 		return nil, err
 	}
-	return sess, nil
+	return c, nil
+}
+
+// connect builds the client every dial rides on — the roots it offers and
+// the handlers that receive a server's progress, log, and list-changed
+// notifications (notify.go) — and completes the handshake over transport.
+func (m *Manager) connect(ctx context.Context, srv store.MCPServer, transport mcpsdk.Transport) (*cachedConn, error) {
+	impl := &mcpsdk.Implementation{Name: "deepseek-harness", Version: clientVersion}
+	client := mcpsdk.NewClient(impl, m.clientOptions(srv))
+	roots := m.roots(ctx)
+	if len(roots) > 0 {
+		client.AddRoots(rootsOf(roots)...)
+	}
+	sess, err := client.Connect(ctx, transport, nil)
+	if err != nil {
+		return nil, err
+	}
+	m.setLogLevel(ctx, srv, sess)
+	return &cachedConn{client: client, session: sess, roots: roots}, nil
+}
+
+// roots reports the current root set, normalised: never nil, sorted, so
+// syncRoots compares like with like rather than redialling on a map
+// iteration order.
+func (m *Manager) roots(ctx context.Context) []string {
+	if m.Roots == nil {
+		return nil
+	}
+	got := m.Roots(ctx)
+	out := make([]string, 0, len(got))
+	seen := map[string]bool{}
+	for _, r := range got {
+		if r == "" || seen[r] {
+			continue
+		}
+		seen[r] = true
+		out = append(out, r)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// rootsOf renders paths as the file:// URIs the protocol requires.
+func rootsOf(paths []string) []*mcpsdk.Root {
+	out := make([]*mcpsdk.Root, len(paths))
+	for i, p := range paths {
+		out[i] = &mcpsdk.Root{URI: "file://" + p, Name: filepath.Base(p)}
+	}
+	return out
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // Close closes every session the connection cache is holding, for

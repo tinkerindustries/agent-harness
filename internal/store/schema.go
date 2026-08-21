@@ -181,7 +181,12 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
 	headers        TEXT NOT NULL DEFAULT '{}',  -- http: JSON object of strings
 	enabled        INTEGER NOT NULL DEFAULT 1,
 	allow_readonly INTEGER NOT NULL DEFAULT 0,
+	allow_sampling INTEGER NOT NULL DEFAULT 0,  -- may this server spend model tokens?
 	tools_json     TEXT NOT NULL DEFAULT '[]',  -- last successful probe
+	resources_json TEXT NOT NULL DEFAULT '[]',  -- last successful probe
+	prompts_json   TEXT NOT NULL DEFAULT '[]',  -- last successful probe
+	instructions   TEXT NOT NULL DEFAULT '',    -- last successful probe's initialize instructions
+	stale          INTEGER NOT NULL DEFAULT 0,  -- the server said its lists moved on since that probe
 	probed_at      TEXT NOT NULL DEFAULT '',
 	probe_error    TEXT NOT NULL DEFAULT '',
 	created_at     TEXT NOT NULL,
@@ -253,6 +258,11 @@ func Open(path string) (*Store, error) {
 		writeDB.Close()
 		readDB.Close()
 		return nil, fmt.Errorf("store: migrate workspace_leases table: %w", err)
+	}
+	if err := migrateTableColumns(writeDB, "mcp_servers", mcpServerMigrationColumns); err != nil {
+		writeDB.Close()
+		readDB.Close()
+		return nil, fmt.Errorf("store: migrate mcp_servers table: %w", err)
 	}
 
 	s := &Store{
@@ -407,4 +417,35 @@ var workspaceLeaseMigrationColumns = []migrationColumn{
 	// checks and bumps (docs/DATA-API.md). Older rows default to 1, which is
 	// also the version a freshly created row starts at.
 	{"version", "INTEGER NOT NULL DEFAULT 1"},
+}
+
+// mcpServerMigrationColumns are the columns migrateTableColumns adds to an
+// mcp_servers table created by an older binary.
+var mcpServerMigrationColumns = []migrationColumn{
+	// instructions: the server's own initialize instructions, as the last
+	// successful probe read them (docs/MCP.md, "Probing"). A row written
+	// before this column existed backfills to '', which is exactly what a
+	// server that sends no instructions stores anyway — so the only cost of
+	// an unmigrated row is that it contributes nothing to the opening
+	// message until the operator's next Refresh.
+	{"instructions", "TEXT NOT NULL DEFAULT ''"},
+	// stale: set when a connected server notifies that its tool, prompt or
+	// resource list has changed since the stored snapshot was taken, and
+	// cleared by the next successful probe (docs/MCP.md, "What a server
+	// sends back unasked"). A row from an older binary backfills to 0,
+	// which is what a server that has never said otherwise means anyway.
+	{"stale", "INTEGER NOT NULL DEFAULT 0"},
+	// allow_sampling: whether this server may ask the harness to run a
+	// model turn on its behalf (docs/MCP.md, "Sampling"). Off for an
+	// existing row, which is the same answer every server got before the
+	// column existed — a capability an operator has never been asked about
+	// must not switch itself on during an upgrade.
+	{"allow_sampling", "INTEGER NOT NULL DEFAULT 0"},
+	// resources_json, prompts_json: the other two lists a server
+	// advertises, snapshotted by the same probe that fills tools_json
+	// (docs/MCP.md, "Resources" and "Prompts"). Empty for a row from an
+	// older binary until its next Refresh, which is the same state a
+	// server that advertises neither is in.
+	{"resources_json", "TEXT NOT NULL DEFAULT '[]'"},
+	{"prompts_json", "TEXT NOT NULL DEFAULT '[]'"},
 }

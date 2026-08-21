@@ -169,6 +169,14 @@ type RunPublisher interface {
 // probe (docs/MCP.md).
 type MCPProber interface {
 	Refresh(ctx context.Context, name string) (store.MCPServer, error)
+
+	// Complete asks one server what values an argument could take
+	// (docs/MCP.md, "Completions"). It is here rather than on the
+	// MCPProvider seam internal/tools declares because nothing in a run
+	// wants it: a model does not autocomplete, an operator filling in a
+	// prompt's argument does. kind is "prompt" or "resource", naming which
+	// of the two things ref identifies.
+	Complete(ctx context.Context, server, kind, ref, argName, argValue string) ([]string, error)
 }
 
 // EvalController is the subset of the eval orchestrator the eval endpoints
@@ -319,6 +327,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("PATCH /api/mcp/servers/{name}", s.handlePatchMCPServer)
 	mux.HandleFunc("DELETE /api/mcp/servers/{name}", s.handleDeleteMCPServer)
 	mux.HandleFunc("POST /api/mcp/servers/{name}/refresh", s.handleRefreshMCPServer)
+	mux.HandleFunc("POST /api/mcp/servers/{name}/complete", s.handleCompleteMCPServer)
 	mux.Handle("/", s.Static)
 	return mux
 }
