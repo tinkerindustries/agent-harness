@@ -101,8 +101,24 @@ type TurnStartedPayload struct {
 
 // ReasoningDeltaPayload is one fragment of reasoning_content, accumulated by
 // the fold into the sub-turn's assistant message.
+//
+// ThoughtSignature is Gemini's opaque receipt for the sub-turn's thought
+// step (docs/GEMINI-INTEGRATION.md §5.2, docs/OBSERVED.md "Gemini 3.7 Flash
+// — Interactions API"). It rides on this payload rather than a kind of its
+// own — a thought step and its reasoning summary are the same sub-turn's
+// same idea, and a new EventKind would mean the HTTP API's ?kind= filter,
+// and the frontend's own fold (web/src/api/fold.ts), would both need to
+// learn a kind that carries nothing to display. It is not, itself, a
+// delta: the fold must set it, never accumulate it the way Text is
+// accumulated — DeepSeek and Kimi never populate this field, and it is
+// empty and omitted on every event they emit, so their fold is unaffected.
+// A signature is always present on a real thought step but a reasoning
+// summary often is not (docs/GEMINI-INTEGRATION.md §5.2), so this field can
+// be set on an event whose Text is empty — the common Gemini case of a
+// sub-turn with a signature and no reasoning prose at all.
 type ReasoningDeltaPayload struct {
-	Text string `json:"text"`
+	Text             string `json:"text"`
+	ThoughtSignature string `json:"thought_signature,omitempty"`
 }
 
 // ContentDeltaPayload is one fragment of content, accumulated the same way.

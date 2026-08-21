@@ -8,15 +8,27 @@
 //
 // It carries no provider dialect. Base URL, the retryable-status predicate
 // (DeepSeek and Kimi K3 disagree by one code), the "no API key configured"
-// error, and the error-message prefix are all fields a provider supplies
-// when it builds a Transport; everything dialect-shaped — the request body,
-// usage mapping, error-body parsing, and the DeepSeek-specific quirk
-// repairs (docs/OBSERVED.md) — stays in internal/deepseek and internal/kimi,
-// each still its own Client type satisfying the narrow session.Client seam
-// (internal/session/client.go) independently. This package is plumbing, not
-// a provider abstraction: nothing here is provider-neutral request *shape*,
-// only the bytes-on-the-wire mechanics of sending one and reading a stream
-// back (docs/KIMI-INTEGRATION.md §4.1).
+// error, the error-message prefix, and how the credential rides on the
+// request are all fields a provider supplies when it builds a Transport;
+// everything dialect-shaped — the request body, usage mapping, error-body
+// parsing, and the DeepSeek-specific quirk repairs (docs/OBSERVED.md) —
+// stays in internal/deepseek and internal/kimi, each still its own Client
+// type satisfying the narrow session.Client seam (internal/session/client.go)
+// independently. This package is plumbing, not a provider abstraction:
+// nothing here is provider-neutral request *shape*, only the bytes-on-the-
+// wire mechanics of sending one and reading a stream back
+// (docs/KIMI-INTEGRATION.md §4.1).
+//
+// internal/gemini's agentic path (StreamChatCompletion, CreateChatCompletion)
+// is a third caller of Do, added once Transport.SetAuth existed to carry its
+// "x-goog-api-key" header instead of the Authorization: Bearer scheme
+// DeepSeek and Kimi both use (docs/GEMINI-INTEGRATION.md §8). It never calls
+// PumpStream: that method decodes wire.ChatCompletionChunk, the OpenAI
+// Chat Completions shape, and Gemini's SSE frames carry a different
+// vocabulary entirely (step-typed, arguments as a delta string, thought
+// signatures) — internal/gemini/stream.go's pumpChatEvents reads them
+// instead, over the same *http.Response.Body Do already retried into
+// existence.
 package providerhttp
 
 import (
@@ -37,11 +49,15 @@ import (
 // build around. The seven fields a provider must set at construction —
 // BaseURL, APIKeyProvider, HTTPClient, IdleTimeout, MaxRetries, RetryBase,
 // RetryMax — are exactly the state internal/deepseek's and internal/kimi's
-// Client structs used to carry directly; Retryable, NoAPIKey and ErrPrefix
-// are the three points where a provider's own status classification, its
-// own "set one with: harness config set <provider>.api_key <key>" error,
-// and its own name in wrapped error text plug into otherwise-identical
-// logic.
+// Client structs used to carry directly; Retryable, NoAPIKey, ErrPrefix and
+// SetAuth are the four points where a provider's own status classification,
+// its own "set one with: harness config set <provider>.api_key <key>" error,
+// its own name in wrapped error text, and its own credential header plug
+// into otherwise-identical logic. internal/gemini is a fourth consumer of
+// Do (never PumpStream — that method decodes wire.ChatCompletionChunk,
+// DeepSeek's and Kimi's OpenAI-format shape, and Gemini's frames are
+// nothing like it, so it keeps its own pumpChatEvents and only wants the
+// retry-with-backoff Do gives it before handing the response body over).
 type Transport struct {
 	BaseURL        string
 	APIKeyProvider func() (string, error)
@@ -66,6 +82,31 @@ type Transport struct {
 	// ErrPrefix names the provider ("deepseek", "kimi") in every error this
 	// Transport constructs or wraps.
 	ErrPrefix string
+
+	// SetAuth sets the outgoing request's credentials, replacing the default
+	// "Authorization: Bearer <key>" DeepSeek and Kimi both send. A nil value
+	// keeps that default, so neither provider's ClientOption needs to touch
+	// this field or change its request bytes. It exists because Gemini
+	// authenticates with "x-goog-api-key: <key>" instead — one header
+	// naming scheme, not a retry or backoff difference, so it earns a field
+	// the same way Retryable's one-code difference does rather than a
+	// second code path through newRequest.
+	//
+	// It sets credentials and nothing else. A provider that also needs a
+	// different Accept has the Accept field below for it, so a reader can
+	// see every header this Transport varies by looking at the struct
+	// rather than at a callback's body.
+	SetAuth func(req *http.Request, apiKey string)
+
+	// Accept overrides the Accept header, which defaults to
+	// "application/json" when this is empty — the value DeepSeek and Kimi
+	// both send, so neither has to set it. Gemini's client sends
+	// "text/event-stream" on every request including the non-streamed one
+	// (internal/gemini/client.go, CreateChatCompletion): measured against
+	// the live API, the body's own "stream" field decides the response
+	// shape and the header is ignored, so one value serves both call
+	// shapes.
+	Accept string
 }
 
 func (t *Transport) errorf(op string, err error) error {
@@ -99,10 +140,18 @@ func (t *Transport) newRequest(ctx context.Context, method, path string, body []
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Accept", "application/json")
+	accept := t.Accept
+	if accept == "" {
+		accept = "application/json"
+	}
+	req.Header.Set("Accept", accept)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	if t.SetAuth != nil {
+		t.SetAuth(req, apiKey)
+	} else {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 	return req, nil
 }

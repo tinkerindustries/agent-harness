@@ -302,6 +302,67 @@ retried, because retrying an empty balance burns turns and reads as a hang. With
 a worker pool it stops the pool rather than failing each queued request in turn,
 since every one of them will hit the same wall.
 
+## Gemini 3.7 Flash — a second provider
+
+Everything above this section is DeepSeek's own thinking/effort mechanics.
+`gemini-3.7-flash` (docs/GEMINI-INTEGRATION.md) is a genuinely different
+provider behind the same `session.Client` seam, and enough of the mechanics
+above do not carry over that it earns its own section rather than a
+footnote.
+
+**`effort` maps onto `thinking_level`, not `reasoning_effort`.** The
+`ThinkingLevel*` constants in `internal/gemini` (`minimal`/`low`/`medium`/`high`)
+are the whole mapping; there is no DeepSeek-style non-thinking mode to turn
+off, and `temperature`/`top_p`/`top_k` must not be sent at all
+(`internal/gemini/types.go`).
+
+**It sees images.** `seesImages()` is true for Gemini the way it is for
+Kimi K3 (`internal/session/runner.go`): the session sends the
+vision-capable tool array, and `Read` and the MCP image path return an image
+part rather than a path. This is the practical argument for the model —
+DeepSeek and standard Kimi sessions describe a screenshot secondhand through
+`Glance`/`Ground`/`Detect`; a Gemini session looks at it directly.
+
+**Cost sits near DeepSeek Pro's standard tier, not its discounted one** —
+see the table in GEMINI-INTEGRATION.md §4. The rates are introductory and
+double on 2027-01-01, unwatched by `internal/pricing` the same way DeepSeek's
+own price-table date is. Gemini's context caching also carries a per-hour
+storage charge with no counterpart in the harness's three-rate shape;
+a Gemini cost figure here covers cached reads, not cached storage.
+
+**`harness models` does not call a live endpoint for it.** DeepSeek and Kimi
+both have a `GET /models`-shaped call; the Interactions surface has none
+(GEMINI-INTEGRATION.md §2), so the command lists Gemini entries out of the
+static provider table (`internal/provider.KnownModels`) instead, when the
+configured default model is Gemini's.
+
+**No concurrency ceiling is wired for it.** `ModelLimits` (§ "Concurrency is
+per-model and account-wide" above) is keyed by the *configured*
+`defaultModel` and `defaultFlashModel` settings, currently DeepSeek's pro and
+flash. A Gemini session draws no semaphore at all unless an operator points
+one of those two settings at `gemini-3.7-flash` — the harness relies on
+Google's own account-level limits rather than applying its own.
+
+**No per-model run budget either, deliberately.** `kimi-k3` has its own
+`run.max_sub_turns_kimi_k3` / `run.compaction_threshold_kimi_k3` pair
+(`settings.RunBudgetKeysForModel`), sized down from the global defaults
+because K3's rates are far above DeepSeek's. Gemini has no entry, so it
+inherits the global 400-sub-turn / 768K-token defaults, the same as an
+unrecognised model would — decided in Phase 5, on the reasoning that
+Gemini's rates sit at or below DeepSeek Pro's standard tier, so the cost
+argument that motivated K3's own ceiling does not apply. That reasoning
+lives only in the Phase 5 commit message, not in code or in
+GEMINI-INTEGRATION.md itself, which is why it is repeated here; see
+`docs/OBSERVED.md`, Phase 8.
+
+**The prompt cache warms slower and can drop mid-session.** DeepSeek hits on
+a prefix's second request; Gemini took five to six live sub-turns to warm in
+Phase 8's measurement, and its implicit cache went completely cold twice in
+39 combined sub-turns on a request proven byte-identical to the one before
+it — not a harness bug, just something Gemini's cache does on its own. See
+`docs/OBSERVED.md`, "CacheSlack — measured", and `docs/CACHE.md` for what
+this means for the churn diagnostic.
+
 ## Where selection happens
 
 At session creation, from the work request's `model` and `effort` fields or the

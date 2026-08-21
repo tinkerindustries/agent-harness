@@ -54,10 +54,21 @@ const (
 // own marshaller keeps the text-only serialisation byte-identical
 // (third_party/kimi-docs/openapi.json "Message", docs/KIMI-INTEGRATION.md §4.5).
 type Message struct {
-	Role             string     `json:"role"`
-	Content          Content    `json:"content"`
-	Name             string     `json:"name,omitempty"`
-	ReasoningContent *string    `json:"reasoning_content,omitempty"`
+	Role             string  `json:"role"`
+	Content          Content `json:"content"`
+	Name             string  `json:"name,omitempty"`
+	ReasoningContent *string `json:"reasoning_content,omitempty"`
+	// ThoughtSignature is Gemini's opaque receipt for a thought step,
+	// attached to the step itself rather than to a message's prose — a
+	// different animal from ReasoningContent above, which replays DeepSeek's
+	// and Kimi's reasoning text. A signature is always present on a thought
+	// step even when the step carries no summary, so it is the thing that
+	// must survive replay regardless of whether there is reasoning text to
+	// show, and it must never be concatenated or derived — only carried
+	// verbatim (docs/GEMINI-INTEGRATION.md §5.2, docs/OBSERVED.md "Gemini
+	// 3.7 Flash — Interactions API"). DeepSeek and Kimi never set it; nil
+	// and omitempty keep every message either of them sends unchanged.
+	ThoughtSignature *string    `json:"thought_signature,omitempty"`
 	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID       string     `json:"tool_call_id,omitempty"`
 }

@@ -1,0 +1,3 @@
+event: error
+data: {"error":{"message":"Corrupted thought signature.","code":"invalid_request"},"event_type":"error"}
+

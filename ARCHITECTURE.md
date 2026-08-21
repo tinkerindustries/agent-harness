@@ -41,8 +41,8 @@ flowchart LR
     WORK --> worker[internal/worker pool]
     worker --> ws[internal/workspace<br/>clone per session]
     worker --> session[internal/session<br/>agent loop]
-    session -->|wire.ChatIntent| ds[internal/deepseek client<br/>implements the Client seam]
-    ds --> api[api.deepseek.com]
+    session -->|wire.ChatIntent| ds[internal/deepseek, internal/kimi,<br/>internal/gemini clients<br/>each implements the Client seam]
+    ds --> api[api.deepseek.com /<br/>api.moonshot.ai /<br/>generativelanguage.googleapis.com]
     session --> tools[internal/tools<br/>in the workspace]
     session --> mcpclient[internal/mcpclient<br/>configured MCP servers]
     mcpclient --> store
@@ -94,17 +94,22 @@ workspace       session ──────┘        │        │
 
 `deepseek`, `tools`, `session`, and `fold` all read their vocabulary from
 `wire` — the rows above are the client, the tool array, the agent loop, and
-the fold, each one level above the shared types. `cache`, `evals`, and
-`promptvariant` import it directly as well, and `provider` — the
+the fold, each one level above the shared types. `deepseek`'s row stands for
+three sibling packages now, not one: `internal/kimi` and `internal/gemini`
+sit at the same level, reading `wire` directly and depending on nothing else
+internal, the same way `internal/deepseek` does. `cache`, `evals`, and
+`promptvariant` import `wire` directly as well, and `provider` — the
 model→provider table both client construction and request validation
 consult (docs/KIMI-INTEGRATION.md §4.3) — is a leaf beside it. The loop's
-reach to the DeepSeek client runs through a declared seam rather than a
-direct import: `internal/session` declares a narrow `Client` interface it
-consumes, `internal/deepseek` implements it (turning the loop's
-`wire.ChatIntent` into DeepSeek's request shape), and `cmd/harness` chooses
-the implementation when it builds the Runner — the same declared-seam shape
-`RunPublisher` and `RunController` take (docs/KIMI-INTEGRATION.md §4.1).
-```
+reach to a provider client runs through a declared seam rather than a direct
+import: `internal/session` declares a narrow `Client` interface it consumes,
+and `internal/deepseek`, `internal/kimi`, and `internal/gemini` each
+implement it independently — turning the loop's `wire.ChatIntent` into that
+provider's own request shape — with `cmd/harness` choosing which
+implementation a given model resolves to when it builds the Runner
+(docs/KIMI-INTEGRATION.md §4.3, docs/GEMINI-INTEGRATION.md §5.1) — the same
+declared-seam shape `RunPublisher` and `RunController` take
+(docs/KIMI-INTEGRATION.md §4.1).
 
 The edges that matter:
 
@@ -123,12 +128,14 @@ The edges that matter:
   handler and a store read by the loop, and the store is already here.
 - **`internal/session` is the only package that speaks to both the model API
   and the tools**, and its reach to the API is through the narrow `Client`
-  seam it declares: `internal/deepseek` implements it, turning the loop's
-  `wire.ChatIntent` into DeepSeek's request shape and owning DeepSeek's usage
-  mapping and response quirks, and `cmd/harness` chooses the implementation
-  when it builds the Runner — the same declared-seam shape `RunPublisher`
-  and `RunController` take (docs/KIMI-INTEGRATION.md §4.1). A change that
-  needs both belongs there.
+  seam it declares: `internal/deepseek`, `internal/kimi`, and
+  `internal/gemini` each implement it independently, turning the loop's
+  `wire.ChatIntent` into that provider's own request shape and owning that
+  provider's usage mapping and response quirks, and `cmd/harness` chooses
+  the implementation a session's model resolves to when it builds the
+  Runner — the same declared-seam shape `RunPublisher` and `RunController`
+  take (docs/KIMI-INTEGRATION.md §4.1, docs/GEMINI-INTEGRATION.md §5.1). A
+  change that needs both belongs there.
 - **`internal/mcpclient` sits above `internal/store`, `internal/wire`, and
   `internal/tools`.** It reads the `mcp_servers` rows, speaks the tool-array
   vocabulary, and implements `MCPProvider`, the narrow seam `internal/tools`

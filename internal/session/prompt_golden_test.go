@@ -17,6 +17,15 @@ import (
 // The goldens are the choice, not the test: each case carries its own file,
 // so a failing assertion names the provider whose head moved, and the two
 // files can be regenerated independently.
+//
+// Gemini's case reads Kimi's golden file rather than a third one:
+// renderSystemPromptFor is a pure function of a tool array's names and the
+// seesImages capability (prompt.go), and Gemini and Kimi share both — the
+// same vision-capable tool array (tools.definitionsVisionCapable) and
+// seesImages() true for both (runner.go, docs/GEMINI-INTEGRATION.md §5.7)
+// — so the rendered head is not just equal by chance but the same bytes for
+// the same reason. There is no Gemini-specific wording in the head: nothing
+// in it names a provider, only tool names and the one capability sentence.
 func TestPromptGolden(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -25,6 +34,7 @@ func TestPromptGolden(t *testing.T) {
 	}{
 		{"deepseek", "deepseek-v4-pro", "prompt_deepseek.golden.txt"},
 		{"kimi", "kimi-k3", "prompt_kimi.golden.txt"},
+		{"gemini", "gemini-3.7-flash", "prompt_kimi.golden.txt"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

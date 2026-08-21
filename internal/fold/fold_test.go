@@ -178,6 +178,162 @@ func TestFoldParallelToolCallTurn(t *testing.T) {
 	requireEqualMessages(t, got, want)
 }
 
+// TestFoldThoughtSignature covers Gemini's ordinary case: a thought step's
+// signature rides alongside reasoning prose on the reasoning_delta event,
+// and the fold must set it as Message.ThoughtSignature — a distinct field
+// from ReasoningContent, not concatenated into it
+// (docs/GEMINI-INTEGRATION.md §5.2).
+func TestFoldThoughtSignature(t *testing.T) {
+	b := &eventBuilder{}
+	events := []store.Event{
+		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "list the files"}),
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
+		b.ev(store.KindReasoningDelta, store.ReasoningDeltaPayload{Text: "I should use List.", ThoughtSignature: "sig-abc"}),
+		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 0, ID: "call_00_abc", Name: "List", Arguments: `{"path":"."}`}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "tool_calls"}),
+	}
+
+	got, err := Fold(testSession(), events)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reasoning := "I should use List."
+	sig := "sig-abc"
+	want := []wire.Message{
+		wire.SystemMessage("you are a coding agent"),
+		wire.UserMessage("list the files"),
+		{
+			Role:             wire.RoleAssistant,
+			Content:          wire.TextContent(""),
+			ReasoningContent: &reasoning,
+			ThoughtSignature: &sig,
+			ToolCalls: []wire.ToolCall{
+				{ID: "call_00_abc", Type: "function", Function: wire.ToolCallFunc{Name: "List", Arguments: `{"path":"."}`}},
+			},
+		},
+	}
+	requireEqualMessages(t, got, want)
+}
+
+// TestFoldThoughtSignatureNoReasoning covers the common Gemini case
+// docs/GEMINI-INTEGRATION.md §5.2 calls out explicitly: a signature is
+// always present on a thought step even when the step carries no summary
+// at all, so a sub-turn can have a signature and zero reasoning prose. The
+// fold must not key ThoughtSignature off reasoning.Len() the way
+// ReasoningContent is keyed, or this event would be dropped and a resumed
+// session would replay history missing the thought step.
+func TestFoldThoughtSignatureNoReasoning(t *testing.T) {
+	b := &eventBuilder{}
+	events := []store.Event{
+		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "list the files"}),
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
+		// No Text at all — thinking_summaries: "none", or a non-text thought,
+		// per docs/GEMINI-INTEGRATION.md §5.2.
+		b.ev(store.KindReasoningDelta, store.ReasoningDeltaPayload{ThoughtSignature: "sig-no-summary"}),
+		b.ev(store.KindContentDelta, store.ContentDeltaPayload{Text: "done"}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "stop"}),
+	}
+
+	got, err := Fold(testSession(), events)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sig := "sig-no-summary"
+	want := []wire.Message{
+		wire.SystemMessage("you are a coding agent"),
+		wire.UserMessage("list the files"),
+		{Role: wire.RoleAssistant, Content: wire.TextContent("done"), ThoughtSignature: &sig},
+	}
+	requireEqualMessages(t, got, want)
+
+	// ReasoningContent must stay nil, not a pointer to an empty string — the
+	// same "absent, not empty" distinction the rest of the fold observes.
+	if got[2].ReasoningContent != nil {
+		t.Errorf("ReasoningContent = %v, want nil when no reasoning_delta event carried text", *got[2].ReasoningContent)
+	}
+}
+
+// TestFoldThoughtSignaturePerSubTurn covers two sub-turns each carrying
+// their own signature: the fold must reset the held signature between
+// sub-turns (flushAssistant), or turn 2's message would still carry turn
+// 1's signature after turn 1's is gone from the log.
+func TestFoldThoughtSignaturePerSubTurn(t *testing.T) {
+	b := &eventBuilder{}
+	events := []store.Event{
+		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "add a test"}),
+
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
+		b.ev(store.KindReasoningDelta, store.ReasoningDeltaPayload{Text: "turn one", ThoughtSignature: "sig-1"}),
+		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 0, ID: "call_00_x", Name: "Read", Arguments: `{"file_path":"a.go"}`}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "tool_calls"}),
+		b.ev(store.KindToolResult, store.ToolResultPayload{ToolCallID: "call_00_x", Name: "Read", Content: "1\tpackage a"}),
+
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 2}),
+		b.ev(store.KindReasoningDelta, store.ReasoningDeltaPayload{Text: "turn two", ThoughtSignature: "sig-2"}),
+		b.ev(store.KindContentDelta, store.ContentDeltaPayload{Text: "done"}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "stop"}),
+	}
+
+	got, err := Fold(testSession(), events)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	r1, r2 := "turn one", "turn two"
+	sig1, sig2 := "sig-1", "sig-2"
+	want := []wire.Message{
+		wire.SystemMessage("you are a coding agent"),
+		wire.UserMessage("add a test"),
+		{
+			Role: wire.RoleAssistant, Content: wire.TextContent(""),
+			ReasoningContent: &r1, ThoughtSignature: &sig1,
+			ToolCalls: []wire.ToolCall{
+				{ID: "call_00_x", Type: "function", Function: wire.ToolCallFunc{Name: "Read", Arguments: `{"file_path":"a.go"}`}},
+			},
+		},
+		{Role: wire.RoleTool, Content: wire.TextContent("1\tpackage a"), ToolCallID: "call_00_x"},
+		{Role: wire.RoleAssistant, Content: wire.TextContent("done"), ReasoningContent: &r2, ThoughtSignature: &sig2},
+	}
+	requireEqualMessages(t, got, want)
+}
+
+// TestFoldDeepSeekUnaffectedByThoughtSignature pins the compatibility
+// requirement: a DeepSeek or Kimi session's reasoning_delta events never
+// carry ThoughtSignature, and old events stored before the field existed
+// decode with it simply absent — both fold to the exact same message this
+// package's fold produced before Gemini support existed, with
+// ThoughtSignature staying nil.
+func TestFoldDeepSeekUnaffectedByThoughtSignature(t *testing.T) {
+	b := &eventBuilder{}
+	events := []store.Event{
+		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "fix the bug"}),
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
+		// Raw JSON with no thought_signature key at all — the shape every
+		// event committed before this phase has on disk.
+		{SessionID: "sess-1", Seq: 90, Kind: store.KindReasoningDelta, Payload: json.RawMessage(`{"text":"let me think."}`)},
+		b.ev(store.KindContentDelta, store.ContentDeltaPayload{Text: "fixed."}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "stop"}),
+	}
+
+	got, err := Fold(testSession(), events)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reasoning := "let me think."
+	want := []wire.Message{
+		wire.SystemMessage("you are a coding agent"),
+		wire.UserMessage("fix the bug"),
+		{Role: wire.RoleAssistant, Content: wire.TextContent("fixed."), ReasoningContent: &reasoning},
+	}
+	requireEqualMessages(t, got, want)
+	if got[2].ThoughtSignature != nil {
+		t.Errorf("ThoughtSignature = %v, want nil for an event with no thought_signature field", *got[2].ThoughtSignature)
+	}
+}
+
 // TestFoldMultiTurnCarriesReasoning covers a two-sub-turn session: turn 1's
 // reasoning_content must still be present, verbatim, once turn 2 is folded
 // in (docs/DESIGN.md §3.1).
@@ -366,6 +522,59 @@ func TestFoldImageToolResultAppendOnly(t *testing.T) {
 		b.ev(store.KindToolResult, store.ToolResultPayload{ToolCallID: "call_00_a", Name: "Read", Content: "Image: shot.png", ImageURL: uri}),
 		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 2}),
 		b.ev(store.KindContentDelta, store.ContentDeltaPayload{Text: "the button is misaligned"}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "stop"}),
+	}
+
+	sess := testSession()
+	full, err := Fold(sess, events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fullJSON := make([]string, len(full))
+	for i, m := range full {
+		raw, err := json.Marshal(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fullJSON[i] = string(raw)
+	}
+	for n := 0; n <= len(events); n++ {
+		partial, err := Fold(sess, events[:n])
+		if err != nil {
+			t.Fatalf("fold events[:%d]: %v", n, err)
+		}
+		for i, m := range partial {
+			raw, err := json.Marshal(m)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(raw) != fullJSON[i] {
+				t.Fatalf("fold events[:%d] message %d differs from the full fold:\n partial: %s\n   full: %s", n, i, raw, fullJSON[i])
+			}
+		}
+	}
+}
+
+// TestFoldThoughtSignatureAppendOnly pins the same load-bearing property
+// TestFoldImageToolResultAppendOnly pins for the image shape, for thought
+// signatures: folding the log up to and past the reasoning_delta event that
+// carries a signature must never disagree about the assistant message once
+// it has been emitted — the signature comes entirely from the event
+// payload, so every prefix that includes it agrees with the full fold.
+func TestFoldThoughtSignatureAppendOnly(t *testing.T) {
+	b := &eventBuilder{}
+	events := []store.Event{
+		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "check the weather"}),
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
+		// Signature with no reasoning text — the case the fold must not
+		// gate on reasoning.Len().
+		b.ev(store.KindReasoningDelta, store.ReasoningDeltaPayload{ThoughtSignature: "sig-1"}),
+		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 0, ID: "call_00_a", Name: "get_weather", Arguments: `{"location":"Hobart"}`}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "tool_calls"}),
+		b.ev(store.KindToolResult, store.ToolResultPayload{ToolCallID: "call_00_a", Name: "get_weather", Content: "18C"}),
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 2}),
+		b.ev(store.KindReasoningDelta, store.ReasoningDeltaPayload{Text: "it's cold", ThoughtSignature: "sig-2"}),
+		b.ev(store.KindContentDelta, store.ContentDeltaPayload{Text: "18C, bring a jacket"}),
 		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "stop"}),
 	}
 

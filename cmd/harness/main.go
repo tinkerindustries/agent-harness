@@ -217,15 +217,24 @@ func providerFor(model string) provider.Name {
 }
 
 // clientForModel is the composition point the architecture names: cmd/harness
-// builds both provider clients and resolves which one a model speaks to, so
-// a shared Runner (or a CLI command) serves whichever provider the request's
-// model belongs to without the loop knowing (internal/session/client.go,
-// docs/KIMI-INTEGRATION.md §4.3).
-func clientForModel(model string, deepSeekClient *deepseek.Client, kimiClient *kimi.Client) session.Client {
-	if providerFor(model) == provider.Kimi {
+// builds all three provider clients and resolves which one a model speaks
+// to, so a shared Runner (or a CLI command) serves whichever provider the
+// request's model belongs to without the loop knowing
+// (internal/session/client.go, docs/KIMI-INTEGRATION.md §4.3,
+// docs/GEMINI-INTEGRATION.md §7 Phase 5). geminiClient is the same
+// *gemini.Client a Runner's Gemini field holds for the vision tools — one
+// client, one transport, two callers (Interact for vision, StreamChatCompletion
+// / CreateChatCompletion for this seam) — so routing a coding session onto
+// Gemini opens no second connection and needs no second API key.
+func clientForModel(model string, deepSeekClient *deepseek.Client, kimiClient *kimi.Client, geminiClient *gemini.Client) session.Client {
+	switch providerFor(model) {
+	case provider.Kimi:
 		return kimiClient
+	case provider.Gemini:
+		return geminiClient
+	default:
+		return deepSeekClient
 	}
-	return deepSeekClient
 }
 
 // reasoningClaim names, in one short parenthetical fragment, what the
@@ -236,9 +245,15 @@ func clientForModel(model string, deepSeekClient *deepseek.Client, kimiClient *k
 // is an API error — and always reasons with Preserved Thinking, its effort
 // set by reasoning_effort, so the claim for it is "always reasons" and must
 // never read as evidence the harness sent `thinking`
-// (third_party/kimi-docs/guide/use-thinking-models.md).
+// (third_party/kimi-docs/guide/use-thinking-models.md). Gemini shares that
+// claim for the same reason it shares nothing else here: intent.Thinking is
+// ignored (internal/gemini/intent.go) because a thought step always
+// precedes the turn's action on the Interactions surface, even at
+// thinking_level "low" — there is no on/off toggle to spell, only the
+// thinking_level effort already maps onto (docs/GEMINI-INTEGRATION.md §5.3).
 func reasoningClaim(model string, thinking bool) string {
-	if providerFor(model) == provider.Kimi {
+	switch providerFor(model) {
+	case provider.Kimi, provider.Gemini:
 		return "always reasons"
 	}
 	if thinking {
@@ -362,9 +377,10 @@ func runAsk(ctx context.Context, args []string) error {
 	defer closeHTTPLog(rec)
 	deepSeekClient := withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res))
 	kimiClient := withKimiHTTPLog(cfg, rec, kimiAPIKeyProvider(res))
+	geminiClient := withGeminiHTTPLog(cfg, rec, googleAPIKeyProvider(res))
 	// ask speaks to whichever provider the resolved model belongs to, the
 	// same per-model routing the Runner uses (clientForModel).
-	client := clientForModel(resolvedModel, deepSeekClient, kimiClient)
+	client := clientForModel(resolvedModel, deepSeekClient, kimiClient, geminiClient)
 
 	var messages []wire.Message
 	if *system != "" {
@@ -497,7 +513,8 @@ func runModels(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if providerFor(model) == provider.Kimi {
+	switch providerFor(model) {
+	case provider.Kimi:
 		resp, err := kimiClient.ListModels(ctx)
 		if err != nil {
 			return explainError(err)
@@ -506,15 +523,28 @@ func runModels(ctx context.Context, args []string) error {
 			fmt.Printf("%s (owned by %s)\n", m.ID, m.OwnedBy)
 		}
 		return nil
+	case provider.Gemini:
+		// The Interactions surface internal/gemini speaks has no models-list
+		// endpoint this client calls (only POST /v1beta/interactions,
+		// docs/GEMINI-INTEGRATION.md §2) — Phase 2 never measured one, so
+		// nothing here guesses at its shape. The provider table's own Gemini
+		// entries stand in for a live catalogue.
+		for _, m := range provider.KnownModels() {
+			if p, err := provider.ModelFor(m); err == nil && p == provider.Gemini {
+				fmt.Println(m)
+			}
+		}
+		return nil
+	default:
+		resp, err := deepSeekClient.ListModels(ctx)
+		if err != nil {
+			return explainError(err)
+		}
+		for _, m := range resp.Data {
+			fmt.Printf("%s (owned by %s)\n", m.ID, m.OwnedBy)
+		}
+		return nil
 	}
-	resp, err := deepSeekClient.ListModels(ctx)
-	if err != nil {
-		return explainError(err)
-	}
-	for _, m := range resp.Data {
-		fmt.Printf("%s (owned by %s)\n", m.ID, m.OwnedBy)
-	}
-	return nil
 }
 
 func runBalance(ctx context.Context, args []string) error {
@@ -545,13 +575,22 @@ func runBalance(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if providerFor(model) == provider.Kimi {
+	switch providerFor(model) {
+	case provider.Kimi:
 		resp, err := kimiClient.GetBalance(ctx)
 		if err != nil {
 			return explainError(err)
 		}
 		fmt.Printf("available: $%.4f (voucher $%.4f, cash $%.4f)\n",
 			resp.Data.AvailableBalance, resp.Data.VoucherBalance, resp.Data.CashBalance)
+		return nil
+	case provider.Gemini:
+		// Google bills the Gemini API against Cloud Billing, not an
+		// account-balance endpoint this client calls — nothing here would
+		// have anything real to show, and showing DeepSeek's balance under a
+		// Gemini default model would be silently wrong rather than merely
+		// unhelpful.
+		fmt.Println("gemini-3.7-flash has no balance endpoint; check the Google Cloud Console billing page")
 		return nil
 	}
 	resp, err := deepSeekClient.GetBalance(ctx)

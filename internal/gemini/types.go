@@ -57,11 +57,21 @@ type Content struct {
 	Resolution string `json:"resolution,omitempty"`
 }
 
-// GenerationConfig holds the only generation parameter this harness ever
-// sets. thinking_level replaces the deprecated thinking_budget; the doc says
+// GenerationConfig holds the generation parameters this harness sets.
+// thinking_level replaces the deprecated thinking_budget; the doc says
 // mixing the two is a 400, so thinking_budget has no field here.
+//
+// MaxOutputTokens is openapi.json's max_output_tokens, added for the
+// agentic path's requestFromIntent (intent.go), which sends
+// intent.MaxTokens through it: a live measurement found it is honoured —
+// max_output_tokens=50 answered 200 with status "incomplete" and 46 output
+// tokens, against 678 uncapped — contradicting an earlier line in
+// docs/OBSERVED.md that recorded a failed search for such a field as its
+// absence. omitempty keeps this unset (and the vision path's Interact,
+// which never sets it) serialising exactly as before this field existed.
 type GenerationConfig struct {
-	ThinkingLevel string `json:"thinking_level,omitempty"`
+	ThinkingLevel   string `json:"thinking_level,omitempty"`
+	MaxOutputTokens int    `json:"max_output_tokens,omitempty"`
 }
 
 // InteractionResponse is the response body of an interactions call. The

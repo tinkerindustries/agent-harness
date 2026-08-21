@@ -202,14 +202,16 @@ type Executor struct {
 	FlashModel string
 
 	// SeeImages is true when the session's provider reads images natively
-	// (Kimi K3; DeepSeek is text-only). Read consults it: on a vision
-	// provider, reading an image path returns the file as an image_url part
-	// instead of the binary-file refusal, and the five vision tools
-	// (Screenshot, Glance, Ground, Detect, Crop) are not offered at all
-	// (internal/tools/definitions.go, docs/KIMI-INTEGRATION.md §4.5). Set by
-	// internal/session from the session's model at creation and on resume,
-	// and never changed mid-session — the tool array and Read's behaviour
-	// are both frozen for a session's life (docs/CACHE.md).
+	// (Kimi K3 and Gemini; DeepSeek is text-only). Read consults it: on a
+	// vision provider, reading an image path returns the file as an
+	// image_url part instead of the binary-file refusal, and the vision
+	// tools that exist only because DeepSeek cannot see images (Screenshot,
+	// Glance, Ground, Detect, Transcribe, Crop) are not offered at all
+	// (internal/tools/definitions.go, docs/KIMI-INTEGRATION.md §4.5,
+	// docs/GEMINI-INTEGRATION.md §5.7). Set by internal/session from the
+	// session's model at creation and on resume, and never changed
+	// mid-session — the tool array and Read's behaviour are both frozen for
+	// a session's life (docs/CACHE.md).
 	SeeImages bool
 
 	// Gemini is the client Glance, Ground, and Detect use to send images to

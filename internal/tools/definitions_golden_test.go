@@ -10,20 +10,25 @@ import (
 )
 
 // TestToolArrayGolden pins the exact serialised tool array of each provider
-// against its own committed golden file. There are two frozen request heads
-// now — DeepSeek's twenty tools, Kimi's fourteen without the six vision
-// tools (docs/KIMI-INTEGRATION.md decisions 5 and 6) — and both need the
-// byte-stability guard the single array used to have: the head of every
-// request is frozen and shared (docs/DESIGN.md §3.2, docs/CACHE.md), and the
-// prompt cache depends on identical bytes.
+// against its own committed golden file. There are two frozen request head
+// shapes now — DeepSeek's twenty tools, and the vision-capable fourteen
+// without the six vision tools (docs/KIMI-INTEGRATION.md decisions 5 and 6)
+// — and both need the byte-stability guard the single array used to have:
+// the head of every request is frozen and shared (docs/DESIGN.md §3.2,
+// docs/CACHE.md), and the prompt cache depends on identical bytes. Gemini
+// joined the vision-capable shape in Phase 7 (docs/GEMINI-INTEGRATION.md
+// §5.7, §7): its array is byte-identical to Kimi's — both drop the same six
+// tools — so its case below reads the same golden file rather than a
+// duplicate; TestDefinitionsForProviderGeminiMatchesKimi pins the equality
+// directly.
 //
-// One test parameterised over the two providers, with a golden file per
-// provider. The files are the choice, not the test: a failing assertion
-// names the provider whose head moved (each case carries its own golden
-// path, so the failure text and the diff both say which one), each file can
-// be regenerated independently, and the table-driven body keeps the two
-// assertions from drifting apart. A single file for both arrays would save
-// nothing and blur which provider a change belongs to.
+// One test parameterised over the provider shapes, with a golden file per
+// shape. The files are the choice, not the test: a failing assertion names
+// the case whose head moved (each case carries its own golden path, so the
+// failure text and the diff both say which one), each file can be
+// regenerated independently, and the table-driven body keeps the assertions
+// from drifting apart. A single file for both arrays would save nothing and
+// blur which provider a change belongs to.
 //
 // Neither file is a claim that the array never changes — it is a claim that
 // it never changes by accident. Regenerating one is a deliberate act with a
@@ -32,8 +37,8 @@ import (
 // at least a minor release (RELEASE.md). The DeepSeek golden was last moved
 // on purpose to replace ReviewScreenshot and AskVision with Glance, Ground,
 // Detect, and Crop, ported from agent-vision-toolkit
-// (docs/VISION-TOOLKIT.md); the Kimi array drops all five vision tools and
-// so was untouched by that change.
+// (docs/VISION-TOOLKIT.md); the vision-capable array drops all five vision
+// tools and so was untouched by that change.
 func TestToolArrayGolden(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -42,6 +47,7 @@ func TestToolArrayGolden(t *testing.T) {
 	}{
 		{"deepseek", "deepseek-v4-pro", "tools_deepseek.golden.json"},
 		{"kimi", "kimi-k3", "tools_kimi.golden.json"},
+		{"gemini", "gemini-3.7-flash", "tools_kimi.golden.json"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -112,5 +118,31 @@ func TestDefinitionsForProviderShape(t *testing.T) {
 	}
 	if j != len(kimi) {
 		t.Fatalf("Kimi array has %d entries the DeepSeek array does not account for", len(kimi)-j)
+	}
+}
+
+// TestDefinitionsForProviderGeminiMatchesKimi pins that Gemini's tool array
+// is not merely golden-equal to Kimi's by coincidence of two committed
+// files agreeing, but the same relationship: both providers read images
+// natively, so both drop the identical six DeepSeek-only vision tools
+// (docs/GEMINI-INTEGRATION.md §5.7), and DefinitionsForProvider resolves
+// both to the one definitionsVisionCapable array rather than two copies of
+// it. This is a deliberate sameness, not a coincidence to be surprised by
+// later — if Gemini and Kimi ever need to diverge (a vision tool one of
+// them should keep and the other should not), that is the day this test
+// stops passing and a second array is warranted.
+func TestDefinitionsForProviderGeminiMatchesKimi(t *testing.T) {
+	kimi := tools.DefinitionsFor("kimi-k3")
+	gemini := tools.DefinitionsFor("gemini-3.7-flash")
+	kj, err := json.Marshal(kimi)
+	if err != nil {
+		t.Fatalf("Marshal(kimi): %v", err)
+	}
+	gj, err := json.Marshal(gemini)
+	if err != nil {
+		t.Fatalf("Marshal(gemini): %v", err)
+	}
+	if string(kj) != string(gj) {
+		t.Fatalf("gemini tool array differs from kimi's:\ngemini: %s\nkimi:   %s", gj, kj)
 	}
 }

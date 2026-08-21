@@ -45,8 +45,54 @@ idle watchdog. Carries no provider dialect — no request shape, no usage
 mapping, no error-body parsing, no quirk repairs — so each provider keeps its
 own `Client` type satisfying the narrow `session.Client` seam independently;
 this package only removes the near-verbatim duplication two full client
-implementations used to carry (docs/KIMI-INTEGRATION.md §4.1). Depends on:
-`internal/wire`.
+implementations used to carry (docs/KIMI-INTEGRATION.md §4.1). `Transport.Do`
+has a third caller, `internal/gemini`, which supplies `SetAuth` to send its
+`x-goog-api-key` header instead of the `Authorization: Bearer` `Do` sends by
+default (docs/GEMINI-INTEGRATION.md §8) — `Transport.PumpStream` stays
+DeepSeek's and Kimi's alone, since it decodes `wire.ChatCompletionChunk`, a
+shape Gemini's SSE frames don't carry. Depends on: `internal/wire`.
+
+### `internal/kimi`
+The Kimi K3 client, Moonshot AI's OpenAI-compatible endpoint
+(`https://api.moonshot.ai/v1`). Shares `internal/wire`'s vocabulary and
+`internal/providerhttp`'s transport with `internal/deepseek`; what stays
+here is Kimi's own dialect — the client and its options, the auxiliary
+endpoint bodies (`/models`, `/users/me/balance`), the error body, retry
+classification, and the usage split mapping Kimi's single `cached_tokens`
+figure onto the cache-hit/cache-miss counts the cost model uses. Implements
+the narrow `Client` seam `internal/session` declares
+(docs/KIMI-INTEGRATION.md §4.1): top-level `reasoning_effort`, never a
+`thinking` field. Also the client an eval's judge model resolves to when
+`model.judge` names `kimi-k3` (`internal/evals`). Knows nothing of sessions,
+tools, or storage. Depends on: `internal/wire`, `internal/providerhttp`.
+
+### `internal/gemini`
+Google's Gemini API client, hand-rolled rather than the official SDK because
+the SDK targets the legacy `generateContent` surface, not
+`POST /v1beta/interactions` (docs/GEMINI-INTEGRATION.md §2). Two callers: the
+vision tools — `Glance`, `Ground`, `Detect` (docs/TOOLS.md) — through
+`Interact`, whose request and response shapes are unchanged since before this
+package spoke chat completions at all; and the agent loop, through
+`StreamChatCompletion` and `CreateChatCompletion`, the same narrow `Client`
+seam `internal/deepseek` and `internal/kimi` implement. Owns the parts of the
+Interactions surface with no counterpart in the OpenAI-format dialect the
+other two share: `thought` steps carrying an opaque, mandatory signature that
+must be replayed verbatim (`wire.Message.ThoughtSignature`,
+docs/GEMINI-INTEGRATION.md §5.2), a request shape typed by step kind rather
+than a flat message array, `arguments` as a genuine JSON object rather than a
+string, and errors that can arrive SSE-framed even under a plain 400. All
+three HTTP-issuing methods, `Interact` included, now retry a transient
+429/500/503 with backoff through `internal/providerhttp.Transport`
+(`chatTransport`, docs/GEMINI-INTEGRATION.md §8) via `Transport.SetAuth`, the
+seam that lets this provider's `x-goog-api-key` header ride the same
+`Transport.Do` DeepSeek's and Kimi's `Authorization: Bearer` do. `PumpStream`
+is not shared — it decodes `wire.ChatCompletionChunk`, the OpenAI-format
+chunk shape, and Gemini's SSE frames carry a different vocabulary entirely —
+so `stream.go`'s own `pumpChatEvents` still reads the body `Transport.Do`
+retried into existence. Request and response bodies are Go
+structs, never `map[string]any`, for the same byte-stability reason as the
+other two clients. Depends on: `internal/wire`, `internal/providerhttp` (just
+`Transport`, for retry-with-backoff — never `PumpStream`).
 
 ### `internal/attachment`
 Validates one image attachment a producer submitted — POST /api/runs
@@ -84,13 +130,15 @@ The agent loop: sub-turn iteration, the system prompt, tool dispatch, ordering
 of tool results, compaction, and resume. The widest dependency set in the repo,
 deliberately — this is where everything meets. Its reach to the model API is
 through a declared seam rather than an import: `Client`, a narrow interface
-declared here and implemented by `internal/deepseek`, which turns the loop's
-`wire.ChatIntent` into DeepSeek's request shape and owns DeepSeek's usage
-mapping and response quirks — the same shape `RunPublisher` and `RunController`
-take, with cmd/harness choosing the implementation when it builds the Runner
-(docs/KIMI-INTEGRATION.md §4.1). Owns the session row's lifecycle around the
-worker's preparation window: `Create` inserts it as `creating` before the
-workspace is built, `FailSetup` moves it to `failed` with an error event when
+declared here and implemented by `internal/deepseek`, `internal/kimi`, and
+`internal/gemini`, each of which turns the loop's `wire.ChatIntent` into its
+own provider's request shape and owns that provider's usage mapping and
+response quirks — the same shape `RunPublisher` and `RunController` take,
+with cmd/harness choosing the implementation when it builds the Runner
+(docs/KIMI-INTEGRATION.md §4.1, docs/GEMINI-INTEGRATION.md §5.1). Owns the
+session row's lifecycle around the worker's preparation window: `Create`
+inserts it as `creating` before the workspace is built, `FailSetup` moves it
+to `failed` with an error event when
 preparation fails, and `Run` promotes a pre-created row to `running` (or
 inserts when there is none). Consumed by `internal/worker` and by the
 CLI's `run` and `resume`. §4.5, §4.6. `Runner`'s five jobs split by file, all
@@ -252,10 +300,12 @@ text; this package owns the edits to it. [../docs/EVALS.md](../docs/EVALS.md).
 The one model→provider table (docs/KIMI-INTEGRATION.md §4.3): `ModelFor`
 maps a model name to the provider serving it, with no default — an unknown
 model is an error, so request validation rejects it loudly instead of
-silently routing to a provider. Both entries point at DeepSeek today;
-`kimi-k3` is the next. It is a package of its own so that cmd/harness
-(client construction) and `internal/queue` (request validation) can both
-reach it without importing the agent loop. Depends on: nothing internal.
+silently routing to a provider. Three providers today: DeepSeek
+(`deepseek-v4-pro`, `deepseek-v4-flash`), Kimi (`kimi-k3`), and Gemini
+(`gemini-3.7-flash`, docs/GEMINI-INTEGRATION.md §7 Phase 5). It is a package
+of its own so that cmd/harness (client construction) and `internal/queue`
+(request validation) can both reach it without importing the agent loop.
+Depends on: nothing internal.
 
 ### `internal/evals`
 Measures a prompt change. Publishes a suite of tasks under two or more prompt

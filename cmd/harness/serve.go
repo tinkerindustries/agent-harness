@@ -18,6 +18,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/config"
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
 	"github.com/mrgeoffrich/deepseek-harness/internal/evals"
+	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
 	"github.com/mrgeoffrich/deepseek-harness/internal/httpapi"
 	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
 	"github.com/mrgeoffrich/deepseek-harness/internal/kimi"
@@ -179,16 +180,28 @@ func runServe(ctx context.Context, args []string) error {
 
 	deepSeekClient := withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res))
 	kimiClient := withKimiHTTPLog(cfg, rec, kimiAPIKeyProvider(res))
+	// geminiClient is shared between the routing closure below and the
+	// Runner's own Gemini field — one client for both the vision tools and a
+	// Gemini coding session, so this process opens one Gemini transport, not
+	// two.
+	geminiClient := withGeminiHTTPLog(cfg, rec, googleAPIKeyProvider(res))
 	// The pool serves whichever model a request names, so the Runner routes
-	// by model through a resolver built here — the one place both provider
-	// clients exist (docs/KIMI-INTEGRATION.md §4.3).
+	// by model through a resolver built here — the one place all three
+	// provider clients exist (docs/KIMI-INTEGRATION.md §4.3,
+	// docs/GEMINI-INTEGRATION.md §7 Phase 5).
 	clientFor := func(model string) session.Client {
-		return clientForModel(model, deepSeekClient, kimiClient)
+		return clientForModel(model, deepSeekClient, kimiClient, geminiClient)
 	}
 	switch providerFor(defaultModel) {
 	case provider.Kimi:
 		logStartupKimiBalance(ctx, kimiClient)
 		logStartupKimiModels(ctx, kimiClient, defaultModel)
+	case provider.Gemini:
+		// internal/gemini speaks only POST /v1beta/interactions — no balance
+		// or models-list endpoint this client calls, so there is nothing to
+		// check at startup the way the other two providers are checked
+		// (docs/GEMINI-INTEGRATION.md §2).
+		log.Printf("harness serve: default model %q has no balance or live model-list endpoint in this client; startup checks are skipped for it", defaultModel)
 	default:
 		logStartupBalance(ctx, deepSeekClient)
 		logStartupModels(ctx, deepSeekClient, defaultModel, defaultFlashModel)
@@ -202,7 +215,7 @@ func runServe(ctx context.Context, args []string) error {
 		ClientFor:   clientFor,
 		Recorder:    rec,
 		Prices:      priceTable,
-		Gemini:      withGeminiHTTPLog(cfg, rec, googleAPIKeyProvider(res)),
+		Gemini:      geminiClient,
 		GeminiModel: googleVisionModelProvider(res),
 		Hub:         eventHub,
 		Settings:    res,
@@ -276,7 +289,7 @@ func runServe(ctx context.Context, args []string) error {
 		Store:     st,
 		OnChange:  eventHub.PublishEvalChanged,
 		NewJudge: func(model string) (*evals.Judge, error) {
-			return newJudge(ctx, res, model, deepSeekClient, kimiClient)
+			return newJudge(ctx, res, model, deepSeekClient, kimiClient, geminiClient)
 		},
 	}
 
@@ -335,13 +348,15 @@ func runServe(ctx context.Context, args []string) error {
 // newJudge builds the judge for one eval run: the model is the one the run
 // names, or model.judge when it names none, and the client is resolved
 // through the same model→provider table the runner uses (internal/provider,
-// docs/KIMI-INTEGRATION.md §4.3) — so a kimi-k3 judge speaks to the Kimi
-// client and a deepseek-v4-pro judge to the DeepSeek one. An unknown judge
-// model is an error here rather than a fallback, unlike clientForModel's
-// DeepSeek default: a judge that silently scored with the wrong provider's
-// account — or silently vanished from the eval — would cost money and say
-// nothing about the run.
-func newJudge(ctx context.Context, res *settings.Resolver, model string, deepSeekClient *deepseek.Client, kimiClient *kimi.Client) (*evals.Judge, error) {
+// docs/KIMI-INTEGRATION.md §4.3, docs/GEMINI-INTEGRATION.md §7 Phase 5) — so
+// a kimi-k3 judge speaks to the Kimi client, a gemini-3.7-flash judge to the
+// Gemini one (its CreateChatCompletion is all evals.Client needs), and a
+// deepseek-v4-pro judge to the DeepSeek one. An unknown judge model is an
+// error here rather than a fallback, unlike clientForModel's DeepSeek
+// default: a judge that silently scored with the wrong provider's account —
+// or silently vanished from the eval — would cost money and say nothing
+// about the run.
+func newJudge(ctx context.Context, res *settings.Resolver, model string, deepSeekClient *deepseek.Client, kimiClient *kimi.Client, geminiClient *gemini.Client) (*evals.Judge, error) {
 	if model == "" {
 		resolved, err := res.String(ctx, settings.KeyJudgeModel)
 		if err != nil {
@@ -354,8 +369,11 @@ func newJudge(ctx context.Context, res *settings.Resolver, model string, deepSee
 		return nil, fmt.Errorf("evals: judge model: %w", err)
 	}
 	var client evals.Client = deepSeekClient
-	if p == provider.Kimi {
+	switch p {
+	case provider.Kimi:
 		client = kimiClient
+	case provider.Gemini:
+		client = geminiClient
 	}
 	return &evals.Judge{Client: client, Model: model}, nil
 }

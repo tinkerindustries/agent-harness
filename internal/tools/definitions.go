@@ -259,12 +259,20 @@ var definitionsDeepSeek = []wire.Tool{
 	}`),
 }
 
-// definitionsKimi is Kimi K3's array: DeepSeek's twenty minus the six
-// tools that exist only because DeepSeek cannot see images. Building it by
-// subtraction states that relationship and cannot drift from it — if a tool
-// is added to DeepSeek's array, Kimi's changes the same way unless it is
-// named here. The result is pinned by its own golden file like DeepSeek's.
-var definitionsKimi = without(definitionsDeepSeek, "Screenshot", "Glance", "Ground", "Detect", "Transcribe", "Crop")
+// definitionsVisionCapable is the array shared by every provider whose
+// model reads images natively: DeepSeek's twenty minus the six tools that
+// exist only because DeepSeek cannot see images. Kimi K3 was the first
+// (docs/KIMI-INTEGRATION.md §4.5) and Gemini is the second
+// (docs/GEMINI-INTEGRATION.md §5.7) — both drop the identical six, so both
+// resolve to this one array rather than two byte-identical copies of it.
+// Building it by subtraction states the DeepSeek relationship and cannot
+// drift from it — if a tool is added to DeepSeek's array, this one changes
+// the same way unless it is named here. The result is pinned by its own
+// golden file like DeepSeek's (tools_kimi.golden.json — kept under Kimi's
+// name since it was captured for Kimi first and the bytes are identical for
+// Gemini; TestToolArrayGolden's gemini case reads the same file rather than
+// a duplicate).
+var definitionsVisionCapable = without(definitionsDeepSeek, "Screenshot", "Glance", "Ground", "Detect", "Transcribe", "Crop")
 
 // without returns tools minus every entry whose name is in drop. Callers
 // must not mutate the result.
@@ -321,11 +329,14 @@ func DefinitionsFor(model string) []wire.Tool {
 }
 
 // DefinitionsForProvider returns the frozen tool array for one provider.
-// Callers must not mutate the result.
+// Kimi and Gemini both resolve to definitionsVisionCapable — the same
+// array, not two copies of it, because both drop the identical six
+// DeepSeek-only vision tools (docs/GEMINI-INTEGRATION.md §5.7). Callers
+// must not mutate the result.
 func DefinitionsForProvider(p provider.Name) []wire.Tool {
 	switch p {
-	case provider.Kimi:
-		return definitionsKimi
+	case provider.Kimi, provider.Gemini:
+		return definitionsVisionCapable
 	default:
 		return definitionsDeepSeek
 	}

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
+	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
 	"github.com/mrgeoffrich/deepseek-harness/internal/kimi"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
@@ -85,9 +86,14 @@ var judgeTranscript = []store.Event{
 }
 
 // newJudgeEndpoints builds a DeepSeek fake and a Kimi fake, each a fresh
-// httptest server with its own counters, and clients pointed at them. The
-// caller closes both servers.
-func newJudgeEndpoints(t *testing.T) (deepSeekEP, kimiEP *fakeCompletionEndpoint, deepSeekClient *deepseek.Client, kimiClient *kimi.Client) {
+// httptest server with its own counters, and clients pointed at them, plus a
+// Gemini client with no fake behind it. The caller closes both servers.
+// Nothing here exercises the Gemini client over HTTP — its request and
+// response shapes are POST /v1beta/interactions, not
+// fakeCompletionEndpoint's OpenAI-format /chat/completions, so
+// TestNewJudgeRoutesByModel's Gemini case only pins which client newJudge
+// selects, not a round trip through it.
+func newJudgeEndpoints(t *testing.T) (deepSeekEP, kimiEP *fakeCompletionEndpoint, deepSeekClient *deepseek.Client, kimiClient *kimi.Client, geminiClient *gemini.Client) {
 	t.Helper()
 	deepSeekEP = &fakeCompletionEndpoint{}
 	kimiEP = &fakeCompletionEndpoint{}
@@ -95,7 +101,7 @@ func newJudgeEndpoints(t *testing.T) (deepSeekEP, kimiEP *fakeCompletionEndpoint
 	t.Cleanup(deepSeekSrv.Close)
 	kimiSrv := httptest.NewServer(kimiEP.handler(t))
 	t.Cleanup(kimiSrv.Close)
-	return deepSeekEP, kimiEP, deepseek.NewClient(deepSeekSrv.URL, "sk-test"), kimi.NewClient(kimiSrv.URL, "sk-test")
+	return deepSeekEP, kimiEP, deepseek.NewClient(deepSeekSrv.URL, "sk-test"), kimi.NewClient(kimiSrv.URL, "sk-test"), gemini.NewClient(gemini.DefaultBaseURL)
 }
 
 // TestNewJudgeRoutesByModel pins that the judge's client is resolved through
@@ -115,8 +121,8 @@ func TestNewJudgeRoutesByModel(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.model, func(t *testing.T) {
-			deepSeekEP, kimiEP, deepSeekClient, kimiClient := newJudgeEndpoints(t)
-			judge, err := newJudge(ctx, res, tc.model, deepSeekClient, kimiClient)
+			deepSeekEP, kimiEP, deepSeekClient, kimiClient, geminiClient := newJudgeEndpoints(t)
+			judge, err := newJudge(ctx, res, tc.model, deepSeekClient, kimiClient, geminiClient)
 			if err != nil {
 				t.Fatalf("newJudge(%q): %v", tc.model, err)
 			}
@@ -144,6 +150,31 @@ func TestNewJudgeRoutesByModel(t *testing.T) {
 	}
 }
 
+// TestNewJudgeRoutesGeminiModel pins the Gemini case of the same routing
+// table, separately from TestNewJudgeRoutesByModel above: internal/gemini's
+// request and response shapes are POST /v1beta/interactions, not
+// fakeCompletionEndpoint's OpenAI-format /chat/completions, so there is no
+// fake to score a real verdict through here. What matters — that a
+// gemini-3.7-flash judge gets the Gemini client rather than silently falling
+// back to DeepSeek's, the regression newJudge's own doc comment warns about —
+// is provable by identity alone.
+func TestNewJudgeRoutesGeminiModel(t *testing.T) {
+	res := settings.NewResolver(&judgeFakeStore{values: map[string]string{}})
+	ctx := context.Background()
+	_, _, deepSeekClient, kimiClient, geminiClient := newJudgeEndpoints(t)
+
+	judge, err := newJudge(ctx, res, "gemini-3.7-flash", deepSeekClient, kimiClient, geminiClient)
+	if err != nil {
+		t.Fatalf("newJudge(gemini-3.7-flash): %v", err)
+	}
+	if judge.Model != "gemini-3.7-flash" {
+		t.Fatalf("judge.Model = %q, want gemini-3.7-flash", judge.Model)
+	}
+	if judge.Client != geminiClient {
+		t.Errorf("judge.Client is not the Gemini client passed to newJudge")
+	}
+}
+
 // TestNewJudgeResolvesJudgeModelSetting pins the default and the override: an
 // eval that names no judge model gets model.judge — kimi-k3 when the setting
 // is unset, the stored value when it is — and the resolved model's client is
@@ -152,9 +183,9 @@ func TestNewJudgeResolvesJudgeModelSetting(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("unset resolves to kimi-k3", func(t *testing.T) {
-		deepSeekEP, kimiEP, deepSeekClient, kimiClient := newJudgeEndpoints(t)
+		deepSeekEP, kimiEP, deepSeekClient, kimiClient, geminiClient := newJudgeEndpoints(t)
 		res := settings.NewResolver(&judgeFakeStore{values: map[string]string{}})
-		judge, err := newJudge(ctx, res, "", deepSeekClient, kimiClient)
+		judge, err := newJudge(ctx, res, "", deepSeekClient, kimiClient, geminiClient)
 		if err != nil {
 			t.Fatalf("newJudge: %v", err)
 		}
@@ -173,11 +204,11 @@ func TestNewJudgeResolvesJudgeModelSetting(t *testing.T) {
 	})
 
 	t.Run("stored override wins", func(t *testing.T) {
-		deepSeekEP, kimiEP, deepSeekClient, kimiClient := newJudgeEndpoints(t)
+		deepSeekEP, kimiEP, deepSeekClient, kimiClient, geminiClient := newJudgeEndpoints(t)
 		res := settings.NewResolver(&judgeFakeStore{values: map[string]string{
 			settings.KeyJudgeModel: "deepseek-v4-flash",
 		}})
-		judge, err := newJudge(ctx, res, "", deepSeekClient, kimiClient)
+		judge, err := newJudge(ctx, res, "", deepSeekClient, kimiClient, geminiClient)
 		if err != nil {
 			t.Fatalf("newJudge: %v", err)
 		}
@@ -209,7 +240,7 @@ func TestNewJudgeRejectsUnknownModel(t *testing.T) {
 	res := settings.NewResolver(&judgeFakeStore{values: map[string]string{}})
 	ctx := context.Background()
 	_, err := newJudge(ctx, res, "no-such-model",
-		deepseek.NewClient(deepSeekSrv.URL, "sk-test"), kimi.NewClient(kimiSrv.URL, "sk-test"))
+		deepseek.NewClient(deepSeekSrv.URL, "sk-test"), kimi.NewClient(kimiSrv.URL, "sk-test"), gemini.NewClient(gemini.DefaultBaseURL))
 	if err == nil {
 		t.Fatal("newJudge(no-such-model) succeeded, want an error")
 	}

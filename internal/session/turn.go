@@ -249,7 +249,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	// wall time the run waited on the API.
 	streamStart := time.Now()
 	live := newLiveSink(r.Hub, sess.ID, subTurn)
-	reasoning, content, assembler, finishReason, usage, err := r.stream(httplog.WithSessionID(ctx, sess.ID), sess.Model, opts.Tools, messages, opts.Effort, opts.Thinking, opts.MaxTokens, live)
+	reasoning, content, assembler, finishReason, usage, signature, err := r.stream(httplog.WithSessionID(ctx, sess.ID), sess.Model, opts.Tools, messages, opts.Effort, opts.Thinking, opts.MaxTokens, live)
 	if err != nil {
 		return subTurnOutcome{}, fmt.Errorf("session: sub-turn %d: %w", subTurn, err)
 	}
@@ -266,7 +266,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	var starved *wire.Usage
 	if r.clientFor(sess.Model).IsReasoningStarved(finishReason, content) && len(assembler.Finalize()) == 0 {
 		starved = usage
-		reasoning, content, assembler, finishReason, usage, err = r.stream(ctx, sess.Model, opts.Tools, messages, opts.Effort, opts.Thinking, opts.MaxTokens*2, live)
+		reasoning, content, assembler, finishReason, usage, signature, err = r.stream(ctx, sess.Model, opts.Tools, messages, opts.Effort, opts.Thinking, opts.MaxTokens*2, live)
 		if err != nil {
 			return subTurnOutcome{}, fmt.Errorf("session: sub-turn %d retry: %w", subTurn, err)
 		}
@@ -302,8 +302,16 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 		inputs = append(inputs, store.EventInput{Kind: store.KindUsage,
 			Payload: r.buildUsagePayload(sess.Model, starved, nil, nil, subTurn, 1, streamStart)})
 	}
-	if reasoning != "" {
-		inputs = append(inputs, store.EventInput{Kind: store.KindReasoningDelta, Payload: store.ReasoningDeltaPayload{Text: reasoning}})
+	// A Gemini thought step's signature is always present even when the step
+	// carries no summary at all (docs/GEMINI-INTEGRATION.md §5.2), so this
+	// commits whenever either is non-empty — never gated on reasoning alone,
+	// or the common signature-with-no-summary sub-turn would lose its
+	// signature and a resumed session would replay history with the thought
+	// step missing.
+	if reasoning != "" || signature != "" {
+		inputs = append(inputs, store.EventInput{Kind: store.KindReasoningDelta, Payload: store.ReasoningDeltaPayload{
+			Text: reasoning, ThoughtSignature: signature,
+		}})
 	}
 	if content != "" {
 		inputs = append(inputs, store.EventInput{Kind: store.KindContentDelta, Payload: store.ContentDeltaPayload{Text: content}})
@@ -510,7 +518,7 @@ func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestMessa
 // stored on the row. A resumed session's array cannot drift even if a
 // server is enabled or disabled, or a variant redefined, while it runs.
 func (r *Runner) stream(ctx context.Context, model string, toolArray []wire.Tool, messages []wire.Message, effort string, thinking bool, maxTokens int, live *liveSink) (
-	reasoning, content string, assembler *wire.ToolCallAssembler, finishReason string, usage *wire.Usage, err error) {
+	reasoning, content string, assembler *wire.ToolCallAssembler, finishReason string, usage *wire.Usage, signature string, err error) {
 
 	intent := wire.ChatIntent{
 		Model:     model,
@@ -523,13 +531,13 @@ func (r *Runner) stream(ctx context.Context, model string, toolArray []wire.Tool
 
 	release, err := r.acquireModelSlot(ctx, model)
 	if err != nil {
-		return "", "", nil, "", nil, err
+		return "", "", nil, "", nil, "", err
 	}
 	defer release()
 
 	events, err := r.clientFor(model).StreamChatCompletion(ctx, intent)
 	if err != nil {
-		return "", "", nil, "", nil, err
+		return "", "", nil, "", nil, "", err
 	}
 
 	var reasoningBuf, contentBuf strings.Builder
@@ -551,6 +559,15 @@ func (r *Runner) stream(ctx context.Context, model string, toolArray []wire.Tool
 			live.add(hub.ChannelContent, ev.Content)
 		case wire.EventToolCallDelta:
 			assembler.Add(ev.ToolCall)
+		case wire.EventThoughtSignatureDelta:
+			// One complete value, not a fragment to accumulate (wire/stream.go's
+			// own doc comment on this event type) — assignment, never
+			// WriteString. Observed at most once per sub-turn (one thought step
+			// per turn, docs/OBSERVED.md), so overwriting is never lossy in
+			// practice; it is still the right rule if that ever changed, since
+			// only the step nearest step.stop is the one requestFromIntent must
+			// replay.
+			signature = ev.ThoughtSignature
 		case wire.EventFinish:
 			finishReason = ev.FinishReason
 		case wire.EventUsage:
@@ -560,9 +577,9 @@ func (r *Runner) stream(ctx context.Context, model string, toolArray []wire.Tool
 		}
 	}
 	if streamErr != nil {
-		return "", "", nil, "", nil, streamErr
+		return "", "", nil, "", nil, "", streamErr
 	}
-	return reasoningBuf.String(), contentBuf.String(), assembler, finishReason, usage, nil
+	return reasoningBuf.String(), contentBuf.String(), assembler, finishReason, usage, signature, nil
 }
 
 // emitDueReminder appends a reminder when the run's policy says the context
