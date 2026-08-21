@@ -84,13 +84,15 @@ The agent loop: sub-turn iteration, the system prompt, tool dispatch, ordering
 of tool results, compaction, and resume. The widest dependency set in the repo,
 deliberately — this is where everything meets. Its reach to the model API is
 through a declared seam rather than an import: `Client`, a narrow interface
-declared here and implemented by `internal/deepseek`, which turns the loop's
-`wire.ChatIntent` into DeepSeek's request shape and owns DeepSeek's usage
-mapping and response quirks — the same shape `RunPublisher` and `RunController`
-take, with cmd/harness choosing the implementation when it builds the Runner
-(docs/KIMI-INTEGRATION.md §4.1). Owns the session row's lifecycle around the
-worker's preparation window: `Create` inserts it as `creating` before the
-workspace is built, `FailSetup` moves it to `failed` with an error event when
+declared here and implemented by `internal/deepseek`, `internal/kimi`, and
+`internal/gemini`, each of which turns the loop's `wire.ChatIntent` into its
+own provider's request shape and owns that provider's usage mapping and
+response quirks — the same shape `RunPublisher` and `RunController` take,
+with cmd/harness choosing the implementation when it builds the Runner
+(docs/KIMI-INTEGRATION.md §4.1, docs/GEMINI-INTEGRATION.md §5.1). Owns the
+session row's lifecycle around the worker's preparation window: `Create`
+inserts it as `creating` before the workspace is built, `FailSetup` moves it
+to `failed` with an error event when
 preparation fails, and `Run` promotes a pre-created row to `running` (or
 inserts when there is none). Consumed by `internal/worker` and by the
 CLI's `run` and `resume`. §4.5, §4.6. `Runner`'s five jobs split by file, all
@@ -252,10 +254,12 @@ text; this package owns the edits to it. [../docs/EVALS.md](../docs/EVALS.md).
 The one model→provider table (docs/KIMI-INTEGRATION.md §4.3): `ModelFor`
 maps a model name to the provider serving it, with no default — an unknown
 model is an error, so request validation rejects it loudly instead of
-silently routing to a provider. Both entries point at DeepSeek today;
-`kimi-k3` is the next. It is a package of its own so that cmd/harness
-(client construction) and `internal/queue` (request validation) can both
-reach it without importing the agent loop. Depends on: nothing internal.
+silently routing to a provider. Three providers today: DeepSeek
+(`deepseek-v4-pro`, `deepseek-v4-flash`), Kimi (`kimi-k3`), and Gemini
+(`gemini-3.7-flash`, docs/GEMINI-INTEGRATION.md §7 Phase 5). It is a package
+of its own so that cmd/harness (client construction) and `internal/queue`
+(request validation) can both reach it without importing the agent loop.
+Depends on: nothing internal.
 
 ### `internal/evals`
 Measures a prompt change. Publishes a suite of tasks under two or more prompt

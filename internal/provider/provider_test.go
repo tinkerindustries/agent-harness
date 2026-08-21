@@ -10,6 +10,7 @@ func TestModelForResolvesKnownModels(t *testing.T) {
 		{"deepseek-v4-pro", DeepSeek},
 		{"deepseek-v4-flash", DeepSeek},
 		{"kimi-k3", Kimi},
+		{"gemini-3.7-flash", Gemini},
 	}
 	for _, tc := range cases {
 		p, err := ModelFor(tc.model)
@@ -36,6 +37,9 @@ func TestModelForRejectsUnknownModel(t *testing.T) {
 	}
 	if !Known("kimi-k3") {
 		t.Error("Known(kimi-k3) = false, want true")
+	}
+	if !Known("gemini-3.7-flash") {
+		t.Error("Known(gemini-3.7-flash) = false, want true")
 	}
 	if Known("gpt-4") {
 		t.Error("Known(gpt-4) = true, want false")

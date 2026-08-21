@@ -84,9 +84,12 @@ func runResume(ctx context.Context, args []string) error {
 	}
 
 	// A resumed session speaks to the provider its model belongs to, the
-	// same per-model resolver serve and run use (clientForModel).
+	// same per-model resolver serve and run use (clientForModel). geminiClient
+	// is shared between that routing and the Runner's own Gemini field below —
+	// one client for both the vision tools and a Gemini coding session.
 	deepSeekClient := withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(settingsRes))
 	kimiClient := withKimiHTTPLog(cfg, rec, kimiAPIKeyProvider(settingsRes))
+	geminiClient := withGeminiHTTPLog(cfg, rec, googleAPIKeyProvider(settingsRes))
 
 	// harness resume reads the same session-level MCP tool_schema the run
 	// stored (internal/session/resume.go), but Resume still calls
@@ -96,13 +99,15 @@ func runResume(ctx context.Context, args []string) error {
 	defer mcpMgr.Close()
 
 	r := &session.Runner{
-		Store:       st,
-		Mirror:      store.NewMirror(cfg.DataDir),
-		Client:      deepSeekClient,
-		ClientFor:   func(model string) session.Client { return clientForModel(model, deepSeekClient, kimiClient) },
+		Store:  st,
+		Mirror: store.NewMirror(cfg.DataDir),
+		Client: deepSeekClient,
+		ClientFor: func(model string) session.Client {
+			return clientForModel(model, deepSeekClient, kimiClient, geminiClient)
+		},
 		Recorder:    rec,
 		Prices:      priceTable,
-		Gemini:      withGeminiHTTPLog(cfg, rec, googleAPIKeyProvider(settingsRes)),
+		Gemini:      geminiClient,
 		GeminiModel: googleVisionModelProvider(settingsRes),
 		Settings:    settingsRes,
 		MCP:         mcpMgr,

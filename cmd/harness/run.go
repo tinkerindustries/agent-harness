@@ -155,9 +155,12 @@ func runRun(ctx context.Context, args []string) error {
 	}
 
 	// The Runner serves whichever provider resolvedModel belongs to, via the
-	// same per-model resolver serve uses (clientForModel).
+	// same per-model resolver serve uses (clientForModel). geminiClient is
+	// shared between that routing and the Runner's own Gemini field below —
+	// one client for both the vision tools and a Gemini coding session.
 	deepSeekClient := withHTTPLog(cfg, rec, deepSeekAPIKeyProvider(res))
 	kimiClient := withKimiHTTPLog(cfg, rec, kimiAPIKeyProvider(res))
+	geminiClient := withGeminiHTTPLog(cfg, rec, googleAPIKeyProvider(res))
 
 	// harness run gets the same MCP tools a queue-driven run does: its own
 	// Manager over this process's store, closed when the command exits
@@ -166,13 +169,15 @@ func runRun(ctx context.Context, args []string) error {
 	defer mcpMgr.Close()
 
 	r := &session.Runner{
-		Store:       st,
-		Mirror:      store.NewMirror(cfg.DataDir),
-		Client:      deepSeekClient,
-		ClientFor:   func(model string) session.Client { return clientForModel(model, deepSeekClient, kimiClient) },
+		Store:  st,
+		Mirror: store.NewMirror(cfg.DataDir),
+		Client: deepSeekClient,
+		ClientFor: func(model string) session.Client {
+			return clientForModel(model, deepSeekClient, kimiClient, geminiClient)
+		},
 		Recorder:    rec,
 		Prices:      priceTable,
-		Gemini:      withGeminiHTTPLog(cfg, rec, googleAPIKeyProvider(res)),
+		Gemini:      geminiClient,
 		GeminiModel: googleVisionModelProvider(res),
 		Settings:    res,
 		MCP:         mcpMgr,

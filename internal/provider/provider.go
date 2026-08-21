@@ -3,8 +3,9 @@
 // construction (cmd/harness) and request validation (internal/queue) reach
 // it without importing the agent loop, which is why it is a package of its
 // own rather than a helper inside internal/session or internal/deepseek.
-// DeepSeek is the default provider; Kimi K3 is the second entry
-// (docs/KIMI-INTEGRATION.md §5).
+// DeepSeek is the default provider; Kimi K3 was the second entry
+// (docs/KIMI-INTEGRATION.md §5), and Gemini the third
+// (docs/GEMINI-INTEGRATION.md §7 Phase 5).
 package provider
 
 import (
@@ -22,6 +23,12 @@ const (
 	DeepSeek Name = "deepseek"
 	// Kimi is Moonshot AI's platform, serving kimi-k3 (third_party/kimi-docs/).
 	Kimi Name = "kimi"
+	// Gemini is Google's Gemini API, serving gemini-3.7-flash through the
+	// Interactions surface (docs/GEMINI-INTEGRATION.md). internal/gemini also
+	// serves the vision tools (Glance, Ground, Detect) on this same provider,
+	// but that path is called directly (session.Runner.Gemini) rather than
+	// through this table — this entry is only for the agentic coding seam.
+	Gemini Name = "gemini"
 )
 
 // models is the one model→provider table. The names are exactly what
@@ -32,6 +39,7 @@ var models = map[string]Name{
 	"deepseek-v4-pro":   DeepSeek,
 	"deepseek-v4-flash": DeepSeek,
 	"kimi-k3":           Kimi,
+	"gemini-3.7-flash":  Gemini,
 }
 
 // ModelFor returns the provider that serves model. The table has no
