@@ -386,3 +386,317 @@ not decision-changing. Effort changes mid-session and their effect on the cache.
 Long-context behaviour near the 768K compaction threshold. Keep-alive frames
 under real queueing, which cannot be provoked on demand. Whether the reasoning
 round-trip requirement returns on a later server build.
+
+## Gemini 3.7 Flash — Interactions API
+
+Measured against the live API on 2026-08-21: `POST
+https://generativelanguage.googleapis.com/v1beta/interactions`, model
+`gemini-3.7-flash`, `store: false` throughout (the stateless-replay decision
+[GEMINI-INTEGRATION.md](GEMINI-INTEGRATION.md) §5.3 makes), `thinking_level:
+"low"` except where noted. This section resolves that plan's §6 "Open" list.
+Where a finding contradicts it, said so explicitly — GEMINI-INTEGRATION.md's
+own header states this file wins where they disagree.
+
+Raw request/response captures live under `internal/gemini/testdata/` as
+`.sse` fixtures for Phase 4; each subsection below names the one it produced.
+
+### `tool_choice` is nested in `generation_config`, not top-level
+
+An earlier draft of this section concluded `tool_choice` "does not exist on
+this surface". It does; it was being sent in the wrong place. Re-measured
+2026-08-21, all seven shapes:
+
+| request | result |
+| --- | --- |
+| top-level `"tool_choice": "auto"` | `400 {"error":{"message":"Unknown parameter 'tool_choice'.","code":"invalid_request"}}` |
+| `generation_config.tool_choice: "auto"` | 200, steps `[thought, function_call]` |
+| `generation_config.tool_choice: "any"` | 200, steps `[thought, function_call]` |
+| `generation_config.tool_choice: "none"` | 200, steps `[thought, model_output]` — call suppressed |
+| `generation_config.tool_choice: "validated"` | 200, steps `[thought, function_call]` |
+| `generation_config.tool_choice: {"allowed_tools":{"mode":"any","tools":["get_weather"]}}` | 200, steps `[thought, function_call]` |
+| any of the above with header `Api-Revision: 2026-05-20` | 200, no observable difference |
+
+The top-level 400 is real and is what misled the first pass — it is the API
+correctly rejecting a misplaced field, not the absence of a feature. Both the
+prose docs ("Control how the model uses tools using `tool_choice` in
+`generation_config`",
+`third_party/gemini-docs/interactions/function-calling.md`) and
+`openapi.json`, where `tool_choice` is a property of `GenerationConfig`, agree
+with the measurement.
+
+`"none"` genuinely suppresses the call rather than merely discouraging it,
+which makes it usable as a hard off-switch.
+
+This corrects GEMINI-INTEGRATION.md §3's table and §5.3's example body, which
+showed the field at the top level. The harness still has no reason to *send*
+it — `auto` is the default and is what the agent loop wants — so the practical
+rule is unchanged from DeepSeek's: omit it.
+
+### Thought signatures — the load-bearing findings
+
+**Happy path, confirmed end to end.** Capture the signature from turn 1,
+replay it verbatim in turn 2 alongside the `function_call` and
+`function_result` steps: 200, coherent answer, every time this was tried.
+
+Where the signature appears:
+
+- **Streamed:** as its own `step.delta` frame on the `thought` step, between
+  that step's `step.start` and `step.stop`:
+  ```
+  event: step.delta
+  data: {"index":0,"delta":{"signature":"...","type":"thought_signature"},"event_type":"step.delta"}
+  ```
+  Matches GEMINI-INTEGRATION.md §5.2 exactly.
+- **Unary (`stream: false`):** the signature sits directly on the step
+  object in the response's `steps` array, not nested in a delta:
+  `{"type":"thought","signature":"..."}`. That is also exactly the shape a
+  replayed request expects back in `input` — the wire shape the API emits
+  unary is the wire shape it wants replayed.
+
+**Omitting it — the most important measurement in the phase.** Always a 400.
+The exact wording depends on what's wrong:
+
+| What's missing from the `thought` step | HTTP status | Message |
+| --- | --- | --- |
+| Step dropped from `input` entirely | 400 | `Request contains an invalid argument.` |
+| Present, `signature: ""` | 400 | `Request contains an invalid argument.` |
+| Present, `signature` field absent | 400 | `Request contains an invalid argument.` |
+| Present, signature replaced with unrelated garbage text | 400 | `Corrupted thought signature.` |
+
+**The error body itself is a finding.** All four of these arrive
+**SSE-framed**, not as the plain `{"error":{...}}` JSON envelope
+`internal/gemini/client.go`'s `parseAPIError` expects:
+
+```
+event: error
+data: {"error":{"message":"Corrupted thought signature.","code":"invalid_request"},"event_type":"error"}
+```
+
+— even though the HTTP status code is a plain 400. Compare the `tool_choice`
+rejection above, which *is* plain JSON with no SSE framing: that one is caught
+by pre-flight request validation, before a stream starts; a bad thought
+signature is only caught once generation begins, so the error surfaces
+inside the stream that was already opened. `parseAPIError` as it exists today
+will not parse this — `json.Unmarshal` fails on the `event: error\ndata: ` line
+and it falls into the raw-body fallback, so the operator sees `unexpected
+status 400: event: error\ndata: {...}` instead of the actual message. Phase 4's
+client must check for an SSE-framed error before, or instead of, the
+plain-JSON path. Fixture: `internal/gemini/testdata/stream-error-corrupted-signature.sse`.
+
+**Both documented bypass values work.** Replacing the real signature with
+either string, independently:
+
+| Bypass value | Result |
+| --- | --- |
+| `context_engineering_is_the_way_to_go` | 200, valid answer |
+| `skip_thought_signature_validator` | 200, valid answer |
+
+This settles GEMINI-INTEGRATION.md §5.2's sharp edge: **compaction can work for
+Gemini sessions.** A compacted history's synthetic thought step can carry
+either bypass string as its `signature`, and the API accepts it and answers
+normally. Both bypass calls reported `total_thought_tokens: 0`, versus a
+nonzero count on every real thought step measured elsewhere — consistent with
+the model accepting the placeholder rather than trying to reconstruct
+anything from it.
+
+**The parallel-call signature rule holds.** One prompt provoking three
+`get_weather` calls produced exactly one `thought` step (index 0, carrying
+the signature) followed by three `function_call` steps (indices 1–3), none of
+which carried a signature of their own. Replaying that single thought
+signature plus all three function_calls and function_results round-tripped
+successfully (200, correct three-city answer). Signature is per-turn, not
+per-call, on this surface — GEMINI-INTEGRATION.md §5.2's "documented for the
+legacy surface, unverified here" note is now verified. Fixture:
+`stream-parallel-calls.sse`.
+
+### Full `function_call` → `function_result` round trip
+
+Confirmed shape end to end, two requests, `store: false`, manual replay. The
+`function_result` step:
+
+```json
+{
+  "type": "function_result",
+  "name": "get_weather",
+  "call_id": "call_3554686",
+  "result": [{"type": "text", "text": "Sunny, 18C, light breeze."}]
+}
+```
+
+matches GEMINI-INTEGRATION.md §3 exactly — `name`, `call_id`, and `result` as
+an array of typed content blocks. The `function_call` step it replays:
+
+```json
+{"type": "function_call", "id": "call_3554686", "name": "get_weather", "arguments": {"location": "Hobart, Tasmania"}}
+```
+
+`arguments` is a genuine JSON object on the wire (both directions), confirming
+§3's table entry.
+
+`interaction.id` is the empty string `""` throughout, on both
+`interaction.created` and `interaction.completed`, whenever `store: false` —
+never populated. `previous_interaction_id` was not needed and not attempted;
+full manual replay works without it. Fixtures:
+`stream-tools-function-call.sse` (turn 1: thought+signature, one
+function_call), `stream-thought-signature-replay.sse` (turn 2: replayed
+thought+signature followed by the final `model_output` text).
+
+### `arguments_delta` never fragmented — contradicts the streaming guide's wording
+
+GEMINI-INTEGRATION.md §5.4 quotes the streaming guide: "You must accumulate
+these deltas to get the full arguments," which reads as multi-frame
+fragmentation the way OpenAI-format `tool_calls` deltas are confirmed to
+fragment above. Not observed here, at any size tried:
+
+| Call | Arguments size | `arguments_delta` frames |
+| --- | --- | --- |
+| `get_weather({"location":"Hobart, Tasmania"})` | 33 bytes | 1 |
+| Three parallel `get_weather` calls | 33–35 bytes each | 1 each |
+| `save_document` essay | ~48.5 KB body | 1 |
+| `save_document` longer essay | ~69.4 KB body | 1 |
+
+Six function calls across five different requests, 33 bytes to 69 KB, every
+one delivered as exactly one `arguments_delta` frame carrying the complete,
+valid JSON string.
+
+This does not make `wire.ToolCallAssembler` the wrong tool: its `Add` folds
+whatever arrives by index and one frame is just the degenerate case of
+"several," so it stays correct either way and should still be reused. What it
+does mean is the plan's implied justification — that something is needed to
+reassemble fragments *because* they always fragment — doesn't hold for
+`gemini-3.7-flash` on this endpoint, at least up to 69 KB. Whether a
+larger-still generation ever splits across frames is untested; treat the
+assembler as defensive plumbing here, not confirmed-necessary plumbing.
+
+### `IsReasoningStarved` and `RepairArguments` — no work found to do
+
+Zero malformed-JSON arguments across all 6 calls measured, up to 69 KB. No
+`generation_config` field for capping total output tokens was found — only
+`thinking_level` exists on it — so there is no lever available in this phase
+to provoke a DeepSeek-style "reasoning consumed the whole budget, content is
+empty" failure, and no sign one exists to hit. Every call here, including the
+1,000,011-input-token request below, returned normally with `status:
+"completed"`.
+
+Consistent with GEMINI-INTEGRATION.md §5.1's expectation that both should be
+trivial (`false` / no-repair) — but this is an absence-of-evidence result, not
+a proof. Recorded as "no work found," not "no work exists."
+
+### `status` is always `"completed"`, never `"requires_action"`
+
+Contradicts GEMINI-INTEGRATION.md §3's table, which lists Gemini's `status` —
+`completed`, `requires_action`, … — as the analogue of `finish_reason`. Every
+measurement in this phase, including turns that ended on a pending
+`function_call` step with no `function_result` yet supplied, reported
+`status: "completed"` on the completed frame. The signal that a tool call is
+pending is the presence of a `function_call`-typed step in the response, not
+the status field. A Gemini client has to scan returned steps for an
+unanswered `function_call` rather than branch on `status`.
+
+### Context window: at least 1,000,011 input tokens, ceiling still unknown
+
+A single request of roughly 4.5M characters of filler text plus a one-line
+question was accepted and answered normally:
+
+```json
+"usage": {"total_tokens":1000337,"total_input_tokens":1000011,"total_output_tokens":3,"total_thought_tokens":323, "..."}
+```
+
+This only establishes a lower bound. Finding the actual ceiling means sending
+requests large enough to be rejected, and the cost scales with how close you
+get — bisecting it was judged not worth the spend for this phase.
+`gemini-3.7-flash` accepts at least 1,000,011 input tokens; whether the true
+limit is exactly 1M or larger is still open. No output-length ceiling was
+found either, for the same reason as the section above: there is no
+token-capping request field to push against.
+
+### Image in a `function_result` — accepted and actually attended to
+
+A `function_result` whose `result` is
+`[{"type":"image","mime_type":"image/png","data":"<base64>"}]`, with no
+accompanying text block, is accepted (200), and the model correctly describes
+the image rather than ignoring it — tested with a solid-red 32×32 PNG, answer
+came back "solid **red** (RGB: #FF0000)". Confirms
+GEMINI-INTEGRATION.md §5.3's "function results are multimodal" claim and the
+concrete shape it names.
+
+Cost note, not decision-relevant to this phase: usage on that call broke out
+`input_tokens_by_modality` as `[{"modality":"image","tokens":1089}]` for a
+32×32 image — clearly a fixed per-image floor rather than anything
+proportional to pixel count at this size. An earlier attempt with a
+degenerate 1×1 pixel image got the model's colour guess wrong, suggesting it
+doesn't attend well to images that small; not investigated further.
+
+### The Go SDK still does not expose the Interactions API
+
+Checked `google.golang.org/genai`'s package documentation on pkg.go.dev
+directly, rather than relying on the README/example absence
+GEMINI-INTEGRATION.md §2 originally flagged as "medium confidence." Found
+exactly one export with "Interaction" in its name — `InteractionStatus`, a
+bare type with no accompanying service — and no `Interactions` client, no
+`CreateInteraction` or equivalent method, no path from the SDK to
+`/v1beta/interactions` at all. The plan's assumption is confirmed at higher
+confidence than a documentation absence: there is no Interactions-shaped
+surface anywhere in the SDK's exports, only a stray status enum. The
+hand-rolled-client decision (GEMINI-INTEGRATION.md §2) stands confirmed, not
+just presumed.
+
+### Smaller findings
+
+**A `thought` step always precedes the turn's action, even at
+`thinking_level: "low"`.** Every measurement here — tool call, plain answer,
+or bypass replay — began with exactly one `thought` step before whichever
+`function_call` or `model_output` step(s) followed. `thinking_level: "low"`
+shortens it, not removes it.
+
+**`interaction.status_update` fires once**, immediately after
+`interaction.created`, on every stream in this phase, including ones with
+tools. Confirms `internal/gemini/stream.go`'s existing comment that this
+undocumented frame is real, now also under tool use.
+
+## Implicit caching works under `store: false`, after a warm-up
+
+Measured 2026-08-21. An earlier draft of this section concluded the cache
+"never hit with `store: false`" and inferred caching was tied to
+`previous_interaction_id`. **That was wrong, and it was an artefact of prompt
+size** — every request in that first pass was a few hundred tokens, far below
+any cache floor. Re-measured with a prefix the size a real coding session
+carries, the cache hits hard:
+
+| request | `total_input_tokens` | `total_cached_tokens` | hit rate |
+| --- | --- | --- | --- |
+| 1 (cold) | 102,911 | 0 | 0% |
+| 2 (identical prefix) | 102,911 | 0 | 0% |
+| 3 (identical prefix) | 102,911 | 98,269 | 95.5% |
+
+A ~103K-token `system_instruction` held byte-identical, `store: false`, no
+`previous_interaction_id`, ~4s between requests, `thinking_level: "low"`.
+
+Two things matter here. **Stateless replay does not forfeit context caching** —
+which removes the main cost objection to GEMINI-INTEGRATION.md §5.3's
+stateless decision. The vendored docs say so directly: "Implicit caching is
+supported in both stateful and stateless modes"
+(`third_party/gemini-docs/interactions-overview.md`), with
+`previous_interaction_id` only making it easier to utilise, not a precondition.
+
+And **the cache warms asynchronously over more than one request.** Request 2
+was byte-identical to request 1 and still missed completely. Anything that
+measures Gemini cache behaviour — `CacheSlack` in Phase 8 above all — must
+discard the first two requests, or it will measure the warm-up and call it the
+steady state. This is unlike DeepSeek, where the second request of an
+identical prefix already hits.
+
+Not yet established: the minimum prefix size that caches at all (somewhere
+between "a few hundred tokens" and 103K), the TTL, and whether the warm-up is
+reliably two requests or merely was here.
+
+## Still untested — Gemini
+
+Whether `arguments_delta` ever fragments on a payload larger than ~69 KB.
+Whether the exact input-token ceiling sits at 1M or higher. Any output-token
+ceiling — no request field was found to probe for one. Whether
+`previous_interaction_id` changes any of the above (deliberately unused,
+per GEMINI-INTEGRATION.md §5.3). `CacheSlack`, deferred to Phase 9 by design.
+Whether a `function_result` can usefully mix multiple images, or an image
+alongside `thought_signature` replay noise from an *unrelated* turn. Pro
+variant behaviour — every measurement here used `gemini-3.7-flash` only.

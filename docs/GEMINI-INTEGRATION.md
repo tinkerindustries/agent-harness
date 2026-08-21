@@ -98,7 +98,7 @@ hand.
 | Reasoning replay | `reasoning_content` string | `thought` step carrying an opaque `signature` |
 | Streaming | `chat.completion.chunk` with `choices[].delta` | `step.start` / `step.delta` / `step.stop` framed as named SSE events |
 | Finish | `finish_reason` on a choice | interaction `status` (`completed`, `requires_action`, …) |
-| Tool choice | omitted deliberately | `tool_choice`: `auto` \| `any` \| `none` \| `validated` |
+| Tool choice | omitted deliberately | `generation_config.tool_choice`: `auto` \| `any` \| `none` \| `validated`, or an `allowed_tools` object. **Nested, not top-level** — sending it top-level is a 400 (`docs/OBSERVED.md`). Still omitted here. |
 
 Three differences are load-bearing and are the ones to get right.
 
@@ -261,10 +261,14 @@ finding worth having early rather than at phase eight. **Phase 2 must test it.**
   "tools": [
     {"type": "function", "name": "Read", "description": "...", "parameters": { /* JSON Schema */ }}
   ],
-  "tool_choice": "auto",
   "generation_config": {"thinking_level": "high"}
 }
 ```
+
+`tool_choice` is deliberately absent, as it is for DeepSeek: `auto` is the
+default and is what the agent loop wants. Note it belongs *inside*
+`generation_config` if it is ever needed — top-level is a 400, which cost
+Phase 2 a wrong conclusion before it was re-measured.
 
 **`store: false` is a deliberate choice**, and it costs something. The default
 is `store: true`, which retains interaction objects on Google's side (55 days
@@ -281,10 +285,21 @@ We should still choose stateless full replay, for three reasons:
 - Compaction rewrites history. There is no way to rewrite an interaction that
   lives on Google's servers.
 
-The cache efficiency lost here is real and should be measured in Phase 9, not
-hand-waved. If it is severe, `previous_interaction_id` as an *optimisation*
-with the log still authoritative is a possible follow-up — explicitly out of
-scope for this plan.
+**The cost of that choice turned out to be much smaller than feared.** Phase 2
+measured a 95.5% implicit cache hit (98,269 of 102,911 input tokens) on a
+stable ~103K-token prefix under `store: false` with no
+`previous_interaction_id`. Google's own wording agrees: "Implicit caching is
+supported in both stateful and stateless modes", with
+`previous_interaction_id` only making it "more easily" utilised. So stateless
+replay does not forfeit caching, and the main economic objection to this
+decision is answered.
+
+One operational caveat falls out of it: **the cache warms asynchronously over
+more than one request.** Request 2 of a byte-identical prefix still missed
+completely; only request 3 hit. Anything measuring Gemini cache behaviour —
+`CacheSlack` in Phase 8 especially — must discard the first two requests or it
+will measure the warm-up and report it as the steady state. DeepSeek hits on
+request 2, so this is a genuine behavioural difference, not a tuning detail.
 
 `effort` maps onto `generation_config.thinking_level`
 (`minimal` / `low` / `medium` / `high`), not onto `reasoning_effort`. The
@@ -378,22 +393,52 @@ builder.
 - Thought signatures are stored in the event log, not held in memory. A run
   that cannot be resumed is not a run this harness supports.
 
-### Open, and resolved by Phase 2 rather than by argument
+### Resolved by Phase 2's measurements
 
-- Whether the Go SDK really lacks Interactions support.
-- Whether omitting a `thought` signature in stateless mode is an error or a
-  degradation, and what the error looks like. The Interactions docs say only
-  that you must resend them.
-- Whether any bypass signature value works here, and therefore whether
-  compaction is possible for Gemini sessions. *(The parallel-function-call
-  question is closed: signatures never appear on standard function calls on
-  this surface — see §5.2.)*
-- Whether `arguments_delta` fragments are always parseable JSON when
-  concatenated, and whether `wire.ToolCallAssembler` can be reused as-is.
-- What `CacheSlack` should be.
-- Whether `IsReasoningStarved` and `RepairArguments` have any real work to do.
-- `gemini-3.7-flash`'s context and output limits, which the models page does
-  not state.
+Full write-up in `docs/OBSERVED.md`, "Gemini 3.7 Flash — Interactions API".
+
+- **Go SDK lacks Interactions.** Confirmed by inspecting the exported API:
+  one symbol contains "Interaction" (`InteractionStatus`, a bare enum) and
+  there is no interactions service or `CreateInteraction`. §2's decision holds.
+- **Signatures never ride on function calls.** Three parallel `get_weather`
+  calls produced one `thought` step carrying the only signature, then three
+  signature-less `function_call` steps. §5.2's reading confirmed.
+- **Both bypass values work.** `context_engineering_is_the_way_to_go` and
+  `skip_thought_signature_validator` each returned 200 with a valid answer when
+  substituted for a real signature. **Compaction is therefore possible for
+  Gemini sessions**, which was the biggest open risk in the plan.
+- **Two distinct signature errors.** A missing or empty signature gives
+  "Request contains an invalid argument."; a garbled one gives "Corrupted
+  thought signature." Worth distinguishing — the first is a harness bug, the
+  second is corruption in the log.
+- **`arguments_delta` never fragmented**, from 33 bytes to 69 KB across six
+  calls. `wire.ToolCallAssembler` is still the right thing to use (one frame is
+  a degenerate case of several) but must not *rely* on fragmentation, and the
+  streaming guide's "you must accumulate" wording overstates what happens.
+- **Implicit caching works stateless** — 95.5% hit on a 103K prefix — but warms
+  over more than one request. See §5.3.
+- **Context limit ≥ 1,000,011 input tokens**, measured and billed. The true
+  ceiling and any output ceiling remain unknown; no request field was found to
+  probe for an output cap.
+- **`IsReasoningStarved` / `RepairArguments`** found no work to do: zero
+  malformed arguments observed, and no `generation_config` field exists to cap
+  output and provoke starvation. Absence of evidence, not proof — implement
+  them as honest no-ops with a comment saying so.
+- **`CacheSlack`** still deferred to Phase 8, now with a method: discard the
+  first two requests.
+
+Two findings contradict the plan and are corrected in place above — the
+`tool_choice` nesting (§3, §5.3) and the caching cost (§5.3). Two more change
+Phase 4's work and are recorded here:
+
+- **Errors can arrive SSE-framed even when the HTTP status is 400**:
+  `event: error\ndata: {"error":{...}}`. `internal/gemini/client.go`'s
+  `parseAPIError` expects a bare JSON body and will mis-handle this. Phase 4
+  must parse both shapes.
+- **`status` is always `"completed"`**, never `"requires_action"`, even
+  mid-turn with an unanswered `function_call` pending. §3's table implied
+  otherwise. A client must decide "the model wants a tool call" by scanning
+  steps for a pending `function_call`, never by branching on `status`.
 
 ## 7. Phased plan
 
