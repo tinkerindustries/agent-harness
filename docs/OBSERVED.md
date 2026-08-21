@@ -711,9 +711,16 @@ discard the first two requests, or it will measure the warm-up and call it the
 steady state. This is unlike DeepSeek, where the second request of an
 identical prefix already hits.
 
-Not yet established: the minimum prefix size that caches at all (somewhere
-between "a few hundred tokens" and 103K), and the TTL. **The warm-up is not
-reliably two requests** — Phase 8's live sessions (below) took five to six.
+The minimum prefix size is **4,096 input tokens** for `gemini-3.7-flash`
+(2,048 for Gemini 2.5), documented at
+<https://ai.google.dev/gemini-api/docs/caching> — which also resolves the TTL
+question by omission: Google publishes a TTL for *explicit* caching only, and
+names none for implicit. Measured to match: a 75-second gap between two
+identical requests still hit 69,139 tokens, an order of magnitude longer than
+anything a live session leaves between sub-turns.
+
+**The warm-up is not reliably two requests** — Phase 8's live sessions (below)
+took five to six.
 This section's earlier three-request measurement used a byte-identical
 prefix resent with nothing else changing; a live, incrementally-growing
 conversation warms slower.
@@ -772,8 +779,11 @@ re-rendering, nothing the churn diagnostic's own hash comparison would have
 been wrong to call out had it looked (its `ChurnPointIndex` on those two
 sub-turns pointed past the end of the shared prefix, which is the
 diagnostic's honest way of saying "nothing actually diverged, the provider
-still missed everything"). This reads as the provider's implicit cache
-evicting or losing the entry independently of anything the request did.
+still missed everything").
+
+This was first recorded here as an unexplained anomaly. It is not one — see
+"The mid-session cache miss is documented behaviour" below, which supersedes
+that reading.
 
 **Conclusion: `CacheSlack` stays 8192, now for a measured reason rather than
 a guessed one.** The observed steady-state ceiling (5,990) clears with
@@ -786,6 +796,74 @@ own, and no `CacheSlack` value changes that — the miss in both observed
 cases ran into the tens of thousands of tokens, nowhere near a slack a
 churn-tolerant constant could plausibly absorb without also hiding a real
 prefix bug.
+
+### The mid-session cache miss is documented behaviour, not an anomaly
+
+Investigated 2026-08-21, after the section above recorded it as unexplained.
+Two findings, and the first settles it.
+
+**Google documents implicit caching as best-effort with no guarantee.**
+Verbatim, from
+<https://ai.google.dev/gemini-api/docs/generate-content/caching>:
+
+> Implicit caching (automatically enabled on Gemini 2.5 and newer models, **no
+> cost saving guarantee**) — Explicit caching (can be manually enabled on most
+> models, **cost saving guarantee**)
+
+The Interactions-scoped page (<https://ai.google.dev/gemini-api/docs/caching>)
+says only "We automatically pass on cost savings **if** your request hits
+caches", and advises how to "**increase the chance** of an implicit cache
+hit". No TTL, no eviction policy and no re-keying behaviour is documented for
+implicit caching anywhere; those concepts exist only for explicit caching.
+
+So a complete miss on a byte-identical prefix is the API behaving as
+specified. There is no mechanism to find.
+
+**A byte-identical replay hit at both miss points.** The strongest evidence,
+and it is a controlled result rather than an inference from absence: the
+literal captured `req_body` bytes of all 19 requests from `…17c6…` were
+resent in order against the live API.
+
+| sub-turn | original `total_cached_tokens` | replay |
+| --- | --- | --- |
+| 7 | 0 | 28,344 |
+| 13 | 0 | 69,139 |
+
+Identical content, identical ordering, comparable cadence — and both known
+misses hit cleanly. The miss is therefore **not a deterministic function of
+prefix content, prefix size, or growth pattern**: the same prefix at the same
+position in the same sequence can go either way. That is exactly what "no cost
+saving guarantee" predicts.
+
+Everything else tested came back negative and is recorded so nobody repeats
+it: no correlation with idle time (15–360 ms throughout, both misses inside
+the same range as their healthy neighbours), no common content in the
+preceding sub-turn (no images, no outsized tool result, no compaction
+boundary), and no fixed size threshold (the two misses sit at 35,696 and
+75,039 input tokens, differing by more than 2×). Backend load or routing
+cannot be ruled out — no response header exposes backend identity, region or
+cache generation — but nothing in the trace supports it either.
+
+**Clustering matters more than the rate.** Both occurrences are in one
+session; its 20-sub-turn sibling had none. "Two in 39 sub-turns" is arithmetic
+rather than a rate — treat this as "it happens occasionally and clusters
+unpredictably", not as 5%.
+
+**Cost.** Using the churn detector's own arithmetic to price what each miss
+should have cost had it hit: ≈$0.020 and ≈$0.050 excess, ≈$0.07 against that
+session's $0.28 total — about a quarter of its spend in two sub-turns. Small
+in absolute terms, and unbounded in principle, since the excess scales with
+prefix size.
+
+**The only documented mitigation is unavailable to us, and for reasons already
+settled.** Explicit caching carries the guarantee implicit caching lacks, but
+"The Interactions API only supports implicit caching. Explicit caching … is
+not supported in the Interactions API. To use explicit caching, switch to the
+generateContent API." Leaving Interactions is what
+[GEMINI-INTEGRATION.md](GEMINI-INTEGRATION.md) §6 already declined on
+independent grounds — event-log authority, resume after restart, and
+compaction rewriting history. So this finding surfaces no new trade-off; it
+re-prices one already taken.
 
 ### Compaction — confirmed working, and the plan's "sharp edge" does not apply
 
@@ -856,9 +934,10 @@ ceiling — no request field was found to probe for one. Whether
 per GEMINI-INTEGRATION.md §5.3). Whether a `function_result` can usefully mix
 multiple images, or an image alongside `thought_signature` replay noise from
 an *unrelated* turn. Pro variant behaviour — every measurement here used
-`gemini-3.7-flash` only. What causes the mid-session complete cache miss
-Phase 8 observed twice — a TTL, an internal re-indexing pass, load on
-Google's side — and how often it recurs over a longer session; two
-occurrences in 39 combined sub-turns is enough to say it is real and not
-enough to say how common it is. Whether a real 768K-token compaction (rather
-than Phase 8's forced-every-sub-turn stress test) behaves identically.
+`gemini-3.7-flash` only. How *often* the mid-session complete cache miss
+recurs over a longer session — its cause is settled (documented best-effort
+behaviour, see above) but two occurrences clustered in one session is not a
+rate, and a real one needs organic traffic rather than more synthetic
+probing, since replay is demonstrably unreliable at reproducing it. Whether a
+real 768K-token compaction (rather than Phase 8's forced-every-sub-turn
+stress test) behaves identically.

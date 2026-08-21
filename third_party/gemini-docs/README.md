@@ -75,6 +75,16 @@ doc-only variant, not a second wire format, and was not mirrored.
 - [Structured outputs](interactions/structured-output.md) — `response_format`
   / JSON Schema-constrained output on Interactions.
 - [Understand and count tokens](interactions/tokens.md)
+- [Context caching](caching.md) — the Interactions-scoped page: implicit
+  caching only, the per-model minimum input tokens (4,096 on
+  `gemini-3.7-flash`), and how to increase the *chance* of a hit.
+- [Context caching, `generateContent` page](generate-content-caching.md) —
+  mirrored **despite being a legacy-surface page**, because it carries the
+  one sentence the Interactions page omits: implicit caching has "no cost
+  saving guarantee" where explicit caching has one. That is what makes a
+  complete cache miss on an unchanged prefix documented behaviour rather
+  than a bug (docs/OBSERVED.md, "The mid-session cache miss is documented
+  behaviour"). Explicit caching itself is not available on Interactions.
 - [Code execution](interactions/code-execution.md) — built-in
   `code_execution` tool, its call/result step shapes.
 - [Computer use](interactions/computer-use.md) — built-in `computer_use`

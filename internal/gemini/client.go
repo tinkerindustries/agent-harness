@@ -583,6 +583,7 @@ func (c *Client) UsageSplit(usage *wire.Usage) (cacheHit, cacheMiss int) {
 //     does not, and structurally cannot, silence that: several of those
 //     warm-up sub-turns will still report Churned regardless of Slack,
 //     because the miss is the *entire* prompt, not a bounded overshoot.
+//
 //   - The implicit cache can also drop to a complete miss well after
 //     warm-up, on a request proven byte-identical in its shared prefix to
 //     the one before it. Both measured sessions hit this once each (of 19
@@ -596,4 +597,15 @@ func (c *Client) UsageSplit(usage *wire.Usage) (cacheHit, cacheMiss int) {
 //     DeepSeek one is: DeepSeek's 127-token bound means a churn report
 //     reliably names a harness bug, where Gemini's can also mean the
 //     provider's cache went cold on its own.
+//
+//     That second behaviour was investigated after this constant was set
+//     and is settled: Google documents implicit caching as carrying "no
+//     cost saving guarantee" against explicit caching's guarantee
+//     (third_party/gemini-docs/generate-content-caching.md), and replaying
+//     one session's captured request bytes verbatim hit at both points
+//     where the live run missed. It is specified behaviour with no
+//     deterministic trigger, not an anomaly to chase — and explicit
+//     caching, the documented remedy, is unavailable on the Interactions
+//     API. docs/OBSERVED.md, "The mid-session cache miss is documented
+//     behaviour", carries the evidence.
 func (c *Client) CacheSlack() int { return 8192 }
