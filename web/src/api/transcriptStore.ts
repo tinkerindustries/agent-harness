@@ -1,13 +1,38 @@
+import { fetchSessionSnapshot } from "./operations";
 import { FoldState, type Block, type LiveDelta, type LiveView } from "./fold";
 import { SubTurnGroupState, type ChurnPoint, type GroupCounts, type TranscriptItem } from "./groups";
-import type { SessionState, StoreEvent, Todo, ToolCallPayload } from "./types";
+import type { SessionSnapshot, SessionState, StoreEvent, Todo, ToolCallPayload } from "./types";
 
 // One session's transcript, live or historical (docs/DESIGN.md §4.2: "the
-// same endpoint shape"). The SSE endpoint alone is the whole data source —
-// it replays full history before any live event, so there is no separate
-// REST fetch to race against it. The browser's EventSource resumes
-// automatically on a dropped connection via Last-Event-ID; a page reload
-// just opens a fresh connection with none set, which replays everything.
+// same endpoint shape"). Two endpoints in a fixed order make it up: a
+// snapshot fetch for everything that already happened, then the SSE stream
+// for everything after it.
+//
+// The stream used to be the whole data source, replaying full history ahead
+// of any live event. That is gapless and it is simple, and it arrives at the
+// speed of a stream: the browser folds and paints each chunk as it lands, so
+// a long session visibly filled in over seconds rather than appearing. One
+// production session measured 39.4 MB across 668 events, and took just under
+// four seconds to finish drawing. So the bulk now comes down as one
+// compressed response (load), and the stream is opened at the cursor that
+// response ends on (connect).
+//
+// # Why the seam cannot drop an event
+//
+// The snapshot returns every event up to some seq, and says which. The
+// stream is then opened at ?from=<that seq>, and replays everything after it
+// before forwarding anything live. The log is append-only with monotonic
+// seq, so an event committed in the window between the two requests has a
+// seq above the cursor and lands in that replay — there is no seq the two
+// halves can both miss. internal/httpapi/snapshot.go argues the same thing
+// from the server's side.
+//
+// Duplicates are the direction this errs in, and ingest() drops them by seq,
+// so the protocol only ever has to guarantee over-delivery. That is what
+// makes a reconnect safe: the browser's EventSource resumes on its own via
+// Last-Event-ID, and when it has none to send — nothing committed arrived
+// on that connection — the ?from= cursor in the URL is still a floor no
+// newer event can hide under.
 //
 // Deltas never touch React state directly (docs/DESIGN.md §5.2). ingest()
 // folds each event into FoldState's mutable buffers and marks the store
@@ -31,13 +56,13 @@ export interface TranscriptSnapshot {
   live: LiveView;
   todos: Todo[];
   connection: ConnectionState;
-  // Whether the server has finished replaying this session's history, marked
-  // by its own `replayed` SSE frame (internal/httpapi handleSessionStream).
-  // Everything folded before it is the backlog the page loaded with;
+  // Whether the stream has finished replaying, marked by its own `replayed`
+  // SSE frame (internal/httpapi handleSessionStream). Everything folded
+  // before it is the backlog the page loaded with — the snapshot, plus
+  // whatever the stream's replay caught from the window after it;
   // everything after happened while somebody was watching. The display uses
   // it to animate only the second kind (web/src/hooks.ts useArrivals), which
-  // it cannot work out for itself — a long replay arrives across several
-  // reads, so the first blocks to land are a fraction of the history.
+  // it cannot work out for itself.
   replayed: boolean;
   // state is this session's metadata row as the server last published it,
   // delivered by the stream's own `state` frames (internal/httpapi
@@ -100,6 +125,19 @@ export class TranscriptStore {
   private es?: EventSource;
   private connection: ConnectionState = "connecting";
   private replayed = false;
+  // lastSeq is the highest committed seq this store has folded: the cursor
+  // every stream it opens starts from, and the floor ingest() drops
+  // duplicates against. The snapshot sets it in bulk; each committed event
+  // moves it by one.
+  private lastSeq = 0;
+  // loading guards the window inside load() where the snapshot fetch is in
+  // flight and no EventSource exists yet, so a second load() cannot fire a
+  // second fetch. generation invalidates a fetch whose store has since been
+  // disconnected or reloaded — an unmount during that window must not fold
+  // a transcript into a store nobody is watching, or open a connection the
+  // cleanup has already run.
+  private loading = false;
+  private generation = 0;
   private state: SessionState | null = null;
   private dirty = false;
   private flushHandle: number | null = null;
@@ -111,8 +149,9 @@ export class TranscriptStore {
   // drives the exact same fold-and-flush pipeline a live session runs by
   // calling ingest() directly, at whatever rate it wants to measure.
   //
-  // Constructing a store opens nothing. The connection belongs to connect()
-  // so that the effect which tears it down is the same one that sets it up:
+  // Constructing a store opens nothing. The fetch and the connection belong
+  // to load(), so that the effect which tears them down is the one that sets
+  // them up:
   // a store built during render and closed from an effect cleanup cannot be
   // revived, and React's development StrictMode runs that cleanup between
   // two mounts (web/src/hooks.ts useTranscriptStore).
@@ -125,16 +164,68 @@ export class TranscriptStore {
     this.snapshot = this.buildSnapshot();
   }
 
-  // connect opens this session's stream, and may be called again after
-  // disconnect(). A fresh EventSource sends no Last-Event-ID, so the server
-  // replays the whole history; the fold starts empty for that reason, or a
-  // second connection would fold every historical event twice.
-  connect(): void {
-    if (!this.connectable || this.es) return;
+  // load is how a transcript screen starts: fetch everything that has
+  // already happened in one request, fold it, then open the stream at the
+  // cursor that came back. It is connect() with the backlog taken off the
+  // stream's hands, and it is what the mount effect calls (web/src/hooks.ts
+  // useTranscriptStore).
+  //
+  // The fold is reset first because this is a fresh read of the whole log,
+  // so anything an earlier connection left behind would be folded twice.
+  // Nothing between here and connect() can be missed: see the seam argument
+  // at the top of this file.
+  //
+  // A failed snapshot is not a failed load. The stream can still replay the
+  // whole history from seq 0 on its own — that is what it did before this
+  // endpoint existed — so a fetch that throws falls through to exactly the
+  // old behaviour rather than leaving the screen empty. The one thing it
+  // must not do is connect at a cursor it never received.
+  load(): void {
+    if (!this.connectable || this.es || this.loading) return;
     this.resetFold();
     this.connection = "connecting";
+    this.loading = true;
+    const generation = this.generation;
+    this.markDirty();
 
-    this.es = new EventSource(`/api/sessions/${encodeURIComponent(this.sessionID)}/stream`);
+    const fold = (snap: SessionSnapshot | null) => {
+      // A disconnect() or a second load() while the fetch was in flight has
+      // moved the generation on. This response belongs to a store state that
+      // no longer exists; folding it would resurrect a closed transcript,
+      // and clearing `loading` would release the guard the newer load is
+      // holding.
+      if (generation !== this.generation) return;
+      this.loading = false;
+      if (snap) {
+        this.state = snap.session;
+        for (const ev of snap.events) this.ingest(ev);
+        // The server's own read of where the log ended, not a maximum taken
+        // over the events — the same number today, but this way it is the
+        // side that did the reading which decides the cursor.
+        if (snap.cursor > this.lastSeq) this.lastSeq = snap.cursor;
+      }
+      this.connect();
+    };
+
+    void fetchSessionSnapshot(this.sessionID).then(fold, () => fold(null));
+  }
+
+  // connect opens this session's stream from the cursor this store has
+  // already folded up to, and may be called again after disconnect().
+  //
+  // It does not reset the fold, which is the whole point of the ?from=
+  // cursor: the server replays only what comes after it, so an existing fold
+  // is what makes that replay correct rather than something to throw away.
+  // load() resets it instead, because that is the call that re-reads the log
+  // from the start. Callers that already hold a fold — reopen() after a
+  // resume, and the browser's own automatic reconnect — keep it.
+  connect(): void {
+    if (!this.connectable || this.es) return;
+    this.connection = "connecting";
+
+    this.es = new EventSource(
+      `/api/sessions/${encodeURIComponent(this.sessionID)}/stream?from=${this.lastSeq}`,
+    );
     this.es.onopen = () => this.setConnection("open");
     this.es.onerror = () => {
       if (this.connection !== "closed") this.setConnection("connecting");
@@ -191,6 +282,11 @@ export class TranscriptStore {
   // session's stream" and the caller here is answering a different question,
   // which is whether a finished session came back to life.
   //
+  // connect() rather than load(): this store already holds the transcript up
+  // to the moment the stream closed, and its cursor is still that moment, so
+  // the new stream replays exactly what the session did after it. Re-fetching
+  // the snapshot would ask for a log this store has all but the tail of.
+  //
   // Calling it while a stream is already open is a no-op, so the caller may
   // fire it on any signal without tracking which one got there first.
   reopen(): void {
@@ -206,9 +302,22 @@ export class TranscriptStore {
     this.groups = new SubTurnGroupState();
     this.todosAtBlock = [];
     this.replayed = false;
+    // The cursor goes with the fold. It is a claim about what this store has
+    // already folded, so leaving it set over an emptied fold would have the
+    // next stream skip the very events that refill it.
+    this.lastSeq = 0;
   }
 
   ingest(ev: StoreEvent): void {
+    // The log is append-only with monotonic seq, so an event at or below the
+    // cursor is one this store has already folded. Dropping it here is what
+    // lets every other part of this protocol err towards sending too much:
+    // the snapshot/stream handover overlaps by design, a reconnect replays
+    // from the last id the browser saw rather than the last one it folded,
+    // and a server that ignored ?from= altogether would still render
+    // correctly — just slowly, the way it used to.
+    if (ev.seq <= this.lastSeq) return;
+    this.lastSeq = ev.seq;
     const before = this.fold.blocks.length;
     this.fold.ingest(ev);
     // Record the fold's already-applied plan as of the moment each block
@@ -305,6 +414,12 @@ export class TranscriptStore {
   // disconnect closes the stream and cancels any pending flush. The store
   // stays usable: connect() opens a new one and replays from the start.
   disconnect(): void {
+    // Moving the generation on is what tells an in-flight snapshot fetch
+    // that its store is gone: the fetch cannot be aborted from here without
+    // threading an AbortController through the operations client, and its
+    // response is worthless either way once nobody is subscribed.
+    this.generation++;
+    this.loading = false;
     this.es?.close();
     this.es = undefined;
     if (this.flushHandle !== null) {

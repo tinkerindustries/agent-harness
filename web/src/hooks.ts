@@ -178,10 +178,15 @@ export function useQueueHealth(intervalMs: number): QueueHealth | null {
 
 // useTranscriptStore owns one TranscriptStore per mounted transcript
 // screen: created on mount (or when sessionID changes), closed on unmount.
-// No cross-session cache — each visit to a transcript opens its own SSE
-// connection and replays from the store, which is cheap and simple rather
-// than reusing a possibly-stale one (docs/DESIGN.md §4.2, "the same
-// endpoint shape" for historical and live).
+// No cross-session cache — each visit to a transcript fetches its snapshot
+// and opens its own SSE connection from that cursor, which is cheap and
+// simple rather than reusing a possibly-stale one (docs/DESIGN.md §4.2,
+// "the same endpoint shape" for historical and live).
+//
+// load() rather than connect(): the mount is the one moment the store has
+// no history at all, so it is the moment worth spending a bulk fetch on.
+// Everything after it — a reconnect, a resumed session — already holds a
+// fold and only wants the tail (TranscriptStore.load).
 //
 // The store is built during render because useSyncExternalStore needs it
 // there, but the stream is opened and closed by the effect. Both halves have
@@ -197,7 +202,7 @@ export function useTranscriptStore(sessionID: string): TranscriptStore {
   }
   useEffect(() => {
     const store = ref.current!.store;
-    store.connect();
+    store.load();
     return () => store.disconnect();
   }, [sessionID]);
   return ref.current.store;

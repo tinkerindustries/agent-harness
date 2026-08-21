@@ -46,14 +46,23 @@ export const ToolResultBlock = memo(function ToolResultBlock({ block }: { block:
 // falls back to plain collapsible text. Exported so the sub-turn card's tool
 // cards can reuse exactly the same bodies their standalone blocks render.
 //
-// The image a tool result carries inline (image_url — a Read of an image
-// file for a vision provider) leads the body the way a Screenshot result's
-// images lead theirs: the picture is the point, and the text below it names
-// it. A tool result without an image renders exactly as before.
+// The image a tool result carries (a Read of an image file for a vision
+// provider) leads the body the way a Screenshot result's images lead theirs:
+// the picture is the point, and the text below it names it. A tool result
+// without an image renders exactly as before.
+//
+// image_href is what the HTTP surface sends — a URL onto the bytes, which
+// internal/httpapi detached from the payload so they stop riding every
+// transcript load. image_url is the same picture inline as a data URI, which
+// is what the payload holds in the store and what reaches the fold from the
+// perf harness and the tests. Either is an <img src>; href is preferred when
+// both are somehow present, because it is the one that did not cost anything
+// to get here.
 export function ToolResultBody({ block }: { block: ToolResultData }) {
+  const image = block.image_href ?? block.image_url;
   return (
     <>
-      {block.image_url && <InlineImage url={block.image_url} />}
+      {image && <InlineImage url={image} />}
       <ToolResultContent block={block} />
     </>
   );

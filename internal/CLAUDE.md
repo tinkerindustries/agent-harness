@@ -268,6 +268,20 @@ group; `server.go`'s own package doc names which file holds which (the
 `Server` type and `routes()` stay there so the whole surface is still
 readable in one list).
 
+Two of those files exist for one problem, which is that a transcript used to
+arrive at the speed of a stream. `snapshot.go` serves the whole event log in
+one gzipped response with the cursor it ends on, so a page load fetches its
+backlog instead of watching the SSE stream replay it frame by frame, and the
+stream is then opened at `?from=<cursor>` — the seam is gapless because the
+log is append-only with monotonic seq, and the two halves overlap rather than
+abut. `eventimage.go` is the other half: a tool result's image bytes ride the
+stored payload as a base64 data URI, and every surface that serves events
+swaps it for a URL back into `eventimage.go`'s own endpoint. That is a
+projection applied on the way out, in the same place and for the same reason
+redaction is (`events.go` `eventForWire`, which composes the two and is what
+every surface calls) — the store keeps the literal bytes, because the fold
+that rebuilds the model's own conversation must still see them.
+
 ### `internal/webassets`
 `go:embed` of the built frontend, so the binary ships with no runtime assets.
 `dist/` is Vite output and is not in git.

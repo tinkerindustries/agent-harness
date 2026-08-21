@@ -7,6 +7,7 @@ import { formatElapsed } from "../blocks/ReasoningPanel";
 import { ScreenshotGallery } from "../blocks/ScreenshotGallery";
 import { formatCost, screenshotPaths, toolDetail } from "../blocks/toolArgs";
 import { cachePercent, deniedBody, elideLines, toolStat, type ToolResultLike } from "./turnHelpers";
+import { InlineImage } from "../blocks/InlineImage";
 import { cn } from "@/lib/utils";
 
 // Turn renders one frozen sub-turn as a turn (.turn), not a card: the
@@ -347,6 +348,25 @@ function ToolBody({ call, result }: { call: ToolCallPayload | undefined; result:
         </>
       );
     }
+  }
+  // The image a Read returned to a vision provider, above the line of text
+  // that names the file — the same ordering the screenshot gallery above
+  // uses, and for the same reason: the picture is what the result is.
+  //
+  // image_href is what the HTTP surface sends, a URL onto the bytes
+  // (internal/httpapi/eventimage.go); image_url is the same picture inline
+  // as a data URI, which is what the store holds and what the perf harness
+  // and the tests produce. This screen rendered neither until the split went
+  // in, so a transcript reported that the model had looked at a render and
+  // never showed the render.
+  const image = result.image_href ?? result.image_url;
+  if (image) {
+    return (
+      <>
+        <InlineImage url={image} />
+        <ElidedOutput text={result.content} />
+      </>
+    );
   }
   return <ElidedOutput text={result.content} />;
 }

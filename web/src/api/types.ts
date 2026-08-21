@@ -144,6 +144,19 @@ export type EventKind =
 // StoreEvent mirrors internal/store.Event: one row of a session's
 // append-only log. payload's shape depends on kind; see the *Payload
 // interfaces below, which mirror internal/store/events.go one for one.
+// SessionSnapshot is GET /api/sessions/{id}/snapshot: everything that has
+// already happened in one response, plus the cursor to stream on from
+// (internal/httpapi/snapshot.go, which documents why the seam between the
+// two cannot drop an event).
+export interface SessionSnapshot {
+  session: SessionState;
+  events: StoreEvent[];
+  // cursor is the seq of the last event in `events`, 0 when there are none.
+  // It is the server's own read of where the log ended, and it is what the
+  // transcript stream is opened at: ?from=cursor.
+  cursor: number;
+}
+
 export interface StoreEvent {
   session_id: string;
   seq: number;
@@ -219,7 +232,22 @@ export interface ToolResultPayload {
   // mirroring internal/store.ToolResultPayload.ImageURL. Present only for
   // that case; the transcript renders it inline above the result text, so
   // the picture the model was looking at is part of the record.
+  //
+  // The HTTP surface does not normally send it. internal/httpapi's
+  // detachEventImage swaps it for image_href below on the way out, because
+  // these bytes dwarf everything else in a log that has any of them. It is
+  // still declared, and still rendered, for the payload shapes that reach
+  // the fold without passing through that projection: the perf harness's
+  // synthetic events, the unit tests, and any older recording.
   image_url?: string;
+  // image_href is where those bytes actually live: a URL onto
+  // GET /api/sessions/{id}/events/{seq}/image, which decodes them out of the
+  // event on demand (internal/httpapi/eventimage.go). The transcript renders
+  // it in exactly the place image_url would have gone, so the difference is
+  // invisible on screen and total on the wire — the picture is fetched when
+  // its tile renders, in parallel with the others, and cached forever after,
+  // instead of riding the transcript on every page load.
+  image_href?: string;
 }
 
 export interface ToolDeniedPayload {

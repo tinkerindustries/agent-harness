@@ -16,9 +16,16 @@ import (
 // friends) are shared with evals.go's own stream and live in respond.go.
 
 // handleSessionStream serves one session's transcript: the full history
-// after Last-Event-ID (0 replays from the start), then live events as the
-// hub publishes them, with no gap and no duplicate at the seam between the
-// two (docs/DESIGN.md §4.2's "Last-Event-ID replay").
+// after the stream cursor (streamCursor — Last-Event-ID, else ?from=, else
+// 0, which replays from the start), then live events as the hub publishes
+// them, with no gap and no duplicate at the seam between the two
+// (docs/DESIGN.md §4.2's "Last-Event-ID replay").
+//
+// ?from= is what lets a page load skip the replay entirely: the browser
+// fetches GET /api/sessions/{id}/snapshot, folds it, and opens this stream
+// at the cursor that came back, so the replay below is normally empty and
+// this connection carries only what happens next. handleGetSessionSnapshot
+// documents why that seam cannot drop an event.
 func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if _, err := s.Store.GetSession(r.Context(), id); err != nil {
@@ -36,7 +43,7 @@ func (s *Server) handleSessionStream(w http.ResponseWriter, r *http.Request) {
 	// point is guaranteed to arrive on the channel, so seq-based dedup
 	// below is enough to cover the overlap window rather than needing a
 	// lock across both operations.
-	after := lastEventID(r)
+	after := streamCursor(r)
 	live, cancel := s.Hub.Subscribe(id)
 	defer cancel()
 
@@ -206,6 +213,25 @@ func (s *Server) handleListStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func lastEventID(r *http.Request) int64 {
-	return parseInt64(r.Header.Get("Last-Event-ID"), 0)
+// streamCursor is the seq a transcript stream replays from, exclusive: the
+// last event the caller already holds.
+func streamCursor(r *http.Request) int64 {
+	// Last-Event-ID wins whenever the browser sets it, which it does on
+	// every automatic reconnect and only then. It is strictly fresher than
+	// ?from=: the query string was fixed when the EventSource was
+	// constructed and cannot be updated, so honouring it over a live cursor
+	// would replay everything the connection had already delivered before it
+	// dropped.
+	if v := r.Header.Get("Last-Event-ID"); v != "" {
+		return parseInt64(v, 0)
+	}
+	// ?from= is the first connection's cursor: the seq the caller already
+	// holds, from a snapshot it fetched (handleGetSessionSnapshot) or from a
+	// previous stream it is picking back up. Absent — or unparseable, or
+	// negative — it is 0, which replays the whole log and is what a client
+	// that knows nothing about this parameter gets.
+	if from := parseInt64(r.URL.Query().Get("from"), 0); from > 0 {
+		return from
+	}
+	return 0
 }

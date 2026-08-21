@@ -215,10 +215,22 @@ blocks on a human.
 
 SSE down, nothing up. The browser subscribes to
 `GET /api/sessions/{id}/events` and to a session-list stream, and that is the
-whole session surface. Traffic on it is one-way — a firehose down, no clicks up —
-so SSE fits, and `Last-Event-ID` gives replay without extra protocol. The
-settings endpoints below are the one place a click goes up, and they are plain
-fetch calls, not SSE.
+whole *live* session surface. Traffic on it is one-way — a firehose down, no
+clicks up — so SSE fits, and `Last-Event-ID` gives replay without extra
+protocol. The settings endpoints below are the one place a click goes up, and
+they are plain fetch calls, not SSE.
+
+The backlog is a fetch, not a stream. Replay over SSE is correct and it is
+gapless, but it arrives at the speed of a stream: a browser folds and paints
+each chunk as it lands, so a long session visibly filled in over seconds
+rather than appearing. A transcript screen therefore fetches
+`GET /api/sessions/{id}/snapshot` — the whole log in one gzipped response,
+with any image bytes detached to URLs of their own — and opens the stream at
+the cursor that response ends on (`?from=<seq>`). The stream keeps the half
+it is good at. The seam holds because the log is append-only with monotonic
+seq: everything at or below the cursor is in the snapshot, everything above it
+is in the stream's replay, and the two halves overlap rather than abut, so the
+client folds by seq and drops what it already has.
 
 The HTTP API reads and writes the data the harness manages, and it also
 carries run control; it cannot reach the run loop directly. The data surface —

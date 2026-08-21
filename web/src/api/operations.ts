@@ -12,7 +12,7 @@
 // evidence (the last event, the last heartbeat). Nothing here guesses at the
 // reason.
 
-import type { EventsPage, Page, SessionState } from "./types";
+import type { EventsPage, Page, SessionSnapshot, SessionState } from "./types";
 import { isLive } from "./status";
 
 // sessionIdleThresholdMs mirrors internal/httpapi's sessionIdleThreshold
@@ -103,6 +103,23 @@ export async function listLeases(): Promise<WorkspaceLeaseRow[]> {
   const res = await fetch("/api/leases");
   if (!res.ok) throw await apiError(res);
   return (await res.json()) as WorkspaceLeaseRow[];
+}
+
+// fetchSessionSnapshot fetches GET /api/sessions/{id}/snapshot: a session's
+// whole transcript in one hit, plus the cursor its stream should be opened
+// at. It is the bulk half of the transcript screen's load — see
+// TranscriptStore.load, which is its only caller, and
+// internal/httpapi/snapshot.go for why the handover to the stream is
+// gapless.
+//
+// Unpaged on purpose. The events endpoint below is paged because it serves
+// an operator walking a log; this serves a screen that is about to render
+// all of it, and the thing that used to make "all of it" enormous — the
+// inline image bytes — is served separately now.
+export async function fetchSessionSnapshot(sessionId: string): Promise<SessionSnapshot> {
+  const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/snapshot`);
+  if (!res.ok) throw await apiError(res);
+  return (await res.json()) as SessionSnapshot;
 }
 
 // fetchEvents fetches one page of a session's event log

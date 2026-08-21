@@ -109,13 +109,28 @@ func redactEvent(ev store.Event) store.Event {
 	return ev
 }
 
-// redactEvents is redactEvent over a page, returning a new slice so the
+// eventForWire is the whole outbound projection of one event, applied
+// identically by every surface that hands events out — the events page, the
+// snapshot, and each frame of the transcript stream — so none of them can
+// serve a shape the others do not.
+//
+// The order is load-bearing in both directions. Detaching first means the
+// redaction regex never walks the megabytes of base64 an image payload
+// carries, which on a render-heavy session is the great majority of the
+// bytes in the log and cannot contain a credential in any case. Redacting
+// second means it still sees the rewritten payload, so a token in a tool
+// result beside an image is masked exactly as it would be without one.
+func eventForWire(ev store.Event) store.Event {
+	return redactEvent(detachEventImage(ev))
+}
+
+// redactEvents is eventForWire over a page, returning a new slice so the
 // caller's events — the ones handleGetEvents still reads Seq off for the
 // next-page cursor — are untouched.
 func redactEvents(events []store.Event) []store.Event {
 	out := make([]store.Event, len(events))
 	for i, ev := range events {
-		out[i] = redactEvent(ev)
+		out[i] = eventForWire(ev)
 	}
 	return out
 }

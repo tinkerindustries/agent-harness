@@ -13,6 +13,9 @@ import { GALLERY_CLS, TILE_CLS } from "./ScreenshotGallery";
 // exactly the property the frozen-block design relies on.
 
 const DATA_URI = "data:image/png;base64,iVBORw0KGgo=";
+// What the HTTP surface actually sends in place of those bytes
+// (internal/httpapi/eventimage.go).
+const HREF = "/api/sessions/sess-1/events/5/image";
 
 // ToolResultBlockShape is the block ToolResultBlock renders, mirroring
 // web/src/api/fold.ts's tool_result Block variant.
@@ -57,7 +60,29 @@ describe("ToolResultBlock with an inline image", () => {
     expect(html.indexOf(`src="${DATA_URI}"`)).toBeLessThan(html.indexOf("Image: shot.png"));
   });
 
-  it("renders no image when the tool result carries no image_url", () => {
+  // What a transcript loaded over HTTP actually gets: the bytes are served
+  // separately and the payload carries a URL onto them.
+  it("renders the image when the tool result carries image_href", () => {
+    const html = renderToStaticMarkup(<ToolResultBlock block={readBlock({ image_href: HREF })} />);
+
+    expect(html).toContain(`src="${HREF}"`);
+    expect(html.indexOf(`src="${HREF}"`)).toBeLessThan(html.indexOf("Image: shot.png"));
+    // Fetched, so it may be deferred until the tile is on screen — the whole
+    // point of not carrying it in the transcript.
+    expect(html).toContain('loading="lazy"');
+  });
+
+  // A payload that somehow carries both is a served URL plus bytes nobody
+  // needed. Preferring the href keeps the page from decoding megabytes it
+  // was not going to display.
+  it("prefers image_href over image_url when both are present", () => {
+    const html = renderToStaticMarkup(<ToolResultBlock block={readBlock({ image_href: HREF, image_url: DATA_URI })} />);
+
+    expect(html).toContain(`src="${HREF}"`);
+    expect(html).not.toContain(DATA_URI);
+  });
+
+  it("renders no image when the tool result carries neither", () => {
     const html = renderToStaticMarkup(<ToolResultBlock block={readBlock()} />);
 
     expect(html).not.toContain("<img");

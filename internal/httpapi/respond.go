@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -110,7 +111,7 @@ func setSSEHeaders(w http.ResponseWriter) {
 // the same data over two transports, and a secret masked on one and served
 // on the other would be no masking at all.
 func writeSSEEvent(w io.Writer, ev store.Event) {
-	b, err := json.Marshal(redactEvent(ev))
+	b, err := json.Marshal(eventForWire(ev))
 	if err != nil {
 		return
 	}
@@ -198,6 +199,35 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// writeCompressedJSON is writeJSON that gzips when the caller said it could
+// take it, for the one response on this surface big enough to care: a
+// session snapshot is the whole transcript, and a transcript is prose, code
+// and command output — the most compressible thing the harness holds.
+//
+// It is opt-in per handler rather than a wrapper around the mux because
+// almost nothing else here is worth it. The rows are small, the streams must
+// not be buffered at all (SSE relies on a flush reaching the client, which
+// is the same reason setSSEHeaders sets X-Accel-Buffering), and the image
+// bytes are already compressed formats. A blanket compressor would have to
+// carve both of those out to be correct, which is more machinery than one
+// call site earns.
+func writeCompressedJSON(w http.ResponseWriter, r *http.Request, status int, v any) {
+	if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+		writeJSON(w, status, v)
+		return
+	}
+	h := w.Header()
+	h.Set("Content-Type", "application/json")
+	h.Set("Content-Encoding", "gzip")
+	// Without Vary a cache that saw the gzip request would hand the same
+	// bytes to a client that cannot decode them.
+	h.Add("Vary", "Accept-Encoding")
+	w.WriteHeader(status)
+	gz := gzip.NewWriter(w)
+	defer gz.Close()
+	_ = json.NewEncoder(gz).Encode(v)
 }
 
 func writeSessionLookupError(w http.ResponseWriter, err error) {

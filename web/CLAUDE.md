@@ -10,7 +10,7 @@ diff table renders inside the transcript. The theme variables are ported from
 the design token set, and everything shadcn has no opinion about — the shared
 top nav, the transcript block styles, the diff table, and the status and diff
 tokens — is plain CSS in `src/styles.css`. No router, no data layer beyond the
-SSE client, the store, and the settings fetch calls. `docs/DESIGN.md` §5 is
+snapshot fetch, the SSE client, the store, and the settings fetch calls. `docs/DESIGN.md` §5 is
 the reference for the reasoning behind all of it.
 
 One shared top nav (`components/TopNav.tsx`) is mounted once by `App.tsx`
@@ -277,10 +277,30 @@ blocks; the naive shape re-parses the whole transcript tens of times a second.
   (`internal/httpapi` `handleSessionStream`). It reaches the snapshot as
   `replayed`, and it is what tells the display which rows are backlog and
   which arrived while somebody was watching (`hooks.ts` `useArrivals`). Do not
-  try to infer it: a long replay arrives across several reads, so "the first
-  blocks I saw" is a fraction of the history. A store driven without a
+  try to infer it. A store driven without a
   connection — the perf harnesses — calls `markReplayed()` once it has seeded
   its own history.
+- **A transcript loads in two halves, in one order, and the seam is a seq.**
+  `TranscriptStore.load()` fetches `GET /api/sessions/{id}/snapshot` — the
+  whole log, gzipped, with images detached — folds it, and only then opens
+  the stream at `?from=<cursor>`. Nothing between the two can be missed: the
+  log is append-only with monotonic seq, so an event committed in that window
+  has a seq above the cursor and lands in the stream's replay. The halves
+  overlap on purpose and `ingest()` drops anything at or below the cursor, so
+  every other part of the protocol is free to err towards sending too much —
+  a reconnect resumes from the last id the browser *saw*, and a server that
+  ignored `?from=` would still render correctly, just slowly. `connect()` is
+  the tail-only call and does **not** reset the fold; `load()` is the one that
+  re-reads from the start, and it is what the mount effect calls. A failed
+  snapshot falls through to a full stream replay rather than an empty screen.
+- **Image bytes are not in the payload the browser sees.** A tool result's
+  picture arrives as `image_href`, a URL onto
+  `GET /api/sessions/{id}/events/{seq}/image`, which `InlineImage` renders
+  lazily; `image_url`, the inline data URI, is what the store holds and what
+  the perf harness and the tests produce, so both are honoured and the href
+  wins. The reason is rate: one production session was 39.4 MB, of which 34
+  image results were 38.9 MB, and all of it came down before a line of text
+  could be read.
 - **Two feeds, two shapes, and the narrow one is the list's.** `GET
   /api/stream` sends `SessionListRow` (`internal/hub`'s `ListRow`): only the
   fields the session list draws, with `task` capped. It re-sends a whole row on

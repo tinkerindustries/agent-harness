@@ -33,7 +33,7 @@ concurrency on the row, and a JSON error body.
 | Resource | Endpoint | Read | Write |
 | --- | --- | --- | --- |
 | sessions | `/api/sessions` | GET (list), GET `/api/sessions/{id}` | PATCH `/api/sessions/{id}`, DELETE `/api/sessions/{id}` |
-| events | `/api/sessions/{id}/events` | GET (paged, `?from=&limit=`) | **none** |
+| events | `/api/sessions/{id}/events` | GET (paged, `?from=&limit=`), GET `/api/sessions/{id}/snapshot` (the whole log at once), GET `/api/sessions/{id}/events/{seq}/image` (a tool result's image bytes) | **none** |
 | work_requests | `/api/requests` | GET (list), GET `/api/requests/{request_id}` (row), GET `/api/requests/{request_id}/status` (poll snapshot) | PATCH, DELETE `/api/requests/{request_id}` |
 | workspace_leases | `/api/leases` | GET (list) | DELETE `/api/leases/{workspace}` |
 | settings | `/api/settings` | GET `/api/settings` | PUT, DELETE `/api/settings/{key}` |
@@ -87,6 +87,20 @@ caps and the phase relationship (`agentmeta.ValidateTitle`,
   and not a general file read: the path must resolve inside that session's
   workspace and carry a PNG, JPEG, or WebP extension, and the image is read
   live, so a session whose workspace has been cleaned up returns 404.
+- `GET /api/sessions/{id}/events/{seq}/image` — the image bytes of the tool
+  result at `seq`, decoded out of the event log. Its neighbour above reads the
+  live workspace; this one reads the log, and the difference shows in both
+  directions. These bytes cannot go away, so the response is
+  `Cache-Control: private, max-age=31536000, immutable` with an ETag, and a
+  cleaned-up workspace changes nothing. But only a `tool_result` that carried
+  an image has any — every other seq is a 404, in the same words, so walking
+  seq numbers reveals nothing the transcript did not already say.
+
+  It exists because those bytes used to ride the event payload everywhere it
+  went. One production session was 39.4 MB across 668 events, of which 34
+  image results were 38.9 MB, and every page load carried all of it before a
+  line of text could be read. See
+  [the events resource](#events) for what the payload carries instead.
 
 A session row's representation carries `version` (see
 [Optimistic concurrency](#optimistic-concurrency)). The write endpoints change
@@ -183,10 +197,55 @@ kind filtering:
   SQL: a page of tool traffic never pulls the transcript's reasoning and
   content deltas off the disk.
 
+An image a tool result carried does **not** travel in the payload. The store
+holds it as a base64 data URI in `image_url` — the fold rebuilds the model's
+own parts array from it, so a replay reproduces the exact bytes whatever
+happened to the file since — and every HTTP surface that serves events swaps
+it for `image_href`, a URL onto
+`GET /api/sessions/{id}/events/{seq}/image` (above). The paged resource, the
+snapshot, and each frame of the transcript stream all apply the same
+projection, so no two of them can disagree about the shape of a payload; a
+client renders `image_href` exactly where it would have rendered `image_url`.
+
+Plus a whole-log read, for a client about to render all of it:
+
+- `GET /api/sessions/{id}/snapshot` — the session's metadata row, its entire
+  event log, and the cursor the log ended on, in one response. Unpaged, and
+  gzipped when the caller offers `Accept-Encoding: gzip` — a transcript is
+  prose, code and command output, which compresses to roughly a third.
+
+  ```json
+  {"session": {…}, "events": [...], "cursor": 666}
+  ```
+
+  `cursor` is the seq of the last event in `events`, and `0` for a log with
+  none — which is also the right cursor for one, since seq numbering starts
+  at 1.
+
+  It is meant to be used with the stream, in one order: fetch the snapshot,
+  then open `GET /api/sessions/{id}/stream?from=<cursor>`. **That seam cannot
+  drop an event.** Every seq at or below `cursor` is in the snapshot by
+  construction; every seq above it is replayed by the stream before it
+  forwards anything live; the log is append-only with monotonic seq, so an
+  event committed in the window between the two requests has a seq above
+  `cursor` and lands in that replay. The two halves overlap rather than
+  abut — a client folds by seq and drops what it already holds.
+
+  What it is for: the stream alone was the whole data source, so a page load
+  meant replaying the entire history frame by frame down an SSE connection,
+  and a browser paints each chunk as it lands. The 39.4 MB session above
+  visibly filled in over about four seconds. As a snapshot with the images
+  detached it is 159 KB gzipped and arrives in one hit.
+
 Plus the SSE transcript stream, which carries three kinds of frame:
 
-- **Committed events**, as `id: <seq>` plus `data:` — the resumable log. A
-  client resumes with `Last-Event-ID` and the server replays from there.
+- **Committed events**, as `id: <seq>` plus `data:` — the resumable log. The
+  stream replays from a cursor and then forwards live: `Last-Event-ID` when
+  the client sends one, else `?from=<seq>`, else 0, which replays the whole
+  log. `Last-Event-ID` wins over `?from=` whenever it is set, because a
+  browser sets it only on an automatic reconnect and it is strictly fresher
+  than a query string fixed when the `EventSource` was constructed. A client
+  that knows nothing about `?from=` gets exactly the old behaviour.
 - **Live deltas**, as `event: live` plus `data:`, with **no id**. These are
   model output the backend has not committed yet: the same text arrives again,
   moments later, as ordinary `reasoning_delta` and `content_delta` events in the
