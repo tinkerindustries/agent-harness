@@ -77,6 +77,11 @@ cutting a version and deploying it to the production stack.
 `third_party/kimi-docs/` mirrors <https://platform.kimi.ai/docs> the same way,
 for Moonshot AI's Kimi models. Start at its `README.md`.
 
+`third_party/gemini-docs/` mirrors <https://ai.google.dev/gemini-api/docs/>
+the same way, for Google's Gemini models — scoped to the **Interactions API**
+(`POST /v1beta/interactions`), the surface [GEMINI-INTEGRATION.md](docs/GEMINI-INTEGRATION.md)
+targets, not the legacy `generateContent` tree. Start at its `README.md`.
+
 ## Generated skills
 
 `.claude/skills/playwright-cli/` is emitted by the tool it documents, not

@@ -144,8 +144,10 @@ Two cost facts that must not be lost:
   `internal/pricing` watches the date. A run costed after that date on the
   current table will be understated by half.
 - **Gemini's context caching also carries a per-hour storage charge** with no
-  counterpart in the three-rate table. `Usage.TokenSplit`'s doc comment already
-  says so. A Gemini cost figure covers cached reads, not cached storage.
+  counterpart in the three-rate table — $0.50 per 1M tokens per hour, doubling
+  to $1.00 on the same date (`third_party/gemini-docs/pricing.md`).
+  `Usage.TokenSplit`'s doc comment already says the shape cannot express it. A
+  Gemini cost figure covers cached reads, not cached storage.
 
 ## 5. The seams
 
@@ -179,23 +181,47 @@ On the Interactions surface a thought signature is a field on a `thought` step:
 
 ([Thinking guide](https://ai.google.dev/gemini-api/docs/thinking#signatures))
 
-The rules, as documented:
+The rules, from `third_party/gemini-docs/thinking.md` (Phase 1 mirrored it;
+this supersedes an earlier draft of this section that leaned on
+`generateContent`-era material found by search):
 
-- **They must be replayed verbatim.** "You **MUST** always resend all thought
-  blocks exactly as they were received from the model." You "should NOT remove
-  or modify thought blocks from the history, as they contain the signatures
-  required for the model to continue its reasoning."
-- **Omitting one is a 400 on Gemini 3, not a quality regression.** Gemini 3
-  enforces stricter validation than 2.5 did. Validation runs over all steps in
-  the current turn.
-- **On parallel calls only the first carries one.** Documented for the legacy
-  parts surface; whether the Interactions surface behaves identically is
-  **unverified** and is a Phase 2 question.
-- **There are documented bypass values** — `context_engineering_is_the_way_to_go`
-  and `skip_thought_signature_validator` — for replaying traces that have no
-  genuine signature. Also documented against the legacy surface; **unverified**
-  here. These matter as an escape hatch for compaction (below), not for normal
-  operation.
+- **Signatures live in exactly two places, and standard function calls are not
+  one of them.** "In the Interactions API, thoughts are a first-class
+  representation as dedicated `thought` steps. Because of this signatures are
+  limited exclusively to two known locations, `thought` steps, or built-in tool
+  steps (like `google_search_call`/`google_search_result`). **They never appear
+  on user inputs, model outputs, or standard function calls.**"
+
+  This is a large simplification. The `generateContent` surface attaches
+  signatures to arbitrary parts, which is where the widely-reported
+  parallel-function-call rule ("only the first `functionCall` part carries
+  one") and the 400-on-missing-signature reports come from. **Neither applies
+  here.** We use no built-in tools (§8), so for this harness the rule reduces
+  to: capture and replay the signature on `thought` steps, and nothing else.
+- **They must be replayed verbatim in stateless mode.** "You **MUST** always
+  resend all `thought` blocks exactly as they were received from the model."
+  You "should **NOT** remove or modify thought blocks from the history, as they
+  contain the signatures required for the model to continue its reasoning."
+- **A signature is always present; a summary often is not.** The reference
+  marks `signature` "Always present, even when the model performs minimal
+  reasoning", while a thought block "may contain only a signature with no
+  summary" — on simple requests, with `thinking_summaries: "none"`, or for
+  non-text thought content. "Your code should always handle thought blocks
+  where `summary` is empty or absent." So the signature, not the summary, is
+  the thing that must survive the fold.
+- **Model switching is explicitly supported.** "When switching models within a
+  session, you should still resend the previous model's thought blocks. The
+  backend manages compatibility." Worth knowing before anyone proposes
+  stripping them on a model change.
+- **What the Interactions docs do NOT say.** They state no error code for
+  omitting a signature, and they document no bypass values — the
+  `context_engineering_is_the_way_to_go` and `skip_thought_signature_validator`
+  escape hatches appear only in `generateContent`-era material and forum
+  reports. Whether either concept exists on this surface is **unverified** and
+  is a Phase 2 measurement, because compaction depends on the answer.
+
+Google's own summary: "The Interactions API makes handling thought signatures
+much simpler than the `generateContent` API."
 
 Why this is architecturally awkward rather than merely fiddly: the harness's
 authoritative record is its append-only event log, and the messages array is
@@ -355,9 +381,13 @@ builder.
 ### Open, and resolved by Phase 2 rather than by argument
 
 - Whether the Go SDK really lacks Interactions support.
-- Whether the parallel-function-call signature rule holds on this surface.
-- Whether the bypass signature values work here, and therefore whether
-  compaction is possible for Gemini sessions.
+- Whether omitting a `thought` signature in stateless mode is an error or a
+  degradation, and what the error looks like. The Interactions docs say only
+  that you must resend them.
+- Whether any bypass signature value works here, and therefore whether
+  compaction is possible for Gemini sessions. *(The parallel-function-call
+  question is closed: signatures never appear on standard function calls on
+  this surface — see §5.2.)*
 - Whether `arguments_delta` fragments are always parseable JSON when
   concatenated, and whether `wire.ToolCallAssembler` can be reused as-is.
 - What `CacheSlack` should be.
@@ -383,12 +413,26 @@ models, pricing.
 
 No Go code. Update `CLAUDE.md`'s "Vendored documentation" section.
 
+**Done.** 19 Markdown pages plus `openapi.json` — the OpenAPI 3.0.3 description
+of `v1beta`, 14 paths and 181 schemas. That file is the authoritative reference
+for Phase 4's struct definitions; prefer it over the prose pages wherever they
+disagree about a field name or type. Phase 1 also corrected §5.2 of this
+document, which had been drafted from `generateContent`-era material.
+
 ### Phase 2 — Live-API spike, recorded in `docs/OBSERVED.md`
 
 **The point of this phase is that nothing downstream guesses a shape.**
 
-Write `internal/gemini/interactions_live_test.go`, skipped unless a Google API
-key is available, exercising against the live API:
+This follows the repo's existing convention rather than inventing one:
+"Nothing in either suite calls `api.deepseek.com`. Findings that needed the
+live API were measured by hand and written down in `docs/OBSERVED.md` rather
+than turned into tests" ([TESTING.md](../TESTING.md)). So the probe itself is
+a throwaway under `scripts/` or the scratch directory and is **not committed
+as a test**. What gets committed is (a) the findings, in `docs/OBSERVED.md`,
+and (b) the captured SSE frame sequences as fixtures under
+`internal/gemini/testdata/`, which Phase 4's unit tests then run against.
+
+Exercise against the live API:
 
 1. A tools request with one function, streamed, to a completion.
 2. The full `function_call` → `function_result` round trip over two requests
@@ -397,7 +441,9 @@ key is available, exercising against the live API:
 4. **Omit the signature and record the exact error.** This is the phase's most
    important single measurement.
 5. Try both bypass signature values and record whether they work.
-6. Parallel function calls: record how many steps carry a signature.
+6. Parallel function calls: confirm they arrive as several `function_call`
+   steps in one turn, that none carries a signature (§5.2), and record the
+   step indices and ordering the assembler depends on.
 7. An image in a `function_result`.
 8. Capture the raw SSE frame sequence for each.
 
@@ -405,8 +451,10 @@ Record every finding in `docs/OBSERVED.md`, which "overrides the vendored docs
 where they disagree", and resolve every item in §6 "Open". Where a finding
 contradicts this document, **update this document**.
 
-The dev stack holds `google.api_key`; the test must read it from the settings
-store or an environment variable and must never print it.
+The dev stack holds `google.api_key` (there is no `GOOGLE_API_KEY` in `.env`).
+The probe must read it from that settings store or take it from the
+environment, and must never print it — a key pasted into a findings document
+outlives the investigation.
 
 ### Phase 3 — `wire` grows a home for thought signatures
 
