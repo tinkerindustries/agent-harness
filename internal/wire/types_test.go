@@ -90,6 +90,71 @@ func TestSystemRoleNotDeveloper(t *testing.T) {
 	}
 }
 
+// TestMessageWithoutThoughtSignatureUnchanged pins that a Message with no
+// ThoughtSignature set serialises to exactly the bytes it did before that
+// field existed — the byte-stability guard Phase 3 of
+// docs/GEMINI-INTEGRATION.md requires alongside the DeepSeek and Kimi golden
+// files, which this field must never disturb.
+func TestMessageWithoutThoughtSignatureUnchanged(t *testing.T) {
+	reasoning := "Let me check the workspace."
+	msg := Message{
+		Role:             RoleAssistant,
+		Content:          TextContent("I'll check the workspace."),
+		ReasoningContent: &reasoning,
+	}
+	out, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	want := `{"role":"assistant","content":"I'll check the workspace.","reasoning_content":"Let me check the workspace."}`
+	if string(out) != want {
+		t.Fatalf("got %s, want %s", out, want)
+	}
+}
+
+// TestMessageWithThoughtSignature checks that a set signature serialises
+// alongside reasoning content, verbatim and in the field's own position.
+func TestMessageWithThoughtSignature(t *testing.T) {
+	reasoning := "Let me check the workspace."
+	signature := "EpoGCpcGAXLI2nx/"
+	msg := Message{
+		Role:             RoleAssistant,
+		Content:          TextContent("I'll check the workspace."),
+		ReasoningContent: &reasoning,
+		ThoughtSignature: &signature,
+	}
+	out, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	want := `{"role":"assistant","content":"I'll check the workspace.","reasoning_content":"Let me check the workspace.","thought_signature":"EpoGCpcGAXLI2nx/"}`
+	if string(out) != want {
+		t.Fatalf("got %s, want %s", out, want)
+	}
+}
+
+// TestMessageWithThoughtSignatureAndNoReasoning checks the case
+// docs/OBSERVED.md says is routine: a signature is always present on a
+// thought step, but its summary is often absent, so a message can carry a
+// signature with no ReasoningContent at all. reasoning_content must stay
+// absent rather than appearing as null or "".
+func TestMessageWithThoughtSignatureAndNoReasoning(t *testing.T) {
+	signature := "context_engineering_is_the_way_to_go"
+	msg := Message{
+		Role:             RoleAssistant,
+		Content:          TextContent("Done."),
+		ThoughtSignature: &signature,
+	}
+	out, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	want := `{"role":"assistant","content":"Done.","thought_signature":"context_engineering_is_the_way_to_go"}`
+	if string(out) != want {
+		t.Fatalf("got %s, want %s", out, want)
+	}
+}
+
 func TestMaxTokensAlwaysSerialised(t *testing.T) {
 	// max_tokens must be sent explicitly on every request, even when the
 	// zero value would otherwise be omitted by an omitempty tag.
