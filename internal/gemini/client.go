@@ -1,16 +1,36 @@
-// Package gemini is a client for Google's Gemini API, used by the vision
-// tools — Glance, Ground, and Detect — to send images DeepSeek cannot see to
-// a vision model and return its answer or located boxes (docs/TOOLS.md,
-// "Glance" and "Ground and Detect"). Request and response bodies are Go
-// structs, never map[string]any, so identical values always serialise to
-// identical bytes.
+// Package gemini is a client for Google's Gemini API. Two callers use it:
+// the vision tools — Glance, Ground, and Detect — which send images DeepSeek
+// cannot see to a vision model and return its answer or located boxes
+// (docs/TOOLS.md, "Glance" and "Ground and Detect") through Interact, and
+// the agent loop, which drives a full coding session on gemini-3.7-flash
+// through StreamChatCompletion and CreateChatCompletion — the
+// internal/session.Client seam DeepSeek and Kimi already satisfy
+// (docs/GEMINI-INTEGRATION.md). Request and response bodies are Go structs,
+// never map[string]any, so identical values always serialise to identical
+// bytes — the byte-stability contract the prompt cache depends on
+// (docs/DESIGN.md §3.2), which matters here exactly as much as it does for
+// the other two providers.
 //
-// The request is sent to POST {base}/v1beta/interactions, the surface
-// docs/gemini-3.5-flash-ui-review-prompting.md's sources document: the
-// whats-new page shows thinking_level inside generation_config, and the
-// media-resolution page shows resolution as a per-image key on the image
-// part. Both pages use snake_case JSON, so this package does too. The
-// package has no dependency on any other internal package.
+// The request is sent to POST {base}/v1beta/interactions for both callers;
+// docs/gemini-3.5-flash-ui-review-prompting.md's sources document the shapes
+// Interact uses (thinking_level inside generation_config, resolution as a
+// per-image key on the image part), and third_party/gemini-docs/openapi.json
+// is the authoritative reference for the agentic shapes chat_types.go,
+// intent.go and stream.go add — prefer it over prose wherever they disagree
+// about a field name or type. Both surfaces use snake_case JSON, so this
+// package does too.
+//
+// Interact, InteractionRequest, InteractionResponse, Step and decodeStream
+// are the vision path and are untouched by the agentic addition: they are
+// in production (internal/tools/vision.go depends on Interact directly) and
+// must keep producing identical request bytes. Everything the agentic path
+// needs — ChatInteractionRequest and its step types (chat_types.go),
+// requestFromIntent (intent.go), pumpChatEvents and IsReasoningStarved
+// (stream.go), RepairArguments (toolcall.go), and the SSE-and-plain error
+// parsing errors.go adds — is additive, not a refactor of what Interact
+// already does. The one dependency this adds package-wide is
+// internal/wire, for wire.ChatIntent, wire.Event and the message and tool
+// vocabulary the session.Client seam is built from.
 package gemini
 
 import (
@@ -25,6 +45,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
 )
 
 // DefaultBaseURL is the host the client talks to when NewClient is given an
@@ -69,6 +91,12 @@ type Client struct {
 	baseURL        string
 	apiKeyProvider func() (string, error)
 	httpClient     *http.Client
+	// chatIdleTimeout overrides pumpChatEvents' watchdog window
+	// (stream.go's idleTimeout); zero means defaultIdleTimeout. Interact has
+	// no equivalent — see NewClient's own comment on why it sets no
+	// response-header timeout — but the agentic streaming path keeps a
+	// watchdog, matching DeepSeek's and Kimi's streams.
+	chatIdleTimeout time.Duration
 }
 
 // ClientOption customises a Client built by NewClient.
@@ -84,6 +112,14 @@ func WithAPIKeyProvider(fn func() (string, error)) ClientOption {
 // WithHTTPClient overrides the default HTTP client, e.g. in tests.
 func WithHTTPClient(h *http.Client) ClientOption {
 	return func(c *Client) { c.httpClient = h }
+}
+
+// WithChatIdleTimeout overrides the agentic streaming path's idle watchdog
+// window (stream.go's pumpChatEvents), e.g. in tests. It has no effect on
+// Interact, which sets no response-header timeout at all (NewClient's own
+// comment explains why).
+func WithChatIdleTimeout(d time.Duration) ClientOption {
+	return func(c *Client) { c.chatIdleTimeout = d }
 }
 
 // WithTransportWrapper wraps the client's existing transport, e.g. to
@@ -322,3 +358,190 @@ func parseAPIError(resp *http.Response) error {
 	}
 	return fmt.Errorf("gemini: unexpected status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 }
+
+// StreamChatCompletion sends one streaming interaction expressing the
+// agent loop's intent and returns a channel of typed deltas — the
+// session.Client half of this package (docs/GEMINI-INTEGRATION.md §5.1).
+// The request is built from the intent here, in the provider, so the loop
+// never spells Gemini's step-typed history or its flattened tool schema
+// (intent.go). The channel closes when the stream ends, normally or by
+// error; a terminal wire.Event with Type EventError or EventFinish is
+// always the last event sent before it closes (stream.go's
+// pumpChatEvents).
+func (c *Client) StreamChatCompletion(ctx context.Context, intent wire.ChatIntent) (<-chan wire.Event, error) {
+	req := requestFromIntent(intent)
+	req.Stream = true
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("gemini: encode request: %w", err)
+	}
+
+	httpReq, err := c.newRequest(ctx, "/v1beta/interactions", body)
+	if err != nil {
+		return nil, wrapClientError("stream request", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("gemini: stream request: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		// docs/OBSERVED.md's central finding for this phase: a bad or
+		// missing thought signature answers 400 with an SSE-framed body,
+		// not the plain JSON parseAPIError (the vision path's own error
+		// reader) expects.
+		return nil, parseAgenticAPIError(resp)
+	}
+
+	events := make(chan wire.Event)
+	go c.pumpChatEvents(ctx, resp.Body, events)
+	return events, nil
+}
+
+// CreateChatCompletion sends one non-streaming interaction expressing the
+// loop's intent and waits for the full response — the compaction summary's
+// path (internal/session.Client's doc comment). stream:false is a
+// genuinely different response shape here, not merely Interact's own
+// always-streamed request read to completion: docs/OBSERVED.md's "Unary
+// (stream: false)" finding is that a thought step's signature sits directly
+// on the step object, not nested in a delta, which is exactly the shape
+// chatStep.Signature and chatCompletionResponseFromRaw below read.
+//
+// c.newRequest below sets Accept: text/event-stream unconditionally, the
+// same header Interact and StreamChatCompletion send; a live measurement
+// confirmed this is harmless for a stream:false body — both
+// Accept: text/event-stream and Accept: application/json against
+// stream:false return Content-Type: application/json — so the request's
+// own stream field controls the response shape, not the Accept header.
+func (c *Client) CreateChatCompletion(ctx context.Context, intent wire.ChatIntent) (*wire.ChatCompletionResponse, error) {
+	req := requestFromIntent(intent)
+	req.Stream = false
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("gemini: encode request: %w", err)
+	}
+
+	httpReq, err := c.newRequest(ctx, "/v1beta/interactions", body)
+	if err != nil {
+		return nil, wrapClientError("chat completion request", err)
+	}
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("gemini: chat completion request: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, parseAgenticAPIError(resp)
+	}
+	defer resp.Body.Close()
+
+	var raw chatInteractionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, fmt.Errorf("gemini: decode response: %w", err)
+	}
+	return chatCompletionResponseFromRaw(&raw), nil
+}
+
+// chatCompletionResponseFromRaw turns the unary agentic response into the
+// shared wire.ChatCompletionResponse shape: one Choice, since the
+// Interactions surface returns exactly one candidate the way DeepSeek and
+// Kimi do, built by walking the steps in order — a thought step's signature
+// onto Message.ThoughtSignature, function_call steps onto Message.ToolCalls,
+// a model_output step's text onto Message.Content. Both together (a
+// function_call after a thought) is the shape docs/OBSERVED.md's captured
+// round trip shows; a model_output alongside tool calls has never been
+// observed and is not expected, so the two are treated as alternatives, the
+// same as requestFromIntent's own reading of an assistant message.
+func chatCompletionResponseFromRaw(raw *chatInteractionResponse) *wire.ChatCompletionResponse {
+	msg := wire.Message{Role: wire.RoleAssistant}
+	var content strings.Builder
+	for _, s := range raw.Steps {
+		switch s.Type {
+		case StepTypeThought:
+			if s.Signature != "" {
+				sig := s.Signature
+				msg.ThoughtSignature = &sig
+			}
+		case StepTypeFunctionCall:
+			msg.ToolCalls = append(msg.ToolCalls, wire.ToolCall{
+				ID:   s.ID,
+				Type: "function",
+				Function: wire.ToolCallFunc{
+					Name:      s.Name,
+					Arguments: argumentsFromObject(s.Arguments),
+				},
+			})
+		case StepTypeModelOutput:
+			for _, c := range s.Content {
+				if c.Type == ContentTypeText {
+					content.WriteString(c.Text)
+				}
+			}
+		}
+	}
+	msg.Content = wire.TextContent(content.String())
+
+	// finishReasonFor (stream.go) is the same synthesis the streaming path
+	// uses, so a capped unary call and a capped streamed call report the
+	// same FinishLength — the raw response's own Status is the unary
+	// equivalent of the interaction.completed frame's Status the streaming
+	// path reads.
+	finishReason := finishReasonFor(chatStreamState{sawFunctionCall: len(msg.ToolCalls) > 0, status: raw.Status})
+	return &wire.ChatCompletionResponse{
+		ID:      raw.ID,
+		Choices: []wire.Choice{{Index: 0, Message: msg, FinishReason: finishReason}},
+		Usage:   usageToWire(raw.Usage),
+	}
+}
+
+// usageToWire maps Gemini's usage shape onto the wire.Usage every provider's
+// UsageSplit reads. It reuses Usage.TokenSplit's own reasoning — thought
+// tokens bill at the output rate, cached tokens are a subset of input
+// (types.go's TokenSplit doc comment) — so this and TokenSplit must not
+// drift apart; TestUsageToWireMatchesTokenSplit pins that they cannot. The
+// cache split rides CachedTokens the same single-field way Kimi K3's own
+// usage does (wire.Usage's own doc comment), which is what lets
+// Client.UsageSplit below read it with the identical formula Kimi's does.
+func usageToWire(u *Usage) *wire.Usage {
+	if u == nil {
+		return nil
+	}
+	_, _, completion, reasoning := u.TokenSplit()
+	return &wire.Usage{
+		PromptTokens:            u.TotalInputTokens,
+		CompletionTokens:        completion,
+		TotalTokens:             u.TotalTokens,
+		CachedTokens:            u.TotalCachedTokens,
+		CompletionTokensDetails: &wire.CompletionTokensDetails{ReasoningTokens: reasoning},
+	}
+}
+
+// UsageSplit maps one request's usage onto the cache-hit and cache-miss
+// counts the cost model and the stored usage payload use. usageToWire above
+// carries Gemini's cache figure through CachedTokens, the same single-field
+// shape Kimi K3 reports (wire.Usage's own doc comment), so the split is the
+// identical formula internal/kimi's own UsageSplit uses: the hit is
+// CachedTokens itself, the miss is everything else in the prompt. The
+// clamp against a negative miss guards a malformed report the same way
+// Usage.TokenSplit's own cacheMiss already does; a nil usage — the event
+// never arrived — maps to zeroes.
+func (c *Client) UsageSplit(usage *wire.Usage) (cacheHit, cacheMiss int) {
+	if usage == nil {
+		return 0, 0
+	}
+	cacheHit = usage.CachedTokens
+	cacheMiss = usage.PromptTokens - usage.CachedTokens
+	if cacheMiss < 0 {
+		cacheMiss = 0
+	}
+	return cacheHit, cacheMiss
+}
+
+// CacheSlack is the churn detector's tolerance for Gemini: PROVISIONAL.
+// Phase 2 could not measure this — the two-request cache warm-up
+// (docs/OBSERVED.md, "Implicit caching works under store: false, after a
+// warm-up") means the churn detector's own prediction-vs-reality comparison
+// needs a live multi-sub-turn session to produce a real bound, which no
+// phase before Phase 8 runs. 8192 is deliberately loose — a wide multiple of
+// Kimi K3's own empirical bound of 512 (docs/OBSERVED.md) — so the churn
+// diagnostic stays quiet rather than false-alarming on Gemini sessions
+// before Phase 8 measures the true figure and replaces this.
+func (c *Client) CacheSlack() int { return 8192 }

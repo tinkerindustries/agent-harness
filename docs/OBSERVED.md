@@ -568,30 +568,55 @@ reassemble fragments *because* they always fragment — doesn't hold for
 larger-still generation ever splits across frames is untested; treat the
 assembler as defensive plumbing here, not confirmed-necessary plumbing.
 
-### `IsReasoningStarved` and `RepairArguments` — no work found to do
+### `RepairArguments` — no work found to do
 
-Zero malformed-JSON arguments across all 6 calls measured, up to 69 KB. No
-`generation_config` field for capping total output tokens was found — only
-`thinking_level` exists on it — so there is no lever available in this phase
-to provoke a DeepSeek-style "reasoning consumed the whole budget, content is
-empty" failure, and no sign one exists to hit. Every call here, including the
-1,000,011-input-token request below, returned normally with `status:
-"completed"`.
+Zero malformed-JSON arguments across all 6 calls measured, up to 69 KB. An
+absence-of-evidence result, not a proof: recorded as "no work found", not "no
+work exists".
 
-Consistent with GEMINI-INTEGRATION.md §5.1's expectation that both should be
-trivial (`false` / no-repair) — but this is an absence-of-evidence result, not
-a proof. Recorded as "no work found," not "no work exists."
+### `max_output_tokens` exists, is honoured, and yields `status: "incomplete"`
 
-### `status` is always `"completed"`, never `"requires_action"`
+Corrects an earlier draft of this section, which said "no `generation_config`
+field for capping total output tokens was found — only `thinking_level` exists
+on it", and concluded from that there was no lever to provoke a starvation
+case. **Both halves were wrong.** The first was a failed search reported as a
+fact; `openapi.json` lists `max_output_tokens` on `GenerationConfig` alongside
+`seed`, `stop_sequences`, `thinking_summaries` and `tool_choice`. Re-measured
+2026-08-21:
+
+| `generation_config` | `total_output_tokens` | `status` |
+| --- | --- | --- |
+| `{thinking_level: low}` | 678 | `completed` |
+| `{thinking_level: low, max_output_tokens: 50}` | 46 | **`incomplete`** |
+| `{thinking_level: low, max_output_tokens: 2000}` | 696 | `completed` |
+
+So the cap is real and enforced, and truncation is reported as
+`status: "incomplete"`. That is the Gemini spelling of OpenAI-format's
+`finish_reason: "length"`, and it makes `IsReasoningStarved` implementable on
+the same terms DeepSeek uses (`FinishLength` with empty content) rather than
+the no-op an earlier draft called for.
+
+The general lesson is worth keeping: a measurement that something could not be
+*found* is not evidence it does not *exist*, and must not be recorded as
+though it were. Where a probe comes up empty and `openapi.json` documents the
+field, the contradiction is unresolved, not settled.
+
+### `status` never says `"requires_action"` — but it does say `"incomplete"`
 
 Contradicts GEMINI-INTEGRATION.md §3's table, which lists Gemini's `status` —
 `completed`, `requires_action`, … — as the analogue of `finish_reason`. Every
-measurement in this phase, including turns that ended on a pending
-`function_call` step with no `function_result` yet supplied, reported
-`status: "completed"` on the completed frame. The signal that a tool call is
-pending is the presence of a `function_call`-typed step in the response, not
-the status field. A Gemini client has to scan returned steps for an
+measurement here, including turns that ended on a pending `function_call` step
+with no `function_result` yet supplied, reported `status: "completed"`. **The
+signal that a tool call is pending is the presence of a `function_call`-typed
+step, not the status field.** A client must scan returned steps for an
 unanswered `function_call` rather than branch on `status`.
+
+An earlier draft of this section generalised that to "`status` is always
+`completed`". That is too strong, and it was an artefact of never sending
+`max_output_tokens`: with a cap in place the interaction returns
+`status: "incomplete"` (see above). So `status` carries exactly one piece of
+information this harness needs — whether output was truncated — and carries no
+information about pending tool calls.
 
 ### Context window: at least 1,000,011 input tokens, ceiling still unknown
 

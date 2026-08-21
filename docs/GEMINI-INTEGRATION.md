@@ -564,6 +564,16 @@ cannot. Update `docs/OBSERVED.md`, `docs/MODELS.md`, `ARCHITECTURE.md` and
 
 ## 8. What this plan does not cover
 
+- **Retry with backoff on the Gemini agentic path.** DeepSeek and Kimi retry
+  through `internal/providerhttp.Transport`; Phase 4 could not reuse it because
+  that transport hardcodes an `Authorization: Bearer` header Gemini does not
+  use, and wrote a bespoke SSE pump instead. This matches the existing
+  `Interact()` path, so it is not a regression — but it does mean a Gemini run
+  has no retry where a DeepSeek run has one, and a transient 5xx will fail a
+  sub-turn that would have survived on the other providers. Lifting the Bearer
+  assumption out of `providerhttp` and sharing it is the fix. Worth doing
+  before Gemini carries real work.
+
 - `previous_interaction_id` and server-side state, as an optimisation.
 - Per-step usage attribution from `step.stop`.
 - Gemini's built-in tools — `google_search`, `code_execution`, `computer_use`,
