@@ -259,10 +259,14 @@ func (m *Manager) dropCached(name string, cur *cachedConn) {
 	}
 }
 
-// dial opens a fresh session for srv, applying dialTimeout when ctx carries
-// no deadline of its own.
+// dial opens a fresh session for srv under dialTimeout, or under the
+// caller's own deadline when that is the shorter of the two. Applying it
+// even to a context that already has a deadline is what keeps a stuck dial
+// legible: the caller's bound expiring first produces nothing but "context
+// deadline exceeded", whereas this one expiring says which server was being
+// dialled and for how long it was waited on.
 func (m *Manager) dial(ctx context.Context, srv store.MCPServer) (*mcpsdk.ClientSession, error) {
-	if _, ok := ctx.Deadline(); !ok {
+	if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > dialTimeout {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, dialTimeout)
 		defer cancel()
@@ -271,7 +275,19 @@ func (m *Manager) dial(ctx context.Context, srv store.MCPServer) (*mcpsdk.Client
 	if dial == nil {
 		dial = defaultDial
 	}
-	return dial(ctx, srv)
+	sess, err := dial(ctx, srv)
+	if err != nil {
+		// A bare context error names nothing an operator can act on. Say
+		// what was being waited for, because the usual causes — a server
+		// that never finishes MCP initialisation, a package that will not
+		// install, an application it depends on answering slowly — are all
+		// invisible from the error alone.
+		if errors.Is(err, context.DeadlineExceeded) {
+			return nil, fmt.Errorf("dialling MCP server %q timed out after %s: it accepted the connection but did not finish MCP initialisation", srv.Name, dialTimeout)
+		}
+		return nil, err
+	}
+	return sess, nil
 }
 
 // Close closes every session the connection cache is holding, for

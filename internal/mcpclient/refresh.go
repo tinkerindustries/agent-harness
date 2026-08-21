@@ -18,6 +18,12 @@ import (
 // what the /mcp screen has any use for.
 const maxProbeErrorLen = 500
 
+// probeWriteTimeout bounds recording a failed probe's reason. It is small
+// because the write is local — one row in SQLite — and it exists only so
+// the bookkeeping cannot itself hang forever on a context nothing will
+// cancel.
+const probeWriteTimeout = 10 * time.Second
+
 // Refresh forces a fresh dial of name — bypassing the connection cache
 // entirely, since the point of Refresh is to prove the server's *current*
 // configuration actually connects, not that some earlier connection is
@@ -39,10 +45,19 @@ func (m *Manager) Refresh(ctx context.Context, name string) (store.MCPServer, er
 
 	snapshot, probeErr := m.probe(ctx, srv)
 	if probeErr != nil {
-		if err := m.Store.SaveMCPProbe(ctx, name, nil, truncateProbeError(probeErr), time.Now().UTC()); err != nil {
+		// Recording the failure runs on a fresh, bounded context rather
+		// than ctx, the same rule Runner.FailSetup follows for a run's
+		// terminal bookkeeping: a deadline is the most common reason a
+		// probe fails, and ctx is then already expired, so writing the
+		// reason through it fails too and the row keeps no account of why
+		// — which is exactly what happened to a create whose probe timed
+		// out and answered with an empty probe_error.
+		writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), probeWriteTimeout)
+		defer cancel()
+		if err := m.Store.SaveMCPProbe(writeCtx, name, nil, truncateProbeError(probeErr), time.Now().UTC()); err != nil {
 			return store.MCPServer{}, err
 		}
-		reloaded, err := m.Store.GetMCPServer(ctx, name)
+		reloaded, err := m.Store.GetMCPServer(writeCtx, name)
 		if err != nil {
 			return store.MCPServer{}, err
 		}

@@ -29,7 +29,18 @@ import (
 // server can hang past any request timeout an operator would tolerate, so
 // the context handed to MCPProber.Refresh is capped here rather than left to
 // inherit whatever the request's own context allows.
-const mcpProbeTimeout = 60 * time.Second
+//
+// Deliberately longer than internal/mcpclient's own dial bound rather than
+// equal to it. When the two matched, they raced: whichever deadline fired
+// first won, and the one that usually won was this one, so the row recorded
+// a bare "context deadline exceeded" instead of the dial's own account of
+// what it was waiting for. Leaving headroom means the inner bound always
+// fires first, the error names the dial, and there is still time left to
+// write that error to the row before this deadline arrives. A server that
+// does real work before answering tools/list — talking to an application it
+// drives, in the case that produced this — needs the minutes, not the
+// seconds a bare process spawn would.
+const mcpProbeTimeout = 4 * time.Minute
 
 // mcpToolWire is one tool from the last successful probe, as served. Only
 // what the screen renders: not InputSchema, which is large and unused by it
@@ -115,17 +126,23 @@ func mergeMCPSecretMap(stored, body map[string]string) map[string]string {
 }
 
 // probeIfConfigured re-probes name through s.MCP and returns the freshest
-// row available. When s.MCP is nil, or Refresh itself returns a Go error —
-// which docs/MCP.md's contract for MCPProber reserves for something outside
-// probing, such as the row having vanished, since a failed *connection* is
-// recorded on the row as probe_error rather than returned as an error — this
-// falls back to a plain read, so an unconfigured or momentarily failing
-// prober never turns an otherwise successful write into a failed one.
+// row available. Refresh reports a failed probe two ways at once — the
+// reloaded row, carrying the reason as probe_error, *and* a Go error — so
+// the row is what this returns whenever there is one. Only a genuinely
+// rowless failure (s.MCP nil, the row having vanished, the store itself
+// failing) falls back to a plain read, so an unconfigured or momentarily
+// failing prober never turns an otherwise successful write into a failed
+// one.
 func (s *Server) probeIfConfigured(ctx context.Context, name string) (store.MCPServer, error) {
 	if s.MCP != nil {
 		pctx, cancel := context.WithTimeout(ctx, mcpProbeTimeout)
 		defer cancel()
-		if srv, err := s.MCP.Refresh(pctx, name); err == nil {
+		// A populated row is taken whether or not the probe succeeded: on
+		// failure it is the reloaded row carrying probe_error, and
+		// discarding it in favour of a re-read raced the probe's own write
+		// — a create whose probe timed out answered with an empty
+		// probe_error while the row moments later carried the reason.
+		if srv, err := s.MCP.Refresh(pctx, name); err == nil || srv.Name != "" {
 			return srv, nil
 		}
 	}
@@ -363,9 +380,20 @@ func (s *Server) handleRefreshMCPServer(w http.ResponseWriter, r *http.Request) 
 	ctx, cancel := context.WithTimeout(r.Context(), mcpProbeTimeout)
 	defer cancel()
 	srv, err := s.MCP.Refresh(ctx, name)
-	if err != nil {
+	if err != nil && srv.Name == "" {
+		// No usable row came back: the name is unknown, or the store
+		// itself failed. Those are the only cases this endpoint reports
+		// as an error.
 		writeMCPServerError(w, err)
 		return
 	}
+	// A populated row alongside an error is the probe-failed case, which
+	// Refresh signals deliberately (internal/mcpclient.Manager.Refresh
+	// returns the reloaded row *and* the probe error). The failure is on
+	// the row as probe_error and that is what the screen renders, so
+	// answering 200 here is the contract, not leniency: a 500 would
+	// replace the reason the probe failed — "the server did not finish
+	// MCP initialisation", say — with a generic error the operator
+	// cannot act on.
 	writeJSON(w, http.StatusOK, mcpServerToWire(srv))
 }

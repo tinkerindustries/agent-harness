@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -196,5 +197,48 @@ func TestRefreshUsesFreshDialNotTheCache(t *testing.T) {
 	}
 	if dials != 2 {
 		t.Fatalf("expected 2 dials (one per Refresh), got %d", dials)
+	}
+}
+
+// TestRefreshRecordsFailureOnAnExpiredContext pins the reason a probe
+// failure is written on a fresh context rather than the caller's. A
+// deadline is the most common way a probe fails, and the caller's context
+// is expired by definition once it has: writing the reason through that
+// same context fails silently, and the row is left saying nothing about a
+// probe that plainly did not work. A create whose probe timed out answered
+// with an empty probe_error exactly this way.
+func TestRefreshRecordsFailureOnAnExpiredContext(t *testing.T) {
+	s := openTestStore(t)
+	mustCreateServer(t, s, store.MCPServer{Name: "srv", Transport: store.MCPTransportStdio, Command: "unused", Enabled: true})
+
+	m := New(s)
+	m.Dial = func(ctx context.Context, srv store.MCPServer) (*mcpsdk.ClientSession, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+
+	// A context that expires while the dial is in flight, which is what the
+	// probe budget expiring looks like from in here.
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+
+	row, err := m.Refresh(ctx, "srv")
+	if err == nil {
+		t.Fatal("Refresh with an expiring context returned no error")
+	}
+	if row.Name != "srv" {
+		t.Fatalf("row name = %q, want the row reloaded alongside the error", row.Name)
+	}
+	if row.ProbeError == "" {
+		t.Fatal("probe_error is empty: the failure was not recorded because the write used the expired context")
+	}
+
+	// And it is durable, not just present on the returned value.
+	stored, err := s.GetMCPServer(context.Background(), "srv")
+	if err != nil {
+		t.Fatalf("GetMCPServer: %v", err)
+	}
+	if stored.ProbeError == "" {
+		t.Fatal("stored probe_error is empty: the row kept no account of why the probe failed")
 	}
 }
