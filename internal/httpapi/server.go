@@ -276,6 +276,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("DELETE /api/sessions/{id}", s.handleDeleteSession)
 	mux.HandleFunc("POST /api/sessions/{id}/stop", s.handleStopSession)
 	mux.HandleFunc("POST /api/sessions/{id}/steer", s.handleSteerSession)
+	mux.HandleFunc("POST /api/sessions/{id}/resume", s.handleResumeSession)
 	mux.HandleFunc("POST /api/runs", s.handleStartRun)
 	mux.HandleFunc("GET /api/sessions/{id}/events", s.handleGetEvents)
 	mux.HandleFunc("GET /api/sessions/{id}/stream", s.handleSessionStream)

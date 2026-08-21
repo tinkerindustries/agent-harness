@@ -148,3 +148,60 @@ describe("TranscriptStore connection lifecycle", () => {
     expect(store.getSnapshot().connection).toBe("open");
   });
 });
+
+// Ending a stream is the server's call, not an inference off the last
+// event's kind (docs/RUN-CONTROL.md "Continuing"). Resume is what makes the
+// difference matter: a continued session appends after its terminal event,
+// and every later replay of its history carries that terminal event in the
+// middle of the log.
+describe("closing and reopening", () => {
+  it("stays open through a terminal event the server has not closed on", async () => {
+    const store = new TranscriptStore("sess-1", timerScheduler());
+    store.connect();
+    const es = FakeEventSource.opened[0];
+    es.emit({ seq: 1, kind: "run_finished", payload: { reason: "complete", status: "done", text: "did it" } } as unknown as StoreEvent);
+    await settle();
+    expect(es.closed).toBe(false);
+    expect(store.getSnapshot().connection).not.toBe("closed");
+  });
+
+  it("closes on the server's closed marker", async () => {
+    const store = new TranscriptStore("sess-1", timerScheduler());
+    store.connect();
+    const es = FakeEventSource.opened[0];
+    es.emitNamed("closed", {});
+    await settle();
+    expect(es.closed).toBe(true);
+    expect(store.getSnapshot().connection).toBe("closed");
+  });
+
+  it("reopens a closed stream for a session that came back to life", async () => {
+    const store = new TranscriptStore("sess-1", timerScheduler());
+    store.connect();
+    const first = FakeEventSource.opened[0];
+    first.emit(started(1));
+    first.emitNamed("closed", {});
+    await settle();
+
+    store.reopen();
+    await settle();
+    expect(FakeEventSource.opened).toHaveLength(2);
+    expect(store.getSnapshot().connection).not.toBe("closed");
+
+    // The replay starts from scratch — a fresh EventSource sends no
+    // Last-Event-ID — so the fold is reset and the history folds once, not
+    // twice.
+    const second = FakeEventSource.opened[1];
+    second.emit(started(1));
+    await settle();
+    expect(store.getSnapshot().blocks.filter((b) => b.type === "opening")).toHaveLength(1);
+  });
+
+  it("does nothing when reopen is called on a stream that is already open", async () => {
+    const store = new TranscriptStore("sess-1", timerScheduler());
+    store.connect();
+    store.reopen();
+    await settle();
+    expect(FakeEventSource.opened).toHaveLength(1);
+  });
+});

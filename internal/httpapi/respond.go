@@ -145,6 +145,24 @@ func writeSSEReplayed(w io.Writer) {
 	fmt.Fprint(w, "event: replayed\ndata: {}\n\n")
 }
 
+// writeSSEClosed marks a transcript stream the server is ending because the
+// session will not append again. Like the replayed marker it is named, id-less
+// and empty — its arrival is the whole message — and it exists for the same
+// reason: the client cannot work this out for itself.
+//
+// It used to try. The browser closed its own EventSource the moment a
+// run_finished or error event landed, on the reasoning that no more events
+// could ever follow, which stopped a reconnect from polling a session with
+// nothing left to say. Resume makes that inference wrong twice over
+// (docs/RUN-CONTROL.md "Continuing"): a continued session appends after its
+// terminal event, and every later replay of its history carries that old
+// terminal event in the middle of the log, which would close a stream that is
+// following a run currently in progress. Ending the stream is the server's
+// call, so the server is what says so.
+func writeSSEClosed(w io.Writer) {
+	fmt.Fprint(w, "event: closed\ndata: {}\n\n")
+}
+
 // writeSSEState writes one session's metadata row as a *named* SSE event
 // with no id, for the same two reasons a live delta carries that shape: the
 // name keeps it off the client's onmessage handler, which folds committed

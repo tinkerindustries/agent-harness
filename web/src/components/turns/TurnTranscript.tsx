@@ -24,6 +24,7 @@ export function TurnTranscript({
   getToolCall,
   renderSteer,
   renderInstruction,
+  renderContinuation,
   renderRunFinished,
   replayed = false,
 }: {
@@ -49,6 +50,12 @@ export function TurnTranscript({
   // 1". Absent — the chat page and the perf harnesses — the block keeps
   // its FrozenBlock rendering. Same reference-stability rule as renderSteer.
   renderInstruction?: (block: Extract<Block, { type: "instruction" }>) => ReactNode;
+  // renderContinuation replaces the continuation block card with the chat
+  // page's .msg-user rendering, for the same reason renderSteer does: a
+  // message somebody typed to continue the session is a message, not a
+  // block. Absent — the watch page and the perf harnesses — the block keeps
+  // its FrozenBlock rendering. Same reference-stability rule as renderSteer.
+  renderContinuation?: (block: Extract<Block, { type: "continuation" }>) => ReactNode;
   // renderRunFinished replaces the run_finished block card with the watch
   // page's result panel: for a run another agent launched, the
   // result payload is what the parent gets back, rendered at the end of the
@@ -75,6 +82,7 @@ export function TurnTranscript({
         getToolCall={getToolCall}
         renderSteer={renderSteer}
         renderInstruction={renderInstruction}
+        renderContinuation={renderContinuation}
         renderRunFinished={renderRunFinished}
       />
       <LiveTurnSection turn={live.turn} pendingTools={live.pendingTools} />
@@ -107,6 +115,7 @@ export const TurnList = memo(function TurnList({
   getToolCall,
   renderSteer,
   renderInstruction,
+  renderContinuation,
   renderRunFinished,
 }: {
   items: TranscriptItem[];
@@ -115,6 +124,12 @@ export const TurnList = memo(function TurnList({
   getToolCall: (id: string) => ToolCallPayload | undefined;
   renderSteer?: (block: SteerBlock) => ReactNode;
   renderInstruction?: (block: Extract<Block, { type: "instruction" }>) => ReactNode;
+  // renderContinuation replaces the continuation block card with the chat
+  // page's .msg-user rendering, for the same reason renderSteer does: a
+  // message somebody typed to continue the session is a message, not a
+  // block. Absent — the watch page and the perf harnesses — the block keeps
+  // its FrozenBlock rendering. Same reference-stability rule as renderSteer.
+  renderContinuation?: (block: Extract<Block, { type: "continuation" }>) => ReactNode;
   renderRunFinished?: (block: Extract<Block, { type: "run_finished" }>) => ReactNode;
 }) {
   // Which turns arrived while this transcript was already on screen, keyed by
@@ -146,6 +161,10 @@ export const TurnList = memo(function TurnList({
           // The watch page's launcher-instruction rendering; the
           // chat page and the perf harnesses keep the block below.
           renderInstruction(item.block)
+        ) : item.block.type === "continuation" && renderContinuation ? (
+          // The chat page's sent-message rendering; the watch page and the
+          // perf harnesses keep the block below.
+          renderContinuation(item.block)
         ) : item.block.type === "run_finished" && renderRunFinished ? (
           // The watch page's result panel; the chat page and the perf
           // harnesses keep the block below.

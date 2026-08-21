@@ -431,3 +431,48 @@ func TestValidateAttachmentIDs(t *testing.T) {
 		t.Errorf("attachment_ids did not round-trip: %+v", parsed.AttachmentIDs)
 	}
 }
+
+// A resume names a session instead of repositories: the workspace it
+// continues in already exists, with the clones the original request made
+// still in it (docs/RUN-CONTROL.md "Continuing").
+func TestValidateAcceptsResumeWithoutRepos(t *testing.T) {
+	req := Request{RequestID: "req-1", Prompt: "keep going", PermissionMode: "full", ResumeSessionID: "sess-1"}
+	if err := req.Validate(); err != nil {
+		t.Fatalf("Validate on a resume request: %v", err)
+	}
+}
+
+// Refused rather than ignored: a producer that set both fields meant to
+// start a run and would otherwise get a resume with its repositories
+// silently dropped.
+func TestValidateRejectsResumeCarryingRepos(t *testing.T) {
+	req := Request{RequestID: "req-1", Prompt: "keep going", PermissionMode: "full", ResumeSessionID: "sess-1", Repos: testRepos()}
+	err := req.Validate()
+	if err == nil {
+		t.Fatal("expected a resume request carrying repos to be rejected")
+	}
+	if !strings.Contains(err.Error(), "repos must be empty") {
+		t.Fatalf("error = %v, want it to name the repos rule", err)
+	}
+}
+
+// Relaxing the repos rule relaxes nothing else: the resume route copies the
+// session's own permission mode and model onto the request precisely so
+// every other check still applies to it unchanged.
+func TestValidateStillChecksTheRestOfAResumeRequest(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		req  Request
+	}{
+		{"no permission mode", Request{RequestID: "req-1", Prompt: "go", ResumeSessionID: "sess-1"}},
+		{"bad permission mode", Request{RequestID: "req-1", Prompt: "go", ResumeSessionID: "sess-1", PermissionMode: "sudo"}},
+		{"unknown model", Request{RequestID: "req-1", Prompt: "go", ResumeSessionID: "sess-1", PermissionMode: "full", Model: "no-such-model"}},
+		{"no request id", Request{Prompt: "go", ResumeSessionID: "sess-1", PermissionMode: "full"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.req.Validate(); err == nil {
+				t.Fatalf("expected %s to be rejected on a resume request too", tc.name)
+			}
+		})
+	}
+}

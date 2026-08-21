@@ -6,8 +6,8 @@ import type { TranscriptSnapshot } from "../api/transcriptStore";
 import { TurnTranscript } from "./turns/TurnTranscript";
 import { SteerMessage, type SteerBlock, type SteerWait } from "./turns/SteerMessage";
 import { finishedBandText, formatRunDuration } from "./turns/turnHelpers";
-import { controlToken, errorMessage, steerSession, stopSession } from "../api/operations";
-import { canSteer, isLive } from "../api/status";
+import { controlToken, errorMessage, resumeSession, steerSession, stopSession } from "../api/operations";
+import { canResume, canSteer, isLive } from "../api/status";
 import { isUserStarted } from "../api/provenance";
 import { SessionIdContext, useNow } from "../hooks";
 import { MSG_BODY_CLS, MSG_CLS, MSG_STATE_CLS, MSG_USER_CLS } from "./turns/SteerMessage";
@@ -18,6 +18,7 @@ import { ChatComposer, type ComposerStatus, type FinishedBand } from "./ChatComp
 import { ChatRail } from "./ChatRail";
 import { DroppedStreamBanner } from "./DroppedStreamBanner";
 import { outcome, type OutcomeSession } from "./statusBadge";
+import { ClosingMessage, isCleanFinish } from "./blocks/MiscBlocks";
 import { toolDetail } from "./blocks/toolArgs";
 import { useNavRight } from "./TopNav";
 
@@ -51,9 +52,14 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
   // the row says otherwise — and when the row never arrived, the safe
   // default is steerable, so the composer stays usable. A "creating" row is
   // live but has no loop to read a steer yet, so canSteer (not isLive) is
-  // what gates the composer: it stays disabled while the workspace is being
-  // built.
+  // what gates the stop controls and the queued line: they stay off while the
+  // workspace is being built.
   const running = meta === null || canSteer(meta.status);
+  // The other half: the run is over and this session can be continued
+  // (docs/RUN-CONTROL.md "Continuing"). The box renders for either, and which
+  // of the two is true is what a typed message becomes — a steer or a resume.
+  // Between them they cover every status but "creating" and "compacted".
+  const resumable = meta !== null && canResume(meta.status);
 
   // The run-control bearer, fetched once per page load (controlToken caches
   // its promise) and shared by the steer POST and the stop POST. A null
@@ -87,17 +93,28 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
   const [failed, setFailed] = useState<FailedSend[]>([]);
   const failedId = useRef(0);
 
-  // postSteer is the one steer POST, shared by the composer's send and the
-  // failed message's Retry: on acceptance it records the 202's seq and local
-  // time in the ledger; on refusal it reports the server's own words. The
-  // acceptance is not a delivery — the text appears in the transcript as a
-  // pending steer block via the SSE stream the moment the steer_message
-  // event lands, and flips to delivered when the loop applies it. Nothing
-  // here polls or guesses at that.
-  const postSteer = useCallback(
+  // postMessage is the one write behind the composer's send and the failed
+  // message's Retry, and the single place the page decides which verb a typed
+  // message is. A live run reads it at its next sub-turn boundary (a steer);
+  // a finished one is continued by it (a resume). The decision is made here,
+  // at the moment of sending, rather than by the composer, so the box below
+  // is one control with one callback.
+  //
+  // Neither acceptance is a delivery, and each says so in its own way. A
+  // steer's 202 carries the seq its event landed at, which goes into the
+  // ledger so the pending block can count up from when this browser sent it.
+  // A resume's does not: the continuation is not waiting on a boundary, it is
+  // waiting for a worker to claim it, and it appears in the transcript as a
+  // continuation block when the resumed run starts. Nothing here polls or
+  // guesses at either.
+  const postMessage = useCallback(
     async (text: string): Promise<{ ok: boolean; error: string | null }> => {
       if (token === null) return { ok: false, error: "run control is not configured" };
       try {
+        if (!running && resumable) {
+          await resumeSession(sessionId, token, text);
+          return { ok: true, error: null };
+        }
         const res = await steerSession(sessionId, token, text);
         setSentAt((prev) => {
           const m = new Map(prev);
@@ -109,19 +126,19 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
         return { ok: false, error: errorMessage(err) };
       }
     },
-    [sessionId, token],
+    [sessionId, token, running, resumable],
   );
 
   const send = useCallback(
     async (text: string): Promise<boolean> => {
-      const res = await postSteer(text);
+      const res = await postMessage(text);
       if (!res.ok) {
         setFailed((prev) => [...prev, { id: failedId.current++, text, error: res.error ?? "send failed" }]);
         return false;
       }
       return true;
     },
-    [postSteer],
+    [postMessage],
   );
 
   const retryFailed = useCallback(
@@ -129,10 +146,10 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
       // A retry is the same POST, not a fresh send: only its own entry
       // disappears on success, and a second refusal keeps the entry rather
       // than stacking a duplicate failed message.
-      const res = await postSteer(text);
+      const res = await postMessage(text);
       if (res.ok) setFailed((prev) => prev.filter((f) => f.id !== id));
     },
-    [postSteer],
+    [postMessage],
   );
 
   const dismissFailed = useCallback((id: number) => {
@@ -238,6 +255,40 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
     [sentAt, wait, running],
   );
 
+  // A message somebody typed to continue this session, rendered the way a
+  // sent message is rendered everywhere on this page: the .msg-user shell,
+  // no state line. There is nothing for a state line to say — a continuation
+  // is not waiting on a sub-turn boundary the way a steer is; the run it
+  // opened is already underway by the time the block exists.
+  const renderContinuation = useCallback(
+    (block: Extract<Block, { type: "continuation" }>) => (
+      <div className={cn(MSG_CLS, MSG_USER_CLS)} key={`${block.seq}-continuation`}>
+        <div className={MSG_BODY_CLS}>{block.text}</div>
+      </div>
+    ),
+    [],
+  );
+
+  // A run ending is a turn boundary on this page, not an event in its own
+  // right. When the outcome is clean, the model's closing words render as
+  // the model's closing words — no banner, no outcome label, no cost line —
+  // because that text is the reply, and the chrome around it is what makes a
+  // conversation read as a series of jobs. The numbers it carried are all
+  // still on the page: the status line under the composer, the nav's badge,
+  // and the session list.
+  //
+  // Anything but a clean outcome keeps the full card. That is the moment the
+  // reason matters — a run that gave up, hit its sub-turn ceiling or was
+  // stopped has something to say beyond its last sentence, and quietly
+  // eliding it would leave the reader wondering why the model stopped
+  // mid-thought.
+  const renderRunFinished = useCallback((block: Extract<Block, { type: "run_finished" }>) => {
+    if (!isCleanFinish(block)) return null;
+    const text = block.text || block.summary;
+    if (!text) return null;
+    return <ClosingMessage key={`${block.seq}-run_finished`} text={text} />;
+  }, []);
+
   // What the run is doing right now, for the confirm strip's sentence
   // ("It is 4m 12s in, mid `scripts/test.sh`").
   const activity = useMemo(() => {
@@ -264,6 +315,11 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
   // built.
   const finished: FinishedBand | null = useMemo(() => {
     if (!meta || isLive(meta.status)) return null;
+    // A session that can be continued keeps its composer, so there is no slot
+    // for the band and no need for its follow-up button: the way on is to
+    // type. What is left here is a session that can be continued by nothing —
+    // one retired by compaction (docs/RUN-CONTROL.md "Continuing").
+    if (canResume(meta.status)) return null;
     const o = outcome(headerOutcomeSession(meta, snapshot.blocks));
     const durationMs =
       meta.finished_at && meta.created_at ? Date.parse(meta.finished_at) - Date.parse(meta.created_at) : 0;
@@ -426,6 +482,8 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
                 filter="all"
                 getToolCall={snapshot.getToolCall}
                 renderSteer={renderSteer}
+                renderContinuation={renderContinuation}
+                renderRunFinished={renderRunFinished}
               />
             </SessionIdContext.Provider>
             {failed.map((f) => (
@@ -480,6 +538,7 @@ export function SessionChatScreen({ sessionId, meta, snapshot, onNavigate, everO
       <ChatComposer
         token={token}
         running={running}
+        resumable={resumable}
         pendingCount={pendingCount}
         send={send}
         stop={{ confirming: confirmingStop, stopping, error: stopError, onRequestStop: toggleStopConfirm, onCancelStop: cancelStop, onConfirmStop: () => void confirmStop() }}

@@ -1,5 +1,6 @@
 import { useEffect, useSyncExternalStore, useState } from "react";
 import { isUserStarted } from "../api/provenance";
+import { sessionListStore } from "../api/sessionListStore";
 import { isLive } from "../api/status";
 import { useSessionMeta, useTranscriptStore } from "../hooks";
 import { SessionChatScreen } from "./SessionChatScreen";
@@ -28,6 +29,28 @@ export function SessionScreen({ sessionId, onNavigate }: Props) {
   // "does this session exist" and what covers a finished run, whose row
   // stopped changing before anybody opened the page.
   const { meta, settled } = useSessionMeta(sessionId, snapshot.connection, snapshot.state);
+
+  // A finished session that goes back to running — a resume, from this page's
+  // own composer or from anywhere else — needs its stream opened again: the
+  // server closed it when the run ended, and a closed EventSource does not
+  // notice a session coming back to life.
+  //
+  // The signal comes off the session-list feed rather than a poll or a timer.
+  // That feed is an app-lifetime singleton whose connection is never torn
+  // down (api/sessionListStore.ts), and a resumed run's row reaches it the
+  // moment a worker promotes the session, through the same publishState every
+  // other row change goes through. So the page learns it from a stream it is
+  // already connected to, which is the rule a started run already follows
+  // (web/CLAUDE.md: the screen never polls and never invents a row).
+  //
+  // A resume is accepted before it begins — the 202 says queued, not started
+  // — so this deliberately watches for the row going live rather than firing
+  // off the acceptance.
+  const list = useSyncExternalStore(sessionListStore.subscribe, sessionListStore.getSnapshot);
+  const listedLive = list.sessions.some((s) => s.id === sessionId && isLive(s.status));
+  useEffect(() => {
+    if (listedLive && snapshot.connection === "closed") store.reopen();
+  }, [listedLive, snapshot.connection, store]);
 
   // Whether this session's stream has opened since the page loaded, for the
   // dropped-stream banner (DroppedStreamBanner). It lives HERE rather than in

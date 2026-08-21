@@ -1,4 +1,4 @@
-# Run control: starting, steering, and stopping a run
+# Run control: starting, steering, continuing, and stopping a run
 
 An interactive frontend that can start, steer, and stop a run, sitting on top
 of the data API [DATA-API.md](DATA-API.md) specifies. `internal/httpapi`
@@ -21,12 +21,19 @@ This is the design. The build order, file by file, is
   start form each publish a work request.
 - **Steering.** An operator appends a new user-authored message to a run in
   progress, from any of the three surfaces.
+- **Continuing.** A person sends the next message to a session whose run has
+  already ended, continuing it in place rather than starting a new run
+  ("Continuing" below). The browser and the CLI have this; the MCP surface
+  deliberately does not — an agent that wants more work done starts a run.
 - **Stopping.** Ends a run on request — including one wedged inside a tool
   call that ignores its context, which a naive `cancel()`-only stop would not
   fix.
-- Every one of these ships on **MCP, the CLI, and the web UI**, not one first.
-  MCP callers are other agents, not just people at a keyboard, and an agent
-  that can start a job but not steer or stop it is only half a capability.
+- Starting, steering and stopping ship on **MCP, the CLI, and the web UI**,
+  not one first. MCP callers are other agents, not just people at a keyboard,
+  and an agent that can start a job but not steer or stop it is only half a
+  capability. Continuing is the exception, and the reason is what the verb is
+  for: it exists so a person can keep talking to a session, which is a thing
+  people do and agents do not.
 
 ### Explicitly out of scope
 
@@ -452,19 +459,115 @@ kind named "session started" appearing four times mid-run — and it gives the
 `?kind=` filter no way to find steers. The fold's switch gains one case either
 way.
 
+## Continuing
+
+Steering is for a run that is still going. Continuing is the other half: a
+person's next message after the loop already stopped.
+
+The browser needed it because the chat page is a chat. It calls itself the
+interactive session page, it renders sent messages as messages, and its
+composer sits in the footer whatever the run is doing — and then the moment
+the model called `Complete` the next message was refused, because a steer for
+a finished run would sit in the log forever unapplied. The way on was to start
+a fresh run against a fresh clone, discarding the workspace, the model's
+context and the conversation, which is the wrong unit of work for anything
+iterative: look, change something, look again.
+
+`internal/session`'s `Resume` already did all of it. It reads the frozen
+session row back — workspace, model, effort, permission mode, deny patterns,
+the stored `tool_schema` — appends the continuation as a second
+`session_started`, promotes the row to `running` and re-enters the same loop.
+None of that is new. What was missing was a way to ask for it from anywhere
+but the CLI.
+
+### Continuing is a publish, for the same reason starting is
+
+The resume endpoint publishes a work request naming a session, rather than
+reaching into a loop the way stop does. `queue.Request` gains one field,
+`resume_session_id`, and the worker branches on it: no session id to mint, no
+workspace to build, no row to create — just `Runner.Resume` on the session the
+request names.
+
+That choice buys the whole of the queue's machinery for free, and every part
+of it turns out to matter:
+
+- **The stop registry.** The pool registers its in-flight record under the
+  resumed session's own id, so a continued run is stoppable exactly like a
+  fresh one, with no second registry and no special case in the escalation.
+- **Redelivery and the delivery ceiling.** A worker that dies mid-continuation
+  is a redelivery, not a session stuck in `running`.
+- **The `work_requests` row.** Each continuation records its own result, so a
+  session that ran four times has four rows, each answerable by
+  `deepseek_result` like any other request.
+- **No affinity.** The process that ran the session originally does not have
+  to be the one that continues it — which the in-process stop seam *does*
+  require, and is the assumption that would break first under more than one
+  replica of `serve`.
+
+The alternative — a third seam out of `internal/httpapi`, a `RunResumer`
+implemented by the pool — was rejected for costing all four of those and
+adding a second code path that starts a loop.
+
+`Validate` relaxes exactly one rule for a resume: repos are required unless
+`resume_session_id` is set, and must be *empty* when it is, because the
+workspace already exists with the original clones in it. Everything else still
+applies, which is why the handler copies the session's own `permission_mode`
+and `model` onto the request rather than leaving them blank — the request
+satisfies the queue's rules instead of the queue weakening them for one
+producer. Both values are read back off the row by `Resume` regardless; the
+copies exist for validation and accounting.
+
+### What the browser does with it
+
+The composer stops being a steer control and becomes a message box: the screen
+decides at send time which verb a typed message is — a steer while
+`canSteer(status)`, a resume while `canResume(status)` — and the two cover
+every status but `creating` and `compacted`. Text typed while a run is
+finishing is not thrown away; it becomes the resume.
+
+Two consequences in the display, both of which were latent assumptions that
+resume falsified:
+
+- **A terminal event no longer ends the client's stream.** The browser used to
+  close its own `EventSource` when a `run_finished` or `error` event landed,
+  on the reasoning that nothing could follow. A continued session appends
+  after its terminal event, and every later replay of its history carries that
+  event in the middle of the log — which would tear down a stream following a
+  run in progress. Ending a stream is now the server's call, announced with a
+  `closed` marker frame, the same pattern and for the same reason as
+  `replayed`: the client cannot work it out for itself.
+- **A finished session's page has to notice it came back.** The page learns it
+  from the session-list feed, an app-lifetime stream it is already connected
+  to, and reopens the transcript stream when the row goes live again. Not a
+  poll: a resume is accepted before it begins, so there is nothing to look at
+  until a worker claims it, and the rule that "a started run appears when the
+  pool claims it" applies here unchanged.
+
+On the page itself a run ending is a turn boundary rather than an event: a
+clean finish renders its closing text as the model's reply, without the
+banner, outcome label and cost line that make a conversation read as a series
+of jobs. Any other outcome keeps the full card, because that is when the
+reason matters. The finished band — the composer's replacement — is now
+reached only by a session that can be continued by nothing at all.
+
 ## The HTTP surface
 
-Three new endpoints, all `POST`, all actions rather than row edits.
+Four endpoints, all `POST`, all actions rather than row edits.
 
 ```
 POST /api/sessions/{id}/stop     {"reason": "..."}          → 202
 POST /api/sessions/{id}/steer    {"text": "..."}            → 202
+POST /api/sessions/{id}/resume   {"text": "..."}            → 202
 POST /api/runs                   <work request body>        → 202
 ```
 
-`methodGate` learns `POST` on exactly these three path shapes, extending the
+`methodGate` learns `POST` on exactly these four path shapes, extending the
 `writeAllowed`/`allowedMethods` switch the way the phase-3 resources did, so a
-`POST` anywhere else stays a 405 with a correct `Allow` header.
+`POST` anywhere else stays a 405 with a correct `Allow` header. The three
+session subresources share one path-shape predicate
+(`isSessionActionPath`), because they share one rule: `POST` passes on an
+action path and nowhere else, and `isSessionPath` — which keeps `PATCH` and
+`DELETE` scoped to the row — must not be widened to cover any of them.
 
 **The guards every write carries apply unchanged**: `Content-Type:
 application/json` or 415, same-origin or 403 (DATA-API.md, "The guards every
@@ -488,18 +591,30 @@ are about the *run*, not the row, and they are:
 | stop | the session exists | 404 |
 | stop | this process is running it | 409, naming the session's status |
 | steer | the session exists and is `running` | 404 / 409 (a `creating` session's 409 says its workspace is still being prepared, not that the run is over) |
+| resume | the session exists | 404 |
+| resume | it is not live — a live session wants steer, and the 409 says so | 409 |
+| resume | it was not retired by compaction | 409, naming its child as the thing to continue |
+| resume | the session's own stored configuration still validates | 409, naming the session (not the message) as the cause |
 | runs | the body passes `queue.Request.Validate` | 400, the validator's message |
 
-`202 Accepted` on all three, with a body naming what was accepted:
+`202 Accepted` on all four, with a body naming what was accepted:
 `{"session_id": "...", "stopping": true}`, `{"session_id": "...", "seq": 412}`,
-`{"request_id": "..."}`. Nothing waits for the outcome — §5's existing rule
+`{"session_id": "...", "request_id": "..."}`, `{"request_id": "..."}`. Nothing waits for the outcome — §5's existing rule
 that "a request that starts a run is not answered by the response to it"
 applies to ending one too. The terminal state arrives over the session's own
 SSE stream and, for a queue caller, on the request's `work_requests` row.
 
 Stop is idempotent: a second stop for a session already stopping is another
 202, not a 409. Steer is not — two steers are two instructions, which is why
-the response carries the `seq` the caller's text landed at.
+the response carries the `seq` the caller's text landed at. Neither is resume:
+each one starts a run.
+
+Resume's last precondition is the odd one, and it is a 409 rather than a 400
+on purpose. Every field of the request it publishes except the message comes
+off the session row, so a validation failure there is a statement about the
+session, not about what the caller sent — a permission mode retired since that
+session was created, say. Answering 400 would tell somebody who just typed a
+sentence that their sentence was malformed.
 
 ### `POST /api/runs`
 
@@ -613,7 +728,11 @@ the bearer token. It still opens no database.
 "text"`**, one file per subcommand (`cmd/harness/stop.go`, `steer.go`) as the
 dispatch convention requires, both talking to the same HTTP endpoints so there
 is one implementation of each verb rather than a CLI path that reaches around
-it.
+it. **`harness resume <session-id> ["..."]`** predates all of this and is the
+exception: it runs the loop in its own process against its own data directory
+rather than posting to a running `serve`. That is what it is for — continuing
+a session on a machine with no server up — and the browser's resume does not
+replace it.
 
 ## The frontend
 
@@ -629,8 +748,10 @@ any backend that can produce it. Careful not to collide with the existing
 `STOPPED` label, which means `run_finished.reason == "no_tool_calls"` — the
 model stopping on its own, nothing to do with an operator.
 
-**Steer** is an input on the transcript screen, visible only while the session
-is running. Sent text appears immediately as its own block, styled distinctly
+**Steer** is what the transcript screen's composer sends while the session is
+running; once the run is over the same box sends a resume instead
+("Continuing" above), so the control is visible for both and it is the screen
+that decides which verb a message is. Sent steer text appears immediately as its own block, styled distinctly
 from the model's turns, in one of two states: *pending* while only the
 `steer_message` event exists, *delivered* once the matching `steer_applied`
 arrives (matched by `source_seq`). That two-state rendering is the whole

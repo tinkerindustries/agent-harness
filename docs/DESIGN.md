@@ -24,7 +24,7 @@ per-request permission policy, flash-backed subagents via `Task`, an
 append-only event log in SQLite mirrored to disk for review, cost and cache
 accounting, a browser transcript with a live plan panel driven by the plan
 tools (`TaskCreate`/`TaskUpdate`), session resume, and run control from the
-browser — starting, steering, and stopping a run (§4.2).
+browser — starting, steering, continuing, and stopping a run (§4.2).
 
 Not built: auth and multi-user identity, remote or containerised workspaces,
 an editor pane, FIM inline completion, prefix

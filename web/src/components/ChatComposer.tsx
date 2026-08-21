@@ -29,11 +29,22 @@ import { Button } from "./ui/button";
 // credential fails closed). The status line is not a control and stays.
 //
 // The band also carries the states around the run: the inline stop
-// confirmation and the *stopping…* banner between the 202 and the
-// terminal event, and — once the run is over — the .box-done
-// band in the composer's place. The composer is removed rather than disabled:
-// a greyed-out box invites the reader to hunt for the way to enable it, and
-// the endpoint refuses a steer on a finished run anyway.
+// confirmation and the *stopping…* banner between the 202 and the terminal
+// event.
+//
+// The box outlives the run. A message typed into it is a steer while the loop
+// is alive and a resume once it is over (docs/RUN-CONTROL.md "Continuing"),
+// which is what makes this page a conversation rather than a single run with
+// a text field on it — the screen owns that routing and hands it down as one
+// `send`. So the two live states differ only in what surrounds the box: a
+// running session gets the stop controls, the queued line and the esc esc
+// hint, and a finished one gets none of them, because there is nothing to
+// stop and nothing waiting on a sub-turn boundary.
+//
+// The done band is what is left for a session that cannot be continued at all
+// — one retired by compaction, whose continuation is its child. There the
+// composer is removed rather than disabled, for the reason it always was: a
+// greyed-out box invites the reader to hunt for the way to enable it.
 export interface ComposerStatus {
   // The sub-turn the status line names: the live turn, or the last frozen
   // one. Null before the first sub-turn.
@@ -55,17 +66,20 @@ export interface FinishedBand {
 interface ChatComposerProps {
   // The run-control bearer; null hides the composer box (see above).
   token: string | null;
-  // The run is steerable — the composer box and the stop controls render.
-  // Once the run is over the .box-done band replaces them, and a run that is
-  // live but not yet steerable (its workspace still being prepared) shows
-  // neither box nor band, so the composer stays disabled while the workspace
-  // is being built.
+  // The run is steerable — the stop controls, the queued line and the esc esc
+  // hint render alongside the box. A run that is live but not yet steerable
+  // (its workspace still being prepared) shows neither box nor band, so the
+  // composer stays disabled while the workspace is being built.
   running: boolean;
+  // The run is over and this session can be continued from where it stopped
+  // (api/status.ts canResume). The box stays, and what it sends is a resume.
+  resumable: boolean;
   // Steers accepted but not yet applied, for the queued line.
   pendingCount: number;
-  // The steer write itself, owned by the screen: POSTs the text, records
-  // the acceptance in the screen's ledger, and returns whether the 202
-  // landed (false leaves the text in the box for the operator to see).
+  // The write itself, owned by the screen: POSTs the text as a steer or a
+  // resume depending on the run's state, records the acceptance in the
+  // screen's ledger, and returns whether the 202 landed (false leaves the
+  // text in the box for the operator to see).
   send: (text: string) => Promise<boolean>;
   // The stop flow: the nav's Stop button (and esc esc) arm the inline
   // confirm strip; the strip's Stop run posts the stop; the banner shows
@@ -86,8 +100,9 @@ interface ChatComposerProps {
   // The facts the empty status line shows instead of live numbers
   // ("deepseek-v4-pro · effort high · permission full").
   facts: { model: string; effort: string; permission: string };
-  // The run is over: the finished band replaces the composer. Null while
-  // the run is live (or before the row arrives).
+  // The run is over and cannot be continued: the finished band replaces the
+  // composer. Null while the run is live, while it is resumable, and before
+  // the row arrives.
   finished: FinishedBand | null;
   // Starts a follow-up run from the finished band.
   onFollowUp: () => void;
@@ -96,6 +111,7 @@ interface ChatComposerProps {
 export function ChatComposer({
   token,
   running,
+  resumable,
   pendingCount,
   send,
   stop,
@@ -109,16 +125,18 @@ export function ChatComposer({
   const [sending, setSending] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
-  // A session that stops being running clears the input, exactly as
-  // SteerControl did: a steer for a finished run would sit in the log
-  // forever, unapplied and unexplained, and the endpoint would refuse it
-  // anyway.
+  // Text survives the run ending, because the box does: a half-typed message
+  // becomes the resume that continues the session, and clearing it would
+  // throw away what somebody was in the middle of writing at exactly the
+  // moment the model stopped. It is cleared only when the box itself goes
+  // away — a session that can be neither steered nor continued.
+  const usable = running || resumable;
   useEffect(() => {
-    if (!running) {
+    if (!usable) {
       setText("");
       setSending(false);
     }
-  }, [running]);
+  }, [usable]);
 
   // The textarea grows with its content (the design's auto-grow) and
   // shrinks again when a send clears it.
@@ -231,7 +249,7 @@ export function ChatComposer({
                 sub-turn boundary. The run does not pause.
               </div>
             )}
-            {token !== null && running && (
+            {token !== null && usable && (
               <div className="flex items-end gap-2 rounded-lg border border-input bg-card py-2 pr-2 pl-2.5 focus-within:border-ring focus-within:[box-shadow:0_0_0_3px_hsl(217_91%_48%/0.09)] max-phone:pl-3">
                 <span className="flex-none self-start font-mono font-semibold leading-[1.55] text-[var(--status-running)]" aria-hidden>
                   &gt;
@@ -241,7 +259,13 @@ export function ChatComposer({
                   className="min-h-[38px] flex-1 resize-none border-0 bg-transparent p-0 font-mono text-sm leading-[1.55] text-foreground outline-none placeholder:text-muted-foreground max-phone:min-h-11"
                   value={text}
                   rows={1}
-                  placeholder={status && status.subTurn === null ? "Describe the task…" : "Send a message to the run…"}
+                  placeholder={
+                    status && status.subTurn === null
+                      ? "Describe the task…"
+                      : running
+                        ? "Send a message to the run…"
+                        : "Continue this session…"
+                  }
                   onChange={(e) => setText(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
@@ -250,7 +274,7 @@ export function ChatComposer({
                     }
                   }}
                   disabled={sending}
-                  aria-label="Message the running session"
+                  aria-label={running ? "Message the running session" : "Continue this session"}
                   spellCheck={false}
                 />
                 <button

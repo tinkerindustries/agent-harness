@@ -76,6 +76,7 @@ var writeRoutes = []writeRoute{
 	{isLeasePath, []string{http.MethodDelete}},
 	{isStopPath, []string{http.MethodPost}},
 	{isSteerPath, []string{http.MethodPost}},
+	{isResumePath, []string{http.MethodPost}},
 	{isRunsPath, []string{http.MethodPost}},
 	{isEvalsCollectionPath, []string{http.MethodPost}},
 	{isEvalCancelPath, []string{http.MethodPost}},
@@ -122,37 +123,30 @@ func isSessionPath(path string) bool {
 	return rest != "" && !strings.Contains(rest, "/")
 }
 
-// isStopPath reports whether path is one session's stop subresource —
-// /api/sessions/<id>/stop, exactly one id segment and the literal "stop".
-// POST may pass the gate here and nowhere else. It is deliberately separate
-// from isSessionPath, which requires no further segments and must keep PATCH
-// and DELETE scoped to the row: a stop is an action on a run, not an edit of
-// a row (docs/RUN-CONTROL.md "The HTTP surface").
-func isStopPath(path string) bool {
+// isSessionActionPath reports whether path is one session's `name`
+// subresource — /api/sessions/<id>/<name>, exactly one id segment and the
+// literal name. It backs the three run-control actions below, which share one
+// shape rule: POST may pass the gate on an action path and nowhere else, and
+// each is deliberately separate from isSessionPath, which requires no further
+// segments and must keep PATCH and DELETE scoped to the row. Stopping,
+// steering and continuing a run are actions on a run, not edits of a row
+// (docs/RUN-CONTROL.md "The HTTP surface"), so isSessionPath must not be
+// widened to cover any of them.
+func isSessionActionPath(path, name string) bool {
 	const prefix = "/api/sessions/"
 	if !strings.HasPrefix(path, prefix) {
 		return false
 	}
 	rest := strings.TrimPrefix(path, prefix)
 	id, tail, ok := strings.Cut(rest, "/")
-	return ok && id != "" && tail == "stop"
+	return ok && id != "" && tail == name
 }
 
-// isSteerPath reports whether path is one session's steer subresource —
-// /api/sessions/<id>/steer, exactly one id segment and the literal "steer".
-// POST may pass the gate here and nowhere else, the same shape rule as
-// isStopPath: it is an action on a run (docs/RUN-CONTROL.md "The HTTP
-// surface"), not an edit of the row, and isSessionPath must not be widened to
-// cover it.
-func isSteerPath(path string) bool {
-	const prefix = "/api/sessions/"
-	if !strings.HasPrefix(path, prefix) {
-		return false
-	}
-	rest := strings.TrimPrefix(path, prefix)
-	id, tail, ok := strings.Cut(rest, "/")
-	return ok && id != "" && tail == "steer"
-}
+func isStopPath(path string) bool { return isSessionActionPath(path, "stop") }
+
+func isSteerPath(path string) bool { return isSessionActionPath(path, "steer") }
+
+func isResumePath(path string) bool { return isSessionActionPath(path, "resume") }
 
 // isRunsPath reports whether path is the runs collection — /api/runs, with
 // no further segments. POST may pass the gate here and nowhere else: starting

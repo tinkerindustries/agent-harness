@@ -45,6 +45,13 @@ export type Block =
   // browser start waits for its first message) and for a resume
   // continuation.
   | { type: "instruction"; seq: number; text: string }
+  // A message a person sent to continue this session after a run of it
+  // finished (docs/RUN-CONTROL.md "Continuing"). It reaches the log as a
+  // second session_started, which is also how internal/fold turns it into a
+  // plain user message for the model — the opening message of the run that
+  // is starting now. Only the first session_started is this session's
+  // opening block; every one after it is somebody typing again.
+  | { type: "continuation"; seq: number; text: string }
   | {
       type: "assistant";
       seq: number;
@@ -231,6 +238,12 @@ export class FoldState {
   // counter over the event log).
   private nextTaskId = 0;
 
+  // Whether this session's opening message has already been folded. A resumed
+  // session has a session_started per run, and only the first of them is the
+  // opening block — the rest are continuations somebody typed
+  // (docs/RUN-CONTROL.md "Continuing").
+  private opened = false;
+
   // toolCallsById is kept for the session's whole life, not cleared on
   // result, so a frozen tool_result block can still be shaped by the
   // arguments (file_path, command, pattern, ...) that produced it.
@@ -303,6 +316,15 @@ export class FoldState {
     switch (ev.kind) {
       case "session_started": {
         const p = ev.payload as SessionStartedPayload;
+        if (this.opened) {
+          // A continuation: the run that just started is a resume, and its
+          // opening message is what a person typed into the composer. No
+          // skills catalogue and no attachments ride one, so none of the
+          // opening block's unpacking below applies.
+          this.pushBlock({ type: "continuation", seq: ev.seq, text: p.opening_message });
+          break;
+        }
+        this.opened = true;
         // The catalogue is a substring of the opening message, so showing
         // both verbatim would print it twice. It gets its own block and the
         // opening block keeps the rest. Removing it by exact substring

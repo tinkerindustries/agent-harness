@@ -1376,16 +1376,18 @@ func newSSEReader(body io.Reader) *sseReader {
 }
 
 // next returns the next frame that carries transcript content, skipping the
-// `replayed` marker that separates the history replay from the live tail.
-// Tests that assert on positions in the stream are about the events, not the
-// seam; nextFrame is what a test asserting on the marker itself uses.
+// two seam markers: `replayed`, which separates the history replay from the
+// live tail, and `closed`, which says the server is ending a stream because
+// the session will not append again. Tests that assert on positions in the
+// stream are about the events, not the seams; nextFrame is what a test
+// asserting on a marker itself uses.
 func (s *sseReader) next() (sseFrame, error) {
 	for {
 		frame, err := s.nextFrame()
 		if err != nil {
 			return sseFrame{}, err
 		}
-		if frame.event != "replayed" {
+		if frame.event != "replayed" && frame.event != "closed" {
 			return frame, nil
 		}
 	}
@@ -1581,8 +1583,23 @@ func TestFinishedSessionServesFullTranscriptAndCloses(t *testing.T) {
 		t.Fatalf("unexpected history: %v", ids)
 	}
 
-	// No more data will ever come; the server must close the response
-	// rather than hold the connection open forever.
+	// No more data will ever come, and the server says so before hanging up:
+	// the `closed` marker is what tells the browser to stop reconnecting,
+	// and it is the server's call rather than an inference the client makes
+	// off the last event's kind (respond.go writeSSEClosed).
+	// The replay seam comes first, then the closing marker.
+	for _, want := range []string{"replayed", "closed"} {
+		marker, err := sr.nextFrame()
+		if err != nil {
+			t.Fatalf("read the %s marker: %v", want, err)
+		}
+		if marker.event != want {
+			t.Fatalf("frame after the history = %q, want %q", marker.event, want)
+		}
+	}
+
+	// Then the response itself ends, rather than the connection being held
+	// open forever.
 	done := make(chan error, 1)
 	go func() {
 		_, err := sr.next()

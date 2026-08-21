@@ -66,6 +66,21 @@ func (r *Runner) publishEvents(sess store.Session, events []store.Event) {
 	r.Hub.PublishEvents(sess.ID, events)
 }
 
+// publishTerminalEvents fans out the event that ends a session —
+// run_finished or error — and must be called only once the terminal row has
+// been written and published, which is why it is spelled differently from
+// the publishEvents every other batch goes through.
+//
+// The ordering is the contract. A session's SSE stream closes the moment one
+// of these two kinds lands (internal/httpapi/sse.go), so a state frame
+// published afterwards fans out to a subscriber that is already gone, and the
+// browser's last word on the session stays "running" forever: the finished
+// band never replaces the composer, and a run that is over goes on offering
+// to steer until the page is reloaded.
+func (r *Runner) publishTerminalEvents(sess store.Session, events []store.Event) {
+	r.publishEvents(sess, events)
+}
+
 // publishState recomputes sess's session-list row and fans it out to the
 // list stream (docs/DESIGN.md §5.8). It reads the usage summary and request
 // id back from the store rather than threading them through the run loop,

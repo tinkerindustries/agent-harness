@@ -36,10 +36,15 @@ import (
 // run is visible and stoppable from the moment it is claimed, and FailSetup
 // moves that row to "failed" when preparation fails instead of leaving it
 // stuck.
+//
+// Resume is the fourth and has neither bookend: it continues a session that
+// already reached a terminal status, so there is no row to create and no
+// workspace to build (docs/RUN-CONTROL.md, "Continuing").
 type Runner interface {
 	Create(ctx context.Context, opts session.RunOptions) error
 	FailSetup(ctx context.Context, sessionID string, cause error) error
 	Run(ctx context.Context, opts session.RunOptions) (*session.RunResult, error)
+	Resume(ctx context.Context, opts session.ResumeOptions) (*session.RunResult, error)
 }
 
 // Pool claims from Source and dispatches each message to a session
@@ -601,7 +606,15 @@ func (p *Pool) recordValidationFailure(ctx context.Context, msg queue.Msg, reque
 // the session loop to a terminal result.
 func (p *Pool) run(msg queue.Msg, req queue.Request, releaseSlot func()) {
 	started := time.Now().UTC()
-	sessionID := session.NewSessionID()
+	// A resume names the session it continues; every other request mints one.
+	// Taking it here rather than at the branch below is what puts the real
+	// session id on the registry entry, the heartbeat and the work_requests
+	// row, so a resumed run is stoppable and traceable exactly like a fresh
+	// one (docs/RUN-CONTROL.md, "Continuing").
+	sessionID := req.ResumeSessionID
+	if sessionID == "" {
+		sessionID = session.NewSessionID()
+	}
 
 	hbDone := make(chan struct{})
 	var hbOnce sync.Once
@@ -640,6 +653,25 @@ func (p *Pool) run(msg queue.Msg, req queue.Request, releaseSlot func()) {
 	// The session id is on the row now, which is what deepseek_agent's
 	// accepted wait reads back (docs/QUEUE-MIGRATION-PLAN.md §5.2); there is
 	// no separate accepted message to publish.
+
+	// A resume creates nothing and prepares nothing. The session row, its
+	// workspace and the clones in it are all still on disk from the run being
+	// continued, and the model, effort, permission mode, deny patterns and
+	// tool array come off that frozen row rather than off this request,
+	// because a resumed session's prefix cannot change (docs/CACHE.md). So
+	// the whole preparation window below — Create, the attachments, the
+	// clone, the shipped skills — is not skipped conditionally so much as
+	// simply not this path's job.
+	if req.ResumeSessionID != "" {
+		runResult, runErr := p.Runner.Resume(runCtx, session.ResumeOptions{
+			SessionID:   sessionID,
+			Prompt:      req.Prompt,
+			MaxTokens:   p.defaultMaxTokens(runCtx),
+			MaxSubTurns: req.MaxSubTurns,
+		})
+		p.settle(msg, req, rec, sessionID, started, runCtx, runResult, runErr)
+		return
+	}
 
 	// Validate has already rejected an absent or unknown mode.
 	mode := tools.Mode(req.PermissionMode)
@@ -746,6 +778,17 @@ func (p *Pool) run(msg queue.Msg, req queue.Request, releaseSlot func()) {
 	runOpts.Workspace = ws
 	runOpts.AttachmentNames = attachmentNames
 	runResult, runErr := p.Runner.Run(runCtx, runOpts)
+	p.settle(msg, req, rec, sessionID, started, runCtx, runResult, runErr)
+}
+
+// settle disposes of one run's outcome. It is a method rather than the tail
+// of run because a resume reaches it without passing through any of the
+// preparation above — no session id to mint, no workspace to build, no row to
+// create — and the disposal itself is the same either way: halt the pool on
+// an empty account, drop a result a stop has already answered for, and
+// otherwise classify the outcome onto the request's row.
+func (p *Pool) settle(msg queue.Msg, req queue.Request, rec *inflight, sessionID string, started time.Time,
+	runCtx context.Context, runResult *session.RunResult, runErr error) {
 
 	// An empty account is distinct from an ordinary run failure: every other
 	// queued request is about to hit the same wall, so the pool stops

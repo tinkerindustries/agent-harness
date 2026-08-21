@@ -127,7 +127,10 @@ request-body test. Depends on: nothing internal. §3.2, §4.3, §4.4.
 
 ### `internal/session`
 The agent loop: sub-turn iteration, the system prompt, tool dispatch, ordering
-of tool results, compaction, and resume. The widest dependency set in the repo,
+of tool results, compaction, and resume — the last of which is reached by the
+CLI's `harness resume` and, through the queue, by the browser's composer once
+a run has ended ([`../docs/RUN-CONTROL.md`](../docs/RUN-CONTROL.md),
+"Continuing"). The widest dependency set in the repo,
 deliberately — this is where everything meets. Its reach to the model API is
 through a declared seam rather than an import: `Client`, a narrow interface
 declared here and implemented by `internal/deepseek`, `internal/kimi`, and

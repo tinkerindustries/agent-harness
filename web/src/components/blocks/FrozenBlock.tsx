@@ -1,6 +1,13 @@
 import type { Block } from "../../api/fold";
 import { AssistantBlock } from "./AssistantBlock";
-import { ErrorBlock, InstructionBlock, RunFinishedBlock, SteerBlock, UsageBlock } from "./MiscBlocks";
+import {
+  ContinuationBlock,
+  ErrorBlock,
+  InstructionBlock,
+  RunFinishedBlock,
+  SteerBlock,
+  UsageBlock,
+} from "./MiscBlocks";
 import { OpeningBlock } from "./OpeningBlock";
 import { SkillsBlock } from "./SkillsBlock";
 import { ToolDeniedBlock } from "./ToolDeniedBlock";
@@ -40,5 +47,7 @@ export function FrozenBlock({ block }: { block: Block }) {
       return <SteerBlock block={block} />;
     case "instruction":
       return <InstructionBlock block={block} />;
+    case "continuation":
+      return <ContinuationBlock block={block} />;
   }
 }

@@ -189,6 +189,123 @@ func (s *Server) handleSteerSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{"session_id": id, "seq": appended[0].Seq})
 }
 
+// --- run control: continue ---
+
+// resumeSessionBody is the JSON body POST /api/sessions/{id}/resume accepts:
+// the person's next message, carried verbatim into the user message the loop
+// folds, exactly as steer's text is. There is no source field — a resume is
+// the browser's own verb (docs/RUN-CONTROL.md "Continuing").
+type resumeSessionBody struct {
+	Text string `json:"text"`
+}
+
+// handleResumeSession serves POST /api/sessions/{id}/resume: continues a
+// session that already reached a terminal status, so a person who started a
+// run in the browser can keep talking to it instead of starting a fresh run
+// against a fresh clone (docs/RUN-CONTROL.md "Continuing").
+//
+// It publishes rather than reaching into the loop, which is why this handler
+// sits beside handleStartRun and not beside handleStopSession. Starting is
+// already a publish, and a resume is the same act naming a session instead of
+// naming repositories: the request goes onto the same durable queue, gets
+// claimed by whichever worker has a slot, and inherits claim, heartbeat,
+// redelivery, the stop registry and its own work_requests result row. No
+// second code path ever starts a loop, and nothing here needs the process
+// that ran the session originally to be the one that continues it.
+//
+// The guards and preconditions, in order: the content-type and origin guards
+// every write carries; the bearer token (401 missing or wrong, 503 when no
+// token is configured); a publisher wired in (503, the shape the start
+// handler uses); a body whose text is empty or whitespace only (400); the
+// session existing in the store (404); and the three refusals Runner.Resume
+// itself makes, stated here so a caller hears them now rather than a worker
+// discovering them later (409) — a live session, which wants steer instead,
+// and a session retired by compaction, whose continuation is its child.
+// Otherwise 202 {"session_id", "request_id"}.
+//
+// No If-Match, for the reason stop and steer already give: this is an action
+// on a run, not an edit of a row.
+func (s *Server) handleResumeSession(w http.ResponseWriter, r *http.Request) {
+	if !writeGuards(w, r) {
+		return
+	}
+	if !s.requireControlToken(w, r) {
+		return
+	}
+	if s.Publisher == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "run control is not configured: no run publisher is wired (start harness serve once)",
+		})
+		return
+	}
+	var body resumeSessionBody
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `invalid JSON body: expected {"text": "..."}`})
+		return
+	}
+	if strings.TrimSpace(body.Text) == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "text must not be empty"})
+		return
+	}
+	id := r.PathValue("id")
+	sess, err := s.Store.GetSession(r.Context(), id)
+	if err != nil {
+		writeSessionLookupError(w, err)
+		return
+	}
+	switch {
+	case store.IsLive(sess.Status):
+		// The live half of the same composer: a running session reads a new
+		// message at its next sub-turn boundary, and a creating one is not
+		// ready for either verb yet. Naming steer keeps the two endpoints
+		// legible as one pair rather than two overlapping ones.
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": fmt.Sprintf("session %s is still live (status %s); steer it instead of resuming it", sess.ID, sess.Status),
+		})
+		return
+	case sess.Status == store.StatusCompacted:
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": fmt.Sprintf("session %s was retired by compaction; resume its child session instead", sess.ID),
+		})
+		return
+	}
+
+	// Permission mode and model are copied off the frozen session row, not
+	// taken from the caller. They are what the resumed run will actually use
+	// — Runner.Resume reads both back off the same row, because a resumed
+	// session's prefix cannot change (docs/CACHE.md) — and carrying them on
+	// the request is what lets it satisfy queue.Request.Validate unchanged
+	// instead of the queue having to relax its rules for this producer.
+	req := queue.Request{
+		RequestID:       randomRequestID(),
+		ResumeSessionID: sess.ID,
+		Prompt:          body.Text,
+		Model:           sess.Model,
+		PermissionMode:  sess.PermissionMode,
+		JobType:         sess.JobType,
+		ParentIsUser:    true,
+		ParentAgentID:   s.operatorName(r.Context()),
+	}
+	if err := req.Validate(); err != nil {
+		// A 409 rather than a 400: nothing the caller sent is wrong. Every
+		// field this request carries beyond the message came off the session
+		// row, so a validation failure here means the row itself holds
+		// something this build will not run — a permission mode retired since
+		// the session was created, say. The queue's own message says which,
+		// and naming the session is what stops it reading as a complaint
+		// about the message somebody just typed.
+		writeJSON(w, http.StatusConflict, map[string]string{
+			"error": fmt.Sprintf("session %s cannot be continued: its stored configuration is not one this build can run (%v)", sess.ID, err),
+		})
+		return
+	}
+	if err := s.Publisher.PublishRequest(r.Context(), req); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]string{"session_id": sess.ID, "request_id": req.RequestID})
+}
+
 // --- run control: start ---
 
 // handleStartRun serves POST /api/runs: accepts a work request in the

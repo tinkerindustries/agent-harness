@@ -685,10 +685,11 @@ version 1 at creation, `+1` per mutation, `If-Match` required on mutating
 writes, 428 when absent, 412 when stale.
 
 **Run control is the exception** (docs/RUN-CONTROL.md "The HTTP surface"):
-`POST /api/sessions/{id}/stop` and `POST /api/sessions/{id}/steer` require no
+`POST /api/sessions/{id}/stop`, `POST /api/sessions/{id}/steer` and
+`POST /api/sessions/{id}/resume` require no
 `If-Match`. That rule exists so an operator's write cannot land on a row that
-changed since they read it — a stop or a steer is an action on a run, not an
-edit of a row, and a running session's `version` changes continuously
+changed since they read it — a stop, a steer or a resume is an action on a
+run, not an edit of a row, and a running session's `version` changes continuously
 underneath the caller as the runner commits. Requiring a version echo would
 make a correct stop racy by construction and push the operator to
 fetch-then-immediately-post, which is the check without the protection. The
