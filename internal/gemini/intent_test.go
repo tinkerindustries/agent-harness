@@ -362,11 +362,17 @@ func TestThinkingLevelFromEffort(t *testing.T) {
 		}
 	}
 
-	// An empty mapped level must omit generation_config from the request
-	// entirely, not send an empty object.
+	// An empty mapped level must omit the thinking_level field, leaving it
+	// to the API's default. generation_config itself is still sent, because
+	// thinking_summaries always rides on it.
 	req := requestFromIntent(wire.ChatIntent{Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("hi")}})
-	if req.GenerationConfig != nil {
-		t.Errorf("generation_config = %+v, want nil when Effort is empty", req.GenerationConfig)
+	if req.GenerationConfig == nil || req.GenerationConfig.ThinkingLevel != "" {
+		t.Errorf("generation_config = %+v, want an empty thinking_level when Effort is empty", req.GenerationConfig)
+	}
+	if raw, err := json.Marshal(req); err != nil {
+		t.Fatal(err)
+	} else if contains(string(raw), "thinking_level") {
+		t.Errorf("request body carries thinking_level for an empty Effort, got: %s", raw)
 	}
 	req = requestFromIntent(wire.ChatIntent{Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("hi")}, Effort: wire.EffortHigh})
 	if req.GenerationConfig == nil || req.GenerationConfig.ThinkingLevel != ThinkingLevelHigh {
@@ -398,8 +404,8 @@ func TestRequestFromIntentMaxTokens(t *testing.T) {
 	}
 
 	zero := requestFromIntent(wire.ChatIntent{Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("hi")}})
-	if zero.GenerationConfig != nil {
-		t.Errorf("generation_config = %+v, want nil when MaxTokens is zero and Effort is empty", zero.GenerationConfig)
+	if zero.GenerationConfig == nil || zero.GenerationConfig.MaxOutputTokens != 0 {
+		t.Errorf("generation_config = %+v, want max_output_tokens unset when MaxTokens is zero", zero.GenerationConfig)
 	}
 	rawZero, err := json.Marshal(zero)
 	if err != nil {
@@ -417,6 +423,37 @@ func TestRequestFromIntentMaxTokens(t *testing.T) {
 	})
 	if both.GenerationConfig == nil || both.GenerationConfig.MaxOutputTokens != 8000 || both.GenerationConfig.ThinkingLevel != ThinkingLevelHigh {
 		t.Errorf("generation_config = %+v, want both max_output_tokens 8000 and thinking_level high", both.GenerationConfig)
+	}
+}
+
+// TestRequestFromIntentThinkingSummaries pins that every agentic request
+// asks for thought summaries. Without generation_config.thinking_summaries
+// the API returns thought steps carrying a signature and no summary, so a
+// run's reasoning reaches the store as empty text and the UI shows no
+// thinking at all — the symptom measured on
+// sess-35da6920ca8e5ca590acb3a46341c924, whose 102 reasoning events were
+// every one of them empty while usage reported thought tokens each turn.
+// The signature is what must be replayed and is unaffected either way
+// (chat_types.go, ThoughtStep); the summary is display text, and this is
+// the only request field that produces it.
+func TestRequestFromIntentThinkingSummaries(t *testing.T) {
+	for _, intent := range []wire.ChatIntent{
+		{Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("hi")}},
+		{Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("hi")}, Effort: wire.EffortMax},
+		{Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("hi")}, MaxTokens: 4096},
+	} {
+		req := requestFromIntent(intent)
+		if req.GenerationConfig == nil || req.GenerationConfig.ThinkingSummaries != ThinkingSummariesAuto {
+			t.Fatalf("generation_config = %+v, want thinking_summaries %q for intent %+v",
+				req.GenerationConfig, ThinkingSummariesAuto, intent)
+		}
+		raw, err := json.Marshal(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !contains(string(raw), `"thinking_summaries":"auto"`) {
+			t.Errorf("request body does not carry thinking_summaries, got: %s", raw)
+		}
 	}
 }
 

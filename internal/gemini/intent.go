@@ -80,13 +80,18 @@ func requestFromIntent(intent wire.ChatIntent) ChatInteractionRequest {
 		Input:             input,
 		Tools:             toolsFromWire(intent.Tools),
 	}
-	// generation_config carries both thinking_level and max_output_tokens,
-	// so it is built once and left nil only when the request has neither —
-	// omitting the object entirely, rather than sending an empty one, when
-	// an intent asks for the API's own defaults on both.
-	level := thinkingLevelFromEffort(intent.Effort)
-	if level != "" || intent.MaxTokens > 0 {
-		req.GenerationConfig = &GenerationConfig{ThinkingLevel: level, MaxOutputTokens: intent.MaxTokens}
+	// generation_config is always sent on this path, because
+	// thinking_summaries is always wanted: absent it, the API returns
+	// thought steps with a signature and no summary, and a session records
+	// its reasoning as empty text with nothing for the UI to show
+	// (types.go, GenerationConfig). thinking_level and max_output_tokens
+	// keep their own omitempty, so an intent that asks for the API's
+	// defaults on both still leaves them out of the object rather than
+	// pinning them — what it no longer does is omit the object itself.
+	req.GenerationConfig = &GenerationConfig{
+		ThinkingLevel:     thinkingLevelFromEffort(intent.Effort),
+		MaxOutputTokens:   intent.MaxTokens,
+		ThinkingSummaries: ThinkingSummariesAuto,
 	}
 	return req
 }

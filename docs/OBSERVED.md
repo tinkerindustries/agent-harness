@@ -652,6 +652,52 @@ proportional to pixel count at this size. An earlier attempt with a
 degenerate 1×1 pixel image got the model's colour guess wrong, suggesting it
 doesn't attend well to images that small; not investigated further.
 
+### Every image costs ~1,120 tokens, whatever its size — the default is `high`
+
+Measured 2026-08-21 against prod session
+`sess-35da6920ca8e5ca590acb3a46341c924`, a Blender modelling run that read 34
+full-size renders into context over 107 sub-turns. Isolating the sub-turns
+whose only new tool result was image data (under 400 bytes of accompanying
+text), the prompt-token delta per image was:
+
+| images in the turn | windows | tokens per image |
+| --- | --- | --- |
+| 1 | 21 | 1,112 – 1,313 |
+| 2 | 2 | 1,110, 1,126 |
+| 3 | 2 | 1,107, 1,108 |
+| 4 | 1 | 1,105 |
+
+25 independent windows, every one landing between 1,105 and 1,134 once the
+single 1,313 outlier (which carried the turn's own step overhead) is set
+aside. That is the 1,120-token ceiling
+`docs/gemini-3.5-flash-ui-review-prompting.md` gives for `resolution: "high"`,
+which settles what the unset default resolves to: **`high`**. The harness
+sends no `resolution` on the agentic path (`intent.go`,
+`contentBlocksFromWire` sets only `mime_type` and `data`), so this is the
+default's behaviour, not a setting of ours.
+
+This closes the question the `function_result` image note above left open. It
+recorded 1,089 tokens for a 32×32 PNG and called that "clearly a fixed
+per-image floor rather than anything proportional to pixel count **at this
+size**". It is not a floor and the size caveat is unnecessary: a
+1024-plus-pixel Blender render costs the same ~1,120 as a 32×32 one. Image
+resolution is a **cap**, the default sits at that cap, and pixel count does
+not enter into it below the cap.
+
+The consequence for cost is worth stating plainly, because it is larger than
+it looks. In that session images were **24.3% of the final 154K prompt** and
+**20.2% of all 8.46M prompt tokens billed across the run** — an image, once
+read, is resent on every later sub-turn. Almost all of those resends are
+cache hits, so the money is smaller than the token share; the context
+pressure is not. Dropping every image to `medium` would have saved ~841K
+prompt tokens (10.0% of the run), and `low` ~1.27M (15.1%) — but this was a
+visual-verification workload, where the renders are the thing being judged,
+and `high` is the documented recommendation for exactly that. No change is
+implied for image analysis. What is worth having is the *lever*: the guidance
+for several images in one call is `high` on the one under scrutiny and
+`medium`/`low` on the rest, and superseded renders that stay in context
+forever at full cap are the obvious candidates.
+
 ### The Go SDK still does not expose the Interactions API
 
 Checked `google.golang.org/genai`'s package documentation on pkg.go.dev
@@ -724,6 +770,18 @@ took five to six.
 This section's earlier three-request measurement used a byte-identical
 prefix resent with nothing else changing; a live, incrementally-growing
 conversation warms slower.
+
+**And it can be much slower than five or six.** Prod session
+`sess-35da6920ca8e5ca590acb3a46341c924` took **14 sub-turns** to see its first
+cache hit, missing completely on prompts of 10,247 to 16,868 tokens — every
+one of them well clear of the 4,096 floor — before turn 15 hit 16,058. From
+there it tracked normally, the steady state running 2K–6K uncached against
+150K prompts, and the run finished at 91.5% overall. So the rule for anything
+measuring Gemini cache behaviour is not "discard the first two requests" but
+"discard the warm-up, and do not assume you know how long it is". The cost is
+bounded and small — those 14 turns were the cheapest in the session precisely
+because the context had not grown yet — which is why this is a measurement
+caveat rather than a problem to fix.
 
 ## Phase 8 — end to end on the dev stack
 

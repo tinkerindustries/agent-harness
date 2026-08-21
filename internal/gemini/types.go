@@ -69,9 +69,19 @@ type Content struct {
 // docs/OBSERVED.md that recorded a failed search for such a field as its
 // absence. omitempty keeps this unset (and the vision path's Interact,
 // which never sets it) serialising exactly as before this field existed.
+//
+// ThinkingSummaries is openapi.json's thinking_summaries ("auto" or
+// "none"). Without it the API returns thought steps carrying a signature
+// and no summary, so a session's reasoning is stored as empty text and the
+// UI has nothing to show — measured on
+// sess-35da6920ca8e5ca590acb3a46341c924, whose 102 reasoning events were
+// all empty while usage reported thought tokens on every turn. It sits last
+// so the two fields above keep the bytes they already had, and omitempty
+// keeps the vision path's Interact, which never sets it, unchanged.
 type GenerationConfig struct {
-	ThinkingLevel   string `json:"thinking_level,omitempty"`
-	MaxOutputTokens int    `json:"max_output_tokens,omitempty"`
+	ThinkingLevel     string `json:"thinking_level,omitempty"`
+	MaxOutputTokens   int    `json:"max_output_tokens,omitempty"`
+	ThinkingSummaries string `json:"thinking_summaries,omitempty"`
 }
 
 // InteractionResponse is the response body of an interactions call. The

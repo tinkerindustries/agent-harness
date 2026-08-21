@@ -75,6 +75,15 @@ const (
 	ThinkingLevelHigh    = "high"
 )
 
+// Values for generation_config.thinking_summaries (openapi.json
+// "ThinkingSummaries" — the enum has exactly these two). "none" is the
+// API's behaviour when the field is absent, so it exists here to name what
+// omitting the field means rather than because anything sends it.
+const (
+	ThinkingSummariesAuto = "auto"
+	ThinkingSummariesNone = "none"
+)
+
 // Resolution values for a per-image part resolution (the same doc, "Image
 // resolution"). "unspecified" is the API's default and is never sent.
 const (
