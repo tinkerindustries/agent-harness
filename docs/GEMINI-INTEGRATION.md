@@ -707,11 +707,16 @@ via the codemap entries already current) are updated; `internal/gemini`'s
 - `previous_interaction_id` and server-side state, as an optimisation.
 - Per-step usage attribution from `step.stop`.
 - Gemini's built-in tools — `google_search`, `code_execution`, `computer_use`,
-  `url_context`, `file_search`. Interesting, orthogonal, and each one is its own
-  argument about what a coding session should be allowed to reach.
-- Gemini's own `mcp_server` tool type, which would let Google call an MCP server
-  directly rather than the harness proxying it. Note it does not support Gemini 3
-  yet.
+  `url_context`, `file_search`, `retrieval`, `google_maps`, and Gemini's own
+  `mcp_server` type. Each one is its own argument about what a coding session
+  should be allowed to reach, and that argument is now made once in
+  [GEMINI-BUILTIN-TOOLS.md](GEMINI-BUILTIN-TOOLS.md) rather than left open
+  here. The short version: five of the nine execute on Google's servers and so
+  cannot pass through the permission gate at all, `google_search` is the only
+  one that adds something the harness does not already have, and adopting it
+  turns on `validated` tool choice for every request and needs a
+  terms-of-service question answered by a person. Still out of scope for this
+  plan; no longer unexamined.
 - Audio, video and document content types.
 - Retiring `Glance`/`Ground`/`Detect` for Gemini sessions. They stay; a session
   that can see images natively may still want a cheap second opinion, and the
