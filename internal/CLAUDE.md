@@ -48,6 +48,42 @@ this package only removes the near-verbatim duplication two full client
 implementations used to carry (docs/KIMI-INTEGRATION.md §4.1). Depends on:
 `internal/wire`.
 
+### `internal/kimi`
+The Kimi K3 client, Moonshot AI's OpenAI-compatible endpoint
+(`https://api.moonshot.ai/v1`). Shares `internal/wire`'s vocabulary and
+`internal/providerhttp`'s transport with `internal/deepseek`; what stays
+here is Kimi's own dialect — the client and its options, the auxiliary
+endpoint bodies (`/models`, `/users/me/balance`), the error body, retry
+classification, and the usage split mapping Kimi's single `cached_tokens`
+figure onto the cache-hit/cache-miss counts the cost model uses. Implements
+the narrow `Client` seam `internal/session` declares
+(docs/KIMI-INTEGRATION.md §4.1): top-level `reasoning_effort`, never a
+`thinking` field. Also the client an eval's judge model resolves to when
+`model.judge` names `kimi-k3` (`internal/evals`). Knows nothing of sessions,
+tools, or storage. Depends on: `internal/wire`, `internal/providerhttp`.
+
+### `internal/gemini`
+Google's Gemini API client, hand-rolled rather than the official SDK because
+the SDK targets the legacy `generateContent` surface, not
+`POST /v1beta/interactions` (docs/GEMINI-INTEGRATION.md §2). Two callers: the
+vision tools — `Glance`, `Ground`, `Detect` (docs/TOOLS.md) — through
+`Interact`, unchanged since before this package spoke chat completions at
+all; and the agent loop, through `StreamChatCompletion` and
+`CreateChatCompletion`, the same narrow `Client` seam `internal/deepseek` and
+`internal/kimi` implement. Owns the parts of the Interactions surface with no
+counterpart in the OpenAI-format dialect the other two share: `thought` steps
+carrying an opaque, mandatory signature that must be replayed verbatim
+(`wire.Message.ThoughtSignature`, docs/GEMINI-INTEGRATION.md §5.2), a request
+shape typed by step kind rather than a flat message array, `arguments` as a
+genuine JSON object rather than a string, and errors that can arrive
+SSE-framed even under a plain 400. No retry-with-backoff of its own — a
+known gap, not an oversight (docs/GEMINI-INTEGRATION.md §8) — because
+`internal/providerhttp` hardcodes an `Authorization: Bearer` header this
+provider does not send (`X-Goog-Api-Key` instead); it runs its own SSE pump
+rather than share that transport. Request and response bodies are Go
+structs, never `map[string]any`, for the same byte-stability reason as the
+other two clients. Depends on: `internal/wire`.
+
 ### `internal/attachment`
 Validates one image attachment a producer submitted — POST /api/runs
 (`internal/httpapi`) or the MCP `deepseek_agent` tool (`internal/mcp`) —

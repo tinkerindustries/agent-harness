@@ -535,13 +535,39 @@ func (c *Client) UsageSplit(usage *wire.Usage) (cacheHit, cacheMiss int) {
 	return cacheHit, cacheMiss
 }
 
-// CacheSlack is the churn detector's tolerance for Gemini: PROVISIONAL.
-// Phase 2 could not measure this — the two-request cache warm-up
-// (docs/OBSERVED.md, "Implicit caching works under store: false, after a
-// warm-up") means the churn detector's own prediction-vs-reality comparison
-// needs a live multi-sub-turn session to produce a real bound, which no
-// phase before Phase 8 runs. 8192 is deliberately loose — a wide multiple of
-// Kimi K3's own empirical bound of 512 (docs/OBSERVED.md) — so the churn
-// diagnostic stays quiet rather than false-alarming on Gemini sessions
-// before Phase 8 measures the true figure and replaces this.
+// CacheSlack is the churn detector's tolerance for Gemini, measured in
+// Phase 8 (docs/OBSERVED.md, "CacheSlack — measured") rather than guessed:
+// two live dev-stack sessions on 2026-08-21 (19 and 20 sub-turns) put the
+// largest steady-state over-prediction — actual miss minus expected miss,
+// on sub-turns past the cache's initial warm-up — at 5,990 tokens. 8192
+// keeps the number this constant already had, now for a different reason:
+// it was picked before Phase 8 ran as a loose multiple of Kimi K3's bound,
+// and the measurement happens to clear it with about 37% of headroom to
+// spare, so there was no case for moving it.
+//
+// Two behaviours the flat number cannot express, both load-bearing for
+// reading a Gemini churn report and neither a reason to raise it further:
+//
+//   - The warm-up itself is longer and noisier than Phase 2's isolated
+//     probe suggested. That probe (a byte-identical prefix resent three
+//     times, nothing else changing) hit on the third request and so
+//     recommended discarding a session's first two sub-turns. In a live,
+//     incrementally-growing session, both measured runs took five to six
+//     sub-turns of complete misses before the first hit — this constant
+//     does not, and structurally cannot, silence that: several of those
+//     warm-up sub-turns will still report Churned regardless of Slack,
+//     because the miss is the *entire* prompt, not a bounded overshoot.
+//   - The implicit cache can also drop to a complete miss well after
+//     warm-up, on a request proven byte-identical in its shared prefix to
+//     the one before it. Both measured sessions hit this once each (of 19
+//     and 20 sub-turns): the churn detector correctly reports these as
+//     Churned under its own definition (actual miss far exceeds
+//     predicted), but the raw request/response trace
+//     (internal/httplog, verified byte-for-byte for both occurrences)
+//     rules out any harness-side cause. No CacheSlack value can turn this
+//     into a quiet sub-turn — the miss runs into the tens of thousands of
+//     tokens. A Gemini churn report is therefore not the same claim a
+//     DeepSeek one is: DeepSeek's 127-token bound means a churn report
+//     reliably names a harness bug, where Gemini's can also mean the
+//     provider's cache went cold on its own.
 func (c *Client) CacheSlack() int { return 8192 }

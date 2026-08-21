@@ -427,14 +427,14 @@ func TestUsageToWireMatchesTokenSplit(t *testing.T) {
 	}
 }
 
-// TestCacheSlackIsLoose pins that CacheSlack returns the documented
-// provisional value rather than a since-forgotten placeholder — a
-// regression here is a sign someone changed the number without updating the
-// comment that explains it.
+// TestCacheSlackIsLoose pins that CacheSlack returns the measured value
+// (docs/OBSERVED.md, "CacheSlack — measured") rather than a
+// since-forgotten placeholder — a regression here is a sign someone changed
+// the number without updating the comment that explains it.
 func TestCacheSlackIsLoose(t *testing.T) {
 	c := &Client{}
 	if got := c.CacheSlack(); got != 8192 {
-		t.Errorf("CacheSlack() = %d, want the documented provisional 8192", got)
+		t.Errorf("CacheSlack() = %d, want the measured 8192", got)
 	}
 }
 

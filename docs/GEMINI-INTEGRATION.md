@@ -249,6 +249,22 @@ bypass values are for — if they work on this surface. If they do not, Gemini
 sessions may not be able to compact the way DeepSeek ones do, and that is a
 finding worth having early rather than at phase eight. **Phase 2 must test it.**
 
+**Phase 8 found this edge does not actually exist for this harness**, and
+corrects the paragraph above rather than deleting it — the reasoning here is
+sound in general and is exactly what would bite an implementation that
+replayed history across a compaction boundary; this one does not.
+`internal/session/compact.go` treats compaction as a session boundary, not a
+history edit: the retiring session is summarised in prose, and the new
+session starts with that prose in its *system prompt*
+(`RenderCompactionSummarySystemPromptFor`) and an ordinary short opening
+message — no prior `thought`, `function_call`, or `function_result` step is
+ever replayed into the new session's history. There is therefore never a
+synthetic thought step with a summary the model never produced, for any
+provider, and the bypass values this section and §6 describe are not
+something Gemini's compaction path needs. See `docs/OBSERVED.md`, "Compaction
+— confirmed working, and the plan's 'sharp edge' does not apply", for the
+live confirmation.
+
 ### 5.3 `ChatIntent` → `InteractionRequest`
 
 ```json
@@ -301,6 +317,16 @@ completely; only request 3 hit. Anything measuring Gemini cache behaviour —
 will measure the warm-up and report it as the steady state. DeepSeek hits on
 request 2, so this is a genuine behavioural difference, not a tuning detail.
 
+**Phase 8 found the warm-up runs longer than this measurement implied**, in a
+live, incrementally-growing session rather than a byte-identical prefix
+resent unchanged: both of its measured sessions took five to six sub-turns
+of complete misses before the first hit, not two. It also found the cache
+can drop to a complete miss again mid-session, well after warm-up, on a
+request proven byte-identical in its shared prefix to the one before it —
+twice in 39 combined sub-turns, with no harness-side cause. See
+`docs/OBSERVED.md`, "`CacheSlack` — measured", for the numbers and what they
+mean for the constant.
+
 `effort` maps onto `generation_config.thinking_level`
 (`minimal` / `low` / `medium` / `high`), not onto `reasoning_effort`. The
 existing `ThinkingLevel*` constants in `internal/gemini` already cover it.
@@ -347,8 +373,11 @@ output rate, `total_cached_tokens` is a subset of `total_input_tokens`.
 
 `CacheSlack()` is an empirical bound on a provider's over-prediction (127 for
 DeepSeek, 512 for Kimi). Gemini's is **unknown and must be measured**, not
-guessed. Until Phase 9 measures it, a deliberately loose value with a comment
-saying it is provisional is the honest placeholder.
+guessed. Until Phase 8 measures it (this plan has eight phases, not nine —
+an earlier draft of this paragraph miscounted), a deliberately loose value
+with a comment saying it is provisional is the honest placeholder. **Phase 8
+has now measured it**; see §7 Phase 8's "Done" note and
+`docs/OBSERVED.md`.
 
 Note `step.stop` carries a per-step `step_usage`, which the OpenAI-format
 providers have no equivalent of. Not required, but it would make per-tool-call
@@ -405,8 +434,14 @@ Full write-up in `docs/OBSERVED.md`, "Gemini 3.7 Flash — Interactions API".
   signature-less `function_call` steps. §5.2's reading confirmed.
 - **Both bypass values work.** `context_engineering_is_the_way_to_go` and
   `skip_thought_signature_validator` each returned 200 with a valid answer when
-  substituted for a real signature. **Compaction is therefore possible for
-  Gemini sessions**, which was the biggest open risk in the plan.
+  substituted for a real signature. This was read at the time as settling
+  "compaction is possible for Gemini sessions" — true as a statement about
+  the API, but Phase 8 found this harness's own compaction never needed to
+  ask the question: it forks a fresh session with the summary in the system
+  prompt rather than replaying a synthetic thought step into history, so no
+  code path here ever constructs one of these bypass values. They remain
+  correct and interesting facts about the Interactions API; they are not
+  wired into anything in this repository.
 - **Two distinct signature errors.** A missing or empty signature gives
   "Request contains an invalid argument."; a garbled one gives "Corrupted
   thought signature." Worth distinguishing — the first is a harness bug, the
@@ -501,6 +536,12 @@ The probe must read it from that settings store or take it from the
 environment, and must never print it — a key pasted into a findings document
 outlives the investigation.
 
+**Done.** Every item above resolved, three findings contradicting the plan
+(`tool_choice` nesting, caching under `store: false`, `status` never
+reporting `requires_action`), all recorded in §6 and in `docs/OBSERVED.md`,
+"Gemini 3.7 Flash — Interactions API". SSE fixtures landed under
+`internal/gemini/testdata/`.
+
 ### Phase 3 — `wire` grows a home for thought signatures
 
 Add what Gemini needs to `internal/wire` without moving a byte for the others:
@@ -511,6 +552,11 @@ Add what Gemini needs to `internal/wire` without moving a byte for the others:
 Golden tests for DeepSeek and Kimi must pass **unchanged**. Add a golden test
 asserting that a message with no signature serialises byte-identically to one
 from before this phase.
+
+**Done.** `wire.Message.ThoughtSignature` and `wire.EventThoughtSignatureDelta`
+landed following the existing `ReasoningContent`/`EventReasoningDelta`
+pattern — carried verbatim, never concatenated. DeepSeek's and Kimi's golden
+files are untouched.
 
 ### Phase 4 — The Gemini agentic client
 
@@ -527,6 +573,15 @@ production and `internal/tools/vision.go` depends on it.
 
 Unit tests against recorded fixtures from Phase 2, not against live.
 
+**Done.** `internal/gemini` satisfies `session.Client` in full. Two
+corrections against Phase 2's live measurements landed on the way:
+`max_output_tokens` is real and is now sent (an earlier failed search had
+recorded its absence as fact), and a capped interaction's `status:
+"incomplete"` is Gemini's spelling of `finish_reason: length`, so
+`IsReasoningStarved` matches DeepSeek's semantics rather than being the
+no-op the plan expected. Retry-with-backoff stays absent, as §8 already
+recorded. The vision path (`Interact`) is untouched.
+
 ### Phase 5 — Routing and configuration
 
 - `internal/provider`: `"gemini-3.7-flash": Gemini`.
@@ -539,6 +594,20 @@ Unit tests against recorded fixtures from Phase 2, not against live.
 - `harness models` lists it.
 - Queue validation accepts it.
 
+**Done.** Provider table entry, client construction with the `httplog`
+transport wrapper, queue validation, `harness models` (listing out of the
+static provider table, since Interactions has no live models endpoint — see
+`docs/MODELS.md`), and a pricing coverage test. One latent bug fixed on the
+way: `model.judge` set to `gemini-3.7-flash` would have silently run the
+eval judge against DeepSeek's client instead of erroring. **No
+Gemini-specific run budget** — a deliberate call, not an oversight: Gemini's
+rates sit at or below DeepSeek Pro's standard tier, unlike K3's 7-17×, so the
+global defaults were judged to already tolerate it. That reasoning lived
+only in this phase's commit message until Phase 8 pulled it into
+`docs/OBSERVED.md` and `docs/MODELS.md`, correcting §7 Phase 7's text below,
+which still listed a Gemini run budget as in scope two phases later.
+`seesImages` stayed false for Gemini until Phase 7.
+
 ### Phase 6 — Fold and resume
 
 `internal/fold` replays thought signatures into the messages array; the event
@@ -546,13 +615,37 @@ log stores them. `TestAppendOnly` must still hold. Add a test that a session
 folded from events produces a request the Gemini builder turns into steps
 carrying every signature in the right order.
 
+**Done.** A signature survives capture, storage, fold and replay:
+`turn.go` records `EventThoughtSignatureDelta` onto the existing
+`ReasoningDeltaPayload` rather than a new event kind (no display content of
+its own, so no case needed in either fold), and `Fold` sets it on the
+sub-turn's assistant message — recorded whenever present even when the
+sub-turn produced no reasoning text, which is the ordinary Gemini case since
+a signature is always present but a summary often is not.
+`TestFoldToGeminiRequestCarriesSignatures` pins the whole chain. Old rows
+without the field still decode; `TestAppendOnly` and the wire goldens hold.
+
 ### Phase 7 — Vision split and system prompt
 
 `seesImages()` true for Gemini. Image parts translated into Gemini's image
 content shape. A Gemini system prompt if Phase 2 or 9 shows it needs one —
 Gemini 3.x wants concise prompts and reacts badly to chain-of-thought
 scaffolding written for older models (`docs/gemini-3.5-flash-ui-review-prompting.md`).
-Run budgets for the model, as `KimiK3MaxSubTurns` does for K3.
+~~Run budgets for the model, as `KimiK3MaxSubTurns` does for K3.~~ Already
+decided against in Phase 5 (see that phase's "Done" note above) — this line
+was stale by the time this phase ran and stays here struck through rather
+than silently deleted, since it is what Phase 8 caught and corrected.
+
+**Done.** `seesImages()` true for Gemini; `definitionsKimi` became
+`definitionsVisionCapable` since the array is now shared by two providers,
+byte-identical, so the goldens are reused rather than duplicated. No Gemini
+system prompt: `renderSystemPromptFor` was already a pure function of the
+tool array and the `seesImages` capability with no provider baked in, so
+Gemini gets a truthful head automatically, with none of the
+chain-of-thought scaffolding Gemini 3.x reacts badly to. Tool-result image
+resolution is left unset, unlike the vision tools' first-high/rest-medium
+policy, since a `Read` or MCP result carries one ad hoc image with no batch
+to rank.
 
 ### Phase 8 — End to end
 
@@ -561,6 +654,23 @@ Run a real session on `gemini-3.7-flash` through the dev stack. Measure
 cost of `store: false`. Confirm compaction works or record precisely why it
 cannot. Update `docs/OBSERVED.md`, `docs/MODELS.md`, `ARCHITECTURE.md` and
 `internal/CLAUDE.md`.
+
+**Done.** Two substantial live sessions against this repository through the
+dev stack (`readonly`, real Read/Grep/Glob/List/Task* tool use, multiple
+sub-turns, real thought steps with signatures on every one) plus a
+throwaway compaction stress probe, all captured end to end in
+`internal/httplog` and verified against the trace, not just the unit test.
+`CacheSlack` stays 8192 — the number does not move, but its status does,
+from a guessed placeholder to a measured one, with two live-session findings
+that revise §5.3's warm-up guidance and this section's own "sharp edge"
+worry about compaction (see §5.2 and §5.3's corrections above, and
+`docs/OBSERVED.md`, "Phase 8 — end to end on the dev stack", for the full
+numbers). Compaction confirmed working live, six clean repetitions in one
+forced-every-sub-turn stress run, and found not to need the thought-signature
+machinery this document worried about at all. `docs/OBSERVED.md`,
+`docs/MODELS.md`, `ARCHITECTURE.md`, and `internal/CLAUDE.md` (indirectly,
+via the codemap entries already current) are updated; `internal/gemini`'s
+`CacheSlack` doc comment carries the measurement.
 
 ## 8. What this plan does not cover
 

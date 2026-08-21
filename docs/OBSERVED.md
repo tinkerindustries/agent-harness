@@ -712,8 +712,140 @@ steady state. This is unlike DeepSeek, where the second request of an
 identical prefix already hits.
 
 Not yet established: the minimum prefix size that caches at all (somewhere
-between "a few hundred tokens" and 103K), the TTL, and whether the warm-up is
-reliably two requests or merely was here.
+between "a few hundred tokens" and 103K), and the TTL. **The warm-up is not
+reliably two requests** — Phase 8's live sessions (below) took five to six.
+This section's earlier three-request measurement used a byte-identical
+prefix resent with nothing else changing; a live, incrementally-growing
+conversation warms slower.
+
+## Phase 8 — end to end on the dev stack
+
+Measured 2026-08-21 against the dev stack (`http://127.0.0.1:8080`), two
+substantial live sessions plus one throwaway compaction probe, all on
+`gemini-3.7-flash`, `readonly` permission mode, real repository exploration
+tasks (Read/Grep/Glob/List/Task* against this repository, no writes). Session
+ids: `sess-8e5330769a57f99bb4117bf78d506249` (20 sub-turns, hit
+`max_sub_turns` before calling `Complete`), `sess-17c66d71b177061881e09ca3361fa70c`
+(19 sub-turns, completed normally — 36 tool calls, `$0.28`), and a third,
+`sess-e39f8eb8a8197bd2ca8100e9b97794b0` and its six compaction children
+(below). `internal/httplog`'s capture for all of them was read back with
+`trace.py --dev`, confirmed to hold every Gemini request and response with
+`X-Goog-Api-Key` redacted — the third of §2's three reasons for hand-rolling
+the client (GEMINI-INTEGRATION.md §2) is now verified end to end rather than
+resting on the unit test.
+
+### `CacheSlack` — measured
+
+Method, from `docs/CACHE.md`: discard warm-up, then take the largest
+`actual miss − expected miss` a healthy sub-turn shows. `usage` events off
+both sessions (`prompt_cache_hit_tokens`, `prompt_cache_miss_tokens`,
+`expected_miss_tokens`, `churn_point_index` — the harness's own churn
+diagnostic computed these live, on the provisional 8192 already in place):
+
+| Session | Sub-turns | Cold warm-up | Steady-state max over-prediction |
+| --- | --- | --- | --- |
+| `…8e53…` | 20 | 1–5 (first hit at sub-turn 6) | 5,990 tokens (sub-turn 8) |
+| `…17c6…` | 19 | 1–3 (first hit at sub-turn 4) | 4,767 tokens (sub-turn 17), excluding two complete misses below |
+
+**The warm-up took longer than this document's earlier isolated measurement
+implied.** That measurement was a byte-identical prefix resent three times
+with nothing else changing, and hit on the third request — hence the
+"discard the first two" guidance GEMINI-INTEGRATION.md §5.3 and §7 Phase 8
+both carried forward. Neither live session matched it: `…8e53…` took five
+complete misses before its first hit, `…17c6…` took three. The difference is
+plausibly that a live session's head (system prompt + tools) is larger and
+its cacheable prefix keeps growing sub-turn to sub-turn, unlike a resent,
+static probe — untested which factor matters, since both differ from the
+Phase 2 setup at once.
+
+**A second, more surprising behaviour: the cache also went completely cold
+mid-session, twice, on a request proven byte-identical to its predecessor.**
+`…17c6…` sub-turns 7 and 13 both reported `prompt_cache_hit_tokens: 0` after
+several consecutive hot sub-turns (20,225 and 69,144 tokens hit the sub-turn
+immediately before each). This was checked, not assumed: the captured
+request bodies for sub-turns 6/7 and 12/13
+(`trace.py --dev …17c6… --seq N --field req_body`) were compared
+programmatically — `system_instruction`, `tools`, and every `input` step
+`Ν`'s request shares with `Ν+1` are byte-identical JSON in both cases, with
+`Ν+1` a pure append of `Ν`. There is no harness-side cause: no reordering, no
+re-rendering, nothing the churn diagnostic's own hash comparison would have
+been wrong to call out had it looked (its `ChurnPointIndex` on those two
+sub-turns pointed past the end of the shared prefix, which is the
+diagnostic's honest way of saying "nothing actually diverged, the provider
+still missed everything"). This reads as the provider's implicit cache
+evicting or losing the entry independently of anything the request did.
+
+**Conclusion: `CacheSlack` stays 8192, now for a measured reason rather than
+a guessed one.** The observed steady-state ceiling (5,990) clears with
+headroom; the code comment on `internal/gemini/client.go`'s `CacheSlack`
+carries the number and the two caveats above. The load-bearing caveat for
+whoever reads a live churn report: a Gemini `Churned: true` is not the same
+claim a DeepSeek one is. DeepSeek's 127-token bound means it reliably names a
+harness bug. Gemini's can also mean the provider's cache went cold on its
+own, and no `CacheSlack` value changes that — the miss in both observed
+cases ran into the tens of thousands of tokens, nowhere near a slack a
+churn-tolerant constant could plausibly absorb without also hiding a real
+prefix bug.
+
+### Compaction — confirmed working, and the plan's "sharp edge" does not apply
+
+**Reading `internal/session/compact.go` first changes the question.** The
+plan (GEMINI-INTEGRATION.md §5.2, §6) worried about replaying a synthetic
+`thought` step with no real signature after compaction, and about whether
+either bypass value (`context_engineering_is_the_way_to_go` /
+`skip_thought_signature_validator`) would be accepted in its place. That
+scenario does not arise: this harness's compaction is a **session
+boundary**, not a history edit. `compact()` folds the retiring session,
+summarises it with the configured flash model (`deepseek-v4-flash` by
+default — Gemini's own `CreateChatCompletion` is not on this path unless an
+operator points `run.default_flash_model` at `gemini-3.7-flash`), and starts
+a brand-new session whose *system prompt* carries the summary
+(`RenderCompactionSummarySystemPromptFor`) and whose opening message is
+`RenderCompactionOpeningMessage` — "Continue the task described in the
+system prompt's summary." No prior `thought`, `function_call`, or
+`function_result` step is ever replayed into the new session's history, so
+`fold.Fold` never has a signature-less thought to reconstruct and neither
+bypass value is ever needed. This holds for every provider, not just
+Gemini; §5.2's "sharp edge" was written against a design (message-array
+replay across the boundary) this harness does not have.
+
+Confirmed live rather than only by reading the code: `run.compaction_threshold`
+was set to its allowed minimum (1024 tokens) on the dev stack for a few
+minutes — verified first that the only two `running` sessions were the
+known-stale rows from 2026-08-14 with no workspace lease, so nothing live was
+disturbed — and a small `gemini-3.7-flash` session was published. Every
+sub-turn's prompt already exceeds 1024 tokens (system prompt + tool array
+alone), so the session compacted after **every** sub-turn: six compactions
+in a row, `sess-e39f8eb8a8197bd2ca8100e9b97794b0` →
+`…bdb88b25…` → `…a884d551…` → `…a69025e8…` → `…620c922f…` → `…700f2c38…` →
+`…dfcee15b…` (`max_sub_turns`), all within one `harness publish -wait` call.
+Every one of the six completed compactions made exactly one Gemini call
+(200) and one DeepSeek call for the summary (200), with no error, no 400,
+and no wire-shape failure at any point in the chain — confirmed both from
+the session events (no `error` events, `status: "compacted"` on every
+non-terminal row) and from `trace.py --dev` against each child session's
+capture. `run.compaction_threshold` was unset again immediately after.
+
+The setting was pushed to an extreme deliberately to make compaction cheap
+to trigger repeatedly rather than to represent realistic behaviour — real
+sessions compact once, at 768K tokens, not every sub-turn — but the
+mechanism under test (fold → summarise → fork → continue) is identical
+either way, and six clean repetitions is stronger evidence than one.
+
+One thing this surfaced that is worth recording precisely, unrelated to the
+signature question: **`gemini-3.7-flash` has no per-model entry in
+`settings.RunBudgetKeysForModel`**, so both `run.max_sub_turns` and
+`run.compaction_threshold` fall back to the DeepSeek-shaped global defaults
+(400 sub-turns, 768K tokens) for Gemini sessions, the same way an unknown
+model does. GEMINI-INTEGRATION.md §7 Phase 5 (not Phase 7 — the plan
+document's own phase numbering drifted here) recorded the reason in its
+commit message rather than in code or in this document: "K3 got its own
+ceilings because its rates are 7-17x DeepSeek's; Gemini 3.7 Flash sits at or
+below DeepSeek Pro's standard tier, so the global defaults already tolerate
+it." That is a considered decision, not an oversight — §7 Phase 7's plan
+text still lists "run budgets for the model" as in scope for that phase, but
+Phase 5 had already decided against one two phases earlier. The plan text is
+now corrected in place rather than left implying the work is outstanding.
 
 ## Still untested — Gemini
 
@@ -721,7 +853,12 @@ Whether `arguments_delta` ever fragments on a payload larger than ~69 KB.
 Whether the exact input-token ceiling sits at 1M or higher. Any output-token
 ceiling — no request field was found to probe for one. Whether
 `previous_interaction_id` changes any of the above (deliberately unused,
-per GEMINI-INTEGRATION.md §5.3). `CacheSlack`, deferred to Phase 9 by design.
-Whether a `function_result` can usefully mix multiple images, or an image
-alongside `thought_signature` replay noise from an *unrelated* turn. Pro
-variant behaviour — every measurement here used `gemini-3.7-flash` only.
+per GEMINI-INTEGRATION.md §5.3). Whether a `function_result` can usefully mix
+multiple images, or an image alongside `thought_signature` replay noise from
+an *unrelated* turn. Pro variant behaviour — every measurement here used
+`gemini-3.7-flash` only. What causes the mid-session complete cache miss
+Phase 8 observed twice — a TTL, an internal re-indexing pass, load on
+Google's side — and how often it recurs over a longer session; two
+occurrences in 39 combined sub-turns is enough to say it is real and not
+enough to say how common it is. Whether a real 768K-token compaction (rather
+than Phase 8's forced-every-sub-turn stress test) behaves identically.
