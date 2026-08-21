@@ -1161,3 +1161,28 @@ func TestClientForRoutesByModel(t *testing.T) {
 		}
 	}
 }
+
+// TestSeesImages pins the vision split's provider table directly: Kimi and
+// Gemini read images natively (docs/KIMI-INTEGRATION.md §4.5,
+// docs/GEMINI-INTEGRATION.md §5.7), DeepSeek does not, and an unknown model
+// resolves to false — the DeepSeek default named in seesImages' own
+// comment, exercised here so a model added to internal/provider without a
+// matching entry here fails a test rather than silently seeing images (or
+// not) by accident.
+func TestSeesImages(t *testing.T) {
+	cases := []struct {
+		model string
+		want  bool
+	}{
+		{"deepseek-v4-pro", false},
+		{"deepseek-v4-flash", false},
+		{"kimi-k3", true},
+		{"gemini-3.7-flash", true},
+		{"not-a-real-model", false},
+	}
+	for _, tc := range cases {
+		if got := seesImages(tc.model); got != tc.want {
+			t.Errorf("seesImages(%q) = %v, want %v", tc.model, got, tc.want)
+		}
+	}
+}

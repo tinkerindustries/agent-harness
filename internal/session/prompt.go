@@ -156,9 +156,9 @@ type toolFragment struct {
 	// to match: true renders only for a provider that reads images
 	// natively, false only for one that does not. The vision sentence is
 	// capability-shaped, not tool-shaped — "You can see images" is true of
-	// Kimi K3 because of the provider (seesImages in runner.go), and no
-	// tool array says so — so it is selected here rather than by which
-	// tools happen to be present.
+	// Kimi K3 and Gemini because of the provider (seesImages in
+	// runner.go), and no tool array says so — so it is selected here
+	// rather than by which tools happen to be present.
 	seesImages *bool
 	// text is the fragment's contribution, byte for byte the frozen head's.
 	text string
@@ -394,10 +394,12 @@ func RenderSystemPrompt() string {
 // the provider's shipped prompt, byte for byte (internal/promptvariant):
 // DeepSeek renders its seventeen-tool head, Kimi renders the head for its
 // fourteen-tool array — whose inventory, count word and rules all follow
-// from the array itself (docs/KIMI-INTEGRATION.md §4.4) — and a variant
-// that subtracts tools (tools.DefinitionsForVariant) renders the head for
-// its own smaller array, with no replacements entry needed to keep the
-// inventory truthful.
+// from the array itself (docs/KIMI-INTEGRATION.md §4.4) — Gemini renders
+// the same fourteen-tool head Kimi does, since both resolve to
+// tools.definitionsVisionCapable and both have seesImages() true
+// (docs/GEMINI-INTEGRATION.md §5.7) — and a variant that subtracts tools
+// (tools.DefinitionsForVariant) renders the head for its own smaller array,
+// with no replacements entry needed to keep the inventory truthful.
 func RenderSystemPromptFor(model, variant string) (string, error) {
 	base := renderSystemPromptFor(toolNamesInOrder(tools.DefinitionsForVariant(model, variant)), seesImages(model))
 	return promptvariant.Apply(variant, base)

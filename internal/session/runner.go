@@ -32,15 +32,16 @@ import (
 )
 
 // seesImages reports whether the provider serving model reads images
-// natively — true only for Kimi K3 today (docs/KIMI-INTEGRATION.md §4.5).
-// It drives both halves of the vision split: which tool array the session
-// sends (internal/tools.DefinitionsFor) and whether Read returns an image
-// part (tools.Executor.SeeImages). An unknown model resolves to false, the
+// natively — Kimi K3 (docs/KIMI-INTEGRATION.md §4.5) and Gemini
+// (docs/GEMINI-INTEGRATION.md §5.7), not DeepSeek. It drives both halves of
+// the vision split: which tool array the session sends
+// (internal/tools.DefinitionsFor) and whether Read returns an image part
+// (tools.Executor.SeeImages). An unknown model resolves to false, the
 // DeepSeek default; queue validation rejects unknown models before a session
 // exists, so nothing real can land here.
 func seesImages(model string) bool {
 	p, err := provider.ModelFor(model)
-	return err == nil && p == provider.Kimi
+	return err == nil && (p == provider.Kimi || p == provider.Gemini)
 }
 
 // DefaultMaxSubTurns and CompactionThresholdTokens are the built-in run

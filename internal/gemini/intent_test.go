@@ -175,6 +175,132 @@ func TestRequestFromIntentParallelToolCalls(t *testing.T) {
 	}
 }
 
+// TestRequestFromIntentFunctionResultImage pins the shape a Read call that
+// returned an image produces once it reaches the Gemini request builder
+// (docs/GEMINI-INTEGRATION.md §5.7, §7 "Phase 7"). internal/fold's
+// toolResultMessage builds exactly this parts shape for a tool_result event
+// carrying ImageURL — a text part with the label first, then the image_url
+// part with the raw data URI (internal/fold/fold.go, toolResultMessage) —
+// so this intent is what a folded session with a vision-capable model
+// actually sends. Asserts the serialised function_result step byte for
+// byte: text block then image block, in that order, mime_type and data
+// split correctly out of the data URI, and no resolution key at all — the
+// "unspecified" default this harness deliberately never overrides for a
+// single ad hoc tool-result image (see this test's package doc note below
+// and docs/GEMINI-INTEGRATION.md §7's resolution decision).
+func TestRequestFromIntentFunctionResultImage(t *testing.T) {
+	const pngData = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+	intent := wire.ChatIntent{
+		Model: "gemini-3.7-flash",
+		Messages: []wire.Message{
+			wire.SystemMessage("sys"),
+			wire.UserMessage("take a screenshot and check it"),
+			{
+				Role:    wire.RoleAssistant,
+				Content: wire.TextContent(""),
+				ToolCalls: []wire.ToolCall{
+					{ID: "call_01", Type: "function", Function: wire.ToolCallFunc{Name: "Read", Arguments: `{"file_path":"scratch/screenshot.png"}`}},
+				},
+			},
+			{
+				Role:       wire.RoleTool,
+				ToolCallID: "call_01",
+				Content: wire.Content{Parts: []wire.Part{
+					{Type: wire.PartTypeText, Text: "Image: scratch/screenshot.png"},
+					{Type: wire.PartTypeImageURL, ImageURL: &wire.ImageURL{URL: "data:image/png;base64," + pngData}},
+				}},
+			},
+		},
+	}
+
+	req := requestFromIntent(intent)
+	// user_input, function_call, function_result — no thought step, this
+	// message carries no ThoughtSignature.
+	if len(req.Input) != 3 {
+		t.Fatalf("input has %d steps, want 3, got %+v", len(req.Input), req.Input)
+	}
+	resultStep, ok := req.Input[2].(FunctionResultStep)
+	if !ok {
+		t.Fatalf("input[2] = %T, want FunctionResultStep", req.Input[2])
+	}
+	if len(resultStep.Result) != 2 {
+		t.Fatalf("function_result carries %d blocks, want 2 (text label, image)", len(resultStep.Result))
+	}
+	if resultStep.Result[0].Type != ContentTypeText || resultStep.Result[0].Text != "Image: scratch/screenshot.png" {
+		t.Errorf("block 0 = %+v, want the text label first", resultStep.Result[0])
+	}
+	img := resultStep.Result[1]
+	if img.Type != ContentTypeImage || img.MIMEType != "image/png" || img.Data != pngData {
+		t.Errorf("block 1 = %+v, want image/png carrying the base64 payload unchanged", img)
+	}
+	if img.Resolution != "" {
+		t.Errorf("image block resolution = %q, want unset — Read/MCP images are one ad hoc image per tool result, not the multi-image batch Glance/Ground/Detect scrutinise", img.Resolution)
+	}
+
+	// The actual bytes on the wire, not just the struct: mime_type and data
+	// as their own keys, image block after the text block, and no
+	// resolution key at all (omitempty on an empty string).
+	raw, err := json.Marshal(resultStep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"type":"function_result","call_id":"call_01","name":"Read","result":[{"type":"text","text":"Image: scratch/screenshot.png"},{"type":"image","mime_type":"image/png","data":"` + pngData + `"}]}`
+	if string(raw) != want {
+		t.Fatalf("function_result step =\n%s\nwant:\n%s", raw, want)
+	}
+}
+
+// TestRequestFromIntentFunctionResultImageFromMCP is
+// TestRequestFromIntentFunctionResultImage's counterpart for the other
+// producer of an image tool result: execMCP (internal/tools/mcpexec.go)
+// builds the identical "data:<mime>;base64,<...>" URI from an MCP server's
+// image content block, through the same ImageURL field and the same fold
+// path, so it reaches requestFromIntent as the same wire shape. This test
+// exercises a JPEG (Read only ever emits PNG/JPEG/WebP too, but a real MCP
+// server is not bounded to those three) with MCP-flavoured label text, to
+// pin that the conversion is not special-cased to Read's own wording.
+func TestRequestFromIntentFunctionResultImageFromMCP(t *testing.T) {
+	const jpegData = "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkI"
+	intent := wire.ChatIntent{
+		Model: "gemini-3.7-flash",
+		Messages: []wire.Message{
+			wire.SystemMessage("sys"),
+			wire.UserMessage("render the viewport"),
+			{
+				Role:    wire.RoleAssistant,
+				Content: wire.TextContent(""),
+				ToolCalls: []wire.ToolCall{
+					{ID: "call_09", Type: "function", Function: wire.ToolCallFunc{Name: "mcp__blender__render_viewport_to_path", Arguments: `{}`}},
+				},
+			},
+			{
+				Role:       wire.RoleTool,
+				ToolCallID: "call_09",
+				Content: wire.Content{Parts: []wire.Part{
+					{Type: wire.PartTypeText, Text: "Wrote scratch/mcp/blender-render_viewport_to_path-1.jpg"},
+					{Type: wire.PartTypeImageURL, ImageURL: &wire.ImageURL{URL: "data:image/jpeg;base64," + jpegData}},
+				}},
+			},
+		},
+	}
+
+	req := requestFromIntent(intent)
+	resultStep, ok := req.Input[2].(FunctionResultStep)
+	if !ok {
+		t.Fatalf("input[2] = %T, want FunctionResultStep", req.Input[2])
+	}
+	if len(resultStep.Result) != 2 {
+		t.Fatalf("function_result carries %d blocks, want 2 (text label, image)", len(resultStep.Result))
+	}
+	if resultStep.Result[0].Type != ContentTypeText || resultStep.Result[0].Text != "Wrote scratch/mcp/blender-render_viewport_to_path-1.jpg" {
+		t.Errorf("block 0 = %+v, want the MCP write-location text first", resultStep.Result[0])
+	}
+	img := resultStep.Result[1]
+	if img.Type != ContentTypeImage || img.MIMEType != "image/jpeg" || img.Data != jpegData {
+		t.Errorf("block 1 = %+v, want image/jpeg carrying the base64 payload unchanged", img)
+	}
+}
+
 // TestRequestFromIntentOmitsToolChoiceAndSamplingParams pins the three
 // deliberate omissions docs/GEMINI-INTEGRATION.md §3, §5.3 and
 // docs/OBSERVED.md's "tool_choice" section name: no tool_choice anywhere

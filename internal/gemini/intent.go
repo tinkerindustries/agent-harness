@@ -121,12 +121,18 @@ func thinkingLevelFromEffort(effort string) string {
 // text block. A parts array converts each part: text parts become text
 // blocks, image_url parts become image blocks by decoding the data URI
 // image_url already carries (docs/GEMINI-INTEGRATION.md §5.7 names the
-// target shape; seesImages() is not true for Gemini until Phase 7, so no
-// fixture exercises this path yet — see the function_result image shape
-// docs/OBSERVED.md did measure, which this produces byte-for-byte:
-// {"type":"image","mime_type":...,"data":...}). A video part has no Gemini
-// counterpart in the shapes this harness sends and is dropped rather than
-// guessed at.
+// target shape). seesImages() became true for Gemini in Phase 7
+// (internal/session/runner.go), so this path is now reachable for real —
+// TestRequestFromIntentFunctionResultImage and its MCP counterpart
+// (intent_test.go) exercise it against the shape internal/fold's
+// toolResultMessage actually builds, and produce byte-for-byte the
+// function_result image shape docs/OBSERVED.md measured against the live
+// API: {"type":"image","mime_type":...,"data":...}, no resolution key (§7's
+// decision: a Read/MCP result carries one ad hoc image, not the multi-image
+// batch the vision tools scrutinise, so there is no "first image" to prefer
+// and the field is left unset, the documented API default). A video part
+// has no Gemini counterpart in the shapes this harness sends and is dropped
+// rather than guessed at.
 func contentBlocksFromWire(c wire.Content) []Content {
 	if len(c.Parts) == 0 {
 		if c.Text == "" {
