@@ -55,6 +55,14 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Message, error) {
 
 	var reasoning, content strings.Builder
 	var toolCalls []wire.ToolCall
+	// signature is the sub-turn's thought-step receipt (Gemini only), held
+	// separately from reasoning: it is always present on a real thought
+	// step even when the step carries no summary at all, so it cannot be
+	// keyed off reasoning.Len() the way ReasoningContent is
+	// (docs/GEMINI-INTEGRATION.md §5.2). Assigned, never appended to — a
+	// signature is opaque and must survive replay byte-for-byte, not
+	// accumulate like prose.
+	var signature string
 	inTurn := false
 
 	flushAssistant := func() {
@@ -67,10 +75,15 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Message, error) {
 			r := reasoning.String()
 			msg.ReasoningContent = &r
 		}
+		if signature != "" {
+			s := signature
+			msg.ThoughtSignature = &s
+		}
 		messages = append(messages, msg)
 		reasoning.Reset()
 		content.Reset()
 		toolCalls = nil
+		signature = ""
 		inTurn = false
 	}
 
@@ -92,6 +105,9 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Message, error) {
 				return nil, fmt.Errorf("fold: reasoning_delta at seq %d: %w", e.Seq, err)
 			}
 			reasoning.WriteString(p.Text)
+			if p.ThoughtSignature != "" {
+				signature = p.ThoughtSignature
+			}
 
 		case store.KindContentDelta:
 			var p store.ContentDeltaPayload
