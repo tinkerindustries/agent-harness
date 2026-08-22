@@ -35,11 +35,11 @@ const serverVersion = "0.46.0"
 
 // Publisher is the one-method seam through which deepseek_agent enqueues a
 // work request. It is implemented in cmd/harness/serve.go over the same
-// publish path the browser's POST /api/runs uses, so a launch is
-// byte-identical in the store to one started from the web UI or the CLI
-// (docs/RUN-CONTROL.md "Starting is a publish"). Declared here as an
-// interface rather than a concrete handle so this package needs no knowledge
-// of the transport the queue sits on.
+// publish path the browser's POST /api/runs uses, so a launch started
+// through this MCP tool is byte-identical in the store to one started from
+// the web UI (docs/RUN-CONTROL.md "Starting is a publish"). Declared here as
+// an interface rather than a concrete handle so this package needs no
+// knowledge of the transport the queue sits on.
 type Publisher interface {
 	Publish(ctx context.Context, req queue.Request) error
 }
@@ -62,8 +62,8 @@ type Service struct {
 	Store *store.Store
 
 	// Settings resolves the attachment caps (tools.attachments_max_count,
-	// tools.attachments_max_bytes) on every launch, so a limit changed with
-	// harness config set applies without a restart.
+	// tools.attachments_max_bytes) on every launch, so a limit changed from
+	// the settings screen applies without a restart.
 	Settings *settings.Resolver
 }
 

@@ -60,7 +60,7 @@ const liveFlushInterval = 100 * time.Millisecond
 // this exists at all.
 //
 // A nil *liveSink is a working no-op, which is what a Runner with no Hub
-// gets — the CLI, and every test that does not assert on streaming.
+// gets — every test that does not assert on streaming among them.
 type liveSink struct {
 	hub       *hub.Hub
 	sessionID string
@@ -394,14 +394,6 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 		sess = updated
 	}
 	r.publishState(ctx, sess)
-
-	if progress := progressFunc(r, opts); progress != nil {
-		progress(SubTurnProgress{
-			SessionID: sess.ID, SubTurn: subTurn, Model: sess.Model,
-			ToolCalls: toolCallNames(toolCalls), Usage: usagePayload,
-			Churned: usagePayload.ChurnPointIndex != nil,
-		})
-	}
 
 	if len(toolCalls) == 0 {
 		return subTurnOutcome{usagePayload: usagePayload, text: content}, nil

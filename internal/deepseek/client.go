@@ -29,7 +29,7 @@ type Client struct {
 // ErrNoAPIKey is returned before a request is sent when the key provider
 // supplies an empty key — the operator's fix is named rather than DeepSeek's
 // 401 being what they see.
-var ErrNoAPIKey = errors.New("no DeepSeek API key configured; set one with: harness config set deepseek.api_key <key>")
+var ErrNoAPIKey = errors.New("no DeepSeek API key configured; set one from the settings screen or PUT /api/settings/deepseek.api_key")
 
 // ClientOption customises a Client built by NewClient.
 type ClientOption func(*Client)

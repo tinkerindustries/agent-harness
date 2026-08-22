@@ -39,12 +39,12 @@ type SamplingClient interface {
 // createMessage answers a server's sampling request (`sampling/createMessage`).
 //
 // Two gates stand in front of it, and they are different questions. The
-// first is whether this Manager can sample at all — no client wired, as in
-// the CLI paths and every test, means no. The second is whether this
-// particular server is allowed to: AllowSampling is off by default, because
-// connecting a server and letting it spend the operator's tokens on prompts
-// it wrote are separate decisions, and only one of them is implied by
-// pressing Add.
+// first is whether this Manager can sample at all — no client wired, the
+// shape every existing test and a caller with none wired take, means no.
+// The second is whether this particular server is allowed to: AllowSampling
+// is off by default, because connecting a server and letting it spend the
+// operator's tokens on prompts it wrote are separate decisions, and only one
+// of them is implied by pressing Add.
 //
 // A refusal is an error rather than an empty completion. The server asked
 // for something it did not get, and telling it so lets it fall back;

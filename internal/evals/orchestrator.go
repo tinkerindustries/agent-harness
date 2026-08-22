@@ -30,12 +30,12 @@ var ErrEvalNotRunning = errors.New("evals: no such eval run is in flight here")
 // not a comparison either of them can stand behind.
 var ErrEvalInFlight = errors.New("evals: an eval run is already in flight")
 
-// Spec is one eval a caller is asking for, in the shape the HTTP body and
-// the CLI both produce.
+// Spec is one eval a caller is asking for, in the shape the HTTP body
+// carries.
 type Spec struct {
 	// Suite is a built-in suite's name. SuiteJSON is a suite posted inline,
-	// which is how the CLI forwards a file the server does not have. Exactly
-	// one is set.
+	// which is how a caller forwards a suite file the server does not have.
+	// Exactly one is set.
 	Suite     string `json:"suite,omitempty"`
 	SuiteJSON *Suite `json:"suite_json,omitempty"`
 

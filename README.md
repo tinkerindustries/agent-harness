@@ -39,33 +39,38 @@ cp .env.example .env
 ports — all documented inline in `.env.example`. Everything
 else the operator tunes — API keys, models, run budgets, tool limits, worker
 pool size, retention — lives in the harness's SQLite settings table and is
-changed with `harness config set` (or from the settings screen) without a
-rebuild:
+changed from the settings screen, or with `curl` against `/api/settings`,
+without a rebuild. Neither is behind the bearer token the run-control API
+needs, so the `curl` form works against a bare `localhost` address:
 
 ```sh
-docker compose exec harness harness config set run.max_tokens 96000
-docker compose exec harness harness config set tools.bash_timeout 5m
+curl -X PUT localhost:8080/api/settings/run.max_tokens \
+  -H 'Content-Type: application/json' -d '{"value":"96000"}'
+curl -X PUT localhost:8080/api/settings/tools.bash_timeout \
+  -H 'Content-Type: application/json' -d '{"value":"5m"}'
 ```
 
-`harness config list` prints every setting grouped, with its resolved value,
-its default, and a `[restart]` mark on the few that only take effect on the
-next start (the worker pool size, the model-concurrency ceilings, the results
-retention, and the events paging limits). The DeepSeek API key is one of
-those settings:
+`curl -s localhost:8080/api/settings` prints every setting grouped, with its
+resolved value, its default, and a `restart` flag on the few that only take
+effect on the next start (the worker pool size, the model-concurrency
+ceilings, the results retention, and the events paging limits). The
+DeepSeek API key is one of those settings:
 
 ```sh
-docker compose exec harness harness config set deepseek.api_key sk-...
+curl -X PUT localhost:8080/api/settings/deepseek.api_key \
+  -H 'Content-Type: application/json' -d '{"value":"sk-..."}'
 ```
 
-`harness config get deepseek.api_key -reveal` prints one in full; `config
-list` masks secrets by default.
+Secrets come back masked to their last four characters, with no reveal
+parameter — once a key is saved this way, there is no way to read the full
+value back.
 
 The same keys can be managed from the browser: the settings screen at
 <http://localhost:8080/settings> (linked from the session list) shows each
 setting grouped and typed, with its default, whether the current value is a
 default or an override, and a "reset to default" action. It shows the same
-masked values `config list` does — there is no way to read a full secret in
-the browser.
+masked values `/api/settings` does — there is no way to read a full secret in
+the browser either.
 
 Set `GITHUB_TOKEN` too if you want private clones. The container's entrypoint
 turns it into a git credential inside the container, and `gh` picks it up from
@@ -86,8 +91,11 @@ setup script and an empty store converges on its own.
 
 ```sh
 curl -sf localhost:8080/api/queue     # {"available":true,"halted":false}
-docker compose exec harness harness balance
+docker compose logs harness | grep -i balance
 ```
+
+serve logs the provider balance once at startup; that's the check that the key
+is valid and the account has money on it.
 
 Then open <http://localhost:8080> for the session list. It will be empty until
 you send some work.
@@ -99,30 +107,21 @@ inside the workspace mount.
 
 ## Sending work
 
-```sh
-docker compose exec harness harness publish \
-  -repo https://github.com/org/app.git \
-  -permission-mode readonly \
-  "Summarise how this project handles configuration"
-```
-
-Watch it in the browser, or block until it finishes with `-wait`. Add `-repo`
-more than once to clone several repositories into the same workspace, and
-`URL#branch` to check out something other than `main`.
-
-`-permission-mode` is required and is either `readonly` or `full`. Under `full`
-a session can run any command, including `docker`, against the host's daemon —
-the socket is mounted in. Narrow it with repeatable `-deny` patterns if you want
-`full` minus something specific.
+Open <http://localhost:8080> and use the start form: one or more repositories
+(`URL`, or `URL#branch` to check out something other than `main`), a prompt,
+and a permission mode. `readonly` refuses any command that writes outside the
+workspace; under `full` a session can run any command, including `docker`,
+against the host's daemon — the socket is mounted in. A comma-separated deny
+field narrows `full` to everything minus something specific. Submit and watch
+the run in the same browser.
 
 Every run gets its own directory under `workspaces/`, named for its session id,
 holding that run's clones. Nothing is shared between runs.
 
-`harness publish` is an operator's tool, not the only ingress: any HTTP
-client can `POST` the same JSON body to `/api/runs`, and `harness publish`
-requires `harness serve` to be running — it is a client of that endpoint.
-The request and result shapes are in [`docs/DESIGN.md`](docs/DESIGN.md)
-§4.10.
+The start form is not a special path into the harness — it is a client of
+`POST /api/runs`, like any other caller that holds the run-control bearer
+token (`GET /api/control-token`, served to a local caller only). The request
+and result shapes are in [`docs/DESIGN.md`](docs/DESIGN.md) §4.10.
 
 ### From another agent harness
 
@@ -139,18 +138,6 @@ claude mcp add --transport http deepseek-harness http://127.0.0.1:8080/mcp
 Set `DEEPSEEK_MCP_PERMISSION_CEILING=readonly` in `.env` to refuse `full` runs
 from this server outright — they error rather than being quietly downgraded.
 
-### From the terminal, without the queue
-
-The same loop runs interactively against a directory you already have, and this
-is the one caller that can prompt you to approve a call the policy would refuse:
-
-```sh
-docker compose exec harness sh -c 'harness run -workspace "$DEEPSEEK_WORKSPACE_ROOT/scratch" "..."'
-```
-
-`harness ask "..."` is a plain streaming completion with no tools, useful for
-checking the key works.
-
 ## Day-to-day
 
 | Task | Command |
@@ -159,8 +146,6 @@ checking the key works.
 | Logs | `docker compose logs -f harness` |
 | Stop | `docker compose down` |
 | List sessions | browse <http://localhost:8080> |
-| Rebuild a session's disk mirror | `harness export <session-id>` |
-| Continue a finished or timed-out session | `harness resume <session-id> ["..."]` |
 
 `--build` matters: the image bakes the frontend and the binary, so a plain
 `up -d` restarts the old code.

@@ -17,20 +17,20 @@ This is the design. The build order, file by file, is
 
 ## Scope
 
-- **Starting.** MCP (`deepseek_agent`), `harness publish`, and the web UI's
-  start form each publish a work request.
+- **Starting.** MCP (`deepseek_agent`) and the web UI's start form each
+  publish a work request.
 - **Steering.** An operator appends a new user-authored message to a run in
-  progress, from any of the three surfaces.
+  progress, from either surface.
 - **Continuing.** A person sends the next message to a session whose run has
   already ended, continuing it in place rather than starting a new run
-  ("Continuing" below). The browser and the CLI have this; the MCP surface
-  deliberately does not — an agent that wants more work done starts a run.
+  ("Continuing" below). The browser has this; the MCP surface deliberately
+  does not — an agent that wants more work done starts a run.
 - **Stopping.** Ends a run on request — including one wedged inside a tool
   call that ignores its context, which a naive `cancel()`-only stop would not
   fix.
-- Starting, steering and stopping ship on **MCP, the CLI, and the web UI**,
-  not one first. MCP callers are other agents, not just people at a keyboard,
-  and an agent that can start a job but not steer or stop it is only half a
+- Starting, steering and stopping ship on **MCP and the web UI**, not one
+  first. MCP callers are other agents, not just people at a keyboard, and an
+  agent that can start a job but not steer or stop it is only half a
   capability. Continuing is the exception, and the reason is what the verb is
   for: it exists so a person can keep talking to a session, which is a thing
   people do and agents do not.
@@ -631,8 +631,8 @@ Body is `queue.Request` verbatim minus the provenance fields: `repos`,
 create the run empty, with the operator's first message typed into the session
 once it appears ("Start" below) — and the optional `model`, `effort`, `deny`,
 `result_schema`, `max_sub_turns`, `deadline_ms`, `job_type` — the same fields
-`harness publish` sets from flags and `deepseek_agent` sets from tool
-arguments. `parent_is_user`, `parent_agent_type`, and `parent_agent_id` are
+`deepseek_agent` sets from tool arguments. `parent_is_user`,
+`parent_agent_type`, and `parent_agent_id` are
 **not** accepted from the body: the handler stamps them itself — `true`,
 empty, and the `identity.operator` name — before validation, and ignores
 anything the body sent (an overwrite, not a 400, so the browser never has to
@@ -643,16 +643,16 @@ one gets the same deduplication every other producer gets.
 The operator name comes from the **`identity.operator`** setting
 (`GroupIdentity`, string, not secret): the name recorded as the parent of a
 run started from the web UI. There is no login system, so this is a label the
-operator configures once — `harness config set identity.operator geoff` — read
-server-side on every start. An unset or malformed name (one that fails the
+operator configures once — through the settings screen, or
+`PUT /api/settings/identity.operator` directly — read server-side on every
+start. An unset or malformed name (one that fails the
 parent-agent-id validation) degrades to an unnamed person rather than failing
 the start; on a bare-metal `serve` that has never set it, the login user's
 name is stored automatically when it is usable.
 
 Validation is `req.Validate()` — the queue's own, not a copy. A browser-started
-run is byte-identical in the store to one started from MCP or the CLI: same
-event kinds, same validation, same idempotency behaviour on a duplicate
-`request_id`.
+run is byte-identical in the store to one started from MCP: same event kinds,
+same validation, same idempotency behaviour on a duplicate `request_id`.
 
 The body may also carry an `attachments` array — images (a mockup, say)
 stored before the publish so the request carries only `attachment_ids`, never
@@ -754,12 +754,10 @@ loopback-only check rejected that genuinely local traffic with a 403 the
 frontend rendered as "run control not configured". The real boundary is still
 the published port being loopback-only on the host, so trusting the private
 range on top of it does not admit a caller that could not already reach here.
-`harness stop` and `harness steer` read it from the settings table directly,
-the way every other CLI subcommand reads configuration. The embedded MCP
-service gets the token handed to it directly at startup by `harness serve` —
-the same value the HTTP server itself holds — so `deepseek_stop` and
-`deepseek_steer` authenticate without a round-trip; the `GET
-/api/control-token` loopback fetch in `internal/mcp/control.go` stays as
+The embedded MCP service gets the token handed to it directly at startup by
+`harness serve` — the same value the HTTP server itself holds — so
+`deepseek_stop` and `deepseek_steer` authenticate without a round-trip; the
+`GET /api/control-token` loopback fetch in `internal/mcp/control.go` stays as
 defensive code for a `Service` built without that step, but is no longer the
 primary path.
 
@@ -767,7 +765,7 @@ This is a floor, not an answer to §4.2's larger question about exposing the
 port at all. It does mean that the day someone does expose it, the control
 surface fails closed instead of open.
 
-## MCP and CLI
+## MCP
 
 **`deepseek_stop`** — `session_id` or `request_id` (resolved the same way
 `deepseek_result` already resolves one), optional `reason`. Described the way
@@ -782,15 +780,11 @@ Both are HTTP calls to the endpoints above, which means `internal/mcp` needs
 its first non-GET helper — `postJSON` alongside `getJSON`/`getRaw`, carrying
 the bearer token. It still opens no database.
 
-**`harness stop <session-id> ["reason"]`** and **`harness steer <session-id>
-"text"`**, one file per subcommand (`cmd/harness/stop.go`, `steer.go`) as the
-dispatch convention requires, both talking to the same HTTP endpoints so there
-is one implementation of each verb rather than a CLI path that reaches around
-it. **`harness resume <session-id> ["..."]`** predates all of this and is the
-exception: it runs the loop in its own process against its own data directory
-rather than posting to a running `serve`. That is what it is for — continuing
-a session on a machine with no server up — and the browser's resume does not
-replace it.
+Continuing a session is `POST /api/sessions/{id}/resume`, reached only from
+the browser's composer ("Scope" above) — MCP deliberately has no equivalent
+tool. `serve` is the only process that ever opens the database, so resuming
+always means posting to one already running; nothing continues a session
+standalone, against a data directory with no server up.
 
 ## The frontend
 
@@ -882,5 +876,5 @@ it, covering two distinct causes with one vocabulary: a session marked
   docker socket is mounted into the harness container (CLAUDE.md), so a `full`
   run has the host daemon. `POST /api/runs` accepts the same modes the queue
   does, and the argument for restricting the browser specifically is not
-  obviously stronger than the argument that it would just push the operator
-  back to the CLI.
+  obviously stronger than the argument that it would just push the operator to
+  start the same run through `deepseek_agent` instead.

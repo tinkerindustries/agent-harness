@@ -108,10 +108,10 @@ Unity Technologies publishes its skills at
 <https://github.com/Unity-Technologies/skills>, upstream-installed with
 `npx skills add`. Sixteen of the twenty-two are vendored here as the `unity`
 skill pack (`assets/skill-packs/unity/`), which reaches a session only when
-that session's request asked for it: the browser's start form has a checkbox,
-the MCP launch tool a `skill_packs` argument, and `harness run` and
-`harness publish` a `-skill-pack` flag. Off is the default everywhere, because every skill's
-description rides in every request of the run that carries it.
+that session's request asked for it: the browser's start form has a checkbox
+and the MCP launch tool a `skill_packs` argument. Off is the default
+everywhere, because every skill's description rides in every request of the
+run that carries it.
 
 Two things about that pack are worth knowing here rather than there. Of the
 six skills left behind, five drive a Unity Cloud service a session has no

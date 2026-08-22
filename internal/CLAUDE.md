@@ -18,9 +18,9 @@ split so that nothing on the request path can perturb that head.
 ## Codemap
 
 ### `cmd/harness`
-Subcommand dispatch, flag parsing, and process wiring — one file per subcommand.
-Composition happens here and nowhere else; no `internal` package constructs
-another's dependencies.
+Flag parsing and process wiring for the two subcommands that remain,
+`serve.go` and `worktree.go`, plus `main.go` itself. Composition happens here
+and nowhere else; no `internal` package constructs another's dependencies.
 
 ### `internal/deepseek`
 The DeepSeek API client: the request body it builds from a `wire.ChatIntent`,
@@ -133,10 +133,10 @@ request-body test. Depends on: nothing internal. §3.2, §4.3, §4.4.
 
 ### `internal/session`
 The agent loop: sub-turn iteration, the system prompt, tool dispatch, ordering
-of tool results, compaction, and resume — the last of which is reached by the
-CLI's `harness resume` and, through the queue, by the browser's composer once
-a run has ended ([`../docs/RUN-CONTROL.md`](../docs/RUN-CONTROL.md),
-"Continuing"). The widest dependency set in the repo,
+of tool results, compaction, and resume — the last of which is reached
+through the queue by the browser's composer once a run has ended
+([`../docs/RUN-CONTROL.md`](../docs/RUN-CONTROL.md), "Continuing"). The
+widest dependency set in the repo,
 deliberately — this is where everything meets. Its reach to the model API is
 through a declared seam rather than an import: `Client`, a narrow interface
 declared here and implemented by `internal/deepseek`, `internal/kimi`, and
@@ -149,8 +149,8 @@ session row's lifecycle around the worker's preparation window: `Create`
 inserts it as `creating` before the workspace is built, `FailSetup` moves it
 to `failed` with an error event when
 preparation fails, and `Run` promotes a pre-created row to `running` (or
-inserts when there is none). Consumed by `internal/worker` and by the
-CLI's `run` and `resume`. §4.5, §4.6. `Runner`'s five jobs split by file, all
+inserts when there is none). Consumed by `internal/worker`. §4.5, §4.6.
+`Runner`'s five jobs split by file, all
 on the same type (`runner.go`'s own package doc names which file holds
 which): `RunOptions` and the `Runner` type stay in `runner.go` beside the
 settings accessors; `lifecycle.go` is `Create`/`FailSetup`/`Run` and the loop
@@ -159,8 +159,8 @@ output goes (the disk mirror, the hub); `tooldispatch.go` executes a
 sub-turn's tool calls; `livestate.go` persists the plan and recent-calls
 roll. MCP support (`mcp.go`, [`../docs/MCP.md`](../docs/MCP.md)) is resolved
 once, not read live: `resolveMCPDefinitions` asks the `Runner`'s own `MCP
-tools.MCPProvider` seam — nil for a caller with none wired, the CLI and every
-existing test among them — for the enabled servers' tool array and
+tools.MCPProvider` seam — nil for a caller with none wired, every existing
+test among them — for the enabled servers' tool array and
 per-server readonly map, and `Run` and `Resume` each call it exactly once and
 freeze the result onto the row's `tool_schema` and the policy's
 `MCPReadOnlyServers`, so a server an operator toggles mid-run cannot change
@@ -204,10 +204,11 @@ switch on event kind. Its counterpart is the frontend's own fold in
 
 ### `internal/store`
 SQLite (`modernc.org/sqlite`, pure Go, WAL) plus the derived disk mirror under
-`<data dir>/sessions/` and diff computation. The database is authoritative; the
-mirror is rebuildable with `harness export`. The `settings` table holds the
-harness's stored configuration — the DeepSeek API key among it — written and
-read through `internal/settings`. Owns the session status vocabulary:
+`<data dir>/sessions/` and diff computation. The database is authoritative;
+the mirror is written alongside it as a session goes and never rebuilt from
+the database after the fact (docs/DESIGN.md §4.8). The `settings` table holds
+the harness's stored configuration — the DeepSeek API key among it — written
+and read through `internal/settings`. Owns the session status vocabulary:
 `StatusRunning`, `StatusCreating` (the window while a queue-driven run's
 workspace is being prepared), the terminal statuses, and `IsLive` — every
 branch and SQL predicate that means "this session is live" builds off it,
@@ -374,9 +375,8 @@ nor installation ever fails a run. Depends on: nothing internal. §4.11.
 `packs.go` is the opt-in half. A *pack* (`assets/skill-packs/<name>`) is the
 same tree installed by the same `Install` call into the same directory; the
 only difference is that nothing installs one unless the request named it
-(`queue.Request.SkillPacks`, set by the browser's start form, the MCP launch
-tool's `skill_packs`, or `-skill-pack` on `harness run` and
-`harness publish`). This package owns the
+(`queue.Request.SkillPacks`, set by the browser's start form or the MCP
+launch tool's `skill_packs`). This package owns the
 pack *names* — `PackNames`, `ValidPack`, `ValidatePacks` — so `internal/queue`
 can reject an unknown one without importing `assets`; a test in `assets` pins
 the two lists equal. Per-run variation is free here in a way it is not for
@@ -457,9 +457,10 @@ ordered slice of descriptors — key, type (string/integer/duration), default,
 validation bounds, description, and the secret/restart flags — covering every
 setting: the API keys, the run budget, the tool limits, the model names, and
 the restart-required operational limits. `ValidKeys` and `IsSecretKey` derive
-from it; `Set` validates against it, so a value rejected by `harness config`
-reads identically from the HTTP API and the screen. The resolver reads through
-to the store on every call, so a key changed by another process takes effect
+from it; `Set` validates against it, so a value the HTTP API rejects is
+rejected identically by the screen, which writes through the same `PUT`. The
+resolver reads through to the store on every call, so a key changed by
+another process takes effect
 on the next request without restarting anything (restart-flagged keys are the
 exception: they are read once at startup and marked as such). Depends on: the
 settings surface of `internal/store` only.

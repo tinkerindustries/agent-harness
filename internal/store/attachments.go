@@ -13,8 +13,8 @@ import (
 // bytes the worker materialises into scratch/attachments/ during workspace
 // preparation, plus the name and MIME type needed to write the file. Rows
 // live in the store rather than inline in the work request, so a mockup
-// stays whole however large it is and `harness export` — which derives
-// from the database — stays complete.
+// stays whole however large it is — the database is the one place it has
+// to survive intact.
 type Attachment struct {
 	ID        string
 	Name      string

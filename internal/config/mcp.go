@@ -14,7 +14,7 @@ const (
 	defaultMCPPermissionCeiling = "full"
 	// defaultMCPFlashModel mirrors defaultFlashModel; kept separate so an
 	// operator who renamed the harness's flash model can point the "flash"
-	// profile at the same one without editing harness config.
+	// profile at the same one without editing a setting.
 	defaultMCPFlashModel = "deepseek-v4-flash"
 	// defaultMCPAcceptedWaitMS is how long the launch tool waits for an
 	// `accepted` message before reporting "queued" instead of "running".

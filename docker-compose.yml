@@ -5,7 +5,8 @@ services:
     env_file:
       # Supplies GITHUB_TOKEN and any model overrides. The DeepSeek API key
       # is not an environment variable: it lives in the harness's SQLite
-      # settings table and is set with `harness config set deepseek.api_key`.
+      # settings table and is set from the settings screen, or with
+      # `PUT /api/settings/deepseek.api_key`.
       # The environment block below wins over .env for the container-specific
       # values.
       - path: .env

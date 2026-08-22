@@ -330,11 +330,13 @@ own price-table date is. Gemini's context caching also carries a per-hour
 storage charge with no counterpart in the harness's three-rate shape;
 a Gemini cost figure here covers cached reads, not cached storage.
 
-**`harness models` does not call a live endpoint for it.** DeepSeek and Kimi
-both have a `GET /models`-shaped call; the Interactions surface has none
-(GEMINI-INTEGRATION.md §2), so the command lists Gemini entries out of the
-static provider table (`internal/provider.KnownModels`) instead, when the
-configured default model is Gemini's.
+**`GET /api/models` never calls a live endpoint.** DeepSeek and Kimi both have
+a `GET /models`-shaped call of their own; the Interactions surface has none
+(GEMINI-INTEGRATION.md §2). None of the three reaches this endpoint's list,
+though — it always serves the static provider table
+(`internal/provider.KnownModels()`) instead, the same one that validates a
+work request and routes a run to its client, so the browser's model dropdowns
+see exactly what the rest of the harness runs on.
 
 **No concurrency ceiling is wired for it.** `ModelLimits` (§ "Concurrency is
 per-model and account-wide" above) is keyed by the *configured*
@@ -365,8 +367,8 @@ this means for the churn diagnostic.
 
 ## Where selection happens
 
-At session creation, from the work request's `model` and `effort` fields or the
-CLI's flags, and fixed for the session's life. There is no mid-session switch:
+At session creation, from the work request's `model` and `effort` fields, and
+fixed for the session's life. There is no mid-session switch:
 it is a full cache miss, and the read-only UI has nobody to price that choice
 for. A caller wanting a different model sends a different request.
 

@@ -25,7 +25,7 @@ import (
 // the settings registry — internal/settings carries each of these as the
 // default of its tools.* key, and the two are pinned equal by
 // internal/settings/registry_test.go — so an operator can change any of them
-// with `harness config set` without a rebuild (docs/TOOLS.md, "Execution
+// from the settings screen without a rebuild (docs/TOOLS.md, "Execution
 // rules": "Every tool has a wall-clock timeout and an output byte cap, with
 // truncation labelled in the result").
 const (
@@ -224,15 +224,15 @@ type Executor struct {
 	// MCP is the seam to every configured MCP server (internal/mcpclient
 	// implements it), the one Execute routes a call whose name carries the
 	// mcp__ prefix through instead of toolFuncs (docs/MCP.md, "Calling").
-	// Nil — no MCP client wired, the shape every existing test and the CLI
-	// path without one take — makes such a call return an ordinary error
+	// Nil — no MCP client wired, the shape every existing test and a caller
+	// with none wired take — makes such a call return an ordinary error
 	// result naming the tool, the same shape WebFetch and Gemini use for a
 	// nil dependency: never a panic, never a failed run.
 	MCP MCPProvider
 
 	// GeminiModel resolves the vision model name per call, the same
 	// read-through-the-store shape as the DeepSeek API key provider, so a
-	// model changed with `harness config set google.vision_model` takes
+	// model changed from the settings screen (google.vision_model) takes
 	// effect without a restart. Nil falls back to gemini.DefaultModel.
 	GeminiModel func() (string, error)
 
@@ -246,9 +246,9 @@ type Executor struct {
 
 	// Settings, when set, is where the tool limits (output caps, timeouts,
 	// WebFetch and vision bounds) resolve from on every call, so a limit
-	// changed with `harness config set tools.*` takes effect on the next tool
-	// call without a restart. Nil is the test path: the package constants
-	// below apply.
+	// changed from the settings screen (tools.*) takes effect on the next
+	// tool call without a restart. Nil is the test path: the package
+	// constants below apply.
 	Settings *settings.Resolver
 
 	readsMu sync.Mutex

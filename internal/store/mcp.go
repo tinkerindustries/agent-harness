@@ -140,12 +140,11 @@ var mcpEnvKeyRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // ValidateMCPServer returns a plain-text error an HTTP 400 can show
 // verbatim, or nil when s is well-formed. It is a package-level function
-// rather than a method so every write path — the CLI and the HTTP API —
-// shares one copy, the same reason internal/settings keeps its validation in
-// the registry rather than in the store. It checks shape only: it never
-// touches the database, so it cannot tell CreateMCPServer's "name already
-// exists" from UpdateMCPServer's "name does not exist yet" — those are the
-// store methods' own errors.
+// rather than a method so every write path shares one copy, the same reason
+// internal/settings keeps its validation in the registry rather than in the
+// store. It checks shape only: it never touches the database, so it cannot
+// tell CreateMCPServer's "name already exists" from UpdateMCPServer's "name
+// does not exist yet" — those are the store methods' own errors.
 func ValidateMCPServer(s MCPServer) error {
 	if !mcpServerNameRE.MatchString(s.Name) {
 		return fmt.Errorf("mcp server name %q must match %s", s.Name, mcpServerNameRE.String())

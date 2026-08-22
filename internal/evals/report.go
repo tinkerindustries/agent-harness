@@ -26,8 +26,9 @@ type Summary struct {
 }
 
 // ReportFromStore rebuilds a Report from the rows an eval wrote, so a caller
-// that reads the store — the CLI following a run it did not orchestrate, the
-// HTTP surface — gets its table from the same code that printed the original.
+// that reads the store after the fact — the HTTP surface, following a run it
+// did not orchestrate — gets its table from the same code that built the
+// original.
 func ReportFromStore(run store.EvalRun, members []store.EvalMember) *Report {
 	report := &Report{
 		EvalRunID: run.ID, Suite: run.Suite,
@@ -200,7 +201,7 @@ func WriteTable(w io.Writer, r *Report) {
 
 // A Delta is one metric's comparison of the last variant against the first,
 // which is the comparison a two-arm run is asking for. Significant is decided
-// here rather than by each consumer, so the CLI's table and the HTTP surface
+// here rather than by each consumer, so the HTTP surface and the browser
 // cannot disagree about when a difference is worth looking at.
 type Delta struct {
 	Metric          string  `json:"metric"`
@@ -246,7 +247,7 @@ func Deltas(r *Report) []Delta {
 	return out
 }
 
-// deltaCell renders one metric's delta for the CLI table.
+// deltaCell renders one metric's delta for the report table.
 func deltaCell(metric string, deltas []Delta) string {
 	for _, d := range deltas {
 		if d.Metric != metric {

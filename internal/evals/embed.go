@@ -10,8 +10,8 @@ import (
 // suites/ holds the suites this build can run. They are embedded rather than
 // read from disk because `harness serve` runs in a container that carries the
 // binary and nothing else, and the HTTP surface has to be able to say which
-// suites exist. A suite written outside the build is still runnable: the CLI
-// loads a path and hands the parsed suite over.
+// suites exist. A suite written outside the build can still be parsed with
+// LoadSuite, exercised today only by this package's own tests.
 //
 //go:embed suites/*.json
 var suiteFS embed.FS

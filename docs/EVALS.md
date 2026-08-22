@@ -10,26 +10,29 @@ also means an eval costs real tokens and real minutes.
 
 ## Running one
 
-```sh
-harness eval variants                       # what this build can compare
-harness eval run -suite evals/search.json -variants base,search-first -n 3
-harness eval run ... -judge -out report.json
-harness eval score -report report.json      # re-score from stored events
-```
+The start form above the eval list picks a suite and at least two variants —
+the first chosen is the baseline the delta compares against — then
+replicates, an optional model and max-sub-turns override, and a judge
+checkbox, and posts a `Spec` to `POST /api/evals`, which returns the run id
+(`web/src/components/EvalStartForm.tsx`). Both pickers are fed by
+`GET /api/evals/suites` and `GET /api/evals/variants`, the same names the
+server validates a start against, so the form can only ever name a suite or
+variant this build already has.
 
-`-n` is replicates per task per variant. Total runs is `tasks × variants × n`,
-and `-concurrency` (default 2) bounds how many are in flight, so an eval does
-not fill every worker slot.
+Replicates is runs per task per variant. Total runs is
+`tasks × variants × replicates`, and concurrency (2, since the form does not
+expose it) bounds how many are in flight, so an eval does not fill every
+worker slot.
 
-`-model` and `-effort` override what every task runs on, and `-max-sub-turns`
-overrides every task's own budget. It applies to all arms at
-All three apply to every arm at once. That is the only safe way to change what
-a run gets: extending only the arm that keeps running out hands extra budget to
-whichever variant is less efficient, hiding the difference the eval exists to
-measure, and a comparison across two models is not a comparison of two prompts. When runs do hit
-the cap, the table says how many, because their metrics stop where the run
-stopped rather than where the work did — raise the budget and run it again
-instead of reading those numbers.
+Model and max sub-turns override what every task runs on and every task's
+own budget; both apply to every arm at once. That is the only safe way to
+change what a run gets: extending only the arm that keeps running out hands
+extra budget to whichever variant is less efficient, hiding the difference
+the eval exists to measure, and a comparison across two models is not a
+comparison of two prompts. When runs do hit the cap, the table says how
+many, because their metrics stop where the run stopped rather than where
+the work did — raise the budget and run it again instead of reading those
+numbers.
 
 Runs are interleaved across variants rather than run arm by arm. A change in
 the machine or in the API partway through then hits both arms alike instead of
@@ -109,9 +112,9 @@ is both.
 ## What gets scored
 
 Mechanical metrics come from the session's stored events, so they are
-deterministic and can be recomputed later — `harness eval score` re-runs them
-over a finished report, which means a metric added today applies to a run from
-last week.
+deterministic: the same log always yields the same numbers, which is what
+lets a run from last week and a run from this afternoon land on the same
+table without either being suspect.
 
 | Metric | What it is |
 | --- | --- |
@@ -177,17 +180,19 @@ a necessity — which is what makes `search_via_tool` mean anything on it.
 
 ## Where a run runs
 
-`harness serve` owns the orchestrator. `harness eval run` posts the spec to
-`POST /api/evals` and then follows the stored rows; the verb has one
-implementation, the way `harness stop` posts to the stop endpoint rather than
-reaching around it (cmd/harness/stop.go).
+`harness serve` owns the orchestrator. The start form posts the spec to
+`POST /api/evals`, which returns the run id as soon as the goroutine is
+launched rather than waiting for it to finish, the way
+`POST /api/sessions/{id}/stop` returns as soon as a stop is accepted rather
+than waiting for the loop to unwind (`internal/httpapi/runcontrol.go`) — the
+verb has one implementation and nothing reaches around it.
 
-Two things follow. A run survives the terminal that started it — closing it,
-or rebuilding the container under it, no longer strands the run at whatever
-member it had reached. And a caller that is not a terminal can start one.
-
-`-detach` prints the run id and exits. Interrupting a non-detached follow also
-leaves the run going; it is a reader, not a holder.
+Two things follow. A run survives the tab that started it — closing it, or
+rebuilding the container under it, no longer strands the run at whatever
+member it had reached, because nothing about finishing depends on a caller
+staying attached. And watching a run, covered below, is a separate act from
+starting one: the two eval screens read the same stored rows any later
+caller would.
 
 One eval at a time. A second start is a 409: two evals interleaving means each
 measures a machine the other is loading, which is not a comparison either can
@@ -244,7 +249,8 @@ still contributes its numbers to the comparison and loses only the link.
 `suite_json` holds the suite as it was loaded. The file under `evals/` changes,
 and a run has to keep saying what it actually ran.
 
-The `-out` file is an export of those rows rather than the record itself.
+A `GET /api/evals/{id}` response is an export of those rows rather than the
+record itself.
 
 ## Why not an online A/B
 

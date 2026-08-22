@@ -32,8 +32,8 @@ const Base = "base"
 // by holding a second copy of it, so an edit to the shipped prompt reaches
 // every variant and a stale variant cannot silently drift from it.
 type variant struct {
-	// description says what the variant is testing, and is printed by
-	// `harness eval variants`.
+	// description says what the variant is testing, and is what the
+	// browser's eval screens print for it.
 	description string
 	// replacements maps an exact substring of the base prompt to its
 	// replacement. Every key must be present or rendering fails loudly: a

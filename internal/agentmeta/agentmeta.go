@@ -65,9 +65,9 @@ const MaxDescriptionWords = 50
 
 // ValidateTitle returns an error unless s is "" or is at most MaxTitleWords
 // whitespace-separated words and contains no newline. Empty is allowed —
-// presence is the producer's call (the browser start and the CLI leave it
-// blank; the MCP launch path requires it) — so this enforces only the shape
-// of a present title.
+// presence is the producer's call (the browser start form leaves it blank;
+// the MCP launch path requires it) — so this enforces only the shape of a
+// present title.
 func ValidateTitle(s string) error {
 	if s == "" {
 		return nil

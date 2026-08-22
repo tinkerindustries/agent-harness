@@ -6,9 +6,9 @@
 //
 // Every setting is one entry in the registry (registry.go): its key, type,
 // default, validation bounds, description, and the secret/restart flags.
-// harness config, the HTTP API, and the settings screen all read from that
-// one registry, so a value rejected by the CLI reads identically from a
-// browser. Values are stored as text in the settings table and parsed on
+// The HTTP API and the settings screen both read from that one registry, so
+// a value rejected by a PUT to /api/settings reads identically from the
+// screen. Values are stored as text in the settings table and parsed on
 // read; nothing about the schema changes.
 package settings
 
@@ -62,7 +62,7 @@ func (r *Resolver) Get(ctx context.Context, key string) (string, bool, error) {
 // Set writes key, rejecting any key outside the known set with an error that
 // lists the valid ones, and any value that fails the registry's type or
 // bounds check with a ValidationError. A rejected value is identical whether
-// it arrives from harness config set, an HTTP PUT, or the settings screen.
+// it arrives from an HTTP PUT or the settings screen.
 func (r *Resolver) Set(ctx context.Context, key, value string) error {
 	if err := validate(key); err != nil {
 		return err

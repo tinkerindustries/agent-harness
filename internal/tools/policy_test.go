@@ -151,24 +151,6 @@ func TestDenyPatternsSubtractFromMode(t *testing.T) {
 	}
 }
 
-func TestResolverOverridesDenial(t *testing.T) {
-	p := &Policy{Mode: ModeReadOnly, Resolver: func(tool, descriptor string) bool { return true }}
-	d := p.Check("Bash", "git status")
-	if !d.Allow {
-		t.Fatal("resolver approving a call should allow it")
-	}
-	if d.Rule != "approved interactively" {
-		t.Fatalf("unexpected rule: %s", d.Rule)
-	}
-}
-
-func TestResolverDeclineKeepsDenial(t *testing.T) {
-	p := &Policy{Mode: ModeReadOnly, Resolver: func(tool, descriptor string) bool { return false }}
-	if d := p.Check("Bash", "git status"); d.Allow {
-		t.Fatal("resolver declining a call should keep it denied")
-	}
-}
-
 func TestExecuteDenialProducesReadableToolResult(t *testing.T) {
 	e, err := NewExecutor(t.TempDir(), &Policy{Mode: ModeReadOnly})
 	if err != nil {

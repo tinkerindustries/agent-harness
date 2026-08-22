@@ -122,7 +122,7 @@ func (p *Pool) controller() *Controller {
 
 // stopGracePeriod resolves run.stop_grace_period the way the other
 // per-request settings resolve — read through the store on every call, so a
-// key changed with `harness config set` applies to the next stop — with
+// key changed from the settings screen applies to the next stop — with
 // StopGracePeriod as the test override and 30s as the fallback.
 func (p *Pool) stopGracePeriod(ctx context.Context) time.Duration {
 	if p.StopGracePeriod > 0 {

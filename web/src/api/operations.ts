@@ -364,8 +364,8 @@ export interface StartRunResponse {
 // mirroring internal/queue.Request: the required repos and permission_mode,
 // plus the optional prompt — a browser start may create the run first and
 // let the operator type the first message into the session (docs/RUN-CONTROL.md
-// "Start") — and the optional fields harness publish's flags set. request_id
-// is absent for a browser start — the server generates one, since a browser
+// "Start") — and the optional fields below. request_id is absent for a
+// browser start — the server generates one, since a browser
 // form has no idempotency key to offer (docs/RUN-CONTROL.md "POST /api/runs").
 // Provenance is deliberately absent: the server stamps parent_is_user,
 // parent_agent_type, and parent_agent_id on POST /api/runs and ignores
@@ -448,11 +448,10 @@ export async function startRun(token: string, body: WorkRequest): Promise<StartR
 }
 
 // parseRepoSpec splits one repository spec on its last "#" into the url and
-// branch the wire shape carries, exactly as harness publish's -repo flag
-// does (cmd/harness/publish.go parseRepoFlags): "https://x/y.git#dev" →
-// {url, branch}, "https://x/y.git" → {url} with no branch. Splitting on the
-// last "#" keeps a "#" inside a URL intact, and a spec with none at all
-// clones the default branch.
+// branch the wire shape carries — the start form's own repo field:
+// "https://x/y.git#dev" → {url, branch}, "https://x/y.git" → {url} with no
+// branch. Splitting on the last "#" keeps a "#" inside a URL intact, and a
+// spec with none at all clones the default branch.
 export function parseRepoSpec(spec: string): { url: string; branch?: string } {
   const v = spec.trim();
   const i = v.lastIndexOf("#");

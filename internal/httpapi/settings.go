@@ -14,8 +14,9 @@ import (
 
 // The settings surface (docs/DATA-API.md): GET /api/settings serves the
 // whole registry, each entry masked when secret, and PUT/DELETE on one key
-// write through internal/settings' own validation, so a value rejected by
-// `harness config` reads identically here.
+// write through internal/settings' own validation, so a value the settings
+// screen rejects and a value a PUT to /api/settings rejects carry the same
+// message.
 
 // --- settings ---
 
@@ -23,9 +24,8 @@ import (
 // (group, type, default, description, secret, restart) plus the run's own
 // state — whether it is set, whether the current value is an override or the
 // default, and the display value. A secret key (settings.IsSecretKey) is
-// masked to at most its last four characters, exactly as harness config list
-// masks it; the full value never leaves the process over HTTP. An unset key
-// omits value.
+// masked to at most its last four characters; the full value never leaves
+// the process over HTTP. An unset key omits value.
 //
 // Min and Max carry the validation bounds in display form and are present
 // only for the types that have them — a JSON number for TypeInteger, Go
@@ -57,8 +57,7 @@ type settingEntry struct {
 // the default. The override flag is computed here, where the real value is
 // known — a masked secret can never be compared client-side. There is
 // deliberately no reveal parameter — the full secret never leaves the
-// process over HTTP; the CLI's `config get -reveal` is for an operator at a
-// terminal.
+// process over HTTP, for anyone, full stop.
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
 	entries := make([]settingEntry, 0, len(settings.ValidKeys))
 	for _, d := range settings.Descriptors() {
@@ -140,9 +139,9 @@ func (s *Server) handlePutSetting(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// handleDeleteSetting serves DELETE /api/settings/{key}: unsets key, mirroring
-// harness config unset. Deleting an unset key is not an error. It carries the
-// same content-type and origin guards as PUT (docs/DESIGN.md §4.2).
+// handleDeleteSetting serves DELETE /api/settings/{key}: unsets key.
+// Deleting an unset key is not an error. It carries the same content-type
+// and origin guards as PUT (docs/DESIGN.md §4.2).
 func (s *Server) handleDeleteSetting(w http.ResponseWriter, r *http.Request) {
 	if !writeGuards(w, r) {
 		return

@@ -107,7 +107,7 @@ func getJSONOrNotFound(ctx context.Context, client *http.Client, baseURL, path s
 // and a bearer token on the request. It decodes a JSON response into out.
 // This is the package's first non-GET helper: deepseek_stop is the one tool
 // that acts on the harness rather than reading it, and it reaches the same
-// run-control endpoint the CLI and the browser use (docs/RUN-CONTROL.md
+// run-control endpoint the browser uses (docs/RUN-CONTROL.md
 // "MCP and CLI") rather than opening a second path around it. The package
 // still opens no SQLite handle — this is an HTTP call like the others.
 //
