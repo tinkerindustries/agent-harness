@@ -21,7 +21,7 @@ Steps 1 to 5 have landed on `remove-cli`.
 | 3 — Operator-facing docs and the frontend's own copy | landed (`716f411`) |
 | 4 — Reference docs | landed (`7d0356f`) |
 | 5 — CLI-era comments and error strings in Go source | landed (`78f1b8d`) |
-| 6 — Optional: the seams that fall dead | not started |
+| 6 — Optional: the seams that fall dead | landed |
 
 Step 5 was not in this plan when it was written. Sweeping the Go source turned
 up roughly eighty comments naming a removed command, and three of them were

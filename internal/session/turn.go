@@ -395,14 +395,6 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	}
 	r.publishState(ctx, sess)
 
-	if progress := progressFunc(r, opts); progress != nil {
-		progress(SubTurnProgress{
-			SessionID: sess.ID, SubTurn: subTurn, Model: sess.Model,
-			ToolCalls: toolCallNames(toolCalls), Usage: usagePayload,
-			Churned: usagePayload.ChurnPointIndex != nil,
-		})
-	}
-
 	if len(toolCalls) == 0 {
 		return subTurnOutcome{usagePayload: usagePayload, text: content}, nil
 	}

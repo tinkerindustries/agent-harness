@@ -172,12 +172,10 @@ at startup and the UI says so. Names and defaults are documented in
 because a cost computed from a stale table looks authoritative and is wrong.
 
 **Permission.** A policy the session holds for its whole life, evaluated in Go
-at the moment of a tool call. A denial returns through the tool result channel
-for the model to route around. Two modes, `readonly` and `full`, plus optional
-deny patterns from the request. `tools.Resolver` is the seam an interactive
-caller could register against for a call the policy would otherwise deny; no
-caller does, so every session's resolver is nil and a session never blocks on
-a human. §4.6.
+at the moment of a tool call. A denial is unconditional and returns through
+the tool result channel for the model to route around — a session never
+blocks on a human. Two modes, `readonly` and `full`, plus optional deny
+patterns from the request. §4.6.
 
 **Persistence and observability.** Every event lands in SQLite inside a
 transaction, then appends to the disk mirror; a failed mirror write logs and

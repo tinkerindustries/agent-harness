@@ -485,12 +485,9 @@ it in Go and either runs or returns a denial through the tool result channel,
 which the model reads and routes around. Every decision is synchronous, so a
 session never waits on anything but the API and its own tools.
 
-`tools.Resolver` is the seam an interactive caller would use: a resolver the
-policy consults for a call it would otherwise deny, returning a synchronous
-approve/deny answer instead of a denial. No caller registers one today —
-every session is queue-driven and runs with `Policy.Resolver` nil — so the
-seam exists in the type without being exercised. One decision point, and no
-approval state in the event log.
+A denial is unconditional: nothing consults the model or a person mid-call to
+turn it into an approval. One decision point, and no approval state in the
+event log.
 
 ### 4.7 Model routing and thinking settings
 

@@ -23,11 +23,6 @@ func (m Mode) Valid() bool {
 	return m == ModeReadOnly || m == ModeFull
 }
 
-// Resolver is consulted for a call the policy would otherwise deny. The CLI
-// registers one to prompt a terminal user; queue-driven sessions register
-// none, so their denials are final (docs/DESIGN.md §4.6).
-type Resolver func(toolName, descriptor string) bool
-
 // Decision is the result of evaluating one tool call against a Policy.
 type Decision struct {
 	Allow bool
@@ -37,9 +32,8 @@ type Decision struct {
 }
 
 // Policy is the permission policy a session is given at creation
-// (docs/TOOLS.md, "Permissions"). It is immutable after construction; the
-// Resolver field is the only thing that varies the outcome of a decision
-// call to call.
+// (docs/TOOLS.md, "Permissions"). It is immutable after construction, so the
+// same call against the same Policy always reaches the same Decision.
 type Policy struct {
 	Mode Mode
 	// Deny holds substring patterns matched against a call's descriptor
@@ -47,8 +41,7 @@ type Policy struct {
 	// for Bash and substring-of-"Tool arg" otherwise is what this
 	// implementation chose). Deny only ever
 	// subtracts from what Mode allows; it can never widen it.
-	Deny     []string
-	Resolver Resolver
+	Deny []string
 	// MCPReadOnlyServers is the per-server read-only allowance
 	// (docs/MCP.md, "Permissions"): a server named true here may be called
 	// by a readonly-mode session even though it reaches outside the
@@ -124,17 +117,6 @@ var alwaysAllowed = map[string]bool{
 // "ToolName argument" for path-taking tools, and the bare tool name
 // otherwise.
 func (p *Policy) Check(toolName, descriptor string) Decision {
-	d := p.evaluate(toolName, descriptor)
-	if d.Allow {
-		return d
-	}
-	if p.Resolver != nil && p.Resolver(toolName, descriptor) {
-		return Decision{Allow: true, Rule: "approved interactively"}
-	}
-	return d
-}
-
-func (p *Policy) evaluate(toolName, descriptor string) Decision {
 	if rule, denied := p.matchDeny(descriptor); denied {
 		return Decision{Allow: false, Rule: "denied by configured pattern: " + rule}
 	}

@@ -148,11 +148,3 @@ func (r *Runner) stdoutSink(ctx context.Context, sess store.Session, toolCallID 
 		r.publishEvents(sess, appended)
 	}
 }
-
-func toolCallNames(calls []wire.AssembledToolCall) []string {
-	out := make([]string, len(calls))
-	for i, c := range calls {
-		out[i] = c.Name
-	}
-	return out
-}

@@ -896,12 +896,8 @@ refused it, which is the shape the model recovers from — it picks a different
 approach rather than retrying the same call. Denials are recorded as their own
 event kind so they are findable after the fact.
 
-An interactive resolver could register against the same decision point —
-`tools.Resolver`, consulted for a call the policy would otherwise deny — so a
-caller holding one is asked rather than refused outright. Nothing registers
-one today: every session's `Policy.Resolver` is nil, so no session can ask a
-human, and every other part of the loop is identical whether or not that ever
-changes.
+A denial is unconditional: nothing consults a human or asks again before
+returning it.
 
 ## Context and compaction
 

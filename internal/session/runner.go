@@ -89,7 +89,6 @@ type RunOptions struct {
 	Prompt         string
 	ResultSchema   json.RawMessage
 	MaxSubTurns    int
-	Resolver       tools.Resolver
 	ParentID       string
 	JobType        string
 	// Title is the run's name, at most agentmeta.MaxTitleWords words, shown
@@ -136,14 +135,6 @@ type RunOptions struct {
 	// say — generates one with NewSessionID and passes it back here so the
 	// lease and the session agree.
 	SessionID string
-
-	// Progress, when set, overrides Runner.Progress for this call only.
-	// Concurrent callers that need to tell their sub-turn reports apart —
-	// several CLI jobs sharing one Runner, say — set this instead of
-	// relying on the single Runner-level hook (docs/DESIGN.md §4.5: a
-	// session holds no state outside itself, and that includes which
-	// closure reports its progress).
-	Progress func(SubTurnProgress)
 
 	// Tools is the session's tool array — the frozen head's second half —
 	// resolved once, by Run or Resume, and passed unchanged through the
@@ -262,19 +253,6 @@ type RunResult struct {
 	Reason string
 }
 
-// SubTurnProgress is reported to Runner.Progress, when set, once per
-// completed sub-turn. It is a summary at sub-turn granularity, so it suits a
-// CLI line or the session-list feed. The transcript firehose publishes every
-// event through Runner.Hub instead.
-type SubTurnProgress struct {
-	SessionID string
-	SubTurn   int
-	Model     string
-	ToolCalls []string
-	Usage     store.UsagePayload
-	Churned   bool
-}
-
 // Runner executes agent sessions. Its fields are shared, read-mostly
 // resources (a store with its own internal synchronisation, a stateless API
 // client, a price table); nothing about one call to Run leaks into another.
@@ -352,10 +330,6 @@ type Runner struct {
 	// takes effect on the next session without a restart. Nil is the test
 	// path: the package constants apply.
 	Settings *settings.Resolver
-
-	// Progress, when set, is called after every sub-turn commits. It may be
-	// called concurrently by different Run calls and must not block.
-	Progress func(SubTurnProgress)
 
 	// ModelLimits caps concurrent in-flight DeepSeek requests per model,
 	// shared across every call to Run on this Runner — the semaphore
@@ -446,15 +420,6 @@ func (r *Runner) flashModel(ctx context.Context) string {
 		}
 	}
 	return "deepseek-v4-flash"
-}
-
-// progressFunc picks a call's progress hook: its own override if it set
-// one, otherwise the Runner-level default.
-func progressFunc(r *Runner, opts RunOptions) func(SubTurnProgress) {
-	if opts.Progress != nil {
-		return opts.Progress
-	}
-	return r.Progress
 }
 
 // compactionThreshold resolves the prompt-token ceiling at which a session

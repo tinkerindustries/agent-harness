@@ -132,7 +132,6 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	policy := &tools.Policy{
 		Mode:               opts.PermissionMode,
 		Deny:               opts.Deny,
-		Resolver:           opts.Resolver,
 		MCPReadOnlyServers: mcpReadOnly,
 	}
 	executor, err := tools.NewExecutor(opts.Workspace, policy)
@@ -373,7 +372,6 @@ func (r *Runner) subagentRunner(parentID string, parentOpts RunOptions, workspac
 			PermissionMode:  parentOpts.PermissionMode,
 			Deny:            parentOpts.Deny,
 			Prompt:          prompt,
-			Resolver:        parentOpts.Resolver,
 			ParentID:        parentID,
 			JobType:         agentmeta.JobTypeImplementation,
 			ParentAgentType: parentOpts.ParentAgentType,

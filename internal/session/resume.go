@@ -33,8 +33,6 @@ type ResumeOptions struct {
 	AttachmentIDs []string
 	MaxTokens     int
 	MaxSubTurns   int
-	Resolver      tools.Resolver
-	Progress      func(SubTurnProgress)
 }
 
 // Resume continues a session that reached a terminal status. It refuses a
@@ -82,7 +80,6 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 	policy := &tools.Policy{
 		Mode:               tools.Mode(sess.PermissionMode),
 		Deny:               sess.DenyPatterns,
-		Resolver:           opts.Resolver,
 		MCPReadOnlyServers: mcpReadOnly,
 	}
 	executor, err := tools.NewExecutor(sess.Workspace, policy)
@@ -105,11 +102,11 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 		MaxTokens:     opts.MaxTokens, Workspace: sess.Workspace,
 		PermissionMode: tools.Mode(sess.PermissionMode), Deny: sess.DenyPatterns,
 		ResultSchema: sess.ResultSchema, MaxSubTurns: opts.MaxSubTurns,
-		Resolver: opts.Resolver, ParentID: sess.ParentID,
-		JobType: sess.JobType, ParentAgentType: sess.ParentAgentType, ParentAgentID: sess.ParentAgentID,
+		ParentID: sess.ParentID,
+		JobType:  sess.JobType, ParentAgentType: sess.ParentAgentType, ParentAgentID: sess.ParentAgentID,
 		ParentIsUser: sess.ParentIsUser,
-		SessionID:    sess.ID, Progress: opts.Progress,
-		Tools: toolArray,
+		SessionID:    sess.ID,
+		Tools:        toolArray,
 	}
 	executor.RunSubagent = r.subagentRunner(sess.ID, runOpts, executor.Workspace)
 
