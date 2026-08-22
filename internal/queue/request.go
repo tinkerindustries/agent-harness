@@ -14,6 +14,7 @@ import (
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/promptvariant"
 	"github.com/mrgeoffrich/deepseek-harness/internal/provider"
+	"github.com/mrgeoffrich/deepseek-harness/internal/skills"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 )
 
@@ -70,6 +71,22 @@ type Request struct {
 	// during Prepare, so the request stays small and `harness export` —
 	// which derives from the store — stays complete (docs/DATA-API.md).
 	AttachmentIDs []string `json:"attachment_ids,omitempty"`
+	// SkillPacks names the optional bundles of shipped skills this run's
+	// workspace gets, on top of the always-on tree every run receives
+	// (internal/skills, "Packs"). Empty — the default on every producer — is
+	// a run that gets none of them, which is what keeps a pack's descriptions
+	// out of the opening message of every run that has nothing to do with it.
+	// Set by the producer: the browser's start form has a checkbox per pack,
+	// the MCP launch tool a skill_packs argument, and harness run and
+	// harness publish a -skill-pack flag.
+	//
+	// Unlike the tool array, this varies per run without costing anything:
+	// the catalogue rides in the opening user message, not the frozen head
+	// (internal/skills, docs/CACHE.md), so two runs whose packs differ still
+	// share a system prompt and a tool array. That is the whole reason this
+	// can be per-request where an MCP server's tools cannot (docs/MCP.md,
+	// "Configuration is global").
+	SkillPacks []string `json:"skill_packs,omitempty"`
 	// ResumeSessionID continues an existing session instead of creating one
 	// (docs/RUN-CONTROL.md, "Continuing"). Set, this request builds no
 	// workspace and clones nothing: the session's own frozen row supplies the
@@ -158,6 +175,15 @@ func (r Request) Validate() error {
 		if len(r.Repos) > 0 {
 			return errors.New("queue: repos must be empty on a resume request: a resumed session keeps the workspace it already has")
 		}
+		// Skill packs are refused on a resume for the same reason repos are,
+		// and it is the same reason twice: the workspace already exists. A
+		// resume builds none, so there is nothing for Install to write into,
+		// and the packs the original request asked for are still sitting in
+		// it. Refusing rather than ignoring is what stops a producer
+		// believing it added a pack mid-session.
+		if len(r.SkillPacks) > 0 {
+			return errors.New("queue: skill_packs must be empty on a resume request: a resumed session keeps the skills its workspace already has")
+		}
 	} else if err := validateRepos(r.Repos); err != nil {
 		return err
 	}
@@ -213,6 +239,9 @@ func (r Request) Validate() error {
 	}
 	if err := validateAttachmentIDs(r.AttachmentIDs); err != nil {
 		return err
+	}
+	if err := skills.ValidatePacks(r.SkillPacks); err != nil {
+		return fmt.Errorf("queue: %w", err)
 	}
 
 	return nil

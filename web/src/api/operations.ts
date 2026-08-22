@@ -388,12 +388,38 @@ export interface WorkRequest {
   // with them blank renders the raw prompt as its description line.
   title?: string;
   description?: string;
+  // skill_packs names the optional skill bundles this run's workspace gets
+  // on top of the always-on tree (internal/skills, "Packs"). Absent — the
+  // default, and what the form sends unless somebody ticked a box — means
+  // none, which is what keeps a pack's descriptions out of the opening
+  // message of every run that has nothing to do with it.
+  skill_packs?: string[];
   // The images the operator attached to this run (attachments.ts
   // readAttachmentFiles), accepted by POST /api/runs and stored server-side;
   // the request the worker sees carries the attachment ids, never these
   // bytes (docs/DATA-API.md).
   attachments?: RunAttachment[];
 }
+
+// SKILL_PACKS is every pack a browser start may ask for, mirroring
+// internal/skills.PackNames. It is a literal rather than something fetched:
+// the list changes only when the binary ships a new pack, and a form that
+// has to wait on a request before it can render its own checkboxes is worse
+// than one that goes stale on a deploy.
+export const SKILL_PACKS: { name: string; label: string; blurb: string }[] = [
+  {
+    name: "unity",
+    label: "Unity",
+    blurb:
+      "Unity Technologies\u2019 own skills \u2014 the Unity CLI, UI Toolkit and uGUI, Shader Graph, URP, physics, localization \u2014 plus this harness\u2019s notes on what the CLI cannot do without an Editor.",
+  },
+  {
+    name: "blender",
+    label: "Blender",
+    blurb:
+      "This harness\u2019s notes on the Blender MCP tools \u2014 which of the two Blenders each tool reaches, the screenshot size limit, and which filesystem a path resolves on.",
+  },
+];
 
 // RunAttachment is one image a browser start carries, mirroring
 // internal/httpapi.startRunAttachment: a plain file name, a MIME type from

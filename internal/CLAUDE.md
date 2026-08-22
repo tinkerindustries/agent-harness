@@ -300,7 +300,8 @@ The pool. Pulls a request, creates its session row as `creating` (Runner.Create,
 so the run is visible and stoppable while the workspace is being prepared),
 builds the workspace, installs the shipped skills into it
 (`internal/skills.Install`, best-effort — a skill that fails to land is one
-catalogue entry missing, not a failed run), runs it as a session (which
+catalogue entry missing, not a failed run) followed by any optional pack the
+request named (`SkillPacks`), runs it as a session (which
 promotes the row to `running`), records the result on the `work_requests`
 row, then acks the queue row — in that order, so a crash redelivers rather
 than loses. A preparation failure marks the row `failed` (Runner.FailSetup),
@@ -370,14 +371,32 @@ into one prepared workspace, taking only directories that hold a `SKILL.md`,
 and `internal/worker` calls it once the workspace exists. Neither discovery
 nor installation ever fails a run. Depends on: nothing internal. §4.11.
 
+`packs.go` is the opt-in half. A *pack* (`assets/skill-packs/<name>`) is the
+same tree installed by the same `Install` call into the same directory; the
+only difference is that nothing installs one unless the request named it
+(`queue.Request.SkillPacks`, set by the browser's start form, the MCP launch
+tool's `skill_packs`, or `-skill-pack` on `harness run` and
+`harness publish`). This package owns the
+pack *names* — `PackNames`, `ValidPack`, `ValidatePacks` — so `internal/queue`
+can reject an unknown one without importing `assets`; a test in `assets` pins
+the two lists equal. Per-run variation is free here in a way it is not for
+tools: the catalogue rides in the opening user message, not the frozen head,
+so two runs whose packs differ still share a system prompt and a tool array
+(contrast docs/MCP.md, "Configuration is global").
+
 ### `assets`
 The files the repository ships rather than runs, and the only Go package
 outside `cmd/` and `internal/`: it sits at the root because `go:embed` cannot
 reach outside its own package directory. `assets/skills` is for humans —
 Claude Code skills for driving the harness from outside, copied by hand and
 never loaded by a run. `assets/agent-skills` is embedded and is what
-`internal/skills.Install` writes into every prepared workspace. Depends on:
-nothing.
+`internal/skills.Install` writes into every prepared workspace.
+`assets/skill-packs` is embedded too and is the opposite default: one
+subdirectory per pack, installed only into a workspace whose request named it
+(`SkillPacks`, `internal/skills` "Packs"). Its own tests pin the pack names
+equal to `internal/skills.PackNames` and check each pack is the depth
+`Install` expects — a pack vendored one directory too deep installs nothing
+and reports no error. Depends on: `internal/skills` in tests only.
 
 ### `internal/claudemd`
 Scans the workspace and each cloned repository for a root `CLAUDE.md` and

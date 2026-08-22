@@ -282,6 +282,10 @@ func runServe(ctx context.Context, args []string) error {
 		// names them, so a deployment that wants none drops this line rather
 		// than editing the pool (internal/skills.Install, assets/embed.go).
 		SkillsFS: assets.AgentSkills(),
+		// The optional packs, handed over whole. Which of them a run gets is
+		// the request's call, not this one's — a pack reaches a workspace
+		// only when the producer named it (internal/skills, "Packs").
+		SkillPacks: assets.SkillPacks(),
 	}
 
 	static, err := httpapi.NewStaticHandler(cfg.DevFrontendURL)

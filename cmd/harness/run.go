@@ -12,11 +12,13 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/mrgeoffrich/deepseek-harness/assets"
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/mcpclient"
 	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
 	"github.com/mrgeoffrich/deepseek-harness/internal/session"
 	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
+	"github.com/mrgeoffrich/deepseek-harness/internal/skills"
 	"github.com/mrgeoffrich/deepseek-harness/internal/store"
 	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
 )
@@ -57,7 +59,12 @@ func runRun(ctx context.Context, args []string) error {
 	parentAgentType := fs.String("parent-agent-type", "", "the launching agent's kind, as a lowercase slug (claude-code, cursor, ...)")
 	parentAgentID := fs.String("parent-agent-id", "", "the launching agent's session id, or the operator's name with -parent-is-user")
 	parentIsUser := fs.Bool("parent-is-user", true, "record this run as started by a person, which is the default because harness run is interactive — pass -parent-is-user=false when scripting it")
+	var skillPacks stringList
+	fs.Var(&skillPacks, "skill-pack", "install a shipped skill pack into each workspace before running; repeatable. Known packs: "+strings.Join(skills.PackNames(), ", "))
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if err := skills.ValidatePacks(skillPacks); err != nil {
 		return err
 	}
 	if err := agentmeta.ValidateJobType(*jobType); err != nil {
@@ -188,6 +195,31 @@ func runRun(ctx context.Context, args []string) error {
 	}
 
 	fmt.Printf("model %s (effort %s, %s), permission mode %s, %d job(s)\n\n", resolvedModel, resolvedEffort, reasoningClaim(resolvedModel, *thinking), mode, len(workspaces))
+
+	// Skill packs, if any were asked for. This is the one place a pack is
+	// written into a directory the operator owns rather than one the harness
+	// built: a queue-driven run gets a fresh workspace and nobody sees the
+	// files, but -workspace here is somebody's own checkout, so the skills
+	// land in it and stay there. Hence the notice — a directory that appears
+	// in `git status` without explanation is worse than an extra line of
+	// output. Removing them again is `rm -r <workspace>/skills`.
+	packs := assets.SkillPacks()
+	for _, pack := range skillPacks {
+		src, ok := packs[pack]
+		if !ok {
+			return fmt.Errorf("skill pack %q is not in this build", pack)
+		}
+		for _, ws := range workspaces {
+			n, err := skills.Install(src, ws)
+			if err != nil {
+				return fmt.Errorf("install skill pack %q into %s: %w", pack, ws, err)
+			}
+			fmt.Printf("installed %d skill(s) from pack %q into %s/skills\n", n, pack, ws)
+		}
+	}
+	if len(skillPacks) > 0 {
+		fmt.Println()
+	}
 	if *debugChurnAt > 0 {
 		fmt.Printf("debug: deliberately churning the prefix before sub-turn %d (docs/CACHE.md demonstration)\n\n", *debugChurnAt)
 	}

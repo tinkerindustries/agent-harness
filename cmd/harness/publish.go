@@ -18,6 +18,7 @@ import (
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
 	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
+	"github.com/mrgeoffrich/deepseek-harness/internal/skills"
 )
 
 // runPublish sends one work request to the running harness over POST
@@ -55,6 +56,8 @@ func runPublish(ctx context.Context, args []string) error {
 	parentAgentType := fs.String("parent-agent-type", "", "the launching agent's kind, as a lowercase slug (claude-code, cursor, ...); has no effect on this path — the API stamps provenance server-side")
 	parentAgentID := fs.String("parent-agent-id", "", "the launching agent's session id; has no effect on this path — the API stamps provenance server-side")
 	parentIsUser := fs.Bool("parent-is-user", false, "record this run as started by a person rather than an agent; has no effect on this path — the API stamps provenance server-side")
+	var skillPacks stringList
+	fs.Var(&skillPacks, "skill-pack", "give the run a shipped skill pack; repeatable, off by default. Known packs: "+strings.Join(skills.PackNames(), ", "))
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -109,6 +112,11 @@ func runPublish(ctx context.Context, args []string) error {
 		ParentAgentType: *parentAgentType,
 		ParentAgentID:   *parentAgentID,
 		ParentIsUser:    *parentIsUser,
+		// Nothing unless asked for, the same default the browser start and
+		// the MCP launch tool carry (internal/skills, "Packs"). Unlike
+		// `harness run`, this path builds the run a workspace of its own, so
+		// a pack here lands nowhere anybody has to clean up.
+		SkillPacks: skillPacks,
 	}
 
 	cfg, err := loadConfig()

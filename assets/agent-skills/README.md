@@ -55,3 +55,17 @@ run.
 The catalogue is capped at 50 skills and each description at 500 characters,
 counting both sources together — so a repository's own skills are what get
 dropped when this directory grows.
+
+## When the answer is "a pack" instead
+
+A body of skills that is genuinely useful but only to some runs — Unity's, or
+Blender's — belongs in [`../skill-packs`](../skill-packs), not here. A pack is
+the same tree, installed by the same call, into the same workspace directory;
+the one difference is that nothing installs it unless the request named it, so
+a run that has nothing to do with the subject pays nothing for it. That is the
+answer to the argument above rather than an exception to it: what makes an
+always-on skill expensive is that every run carries it, and a pack is the way
+to ship a dozen-odd skills without that being true.
+
+The test is whether the subject is one *any* session might meet. Workspace
+conventions: here. A game engine: a pack.

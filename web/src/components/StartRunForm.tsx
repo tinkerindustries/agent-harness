@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { errorMessage, parseRepoSpec, startRun, type WorkRequest } from "../api/operations";
+import { errorMessage, parseRepoSpec, SKILL_PACKS, startRun, type WorkRequest } from "../api/operations";
 import { filterRepos, listGithubRepos, repoSpecFor, type GithubRepo } from "../api/github";
 import { DEFAULT_MODEL_KEY, listModels, resolveModelOptions, settingModel } from "../api/models";
 import { sessionListStore } from "../api/sessionListStore";
@@ -59,6 +59,10 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
   const [resultSchema, setResultSchema] = useState("");
   const [maxSubTurns, setMaxSubTurns] = useState("");
   const [deadlineMs, setDeadlineMs] = useState("");
+  // Empty is the default and stays the default: a pack is opted into per run,
+  // never remembered, because the cost of carrying one lands on every request
+  // of the run it is carried in (internal/skills, "Packs").
+  const [skillPacks, setSkillPacks] = useState<string[]>([]);
   const [jobType, setJobType] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -267,6 +271,10 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
     setDescription("");
     setParentAgentType("");
     setParentAgentID("");
+    // Back to none, deliberately, rather than carrying the last run's choice
+    // into the next one: a pack ticked for one Unity task would otherwise
+    // silently tax every run started after it from the same open form.
+    setSkillPacks([]);
     setChosen([]);
   };
 
@@ -320,6 +328,7 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
     // way a pre-migration row does.
     if (title.trim() !== "") body.title = title.trim();
     if (description.trim() !== "") body.description = description.trim();
+    if (skillPacks.length > 0) body.skill_packs = skillPacks;
     if (chosen.length > 0) body.attachments = chosen.map((c) => c.attachment);
 
     setSending(true);
@@ -498,6 +507,31 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
             <p className="text-xs text-muted-foreground">
               Defaults to full. full: everything, as root, in the workspace — and the harness container has
               the host&rsquo;s docker socket, so a full run has the host daemon. readonly: read-only tools only.
+            </p>
+          </div>
+          <div className="col-span-full flex flex-col gap-1">
+            <span className="text-xs tracking-[0.04em] text-muted-foreground uppercase">Skill packs</span>
+            <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+              {SKILL_PACKS.map((pack) => (
+                <label key={pack.name} className="flex items-center gap-1.5 text-sm" title={pack.blurb}>
+                  <input
+                    type="checkbox"
+                    className="size-4 accent-[var(--primary)]"
+                    checked={skillPacks.includes(pack.name)}
+                    onChange={(e) =>
+                      setSkillPacks((prev) =>
+                        e.target.checked ? [...prev, pack.name] : prev.filter((p) => p !== pack.name),
+                      )
+                    }
+                  />
+                  {pack.label}
+                </label>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Off by default. A pack adds skills to this run&rsquo;s workspace, and every skill in it is
+              described to the model in every request of the run — so tick one only when the task is
+              actually about that subject.
             </p>
           </div>
         </div>

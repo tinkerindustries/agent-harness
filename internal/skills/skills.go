@@ -21,11 +21,22 @@ import (
 
 // skillDirs are the conventions scanned inside each repository.
 // .claude/skills is what repositories in the wild carry; .deepcode/skills is
-// where DeepSeek's own Deep Code agent looks
-// (third_party/deepseek-docs/quick_start/agent_integrations/deepcode.md).
+// where DeepSeek's own Deep Code agent looks for a project's skills, and
+// .agents/skills is the vendor-neutral spelling two of this harness's three
+// providers have converged on — Deep Code reads it as the user-level
+// location (third_party/deepseek-docs/quick_start/agent_integrations/deepcode.md)
+// and Gemini's Interactions API mounts skills there in its own hosted
+// environment (third_party/gemini-docs/api/interactions-api.md, Source.target).
+//
+// Scanning all three costs one failed ReadDir per repository per convention
+// and means a repository that adopted any of the spellings is not silently
+// ignored. None of this reaches a provider's own skills mechanism, because
+// none of the three has one on the API surface this harness speaks to: the
+// catalogue is rendered into the opening user message either way (Render).
 var skillDirs = []string{
 	filepath.Join(".claude", "skills"),
 	filepath.Join(".deepcode", "skills"),
+	filepath.Join(".agents", "skills"),
 }
 
 // WorkspaceSkillsDir is the harness's own skill directory, created by

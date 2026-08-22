@@ -866,9 +866,11 @@ queue carries a request in and a terminal result out, nothing in between.
 
 A repository can ship Agent Skills: a directory per skill holding a `SKILL.md`
 whose YAML frontmatter carries a name and a description. `internal/skills`
-scans each cloned repository at session start, under `.claude/skills/` and
-`.deepcode/skills/`, and renders the names and descriptions it finds into the
-opening user message ahead of the task. The model reads a skill's body with
+scans each cloned repository at session start, under `.claude/skills/`,
+`.deepcode/skills/` and `.agents/skills/` — the third being the vendor-neutral
+spelling DeepSeek's own agent and Gemini's hosted environment have both
+converged on — and renders the names and descriptions it finds into the opening
+user message ahead of the task. The model reads a skill's body with
 `Read` when it decides one applies.
 
 Three consequences follow from §3.2. The catalogue goes in the opening message,
@@ -886,6 +888,35 @@ and a skill with no description each yield no entry and no error.
 A skill that instructs the agent to run a bundled script inherits the session's
 permission mode. Under `readonly` that call is refused at execution. Under
 `full` it runs, as any code in a cloned repository does.
+
+**Packs are the same mechanism with the default inverted.** A pack
+(`assets/skill-packs/<name>`) is a tree of skills installed by the same call,
+into the same workspace directory, and discovered by the same scan — but only
+into a workspace whose request named it (`queue.Request.SkillPacks`). Off is
+the default on every producer: the browser's start form, the MCP launch tool,
+`harness run`, `harness publish`.
+
+The reason for the inversion is the cost model above, not caution. A
+description is small, but it rides in the opening message of *every* request of
+the run carrying it, and the catalogue is capped — so a shipped bundle of
+sixteen Unity skills would tax a run about a Go service for its whole life and
+crowd out the skills the repository itself ships. Opting in is what makes a
+large body of subject-specific skills shippable at all.
+
+The reason it *can* be per-request is §3.2 again, read the other way. The
+catalogue is in the opening message, so two runs whose packs differ still share
+a byte-identical system prompt and tool array; only their first user message
+diverges, which it already does — it carries the workspace path and the task.
+This is exactly why an MCP server's tools cannot work the same way
+(docs/MCP.md): those go in the frozen head, so they must be global, and a
+per-run choice there would fragment the cross-session cache.
+
+Validation of pack names lives in `internal/skills` rather than with the
+embedded bytes, so `internal/queue` can reject an unknown name without
+importing the assets; a test pins the two lists equal. An unknown name is
+refused rather than ignored, because a typo that silently installs nothing
+surfaces later as the model not knowing something, which is the hardest kind of
+bug to trace back to its cause.
 
 `session_started` carries the rendered catalogue alongside the opening message,
 as an exact substring of it. That is what lets the browser lift the catalogue

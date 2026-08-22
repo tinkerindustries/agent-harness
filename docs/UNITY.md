@@ -102,6 +102,27 @@ sit on the same machine as the Editor.
 An operator who wants to drive their own Editor should install the CLI on the
 host (`brew install --cask unity-cli`) and use it there.
 
+## Unity's own skills are shipped, but only on request
+
+Unity Technologies publishes its skills at
+<https://github.com/Unity-Technologies/skills>, upstream-installed with
+`npx skills add`. Sixteen of the twenty-two are vendored here as the `unity`
+skill pack (`assets/skill-packs/unity/`), which reaches a session only when
+that session's request asked for it: the browser's start form has a checkbox,
+the MCP launch tool a `skill_packs` argument, and `harness run` and
+`harness publish` a `-skill-pack` flag. Off is the default everywhere, because every skill's
+description rides in every request of the run that carries it.
+
+Two things about that pack are worth knowing here rather than there. Of the
+six skills left behind, five drive a Unity Cloud service a session has no
+credentials for, and the sixth has frontmatter that is not valid YAML. And `unity-cli` — Unity's own, vendored unedited — documents
+`unity build`, `unity test`, `unity command` and `unity list` as though they
+work, which per the section above they cannot. The correction ships beside it
+as `unity-harness-notes`, a skill of ours in the same pack, rather than as an
+edit to Unity's file: a hand-edit would be silently reverted by the next
+refresh. `assets/skill-packs/unity/README.md` has the provenance, the pinned
+commit and the licence.
+
 ## Unity's MCP server is deliberately not wired up
 
 `unity mcp` is an MCP server, and it is the same binary: `unity mcp configure`

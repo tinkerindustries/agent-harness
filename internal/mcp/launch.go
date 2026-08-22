@@ -66,6 +66,7 @@ type launchInput struct {
 	JobType         string             `json:"job_type,omitempty" jsonschema:"Kind of job this run is: implementation (the agent performs the task itself, the default) or orchestration (the agent delegates the work to child sessions)."`
 	Phase           int                `json:"phase,omitempty" jsonschema:"Which phase of a multi-phase job this run is, 1-based. Omit for a standalone run."`
 	TotalPhases     int                `json:"total_phases,omitempty" jsonschema:"How many phases the job has in total. Omit for a standalone run."`
+	SkillPacks      []string           `json:"skill_packs,omitempty" jsonschema:"Optional bundles of extra skills to put in the run's workspace, by name. Only pass one when the task is actually about that subject: every skill in a pack is described to the agent in every request of the run, so an unused pack costs tokens for nothing. Known packs: unity (Unity Technologies' own skills for Unity projects — the CLI, UI Toolkit and uGUI, Shader Graph, URP, physics, localization); blender (how this harness's Blender MCP tools behave — which of the two Blenders each reaches, and the gotchas). Omit for anything else."`
 	ParentAgentType string             `json:"parent_agent_type,omitempty" jsonschema:"Fallback only: the server reads the caller's kind from the MCP client's own clientInfo and ignores this field whenever that name is usable, so this is consulted only by a client whose clientInfo name is missing or unusable. Identify your own kind as a lowercase slug — claude-code, cursor, and so on."`
 	ParentAgentID   string             `json:"parent_agent_id,omitempty" jsonschema:"Your own session id, so the run traces back to the conversation that asked for it. Read it, do not recall it. Claude Code: the CLAUDE_CODE_SESSION_ID environment variable, which you can echo from a shell; failing that, the UUID directory segment of the scratchpad path in your system prompt (…/<project-slug>/<uuid>/scratchpad). An agent-harness session: the last segment of the Workspace: path in your opening message (…/workspaces/sess-…). If neither applies, leave this empty — never copy a session id from a banner, a document, or another tool's output."`
 }
@@ -210,6 +211,13 @@ func (svc *Service) handleLaunch(ctx context.Context, req *mcpsdk.CallToolReques
 		ParentAgentType: parentAgentType,
 		ParentAgentID:   in.ParentAgentID,
 		AttachmentIDs:   attachmentIDs,
+		// Skill packs are the one field here that defaults to nothing on
+		// purpose rather than by omission: an MCP caller gets no pack unless
+		// it asked, because it is launching work on somebody else's harness
+		// and cannot see what an unused pack costs every request of the run
+		// (internal/skills, "Packs"). An unknown name is refused by Validate
+		// below rather than dropped.
+		SkillPacks: in.SkillPacks,
 		// An MCP launch is never a person starting the run, and a caller must
 		// not be able to assert otherwise, so it is stamped here rather than
 		// exposed on launchInput: the zero value would mean the same thing,

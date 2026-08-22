@@ -79,6 +79,30 @@ cutting a version and deploying it to the production stack.
   `scripts/test.sh` are the only two files that needed a code change to
   become worktree-aware.
 
+## Skill packs
+
+`assets/skill-packs/<name>` is a bundle of Agent Skills a run gets **only when
+its request asked for it** — the browser's start form has a checkbox per pack,
+the MCP `deepseek_agent` tool a `skill_packs` argument, and `harness run`
+and `harness publish` a `-skill-pack` flag; off is the default on every one
+of them. Two exist: `unity`
+(sixteen of Unity Technologies' own skills, vendored, plus our note on what
+the CLI cannot do without an Editor) and `blender` (ours alone — the Blender
+MCP server already sends the conceptual material at initialize).
+
+The default is off because a pack's cost is not the disk it takes: every
+skill's one-line description rides in the opening message of **every request
+of the run** carrying it, and the catalogue is capped at 50 entries, so an
+always-on pack taxes runs that have nothing to do with it and crowds out the
+repositories' own skills. `assets/agent-skills/README.md` argues that at
+length and is the thing to read before making anything always-on.
+
+Adding a pack means a directory here, a name in `internal/skills.PackNames`,
+and a line in `web/src/api/operations.ts`'s `SKILL_PACKS`; a test in `assets`
+fails if the first two disagree. Do not hand-edit a vendored `SKILL.md` — the
+next refresh overwrites it. Ship the correction as a skill of ours in the same
+pack, the way `unity-harness-notes` does.
+
 ## Vendored documentation
 
 `third_party/deepseek-docs/` mirrors <https://api-docs.deepseek.com/> as Markdown.

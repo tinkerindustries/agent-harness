@@ -110,6 +110,19 @@ type Pool struct {
 	// is what every test that does not care about skills leaves it as.
 	SkillsFS fs.FS
 
+	// SkillPacks are the optional trees a request can ask for by name,
+	// supplied by cmd/harness as assets.SkillPacks() and keyed the way
+	// internal/skills names them. A pack is installed only for a run whose
+	// request listed it, on top of SkillsFS, into the same workspace skills/
+	// directory — so the two merge and discovery cannot tell them apart. Nil
+	// makes every pack unavailable, which is what a test that does not care
+	// leaves it as. A request naming a pack this map lacks is logged and
+	// skipped rather than failed, the same posture Install itself takes; the
+	// case it would catch — a build validating a name it does not embed — is
+	// a drift between internal/skills and assets/skill-packs, and that is
+	// caught by a test at build time instead.
+	SkillPacks map[string]fs.FS
+
 	// StopGracePeriod overrides run.stop_grace_period for a stop's
 	// force-finish escalation. Zero (the production default) resolves the
 	// setting through Settings; tests set it so they do not wait 30 seconds.
@@ -778,6 +791,26 @@ func (p *Pool) run(msg queue.Msg, req queue.Request, releaseSlot func()) {
 		log.Printf("worker: %s: session %s: installing shipped skills: %v", req.RequestID, sessionID, err)
 	} else if n > 0 {
 		log.Printf("worker: %s: session %s: installed %d shipped skill(s)", req.RequestID, sessionID, n)
+	}
+
+	// The optional packs this request asked for, on top of the tree above and
+	// into the same directory, so the catalogue lists them together and a
+	// session cannot tell which came from where. Nothing here runs for a
+	// request that named no packs, which is every request unless a person
+	// ticked the box (internal/skills, "Packs").
+	for _, pack := range req.SkillPacks {
+		src, ok := p.SkillPacks[pack]
+		if !ok {
+			// Validation passed, so the name is one this build claims to
+			// know; reaching here means it claims a pack it does not carry.
+			log.Printf("worker: %s: session %s: skill pack %q is not in this build; skipping it", req.RequestID, sessionID, pack)
+			continue
+		}
+		if n, err := skills.Install(src, ws); err != nil {
+			log.Printf("worker: %s: session %s: installing skill pack %q: %v", req.RequestID, sessionID, pack, err)
+		} else {
+			log.Printf("worker: %s: session %s: installed %d skill(s) from pack %q", req.RequestID, sessionID, n, pack)
+		}
 	}
 
 	runOpts.Workspace = ws

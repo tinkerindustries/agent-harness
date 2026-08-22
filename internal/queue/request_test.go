@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
+	"github.com/mrgeoffrich/deepseek-harness/internal/skills"
 )
 
 func TestParseRequestRoundTrips(t *testing.T) {
@@ -474,5 +475,48 @@ func TestValidateStillChecksTheRestOfAResumeRequest(t *testing.T) {
 				t.Fatalf("expected %s to be rejected on a resume request too", tc.name)
 			}
 		})
+	}
+}
+
+// A pack a run can actually be given is accepted, and the default — no packs
+// at all — stays valid, because that is what every producer sends unless
+// somebody asked for one (internal/skills, "Packs").
+func TestValidateAcceptsKnownSkillPacks(t *testing.T) {
+	req := Request{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: "full",
+		SkillPacks: []string{skills.PackUnity}}
+	if err := req.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	req.SkillPacks = nil
+	if err := req.Validate(); err != nil {
+		t.Fatalf("Validate with no packs: %v", err)
+	}
+}
+
+// An unknown pack is refused rather than dropped. A silently ignored typo
+// produces a run that lacks the skills somebody asked for, and the symptom —
+// the model not knowing something — points nowhere near the misspelt
+// argument that caused it.
+func TestValidateRejectsUnknownSkillPack(t *testing.T) {
+	req := Request{RequestID: "req-1", Prompt: "go", Repos: testRepos(), PermissionMode: "full",
+		SkillPacks: []string{"unitie"}}
+	err := req.Validate()
+	if err == nil {
+		t.Fatal("expected an unknown skill pack to be rejected")
+	}
+	if !strings.Contains(err.Error(), "unitie") {
+		t.Fatalf("error should name the offending pack, got %v", err)
+	}
+}
+
+// A resume builds no workspace, so there is nothing for a pack to be
+// installed into and the packs the original request asked for are still
+// there. Refusing rather than ignoring is what stops a producer believing it
+// added skills to a session mid-flight.
+func TestValidateRejectsSkillPacksOnResume(t *testing.T) {
+	req := Request{RequestID: "req-1", Prompt: "carry on", PermissionMode: "full",
+		ResumeSessionID: "sess-1", SkillPacks: []string{skills.PackUnity}}
+	if err := req.Validate(); err == nil {
+		t.Fatal("expected skill_packs to be refused on a resume request")
 	}
 }
