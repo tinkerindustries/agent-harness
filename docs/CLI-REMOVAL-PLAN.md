@@ -12,15 +12,24 @@ except the three named under "Gaps accepted" below, which go away for good.
 
 ## Status
 
-Not started.
+Steps 1 to 5 have landed on `remove-cli`.
 
 | Step | State |
 | --- | --- |
-| 1 — Delete the command files | not started |
-| 2 — Trim `main.go` and the tests | not started |
-| 3 — Operator-facing docs and the frontend's own copy | not started |
-| 4 — Reference docs | not started |
-| 5 — Optional: the seams that fall dead | not started |
+| 1 — Delete the command files | landed (`3703638`) |
+| 2 — Trim `main.go` and the tests | landed (`f4edf83`) |
+| 3 — Operator-facing docs and the frontend's own copy | landed (`716f411`) |
+| 4 — Reference docs | landed (`7d0356f`) |
+| 5 — CLI-era comments and error strings in Go source | landed (`78f1b8d`) |
+| 6 — Optional: the seams that fall dead | not started |
+
+Step 5 was not in this plan when it was written. Sweeping the Go source turned
+up roughly eighty comments naming a removed command, and three of them were
+not comments at all: `ErrNoAPIKey` in `internal/deepseek`, `internal/kimi` and
+`internal/gemini` each told the operator to run `harness config set
+<provider>.api_key`. An error message instructing somebody to run a command
+that does not exist is a defect, not documentation rot, so it landed here
+rather than as follow-up. The old step 5 became step 6.
 
 ## What survives
 
@@ -44,7 +53,7 @@ Every row's replacement is already shipped and in use.
 | `publish` | `publish.go` | 345 | the same three — `publish` was only ever an HTTP client of `POST /api/runs` |
 | `eval` | `eval.go` | 389 | `EvalListScreen` / `EvalStartForm`, `POST /api/evals` |
 | `config` | `config.go` | 194 | the settings screen, `GET`/`PUT`/`DELETE /api/settings` |
-| `resume`, `delete` | `session.go` | 185 | `POST /api/sessions/{id}/resume`, `DELETE /api/sessions/{id}` |
+| `resume`, `delete` | `session.go` | 185 | `POST /api/sessions/{id}/resume`, `DELETE /api/sessions/{id}` — but see the mirror note below |
 | `steer` | `steer.go` | 100 | `POST /api/sessions/{id}/steer`, `deepseek_steer` |
 | `stop` | `stop.go` | 94 | `POST /api/sessions/{id}/stop`, `deepseek_stop` |
 | `export` | `export.go` | 47 | nothing — see below |
@@ -74,6 +83,17 @@ Three capabilities have no replacement and are being given up deliberately.
    disposable, and both need rewording.
 3. **`harness ask "..."`** — a plain streaming completion with no tools, with
    a cost and cache-hit breakdown. Nothing else prints one.
+
+A fourth was found while the work was underway, and it is the one worth
+watching. `harness delete` removed the session's mirror directory
+(`os.RemoveAll` after the store call) as well as its rows.
+`DELETE /api/sessions/{id}` does not — it surfaces `store.DeleteSession`,
+which is rows and event log only. Deleting a session from the browser
+therefore leaves its directory under `<data dir>/sessions/` behind. Nothing
+reads that directory back, so no behaviour breaks, but the disk no longer
+tidies itself. Making the endpoint remove the directory is a change to the
+HTTP surface's contract rather than a subtraction, so it is deliberately not
+in this plan; [DATA-API.md](DATA-API.md) states the gap plainly instead.
 
 ## Verification
 
