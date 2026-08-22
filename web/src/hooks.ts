@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { QueueHealth, SessionState } from "./api/types";
 import { getPricing, peakNote, type Pricing } from "./api/pricing";
+import { EMPTY_SKILL_CATALOGUE, type SkillCatalogue } from "./api/skillCatalogue";
 import { TranscriptStore } from "./api/transcriptStore";
 
 // SessionIdContext carries the session a transcript's blocks belong to.
@@ -23,6 +24,27 @@ export const SessionIdContext = createContext<string>("");
 
 export function useSessionId(): string {
   return useContext(SessionIdContext);
+}
+
+// SkillCatalogueContext carries the skills this run's workspace offered the
+// model, keyed by SKILL.md path (api/skillCatalogue.ts).
+//
+// A context for the same reason SessionIdContext is one: the only consumer is
+// a leaf — a tool row deciding whether the Read it is showing is the model
+// opening a skill — and the path to it runs through the memoised turns whose
+// whole job is to bail out of re-rendering. The value is derived from the
+// catalogue text, which is fixed for a transcript's life, so it is one stable
+// reference and no row re-renders on it after mount.
+//
+// The empty default covers the two places with no provider above them: a Task
+// child's transcript, which renders the card vocabulary (components/BlockList),
+// and the perf harnesses. Neither shows a badge, which is the safe way to be
+// wrong — a missing badge reads as an ordinary Read, and an ordinary Read
+// badged as a skill is a claim about what the model was doing.
+export const SkillCatalogueContext = createContext<SkillCatalogue>(EMPTY_SKILL_CATALOGUE);
+
+export function useSkillCatalogue(): SkillCatalogue {
+  return useContext(SkillCatalogueContext);
 }
 
 // useNow re-renders its caller on an interval — used only for the session

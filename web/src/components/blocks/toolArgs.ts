@@ -1,4 +1,5 @@
 import type { DiffLine, ToolCallPayload } from "../../api/types";
+import type { SkillCatalogue } from "../../api/skillCatalogue";
 import { elidePath, splitWorkspacePath } from "../ui/workspacePath";
 
 // parseToolArgs safely decodes a tool call's arguments for display purposes
@@ -40,6 +41,30 @@ export function trimWorkspace(path: string): string {
   const split = splitWorkspacePath(path);
   if (!split) return path;
   return elidePath(split, false).visible;
+}
+
+// skillOpened names the skill a tool call is opening, and "" for a call that
+// is not opening one. It is the whole of the "skill" badge on a tool row: a
+// Read whose target is one of the SKILL.md paths this run's catalogue offered
+// (api/skillCatalogue.ts) is the model taking that skill's instructions,
+// which is a different act from reading a file and the only visible trace of
+// it — there is no Skill tool here and no event marks it.
+//
+// The comparison is against trimWorkspace's output rather than the raw
+// argument because the catalogue's paths are relative to the workspace root
+// and a tool call's are usually absolute; trimming is what puts the two in
+// the same terms. A path the trim leaves alone — one outside any session
+// directory — cannot match a relative catalogue path, so it simply does not
+// badge.
+//
+// Only Read counts. A Glob or Grep that happens to name a SKILL.md is
+// looking for the file, not following it, and Edit or Write on one is work
+// done to a skill rather than work done under it.
+export function skillOpened(call: ToolCallPayload | undefined, catalogue: SkillCatalogue): string {
+  if (!call || call.name !== "Read" || catalogue.size === 0) return "";
+  const path = str(parseToolArgs(call).file_path);
+  if (path === "") return "";
+  return catalogue.get(trimWorkspace(path)) ?? "";
 }
 
 // toolDetail is the one-line descriptor shown next to a tool's name in its

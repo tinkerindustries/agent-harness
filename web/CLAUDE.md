@@ -107,8 +107,16 @@ What the screens are:
   through `SessionIdContext` rather than a prop, because the path to it runs
   through the memoised cards that exist to bail out of re-rendering, and a
   file that is gone renders as "no longer available" rather than a broken
-  image. Neither session page filters or searches its own
-  transcript — the filter chips (All/Edits/Bash/Errors/Churn) survive only in
+  image. A `Read` whose target is one of the paths the run's skills
+  catalogue offered carries a `skill` badge — the only mark taking a skill
+  leaves, since there is no `Skill` tool and no event for it (docs/DESIGN.md
+  §4.11). The catalogue reaches that leaf through `SkillCatalogueContext` for
+  the same reason the session id does, parsed once out of the block the fold
+  lifted from the opening message (`api/skillCatalogue.ts`), and the badge
+  keys on the catalogue's paths rather than the `SKILL.md` file name — so a
+  run whose work is editing `assets/skill-packs/` is not credited with
+  following the skills it is editing. Neither session page filters or
+  searches its own transcript — the filter chips (All/Edits/Bash/Errors/Churn) survive only in
   `TranscriptToolbar`, for the child-transcript block and the perf harnesses,
   and `TurnTranscript`'s `filter` prop is `"all"` on both screens. The sticky
   left rail lists every sub-turn under the

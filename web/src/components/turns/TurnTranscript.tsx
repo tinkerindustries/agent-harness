@@ -1,10 +1,11 @@
-import { memo, type ReactNode } from "react";
+import { memo, useMemo, type ReactNode } from "react";
 import type { Block, LiveView } from "../../api/fold";
 import type { TranscriptFilter, TranscriptItem } from "../../api/groups";
 import type { ToolCallPayload } from "../../api/types";
 import { FrozenBlock } from "../blocks/FrozenBlock";
 import { groupMatchesFilter } from "../../api/groups";
-import { useArrivals } from "../../hooks";
+import { SkillCatalogueContext, useArrivals } from "../../hooks";
+import { parseSkillCatalogue } from "../../api/skillCatalogue";
 import { Turn } from "./Turn";
 import { LiveTurnSection } from "./LiveTurn";
 import type { SteerBlock } from "./SteerMessage";
@@ -65,6 +66,18 @@ export function TurnTranscript({
   renderRunFinished?: (block: Extract<Block, { type: "run_finished" }>) => ReactNode;
 }) {
   const empty = items.length === 0 && !live.turn && live.pendingTools.size === 0;
+  // The skills this run offered the model, for the "skill" badge a tool row
+  // puts on a Read that opens one (hooks.ts SkillCatalogueContext). Read off
+  // the block the fold already lifted out of the opening message rather than
+  // taken as a prop, so every caller of this component gets the badge without
+  // having to know the feature exists.
+  //
+  // Memoised on the catalogue text and not on `items`: the text is fixed for
+  // the transcript's life, while the array's reference changes every time a
+  // sub-turn freezes, and a fresh Map per freeze would push a context change
+  // through the very memo that exists to stop one.
+  const catalogue = catalogueText(items);
+  const skills = useMemo(() => parseSkillCatalogue(catalogue), [catalogue]);
   return (
     // "turn-list" stays a literal residual class only to scope
     // .turn-list > .block(-skills/-opening)'s margin overrides (styles.css)
@@ -75,20 +88,35 @@ export function TurnTranscript({
     // (BlockList.tsx), and a component's own className can't express which
     // ancestor is doing the spacing.
     <div className="turn-list flex-1 min-w-0">
-      <TurnList
-        items={items}
-        replayed={replayed}
-        filter={filter}
-        getToolCall={getToolCall}
-        renderSteer={renderSteer}
-        renderInstruction={renderInstruction}
-        renderContinuation={renderContinuation}
-        renderRunFinished={renderRunFinished}
-      />
-      <LiveTurnSection turn={live.turn} pendingTools={live.pendingTools} />
+      <SkillCatalogueContext.Provider value={skills}>
+        <TurnList
+          items={items}
+          replayed={replayed}
+          filter={filter}
+          getToolCall={getToolCall}
+          renderSteer={renderSteer}
+          renderInstruction={renderInstruction}
+          renderContinuation={renderContinuation}
+          renderRunFinished={renderRunFinished}
+        />
+        <LiveTurnSection turn={live.turn} pendingTools={live.pendingTools} />
+      </SkillCatalogueContext.Provider>
       {empty && <p className="p-4 text-muted-foreground">Waiting for the run to start…</p>}
     </div>
   );
+}
+
+// catalogueText is the skills catalogue this transcript carries, or "" when
+// the run's workspace held no skills. The scan stops at the first sub-turn:
+// the catalogue rides session_started, the first event of the log, so it is
+// always among the leading top-level blocks — which keeps a transcript with
+// no catalogue at all (most of them) from walking every item on every render.
+function catalogueText(items: TranscriptItem[]): string {
+  for (const item of items) {
+    if (item.kind === "group") break;
+    if (item.block.type === "skills") return item.block.text;
+  }
+  return "";
 }
 
 // itemKey is one transcript item's identity, in the same terms the list keys

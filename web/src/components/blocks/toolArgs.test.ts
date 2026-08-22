@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { DiffLine, ToolCallPayload } from "../../api/types";
+import { parseSkillCatalogue } from "../../api/skillCatalogue";
 import {
   childStat,
   diffStat,
@@ -7,6 +8,7 @@ import {
   parseToolArgs,
   screenshotPaths,
   screenshotUrl,
+  skillOpened,
   toolDetail,
   toolGlyph,
   toolHeader,
@@ -306,5 +308,40 @@ describe("toolGlyph for the screenshot and vision tools", () => {
     expect(toolGlyph("Transcribe").letter).toBe("O");
     expect(toolGlyph("Task").letter).toBe("T");
     expect(toolGlyph("Read").letter).toBe("R");
+  });
+});
+
+describe("skillOpened", () => {
+  const catalogue = parseSkillCatalogue(
+    "- test-runner (repo/.claude/skills/test-runner/SKILL.md): Run the suite.\n",
+  );
+  const inWorkspace = "/workspaces/sess-abc/repo/.claude/skills/test-runner/SKILL.md";
+
+  it("names the skill a Read of a catalogued SKILL.md opens", () => {
+    expect(skillOpened(call("Read", { file_path: inWorkspace }), catalogue)).toBe("test-runner");
+  });
+
+  it("matches a path the model wrote relative to the workspace root", () => {
+    expect(skillOpened(call("Read", { file_path: "repo/.claude/skills/test-runner/SKILL.md" }), catalogue)).toBe(
+      "test-runner",
+    );
+  });
+
+  it("stays silent for a SKILL.md the catalogue did not offer", () => {
+    // The case that decides this is worth a catalogue lookup at all: a run
+    // whose work is skills reads SKILL.md files it was never offered, and
+    // badging those would call editing a skill pack a skill load.
+    const other = "/workspaces/sess-abc/repo/assets/skill-packs/unity/probe/SKILL.md";
+    expect(skillOpened(call("Read", { file_path: other }), catalogue)).toBe("");
+  });
+
+  it("only counts Read", () => {
+    expect(skillOpened(call("Edit", { file_path: inWorkspace }), catalogue)).toBe("");
+    expect(skillOpened(call("Grep", { pattern: "SKILL.md" }), catalogue)).toBe("");
+  });
+
+  it("stays silent with no catalogue and no call", () => {
+    expect(skillOpened(call("Read", { file_path: inWorkspace }), new Map())).toBe("");
+    expect(skillOpened(undefined, catalogue)).toBe("");
   });
 });

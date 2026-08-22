@@ -880,6 +880,15 @@ that head for every session to duplicate what `Read` already does. An empty
 catalogue renders to nothing, leaving the opening message byte-identical to a
 run with no skills.
 
+The missing tool has one cost, and it is paid in the browser rather than in the
+cached head: with no `Skill` call and no event marking the moment, a skill being
+taken looks exactly like a file being read, on one row out of the hundreds a run
+produces. The session pages match each `Read` target against the catalogue's own
+paths and badge the row `skill` (`web/src/api/skillCatalogue.ts`). Matching the
+catalogue rather than the file name is what keeps that honest in a repository
+whose subject matter is skills — a run editing `assets/skill-packs/` reads
+`SKILL.md` files all day without ever taking one as instructions.
+
 Only the description reaches the model up front, capped in length and in count,
 with anything dropped stated in the catalogue rather than silently omitted.
 Discovery never fails a run: an unreadable directory, a malformed `SKILL.md`,

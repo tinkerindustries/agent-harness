@@ -4,8 +4,10 @@ import type { ToolCallPayload } from "../../api/types";
 import { Markdown } from "../../render/Markdown";
 import { DiffTable } from "../blocks/DiffTable";
 import { formatElapsed } from "../blocks/ReasoningPanel";
+import { SkillBadge } from "./SkillBadge";
+import { useSkillCatalogue } from "../../hooks";
 import { ScreenshotGallery } from "../blocks/ScreenshotGallery";
-import { formatCost, screenshotPaths, toolDetail } from "../blocks/toolArgs";
+import { formatCost, screenshotPaths, skillOpened, toolDetail } from "../blocks/toolArgs";
 import { cachePercent, deniedBody, elideLines, toolStat, type ToolResultLike } from "./turnHelpers";
 import { InlineImage } from "../blocks/InlineImage";
 import { cn } from "@/lib/utils";
@@ -244,6 +246,8 @@ function ToolRow({ call, result }: { call: ToolCallPayload | undefined; result: 
   const isEdit = result.name === "Edit" || result.name === "Write";
   const stat = toolStat(result);
   const target = toolDetail(call);
+  const catalogue = useSkillCatalogue();
+  const skill = skillOpened(call, catalogue);
   return (
     <details
       className={cn(
@@ -264,6 +268,7 @@ function ToolRow({ call, result }: { call: ToolCallPayload | undefined; result: 
         </span>
         <span className="flex-none font-mono text-xs font-semibold">{result.name}</span>
         {target && <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">{target}</span>}
+        {skill && <SkillBadge name={skill} />}
         {stat.length > 0 && (
           <span
             className={cn(

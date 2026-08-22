@@ -1,8 +1,9 @@
 import type { LiveTurn, PendingTool } from "../../api/fold";
 import type { ToolCallPayload } from "../../api/types";
-import { useNow } from "../../hooks";
+import { useNow, useSkillCatalogue } from "../../hooks";
 import { formatElapsed } from "../blocks/ReasoningPanel";
-import { toolDetail } from "../blocks/toolArgs";
+import { skillOpened, toolDetail } from "../blocks/toolArgs";
+import { SkillBadge } from "./SkillBadge";
 import { StreamText } from "../ui/StreamText";
 
 // LiveTurnSection is the tail of the conversation that has not frozen yet
@@ -143,6 +144,8 @@ function toolRows(calls: ToolCallPayload[], pendingTools: Map<string, PendingToo
 function LiveToolRow({ call, pending }: { call: ToolCallPayload; pending?: PendingTool }) {
   const now = useNow(1000);
   const target = toolDetail(call);
+  const catalogue = useSkillCatalogue();
+  const skill = skillOpened(call, catalogue);
   const age = pending?.startedAt ? formatElapsed(now - Date.parse(pending.startedAt)) : "";
   return (
     <details className="tool rounded-[calc(var(--radius)-2px)] border border-[var(--status-running)] bg-card [&+&]:mt-1" open>
@@ -152,6 +155,7 @@ function LiveToolRow({ call, pending }: { call: ToolCallPayload; pending?: Pendi
         </span>
         <span className="flex-none font-mono text-xs font-semibold">{call.name}</span>
         {target && <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">{target}</span>}
+        {skill && <SkillBadge name={skill} />}
         <span className="flex-none text-micro tabular-nums text-[var(--status-running)]">
           running{age ? ` · ${age}` : ""}
         </span>
