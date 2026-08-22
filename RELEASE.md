@@ -100,39 +100,6 @@ and is redelivered to the new container once the lease expires. The
 `harness-data` volume is untouched by a deploy, so sessions and any queue
 backlog survive it.
 
-**One-off, the first deploy of the settings-screen change: set the DeepSeek
-key in the database.** Since the settings table landed, the harness reads its
-DeepSeek key from SQLite rather than the environment, and `DEEPSEEK_API_KEY` in
-`.env.prod` (and in `.env` on the dev stack) no longer does anything — an
-operator who sees it there should not be misled into thinking it is live. The
-new image starts with no key stored. On the first deploy that includes this
-change, set the key once inside the running container, following the same
-`exec` pattern as the balance check below:
-
-```sh
-scripts/prod.sh exec -T harness harness config set deepseek.api_key <key>
-```
-
-This is a one-off, not a permanent step in every deploy: the `harness-data`
-volume survives a deploy, so a key set once persists and later deploys do not
-need to touch it. Skip it and the stack still comes up and serves the UI, but
-every run fails with `no DeepSeek API key configured` until the key is set.
-(`google.api_key` and `google.vision_model` can stay unset — the loop runs
-without them; only the DeepSeek key is required.)
-
-**One-off, the deploy that removes NATS: drain the WORK stream first.**
-Requests sitting in JetStream at the moment of the deploy are not migrated —
-the new binary never connects to the broker and cannot see them. Confirm
-`GET /api/queue` reports zero depth and zero in flight before promoting;
-anything left in WORK is lost and must be republished under a new
-`request_id`. Results in flight need no care: the durable result has always
-been the `work_requests` row, which the new binary reads.
-
-**After a successful deploy, `docker volume rm deepseek-harness-prod_nats-data`.**
-The volume is orphaned; leaving it costs disk and misleads the next reader.
-This makes the release one-way in the sense "State does not roll back with
-the image" below already describes.
-
 Then confirm it landed:
 
 ```sh
