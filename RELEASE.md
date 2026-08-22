@@ -67,7 +67,8 @@ git commit -am "Release vX.Y.Z"
 git tag -a vX.Y.Z -m "vX.Y.Z"
 git push origin main --follow-tags
 
-gh release create vX.Y.Z --generate-notes
+gh release create vX.Y.Z --generate-notes \
+  --notes "$(git log --format='- %s' --no-merges --invert-grep --grep='^Release v' vX.Y.(Z-1)..HEAD)"
 ```
 
 Pushing the tag triggers nothing. The release is not deployed until you promote
@@ -115,9 +116,19 @@ touched the agent loop.
 
 ## Changelog
 
-There is no `CHANGELOG.md`. `gh release create --generate-notes` builds the
-notes from the commits since the previous tag, which makes the commit messages
-the changelog — write the subject line for someone reading the release page.
+There is no `CHANGELOG.md`. The release page is the changelog, which makes the
+commit subjects the changelog — write them for someone reading that page.
+
+Getting them onto it takes both flags in the command above. `--generate-notes`
+alone is not enough: GitHub's "What's Changed" list is built from **pull
+requests merged in the range**, not from commits, and most work here is pushed
+straight to `main`. A release with no PRs behind it generates a body of exactly
+one line — the compare link — and says nothing about what shipped. v0.42.0
+through v0.45.0 are all bare that way. Keep the flag for that compare link and
+for the releases that do have PRs, and prepend the subjects with `--notes`.
+
+`--invert-grep` drops the `Release vX.Y.Z` commit, the one commit in the range
+that tells a reader nothing.
 
 ## Hotfix
 
