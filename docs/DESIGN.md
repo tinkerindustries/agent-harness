@@ -6,9 +6,10 @@ commands, and iterates until a task is done. Go owns the loop and the tools.
 The harness runs as a service. Work requests arrive on the durable work
 queue — the `work_queue` table in serve's SQLite store — execute as one of
 several concurrent agent sessions inside a single Go process, and record
-their result on the request's `work_requests` row (§4.10). A CLI drives the
-same loop for interactive use. A React frontend shows what the sessions are doing
-and, on the settings screen, configures the harness's keys (§4.2).
+their result on the request's `work_requests` row (§4.10). An MCP server
+exposes the same loop to another agent. A React frontend shows what the
+sessions are doing and, on the settings screen, configures the harness's
+keys (§4.2).
 
 One DeepSeek behaviour drives most of the decisions below: the prompt cache is
 worth 50–120× on input tokens, and hits are blocked at 128 tokens of common
@@ -296,8 +297,9 @@ naming what the path actually permits, the settings collection path itself
 is never writable. The whole surface, including the work-request and lease
 endpoints, is specified in [DATA-API.md](DATA-API.md).
 Secret keys are masked in `GET /api/settings` to at most their last four
-characters, exactly as `harness config list` masks them, and the full value
-never leaves the process over HTTP — there is no reveal parameter. The writing
+characters, and the full value never leaves the process over HTTP — there is
+no reveal parameter, on this endpoint or anywhere else; a secret set once is
+write-only from then on. The writing
 methods demand `Content-Type: application/json` (415 otherwise) and refuse a
 request whose `Origin` does not match the request's own `Host` (403), so a
 page open in the operator's own browser cannot overwrite keys on the loopback
@@ -307,14 +309,14 @@ port.
 run budget, the tool limits, and the operational limits below — is one entry
 in `internal/settings`' registry, carrying its type, default, validation
 bounds, description, and whether it needs a restart. Validation lives in the
-registry and is enforced in Go on every write path, so `harness config set`,
-an HTTP `PUT`, and the screen reject the same values with the same message.
+registry and is enforced in Go on every write path, so a direct `PUT` and the
+screen reject the same values with the same message.
 `GET /api/settings` serves the registry itself: each entry names its group
 (the screen's heading), type, default, description, and flags, plus whether
 the stored value is an override. Settings flagged "requires a restart" — the
 worker pool size, the model-concurrency ceilings, the results retention, and
 the events paging bounds — are read once at startup or baked into a queue
-definition; the CLI and the screen both mark them, because a setting
+definition; the screen marks them, because a setting
 that silently does nothing until an unrelated restart is worse than one that
 cannot be changed at all.
 
@@ -483,10 +485,12 @@ it in Go and either runs or returns a denial through the tool result channel,
 which the model reads and routes around. Every decision is synchronous, so a
 session never waits on anything but the API and its own tools.
 
-The CLI is the one interactive caller, and it plugs a terminal prompt into the
-same seam by registering a resolver the policy consults for calls it would
-otherwise deny. Queue-driven sessions register no resolver. One decision point,
-two callers, and no approval state in the event log.
+`tools.Resolver` is the seam an interactive caller would use: a resolver the
+policy consults for a call it would otherwise deny, returning a synchronous
+approve/deny answer instead of a denial. No caller registers one today —
+every session is queue-driven and runs with `Policy.Resolver` nil — so the
+seam exists in the type without being exercised. One decision point, and no
+approval state in the event log.
 
 ### 4.7 Model routing and thinking settings
 
@@ -500,8 +504,8 @@ Points that bear on the rest of this design:
 
 - Side work runs in its own conversation rather than appended to the main one,
   which keeps the main prefix stable and avoids mixing per-model caches.
-- Model and effort are chosen at session creation, from the work request or the
-  CLI flags, and fixed for the session's life. Switching mid-session is a full
+- Model and effort are chosen at session creation, from the work request,
+  and fixed for the session's life. Switching mid-session is a full
   cache miss, and no UI control exists to price that choice — a caller who
   wants a different model sends a different request.
 - The effort mapping is not identity: `medium` and `xhigh` both run as `high`.
@@ -541,16 +545,18 @@ shoulder, so each session also writes a directory:
 
 The mirror is derived, not a second source of truth. Write to SQLite inside the
 transaction first, then append to disk; a failed disk write logs and does not
-fail the run. `harness export` rebuilds any session's directory from the
-database, which is also the repair path after a crash between the two writes.
+fail the run — the database stays complete regardless, and a mirror directory
+that fell behind a crash between the two writes stays behind, with nothing
+that rebuilds it after the fact.
 
 HTTP capture. Beside the mirror, the raw wire traffic lives under
 
     <data_dir>/http/<yyyy-mm-dd>/<session_id>/exchanges.jsonl.gz
 
-one gzipped JSON line per HTTP exchange. This tree is primary, not derived:
-nothing rebuilds it, `harness export` does not produce it, and it is the only
-record of what actually crossed the wire.
+one gzipped JSON line per HTTP exchange. This tree is primary, not derived —
+unlike the mirror above, which merely restates what the database already
+holds, this is the only record of what actually crossed the wire, so there is
+nothing to rebuild it from if it is lost.
 
 The React build embeds through `embed.FS`. One binary, no runtime assets.
 
@@ -585,8 +591,8 @@ missing half, or a model priced in one half and not the other is a load error.
 **The clock is UTC and takes an instant from the caller.** UTC because that is
 what DeepSeek bills on; an operator's own timezone changes nothing about what a
 token costs, only which of their working hours are dear — at UTC+10 the windows
-land at 11:00-14:00 and 16:00-20:00, most of a working day, which `harness ask`
-prints in local time and nothing on the costing path consults. The instant is a
+land at 11:00-14:00 and 16:00-20:00, most of a working day, and nothing on the
+costing path itself ever consults local time. The instant is a
 parameter rather than `time.Now()` because the two differ and the difference is
 billable: a sub-turn that starts at 03:58 UTC and returns at 04:03 has left the
 peak window by the time its usage is recorded. The runner passes the moment the
@@ -657,16 +663,16 @@ Request body:
       "parent_agent_id":   "abc123",            optional, the launching agent's session id, or the operator's name when parent_is_user
     }
 
-The browser is one producer among several. `POST /api/runs` (docs/RUN-CONTROL.md)
+The browser is one of two producers. `POST /api/runs` (docs/RUN-CONTROL.md)
 accepts this body over HTTP — `request_id` optional there and generated when
 absent, because a browser form has no idempotency key to offer — validates it
 with the queue's own `Request.Validate`, and enqueues it through the
 `RunPublisher` seam; a caller that supplies a `request_id` gets the same
-deduplication every other producer gets. `harness publish` and `deepseek_agent`
-are the other two producers, and all three share the one marshal-and-enqueue
-path, `queue.Queue.Enqueue`: `deepseek_agent` runs in the same process and
-enqueues directly, and `harness publish` is an HTTP client of `POST /api/runs`
-like any other remote caller.
+deduplication every other producer gets. `deepseek_agent` is the other, and
+both share the one marshal-and-enqueue path, `queue.Queue.Enqueue`:
+`deepseek_agent` runs in the same process and enqueues directly, where the
+browser's request is enqueued only once the HTTP validation above has passed
+it.
 
 The queue's old form had one ingress property HTTP does not: a NATS client in
 any language could publish the same JSON body directly to the stream, without
@@ -688,16 +694,13 @@ cannot be trusted to report its own provenance:
   client library itself sends in the initialize handshake, normalised to the
   agentmeta grammar — and whatever kind the tool input asserted is ignored;
   `parent_agent_id` stays whatever the calling agent asserted, best-effort.
-- `harness publish` — `parent_is_user` defaults to `false` (scripted);
-  `harness run` defaults to `true` (interactive); both override with
-  `-parent-is-user`, and on these CLI paths `parent_agent_type` remains a
-  flag the operator passes.
 
-`parent_is_user` is producer-set and therefore trustworthy; `parent_agent_type`
-is producer-stamped on the MCP path (from the client's `clientInfo`) and a
-caller-passed flag on the CLI paths, and `POST /api/runs` clears it entirely.
-Only `parent_agent_id` stays caller-asserted, which is why it is the one
-field a caller can get wrong.
+`parent_is_user` is producer-set and therefore trustworthy: the two producers
+disagree by construction, `true` from the browser and `false` from MCP, and
+neither reads it off the caller. `parent_agent_type` is producer-stamped on
+the MCP path (from the client's `clientInfo`) and cleared entirely by
+`POST /api/runs`. Only `parent_agent_id` stays caller-asserted, on the MCP
+path, which is why it is the one field a caller can get wrong.
 
 Result body:
 
@@ -902,8 +905,8 @@ permission mode. Under `readonly` that call is refused at execution. Under
 (`assets/skill-packs/<name>`) is a tree of skills installed by the same call,
 into the same workspace directory, and discovered by the same scan — but only
 into a workspace whose request named it (`queue.Request.SkillPacks`). Off is
-the default on every producer: the browser's start form, the MCP launch tool,
-`harness run`, `harness publish`.
+the default on both producers: the browser's start form and the MCP launch
+tool.
 
 The reason for the inversion is the cost model above, not caution. A
 description is small, but it rides in the opening message of *every* request of

@@ -131,10 +131,10 @@ The highest-risk tool, and the one where harnesses diverge most in quality.
 The tool the permission policy exists for. Wall-clock timeout and an output byte
 cap on every invocation, with truncation labelled in the result so the model
 knows it saw a fragment. Both are defaults, not fixed values: an operator
-changes them with `harness config set tools.bash_timeout` (and
-`tools.bash_timeout_max`, the ceiling a request's own timeout is clamped to)
-and `tools.output_cap` — the whole `tools.` group of settings — and the next
-tool call picks the change up without a restart.
+changes them on the settings screen, or with a `PUT` against
+`tools.bash_timeout` (and `tools.bash_timeout_max`, the ceiling a request's
+own timeout is clamped to) and `tools.output_cap` — the whole `tools.` group
+of settings — and the next tool call picks the change up without a restart.
 
 Commands run through `bash` where the machine has one and `/bin/sh` otherwise,
 resolved once at first use. The image installs bash, so a session gets it;
@@ -726,8 +726,9 @@ expected object, got null` — an accurate message about what is missing that sa
 nothing about what was sent. `execComplete` detects that specific case and names
 the stray arguments.
 
-`Complete` ships in every session including CLI ones that will never call it.
-One tool array across every caller is what keeps the stable head shared.
+`Complete` ships in every session, including one a person starts from the
+browser and simply watches, with no caller ever reading its `result`. One
+tool array across every caller is what keeps the stable head shared.
 
 ### MCP tools
 
@@ -816,7 +817,8 @@ These hold for every tool and live in Go, not in prompt text.
 - Every tool has a wall-clock timeout and an output byte cap, with truncation
   labelled in the result. Both are settings (`tools.` group) with the defaults
   listed above; the values are resolved from the settings table on each call,
-  so a limit changed with `harness config set` applies without a restart.
+  so a limit changed on the settings screen, or with a direct `PUT`, applies
+  without a restart.
 - Tool results are appended in `tool_calls` array order, never in completion
   order. Parallel tool calling is always on and cannot be disabled: the
   Responses API guide states it outright, the Codex model catalogue declares
@@ -860,8 +862,8 @@ Two modes, fixed for the life of a session and required on every request:
   file-writing tool instead (`internal/tools/policy.go`).
 - Full access. Everything runs, as root, inside the workspace mount.
 
-There is no third mode between them and no default. Every ingress — a work
-request, the MCP launch tool, `harness run` — rejects a request that does not
+There is no third mode between them and no default. Every ingress — the
+browser's start form and the MCP launch tool — rejects a request that does not
 name one, so no configuration value decides a session's permissions on a
 caller's behalf.
 
@@ -894,10 +896,12 @@ refused it, which is the shape the model recovers from — it picks a different
 approach rather than retrying the same call. Denials are recorded as their own
 event kind so they are findable after the fact.
 
-The CLI registers an interactive resolver against the same decision point, so a
-terminal user is prompted for calls the policy would otherwise deny. Nothing
-else registers one. Whether a session can ask a human is a property of its
-caller, and every other part of the loop is identical.
+An interactive resolver could register against the same decision point —
+`tools.Resolver`, consulted for a call the policy would otherwise deny — so a
+caller holding one is asked rather than refused outright. Nothing registers
+one today: every session's `Policy.Resolver` is nil, so no session can ask a
+human, and every other part of the loop is identical whether or not that ever
+changes.
 
 ## Context and compaction
 

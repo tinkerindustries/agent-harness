@@ -64,8 +64,8 @@ stops being what the main page's description column renders. A row with no
 title (a pre-migration row, or a browser start that left the fields blank)
 renders the raw prompt as the description line. The MCP launch path
 (`deepseek_agent`) requires `title` and `description` — a launch without
-them is refused at the tool — while the browser path (`POST /api/runs`) and
-`harness publish` treat both as optional; the queue enforces only the word
+them is refused at the tool — while the browser path (`POST /api/runs`)
+treats both as optional; the queue enforces only the word
 caps and the phase relationship (`agentmeta.ValidateTitle`,
 `ValidateDescription`, `ValidatePhase`), never presence.
 
@@ -158,8 +158,10 @@ If-Match: <version>
   directory — is refused with 409 regardless of idleness.
 - Effect: the row and its whole event log are removed, atomically. The derived
   disk mirror directory is **not** removed — the HTTP server has no data-dir
-  handle, the mirror is never read back, and `harness export` rebuilds it. The
-  CLI's `harness delete` is the way to remove a mirror directory too.
+  handle and the mirror is never read back. Nothing on this surface reaches
+  into the filesystem to clean one up; a directory left behind this way sits
+  under `<data_dir>/sessions/` (docs/DESIGN.md §4.8), named by the session's
+  id, for an operator to remove by hand.
 - Success: 200 `{"ok": true}`.
 
 Because a live session cannot be deleted, closing an abandoned session is
@@ -337,9 +339,11 @@ Three boundaries this draws:
 
 A work request may carry images — a mockup the task asks the agent to match,
 say. The bytes live in the `attachments` table, never inline in the work
-request: the store is the authority the disk mirror derives from, so
-`harness export` stays complete, and a request never carries bytes that
-could blow its size. The request carries only `attachment_ids`; the worker
+request: the store is the one place these bytes exist, and a request never
+carries bytes that could blow its size. With `harness serve` the only process
+that ever opens the database, that is a fact about the architecture rather
+than a convention an operator could break by pointing another shell at the
+same file. The request carries only `attachment_ids`; the worker
 reads the rows back and the workspace materialises them into
 `scratch/attachments/`, which the run's opening message names.
 

@@ -36,17 +36,19 @@ to `scripts/prod.sh` other than `logs`, `status`, `ps`, `exec` and `cp`.
 
 ### Do not read production secrets
 
-Reading is not automatically harmless. `.env.prod`, the `settings` table's
-values, and `harness config get -reveal` all hold live credentials — the
-DeepSeek and Google API keys, the control token. A diagnostic session's
-output gets pasted into tickets and chat logs, so pulling a key into the
-transcript leaks it somewhere it will outlive the investigation.
+Reading is not automatically harmless. `.env.prod` and a direct `SELECT` on
+the `settings` table both hold live credentials in full — the DeepSeek and
+Google API keys, the control token. A diagnostic session's output gets
+pasted into tickets and chat logs, so pulling a key into the transcript
+leaks it somewhere it will outlive the investigation.
 
-None of these questions need the values. `harness config list` masks them,
-the `settings` table can be selected by `key` alone, and the compose file
-tells you which variables exist without their contents. If a credential
-genuinely is the subject — "is the API key set" — confirm its presence and
-say so, rather than printing it.
+None of these questions need the values. `GET /api/settings` masks every
+secret to at most its last four characters and has no reveal parameter — a
+secret set once cannot be read back in full through the API at all — and the
+compose file tells you which variables exist without their contents. If a
+credential genuinely is the subject — "is the API key set" — confirm its
+presence against the masked view rather than querying the table for the
+literal value.
 
 ## Orient first
 
@@ -247,10 +249,11 @@ verbatim, which is what makes this record useful and also what makes it the
 one place a secret in a prompt would be visible. Treat anything you copy
 out of it accordingly.
 
-Nothing prunes this tree and nothing rebuilds it. It is a primary record,
-not derived — `harness export` does not produce it. A session that made no
-provider call has no file at all, so `--list` is the way to find out what
-was captured rather than assuming a session id will be there.
+Nothing prunes this tree and nothing rebuilds it. It is a primary record, not
+derived — unlike the session mirror under `/data/sessions/`, there is nothing
+to rebuild it from if it is lost. A session that made no provider call has no
+file at all, so `--list` is the way to find out what was captured rather than
+assuming a session id will be there.
 
 ## Joining the records
 

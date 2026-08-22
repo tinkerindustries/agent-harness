@@ -290,8 +290,8 @@ SELECT status, count(*) AS n FROM work_requests GROUP BY status ORDER BY n DESC
 
 Settings the stack is running with. Values of secret keys are stored
 literally in this table, so select `key` alone unless the value is genuinely
-what you need, and prefer
-`scripts/prod.sh exec -T harness harness config list`, which masks them:
+what you need, and prefer `curl -s http://127.0.0.1:8180/api/settings`, which
+masks them:
 
 ```sql
 SELECT key, substr(updated_at, 1, 19) AS updated FROM settings ORDER BY key

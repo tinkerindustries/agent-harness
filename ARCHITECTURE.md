@@ -21,8 +21,11 @@ continuation naming the session it resumes; and
 a store write by the handler and a store read by the loop, with the database
 as the boundary.
 
-One binary, `harness`, is every entry point. One subcommand is a long-running
-service and the rest are one-shot CLI:
+One binary, `harness`, is every entry point. `serve` is the long-running
+service below; `worktree` is repo development infrastructure — allocating the
+ports and compose project names sibling git worktrees need
+([`docs/WORKTREES.md`](docs/WORKTREES.md)) — and out of scope for the rest of
+this document.
 
 - **`harness serve`** — the worker pool, the SQLite store, the HTTP
   surface, and the MCP launch server, in a single process. It serves the web
@@ -37,7 +40,7 @@ service and the rest are one-shot CLI:
 
 ```mermaid
 flowchart LR
-    caller[MCP client / CLI publish] -->|POST /api/runs| http
+    caller[browser start form / MCP client] -->|POST /api/runs| http
     http[internal/httpapi<br/>SSE; GET/HEAD, writes, run control] -->|enqueue| WORK[(work_queue table)]
     WORK --> worker[internal/worker pool]
     worker --> ws[internal/workspace<br/>clone per session]
@@ -159,8 +162,8 @@ with `.env` loaded best-effort at startup and real environment variables
 winning over it. Everything operator-tunable — API
 keys, models, run budgets, tool limits, worker sizes, retention — lives in
 the `settings` table and resolves through `internal/settings`' registry, so
-an operator changes a limit with `harness config set` (or the settings
-screen) without a rebuild. Settings marked "requires a restart" are read once
+an operator changes a limit on the settings screen (or with a direct `PUT`)
+without a rebuild. Settings marked "requires a restart" are read once
 at startup and the UI says so. Names and defaults are documented in
 `.env.example` and in the registry itself.
 
@@ -171,9 +174,10 @@ because a cost computed from a stale table looks authoritative and is wrong.
 **Permission.** A policy the session holds for its whole life, evaluated in Go
 at the moment of a tool call. A denial returns through the tool result channel
 for the model to route around. Two modes, `readonly` and `full`, plus optional
-deny patterns from the request. The CLI is the one interactive caller and plugs
-a terminal prompt into the same seam by registering a resolver; queue-driven
-sessions register none, so a session never blocks on a human. §4.6.
+deny patterns from the request. `tools.Resolver` is the seam an interactive
+caller could register against for a call the policy would otherwise deny; no
+caller does, so every session's resolver is nil and a session never blocks on
+a human. §4.6.
 
 **Persistence and observability.** Every event lands in SQLite inside a
 transaction, then appends to the disk mirror; a failed mirror write logs and
@@ -238,11 +242,11 @@ are here.
   `Allow` header.
 - **`internal/mcp` opens no SQLite handle.** `harness serve` is the single
   writer.
-- **`parent_is_user` is producer-stamped.** It is set by the three producers —
-  the browser's `POST /api/runs`, the MCP `deepseek_agent` tool, and the CLI —
-  never by a request body or a tool input, and never inherited from anything a
-  calling agent asserts. `parent_agent_type` remains caller-asserted and is
-  therefore not trustworthy the way `parent_is_user` is.
+- **`parent_is_user` is producer-stamped.** It is set by the two producers —
+  the browser's `POST /api/runs` and the MCP `deepseek_agent` tool — never by
+  a request body or a tool input, and never inherited from anything a calling
+  agent asserts. `parent_agent_type` remains caller-asserted and is therefore
+  not trustworthy the way `parent_is_user` is.
 - **`internal/webassets/dist` is build output.** Never hand-edit it; never
   commit anything there but `.gitkeep`.
 - **The vendored mirror in `third_party/deepseek-docs/` is generated.** Refresh
