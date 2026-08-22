@@ -27,8 +27,7 @@ shaped that way.
 | Frontend dev server | `npm --prefix web run dev`, against `harness serve -dev-frontend http://127.0.0.1:5173` |
 | Production stack | `scripts/prod.sh promote && scripts/prod.sh deploy` — see [RELEASE.md](RELEASE.md) and the rule below |
 
-Subcommands: `ask`, `run`, `serve`, `publish`, `resume`, `delete`,
-`export`, `models`, `balance`, `worktree`. `harness help` lists them with
+Subcommands: `serve`, `worktree`, `help`. `harness help` lists them with
 their arguments.
 
 [TESTING.md](TESTING.md) covers running a subset, the broker the integration
@@ -83,9 +82,8 @@ cutting a version and deploying it to the production stack.
 
 `assets/skill-packs/<name>` is a bundle of Agent Skills a run gets **only when
 its request asked for it** — the browser's start form has a checkbox per pack,
-the MCP `deepseek_agent` tool a `skill_packs` argument, and `harness run`
-and `harness publish` a `-skill-pack` flag; off is the default on every one
-of them. Two exist: `unity`
+and the MCP `deepseek_agent` tool a `skill_packs` argument; off is the default
+on both. Two exist: `unity`
 (sixteen of Unity Technologies' own skills, vendored, plus our note on what
 the CLI cannot do without an Editor) and `blender` (ours alone — the Blender
 MCP server already sends the conceptual material at initialize).

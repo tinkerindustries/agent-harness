@@ -726,10 +726,10 @@ function InFlightCard({
 }
 
 // CopyIdButton puts the session id on the clipboard — the id is what every
-// other tool in the harness takes as its argument (`harness export`, the MCP
-// tools, a URL), and reading it off the screen to retype it is the one thing
-// the card asked an operator to do by hand. It confirms itself the way the
-// result panel's copy control does, rather than saying nothing.
+// other tool in the harness takes as its argument (the MCP tools, a URL),
+// and reading it off the screen to retype it is the one thing the card
+// asked an operator to do by hand. It confirms itself the way the result
+// panel's copy control does, rather than saying nothing.
 function CopyIdButton({ sessionId }: { sessionId: string }) {
   const [copied, setCopied] = useState(false);
   const copy = () => {

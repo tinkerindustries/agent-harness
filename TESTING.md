@@ -151,20 +151,21 @@ curl -sf localhost:8080/api/queue     # the harness is up and sees its queue
 ```
 
 Open `http://localhost:8080` and confirm the session list renders. For a real
-change to the agent loop, publish a run and watch it: `harness publish -repo
-<url> -permission-mode readonly "..."`, then follow the transcript in the
-browser. That costs
-tokens, so it is the check for changes that could not fail any other way —
-prompt wording, tool descriptions, the fold.
+change to the agent loop, start a run from the browser's start form —
+permission mode `readonly` — and follow the transcript there; then start a
+second one through `deepseek_agent` and collect it with `deepseek_result`, so
+both surviving ingresses run at least once. That costs tokens, so it is the
+check for changes that could not fail any other way — prompt wording, tool
+descriptions, the fold.
 
 ## The browser pass over the session pages
 
 This pass drives the session pages against a **live run** — a real session,
 streaming over SSE, that you type into and watch respond — and it is the only
 check that exercises the steer/stop flows end to end. It costs real tokens and
-needs a real DeepSeek key in the harness's settings table
-(`harness config set deepseek.api_key <key>`), so it is a manual, occasional
-pass rather than part of the suites.
+needs a real DeepSeek key in the harness's settings table (the settings
+screen, or `curl -X PUT .../api/settings/deepseek.api_key`), so it is a
+manual, occasional pass rather than part of the suites.
 
 ### Standing the stack up
 
@@ -172,8 +173,10 @@ pass rather than part of the suites.
    `docker compose up -d --build`. The image bakes the frontend and the
    binary, so a plain `up -d` restarts the old code.
 2. Set the key into the isolated stack's settings table:
-   `docker compose exec harness harness config set deepseek.api_key <key>`.
-   The resolver reads it per request, so no restart is needed.
+   `curl -X PUT localhost:<port>/api/settings/deepseek.api_key -H
+   'Content-Type: application/json' -d '{"value":"<key>"}'`, or the same
+   field on that stack's settings screen. The resolver reads it per request,
+   so no restart is needed.
 3. The harness container is reachable at `http://<container-ip>:8080` from
    the machine driving the browser (or at the worktree's published port on
    the host). `docker inspect` for the IP, or `docker compose port harness
@@ -230,9 +233,9 @@ The interactive page, against a run you start from the browser:
 
 The watch page, against a run another agent started:
 
-1. Launch a run the way an agent would — `harness publish -repo <url>
-   -permission-mode readonly -parent-agent-type claude-code
-   -parent-agent-id <id> "task"` — so `parent_is_user` is false.
+1. Launch a run the way an agent would — through `deepseek_agent`, with
+   `permission_mode: "readonly"`, `parent_agent_type: "claude-code"`, and
+   `parent_agent_id: <id>` — so `parent_is_user` is false.
 2. Open it while it is running. Confirm the watch page renders: a top nav
    whose only navigation is the back link to the session list, the
    provenance strip naming the launcher, the navigator rail on the left with

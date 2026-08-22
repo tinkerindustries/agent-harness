@@ -540,7 +540,7 @@ describe("startRun", () => {
 });
 
 describe("parseRepoSpec", () => {
-  it("splits a spec on its last # into url and branch, the way harness publish's -repo flag does", () => {
+  it("splits a spec on its last # into url and branch, the way the start form's repo field does", () => {
     expect(parseRepoSpec("https://github.com/org/app.git#dev")).toEqual({
       url: "https://github.com/org/app.git",
       branch: "dev",

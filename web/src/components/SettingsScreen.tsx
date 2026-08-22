@@ -329,8 +329,8 @@ function SettingRow({
             {entry.secret && (
               <span className="text-xs text-muted-foreground">
                 The full value never leaves the process — the API masks it to its last four
-                characters and has no reveal parameter. Reading one back is{" "}
-                <code>harness config get -reveal</code>, at a terminal.
+                characters and has no reveal parameter. Once saved, the stored value can't be
+                read back; enter a new one to replace it.
               </span>
             )}
             {row.error && <span className="text-xs font-mono text-[var(--status-failed)] basis-full">{row.error}</span>}

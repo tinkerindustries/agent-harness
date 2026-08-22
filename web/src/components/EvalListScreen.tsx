@@ -90,10 +90,7 @@ export function EvalListScreen({ onOpen }: { onOpen: (id: string) => void }) {
     return (
       <div className="screen pt-8">
         {form}
-        <p className="py-8 text-muted-foreground">
-          No eval runs yet. Start one above, or with{" "}
-          <code>harness eval run -suite search -variants base,search-first</code>.
-        </p>
+        <p className="py-8 text-muted-foreground">No eval runs yet. Start one above.</p>
       </div>
     );
   }

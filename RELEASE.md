@@ -106,8 +106,8 @@ Then confirm it landed:
 ```sh
 scripts/prod.sh status                      # the prod tag points at the new image
 curl -sf localhost:8180/api/queue           # {"available":true,"halted":false}
-scripts/prod.sh exec -T harness harness config list    # deepseek.api_key shows set and masked
-scripts/prod.sh exec -T harness harness balance        # the existing check; a good balance confirms the key works
+curl -s localhost:8180/api/settings         # deepseek.api_key shows set and masked
+scripts/prod.sh logs harness | grep -i balance   # the existing check; a good balance confirms the key works
 ```
 
 Open <http://localhost:8180> for the session list, and re-run a real work
