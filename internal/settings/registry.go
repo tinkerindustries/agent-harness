@@ -8,8 +8,8 @@ import (
 )
 
 // Type is the value type of a setting, carried on its registry descriptor so
-// harness config, the HTTP API, and the settings screen all render and
-// validate it the same way instead of each re-inferring it from the key.
+// the HTTP API and the settings screen both render and validate it the same
+// way instead of each re-inferring it from the key.
 type Type int
 
 const (
@@ -36,7 +36,7 @@ func (t Type) String() string {
 }
 
 // Setting groups, in registry order. The settings screen renders one heading
-// per group, and harness config list prints the same grouping.
+// per group, in the same order GET /api/settings returns them.
 const (
 	GroupCredentials     = "Credentials"
 	GroupIdentity        = "Identity"
@@ -119,19 +119,18 @@ type Descriptor struct {
 	// TypeString setting.
 	Allowed     []string
 	Description string
-	// Secret settings are masked by harness config list and GET /api/settings
-	// (the last four characters show) and typed into a password field by the
-	// screen.
+	// Secret settings are masked by GET /api/settings (the last four
+	// characters show) and typed into a password field by the screen.
 	Secret bool
 	// Restart marks a setting read once at startup or baked into a stream
 	// definition: a change takes effect on the next start, not the next
-	// request. The CLI, the API payload, and the screen all surface it.
+	// request. The API payload and the screen both surface it.
 	Restart bool
 }
 
-// registry is the ordered list of every setting, in the order harness config
-// list prints and the screen renders. Groups run together in order:
-// Credentials, Run budget, Tool limits, Models, Requires a restart.
+// registry is the ordered list of every setting, in the order GET
+// /api/settings serves and the screen renders. Groups run together in
+// order: Credentials, Run budget, Tool limits, Models, Requires a restart.
 var registry = []Descriptor{
 	// --- Credentials ---
 	stringSetting(KeyDeepSeekAPIKey, GroupCredentials,
@@ -267,8 +266,8 @@ func (d Descriptor) withAllowed(values ...string) Descriptor {
 }
 
 // ValidKeys lists every known setting key in registry order, the order
-// harness config list prints and GET /api/settings serves. It is derived
-// from the registry, never hand-maintained.
+// GET /api/settings serves. It is derived from the registry, never
+// hand-maintained.
 var ValidKeys = func() []string {
 	keys := make([]string, len(registry))
 	for i, d := range registry {
@@ -294,8 +293,8 @@ func Descriptors() []Descriptor {
 	return out
 }
 
-// IsSecretKey reports whether key holds a credential that harness config and
-// GET /api/settings mask by default. Derived from the registry.
+// IsSecretKey reports whether key holds a credential that GET /api/settings
+// masks by default. Derived from the registry.
 func IsSecretKey(key string) bool {
 	d, ok := Lookup(key)
 	return ok && d.Secret
@@ -319,9 +318,9 @@ func RunBudgetKeysForModel(model string) (maxSubTurnsKey, compactionKey string, 
 }
 
 // validate rejects value unless it fits the descriptor's type and bounds.
-// This is the one place a setting value is checked: harness config set, the
-// HTTP PUT, and the screen's save all land here, so a rejected value reads
-// identically from every surface.
+// This is the one place a setting value is checked: the HTTP PUT and the
+// screen's save both land here, so a rejected value reads identically from
+// every surface.
 func (d Descriptor) validate(value string) error {
 	switch d.Type {
 	case TypeInteger:

@@ -19,8 +19,8 @@ const (
 	EvalStatusCancelled = "cancelled"
 )
 
-// EvalRun is one `harness eval run`: the suite, the arms compared, and how it
-// ended. The rows it owns are in eval_members.
+// EvalRun is one eval run: the suite, the arms compared, and how it ended.
+// The rows it owns are in eval_members.
 type EvalRun struct {
 	ID         string
 	Suite      string

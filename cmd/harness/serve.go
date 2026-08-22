@@ -127,10 +127,10 @@ func runServe(ctx context.Context, args []string) error {
 
 	// The operator name, when unset: a bare-metal `harness serve` names
 	// itself from the login user, so runs started from the web UI record who
-	// started them without a deliberate `harness config set
-	// identity.operator geoff`. Inside Docker serve runs as root, where
-	// os/user is useless, so this never fires there. Any failure is logged
-	// and ignored — a convenience, never a startup failure (D7).
+	// started them without a deliberate identity.operator setting from the
+	// settings screen. Inside Docker serve runs as root, where os/user is
+	// useless, so this never fires there. Any failure is logged and ignored
+	// — a convenience, never a startup failure (D7).
 	if err := selfNameOperator(ctx, res); err != nil {
 		log.Printf("harness serve: self-name identity.operator: %v", err)
 	}
@@ -393,11 +393,11 @@ func newJudge(ctx context.Context, res *settings.Resolver, model string, deepSee
 // publishAdapter is the RunPublisher implementation for harness serve: the
 // browser's POST /api/runs enqueues through the same store-backed queue the
 // pool claims from, so a browser-started run is byte-identical in the store
-// to one started from MCP or the CLI — same event kinds, same validation,
-// same idempotency on a duplicate request_id (docs/RUN-CONTROL.md "Starting
-// is a publish, so the seam is a publisher"). The interface is declared in
-// internal/httpapi and implemented here, in cmd/, because composition
-// happens in cmd/ and nowhere else (ARCHITECTURE.md).
+// to one started through the MCP launch tool — same event kinds, same
+// validation, same idempotency on a duplicate request_id (docs/RUN-CONTROL.md
+// "Starting is a publish, so the seam is a publisher"). The interface is
+// declared in internal/httpapi and implemented here, in cmd/, because
+// composition happens in cmd/ and nowhere else (ARCHITECTURE.md).
 type publishAdapter struct {
 	q *queue.Queue
 }

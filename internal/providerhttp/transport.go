@@ -51,9 +51,9 @@ import (
 // RetryMax — are exactly the state internal/deepseek's and internal/kimi's
 // Client structs used to carry directly; Retryable, NoAPIKey, ErrPrefix and
 // SetAuth are the four points where a provider's own status classification,
-// its own "set one with: harness config set <provider>.api_key <key>" error,
-// its own name in wrapped error text, and its own credential header plug
-// into otherwise-identical logic. internal/gemini is a fourth consumer of
+// its own "set one from the settings screen or PUT /api/settings/<provider>.api_key"
+// error, its own name in wrapped error text, and its own credential header
+// plug into otherwise-identical logic. internal/gemini is a fourth consumer of
 // Do (never PumpStream — that method decodes wire.ChatCompletionChunk,
 // DeepSeek's and Kimi's OpenAI-format shape, and Gemini's frames are
 // nothing like it, so it keeps its own pumpChatEvents and only wants the
@@ -114,9 +114,9 @@ func (t *Transport) errorf(op string, err error) error {
 }
 
 // WrapError adds op to err for context, except when err is t.NoAPIKey: that
-// one surfaces verbatim, so "no DeepSeek API key configured; set one with:
-// harness config set deepseek.api_key <key>" reaches the operator without a
-// transport prefix in front of it.
+// one surfaces verbatim, so "no DeepSeek API key configured; set one from
+// the settings screen or PUT /api/settings/deepseek.api_key" reaches the
+// operator without a transport prefix in front of it.
 func (t *Transport) WrapError(op string, err error) error {
 	if errors.Is(err, t.NoAPIKey) {
 		return err

@@ -4,7 +4,7 @@
 // path, and the workspace root. Everything that used to be a default here —
 // models, run budgets, tool limits, worker sizes, retention — now lives in
 // the settings registry (internal/settings), so an operator can change it
-// with `harness config set` without a rebuild.
+// from the settings screen without a rebuild.
 package config
 
 import (
@@ -43,10 +43,10 @@ type Config struct {
 
 	// HTTPLogRoot is where raw HTTP exchanges are captured:
 	// <DataDir>/http/<yyyy-mm-dd>/<session_id>/exchanges.jsonl.gz. The log
-	// is primary, not derived: nothing rebuilds it, harness export does not
-	// produce it, and nothing prunes the tree. Every sub-turn resends the
-	// whole message array, so a long run writes tens of megabytes before
-	// compression.
+	// is primary, not derived: nothing rebuilds it, nothing reconstructs it
+	// from elsewhere, and nothing prunes the tree. Every sub-turn resends
+	// the whole message array, so a long run writes tens of megabytes
+	// before compression.
 	HTTPLogRoot string
 	// HTTPLogEnabled defaults to on. "0" or "false" turns capture off and
 	// installs no wrapper on the request path at all.

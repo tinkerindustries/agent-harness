@@ -50,8 +50,8 @@ type Session struct {
 	Task string
 	// Title is the run's name, at most agentmeta.MaxTitleWords words, shown
 	// bold on the main page in place of the raw prompt. Empty covers a
-	// pre-migration row and a producer that left it blank (the browser start
-	// and the CLI); the browser then renders the task line without a bold
+	// pre-migration row and a producer that left it blank (the browser
+	// start form); the browser then renders the task line without a bold
 	// title rather than an empty one.
 	Title string
 	// Description is what change the agent is making, at most

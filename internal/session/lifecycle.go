@@ -170,7 +170,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	// claimed. Run promotes that row to "running" — writing the four
 	// columns that are only resolvable now that the run is starting — and
 	// otherwise inserts the row exactly as it always has. Every caller that
-	// does not clone (harness run, harness resume, the Task subagent path,
+	// does not clone (a resumed session, the Task subagent path,
 	// compaction) has no pre-created row, so it always inserts, and none of
 	// them should ever show "creating".
 	if existing, err := r.Store.GetSession(ctx, sessID); err == nil && existing.Status == store.StatusCreating {

@@ -2138,8 +2138,7 @@ func TestPutSettingThenGetShowsItSet(t *testing.T) {
 
 // TestPutSettingRejectsOutOfRangeValue pins the "one bound, enforced in Go"
 // property: a value the registry rejects comes back as a 400 carrying the
-// registry's message — the same message harness config set prints — so the
-// screen can surface it verbatim.
+// registry's own validation message, so the screen can surface it verbatim.
 func TestPutSettingRejectsOutOfRangeValue(t *testing.T) {
 	srv, _, _ := newTestServer(t)
 	resp := doWrite(t, srv, http.MethodPut, "/api/settings/tools.bash_timeout", `{"value":"-5s"}`, map[string]string{

@@ -94,7 +94,7 @@ func (svc *Service) handleStop(ctx context.Context, _ *mcpsdk.CallToolRequest, i
 
 // stopSessionRequest is the JSON body POST /api/sessions/{id}/stop accepts:
 // the operator's reason, optional. Sent as a bare object when there is no
-// reason, mirroring what the CLI sends.
+// reason, mirroring what deepseek_stop sends.
 type stopSessionRequest struct {
 	Reason string `json:"reason,omitempty"`
 }

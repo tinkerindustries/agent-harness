@@ -36,8 +36,8 @@ type Request struct {
 	ParentAgentID   string          `json:"parent_agent_id,omitempty"`
 	// Title is the run's name, at most agentmeta.MaxTitleWords words, shown
 	// bold on the main page. Absent is allowed at this layer — the browser
-	// start and the CLI may leave it blank — and the queue enforces only the
-	// word cap and the no-newline rule (agentmeta.ValidateTitle).
+	// start form may leave it blank — and the queue enforces only the word
+	// cap and the no-newline rule (agentmeta.ValidateTitle).
 	Title string `json:"title,omitempty"`
 	// Description is what change the agent is making, at most
 	// agentmeta.MaxDescriptionWords words, shown under the title on the main
@@ -51,8 +51,8 @@ type Request struct {
 	// 1-based and at most TotalPhases (agentmeta.ValidatePhase).
 	TotalPhases int `json:"total_phases,omitempty"`
 	// ParentIsUser records that a person started this run directly. It is set
-	// by the producer — a browser start, the MCP tool, or the CLI — and never
-	// by the calling agent, which is what makes it trustworthy where
+	// by the producer — a browser start or the MCP tool — and never by the
+	// calling agent, which is what makes it trustworthy where
 	// parent_agent_type is not.
 	ParentIsUser bool `json:"parent_is_user,omitempty"`
 	// PromptVariant names an alternative system prompt for an eval run
@@ -68,8 +68,9 @@ type Request struct {
 	// store's attachments table, written by the producer (POST /api/runs,
 	// the MCP launch tool) before enqueuing. The worker reads the rows back
 	// and internal/workspace materialises them into scratch/attachments/
-	// during Prepare, so the request stays small and `harness export` —
-	// which derives from the store — stays complete (docs/DATA-API.md).
+	// during Prepare, so the request stays small while the store still
+	// holds everything needed to rebuild the session's disk mirror
+	// (docs/DATA-API.md).
 	AttachmentIDs []string `json:"attachment_ids,omitempty"`
 	// SkillPacks names the optional bundles of shipped skills this run's
 	// workspace gets, on top of the always-on tree every run receives
@@ -77,8 +78,7 @@ type Request struct {
 	// a run that gets none of them, which is what keeps a pack's descriptions
 	// out of the opening message of every run that has nothing to do with it.
 	// Set by the producer: the browser's start form has a checkbox per pack,
-	// the MCP launch tool a skill_packs argument, and harness run and
-	// harness publish a -skill-pack flag.
+	// and the MCP launch tool a skill_packs argument.
 	//
 	// Unlike the tool array, this varies per run without costing anything:
 	// the catalogue rides in the opening user message, not the frozen head

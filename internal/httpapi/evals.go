@@ -15,9 +15,11 @@ import (
 )
 
 // The eval endpoints are reads over the eval_runs and eval_members tables
-// (docs/EVALS.md). Every statistic is computed here rather than in the
-// browser, through the same evals.Summarise the CLI's table uses, so the two
-// cannot disagree about what a delta is or when it is worth looking at.
+// (docs/EVALS.md). The orchestrator that runs an eval still lives in
+// internal/evals; this package is one of its consumers, the browser's eval
+// screens the other. Every statistic is computed here rather than in the
+// browser, through the same evals.Summarise both share, so the two cannot
+// disagree about what a delta is or when it is worth looking at.
 
 // evalRunRow is one run on the list. The counts and the headline are derived
 // from its members so the list can say where a run got to without the caller
@@ -56,8 +58,8 @@ type evalMemberRow struct {
 }
 
 // evalDelta is one metric's comparison of the last variant against the first.
-// Significant is decided here, by the same rule the CLI prints, so the browser
-// reads a boolean rather than re-deriving a threshold.
+// Significant is decided here, by the same rule internal/evals uses, so the
+// browser reads a boolean rather than re-deriving a threshold.
 type evalDelta struct {
 	Metric          string  `json:"metric"`
 	BaselineVariant string  `json:"baseline_variant"`

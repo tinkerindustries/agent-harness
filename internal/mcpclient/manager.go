@@ -77,9 +77,10 @@ type Manager struct {
 	Dial func(ctx context.Context, srv store.MCPServer) (mcpsdk.Transport, error)
 
 	// Sampler runs the model turns servers ask for (docs/MCP.md,
-	// "Sampling"). Nil — the CLI paths, every test — means this client
-	// cannot sample, and says so to any server that asks. A server must
-	// also be allowed to ask at all: see store.MCPServer.AllowSampling.
+	// "Sampling"). Nil — a caller with none wired, every test among them —
+	// means this client cannot sample, and says so to any server that asks.
+	// A server must also be allowed to ask at all: see
+	// store.MCPServer.AllowSampling.
 	Sampler SamplingClient
 
 	// SamplingModel is the model those turns run on. Empty uses

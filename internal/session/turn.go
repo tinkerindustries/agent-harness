@@ -60,7 +60,7 @@ const liveFlushInterval = 100 * time.Millisecond
 // this exists at all.
 //
 // A nil *liveSink is a working no-op, which is what a Runner with no Hub
-// gets — the CLI, and every test that does not assert on streaming.
+// gets — every test that does not assert on streaming among them.
 type liveSink struct {
 	hub       *hub.Hub
 	sessionID string

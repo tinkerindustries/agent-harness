@@ -10,8 +10,9 @@ import (
 
 // TestEmptyKeyFailsBeforeSending pins the same contract internal/deepseek
 // tests: a provider that returns an empty key fails the request locally with
-// ErrNoAPIKey before anything is sent, so the operator sees the fix ("set
-// one with: harness config set kimi.api_key <key>") rather than Kimi's 401.
+// ErrNoAPIKey before anything is sent, so the operator sees the fix (set one
+// from the settings screen or PUT /api/settings/kimi.api_key) rather than
+// Kimi's 401.
 func TestEmptyKeyFailsBeforeSending(t *testing.T) {
 	hit := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

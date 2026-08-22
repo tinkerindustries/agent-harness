@@ -93,9 +93,9 @@ type RunOptions struct {
 	ParentID       string
 	JobType        string
 	// Title is the run's name, at most agentmeta.MaxTitleWords words, shown
-	// bold on the main page. Empty is a producer's choice — the CLI and a
-	// browser start may leave it blank — and the session row then renders
-	// without a bold title.
+	// bold on the main page. Empty is a producer's choice — a browser start
+	// may leave it blank — and the session row then renders without a bold
+	// title.
 	Title string
 	// Description is what change the agent is making, at most
 	// agentmeta.MaxDescriptionWords words, shown under the title on the main
@@ -298,15 +298,15 @@ type Runner struct {
 	// deepseek-v4-* to the DeepSeek client, kimi-k3 to the Kimi client —
 	// rather than the Runner being pinned to one provider at construction.
 	// The closure is built in cmd/harness, where the provider clients live;
-	// nil falls back to Client for every model, which is the CLI and test
-	// path (docs/KIMI-INTEGRATION.md §4.3).
+	// nil falls back to Client for every model, which every test relies on
+	// (docs/KIMI-INTEGRATION.md §4.3).
 	ClientFor func(model string) Client
 
 	Prices     *pricing.Table
 	FlashModel string
 
 	// Gemini is the client the vision tools use to send images
-	// to Google's Gemini API. Nil is the CLI's case when none is configured:
+	// to Google's Gemini API. Nil is a caller's case when none is configured:
 	// the tool then reports itself unavailable instead of failing the run
 	// (internal/tools, Glance).
 	Gemini *gemini.Client
@@ -317,21 +317,21 @@ type Runner struct {
 	// frozen tool array and read-only map (docs/MCP.md, "Resolution
 	// happens once per run"); Resume reads the array back from the stored
 	// row but still calls this for the read-only map, which is policy
-	// rather than prefix bytes (resume.go). Nil is every existing test path
-	// and the CLI without a manager wired: a run then carries no MCP tools
-	// at all, and a failure reading it here is logged and treated the same
-	// as nil rather than failing the run.
+	// rather than prefix bytes (resume.go). Nil is every existing test
+	// path, and a caller with no manager wired: a run then carries no MCP
+	// tools at all, and a failure reading it here is logged and treated the
+	// same as nil rather than failing the run.
 	MCP tools.MCPProvider
 
 	// GeminiModel resolves the vision model name per call — the same
 	// read-through-the-store shape as the DeepSeek API key provider, so a
-	// model changed with `harness config set google.vision_model` takes
+	// model changed from the settings screen (google.vision_model) takes
 	// effect without a restart. Nil falls back to gemini.DefaultModel.
 	GeminiModel func() (string, error)
 
 	// Hub, when set, is where every committed event and every session
-	// state change gets published for a browser to watch live. Nil is the
-	// CLI's normal case: nothing subscribes, so nothing is published.
+	// state change gets published for a browser to watch live. Nil is a
+	// caller with none wired: nothing subscribes, so nothing is published.
 	Hub *hub.Hub
 
 	// Recorder, when set, captures every HTTP exchange a session makes into
@@ -348,7 +348,7 @@ type Runner struct {
 	// Settings, when set, is where the run budget (run.max_sub_turns and
 	// run.compaction_threshold, plus the per-model keys that replace them for
 	// kimi-k3) and the flash model (model.flash) resolve from, read through
-	// the store on every call, so a key changed with `harness config set`
+	// the store on every call, so a key changed from the settings screen
 	// takes effect on the next session without a restart. Nil is the test
 	// path: the package constants apply.
 	Settings *settings.Resolver
@@ -361,7 +361,7 @@ type Runner struct {
 	// shared across every call to Run on this Runner — the semaphore
 	// docs/DESIGN.md §4.5 sizes under the account's per-model ceiling. A
 	// model absent from the map, or a nil map, is unlimited; that keeps
-	// unlimited callers (the CLI, every test) exactly as they were.
+	// unlimited callers (every test among them) exactly as they were.
 	ModelLimits map[string]int
 
 	semsMu sync.Mutex

@@ -88,11 +88,11 @@ CREATE TABLE IF NOT EXISTS eval_runs (
 
 -- One image a work request carries (docs/DATA-API.md). The bytes live in the
 -- database, never inline in the work request: the store is the authority the
--- disk mirror derives from, so harness export stays complete, and a request
--- never carries bytes that could blow its size. A producer writes one row
--- per attachment and the request carries the ids; the worker reads the rows
--- back and internal/workspace materialises them into scratch/attachments/
--- before the session starts.
+-- disk mirror derives from, so the mirror stays complete however the row is
+-- reached, and a request never carries bytes that could blow its size. A
+-- producer writes one row per attachment and the request carries the ids;
+-- the worker reads the rows back and internal/workspace materialises them
+-- into scratch/attachments/ before the session starts.
 CREATE TABLE IF NOT EXISTS attachments (
 	id         TEXT PRIMARY KEY,
 	name       TEXT NOT NULL,

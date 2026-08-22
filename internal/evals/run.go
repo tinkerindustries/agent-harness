@@ -29,8 +29,8 @@ type Run struct {
 	Err       string   `json:"error,omitempty"`
 }
 
-// A Report is everything one `harness eval run` produced. It is an export of
-// the eval_runs and eval_members rows rather than the record itself: the rows
+// A Report is everything one eval run produced. It is an export of the
+// eval_runs and eval_members rows rather than the record itself: the rows
 // are written as the run goes and outlive the process.
 type Report struct {
 	EvalRunID  string    `json:"eval_run_id"`
@@ -401,8 +401,8 @@ func costAndSubTurns(events []store.Event) (float64, int) {
 	return cost, subTurns
 }
 
-// notify is a nil-safe call: a caller with no hub — the CLI's own follow,
-// a test — passes none.
+// notify is a nil-safe call: a caller with no hub to publish to — a test
+// among them — passes none.
 func notify(onChange func(string), evalRunID string) {
 	if onChange != nil {
 		onChange(evalRunID)

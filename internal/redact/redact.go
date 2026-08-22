@@ -81,12 +81,12 @@ func Bytes(b []byte) []byte {
 
 // Secret masks a stored setting value so at most its last 4 characters are
 // visible — the display shape for a secret-shaped setting (per
-// settings.IsSecretKey), used identically by `harness config list`/`get`
-// (cmd/harness/config.go) and the settings HTTP endpoint
-// (internal/httpapi/server.go), so an operator sees the same mask from
-// either surface. A value of 4 characters or fewer reveals none of itself.
-// The guarantee this exists for: no stored secret ever appears in full
-// outside `harness config get -reveal`.
+// settings.IsSecretKey), used by the settings HTTP endpoint
+// (internal/httpapi/server.go) and the settings screen that renders it, so
+// an operator sees the same mask from either surface. A value of 4
+// characters or fewer reveals none of itself. The guarantee this exists
+// for: no stored secret ever appears in full outside the process — there is
+// no way to reveal one back over HTTP.
 func Secret(value string) string {
 	if len(value) <= 4 {
 		return strings.Repeat("*", len(value))
