@@ -10,10 +10,10 @@ const LEGACY = "/workspaces/sess-abc123";
 
 describe("splitWorkspacePath", () => {
   it("splits a host path into root, session and rest", () => {
-    expect(splitWorkspacePath(`${HOST}/deepseek-harness/internal/fold/fold.go`)).toEqual({
+    expect(splitWorkspacePath(`${HOST}/agent-harness/internal/fold/fold.go`)).toEqual({
       root: "/Users/geoff/Repos/deepseek-harness/workspaces/",
       session: "sess-abc123",
-      rest: "deepseek-harness/internal/fold/fold.go",
+      rest: "agent-harness/internal/fold/fold.go",
     });
   });
 
@@ -69,18 +69,18 @@ describe("shortenWorkspacePaths", () => {
 
 describe("elidePath", () => {
   it("hides root and session directory for a tool target", () => {
-    const s = splitWorkspacePath(`${HOST}/deepseek-harness/internal/fold/fold.go`)!;
+    const s = splitWorkspacePath(`${HOST}/agent-harness/internal/fold/fold.go`)!;
     expect(elidePath(s, false)).toEqual({
       hidden: "/Users/geoff/Repos/deepseek-harness/workspaces/sess-abc123/",
-      visible: "deepseek-harness/internal/fold/fold.go",
+      visible: "agent-harness/internal/fold/fold.go",
     });
   });
 
   it("keeps the session directory for the workspace fact", () => {
-    const s = splitWorkspacePath(`${HOST}/deepseek-harness`)!;
+    const s = splitWorkspacePath(`${HOST}/agent-harness`)!;
     expect(elidePath(s, true)).toEqual({
       hidden: "/Users/geoff/Repos/deepseek-harness/workspaces/",
-      visible: "sess-abc123/deepseek-harness",
+      visible: "sess-abc123/agent-harness",
     });
   });
 

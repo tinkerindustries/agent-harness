@@ -45,11 +45,11 @@ describe("toolDetail", () => {
   });
 
   it("drops the workspace root from a path, so a row leads with what differs", () => {
-    const p = "/workspaces/sess-c3d7233a8a4eaba7e64d2a5ef4ee1890/deepseek-harness/internal/tools/descriptor.go";
-    expect(toolDetail(call("Read", { file_path: p }))).toBe("deepseek-harness/internal/tools/descriptor.go");
-    expect(toolDetail(call("Edit", { file_path: p }))).toBe("deepseek-harness/internal/tools/descriptor.go");
-    expect(toolDetail(call("List", { path: "/workspaces/sess-abc/deepseek-harness/internal" }))).toBe(
-      "deepseek-harness/internal",
+    const p = "/workspaces/sess-c3d7233a8a4eaba7e64d2a5ef4ee1890/agent-harness/internal/tools/descriptor.go";
+    expect(toolDetail(call("Read", { file_path: p }))).toBe("agent-harness/internal/tools/descriptor.go");
+    expect(toolDetail(call("Edit", { file_path: p }))).toBe("agent-harness/internal/tools/descriptor.go");
+    expect(toolDetail(call("List", { path: "/workspaces/sess-abc/agent-harness/internal" }))).toBe(
+      "agent-harness/internal",
     );
   });
 
