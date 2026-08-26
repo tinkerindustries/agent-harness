@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
+	"github.com/mrgeoffrich/agent-harness/internal/settings"
 )
 
 // fakeSettingsStore is a settings.Store backed by a map, so the budget

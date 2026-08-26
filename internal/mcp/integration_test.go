@@ -13,11 +13,11 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
-	"github.com/mrgeoffrich/deepseek-harness/internal/config"
-	"github.com/mrgeoffrich/deepseek-harness/internal/httpapi"
-	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/agentmeta"
+	"github.com/mrgeoffrich/agent-harness/internal/config"
+	"github.com/mrgeoffrich/agent-harness/internal/httpapi"
+	"github.com/mrgeoffrich/agent-harness/internal/queue"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 // capturePublisher is the Publisher test double replacing the old

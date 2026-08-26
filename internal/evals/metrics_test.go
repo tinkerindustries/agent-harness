@@ -5,7 +5,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 // call builds a tool_call and its tool_result as the store holds them.

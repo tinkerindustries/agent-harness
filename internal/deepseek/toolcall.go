@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
+	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
 // RepairArguments corrects a single misplaced brace in assembled tool-call

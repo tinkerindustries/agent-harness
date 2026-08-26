@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/gemini/geminitest"
+	"github.com/mrgeoffrich/agent-harness/internal/gemini/geminitest"
 )
 
 // TestInteractHeadersUnchangedAfterTransportMigration is the evidence for

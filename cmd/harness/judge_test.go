@@ -10,11 +10,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
-	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
-	"github.com/mrgeoffrich/deepseek-harness/internal/kimi"
-	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/deepseek"
+	"github.com/mrgeoffrich/agent-harness/internal/gemini"
+	"github.com/mrgeoffrich/agent-harness/internal/kimi"
+	"github.com/mrgeoffrich/agent-harness/internal/settings"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 // judgeFakeStore is the settings surface of *store.Store, backed by a map so

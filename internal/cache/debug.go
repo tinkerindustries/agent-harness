@@ -1,6 +1,6 @@
 package cache
 
-import "github.com/mrgeoffrich/deepseek-harness/internal/wire"
+import "github.com/mrgeoffrich/agent-harness/internal/wire"
 
 // Mutate returns a copy of messages with a marker appended to the content of
 // index i, so the returned slice no longer shares a prefix with whatever was

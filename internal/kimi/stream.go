@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
+	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
 // ErrIdleTimeout is sent when no SSE frame, including a keep-alive comment,

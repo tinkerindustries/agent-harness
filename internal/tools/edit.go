@@ -8,7 +8,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 type editArgs struct {

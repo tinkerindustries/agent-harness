@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
+	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
 // The malformations below are the shapes seen in production wire logs,

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
+	"github.com/mrgeoffrich/agent-harness/internal/agentmeta"
 )
 
 // TestSessionJSONProvenance pins how the provenance fields appear in

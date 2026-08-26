@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/evals"
-	"github.com/mrgeoffrich/deepseek-harness/internal/promptvariant"
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/evals"
+	"github.com/mrgeoffrich/agent-harness/internal/promptvariant"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 // The eval endpoints are reads over the eval_runs and eval_members tables

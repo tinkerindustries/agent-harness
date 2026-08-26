@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/gemini/geminitest"
-	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
+	"github.com/mrgeoffrich/agent-harness/internal/gemini/geminitest"
+	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
 // TestChatCompletionSendsGoogAPIKeyNoAuthorization pins that the agentic

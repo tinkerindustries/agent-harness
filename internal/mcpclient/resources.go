@@ -8,8 +8,8 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
-	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/tools"
 )
 
 // Resources and prompts are the two things a server advertises that do not

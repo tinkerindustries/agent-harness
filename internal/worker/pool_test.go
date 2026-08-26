@@ -17,14 +17,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
-	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
-	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
-	"github.com/mrgeoffrich/deepseek-harness/internal/session"
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
-	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
-	"github.com/mrgeoffrich/deepseek-harness/internal/workspace"
+	"github.com/mrgeoffrich/agent-harness/internal/agentmeta"
+	"github.com/mrgeoffrich/agent-harness/internal/deepseek"
+	"github.com/mrgeoffrich/agent-harness/internal/pricing"
+	"github.com/mrgeoffrich/agent-harness/internal/queue"
+	"github.com/mrgeoffrich/agent-harness/internal/session"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/wire"
+	"github.com/mrgeoffrich/agent-harness/internal/workspace"
 )
 
 func uniqueID(prefix string) string {

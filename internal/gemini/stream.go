@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
+	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
 // The streaming half of the interactions surface. The request carries

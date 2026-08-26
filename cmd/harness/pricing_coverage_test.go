@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
-	"github.com/mrgeoffrich/deepseek-harness/internal/provider"
+	"github.com/mrgeoffrich/agent-harness/internal/pricing"
+	"github.com/mrgeoffrich/agent-harness/internal/provider"
 )
 
 // TestEveryKnownModelIsPriced pins that every model in the model→provider

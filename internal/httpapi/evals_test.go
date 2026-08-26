@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/evals"
-	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
-	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/evals"
+	"github.com/mrgeoffrich/agent-harness/internal/hub"
+	"github.com/mrgeoffrich/agent-harness/internal/settings"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 // seedEval records a two-arm run whose base arm searched through Bash and

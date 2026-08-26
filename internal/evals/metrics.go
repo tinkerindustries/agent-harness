@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 // Scores are one run's mechanical metrics, keyed by metric name. Every value

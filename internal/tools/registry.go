@@ -13,11 +13,11 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
-	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
-	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
-	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
+	"github.com/mrgeoffrich/agent-harness/internal/gemini"
+	"github.com/mrgeoffrich/agent-harness/internal/pricing"
+	"github.com/mrgeoffrich/agent-harness/internal/settings"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
 // Output and timeout limits, the built-in defaults when no settings resolver

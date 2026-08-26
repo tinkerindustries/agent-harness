@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
-	"github.com/mrgeoffrich/deepseek-harness/internal/gemini/geminitest"
+	"github.com/mrgeoffrich/agent-harness/internal/gemini"
+	"github.com/mrgeoffrich/agent-harness/internal/gemini/geminitest"
 )
 
 // reviewScreenshotClient builds a Gemini client pointed at srv, so a test can

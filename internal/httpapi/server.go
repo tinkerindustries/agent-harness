@@ -42,12 +42,12 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/evals"
-	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
-	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
-	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
-	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/evals"
+	"github.com/mrgeoffrich/agent-harness/internal/hub"
+	"github.com/mrgeoffrich/agent-harness/internal/pricing"
+	"github.com/mrgeoffrich/agent-harness/internal/queue"
+	"github.com/mrgeoffrich/agent-harness/internal/settings"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 // sseKeepaliveInterval is how often an idle stream sends a ": keep-alive"

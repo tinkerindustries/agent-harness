@@ -10,8 +10,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/attachment"
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/attachment"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 // The bytes of an image a tool result carries, served from the event log at

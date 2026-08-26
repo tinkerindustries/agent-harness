@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
+	"github.com/mrgeoffrich/agent-harness/internal/settings"
 )
 
 // githubCache holds the last successful GET /api/github/repos fetch and its

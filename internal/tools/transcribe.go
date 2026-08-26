@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
-	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/gemini"
+	"github.com/mrgeoffrich/agent-harness/internal/settings"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 // Transcribe: chunked OCR of an image too tall for one vision call to read.

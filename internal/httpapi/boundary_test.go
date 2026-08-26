@@ -24,8 +24,8 @@ func TestHTTPServerDoesNotDependOnTheAgentLoop(t *testing.T) {
 	}
 
 	forbidden := map[string]string{
-		"github.com/mrgeoffrich/deepseek-harness/internal/session": "the agent loop",
-		"github.com/mrgeoffrich/deepseek-harness/internal/worker":  "the worker pool",
+		"github.com/mrgeoffrich/agent-harness/internal/session": "the agent loop",
+		"github.com/mrgeoffrich/agent-harness/internal/worker":  "the worker pool",
 	}
 	for _, dep := range strings.Fields(string(out)) {
 		if what, ok := forbidden[dep]; ok {

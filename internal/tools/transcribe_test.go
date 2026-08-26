@@ -16,9 +16,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
-	"github.com/mrgeoffrich/deepseek-harness/internal/gemini/geminitest"
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/gemini"
+	"github.com/mrgeoffrich/agent-harness/internal/gemini/geminitest"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 // ---------------------------------------------------------------------------

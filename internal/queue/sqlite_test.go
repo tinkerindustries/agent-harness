@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 // newTestQueue opens a fresh store in a temp dir and wraps it in a Queue.

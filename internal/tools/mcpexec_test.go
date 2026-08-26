@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
+	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
 // fakeMCPProvider is a minimal tools.MCPProvider for exercising Execute's

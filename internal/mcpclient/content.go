@@ -7,7 +7,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+	"github.com/mrgeoffrich/agent-harness/internal/tools"
 )
 
 // flatten turns one server's raw CallToolResult into the vocabulary

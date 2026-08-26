@@ -7,8 +7,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/agentmeta"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 func TestSubscribePublishReceivesInOrder(t *testing.T) {

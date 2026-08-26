@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
+	"github.com/mrgeoffrich/agent-harness/internal/queue"
 )
 
 // newOrigin builds a real repository to clone from, with a commit on main

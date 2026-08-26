@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
+	"github.com/mrgeoffrich/agent-harness/internal/pricing"
 )
 
 const pricingTestTable = `{

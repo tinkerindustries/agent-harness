@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 func openTestStore(t *testing.T) *store.Store {

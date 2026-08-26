@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+	"github.com/mrgeoffrich/agent-harness/internal/tools"
 )
 
 // A CLAUDE.md carried by a cloned repository reaches the model through the

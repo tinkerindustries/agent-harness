@@ -10,7 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
+	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
 // blockSize is the measured cache persistence interval for DeepSeek

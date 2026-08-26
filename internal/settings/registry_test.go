@@ -4,11 +4,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
-	"github.com/mrgeoffrich/deepseek-harness/internal/pricing"
-	"github.com/mrgeoffrich/deepseek-harness/internal/session"
-	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
-	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+	"github.com/mrgeoffrich/agent-harness/internal/gemini"
+	"github.com/mrgeoffrich/agent-harness/internal/pricing"
+	"github.com/mrgeoffrich/agent-harness/internal/session"
+	"github.com/mrgeoffrich/agent-harness/internal/settings"
+	"github.com/mrgeoffrich/agent-harness/internal/tools"
 )
 
 // TestRegistryDefaultsMatchTheConstantsTheyReplaced is the "no behaviour

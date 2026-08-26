@@ -5,7 +5,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
+	"github.com/mrgeoffrich/agent-harness/internal/agentmeta"
 )
 
 // TestNormalizeClientInfoName exercises the mapping from an MCP clientInfo

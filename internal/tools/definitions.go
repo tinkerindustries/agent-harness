@@ -3,9 +3,9 @@ package tools
 import (
 	"encoding/json"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/promptvariant"
-	"github.com/mrgeoffrich/deepseek-harness/internal/provider"
-	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
+	"github.com/mrgeoffrich/agent-harness/internal/promptvariant"
+	"github.com/mrgeoffrich/agent-harness/internal/provider"
+	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
 // The tool array is per-provider (docs/KIMI-INTEGRATION.md §4.5, decision 5):

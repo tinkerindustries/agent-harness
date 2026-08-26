@@ -32,7 +32,7 @@ release commit and must match the tag.
 | Artifact | Where it lives | Produced by |
 | --- | --- | --- |
 | `vX.Y.Z` tag | `origin` | `git tag`, below |
-| GitHub release notes | github.com/mrgeoffrich/deepseek-harness/releases | `gh release create` |
+| GitHub release notes | github.com/mrgeoffrich/agent-harness/releases | `gh release create` |
 | `deepseek-harness:prod-<sha>` | This machine's docker image store | `scripts/prod.sh promote` |
 | `deepseek-harness:prod` | The same store; the tag prod runs | `promote` moves it |
 

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+	"github.com/mrgeoffrich/agent-harness/internal/tools"
 )
 
 // resolvePermissionMode validates the launch tool's permission_mode

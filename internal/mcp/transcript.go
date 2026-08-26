@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/hub"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 // renderTranscriptMarkdown renders a session's event log as readable

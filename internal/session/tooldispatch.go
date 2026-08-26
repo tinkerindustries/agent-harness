@@ -6,10 +6,10 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/httplog"
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
-	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
-	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
+	"github.com/mrgeoffrich/agent-harness/internal/httplog"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/tools"
+	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
 // tooldispatch.go: executing one sub-turn's tool calls in tool_calls array

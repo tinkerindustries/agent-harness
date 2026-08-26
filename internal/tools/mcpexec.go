@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/attachment"
+	"github.com/mrgeoffrich/agent-harness/internal/attachment"
 )
 
 // mcpImageExtensionByMIME resolves an MCP image content block's MIME type

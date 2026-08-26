@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/queue"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 // A Run is one (task, variant, replicate) triple and what came of it.

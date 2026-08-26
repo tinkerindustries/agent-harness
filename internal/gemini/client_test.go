@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/gemini/geminitest"
+	"github.com/mrgeoffrich/agent-harness/internal/gemini/geminitest"
 )
 
 // TestRequestShapePinsTheDoc asserts the request body follows

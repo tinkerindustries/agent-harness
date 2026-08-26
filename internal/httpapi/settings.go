@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/redact"
-	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
+	"github.com/mrgeoffrich/agent-harness/internal/redact"
+	"github.com/mrgeoffrich/agent-harness/internal/settings"
 )
 
 // The settings surface (docs/DATA-API.md): GET /api/settings serves the

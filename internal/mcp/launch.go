@@ -12,11 +12,11 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
-	"github.com/mrgeoffrich/deepseek-harness/internal/attachment"
-	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
-	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
-	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+	"github.com/mrgeoffrich/agent-harness/internal/agentmeta"
+	"github.com/mrgeoffrich/agent-harness/internal/attachment"
+	"github.com/mrgeoffrich/agent-harness/internal/queue"
+	"github.com/mrgeoffrich/agent-harness/internal/settings"
+	"github.com/mrgeoffrich/agent-harness/internal/tools"
 )
 
 // launchInput is deepseek_agent's argument set (see the tool description in

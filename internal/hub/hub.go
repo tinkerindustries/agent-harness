@@ -12,7 +12,7 @@ package hub
 import (
 	"sync"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 // sessionBufferSize and listBufferSize bound how far a subscriber may lag

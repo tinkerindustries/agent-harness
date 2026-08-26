@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 // writePNG writes a real one-pixel PNG at path, so a serving test asserts on

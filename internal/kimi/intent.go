@@ -1,6 +1,6 @@
 package kimi
 
-import "github.com/mrgeoffrich/deepseek-harness/internal/wire"
+import "github.com/mrgeoffrich/agent-harness/internal/wire"
 
 // requestFromIntent turns the session's provider-neutral intent into Kimi
 // K3's request shape: a top-level reasoning_effort and no thinking field at

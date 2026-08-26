@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/providerhttp"
-	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
+	"github.com/mrgeoffrich/agent-harness/internal/providerhttp"
+	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
 func decodeChunk(t *testing.T, raw string) wire.ChatCompletionChunk {

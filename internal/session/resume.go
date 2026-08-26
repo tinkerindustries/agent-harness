@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/cache"
-	"github.com/mrgeoffrich/deepseek-harness/internal/fold"
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
-	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
-	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
+	"github.com/mrgeoffrich/agent-harness/internal/cache"
+	"github.com/mrgeoffrich/agent-harness/internal/fold"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/tools"
+	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
 // ResumeOptions is what Resume needs beyond the session it is continuing.

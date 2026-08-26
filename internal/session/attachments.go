@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
-	"github.com/mrgeoffrich/deepseek-harness/internal/workspace"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/workspace"
 )
 
 // materialiseAttachments writes the images named by ids into an existing

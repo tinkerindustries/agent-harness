@@ -1,4 +1,4 @@
-module github.com/mrgeoffrich/deepseek-harness
+module github.com/mrgeoffrich/agent-harness
 
 go 1.25.0
 

@@ -8,13 +8,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/cache"
-	"github.com/mrgeoffrich/deepseek-harness/internal/fold"
-	"github.com/mrgeoffrich/deepseek-harness/internal/httplog"
-	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
-	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
-	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
+	"github.com/mrgeoffrich/agent-harness/internal/cache"
+	"github.com/mrgeoffrich/agent-harness/internal/fold"
+	"github.com/mrgeoffrich/agent-harness/internal/httplog"
+	"github.com/mrgeoffrich/agent-harness/internal/hub"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/tools"
+	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
 // subTurnOutcome is what runSubTurn learned, folded down to what the loop

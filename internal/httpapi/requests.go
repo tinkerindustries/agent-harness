@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 // Work requests (docs/DATA-API.md): the idempotency row every queued run

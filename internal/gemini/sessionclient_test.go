@@ -14,8 +14,8 @@ package gemini_test
 import (
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
-	"github.com/mrgeoffrich/deepseek-harness/internal/session"
+	"github.com/mrgeoffrich/agent-harness/internal/gemini"
+	"github.com/mrgeoffrich/agent-harness/internal/session"
 )
 
 func TestClientSatisfiesSessionClient(t *testing.T) {

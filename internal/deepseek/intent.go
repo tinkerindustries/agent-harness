@@ -1,6 +1,6 @@
 package deepseek
 
-import "github.com/mrgeoffrich/deepseek-harness/internal/wire"
+import "github.com/mrgeoffrich/agent-harness/internal/wire"
 
 // requestFromIntent turns the session's provider-neutral intent into
 // DeepSeek's request shape: thinking mode as thinking:{type}, effort as

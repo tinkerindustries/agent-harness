@@ -25,7 +25,7 @@ func TestEvalsDoesNotDependOnTheDeepSeekClient(t *testing.T) {
 	}
 
 	forbidden := map[string]string{
-		"github.com/mrgeoffrich/deepseek-harness/internal/deepseek": "the DeepSeek client",
+		"github.com/mrgeoffrich/agent-harness/internal/deepseek": "the DeepSeek client",
 	}
 	for _, dep := range strings.Fields(string(out)) {
 		if what, ok := forbidden[dep]; ok {

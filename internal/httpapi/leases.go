@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 // Workspace leases (docs/DATA-API.md): the collection read and the one

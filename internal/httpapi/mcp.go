@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/redact"
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/redact"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 // The MCP server registry (docs/MCP.md): GET /api/mcp/servers serves every

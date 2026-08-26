@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"path"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/webassets"
+	"github.com/mrgeoffrich/agent-harness/internal/webassets"
 )
 
 // NewStaticHandler serves the frontend: the embedded, built assets by

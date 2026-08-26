@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/fold"
-	"github.com/mrgeoffrich/deepseek-harness/internal/httplog"
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
-	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
+	"github.com/mrgeoffrich/agent-harness/internal/fold"
+	"github.com/mrgeoffrich/agent-harness/internal/httplog"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
 // compact forks a new session seeded with a summary of sess, marks sess

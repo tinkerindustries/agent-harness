@@ -4,7 +4,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
+	"github.com/mrgeoffrich/agent-harness/internal/queue"
 )
 
 // runRecord is one request this MCP process has launched and what it last

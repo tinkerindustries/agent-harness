@@ -17,15 +17,15 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
-	"github.com/mrgeoffrich/deepseek-harness/internal/kimi"
-	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
-	"github.com/mrgeoffrich/deepseek-harness/internal/session"
-	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
-	"github.com/mrgeoffrich/deepseek-harness/internal/skills"
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
-	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
-	"github.com/mrgeoffrich/deepseek-harness/internal/workspace"
+	"github.com/mrgeoffrich/agent-harness/internal/deepseek"
+	"github.com/mrgeoffrich/agent-harness/internal/kimi"
+	"github.com/mrgeoffrich/agent-harness/internal/queue"
+	"github.com/mrgeoffrich/agent-harness/internal/session"
+	"github.com/mrgeoffrich/agent-harness/internal/settings"
+	"github.com/mrgeoffrich/agent-harness/internal/skills"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/tools"
+	"github.com/mrgeoffrich/agent-harness/internal/workspace"
 )
 
 // Runner runs one session to a terminal result. *session.Runner implements

@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
+	"github.com/mrgeoffrich/agent-harness/internal/settings"
 )
 
 // screenshotTimeout is the wall-clock bound on one capture, resolved through

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/worktree"
+	"github.com/mrgeoffrich/agent-harness/internal/worktree"
 )
 
 const worktreeUsage = `usage: harness worktree <command> [flags]

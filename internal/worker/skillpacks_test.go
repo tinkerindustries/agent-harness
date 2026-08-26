@@ -10,10 +10,10 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
-	"github.com/mrgeoffrich/deepseek-harness/internal/session"
-	"github.com/mrgeoffrich/deepseek-harness/internal/skills"
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/queue"
+	"github.com/mrgeoffrich/agent-harness/internal/session"
+	"github.com/mrgeoffrich/agent-harness/internal/skills"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 // workspaceRunner records the workspace each run was given, which is the only

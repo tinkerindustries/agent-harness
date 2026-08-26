@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/provider"
+	"github.com/mrgeoffrich/agent-harness/internal/provider"
 )
 
 // TestHandleListModels pins GET /api/models to the one model table the

@@ -17,15 +17,15 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/config"
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
-	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
-	"github.com/mrgeoffrich/deepseek-harness/internal/httplog"
-	"github.com/mrgeoffrich/deepseek-harness/internal/kimi"
-	"github.com/mrgeoffrich/deepseek-harness/internal/provider"
-	"github.com/mrgeoffrich/deepseek-harness/internal/session"
-	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/config"
+	"github.com/mrgeoffrich/agent-harness/internal/deepseek"
+	"github.com/mrgeoffrich/agent-harness/internal/gemini"
+	"github.com/mrgeoffrich/agent-harness/internal/httplog"
+	"github.com/mrgeoffrich/agent-harness/internal/kimi"
+	"github.com/mrgeoffrich/agent-harness/internal/provider"
+	"github.com/mrgeoffrich/agent-harness/internal/session"
+	"github.com/mrgeoffrich/agent-harness/internal/settings"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 const usage = `usage: harness <command> [flags]

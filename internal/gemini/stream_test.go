@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/gemini/geminitest"
+	"github.com/mrgeoffrich/agent-harness/internal/gemini/geminitest"
 )
 
 // TestInteractSendsStream pins that every call asks for a stream and accepts

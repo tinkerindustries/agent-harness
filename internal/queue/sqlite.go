@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 // Source is the subset of *Queue the worker pool consumes: claim up to

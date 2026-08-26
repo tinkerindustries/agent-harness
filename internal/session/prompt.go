@@ -6,9 +6,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/promptvariant"
-	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
-	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
+	"github.com/mrgeoffrich/agent-harness/internal/promptvariant"
+	"github.com/mrgeoffrich/agent-harness/internal/tools"
+	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
 // The head of every request is fixed for the life of a harness build.

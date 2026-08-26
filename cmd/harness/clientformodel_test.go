@@ -3,9 +3,9 @@ package main
 import (
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/deepseek"
-	"github.com/mrgeoffrich/deepseek-harness/internal/gemini"
-	"github.com/mrgeoffrich/deepseek-harness/internal/kimi"
+	"github.com/mrgeoffrich/agent-harness/internal/deepseek"
+	"github.com/mrgeoffrich/agent-harness/internal/gemini"
+	"github.com/mrgeoffrich/agent-harness/internal/kimi"
 )
 
 // TestClientForModelRoutesGemini pins that a gemini-3.7-flash request is

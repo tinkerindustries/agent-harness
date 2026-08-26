@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/hub"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 // The two SSE streams (docs/DESIGN.md §4.2): a per-session transcript and a

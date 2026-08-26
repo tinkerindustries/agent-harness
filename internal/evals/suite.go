@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/promptvariant"
-	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
+	"github.com/mrgeoffrich/agent-harness/internal/promptvariant"
+	"github.com/mrgeoffrich/agent-harness/internal/queue"
 )
 
 // A Suite is a set of tasks run under every variant being compared. Tasks are

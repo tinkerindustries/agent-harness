@@ -12,9 +12,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
-	"github.com/mrgeoffrich/deepseek-harness/internal/redact"
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/hub"
+	"github.com/mrgeoffrich/agent-harness/internal/redact"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 // Small helpers with callers across the package rather than one resource:

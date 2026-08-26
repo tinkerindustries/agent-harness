@@ -1,6 +1,6 @@
 package session
 
-import "github.com/mrgeoffrich/deepseek-harness/internal/promptvariant"
+import "github.com/mrgeoffrich/agent-harness/internal/promptvariant"
 
 // reminderState is one run's position in its reminder cadence. The policy —
 // what the reminder says and how far the context must grow between them —

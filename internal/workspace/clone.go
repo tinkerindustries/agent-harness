@@ -11,8 +11,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/attachment"
-	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
+	"github.com/mrgeoffrich/agent-harness/internal/attachment"
+	"github.com/mrgeoffrich/agent-harness/internal/queue"
 )
 
 // skillsDir is the harness's own skill directory inside a session's

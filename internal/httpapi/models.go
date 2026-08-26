@@ -3,7 +3,7 @@ package httpapi
 import (
 	"net/http"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/provider"
+	"github.com/mrgeoffrich/agent-harness/internal/provider"
 )
 
 // The model list behind GET /api/models (docs/DATA-API.md "models"). A

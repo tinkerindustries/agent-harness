@@ -11,8 +11,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/settings"
-	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
+	"github.com/mrgeoffrich/agent-harness/internal/settings"
+	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
 type webFetchArgs struct {

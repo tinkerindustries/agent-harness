@@ -40,7 +40,7 @@ func TestStringMasksCredentialShapes(t *testing.T) {
 // that ate any of it would be worse than the leak it prevents.
 func TestStringLeavesOrdinaryOutputAlone(t *testing.T) {
 	for _, s := range []string{
-		"ok  	github.com/mrgeoffrich/deepseek-harness/internal/tools	1.157s",
+		"ok  	github.com/mrgeoffrich/agent-harness/internal/tools	1.157s",
 		"commit 3c5f36bd9e2a1f4c8b7d6e5a4938271605f4e3d2",
 		"sk-",
 		"the sk-prefix convention",

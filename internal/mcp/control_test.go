@@ -11,7 +11,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/config"
+	"github.com/mrgeoffrich/agent-harness/internal/config"
 )
 
 // fakeHarness stands in for `harness serve` for deepseek_stop's tests: it

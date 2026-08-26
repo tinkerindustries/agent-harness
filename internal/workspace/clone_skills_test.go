@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/skills"
+	"github.com/mrgeoffrich/agent-harness/internal/skills"
 )
 
 // The directory name is spelled in two packages — here, which creates it, and

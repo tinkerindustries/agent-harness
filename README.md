@@ -30,8 +30,8 @@ To build outside Docker you also need Go and Node; see
 ## Setup
 
 ```sh
-git clone https://github.com/mrgeoffrich/deepseek-harness.git
-cd deepseek-harness
+git clone https://github.com/mrgeoffrich/agent-harness.git
+cd agent-harness
 cp .env.example .env
 ```
 

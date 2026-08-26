@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/wire"
+	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
 // A rule stated once in the system prompt decays as the context grows.

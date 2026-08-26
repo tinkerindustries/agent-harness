@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/queue"
+	"github.com/mrgeoffrich/agent-harness/internal/queue"
 )
 
 // TestStartFailsLoudlyWhenJudgeCannotBeBuilt pins the orchestrator's failure

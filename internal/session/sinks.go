@@ -5,8 +5,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/hub"
-	"github.com/mrgeoffrich/deepseek-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/hub"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 // sinks.go: where a sub-turn's output goes once it happens — the disk

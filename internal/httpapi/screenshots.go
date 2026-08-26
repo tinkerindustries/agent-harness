@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/attachment"
+	"github.com/mrgeoffrich/agent-harness/internal/attachment"
 )
 
 // handleGetScreenshot serves GET /api/sessions/{id}/screenshot?path=...: one

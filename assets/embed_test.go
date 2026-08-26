@@ -6,7 +6,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/skills"
+	"github.com/mrgeoffrich/agent-harness/internal/skills"
 )
 
 // TestSkillPacksMatchKnownNames is the one thing holding the two halves of a

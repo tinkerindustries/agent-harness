@@ -11,11 +11,11 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/mrgeoffrich/deepseek-harness/internal/agentmeta"
-	"github.com/mrgeoffrich/deepseek-harness/internal/promptvariant"
-	"github.com/mrgeoffrich/deepseek-harness/internal/provider"
-	"github.com/mrgeoffrich/deepseek-harness/internal/skills"
-	"github.com/mrgeoffrich/deepseek-harness/internal/tools"
+	"github.com/mrgeoffrich/agent-harness/internal/agentmeta"
+	"github.com/mrgeoffrich/agent-harness/internal/promptvariant"
+	"github.com/mrgeoffrich/agent-harness/internal/provider"
+	"github.com/mrgeoffrich/agent-harness/internal/skills"
+	"github.com/mrgeoffrich/agent-harness/internal/tools"
 )
 
 // Request is a work request as it arrives on the WORK stream
