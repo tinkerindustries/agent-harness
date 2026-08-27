@@ -201,43 +201,73 @@ native resolution or it does not work at all.
 
 ## 7. Verified against the live API
 
-Both assumptions the design rested on are confirmed. One run, session
-`sess-9f4a7bd66718ba16a19fcd8ed8b079e2`, on `deepseek-v4-flash-vision-exp`
-through this harness on 2026-08-28.
+Both assumptions the design rested on are confirmed, by two runs through this
+harness on 2026-08-28 against `deepseek-v4-flash-vision-exp`. The shapes below
+are read from the harness's own provider HTTP trace, not inferred from the code
+that builds them.
 
-The two questions were whether a `user` message may directly follow a run of
-`tool` messages answering the same assistant turn, and whether images in that
-position are attended to rather than read as an unrelated aside. The mirror
-documents neither as allowed nor as forbidden in this exact position.
+The questions were whether a `user` message may directly follow a run of `tool`
+messages answering the same assistant turn, and whether images in that position
+are attended to rather than read as an unrelated aside. The mirror documents
+neither as allowed nor as forbidden in this exact position.
 
-The run attached a screenshot of a terminal UI, asked the model to `Read` it
-and to report three details that appear nowhere except in those pixels: a
-version string in the corner, the wording of a tip line, and which list entry
-carried the highlight. It was told to say it could not see the image rather
-than describe what the image probably showed, so a bluff would be legible as
-one. All three answers were correct against the file.
+### One image — `sess-9f4a7bd66718ba16a19fcd8ed8b079e2`
 
-The API accepted the request. The run finished in two sub-turns with no
-error and no retry. The fold could only have built the sidecar shape, because
-`deepSeekSidecarShape` answers true for every model the DeepSeek provider
-serves, and the parts-in-tool-message shape would have been rejected — a tool
-message's `content` takes a string and nothing else.
+A screenshot of a terminal UI, with three details asked for that appear nowhere
+except in those pixels: a version string in the corner, the wording of a tip
+line, and which list entry carried the highlight. The run was told to say it
+could not see the image rather than describe what the image probably showed, so
+a bluff would be legible as one. All three answers were correct against the
+file.
 
-The image cost is close to the documented ceiling. Prompt tokens went from
-3,273 in the first sub-turn to 3,927 in the second, and that delta of 654
-covers the assistant's tool call, the tool message, the lead-in, the label
-and the image together. The whole run cost $0.0011.
+The request the harness sent, HTTP 200:
 
-Still unverified:
+    system     string
+    user       string
+    assistant  string, tool_calls=1
+    tool       string
+    user       parts: lead-in, label, image_url
 
+### Two images in one batch — `sess-ebb915785a4e697b2d346c4383d59fe8`
+
+The single-image run made one tool call, so it never produced the shape §3's
+batch rule exists to avoid. This run forced two `Read` calls in one assistant
+turn. Both images were read correctly and kept distinct in the answer.
+
+The request the harness sent, HTTP 200:
+
+    system     string
+    user       string
+    assistant  string, tool_calls=2
+    tool       string
+    tool       string
+    user       parts: lead-in, label, image_url, label, image_url
+
+Both tool messages come first and one user message follows carrying both
+images. No `user` message appears between two `tool` messages.
+
+### Cost
+
+Prompt tokens went from 3,273 to 3,927 across the sub-turn that carried one
+image. That delta of 654 covers the assistant's tool call, the tool message,
+the lead-in, the label and the image together, so the image itself sits under
+the documented 384 ceiling. The one-image run cost $0.0011.
+
+### Still unverified
+
+- Whether an interleaved `tool, user, tool` sequence would actually be
+  rejected. §3 gives that risk as the reason the sidecar waits for the whole
+  batch, and the design never produces the shape, so the premise behind the
+  rule is untested. The append-only argument in §5 requires flushing on batch
+  completion regardless, so the rule stands on that alone.
 - Whether the model's image understanding holds up across the range of work
-  `Glance`, `Ground`, and `Detect` did through Gemini. One screenshot read
-  correctly is one data point, on a task with large, high-contrast text.
-- Whether the 384-token ceiling makes screenshot-driven work materially
-  worse in practice. §6 states the trade in principle. The probe image was
-  2,966 pixels wide and its small text was read correctly, which is
+  `Glance`, `Ground`, and `Detect` did through Gemini. Three images read
+  correctly is three data points, all on large, high-contrast UI text.
+- Whether the 384-token ceiling makes screenshot-driven work materially worse
+  in practice. §6 states the trade in principle. The probe images were around
+  2,950 pixels wide and their small text was read correctly, which is
   encouraging and is not a measurement.
-- Everything about `Ground` and `Detect`'s pixel-box convention. Nothing here
+- Everything about `Ground` and `Detect`'s pixel-box convention. Neither run
   asked the model for coordinates.
 
 ## 8. The routes not taken
