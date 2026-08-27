@@ -37,7 +37,7 @@ import (
 // at least a minor release (RELEASE.md). The DeepSeek golden was last moved
 // on purpose to replace ReviewScreenshot and AskVision with Glance, Ground,
 // Detect, and Crop, ported from agent-vision-toolkit
-// (docs/VISION-TOOLKIT.md); the vision-capable array drops all five vision
+// (docs/VISION-TOOLKIT.md); the vision-capable array drops all six vision
 // tools and so was untouched by that change.
 func TestToolArrayGolden(t *testing.T) {
 	cases := []struct {

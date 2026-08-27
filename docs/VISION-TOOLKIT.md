@@ -39,7 +39,8 @@ geometry), `crop` (cut a box to a file, local, no API call). Plus
 
 **The proxy** (`vision_proxy.py`, 1262 lines) plus `extensions/` for OpenCode
 and Pi: a local endpoint that intercepts requests carrying images, describes
-them, and substitutes text before the request reaches the text-only model.
+them, and substitutes text before the request reaches a model with no native
+vision of its own.
 
 There is also a `dsh-vision-toolkit` git submodule pointing at a separate repo —
 an integration for DeepSeek's own harness, not for this one (**observed**,
@@ -68,18 +69,27 @@ Thinking level would ride on `VISION_REASONING_EFFORT` rather than our
 
 ## 2. The proxy cannot apply here
 
-The proxy exists to rescue harnesses that put images into the model request and
-discover the model is text-only. This harness never does that. Images reach
-Gemini through the tool seam and never enter a DeepSeek request, so there is
+The proxy exists to rescue harnesses that put an image into a model's request
+without checking whether that model can read it. This harness never does
+that. For `deepseek-v4-pro` and `deepseek-v4-flash`, images reach Gemini
+through the tool seam and never enter a request to either model directly.
+`deepseek-v4-flash-vision-exp` is the one model that does receive images in
+its own request — and it is also the one model of the three that reads them
+natively ([DEEPSEEK-VISION.md](DEEPSEEK-VISION.md)), so the same rule holds:
+no image lands in front of a model that cannot see it. Either way, there is
 nothing on the wire for a proxy to intercept — it would be a no-op process.
 
 Worth recording the adjacent fact, because it changes the shape of this question
 within a release or two: `internal/wire` already carries `image_url` and
-`video_url` parts, added because **Kimi K3 reads images and DeepSeek does not**
-(**observed**, `internal/wire/content.go:5-13`, docs/KIMI-INTEGRATION.md §4.5).
-When Kimi lands, a Kimi session sees images natively and needs none of this;
-DeepSeek sessions keep needing the seam. Any work here should not assume one
-vision path for all providers.
+`video_url` parts, added because **Kimi K3 reads images and neither DeepSeek
+model at the time did** (**observed**, `internal/wire/content.go:5-13`,
+docs/KIMI-INTEGRATION.md §4.5). That prediction has since landed twice over:
+Kimi shipped, and so did `deepseek-v4-flash-vision-exp`, a DeepSeek model
+that reads images too (docs/DEEPSEEK-VISION.md). A Kimi session, a Gemini
+session, and a `deepseek-v4-flash-vision-exp` session all see images
+natively now and need none of this proxy; `deepseek-v4-pro` and
+`deepseek-v4-flash` sessions keep needing the seam. Any work here should not
+assume one vision path for every DeepSeek model, let alone every provider.
 
 ---
 

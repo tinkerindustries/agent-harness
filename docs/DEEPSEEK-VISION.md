@@ -1,14 +1,15 @@
-# Can `deepseek-v4-flash-vision-exp` replace the Gemini vision seam?
+# `deepseek-v4-flash-vision-exp` native vision
 
 Assessed 2026-08-27 against the docs mirror refreshed the same day
-(`third_party/deepseek-docs/`). Nothing here has been run against the live API.
+(`third_party/deepseek-docs/`). Implemented 2026-08-28. No live API request has
+been made at any point — see §7.
 
-Short answer: **not on the API surface this harness speaks.** The model reads
-images and prices them at a fraction of a Gemini call, so the prize is real. The
-obstacle is where the image has to go. This harness delivers images to the model
-in tool results, and DeepSeek's Chat Completions endpoint gives a tool message a
-plain string for content. The Responses API is the surface that accepts an image
-in tool output, and the harness does not speak it.
+The model reads images and prices them at a fraction of a Gemini call. The
+obstacle the first assessment found was real: a Chat Completions tool message
+cannot carry an image. The fix is not a new transport. The image rides a
+second message instead of the tool message, placed after the whole batch of
+tool results it belongs to. `internal/fold/fold.go` builds that message, and
+the vision model is registered and turned on.
 
 ---
 
@@ -16,7 +17,12 @@ in tool output, and the harness does not speak it.
 
 `deepseek-v4-flash-vision-exp`, model version DeepSeek-V4-Flash-Vision-Exp,
 released 2026-08-21 (`news/news260821.md`). DeepSeek calls it experimental and
-says it matches `deepseek-v4-flash` on text.
+says it matches `deepseek-v4-flash` on text. DeepSeek's own Codex model
+catalogue (`quick_start/agent_integrations/codex.md`) declares
+`input_modalities: ["text", "image"]` for this model against `["text"]` for
+`deepseek-v4-pro` and `deepseek-v4-flash` — a second, independent confirmation
+from the vendored mirror that this model reads images, alongside
+`guides/vision.md`.
 
 It matches flash on the specifications this harness cares about, and on price
 exactly (`quick_start/pricing.md`):
@@ -34,7 +40,12 @@ exactly (`quick_start/pricing.md`):
 | 1M output | $0.66 / $1.32 | $0.66 / $1.32 |
 
 Off-peak first, peak second. FIM is the only capability it loses, and no tool
-here uses FIM.
+here uses FIM. `configs/prices.json` carries it as an exact copy of flash's
+entry in all three homes a rate can live in: the flat `Models` map and both
+`rate_schedule` tiers. A model absent from that table still runs, and its
+spend reads as zero in every figure that reports it, silently. Copying
+flash's entry avoids that. `internal/pricing` pins the two entries equal by
+test.
 
 Images cost at most **384 tokens each** (`guides/vision.md`, "Token Usage").
 Every image is resized to roughly 800×800 before inference, so a 5000px capture
@@ -48,111 +59,200 @@ DeepSeek request costs $0.000084 off-peak. Two sessions measured in
 [`reviews/vision-path-2026-08-14.md`](reviews/vision-path-2026-08-14.md) spent
 23% and 39% of their total cost on the vision path.
 
-## 2. Where the image has to go, and why that decides it
+## 2. The tool-message blocker, and the option it missed
 
-The harness already has the whole mechanism for a model that sees images. It
-was built for Kimi K3 and reused for Gemini:
+A Chat Completions tool message's `content` is `Text content (string)`, with
+no array variant (`api/create-chat-completion.md`), and `guides/vision.md`
+states that images are supported in `user` messages only. Both facts were
+correct in the original assessment of this document. The harness posts to
+`/chat/completions` (`internal/deepseek/stream.go`, `internal/deepseek/client.go`),
+so a tool message built for this endpoint really cannot carry an image part.
 
-- `wire.Content` carries either a string or an array of parts, and
-  `wire.PartTypeImageURL` is one of the part types (`internal/wire/content.go`).
-- `tools.Result.ImageURL` carries a base64 data URI, set by `Read` and by the
-  MCP image path (`internal/tools/registry.go`, `read.go`, `mcpexec.go`).
-- The fold rebuilds the parts array from the stored event
-  (`internal/fold/fold.go`), so a replay reproduces the image.
-- `tools.Executor.SeeImages` gates both halves: whether `Read` returns an image
-  part at all, and which tool array the session sends. On a vision provider the
-  six DeepSeek-only tools — `Screenshot`, `Glance`, `Transcribe`, `Ground`,
-  `Detect`, `Crop` — are not offered (`internal/tools/definitions.go`,
-  [`GEMINI-INTEGRATION.md`](GEMINI-INTEGRATION.md) §5.7).
+What the original assessment concluded from that was wrong. It read the
+blocker as ruling out native vision on this surface entirely, because every
+image the harness produces is the result of a tool call, and a tool call's
+result goes in a tool message. The image does not have to live inside the
+tool message that reports it, though. It can ride in a separate `user`
+message that follows the tool message — the one role `guides/vision.md`
+names as accepting images. That needs no new endpoint, no new dialect, and
+no new streaming envelope. It needs a second message in the array the fold
+already builds.
 
-Every one of those images reaches the model as the content of a **tool
-message**. That works on Kimi because Kimi's schema allows the parts array on
-any role, tool included, and on Gemini because the request builder translates
-the part into Gemini's own shape.
+`wire.Content` already carries either a string or an array of parts, and
+`wire.PartTypeImageURL` already exists as a part type, built for Kimi and
+reused for Gemini. The DeepSeek shape reuses the same vocabulary.
 
-DeepSeek's Chat Completions schema does not allow it. A tool message's
-`content` is `Text content (string)`, with no array variant
-(`api/create-chat-completion.md`), and `guides/vision.md` states outright that
-images are supported in `user` messages only. The harness posts to
-`/chat/completions` (`internal/deepseek/stream.go:36`,
-`internal/deepseek/client.go:111`). So a session on the vision model would build
-exactly the request the API rejects.
+## 3. The sidecar design
 
-Turning `seesImages` on for this model, with nothing else changed, drops the six
-tools that let a DeepSeek session see anything and replaces them with a 400.
+`internal/fold/fold.go` builds the message array from the event log. For a
+DeepSeek model (`deepSeekSidecarShape`, which checks `provider.ModelFor(model)
+== provider.DeepSeek` — see §4 for why it checks the provider and not the
+capability), a tool-result event's text goes into an ordinary tool message,
+exactly as before. If the event also carries an image, that image is not
+attached to the tool message. It is buffered, and flushed as one `user`
+message once the whole batch of tool calls the current assistant message
+opened has been answered.
 
-## 3. The surface that does allow it
+That "once the whole batch" rule is the part that has to be exact, and the
+reason is the Chat Completions contract itself: an assistant message that
+carries `N` tool_calls must be answered by exactly `N` tool messages before
+anything else appears. A `user` message wedged between the second and third
+of five tool messages answering the same assistant turn is not documented as
+legal, and the plan that shaped this design treats it as a likely 400. So the
+fold cannot flush an image the moment its own tool result arrives — it has to
+wait until every tool result in the batch has arrived, emit all of the tool
+messages first, and only then emit the one sidecar `user` message carrying
+every image the batch produced. `internal/fold/fold_test.go`'s
+`TestFoldDeepSeekSidecarParallelImages` and
+`assertNoInterleavedUserMessage` exist to catch a regression on exactly this
+point: they scan the built message array for a tool message immediately
+followed by a user message immediately followed by another tool message, the
+literal shape of the interleaving this rule forbids.
 
-The Responses API carries images in `input_image` parts, and those parts are
-legal in the output of `function_call_output` and `custom_tool_call_output`
-items (`guides/responses_api.md`, "Image Input"). DeepSeek documents the case
-directly, with a `take_screenshot` tool in the example. That is the shape this
-harness needs.
+The sidecar message opens with a fixed lead-in sentence,
+`"The harness placed these images here, from the tool results above, because
+a tool message cannot carry them directly."`, before the per-image parts.
+Without it, a sidecar message is structurally indistinguishable from one a
+person actually sent — `wire.RoleUser` carrying prose and an image is the
+same shape a real steer or continuation takes when someone pastes an image
+into the composer. The lead-in tells the model which case it is looking at.
+Each image is preceded by its own text part carrying the label the tool
+already produced (`"Image: <path>"`), so a batch with more than one image
+still lets the model tell them apart.
 
-All three models support the Responses API, so the move is not specific to the
-vision model. It is a second dialect for `internal/deepseek`: a different
-request body, a different item vocabulary for the message array, a different
-streaming envelope than the `wire.ChatCompletionChunk` frames
-`internal/providerhttp.PumpStream` decodes, and a fresh frozen prefix for every
-session that adopts it ([`DESIGN.md`](DESIGN.md) §3.2).
+A batch with no image-bearing tool result flushes nothing — there is no
+sidecar message when there is nothing to put in it. A batch mixing an
+image-bearing result with a plain one, or with a permission denial, still
+flushes exactly one sidecar carrying only the images that exist; a denial
+carries no `ImageURL` at all, since a denied call never ran, but it still
+counts toward the batch's size, or a sidecar for the batch's other,
+image-bearing result would never flush.
 
-The Anthropic-format endpoint is the other candidate and is cheaper to reach
-from here, because a `tool_result` block rides inside a `user` message rather
-than a message of its own. `guides/anthropic_api.md` lists image blocks as
-supported and `tool_result` with its `content` field as fully supported. It does
-not say whether an image block is accepted *inside* a `tool_result`, which is
-the only question that matters. One request against the live API settles it, and
-that request is by far the cheapest next step available.
+## 4. Why the fold discriminates on the provider, not on `SeesImages`
 
-## 4. The per-provider assumption this model breaks
+The vision split elsewhere in the harness — which tool array a session sends,
+whether `Read` returns an image part — is decided by `provider.SeesImages`,
+a table keyed by model rather than by provider, because this model is the
+first whose vision capability disagrees with the rest of its provider's.
 
-`seesImages()` resolves a model to a provider and answers on the provider
-(`internal/session/runner.go`). `DefinitionsForProvider` switches on the
-provider too, and its comment records that Kimi and Gemini share one array
-because they drop the identical six tools (`internal/tools/definitions.go`).
+The fold's choice of *shape* cannot use that same table. Kimi and Gemini both
+have `SeesImages(model) == true`, and both want the parts-in-tool-message
+shape that `toolResultMessage` already builds, unchanged. Now that
+`deepseek-v4-flash-vision-exp` also has `SeesImages(model) == true`, "sees
+images" no longer picks out one shape: two of the three models it is true
+for want one shape, and the third wants the other. The shape follows a fact
+about the provider's endpoint — whether its Chat Completions schema allows a
+parts array inside a tool message. `fold.go`'s `deepSeekSidecarShape`
+checks `provider.ModelFor(model) == provider.DeepSeek` directly, independent
+of `SeesImages`.
 
-`deepseek-v4-flash-vision-exp` would be the first model whose vision capability
-disagrees with its provider's. Both functions have to become model-scoped before
-it can be added, whichever transport wins. The tool array is frozen for a
-session's life and stored on the session row, so this has to be right at
-creation and on resume ([`CACHE.md`](CACHE.md)).
+## 5. The append-only constraint that shaped the flush
 
-## 5. What to do
+[`DESIGN.md`](DESIGN.md) §4.1 requires that folding a prefix of a session's
+event log never disagree with folding the full log: a message the fold has
+already emitted for a shorter prefix must still be there, byte for byte, once
+more events arrive. `Fold` is called on every prefix the harness ever asks
+about, not only complete logs, so this is not a hypothetical concern for the
+DeepSeek sidecar.
 
-1. **Send one request** to `https://api.deepseek.com/anthropic/messages` with
-   `deepseek-v4-flash-vision-exp`, carrying an image block inside a
-   `tool_result` block. If it is accepted, the Anthropic path gives native
-   vision for the cost of a dialect the client already has a place for, and the
-   answer belongs in [`OBSERVED.md`](OBSERVED.md). If it is rejected, the
-   Responses API is the only route and it is a much larger piece of work.
-2. **Do not turn `seesImages` on for this model** until one of those two
-   transports is in place. It would remove the tools that work and put nothing
-   usable in their place.
-3. **Add the model to `configs/prices.json` in the same change that adds it to
-   `internal/provider`.** A model with no entry still runs. `Table.Cost`
-   returns an error, and both callers that price a turn drop it and keep zero
-   (`internal/session/turn.go:497`, `internal/tools/vision.go`), so the run's
-   spend disappears from every figure in the UI without anything failing. The
-   settings registry records the same trap for the vision model setting
-   (`internal/settings/registry.go:218`). The model is absent from the table
-   today, and its rates are `deepseek-v4-flash`'s exactly, so the entry is a
-   copy — including the peak and off-peak maps under `rate_schedule`.
+That is why the sidecar counts tool results against the batch's own declared
+size — the number of `tool_calls` the assistant message that opened the batch
+carried — rather than flushing at "the next event that is not a tool result"
+or "the end of whatever slice of events was passed in." A prefix cut between
+the first and second tool result of a two-image batch is real input to
+`Fold`. Flushing there would emit a one-image sidecar that a longer fold, once
+the second result lands, has no way to agree with, because a message already
+emitted may never be revisited. Counting against the batch's own known size
+means a shorter fold has either already emitted the exact sidecar a longer
+fold would, or has emitted none yet. `TestFoldDeepSeekSidecarAppendOnly`
+folds every prefix of a two-image-batch event log and checks each one
+against the full fold to pin this directly.
 
-## 6. Not verified
+`internal/session/turn.go` commits a whole sub-turn's tool results, and any
+denials mixed into the same batch, as one `store.AppendEvents` call. A
+session's real event log therefore never holds a partially-recorded batch.
+The prefix-agreement requirement still governs `Fold`'s own contract, for
+the arbitrary events slice a caller such as `internal/session/resume.go`'s
+`primeDetector` or a `Fold` call over a compaction boundary may pass it.
 
-- Nothing here was run against the live API. Section 2's blocker rests on the
-  request schema in `api/create-chat-completion.md` and the restriction in
-  `guides/vision.md`, which agree with each other; section 3's Anthropic
-  question rests on an absence from the compatibility table and is genuinely
-  open.
-- Whether the model's own image understanding is good enough to replace
-  `Glance`, `Ground` and `Detect` is untested. `Ground` and `Detect` return
-  pixel boxes on a 0-1000 grid, which is Gemini's own convention
-  ([`VISION-TOOLKIT.md`](VISION-TOOLKIT.md) §6). Nothing says DeepSeek honours
-  that convention, and nothing here has measured its boxes.
-- The 384-token ceiling caps what any single look can resolve, so the tall-page
-  problem `Transcribe` exists for does not disappear on a vision model. It gets
-  cheaper to chunk, not unnecessary.
-- Files API images (`guides/files_api.md`) were not assessed. They raise the
-  per-image ceiling to 64 MiB and avoid re-uploading, and the harness has no
-  file-upload path today.
+## 6. The resolution trade
+
+DeepSeek resizes every image to roughly 800×800 and caps it at 384 tokens
+regardless of the source resolution. A Gemini `Glance` was measured at
+1,121–1,195 input tokens per image
+([`VISION-TOOLKIT.md`](VISION-TOOLKIT.md) §7). Native DeepSeek vision costs
+about $0.000084 per look against roughly $0.013 for the equivalent Gemini
+call, and gives roughly a third of the visual resolution in return. It is the
+cheap option. It is not strictly the better one.
+
+Small text on a full-page screenshot will be less legible at 384 tokens than
+it is to a Gemini call spending three times that. `Transcribe` and `Crop`
+existed specifically to compensate for a model that could not resolve fine
+detail on its own — `Transcribe` chunks a tall page into pieces small enough
+to read, and `Crop` cuts a region out so `Glance` can look at it at full
+resolution. Turning the vision capability on for this model drops both of
+them, along with `Screenshot`, `Glance`, `Ground`, and `Detect`: the model
+reuses `definitionsVisionCapable`, the same fourteen-tool array Kimi and
+Gemini already share, instead of a third array carrying some subset of the
+six. The user decided this explicitly on 2026-08-28, aware of the
+consequence: a session on this model has no compensating tool to fall back
+on when a screenshot's detail exceeds what 384 tokens can carry. It works at
+native resolution or it does not work at all.
+
+## 7. Not verified
+
+**No live API request has been made at any point in this work.** Everything
+above is reasoned from the vendored docs mirror and pinned by the fold's own
+tests against a hand-built event log — never against the real DeepSeek API.
+
+Two assumptions carry the whole design, and neither is confirmed:
+
+- That a `user` message may directly follow a run of `tool` messages
+  answering the same assistant turn.
+- That images in that position are attended to the way an image inside a
+  tool result would be, rather than read as an unrelated aside.
+
+Both are ordinary shapes in the OpenAI format, and neither is documented as
+forbidden anywhere in the mirrored DeepSeek docs. Neither is documented as
+allowed in this exact position either. A live smoke test against
+`deepseek-v4-flash-vision-exp` — one sub-turn with an image-bearing tool
+call, checked for a 200 and a response that actually references the image —
+is the outstanding next step, and it needs the API key, which lives in the
+harness's SQLite settings table rather than in the environment.
+
+Also unverified:
+
+- Whether the model's image understanding is good enough in practice to be
+  useful at all, let alone to replace what `Glance`, `Ground`, and `Detect`
+  did through Gemini.
+- Whether the 384-token ceiling makes screenshot-driven work materially
+  worse than the six-tool DeepSeek path it replaces, or only marginally so.
+  §6 states the trade in principle; nothing here has measured it against a
+  real task.
+
+## 8. The routes not taken
+
+Two other surfaces were considered. This section records why Chat
+Completions, with the sidecar message, is what shipped instead of either one.
+
+The Responses API is the first. DeepSeek documents images in
+`function_call_output` and `custom_tool_call_output` output directly, with a
+`take_screenshot` example (`guides/responses_api.md`, "Image Input") — an
+image as part of a tool's own output, rather than a message that follows it.
+All three models support the Responses API, so adopting it is not specific
+to the vision model. It costs a whole second dialect for
+`internal/deepseek`: a different request body, a different item vocabulary
+for the message array, a different streaming envelope than the
+`wire.ChatCompletionChunk` frames `internal/providerhttp.PumpStream`
+decodes, and a fresh frozen prefix for every session that adopts it
+([`DESIGN.md`](DESIGN.md) §3.2).
+
+The Anthropic-format endpoint is the second. There, a `tool_result` block
+rides inside a `user` message rather than arriving as a message of its own,
+which would sidestep the batch-ordering question §3 and §5 work through.
+`guides/anthropic_api.md`'s compatibility table now lists `type="image"` as
+Supported (it was Not Supported before the 2026-08-27 mirror refresh) and
+`tool_result` with its `content` field as Fully Supported. The table states
+what each shape supports on its own. It does not state whether an image
+block is accepted nested inside a `tool_result`, and that is the one
+question that decides whether this route works at all.

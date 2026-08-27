@@ -60,24 +60,27 @@ trying against `Edit` if exact-match replacement underperforms.
 
 Twenty tools. The first thirteen have a trained-in analogue in at least two
 of the three named harnesses. `Screenshot`, `Glance`, `Transcribe`, `Ground`,
-`Detect`, `Crop`, and `Complete` do not. The first six exist because DeepSeek
-cannot see images, so the harness builds the whole visual path itself — a
-capture it controls (`Screenshot`), a prose answer or a located pixel box
-from Gemini (`Glance`, `Ground`, `Detect`), a chunked read of a page too tall
-for one call (`Transcribe`), and a local crop with no model call at all
-(`Crop`); the trained-vocabulary argument above says nothing about any of
-them, and each is named for what it does.
+`Detect`, `Crop`, and `Complete` do not. The first six exist because most of
+the models this harness runs cannot see images, so the harness builds the
+whole visual path itself — a capture it controls (`Screenshot`), a prose
+answer or a located pixel box from Gemini (`Glance`, `Ground`, `Detect`), a
+chunked read of a page too tall for one call (`Transcribe`), and a local crop
+with no model call at all (`Crop`); the trained-vocabulary argument above
+says nothing about any of them, and each is named for what it does.
 
-The array is per-provider (docs/KIMI-INTEGRATION.md §4.5, decision 5). A Kimi
+The array is chosen per model, through `provider.SeesImages`
+(docs/KIMI-INTEGRATION.md §4.5, decision 5; docs/DEEPSEEK-VISION.md). A Kimi
 K3 session gets the fourteen tools that remain when `Screenshot`, `Glance`,
 `Transcribe`, `Ground`, `Detect`, and `Crop` are dropped — K3 reads images
 natively, so all six are redundant for it, and capture happens through Bash
-and the `playwright-cli` skill instead. DeepSeek's array is the full twenty,
-unchanged byte for byte. Each array is a frozen request head shared by every
-session on its provider, pinned by its own golden file
+and the `playwright-cli` skill instead. Gemini and `deepseek-v4-flash-vision-exp`
+get the same fourteen, for the same reason. DeepSeek's other two models,
+`deepseek-v4-pro` and `deepseek-v4-flash`, get the full twenty, unchanged
+byte for byte. Each array is a frozen request head shared by every session
+that sends it, pinned by its own golden file
 (`internal/tools/testdata/tools_*.golden.json`, asserted by
 `TestToolArrayGolden`); the `Read` section below covers how an image reaches
-the model on the provider that can see one.
+a model that can see one.
 
 ## Per-tool notes
 
@@ -86,8 +89,9 @@ the model on the provider that can see one.
 Returns line-numbered content, `cat -n` style, because that is the shape the
 target harnesses return and the model reads offsets out of it.
 
-On a provider that sees images (Kimi K3), a `Read` of a PNG, JPEG, or WebP
-path returns the file as an `image_url` part — the bytes base64-encoded into a
+On a model that sees images (Kimi K3, Gemini, and `deepseek-v4-flash-vision-exp`
+— `provider.SeesImages`), a `Read` of a PNG, JPEG, or WebP path returns the
+file as an `image_url` part — the bytes base64-encoded into a
 `data:image/<fmt>;base64,...` data URI, the exact shape the Kimi guide
 prescribes (third_party/kimi-docs/guide/use-kimi-vision-model.md), with a
 short text label naming the file alongside. The encoded size is capped by the
@@ -97,11 +101,11 @@ same 5 MB default they enforce per file), and an over-cap image is
 refused with a result naming the limit and suggesting a resize — a refusal
 the model can act on, never a failed run. The image bytes are stored on the
 `tool_result` event, so the fold replays them identically
-(docs/KIMI-INTEGRATION.md §4.5). An SVG reads as text even on a vision
-provider — it is XML, and the API prescribes sending the source as text — and
-any other binary type is refused with a message that says so. On DeepSeek the
-behaviour is unchanged: an image is a binary file and is refused like any
-other.
+(docs/KIMI-INTEGRATION.md §4.5). An SVG reads as text even on a vision-capable
+model — it is XML, and the API prescribes sending the source as text — and
+any other binary type is refused with a message that says so. On a model
+with no vision capability the behaviour is unchanged: an image is a binary
+file and is refused like any other.
 
 This creates a known friction with `Edit`: the line-number prefix is display
 only and must not appear in `old_string`. Detect a leading line-number pattern
@@ -315,10 +319,12 @@ being killed silently.
 
 ### Glance
 
-DeepSeek is text-only, so this is the harness's general-purpose vision tool:
-it sends one or more images to Google Gemini and returns whatever comes
-back as prose — a description, an answer to a question, or a verbatim
-transcription. It is one of four tools ported from `Anionex/agent-vision-toolkit`
+This is the general-purpose vision tool for a model that cannot see images
+itself — DeepSeek's `deepseek-v4-pro` and `deepseek-v4-flash`, the two
+models `Glance` is actually offered to (`provider.SeesImages`,
+docs/DEEPSEEK-VISION.md): it sends one or more images to Google Gemini and
+returns whatever comes back as prose — a description, an answer to a
+question, or a verbatim transcription. It is one of four tools ported from `Anionex/agent-vision-toolkit`
 (docs/VISION-TOOLKIT.md is the assessment behind the port) that between them
 replaced this harness's own `ReviewScreenshot` and `AskVision`, and it is
 designed to be used with the other three in sequence: `Screenshot` captures a
@@ -802,7 +808,7 @@ So the choice is:
 FIM and prefix completion sit on the `/beta` base URL and are unaffected by
 this choice.
 
-Recommendation: stay on Chat Completions. Search is one tool among nineteen, our
+Recommendation: stay on Chat Completions. Search is one tool among twenty, our
 own `WebFetch` covers the documentation-lookup case that a coding harness
 actually needs, and DeepSeek's own note says its web search bills extra tokens
 for summarisation anyway. The decision is reversible per-session if it proves
@@ -882,12 +888,14 @@ writes one back — see above for why that puts it in the other group.
 A work request may add `deny` patterns on top of its mode. They only ever
 subtract; a request cannot widen the mode it asked for.
 
-Modes gate execution, never availability. All of a provider's tools are sent
+Modes gate execution, never availability. All of a session's tools are sent
 on every request in every mode, and a call the mode disallows is refused at
 execution with an error result the model can read and route around. Removing
 tools per mode would give each mode a different prefix and make every mode
 switch a cold cache ([CACHE.md](CACHE.md)). The one thing that does vary the
-array is the provider — DeepSeek's nineteen, Kimi's fourteen — and that is a
+array is the model — DeepSeek's non-vision pair get twenty, every
+vision-capable model gets fourteen (`provider.SeesImages`,
+docs/DEEPSEEK-VISION.md) — and that is a
 per-session property, fixed at creation and never changed mid-session, so it
 never varies within a provider's sessions ([CACHE.md](CACHE.md)).
 
