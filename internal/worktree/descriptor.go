@@ -46,12 +46,16 @@ type Descriptor struct {
 
 // sharedResources is fixed across every worktree: the things this package
 // deliberately does not isolate, and the one thing it refuses to touch.
-// Keep this in sync with the table in docs/WORKTREES.md.
+// Keep this in sync with the table in docs/WORKTREES.md. The GitHub token is
+// deliberately absent from this list: github.token is a settings-table
+// value, and each worktree runs its own SQLite store, so it is per-worktree
+// now, not shared — a worktree that needs one has to be given its own
+// (docs/WORKTREES.md, "What stays shared").
 func sharedResources() []SharedResource {
 	return []SharedResource{
 		{Name: "host docker socket", Impact: "mounted into every harness container regardless of worktree; a session in full permission mode controls the one host daemon — see CLAUDE.md's docker socket rule"},
 		{Name: "deepseek-harness-prod stack", Impact: "fixed ports 8180/4522/8522, never allocated to a worktree and never touched by this tool"},
-		{Name: "GITHUB_TOKEN / DeepSeek API key", Impact: "copied into this worktree's .env from the main checkout at init time; same account, safe to use concurrently"},
+		{Name: "the DeepSeek account", Impact: "each worktree's deepseek.api_key is its own settings-table entry, entered separately, but naming the same DeepSeek account works fine from every worktree at once"},
 		{Name: "go module cache, npm cache", Impact: "content-addressed and read-mostly; shared on purpose"},
 	}
 }

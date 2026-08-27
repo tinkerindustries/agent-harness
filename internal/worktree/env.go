@@ -90,11 +90,14 @@ func managedBlock(d Descriptor) string {
 	return b.String()
 }
 
-// UpsertEnv writes or updates worktreeRoot/.env with d's managed block.
-// A first run seeds the file from seedFrom (the main checkout's .env, so
-// GITHUB_TOKEN and any DeepSeek credentials carry over) and appends the
-// block; a re-run replaces only the text between the markers, leaving
-// anything else in the file — including hand edits — untouched.
+// UpsertEnv writes or updates worktreeRoot/.env with d's managed block. A
+// first run seeds the file from seedFrom (the main checkout's .env, so any
+// DeepSeek overrides carry over) and appends the block; a re-run replaces
+// only the text between the markers, leaving anything else in the file —
+// including hand edits — untouched. The GitHub token is never among what
+// carries over here: github.token is a settings-table value, and each
+// worktree runs its own SQLite store, so a new worktree starts with none set
+// regardless of what .env holds (docs/WORKTREES.md, "What stays shared").
 func UpsertEnv(worktreeRoot string, d Descriptor, seedFrom string) error {
 	envPath := filepath.Join(worktreeRoot, ".env")
 	block := managedBlock(d)

@@ -465,6 +465,23 @@ on the next request without restarting anything (restart-flagged keys are the
 exception: they are read once at startup and marked as such). Depends on: the
 settings surface of `internal/store` only.
 
+### `internal/githubauth`
+Makes the stored `github.token` setting ambient for every subprocess this
+process spawns, so a private clone (`internal/workspace/clone.go`) and a
+session's own `git`/`gh` calls (`internal/tools/bash.go`) both authenticate
+without either package holding a settings resolver: both spawn with a nil or
+`os.Environ()`-derived `cmd.Env`, so a value set on the harness process's own
+environment reaches every one of them unchanged. `Sync` writes a credential
+file at a path `cmd/harness/serve.go` chooses under the data directory and
+points git at it through `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_0`/
+`GIT_CONFIG_VALUE_0` in the process environment rather than the host's global
+git config, and sets `GITHUB_TOKEN`/`GH_TOKEN` for `gh`; called once at
+startup and again after every write to `github.token`
+(`httpapi.Server.OnSettingChanged`), so a token typed into the settings
+screen takes effect without a restart. `SeedFromEnv` is the one-time
+migration off the `GITHUB_TOKEN` env var an installation may have set before
+this package existed. Depends on: `internal/settings`.
+
 ### `internal/pricing`
 The price table, loaded from JSON at runtime and carrying its own capture date.
 Depends on: nothing internal. §4.9.

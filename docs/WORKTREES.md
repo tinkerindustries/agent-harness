@@ -66,13 +66,16 @@ all end in `07` — readable straight out of `docker ps` or `lsof`.
   per-worktree, per-machine state, never committed.
 - **`.env`**, in a block between `# --- harness worktree env: managed by
   ... ---` markers. A first run seeds the file from the main checkout's
-  `.env` — so `GITHUB_TOKEN` and any DeepSeek credentials carry over — then
-  appends the block; a re-run replaces only that block, leaving the rest
-  (including hand edits) alone. Everything below it flows from `.env`
-  through the normal channels: `docker-compose.yml`'s `${VAR:-default}`
-  substitutions for the compose path, and `config.LoadDotEnv` for `harness
-  serve` (which also mounts /mcp on that same address) run directly on the
-  host.
+  `.env` — so any DeepSeek overrides carry over — then appends the block; a
+  re-run replaces only that block, leaving the rest (including hand edits)
+  alone. Everything below it flows from `.env` through the normal channels:
+  `docker-compose.yml`'s `${VAR:-default}` substitutions for the compose
+  path, and `config.LoadDotEnv` for `harness serve` (which also mounts /mcp
+  on that same address) run directly on the host. The GitHub token is not
+  part of this: `github.token` lives in the settings table, and each
+  worktree has its own SQLite store, so a new worktree starts with no token
+  set regardless of what the main checkout has — see "What stays shared"
+  below.
 
 Nothing else needed a code change to become worktree-aware **except**:
 
@@ -165,9 +168,16 @@ without reading this file:
   scope — it would mean a Docker-in-Docker setup for every worktree.
 - **`deepseek-harness-prod`.** Fixed ports, never allocated to a worktree,
   never touched by `harness worktree`.
-- **`GITHUB_TOKEN` and the DeepSeek API key.** Copied into a new worktree's
-  `.env` from the main checkout at `init` time. Same account either way —
-  safe to use concurrently.
+- **Not shared, despite looking like it should be: the GitHub token.**
+  `github.token` lives in the settings table, and each worktree runs its own
+  SQLite store, so `init` copies nothing for it and a fresh worktree starts
+  with no token set. Set it on that worktree's own settings screen (or
+  `PUT /api/settings/github.token` against its own port) before it can clone
+  or push to a private repo — the main checkout's token does not carry over.
+  The DeepSeek API key is the same shape (its own per-store setting, entered
+  once per worktree), but the same DeepSeek account works from all of them
+  concurrently, so there is nothing to isolate there beyond typing the key
+  in twice.
 - **Go module cache, npm cache.** Content-addressed and read-mostly;
   isolating them would multiply setup time for no benefit.
 
@@ -258,10 +268,14 @@ Two things make this work without touching `init`'s allocation logic at all:
 - **Nothing downstream needed a standalone-specific code path.** `MainRoot()`
   for a clone with no linked-worktree sibling simply resolves to the clone's
   own root, so `UpsertEnv`'s "seed from the main checkout's `.env`" step finds
-  no file there and seeds nothing — correct, since an agent's `GITHUB_TOKEN`
-  and DeepSeek credentials arrive some other way, not through a worktree
-  `.env`. `harness worktree rm` was already registry-and-docker-label-only
-  with no git dependency, so it needs no changes either.
+  no file there and seeds nothing — correct, since neither the GitHub token
+  nor the DeepSeek API key travels through a worktree `.env` at all: both are
+  settings, and the standalone worktree's own `harness serve` reads its own
+  SQLite store, so it starts with neither one set and needs its own
+  `github.token` (and `deepseek.api_key`) put to it directly if the session
+  running inside it needs to clone a private repo or call the model.
+  `harness worktree rm` was already registry-and-docker-label-only with no
+  git dependency, so it needs no changes either.
 
 `AllocateSlot`'s live port probe (`ports.probeFree()`) binds on the
 container's own loopback, which is a different network namespace than the

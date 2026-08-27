@@ -132,9 +132,13 @@ func (s *Server) handlePutSetting(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": `invalid JSON body: expected {"value": "..."}`})
 		return
 	}
-	if err := s.Settings.Set(r.Context(), r.PathValue("key"), body.Value); err != nil {
+	key := r.PathValue("key")
+	if err := s.Settings.Set(r.Context(), key, body.Value); err != nil {
 		writeSettingError(w, err)
 		return
+	}
+	if s.OnSettingChanged != nil {
+		s.OnSettingChanged(r.Context(), key)
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
@@ -146,9 +150,13 @@ func (s *Server) handleDeleteSetting(w http.ResponseWriter, r *http.Request) {
 	if !writeGuards(w, r) {
 		return
 	}
-	if err := s.Settings.Unset(r.Context(), r.PathValue("key")); err != nil {
+	key := r.PathValue("key")
+	if err := s.Settings.Unset(r.Context(), key); err != nil {
 		writeSettingError(w, err)
 		return
+	}
+	if s.OnSettingChanged != nil {
+		s.OnSettingChanged(r.Context(), key)
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
