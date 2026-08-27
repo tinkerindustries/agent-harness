@@ -31,17 +31,19 @@ import (
 	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
-// seesImages reports whether the provider serving model reads images
-// natively — Kimi K3 (docs/KIMI-INTEGRATION.md §4.5) and Gemini
-// (docs/GEMINI-INTEGRATION.md §5.7), not DeepSeek. It drives both halves of
+// seesImages reports whether model reads images natively. It answers per
+// model, not per provider — deepseek-v4-flash-vision-exp is a DeepSeek model
+// whose vision capability disagrees with its provider's
+// (docs/DEEPSEEK-VISION.md) — by consulting internal/provider's one
+// model→capability table, provider.SeesImages, the source both this
+// function and internal/tools.DefinitionsFor read. It drives both halves of
 // the vision split: which tool array the session sends
 // (internal/tools.DefinitionsFor) and whether Read returns an image part
 // (tools.Executor.SeeImages). An unknown model resolves to false, the
 // DeepSeek default; queue validation rejects unknown models before a session
 // exists, so nothing real can land here.
 func seesImages(model string) bool {
-	p, err := provider.ModelFor(model)
-	return err == nil && (p == provider.Kimi || p == provider.Gemini)
+	return provider.SeesImages(model)
 }
 
 // DefaultMaxSubTurns and CompactionThresholdTokens are the built-in run

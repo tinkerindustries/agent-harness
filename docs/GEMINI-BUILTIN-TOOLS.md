@@ -165,10 +165,10 @@ anything ships. Mechanically it also means `wire.Content` would need to model
 
 ## 6. The cost nobody asks about: provider divergence
 
-The tool array already differs by provider — DeepSeek gets one array, the
-vision-capable providers another (`internal/tools.DefinitionsForProvider`). So
-divergence is not new. What is new is divergence in *what the session can
-reach*, rather than in how it is told to reach it.
+The tool array already differs by model — DeepSeek's non-vision pair get one
+array, every vision-capable model another (`internal/tools.DefinitionsFor`,
+`provider.SeesImages`). So divergence is not new. What is new is divergence
+in *what the session can reach*, rather than in how it is told to reach it.
 
 `internal/evals` compares two arms of the same suite. If a Gemini arm can
 search the web and a DeepSeek arm cannot, "the same task on two models" is no

@@ -76,23 +76,27 @@ the rendered text in the session row, not a template read from the running
 binary. Otherwise upgrading the harness silently changes the prefix of every
 resumable session, and every resume is cold.
 
-**Never vary the tool array.** The array is per-provider — DeepSeek's nineteen
-tools, Kimi K3's fourteen without the five vision tools
-(docs/KIMI-INTEGRATION.md decision 5) — and each provider's array is frozen
+**Never vary the tool array.** The array is chosen per model, through
+`provider.SeesImages` — DeepSeek's non-vision pair, `deepseek-v4-pro` and
+`deepseek-v4-flash`, get twenty tools; Kimi K3, Gemini, and
+`deepseek-v4-flash-vision-exp` get the same fourteen, without the six
+vision tools (docs/KIMI-INTEGRATION.md decision 5, docs/DEEPSEEK-VISION.md)
+— and each array is frozen
 and pinned by its own golden file
-(`internal/tools/testdata/tools_*.golden.json`). Within a provider, permission
-modes gate execution, not availability: all of that provider's tools ship on
-every request in every mode, and a disallowed call is refused at execution
-with an error result the model can read. Removing tools per mode would give
-each mode its own prefix and make mode switching a cold start. A work
-request's `result_schema` is the tempting exception: it belongs in the opening
-user message, never in `Complete`'s definition. Evolving a provider's array
-*between releases* is different from varying it per request: when the vision
-tools were replaced — two tools, `ReviewScreenshot` and `AskVision`, became
-four, `Glance`, `Ground`, `Detect`, and `Crop` (docs/VISION-TOOLKIT.md) — every
-session shipped the new array together, so the head changed once, paid once,
-and stayed shared — the rule is that no session or request gets a head of its
-own, not that the head is frozen forever.
+(`internal/tools/testdata/tools_*.golden.json`). Within one of those arrays,
+permission modes gate execution, not availability: every one of a session's
+tools ships on every request in every mode, and a disallowed call is refused
+at execution with an error result the model can read. Removing tools per
+mode would give each mode its own prefix and make mode switching a cold
+start. A work request's `result_schema` is the tempting exception: it
+belongs in the opening user message, never in `Complete`'s definition.
+Evolving an array *between releases* is different from varying it per
+request: when the vision tools were replaced — two tools,
+`ReviewScreenshot` and `AskVision`, became four, `Glance`, `Ground`,
+`Detect`, and `Crop` (docs/VISION-TOOLKIT.md) — every session shipped the
+new array together, so the head changed once, paid once, and stayed shared —
+the rule is that no session or request gets a head of its own, not that the
+head is frozen forever.
 
 **Never quote a configurable limit in a tool description.** The tool array is
 part of the frozen head, so a number that an operator can change — a timeout,

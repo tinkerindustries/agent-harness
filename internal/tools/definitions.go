@@ -259,19 +259,19 @@ var definitionsDeepSeek = []wire.Tool{
 	}`),
 }
 
-// definitionsVisionCapable is the array shared by every provider whose
-// model reads images natively: DeepSeek's twenty minus the six tools that
-// exist only because DeepSeek cannot see images. Kimi K3 was the first
-// (docs/KIMI-INTEGRATION.md §4.5) and Gemini is the second
-// (docs/GEMINI-INTEGRATION.md §5.7) — both drop the identical six, so both
-// resolve to this one array rather than two byte-identical copies of it.
-// Building it by subtraction states the DeepSeek relationship and cannot
-// drift from it — if a tool is added to DeepSeek's array, this one changes
-// the same way unless it is named here. The result is pinned by its own
-// golden file like DeepSeek's (tools_kimi.golden.json — kept under Kimi's
-// name since it was captured for Kimi first and the bytes are identical for
-// Gemini; TestToolArrayGolden's gemini case reads the same file rather than
-// a duplicate).
+// definitionsVisionCapable is the array for every model that reads images
+// natively (provider.SeesImages): DeepSeek's twenty minus the six tools that
+// exist only to get an image in front of a model that cannot see one
+// itself. Kimi K3 was the first (docs/KIMI-INTEGRATION.md §4.5) and Gemini
+// is the second (docs/GEMINI-INTEGRATION.md §5.7) — both drop the identical
+// six, so both resolve to this one array rather than two byte-identical
+// copies of it. Building it by subtraction states the DeepSeek relationship
+// and cannot drift from it — if a tool is added to DeepSeek's array, this
+// one changes the same way unless it is named here. The result is pinned by
+// its own golden file like DeepSeek's (tools_kimi.golden.json — kept under
+// Kimi's name since it was captured for Kimi first and the bytes are
+// identical for Gemini; TestToolArrayGolden's gemini case reads the same
+// file rather than a duplicate).
 var definitionsVisionCapable = without(definitionsDeepSeek, "Screenshot", "Glance", "Ground", "Detect", "Transcribe", "Crop")
 
 // without returns tools minus every entry whose name is in drop. Callers
@@ -314,32 +314,23 @@ func Definitions() []wire.Tool {
 	return definitionsDeepSeek
 }
 
-// DefinitionsFor returns the frozen tool array for the provider serving
-// model, resolved through the one model→provider table
-// (internal/provider, docs/KIMI-INTEGRATION.md §4.3). Queue validation
-// rejects an unknown model before a session is created, so the fallback to
-// the DeepSeek array below is belt-and-braces for direct CLI callers, not a
-// route anything can take by mistake. Callers must not mutate the result.
+// DefinitionsFor returns the frozen tool array for model, resolved through
+// the one model→capability table that decides vision (internal/provider,
+// provider.SeesImages) rather than through the provider serving it — a model
+// can disagree with its provider's default, as
+// deepseek-v4-flash-vision-exp will once its capability is turned on
+// (docs/DEEPSEEK-VISION.md). Every model behind provider.SeesImages == true
+// resolves to definitionsVisionCapable; every other model, known or not,
+// resolves to definitionsDeepSeek, so an unknown model — which queue
+// validation rejects before a session is created — falls back to the
+// DeepSeek array here too, belt-and-braces for direct CLI callers rather
+// than a route anything can take by mistake. Callers must not mutate the
+// result.
 func DefinitionsFor(model string) []wire.Tool {
-	p, err := provider.ModelFor(model)
-	if err != nil {
-		return definitionsDeepSeek
-	}
-	return DefinitionsForProvider(p)
-}
-
-// DefinitionsForProvider returns the frozen tool array for one provider.
-// Kimi and Gemini both resolve to definitionsVisionCapable — the same
-// array, not two copies of it, because both drop the identical six
-// DeepSeek-only vision tools (docs/GEMINI-INTEGRATION.md §5.7). Callers
-// must not mutate the result.
-func DefinitionsForProvider(p provider.Name) []wire.Tool {
-	switch p {
-	case provider.Kimi, provider.Gemini:
+	if provider.SeesImages(model) {
 		return definitionsVisionCapable
-	default:
-		return definitionsDeepSeek
 	}
+	return definitionsDeepSeek
 }
 
 // DefinitionsForVariant resolves the tool array for the provider serving

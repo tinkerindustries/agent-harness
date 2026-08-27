@@ -17,7 +17,7 @@ most — it lists what we are relying on that the local docs do not establish.
 | Claim | Source |
 | --- | --- |
 | Anthropic endpoint ignores `cache_control`, `anthropic-beta`, `anthropic-version`, `top_k`, `thinking.budget_tokens` | `guides/anthropic_api.md` |
-| Anthropic endpoint does not support image, document, or `redacted_thinking` blocks | `guides/anthropic_api.md` |
+| Anthropic endpoint does not support document or `redacted_thinking` blocks | `guides/anthropic_api.md` — image blocks were added to the table in the 2026-08-27 refresh; see [DEEPSEEK-VISION.md](DEEPSEEK-VISION.md) §8 |
 | Web search is server-side, on the Anthropic and Responses formats; Chat Completions accepts `type: "function"` and nothing else | `guides/anthropic_api.md`, `agent_integrations/claude_code.md`, `guides/responses_api.md`, `api/create-chat-completion.md` |
 | `reasoning_content` must round-trip when `tools` is present, or the API returns 400 | `guides/thinking_mode.md` — but see [OBSERVED.md](OBSERVED.md): the 400 does not reproduce on either model |
 | Cache-hit against cache-miss input pricing: 50× on flash, 120× on pro | `quick_start/pricing.md`, arithmetic |
@@ -115,14 +115,25 @@ because the shim handles thinking-block replay itself. A fair point in the
 shim's favour, and it does not change our choice — we handle the replay
 explicitly either way.
 
-### Input is text only
+### Input is text only, for two of three models
 
-`input_modalities: ["text"]` in the Codex `models.json` for both models. The
-Anthropic table marks image and document blocks unsupported. The Responses API
-replaces `input_image` parts with placeholder text.
+`input_modalities: ["text"]` in the Codex `models.json` for `deepseek-v4-pro`
+and `deepseek-v4-flash`. The Anthropic table marked image and document blocks
+unsupported at the time this was originally checked. The Responses API
+replaces `input_image` parts with placeholder text, for those two models.
 
-No screenshots, no image paste, no visual diffing. Worth stating in scope rather
-than discovering later.
+This section predates `deepseek-v4-flash-vision-exp` (released 2026-08-21).
+The same Codex `models.json`
+(`third_party/deepseek-docs/quick_start/agent_integrations/codex.md`) now
+carries a third entry, for `deepseek-v4-flash-vision-exp`, declaring
+`input_modalities: ["text", "image"]` — confirmed against the vendored
+mirror, not the live API. The 2026-08-27 mirror refresh also moved the
+Anthropic table's image row to Supported; see
+[DEEPSEEK-VISION.md](DEEPSEEK-VISION.md) §8. For `deepseek-v4-pro` and
+`deepseek-v4-flash`, the original finding stands: no screenshots, no image
+paste, no visual diffing. For `deepseek-v4-flash-vision-exp`, see
+[DEEPSEEK-VISION.md](DEEPSEEK-VISION.md) in full — including §7, which
+records that none of this has been checked against the live API either.
 
 ## Resolved — the pro default
 

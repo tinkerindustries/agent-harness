@@ -316,12 +316,16 @@ are the whole mapping; there is no DeepSeek-style non-thinking mode to turn
 off, and `temperature`/`top_p`/`top_k` must not be sent at all
 (`internal/gemini/types.go`).
 
-**It sees images.** `seesImages()` is true for Gemini the way it is for
-Kimi K3 (`internal/session/runner.go`): the session sends the
+**It sees images.** `seesImages()` (`internal/session/runner.go`) resolves
+through `provider.SeesImages`, one model→capability table rather than a
+per-provider switch: it is true for Gemini, for Kimi K3, and for one of
+DeepSeek's own three models, `deepseek-v4-flash-vision-exp`
+(docs/DEEPSEEK-VISION.md). Wherever it is true, the session sends the
 vision-capable tool array, and `Read` and the MCP image path return an image
 part rather than a path. This is the practical argument for the model —
-DeepSeek and standard Kimi sessions describe a screenshot secondhand through
-`Glance`/`Ground`/`Detect`; a Gemini session looks at it directly.
+`deepseek-v4-pro`, `deepseek-v4-flash`, and standard Kimi sessions describe a
+screenshot secondhand through `Glance`/`Ground`/`Detect`; a Gemini session,
+or a `deepseek-v4-flash-vision-exp` one, looks at it directly.
 
 **Cost sits near DeepSeek Pro's standard tier, not its discounted one** —
 see the table in GEMINI-INTEGRATION.md §4. The rates are introductory and
