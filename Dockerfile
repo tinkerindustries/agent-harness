@@ -204,7 +204,7 @@ RUN chmod +x /usr/local/bin/unity
 # A .blend written by a 5.x Blender is not a file a 4.x one reads back
 # faithfully, so a mismatched pair gives the CLI tools a subtly different
 # scene than the interactive tools see, which is worse than not having them.
-# edge/community has 5.2.0, and edge/main is where its dependencies live.
+# edge/community has 5.2.1, and edge/main is where its dependencies live.
 #
 # The exact `=` pin is the point of using edge at all: edge moves, and an
 # unpinned `blender` would silently bake whichever version it had drifted to
@@ -226,7 +226,7 @@ RUN chmod +x /usr/local/bin/unity
 # glslang — Blender and ffmpeg both — dies at load with `Error relocating
 # /usr/lib/libglslang.so.16: symbol not found`. Naming the package and
 # forcing the upgrade keeps the pair in lockstep.
-ARG BLENDER_VERSION=5.2.0-r0
+ARG BLENDER_VERSION=5.2.1-r0
 RUN apk add --no-cache --upgrade \
         --repository https://dl-cdn.alpinelinux.org/alpine/edge/community \
         --repository https://dl-cdn.alpinelinux.org/alpine/edge/main \
