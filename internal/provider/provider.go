@@ -69,3 +69,34 @@ func KnownModels() []string {
 	sort.Strings(out)
 	return out
 }
+
+// visionCapable is the one model→capability table for whether a model reads
+// images natively. It answers per model rather than per provider because
+// deepseek-v4-flash-vision-exp is the first model whose vision capability
+// disagrees with its provider's: DeepSeek's other models don't see images,
+// but this one, once turned on, will (docs/DEEPSEEK-VISION.md). Every model
+// a given provider serves has agreed until now — Kimi K3
+// (docs/KIMI-INTEGRATION.md §4.5) and Gemini (docs/GEMINI-INTEGRATION.md
+// §5.7) both see images, and every DeepSeek model here does not — so the
+// table still reads as one entry per provider today; it stops being that the
+// day this entry flips. A model absent from this table resolves to false,
+// the same as an unknown model resolves to false everywhere else in this
+// package, rather than panicking or erroring — callers such as
+// internal/tools.DefinitionsFor already fall back to the DeepSeek-shaped
+// default for a model ModelFor rejects, and SeesImages must agree with that
+// fallback rather than fail a different way.
+var visionCapable = map[string]bool{
+	"deepseek-v4-pro":              false,
+	"deepseek-v4-flash":            false,
+	"deepseek-v4-flash-vision-exp": false,
+	"kimi-k3":                      true,
+	"gemini-3.7-flash":             true,
+}
+
+// SeesImages reports whether model reads images natively. It is the one
+// source of truth both halves of the vision split consult: which tool array
+// a session sends (internal/tools.DefinitionsFor) and whether Read returns
+// an image part (internal/session's seesImages, tools.Executor.SeeImages).
+func SeesImages(model string) bool {
+	return visionCapable[model]
+}
