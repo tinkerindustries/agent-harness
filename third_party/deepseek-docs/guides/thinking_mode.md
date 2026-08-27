@@ -1,7 +1,7 @@
 ---
 title: Thinking Mode
 source: https://api-docs.deepseek.com/guides/thinking_mode
-fetched: 2026-08-13
+fetched: 2026-08-27
 ---
 
 # Thinking Mode
@@ -12,7 +12,7 @@ The DeepSeek model supports the thinking mode: before outputting the final answe
 
 |  |  |  |  |
 | --- | --- | --- | --- |
-|  | Control Parameter (OpenAI Format) | Control Parameter (Anthropic Format) | Control Parameter (Responses API Format) |
+| | Control Parameter (OpenAI Format) | Control Parameter (Anthropic Format) | Control Parameter (Responses API Format) |
 | Thinking Mode Toggle(1) | `{"thinking": {"type": "enabled/disabled"}}` | | `{"reasoning": {"effort": "none/low/high/max"}}` (`none` disables thinking mode) |
 | Thinking Effort Control(2) | `{"reasoning_effort": "low/high/max"}` | `{"output_config": {"effort": "low/high/max"}}` |
 
@@ -45,12 +45,12 @@ Thinking mode does not support the `temperature`, `top_p`, `presence_penalty`, o
 
 In thinking mode, the chain-of-thought content is returned via the `reasoning_content` parameter, at the same level as `content`. When concatenating subsequent turns, you can selectively return `reasoning_content` to the API:
 
-- Between two `user` messages, if the model **did not perform a tool call**, the intermediate `assistant`'s `reasoning_content` does not need to participate in the context concatenation. If passed to the API in subsequent turns, it will be ignored. See [Multi-turn Conversation](#multi-turn-conversation) for details.
-- Between two `user` messages, if the model **performed a tool call**, the intermediate `assistant`'s `reasoning_content` must participate in the context concatenation and must be **passed back to the API** in all subsequent user interaction turns. See [Tool Calls](#tool-calls) for details.
+- Between two `user` messages, if the request **does not carry the `tools` parameter**, the intermediate `assistant`'s `reasoning_content` does not need to participate in the context concatenation. If passed to the API in subsequent turns, it will be ignored. See [Multi-turn Conversation](#multi-turn-conversation) for details.
+- Between two `user` messages, if the request **carries the `tools` parameter**, the intermediate `assistant`'s `reasoning_content` must participate in the context concatenation and must be **passed back to the API** in all subsequent user interaction turns — even if the model did not perform a tool call in that turn. Otherwise the API returns a `400` error. See [Tool Calls](#tool-calls) for details.
 
 ## Multi-turn Conversation
 
-In each turn of the conversation, the model outputs the CoT (`reasoning_content`) and the final answer (`content`). If there is no tool call, the CoT content from previous turns will not be concatenated into the context in the next turn, as illustrated in the following diagram:
+In each turn of the conversation, the model outputs the CoT (`reasoning_content`) and the final answer (`content`). If the request does not carry the `tools` parameter, the CoT content from previous turns will not be concatenated into the context in the next turn, as illustrated in the following diagram:
 
 ![](../_img/deepseek_r1_multiround_example_en.jpeg)
 
@@ -134,7 +134,7 @@ The DeepSeek model's thinking mode supports tool calls. Before outputting the fi
 
 ![](../_img/thinking_with_tools_en.jpg)
 
-Please note that for requests carrying the `tools` parameter, the `reasoning_content` must be fully passed back to the API in all subsequent requests. If your code does not correctly pass back `reasoning_content`, the API will return a 400 error. Please refer to the sample code below for the correct approach.
+Please note that for requests carrying the `tools` parameter, the `reasoning_content` must be fully passed back to the API in all subsequent requests — even for turns where the model did not perform a tool call. If your code does not correctly pass back `reasoning_content`, the API will return a 400 error. Please refer to the sample code below for the correct approach.
 
 ### Sample Code
 

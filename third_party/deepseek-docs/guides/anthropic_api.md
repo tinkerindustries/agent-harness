@@ -1,7 +1,7 @@
 ---
 title: Using the Anthropic API
 source: https://api-docs.deepseek.com/guides/anthropic_api
-fetched: 2026-08-13
+fetched: 2026-08-27
 ---
 
 # Using the Anthropic API
@@ -80,7 +80,7 @@ This section lists the compatibility details of the DeepSeek API with the Anthro
 
 | Field | Support Status |
 | --- | --- |
-| anthropic-beta | Ignored |
+| anthropic-beta | Ignored for `/messages`; required (`files-api-2025-04-14`) for Files API endpoints — see [Files API](files_api.md#anthropic-compatible-files-api) |
 | anthropic-version | Ignored |
 | x-api-key | Fully Supported |
 
@@ -127,15 +127,15 @@ This section lists the compatibility details of the DeepSeek API with the Anthro
 
 | Field | Variant | Sub-Field | Support Status |
 | --- | --- | --- | --- |
-| content | string |  | Fully Supported |
+| content | string | | Fully Supported |
 | array, type="text" | text | Fully Supported |
 | cache_control | Ignored |
 | citations | Ignored |
-| array, type="image" |  | Not Supported |
-| array, type = "document" |  | Not Supported |
-| array, type = "search_result" |  | Not Supported |
-| array, type = "thinking" |  | Supported |
-| array, type="redacted_thinking" |  | Not Supported |
+| array, type="image" | source | Supported. `source.type` can be base64 (media types: jpeg, png, gif, webp), url, or file (the file variant requires the header `anthropic-beta: files-api-2025-04-14`) |
+| array, type = "document" | | Not Supported |
+| array, type = "search_result" | | Not Supported |
+| array, type = "thinking" | | Supported |
+| array, type="redacted_thinking" | | Not Supported |
 | array, type = "tool_use" | id | Fully Supported |
 | input | Fully Supported |
 | name | Fully Supported |
@@ -144,9 +144,9 @@ This section lists the compatibility details of the DeepSeek API with the Anthro
 | content | Fully Supported |
 | cache_control | Ignored |
 | is_error | Ignored |
-| array, type = "server_tool_use" |  | Supported |
-| array, type = "web_search_tool_result" |  | Supported |
-| array, type = "code_execution_tool_result" |  | Not Supported |
-| array, type = "mcp_tool_use" |  | Not Supported |
-| array, type = "mcp_tool_result" |  | Not Supported |
-| array, type = "container_upload" |  | Not Supported |
+| array, type = "server_tool_use" | | Supported |
+| array, type = "web_search_tool_result" | | Supported |
+| array, type = "code_execution_tool_result" | | Not Supported |
+| array, type = "mcp_tool_use" | | Not Supported |
+| array, type = "mcp_tool_result" | | Not Supported |
+| array, type = "container_upload" | | Not Supported |

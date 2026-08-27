@@ -1,7 +1,7 @@
 ---
 title: chat_nodejs
 source: https://api-docs.deepseek.com/api_samples/chat_nodejs
-fetched: 2026-08-13
+fetched: 2026-08-27
 ---
 
 # chat_nodejs
