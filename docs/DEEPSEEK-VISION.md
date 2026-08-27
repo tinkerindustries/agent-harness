@@ -147,39 +147,46 @@ native resolution or it does not work at all.
 Two different things have been measured, on two different surfaces, and they
 cover different shapes. Neither substitutes for the other.
 
-### The tool-message shape — hand-built request, not through the harness
+### The tool-message shape, hand-built
 
-§2's four-request table is what covers the shape actually shipped: an image
-part inside the tool message that reports it, with no separate message
-after it. Those requests were built by hand against the live API, outside
-the harness, to isolate exactly one variable — where the image part sits —
-against a control that removes it. The tool-message row returned 200 with
-the correct answer at 295 prompt tokens.
+§2's four-request table covers the shape shipped: an image part inside the
+tool message that reports it, with no separate message after it. Those
+requests were built by hand against the live API, outside the harness, to
+isolate one variable — where the image part sits — against a control that
+removes it. The tool-message row returned 200 with the correct answer at 295
+prompt tokens.
 
-No end-to-end harness run has exercised this shape yet. That is a real gap:
-the hand-built requests prove the API accepts and reads the image in this
-position, not that a real session's fold, tool dispatch, and streaming path
-produce and send it correctly end to end.
+### The tool-message shape, end to end — `sess-11d91e194a3174ef60e621cb0e2d5544`
 
-### Two harness runs — a shape no longer shipped
+The same shape driven through the harness, after the revert. Two images
+attached, the run told to issue both `Read` calls in one assistant turn.
+Both images were read correctly and kept distinct: each dialog's title, which
+entry carried the highlight in each, and the two keyboard shortcuts printed
+along the bottom of the second.
 
-Two sessions were run through this harness on 2026-08-28 against
-`deepseek-v4-flash-vision-exp`, before this revert: `sess-9f4a7bd66718ba16a19fcd8ed8b079e2`,
+The request the harness sent, HTTP 200, read from its own provider trace:
+
+    system     string
+    user       string
+    assistant  string, tool_calls=2
+    tool       parts: label, image_url
+    tool       parts: label, image_url
+
+Five messages where the removed shape sent six. No message follows the tool
+run. This is byte-for-byte the arrangement Kimi and Gemini already get, which
+is the point of the revert.
+
+### Two earlier harness runs — a shape no longer shipped
+
+Two sessions ran before the revert: `sess-9f4a7bd66718ba16a19fcd8ed8b079e2`,
 one `Read` call on a terminal-UI screenshot, and
 `sess-ebb915785a4e697b2d346c4383d59fe8`, two parallel `Read` calls in one
-assistant turn. Both returned HTTP 200. Both got every asked-for detail
-right — a version string, a tip line's wording, which list entry was
-highlighted, two images kept distinct in the answer.
+assistant turn. Both returned HTTP 200 and got every asked-for detail right.
 
-Both runs exercised the separate-user-message shape this revert removes,
-not the tool-message shape the harness now sends. They are real evidence
-that the model reads images correctly when driven through this harness's
-actual tool-dispatch and fold path. They are not evidence about the shape
-currently shipped — they confirm the model can be trusted to look at an
-image reached through this harness, but say nothing about whether the
-tool-message shape survives that same path uncorrupted. An end-to-end
-harness run against the tool-message shape is the next thing that should
-happen, and has not happened yet.
+Both exercised the separate-user-message shape the revert removes. They are
+kept on record because they are what established that the model reads images
+correctly when driven through this harness at all. The run above is what
+covers the shape now shipped.
 
 ### Still unverified
 
