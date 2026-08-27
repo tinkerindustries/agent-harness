@@ -140,7 +140,7 @@ var registry = []Descriptor{
 	stringSetting(KeyGoogleAPIKey, GroupCredentials,
 		"Google API key — sent to Gemini by the vision tools (Glance, Ground, Detect)", "", true, false),
 	stringSetting(KeyGitHubToken, GroupCredentials,
-		"GitHub personal access token — used by the start-run form's repo search (GET /api/github/repos)", "", true, false),
+		"GitHub personal access token — the single source for a private clone (internal/workspace/clone.go), the git and gh calls an agent session makes from inside its own workspace, and the start-run form's repo search (GET /api/github/repos). internal/githubauth.Sync makes a stored value ambient for every subprocess this process spawns; no restart needed after a change.", "", true, false),
 	stringSetting(KeyHTTPControlToken, GroupCredentials,
 		"Bearer token the run-control endpoints require (docs/RUN-CONTROL.md). Generated at startup when unset.", "", true, false),
 

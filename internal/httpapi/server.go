@@ -255,6 +255,19 @@ type Server struct {
 	// package constants.
 	DefaultEventsLimit int
 	MaxEventsLimit     int
+
+	// OnSettingChanged, when set, is called after a successful write to key
+	// — handlePutSetting's Set and handleDeleteSetting's Unset both call it,
+	// never on a rejected value. cmd/harness/serve.go supplies the closure
+	// that re-runs internal/githubauth.Sync when key is
+	// settings.KeyGitHubToken, so a token typed into the settings screen
+	// takes effect without a restart; this package never imports
+	// internal/githubauth itself, only this hook, which is what keeps
+	// composition in cmd/harness and nowhere else (ARCHITECTURE.md). Nil is
+	// safe — every test that builds a Server directly leaves it unset — and
+	// a callback error is the caller's to log, not this package's: the HTTP
+	// response has already been decided by the write that preceded it.
+	OnSettingChanged func(ctx context.Context, key string)
 }
 
 // Handler returns the harness's whole HTTP surface. methodGate runs before

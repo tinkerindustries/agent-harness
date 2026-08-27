@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/user"
+	"path/filepath"
 	"time"
 
 	"github.com/mrgeoffrich/agent-harness/assets"
@@ -19,6 +20,7 @@ import (
 	"github.com/mrgeoffrich/agent-harness/internal/deepseek"
 	"github.com/mrgeoffrich/agent-harness/internal/evals"
 	"github.com/mrgeoffrich/agent-harness/internal/gemini"
+	"github.com/mrgeoffrich/agent-harness/internal/githubauth"
 	"github.com/mrgeoffrich/agent-harness/internal/httpapi"
 	"github.com/mrgeoffrich/agent-harness/internal/hub"
 	"github.com/mrgeoffrich/agent-harness/internal/kimi"
@@ -85,6 +87,23 @@ func runServe(ctx context.Context, args []string) error {
 	}
 	defer st.Close()
 	res := settings.NewResolver(st)
+
+	// github.token replaces the GITHUB_TOKEN env var this used to be: an
+	// install upgrading from that env var gets it copied into the setting
+	// once, then Sync makes the stored value (or its absence) ambient for
+	// every git/gh subprocess this process or a session spawns
+	// (internal/githubauth). Neither step is fatal — the harness starts with
+	// no GitHub token exactly as it starts with no DeepSeek key, and private
+	// clones fail individually until an operator sets one.
+	if seeded, err := githubauth.SeedFromEnv(ctx, res); err != nil {
+		log.Printf("harness serve: seed %s from GITHUB_TOKEN: %v", settings.KeyGitHubToken, err)
+	} else if seeded {
+		log.Printf("harness serve: seeded %s from the GITHUB_TOKEN environment variable; it can be removed from .env now that the token lives in settings", settings.KeyGitHubToken)
+	}
+	gitCredentialPath := filepath.Join(cfg.DataDir, "git-credentials")
+	if err := githubauth.Sync(ctx, res, gitCredentialPath); err != nil {
+		log.Printf("harness serve: sync %s to %s: %v", settings.KeyGitHubToken, gitCredentialPath, err)
+	}
 
 	// The one MCP client manager for this process, shared by the session
 	// runner (which resolves a run's tool array and dispatches calls
@@ -313,6 +332,20 @@ func runServe(ctx context.Context, args []string) error {
 		MCP:                mcpMgr,
 		DefaultEventsLimit: eventsLimitDefault,
 		MaxEventsLimit:     eventsLimitMax,
+		// A token typed into the settings screen takes effect without a
+		// restart: re-run the same sync the startup path above ran, so the
+		// credential file and the process environment catch up with the
+		// write that just landed. The callback fires on every key, so it
+		// checks which one before doing anything — only github.token needs
+		// this today.
+		OnSettingChanged: func(ctx context.Context, key string) {
+			if key != settings.KeyGitHubToken {
+				return
+			}
+			if err := githubauth.Sync(ctx, res, gitCredentialPath); err != nil {
+				log.Printf("harness serve: sync %s to %s: %v", settings.KeyGitHubToken, gitCredentialPath, err)
+			}
+		},
 	}
 	// The MCP launch server mounts on the same *http.Server as /api/... and
 	// the web UI: one process, one port. It reuses serve's own publish seam,

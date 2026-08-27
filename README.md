@@ -22,7 +22,7 @@ agent harness — Claude Code, Cursor — launch runs here and collect them late
   account is prepaid and needs a balance — the harness halts the pool rather
   than failing every run when it runs out.
 - **A GitHub token**, only if runs need to clone private repositories or push
-  branches.
+  branches — set as the `github.token` setting once the stack is up.
 
 To build outside Docker you also need Go and Node; see
 [Running without Docker](#running-without-docker).
@@ -72,9 +72,17 @@ default or an override, and a "reset to default" action. It shows the same
 masked values `/api/settings` does — there is no way to read a full secret in
 the browser either.
 
-Set `GITHUB_TOKEN` too if you want private clones. The container's entrypoint
-turns it into a git credential inside the container, and `gh` picks it up from
-the environment. Nothing is written to your host's git config.
+Set `github.token` too if you want private clones — the same settings table
+as the DeepSeek key:
+
+```sh
+curl -X PUT localhost:8080/api/settings/github.token \
+  -H 'Content-Type: application/json' -d '{"value":"github_pat_..."}'
+```
+
+The harness turns it into a git credential inside the container, and `gh`
+picks it up from the process environment (`internal/githubauth`). Nothing is
+written to your host's git config.
 
 Then:
 
@@ -179,6 +187,15 @@ containers, network and volumes, on separate ports.
 | Workspaces | `HARNESS_WORKSPACES` | `HARNESS_WORKSPACES_PROD` |
 | Environment | `.env` | `.env.prod` |
 
+The two stacks keep separate settings, because each has its own SQLite
+store: `github.token` set on the dev stack is not set on prod, and has to be
+put to <http://localhost:8180> as well. An install upgrading from the
+`GITHUB_TOKEN` environment variable gets it copied into the setting on the
+first start after the upgrade, once per stack, and logs that it did. Blank
+the variable in `.env.prod` afterwards but keep the file —
+`docker-compose.prod.yml` names it `required: true`, so prod will not start
+without it.
+
 Both workspace roots default outside this checkout —
 `/Users/Shared/harness-workspaces` and `/Users/Shared/harness-workspaces-prod`
 — so the paths a run prints, records and hands the model carry no home
@@ -250,8 +267,8 @@ too) in `.env` and bring the stack back up.
 stops taking work rather than burning through redeliveries; top up and restart.
 
 **A run failed with `workspace_setup`.** The clone was refused or the branch does
-not exist. Private repositories need `GITHUB_TOKEN` set before the container
-started.
+not exist. Private repositories need `github.token` set (settings screen, or
+`PUT /api/settings/github.token`).
 
 **A run reports `status: "ok"` but did nothing useful.** Check
 `complete_status`: `gave_up` means the model finished cleanly and said it could

@@ -126,8 +126,9 @@ State plainly:
   `harness worktree show`) — or "skipped" if `--no-env`
 - **Any resources this worktree still shares** — read the `<shared>` block in
   `.worktree-env.xml` and repeat it. Writes to those escape the worktree, and whoever works here
-  needs to know before they make one. The docker socket and the DeepSeek/GitHub credentials are
-  always on that list.
+  needs to know before they make one. The docker socket is always on that list; the GitHub token
+  is deliberately not — it lives in this worktree's own settings table and starts unset, so say
+  that too if the work needs a private repo.
 - Current working directory
 
 Then stop. The caller takes it from here.
@@ -161,5 +162,6 @@ Then stop. The caller takes it from here.
 >
 > Skill: "Worktree ready at `.claude/worktrees/tunnel-retry` on branch `tunnel-retry`. Slot 3 —
 > harness at http://127.0.0.1:8703, MCP on 8803, vite dev on 5703 (`npm --prefix web run dev`
-> once you need it). Still shared: the host docker socket, and the GitHub/DeepSeek credentials
-> copied from the main checkout's `.env`."
+> once you need it). Still shared: the host docker socket. Not shared: `github.token` lives in
+> this worktree's own settings table and starts unset — set it there before a run in this
+> worktree needs a private clone."

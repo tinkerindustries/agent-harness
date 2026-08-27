@@ -46,8 +46,8 @@ Four things, and you can usually work out three of them yourself:
 - **The clone URL.** `git remote get-url origin` in the working repository.
   Rewrite ssh to https — `git@github.com:owner/repo.git` becomes
   `https://github.com/owner/repo.git` — because the container authenticates with
-  a `GITHUB_TOKEN` credential helper for `https://github.com` and has no ssh
-  key. An ssh URL fails at clone time and burns the run.
+  a credential helper for `https://github.com`, driven by the `github.token`
+  setting, and has no ssh key. An ssh URL fails at clone time and burns the run.
 - **The base branch.** Whatever the work should start from, passed as
   `repos[].branch`. It reaches `git clone --branch`, which takes any ref that is
   already pushed — a release branch, someone else's feature branch, the branch a
