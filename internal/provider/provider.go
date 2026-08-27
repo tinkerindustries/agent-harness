@@ -36,10 +36,11 @@ const (
 // never by string prefix, so a model absent here fails loudly at validation
 // instead of silently defaulting to a provider (docs/KIMI-INTEGRATION.md §4.3).
 var models = map[string]Name{
-	"deepseek-v4-pro":   DeepSeek,
-	"deepseek-v4-flash": DeepSeek,
-	"kimi-k3":           Kimi,
-	"gemini-3.7-flash":  Gemini,
+	"deepseek-v4-pro":              DeepSeek,
+	"deepseek-v4-flash":            DeepSeek,
+	"deepseek-v4-flash-vision-exp": DeepSeek,
+	"kimi-k3":                      Kimi,
+	"gemini-3.7-flash":             Gemini,
 }
 
 // ModelFor returns the provider that serves model. The table has no

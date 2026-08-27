@@ -9,6 +9,7 @@ func TestModelForResolvesKnownModels(t *testing.T) {
 	}{
 		{"deepseek-v4-pro", DeepSeek},
 		{"deepseek-v4-flash", DeepSeek},
+		{"deepseek-v4-flash-vision-exp", DeepSeek},
 		{"kimi-k3", Kimi},
 		{"gemini-3.7-flash", Gemini},
 	}
@@ -43,5 +44,23 @@ func TestModelForRejectsUnknownModel(t *testing.T) {
 	}
 	if Known("gpt-4") {
 		t.Error("Known(gpt-4) = true, want false")
+	}
+}
+
+// TestKnownModelsListsTheVisionModel pins that deepseek-v4-flash-vision-exp
+// appears in KnownModels(), the list GET /api/models answers verbatim
+// (internal/httpapi/models_test.go) and the queue validates a work request's
+// model name against (internal/queue). A model missing here cannot be
+// started from the browser at all, even though ModelFor would resolve it.
+func TestKnownModelsListsTheVisionModel(t *testing.T) {
+	found := false
+	for _, m := range KnownModels() {
+		if m == "deepseek-v4-flash-vision-exp" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("KnownModels() = %v, want it to include deepseek-v4-flash-vision-exp", KnownModels())
 	}
 }
