@@ -34,7 +34,8 @@ their arguments.
 tests need, and the smoke sequence to finish on. [RELEASE.md](RELEASE.md) covers
 cutting a version and deploying it to the production stack.
 
-- **Build with `scripts/build.sh`.** It runs gofmt, vet, the frontend build,
+- **Build with `scripts/build.sh`.** It runs gofmt, vet, `npm ci` when
+  `web/node_modules` is missing or older than the lockfile, the frontend build,
   the frontend tests, the Go binary and the container, stopping at the first
   failure, and finishes by checking that the running container serves the
   bundle it just produced. `--no-docker` stops after the binary.

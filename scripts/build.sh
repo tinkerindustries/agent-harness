@@ -53,6 +53,32 @@ stage "go vet"
 go vet ./cmd/... ./internal/...
 echo "clean"
 
+stage "frontend dependencies"
+
+# `npm run build` runs tsc and vite out of web/node_modules, and a fresh
+# clone has neither. The failure that causes is a poor one to read: the build
+# script is `npm run clean && tsc -b && vite build`, so clean-dist.mjs empties
+# the output directory first and the typecheck then dies with `sh: tsc:
+# command not found` — a missing-tool error where the missing piece is the
+# whole dependency tree, and an emptied dist left behind either way.
+#
+# `npm ci` rather than `npm install`: it installs exactly what the lockfile
+# says and never writes one back, which is what a build wants. It also
+# deletes node_modules first, so it repairs a half-installed tree rather than
+# layering onto it.
+#
+# Only when the tree is missing or stale, because ci is a full reinstall and
+# this script runs on every build. `npm ci` writes
+# node_modules/.package-lock.json as a record of what it installed, so that
+# file existing and being no older than the lockfile is the check for whether
+# the install still matches what the lockfile asks for.
+if [ ! -f web/node_modules/.package-lock.json ] ||
+	[ web/package-lock.json -nt web/node_modules/.package-lock.json ]; then
+	npm --prefix web ci
+else
+	echo "up to date with package-lock.json"
+fi
+
 stage "frontend build (clean, typecheck, bundle)"
 npm --prefix web run build
 
