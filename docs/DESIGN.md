@@ -94,7 +94,7 @@ parts with placeholder text. No screenshots reach `deepseek-v4-pro` or
 `deepseek-v4-flash`, no image paste, no visual diffing inside the loop for
 either. `deepseek-v4-flash-vision-exp` is the exception: it reads images
 directly, at the resolution and token cost [DEEPSEEK-VISION.md](DEEPSEEK-VISION.md)
-records, delivered through the sidecar shape that document's §3 covers. For
+records, through the same tool-message image shape Kimi and Gemini use. For
 the two models that cannot see images, vision is a set of tools instead:
 `Screenshot` captures a page, and `Glance`, `Ground`, `Detect`, and `Crop`
 send images to Google Gemini and return a prose answer, a located pixel box,

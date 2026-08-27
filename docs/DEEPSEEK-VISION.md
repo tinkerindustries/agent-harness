@@ -2,14 +2,16 @@
 
 Assessed 2026-08-27 against the docs mirror refreshed the same day
 (`third_party/deepseek-docs/`). Implemented and verified against the live API
-2026-08-28 — see §7.
+2026-08-28 — see §5.
 
 The model reads images and prices them at a fraction of a Gemini call. The
-obstacle the first assessment found was real: a Chat Completions tool message
-cannot carry an image. The fix is not a new transport. The image rides a
-second message instead of the tool message, placed after the whole batch of
-tool results it belongs to. `internal/fold/fold.go` builds that message, and
-the vision model is registered and turned on.
+first assessment believed a Chat Completions tool message could not carry an
+image, on the strength of the vendored docs. A live measurement on
+2026-08-28 shows the API accepts one and attends to it correctly (§2). The
+harness sends the image inside the tool message that reports it, the same
+shape it already used for Kimi and Gemini. `internal/fold/fold.go` builds
+that message with no DeepSeek-specific branch, and the vision model is
+registered and turned on.
 
 ---
 
@@ -59,123 +61,64 @@ DeepSeek request costs $0.000084 off-peak. Two sessions measured in
 [`reviews/vision-path-2026-08-14.md`](reviews/vision-path-2026-08-14.md) spent
 23% and 39% of their total cost on the vision path.
 
-## 2. The tool-message blocker, and the option it missed
+## 2. The tool-message blocker, and what the API actually does
 
 A Chat Completions tool message's `content` is `Text content (string)`, with
 no array variant (`api/create-chat-completion.md`), and `guides/vision.md`
-states that images are supported in `user` messages only. Both facts were
-correct in the original assessment of this document. The harness posts to
-`/chat/completions` (`internal/deepseek/stream.go`, `internal/deepseek/client.go`),
-so a tool message built for this endpoint really cannot carry an image part.
+states that images are supported in `user` messages only. The original
+assessment of this document read those two statements as forbidding an
+image inside a tool message, and built a separate `user` message to carry
+the image around that restriction instead.
 
-What the original assessment concluded from that was wrong. It read the
-blocker as ruling out native vision on this surface entirely, because every
-image the harness produces is the result of a tool call, and a tool call's
-result goes in a tool message. The image does not have to live inside the
-tool message that reports it, though. It can ride in a separate `user`
-message that follows the tool message — the one role `guides/vision.md`
-names as accepting images. That needs no new endpoint, no new dialect, and
-no new streaming envelope. It needs a second message in the array the fold
-already builds.
+A live measurement against `deepseek-v4-flash-vision-exp` on 2026-08-28
+contradicts the documented schema. Four consecutive requests, same setup —
+a solid `rgb(0,153,102)` image and a question asking for its colour:
+
+| shape | HTTP | prompt_tokens | answer |
+| --- | --- | --- | --- |
+| image inside the tool message | 200 | 295 | correct |
+| image in a separate user message after the tool message | 200 | 319 | correct |
+| no image, control | 200 | 177 | states plainly it cannot see one |
+
+The control is what makes the other two rows readable: without an image the
+model says so rather than guessing, so a correct colour in the other two
+rows means the image reached the model in both shapes. The tool-message
+shape works, and costs 24 fewer prompt tokens than the separate-message
+shape — the difference is the lead-in sentence and the duplicated label the
+separate message needed.
+
+The harness now relies on behaviour the vendor's own documentation
+contradicts. The exposure is concrete: if DeepSeek starts enforcing the
+schema its docs already publish, a tool message carrying an image part
+starts returning 400 on every vision run. Nothing measured here rules that
+out — the four requests above establish only what the API does today, not
+what it is contracted to keep doing. The project accepted this risk
+knowingly on 2026-08-28, and this document is the record of that decision.
 
 `wire.Content` already carries either a string or an array of parts, and
 `wire.PartTypeImageURL` already exists as a part type, built for Kimi and
-reused for Gemini. The DeepSeek shape reuses the same vocabulary.
+reused for Gemini. The DeepSeek image reuses the same vocabulary and the
+same code path — see §3.
 
-## 3. The sidecar design
+## 3. The message shape today
 
-`internal/fold/fold.go` builds the message array from the event log. For a
-DeepSeek model (`deepSeekSidecarShape`, which checks `provider.ModelFor(model)
-== provider.DeepSeek` — see §4 for why it checks the provider and not the
-capability), a tool-result event's text goes into an ordinary tool message,
-exactly as before. If the event also carries an image, that image is not
-attached to the tool message. It is buffered, and flushed as one `user`
-message once the whole batch of tool calls the current assistant message
-opened has been answered.
+`internal/fold/fold.go` builds every tool-result message the same way
+regardless of provider: `toolResultMessage` puts the label text and, when
+the event carries one, the image part, both inside the one tool message
+that answers the call. DeepSeek, Kimi, and Gemini all take this shape.
+There is no per-provider branch in the fold, no batching state, and no
+message queued for later — a tool result's message is complete the moment
+its event is folded.
 
-That "once the whole batch" rule is the part that has to be exact, and the
-reason is the Chat Completions contract itself: an assistant message that
-carries `N` tool_calls must be answered by exactly `N` tool messages before
-anything else appears. A `user` message wedged between the second and third
-of five tool messages answering the same assistant turn is not documented as
-legal, and the plan that shaped this design treats it as a likely 400. So the
-fold cannot flush an image the moment its own tool result arrives — it has to
-wait until every tool result in the batch has arrived, emit all of the tool
-messages first, and only then emit the one sidecar `user` message carrying
-every image the batch produced. `internal/fold/fold_test.go`'s
-`TestFoldDeepSeekSidecarParallelImages` and
-`assertNoInterleavedUserMessage` exist to catch a regression on exactly this
-point: they scan the built message array for a tool message immediately
-followed by a user message immediately followed by another tool message, the
-literal shape of the interleaving this rule forbids.
+One fact from the investigation stays on record even though nothing in the
+shipped shape depends on it: an interleaved `assistant(tool_calls: A, B) ->
+tool(A) -> user(...) -> tool(B)` sequence is rejected by the live API with a
+400, whose own message says an assistant message carrying `tool_calls` must
+be followed by tool messages answering each `tool_call_id`. That finding is
+why a future change should not reintroduce a separate `user` message into
+the middle of a tool-result batch without checking this again first.
 
-The sidecar message opens with a fixed lead-in sentence,
-`"The harness placed these images here, from the tool results above, because
-a tool message cannot carry them directly."`, before the per-image parts.
-Without it, a sidecar message is structurally indistinguishable from one a
-person actually sent — `wire.RoleUser` carrying prose and an image is the
-same shape a real steer or continuation takes when someone pastes an image
-into the composer. The lead-in tells the model which case it is looking at.
-Each image is preceded by its own text part carrying the label the tool
-already produced (`"Image: <path>"`), so a batch with more than one image
-still lets the model tell them apart.
-
-A batch with no image-bearing tool result flushes nothing — there is no
-sidecar message when there is nothing to put in it. A batch mixing an
-image-bearing result with a plain one, or with a permission denial, still
-flushes exactly one sidecar carrying only the images that exist; a denial
-carries no `ImageURL` at all, since a denied call never ran, but it still
-counts toward the batch's size, or a sidecar for the batch's other,
-image-bearing result would never flush.
-
-## 4. Why the fold discriminates on the provider, not on `SeesImages`
-
-The vision split elsewhere in the harness — which tool array a session sends,
-whether `Read` returns an image part — is decided by `provider.SeesImages`,
-a table keyed by model rather than by provider, because this model is the
-first whose vision capability disagrees with the rest of its provider's.
-
-The fold's choice of *shape* cannot use that same table. Kimi and Gemini both
-have `SeesImages(model) == true`, and both want the parts-in-tool-message
-shape that `toolResultMessage` already builds, unchanged. Now that
-`deepseek-v4-flash-vision-exp` also has `SeesImages(model) == true`, "sees
-images" no longer picks out one shape: two of the three models it is true
-for want one shape, and the third wants the other. The shape follows a fact
-about the provider's endpoint — whether its Chat Completions schema allows a
-parts array inside a tool message. `fold.go`'s `deepSeekSidecarShape`
-checks `provider.ModelFor(model) == provider.DeepSeek` directly, independent
-of `SeesImages`.
-
-## 5. The append-only constraint that shaped the flush
-
-[`DESIGN.md`](DESIGN.md) §4.1 requires that folding a prefix of a session's
-event log never disagree with folding the full log: a message the fold has
-already emitted for a shorter prefix must still be there, byte for byte, once
-more events arrive. `Fold` is called on every prefix the harness ever asks
-about, not only complete logs, so this is not a hypothetical concern for the
-DeepSeek sidecar.
-
-That is why the sidecar counts tool results against the batch's own declared
-size — the number of `tool_calls` the assistant message that opened the batch
-carried — rather than flushing at "the next event that is not a tool result"
-or "the end of whatever slice of events was passed in." A prefix cut between
-the first and second tool result of a two-image batch is real input to
-`Fold`. Flushing there would emit a one-image sidecar that a longer fold, once
-the second result lands, has no way to agree with, because a message already
-emitted may never be revisited. Counting against the batch's own known size
-means a shorter fold has either already emitted the exact sidecar a longer
-fold would, or has emitted none yet. `TestFoldDeepSeekSidecarAppendOnly`
-folds every prefix of a two-image-batch event log and checks each one
-against the full fold to pin this directly.
-
-`internal/session/turn.go` commits a whole sub-turn's tool results, and any
-denials mixed into the same batch, as one `store.AppendEvents` call. A
-session's real event log therefore never holds a partially-recorded batch.
-The prefix-agreement requirement still governs `Fold`'s own contract, for
-the arbitrary events slice a caller such as `internal/session/resume.go`'s
-`primeDetector` or a `Fold` call over a compaction boundary may pass it.
-
-## 6. The resolution trade
+## 4. The resolution trade
 
 DeepSeek resizes every image to roughly 800×800 and caps it at 384 tokens
 regardless of the source resolution. A Gemini `Glance` was measured at
@@ -199,81 +142,62 @@ consequence: a session on this model has no compensating tool to fall back
 on when a screenshot's detail exceeds what 384 tokens can carry. It works at
 native resolution or it does not work at all.
 
-## 7. Verified against the live API
+## 5. Verified against the live API
 
-Both assumptions the design rested on are confirmed, by two runs through this
-harness on 2026-08-28 against `deepseek-v4-flash-vision-exp`. The shapes below
-are read from the harness's own provider HTTP trace, not inferred from the code
-that builds them.
+Two different things have been measured, on two different surfaces, and they
+cover different shapes. Neither substitutes for the other.
 
-The questions were whether a `user` message may directly follow a run of `tool`
-messages answering the same assistant turn, and whether images in that position
-are attended to rather than read as an unrelated aside. The mirror documents
-neither as allowed nor as forbidden in this exact position.
+### The tool-message shape — hand-built request, not through the harness
 
-### One image — `sess-9f4a7bd66718ba16a19fcd8ed8b079e2`
+§2's four-request table is what covers the shape actually shipped: an image
+part inside the tool message that reports it, with no separate message
+after it. Those requests were built by hand against the live API, outside
+the harness, to isolate exactly one variable — where the image part sits —
+against a control that removes it. The tool-message row returned 200 with
+the correct answer at 295 prompt tokens.
 
-A screenshot of a terminal UI, with three details asked for that appear nowhere
-except in those pixels: a version string in the corner, the wording of a tip
-line, and which list entry carried the highlight. The run was told to say it
-could not see the image rather than describe what the image probably showed, so
-a bluff would be legible as one. All three answers were correct against the
-file.
+No end-to-end harness run has exercised this shape yet. That is a real gap:
+the hand-built requests prove the API accepts and reads the image in this
+position, not that a real session's fold, tool dispatch, and streaming path
+produce and send it correctly end to end.
 
-The request the harness sent, HTTP 200:
+### Two harness runs — a shape no longer shipped
 
-    system     string
-    user       string
-    assistant  string, tool_calls=1
-    tool       string
-    user       parts: lead-in, label, image_url
+Two sessions were run through this harness on 2026-08-28 against
+`deepseek-v4-flash-vision-exp`, before this revert: `sess-9f4a7bd66718ba16a19fcd8ed8b079e2`,
+one `Read` call on a terminal-UI screenshot, and
+`sess-ebb915785a4e697b2d346c4383d59fe8`, two parallel `Read` calls in one
+assistant turn. Both returned HTTP 200. Both got every asked-for detail
+right — a version string, a tip line's wording, which list entry was
+highlighted, two images kept distinct in the answer.
 
-### Two images in one batch — `sess-ebb915785a4e697b2d346c4383d59fe8`
-
-The single-image run made one tool call, so it never produced the shape §3's
-batch rule exists to avoid. This run forced two `Read` calls in one assistant
-turn. Both images were read correctly and kept distinct in the answer.
-
-The request the harness sent, HTTP 200:
-
-    system     string
-    user       string
-    assistant  string, tool_calls=2
-    tool       string
-    tool       string
-    user       parts: lead-in, label, image_url, label, image_url
-
-Both tool messages come first and one user message follows carrying both
-images. No `user` message appears between two `tool` messages.
-
-### Cost
-
-Prompt tokens went from 3,273 to 3,927 across the sub-turn that carried one
-image. That delta of 654 covers the assistant's tool call, the tool message,
-the lead-in, the label and the image together, so the image itself sits under
-the documented 384 ceiling. The one-image run cost $0.0011.
+Both runs exercised the separate-user-message shape this revert removes,
+not the tool-message shape the harness now sends. They are real evidence
+that the model reads images correctly when driven through this harness's
+actual tool-dispatch and fold path. They are not evidence about the shape
+currently shipped — they confirm the model can be trusted to look at an
+image reached through this harness, but say nothing about whether the
+tool-message shape survives that same path uncorrupted. An end-to-end
+harness run against the tool-message shape is the next thing that should
+happen, and has not happened yet.
 
 ### Still unverified
 
-- Whether an interleaved `tool, user, tool` sequence would actually be
-  rejected. §3 gives that risk as the reason the sidecar waits for the whole
-  batch, and the design never produces the shape, so the premise behind the
-  rule is untested. The append-only argument in §5 requires flushing on batch
-  completion regardless, so the rule stands on that alone.
 - Whether the model's image understanding holds up across the range of work
-  `Glance`, `Ground`, and `Detect` did through Gemini. Three images read
-  correctly is three data points, all on large, high-contrast UI text.
+  `Glance`, `Ground`, and `Detect` did through Gemini. A handful of images
+  read correctly is a handful of data points, all on large, high-contrast
+  UI text.
 - Whether the 384-token ceiling makes screenshot-driven work materially worse
-  in practice. §6 states the trade in principle. The probe images were around
+  in practice. §4 states the trade in principle. The probe images were around
   2,950 pixels wide and their small text was read correctly, which is
   encouraging and is not a measurement.
-- Everything about `Ground` and `Detect`'s pixel-box convention. Neither run
-  asked the model for coordinates.
+- Everything about `Ground` and `Detect`'s pixel-box convention. None of the
+  measurements above asked the model for coordinates.
 
-## 8. The routes not taken
+## 6. The routes not taken
 
 Two other surfaces were considered. This section records why Chat
-Completions, with the sidecar message, is what shipped instead of either one.
+Completions is what shipped instead of either one.
 
 The Responses API is the first. DeepSeek documents images in
 `function_call_output` and `custom_tool_call_output` output directly, with a
@@ -288,8 +212,7 @@ decodes, and a fresh frozen prefix for every session that adopts it
 ([`DESIGN.md`](DESIGN.md) §3.2).
 
 The Anthropic-format endpoint is the second. There, a `tool_result` block
-rides inside a `user` message rather than arriving as a message of its own,
-which would sidestep the batch-ordering question §3 and §5 work through.
+rides inside a `user` message rather than arriving as a message of its own.
 `guides/anthropic_api.md`'s compatibility table now lists `type="image"` as
 Supported (it was Not Supported before the 2026-08-27 mirror refresh) and
 `tool_result` with its `content` field as Fully Supported. The table states

@@ -19,17 +19,6 @@ func testSession() store.Session {
 	}
 }
 
-// kimiTestSession is testSession with the model changed to Kimi. Every test
-// that exercises the parts-in-tool-message image shape needs a session whose
-// provider actually builds that shape: since deepSeekSidecarShape now
-// decides the image shape by provider, testSession's DeepSeek model would
-// silently take the sidecar shape instead of the one these tests assert on.
-func kimiTestSession() store.Session {
-	sess := testSession()
-	sess.Model = "kimi-k3"
-	return sess
-}
-
 // eventBuilder assigns sequential seq numbers to make test cases readable.
 type eventBuilder struct {
 	seq int64
@@ -456,16 +445,13 @@ func TestFoldTwoSteersInOneBatch(t *testing.T) {
 	requireEqualMessages(t, got, want)
 }
 
-// TestFoldImageToolResult covers the parts-in-tool-message shape Kimi and
-// Gemini use: a Read on either provider stored the image as ImageURL on the
-// event, and the fold must rebuild the parts array the model sees — a text
-// label part then the image_url part, exactly as the tool produced them
+// TestFoldImageToolResult covers the parts-in-tool-message shape every
+// provider uses: a Read stored the image as ImageURL on the event, and the
+// fold must rebuild the parts array the model sees — a text label part then
+// the image_url part, exactly as the tool produced them
 // (docs/KIMI-INTEGRATION.md §4.5). The bytes come entirely from the event
 // payload, so replaying the log reproduces them identically regardless of
-// what happened to the image file since. The session is Kimi's, not
-// testSession's DeepSeek default — deepSeekSidecarShape means the model on
-// the session decides which shape a fold builds, and DeepSeek's is the
-// different one covered in TestFoldDeepSeekSidecar*.
+// what happened to the image file since.
 func TestFoldImageToolResult(t *testing.T) {
 	b := &eventBuilder{}
 	uri := "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
@@ -477,7 +463,7 @@ func TestFoldImageToolResult(t *testing.T) {
 		b.ev(store.KindToolResult, store.ToolResultPayload{ToolCallID: "call_00_a", Name: "Read", Content: "Image: shot.png", ImageURL: uri}),
 	}
 
-	got, err := Fold(kimiTestSession(), events)
+	got, err := Fold(testSession(), events)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -504,7 +490,7 @@ func TestFoldImageToolResult(t *testing.T) {
 	requireEqualMessages(t, got, want)
 
 	// The parts array must serialise as the array form on the wire — the
-	// shape the Kimi API expects on a tool message
+	// shape a tool message carries an image in
 	// (third_party/kimi-docs/openapi.json "Message").
 	raw, err := json.Marshal(got[3])
 	if err != nil {
@@ -522,10 +508,9 @@ func TestFoldImageToolResult(t *testing.T) {
 }
 
 // TestFoldImageToolResultAppendOnly pins the load-bearing property for the
-// Kimi/Gemini shape: folding the log up to the tool_result event and past it
-// must not disagree on the image message — the event payload is immutable,
-// so the image part is identical on every replay (docs/DESIGN.md §4.1). See
-// TestFoldImageToolResult for why the session is Kimi's.
+// image shape: folding the log up to the tool_result event and past it must
+// not disagree on the image message — the event payload is immutable, so
+// the image part is identical on every replay (docs/DESIGN.md §4.1).
 func TestFoldImageToolResultAppendOnly(t *testing.T) {
 	b := &eventBuilder{}
 	uri := "data:image/png;base64,iVBORw0KGgo="
@@ -540,7 +525,7 @@ func TestFoldImageToolResultAppendOnly(t *testing.T) {
 		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "stop"}),
 	}
 
-	sess := kimiTestSession()
+	sess := testSession()
 	full, err := Fold(sess, events)
 	if err != nil {
 		t.Fatal(err)
@@ -673,380 +658,6 @@ func TestAppendOnly(t *testing.T) {
 		fullJSON[i] = string(raw)
 	}
 
-	for n := 0; n <= len(events); n++ {
-		partial, err := Fold(sess, events[:n])
-		if err != nil {
-			t.Fatalf("fold events[:%d]: %v", n, err)
-		}
-		if len(partial) > len(full) {
-			t.Fatalf("fold events[:%d] produced %d messages, more than the full fold's %d", n, len(partial), len(full))
-		}
-		for i, m := range partial {
-			raw, err := json.Marshal(m)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if string(raw) != fullJSON[i] {
-				t.Fatalf("fold events[:%d] message %d differs from the full fold:\n partial: %s\n   full: %s", n, i, raw, fullJSON[i])
-			}
-		}
-	}
-}
-
-// deepSeekVisionTestSession is testSession with the model changed to
-// deepseek-v4-flash-vision-exp, so deepSeekSidecarShape picks the DeepSeek
-// shape these tests exercise. The tests below build tool_result events with
-// ImageURL directly, bypassing the executor: the fold's job is to build the
-// right messages array from whatever the event log says, regardless of
-// which tool populated ImageURL, so these tests pin that independently of
-// tools.Executor.SeeImages (now true for this model, docs/DEEPSEEK-VISION.md).
-func deepSeekVisionTestSession() store.Session {
-	sess := testSession()
-	sess.Model = "deepseek-v4-flash-vision-exp"
-	return sess
-}
-
-// toolThenUserThenTool returns the index of the first tool-role message in
-// messages that is immediately followed by a user message and then another
-// tool-role message, or -1 if no such run exists. This is the literal shape
-// of the interleaving bug the batch rule forbids —
-// assistant(tool_calls: A, B) -> tool(A) -> user(image) -> tool(B) -> ... —
-// found by scanning message roles directly rather than by comparing the
-// whole fold against a hand-written `want` slice, so a `want` slice that
-// happened to reproduce the same bug would not hide it.
-func toolThenUserThenTool(messages []wire.Message) int {
-	for i := 0; i+2 < len(messages); i++ {
-		if messages[i].Role == wire.RoleTool && messages[i+1].Role == wire.RoleUser && messages[i+2].Role == wire.RoleTool {
-			return i
-		}
-	}
-	return -1
-}
-
-// TestToolThenUserThenToolDetectsInterleaving is a test of the detector
-// itself: it must flag the exact forbidden shape and pass the required one
-// (two tool messages back to back, sidecar user message after both) clean,
-// before TestFoldDeepSeekSidecarParallelImages relies on it to mean
-// anything.
-func TestToolThenUserThenToolDetectsInterleaving(t *testing.T) {
-	bad := []wire.Message{{Role: wire.RoleTool}, {Role: wire.RoleUser}, {Role: wire.RoleTool}}
-	if i := toolThenUserThenTool(bad); i != 0 {
-		t.Fatalf("toolThenUserThenTool(bad) = %d, want 0", i)
-	}
-	good := []wire.Message{{Role: wire.RoleTool}, {Role: wire.RoleTool}, {Role: wire.RoleUser}}
-	if i := toolThenUserThenTool(good); i != -1 {
-		t.Fatalf("toolThenUserThenTool(good) = %d, want -1", i)
-	}
-}
-
-// assertNoInterleavedUserMessage fails t if got contains the forbidden
-// tool/user/tool shape.
-func assertNoInterleavedUserMessage(t *testing.T, got []wire.Message) {
-	t.Helper()
-	if i := toolThenUserThenTool(got); i != -1 {
-		t.Fatalf("message %d is a user message wedged between two tool messages of the same batch, which the DeepSeek API can 400 on: %+v", i+1, got[i+1])
-	}
-}
-
-// TestFoldDeepSeekSidecarSingleImage covers the basic DeepSeek shape: the
-// tool message carries the image's own text label as a plain string — never
-// a parts array, since DeepSeek's tool-message content has no array variant
-// (third_party/deepseek-docs/api/create-chat-completion.md) — and the image
-// itself rides a user message that follows it, before the next assistant
-// message.
-func TestFoldDeepSeekSidecarSingleImage(t *testing.T) {
-	b := &eventBuilder{}
-	uri := "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
-	events := []store.Event{
-		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "look at the screenshot"}),
-		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
-		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 0, ID: "call_00_a", Name: "Read", Arguments: `{"file_path":"shot.png"}`}),
-		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "tool_calls"}),
-		b.ev(store.KindToolResult, store.ToolResultPayload{ToolCallID: "call_00_a", Name: "Read", Content: "Image: shot.png", ImageURL: uri}),
-		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 2}),
-		b.ev(store.KindContentDelta, store.ContentDeltaPayload{Text: "the button is misaligned"}),
-		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "stop"}),
-	}
-
-	got, err := Fold(deepSeekVisionTestSession(), events)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	want := []wire.Message{
-		wire.SystemMessage("you are a coding agent"),
-		wire.UserMessage("look at the screenshot"),
-		{
-			Role:    wire.RoleAssistant,
-			Content: wire.TextContent(""),
-			ToolCalls: []wire.ToolCall{
-				{ID: "call_00_a", Type: "function", Function: wire.ToolCallFunc{Name: "Read", Arguments: `{"file_path":"shot.png"}`}},
-			},
-		},
-		// Plain string content — the DeepSeek tool message never carries a
-		// parts array, unlike TestFoldImageToolResult's Kimi case.
-		{Role: wire.RoleTool, ToolCallID: "call_00_a", Content: wire.TextContent("Image: shot.png")},
-		{Role: wire.RoleUser, Content: wire.Content{Parts: []wire.Part{
-			{Type: wire.PartTypeText, Text: sidecarLeadIn},
-			{Type: wire.PartTypeText, Text: "Image: shot.png"},
-			{Type: wire.PartTypeImageURL, ImageURL: &wire.ImageURL{URL: uri}},
-		}}},
-		{Role: wire.RoleAssistant, Content: wire.TextContent("the button is misaligned")},
-	}
-	requireEqualMessages(t, got, want)
-	assertNoInterleavedUserMessage(t, got)
-
-	// The tool message's content must serialise as a bare string, not the
-	// array form Kimi's dialect uses — the fact
-	// third_party/deepseek-docs/api/create-chat-completion.md forces.
-	raw, err := json.Marshal(got[3])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !jsonContains(raw, `"content":"Image: shot.png"`) {
-		t.Fatalf("DeepSeek tool message content is not a bare string: %s", raw)
-	}
-}
-
-// TestFoldDeepSeekSidecarParallelImages is the load-bearing case: two
-// tool_calls in one assistant message, both answered with images. Exactly
-// one user message must carry both, positioned after both tool messages —
-// never one sidecar per tool result, which is what would risk the API's
-// 400 on a user message between two tool messages answering the same
-// assistant turn.
-func TestFoldDeepSeekSidecarParallelImages(t *testing.T) {
-	b := &eventBuilder{}
-	uriA := "data:image/png;base64,aGVsbG8tYQ=="
-	uriB := "data:image/png;base64,aGVsbG8tYg=="
-	events := []store.Event{
-		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "compare the two screenshots"}),
-		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
-		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 0, ID: "call_00_a", Name: "Read", Arguments: `{"file_path":"a.png"}`}),
-		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 1, ID: "call_01_b", Name: "Read", Arguments: `{"file_path":"b.png"}`}),
-		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "tool_calls"}),
-		// Appended in tool_calls order, matching how turn.go actually
-		// commits a batch (TestFoldParallelToolCallTurn's ordering note
-		// applies here too).
-		b.ev(store.KindToolResult, store.ToolResultPayload{ToolCallID: "call_00_a", Name: "Read", Content: "Image: a.png", ImageURL: uriA}),
-		b.ev(store.KindToolResult, store.ToolResultPayload{ToolCallID: "call_01_b", Name: "Read", Content: "Image: b.png", ImageURL: uriB}),
-	}
-
-	got, err := Fold(deepSeekVisionTestSession(), events)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	want := []wire.Message{
-		wire.SystemMessage("you are a coding agent"),
-		wire.UserMessage("compare the two screenshots"),
-		{
-			Role:    wire.RoleAssistant,
-			Content: wire.TextContent(""),
-			ToolCalls: []wire.ToolCall{
-				{ID: "call_00_a", Type: "function", Function: wire.ToolCallFunc{Name: "Read", Arguments: `{"file_path":"a.png"}`}},
-				{ID: "call_01_b", Type: "function", Function: wire.ToolCallFunc{Name: "Read", Arguments: `{"file_path":"b.png"}`}},
-			},
-		},
-		{Role: wire.RoleTool, ToolCallID: "call_00_a", Content: wire.TextContent("Image: a.png")},
-		{Role: wire.RoleTool, ToolCallID: "call_01_b", Content: wire.TextContent("Image: b.png")},
-		// One sidecar message, both images, in tool_calls order, behind the
-		// one leading part that frames the whole message.
-		{Role: wire.RoleUser, Content: wire.Content{Parts: []wire.Part{
-			{Type: wire.PartTypeText, Text: sidecarLeadIn},
-			{Type: wire.PartTypeText, Text: "Image: a.png"},
-			{Type: wire.PartTypeImageURL, ImageURL: &wire.ImageURL{URL: uriA}},
-			{Type: wire.PartTypeText, Text: "Image: b.png"},
-			{Type: wire.PartTypeImageURL, ImageURL: &wire.ImageURL{URL: uriB}},
-		}}},
-	}
-	requireEqualMessages(t, got, want)
-
-	// The structural guard, independent of the `want` comparison above.
-	assertNoInterleavedUserMessage(t, got)
-
-	// Exactly one user message in the whole fold — not one per tool result.
-	userCount := 0
-	for _, m := range got {
-		if m.Role == wire.RoleUser {
-			userCount++
-		}
-	}
-	if userCount != 2 { // the opening message plus the one sidecar
-		t.Fatalf("got %d user messages, want 2 (opening message + one sidecar)", userCount)
-	}
-}
-
-// TestFoldDeepSeekSidecarMixedBatch covers a batch where only one of two
-// tool results carries an image: the sidecar must carry that one image and
-// nothing standing in for the other — the tool result with no image gains
-// no sidecar entry at all.
-func TestFoldDeepSeekSidecarMixedBatch(t *testing.T) {
-	b := &eventBuilder{}
-	uri := "data:image/png;base64,aGVsbG8="
-	events := []store.Event{
-		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "look at the screenshot and list the files"}),
-		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
-		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 0, ID: "call_00_a", Name: "Read", Arguments: `{"file_path":"shot.png"}`}),
-		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 1, ID: "call_01_b", Name: "List", Arguments: `{"path":"."}`}),
-		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "tool_calls"}),
-		b.ev(store.KindToolResult, store.ToolResultPayload{ToolCallID: "call_00_a", Name: "Read", Content: "Image: shot.png", ImageURL: uri}),
-		b.ev(store.KindToolResult, store.ToolResultPayload{ToolCallID: "call_01_b", Name: "List", Content: "a.go\nb.go"}),
-	}
-
-	got, err := Fold(deepSeekVisionTestSession(), events)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	want := []wire.Message{
-		wire.SystemMessage("you are a coding agent"),
-		wire.UserMessage("look at the screenshot and list the files"),
-		{
-			Role:    wire.RoleAssistant,
-			Content: wire.TextContent(""),
-			ToolCalls: []wire.ToolCall{
-				{ID: "call_00_a", Type: "function", Function: wire.ToolCallFunc{Name: "Read", Arguments: `{"file_path":"shot.png"}`}},
-				{ID: "call_01_b", Type: "function", Function: wire.ToolCallFunc{Name: "List", Arguments: `{"path":"."}`}},
-			},
-		},
-		{Role: wire.RoleTool, ToolCallID: "call_00_a", Content: wire.TextContent("Image: shot.png")},
-		{Role: wire.RoleTool, ToolCallID: "call_01_b", Content: wire.TextContent("a.go\nb.go")},
-		// Only the one image, not a placeholder for the imageless result.
-		{Role: wire.RoleUser, Content: wire.Content{Parts: []wire.Part{
-			{Type: wire.PartTypeText, Text: sidecarLeadIn},
-			{Type: wire.PartTypeText, Text: "Image: shot.png"},
-			{Type: wire.PartTypeImageURL, ImageURL: &wire.ImageURL{URL: uri}},
-		}}},
-	}
-	requireEqualMessages(t, got, want)
-	assertNoInterleavedUserMessage(t, got)
-}
-
-// TestFoldDeepSeekSidecarWithToolDenied covers a batch mixing an
-// image-bearing result with a denial. store.ToolDeniedPayload carries no
-// ImageURL field at all — a call permission policy refused never ran, so it
-// can never have produced an image — but a denial still resolves one of the
-// batch's outstanding tool_calls, and the fold must count it as such or the
-// sidecar for the batch's other, image-bearing result would never flush.
-func TestFoldDeepSeekSidecarWithToolDenied(t *testing.T) {
-	b := &eventBuilder{}
-	uri := "data:image/png;base64,c2VjcmV0"
-	events := []store.Event{
-		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "look at the screenshot and run cleanup"}),
-		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
-		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 0, ID: "call_00_a", Name: "Read", Arguments: `{"file_path":"secret.png"}`}),
-		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 1, ID: "call_01_b", Name: "Bash", Arguments: `{"command":"rm -rf /"}`}),
-		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "tool_calls"}),
-		b.ev(store.KindToolResult, store.ToolResultPayload{ToolCallID: "call_00_a", Name: "Read", Content: "Image: secret.png", ImageURL: uri}),
-		b.ev(store.KindToolDenied, store.ToolDeniedPayload{ToolCallID: "call_01_b", Name: "Bash", Rule: "no-destructive-bash", Content: "denied: no-destructive-bash"}),
-	}
-
-	got, err := Fold(deepSeekVisionTestSession(), events)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	want := []wire.Message{
-		wire.SystemMessage("you are a coding agent"),
-		wire.UserMessage("look at the screenshot and run cleanup"),
-		{
-			Role:    wire.RoleAssistant,
-			Content: wire.TextContent(""),
-			ToolCalls: []wire.ToolCall{
-				{ID: "call_00_a", Type: "function", Function: wire.ToolCallFunc{Name: "Read", Arguments: `{"file_path":"secret.png"}`}},
-				{ID: "call_01_b", Type: "function", Function: wire.ToolCallFunc{Name: "Bash", Arguments: `{"command":"rm -rf /"}`}},
-			},
-		},
-		{Role: wire.RoleTool, ToolCallID: "call_00_a", Content: wire.TextContent("Image: secret.png")},
-		{Role: wire.RoleTool, ToolCallID: "call_01_b", Content: wire.TextContent("denied: no-destructive-bash")},
-		{Role: wire.RoleUser, Content: wire.Content{Parts: []wire.Part{
-			{Type: wire.PartTypeText, Text: sidecarLeadIn},
-			{Type: wire.PartTypeText, Text: "Image: secret.png"},
-			{Type: wire.PartTypeImageURL, ImageURL: &wire.ImageURL{URL: uri}},
-		}}},
-	}
-	requireEqualMessages(t, got, want)
-	assertNoInterleavedUserMessage(t, got)
-}
-
-// TestFoldDeepSeekSidecarEndOfList covers a log that ends on the batch's
-// last tool result with nothing after it — no next turn, no steer, nothing
-// — proving the sidecar still flushes rather than sitting buffered forever.
-func TestFoldDeepSeekSidecarEndOfList(t *testing.T) {
-	b := &eventBuilder{}
-	uri := "data:image/png;base64,ZW5kLW9mLWxpc3Q="
-	events := []store.Event{
-		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "look at the screenshot"}),
-		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
-		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 0, ID: "call_00_a", Name: "Read", Arguments: `{"file_path":"shot.png"}`}),
-		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "tool_calls"}),
-		b.ev(store.KindToolResult, store.ToolResultPayload{ToolCallID: "call_00_a", Name: "Read", Content: "Image: shot.png", ImageURL: uri}),
-	}
-
-	got, err := Fold(deepSeekVisionTestSession(), events)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if len(got) != 5 {
-		t.Fatalf("got %d messages, want 5 (system, opening, assistant, tool, sidecar user): %+v", len(got), got)
-	}
-	last := got[len(got)-1]
-	// Three parts: the leading frame sentence, the image's own label, then
-	// the image_url part.
-	if last.Role != wire.RoleUser || len(last.Content.Parts) != 3 {
-		t.Fatalf("last message = %+v, want a three-part user sidecar message", last)
-	}
-	if last.Content.Parts[0].Text != sidecarLeadIn {
-		t.Fatalf("sidecar lead-in part = %+v, want text %q", last.Content.Parts[0], sidecarLeadIn)
-	}
-	if last.Content.Parts[2].ImageURL == nil || last.Content.Parts[2].ImageURL.URL != uri {
-		t.Fatalf("sidecar image_url part = %+v, want URL %q", last.Content.Parts[2], uri)
-	}
-}
-
-// TestFoldDeepSeekSidecarAppendOnly is TestFoldImageToolResultAppendOnly's
-// counterpart for the DeepSeek shape, and the reason
-// deepSeekSidecarShape's Fold-side comment gives for counting tool results
-// against the batch's own size rather than flushing unconditionally at
-// whatever the given events slice happens to end on: with two image-bearing
-// calls in one batch, a prefix cut between the first and second tool_result
-// must NOT flush a one-image sidecar, because the full fold — once the
-// second result lands — has a two-image sidecar at that position instead,
-// and a message already emitted may never be contradicted (docs/DESIGN.md
-// §4.1). Every prefix must therefore agree with the full fold: either the
-// sidecar has not been emitted yet, or it has been emitted exactly as the
-// full fold has it.
-func TestFoldDeepSeekSidecarAppendOnly(t *testing.T) {
-	b := &eventBuilder{}
-	uriA := "data:image/png;base64,YQ=="
-	uriB := "data:image/png;base64,Yg=="
-	events := []store.Event{
-		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "compare the two screenshots"}),
-		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
-		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 0, ID: "call_00_a", Name: "Read", Arguments: `{"file_path":"a.png"}`}),
-		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 1, ID: "call_01_b", Name: "Read", Arguments: `{"file_path":"b.png"}`}),
-		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "tool_calls"}),
-		b.ev(store.KindToolResult, store.ToolResultPayload{ToolCallID: "call_00_a", Name: "Read", Content: "Image: a.png", ImageURL: uriA}),
-		b.ev(store.KindToolResult, store.ToolResultPayload{ToolCallID: "call_01_b", Name: "Read", Content: "Image: b.png", ImageURL: uriB}),
-		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 2}),
-		b.ev(store.KindContentDelta, store.ContentDeltaPayload{Text: "both look correct"}),
-		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "stop"}),
-	}
-
-	sess := deepSeekVisionTestSession()
-	full, err := Fold(sess, events)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fullJSON := make([]string, len(full))
-	for i, m := range full {
-		raw, err := json.Marshal(m)
-		if err != nil {
-			t.Fatal(err)
-		}
-		fullJSON[i] = string(raw)
-	}
 	for n := 0; n <= len(events); n++ {
 		partial, err := Fold(sess, events[:n])
 		if err != nil {
