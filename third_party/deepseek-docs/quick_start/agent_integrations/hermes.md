@@ -1,7 +1,7 @@
 ---
 title: Integrate with Hermes Agent
 source: https://api-docs.deepseek.com/quick_start/agent_integrations/hermes
-fetched: 2026-08-13
+fetched: 2026-08-27
 ---
 
 # Integrate with Hermes Agent

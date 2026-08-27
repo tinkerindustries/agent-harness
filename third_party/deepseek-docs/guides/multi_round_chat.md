@@ -1,7 +1,7 @@
 ---
 title: Multi-round Conversation
 source: https://api-docs.deepseek.com/guides/multi_round_chat
-fetched: 2026-08-13
+fetched: 2026-08-27
 ---
 
 # Multi-round Conversation

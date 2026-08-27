@@ -1,7 +1,7 @@
 ---
 title: Chat Prefix Completion (Beta)
 source: https://api-docs.deepseek.com/guides/chat_prefix_completion
-fetched: 2026-08-13
+fetched: 2026-08-27
 ---
 
 # Chat Prefix Completion (Beta)

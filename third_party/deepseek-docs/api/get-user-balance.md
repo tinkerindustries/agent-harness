@@ -1,7 +1,7 @@
 ---
 title: Get User Balance
 source: https://api-docs.deepseek.com/api/get-user-balance
-fetched: 2026-08-13
+fetched: 2026-08-27
 ---
 
 # Get User Balance

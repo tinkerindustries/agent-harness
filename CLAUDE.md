@@ -132,9 +132,17 @@ of them drifted apart before.
 
 - Base URL, OpenAI format: `https://api.deepseek.com`
 - Base URL, Anthropic format: `https://api.deepseek.com/anthropic`
-- Models: `deepseek-v4-flash` and `deepseek-v4-pro`. Both default to thinking
+- Models: `deepseek-v4-flash` and `deepseek-v4-pro`, both wired up here, and
+  `deepseek-v4-flash-vision-exp`, which is not. All three default to thinking
   mode and support non-thinking mode.
-- The Responses API supports both models.
+- The Responses API supports all three models. The harness posts to
+  `/chat/completions` and speaks no other surface.
+- **`deepseek-v4-flash-vision-exp` reads images and this harness cannot use
+  that yet.** Chat Completions gives a tool message a plain string for content,
+  and tool results are how images reach the model here, so the existing
+  `seesImages` path produces a request the API rejects.
+  [`docs/DEEPSEEK-VISION.md`](docs/DEEPSEEK-VISION.md) has the assessment and
+  the one live request that decides which transport unlocks it.
 
 Pricing, rate limits, and context/output limits change; read
 `third_party/deepseek-docs/quick_start/pricing.md` rather than quoting numbers from

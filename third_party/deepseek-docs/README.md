@@ -2,25 +2,39 @@
 
 Local mirror of <https://api-docs.deepseek.com/>, converted to Markdown.
 
-- Fetched: 2026-08-13
-- Pages: 63 (every URL in the site's `sitemap.xml`)
+- Fetched: 2026-08-27
+- Pages: 71 (every URL in the site's `sitemap.xml`)
 - Each file carries `source:` frontmatter pointing at the page it came from.
 
-On the 2026-08-13 refresh every page was re-fetched and compared; the eight that
-had changed were edited by hand rather than re-converted, so the rest keep their
-original wording. The `fetched:` date is the date of the last comparison, not of
-the last edit.
+On the 2026-08-27 refresh every page was re-fetched and re-converted by script.
+The converter was checked by re-converting pages that had not changed upstream
+and requiring byte-identical output against the copy already here, so a diff on
+any page is an upstream edit rather than a conversion artefact. Fifteen pages
+changed and eight are new; the rest moved only their `fetched:` date. That date
+is the date of the last comparison, not of the last edit.
+
+The refresh added the vision model, `deepseek-v4-flash-vision-exp`: `guides/vision.md`,
+`guides/files_api.md` and the four `api/*-file*.md` endpoints are new, and it also
+appears in `quick_start/pricing.md`, `quick_start/rate_limit.md`, `index.md`, and
+the request schemas of `api/create-chat-completion.md` and `api/create-response.md`.
 
 DeepSeek publishes no OpenAPI spec and no docs source repository, so this is
 converted from the rendered site. Internal links are rewritten to relative
 `.md` paths; links off-site stay absolute.
 
-The response schemas under `api/` render client-side and are absent from the
-served HTML. They were recovered by rendering each page in headless Chrome,
-expanding every collapsed section, and serialising the schema tree.
+The schemas under `api/` are served in the HTML, inside collapsible widgets whose
+markup does not flatten into readable Markdown. They are serialised into a nested
+bullet list — `` `field` (type) **required** — description ``, with `oneOf` variants
+as their own branch. The serialiser reproduces `api/get-user-balance.md` and
+`api/list-models.md` byte for byte, which is how it was checked; on the
+2026-08-27 refresh it replaced the flattened widget text that
+`api/create-chat-completion.md`, `api/create-completion.md` and
+`api/create-response.md` had been carrying.
 
 `faq.md` carries no content of its own — it redirects to a separate app on
-`static.deepseek.com`, which is not mirrored here.
+`static.deepseek.com`, which is not mirrored here. It is hand-written and is not
+re-converted on a refresh. The image token calculator at the foot of
+`quick_start/token_usage.md` is interactive and likewise has no static content.
 
 The prompt library renders from `/data/prompts.json` rather than from page
 markup. All 13 prompts are captured in `prompt-library.md`, with the raw JSON
@@ -56,6 +70,8 @@ keeps the upstream structure, so it is a drop-in substitute.
 - [FIM Completion (Beta)](guides/fim_completion.md)
 - [Using the Responses API](guides/responses_api.md)
 - [Using the Anthropic API](guides/anthropic_api.md)
+- [Vision](guides/vision.md)
+- [Files API](guides/files_api.md)
 - [Integrate with AI Tools](guides/coding_agents.md)
 
 ## API reference
@@ -65,6 +81,10 @@ keeps the upstream structure, so it is a drop-in substitute.
 - [Responses API](api/create-response.md)
 - [FIM Completion API (Beta)](api/create-completion.md)
 - [Lists Models](api/list-models.md)
+- [Upload File](api/create-file.md)
+- [List Files](api/list-files.md)
+- [Retrieve File](api/retrieve-file.md)
+- [Delete File](api/delete-file.md)
 - [Get User Balance](api/get-user-balance.md)
 
 ## API samples
@@ -99,6 +119,8 @@ keeps the upstream structure, so it is a drop-in substitute.
 
 ## News / release notes
 
+- [DeepSeek-V4-Flash-Vision-Exp Release](news/news260821.md)
+- [DeepSeek-V4-Pro GA Release](news/news260813.md)
 - [DeepSeek V4 Preview Release](news/news260424.md)
 - [DeepSeek-V3.2 Release](news/news251201.md)
 - [Introducing DeepSeek-V3.2-Exp](news/news250929.md)

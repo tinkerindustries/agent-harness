@@ -1,7 +1,7 @@
 ---
 title: Tool Calls
 source: https://api-docs.deepseek.com/guides/tool_calls
-fetched: 2026-08-13
+fetched: 2026-08-27
 ---
 
 # Tool Calls

@@ -1,7 +1,7 @@
 ---
 title: chat_curl
 source: https://api-docs.deepseek.com/api_samples/chat_curl
-fetched: 2026-08-13
+fetched: 2026-08-27
 ---
 
 # chat_curl
