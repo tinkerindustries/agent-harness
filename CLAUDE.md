@@ -105,6 +105,11 @@ pack, the way `unity-harness-notes` does.
 ## Vendored documentation
 
 `third_party/deepseek-docs/` mirrors <https://api-docs.deepseek.com/> as Markdown.
+Refresh it with the `deepseek-docs-refresh` skill rather than by hand. The
+converter reproduces unchanged pages byte for byte, so every page the refresh
+reports as changed is an upstream edit; a page that differs for no visible
+upstream reason is a converter bug, and committing that churn destroys the
+property for everyone after you.
 
 `third_party/kimi-docs/` mirrors <https://platform.kimi.ai/docs> the same way,
 for Moonshot AI's Kimi models. Start at its `README.md`.
