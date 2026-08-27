@@ -699,8 +699,7 @@ func TestAppendOnly(t *testing.T) {
 // ImageURL directly, bypassing the executor: the fold's job is to build the
 // right messages array from whatever the event log says, regardless of
 // which tool populated ImageURL, so these tests pin that independently of
-// tools.Executor.SeeImages, which still answers false for this model
-// until the capability is turned on (docs/DEEPSEEK-VISION.md).
+// tools.Executor.SeeImages (now true for this model, docs/DEEPSEEK-VISION.md).
 func deepSeekVisionTestSession() store.Session {
 	sess := testSession()
 	sess.Model = "deepseek-v4-flash-vision-exp"

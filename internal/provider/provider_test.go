@@ -62,7 +62,7 @@ func TestSeesImages(t *testing.T) {
 	}{
 		{"deepseek-v4-pro", false},
 		{"deepseek-v4-flash", false},
-		{"deepseek-v4-flash-vision-exp", false},
+		{"deepseek-v4-flash-vision-exp", true},
 		{"kimi-k3", true},
 		{"gemini-3.7-flash", true},
 		{"not-a-real-model", false},
