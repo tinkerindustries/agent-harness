@@ -1,8 +1,8 @@
 # `deepseek-v4-flash-vision-exp` native vision
 
 Assessed 2026-08-27 against the docs mirror refreshed the same day
-(`third_party/deepseek-docs/`). Implemented 2026-08-28. No live API request has
-been made at any point — see §7.
+(`third_party/deepseek-docs/`). Implemented and verified against the live API
+2026-08-28 — see §7.
 
 The model reads images and prices them at a fraction of a Gemini call. The
 obstacle the first assessment found was real: a Chat Completions tool message
@@ -199,36 +199,46 @@ consequence: a session on this model has no compensating tool to fall back
 on when a screenshot's detail exceeds what 384 tokens can carry. It works at
 native resolution or it does not work at all.
 
-## 7. Not verified
+## 7. Verified against the live API
 
-**No live API request has been made at any point in this work.** Everything
-above is reasoned from the vendored docs mirror and pinned by the fold's own
-tests against a hand-built event log — never against the real DeepSeek API.
+Both assumptions the design rested on are confirmed. One run, session
+`sess-9f4a7bd66718ba16a19fcd8ed8b079e2`, on `deepseek-v4-flash-vision-exp`
+through this harness on 2026-08-28.
 
-Two assumptions carry the whole design, and neither is confirmed:
+The two questions were whether a `user` message may directly follow a run of
+`tool` messages answering the same assistant turn, and whether images in that
+position are attended to rather than read as an unrelated aside. The mirror
+documents neither as allowed nor as forbidden in this exact position.
 
-- That a `user` message may directly follow a run of `tool` messages
-  answering the same assistant turn.
-- That images in that position are attended to the way an image inside a
-  tool result would be, rather than read as an unrelated aside.
+The run attached a screenshot of a terminal UI, asked the model to `Read` it
+and to report three details that appear nowhere except in those pixels: a
+version string in the corner, the wording of a tip line, and which list entry
+carried the highlight. It was told to say it could not see the image rather
+than describe what the image probably showed, so a bluff would be legible as
+one. All three answers were correct against the file.
 
-Both are ordinary shapes in the OpenAI format, and neither is documented as
-forbidden anywhere in the mirrored DeepSeek docs. Neither is documented as
-allowed in this exact position either. A live smoke test against
-`deepseek-v4-flash-vision-exp` — one sub-turn with an image-bearing tool
-call, checked for a 200 and a response that actually references the image —
-is the outstanding next step, and it needs the API key, which lives in the
-harness's SQLite settings table rather than in the environment.
+The API accepted the request. The run finished in two sub-turns with no
+error and no retry. The fold could only have built the sidecar shape, because
+`deepSeekSidecarShape` answers true for every model the DeepSeek provider
+serves, and the parts-in-tool-message shape would have been rejected — a tool
+message's `content` takes a string and nothing else.
 
-Also unverified:
+The image cost is close to the documented ceiling. Prompt tokens went from
+3,273 in the first sub-turn to 3,927 in the second, and that delta of 654
+covers the assistant's tool call, the tool message, the lead-in, the label
+and the image together. The whole run cost $0.0011.
 
-- Whether the model's image understanding is good enough in practice to be
-  useful at all, let alone to replace what `Glance`, `Ground`, and `Detect`
-  did through Gemini.
+Still unverified:
+
+- Whether the model's image understanding holds up across the range of work
+  `Glance`, `Ground`, and `Detect` did through Gemini. One screenshot read
+  correctly is one data point, on a task with large, high-contrast text.
 - Whether the 384-token ceiling makes screenshot-driven work materially
-  worse than the six-tool DeepSeek path it replaces, or only marginally so.
-  §6 states the trade in principle; nothing here has measured it against a
-  real task.
+  worse in practice. §6 states the trade in principle. The probe image was
+  2,966 pixels wide and its small text was read correctly, which is
+  encouraging and is not a measurement.
+- Everything about `Ground` and `Detect`'s pixel-box convention. Nothing here
+  asked the model for coordinates.
 
 ## 8. The routes not taken
 
