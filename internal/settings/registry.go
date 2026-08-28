@@ -261,6 +261,32 @@ func durationSetting(key, group, def string, min, max time.Duration, description
 	return Descriptor{Key: key, Group: group, Type: TypeDuration, Default: def, Min: int64(min), Max: int64(max), Description: description}
 }
 
+// SeedableCredentialKeys returns the credential settings worth copying from
+// one installation of the harness to another, in registry order: the API
+// keys and the GitHub credential, which are an operator's own accounts and
+// are the same wherever the harness runs.
+//
+// Derived from the group rather than listed by hand, so a credential added
+// to the registry later is seeded without anyone remembering to come back
+// here. http.control_token is the one credential deliberately left out: it
+// is generated per installation and guards that installation's run-control
+// endpoints, so copying it would make one stack's bearer token work on
+// another, which is the opposite of what it is for.
+//
+// Nothing else in the store travels with these — not the work queue, not
+// sessions, not workspace leases, not the MCP server registry
+// (docs/WORKTREES.md, "Seeding a worktree's credentials").
+func SeedableCredentialKeys() []string {
+	var keys []string
+	for _, d := range registry {
+		if d.Group != GroupCredentials || d.Key == KeyHTTPControlToken {
+			continue
+		}
+		keys = append(keys, d.Key)
+	}
+	return keys
+}
+
 func (d Descriptor) withRestart() Descriptor {
 	d.Restart = true
 	return d

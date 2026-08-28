@@ -168,22 +168,70 @@ without reading this file:
   scope — it would mean a Docker-in-Docker setup for every worktree.
 - **`deepseek-harness-prod`.** Fixed ports, never allocated to a worktree,
   never touched by `harness worktree`.
-- **Not shared, despite looking like it should be: the GitHub credential.**
-  `github.token` and the App's `github.app_id` / `github.app_private_key`
-  live in the settings table, and each worktree runs its own SQLite store, so
-  `init` copies nothing for them and a fresh worktree starts with none set.
-  Set one on that worktree's own settings screen (or `PUT
-  /api/settings/<key>` against its own port) before it can clone or push to a
-  private repo — the main checkout's credential does not carry over. One
-  GitHub App can back every worktree at once: the App itself is a GitHub-side
-  object, and what each worktree stores is a copy of the same id and key
-  ([GITHUB-APP.md](GITHUB-APP.md)).
-  The DeepSeek API key is the same shape (its own per-store setting, entered
-  once per worktree), but the same DeepSeek account works from all of them
-  concurrently, so there is nothing to isolate there beyond typing the key
-  in twice.
+- **Not shared, but copied on request: the credentials.** The API keys and
+  the GitHub credential live in the settings table, and each worktree runs
+  its own SQLite store, so a fresh worktree starts with none of them set.
+  `harness worktree seed` copies them across from the main checkout's stack
+  — see "Seeding a worktree's credentials" below. Each worktree still holds
+  its own copy; nothing is shared at runtime.
 - **Go module cache, npm cache.** Content-addressed and read-mostly;
   isolating them would multiply setup time for no benefit.
+
+## Seeding a worktree's credentials
+
+A worktree that starts with no API keys and no GitHub credential cannot run
+anything or clone anything private, and typing the same DeepSeek key and the
+same GitHub App private key into every new worktree is the kind of friction
+that gets worked around badly. `harness worktree seed` copies them from a
+stack that already has them:
+
+```sh
+harness worktree seed              # from the main checkout's stack
+harness worktree seed -dry-run     # print what it would do, change nothing
+harness worktree seed -from deepseek-harness-prod-harness-1
+```
+
+**What travels.** Only the settings in the Credentials group, minus
+`http.control_token` — the API keys and the GitHub credential
+(`settings.SeedableCredentialKeys`, derived from the registry so a
+credential added later is carried without anyone remembering this file).
+The control token is left out deliberately: it is generated per
+installation and guards that installation's own run-control endpoints, so a
+copy would make one stack's bearer token work on another.
+
+**What does not.** Everything else in the store stays where it is — the work
+queue, sessions, events, workspace leases, the MCP server registry. A
+worktree that inherited `work_queue` rows would claim and run work queued for
+another stack, against a workspace root it does not own, and a copied lease
+would point at a directory that is not its own. This is why `seed` copies
+rows rather than the database file.
+
+**When to run it.** After `docker compose up`, not before, and this is why
+`seed` is its own command rather than part of `init`: a stack's store lives
+in that compose project's docker volume, which does not exist until compose
+has run once, and `init` is what writes the `.env` compose reads. By the time
+the stack is up, the target harness is running and can take the writes.
+
+**How it reads the source.** `docker exec <container> harness worktree seed
+-export` — the same binary, inside the running source stack, where that
+stack's data volume is already mounted. No image name to resolve, no volume
+to mount, and no second copy of the store. The values come back over that
+pipe and go into the target through its own `PUT /api/settings/<key>`, so the
+registry validates them and anything that has to react does: a seeded GitHub
+App key re-runs `internal/githubauth.Sync` on arrival and is live without a
+restart.
+
+**Re-running it is safe.** A credential already set in the worktree is left
+alone, the same contract `githubauth.SeedFromEnv` carries — an operator who
+deliberately set a different key here does not get it replaced by a copy of
+the main stack's. `-overwrite` says otherwise. Values are never printed, by
+`seed` or by the settings endpoint it reads.
+
+**The cost.** Each worktree holds a point-in-time copy, so rotating a key
+means re-seeding the worktrees that are still alive, or setting it on each.
+Worktrees are short-lived enough that this beats the alternatives; a single
+shared credential store would avoid it, at the price of one worktree's
+settings screen editing every other worktree's credentials.
 
 ## The registry
 
