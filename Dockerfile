@@ -204,12 +204,20 @@ RUN chmod +x /usr/local/bin/unity
 # A .blend written by a 5.x Blender is not a file a 4.x one reads back
 # faithfully, so a mismatched pair gives the CLI tools a subtly different
 # scene than the interactive tools see, which is worse than not having them.
-# edge/community has 5.2.0, and edge/main is where its dependencies live.
+# edge/community carries the current 5.2.x patch, and edge/main is where its
+# dependencies live.
 #
 # The exact `=` pin is the point of using edge at all: edge moves, and an
 # unpinned `blender` would silently bake whichever version it had drifted to
 # on the day of a rebuild. Pinned, a moved edge fails this build loudly and
 # an operator bumps the ARG to match the Blender they actually run.
+#
+# What "match" means in practice is the LTS series, not the patch. edge keeps
+# one 5.2.x at a time and drops the older one, so an exact patch match is
+# available only until the next one lands — 5.2.0 was gone from edge while
+# the host still ran it. A patch bump inside 5.2 keeps the .blend format
+# identical, which is the thing this pin protects. A minor or major move is a
+# different question and should be made against the Blender on the host.
 #
 # What it drags in: ~98 packages, about two dozen of them upgrades of imaging
 # and codec libraries — OpenEXR, x265, libvpx, libjxl and the ffmpeg
@@ -226,7 +234,7 @@ RUN chmod +x /usr/local/bin/unity
 # glslang — Blender and ffmpeg both — dies at load with `Error relocating
 # /usr/lib/libglslang.so.16: symbol not found`. Naming the package and
 # forcing the upgrade keeps the pair in lockstep.
-ARG BLENDER_VERSION=5.2.0-r0
+ARG BLENDER_VERSION=5.2.1-r0
 RUN apk add --no-cache --upgrade \
         --repository https://dl-cdn.alpinelinux.org/alpine/edge/community \
         --repository https://dl-cdn.alpinelinux.org/alpine/edge/main \
