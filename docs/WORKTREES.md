@@ -1,4 +1,26 @@
-# Git worktrees
+# Git worktrees — the retired allocator
+
+> **Most of this document describes `harness worktree`, which has been
+> replaced.** Per-worktree environments are now allocated by `wt` from the
+> spec in [`wt.yaml`](../wt.yaml); [wt.md](wt.md) is the current reference and
+> [wt-decision-record.md](wt-decision-record.md) records why.
+>
+> Two parts of this document are still live and are not superseded:
+>
+> - **[Path parity](#path-parity)** — a property of `docker-compose.yml`, not
+>   of any allocator. It is why the workspace root is mounted at the same
+>   absolute path on both sides, and it governs every session that runs docker
+>   against the shared host socket.
+> - **[Agent workspaces (`-standalone`)](#agent-workspaces--standalone)** — the
+>   one piece of `harness worktree` that has no replacement yet. An agent
+>   session inside the harness container still allocates through it, against
+>   the registry at `~/.deepseek-harness/worktrees.json`. See the decision
+>   record's "container-side client" section for what replaces it and the two
+>   questions that have to be answered first.
+>
+> Everything else here — the slot model, the port bands, `init`, `rm`, `seed`,
+> the descriptor, the registry — is history. `harness worktree seed`'s logic
+> lives on as `harness seed-credentials`.
 
 Two sibling git worktrees of this repo compete for the same host ports and
 the same docker compose project name the moment both run `docker compose up`
