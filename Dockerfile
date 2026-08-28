@@ -211,6 +211,13 @@ RUN chmod +x /usr/local/bin/unity
 # on the day of a rebuild. Pinned, a moved edge fails this build loudly and
 # an operator bumps the ARG to match the Blender they actually run.
 #
+# What "match" means in practice is the LTS series, not the patch. edge keeps
+# one 5.2.x at a time and drops the older one, so an exact patch match is
+# available only until the next one lands — 5.2.0 was gone from edge while
+# the host still ran it. A patch bump inside 5.2 keeps the .blend format
+# identical, which is the thing this pin protects. A minor or major move is a
+# different question and should be made against the Blender on the host.
+#
 # What it drags in: ~98 packages, about two dozen of them upgrades of imaging
 # and codec libraries — OpenEXR, x265, libvpx, libjxl and the ffmpeg
 # libraries. musl, chromium, node, python and the go toolchain are not

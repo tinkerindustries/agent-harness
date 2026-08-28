@@ -55,6 +55,15 @@ cutting a version and deploying it to the production stack.
   sides — [`docs/WORKTREES.md`](docs/WORKTREES.md), "Path parity". Keep the two
   sides of that mount equal: unequal, a session cannot run `docker compose` in
   its own clone, which is most of what `scripts/build.sh` is for.
+- **`docs/GITHUB-APP.md`** is the reference for reaching more than one GitHub
+  account. `github.token` is one account's personal access token; a GitHub
+  App (`github.app_id` and `github.app_private_key`) is installed separately
+  on a personal account and an organisation and covers both, which no
+  fine-grained token can. When an App is configured it wins: git is pointed
+  at the `harness github-credential` helper, which mints an installation
+  token per repository owner, and `gh` is given one per Bash call chosen from
+  the session's own clones. Read it before touching `internal/githubauth`,
+  `internal/githubapp`, or anything that spawns git.
 - **`docs/MCP.md`** is the reference for the harness's own MCP *client*
   support — an operator registers an external MCP server and its tools join
   every session's array (`internal/mcpclient`). Do not confuse this with

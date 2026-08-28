@@ -1,8 +1,10 @@
 #!/bin/sh
-# Container entrypoint: hands off to the harness binary. The GitHub token
-# is the github.token setting; harness serve turns it into a git credential
-# for every clone and every git/gh call a session makes (internal/githubauth),
-# so nothing about it needs setting up here.
+# Container entrypoint: hands off to the harness binary. The GitHub
+# credential is a setting — github.token, or the GitHub App's github.app_id
+# and github.app_private_key; harness serve turns whichever is set into a git
+# credential for every clone and every git/gh call a session makes
+# (internal/githubauth, docs/GITHUB-APP.md), so nothing about it needs setting
+# up here.
 set -e
 
 # docker-compose.yml loads .env wholesale, which brings this stack's own

@@ -35,20 +35,40 @@ commands:
                     serving the web UI, /api/..., and /mcp on one HTTP port
   worktree <cmd>    allocate per-worktree ports so sibling git worktrees of this
                     repo can run docker-compose.yml and .test.yml concurrently
+  github-credential  git credential helper for a harness running as a GitHub App;
+                    git runs it, people do not (docs/GITHUB-APP.md)
 
 "harness <command> -h" lists that command's flags.`
 
 func main() {
-	if err := config.LoadDotEnv(".env"); err != nil {
-		fmt.Fprintf(os.Stderr, "harness: warning: reading .env: %v\n", err)
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	if len(os.Args) < 2 {
 		fmt.Fprintln(os.Stderr, usage)
 		os.Exit(2)
+	}
+
+	// The credential helper is dispatched before anything else, and
+	// deliberately without loading a .env. git runs it from whatever
+	// directory the repository is in — inside a session that is a clone the
+	// agent controls — so reading a .env from there would let a repository
+	// contribute environment to a process that is about to hand out a
+	// credential. It needs nothing from one: its callback address and token
+	// come from the environment the harness serve process set
+	// (internal/githubauth). It also stays silent on stdout except for the
+	// credential itself, which is why the .env warning below is not printed
+	// on this path either — git reads that stream.
+	if os.Args[1] == "github-credential" {
+		if err := runGitHubCredential(ctx, os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "harness github-credential: "+err.Error())
+			os.Exit(1)
+		}
+		return
+	}
+
+	if err := config.LoadDotEnv(".env"); err != nil {
+		fmt.Fprintf(os.Stderr, "harness: warning: reading .env: %v\n", err)
 	}
 
 	var err error

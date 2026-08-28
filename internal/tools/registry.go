@@ -245,6 +245,19 @@ type Executor struct {
 	// can render it as a collapsed child transcript.
 	RunSubagent func(ctx context.Context, description, prompt, subagentType string) (summary string, sessionID string, err error)
 
+	// ExtraEnv, when set, is asked for environment variables to add to
+	// every Bash call's subprocess, resolved at the moment of the call
+	// rather than held on the Executor. It exists for the GitHub App
+	// credential: an App has no single standing token, so GH_TOKEN cannot be
+	// made ambient for the whole process the way a personal access token is
+	// (internal/githubauth) — it has to be minted for the account this
+	// session's repositories belong to, and re-minted as it expires, which
+	// only a call-time resolution can do. The closure is built in
+	// cmd/harness, which is where the App provider lives; nil is every other
+	// caller, and a Bash call then inherits this process's environment
+	// unchanged, exactly as it always has.
+	ExtraEnv func(ctx context.Context, workspace string) []string
+
 	// Settings, when set, is where the tool limits (output caps, timeouts,
 	// WebFetch and vision bounds) resolve from on every call, so a limit
 	// changed from the settings screen (tools.*) takes effect on the next

@@ -55,6 +55,8 @@ const (
 	KeyGoogleVisionModel         = "google.vision_model"
 	KeyGoogleVisionThinkingLevel = "google.vision_thinking_level"
 	KeyGitHubToken               = "github.token"
+	KeyGitHubAppID               = "github.app_id"
+	KeyGitHubAppPrivateKey       = "github.app_private_key"
 
 	KeyRunMaxTokens                 = "run.max_tokens"
 	KeyRunMaxSubTurns               = "run.max_sub_turns"
@@ -140,7 +142,11 @@ var registry = []Descriptor{
 	stringSetting(KeyGoogleAPIKey, GroupCredentials,
 		"Google API key — sent to Gemini by the vision tools (Glance, Ground, Detect)", "", true, false),
 	stringSetting(KeyGitHubToken, GroupCredentials,
-		"GitHub personal access token — the single source for a private clone (internal/workspace/clone.go), the git and gh calls an agent session makes from inside its own workspace, and the start-run form's repo search (GET /api/github/repos). internal/githubauth.Sync makes a stored value ambient for every subprocess this process spawns; no restart needed after a change.", "", true, false),
+		"GitHub personal access token — one account's credential, used for a private clone (internal/workspace/clone.go), the git and gh calls an agent session makes from inside its own workspace, and the start-run form's repo search (GET /api/github/repos). A configured GitHub App (github.app_id and github.app_private_key) takes precedence over this and reaches every account the App is installed on; this key stays as the single-account path and the fallback when no App is set. internal/githubauth.Sync makes a stored value ambient for every subprocess this process spawns; no restart needed after a change.", "", true, false),
+	stringSetting(KeyGitHubAppID, GroupCredentials,
+		"GitHub App id (the number on the App's settings page), paired with github.app_private_key. Set both and the harness authenticates as the App: it mints an installation token per account the App is installed on, so one credential covers a personal account and an organisation at once, which a fine-grained personal access token cannot do (docs/GITHUB-APP.md).", "", false, false),
+	stringSetting(KeyGitHubAppPrivateKey, GroupCredentials,
+		"Private key GitHub issued for the App, pasted whole. The PEM's newlines do not survive a single-line field and do not need to: the parser strips whitespace and accepts the flattened paste, the canonical PEM, and a bare base64 key alike (internal/githubapp.ParsePrivateKey). The key signs the JWT that mints installation tokens and is never sent anywhere but api.github.com.", "", true, false),
 	stringSetting(KeyHTTPControlToken, GroupCredentials,
 		"Bearer token the run-control endpoints require (docs/RUN-CONTROL.md). Generated at startup when unset.", "", true, false),
 

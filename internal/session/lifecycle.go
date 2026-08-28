@@ -145,6 +145,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	executor.Gemini = r.Gemini
 	executor.GeminiModel = r.GeminiModel
 	executor.Settings = r.Settings
+	executor.ExtraEnv = r.ToolEnv
 	executor.ResultSchema = opts.ResultSchema
 	executor.MCP = r.MCP
 

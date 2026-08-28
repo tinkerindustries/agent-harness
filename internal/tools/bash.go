@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -44,6 +45,18 @@ func execBash(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 
 	cmd := exec.CommandContext(ctx, shellPath(), "-c", args.Command)
 	cmd.Dir = e.Workspace
+
+	// A nil cmd.Env inherits this process's environment, which is how the
+	// ambient credentials internal/githubauth sets reach git and gh. Env is
+	// only built explicitly when something has extra variables to add — a
+	// GitHub App installation token for gh, minted for this session's own
+	// repositories — and it then starts from the same os.Environ() the nil
+	// case would have inherited, so nothing is lost by taking this branch.
+	if e.ExtraEnv != nil {
+		if extra := e.ExtraEnv(ctx, e.Workspace); len(extra) > 0 {
+			cmd.Env = append(os.Environ(), extra...)
+		}
+	}
 
 	// A command that backgrounds a process without redirecting its output
 	// (node server.js &, inheriting the captured pipe) leaves that pipe open
