@@ -445,10 +445,10 @@ func TestFoldTwoSteersInOneBatch(t *testing.T) {
 	requireEqualMessages(t, got, want)
 }
 
-// TestFoldImageToolResult covers the new tool-result shape: a Read on a
-// vision provider stored the image as ImageURL on the event, and the fold
-// must rebuild the parts array the model sees — a text label part then the
-// image_url part, exactly as the tool produced them
+// TestFoldImageToolResult covers the parts-in-tool-message shape every
+// provider uses: a Read stored the image as ImageURL on the event, and the
+// fold must rebuild the parts array the model sees — a text label part then
+// the image_url part, exactly as the tool produced them
 // (docs/KIMI-INTEGRATION.md §4.5). The bytes come entirely from the event
 // payload, so replaying the log reproduces them identically regardless of
 // what happened to the image file since.
@@ -490,7 +490,7 @@ func TestFoldImageToolResult(t *testing.T) {
 	requireEqualMessages(t, got, want)
 
 	// The parts array must serialise as the array form on the wire — the
-	// shape the Kimi API expects on a tool message
+	// shape a tool message carries an image in
 	// (third_party/kimi-docs/openapi.json "Message").
 	raw, err := json.Marshal(got[3])
 	if err != nil {
@@ -508,7 +508,7 @@ func TestFoldImageToolResult(t *testing.T) {
 }
 
 // TestFoldImageToolResultAppendOnly pins the load-bearing property for the
-// new shape: folding the log up to the tool_result event and past it must
+// image shape: folding the log up to the tool_result event and past it must
 // not disagree on the image message — the event payload is immutable, so
 // the image part is identical on every replay (docs/DESIGN.md §4.1).
 func TestFoldImageToolResultAppendOnly(t *testing.T) {

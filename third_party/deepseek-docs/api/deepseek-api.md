@@ -1,7 +1,7 @@
 ---
 title: DeepSeek API
 source: https://api-docs.deepseek.com/api/deepseek-api
-fetched: 2026-08-13
+fetched: 2026-08-27
 ---
 
 # DeepSeek API
@@ -10,7 +10,7 @@ The DeepSeek API. To use the DeepSeek API, please [create an API key first](http
 
 ## Authentication
 
-- HTTP: Bearer Auth
+**HTTP: Bearer Auth**
 
 |  |  |
 | --- | --- |

@@ -36,10 +36,11 @@ const (
 // never by string prefix, so a model absent here fails loudly at validation
 // instead of silently defaulting to a provider (docs/KIMI-INTEGRATION.md §4.3).
 var models = map[string]Name{
-	"deepseek-v4-pro":   DeepSeek,
-	"deepseek-v4-flash": DeepSeek,
-	"kimi-k3":           Kimi,
-	"gemini-3.7-flash":  Gemini,
+	"deepseek-v4-pro":              DeepSeek,
+	"deepseek-v4-flash":            DeepSeek,
+	"deepseek-v4-flash-vision-exp": DeepSeek,
+	"kimi-k3":                      Kimi,
+	"gemini-3.7-flash":             Gemini,
 }
 
 // ModelFor returns the provider that serves model. The table has no
@@ -67,4 +68,34 @@ func KnownModels() []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// visionCapable is the one model→capability table for whether a model reads
+// images natively. It answers per model rather than per provider because
+// deepseek-v4-flash-vision-exp is the first model whose vision capability
+// disagrees with its provider's: DeepSeek's other two models don't see
+// images, but this one does (docs/DEEPSEEK-VISION.md). Kimi K3
+// (docs/KIMI-INTEGRATION.md §4.5) and Gemini (docs/GEMINI-INTEGRATION.md
+// §5.7) both see images too, so DeepSeek is now the only provider whose
+// models disagree with each other, which is exactly why this table is keyed
+// by model rather than by provider. A model absent from this table resolves
+// to false, the same as an unknown model resolves to false everywhere else
+// in this package, rather than panicking or erroring — callers such as
+// internal/tools.DefinitionsFor already fall back to the DeepSeek-shaped
+// default for a model ModelFor rejects, and SeesImages must agree with that
+// fallback rather than fail a different way.
+var visionCapable = map[string]bool{
+	"deepseek-v4-pro":              false,
+	"deepseek-v4-flash":            false,
+	"deepseek-v4-flash-vision-exp": true,
+	"kimi-k3":                      true,
+	"gemini-3.7-flash":             true,
+}
+
+// SeesImages reports whether model reads images natively. It is the one
+// source of truth both halves of the vision split consult: which tool array
+// a session sends (internal/tools.DefinitionsFor) and whether Read returns
+// an image part (internal/session's seesImages, tools.Executor.SeeImages).
+func SeesImages(model string) bool {
+	return visionCapable[model]
 }

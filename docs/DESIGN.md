@@ -68,10 +68,12 @@ integration configuration DeepSeek publishes uses the plain host.
 
 The Anthropic-format endpoint at `/anthropic` is a compatibility shim. It ignores
 `cache_control`, `anthropic-beta`, `anthropic-version`, `top_k`, and
-`thinking.budget_tokens`; it does not support image, document, or
-`redacted_thinking` content blocks; and it cannot reach FIM, prefix completion,
-or strict tool mode. `CLAUDE.md` says to exercise DeepSeek's behaviour directly,
-which points at the native endpoint.
+`thinking.budget_tokens`; it does not support document or `redacted_thinking`
+content blocks (image blocks were added to its compatibility table in the
+2026-08-27 mirror refresh — [DEEPSEEK-VISION.md](DEEPSEEK-VISION.md) §8); and
+it cannot reach FIM, prefix completion, or strict tool mode. `CLAUDE.md` says
+to exercise DeepSeek's behaviour directly, which points at the native
+endpoint.
 
 The cost of this choice is server-side web search, which DeepSeek serves only
 through the Anthropic format — the OpenAI-format API accepts `type: "function"`
@@ -82,13 +84,21 @@ The Anthropic endpoint was also credited with handling thinking-block replay
 itself, sparing callers a documented 400. Measurement since shows that 400 does
 not fire on the native endpoint either (§3.1), so the advantage is moot.
 
-Input to DeepSeek is text only. Both models declare `input_modalities: ["text"]`, the
-Anthropic table marks image and document blocks unsupported, and the Responses
-API replaces image parts with placeholder text. No screenshots reach DeepSeek,
-no image paste, no visual diffing inside the loop. Vision is a set of tools
-instead: `Screenshot` captures a page, and `Glance`, `Ground`, `Detect`, and
-`Crop` send images to Google Gemini and return a prose answer, a located pixel
-box, or a local crop, so a screenshot the agent captures itself can still be
+Input is text only for two of DeepSeek's three models. The Codex model
+catalogue (`third_party/deepseek-docs/quick_start/agent_integrations/codex.md`)
+declares `input_modalities: ["text"]` for `deepseek-v4-pro` and
+`deepseek-v4-flash`, and `input_modalities: ["text", "image"]` for
+`deepseek-v4-flash-vision-exp` — the same catalogue, not two separate
+sources. For the two text-only models, the Responses API also replaces image
+parts with placeholder text. No screenshots reach `deepseek-v4-pro` or
+`deepseek-v4-flash`, no image paste, no visual diffing inside the loop for
+either. `deepseek-v4-flash-vision-exp` is the exception: it reads images
+directly, at the resolution and token cost [DEEPSEEK-VISION.md](DEEPSEEK-VISION.md)
+records, through the same tool-message image shape Kimi and Gemini use. For
+the two models that cannot see images, vision is a set of tools instead:
+`Screenshot` captures a page, and `Glance`, `Ground`, `Detect`, and `Crop`
+send images to Google Gemini and return a prose answer, a located pixel box,
+or a local crop, so a screenshot the agent captures itself can still be
 looked at ([TOOLS.md](TOOLS.md)).
 
 ## 3. The rules that shape everything
@@ -142,11 +152,14 @@ Rules that follow:
   every session running against a given model. No clock, no cwd, no git status,
   no changed-file list, and nothing drawn from a work request.
 - Tool definitions are fixed for the life of a session and serialised in a
-  stable order. The array is per-provider — DeepSeek's nineteen tools, Kimi
-  K3's fourteen without the five vision tools (docs/KIMI-INTEGRATION.md
-  decision 5) — so there are two frozen heads, each shared by every session on
-  its provider and each pinned by its own golden file. A session's head is
-  chosen at creation from its model and never changes for the session's life.
+  stable order. The array is chosen per model, through `provider.SeesImages`
+  — DeepSeek's non-vision pair get twenty tools, every vision-capable model
+  (Kimi K3, Gemini, and `deepseek-v4-flash-vision-exp`) gets the same
+  fourteen without the six vision tools (docs/KIMI-INTEGRATION.md decision 5,
+  docs/DEEPSEEK-VISION.md) — so there are two frozen heads, each shared by
+  every session that resolves to it and each pinned by its own golden file.
+  A session's head is chosen at creation from its model and never changes
+  for the session's life.
 - Volatile context goes in the newest message. It is never retrofitted into an
   older one.
 - No mid-conversation compaction that rewrites history. At 768K tokens — the
@@ -171,9 +184,10 @@ Two rules follow that are not obvious from the invariant alone. The session
 freezes its rendered system prompt and tool schema at creation, so upgrading the
 harness cannot change the prefix of a resumable session. And permission modes
 gate execution rather than tool availability, so the tool array never varies
-within a provider — the per-provider split (DeepSeek's nineteen tools, Kimi's
-fourteen) is chosen once at session creation and is part of the frozen head,
-not a per-request variation.
+within a session — the per-model split (twenty tools for DeepSeek's
+non-vision pair, fourteen for every vision-capable model) is chosen once at
+session creation and is part of the frozen head, not a per-request
+variation.
 
 Running many sessions at once makes the shared head worth more. Every session
 sends the same rendered system prompt and the same tool array, so the first
@@ -461,8 +475,10 @@ Specified in [TOOLS.md](TOOLS.md). The set is `Read`, `Write`, `Edit`, `Bash`,
 `Glob`, `Grep`, `List`, `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`,
 `Task`, and `WebFetch` — the vocabulary of the harnesses DeepSeek names as its
 V4 agent optimisation targets — plus `Complete`, which is ours, and the vision
-path — `Screenshot`, `Glance`, `Ground`, `Detect`, and `Crop` — because
-DeepSeek cannot see images.
+path — `Screenshot`, `Glance`, `Ground`, `Detect`, `Transcribe`, and `Crop` —
+sent to a model with no native vision capability: `deepseek-v4-pro` and
+`deepseek-v4-flash` today, and every model absent from `provider.SeesImages`
+in general (docs/DEEPSEEK-VISION.md).
 
 Four points from that document bear on the rest of this design:
 

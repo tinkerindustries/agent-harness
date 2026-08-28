@@ -359,8 +359,12 @@ The one model→provider table (docs/KIMI-INTEGRATION.md §4.3): `ModelFor`
 maps a model name to the provider serving it, with no default — an unknown
 model is an error, so request validation rejects it loudly instead of
 silently routing to a provider. Three providers today: DeepSeek
-(`deepseek-v4-pro`, `deepseek-v4-flash`), Kimi (`kimi-k3`), and Gemini
-(`gemini-3.7-flash`, docs/GEMINI-INTEGRATION.md §7 Phase 5). It is a package
+(`deepseek-v4-pro`, `deepseek-v4-flash`, `deepseek-v4-flash-vision-exp`),
+Kimi (`kimi-k3`), and Gemini (`gemini-3.7-flash`, docs/GEMINI-INTEGRATION.md
+§7 Phase 5). It also carries `SeesImages`, the one model→capability table
+for native vision — keyed by model rather than by provider, since
+`deepseek-v4-flash-vision-exp` is the first model whose capability disagrees
+with the rest of its provider's (docs/DEEPSEEK-VISION.md). It is a package
 of its own so that cmd/harness (client construction) and `internal/queue`
 (request validation) can both reach it without importing the agent loop.
 Depends on: nothing internal.

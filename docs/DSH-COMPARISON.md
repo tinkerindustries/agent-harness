@@ -342,9 +342,11 @@ pick per call. `ctx.llm` does **not** assume one adapter per session
 **And `dsh` needs the workaround less.** `ImageBlock` is a first-class content
 block backed by a durable image attachment (**observed**,
 `docs/subsystems/llm-streaming.md:27,32`), with a whole `packages/attachment`
-family behind it. Where this harness must route screenshots to Gemini because
-DeepSeek's API is text-only, `dsh` already has the vocabulary to carry an image
-to any adapter that accepts one.
+family behind it. Where this harness must route screenshots to Gemini for its
+two text-only DeepSeek models — `deepseek-v4-pro` and `deepseek-v4-flash`,
+neither of which reads images ([DEEPSEEK-VISION.md](DEEPSEEK-VISION.md)) —
+`dsh` already has the vocabulary to carry an image to any adapter that
+accepts one.
 
 **Cost**: low — one package registering a tool on `ctx.tools` plus a Gemini
 adapter registration on `ctx.llm`. This is the one component that would be

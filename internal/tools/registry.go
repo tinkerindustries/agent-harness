@@ -201,13 +201,14 @@ type Executor struct {
 	Prices     *pricing.Table
 	FlashModel string
 
-	// SeeImages is true when the session's provider reads images natively
-	// (Kimi K3 and Gemini; DeepSeek is text-only). Read consults it: on a
-	// vision provider, reading an image path returns the file as an
+	// SeeImages is true when the session's model reads images natively
+	// (Kimi K3, Gemini, and deepseek-v4-flash-vision-exp; DeepSeek's other
+	// two models do not, docs/DEEPSEEK-VISION.md). Read consults it: on a
+	// vision-capable model, reading an image path returns the file as an
 	// image_url part instead of the binary-file refusal, and the vision
-	// tools that exist only because DeepSeek cannot see images (Screenshot,
-	// Glance, Ground, Detect, Transcribe, Crop) are not offered at all
-	// (internal/tools/definitions.go, docs/KIMI-INTEGRATION.md §4.5,
+	// tools that exist only because a model cannot see an image itself
+	// (Screenshot, Glance, Ground, Detect, Transcribe, Crop) are not offered
+	// at all (internal/tools/definitions.go, docs/KIMI-INTEGRATION.md §4.5,
 	// docs/GEMINI-INTEGRATION.md §5.7). Set by internal/session from the
 	// session's model at creation and on resume, and never changed
 	// mid-session — the tool array and Read's behaviour are both frozen for

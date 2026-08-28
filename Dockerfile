@@ -204,8 +204,7 @@ RUN chmod +x /usr/local/bin/unity
 # A .blend written by a 5.x Blender is not a file a 4.x one reads back
 # faithfully, so a mismatched pair gives the CLI tools a subtly different
 # scene than the interactive tools see, which is worse than not having them.
-# edge/community carries the current 5.2.x patch, and edge/main is where its
-# dependencies live.
+# edge/community has 5.2.1, and edge/main is where its dependencies live.
 #
 # The exact `=` pin is the point of using edge at all: edge moves, and an
 # unpinned `blender` would silently bake whichever version it had drifted to

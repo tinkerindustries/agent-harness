@@ -37,7 +37,7 @@ import (
 // at least a minor release (RELEASE.md). The DeepSeek golden was last moved
 // on purpose to replace ReviewScreenshot and AskVision with Glance, Ground,
 // Detect, and Crop, ported from agent-vision-toolkit
-// (docs/VISION-TOOLKIT.md); the vision-capable array drops all five vision
+// (docs/VISION-TOOLKIT.md); the vision-capable array drops all six vision
 // tools and so was untouched by that change.
 func TestToolArrayGolden(t *testing.T) {
 	cases := []struct {
@@ -48,6 +48,12 @@ func TestToolArrayGolden(t *testing.T) {
 		{"deepseek", "deepseek-v4-pro", "tools_deepseek.golden.json"},
 		{"kimi", "kimi-k3", "tools_kimi.golden.json"},
 		{"gemini", "gemini-3.7-flash", "tools_kimi.golden.json"},
+		// deepseek-v4-flash-vision-exp is the model DefinitionsFor resolves
+		// per model rather than per provider for (provider.SeesImages,
+		// docs/DEEPSEEK-VISION.md). Its capability is true, so — like Kimi
+		// and Gemini — it resolves to definitionsVisionCapable and reads
+		// Kimi's golden file rather than a third copy of the same bytes.
+		{"deepseek-vision-exp", "deepseek-v4-flash-vision-exp", "tools_kimi.golden.json"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -123,14 +129,15 @@ func TestDefinitionsForProviderShape(t *testing.T) {
 
 // TestDefinitionsForProviderGeminiMatchesKimi pins that Gemini's tool array
 // is not merely golden-equal to Kimi's by coincidence of two committed
-// files agreeing, but the same relationship: both providers read images
-// natively, so both drop the identical six DeepSeek-only vision tools
-// (docs/GEMINI-INTEGRATION.md §5.7), and DefinitionsForProvider resolves
-// both to the one definitionsVisionCapable array rather than two copies of
-// it. This is a deliberate sameness, not a coincidence to be surprised by
-// later — if Gemini and Kimi ever need to diverge (a vision tool one of
-// them should keep and the other should not), that is the day this test
-// stops passing and a second array is warranted.
+// files agreeing, but the same relationship: both kimi-k3 and
+// gemini-3.7-flash read images natively (provider.SeesImages), so both drop
+// the identical six DeepSeek-only vision tools
+// (docs/GEMINI-INTEGRATION.md §5.7), and DefinitionsFor resolves both to the
+// one definitionsVisionCapable array rather than two copies of it. This is a
+// deliberate sameness, not a coincidence to be surprised by later — if
+// Gemini and Kimi ever need to diverge (a vision tool one of them should
+// keep and the other should not), that is the day this test stops passing
+// and a second array is warranted.
 func TestDefinitionsForProviderGeminiMatchesKimi(t *testing.T) {
 	kimi := tools.DefinitionsFor("kimi-k3")
 	gemini := tools.DefinitionsFor("gemini-3.7-flash")

@@ -57,9 +57,9 @@ func execRead(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 	}
 	if binary {
 		if !e.SeeImages {
-			// DeepSeek is text-only: unchanged behaviour, byte for byte. An
-			// image is a binary file to it, refused like any other.
-			// (docs/KIMI-INTEGRATION.md §4.5.)
+			// A model with no vision capability: unchanged behaviour, byte
+			// for byte. An image is a binary file to it, refused like any
+			// other. (docs/KIMI-INTEGRATION.md §4.5.)
 			return binaryFileError(args.FilePath, size)
 		}
 		if mime, ok := attachment.MIMEType(path); ok {

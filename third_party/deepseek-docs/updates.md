@@ -1,10 +1,36 @@
 ---
 title: Change Log
 source: https://api-docs.deepseek.com/updates
-fetched: 2026-08-13
+fetched: 2026-08-27
 ---
 
 # Change Log
+
+---
+
+## Date: 2026-08-21
+
+### DeepSeek-V4-Flash-Vision-Exp Release
+
+Today, the new multimodal vision understanding model DeepSeek-V4-Flash-Vision-Exp is now available on the DeepSeek API platform. This is an experimental model that can be accessed by setting `model='deepseek-v4-flash-vision-exp'`.
+
+- Terminal Bench 2.1: 83.9
+- NL2Repo: 57.7
+- DeepSWE: 59.3
+- DSBench-Hard: 63.6
+- AutomationBench (Public): 25.7
+- ApexBench (Pass@1): 36.5
+- Agents' Last Exam: 27.3
+- Chartography: 64.3
+- ZeroBench (Pass@5): 35.0
+
+* For the Code Agent text tasks in the public benchmark sets, the DeepSeek family models were tested using the DeepSeek Harness minimal mode as the framework, with the max effort level, topp=0.95, and temperature=1.0; in the ApexBench and Agents' Last Exam evaluations, the text model DeepSeek-V4-Flash ignores the multimodal elements within them.
+
+In terms of pure-text capabilities (agent, reasoning, world knowledge, etc.), DeepSeek-V4-Flash-Vision-Exp is on par with the official DeepSeek-V4-Flash.
+
+On agent benchmarks that require visual understanding, DeepSeek-V4-Flash-Vision-Exp delivers a significant leap over DeepSeek-V4-Flash, bringing its multimodal agent capabilities close to Opus-4.8.
+
+For usage details, please refer to the [Vision guide](guides/vision.md).
 
 ---
 
@@ -39,7 +65,9 @@ The thinking modes of V4-Pro and V4-Flash now support three thinking effort leve
 
 **API Pricing Adjustment**
 
-With the official release of the DeepSeek V4 model family, we will update and adjust API pricing. To allocate resources more reasonably, we will adopt peak/off-peak pricing, with off-peak prices set at half of the peak-hour prices, encouraging users to schedule their tasks based on actual usage. The new prices will take effect at 16:00 (UTC Time) on August 16, 2026.
+With the official release of the DeepSeek V4 model family, we will [update and adjust API pricing](quick_start/pricing.md). To allocate resources more reasonably, we will adopt peak/off-peak pricing, with off-peak prices set at half of the peak-hour prices, encouraging users to schedule their tasks based on actual usage. The new prices will take effect at 16:00 (UTC Time) on August 16, 2026.
+
+For more details, please refer to [this documentation](news/news260813.md).
 
 ---
 
@@ -65,14 +93,23 @@ Note 1: For the Code Agent tasks in the public benchmark sets, the official Deep
 Note 2: DSBench-FullStack is an internal full-stack development test set, and DSBench-Hard is an internal Coding Agent hard-problem test set
 
 **The official V4-Flash natively supports the Responses API format and is specifically adapted for Codex. For the specific configuration, please refer to the [documentation](quick_start/agent_integrations/codex.md).**
+
   
+
   
+
 **DeepSeek-V4-Flash-0731 keeps the same model architecture and size as DeepSeek-V4-Flash-Preview, and was only re-post-trained.**
+
   
+
   
+
 **Note: This update only upgrades the DeepSeek-V4-Flash API. The DeepSeek-V4-Pro API and the APP/WEB models are unchanged.**
+
   
+
 **The official release of DeepSeek-V4-Pro will follow soon.**
+
   
 
 ---

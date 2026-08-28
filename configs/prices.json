@@ -14,6 +14,11 @@
         "input_cache_miss_per_million_usd": 0.44,
         "output_per_million_usd": 1.32
       },
+      "deepseek-v4-flash-vision-exp": {
+        "input_cache_hit_per_million_usd": 0.014,
+        "input_cache_miss_per_million_usd": 0.44,
+        "output_per_million_usd": 1.32
+      },
       "deepseek-v4-pro": {
         "input_cache_hit_per_million_usd": 0.044,
         "input_cache_miss_per_million_usd": 1.32,
@@ -22,6 +27,11 @@
     },
     "off_peak": {
       "deepseek-v4-flash": {
+        "input_cache_hit_per_million_usd": 0.007,
+        "input_cache_miss_per_million_usd": 0.22,
+        "output_per_million_usd": 0.66
+      },
+      "deepseek-v4-flash-vision-exp": {
         "input_cache_hit_per_million_usd": 0.007,
         "input_cache_miss_per_million_usd": 0.22,
         "output_per_million_usd": 0.66
@@ -35,6 +45,11 @@
   },
   "models": {
     "deepseek-v4-flash": {
+      "input_cache_hit_per_million_usd": 0.0028,
+      "input_cache_miss_per_million_usd": 0.14,
+      "output_per_million_usd": 0.28
+    },
+    "deepseek-v4-flash-vision-exp": {
       "input_cache_hit_per_million_usd": 0.0028,
       "input_cache_miss_per_million_usd": 0.14,
       "output_per_million_usd": 0.28
