@@ -25,6 +25,9 @@ commands:
   list                                    every registered worktree
   rm <slug> [-dry-run]                    tear down a worktree's containers,
                                            volumes and network, and free its slot
+  seed [-from CONTAINER] [-dry-run]       copy the credential settings from the
+                                           main checkout's running stack into
+                                           this worktree's, after compose is up
   doctor                                  report registry/filesystem drift
 
 Run "init" from inside the worktree, after it exists. Run "rm" before
@@ -51,6 +54,8 @@ func runWorktree(ctx context.Context, args []string) error {
 		return runWorktreeList(args[1:])
 	case "rm":
 		return runWorktreeRm(args[1:])
+	case "seed":
+		return runWorktreeSeed(ctx, args[1:])
 	case "doctor":
 		return runWorktreeDoctor(args[1:])
 	case "-h", "-help", "--help", "help":
@@ -197,6 +202,8 @@ func printWorktreeSummary(d worktree.Descriptor, withNextSteps bool) {
 	if withNextSteps {
 		fmt.Println()
 		fmt.Printf("  next: docker compose up -d --build   (reads the .env this just wrote)\n")
+		fmt.Printf("        harness worktree seed          (copy the API keys and GitHub credential\n")
+		fmt.Printf("                                        from the main checkout's stack, once it is up)\n")
 	}
 }
 

@@ -82,7 +82,9 @@ cutting a version and deploying it to the production stack.
 - **Sibling git worktrees each get their own ports and compose project**,
   allocated by `harness worktree init` and torn down by `harness worktree rm`.
   Create one with `/worktree-create <slug>`, remove one with
-  `/worktree-remove <slug>` — the two installed skills get the ordering right.
+  `/worktree-remove <slug>` — the two installed skills get the ordering right,
+  including `harness worktree seed`, which copies the API keys and the GitHub
+  credential from the main checkout's stack once the new worktree's is up.
   [`docs/WORKTREES.md`](docs/WORKTREES.md) is the reference: the slot model,
   the port bands, what's still shared, and why `web/vite.config.ts` and
   `scripts/test.sh` are the only two files that needed a code change to

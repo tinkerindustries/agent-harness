@@ -102,6 +102,7 @@ If the install fails, stop and surface the output rather than working around it 
 ```bash
 harness worktree init
 docker compose up -d --build
+harness worktree seed
 ```
 
 `init` allocates the lowest free slot and writes `.worktree-env.xml` at the worktree root plus
@@ -114,6 +115,15 @@ to bring up this worktree's own `harness`/`mcp` containers under its own compose
 If `init` reports "already initialised", that's fine — it's idempotent and just reconciled the
 existing slot; proceed to `docker compose up` regardless.
 
+`seed` copies the credential settings — the API keys and the GitHub credential — from the main
+checkout's running stack into this worktree's, so the new worktree can call a model and clone a
+private repository without having them typed in again. It runs after `docker compose up`
+because the worktree's store does not exist until then. It copies nothing else: no sessions, no
+queue rows, no leases (docs/WORKTREES.md, "Seeding a worktree's credentials"). A failure here
+does not fail the worktree — say so in the report and carry on; the worktree works, it just
+needs its credentials set by hand. The most likely cause is the main checkout's stack not
+running, which `docker ps` confirms.
+
 ---
 
 ## Phase 5 — Report
@@ -122,6 +132,7 @@ State plainly:
 
 - Worktree path and branch
 - Dependency install: done
+- Credentials: seeded from the main checkout's stack, or the reason they were not
 - Environment: started, with the harness HTTP URL from `.worktree-env.xml` (or read it back with
   `harness worktree show`) — or "skipped" if `--no-env`
 - **Any resources this worktree still shares** — read the `<shared>` block in
