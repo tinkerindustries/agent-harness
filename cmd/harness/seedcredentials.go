@@ -1,14 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/mrgeoffrich/agent-harness/internal/settings"
 )
@@ -151,4 +154,134 @@ func localBaseURL(addr string) string {
 		host = "127.0.0.1"
 	}
 	return fmt.Sprintf("http://%s:%s", host, port)
+}
+
+// exportCredentials prints the stored credential settings as a JSON object,
+// omitting any that are unset. It runs inside the source installation, where
+// the data directory is the volume that stack keeps its store in — which is
+// why it needs no container name, no volume to mount and no second copy of
+// the store.
+func exportCredentials(ctx context.Context) error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	st, err := openStore(cfg)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	res := settings.NewResolver(st)
+
+	out := map[string]string{}
+	for _, key := range settings.SeedableCredentialKeys() {
+		value, ok, err := res.Get(ctx, key)
+		if err != nil {
+			return fmt.Errorf("seed-credentials -export: read %s: %w", key, err)
+		}
+		if ok && value != "" {
+			out[key] = value
+		}
+	}
+	return json.NewEncoder(os.Stdout).Encode(out)
+}
+
+// The three outcomes for one key. Kept as constants because they are printed
+// and asserted on.
+const (
+	seedActionWrite     = "seeded"
+	seedActionHave      = "left alone (already set here)"
+	seedActionNotSource = "skipped (not set at the source)"
+)
+
+// seedPlan is one key's outcome.
+type seedPlan struct {
+	Key    string
+	Action string
+}
+
+// planSeed decides what happens to each key. A key already set here is left
+// alone unless overwrite is given: the same contract githubauth.SeedFromEnv
+// carries, and for the same reason — an operator who deliberately set a
+// different value in this worktree should not have it replaced by a copy of
+// the main stack's.
+func planSeed(keys []string, source map[string]string, alreadySet map[string]bool, overwrite bool) []seedPlan {
+	plans := make([]seedPlan, 0, len(keys))
+	for _, key := range keys {
+		switch {
+		case source[key] == "":
+			plans = append(plans, seedPlan{key, seedActionNotSource})
+		case alreadySet[key] && !overwrite:
+			plans = append(plans, seedPlan{key, seedActionHave})
+		default:
+			plans = append(plans, seedPlan{key, seedActionWrite})
+		}
+	}
+	return plans
+}
+
+// credentialsSetAt asks this harness which credentials it already holds. The
+// settings endpoint masks secret values, which is all this needs — whether a
+// key is set, never what it is.
+func credentialsSetAt(ctx context.Context, base string) (map[string]bool, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/api/settings", nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("seed-credentials: cannot reach this harness at %s: %w\n"+
+			"It is the installation this command is running inside; if it is not serving yet, wait for its healthcheck and run this again.", base, err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("seed-credentials: %s/api/settings answered %d", base, resp.StatusCode)
+	}
+	var entries []struct {
+		Key string `json:"key"`
+		Set bool   `json:"set"`
+	}
+	if err := json.Unmarshal(body, &entries); err != nil {
+		return nil, fmt.Errorf("seed-credentials: unparseable settings from %s: %w", base, err)
+	}
+	set := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		set[e.Key] = e.Set
+	}
+	return set, nil
+}
+
+// putSetting writes one credential through the same endpoint the settings
+// screen writes through, so the value is validated and anything that has to
+// react to it does.
+func putSetting(ctx context.Context, base, key, value string) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	payload, err := json.Marshal(map[string]string{"value": value})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, base+"/api/settings/"+key, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("seed-credentials: writing %s: %w", key, err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode != http.StatusOK {
+		// The body may name why the registry refused it; it never contains
+		// the value, which the endpoint does not echo.
+		return fmt.Errorf("seed-credentials: writing %s answered %d: %s", key, resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return nil
 }

@@ -130,13 +130,19 @@ three also hold host-global reservations in the band ledger, which is the
 difference that matters: the `reserved:` line stops *this* repo allocating
 them, and the ledger reservation stops any other adopted repo doing it.
 
-## What the import moved
+## What the import moved, and what was deleted
 
 `harness worktree` allocated slots in `~/.deepseek-harness/worktrees.json` and
 wrote `.worktree-env.xml`. Nothing was migrated from it, because at adoption
 there was nothing live to migrate: its one registry entry was an orphan from a
 worktree whose work had already merged, and the one real worktree on disk had
 never run `init` at all.
+
+The command and `internal/worktree` were deleted immediately after the
+adoption was proved — around 1,500 lines, plus the registry bind mount and
+`HARNESS_REGISTRY_DIR` from both compose files, which existed only so that
+allocator could run inside a container. `~/.deepseek-harness/` is no longer
+read or written by anything in this repo.
 
 `harness worktree seed` was the piece worth keeping. Its logic moved to
 `harness seed-credentials`, a top-level command with `-export` and `-import`
@@ -171,8 +177,19 @@ some other way. And enabling the TCP listener re-registers `wtd` on the host,
 which changes the developer's own daemon setup rather than anything in this
 repository.
 
-Until it is built, `harness worktree init -standalone` stays. That is the
-reason the `worktree` command has not been deleted along with the rest of the
-old allocator, and removing it before this is built would leave agent sessions
-with no way to isolate at all.
+`harness worktree init -standalone` was the interim answer, and it has been
+removed rather than kept until the replacement exists. That was a deliberate
+call and it has a cost worth stating plainly: between the removal and the
+container-side client, an agent session that brings a stack up in its own
+clone has no allocator at all. It sets the compose project name and ports by
+hand, from what `docker ps` shows the host has published — the same thing the
+`deepseek-flash-task` skill already told sessions to do in any repository with
+no tooling of its own, now true of this one too.
+
+The risk that carries is a session that sets nothing. Compose then falls back
+to the clone's directory basename, which for a clone of this repo is the host
+dev stack's own project name, and the session recreates the containers of the
+stack running it. The skill is emphatic about it for that reason. It is a
+weaker guarantee than an allocator, and it is the state of things until the
+container is a `wt` client.
 

@@ -97,11 +97,15 @@ cutting a version and deploying it to the production stack.
     the seeding, what stays shared, and the band bases to reserve on a new
     machine. [`docs/wt-decision-record.md`](docs/wt-decision-record.md) is why
     each of those is the way it is.
-  - `harness worktree` is the retired allocator it replaced. One piece of it
-    is still live: `-standalone`, which is how an agent session inside the
-    harness container isolates its own clone. Do not delete the command until
-    the container is a `wt` client — the decision record's "container-side
-    client" section has the shape and the two open questions.
+  - **An agent session inside the harness container has no allocator.**
+    `harness worktree` and its `-standalone` flag are gone, and the container
+    is not a `wt` client, so a session that brings a stack up in its own clone
+    must set `COMPOSE_PROJECT_NAME`, its ports and `HARNESS_WORKSPACES`
+    itself. Setting nothing makes compose fall back to the clone's directory
+    basename — this repo's own dev project name — and recreate the containers
+    of the stack running the session. `assets/skills/deepseek-flash-task`
+    carries the instructions; `docs/wt.md` explains why nothing does it
+    automatically.
 
 ## Skill packs
 

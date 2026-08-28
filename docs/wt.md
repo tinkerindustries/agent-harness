@@ -227,11 +227,29 @@ shares the host's docker socket, so `docker compose up` from inside an
 agent's clone binds real host ports under a real host compose project name —
 potentially the very stack that is running the agent.
 
-This is the one part of the adoption not yet built. Until it is, that case is
-still handled by `harness worktree init -standalone`, which allocates against
-the old registry at `~/.deepseek-harness/worktrees.json`. See
-[wt-decision-record.md](wt-decision-record.md), "The container-side client",
-for the shape it will take and what has to be decided first.
+**Nothing handles this any more.** `harness worktree init -standalone` did,
+against a registry file bind-mounted into both stacks; it was removed along
+with the rest of that allocator, and the container is not a `wt` client, so
+there is no allocator in there at all.
+
+A session that brings a stack up in its own clone therefore has to set
+`COMPOSE_PROJECT_NAME`, its ports and `HARNESS_WORKSPACES` itself.
+`assets/skills/deepseek-flash-task/SKILL.md` tells it so, and tells it to read
+the host's published ports through the shared docker socket, because a bind on
+`127.0.0.1` inside the container tests the container's own loopback and
+succeeds on a host port that is already taken.
+
+The failure this guards against is specific and quiet: with nothing set,
+compose falls back to the clone's directory basename, which for a clone of
+this repo is `agent-harness` — the host dev stack's own project name. `docker
+compose up` then recreates the containers of the stack running the session.
+`scripts/docker-entrypoint.sh` unsets the inherited compose keys so the
+session's own `.env` is read rather than the parent's, but unsetting them is
+what produces the basename fallback; it cannot supply a name nobody chose.
+
+Making the container a `wt` client is the fix, and
+[wt-decision-record.md](wt-decision-record.md)'s "The container-side client"
+has the shape and the two questions it waits on.
 
 # --- managed by wt; edits below are overwritten ---
 # wt-field: app=agent-harness

@@ -57,7 +57,6 @@ wt-env.json
 # dirty, which blocks `scripts/prod.sh promote` and stamps any forced build
 # `-dirty` (RELEASE.md).
 .claude/skills/*-workspace/
-.worktree-env.xml
 
 # Python bytecode from the .claude/skills maintenance scripts
 __pycache__/

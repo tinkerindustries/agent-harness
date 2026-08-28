@@ -18,7 +18,7 @@ split so that nothing on the request path can perturb that head.
 ## Codemap
 
 ### `cmd/harness`
-Flag parsing and process wiring for `serve.go` and `worktree.go`, plus
+Flag parsing and process wiring for `serve.go`, plus
 `main.go` itself. Composition happens here and nowhere else; no `internal`
 package constructs another's dependencies. `github.go` and
 `githubcredential.go` are the GitHub App's share of that: the credential
