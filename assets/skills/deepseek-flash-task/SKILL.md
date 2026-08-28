@@ -189,24 +189,25 @@ scoped to this workspace. Skip this section if your verification never brings
 anything up.
 
 Find out whether the repository already has an answer to this before inventing
-one. A repository that expects several checkouts at once usually ships a
-`worktree-create` and a `worktree-remove` skill under `.claude/skills`, and
-between them they name the mechanism: the dependency install, the port or slot
-allocation, the compose project name, and the command that gives it all back.
-Read `worktree-create`'s SKILL.md and take that mechanism.
+one. A repository that expects several checkouts at once usually says so
+somewhere committed — a `wt.yaml` at the root, a worktree document under
+`docs/`, or a skill under `.claude/skills` — and between them they name the
+mechanism: the dependency install, the port or slot allocation, the compose
+project name, and the command that gives it all back. Read that and take the
+mechanism.
 
-Take the mechanism, not the script. Those skills also create a branch, usually
-off `main` and named their own way, because they were written for a person
-starting fresh work in a main checkout they intend to keep. You are not that:
-your clone is already a disposable workspace of its own, and your branch and
-base were settled above. Where the skill and this prompt disagree about the
+Take the mechanism, not the whole workflow. What you find will also create a
+branch, usually off `main` and named its own way, because it was written for a
+person starting fresh work in a main checkout they intend to keep. You are not
+that: your clone is already a disposable workspace of its own, and your branch
+and base were settled above. Where it and this prompt disagree about the
 branch, this prompt wins; where they disagree about ports, containers, or
-compose project names, the skill wins.
+compose project names, it wins.
 
-Wrong: running `worktree-create` end to end, so the work lands in a nested
-directory on a branch named after the slug, and <branch-name> never exists.
-Right: staying in <repo-dir>/ on <branch-name>, and running that skill's
-allocation and bring-up steps there.
+Wrong: following that workflow end to end, so the work lands in a nested
+directory on a branch named after a slug, and <branch-name> never exists.
+Right: staying in <repo-dir>/ on <branch-name>, and running the allocation and
+bring-up steps there.
 
 **deepseek-harness has no tool that will do this for you.** It has `wt`, but
 that runs on the host and this container is not a client of it; the allocator
@@ -268,9 +269,9 @@ Right: resolving the container's address first and screenshotting that.
 `scripts/build.sh` does exactly this, guarded on `[ -f /.dockerenv ]`, and is
 worth copying from rather than rediscovering.
 
-**Release it on the failure path too.** A `worktree-remove` skill will tell you
-to leave a worktree alive when the run failed or nothing was pushed, and for a
-person that is the right rule — they can come back to it tomorrow. You cannot.
+**Release it on the failure path too.** A repository's own teardown guidance
+will tell you to leave a worktree alive when the run failed or nothing was
+pushed, and for a person that is the right rule — they can come back to it tomorrow. You cannot.
 This workspace is discarded when the run ends, while whatever the allocation
 reserved lives on the host, where a held slot and a running container are
 nobody's to notice or reclaim. Release it whichever way the run went, and say in

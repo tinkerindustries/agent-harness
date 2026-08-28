@@ -19,14 +19,17 @@ both the port and the compose project name.
 
 ## The workflow
 
-Normal use goes through the two installed skills:
+Claude Code's `WorktreeCreate` hook covers the normal case: it makes the git
+worktree and then runs `wt init` inside it, for any repository whose root has a
+`wt.yaml`. The matching `WorktreeRemove` hook runs `wt rm`. Both are installed
+by `wt claude install` and live in `~/.claude/settings.json`.
 
-- `/worktree-create <slug>` — makes the git worktree, then runs `wt init`
-  inside it.
-- `/worktree-remove <slug>` — runs `wt rm <slug>`, which does the teardown and
-  the git removal in the right order.
+The hook branches from whatever the calling session has checked out, so make a
+worktree from a main checkout that is on `main` and up to date, not from inside
+another worktree.
 
-The raw commands, if you are not going through the skills:
+The raw commands, for a removal asked for in chat or a worktree made any other
+way:
 
 ```sh
 git worktree add "$(wt spec path --slug <slug>)" -b <slug>

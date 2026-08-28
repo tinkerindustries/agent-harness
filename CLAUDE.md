@@ -85,11 +85,14 @@ cutting a version and deploying it to the production stack.
   - **Never hardcode a port or a state path.** Read them with `wt show`
     (`--json` for the whole descriptor). They differ per worktree, and a value
     that is right in one is wrong in the next.
-  - **Something else creates the worktree; `wt init` attaches to it.** Create
-    one with `/worktree-create <slug>` and remove one with
-    `/worktree-remove <slug>` — the two installed skills get the ordering
-    right, including the credential seed, which a new worktree needs before it
-    can call a model or clone anything private.
+  - **Something else creates the worktree; `wt init` attaches to it.** On this
+    machine that something is Claude Code's `WorktreeCreate` hook, which runs
+    `wt init` for any repository with a `wt.yaml`; by hand it is
+    `git worktree add "$(wt spec path --slug <slug>)" -b <slug>` followed by
+    `wt init` inside it. `init` runs the `hooks:` block in `wt.yaml` — install,
+    build, start, seed, health — so it also seeds the credentials a new
+    worktree needs before it can call a model or clone anything private.
+    Tear one down with `wt rm --slug <slug>` from the repo root.
   - The main checkout is slot 0 and is never managed: it keeps
     `docker-compose.yml`'s and `web/vite.config.ts`'s committed defaults, so
     nothing changes for anyone who never makes a worktree.

@@ -169,9 +169,8 @@ manual, occasional pass rather than part of the suites.
 
 ### Standing the stack up
 
-1. Isolate: make a worktree and `wt init` it (`/worktree-create <slug>` does
-   both), which allocates this stack its own port and compose project and
-   brings it up with `--build`. The image bakes the frontend and the binary,
+1. Isolate: make a worktree and `wt init` it, which allocates this stack its
+   own port and compose project and brings it up with `--build`. The image bakes the frontend and the binary,
    so a plain `up -d` would restart the old code.
 2. Set the key into the isolated stack's settings table:
    `curl -X PUT localhost:<port>/api/settings/deepseek.api_key -H
