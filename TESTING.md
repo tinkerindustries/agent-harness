@@ -169,9 +169,10 @@ manual, occasional pass rather than part of the suites.
 
 ### Standing the stack up
 
-1. Isolate: `harness worktree init -slug <slug> -standalone`, then
-   `docker compose up -d --build`. The image bakes the frontend and the
-   binary, so a plain `up -d` restarts the old code.
+1. Isolate: make a worktree and `wt init` it (`/worktree-create <slug>` does
+   both), which allocates this stack its own port and compose project and
+   brings it up with `--build`. The image bakes the frontend and the binary,
+   so a plain `up -d` would restart the old code.
 2. Set the key into the isolated stack's settings table:
    `curl -X PUT localhost:<port>/api/settings/deepseek.api_key -H
    'Content-Type: application/json' -d '{"value":"<key>"}'`, or the same
@@ -248,4 +249,4 @@ The watch page, against a run another agent started:
 4. Stop it from the page and confirm the CANCELLED terminal state.
 
 Tear the stack down afterwards: stop any run still going, then
-`harness worktree rm <slug>`.
+`wt rm --slug <slug>`.

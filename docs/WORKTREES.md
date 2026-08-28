@@ -1,101 +1,15 @@
-# Git worktrees
+# Path parity
 
-Two sibling git worktrees of this repo compete for the same host ports and
-the same docker compose project name the moment both run `docker compose up`
-— the second one either fails to bind or, worse, quietly attaches to the
-first one's containers. `harness worktree` gives each worktree its own slot,
-and everything else in this document is that slot turned into ports and
-names.
+This file is named for `harness worktree`, the per-worktree allocator this
+repo used to carry. That tool is gone — [wt.md](wt.md) is the reference for
+per-worktree environments now, and [wt-decision-record.md](wt-decision-record.md)
+records why the replacement is shaped the way it is.
 
-There is only one production stack — `deepseek-harness-prod`, fixed on port
-8180 (CLAUDE.md). This tooling never allocates a worktree onto that port and
-never touches that stack.
-
-## The workflow
-
-Normal use goes through the two installed skills, which get the ordering
-right so you don't have to remember it:
-
-- `/worktree-create <slug>` — creates the git worktree, then runs
-  `harness worktree init` inside it.
-- `/worktree-remove <slug>` — runs `harness worktree rm <slug>` first, then
-  `git worktree remove`.
-
-The raw commands, if you're not going through the skills:
-
-```
-git worktree add .claude/worktrees/<slug> -b <branch>
-cd .claude/worktrees/<slug>
-harness worktree init
-docker compose up -d --build      # reads the .env init just wrote
-```
-
-```
-harness worktree rm <slug>        # from the repo root, before removing the tree
-git worktree remove .claude/worktrees/<slug>
-```
-
-`harness worktree list` shows every registered worktree and its ports.
-`harness worktree doctor` reports drift: a registry entry whose directory is
-gone, a worktree directory with no registry entry, a descriptor that didn't
-survive.
-
-## The slot model
-
-The main checkout is slot 0 and is never touched by this tool — it keeps
-`docker-compose.yml`'s own defaults, so nothing changes for anyone who never
-creates a worktree. `harness worktree init`, run from inside a linked
-worktree, allocates the lowest free slot in 1..32 and derives every port
-from it:
-
-| Resource | Slot 0 (main, unmanaged) | Worktree slot N |
-| --- | --- | --- |
-| Harness HTTP port (web UI, /api/..., and /mcp) | 8080 | 8700 + N |
-| Vite dev server port | 5173 | 5700 + N |
-| Dev compose project | `deepseek-harness` (directory basename) | `deepseek-harness-<slug>` |
-| Test compose project | — (the test broker's compose file is gone) | `deepseek-harness-<slug>-test`, still recorded so `worktree rm` can tear down a test stack a worktree created before the broker left |
-
-The last two digits of every allocated port equal the slot, so slot 7's ports
-all end in `07` — readable straight out of `docker ps` or `lsof`.
-
-## What `init` writes
-
-- **`.worktree-env.xml`** at the worktree root — the machine-readable record
-  of the allocation: identity, compose project names, every port, and the
-  list of resources this tool does *not* isolate (below). Gitignored;
-  per-worktree, per-machine state, never committed.
-- **`.env`**, in a block between `# --- harness worktree env: managed by
-  ... ---` markers. A first run seeds the file from the main checkout's
-  `.env` — so any DeepSeek overrides carry over — then appends the block; a
-  re-run replaces only that block, leaving the rest (including hand edits)
-  alone. Everything below it flows from `.env` through the normal channels:
-  `docker-compose.yml`'s `${VAR:-default}` substitutions for the compose
-  path, and `config.LoadDotEnv` for `harness serve` (which also mounts /mcp
-  on that same address) run directly on the host. The GitHub credential is
-  not part of this: `github.token` and the GitHub App's `github.app_id` /
-  `github.app_private_key` all live in the settings table, and each worktree
-  has its own SQLite store, so a new worktree starts with none of them set
-  regardless of what the main checkout has — see "What stays shared" below.
-
-Nothing else needed a code change to become worktree-aware **except**:
-
-- `web/vite.config.ts` — its `/api` proxy target was hardcoded to
-  `127.0.0.1:8080`. It now reads `HARNESS_HTTP_PORT` and `HARNESS_VITE_PORT`
-  from the repo root `.env` via Vite's `loadEnv`, falling back to today's
-  8080/5173 when neither is set.
-- `scripts/test.sh` — used to derive the test broker's compose project from
-  the dev one, so two worktrees never became the same project fighting over
-  one broker service. The broker is gone and the script is plain `go test`
-  again; the `<project>-test` name survives only in the descriptor, so
-  `harness worktree rm` can tear down a test stack a worktree created before
-  the broker left.
-
-Everything else — `HARNESS_WORKSPACES`'s bind mount, the `harness-data`
-named volume, the on-host `DEEPSEEK_DATA_DIR` default — was already relative
-to the working directory or namespaced by the compose project, so it
-isolates for free once the project name does.
-
-## Path parity
+What survives here is the one thing that was never about the allocator: the
+rule that the workspace root is mounted at the same absolute path on both
+sides of its bind mount. That is a property of `docker-compose.yml` and it
+governs every session that runs docker against the shared host socket, so it
+would be true with no worktree tooling at all.
 
 The workspace root is mounted at **the same absolute path inside the harness
 container as it has on the host** — source and target of one bind mount, both
@@ -117,8 +31,7 @@ is not shared from the host and is not known to Docker.
 
 That is what stopped a delegated run from completing this repo's own
 `scripts/build.sh`, whose last and most valuable stage is a container check
-(CLAUDE.md). It was recorded twice as an environment limitation before it was
-recognised as a fixable one. With the two paths equal, every path a session
+(CLAUDE.md). With the two paths equal, every path a session
 hands the daemon is already a host path, and nested compose — this repo's or
 any other's, relative bind mounts included — needs no translation at all.
 
@@ -128,17 +41,12 @@ Three consequences worth knowing:
   *relative* bind source against the project directory but interpolates
   `${PWD}` from the environment, so running compose from a subdirectory would
   mount the wrong host path. `scripts/build.sh` exports `HARNESS_WORKSPACES`
-  from the repository root, and `harness worktree init` pins it absolutely in
-  each worktree's `.env`, so only a hand-typed `docker compose` from a
+  from the repository root, and `wt init` pins it absolutely in each
+  worktree's `.env`, so only a hand-typed `docker compose` from a
   subdirectory can get it wrong. `build.sh` reads the value out of `.env`
   first: an exported variable beats `.env` in compose's interpolation, so
   without that read the export would silently replace a root pinned there on
   every build.
-- **The registry is passed by path, not inherited.** `${HOME}` inside the
-  container is `/root`, so a nested compose interpolating it would ask the
-  host for `/root/.deepseek-harness`. `HARNESS_REGISTRY_DIR` carries the
-  host's own path into the container's environment for the nested mount to
-  name.
 - **The path must be one the daemon will share.** On Docker Desktop that
   means under a directory in File Sharing — `/Users/...` by default, which is
   where a checkout normally lives. `scripts/build.sh` probes this before
@@ -155,183 +63,3 @@ share, so this is a relocation rather than an alias: a container-only path
 is what parity exists to rule out. Sessions already recorded under the old
 root keep pointing at it, which is why the move is a change of root for new
 runs rather than a migration of old ones.
-
-## What stays shared
-
-`.worktree-env.xml`'s `<shared>` block restates this list inside the
-worktree itself, so a session working there — human or agent — can see it
-without reading this file:
-
-- **The host docker socket.** Mounted into every harness container
-  regardless of worktree; a session in `full` permission mode controls the
-  one host daemon (CLAUDE.md's docker socket rule). Isolating this is out of
-  scope — it would mean a Docker-in-Docker setup for every worktree.
-- **`deepseek-harness-prod`.** Fixed ports, never allocated to a worktree,
-  never touched by `harness worktree`.
-- **Not shared, but copied on request: the credentials.** The API keys and
-  the GitHub credential live in the settings table, and each worktree runs
-  its own SQLite store, so a fresh worktree starts with none of them set.
-  `harness worktree seed` copies them across from the main checkout's stack
-  — see "Seeding a worktree's credentials" below. Each worktree still holds
-  its own copy; nothing is shared at runtime.
-- **Go module cache, npm cache.** Content-addressed and read-mostly;
-  isolating them would multiply setup time for no benefit.
-
-## Seeding a worktree's credentials
-
-A worktree that starts with no API keys and no GitHub credential cannot run
-anything or clone anything private, and typing the same DeepSeek key and the
-same GitHub App private key into every new worktree is the kind of friction
-that gets worked around badly. `harness worktree seed` copies them from a
-stack that already has them:
-
-```sh
-harness worktree seed              # from the main checkout's stack
-harness worktree seed -dry-run     # print what it would do, change nothing
-harness worktree seed -from deepseek-harness-prod-harness-1
-```
-
-**What travels.** Only the settings in the Credentials group, minus
-`http.control_token` — the API keys and the GitHub credential
-(`settings.SeedableCredentialKeys`, derived from the registry so a
-credential added later is carried without anyone remembering this file).
-The control token is left out deliberately: it is generated per
-installation and guards that installation's own run-control endpoints, so a
-copy would make one stack's bearer token work on another.
-
-**What does not.** Everything else in the store stays where it is — the work
-queue, sessions, events, workspace leases, the MCP server registry. A
-worktree that inherited `work_queue` rows would claim and run work queued for
-another stack, against a workspace root it does not own, and a copied lease
-would point at a directory that is not its own. This is why `seed` copies
-rows rather than the database file.
-
-**When to run it.** After `docker compose up`, not before, and this is why
-`seed` is its own command rather than part of `init`: a stack's store lives
-in that compose project's docker volume, which does not exist until compose
-has run once, and `init` is what writes the `.env` compose reads. By the time
-the stack is up, the target harness is running and can take the writes.
-
-**How it reads the source.** `docker exec <container> harness worktree seed
--export` — the same binary, inside the running source stack, where that
-stack's data volume is already mounted. No image name to resolve, no volume
-to mount, and no second copy of the store. The values come back over that
-pipe and go into the target through its own `PUT /api/settings/<key>`, so the
-registry validates them and anything that has to react does: a seeded GitHub
-App key re-runs `internal/githubauth.Sync` on arrival and is live without a
-restart.
-
-**Re-running it is safe.** A credential already set in the worktree is left
-alone, the same contract `githubauth.SeedFromEnv` carries — an operator who
-deliberately set a different key here does not get it replaced by a copy of
-the main stack's. `-overwrite` says otherwise. Values are never printed, by
-`seed` or by the settings endpoint it reads.
-
-**The cost.** Each worktree holds a point-in-time copy, so rotating a key
-means re-seeding the worktrees that are still alive, or setting it on each.
-Worktrees are short-lived enough that this beats the alternatives; a single
-shared credential store would avoid it, at the price of one worktree's
-settings screen editing every other worktree's credentials.
-
-## The registry
-
-`harness worktree` keeps one host-global file, `~/.deepseek-harness/
-worktrees.json`, tracking every worktree that has run `init` — keyed by
-slug (the worktree directory's name, not the branch, which gets renamed and
-deleted). It's host-global rather than repo-local because its whole job is
-coordinating *across* worktrees, which a file living inside one of them
-can't do. Reads and writes go through an exclusive-create lockfile with a
-15s stale-lock timeout, and every write is a temp-file-plus-rename, so two
-`init` calls launched at once cannot both claim the same slot and a crash
-mid-write cannot truncate the file.
-
-`harness worktree rm <slug>` works from the registry alone — it tears down
-by docker compose project label (`com.docker.compose.project`), never by
-reading a compose file, so it still works after `git worktree remove` has
-already deleted the directory. Run it before that removal, not after; the
-installed `/worktree-remove` skill does both in the right order.
-
-## Agent workspaces (`-standalone`)
-
-A `deepseek-flash-task` run clones the target repo into a directory of its own
-inside the harness container. When that target is this repo, the same
-collision `harness worktree` was built to prevent is back in a different
-shape: the container shares the host's docker socket
-(docker-compose.yml's `harness` service), so `docker compose up` from inside
-an agent's clone binds real host ports under a real host compose project name
-— potentially the dev (or prod) deployment's own, since that's the stack
-currently running the agent.
-
-Plain `harness worktree init` refuses to help here: a fresh `git clone` has no
-linked-worktree relationship to anything, so `--git-dir` and
-`--git-common-dir` are always equal and it looks exactly like the main
-checkout (slot 0). `-standalone` is the escape hatch — it skips that check and
-allocates a slot for the clone as if it were a linked worktree:
-
-```
-harness worktree init -slug <unique-slug> -standalone
-docker compose up -d --build      # or scripts/test.sh — both read the .env just written
-harness worktree rm <unique-slug> # unconditionally, before finishing
-```
-
-Two things had to be true before that sequence actually worked, and both are
-worth knowing because neither is visible from inside a session:
-
-**The slug has to reach compose.** `docker-compose.yml` loads `.env` wholesale
-into the container, so a worktree's own `COMPOSE_PROJECT_NAME` and ports
-became environment variables of every session running there — and compose
-prefers the environment to a `.env` file. A session's `init -standalone` wrote
-itself a correct `.env` that its own `docker compose up` then ignored,
-inheriting the parent's project name and recreating the parent's containers:
-the harness that was running the session, restarted by the session.
-`scripts/docker-entrypoint.sh` now unsets those keys before the harness
-process starts, so every session inherits an environment without them and its
-own `.env` is read. Unsetting is the only thing that works — a variable set to
-the empty string still shadows `.env`, and merely falls back to the compose
-file's directory name instead, which is how the same bug came back pointed at
-a different stack. `HARNESS_REGISTRY_DIR` is the one key a session inherits on
-purpose.
-
-The unset happens in the entrypoint rather than the compose file, which means
-a shell from `docker compose exec` — a human debugging, not a session — still
-carries them and should pass `-p` to compose, the way `scripts/test.sh` does.
-
-**The bind mounts have to resolve**, which they do because the session's
-workspace has the same path inside the container as it does on the host — see
-[Path parity](#path-parity) above. It is also why the registry this `init`
-writes to is the host's own: the file is shared into the container, and
-`HARNESS_REGISTRY_DIR` carries its host path for the nested compose to mount.
-Both stacks share it, so a session cannot be handed a slot a host worktree is
-already holding.
-
-Never pass `-standalone` in your own primary checkout of this repo — git
-cannot distinguish "the real main checkout" from "a disposable clone" on its
-own, so the flag is the only thing making that call, and it trusts you to mean
-it.
-
-Two things make this work without touching `init`'s allocation logic at all:
-
-- **The registry is genuinely shared.** `docker-compose.yml` mounts the host's
-  `$HOME/.deepseek-harness` into the container at `/root/.deepseek-harness`
-  (the container runs as root, so that's where `os.UserHomeDir()` resolves).
-  `harness worktree init/list/rm/doctor` inside a session read and write the
-  exact same file the host's own worktrees do — so a slot an agent allocates
-  is genuinely unavailable to a concurrent host worktree, and vice versa.
-- **Nothing downstream needed a standalone-specific code path.** `MainRoot()`
-  for a clone with no linked-worktree sibling simply resolves to the clone's
-  own root, so `UpsertEnv`'s "seed from the main checkout's `.env`" step finds
-  no file there and seeds nothing — correct, since neither the GitHub token
-  nor the DeepSeek API key travels through a worktree `.env` at all: both are
-  settings, and the standalone worktree's own `harness serve` reads its own
-  SQLite store, so it starts with neither one set and needs its own
-  `github.token` (and `deepseek.api_key`) put to it directly if the session
-  running inside it needs to clone a private repo or call the model.
-  `harness worktree rm` was already registry-and-docker-label-only with no
-  git dependency, so it needs no changes either.
-
-`AllocateSlot`'s live port probe (`ports.probeFree()`) binds on the
-container's own loopback, which is a different network namespace than the
-host ports `docker compose up` actually publishes to via the shared daemon —
-so from inside a session that probe cannot catch a collision the way it can
-on the host. The registry check is what actually prevents collisions here;
-the probe is a bonus that happens not to fire in this environment.

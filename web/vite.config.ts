@@ -27,7 +27,7 @@ function keepGitkeep(outDir: string) {
 export default defineConfig(({ mode }) => {
   // The dev server's own port and its /api proxy target come from the repo
   // root .env — not web/.env — because that's the file docker compose and
-  // `harness worktree init` both read and write (docs/WORKTREES.md). Passing
+  // `wt init` both read and write (docs/wt.md). Passing
   // "" as loadEnv's prefix lifts every var, not just VITE_-prefixed ones;
   // outside a worktree neither var is set and both defaults below match
   // today's behaviour exactly.

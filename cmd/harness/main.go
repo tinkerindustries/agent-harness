@@ -33,8 +33,9 @@ const usage = `usage: harness <command> [flags]
 commands:
   serve            pull work requests off the durable work queue and run them as a worker pool,
                     serving the web UI, /api/..., and /mcp on one HTTP port
-  worktree <cmd>    allocate per-worktree ports so sibling git worktrees of this
-                    repo can run docker-compose.yml and .test.yml concurrently
+  seed-credentials  copy the API keys and the GitHub credential between two
+                    harness installations; -export reads one, -import writes
+                    the other (scripts/wt-seed.sh pairs them)
   github-credential  git credential helper for a harness running as a GitHub App;
                     git runs it, people do not (docs/GITHUB-APP.md)
 
@@ -75,8 +76,8 @@ func main() {
 	switch os.Args[1] {
 	case "serve":
 		err = runServe(ctx, os.Args[2:])
-	case "worktree":
-		err = runWorktree(ctx, os.Args[2:])
+	case "seed-credentials":
+		err = runSeedCredentials(ctx, os.Args[2:])
 	case "-h", "-help", "--help", "help":
 		fmt.Println(usage)
 		return

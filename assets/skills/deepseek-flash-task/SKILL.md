@@ -208,19 +208,47 @@ directory on a branch named after the slug, and <branch-name> never exists.
 Right: staying in <repo-dir>/ on <branch-name>, and running that skill's
 allocation and bring-up steps there.
 
-In deepseek-harness itself the mechanism is `harness worktree init`, and the
-flag for a disposable clone with no sibling main checkout is `-standalone`.
-Reuse <branch-name>'s slug (the part after `deepseek/`) as the slug — it is
-already kebab-case and unique to this task:
+**deepseek-harness has no tool that will do this for you.** It has `wt`, but
+that runs on the host and this container is not a client of it; the allocator
+that used to serve this case from inside the container has been removed. So
+here you are in the same position as any other repository: pick a compose
+project name and ports nothing else is using, set them yourself, and bring
+everything back down before you finish.
 
-    harness worktree init -slug <branch-slug> -standalone
-    docker compose up -d --build      # or scripts/test.sh — both now read the ports/project name that just wrote to .env
+Setting the project name is not optional. With nothing set, compose falls back
+to your clone's own directory basename — which for a clone of this repo is
+`agent-harness`, *the host dev stack's own project name*. `docker compose up`
+then recreates the containers of the stack that is running you.
 
-    harness worktree rm <branch-slug>  # when you are done, pass or fail
+Pick ports by looking at what the host has actually published. You cannot
+probe them: a bind on `127.0.0.1` inside this container tests your own
+loopback, not the host's, and it will succeed on a port that is already taken.
+The docker socket is the way to see the truth:
 
-For a repository with neither a worktree skill nor a tool of its own, pick a
-compose project name and ports nothing else is likely using, and bring
-everything back down yourself before finishing.
+    docker ps --format '{{.Names}}\t{{.Ports}}'   # every published host port
+
+Avoid 8080 and 5173 (the host dev stack), 8180 (production), and 8700-8708 /
+5700-5708 (the host's own worktree band). Anything well clear of those is
+fine. Reuse <branch-name>'s slug (the part after `deepseek/`) for the project
+name — it is already kebab-case and unique to this task:
+
+    cat >> .env <<'ENV'
+    COMPOSE_PROJECT_NAME=harness-<branch-slug>
+    HARNESS_HTTP_PORT=<a free host port>
+    HARNESS_WORKSPACES=<absolute path to this clone>/workspaces
+    ENV
+
+    docker compose up -d --build      # or scripts/test.sh — both read that .env
+
+    docker compose -p harness-<branch-slug> down -v   # when you are done, pass or fail
+
+`HARNESS_WORKSPACES` has to be absolute and has to be a real host path,
+because the daemon resolving that bind mount is the host's — see "Reaching
+what you just started" below, and docs/wt.md's "Path parity".
+
+Bring it down yourself. Nothing else will: no registry knows your stack
+exists, so a project you leave running holds its ports until someone finds it
+in `docker ps`.
 
 **Reaching what you just started.** A published port is published on the
 *host's* loopback, and you are not on the host — inside this container
@@ -280,9 +308,9 @@ error. A run that ends silently tells the requester nothing.
 - Branch off <base>, name the branch <branch-name>, push it, open a draft PR.
 - Run the repository's own build and test commands and report each one.
 - If you brought an environment up, release it before finishing, whichever way
-  the run went — `harness worktree rm <branch-slug>` in deepseek-harness, the
-  teardown the repository's own worktree skill names where it ships one,
-  `docker compose down` otherwise.
+  the run went — `docker compose -p <the project name you chose> down -v`, or
+  the teardown the repository's own worktree skill names where it ships one.
+  Nothing reclaims it for you.
 - English throughout.
 - Finish with Complete.
 ```

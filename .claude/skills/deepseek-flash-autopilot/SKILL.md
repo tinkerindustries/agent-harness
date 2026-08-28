@@ -109,8 +109,8 @@ means disturbing a tree they are probably using. Install whatever the repo needs
 to build there now — dependencies, generated assets — so that a phase check is
 seconds rather than a setup. Do not bring stacks up in it: this worktree has no
 port allocation of its own, and in deepseek-harness itself anything involving
-`docker compose` needs `harness worktree init` first. Tear it down at the end
-with `git worktree remove`.
+`docker compose` needs `wt init` first. Tear it down at the end with
+`git worktree remove`.
 
 **Write the ledger.** `references/ledger.md` is the format. Put it beside the
 plan document as `<plan-basename>-ledger.md`, leave it untracked, and fill in

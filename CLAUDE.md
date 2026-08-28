@@ -79,16 +79,33 @@ cutting a version and deploying it to the production stack.
   [`docs/UNITY.md`](docs/UNITY.md) is the reference, including why no Editor
   is reachable from a container and why `unity mcp` is deliberately not
   registered as an MCP server.
-- **Sibling git worktrees each get their own ports and compose project**,
-  allocated by `harness worktree init` and torn down by `harness worktree rm`.
-  Create one with `/worktree-create <slug>`, remove one with
-  `/worktree-remove <slug>` — the two installed skills get the ordering right,
-  including `harness worktree seed`, which copies the API keys and the GitHub
-  credential from the main checkout's stack once the new worktree's is up.
-  [`docs/WORKTREES.md`](docs/WORKTREES.md) is the reference: the slot model,
-  the port bands, what's still shared, and why `web/vite.config.ts` and
-  `scripts/test.sh` are the only two files that needed a code change to
-  become worktree-aware.
+- **This repo uses per-worktree environments.** Every linked git worktree gets
+  its own harness HTTP port, Vite port, compose project and workspace root,
+  allocated by `wt init` from the spec in [`wt.yaml`](wt.yaml).
+  - **Never hardcode a port or a state path.** Read them with `wt show`
+    (`--json` for the whole descriptor). They differ per worktree, and a value
+    that is right in one is wrong in the next.
+  - **Something else creates the worktree; `wt init` attaches to it.** Create
+    one with `/worktree-create <slug>` and remove one with
+    `/worktree-remove <slug>` — the two installed skills get the ordering
+    right, including the credential seed, which a new worktree needs before it
+    can call a model or clone anything private.
+  - The main checkout is slot 0 and is never managed: it keeps
+    `docker-compose.yml`'s and `web/vite.config.ts`'s committed defaults, so
+    nothing changes for anyone who never makes a worktree.
+  - [`docs/wt.md`](docs/wt.md) is the reference — the slot model, the hooks,
+    the seeding, what stays shared, and the band bases to reserve on a new
+    machine. [`docs/wt-decision-record.md`](docs/wt-decision-record.md) is why
+    each of those is the way it is.
+  - **An agent session inside the harness container has no allocator.**
+    `harness worktree` and its `-standalone` flag are gone, and the container
+    is not a `wt` client, so a session that brings a stack up in its own clone
+    must set `COMPOSE_PROJECT_NAME`, its ports and `HARNESS_WORKSPACES`
+    itself. Setting nothing makes compose fall back to the clone's directory
+    basename — this repo's own dev project name — and recreate the containers
+    of the stack running the session. `assets/skills/deepseek-flash-task`
+    carries the instructions; `docs/wt.md` explains why nothing does it
+    automatically.
 
 ## Skill packs
 
