@@ -83,10 +83,13 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
   const [chosen, setChosen] = useState<ChosenAttachment[]>([]);
 
   // The repo picker's async state, fetched once on mount: the operator's
-  // GitHub repos for the searchable combobox, whether a github.token is
+  // GitHub repos for the searchable combobox, whether a GitHub credential is
   // configured at all, and the fetch error when the GitHub call failed. All
-  // three are non-blocking — a missing token or a failed fetch just
+  // three are non-blocking — a missing credential or a failed fetch just
   // suppresses suggestions, never the form (docs/DATA-API.md "github repos").
+  // With a GitHub App configured the list spans every account the App is
+  // installed on; with only github.token it is that token's one account
+  // (docs/GITHUB-APP.md).
   const [githubRepos, setGithubRepos] = useState<GithubRepo[]>([]);
   const [githubConfigured, setGithubConfigured] = useState(false);
   const [githubLoading, setGithubLoading] = useState(true);
@@ -431,7 +434,7 @@ export function StartRunForm({ token, onClose, onOpen }: StartRunFormProps) {
           </Button>
           {githubError && <p className="text-xs text-muted-foreground">{githubError}</p>}
           {!githubConfigured && !githubLoading && !githubError && (
-            <p className="text-xs text-muted-foreground">Add a GitHub token in Settings to search your repositories.</p>
+            <p className="text-xs text-muted-foreground">Add a GitHub credential in Settings to search your repositories.</p>
           )}
         </div>
 

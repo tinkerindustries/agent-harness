@@ -248,6 +248,25 @@ type Server struct {
 	GitHubBaseURL string
 	github        githubCache
 
+	// GitHubApp is the GitHub App credential, when one is configured
+	// (*githubapp.Provider). It answers two endpoints: GET /api/github/repos
+	// lists every installation's repositories through it instead of the
+	// token's, and POST /api/github/credential mints the installation token
+	// the `harness github-credential` git helper asks for. Nil is every
+	// caller with no App wired — a test, or a harness on the github.token
+	// path — and both endpoints then behave exactly as they did before Apps
+	// existed (docs/GITHUB-APP.md).
+	GitHubApp GitHubApp
+
+	// GitCredentialToken is the bearer token POST /api/github/credential
+	// requires, generated at startup by cmd/harness/serve.go and handed to
+	// the credential helper through the process environment
+	// (internal/githubauth). Empty means the endpoint is not configured and
+	// fails closed with 503, the same shape ControlToken takes. It is
+	// deliberately not ControlToken: this one is readable by every agent
+	// session, and run control must not be.
+	GitCredentialToken string
+
 	// DefaultEventsLimit and MaxEventsLimit bound ?limit= on the events
 	// endpoint. They are resolved from http.events_limit_default and
 	// http.events_limit_max once at startup: a change needs a restart, which
@@ -334,6 +353,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/evals/{id}", s.handleGetEval)
 	mux.HandleFunc("GET /api/sessions/{id}/eval", s.handleGetSessionEval)
 	mux.HandleFunc("GET /api/github/repos", s.handleListGithubRepos)
+	mux.HandleFunc("POST /api/github/credential", s.handleGithubCredential)
 	mux.HandleFunc("GET /api/models", s.handleListModels)
 	mux.HandleFunc("GET /api/mcp/servers", s.handleListMCPServers)
 	mux.HandleFunc("POST /api/mcp/servers", s.handleCreateMCPServer)

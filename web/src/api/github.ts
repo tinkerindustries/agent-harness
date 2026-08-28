@@ -5,11 +5,11 @@
 // beside it — the component renders, this talks to the server and filters,
 // and the tests pin this module's wire shape and matching without any DOM.
 //
-// The endpoint is deliberately quiet when it cannot help: no github.token in
-// Settings means {"repos": [], "configured": false} — the expected
-// unconfigured state — and a GitHub-side failure is a 502 whose message this
-// module carries out via apiError, so the form shows a hint either way instead
-// of blocking.
+// The endpoint is deliberately quiet when it cannot help: no GitHub
+// credential in Settings — neither a GitHub App nor github.token — means
+// {"repos": [], "configured": false}, the expected unconfigured state, and a
+// GitHub-side failure is a 502 whose message this module carries out via
+// apiError, so the form shows a hint either way instead of blocking.
 
 import { apiError } from "./operations";
 
@@ -36,8 +36,10 @@ export interface GithubReposResponse {
 }
 
 // listGithubRepos fetches GET /api/github/repos: the operator's GitHub
-// repositories, newest-updated first, or the unconfigured empty response when
-// no github.token is set. A non-2xx answer throws the server's error message
+// repositories, newest-updated first — every installation's merged into one
+// list when a GitHub App is configured, one account's under github.token
+// (docs/GITHUB-APP.md) — or the unconfigured empty response when neither is
+// set. A non-2xx answer throws the server's error message
 // (a 502 names the GitHub side of the failure), which the form surfaces as a
 // quiet hint rather than blocking the start form.
 export async function listGithubRepos(): Promise<GithubReposResponse> {

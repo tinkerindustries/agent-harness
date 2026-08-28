@@ -71,11 +71,11 @@ all end in `07` — readable straight out of `docker ps` or `lsof`.
   alone. Everything below it flows from `.env` through the normal channels:
   `docker-compose.yml`'s `${VAR:-default}` substitutions for the compose
   path, and `config.LoadDotEnv` for `harness serve` (which also mounts /mcp
-  on that same address) run directly on the host. The GitHub token is not
-  part of this: `github.token` lives in the settings table, and each
-  worktree has its own SQLite store, so a new worktree starts with no token
-  set regardless of what the main checkout has — see "What stays shared"
-  below.
+  on that same address) run directly on the host. The GitHub credential is
+  not part of this: `github.token` and the GitHub App's `github.app_id` /
+  `github.app_private_key` all live in the settings table, and each worktree
+  has its own SQLite store, so a new worktree starts with none of them set
+  regardless of what the main checkout has — see "What stays shared" below.
 
 Nothing else needed a code change to become worktree-aware **except**:
 
@@ -168,12 +168,16 @@ without reading this file:
   scope — it would mean a Docker-in-Docker setup for every worktree.
 - **`deepseek-harness-prod`.** Fixed ports, never allocated to a worktree,
   never touched by `harness worktree`.
-- **Not shared, despite looking like it should be: the GitHub token.**
-  `github.token` lives in the settings table, and each worktree runs its own
-  SQLite store, so `init` copies nothing for it and a fresh worktree starts
-  with no token set. Set it on that worktree's own settings screen (or
-  `PUT /api/settings/github.token` against its own port) before it can clone
-  or push to a private repo — the main checkout's token does not carry over.
+- **Not shared, despite looking like it should be: the GitHub credential.**
+  `github.token` and the App's `github.app_id` / `github.app_private_key`
+  live in the settings table, and each worktree runs its own SQLite store, so
+  `init` copies nothing for them and a fresh worktree starts with none set.
+  Set one on that worktree's own settings screen (or `PUT
+  /api/settings/<key>` against its own port) before it can clone or push to a
+  private repo — the main checkout's credential does not carry over. One
+  GitHub App can back every worktree at once: the App itself is a GitHub-side
+  object, and what each worktree stores is a copy of the same id and key
+  ([GITHUB-APP.md](GITHUB-APP.md)).
   The DeepSeek API key is the same shape (its own per-store setting, entered
   once per worktree), but the same DeepSeek account works from all of them
   concurrently, so there is nothing to isolate there beyond typing the key

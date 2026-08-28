@@ -307,6 +307,17 @@ type Runner struct {
 	// effect without a restart. Nil falls back to gemini.DefaultModel.
 	GeminiModel func() (string, error)
 
+	// ToolEnv, when set, is handed to every Executor this Runner builds as
+	// tools.Executor.ExtraEnv: the environment variables a session's Bash
+	// calls get on top of this process's own. It carries the GitHub App
+	// installation token for gh, which cannot be process-wide because an App
+	// mints a different token per account (internal/githubauth,
+	// docs/GITHUB-APP.md). Built in cmd/harness like the rest of the
+	// composition; nil is every test and every harness on the github.token
+	// path, and a Bash call then inherits this process's environment
+	// unchanged.
+	ToolEnv func(ctx context.Context, workspace string) []string
+
 	// Hub, when set, is where every committed event and every session
 	// state change gets published for a browser to watch live. Nil is a
 	// caller with none wired: nothing subscribes, so nothing is published.

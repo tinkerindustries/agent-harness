@@ -21,8 +21,10 @@ agent harness — Claude Code, Cursor — launch runs here and collect them late
 - **A DeepSeek API key** from <https://platform.deepseek.com/api_keys>. The
   account is prepaid and needs a balance — the harness halts the pool rather
   than failing every run when it runs out.
-- **A GitHub token**, only if runs need to clone private repositories or push
-  branches — set as the `github.token` setting once the stack is up.
+- **A GitHub credential**, only if runs need to clone private repositories or
+  push branches — either the `github.token` setting, which reaches one
+  account, or a GitHub App installed on each account you work across
+  ([docs/GITHUB-APP.md](docs/GITHUB-APP.md)). Set either once the stack is up.
 
 To build outside Docker you also need Go and Node; see
 [Running without Docker](#running-without-docker).
@@ -83,6 +85,12 @@ curl -X PUT localhost:8080/api/settings/github.token \
 The harness turns it into a git credential inside the container, and `gh`
 picks it up from the process environment (`internal/githubauth`). Nothing is
 written to your host's git config.
+
+A personal access token reaches one account. To work across a personal
+account and an organisation at once, install a GitHub App on both and set
+`github.app_id` and `github.app_private_key` instead — the harness then mints
+a token per account as git asks for it, and the App takes precedence over
+`github.token`. [docs/GITHUB-APP.md](docs/GITHUB-APP.md) is the setup.
 
 Then:
 
@@ -267,8 +275,10 @@ too) in `.env` and bring the stack back up.
 stops taking work rather than burning through redeliveries; top up and restart.
 
 **A run failed with `workspace_setup`.** The clone was refused or the branch does
-not exist. Private repositories need `github.token` set (settings screen, or
-`PUT /api/settings/github.token`).
+not exist. Private repositories need a GitHub credential set — `github.token`
+(settings screen, or `PUT /api/settings/github.token`), or a GitHub App
+installed on the account that owns the repository
+([docs/GITHUB-APP.md](docs/GITHUB-APP.md)).
 
 **A run reports `status: "ok"` but did nothing useful.** Check
 `complete_status`: `gave_up` means the model finished cleanly and said it could

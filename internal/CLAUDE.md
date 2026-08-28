@@ -18,9 +18,15 @@ split so that nothing on the request path can perturb that head.
 ## Codemap
 
 ### `cmd/harness`
-Flag parsing and process wiring for the two subcommands that remain,
-`serve.go` and `worktree.go`, plus `main.go` itself. Composition happens here
-and nowhere else; no `internal` package constructs another's dependencies.
+Flag parsing and process wiring for `serve.go` and `worktree.go`, plus
+`main.go` itself. Composition happens here and nowhere else; no `internal`
+package constructs another's dependencies. `github.go` and
+`githubcredential.go` are the GitHub App's share of that: the credential
+helper command git is pointed at, the loopback address it calls back on, the
+per-session `gh` token, and `harness github-credential` itself — a
+subcommand git runs, not a person, dispatched before `.env` loading and
+silent on stdout except for the credential
+([`../docs/GITHUB-APP.md`](../docs/GITHUB-APP.md)).
 
 ### `internal/deepseek`
 The DeepSeek API client: the request body it builds from a `wire.ChatIntent`,
@@ -192,7 +198,12 @@ text under the ordinary output cap, an image written into the session's
 failed result rather than a Go error — and the permission policy's
 `MCPReadOnlyServers` map is the per-server readonly allowance frozen onto it
 at run start ([`../docs/MCP.md`](../docs/MCP.md)).
-Depends on: `internal/wire`, `internal/provider`, `internal/promptvariant`,
+`Executor.ExtraEnv` is the one hook that lets something outside decide part
+of a `Bash` call's environment, resolved at the moment of the call: it exists
+for the GitHub App token `gh` needs, which cannot be process-wide because an
+App mints a different one per account
+([`../docs/GITHUB-APP.md`](../docs/GITHUB-APP.md)). Depends on:
+`internal/wire`, `internal/provider`, `internal/promptvariant`,
 `internal/attachment` (the image-extension-to-MIME-type table the vision
 tools read images by).
 
@@ -264,7 +275,13 @@ is a fifth write surface with the same shape: `GET`, `POST`, `PATCH`, and
 directly, and probing goes through `MCPProber`, a seam this package declares
 for itself narrower than `MCPProvider` and implemented by the same
 `*mcpclient.Manager` — so triggering a probe from the browser still never
-gives this package a reach into `session` or `worker`. §4.2. Split by
+gives this package a reach into `session` or `worker`. `GitHubApp` is one
+more seam of that shape, declared here and implemented by
+`*githubapp.Provider`: it is what lets `GET /api/github/repos` merge every
+installation's repositories into one picker list, and what
+`POST /api/github/credential` mints the installation token the
+`harness github-credential` git helper asks for
+([`../docs/GITHUB-APP.md`](../docs/GITHUB-APP.md)). §4.2. Split by
 resource, one file per
 group; `server.go`'s own package doc names which file holds which (the
 `Server` type and `routes()` stay there so the whole surface is still
@@ -324,7 +341,10 @@ workspace that already exists takes images too — the ones somebody pastes into
 the composer of a running or finished session, written by `internal/session`
 through this same confinement check
 ([`../docs/RUN-CONTROL.md`](../docs/RUN-CONTROL.md), "Images in the
-composer"). §4.10.
+composer"). `GitHubOwners` reads the accounts a prepared workspace's clones
+belong to, straight out of each `.git/config`, which is how a session's `gh`
+calls are given the right GitHub App installation token
+([`../docs/GITHUB-APP.md`](../docs/GITHUB-APP.md), "What gh gets"). §4.10.
 
 ### `internal/promptvariant`
 The named alternatives to the shipped system prompt, and the reminder cadences
@@ -466,21 +486,49 @@ exception: they are read once at startup and marked as such). Depends on: the
 settings surface of `internal/store` only.
 
 ### `internal/githubauth`
-Makes the stored `github.token` setting ambient for every subprocess this
+Makes the harness's GitHub credential ambient for every subprocess this
 process spawns, so a private clone (`internal/workspace/clone.go`) and a
 session's own `git`/`gh` calls (`internal/tools/bash.go`) both authenticate
 without either package holding a settings resolver: both spawn with a nil or
 `os.Environ()`-derived `cmd.Env`, so a value set on the harness process's own
-environment reaches every one of them unchanged. `Sync` writes a credential
-file at a path `cmd/harness/serve.go` chooses under the data directory and
-points git at it through `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_0`/
-`GIT_CONFIG_VALUE_0` in the process environment rather than the host's global
-git config, and sets `GITHUB_TOKEN`/`GH_TOKEN` for `gh`; called once at
-startup and again after every write to `github.token`
-(`httpapi.Server.OnSettingChanged`), so a token typed into the settings
-screen takes effect without a restart. `SeedFromEnv` is the one-time
+environment reaches every one of them unchanged. Everything it publishes goes
+through `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n`/`GIT_CONFIG_VALUE_n` and the
+environment rather than the host's global git config.
+
+`Sync` chooses between the two credentials, which is the whole of its
+decision ([`../docs/GITHUB-APP.md`](../docs/GITHUB-APP.md)). A configured
+GitHub App wins: it writes no credential file — an App mints a token per
+installation and has no standing one — and points git at the
+`harness github-credential` helper with `credential.useHttpPath`, publishing
+the callback address and bearer token the helper needs. Otherwise it takes
+the personal access token path: a credential file at a path
+`cmd/harness/serve.go` chooses under the data directory, git pointed at it
+through the `store` helper, and `GITHUB_TOKEN`/`GH_TOKEN` set for `gh`.
+Called once at startup and again after every write to one of the three GitHub
+settings (`httpapi.Server.OnSettingChanged`), so a credential typed into the
+settings screen takes effect without a restart. `SeedFromEnv` is the one-time
 migration off the `GITHUB_TOKEN` env var an installation may have set before
-this package existed. Depends on: `internal/settings`.
+this package existed. The App reaches it as `AppProvider`, a one-method seam
+— whether an App is configured — so the fallback decision is testable without
+a GitHub stub and this package never learns how a token is minted. Depends
+on: `internal/settings`.
+
+### `internal/githubapp`
+Authenticates the harness as a GitHub App rather than as one account's
+personal access token, which is what lets one credential cover a personal
+account and an organisation at once
+([`../docs/GITHUB-APP.md`](../docs/GITHUB-APP.md)). Signs the app JWT with
+the stored private key (hand-rolled RS256 over `crypto/rsa` — two base64url
+JSON objects and a signature, all standard library), maps each installation's
+account login to its id, and exchanges the JWT for that installation's
+hour-long access token, caching both. `TokenForOwner` is the whole interface
+its callers see: `cmd/harness` for the per-session `gh` token,
+`internal/httpapi` for the credential endpoint the git helper calls and for
+merging every installation's repositories into one picker list. Both reach it
+through seams those packages declare for themselves, so neither imports this
+one. `ParsePrivateKey` is deliberately forgiving about whitespace — the key
+arrives through a single-line password field that flattens a PEM's newlines.
+Depends on: `internal/settings`.
 
 ### `internal/pricing`
 The price table, loaded from JSON at runtime and carrying its own capture date.

@@ -368,3 +368,44 @@ func TestBashWithoutStdoutSinkStillCapturesOutput(t *testing.T) {
 		t.Fatalf("expected normal output capture with no sink attached, got: %+v", res)
 	}
 }
+
+// TestBashExtraEnvReachesTheCommand pins the hook the GitHub App
+// credential rides on: a variable ExtraEnv returns is in the command's
+// environment, and the process's own environment is still there underneath
+// it (a Bash call inherits GIT_CONFIG_* and everything else
+// internal/githubauth set).
+func TestBashExtraEnvReachesTheCommand(t *testing.T) {
+	e, _ := newTestExecutor(t)
+	t.Setenv("HARNESS_TEST_AMBIENT", "ambient")
+	e.ExtraEnv = func(ctx context.Context, workspace string) []string {
+		return []string{"GH_TOKEN=ghs_from_extra_env"}
+	}
+
+	res := execBash(t.Context(), e, mustJSON(t, bashArgs{Command: "echo $GH_TOKEN $HARNESS_TEST_AMBIENT"}))
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, "ghs_from_extra_env") {
+		t.Errorf("output = %q, want the ExtraEnv value", res.Content)
+	}
+	if !strings.Contains(res.Content, "ambient") {
+		t.Errorf("output = %q, want the process's own environment as well", res.Content)
+	}
+}
+
+// TestBashExtraEnvIsGivenTheWorkspace pins that the closure is told which
+// session it is resolving for: the token it returns is chosen from the
+// clones in that workspace (cmd/harness/github.go).
+func TestBashExtraEnvIsGivenTheWorkspace(t *testing.T) {
+	e, dir := newTestExecutor(t)
+	var got string
+	e.ExtraEnv = func(ctx context.Context, workspace string) []string {
+		got = workspace
+		return nil
+	}
+
+	execBash(t.Context(), e, mustJSON(t, bashArgs{Command: "true"}))
+	if got != e.Workspace {
+		t.Errorf("ExtraEnv was given %q, want the executor's workspace %q (from %q)", got, e.Workspace, dir)
+	}
+}

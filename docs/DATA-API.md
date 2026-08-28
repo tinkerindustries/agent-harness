@@ -537,23 +537,53 @@ nothing stored yet, so every value in the body is taken literally.
 
 `GET /api/github/repos` — the operator's GitHub repositories, newest-updated
 first, for the start-run form's repo picker. It is not a store resource: the
-list is fetched live from the GitHub REST API (`/user/repos?sort=updated`,
-paginated via `Link: rel="next"`, capped at five pages) using the
-`github.token` setting's personal access token, and it is read-only like every
+list is fetched live from the GitHub REST API, paginated via
+`Link: rel="next"` and capped at five pages, and it is read-only like every
 GET here — no write guards, because there is nothing to guard.
 
-- No `github.token` set: `200 {"repos": [], "configured": false}`. The
+Which credential it fetches with depends on what is configured
+([GITHUB-APP.md](GITHUB-APP.md)). A GitHub App (`github.app_id` and
+`github.app_private_key`) wins: the endpoint walks
+`/installation/repositories` once per account the App is installed on and
+merges the results, re-sorted by `updated_at` desc across accounts, so a
+personal account's repositories and an organisation's arrive in one list.
+With no App, it is `/user/repos?sort=updated` under the `github.token`
+setting's personal access token, which sees one account.
+
+- Neither credential set: `200 {"repos": [], "configured": false}`. The
   unconfigured state is an expected answer, not an error, so the form can tell
-  "add a token in Settings" apart from "token set but GitHub failed".
-- Token set and the fetch succeeds: `200 {"repos": [{"full_name", "clone_url",
-  "default_branch", "private", "updated_at"}], "configured": true}`. GitHub
-  already returns the list ordered by `updated_at` desc, so the order is
-  preserved field-for-field.
-- Token set but GitHub refuses or is unreachable (bad/expired token, rate
-  limit, network error): `502 {"error": "<readable message>"}` naming the
-  GitHub side of the failure.
+  "add a credential in Settings" apart from "credential set but GitHub failed".
+- A credential set and the fetch succeeds: `200 {"repos": [{"full_name",
+  "clone_url", "default_branch", "private", "updated_at"}], "configured":
+  true}`.
+- A credential set but GitHub refuses or is unreachable (bad or expired
+  credential, an App not installed where it is asked about, rate limit,
+  network error): `502 {"error": "<readable message>"}` naming the GitHub
+  side of the failure. On the App path one account failing fails the whole
+  request, because a partial list would look exactly like an organisation
+  having no repositories.
 - A successful fetch is cached in memory for 60 seconds, so reopening the
   start-run dialog does not re-hit GitHub's rate-limited API on every open.
+
+### github credential
+
+`POST /api/github/credential` — mints the GitHub App installation token for
+one repository owner. Body `{"host": "github.com", "owner": "<account>"}`,
+answer `200 {"username": "x-access-token", "password": "<token>"}`.
+
+It is not a browser endpoint. Its only caller is `harness
+github-credential`, the git credential helper a harness on the App path
+points git at: git spawns the helper, the helper asks this endpoint which
+token the repository's owner needs, and git uses the answer
+([GITHUB-APP.md](GITHUB-APP.md), "How git gets a token").
+
+It carries its own bearer token, generated at startup and published to the
+helper through the process environment — deliberately not
+`http.control_token`, which every agent session would then be able to read.
+Failures: `503` with no App or no bearer token configured (fail closed),
+`401` for a missing or wrong bearer, `404` for a host other than github.com,
+and `502` carrying GitHub's own message — including "the App is not
+installed on that account", which is the one an operator meets most.
 
 ### models
 

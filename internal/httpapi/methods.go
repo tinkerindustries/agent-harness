@@ -85,6 +85,7 @@ var writeRoutes = []writeRoute{
 	{isMCPServerRefreshPath, []string{http.MethodPost}},
 	{isMCPServerCompletePath, []string{http.MethodPost}},
 	{isMCPServerPath, []string{http.MethodPatch, http.MethodDelete}},
+	{isGithubCredentialPath, []string{http.MethodPost}},
 }
 
 // writeAllowed reports whether method is a writing method the surface allows
@@ -263,6 +264,15 @@ func isMCPServerPath(path string) bool {
 	}
 	rest := strings.TrimPrefix(path, prefix)
 	return rest != "" && !strings.Contains(rest, "/")
+}
+
+// isGithubCredentialPath reports whether path is the git credential
+// endpoint — /api/github/credential, with no further segments. POST may pass
+// the gate here and nowhere else under /api/github/: minting a token is an
+// action carrying a body (which owner), not a read, and the repos collection
+// beside it stays GET-only (docs/GITHUB-APP.md).
+func isGithubCredentialPath(path string) bool {
+	return path == "/api/github/credential"
 }
 
 // allowedMethods names the methods the surface actually allows for path, for

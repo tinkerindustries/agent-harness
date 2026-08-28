@@ -93,6 +93,7 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 	executor.Gemini = r.Gemini
 	executor.GeminiModel = r.GeminiModel
 	executor.Settings = r.Settings
+	executor.ExtraEnv = r.ToolEnv
 	executor.ResultSchema = sess.ResultSchema
 	executor.MCP = r.MCP
 

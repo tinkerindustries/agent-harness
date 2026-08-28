@@ -37,14 +37,18 @@ func (f *fakeStore) DeleteSetting(ctx context.Context, key string) error {
 // used anywhere in this package for exactly that reason.
 func clearGithubEnv(t *testing.T) {
 	t.Helper()
-	for _, key := range []string{"GITHUB_TOKEN", "GH_TOKEN", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"} {
-		os.Unsetenv(key)
-	}
-	t.Cleanup(func() {
-		for _, key := range []string{"GITHUB_TOKEN", "GH_TOKEN", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"} {
+	clear := func() {
+		for _, key := range []string{
+			"GITHUB_TOKEN", "GH_TOKEN",
+			"GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0",
+			"GIT_CONFIG_KEY_1", "GIT_CONFIG_VALUE_1",
+			EnvCredentialURL, EnvCredentialToken,
+		} {
 			os.Unsetenv(key)
 		}
-	})
+	}
+	clear()
+	t.Cleanup(clear)
 }
 
 func TestSyncWritesCredentialFileAndEnv(t *testing.T) {
@@ -56,7 +60,7 @@ func TestSyncWritesCredentialFileAndEnv(t *testing.T) {
 	if err := res.Set(ctx, settings.KeyGitHubToken, "ghp_abc123"); err != nil {
 		t.Fatalf("Set github.token: %v", err)
 	}
-	if err := Sync(ctx, res, credPath); err != nil {
+	if err := Sync(ctx, res, Config{CredentialPath: credPath}); err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
 
@@ -107,7 +111,7 @@ func TestSyncEmptyTokenRemovesFileAndUnsetsEnv(t *testing.T) {
 	if err := res.Set(ctx, settings.KeyGitHubToken, "ghp_abc123"); err != nil {
 		t.Fatalf("Set github.token: %v", err)
 	}
-	if err := Sync(ctx, res, credPath); err != nil {
+	if err := Sync(ctx, res, Config{CredentialPath: credPath}); err != nil {
 		t.Fatalf("Sync (set): %v", err)
 	}
 	if _, err := os.Stat(credPath); err != nil {
@@ -117,7 +121,7 @@ func TestSyncEmptyTokenRemovesFileAndUnsetsEnv(t *testing.T) {
 	if err := res.Unset(ctx, settings.KeyGitHubToken); err != nil {
 		t.Fatalf("Unset github.token: %v", err)
 	}
-	if err := Sync(ctx, res, credPath); err != nil {
+	if err := Sync(ctx, res, Config{CredentialPath: credPath}); err != nil {
 		t.Fatalf("Sync (unset): %v", err)
 	}
 
@@ -141,7 +145,7 @@ func TestSyncEmptyTokenOnAFreshCredPathIsNotAnError(t *testing.T) {
 	ctx := context.Background()
 	credPath := filepath.Join(t.TempDir(), "git-credentials")
 
-	if err := Sync(ctx, res, credPath); err != nil {
+	if err := Sync(ctx, res, Config{CredentialPath: credPath}); err != nil {
 		t.Fatalf("Sync on a store with no token: %v", err)
 	}
 	if _, err := os.Stat(credPath); !os.IsNotExist(err) {
@@ -223,4 +227,133 @@ func TestSeedFromEnvOnlyFiresWhenUnset(t *testing.T) {
 			t.Fatal("SeedFromEnv reported false after the setting was cleared with GITHUB_TOKEN still set")
 		}
 	})
+}
+
+// fakeApp stands in for *githubapp.Provider: Sync only ever asks whether an
+// App is configured, which is the whole of the AppProvider seam.
+type fakeApp struct {
+	configured bool
+	err        error
+}
+
+func (f fakeApp) Configured(ctx context.Context) (bool, error) { return f.configured, f.err }
+
+// TestSyncAppPathPointsGitAtTheHelper pins what a configured GitHub App
+// changes: no credential file (an App has no standing token to write into
+// one), git pointed at the helper with useHttpPath so the helper is told
+// which repository it is being asked about, the callback address and token
+// published for the helper to find, and GITHUB_TOKEN/GH_TOKEN unset —
+// no single token is right for every account, so gh is given one per
+// session instead (cmd/harness/github.go).
+func TestSyncAppPathPointsGitAtTheHelper(t *testing.T) {
+	clearGithubEnv(t)
+	res := settings.NewResolver(&fakeStore{values: map[string]string{}})
+	ctx := context.Background()
+	credPath := filepath.Join(t.TempDir(), "git-credentials")
+
+	// A token is stored as well, to pin that the App wins over it.
+	if err := res.Set(ctx, settings.KeyGitHubToken, "ghp_abc123"); err != nil {
+		t.Fatalf("Set github.token: %v", err)
+	}
+	cfg := Config{
+		CredentialPath:  credPath,
+		App:             fakeApp{configured: true},
+		HelperCommand:   "/usr/local/bin/harness github-credential",
+		CredentialURL:   "http://127.0.0.1:8080/api/github/credential",
+		CredentialToken: "cred-token",
+	}
+	if err := Sync(ctx, res, cfg); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+
+	if _, err := os.Stat(credPath); !os.IsNotExist(err) {
+		t.Errorf("credential file should not exist on the App path, stat err = %v", err)
+	}
+	for key, want := range map[string]string{
+		"GIT_CONFIG_COUNT":   "2",
+		"GIT_CONFIG_KEY_0":   "credential.helper",
+		"GIT_CONFIG_VALUE_0": "!/usr/local/bin/harness github-credential",
+		"GIT_CONFIG_KEY_1":   "credential.useHttpPath",
+		"GIT_CONFIG_VALUE_1": "true",
+		EnvCredentialURL:     "http://127.0.0.1:8080/api/github/credential",
+		EnvCredentialToken:   "cred-token",
+	} {
+		if got := os.Getenv(key); got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
+	}
+	if v := os.Getenv("GITHUB_TOKEN"); v != "" {
+		t.Errorf("GITHUB_TOKEN = %q, want unset on the App path", v)
+	}
+	if v := os.Getenv("GH_TOKEN"); v != "" {
+		t.Errorf("GH_TOKEN = %q, want unset on the App path", v)
+	}
+}
+
+// TestSyncFallsBackToTheTokenWithoutAHelper pins the other half of the
+// decision: an App configured in the settings but no helper command to run
+// it takes the token path, because an App with no way to mint its tokens
+// would leave git with no credential at all.
+func TestSyncFallsBackToTheTokenWithoutAHelper(t *testing.T) {
+	clearGithubEnv(t)
+	res := settings.NewResolver(&fakeStore{values: map[string]string{}})
+	ctx := context.Background()
+	credPath := filepath.Join(t.TempDir(), "git-credentials")
+	if err := res.Set(ctx, settings.KeyGitHubToken, "ghp_abc123"); err != nil {
+		t.Fatalf("Set github.token: %v", err)
+	}
+
+	if err := Sync(ctx, res, Config{CredentialPath: credPath, App: fakeApp{configured: true}}); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+
+	if _, err := os.Stat(credPath); err != nil {
+		t.Fatalf("credential file should exist on the token path: %v", err)
+	}
+	if v := os.Getenv("GH_TOKEN"); v != "ghp_abc123" {
+		t.Errorf("GH_TOKEN = %q, want ghp_abc123", v)
+	}
+	if v := os.Getenv("GIT_CONFIG_COUNT"); v != "1" {
+		t.Errorf("GIT_CONFIG_COUNT = %q, want 1", v)
+	}
+}
+
+// TestSyncSwitchingBackToTheTokenClearsTheAppEntries pins that the two
+// paths leave nothing of each other behind: the App path's second
+// GIT_CONFIG entry and its callback variables are gone after a Sync that
+// takes the token path, so nothing raising GIT_CONFIG_COUNT later could
+// revive a credential.useHttpPath nobody asked for.
+func TestSyncSwitchingBackToTheTokenClearsTheAppEntries(t *testing.T) {
+	clearGithubEnv(t)
+	res := settings.NewResolver(&fakeStore{values: map[string]string{}})
+	ctx := context.Background()
+	credPath := filepath.Join(t.TempDir(), "git-credentials")
+	if err := res.Set(ctx, settings.KeyGitHubToken, "ghp_abc123"); err != nil {
+		t.Fatalf("Set github.token: %v", err)
+	}
+	appCfg := Config{
+		CredentialPath:  credPath,
+		App:             fakeApp{configured: true},
+		HelperCommand:   "harness github-credential",
+		CredentialURL:   "http://127.0.0.1:8080/api/github/credential",
+		CredentialToken: "cred-token",
+	}
+	if err := Sync(ctx, res, appCfg); err != nil {
+		t.Fatalf("Sync (app): %v", err)
+	}
+
+	tokenCfg := appCfg
+	tokenCfg.App = fakeApp{configured: false}
+	if err := Sync(ctx, res, tokenCfg); err != nil {
+		t.Fatalf("Sync (token): %v", err)
+	}
+
+	for _, key := range []string{"GIT_CONFIG_KEY_1", "GIT_CONFIG_VALUE_1", EnvCredentialURL, EnvCredentialToken} {
+		if v := os.Getenv(key); v != "" {
+			t.Errorf("%s = %q, want unset after falling back to the token", key, v)
+		}
+	}
+	if v := os.Getenv("GIT_CONFIG_COUNT"); v != "1" {
+		t.Errorf("GIT_CONFIG_COUNT = %q, want 1", v)
+	}
 }

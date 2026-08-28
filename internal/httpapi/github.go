@@ -2,10 +2,12 @@ package httpapi
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -47,10 +49,11 @@ func (c *githubCache) set(repos []githubRepo) {
 }
 
 // The GitHub repo list behind GET /api/github/repos (docs/DATA-API.md
-// "github repos"). A read-only, config-adjacent endpoint: it reads the
-// operator's github.token setting and asks the GitHub REST API for the
-// account's repositories, newest-updated first, so the start-run form can
-// offer a searchable picker instead of requiring a repo URL typed from
+// "github repos"), and the credential endpoint the git helper calls
+// (docs/GITHUB-APP.md). The list is a read-only, config-adjacent endpoint:
+// it reads the operator's GitHub credential and asks the GitHub REST API for
+// the repositories it can see, newest-updated first, so the start-run form
+// can offer a searchable picker instead of requiring a repo URL typed from
 // memory. It needs no RunPublisher/RunController seam — those exist only for
 // run-control write paths — and no write guards, because it is a GET with no
 // side effects, exactly like handleGetSettings.
@@ -110,17 +113,50 @@ func (s *Server) githubBaseURL() string {
 	return githubDefaultBaseURL
 }
 
-// handleListGithubRepos serves GET /api/github/repos. With no github.token
-// set it answers 200 {"repos": [], "configured": false} — the expected
-// unconfigured state the form shows a quiet hint for. With a token set it
-// returns the account's repos from the in-memory cache when fresh, or fetches
-// them from GitHub (paginated, capped at githubMaxPages), caches them, and
-// answers {"repos": [...], "configured": true}. A GitHub-side failure — a bad
-// or expired token, a rate limit, a network error — is a 502 carrying a
-// readable message, so the frontend can tell that state apart from "no token
-// configured yet" and surface it as a quiet hint rather than blocking the
-// form.
+// handleListGithubRepos serves GET /api/github/repos. With no credential
+// configured — neither a GitHub App nor github.token — it answers
+// 200 {"repos": [], "configured": false}, the expected unconfigured state the
+// form shows a quiet hint for. With one configured it returns the repos from
+// the in-memory cache when fresh, or fetches them from GitHub (paginated,
+// capped at githubMaxPages), caches them, and answers {"repos": [...],
+// "configured": true}. A GitHub-side failure — a bad or expired credential, a
+// rate limit, a network error — is a 502 carrying a readable message, so the
+// frontend can tell that state apart from "nothing configured yet" and
+// surface it as a quiet hint rather than blocking the form.
+//
+// The cache is shared by both paths, and it is keyed on nothing: an operator
+// who switches credentials keeps seeing the old list until the 60 seconds
+// are up. That is the same staleness the endpoint already accepted for a
+// token replaced in place, and 60 seconds of it is cheaper than a cache key
+// nothing else needs.
 func (s *Server) handleListGithubRepos(w http.ResponseWriter, r *http.Request) {
+	// A configured GitHub App answers this endpoint instead of the token,
+	// and answers it better: the list is every installation's repositories
+	// merged, so a personal account's repos and an organisation's appear in
+	// one picker — the thing a single fine-grained token cannot do
+	// (docs/GITHUB-APP.md).
+	if s.GitHubApp != nil {
+		configured, err := s.GitHubApp.Configured(r.Context())
+		if err != nil {
+			writeInternalError(w, err)
+			return
+		}
+		if configured {
+			if repos, fresh := s.github.get(); fresh {
+				writeJSON(w, http.StatusOK, githubReposResponse{Repos: repos, Configured: true})
+				return
+			}
+			repos, err := s.fetchInstallationRepos(r.Context())
+			if err != nil {
+				writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+				return
+			}
+			s.github.set(repos)
+			writeJSON(w, http.StatusOK, githubReposResponse{Repos: repos, Configured: true})
+			return
+		}
+	}
+
 	token, ok, err := s.Settings.Get(r.Context(), settings.KeyGitHubToken)
 	if err != nil {
 		writeInternalError(w, err)
@@ -145,49 +181,17 @@ func (s *Server) handleListGithubRepos(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, githubReposResponse{Repos: repos, Configured: true})
 }
 
-// fetchGithubRepos walks the GitHub repo list endpoint, following
-// Link: rel="next" pages, capped at githubMaxPages, and maps each page's rows
-// to githubRepo. The query (sort=updated, direction=desc, per_page=100,
+// fetchGithubRepos lists the repositories a personal access token can see.
+// The query (sort=updated, direction=desc, per_page=100,
 // affiliation=owner,collaborator,organization_member) is what makes GitHub
 // return the account's own, collaborator, and org repos newest-first, so the
-// caller gets the list already ordered without a server-side re-sort. An
-// error names the GitHub side of the failure — the status and the API's own
-// message for an HTTP refusal, the transport error for a network failure —
-// because the frontend shows it verbatim.
+// caller gets the list already ordered without a server-side re-sort. The
+// walk itself — pagination, decoding, and the errors that name the GitHub
+// side of a failure verbatim for the frontend — is fetchGithubReposFor,
+// shared with the App path.
 func fetchGithubRepos(ctx context.Context, token, baseURL string) ([]githubRepo, error) {
-	client := &http.Client{Timeout: githubTimeout}
-	var repos []githubRepo
-	pageURL := strings.TrimSuffix(baseURL, "/") +
-		"/user/repos?sort=updated&direction=desc&per_page=100&affiliation=owner,collaborator,organization_member"
-	for page := 0; pageURL != "" && page < githubMaxPages; page++ {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
-		if err != nil {
-			return nil, fmt.Errorf("build GitHub request: %w", err)
-		}
-		req.Header.Set("Authorization", "Bearer "+token)
-		req.Header.Set("Accept", "application/vnd.github+json")
-		// GitHub rejects requests without a User-Agent, so one is always set.
-		req.Header.Set("User-Agent", "deepseek-harness")
-		resp, err := client.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("GitHub request failed: %w", err)
-		}
-		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
-		resp.Body.Close()
-		if readErr != nil {
-			return nil, fmt.Errorf("read GitHub response: %w", readErr)
-		}
-		if resp.StatusCode != http.StatusOK {
-			return nil, githubStatusError(resp.StatusCode, body)
-		}
-		var pageRepos []githubRepo
-		if err := json.Unmarshal(body, &pageRepos); err != nil {
-			return nil, fmt.Errorf("GitHub returned an unparseable repo list: %w", err)
-		}
-		repos = append(repos, pageRepos...)
-		pageURL = nextPageLink(resp.Header.Get("Link"))
-	}
-	return repos, nil
+	return fetchGithubReposFor(ctx, token, strings.TrimSuffix(baseURL, "/")+
+		"/user/repos?sort=updated&direction=desc&per_page=100&affiliation=owner,collaborator,organization_member")
 }
 
 // githubStatusError turns a non-200 GitHub response into the readable message
@@ -236,4 +240,179 @@ func nextPageLink(link string) string {
 		}
 	}
 	return ""
+}
+
+// fetchInstallationRepos merges every installation's repository list into
+// one, newest-updated first.
+//
+// Each installation needs its own token and its own walk — an installation
+// token can only see the account it was minted for — so this is one fetch
+// per account the App is installed on, and the merged list is re-sorted
+// here because "newest first" across two accounts is not either account's
+// own order. The cost is bounded by how many accounts an operator installs
+// the App on, and the whole answer is cached for githubCacheTTL like the
+// token path's is.
+//
+// One account failing fails the request. A partial list would be worse than
+// an error here: the picker would quietly stop offering an organisation's
+// repos, and the operator would have no way to tell that from the
+// organisation having none.
+func (s *Server) fetchInstallationRepos(ctx context.Context) ([]githubRepo, error) {
+	owners, err := s.GitHubApp.Owners(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var repos []githubRepo
+	for _, owner := range owners {
+		token, err := s.GitHubApp.TokenForOwner(ctx, owner)
+		if err != nil {
+			return nil, err
+		}
+		owned, err := fetchGithubReposFor(ctx, token, s.githubBaseURL()+"/installation/repositories?per_page=100")
+		if err != nil {
+			return nil, fmt.Errorf("listing %s's repositories: %w", owner, err)
+		}
+		repos = append(repos, owned...)
+	}
+	// updated_at is RFC 3339 in UTC, so the lexical order is the
+	// chronological one and no time parsing is needed to sort by it.
+	sort.SliceStable(repos, func(i, j int) bool { return repos[i].UpdatedAt > repos[j].UpdatedAt })
+	if repos == nil {
+		repos = []githubRepo{}
+	}
+	return repos, nil
+}
+
+// fetchGithubReposFor walks a repository listing endpoint from pageURL,
+// following Link: rel="next" up to githubMaxPages, and decodes each page as
+// either a bare array (/user/repos, the token path) or GitHub's
+// {"repositories": [...]} envelope (/installation/repositories, the App
+// path). Both shapes are tried rather than the caller declaring which,
+// because the two endpoints differ in nothing else this function does.
+func fetchGithubReposFor(ctx context.Context, token, pageURL string) ([]githubRepo, error) {
+	client := &http.Client{Timeout: githubTimeout}
+	var repos []githubRepo
+	for page := 0; pageURL != "" && page < githubMaxPages; page++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
+		if err != nil {
+			return nil, fmt.Errorf("build GitHub request: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Accept", "application/vnd.github+json")
+		// GitHub rejects requests without a User-Agent, so one is always set.
+		req.Header.Set("User-Agent", "deepseek-harness")
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("GitHub request failed: %w", err)
+		}
+		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+		resp.Body.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("read GitHub response: %w", readErr)
+		}
+		if resp.StatusCode != http.StatusOK {
+			return nil, githubStatusError(resp.StatusCode, body)
+		}
+		pageRepos, err := decodeRepoPage(body)
+		if err != nil {
+			return nil, err
+		}
+		repos = append(repos, pageRepos...)
+		pageURL = nextPageLink(resp.Header.Get("Link"))
+	}
+	return repos, nil
+}
+
+// decodeRepoPage reads one page of repositories in either of the two shapes
+// GitHub serves them in.
+func decodeRepoPage(body []byte) ([]githubRepo, error) {
+	var bare []githubRepo
+	if err := json.Unmarshal(body, &bare); err == nil {
+		return bare, nil
+	}
+	var wrapped struct {
+		Repositories []githubRepo `json:"repositories"`
+	}
+	if err := json.Unmarshal(body, &wrapped); err != nil {
+		return nil, fmt.Errorf("GitHub returned an unparseable repo list: %w", err)
+	}
+	return wrapped.Repositories, nil
+}
+
+// handleGithubCredential serves POST /api/github/credential: the endpoint
+// the `harness github-credential` git credential helper calls to turn a
+// repository owner into a usable password (docs/GITHUB-APP.md, "How git
+// gets a token").
+//
+// It exists because git needs a different installation token per owner and
+// a fresh one every hour, and a credential *file* can express neither. The
+// helper is a separate process — git spawns it — so the two have to talk
+// over something; this process already serves HTTP, and it is the process
+// holding the App's private key and the token cache, which is where both
+// belong.
+//
+// The bearer token is its own, not http.control_token: every agent session
+// runs as a child of this process and can read the environment the helper
+// reads, so whatever guards this endpoint is effectively known to every
+// session. That is acceptable for minting installation tokens — a session's
+// own git can mint them anyway — and would not be acceptable for the
+// run-control surface, which is why the two credentials are separate
+// (cmd/harness/serve.go).
+func (s *Server) handleGithubCredential(w http.ResponseWriter, r *http.Request) {
+	if s.GitCredentialToken == "" {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "the git credential endpoint is not configured",
+		})
+		return
+	}
+	const prefix = "Bearer "
+	header := r.Header.Get("Authorization")
+	if !strings.HasPrefix(header, prefix) ||
+		subtle.ConstantTimeCompare([]byte(strings.TrimPrefix(header, prefix)), []byte(s.GitCredentialToken)) != 1 {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid bearer token"})
+		return
+	}
+	var body struct {
+		Host  string `json:"host"`
+		Owner string `json:"owner"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "unparseable body: " + err.Error()})
+		return
+	}
+	if body.Host != "" && body.Host != "github.com" {
+		writeJSON(w, http.StatusNotFound, map[string]string{
+			"error": "the GitHub App has no credential for " + body.Host,
+		})
+		return
+	}
+	if body.Owner == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "owner is required"})
+		return
+	}
+	if s.GitHubApp == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"error": "no GitHub App is configured",
+		})
+		return
+	}
+	token, err := s.GitHubApp.TokenForOwner(r.Context(), body.Owner)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	// x-access-token is the username GitHub documents for an installation
+	// token over HTTPS; the token itself is the password.
+	writeJSON(w, http.StatusOK, map[string]string{"username": "x-access-token", "password": token})
+}
+
+// GitHubApp is the slice of *githubapp.Provider this package uses: whether
+// an App is configured at all, which accounts it is installed on, and a
+// token for one of them. Declared here rather than imported so this package
+// keeps no dependency on internal/githubapp — cmd/harness is where the two
+// meet, as it is for every other seam on Server (ARCHITECTURE.md).
+type GitHubApp interface {
+	Configured(ctx context.Context) (bool, error)
+	Owners(ctx context.Context) ([]string, error)
+	TokenForOwner(ctx context.Context, owner string) (string, error)
 }

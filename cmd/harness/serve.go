@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net"
 	"net/http"
 	"os"
 	"os/user"
@@ -20,6 +19,7 @@ import (
 	"github.com/mrgeoffrich/agent-harness/internal/deepseek"
 	"github.com/mrgeoffrich/agent-harness/internal/evals"
 	"github.com/mrgeoffrich/agent-harness/internal/gemini"
+	"github.com/mrgeoffrich/agent-harness/internal/githubapp"
 	"github.com/mrgeoffrich/agent-harness/internal/githubauth"
 	"github.com/mrgeoffrich/agent-harness/internal/httpapi"
 	"github.com/mrgeoffrich/agent-harness/internal/hub"
@@ -100,9 +100,28 @@ func runServe(ctx context.Context, args []string) error {
 	} else if seeded {
 		log.Printf("harness serve: seeded %s from the GITHUB_TOKEN environment variable; it can be removed from .env now that the token lives in settings", settings.KeyGitHubToken)
 	}
-	gitCredentialPath := filepath.Join(cfg.DataDir, "git-credentials")
-	if err := githubauth.Sync(ctx, res, gitCredentialPath); err != nil {
-		log.Printf("harness serve: sync %s to %s: %v", settings.KeyGitHubToken, gitCredentialPath, err)
+	// The GitHub App, when one is configured (github.app_id and
+	// github.app_private_key), takes precedence over that token and is the
+	// only credential that reaches more than one account: it is installed
+	// separately on a personal account and on an organisation, and mints a
+	// token per installation (internal/githubapp, docs/GITHUB-APP.md). The
+	// provider is built unconditionally — it reads its settings through on
+	// every call, so an App configured later needs no restart — and
+	// githubauth decides which of the two credentials is actually live.
+	githubApp := githubapp.New(res)
+	gitCredentialToken, err := generateGitCredentialToken()
+	if err != nil {
+		return err
+	}
+	gitAuth := githubauth.Config{
+		CredentialPath:  filepath.Join(cfg.DataDir, "git-credentials"),
+		App:             githubApp,
+		HelperCommand:   gitCredentialHelperCommand(),
+		CredentialURL:   loopbackBaseURL(cfg.HTTPAddr) + "/api/github/credential",
+		CredentialToken: gitCredentialToken,
+	}
+	if err := githubauth.Sync(ctx, res, gitAuth); err != nil {
+		log.Printf("harness serve: sync the GitHub credential: %v", err)
 	}
 
 	// The one MCP client manager for this process, shared by the session
@@ -247,6 +266,7 @@ func runServe(ctx context.Context, args []string) error {
 		Hub:         eventHub,
 		Settings:    res,
 		MCP:         mcpMgr,
+		ToolEnv:     githubToolEnv(githubApp),
 		ModelLimits: map[string]int{
 			defaultModel:      concurrencyPro,
 			defaultFlashModel: concurrencyFlash,
@@ -268,8 +288,8 @@ func runServe(ctx context.Context, args []string) error {
 	// the MCP mount now lives on this very server rather than a second
 	// process a compose file had to point at by service name.
 	if os.Getenv("DEEPSEEK_HARNESS_BASE_URL") == "" {
-		if _, port, err := net.SplitHostPort(cfg.HTTPAddr); err == nil {
-			mcpCfg.HarnessBaseURL = "http://127.0.0.1:" + port
+		if base := loopbackBaseURL(cfg.HTTPAddr); base != "" {
+			mcpCfg.HarnessBaseURL = base
 		}
 	}
 
@@ -332,18 +352,24 @@ func runServe(ctx context.Context, args []string) error {
 		MCP:                mcpMgr,
 		DefaultEventsLimit: eventsLimitDefault,
 		MaxEventsLimit:     eventsLimitMax,
-		// A token typed into the settings screen takes effect without a
+		GitHubApp:          githubApp,
+		GitCredentialToken: gitCredentialToken,
+		// A credential typed into the settings screen takes effect without a
 		// restart: re-run the same sync the startup path above ran, so the
 		// credential file and the process environment catch up with the
 		// write that just landed. The callback fires on every key, so it
-		// checks which one before doing anything — only github.token needs
-		// this today.
+		// checks which one before doing anything — the three GitHub
+		// credential keys are the ones that need it, because a switch between
+		// the App and the token changes what git is pointed at, not only what
+		// a file holds.
 		OnSettingChanged: func(ctx context.Context, key string) {
-			if key != settings.KeyGitHubToken {
+			switch key {
+			case settings.KeyGitHubToken, settings.KeyGitHubAppID, settings.KeyGitHubAppPrivateKey:
+			default:
 				return
 			}
-			if err := githubauth.Sync(ctx, res, gitCredentialPath); err != nil {
-				log.Printf("harness serve: sync %s to %s: %v", settings.KeyGitHubToken, gitCredentialPath, err)
+			if err := githubauth.Sync(ctx, res, gitAuth); err != nil {
+				log.Printf("harness serve: sync the GitHub credential after %s changed: %v", key, err)
 			}
 		},
 	}
