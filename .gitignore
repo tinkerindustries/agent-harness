@@ -45,9 +45,12 @@ web/tsconfig.tsbuildinfo
 
 /.playwright-cli
 
-# git worktrees and their per-worktree environment (docs/WORKTREES.md).
+# git worktrees and their per-worktree environment (docs/wt.md). Both the
+# directory the worktrees live in and the descriptor `wt init` writes at each
+# worktree's root: per-worktree, per-machine state, never committed.
 # .env itself is already covered by the Secrets rule above.
-.claude/worktrees/
+/.claude/worktrees/
+wt-env.json
 
 # Skill-development scratch: eval iterations written beside a skill while it is
 # being built. Generated, never source — and while untracked it makes the tree
