@@ -3,9 +3,10 @@
 # stack without touching a harness that is mid-run.
 #
 # The isolation is the project name below: it gives this stack its own
-# containers, its own network and its own volumes. Nothing here is shared with
-# the dev project except the docker daemon and the host ports, and the ports
-# are deliberately different.
+# containers and its own network. Its two pieces of state, the SQLite store
+# and the workspace root, are host paths of their own. Nothing here is shared
+# with the dev project except the docker daemon and the host ports, and the
+# ports are deliberately different.
 #
 # Unlike docker-compose.yml these services never build. They run
 # deepseek-harness:prod, a tag that scripts/promote.sh moves onto an image
@@ -63,7 +64,21 @@ services:
       # HARNESS_WORKSPACES_PROD; it must stay a real host path the daemon will
       # share, and moving it leaves earlier runs' workspaces where they are.
       - ${HARNESS_WORKSPACES_PROD:-/Users/Shared/harness-workspaces-prod}:${HARNESS_WORKSPACES_PROD:-/Users/Shared/harness-workspaces-prod}
-      - harness-data:/data
+      # The SQLite store: sessions, transcripts, the work queue and the
+      # settings table that holds this stack's credentials.
+      #
+      # A host path rather than a named volume, because a named volume lives
+      # inside Docker Desktop's VM disk and dies with it. Docker Desktop
+      # rebuilds that disk without asking — on an unclean restart, on a
+      # reset, when it cannot open the old one — and takes every named volume
+      # with it. A host path survives all of that and can be copied, backed
+      # up and inspected without a container.
+      #
+      # The store runs in WAL mode (internal/store/schema.go), so the mount
+      # has to carry the -wal and -shm files as well as the database. It does
+      # under VirtioFS; check with a throwaway sqlite3 before moving this to
+      # a different kind of mount.
+      - ${HARNESS_DATA_PROD:-/Users/Shared/harness-data-prod}:/data
       # The host's docker daemon, for sessions that build or run containers.
       # A session in full permission mode can do anything to the host through
       # this socket, including mounting the host's filesystem into a
@@ -78,6 +93,3 @@ services:
     # serve drains in-flight runs on SIGTERM rather than cutting them off.
     stop_grace_period: 60s
     restart: unless-stopped
-
-volumes:
-  harness-data:

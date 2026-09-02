@@ -142,8 +142,10 @@ that link is often more use to the user than pasting transcript back at them.
 
 ## The SQLite store
 
-One file, `/data/harness.db`, inside the `harness` container on volume
-`deepseek-harness-prod_harness-data`. **There is no `sqlite3` CLI in the
+One file, `/data/harness.db`, inside the `harness` container. Prod mounts it
+from the host at `HARNESS_DATA_PROD` (default `/Users/Shared/harness-data-prod`);
+the dev and worktree stacks keep it in their compose project's `harness-data`
+volume. **There is no `sqlite3` CLI in the
 image** — the driver is pure Go and only the Python module is present. Use
 the helper rather than reconstructing the invocation:
 

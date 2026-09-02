@@ -97,9 +97,11 @@ unchanged and only the image behind the tag has moved.
 **`deploy` drains rather than cuts.** `serve` handles SIGTERM by finishing
 in-flight runs, and the compose file gives it 60 seconds, so a deploy can take
 about that long. A run that does not finish in time leaves its queue row leased
-and is redelivered to the new container once the lease expires. The
-`harness-data` volume is untouched by a deploy, so sessions and any queue
-backlog survive it.
+and is redelivered to the new container once the lease expires. The SQLite
+store is untouched by a deploy, so sessions and any queue backlog survive it.
+It is a host path (`HARNESS_DATA_PROD`, default
+`/Users/Shared/harness-data-prod`), so it also survives Docker Desktop
+rebuilding its VM disk, which takes every named volume with it.
 
 Then confirm it landed:
 
@@ -174,8 +176,8 @@ Constraints worth knowing before you need them:
   `gh release delete vX.Y.Z` and `git push --delete origin vX.Y.Z` if it was
   never really out.
 - **State does not roll back with the image.** A release that changed the shape
-  of anything in the SQLite store leaves that change behind in the
-  `harness-data` volume when you go back. There is no migration tooling here,
+  of anything in the SQLite store leaves that change behind in
+  `HARNESS_DATA_PROD` when you go back. There is no migration tooling here,
   so a schema change is a one-way deploy in practice — treat it as major and
   be sure before promoting.
 - **The dev stack is not a rollback path.** Different project, different volumes,

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Run a read-only SELECT against the harness store in a running stack.
 
-The database lives inside the container on a docker volume, the image has no
-sqlite3 CLI, and the file has a live writer. This wraps the one invocation
-that handles all three: python3 in the container, opened mode=ro over a URI.
+The database is reached inside the container, the image has no sqlite3 CLI,
+and the file has a live writer. This wraps the one invocation that handles
+all three: python3 in the container, opened mode=ro over a URI.
 
 Only SELECT, WITH and PRAGMA are accepted. Diagnosis does not write to prod.
 """
