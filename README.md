@@ -177,15 +177,18 @@ and is redelivered once the lease expires.
 - `harness-data` volume — the SQLite database (the sessions, the work queue,
   the results) and the human-readable session mirror under
   `sessions/<date>/<session-id>/`. A queue backlog survives a restart in it.
+  The prod stack keeps the same contents on a host path instead; see below.
 
-`docker compose down -v` removes the volume and every session with it.
+`docker compose down -v` removes the volume and every session with it. So does
+Docker Desktop rebuilding its VM disk, which it will do on an unclean restart
+or a reset, and which no `docker` command warns you about.
 
 ## A production stack beside the dev one
 
 `docker-compose.prod.yml` is a second, independent deployment for a machine that
 does real work with the harness while the same checkout is being developed on.
 Its isolation is the compose project name `deepseek-harness-prod`: separate
-containers, network and volumes, on separate ports.
+containers and network, its own state, on separate ports.
 
 | | dev | prod |
 | --- | --- | --- |
@@ -193,7 +196,16 @@ containers, network and volumes, on separate ports.
 | Web UI | <http://localhost:8080> | <http://localhost:8180> |
 | MCP | `http://127.0.0.1:8080/mcp` | `http://127.0.0.1:8180/mcp` |
 | Workspaces | `HARNESS_WORKSPACES` | `HARNESS_WORKSPACES_PROD` |
+| SQLite store | `harness-data` volume | `HARNESS_DATA_PROD` host path |
 | Environment | `.env` | `.env.prod` |
+
+Prod's store is a host path rather than a named volume on purpose. A named
+volume lives inside Docker Desktop's VM disk, and Docker Desktop rebuilds
+that disk without asking — on an unclean restart, on a reset, or when it
+cannot open the old one — destroying every named volume on the machine. A
+host path survives that, and can be backed up and inspected without a
+container. The store runs in WAL mode, so the mount has to carry the `-wal`
+and `-shm` files too; it does under VirtioFS.
 
 The two stacks keep separate settings, because each has its own SQLite
 store: `github.token` set on the dev stack is not set on prod, and has to be
