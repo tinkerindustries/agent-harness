@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime/debug"
 
+	"github.com/mrgeoffrich/agent-harness/internal/config"
 	"github.com/mrgeoffrich/agent-harness/internal/gemini"
 	"github.com/mrgeoffrich/agent-harness/internal/geministdio"
 	"github.com/mrgeoffrich/agent-harness/internal/hub"
@@ -38,6 +39,7 @@ func runGeminiSession(ctx context.Context, args []string) error {
 	keepState := fs.Bool("keep-state", false, "leave the state directory behind when the process exits, for reading a finished session's transcript")
 	prices := fs.String("prices", "configs/prices.json", "price table, for the cost figures reported on harness.usage")
 	model := fs.String("model", defaultGeminiSessionModel, "model a create body with no `model` runs on")
+	envFile := fs.String("env", "", "read the API key from this KEY=VALUE `file` when the environment does not carry one, for driving the process by hand")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -48,8 +50,12 @@ func runGeminiSession(ctx context.Context, args []string) error {
 	// with. There is no settings store to read one from and no screen to
 	// type one into: a hosted session's credentials are the host's to
 	// supply. GOOGLE_API_KEY is accepted as well because that is the name
-	// Google's own SDKs read.
-	apiKey := firstNonEmpty(os.Getenv("GEMINI_API_KEY"), os.Getenv("GOOGLE_API_KEY"))
+	// Google's own SDKs read. -env names a file to fall back to, for a
+	// person driving the process by hand rather than a parent application.
+	apiKey, err := geminiAPIKey(*envFile)
+	if err != nil {
+		return err
+	}
 
 	dir := *stateDir
 	if dir == "" {
@@ -153,6 +159,36 @@ func buildVersion() string {
 		return "unknown"
 	}
 	return info.Main.Version
+}
+
+// geminiAPIKey resolves the Google API key: the environment first, then the
+// file -env names, if it named one.
+//
+// Only the two key variables are taken from that file. The rest of it is
+// ignored deliberately, and the file is never made ambient: this process's
+// environment is inherited by every command a session's Bash tool runs, and
+// the file to hand is usually the .env of the repository the session is
+// about to work in. Loading all of it would put that repository's variables
+// into the agent's own subprocesses, which is the thing
+// docs/STDIO-PROTOCOL.md rules out for the working directory's .env. The
+// flag exists so a person can drive the process by hand without exporting a
+// key first; it is not a second configuration surface.
+//
+// The environment wins, the way it does for every other .env this repository
+// reads (config.LoadDotEnv). A named file that cannot be read is fatal even
+// when the environment already carries a key, because a mistyped path is
+// worth hearing about at once rather than on the machine where the
+// environment happens to be empty.
+func geminiAPIKey(envFile string) (string, error) {
+	env := firstNonEmpty(os.Getenv("GEMINI_API_KEY"), os.Getenv("GOOGLE_API_KEY"))
+	if envFile == "" {
+		return env, nil
+	}
+	values, err := config.DotEnvValues(envFile)
+	if err != nil {
+		return "", fmt.Errorf("-env %s: %w", envFile, err)
+	}
+	return firstNonEmpty(env, values["GEMINI_API_KEY"], values["GOOGLE_API_KEY"]), nil
 }
 
 func firstNonEmpty(values ...string) string {

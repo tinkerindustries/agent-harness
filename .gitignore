@@ -7,6 +7,9 @@
 /bin/
 /deepseek-harness
 /harness
+# What a plain `go build ./cmd/harness` writes on Windows: the same binary as
+# /harness above, under the name the platform requires to execute it.
+/harness.exe
 *.test
 *.out
 

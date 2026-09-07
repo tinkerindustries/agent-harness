@@ -39,6 +39,7 @@ read Go.
 
 ```
 harness gemini-session [-state-dir DIR] [-keep-state] [-model NAME] [-prices PATH]
+                      [-env FILE]
 ```
 
 The parent supplies the API key in the environment it spawns the process
@@ -68,12 +69,23 @@ Flags:
 | `-keep-state` | off | Keep the default state directory after exit, for reading a finished session's transcript. |
 | `-model` | `gemini-3.7-flash` | What a create body with no `model` runs on. |
 | `-prices` | `configs/prices.json` | The price table behind the cost figure on `harness.usage`. A missing table costs the cost figure and nothing else. |
+| `-env` | unset | A `KEY=VALUE` file to take the API key from when the environment carries none. **Only `GEMINI_API_KEY` and `GOOGLE_API_KEY` are read out of it** — see below. A file that cannot be read is fatal. |
 
 **stdout carries protocol frames and nothing else.** Every log line, warning
-and diagnostic goes to stderr. `.env` is deliberately not read: the parent
-owns the working directory, which for a hosted session is a repository the
-session is about to work in, and a `.env` sitting in it must not contribute
-environment to this process.
+and diagnostic goes to stderr. No `.env` is read implicitly: the parent owns
+the working directory, which for a hosted session is a repository the session
+is about to work in, and a `.env` sitting in it must not contribute
+environment to this process — every command the session's Bash tool runs
+inherits that environment.
+
+`-env FILE` is the one way a file reaches this process, and it does not
+weaken that rule. The path is explicit, so no directory contributes anything
+by merely being the working directory; and **only the two key variables are
+taken from the file**, never the rest of it, so nothing in it becomes ambient
+for the session's own subprocesses. The environment still wins where both
+carry a key. The flag is for a person driving the process by hand without
+exporting a key first — a parent application should keep supplying the
+environment.
 
 ## Framing
 

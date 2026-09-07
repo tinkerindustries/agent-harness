@@ -56,3 +56,49 @@ func TestLoadDotEnvMissingFile(t *testing.T) {
 		t.Errorf("LoadDotEnv of missing file: want nil error, got %v", err)
 	}
 }
+
+func TestDotEnvValuesDoesNotTouchTheEnvironment(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(path, []byte("GEMINI_API_KEY=AI-from-file\n# comment\nOTHER=x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	os.Unsetenv("GEMINI_API_KEY")
+
+	values, err := DotEnvValues(path)
+	if err != nil {
+		t.Fatalf("DotEnvValues: %v", err)
+	}
+	if values["GEMINI_API_KEY"] != "AI-from-file" || values["OTHER"] != "x" {
+		t.Errorf("values = %v", values)
+	}
+	// The point of the function: a caller can read one value out of a file
+	// without the rest of it becoming ambient for every process it spawns.
+	if v, set := os.LookupEnv("GEMINI_API_KEY"); set {
+		t.Errorf("DotEnvValues set GEMINI_API_KEY in the environment (%q); it must only parse", v)
+	}
+}
+
+// The first spelling of a repeated key wins, matching what LoadDotEnv did
+// when it set each value as it read.
+func TestDotEnvValuesKeepsTheFirstOfARepeatedKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	if err := os.WriteFile(path, []byte("K=first\nK=second\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	values, err := DotEnvValues(path)
+	if err != nil {
+		t.Fatalf("DotEnvValues: %v", err)
+	}
+	if values["K"] != "first" {
+		t.Errorf("K = %q, want first", values["K"])
+	}
+}
+
+// A missing file is an error here, where LoadDotEnv treats it as absent: the
+// caller named the path, so a typo must be reported rather than turned into
+// a later failure that never mentions the file.
+func TestDotEnvValuesMissingFileIsAnError(t *testing.T) {
+	if _, err := DotEnvValues(filepath.Join(t.TempDir(), "nope.env")); err == nil {
+		t.Error("DotEnvValues of a missing file: want an error, got nil")
+	}
+}
