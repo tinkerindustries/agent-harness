@@ -259,12 +259,13 @@ func TestResumeChecksTheFrozenToolset(t *testing.T) {
 // declaration check, and that it decides provenance without taking a
 // qualified name apart.
 func TestResumeChecksServerDeclarations(t *testing.T) {
-	frozen, err := frozenToolsOf(json.RawMessage(`[
+	schema := json.RawMessage(`[
 		{"type":"function","function":{"name":"Read","parameters":{}}},
 		{"type":"function","function":{"name":"mcp__orchestrator__list_sessions","parameters":{"type":"object"}}},
 		{"type":"function","function":{"name":"mcp__orchestrator__view_session","parameters":{"type":"object"}}},
 		{"type":"function","function":{"name":"mcp__host__show_widget","parameters":{"type":"object"}}}
-	]`))
+	]`)
+	frozen, err := frozenToolsOf(schema, map[string]bool{"orchestrator": false, HostServerName: true})
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
@@ -274,17 +275,29 @@ func TestResumeChecksServerDeclarations(t *testing.T) {
 	if _, ok := frozen.schemas["Read"]; ok {
 		t.Error("a built-in tool was counted as part of the resumable toolset")
 	}
+	if len(frozen.servers) != 1 || !frozen.servers["orchestrator"] {
+		t.Errorf("servers %v, want just orchestrator — the host namespace is not a server", frozen.servers)
+	}
 
-	// A server the create forgets: the tools it serves are named, and the
-	// host namespace is not mistaken for one.
+	// A server named only by the tool array, with no allowance recorded, is
+	// still a server the session had: a row written before the allowance
+	// column existed must stay resumable.
+	if legacy, err := frozenToolsOf(schema, nil); err != nil {
+		t.Fatalf("decode: %v", err)
+	} else if !legacy.servers["orchestrator"] {
+		t.Error("a server named only by the frozen tool array was not counted")
+	}
+
+	// A server the create forgets is named, and the host namespace is not
+	// mistaken for one.
 	rerr := checkDeclarations(frozen, nil)
 	if rerr == nil || rerr.Code != CodeToolsetMismatch {
 		t.Fatalf("a create declaring no servers: want %d, got %v", CodeToolsetMismatch, rerr)
 	}
-	if !strings.Contains(rerr.Message, "mcp__orchestrator__list_sessions") {
-		t.Errorf("the error does not name the orphaned tool: %s", rerr.Message)
+	if !strings.Contains(rerr.Message, "orchestrator") {
+		t.Errorf("the error does not name the server: %s", rerr.Message)
 	}
-	if strings.Contains(rerr.Message, "mcp__host__show_widget") {
+	if strings.Contains(rerr.Message, HostServerName) {
 		t.Errorf("a client function was treated as needing a server: %s", rerr.Message)
 	}
 
@@ -474,5 +487,58 @@ func TestCompletionFreesTheSlotBeforeItIsAnnounced(t *testing.T) {
 		// arrives, which is exactly what used to race the bookkeeping.
 		f.client.waitFor(NotifyInteractionCompleted)
 		prev = res.Interaction.ID
+	}
+}
+
+// TestResumeWithAServerThatAdvertisedNothing pins the case a probe failure
+// leaves behind: a declared server that contributed no tools. A create
+// tolerates that — the run carries on with whatever the server did advertise,
+// which is none of it — so the session's frozen tool array names it nowhere,
+// and the only record that it was ever declared is its entry in the
+// read-only allowance. A resume has to be able to reproduce it either way.
+func TestResumeWithAServerThatAdvertisedNothing(t *testing.T) {
+	// Nothing is listening on this port, so the probe fails and the server
+	// joins the session having advertised no tools at all.
+	server := Tool{
+		Type: ToolMCPServer, Name: "orchestrator",
+		URL:     "http://127.0.0.1:59998/s/abc",
+		Harness: &ToolHarness{ReadOnly: true},
+	}
+
+	dir, cwd := t.TempDir(), t.TempDir()
+	a := newFixtureIn(t, dir, cwd, answer("first"))
+	a.client.handshake(ClientCapabilities{})
+	first := a.createParams("first task")
+	first.Tools = []Tool{server}
+	var one CreateResult
+	if rerr := a.client.call(MethodInteractionsCreate, first, &one); rerr != nil {
+		t.Fatalf("first create: %v", rerr)
+	}
+	a.client.waitFor(NotifyInteractionCompleted)
+	sessionID := one.Interaction.Harness.SessionID
+	a.close()
+
+	b := newFixtureIn(t, dir, cwd, answer("second"), answer("third"))
+	b.client.handshake(ClientCapabilities{})
+
+	// Re-declaring it is what the parent should do, and it has to work.
+	var two CreateResult
+	if rerr := b.client.call(MethodInteractionsCreate, resumeParams(sessionID, "second task", server), &two); rerr != nil {
+		t.Fatalf("resume re-declaring the server: %v", rerr)
+	}
+	b.client.waitFor(NotifyInteractionCompleted)
+	if two.Interaction.Harness.SessionID != sessionID {
+		t.Errorf("the resumed interaction reports session %q", two.Interaction.Harness.SessionID)
+	}
+
+	// Dropping it is refused, and named as the server it is — a session
+	// keeps the servers it was started with whether or not any of them
+	// managed to advertise a tool.
+	rerr := b.client.call(MethodInteractionsCreate, resumeParams(sessionID, "third task"), &CreateResult{})
+	if rerr == nil || rerr.Code != CodeToolsetMismatch {
+		t.Fatalf("dropping the server: want %d, got %v", CodeToolsetMismatch, rerr)
+	}
+	if !strings.Contains(rerr.Message, "orchestrator") {
+		t.Errorf("the error does not name the server: %s", rerr.Message)
 	}
 }

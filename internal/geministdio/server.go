@@ -350,7 +350,7 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 		}
 		sessionID, cwd, resume, model = sess.ID, sess.Workspace, true, sess.Model
 		frozenMode = sess.PermissionMode
-		f, err := frozenToolsOf(sess.ToolSchema)
+		f, err := frozenToolsOf(sess.ToolSchema, sess.MCPReadOnly)
 		if err != nil {
 			return nil, errorf(CodeInternalError, "session %s's stored tool array will not decode (%v), so this create cannot be checked against it", sess.ID, err)
 		}

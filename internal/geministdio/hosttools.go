@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 
 	"github.com/mrgeoffrich/agent-harness/internal/mcpclient"
@@ -115,16 +114,6 @@ func (h *hostTools) addFunction(t Tool) error {
 		h.readOnly = false
 	}
 	return nil
-}
-
-// owns reports whether qualified is one of server's tools, by the prefix
-// mcpclient.QualifyToolName built it with. A server name may itself contain
-// "__" — the name grammar permits it — so a qualified name is matched
-// against the servers this interaction declared rather than taken apart to
-// recover one (internal/tools, MCPServerOf, which splits at the first "__"
-// and says so).
-func owns(server, qualified string) bool {
-	return strings.HasPrefix(qualified, tools.MCPToolPrefix+server+"__")
 }
 
 // declaredTool reports whether a qualified name belongs to this

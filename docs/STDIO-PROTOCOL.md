@@ -582,10 +582,11 @@ URL the old parent listened on and no longer does. So the resuming create
 re-declares them, and this process checks what it resolves against what the
 session froze:
 
-- Every `mcp_server` the frozen array carries tools from must appear in
-  `tools`, with the URL and headers that are live **now**. A server the
-  create adds that serves none of the frozen tools is refused too — it could
-  never be reached, and both checks run before anything is written or
+- Every `mcp_server` the session was started with must appear in `tools`,
+  with the URL and headers that are live **now** — including one whose probe
+  failed, which a create tolerates and which therefore left no tools in the
+  frozen array to be recognised by. A server the create adds that the session
+  did not have is refused too. Both checks run before anything is written or
   dialled, so a refused create leaves nothing behind for the next one to trip
   over.
 - Every tool in the frozen array must resolve again under the same qualified

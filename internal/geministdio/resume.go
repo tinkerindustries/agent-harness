@@ -99,22 +99,45 @@ type frozenTools struct {
 	// schemas maps a qualified tool name to its parameter schema, in the
 	// canonical encoding canonicalSchema produces.
 	schemas map[string]string
+	// servers is every MCP server the session was started with, whether or
+	// not it managed to advertise a tool. A server whose probe failed, or
+	// which advertised nothing, is a create this surface deliberately
+	// tolerates — so the tool array is not a complete record of what was
+	// declared, and a check built only on it would tell such a session it
+	// may neither keep the server nor drop it. The namespace client
+	// functions live under is not in here; it is not a server.
+	servers map[string]bool
 }
 
-// frozenToolsOf reads the mcp-namespaced entries out of a session's stored
-// tool_schema column.
-func frozenToolsOf(raw json.RawMessage) (frozenTools, error) {
+// frozenToolsOf reads a session's frozen shape out of the two columns that
+// carry it: tool_schema for the tools, and mcp_read_only for the servers.
+//
+// The servers come from both. The allowance has an entry per server the
+// session was started with, which is the only record of one that advertised
+// nothing; the tool names cover a row written before that column existed.
+// Reading a server back out of a qualified name is exact rather than a guess
+// because a server name may not contain the "__" delimiter (internal/store,
+// ValidateMCPServer).
+func frozenToolsOf(raw json.RawMessage, readOnly map[string]bool) (frozenTools, error) {
 	var all []wire.Tool
 	if err := json.Unmarshal(raw, &all); err != nil {
 		return frozenTools{}, err
 	}
-	f := frozenTools{schemas: map[string]string{}}
+	f := frozenTools{schemas: map[string]string{}, servers: map[string]bool{}}
 	for _, t := range all {
 		name := t.Function.Name
 		if !strings.HasPrefix(name, tools.MCPToolPrefix) {
 			continue
 		}
 		f.schemas[name] = canonicalSchema(t.Function.Parameters)
+		if server, ok := tools.MCPServerOf(name); ok && server != HostServerName {
+			f.servers[server] = true
+		}
+	}
+	for server := range readOnly {
+		if server != HostServerName {
+			f.servers[server] = true
+		}
 	}
 	return f, nil
 }
@@ -133,55 +156,38 @@ func frozenToolsOf(raw json.RawMessage) (frozenTools, error) {
 //     create from leaving an enabled row behind for every later create to
 //     trip over.
 //
-// Which server owns a frozen tool is decided by matching each declared
-// server's prefix against the name, never by taking the name apart: a server
-// name may itself contain "__" (internal/tools, MCPServerOf), and a create
-// that named one would otherwise be unable to resume at all.
+// The comparison is name against name — the set the create declares against
+// the set frozenToolsOf read off the session — rather than anything derived
+// from a tool's qualified name at this point. That is what lets a server
+// which advertised no tools be held to the same rule as one that advertised
+// twenty.
 func checkDeclarations(f frozenTools, decls []Tool) *rpcError {
-	var declared []string
+	declared := map[string]bool{}
 	for _, t := range decls {
 		if t.Type == ToolMCPServer && t.Name != "" {
-			declared = append(declared, t.Name)
+			declared[t.Name] = true
 		}
 	}
 
-	var orphaned []string
-	for name := range f.schemas {
-		if owns(HostServerName, name) {
-			continue
-		}
-		covered := false
-		for _, server := range declared {
-			if owns(server, name) {
-				covered = true
-				break
-			}
-		}
-		if !covered {
-			orphaned = append(orphaned, name)
+	var missing, extra []string
+	for server := range f.servers {
+		if !declared[server] {
+			missing = append(missing, server)
 		}
 	}
-	sort.Strings(orphaned)
-	if len(orphaned) > 0 {
-		return errorf(CodeToolsetMismatch, "the session's tool array carries %s, and this create declares no mcp_server that would serve them; a resume re-declares every server the session froze, with the url and headers that are good now", strings.Join(orphaned, ", "))
-	}
-
-	var extra []string
-	for _, server := range declared {
-		serves := false
-		for name := range f.schemas {
-			if owns(server, name) {
-				serves = true
-				break
-			}
-		}
-		if !serves {
+	for server := range declared {
+		if !f.servers[server] {
 			extra = append(extra, server)
 		}
 	}
+	sort.Strings(missing)
 	sort.Strings(extra)
+
+	if len(missing) > 0 {
+		return errorf(CodeToolsetMismatch, "this session was started with mcp_server %s and this create declares none by that name; a resume re-declares every server the session had, with the url and headers that are good now, including one whose probe failed and left no tools behind", strings.Join(missing, ", "))
+	}
 	if len(extra) > 0 {
-		return errorf(CodeToolsetMismatch, "mcp_server %s serves none of the tools this session froze, and the run sends the array it started with, so nothing it advertises could be reached; start a new session to add a server", strings.Join(extra, ", "))
+		return errorf(CodeToolsetMismatch, "mcp_server %s is not one this session was started with, and the run sends the array it started with, so nothing it advertises could be reached; start a new session to add a server", strings.Join(extra, ", "))
 	}
 	return nil
 }
