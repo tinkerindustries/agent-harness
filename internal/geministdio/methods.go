@@ -84,8 +84,13 @@ type ServerCapabilities struct {
 	// Cancel says interactions.cancel is implemented.
 	Cancel bool `json:"cancel"`
 	// PreviousInteraction says previous_interaction_id is implemented —
-	// resuming a finished interaction in place.
+	// resuming a finished interaction in place. It is bounded by this
+	// process: the ids it resolves are the ones this process minted.
 	PreviousInteraction bool `json:"previous_interaction"`
+	// ResumeSession says harness.resume_session_id is implemented — picking
+	// a session up out of the state directory, which is what carries a
+	// conversation across a restart of this process.
+	ResumeSession bool `json:"resume_session"`
 	// MCPServers says an `mcp_server` tool in a create body is dialled.
 	MCPServers bool `json:"mcp_servers"`
 	// FunctionTools says a `function` tool in a create body is called back
@@ -157,10 +162,25 @@ type GenerationConfig struct {
 // machines has no reason to have.
 type CreateHarness struct {
 	// CWD is the directory the session works in — the parent's own, not a
-	// workspace this harness cloned. Required on a create with no
-	// previous_interaction_id; a continued interaction keeps the directory
-	// its chain started in, since the session's prefix is frozen.
+	// workspace this harness cloned. Required on a create that starts a new
+	// session; a continued or resumed one keeps the directory its session
+	// started in, since the session's prefix is frozen.
 	CWD string `json:"cwd"`
+	// ResumeSessionID continues the session of that id, read out of the
+	// state directory rather than out of this process's memory. It is what
+	// carries a conversation across a restart of this process, which
+	// previous_interaction_id cannot do: an interaction id is minted in
+	// memory and dies with the process, while a session id names a row in
+	// the SQLite file under -state-dir.
+	//
+	// A resumed session keeps everything its prefix is built from — model,
+	// working directory, permission mode, deny patterns, result schema and
+	// tool array. Naming any of them differently is refused rather than
+	// ignored. The tools are the one that takes work: the create must
+	// re-declare every mcp_server the session froze, with connection
+	// metadata that is good now, and every function tool with the schema it
+	// had. docs/STDIO-PROTOCOL.md, "Resuming across process restarts".
+	ResumeSessionID string `json:"resume_session_id,omitempty"`
 	// PermissionMode is "readonly" or "full", set once for the interaction
 	// chain and never asked about again (docs/TOOLS.md, "Permissions").
 	PermissionMode string `json:"permission_mode,omitempty"`

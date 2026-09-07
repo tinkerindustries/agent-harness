@@ -120,7 +120,14 @@ is why a `thought` step and a `model_output` step can be open at once here and
 never are on Google's own stream: the thought signature is only known when the
 sub-turn commits. Also implements `tools.MCPProvider` for the two tool shapes
 a client may declare, `function` (called back over the pipe) and `mcp_server`
-(dialled by `internal/mcpclient` as any configured server is). It is not
+(dialled by `internal/mcpclient` as any configured server is). `resume.go` is
+the seam between the two ways a create names a conversation: an interaction id
+is minted in memory and dies with the process, so continuing across a restart
+goes by session id out of the `-state-dir` store instead, and everything the
+session's prompt prefix is built from — model, workspace, permission mode,
+deny patterns, and the frozen tool array the create has to re-declare with
+live connection metadata — is checked against the row rather than taken from
+the create. It is not
 `internal/gemini`'s counterpart and the two never meet: that one speaks this
 vocabulary *to* Google, this one speaks it *to the parent process*, and
 `internal/session` between them knows about neither. Depends on:

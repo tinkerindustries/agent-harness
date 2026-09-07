@@ -223,6 +223,7 @@ func (s *Server) initialize(params json.RawMessage) (any, *rpcError) {
 			Append:              true,
 			Cancel:              true,
 			PreviousInteraction: true,
+			ResumeSession:       true,
 			MCPServers:          s.opts.MCP != nil,
 			FunctionTools:       true,
 			PermissionModes:     []string{string(tools.ModeReadOnly), string(tools.ModeFull)},
@@ -278,18 +279,33 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 	}
 	s.mu.Unlock()
 
-	// A previous_interaction_id continues that interaction's session, which
-	// is what makes a chain of interactions one conversation. Google's own
-	// multi-turn shape, and the reason there is no thread concept here.
+	// Three ways to reach a session. previous_interaction_id continues one
+	// this process is already holding — Google's own multi-turn shape, and
+	// the reason there is no thread concept here. harness.resume_session_id
+	// picks one up out of the state directory instead, which is the only
+	// one of the two that survives this process ending (resume.go). Neither
+	// names a session: a create with no id at all starts one.
 	var (
 		sessionID string
 		cwd       string
 		resume    bool
+		// frozen is the session's stored tool array, and frozenMode its
+		// stored permission mode, on a resume; both are what the run will
+		// use regardless of what the create says, so both are checked
+		// against the create rather than taken from it.
+		frozen     frozenTools
+		checkTools bool
+		frozenMode string
 	)
-	if p.PreviousInteractionID != "" {
+	resumeID := harnessString(p.Harness, func(h *CreateHarness) string { return h.ResumeSessionID })
+	switch {
+	case p.PreviousInteractionID != "" && resumeID != "":
+		return nil, errorf(CodeInvalidParams, "previous_interaction_id and harness.resume_session_id both name a conversation to continue; send one. previous_interaction_id continues an interaction this process ran, harness.resume_session_id continues a session out of the state directory")
+
+	case p.PreviousInteractionID != "":
 		prev, ok := s.lookup(p.PreviousInteractionID)
 		if !ok {
-			return nil, errorf(CodeInteractionNotFound, "no interaction %q", p.PreviousInteractionID)
+			return nil, errorf(CodeInteractionNotFound, "no interaction %q was minted by this process; an interaction id does not outlive the process that made it, so continue across a restart with harness.resume_session_id instead", p.PreviousInteractionID)
 		}
 		sessionID, cwd, resume = prev.sessionID, prev.cwd, true
 		if p.Harness != nil && p.Harness.CWD != "" && p.Harness.CWD != cwd {
@@ -298,7 +314,24 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 		if prev.model != model {
 			return nil, errorf(CodeInvalidParams, "interaction %s ran on %s; a continued interaction cannot change model, because the session's prefix is frozen", prev.id, prev.model)
 		}
-	} else {
+
+	case resumeID != "":
+		sess, rerr := s.resumeTarget(ctx, p)
+		if rerr != nil {
+			return nil, rerr
+		}
+		sessionID, cwd, resume, model = sess.ID, sess.Workspace, true, sess.Model
+		frozenMode = sess.PermissionMode
+		f, err := frozenToolsOf(sess.ToolSchema)
+		if err != nil {
+			return nil, errorf(CodeInternalError, "session %s's stored tool array will not decode (%v), so this create cannot be checked against it", sess.ID, err)
+		}
+		if rerr := requireDeclaredServers(f, p.Tools); rerr != nil {
+			return nil, rerr
+		}
+		frozen, checkTools = f, true
+
+	default:
 		if p.Harness == nil || p.Harness.CWD == "" {
 			return nil, errorf(CodeInvalidParams, "harness.cwd is required: this process works in a directory the client owns and does not choose one for itself")
 		}
@@ -313,10 +346,21 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 	if !mode.Valid() {
 		return nil, errorf(CodeInvalidParams, "harness.permission_mode %q must be %q or %q", mode, tools.ModeReadOnly, tools.ModeFull)
 	}
+	if frozenMode != "" {
+		// Resume takes the mode off the session row, so this is what the
+		// run will actually enforce; resumeTarget has already refused a
+		// create that named a different one.
+		mode = tools.Mode(frozenMode)
+	}
 
 	host, rerr := s.buildTools(ctx, p.Tools)
 	if rerr != nil {
 		return nil, rerr
+	}
+	if checkTools {
+		if rerr := checkFrozenToolset(ctx, host, frozen); rerr != nil {
+			return nil, rerr
+		}
 	}
 
 	it := &interaction{

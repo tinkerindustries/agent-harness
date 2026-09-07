@@ -248,11 +248,20 @@ type fixture struct {
 
 func newFixture(t *testing.T, streams ...string) *fixture {
 	t.Helper()
+	return newFixtureIn(t, t.TempDir(), t.TempDir(), streams...)
+}
+
+// newFixtureIn is newFixture with the state directory and the working
+// directory named, so a test can stand a second server up over the state a
+// first one left behind. That is what a parent respawning
+// `harness gemini-session` on the same -state-dir does, and it is the only
+// way to exercise harness.resume_session_id.
+func newFixtureIn(t *testing.T, dir, cwd string, streams ...string) *fixture {
+	t.Helper()
 	script := &scriptedGemini{streams: streams}
 	api := script.serve()
 	t.Cleanup(api.Close)
 
-	dir := t.TempDir()
 	st, err := store.Open(filepath.Join(dir, "session.db"))
 	if err != nil {
 		t.Fatalf("open store: %v", err)
@@ -288,7 +297,6 @@ func newFixture(t *testing.T, streams ...string) *fixture {
 		clientOut.Close()
 	}()
 
-	cwd := t.TempDir()
 	f := &fixture{
 		t: t, client: newClient(t, serverIn, serverOut), script: script,
 		cwd: cwd, srv: srv, cancel: cancel, done: done, stdin: serverIn,

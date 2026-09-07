@@ -27,6 +27,7 @@ read Go.
 - [Notifications](#notifications)
 - [Ordering guarantees](#ordering-guarantees)
 - [Tools](#tools)
+- [Resuming across process restarts](#resuming-across-process-restarts)
 - [Permissions](#permissions)
 - [Errors](#errors)
 - [Lifecycle](#lifecycle)
@@ -63,7 +64,7 @@ Flags:
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
-| `-state-dir` | a per-process directory under the user cache dir | Where this session's SQLite state and transcript mirror live. A directory the parent names is kept; the default one is removed when the process exits. |
+| `-state-dir` | a per-process directory under the user cache dir | Where this session's SQLite state and transcript mirror live. A directory the parent names is kept; the default one is removed when the process exits. It is also what `harness.resume_session_id` reads: a parent that wants a session to survive this process names one. |
 | `-keep-state` | off | Keep the default state directory after exit, for reading a finished session's transcript. |
 | `-model` | `gemini-3.7-flash` | What a create body with no `model` runs on. |
 | `-prices` | `configs/prices.json` | The price table behind the cost figure on `harness.usage`. A missing table costs the cost figure and nothing else. |
@@ -138,6 +139,7 @@ Result:
     "append": true,
     "cancel": true,
     "previous_interaction": true,
+    "resume_session": true,
     "mcp_servers": true,
     "function_tools": true,
     "permission_modes": ["readonly", "full"]
@@ -185,6 +187,7 @@ Google's create-interaction body, narrowed, plus a `harness` block.
   "store": true,
   "harness": {
     "cwd": "/Users/you/Repos/thing",
+    "resume_session_id": "sess-3b71…",
     "permission_mode": "full",
     "deny": ["rm -rf", "git push"],
     "max_sub_turns": 200,
@@ -202,13 +205,14 @@ Google's create-interaction body, narrowed, plus a `harness` block.
 | `input` | yes | A string, one `Content`, an array of `Content`, or an array of `user_input` `Step`s. Text only — see [Not built](#not-built). |
 | `system_instruction` | no | **Prepended to the first user input**, not sent as a system instruction. See [Deviations](#deviations-from-googles-http-surface). |
 | `tools` | no | See [Tools](#tools). |
-| `previous_interaction_id` | no | Continue that interaction's session. See below. |
+| `previous_interaction_id` | no | Continue that interaction's session, in this process. See below. |
 | `response_format` | no | `schema` becomes the run's result schema, which the agent's `Complete` tool validates its answer against. |
 | `generation_config.thinking_level` | no | `minimal` \| `low` \| `medium` \| `high`. Defaults to `high`. |
 | `generation_config.max_output_tokens` | no | Per-request output cap. Zero leaves the API's own default. |
 | `stream` | no | Default true. See below. |
 | `store` | no | Accepted and ignored: this process always stores, because the loop's state machine *is* its event log. |
 | `harness.cwd` | yes, unless continuing | The directory the session works in. Absolute. |
+| `harness.resume_session_id` | no | Continue that session, read out of the state directory. See [Resuming across process restarts](#resuming-across-process-restarts). |
 | `harness.permission_mode` | no | `readonly` (default) or `full`. See [Permissions](#permissions). |
 | `harness.deny` | no | Substring patterns matched against a call's descriptor. Only ever subtracts from what the mode allows. |
 | `harness.max_sub_turns` | no | Ceiling on how many model round-trips the run may take. Zero is the harness default. |
@@ -238,6 +242,12 @@ interaction in a chain reports the same `harness.session_id`, and each has its
 own `id`. A continued create must not change `model` — the session's prompt
 prefix is frozen for its life — and must not send `harness.cwd`, which it
 inherits.
+
+**`previous_interaction_id` is bounded by this process.** The id is minted in
+memory and resolved from memory, so it means nothing to a process that did not
+mint it: a client that sends one across a restart gets `-32001`. Crossing a
+restart is `harness.resume_session_id`, below. Sending both on one create is
+`-32602`.
 
 **One at a time.** One process hosts one session, so a create while another
 interaction is in progress is refused with `-32600`. Cancel it or wait.
@@ -528,6 +538,65 @@ are tools Google runs on Google's machines as part of serving the interaction,
 and this process is not serving the interaction — it is running the loop
 itself and calling `/v1beta/interactions` one model turn at a time.
 
+## Resuming across process restarts
+
+A session outlives the process that ran it. The row, its event log and its
+frozen tool array are in the SQLite file under `-state-dir`, so a parent that
+respawns `harness gemini-session` on the same directory can pick the
+conversation up:
+
+```jsonc
+{"input": "carry on where you left off",
+ "tools": [ /* the same tools, with connection metadata that is good now */ ],
+ "harness": {"resume_session_id": "sess-3b71…"}}
+```
+
+The answer is a new interaction with a new `id` and the same
+`harness.session_id`. The model is sent the whole conversation the earlier
+process recorded, and the run continues with its sub-turn count, its plan and
+its history intact — the same continuation `previous_interaction_id` performs,
+reached by a different key.
+
+Two things make this work.
+
+**Name the state directory.** The default one is per-process and is removed at
+exit, so a resume needs `-state-dir DIR`, the same `DIR` both times. A session
+id the directory holds nothing for is `-32005`.
+
+**Do not move the prefix.** The system prompt and the tool array are what
+every request of a session shares, and the prompt cache is built on them, so a
+resumed session sends the array it froze rather than one resolved fresh. The
+create therefore inherits `model`, `harness.cwd`, `harness.permission_mode`,
+`harness.deny` and `response_format` from the session, and naming any of them
+differently is `-32602` rather than a silent override. Sending them unchanged
+is fine.
+
+### The tools have to come back
+
+The tool array is the part a restart genuinely breaks. A `function` tool was
+declared over a pipe that has closed; an `mcp_server` tool was dialled at a
+URL the old parent listened on and no longer does. So the resuming create
+re-declares them, and this process checks what it resolves against what the
+session froze:
+
+- Every `mcp_server` the frozen array carries tools from must appear in
+  `tools`, with the URL and headers that are live **now**. This is checked
+  before anything is dialled, so a forgotten server is named rather than
+  silently contributing nothing.
+- Every tool in the frozen array must resolve again under the same qualified
+  name and with the same parameter schema. Schemas are compared as documents,
+  so whitespace and key order are free.
+- Nothing new may appear. The run sends the frozen array, so a tool added on
+  the way back in would never be offered to the model.
+
+Any of those failing is `-32006`, with the offending tool or server named.
+Changing a session's tools means starting a new session.
+
+**A session an earlier process died holding is reclaimable.** The state
+directory belongs to one process at a time, so a row still marked running is a
+leftover rather than somebody else's claim: it is closed as `cancelled` and
+then resumed. A crashed parent costs nothing but the sub-turn in flight.
+
 ## Permissions
 
 Set once, on the create that starts a chain, and **never asked about again**.
@@ -578,6 +647,8 @@ client has the vendor's string code as well as this protocol's numeric one.
 | `-32002` | interaction not running | An append or delete against an interaction that is not `in_progress`. |
 | `-32003` | credentials missing | `interactions.create` with no API key in the environment. |
 | `-32004` | unsupported | `agent`; a server-side tool type; an `mcp_server` tool with no MCP client; image input. |
+| `-32005` | session not found | A `harness.resume_session_id` this process's state directory holds no session for. |
+| `-32006` | toolset mismatch | A resuming create whose tools do not reproduce the array the session froze. |
 
 Failures *during* a run are not method errors — the create has already been
 answered. They arrive as an `error` notification followed by
@@ -659,7 +730,10 @@ interaction.** Google stores interactions server-side and chains them. Here
 the chain is one local session resumed in place: the model sees the whole
 conversation replayed, and the run continues from where it left off with its
 sub-turn count, its plan and its history intact. Every interaction in a chain
-reports the same `harness.session_id`.
+reports the same `harness.session_id`. Google's ids outlive any one process
+because Google holds them; these do not, which is why there is a second field
+for reattaching to a session — see
+[Resuming across process restarts](#resuming-across-process-restarts).
 
 **6. `store` is ignored.** Google lets a caller opt out of storage. This
 process cannot: the loop's state machine is its event log, and a run that kept
@@ -730,10 +804,6 @@ Raised rather than fixed, in this repo's own convention:
 - **More than one interaction at a time.** One process hosts one session. A
   parent that wants two sessions spawns two processes, which is also how it
   gets two working directories.
-- **Resuming across process restarts.** `previous_interaction_id` is resolved
-  from this process's own memory, so it does not survive a restart even when
-  `-state-dir` kept the session's log. The log is there; the method to reattach
-  to it is not.
 - **`interaction.status_update` for anything but sub-turn boundaries.** Google
   emits it on interaction-level transitions; here it only ever reports
   `in_progress` at the start of a sub-turn.

@@ -35,6 +35,17 @@ const (
 	// this surface understands but cannot honour — an `agent` rather than a
 	// `model`, a server-side tool it has no way to run.
 	CodeUnsupported = -32004
+	// CodeSessionNotFound names a harness.resume_session_id the state
+	// directory this process opened holds no session for. The usual cause is
+	// a different -state-dir, since a resume reads a log some earlier
+	// process wrote.
+	CodeSessionNotFound = -32005
+	// CodeToolsetMismatch is returned by a resuming create whose tools do
+	// not reproduce the array the session froze. A session's tool array is
+	// part of its prompt prefix and cannot move for the session's life
+	// (docs/CACHE.md), so a resume either supplies the same tools or starts
+	// a new session.
+	CodeToolsetMismatch = -32006
 )
 
 // message is one JSON-RPC frame in either direction. `jsonrpc` is omitted on
