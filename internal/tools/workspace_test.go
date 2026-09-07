@@ -32,7 +32,7 @@ func TestResolvePathRejectsAbsoluteEscape(t *testing.T) {
 	root := t.TempDir()
 	// An absolute path outside root is used as given, not silently nested
 	// under root, so it is a genuine escape and must be rejected.
-	if _, err := ResolvePath(root, "/etc/passwd"); err == nil {
+	if _, err := ResolvePath(root, absElsewhere(t, "passwd")); err == nil {
 		t.Fatal("expected an error for an absolute path outside the workspace")
 	}
 }

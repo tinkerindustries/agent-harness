@@ -471,7 +471,7 @@ func TestExecCropConfinesOutputToScratch(t *testing.T) {
 		}
 	}
 
-	res := runTool(t, e, "Crop", cropArgs{ImagePath: "shot.png", Region: "0,0,20,20", Output: "/tmp/escaped.png"})
+	res := runTool(t, e, "Crop", cropArgs{ImagePath: "shot.png", Region: "0,0,20,20", Output: absElsewhere(t, "escaped.png")})
 	if !res.IsError {
 		t.Error("an absolute path outside scratch/ should be refused")
 	}

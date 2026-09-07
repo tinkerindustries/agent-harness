@@ -74,7 +74,7 @@ func TestScreenshotConfinesOutputToScratch(t *testing.T) {
 		// cannot write there.
 		{"absolute path in a repository", filepath.Join(root, "repo", "shot.png"), "under scratch/"},
 		{"escape from the workspace", "../shot.png", "escapes"},
-		{"absolute path elsewhere", "/tmp/shot.png", "escapes"},
+		{"absolute path elsewhere", absElsewhere(t, "shot.png"), "escapes"},
 		{"scratch itself", "scratch", "must end in .png"},
 	}
 	for _, tc := range refused {
@@ -305,7 +305,7 @@ func TestScreenshotCapturesAPage(t *testing.T) {
 	}
 
 	res := runTool(t, e, "Screenshot", screenshotArgs{
-		URL:  "file://" + page,
+		URL:  fileURL(page),
 		Path: "scratch/shot.png",
 	})
 	if res.IsError {
@@ -334,7 +334,7 @@ func TestScreenshotCapturesAPage(t *testing.T) {
 	// A selector clips to the element, which is the whole reason this drives
 	// the library rather than the playwright CLI.
 	res = runTool(t, e, "Screenshot", screenshotArgs{
-		URL: "file://" + page, Path: "scratch/box.png", Selector: "#box",
+		URL: fileURL(page), Path: "scratch/box.png", Selector: "#box",
 	})
 	if res.IsError {
 		t.Fatalf("clipped capture failed: %s", res.Content)
@@ -365,7 +365,7 @@ func TestScreenshotReportsAMissingSelector(t *testing.T) {
 
 	e.Timeouts.Screenshot = 20 * 1e9 // 20s: the wait for a missing selector is bounded by this
 	res := runTool(t, e, "Screenshot", screenshotArgs{
-		URL: "file://" + page, Path: "scratch/x.png", Selector: "#nope",
+		URL: fileURL(page), Path: "scratch/x.png", Selector: "#nope",
 	})
 	if !res.IsError {
 		t.Fatal("expected a failure for a selector that matches nothing")
@@ -470,7 +470,7 @@ func TestScreenshotRunsActionsBeforeCapturing(t *testing.T) {
 	// #panel is display:none on load, so clipping to it can only succeed if
 	// the click ran first — which makes the capture itself the assertion.
 	res := runTool(t, e, "Screenshot", screenshotArgs{
-		URL:      "file://" + page,
+		URL:      fileURL(page),
 		Path:     "scratch/panel.png",
 		Selector: "#panel",
 		Actions: []screenshotAction{
@@ -509,7 +509,7 @@ func TestScreenshotFailsOnAnActionThatCannotRun(t *testing.T) {
 
 	e.Timeouts.Screenshot = 20 * 1e9
 	res := runTool(t, e, "Screenshot", screenshotArgs{
-		URL: "file://" + page, Path: "scratch/x.png",
+		URL: fileURL(page), Path: "scratch/x.png",
 		Actions: []screenshotAction{{Type: "click", Selector: "#missing"}},
 	})
 	if !res.IsError {

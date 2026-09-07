@@ -79,12 +79,37 @@ func decompress(t *testing.T, path string) []byte {
 	return b
 }
 
+// openGzip opens a gzip file for reading. Closing the returned reader closes
+// the underlying file too: gzip.Reader.Close ends the decompressor only, so
+// returning it alone leaks the os.File on every call. Unix hides that — the
+// fd is closed whenever the finalizer happens to run, and a directory removes
+// with open files in it regardless — but on Windows the leaked handle makes
+// t.TempDir's cleanup fail with a sharing violation.
 func openGzip(path string) (io.ReadCloser, error) {
 	raw, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	return gzip.NewReader(raw)
+	gz, err := gzip.NewReader(raw)
+	if err != nil {
+		raw.Close()
+		return nil, err
+	}
+	return gzipFile{Reader: gz, file: raw}, nil
+}
+
+// gzipFile is a gzip reader that owns its file.
+type gzipFile struct {
+	*gzip.Reader
+	file *os.File
+}
+
+func (g gzipFile) Close() error {
+	err := g.Reader.Close()
+	if ferr := g.file.Close(); err == nil {
+		err = ferr
+	}
+	return err
 }
 
 // A run with a Recorder attached writes one capture file for that session
@@ -95,6 +120,11 @@ func TestRunWithRecorderWritesSessionHTTPLog(t *testing.T) {
 	defer srv.Close()
 	root := t.TempDir()
 	rec := httplog.NewRecorder(root)
+	// Close the capture file before t.TempDir removes the directory. serve
+	// does this via CloseAll on shutdown (cmd/harness/main.go); a test that
+	// skips it leaks an open handle, which unix hides — you can unlink an
+	// open file there — and Windows reports as a cleanup failure.
+	defer rec.CloseAll()
 	r := newWiredTestRunner(t, srv.URL, rec)
 
 	ws := t.TempDir()
@@ -202,6 +232,11 @@ func TestWebFetchCompletionIsAttributedToSession(t *testing.T) {
 
 	root := t.TempDir()
 	rec := httplog.NewRecorder(root)
+	// Close the capture file before t.TempDir removes the directory. serve
+	// does this via CloseAll on shutdown (cmd/harness/main.go); a test that
+	// skips it leaks an open handle, which unix hides — you can unlink an
+	// open file there — and Windows reports as a cleanup failure.
+	defer rec.CloseAll()
 	r := newWiredTestRunner(t, srv.URL, rec)
 
 	ws := t.TempDir()

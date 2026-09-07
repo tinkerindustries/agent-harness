@@ -1,0 +1,26 @@
+# Check every text file out with LF, on every platform.
+#
+# Without this, Git for Windows' installer default (core.autocrlf=true) gives a
+# Windows clone a CRLF working tree, and `gofmt -l cmd internal` then reports
+# every Go file in the repository as unformatted — gofmt's output is LF-only,
+# so scripts/build.sh fails at its first stage with a list of 300 files and no
+# hint that line endings are the cause. The shell scripts and the Dockerfiles
+# have the same requirement for a different reason: they are copied into Linux
+# images, where a CRLF shebang line makes the interpreter unfindable.
+* text=auto eol=lf
+
+# Binary assets: never touched, so a font or an image is not corrupted by
+# newline translation on the way in or out.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.pdf binary
+*.gz binary
+*.zip binary
+*.wasm binary

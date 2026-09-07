@@ -38,7 +38,11 @@ cutting a version and deploying it to the production stack.
   `web/node_modules` is missing or older than the lockfile, the frontend build,
   the frontend tests, the Go binary and the container, stopping at the first
   failure, and finishes by checking that the running container serves the
-  bundle it just produced. `--no-docker` stops after the binary.
+  bundle it just produced. `--no-docker` stops after the binary, and a build
+  that finds no docker daemon skips the container stages with a notice rather
+  than failing — the last line then says the container was not built, because
+  that stage is the only thing proving what a running harness serves. Pass
+  `--require-docker` where the container is the point, such as a release.
   A plain `docker compose up -d --build` still works and is what the script
   runs; the reason to prefer the script is the last check. `npm run build` is
   `tsc -b && vite build`, so a typecheck failure means vite never runs — and

@@ -18,6 +18,30 @@ func newTestExecutor(t *testing.T) (*Executor, string) {
 	return e, root
 }
 
+// absElsewhere returns an absolute path to name in a directory that is not
+// any test workspace, for the cases that must be refused as escaping one.
+//
+// The tests used to spell this "/tmp/shot.png". That is a fine escape on
+// unix but not an absolute path on Windows at all — filepath.IsAbs is false
+// for it, so ResolvePath joins it onto the workspace root and the tool
+// contains it instead of refusing it, and the case under test never
+// happens. t.TempDir is absolute on every platform.
+func absElsewhere(t *testing.T, name string) string {
+	t.Helper()
+	return filepath.Join(t.TempDir(), name)
+}
+
+// fileURL spells a local path as a file:// URL. "file://" + path is not a URL
+// on Windows: the separators have to be turned round and the drive letter
+// needs a slash before it ("C:\a\b.html" -> "file:///C:/a/b.html").
+func fileURL(path string) string {
+	p := filepath.ToSlash(path)
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return "file://" + p
+}
+
 func writeFile(t *testing.T, root, name, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o644); err != nil {

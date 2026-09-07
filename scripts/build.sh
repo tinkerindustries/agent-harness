@@ -12,8 +12,15 @@
 # each step exited zero.
 #
 # Usage:
-#   scripts/build.sh              everything, including the dev container
-#   scripts/build.sh --no-docker  through the Go binary only
+#   scripts/build.sh                  everything, including the dev container
+#   scripts/build.sh --no-docker      through the Go binary only
+#   scripts/build.sh --require-docker fail rather than skip when no daemon
+#
+# The container stages are skipped, with a notice, when no docker daemon is
+# reachable — Docker Desktop not started, a machine without docker, a shell
+# that cannot see the socket. Everything before them still runs and still
+# fails the build if it is wrong. Pass --require-docker where the container is
+# the point (CI, the release path) so a missing daemon is an error instead.
 #
 # The Go suite is scripts/test.sh; this runs the frontend tests because they
 # take under a second and one of them is the only guard against a silently
@@ -39,7 +46,17 @@ fi
 export HARNESS_WORKSPACES="${HARNESS_WORKSPACES:-$PWD/workspaces}"
 
 DOCKER=1
-[ "${1:-}" = "--no-docker" ] && DOCKER=0
+REQUIRE_DOCKER=0
+for arg in "$@"; do
+	case "$arg" in
+	--no-docker) DOCKER=0 ;;
+	--require-docker) REQUIRE_DOCKER=1 ;;
+	*)
+		printf 'unknown argument: %s\n' "$arg" >&2
+		exit 2
+		;;
+	esac
+done
 
 stage() { printf '\n=== %s\n' "$1"; }
 die() { printf '\nbuild failed: %s\n' "$1" >&2; exit 1; }
@@ -97,8 +114,31 @@ stage "go build"
 go build -o bin/harness ./cmd/harness
 echo "bin/harness"
 
+# Everything from here needs a daemon. Ask one whether it is there before
+# building anything against it: `docker build` against a stopped Docker
+# Desktop fails with a named pipe or a socket path, which reads like a broken
+# checkout rather than an application that is not running.
+#
+# A missing daemon is a skip, not a failure, because every stage above it is a
+# complete answer on its own for someone who is not building an image. It is
+# never a silent one: the container stage is the only thing that proves the
+# running app matches this source, so a build that stops short of it says so
+# in its last line, and --require-docker turns the skip back into the error
+# that a release or a CI run wants.
+if [ "$DOCKER" -eq 1 ] && ! docker info >/dev/null 2>&1; then
+	if [ "$REQUIRE_DOCKER" -eq 1 ]; then
+		die "no docker daemon is reachable and --require-docker was given.
+Start Docker (on a desktop, the Docker Desktop application) and re-run."
+	fi
+	printf '\nno docker daemon is reachable, so the unity image, the container,\n'
+	printf 'and the check that the container serves this bundle are skipped.\n'
+	printf 'Start Docker and re-run to build them.\n'
+	DOCKER=0
+fi
+
 if [ "$DOCKER" -eq 0 ]; then
-	printf '\nok (skipped the container)\n'
+	printf '\nok, through the Go binary — the container was not built,\n'
+	printf 'so nothing here proves what a running harness is serving.\n'
 	exit 0
 fi
 

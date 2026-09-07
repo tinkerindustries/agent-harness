@@ -63,6 +63,27 @@ func assertFileState(t *testing.T, target string, want []byte) {
 	}
 }
 
+// absOutside writes a file in the directory outside the workspace and returns
+// its absolute path. It is the absolute-escape fixture for every tool below.
+//
+// It used to be the literal "/etc/passwd", which reads well on unix — a real
+// file, sensitive, and certainly not inside a temp workspace — but is not an
+// absolute path on Windows at all. filepath.IsAbs("/etc/passwd") is false
+// there, so ResolvePath treats it as workspace-relative, joins it onto the
+// root, and the tools contain it rather than refusing it: the escape the test
+// means to make is never made. A file in the test's own outside directory is
+// absolute on every platform and carries the same meaning.
+//
+// The content is what the tools are pointed at: Edit replaces "old", Grep
+// looks for "needle", so a containment regression that reaches the
+// filesystem changes or finds something the assertions catch, rather than
+// failing for an unrelated reason and passing the test.
+func absOutside(t *testing.T, outside string) string {
+	t.Helper()
+	writeFile(t, outside, "outside-absolute.txt", "old needle")
+	return filepath.Join(outside, "outside-absolute.txt")
+}
+
 // TestFileToolsContainToWorkspace closes the gap workspace_test.go leaves
 // open: ResolvePath's own tests prove it rejects escapes, but nothing proved
 // every file tool actually calls it. Each tool is driven through the
@@ -85,7 +106,7 @@ func TestFileToolsContainToWorkspace(t *testing.T) {
 				path := "../outside.txt"
 				switch kind {
 				case "absolute":
-					path = "/etc/passwd"
+					path = absOutside(t, outside)
 				case "symlink":
 					path = "escape/secret.txt"
 				}
@@ -113,7 +134,7 @@ func TestFileToolsContainToWorkspace(t *testing.T) {
 				var want []byte // nil: the target must not exist afterwards
 				switch kind {
 				case "absolute":
-					path = "/etc/passwd"
+					path = absOutside(t, outside)
 					var err error
 					want, err = os.ReadFile(path)
 					if err != nil {
@@ -150,7 +171,8 @@ func TestFileToolsContainToWorkspace(t *testing.T) {
 				original := []byte("old")
 				switch kind {
 				case "absolute":
-					path, target = "/etc/passwd", "/etc/passwd"
+					path = absOutside(t, outside)
+					target = path
 					var err error
 					original, err = os.ReadFile(path)
 					if err != nil {
@@ -168,8 +190,9 @@ func TestFileToolsContainToWorkspace(t *testing.T) {
 				// The target counts as read this session so a containment
 				// regression that reaches the write is caught by the file-state
 				// assertion rather than masked by Edit's prior-read gate. The
-				// absolute case is deliberately not marked read: /etc/passwd
-				// must stay untouched even against a broken implementation.
+				// absolute case is deliberately not marked read: the file
+				// outside must stay untouched even against a broken
+				// implementation.
 				markReadPath(e, target)
 				if kind == "symlink" {
 					markReadPath(e, filepath.Join(root, "escape", "secret.txt"))
@@ -198,7 +221,7 @@ func TestFileToolsContainToWorkspace(t *testing.T) {
 				path := "../outside.txt"
 				switch kind {
 				case "absolute":
-					path = "/etc/passwd"
+					path = absOutside(t, outside)
 				case "symlink":
 					path = "escape"
 				}
@@ -228,7 +251,7 @@ func TestFileToolsContainToWorkspace(t *testing.T) {
 				path := "../outside.txt"
 				switch kind {
 				case "absolute":
-					path = "/etc/passwd"
+					path = absOutside(t, outside)
 				case "symlink":
 					path = "escape/secret.txt"
 				}
@@ -256,7 +279,7 @@ func TestFileToolsContainToWorkspace(t *testing.T) {
 				path := "../outside.txt"
 				switch kind {
 				case "absolute":
-					path = "/etc/passwd"
+					path = absOutside(t, outside)
 				case "symlink":
 					path = "escape/secret.txt"
 				}

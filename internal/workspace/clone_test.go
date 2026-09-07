@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mrgeoffrich/agent-harness/internal/queue"
@@ -12,8 +13,16 @@ import (
 
 // newOrigin builds a real repository to clone from, with a commit on main
 // and one on a second branch, so the tests below exercise git itself rather
-// than a stub.
-func newOrigin(t *testing.T) string {
+// than a stub. It returns the clone URL and the directory name a clone of it
+// lands in.
+//
+// The URL is a file:// URL rather than the bare path, because a bare path is
+// not portable as a git remote: on Windows git reads "C:\Users\..." as the
+// scp-style host:path form, drops the drive letter, and clones into
+// "\Users\..." instead. queue.Repo.Dir splits a URL on "/" and ":" for the
+// same reason, so file:// is also the spelling that names the clone
+// directory the same way on every platform.
+func newOrigin(t *testing.T) (url, name string) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not on PATH")
@@ -44,11 +53,22 @@ func newOrigin(t *testing.T) string {
 	run("add", ".")
 	run("commit", "-m", "second")
 	run("checkout", "main")
-	return dir
+	return fileURL(dir), filepath.Base(dir)
+}
+
+// fileURL spells a local directory as a file:// URL. A Windows path needs the
+// separators turned round and a leading slash before the drive letter
+// ("C:\a" -> "file:///C:/a"); a unix path already starts with one.
+func fileURL(dir string) string {
+	p := filepath.ToSlash(dir)
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return "file://" + p
 }
 
 func TestPrepareClonesDefaultBranchIntoSessionDirectory(t *testing.T) {
-	origin := newOrigin(t)
+	origin, originDir := newOrigin(t)
 	root := t.TempDir()
 
 	dir, err := Prepare(context.Background(), root, "sess-1", []queue.Repo{{URL: origin}}, nil)
@@ -58,38 +78,39 @@ func TestPrepareClonesDefaultBranchIntoSessionDirectory(t *testing.T) {
 	if want := filepath.Join(root, "sess-1"); dir != want {
 		t.Fatalf("workspace = %q, want %q", dir, want)
 	}
-	if _, err := os.Stat(filepath.Join(dir, filepath.Base(origin), "README.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, originDir, "README.md")); err != nil {
 		t.Fatalf("expected the default branch checked out: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, filepath.Base(origin), "FEATURE.md")); err == nil {
+	if _, err := os.Stat(filepath.Join(dir, originDir, "FEATURE.md")); err == nil {
 		t.Fatal("expected main, not feature, with no branch named")
 	}
 }
 
 func TestPrepareClonesNamedBranch(t *testing.T) {
-	origin := newOrigin(t)
+	origin, originDir := newOrigin(t)
 	root := t.TempDir()
 
 	dir, err := Prepare(context.Background(), root, "sess-2", []queue.Repo{{URL: origin, Branch: "feature"}}, nil)
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, filepath.Base(origin), "FEATURE.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, originDir, "FEATURE.md")); err != nil {
 		t.Fatalf("expected the named branch checked out: %v", err)
 	}
 }
 
 func TestPrepareClonesEveryRepo(t *testing.T) {
-	first, second := newOrigin(t), newOrigin(t)
+	first, firstDir := newOrigin(t)
+	second, secondDir := newOrigin(t)
 	root := t.TempDir()
 
 	dir, err := Prepare(context.Background(), root, "sess-3", []queue.Repo{{URL: first}, {URL: second}}, nil)
 	if err != nil {
 		t.Fatalf("Prepare: %v", err)
 	}
-	for _, origin := range []string{first, second} {
-		if _, err := os.Stat(filepath.Join(dir, filepath.Base(origin), "README.md")); err != nil {
-			t.Fatalf("expected %s to be cloned: %v", origin, err)
+	for _, originDir := range []string{firstDir, secondDir} {
+		if _, err := os.Stat(filepath.Join(dir, originDir, "README.md")); err != nil {
+			t.Fatalf("expected %s to be cloned: %v", originDir, err)
 		}
 	}
 }
@@ -99,7 +120,7 @@ func TestPrepareClonesEveryRepo(t *testing.T) {
 // — a screenshot for ReviewScreenshot, a scratch note, a temporary download.
 // It lives and dies with the session directory exactly like a clone does.
 func TestPrepareCreatesScratchDirectory(t *testing.T) {
-	origin := newOrigin(t)
+	origin, originDir := newOrigin(t)
 	root := t.TempDir()
 
 	dir, err := Prepare(context.Background(), root, "sess-scratch", []queue.Repo{{URL: origin}}, nil)
@@ -111,7 +132,7 @@ func TestPrepareCreatesScratchDirectory(t *testing.T) {
 	} else if !fi.IsDir() {
 		t.Fatalf("scratch exists but is not a directory")
 	}
-	if _, err := os.Stat(filepath.Join(dir, filepath.Base(origin), "scratch")); err == nil {
+	if _, err := os.Stat(filepath.Join(dir, originDir, "scratch")); err == nil {
 		t.Fatal("scratch must sit beside the clone, not inside it")
 	}
 }
@@ -120,7 +141,7 @@ func TestPrepareCreatesScratchDirectory(t *testing.T) {
 // right and the ref wrong, and the run must fail rather than start against
 // whatever git left behind.
 func TestPrepareFailsOnMissingBranch(t *testing.T) {
-	origin := newOrigin(t)
+	origin, _ := newOrigin(t)
 	root := t.TempDir()
 
 	if _, err := Prepare(context.Background(), root, "sess-4", []queue.Repo{{URL: origin, Branch: "nope"}}, nil); err == nil {

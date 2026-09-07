@@ -108,6 +108,11 @@ number if you want it.
 first failure. Run the individual commands when you want one of them on its
 own; the list is what the script does and why.
 
+With no docker daemon reachable it skips the container stages and says so
+rather than failing, so the last line is what to read: a build that stops at
+the Go binary has proved nothing about what a running harness serves. Pass
+`--require-docker` to make that case an error.
+
 Two checks worth knowing about because nothing else catches them:
 
 - `web/src/styles.test.ts` asserts every `var(--x)` in `styles.css` is

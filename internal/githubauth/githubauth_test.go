@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/mrgeoffrich/agent-harness/internal/settings"
@@ -68,8 +69,17 @@ func TestSyncWritesCredentialFileAndEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat %s: %v", credPath, err)
 	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Errorf("credential file mode = %o, want 0600", perm)
+	// The file holds a GitHub token, so on the platforms the harness runs on
+	// it must not be group- or world-readable. Windows has no unix mode: Go
+	// maps the 0600 given to os.WriteFile onto the read-only attribute alone
+	// and Perm reports 0666 whatever was asked for, so there is nothing here
+	// to assert. Confining the token on Windows would take an ACL, which
+	// nothing in this repository does — a green run here is not evidence the
+	// file is protected there.
+	if runtime.GOOS != "windows" {
+		if perm := info.Mode().Perm(); perm != 0o600 {
+			t.Errorf("credential file mode = %o, want 0600", perm)
+		}
 	}
 	got, err := os.ReadFile(credPath)
 	if err != nil {
