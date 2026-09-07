@@ -15,6 +15,7 @@ import (
 	"github.com/mrgeoffrich/agent-harness/internal/gemini"
 	"github.com/mrgeoffrich/agent-harness/internal/gemini/geminitest"
 	"github.com/mrgeoffrich/agent-harness/internal/hub"
+	"github.com/mrgeoffrich/agent-harness/internal/mcpclient"
 	"github.com/mrgeoffrich/agent-harness/internal/session"
 	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
@@ -236,14 +237,15 @@ func itoa(n int) string {
 
 // fixture is a running server, its client, and the scripted model behind it.
 type fixture struct {
-	t      *testing.T
-	client *client
-	script *scriptedGemini
-	cwd    string
-	srv    *Server
-	cancel context.CancelFunc
-	done   chan struct{}
-	stdin  io.WriteCloser
+	t        *testing.T
+	client   *client
+	script   *scriptedGemini
+	cwd      string
+	stateDir string
+	srv      *Server
+	cancel   context.CancelFunc
+	done     chan struct{}
+	stdin    io.WriteCloser
 }
 
 func newFixture(t *testing.T, streams ...string) *fixture {
@@ -279,8 +281,15 @@ func newFixtureIn(t *testing.T, dir, cwd string, streams ...string) *fixture {
 		MaxSubTurns: 8,
 	}
 
+	// A real manager, so the mcp_server path — registering a declaration,
+	// probing it, and putting a credential back for the dial — runs the
+	// production code. Nothing in these tests stands a server up, so every
+	// probe fails, which is itself the tolerated case.
+	mgr := mcpclient.New(st)
+	t.Cleanup(func() { mgr.Close() })
+
 	srv := NewServer(Options{
-		Store: st, Runner: runner, Hub: eventHub,
+		Store: st, Runner: runner, Hub: eventHub, MCP: mgr,
 		Models: []string{testModel}, DefaultModel: testModel,
 		HasAPIKey: func() bool { return true },
 		Version:   "test",
@@ -299,7 +308,7 @@ func newFixtureIn(t *testing.T, dir, cwd string, streams ...string) *fixture {
 
 	f := &fixture{
 		t: t, client: newClient(t, serverIn, serverOut), script: script,
-		cwd: cwd, srv: srv, cancel: cancel, done: done, stdin: serverIn,
+		cwd: cwd, stateDir: dir, srv: srv, cancel: cancel, done: done, stdin: serverIn,
 	}
 	t.Cleanup(f.close)
 	return f

@@ -135,6 +135,18 @@ type MCPServer struct {
 // name.
 var mcpServerNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
 
+// A name may not contain "__". That sequence is the delimiter of the
+// qualified name a tool is offered under, so a server carrying one makes the
+// encoding ambiguous: "mcp__foo__bar__tool" is tool "bar__tool" of server
+// "foo" and tool "tool" of server "foo__bar" at the same time, and nothing
+// downstream can tell which. Everything that reads a server back out of a
+// qualified name — the permission policy's per-server read-only allowance
+// (internal/tools, MCPServerOf), the executor's result placement, the stdio
+// surface's per-interaction filtering — depends on there being one answer.
+// A tool's own name may still contain "__", and that stays unambiguous,
+// because the server part is decided by the first occurrence.
+const mcpNameDelimiter = "__"
+
 // mcpEnvKeyRE is the grammar for an env var name.
 var mcpEnvKeyRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
@@ -148,6 +160,9 @@ var mcpEnvKeyRE = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 func ValidateMCPServer(s MCPServer) error {
 	if !mcpServerNameRE.MatchString(s.Name) {
 		return fmt.Errorf("mcp server name %q must match %s", s.Name, mcpServerNameRE.String())
+	}
+	if strings.Contains(s.Name, mcpNameDelimiter) {
+		return fmt.Errorf("mcp server name %q must not contain %q: it separates the server from the tool in the mcp__<server>__<tool> name every tool is offered under, so a name carrying one cannot be read back out", s.Name, mcpNameDelimiter)
 	}
 	switch s.Transport {
 	case MCPTransportStdio:

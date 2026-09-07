@@ -112,11 +112,11 @@ type MCPProvider interface {
 // It splits on the *first* "__" after the prefix, so a tool's own name that
 // contains "__" (a sanitised name can: every character outside
 // [A-Za-z0-9_-] becomes "_", and adjacent illegal characters collapse into
-// what looks like a delimiter) never confuses which part is the server. The
-// server name grammar (internal/store/mcp.go's mcpServerNameRE) does not
-// itself forbid "__", so a server deliberately named with one would still
-// split at its first occurrence rather than its own boundary — an
-// unlikely operator choice this package does not try to guard against.
+// what looks like a delimiter) never confuses which part is the server. That
+// is exact rather than a best guess because a server name may not contain
+// "__" itself (internal/store, ValidateMCPServer) — the grammar forbids it
+// precisely so this split has one answer, since the per-server read-only
+// allowance is decided from it.
 func MCPServerOf(name string) (string, bool) {
 	rest, ok := strings.CutPrefix(name, MCPToolPrefix)
 	if !ok {

@@ -88,8 +88,14 @@ type Session struct {
 	DenyPatterns   []string
 	SystemPrompt   string
 	ToolSchema     json.RawMessage
-	ResultSchema   json.RawMessage
-	Status         string
+	// MCPReadOnly is the per-server read-only allowance this run froze, the
+	// third part of its permission policy (internal/tools,
+	// Policy.MCPReadOnlyServers). A resume reads it here rather than
+	// resolving it again, so nothing an operator or a client changes between
+	// the run and the resume can widen what the session may call.
+	MCPReadOnly  map[string]bool
+	ResultSchema json.RawMessage
+	Status       string
 	// CompleteStatus is the status argument the model gave Complete ("done"
 	// or "gave_up"), when it called the tool at all. Empty covers both a
 	// pre-migration row and a session that ended without calling Complete;
@@ -156,6 +162,10 @@ func (s *Store) CreateSession(ctx context.Context, sess Session) error {
 		return err
 	}
 	toolSchema := string(sess.ToolSchema)
+	readOnly, err := mcpReadOnlyJSON(sess.MCPReadOnly)
+	if err != nil {
+		return err
+	}
 	var resultSchema sql.NullString
 	if len(sess.ResultSchema) > 0 {
 		resultSchema = sql.NullString{String: string(sess.ResultSchema), Valid: true}
@@ -174,12 +184,12 @@ func (s *Store) CreateSession(ctx context.Context, sess Session) error {
 			INSERT INTO sessions (id, parent_id, job_type, task, title, description, phase, total_phases,
 				parent_agent_type, parent_agent_id,
 				model, prompt_variant, effort, thinking, workspace, permission_mode, deny_patterns, system_prompt,
-				tool_schema, result_schema, status, created_at, finished_at, version, parent_is_user)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, ?)`,
+				tool_schema, mcp_read_only, result_schema, status, created_at, finished_at, version, parent_is_user)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, ?)`,
 			sess.ID, parentID, sess.JobType, sess.Task, sess.Title, sess.Description, sess.Phase, sess.TotalPhases,
 			sess.ParentAgentType, sess.ParentAgentID,
 			sess.Model, sess.PromptVariant, sess.Effort, sess.Thinking, sess.Workspace, sess.PermissionMode,
-			deny, sess.SystemPrompt, toolSchema, resultSchema, sess.Status, createdAt.Format(time.RFC3339Nano),
+			deny, sess.SystemPrompt, toolSchema, readOnly, resultSchema, sess.Status, createdAt.Format(time.RFC3339Nano),
 			sess.ParentIsUser)
 		return err
 	})
@@ -201,7 +211,11 @@ func (s *Store) CreateSession(ctx context.Context, sess Session) error {
 // idempotent. A terminal row refuses with SessionFinishedError: the run
 // ended (a stop during preparation, a setup failure) and nothing may relabel
 // it.
-func (s *Store) PromoteSession(ctx context.Context, id, workspace, systemPrompt string, toolSchema, resultSchema []byte) error {
+func (s *Store) PromoteSession(ctx context.Context, id, workspace, systemPrompt string, toolSchema, resultSchema []byte, mcpReadOnly map[string]bool) error {
+	readOnly, err := mcpReadOnlyJSON(mcpReadOnly)
+	if err != nil {
+		return err
+	}
 	return s.submit(ctx, func(tx *sql.Tx) error {
 		var storedStatus string
 		if err := tx.QueryRow(`SELECT status FROM sessions WHERE id = ?`, id).Scan(&storedStatus); err != nil {
@@ -221,8 +235,8 @@ func (s *Store) PromoteSession(ctx context.Context, id, workspace, systemPrompt 
 		if len(resultSchema) > 0 {
 			resultSchemaCol = sql.NullString{String: string(resultSchema), Valid: true}
 		}
-		_, err := tx.Exec(`UPDATE sessions SET status = ?, workspace = ?, system_prompt = ?, tool_schema = ?, result_schema = ?, version = version + 1 WHERE id = ?`,
-			StatusRunning, workspace, systemPrompt, string(toolSchema), resultSchemaCol, id)
+		_, err := tx.Exec(`UPDATE sessions SET status = ?, workspace = ?, system_prompt = ?, tool_schema = ?, mcp_read_only = ?, result_schema = ?, version = version + 1 WHERE id = ?`,
+			StatusRunning, workspace, systemPrompt, string(toolSchema), readOnly, resultSchemaCol, id)
 		return err
 	})
 }
@@ -517,11 +531,11 @@ func scanSession(row interface {
 	var parentID, resultSchema, finishedAt sql.NullString
 	var thinking int
 	var parentIsUser int
-	var denyJSON, createdAt, recentCalls string
+	var denyJSON, createdAt, recentCalls, readOnlyJSON string
 	err := row.Scan(&sess.ID, &parentID, &sess.JobType, &sess.Task, &sess.Title, &sess.Description,
 		&sess.Phase, &sess.TotalPhases, &sess.ParentAgentType, &sess.ParentAgentID,
 		&sess.Model, &sess.PromptVariant, &sess.Effort, &thinking, &sess.Workspace,
-		&sess.PermissionMode, &denyJSON, &sess.SystemPrompt, (*sqlText)(&sess.ToolSchema), &resultSchema,
+		&sess.PermissionMode, &denyJSON, &sess.SystemPrompt, (*sqlText)(&sess.ToolSchema), &readOnlyJSON, &resultSchema,
 		&sess.Status, &createdAt, &finishedAt, &sess.CompleteStatus, &sess.Plan, &recentCalls, &sess.Summary,
 		&sess.Version, &parentIsUser)
 	if err != nil {
@@ -535,6 +549,13 @@ func scanSession(row interface {
 	}
 	if err := json.Unmarshal([]byte(denyJSON), &sess.DenyPatterns); err != nil {
 		return Session{}, fmt.Errorf("store: decode deny_patterns: %w", err)
+	}
+	// A pre-migration row scans as '' rather than '{}', and an empty
+	// allowance is the same thing as none.
+	if readOnlyJSON != "" {
+		if err := json.Unmarshal([]byte(readOnlyJSON), &sess.MCPReadOnly); err != nil {
+			return Session{}, fmt.Errorf("store: decode mcp_read_only: %w", err)
+		}
 	}
 	// The column defaults to '' on a pre-migration row, which is not valid
 	// JSON; the empty roll is the same thing as none.
@@ -577,7 +598,7 @@ func (t *sqlText) Scan(src any) error {
 const sessionColumns = `id, parent_id, job_type, task, title, description, phase, total_phases,
 	parent_agent_type, parent_agent_id, model, prompt_variant, effort,
 	thinking, workspace, permission_mode, deny_patterns, system_prompt, tool_schema,
-	result_schema, status, created_at, finished_at, complete_status, plan, recent_tool_calls, summary, version, parent_is_user`
+	mcp_read_only, result_schema, status, created_at, finished_at, complete_status, plan, recent_tool_calls, summary, version, parent_is_user`
 
 // GetSession reads one session by id.
 func (s *Store) GetSession(ctx context.Context, id string) (Session, error) {
@@ -678,4 +699,18 @@ func (s *Store) ListSessionsPage(ctx context.Context, opts SessionPageOptions) (
 		out = append(out, sess)
 	}
 	return out, total, rows.Err()
+}
+
+// mcpReadOnlyJSON encodes a session's per-server read-only allowance for the
+// mcp_read_only column. A nil or empty map is stored as "{}" rather than
+// "null", so every row scans back through the same decode.
+func mcpReadOnlyJSON(m map[string]bool) (string, error) {
+	if len(m) == 0 {
+		return "{}", nil
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return "", fmt.Errorf("store: encode mcp_read_only: %w", err)
+	}
+	return string(b), nil
 }

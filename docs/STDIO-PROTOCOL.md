@@ -479,7 +479,10 @@ including images, and nothing new crosses the pipe while the session runs — a
 tool call is a request from this process to the parent's loopback server, not
 a round trip through the protocol that also carries the token stream.
 
-`name` must match `^[a-z0-9][a-z0-9_-]{0,31}$`. `host` is reserved. A server
+`name` must match `^[a-z0-9][a-z0-9_-]{0,31}$` and must not contain `__`,
+which separates the server from the tool in the `mcp__<server>__<tool>` name
+each of its tools is offered under; a name carrying one could not be read back
+out, and the read-only gate is decided from it. `host` is reserved. A server
 that fails to probe contributes no tools and does not fail the create.
 
 ### `function` — the parent answers over the pipe
@@ -580,17 +583,28 @@ re-declares them, and this process checks what it resolves against what the
 session froze:
 
 - Every `mcp_server` the frozen array carries tools from must appear in
-  `tools`, with the URL and headers that are live **now**. This is checked
-  before anything is dialled, so a forgotten server is named rather than
-  silently contributing nothing.
+  `tools`, with the URL and headers that are live **now**. A server the
+  create adds that serves none of the frozen tools is refused too — it could
+  never be reached, and both checks run before anything is written or
+  dialled, so a refused create leaves nothing behind for the next one to trip
+  over.
 - Every tool in the frozen array must resolve again under the same qualified
   name and with the same parameter schema. Schemas are compared as documents,
   so whitespace and key order are free.
 - Nothing new may appear. The run sends the frozen array, so a tool added on
   the way back in would never be offered to the model.
+- `harness.read_only` must say what it said the first time, on every tool.
+  Marking a tool read-only on the way back in would be granting the session a
+  call it never had; unmarking one would take away a call it has been making.
 
 Any of those failing is `-32006`, with the offending tool or server named.
-Changing a session's tools means starting a new session.
+Changing a session's tools or its permissions means starting a new session.
+
+**Credentials in `headers` are never written to disk.** They stay in this
+process's memory and are put back on the connection for the length of each
+dial, so a `-state-dir` a parent keeps in order to resume holds no bearer
+token. They do have to be re-supplied on every resume, which is the same
+thing the URL requires and for the same reason.
 
 **A session an earlier process died holding is reclaimable.** The state
 directory belongs to one process at a time, so a row still marked running is a
@@ -622,6 +636,14 @@ can do something else.
 it `harness.read_only`.** This process has no idea what a client tool does —
 it reaches outside the working directory by definition — so the same rule an
 MCP server gets applies to it.
+
+The gate is per namespace rather than per tool, and every `function` tool
+shares one namespace, so `readonly` allows them only when **every** one of
+them is marked `harness.read_only`. One unmarked tool among them makes the
+whole set unreachable in `readonly` rather than carrying itself in on the
+others' marking. A parent that wants its read-only tools usable in a
+`readonly` session declares only those; the rest would be refused there
+anyway.
 
 Note what `full` means here: the session runs `Bash` as this process's own
 user, in the parent's own working directory, with the parent's environment.

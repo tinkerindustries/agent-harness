@@ -1,9 +1,15 @@
 package geministdio
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 // resumeParams is a create body that picks a session up out of the state
@@ -249,12 +255,10 @@ func TestResumeChecksTheFrozenToolset(t *testing.T) {
 	}
 }
 
-// TestResumeRequiresEveryFrozenServerRedeclared pins the connection-metadata
-// half. The url and headers a parent stood a server up on last time died with
-// the process that spawned it, so a resume has to supply the ones that are
-// good now — and a server the create forgets is named before anything is
-// dialled, rather than turning into missing tools later.
-func TestResumeRequiresEveryFrozenServerRedeclared(t *testing.T) {
+// TestResumeChecksServerDeclarations pins both directions of the
+// declaration check, and that it decides provenance without taking a
+// qualified name apart.
+func TestResumeChecksServerDeclarations(t *testing.T) {
 	frozen, err := frozenToolsOf(json.RawMessage(`[
 		{"type":"function","function":{"name":"Read","parameters":{}}},
 		{"type":"function","function":{"name":"mcp__orchestrator__list_sessions","parameters":{"type":"object"}}},
@@ -270,18 +274,205 @@ func TestResumeRequiresEveryFrozenServerRedeclared(t *testing.T) {
 	if _, ok := frozen.schemas["Read"]; ok {
 		t.Error("a built-in tool was counted as part of the resumable toolset")
 	}
-	if len(frozen.servers) != 1 || frozen.servers[0] != "orchestrator" {
-		t.Errorf("servers %v, want [orchestrator] — the host namespace is not a server", frozen.servers)
-	}
 
-	if rerr := requireDeclaredServers(frozen, nil); rerr == nil || rerr.Code != CodeToolsetMismatch {
+	// A server the create forgets: the tools it serves are named, and the
+	// host namespace is not mistaken for one.
+	rerr := checkDeclarations(frozen, nil)
+	if rerr == nil || rerr.Code != CodeToolsetMismatch {
 		t.Fatalf("a create declaring no servers: want %d, got %v", CodeToolsetMismatch, rerr)
-	} else if !strings.Contains(rerr.Message, "orchestrator") {
-		t.Errorf("the error does not name the server: %s", rerr.Message)
+	}
+	if !strings.Contains(rerr.Message, "mcp__orchestrator__list_sessions") {
+		t.Errorf("the error does not name the orphaned tool: %s", rerr.Message)
+	}
+	if strings.Contains(rerr.Message, "mcp__host__show_widget") {
+		t.Errorf("a client function was treated as needing a server: %s", rerr.Message)
 	}
 
-	decls := []Tool{{Type: ToolMCPServer, Name: "orchestrator", URL: "http://127.0.0.1:60123/s/abc"}}
-	if rerr := requireDeclaredServers(frozen, decls); rerr != nil {
+	orchestrator := Tool{Type: ToolMCPServer, Name: "orchestrator", URL: "http://127.0.0.1:60123/s/abc"}
+	if rerr := checkDeclarations(frozen, []Tool{orchestrator}); rerr != nil {
 		t.Errorf("a create re-declaring the server: %v", rerr)
+	}
+
+	// A server the create adds serves none of the frozen tools, so it could
+	// never be reached. Saying so before it is written to the store is what
+	// keeps a refused create from leaving a row behind.
+	added := Tool{Type: ToolMCPServer, Name: "scratch", URL: "http://127.0.0.1:60124/s/abc"}
+	rerr = checkDeclarations(frozen, []Tool{orchestrator, added})
+	if rerr == nil || rerr.Code != CodeToolsetMismatch {
+		t.Fatalf("an added server: want %d, got %v", CodeToolsetMismatch, rerr)
+	}
+	if !strings.Contains(rerr.Message, "scratch") {
+		t.Errorf("the error does not name the added server: %s", rerr.Message)
+	}
+}
+
+// TestServerNameDelimiterIsForbidden pins the grammar the qualified name
+// depends on. Without it "mcp__foo__bar__tool" is tool "bar__tool" of server
+// "foo" and tool "tool" of server "foo__bar" at once, and every reader that
+// takes a server back out of a name — the read-only gate above all — has two
+// answers to choose between.
+func TestServerNameDelimiterIsForbidden(t *testing.T) {
+	err := store.ValidateMCPServer(store.MCPServer{
+		Name: "foo__bar", Transport: store.MCPTransportHTTP, URL: "http://127.0.0.1:1/x",
+	})
+	if err == nil {
+		t.Fatal("a server name carrying the qualified-name delimiter was accepted")
+	}
+	if !strings.Contains(err.Error(), "__") {
+		t.Errorf("the error does not say what is wrong: %v", err)
+	}
+	if err := store.ValidateMCPServer(store.MCPServer{
+		Name: "foo_bar", Transport: store.MCPTransportHTTP, URL: "http://127.0.0.1:1/x",
+	}); err != nil {
+		t.Errorf("a single underscore is legal and was refused: %v", err)
+	}
+}
+
+// TestHostNamespaceIsReadOnlyOnlyWhenEveryFunctionIs pins the conservative
+// reading of a per-namespace permission seam. One writing tool among
+// read-only ones must not be carried into a readonly session by them.
+func TestHostNamespaceIsReadOnlyOnlyWhenEveryFunctionIs(t *testing.T) {
+	ro := Tool{Type: ToolFunction, Name: "show_widget", Harness: &ToolHarness{ReadOnly: true}}
+	rw := Tool{Type: ToolFunction, Name: "write_file"}
+
+	for _, tc := range []struct {
+		name  string
+		decls []Tool
+		want  bool
+	}{
+		{"every function read-only", []Tool{ro}, true},
+		{"one function is not", []Tool{ro, rw}, false},
+		{"declared the other way round", []Tool{rw, ro}, false},
+		{"none read-only", []Tool{rw}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHostTools(nil, "int_1", nil)
+			for _, d := range tc.decls {
+				if err := h.addFunction(d); err != nil {
+					t.Fatalf("add %s: %v", d.Name, err)
+				}
+			}
+			_, readOnly, err := h.Definitions(context.Background())
+			if err != nil {
+				t.Fatalf("definitions: %v", err)
+			}
+			if readOnly[HostServerName] != tc.want {
+				t.Errorf("host namespace read-only = %v, want %v", readOnly[HostServerName], tc.want)
+			}
+		})
+	}
+}
+
+// TestResumeRefusesAWidenedReadOnlyAllowance pins that a client cannot grant
+// itself a permission the session never had by re-declaring its tools on the
+// way back in. The first run's session is readonly and its one client
+// function is not marked read-only; the resume marks it.
+func TestResumeRefusesAWidenedReadOnlyAllowance(t *testing.T) {
+	plain := Tool{
+		Type: ToolFunction, Name: "show_widget",
+		Parameters: json.RawMessage(`{"type":"object","properties":{}}`),
+	}
+
+	dir, cwd := t.TempDir(), t.TempDir()
+	a := newFixtureIn(t, dir, cwd, answer("first"))
+	a.client.handshake(ClientCapabilities{FunctionCalls: true})
+	first := a.createParams("first task")
+	first.Tools = []Tool{plain}
+	var one CreateResult
+	if rerr := a.client.call(MethodInteractionsCreate, first, &one); rerr != nil {
+		t.Fatalf("first create: %v", rerr)
+	}
+	a.client.waitFor(NotifyInteractionCompleted)
+	sessionID := one.Interaction.Harness.SessionID
+	a.close()
+
+	b := newFixtureIn(t, dir, cwd, answer("second"))
+	b.client.handshake(ClientCapabilities{FunctionCalls: true})
+
+	widened := plain
+	widened.Harness = &ToolHarness{ReadOnly: true}
+	rerr := b.client.call(MethodInteractionsCreate, resumeParams(sessionID, "second task", widened), &CreateResult{})
+	if rerr == nil || rerr.Code != CodeToolsetMismatch {
+		t.Fatalf("a widened allowance: want %d, got %v", CodeToolsetMismatch, rerr)
+	}
+	if !strings.Contains(rerr.Message, "read-only") {
+		t.Errorf("the error does not say what changed: %s", rerr.Message)
+	}
+
+	// Unchanged, the same resume is accepted.
+	var two CreateResult
+	if rerr := b.client.call(MethodInteractionsCreate, resumeParams(sessionID, "second task", plain), &two); rerr != nil {
+		t.Fatalf("resume with the same permissions: %v", rerr)
+	}
+	b.client.waitFor(NotifyInteractionCompleted)
+}
+
+// TestMCPHeadersNeverReachTheStore pins that a bearer token a parent hands
+// this process for a loopback server of its own stays in memory. A
+// -state-dir the parent keeps so it can resume must not be a file of
+// plaintext credentials.
+func TestMCPHeadersNeverReachTheStore(t *testing.T) {
+	f := newFixture(t, answer("unused"))
+	f.client.handshake(ClientCapabilities{})
+
+	const secret = "Bearer super-secret-token"
+	srv := Tool{
+		Type: ToolMCPServer, Name: "orchestrator",
+		URL:     "http://127.0.0.1:59999/s/abc",
+		Headers: map[string]string{"Authorization": secret},
+	}
+	if err := f.srv.registerServers(context.Background(), []Tool{srv}, map[string]bool{}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	row, err := f.srv.opts.Store.GetMCPServer(context.Background(), "orchestrator")
+	if err != nil {
+		t.Fatalf("read the row back: %v", err)
+	}
+	if len(row.Headers) != 0 {
+		t.Errorf("the stored row carries headers: %v", row.Headers)
+	}
+
+	// Every byte of the database, not just the column this reads: a
+	// credential that leaked into any row would still be on disk.
+	db, err := os.ReadFile(filepath.Join(f.stateDir, "session.db"))
+	if err != nil {
+		t.Fatalf("read the database: %v", err)
+	}
+	if bytes.Contains(db, []byte("super-secret-token")) {
+		t.Error("the credential is on disk in the state directory")
+	}
+
+	// And it is put back for the length of a dial, or nothing could be
+	// reached at all.
+	dialled := f.srv.dialSecrets(row)
+	if dialled.Headers["Authorization"] != secret {
+		t.Errorf("the dial did not get the header back: %v", dialled.Headers)
+	}
+}
+
+// TestCompletionFreesTheSlotBeforeItIsAnnounced pins the ordering a client
+// reacting to interaction.completed depends on: by the time the frame is
+// written, the next create is already accepted. It runs a chain rather than
+// one turn because the failure it guards against was intermittent.
+func TestCompletionFreesTheSlotBeforeItIsAnnounced(t *testing.T) {
+	f := newFixture(t, answer("one"), answer("two"), answer("three"), answer("four"))
+	f.client.handshake(ClientCapabilities{})
+
+	prev := ""
+	for i := 0; i < 4; i++ {
+		p := f.createParams("task")
+		if prev != "" {
+			p.PreviousInteractionID = prev
+			p.Harness.CWD = ""
+		}
+		var res CreateResult
+		if rerr := f.client.call(MethodInteractionsCreate, p, &res); rerr != nil {
+			t.Fatalf("create %d: %v", i, rerr)
+		}
+		// The next create goes out the moment interaction.completed
+		// arrives, which is exactly what used to race the bookkeeping.
+		f.client.waitFor(NotifyInteractionCompleted)
+		prev = res.Interaction.ID
 	}
 }

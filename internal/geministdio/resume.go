@@ -97,11 +97,8 @@ func (s *Server) resumeTarget(ctx context.Context, p CreateParams) (store.Sessio
 // running it.
 type frozenTools struct {
 	// schemas maps a qualified tool name to its parameter schema, in the
-	// canonical encoding sameSchema compares by.
+	// canonical encoding canonicalSchema produces.
 	schemas map[string]string
-	// servers names the MCP servers those tools came from, without the
-	// namespace client functions live under.
-	servers []string
 }
 
 // frozenToolsOf reads the mcp-namespaced entries out of a session's stored
@@ -112,45 +109,79 @@ func frozenToolsOf(raw json.RawMessage) (frozenTools, error) {
 		return frozenTools{}, err
 	}
 	f := frozenTools{schemas: map[string]string{}}
-	seen := map[string]bool{}
 	for _, t := range all {
 		name := t.Function.Name
 		if !strings.HasPrefix(name, tools.MCPToolPrefix) {
 			continue
 		}
 		f.schemas[name] = canonicalSchema(t.Function.Parameters)
-		server, _, ok := splitQualified(name)
-		if ok && server != HostServerName && !seen[server] {
-			seen[server] = true
-			f.servers = append(f.servers, server)
-		}
 	}
-	sort.Strings(f.servers)
 	return f, nil
 }
 
-// requireDeclaredServers checks that the create re-declares every MCP server
-// the session froze. This is the "fresh connection metadata" half of a
-// resume: the URL and headers the parent stood a server up on last time are
-// gone with the process that spawned it, so a resume has to supply the ones
-// that are good now. Checking it before anything is dialled means a parent
-// that forgot a server is told which one rather than watching its tools go
-// missing.
-func requireDeclaredServers(f frozenTools, decls []Tool) *rpcError {
-	declared := map[string]bool{}
+// checkDeclarations matches the create's `mcp_server` declarations against
+// the session's frozen tools, before any of them is written to the store or
+// dialled. Both directions matter, and both are cheaper to answer here:
+//
+//   - A server the create forgot is the "fresh connection metadata" half of
+//     a resume. The URL and headers a parent stood a server up on last time
+//     went with the process that spawned it, so a resume supplies the ones
+//     that are good now, and a parent that forgot one is told which rather
+//     than watching its tools go missing.
+//   - A server the create adds cannot contribute anything, because the run
+//     sends the frozen array. Refusing it here is what keeps a rejected
+//     create from leaving an enabled row behind for every later create to
+//     trip over.
+//
+// Which server owns a frozen tool is decided by matching each declared
+// server's prefix against the name, never by taking the name apart: a server
+// name may itself contain "__" (internal/tools, MCPServerOf), and a create
+// that named one would otherwise be unable to resume at all.
+func checkDeclarations(f frozenTools, decls []Tool) *rpcError {
+	var declared []string
 	for _, t := range decls {
-		if t.Type == ToolMCPServer {
-			declared[t.Name] = true
+		if t.Type == ToolMCPServer && t.Name != "" {
+			declared = append(declared, t.Name)
 		}
 	}
-	var missing []string
-	for _, name := range f.servers {
-		if !declared[name] {
-			missing = append(missing, name)
+
+	var orphaned []string
+	for name := range f.schemas {
+		if owns(HostServerName, name) {
+			continue
+		}
+		covered := false
+		for _, server := range declared {
+			if owns(server, name) {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			orphaned = append(orphaned, name)
 		}
 	}
-	if len(missing) > 0 {
-		return errorf(CodeToolsetMismatch, "this session's tool array carries tools from %s, and the create declares no mcp_server by that name; a resume re-declares every server the session froze, with the url and headers that are good now", strings.Join(missing, ", "))
+	sort.Strings(orphaned)
+	if len(orphaned) > 0 {
+		return errorf(CodeToolsetMismatch, "the session's tool array carries %s, and this create declares no mcp_server that would serve them; a resume re-declares every server the session froze, with the url and headers that are good now", strings.Join(orphaned, ", "))
+	}
+
+	var extra []string
+	for _, server := range declared {
+		serves := false
+		for name := range f.schemas {
+			if owns(server, name) {
+				serves = true
+				break
+			}
+		}
+		if !serves {
+			extra = append(extra, server)
+		}
+	}
+	sort.Strings(extra)
+	if len(extra) > 0 {
+		return errorf(CodeToolsetMismatch, "mcp_server %s serves none of the tools this session froze, and the run sends the array it started with, so nothing it advertises could be reached; start a new session to add a server", strings.Join(extra, ", "))
 	}
 	return nil
 }
@@ -160,8 +191,17 @@ func requireDeclaredServers(f frozenTools, decls []Tool) *rpcError {
 // frozen one, so a tool that has appeared would never be offered and a tool
 // that has gone would be offered with nothing behind it — both of which are
 // worse told to the model than to the parent.
-func checkFrozenToolset(ctx context.Context, host *hostTools, f frozenTools) *rpcError {
-	defs, _, err := host.Definitions(ctx)
+//
+// The read-only allowance is checked here too, against the copy on the
+// session row. session.Resume resolves that map fresh, which on the harness's
+// own surface is what lets an operator revoke a server's allowance and have
+// the next resume honour it — but here the allowance is supplied by the
+// client, in the same create body, so resolving it fresh would let a resume
+// re-declare a tool as read_only and be granted something the session never
+// had. Refusing any difference is the whole of the rule: a session's
+// authorisation is what it started with.
+func checkFrozenToolset(ctx context.Context, host *hostTools, f frozenTools, frozenReadOnly map[string]bool) *rpcError {
+	defs, readOnly, err := host.Definitions(ctx)
 	if err != nil {
 		return errorf(CodeToolsetMismatch, "resolve this create's tools: %v", err)
 	}
@@ -201,10 +241,12 @@ func checkFrozenToolset(ctx context.Context, host *hostTools, f frozenTools) *rp
 	if len(added) > 0 {
 		parts = append(parts, fmt.Sprintf("%s is new and the session's frozen array has no room for it", strings.Join(added, ", ")))
 	}
-	if len(parts) == 0 {
-		return nil
+	if len(parts) > 0 {
+		return errorf(CodeToolsetMismatch, "the tools this create resolves are not the ones the session froze: %s. A session sends the array it started with for its whole life; start a new session to change it", strings.Join(parts, "; "))
 	}
-	return errorf(CodeToolsetMismatch, "the tools this create resolves are not the ones the session froze: %s. A session sends the array it started with for its whole life; start a new session to change it", strings.Join(parts, "; "))
+	// Checked last, so a create that has lost a tool altogether is told
+	// that rather than told about the permission the missing tool carried.
+	return checkReadOnly(frozenReadOnly, readOnly)
 }
 
 // canonicalSchema puts a parameter schema in a form two encodings of the
@@ -227,22 +269,6 @@ func canonicalSchema(raw json.RawMessage) string {
 	return string(b)
 }
 
-// splitQualified takes an "mcp__<server>__<tool>" name apart. It is the
-// reverse of mcpclient.QualifyToolName for the one case this package needs —
-// which server a frozen tool belongs to — and reports false for a name that
-// is not shaped like one.
-func splitQualified(name string) (server, tool string, ok bool) {
-	rest, ok := strings.CutPrefix(name, tools.MCPToolPrefix)
-	if !ok {
-		return "", "", false
-	}
-	server, tool, ok = strings.Cut(rest, "__")
-	if !ok || server == "" || tool == "" {
-		return "", "", false
-	}
-	return server, tool, true
-}
-
 func sameStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -253,4 +279,42 @@ func sameStrings(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// checkReadOnly refuses a resume whose read-only allowance differs from the
+// one the session started with, in either direction. Widening is the unsafe
+// one — a client marking a tool harness.read_only on the way back in would
+// be granting itself a call a readonly session was never allowed — and
+// narrowing is refused too, because a session that silently lost access to
+// half its tools mid-conversation is a worse thing to debug than a create
+// that said so.
+func checkReadOnly(want, got map[string]bool) *rpcError {
+	var widened, narrowed []string
+	for name, allowed := range got {
+		switch {
+		case allowed && !want[name]:
+			widened = append(widened, name)
+		case !allowed && want[name]:
+			narrowed = append(narrowed, name)
+		}
+	}
+	for name, allowed := range want {
+		if _, present := got[name]; !present && allowed {
+			narrowed = append(narrowed, name)
+		}
+	}
+	sort.Strings(widened)
+	sort.Strings(narrowed)
+
+	var parts []string
+	if len(widened) > 0 {
+		parts = append(parts, fmt.Sprintf("%s is declared read-only now and was not when the session started", strings.Join(widened, ", ")))
+	}
+	if len(narrowed) > 0 {
+		parts = append(parts, fmt.Sprintf("%s was read-only when the session started and is not declared so now", strings.Join(narrowed, ", ")))
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	return errorf(CodeToolsetMismatch, "this create changes what a readonly session may call: %s. A session keeps the permissions it was started with; start a new session to change them", strings.Join(parts, "; "))
 }

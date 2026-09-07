@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/mrgeoffrich/agent-harness/internal/mcpclient"
@@ -43,6 +44,23 @@ type hostTools struct {
 	// mcp is the manager for the interaction's mcp_server tools, or nil
 	// when the create body declared none.
 	mcp tools.MCPProvider
+	// allow is the set of server names this interaction declared, and names
+	// the qualified tool names those servers advertised when they were
+	// probed. The manager underneath is the process's own and answers for
+	// every enabled row in the store, which for a state directory that has
+	// hosted more than one session includes servers this interaction knows
+	// nothing about — and a create that was refused still leaves its row
+	// behind. Filtering here is what keeps an interaction's tools the ones
+	// it asked for.
+	//
+	// names is an exact set taken from each declared server's own probe
+	// rather than a prefix test on the qualified name. The two agree for
+	// every name a current binary can write, since a server name may not
+	// contain the "__" delimiter (internal/store, ValidateMCPServer), but
+	// membership does not have to trust that — and a row an older binary
+	// left in a state directory would not satisfy it.
+	allow map[string]bool
+	names map[string]bool
 
 	mu    sync.Mutex
 	funcs map[string]hostFunc
@@ -64,7 +82,7 @@ type hostFunc struct {
 }
 
 func newHostTools(mcp tools.MCPProvider, interactionID string, call func(context.Context, FunctionCallParams) (FunctionCallResult, error)) *hostTools {
-	return &hostTools{mcp: mcp, funcs: map[string]hostFunc{}, call: call, interactionID: interactionID}
+	return &hostTools{mcp: mcp, funcs: map[string]hostFunc{}, allow: map[string]bool{}, names: map[string]bool{}, call: call, interactionID: interactionID}
 }
 
 // addFunction registers one `function` tool from the create body.
@@ -83,10 +101,40 @@ func (h *hostTools) addFunction(t Tool) error {
 		params = json.RawMessage(`{"type":"object","properties":{}}`)
 	}
 	h.funcs[qualified] = hostFunc{qualified: qualified, name: t.Name, description: t.Description, parameters: params}
-	if t.Harness != nil && t.Harness.ReadOnly {
-		h.readOnly = true
+	// The permission seam is per namespace, not per tool
+	// (tools.Policy.MCPReadOnlyServers), so one bool has to speak for every
+	// function the client declared. It is an AND: the namespace counts as
+	// read-only only when every function in it is. The other reading would
+	// let one read-only tool carry a writing one into a readonly session,
+	// which is the one mistake this must not make. A parent that wants its
+	// read-only tools usable in a readonly session declares only those —
+	// the rest would be denied there anyway.
+	if len(h.funcs) == 1 {
+		h.readOnly = t.Harness != nil && t.Harness.ReadOnly
+	} else if t.Harness == nil || !t.Harness.ReadOnly {
+		h.readOnly = false
 	}
 	return nil
+}
+
+// owns reports whether qualified is one of server's tools, by the prefix
+// mcpclient.QualifyToolName built it with. A server name may itself contain
+// "__" — the name grammar permits it — so a qualified name is matched
+// against the servers this interaction declared rather than taken apart to
+// recover one (internal/tools, MCPServerOf, which splits at the first "__"
+// and says so).
+func owns(server, qualified string) bool {
+	return strings.HasPrefix(qualified, tools.MCPToolPrefix+server+"__")
+}
+
+// declaredTool reports whether a qualified name belongs to this
+// interaction: one of the client's own functions, or a tool one of the
+// servers it declared advertised at its probe. Both sides are exact sets.
+func (h *hostTools) declaredTool(qualified string) bool {
+	if _, ok := h.funcs[qualified]; ok {
+		return true
+	}
+	return h.names[qualified]
 }
 
 func (h *hostTools) hasFunctions() bool {
@@ -107,9 +155,15 @@ func (h *hostTools) Definitions(ctx context.Context) ([]wire.Tool, map[string]bo
 		if err != nil {
 			return nil, nil, err
 		}
-		defs = append(defs, d...)
+		for _, t := range d {
+			if h.declaredTool(t.Function.Name) {
+				defs = append(defs, t)
+			}
+		}
 		for k, v := range ro {
-			readOnly[k] = v
+			if h.allow[k] {
+				readOnly[k] = v
+			}
 		}
 	}
 
@@ -141,18 +195,38 @@ func (h *hostTools) Instructions(ctx context.Context) (map[string]string, error)
 	if h.mcp == nil {
 		return nil, nil
 	}
-	return h.mcp.Instructions(ctx)
+	all, err := h.mcp.Instructions(ctx)
+	if err != nil || len(all) == 0 {
+		return nil, err
+	}
+	out := make(map[string]string, len(all))
+	for server, text := range all {
+		if h.allow[server] {
+			out[server] = text
+		}
+	}
+	return out, nil
 }
 
 func (h *hostTools) Resources(ctx context.Context) ([]tools.MCPResource, error) {
 	if h.mcp == nil {
 		return nil, nil
 	}
-	return h.mcp.Resources(ctx)
+	all, err := h.mcp.Resources(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []tools.MCPResource
+	for _, r := range all {
+		if h.allow[r.Server] {
+			out = append(out, r)
+		}
+	}
+	return out, nil
 }
 
 func (h *hostTools) ReadResource(ctx context.Context, server, uri string) (tools.MCPContent, error) {
-	if h.mcp == nil {
+	if h.mcp == nil || !h.allow[server] {
 		return tools.MCPContent{}, fmt.Errorf("no MCP server named %q is configured for this interaction", server)
 	}
 	return h.mcp.ReadResource(ctx, server, uri)
@@ -162,11 +236,21 @@ func (h *hostTools) Prompts(ctx context.Context) ([]tools.MCPPrompt, error) {
 	if h.mcp == nil {
 		return nil, nil
 	}
-	return h.mcp.Prompts(ctx)
+	all, err := h.mcp.Prompts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []tools.MCPPrompt
+	for _, p := range all {
+		if h.allow[p.Server] {
+			out = append(out, p)
+		}
+	}
+	return out, nil
 }
 
 func (h *hostTools) GetPrompt(ctx context.Context, server, name string, args map[string]string) (tools.MCPContent, error) {
-	if h.mcp == nil {
+	if h.mcp == nil || !h.allow[server] {
 		return tools.MCPContent{}, fmt.Errorf("no MCP server named %q is configured for this interaction", server)
 	}
 	return h.mcp.GetPrompt(ctx, server, name, args)
@@ -188,7 +272,7 @@ func (h *hostTools) Call(ctx context.Context, toolName string, args json.RawMess
 	call := h.call
 	h.mu.Unlock()
 	if !ok {
-		if h.mcp == nil {
+		if h.mcp == nil || !h.declaredTool(toolName) {
 			return tools.MCPContent{}, fmt.Errorf("no MCP server serves %q", toolName)
 		}
 		return h.mcp.Call(ctx, toolName, args)

@@ -66,10 +66,7 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 	// must not change what a resumed session sends (docs/MCP.md,
 	// "Resolution happens once per run"). An unmarshal failure — a row from
 	// before tool_schema existed, or corrupt JSON — falls back to resolving
-	// fresh, logged, rather than failing the resume outright. The read-only
-	// map is different: it is the policy a call is checked against, not
-	// prefix bytes in the frozen head, so it always comes from a fresh call
-	// to the provider regardless of which branch the array took.
+	// fresh, logged, rather than failing the resume outright.
 	toolArray, err := unmarshalToolSchema(sess.ToolSchema)
 	mcpDefs, mcpReadOnly := r.resolveMCPDefinitions(ctx, sess.ID)
 	if err != nil {
@@ -77,6 +74,14 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 		toolArray = tools.WithMCP(tools.DefinitionsForVariant(sess.Model, sess.PromptVariant), mcpDefs)
 	}
 
+	// The read-only map is not the frozen array: it is the policy a call is
+	// checked against, not prefix bytes in the head, so it comes from a
+	// fresh call to the provider regardless of which branch the array took
+	// — which is what lets an operator revoke a server's allowance and have
+	// the next resume honour it. The session's own allowance at run start is
+	// on the row (Session.MCPReadOnly) for a caller that has to hold a
+	// resume to it; internal/geministdio is the one that does, because there
+	// the allowance is supplied by the client rather than by an operator.
 	policy := &tools.Policy{
 		Mode:               tools.Mode(sess.PermissionMode),
 		Deny:               sess.DenyPatterns,

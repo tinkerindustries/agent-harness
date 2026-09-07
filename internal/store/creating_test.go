@@ -32,7 +32,7 @@ func TestPromoteSessionFromCreating(t *testing.T) {
 	ctx := context.Background()
 	createCreatingSession(t, s, "sess-1")
 
-	if err := s.PromoteSession(ctx, "sess-1", "/tmp/sess-1-real", "the rendered prompt", []byte(`[{"name":"Bash"}]`), []byte(`{"type":"object"}`)); err != nil {
+	if err := s.PromoteSession(ctx, "sess-1", "/tmp/sess-1-real", "the rendered prompt", []byte(`[{"name":"Bash"}]`), []byte(`{"type":"object"}`), map[string]bool{"orchestrator": true}); err != nil {
 		t.Fatalf("promote: %v", err)
 	}
 	sess, err := s.GetSession(ctx, "sess-1")
@@ -53,6 +53,11 @@ func TestPromoteSessionFromCreating(t *testing.T) {
 	}
 	if string(sess.ResultSchema) != `{"type":"object"}` {
 		t.Fatalf("expected the promoted result schema, got %q", sess.ResultSchema)
+	}
+	// The read-only allowance is promoted with the rest of the frozen
+	// policy, so a resume can be held to what the run actually started with.
+	if !sess.MCPReadOnly["orchestrator"] {
+		t.Fatalf("expected the promoted read-only allowance, got %v", sess.MCPReadOnly)
 	}
 	if sess.Version != 2 {
 		t.Fatalf("expected version 2 after promotion, got %d", sess.Version)
@@ -76,7 +81,7 @@ func TestPromoteSessionAlreadyRunningIsNoOp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := s.PromoteSession(ctx, "sess-1", "/tmp/other", "another prompt", []byte(`[]`), nil); err != nil {
+	if err := s.PromoteSession(ctx, "sess-1", "/tmp/other", "another prompt", []byte(`[]`), nil, nil); err != nil {
 		t.Fatalf("promote an already-running row: %v", err)
 	}
 	after, err := s.GetSession(ctx, "sess-1")
@@ -101,7 +106,7 @@ func TestPromoteSessionRefusesTerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 	var sfe *SessionFinishedError
-	if err := s.PromoteSession(ctx, "cancelled", "/tmp/x", "p", []byte(`[]`), nil); !errors.As(err, &sfe) {
+	if err := s.PromoteSession(ctx, "cancelled", "/tmp/x", "p", []byte(`[]`), nil, nil); !errors.As(err, &sfe) {
 		t.Fatalf("expected SessionFinishedError promoting a cancelled row, got %v", err)
 	}
 	if sfe.Status != StatusCancelled {
@@ -113,7 +118,7 @@ func TestPromoteSessionRefusesTerminal(t *testing.T) {
 	if err := s.UpdateSessionStatus(ctx, "ok", StatusOK, &finished); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PromoteSession(ctx, "ok", "/tmp/x", "p", []byte(`[]`), nil); !errors.As(err, &sfe) {
+	if err := s.PromoteSession(ctx, "ok", "/tmp/x", "p", []byte(`[]`), nil, nil); !errors.As(err, &sfe) {
 		t.Fatalf("expected SessionFinishedError promoting an ok row, got %v", err)
 	}
 }

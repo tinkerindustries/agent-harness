@@ -156,7 +156,7 @@ func fakeCreateSession(st *store.Store, ctx context.Context, opts session.RunOpt
 // fakePromoteSession flips the row fakeCreateSession made to "running", the
 // way a real Runner.Run promotes a pre-created row once preparation is done.
 func fakePromoteSession(st *store.Store, ctx context.Context, opts session.RunOptions) error {
-	return st.PromoteSession(ctx, opts.SessionID, opts.Workspace, "sys", []byte("[]"), opts.ResultSchema)
+	return st.PromoteSession(ctx, opts.SessionID, opts.Workspace, "sys", []byte("[]"), opts.ResultSchema, nil)
 }
 
 // waitForSessionID polls the work_requests row until the run has attached

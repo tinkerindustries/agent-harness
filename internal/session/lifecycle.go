@@ -174,7 +174,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	// compaction) has no pre-created row, so it always inserts, and none of
 	// them should ever show "creating".
 	if existing, err := r.Store.GetSession(ctx, sessID); err == nil && existing.Status == store.StatusCreating {
-		if err := r.Store.PromoteSession(ctx, sessID, executor.Workspace, sysPrompt, toolSchema, opts.ResultSchema); err != nil {
+		if err := r.Store.PromoteSession(ctx, sessID, executor.Workspace, sysPrompt, toolSchema, opts.ResultSchema, mcpReadOnly); err != nil {
 			return nil, fmt.Errorf("session: promote session: %w", err)
 		}
 	} else {
@@ -184,6 +184,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 		sess := opts.session(store.StatusRunning, executor.Workspace)
 		sess.SystemPrompt = sysPrompt
 		sess.ToolSchema = toolSchema
+		sess.MCPReadOnly = mcpReadOnly
 		if err := r.Store.CreateSession(ctx, sess); err != nil {
 			return nil, fmt.Errorf("session: create session: %w", err)
 		}

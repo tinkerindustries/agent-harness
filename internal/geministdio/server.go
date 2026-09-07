@@ -61,6 +61,14 @@ type Server struct {
 	order        []string
 	running      *interaction
 	shuttingDown bool
+	// headers holds the credentials a client's `mcp_server` tools carry,
+	// keyed by server name. They stay here and never reach the database:
+	// a bearer token for a loopback server the parent stood up has no
+	// business outliving this process, and a -state-dir the parent keeps for
+	// resuming would otherwise be a file of plaintext credentials. The row
+	// is written without them and mcpclient.Manager.Secrets puts them back
+	// for the length of one dial.
+	headers map[string]map[string]string
 }
 
 // interaction is one run, in the shape Google's Interaction resource
@@ -100,7 +108,26 @@ func newInteractionID() string {
 
 // NewServer wires a server onto r/w. Serve runs it.
 func NewServer(opts Options) *Server {
-	return &Server{opts: opts, interactions: map[string]*interaction{}}
+	s := &Server{opts: opts, interactions: map[string]*interaction{}, headers: map[string]map[string]string{}}
+	if opts.MCP != nil {
+		opts.MCP.Secrets = s.dialSecrets
+	}
+	return s
+}
+
+// dialSecrets puts a declared server's headers back on the row for the
+// length of one dial. A server this process never saw declared is returned
+// unchanged, which for the stdio surface means it is dialled with whatever
+// the row holds — nothing.
+func (s *Server) dialSecrets(srv store.MCPServer) store.MCPServer {
+	s.mu.Lock()
+	h := s.headers[srv.Name]
+	s.mu.Unlock()
+	if len(h) == 0 {
+		return srv
+	}
+	srv.Headers = h
+	return srv
 }
 
 // Serve reads the pipe until it ends. It returns when stdin closes, which is
@@ -293,9 +320,10 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 		// stored permission mode, on a resume; both are what the run will
 		// use regardless of what the create says, so both are checked
 		// against the create rather than taken from it.
-		frozen     frozenTools
-		checkTools bool
-		frozenMode string
+		frozen         frozenTools
+		frozenReadOnly map[string]bool
+		checkTools     bool
+		frozenMode     string
 	)
 	resumeID := harnessString(p.Harness, func(h *CreateHarness) string { return h.ResumeSessionID })
 	switch {
@@ -326,10 +354,10 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 		if err != nil {
 			return nil, errorf(CodeInternalError, "session %s's stored tool array will not decode (%v), so this create cannot be checked against it", sess.ID, err)
 		}
-		if rerr := requireDeclaredServers(f, p.Tools); rerr != nil {
+		if rerr := checkDeclarations(f, p.Tools); rerr != nil {
 			return nil, rerr
 		}
-		frozen, checkTools = f, true
+		frozen, frozenReadOnly, checkTools = f, sess.MCPReadOnly, true
 
 	default:
 		if p.Harness == nil || p.Harness.CWD == "" {
@@ -358,7 +386,7 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 		return nil, rerr
 	}
 	if checkTools {
-		if rerr := checkFrozenToolset(ctx, host, frozen); rerr != nil {
+		if rerr := checkFrozenToolset(ctx, host, frozen, frozenReadOnly); rerr != nil {
 			return nil, rerr
 		}
 	}
@@ -460,7 +488,7 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 		// buffered in it, and the pump drains to exhaustion before closing.
 		unsubscribe()
 		<-streamed
-		s.finish(it, tr, res, err, runCtx.Err() != nil)
+		s.record(it, tr, res, err, runCtx.Err() != nil)
 		cancel()
 
 		s.mu.Lock()
@@ -469,6 +497,12 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 			s.opts.Runner.MCP = nil
 		}
 		s.mu.Unlock()
+
+		// Emitted after the slot is free, never before. A client that
+		// reacts to interaction.completed by creating the next interaction
+		// is doing the obvious thing, and it used to race the bookkeeping
+		// and be told the interaction was still running.
+		s.complete(it)
 	}()
 
 	if p.Stream != nil && !*p.Stream {
@@ -486,10 +520,11 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 	return CreateResult{Interaction: it.snapshot(false)}, nil
 }
 
-// finish records the run's outcome on the interaction and emits the terminal
-// frame: interaction.completed for anything that ended with a result, error
-// followed by interaction.completed for a run the loop could not finish.
-func (s *Server) finish(it *interaction, tr *translator, res *session.RunResult, err error, cancelled bool) {
+// record writes the run's outcome onto the interaction and, for a run the
+// loop could not finish, emits the `error` notification that precedes the
+// terminal frame. complete emits the terminal frame itself, once the
+// interaction is no longer the running one.
+func (s *Server) record(it *interaction, tr *translator, res *session.RunResult, err error, cancelled bool) {
 	tr.closeText()
 
 	steps, usage := tr.snapshot()
@@ -526,6 +561,10 @@ func (s *Server) finish(it *interaction, tr *translator, res *session.RunResult,
 			EventType:     NotifyError,
 		})
 	}
+}
+
+// complete emits the last notification an interaction ever produces.
+func (s *Server) complete(it *interaction) {
 	s.notify(NotifyInteractionCompleted, interactionEnvelope{
 		Interaction: it.snapshot(false), EventType: NotifyInteractionCompleted,
 	})
@@ -740,7 +779,10 @@ func (s *Server) buildTools(ctx context.Context, decls []Tool) (*hostTools, *rpc
 		if s.opts.MCP == nil {
 			return nil, errorf(CodeUnsupported, "this process was started with no MCP client, so an mcp_server tool cannot be dialled")
 		}
-		if err := s.registerServers(ctx, servers); err != nil {
+		for _, t := range servers {
+			host.allow[t.Name] = true
+		}
+		if err := s.registerServers(ctx, servers, host.names); err != nil {
 			return nil, errorf(CodeInvalidParams, "mcp_server tool: %v", err)
 		}
 		host.mcp = s.opts.MCP
@@ -753,7 +795,7 @@ func (s *Server) buildTools(ctx context.Context, decls []Tool) (*hostTools, *rpc
 // from (docs/MCP.md, "Resolution happens once per run"). A server that fails
 // to probe contributes no tools and does not fail the create: the same
 // tolerance an operator-configured server gets.
-func (s *Server) registerServers(ctx context.Context, servers []Tool) error {
+func (s *Server) registerServers(ctx context.Context, servers []Tool, names map[string]bool) error {
 	for _, t := range servers {
 		if t.Name == "" || t.URL == "" {
 			return fmt.Errorf("an mcp_server tool needs a name and a url")
@@ -761,26 +803,44 @@ func (s *Server) registerServers(ctx context.Context, servers []Tool) error {
 		if t.Name == HostServerName {
 			return fmt.Errorf("%q is reserved", HostServerName)
 		}
+		// Headers are deliberately absent from the row: they are the one
+		// part of a declaration that is a credential, and this process
+		// keeps them in memory (Server.headers) so a state directory the
+		// parent keeps holds none.
 		row := store.MCPServer{
 			Name: t.Name, Transport: store.MCPTransportHTTP,
-			URL: t.URL, Headers: t.Headers, Enabled: true,
+			URL: t.URL, Enabled: true,
 			AllowReadOnly: t.Harness != nil && t.Harness.ReadOnly,
 		}
+		s.mu.Lock()
+		if len(t.Headers) > 0 {
+			s.headers[t.Name] = t.Headers
+		} else {
+			delete(s.headers, t.Name)
+		}
+		s.mu.Unlock()
 		if _, err := s.opts.Store.GetMCPServer(ctx, t.Name); err == nil {
 			if err := s.opts.Store.UpdateMCPServer(ctx, row); err != nil {
 				return err
 			}
-		} else if errors.Is(err, store.ErrNotFound) {
+		} else if errors.Is(err, store.ErrMCPServerNotFound) {
 			if err := s.opts.Store.CreateMCPServer(ctx, row); err != nil {
 				return err
 			}
 		} else {
 			return err
 		}
-		if _, err := s.opts.MCP.Refresh(ctx, t.Name); err != nil {
+		row, err := s.opts.MCP.Refresh(ctx, t.Name)
+		if err != nil {
 			// Recorded on the row by Refresh itself; the run continues with
 			// whatever the server did advertise, which is none of it.
 			continue
+		}
+		// The probe is the only place a server's own tool names are known
+		// exactly, so this is where the interaction records which qualified
+		// names are its to offer and to call.
+		for _, tool := range row.Tools {
+			names[tool.QualifiedName] = true
 		}
 	}
 	return nil

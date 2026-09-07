@@ -260,7 +260,10 @@ branch and SQL predicate that means "this session is live" builds off it,
 never a string literal. Split by concern, `store.go`'s own package doc names
 which file holds which: the `Store` type and the single-writer loop stay in
 `store.go`; `errors.go` is the error vocabulary; `schema.go` the SQL schema
-and column migration; `sessions.go` the status vocabulary and session CRUD;
+and column migration; `sessions.go` the status vocabulary and session CRUD — including
+`mcp_read_only`, the copy of the per-server read-only allowance a run froze,
+kept beside `permission_mode` and `deny_patterns` so a caller that must hold a
+resume to what the session started with has it;
 `events.go` the event payload types and the append-only log's queries;
 `leases.go` workspace leases; `mcp.go` is the `mcp_servers` table
 ([`../docs/MCP.md`](../docs/MCP.md)) — CRUD plus `SaveMCPProbe`, whose one

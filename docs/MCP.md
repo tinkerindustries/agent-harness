@@ -74,6 +74,13 @@ means models have seen it.
 - Server names match `^[a-z0-9][a-z0-9_-]{0,31}$`, validated on write, so the
   prefix can never introduce a character the model API rejects in a function
   name.
+- A server name may not contain `__`, validated on write for a second reason:
+  `__` is what separates the server from the tool, so a server called
+  `foo__bar` would make `mcp__foo__bar__tool` mean two different things at
+  once. Everything that reads a server back out of a qualified name — the
+  per-server read-only allowance above all — needs there to be one answer. A
+  *tool* name may contain `__` and stays unambiguous, because the server is
+  whatever precedes the first one.
 - A tool name from the server is sanitised to `[A-Za-z0-9_-]`, every other
   character becoming `_`.
 - The whole name is capped at 64 characters, the function-name limit both
@@ -391,6 +398,16 @@ because it is the only way that works.
 Deny patterns match against the descriptor exactly as they do for built-in
 tools; the descriptor for an MCP call is its full prefixed name, so
 `-deny mcp__blender__` keeps a run off one server entirely.
+
+The allowance a run resolves is frozen onto its policy for the run's length,
+and the copy it started with is kept on the session row (`mcp_read_only`)
+beside the permission mode and the deny patterns. A resume resolves it fresh,
+so an operator who revokes a server's allowance has the next resume honour it.
+That is right where an operator owns the registry and wrong where the caller
+does — `harness gemini-session`'s client supplies both the tools and their
+allowance in the same request — so that surface holds a resume to the stored
+copy instead, and refuses a create that would move it
+(docs/STDIO-PROTOCOL.md, "Resuming across process restarts").
 
 ## What the model is told
 

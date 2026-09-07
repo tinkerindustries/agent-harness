@@ -76,6 +76,17 @@ type Manager struct {
 	// the transport still exercises the real client.
 	Dial func(ctx context.Context, srv store.MCPServer) (mcpsdk.Transport, error)
 
+	// Secrets, when set, is handed each server row on its way to a dial and
+	// returns the row to dial with. It exists so a caller can keep a
+	// credential out of the database: the row is stored without it, this
+	// puts it back for the length of one dial, and a state directory left on
+	// disk holds no bearer token. The row a caller cannot match is returned
+	// unchanged. `harness gemini-session` is the caller — a parent's
+	// `mcp_server` tool carries an Authorization header for a loopback
+	// server it stood up, and that header has no business outliving the
+	// process (docs/STDIO-PROTOCOL.md).
+	Secrets func(store.MCPServer) store.MCPServer
+
 	// Sampler runs the model turns servers ask for (docs/MCP.md,
 	// "Sampling"). Nil — a caller with none wired, every test among them —
 	// means this client cannot sample, and says so to any server that asks.
@@ -411,6 +422,9 @@ func (m *Manager) dial(ctx context.Context, srv store.MCPServer) (*cachedConn, e
 	dial := m.Dial
 	if dial == nil {
 		dial = defaultDial
+	}
+	if m.Secrets != nil {
+		srv = m.Secrets(srv)
 	}
 	// The transport and the handshake share one error path: both are
 	// "dialling this server did not work", and both fail the same way when

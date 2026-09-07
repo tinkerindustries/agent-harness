@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 	deny_patterns     TEXT NOT NULL DEFAULT '[]',
 	system_prompt     TEXT NOT NULL,
 	tool_schema       TEXT NOT NULL,
+	mcp_read_only     TEXT NOT NULL DEFAULT '{}',
 	result_schema     TEXT,
 	status            TEXT NOT NULL,
 	created_at        TEXT NOT NULL,
@@ -342,6 +343,15 @@ type migrationColumn struct {
 // sessionMigrationColumns are the columns migrateTableColumns adds to a
 // sessions table created by an older binary.
 var sessionMigrationColumns = []migrationColumn{
+	// mcp_read_only: the per-server read-only allowance, the third part of
+	// the permission policy a run freezes alongside permission_mode and
+	// deny_patterns (internal/tools, Policy.MCPReadOnlyServers). It is on
+	// the row for the same reason the other two are: a resumed session is
+	// entitled to exactly what it started with, and reading the allowance
+	// live would let a server toggled between the run and the resume change
+	// what the session may call. Older rows default to "{}" — nothing
+	// read-only — which is the same answer an absent server already gets.
+	{"mcp_read_only", "TEXT NOT NULL DEFAULT '{}'"},
 	{"job_type", "TEXT NOT NULL DEFAULT 'implementation'"},
 	// task: the job's description, the launching instruction of the run, so
 	// the session list can say what a session is about without reading the
