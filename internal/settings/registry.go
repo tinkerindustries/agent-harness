@@ -223,8 +223,8 @@ var registry = []Descriptor{
 	stringSetting(KeyGoogleVisionModel, GroupModels,
 		"Gemini model the vision tools (Glance, Ground, Detect) send images to. Defaults to gemini-3.7-flash, which bills the same input as 3.5 Flash and 2.4x less output ($3.75/M against $9.00/M, configs/prices.json) while being the newer model at the thing these tools do. Its rates are introductory and double on 2027-01-01. A model with no entry in the price table still runs — the cost lookup fails and the caller keeps zero (internal/tools/vision.go), so its spend silently vanishes from every figure in the UI rather than erroring. Add the entry before changing this.", "gemini-3.7-flash", false, false),
 	stringSetting(KeyGoogleVisionThinkingLevel, GroupModels,
-		"How hard the vision model thinks before answering a Glance, Ground, or Detect call. Thinking bills at the output rate and is where a call's cost goes — an empty findings list has been measured at 1,947 thinking tokens against one token of answer. \"auto\" lets the tool choose per call: medium for Glance's default description or a query, low for Ground and Detect, which are locating rather than reasoning.", "auto", false, false).
-		withAllowed("auto", "minimal", "low", "medium", "high"),
+		"How hard the vision model thinks before answering a Glance, Ground, or Detect call. Thinking bills at the output rate and is where a call's cost goes — an empty findings list has been measured at 1,947 thinking tokens against one token of answer. \"auto\" lets the tool choose per call: medium for Glance's default description or a query, low for Ground and Detect, which are locating rather than reasoning. \"minimal\" is not offered: gemini-3.7-flash, the default vision model, refuses it with a 400 naming the three it takes, so pinning it here would fail every Glance, Ground, and Detect call (internal/gemini.LevelsFor).", "auto", false, false).
+		withAllowed("auto", "low", "medium", "high"),
 
 	// --- Requires a restart ---
 	intSetting(KeyWorkerPoolSize, GroupRequiresRestart, 4, 1, 100_000,

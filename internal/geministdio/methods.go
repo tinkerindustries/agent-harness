@@ -63,6 +63,12 @@ type InitializeResult struct {
 	Models []string `json:"models"`
 	// DefaultModel is what a create body with no `model` gets.
 	DefaultModel string `json:"default_model"`
+	// ThinkingLevels is what generation_config.thinking_level may be, per
+	// model, because the answer differs between them: gemini-3.7-flash
+	// refuses "minimal" and its siblings accept it. Keyed by a name in
+	// Models. A model missing from the map takes any level — the process
+	// has no table for it and lets the API judge.
+	ThinkingLevels map[string][]string `json:"thinking_levels,omitempty"`
 }
 
 // ServerInfo names this process.

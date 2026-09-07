@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mrgeoffrich/agent-harness/internal/gemini"
 	"github.com/mrgeoffrich/agent-harness/internal/hub"
 	"github.com/mrgeoffrich/agent-harness/internal/mcpclient"
 	"github.com/mrgeoffrich/agent-harness/internal/provider"
@@ -255,9 +256,27 @@ func (s *Server) initialize(params json.RawMessage) (any, *rpcError) {
 			FunctionTools:       true,
 			PermissionModes:     []string{string(tools.ModeReadOnly), string(tools.ModeFull)},
 		},
-		Models:       s.opts.Models,
-		DefaultModel: s.opts.DefaultModel,
+		Models:         s.opts.Models,
+		DefaultModel:   s.opts.DefaultModel,
+		ThinkingLevels: thinkingLevels(s.opts.Models),
 	}, nil
+}
+
+// thinkingLevels is the per-model level map the handshake advertises, for
+// the models this process accepts. A model internal/gemini has no table for
+// is left out rather than guessed at, which is the same thing its absence
+// means to a client: nothing here constrains it.
+func thinkingLevels(models []string) map[string][]string {
+	out := make(map[string][]string, len(models))
+	for _, m := range models {
+		if levels := gemini.LevelsFor(m); levels != nil {
+			out[m] = levels
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // --- create ---
@@ -276,6 +295,15 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 	}
 	if !provider.Known(model) {
 		return nil, errorf(CodeInvalidParams, "unknown model %q; this process accepts %s", model, strings.Join(s.opts.Models, ", "))
+	}
+	// A level the model refuses is caught here rather than by Google. Left
+	// to the API it is a 400 in the middle of a started run: the create is
+	// answered, steps stream, and the interaction ends `failed` carrying a
+	// message about a request the client cannot see. The levels are on the
+	// handshake, so a client has been told which are allowed.
+	if level := thinkingLevelOf(p.GenerationConfig); level != "" && !gemini.LevelSupported(model, level) {
+		return nil, errorf(CodeInvalidParams, "generation_config.thinking_level %q: %s accepts %s",
+			level, model, strings.Join(gemini.LevelsFor(model), ", "))
 	}
 	if s.opts.HasAPIKey != nil && !s.opts.HasAPIKey() {
 		return nil, errorf(CodeCredentialsMissing, "no Google API key reached this process: set GEMINI_API_KEY (or GOOGLE_API_KEY) in the environment you spawn it with")
@@ -949,6 +977,15 @@ func contentText(blocks []Content) (string, *rpcError) {
 func effortFrom(g *GenerationConfig) string {
 	if g == nil || g.ThinkingLevel == "" {
 		return wire.EffortHigh
+	}
+	return g.ThinkingLevel
+}
+
+// thinkingLevelOf is the level a create body asked for, empty when it named
+// none.
+func thinkingLevelOf(g *GenerationConfig) string {
+	if g == nil {
+		return ""
 	}
 	return g.ThinkingLevel
 }

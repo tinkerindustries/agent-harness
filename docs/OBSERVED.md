@@ -397,6 +397,33 @@ https://generativelanguage.googleapis.com/v1beta/interactions`, model
 Where a finding contradicts it, said so explicitly — GEMINI-INTEGRATION.md's
 own header states this file wins where they disagree.
 
+### `thinking_level: "minimal"` is refused by this model
+
+Measured 2026-09-08 through `harness gemini-session` against the live API.
+A create carrying `generation_config: {thinking_level: "minimal"}` is answered
+`400`:
+
+```
+{"error":{"message":"'minimal' is not a supported thinking level for this
+model. Allowed values are: medium, low, high.","code":"invalid_request"}}
+```
+
+The levels are a property of the **model**, not of the API.
+`third_party/gemini-docs/thinking.md`, "Levels Supported", agrees and gives
+the split: `gemini-3.7-flash` and `gemini-3.1-pro-preview` take `low, medium,
+high`; `gemini-3.6-flash`, `gemini-3.5-flash` and `gemini-3.5-flash-lite`
+take `minimal` as well.
+
+Two places in this repository had it wrong, both now corrected:
+`docs/STDIO-PROTOCOL.md` documented the four-value enum for a surface whose
+only model is `gemini-3.7-flash`, and `google.vision_thinking_level` offered
+`minimal` although the vision default is the same model — pinning it would
+have failed every `Glance`, `Ground` and `Detect` call. `internal/gemini`
+now holds the per-model table (`LevelsFor`, `LevelSupported`), the stdio
+handshake advertises it as `thinking_levels`, and a create naming a level its
+model refuses is `-32602` before the run starts rather than a 400 that fails
+the interaction mid-stream.
+
 Raw request/response captures live under `internal/gemini/testdata/` as
 `.sse` fixtures for Phase 4; each subsection below names the one it produced.
 

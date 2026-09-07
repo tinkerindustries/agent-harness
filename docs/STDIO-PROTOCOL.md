@@ -157,12 +157,20 @@ Result:
     "permission_modes": ["readonly", "full"]
   },
   "models": ["gemini-3.7-flash"],
-  "default_model": "gemini-3.7-flash"
+  "default_model": "gemini-3.7-flash",
+  "thinking_levels": {"gemini-3.7-flash": ["low", "medium", "high"]}
 }
 ```
 
 `mcp_servers` is false when the process was started without an MCP client; an
 `mcp_server` tool is then refused rather than ignored.
+
+`thinking_levels` says what `generation_config.thinking_level` may be **for
+each model**, because the answer differs between them: `gemini-3.7-flash`
+rejects `minimal` and its siblings accept it. Keyed by a name in `models`; a
+model absent from the map is unconstrained by this process. A create naming a
+level its model refuses is answered `-32602` before the run starts, rather
+than reaching Google and failing the interaction mid-stream.
 
 ### `initialized` (notification)
 
@@ -219,7 +227,7 @@ Google's create-interaction body, narrowed, plus a `harness` block.
 | `tools` | no | See [Tools](#tools). |
 | `previous_interaction_id` | no | Continue that interaction's session, in this process. See below. |
 | `response_format` | no | `schema` becomes the run's result schema, which the agent's `Complete` tool validates its answer against. |
-| `generation_config.thinking_level` | no | `minimal` \| `low` \| `medium` \| `high`. Defaults to `high`. |
+| `generation_config.thinking_level` | no | One of the levels `initialize` gave for this model — `low`, `medium`, `high` for `gemini-3.7-flash`, which refuses `minimal`. Defaults to `high`. A level the model does not take is `-32602`. |
 | `generation_config.max_output_tokens` | no | Per-request output cap. Zero leaves the API's own default. |
 | `stream` | no | Default true. See below. |
 | `store` | no | Accepted and ignored: this process always stores, because the loop's state machine *is* its event log. |
