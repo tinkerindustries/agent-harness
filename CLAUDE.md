@@ -27,8 +27,8 @@ shaped that way.
 | Frontend dev server | `npm --prefix web run dev`, against `harness serve -dev-frontend http://127.0.0.1:5173` |
 | Production stack | `scripts/prod.sh promote && scripts/prod.sh deploy` — see [RELEASE.md](RELEASE.md) and the rule below |
 
-Subcommands: `serve`, `worktree`, `help`. `harness help` lists them with
-their arguments.
+Subcommands: `serve`, `gemini-session`, `worktree`, `help`. `harness help`
+lists them with their arguments.
 
 [TESTING.md](TESTING.md) covers running a subset, the broker the integration
 tests need, and the smoke sequence to finish on. [RELEASE.md](RELEASE.md) covers
@@ -64,6 +64,20 @@ cutting a version and deploying it to the production stack.
   token per repository owner, and `gh` is given one per Bash call chosen from
   the session's own clones. Read it before touching `internal/githubauth`,
   `internal/githubapp`, or anything that spawns git.
+- **`harness gemini-session` is the second entry point, and it is not a
+  server.** It hosts one coding session for a parent application over stdin
+  and stdout — no queue, no worker pool, no HTTP listener, no web UI — running
+  `internal/session` unchanged in a directory the parent owns. The protocol is
+  Google's own Interactions vocabulary rather than one of ours: the methods
+  are the REST methods on `POST /v1beta/interactions` and the notifications
+  are that surface's server-sent events, so `internal/gemini` speaks the
+  vocabulary to Google and `internal/geministdio` speaks it to the parent.
+  [`docs/STDIO-PROTOCOL.md`](docs/STDIO-PROTOCOL.md) is the wire reference and
+  is what a client is built from; read it before changing anything under
+  `internal/geministdio`, because every field on it is a contract with a
+  process this repo does not contain. It has a private SQLite file and that is
+  deliberate — the agent loop's state machine is its event log — but nothing
+  serves a queue from it.
 - **`docs/MCP.md`** is the reference for the harness's own MCP *client*
   support — an operator registers an external MCP server and its tools join
   every session's array (`internal/mcpclient`). Do not confuse this with

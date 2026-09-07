@@ -522,6 +522,7 @@ func (e *Executor) Execute(ctx context.Context, call wire.ToolCall) Outcome {
 
 	ctx, cancel := context.WithTimeout(ctx, e.timeoutFor(ctx, name, argsRaw))
 	defer cancel()
+	ctx = WithCallID(ctx, call.ID)
 
 	// An MCP call is routed to the configured provider instead of
 	// toolFuncs, inside the same per-tool timeout and after the same policy
@@ -540,6 +541,31 @@ func (e *Executor) Execute(ctx context.Context, call wire.ToolCall) Outcome {
 		return Outcome{Name: name, Result: errorResult("unknown tool %q", name)}
 	}
 	return Outcome{Name: name, Result: fn(ctx, e, argsRaw)}
+}
+
+// callIDKey is the context key the running call's own id is attached under.
+type callIDKey struct{}
+
+// WithCallID attaches the tool call's id to ctx. Execute sets it around every
+// call, so anything reached from inside one can name the call it is serving
+// without the id being threaded through a signature that no other
+// implementation needs. It exists for the MCPProvider that answers a call by
+// asking the process's parent to run it (internal/geministdio): the parent
+// has already been told about the call under this id, and a result it cannot
+// tie back to that id cannot be rendered against it.
+func WithCallID(ctx context.Context, id string) context.Context {
+	if id == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, callIDKey{}, id)
+}
+
+// CallIDFrom returns the tool call id Execute attached to ctx, and "" when
+// there is none — every call from a test or a path that did not go through
+// Execute.
+func CallIDFrom(ctx context.Context) string {
+	id, _ := ctx.Value(callIDKey{}).(string)
+	return id
 }
 
 // stdoutSinkKey is the context key a live-output sink is attached under.

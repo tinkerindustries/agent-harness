@@ -22,7 +22,8 @@ a store write by the handler and a store read by the loop, with the database
 as the boundary.
 
 One binary, `harness`, is every entry point. `serve` is the long-running
-service below; `worktree` is repo development infrastructure — allocating the
+service below; `gemini-session` is the second way a run can start and has its
+own section; `worktree` is repo development infrastructure — allocating the
 ports and compose project names sibling git worktrees need
 ([`docs/WORKTREES.md`](docs/WORKTREES.md)) — and out of scope for the rest of
 this document.
@@ -65,6 +66,69 @@ into the opening user message rather than the system prompt. Permission changes
 which tool calls *run*, never which tools are *offered*. A resumable session
 stores the prompt and schema it was created with, so a harness upgrade cannot
 rewrite its prefix.
+
+### `harness gemini-session`: one session hosted by another application
+
+The queue is not the only way a run starts. `gemini-session` is one process
+that hosts one session for a parent application, driven over stdin and stdout:
+the parent spawns it, owns the working directory, and gets the session's whole
+event stream back. There is no queue, no worker pool, no HTTP listener and no
+web UI — it is `internal/session` and its tools, with a protocol translator
+either side.
+
+The protocol is Google's own Interactions vocabulary rather than one of this
+repo's invention: the methods are the four REST methods on
+`POST /v1beta/interactions`, and the notifications are that surface's
+server-sent events, so both sides of the process speak the same API.
+[`docs/STDIO-PROTOCOL.md`](docs/STDIO-PROTOCOL.md) is the wire reference and
+the record of where it departs from Google's HTTP surface and why.
+
+```mermaid
+flowchart LR
+    parent[parent application] <-->|JSON-RPC over stdio<br/>Google Interactions payloads| gs[internal/geministdio]
+    gs --> session2[internal/session<br/>the same loop serve runs]
+    session2 -->|wire.ChatIntent| gc[internal/gemini]
+    gc --> gapi[generativelanguage.googleapis.com]
+    session2 --> tools2[internal/tools<br/>in the parent's own directory]
+    session2 --> st2[(SQLite, private to the process)]
+    session2 --> hub2[internal/hub]
+    hub2 --> gs
+    gs -->|harness.function_call| parent
+```
+
+Three things about it are worth knowing before changing anything near it:
+
+- **It shares the loop; it does not fork it.** `session.Runner` is used
+  unmodified. The one widening it needed was `tools.WithCallID`, a context
+  value carrying the running call's own id, so the provider that answers a
+  call by asking the parent to run it can name the call it is serving.
+- **It has a SQLite store, and that is not a contradiction.** The loop's state
+  machine *is* its event log: steering, resume, compaction and the fold all
+  read it. The store here is that log and nothing else — no `work_queue` is
+  served from it, no pool claims from it, nothing reads it over HTTP. It lives
+  under a directory the process owns and is removed on exit unless the parent
+  named one.
+- **It works in the parent's directory.** Nothing clones and nothing leases:
+  `internal/workspace` is not on this path at all — it is the worker's, not
+  the loop's, and `Runner.Run` has only ever taken a path. What that path
+  buys, and therefore what a hosted session gives up, is worth stating:
+  `tools.NewExecutor` resolves it and confines every file operation under it,
+  `internal/skills` and `internal/claudemd` discover from it, `Screenshot` and
+  `Crop` write under its `scratch/`, and `internal/attachment` addresses files
+  by paths relative to it. All of that works unchanged against a directory the
+  parent named. The two things that do not survive are the *reason* the worker
+  clones: an agent in `full` mode is loose in a repository somebody is
+  editing, with no per-run copy to throw away and no lease stopping two
+  sessions sharing it. That is the parent's problem to solve and the
+  permission mode is the whole of what this protocol gives it to solve it
+  with.
+
+The binary is a subcommand of `cmd/harness` rather than its own `cmd/`.
+Composition happens in `cmd/harness` and nowhere else (`internal/CLAUDE.md`),
+and a second `cmd/` would be a second composition root building its own
+provider client, store and runner — two places to keep in step every time the
+loop gains a dependency. One binary also means one thing to build and one
+thing for a parent to find on disk.
 
 ## Codemap
 
@@ -245,6 +309,17 @@ are here.
   a request body or a tool input, and never inherited from anything a calling
   agent asserts. `parent_agent_type` remains caller-asserted and is therefore
   not trustworthy the way `parent_is_user` is.
+- **A hosted session works in a directory it did not create.**
+  `harness gemini-session` sets `RunOptions.Workspace` to the directory its
+  parent named and never calls `internal/workspace`. Nothing on the session
+  path may come to assume a workspace root the harness itself laid out — a
+  `scratch/` directory, a cloned repository, a lease. Both entry points pass a
+  path and only a path.
+- **`internal/geministdio` is the only place Google's wire vocabulary is
+  spoken outbound.** `internal/gemini` speaks it inbound, to the API. Neither
+  knows about the other, and `internal/session` knows about neither: it states
+  intent as `wire.ChatIntent` and records `store.Event`s, and the translation
+  in both directions happens at the edges.
 - **`internal/webassets/dist` is build output.** Never hand-edit it; never
   commit anything there but `.gitkeep`.
 - **The vendored mirror in `third_party/deepseek-docs/` is generated.** Refresh
@@ -269,12 +344,17 @@ cannot be forced. A caller checking only `status` cannot tell the two apart.
 **The `denied` result status is unused.** It described a workspace-lease
 conflict that a per-run directory made impossible. Don't build on it.
 
-**Deltas reach the browser in bursts, not at token rate.** `session/turn.go`
-accumulates a sub-turn's reasoning and content in Go and commits one event each
-at the end; only `tool_stdout` streams live. Both folds handle genuinely
-incremental events unchanged, so the frontend is built for a stream it does not
-currently get (§5.0). Measure before treating a frontend rendering path as the
-bottleneck.
+**A sub-turn's text reaches a watcher twice, by two different routes.**
+`session/turn.go` accumulates a sub-turn's reasoning and content in Go and
+commits one `reasoning_delta` and one `content_delta` event at the end, so the
+*event log* gets the text in one burst per sub-turn. Alongside that, `liveSink`
+publishes the same text to the hub as it arrives, coalesced on an interval and
+always flushed before the sub-turn ends, as `hub.LiveDelta` frames that are
+never stored. A consumer wanting text at something like token rate reads the
+live frames; a consumer wanting the authoritative record reads the events; a
+consumer wanting both must not count the text twice. `internal/geministdio`
+does exactly that split — live frames for the text, events for the structure —
+and its own doc comment says why.
 
 **`session_started` yields two display blocks, not one.** The rendered skills
 catalogue is carried alongside the opening message as an exact substring of it,
