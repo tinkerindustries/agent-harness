@@ -38,6 +38,8 @@ commands:
                     the other (scripts/wt-seed.sh pairs them)
   github-credential  git credential helper for a harness running as a GitHub App;
                     git runs it, people do not (docs/GITHUB-APP.md)
+  gemini-session    host one coding session for a parent process over stdin and stdout,
+                    speaking Google's Interactions vocabulary (docs/STDIO-PROTOCOL.md)
 
 "harness <command> -h" lists that command's flags.`
 
@@ -63,6 +65,21 @@ func main() {
 	if os.Args[1] == "github-credential" {
 		if err := runGitHubCredential(ctx, os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "harness github-credential: "+err.Error())
+			os.Exit(1)
+		}
+		return
+	}
+
+	// gemini-session is dispatched before .env loading for the reason the
+	// credential helper is: the parent owns the working directory, which for
+	// a hosted coding session is a repository the session is about to work
+	// in, and a .env sitting in it must not contribute environment to this
+	// process. Its own credentials come from the environment the parent
+	// spawned it with. It also writes nothing but protocol frames to stdout,
+	// and the .env warning below would be one more thing that could.
+	if os.Args[1] == "gemini-session" {
+		if err := runGeminiSession(ctx, os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "harness gemini-session: "+err.Error())
 			os.Exit(1)
 		}
 		return

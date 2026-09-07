@@ -18,7 +18,7 @@ split so that nothing on the request path can perturb that head.
 ## Codemap
 
 ### `cmd/harness`
-Flag parsing and process wiring for `serve.go`, plus
+Flag parsing and process wiring for `serve.go` and `geminisession.go`, plus
 `main.go` itself. Composition happens here and nowhere else; no `internal`
 package constructs another's dependencies. `github.go` and
 `githubcredential.go` are the GitHub App's share of that: the credential
@@ -26,7 +26,13 @@ helper command git is pointed at, the loopback address it calls back on, the
 per-session `gh` token, and `harness github-credential` itself — a
 subcommand git runs, not a person, dispatched before `.env` loading and
 silent on stdout except for the credential
-([`../docs/GITHUB-APP.md`](../docs/GITHUB-APP.md)).
+([`../docs/GITHUB-APP.md`](../docs/GITHUB-APP.md)). `geminisession.go` is the
+second entry point's composition: one store, one hub, one `session.Runner`
+pinned to the Gemini client, handed to `internal/geministdio`. It is
+dispatched in `main.go` before `.env` is loaded, for the same reason the
+credential helper is — the parent owns the working directory, and a `.env` in
+a repository the session is about to work in must not feed this process — and
+because nothing but protocol frames may reach its stdout.
 
 ### `internal/deepseek`
 The DeepSeek API client: the request body it builds from a `wire.ChatIntent`,
@@ -99,6 +105,27 @@ retried into existence. Request and response bodies are Go
 structs, never `map[string]any`, for the same byte-stability reason as the
 other two clients. Depends on: `internal/wire`, `internal/providerhttp` (just
 `Transport`, for retry-with-backoff — never `PumpStream`).
+
+### `internal/geministdio`
+The protocol `harness gemini-session` speaks: JSON-RPC 2.0 over stdin and
+stdout, carrying Google's own Interactions vocabulary rather than one of this
+repo's invention — the four REST methods on `POST /v1beta/interactions` as
+JSON-RPC methods, and that surface's server-sent events as notifications
+(docs/STDIO-PROTOCOL.md). Two translators around an unmodified
+`session.Runner`: a Google create-interaction body becomes `RunOptions`, and
+the session's committed events plus the hub's live text deltas become Google
+step events. It streams text from the live frames and takes structure — tool
+calls, results, thought signatures, usage, the run's end — from the log, which
+is why a `thought` step and a `model_output` step can be open at once here and
+never are on Google's own stream: the thought signature is only known when the
+sub-turn commits. Also implements `tools.MCPProvider` for the two tool shapes
+a client may declare, `function` (called back over the pipe) and `mcp_server`
+(dialled by `internal/mcpclient` as any configured server is). It is not
+`internal/gemini`'s counterpart and the two never meet: that one speaks this
+vocabulary *to* Google, this one speaks it *to the parent process*, and
+`internal/session` between them knows about neither. Depends on:
+`internal/session`, `internal/store`, `internal/hub`, `internal/tools`,
+`internal/mcpclient`, `internal/provider`.
 
 ### `internal/attachment`
 Validates one image attachment a producer submitted — POST /api/runs, POST

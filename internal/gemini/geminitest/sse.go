@@ -16,10 +16,19 @@ import (
 
 // Step is one step of a stubbed stream: its type, the text deltas it emits,
 // and any thought_summary deltas.
+//
+// ID, Name and Arguments describe a function_call step: the opening frame
+// carries the call's id and the function's name with empty arguments, and
+// each Arguments entry is one arguments_delta the client must accumulate.
+// A step that leaves them unset serialises exactly as it did before they
+// existed, so every stream already recorded here is byte-for-byte unchanged.
 type Step struct {
 	Type      string
 	Texts     []string
 	Summaries []string
+	ID        string
+	Name      string
+	Arguments []string
 }
 
 // Answer is the common stub: one model_output step carrying text, with an
@@ -43,7 +52,12 @@ func Stream(steps []Step, usageJSON string) string {
 	frame("interaction.created", `{"interaction":{"id":"v1_test","status":"in_progress"},"event_type":"interaction.created"}`)
 	frame("interaction.status_update", `{"interaction_id":"v1_test","status":"in_progress","event_type":"interaction.status_update"}`)
 	for i, s := range steps {
-		frame("step.start", fmt.Sprintf(`{"index":%d,"step":{"type":%q},"event_type":"step.start"}`, i, s.Type))
+		if s.Name != "" {
+			frame("step.start", fmt.Sprintf(`{"index":%d,"step":{"type":%q,"id":%s,"name":%s,"arguments":{}},"event_type":"step.start"}`,
+				i, s.Type, quote(s.ID), quote(s.Name)))
+		} else {
+			frame("step.start", fmt.Sprintf(`{"index":%d,"step":{"type":%q},"event_type":"step.start"}`, i, s.Type))
+		}
 		if s.Type == "thought" {
 			frame("step.delta", fmt.Sprintf(`{"index":%d,"delta":{"signature":"sig","type":"thought_signature"},"event_type":"step.delta"}`, i))
 		}
@@ -52,6 +66,9 @@ func Stream(steps []Step, usageJSON string) string {
 		}
 		for _, text := range s.Texts {
 			frame("step.delta", fmt.Sprintf(`{"index":%d,"delta":{"text":%s,"type":"text"},"event_type":"step.delta"}`, i, quote(text)))
+		}
+		for _, args := range s.Arguments {
+			frame("step.delta", fmt.Sprintf(`{"index":%d,"delta":{"arguments":%s,"type":"arguments_delta"},"event_type":"step.delta"}`, i, quote(args)))
 		}
 		frame("step.stop", fmt.Sprintf(`{"index":%d,"event_type":"step.stop"}`, i))
 	}
