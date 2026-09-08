@@ -168,9 +168,15 @@ Result:
     "function_tools": true,
     "permission_modes": ["readonly", "full"]
   },
-  "models": ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"],
+  "models": ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"],
   "default_model": "gemini-3.7-flash",
   "model_details": [
+    {
+      "id": "gemini-3.8-flash",
+      "display_name": "Gemini 3.8 Flash",
+      "context_window_tokens": 1048576,
+      "thinking_levels": ["low", "medium", "high"]
+    },
     {
       "id": "gemini-3.7-flash",
       "display_name": "Gemini 3.7 Flash",
