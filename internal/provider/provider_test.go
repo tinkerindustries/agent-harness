@@ -12,6 +12,9 @@ func TestModelForResolvesKnownModels(t *testing.T) {
 		{"deepseek-v4-flash-vision-exp", DeepSeek},
 		{"kimi-k3", Kimi},
 		{"gemini-3.7-flash", Gemini},
+		{"gemini-3.6-flash", Gemini},
+		{"gemini-3.5-flash", Gemini},
+		{"gemini-3.5-flash-lite", Gemini},
 	}
 	for _, tc := range cases {
 		p, err := ModelFor(tc.model)
@@ -65,6 +68,9 @@ func TestSeesImages(t *testing.T) {
 		{"deepseek-v4-flash-vision-exp", true},
 		{"kimi-k3", true},
 		{"gemini-3.7-flash", true},
+		{"gemini-3.6-flash", true},
+		{"gemini-3.5-flash", true},
+		{"gemini-3.5-flash-lite", true},
 		{"not-a-real-model", false},
 	}
 	for _, tc := range cases {

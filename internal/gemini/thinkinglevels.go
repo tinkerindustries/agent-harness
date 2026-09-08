@@ -10,12 +10,11 @@ import "slices"
 // against the live API on 2026-09-08 (docs/OBSERVED.md) and matching
 // third_party/gemini-docs/thinking.md, "Levels Supported".
 //
-// The table covers every Gemini model this repository names — the one
-// internal/provider routes (gemini-3.7-flash) and the three more the price
-// table carries, which google.vision_model may be pointed at. A model absent
-// here is not refused: LevelsFor returns nil and the caller passes the level
-// through for the API to judge, because a table that has not been updated
-// for a new model must not be what stops it working.
+// The table covers every Gemini model this repository names — the four
+// internal/provider routes and google.vision_model may be pointed at. A
+// model absent here is not refused: LevelsFor returns nil and the caller
+// passes the level through for the API to judge, because a table that has
+// not been updated for a new model must not be what stops it working.
 var thinkingLevels = map[string][]string{
 	"gemini-3.7-flash":      {ThinkingLevelLow, ThinkingLevelMedium, ThinkingLevelHigh},
 	"gemini-3.6-flash":      {ThinkingLevelMinimal, ThinkingLevelLow, ThinkingLevelMedium, ThinkingLevelHigh},
