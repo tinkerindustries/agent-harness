@@ -79,7 +79,7 @@ Flags:
 | --- | --- | --- |
 | `-state-dir` | a per-process directory under the user cache dir | Where this session's SQLite state and transcript mirror live. A directory the parent names is kept; the default one is removed when the process exits. It is also what `harness.resume_session_id` reads: a parent that wants a session to survive this process names one. |
 | `-keep-state` | off | Keep the default state directory after exit, for reading a finished session's transcript. |
-| `-model` | `gemini-3.7-flash` | What a create body with no `model` runs on. |
+| `-model` | `gemini-3.7-flash` | What a create body with no `model` runs on. `initialize`'s `models` names every model this process accepts; see below. |
 | `-prices` | `configs/prices.json` | The price table behind the cost figure on `harness.usage`. A missing table costs the cost figure and nothing else. |
 | `-env` | unset | A `KEY=VALUE` file to take the API key from when the environment carries none. **Only `GEMINI_API_KEY` and `GOOGLE_API_KEY` are read out of it** — see below. A file that cannot be read is fatal. |
 
@@ -168,7 +168,7 @@ Result:
     "function_tools": true,
     "permission_modes": ["readonly", "full"]
   },
-  "models": ["gemini-3.7-flash"],
+  "models": ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"],
   "default_model": "gemini-3.7-flash",
   "model_details": [
     {
@@ -176,6 +176,24 @@ Result:
       "display_name": "Gemini 3.7 Flash",
       "context_window_tokens": 1048576,
       "thinking_levels": ["low", "medium", "high"]
+    },
+    {
+      "id": "gemini-3.6-flash",
+      "display_name": "Gemini 3.6 Flash",
+      "context_window_tokens": 1048576,
+      "thinking_levels": ["minimal", "low", "medium", "high"]
+    },
+    {
+      "id": "gemini-3.5-flash",
+      "display_name": "Gemini 3.5 Flash",
+      "context_window_tokens": 1048576,
+      "thinking_levels": ["minimal", "low", "medium", "high"]
+    },
+    {
+      "id": "gemini-3.5-flash-lite",
+      "display_name": "Gemini 3.5 Flash Lite",
+      "context_window_tokens": 1048576,
+      "thinking_levels": ["minimal", "low", "medium", "high"]
     }
   ]
 }
