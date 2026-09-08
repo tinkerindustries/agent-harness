@@ -31,7 +31,7 @@ import (
 // to match the tag (RELEASE.md, "What a release produces") — so feature work
 // leaves it alone, however much it changes the MCP surface. Hand-bumping it
 // here claims a release that does not exist and collides with the next one.
-const serverVersion = "0.48.0"
+const serverVersion = "0.49.0"
 
 // Publisher is the one-method seam through which deepseek_agent enqueues a
 // work request. It is implemented in cmd/harness/serve.go over the same

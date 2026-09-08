@@ -155,11 +155,25 @@ func geminiModels() []string {
 	return out
 }
 
-// buildVersion is what the handshake reports as this process's version.
-// Nothing in this repo stamps one at link time, so it comes from the module
-// build info, which is "(devel)" for a local build and the tag for one
-// installed from a release.
+// stampedVersion is set at link time with -ldflags "-X main.stampedVersion=vX.Y.Z"
+// and is empty in every build that does not pass it.
+//
+// A parent that packages this binary pins the exact version it expects the
+// handshake to report and refuses one that reports anything else, and no
+// build made from a source checkout can satisfy that on its own: Go stamps
+// debug.ReadBuildInfo().Main.Version from the module proxy, so `go build`
+// reports "(devel)" even from a clean tree at the exact tag, and `go install
+// path@version` reports a pseudo-version for any commit that is not itself
+// tagged. The release build passes the tag here.
+var stampedVersion string
+
+// buildVersion is what the handshake reports as this process's version: the
+// link-time stamp when a release build set one, otherwise the module build
+// info, which is "(devel)" for a local build.
 func buildVersion() string {
+	if stampedVersion != "" {
+		return stampedVersion
+	}
 	info, ok := debug.ReadBuildInfo()
 	if !ok || info.Main.Version == "" {
 		return "unknown"
