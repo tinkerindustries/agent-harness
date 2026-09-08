@@ -531,6 +531,32 @@ each of its tools is offered under; a name carrying one could not be read back
 out, and the read-only gate is decided from it. `host` is reserved. A server
 that fails to probe contributes no tools and does not fail the create.
 
+An `mcp_server` declaration may dial over stdio instead, for a server the
+parent has no loopback endpoint to stand up:
+
+```jsonc
+{"type": "mcp_server",
+ "name": "filesystem",
+ "command": "npx",
+ "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/you/Repos/thing"],
+ "env": {"NODE_ENV": "production"},
+ "harness": {"read_only": true}}
+```
+
+This process spawns `command` itself, exactly as an operator-configured
+stdio MCP server is spawned, and its tools join the session's array the same
+way an HTTP server's do. `url`/`headers` and `command`/`args`/`env` are
+mutually exclusive on one declaration: naming fields from both pairs, or
+neither, is `-32602`. `env` is a connection secret exactly as an HTTP
+server's `headers` are — kept in memory for the length of one dial and never
+written to this process's own database, so a `-state-dir` a parent keeps for
+resuming holds neither. A resuming create re-supplies it, the same way it
+re-supplies a bearer header, and the frozen-toolset check (see
+[Resuming across process restarts](#resuming-across-process-restarts))
+applies to a stdio server exactly as it does to an HTTP one: name, qualified
+tool names and schemas, and `read_only` must reproduce; `command`, `args` and
+`env` are connection metadata a resume re-supplies "good now."
+
 ### `function` — the parent answers over the pipe
 
 ```jsonc
@@ -647,11 +673,12 @@ session froze:
 Any of those failing is `-32006`, with the offending tool or server named.
 Changing a session's tools or its permissions means starting a new session.
 
-**Credentials in `headers` are never written to disk.** They stay in this
-process's memory and are put back on the connection for the length of each
-dial, so a `-state-dir` a parent keeps in order to resume holds no bearer
-token. They do have to be re-supplied on every resume, which is the same
-thing the URL requires and for the same reason.
+**Credentials in `headers` and stdio `env` are never written to disk.** They
+stay in this process's memory and are put back on the connection for the
+length of each dial, so a `-state-dir` a parent keeps in order to resume
+holds no bearer token and no stdio env value. They do have to be re-supplied
+on every resume, which is the same thing the URL or command requires and for
+the same reason.
 
 **A session an earlier process died holding is reclaimable.** The state
 directory belongs to one process at a time, so a row still marked running is a

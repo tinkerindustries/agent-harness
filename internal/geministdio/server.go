@@ -62,14 +62,21 @@ type Server struct {
 	order        []string
 	running      *interaction
 	shuttingDown bool
-	// headers holds the credentials a client's `mcp_server` tools carry,
-	// keyed by server name. They stay here and never reach the database:
-	// a bearer token for a loopback server the parent stood up has no
-	// business outliving this process, and a -state-dir the parent keeps for
-	// resuming would otherwise be a file of plaintext credentials. The row
-	// is written without them and mcpclient.Manager.Secrets puts them back
-	// for the length of one dial.
+	// headers holds the credentials a client's HTTP `mcp_server` tools
+	// carry, keyed by server name. They stay here and never reach the
+	// database: a bearer token for a loopback server the parent stood up
+	// has no business outliving this process, and a -state-dir the parent
+	// keeps for resuming would otherwise be a file of plaintext
+	// credentials. The row is written without them and
+	// mcpclient.Manager.Secrets puts them back for the length of one dial.
 	headers map[string]map[string]string
+	// env is the same thing for a stdio `mcp_server` tool's env map: a
+	// value the client supplied fresh on this create is a connection
+	// secret exactly as a bearer header is (docs/STDIO-PROTOCOL.md,
+	// "Credentials in headers are never written to disk"), so it is kept
+	// here rather than in the mcp_servers.env column internal/store
+	// persists for harness serve's own operator-configured servers.
+	env map[string]map[string]string
 }
 
 // interaction is one run, in the shape Google's Interaction resource
@@ -109,25 +116,31 @@ func newInteractionID() string {
 
 // NewServer wires a server onto r/w. Serve runs it.
 func NewServer(opts Options) *Server {
-	s := &Server{opts: opts, interactions: map[string]*interaction{}, headers: map[string]map[string]string{}}
+	s := &Server{
+		opts: opts, interactions: map[string]*interaction{},
+		headers: map[string]map[string]string{}, env: map[string]map[string]string{},
+	}
 	if opts.MCP != nil {
 		opts.MCP.Secrets = s.dialSecrets
 	}
 	return s
 }
 
-// dialSecrets puts a declared server's headers back on the row for the
-// length of one dial. A server this process never saw declared is returned
-// unchanged, which for the stdio surface means it is dialled with whatever
-// the row holds — nothing.
+// dialSecrets puts a declared server's headers or stdio env back on the row
+// for the length of one dial. A server this process never saw declared is
+// returned unchanged, which means it is dialled with whatever the row holds
+// on its own — nothing, for either kind of secret.
 func (s *Server) dialSecrets(srv store.MCPServer) store.MCPServer {
 	s.mu.Lock()
 	h := s.headers[srv.Name]
+	e := s.env[srv.Name]
 	s.mu.Unlock()
-	if len(h) == 0 {
-		return srv
+	if len(h) > 0 {
+		srv.Headers = h
 	}
-	srv.Headers = h
+	if len(e) > 0 {
+		srv.Env = e
+	}
 	return srv
 }
 
@@ -824,28 +837,64 @@ func (s *Server) buildTools(ctx context.Context, decls []Tool) (*hostTools, *rpc
 // from (docs/MCP.md, "Resolution happens once per run"). A server that fails
 // to probe contributes no tools and does not fail the create: the same
 // tolerance an operator-configured server gets.
+//
+// A declaration dials over HTTP (url, optionally headers) or over stdio
+// (command, optionally args and env) — internal/mcpclient's dialer already
+// speaks both (dial.go), so this is only the wire-level translation into the
+// store.MCPServer row the dialer reads. Naming both pairs, or neither, is
+// refused before anything is written or dialled.
 func (s *Server) registerServers(ctx context.Context, servers []Tool, names map[string]bool) error {
 	for _, t := range servers {
-		if t.Name == "" || t.URL == "" {
-			return fmt.Errorf("an mcp_server tool needs a name and a url")
+		if t.Name == "" {
+			return fmt.Errorf("an mcp_server tool needs a name")
 		}
 		if t.Name == HostServerName {
 			return fmt.Errorf("%q is reserved", HostServerName)
 		}
-		// Headers are deliberately absent from the row: they are the one
-		// part of a declaration that is a credential, and this process
-		// keeps them in memory (Server.headers) so a state directory the
-		// parent keeps holds none.
-		row := store.MCPServer{
-			Name: t.Name, Transport: store.MCPTransportHTTP,
-			URL: t.URL, Enabled: true,
-			AllowReadOnly: t.Harness != nil && t.Harness.ReadOnly,
+		hasHTTP := t.URL != "" || len(t.Headers) > 0
+		hasStdio := t.Command != "" || len(t.Args) > 0 || len(t.Env) > 0
+		if hasHTTP && hasStdio {
+			return fmt.Errorf("mcp_server %q names both url/headers and command/args/env; a server dials over exactly one transport", t.Name)
 		}
+		if !hasHTTP && !hasStdio {
+			return fmt.Errorf("mcp_server %q needs a url (to dial it over http) or a command (to dial it over stdio)", t.Name)
+		}
+
+		var row store.MCPServer
+		switch {
+		case hasHTTP:
+			if t.URL == "" {
+				return fmt.Errorf("mcp_server %q sets headers but no url", t.Name)
+			}
+			row = store.MCPServer{
+				Name: t.Name, Transport: store.MCPTransportHTTP,
+				URL: t.URL, Enabled: true,
+				AllowReadOnly: t.Harness != nil && t.Harness.ReadOnly,
+			}
+		default:
+			if t.Command == "" {
+				return fmt.Errorf("mcp_server %q sets args or env but no command", t.Name)
+			}
+			row = store.MCPServer{
+				Name: t.Name, Transport: store.MCPTransportStdio,
+				Command: t.Command, Args: t.Args, Enabled: true,
+				AllowReadOnly: t.Harness != nil && t.Harness.ReadOnly,
+			}
+		}
+		// Headers and stdio env are deliberately absent from the row: they
+		// are the one part of a declaration that is a credential, and this
+		// process keeps them in memory (Server.headers, Server.env) so a
+		// state directory the parent keeps holds neither.
 		s.mu.Lock()
 		if len(t.Headers) > 0 {
 			s.headers[t.Name] = t.Headers
 		} else {
 			delete(s.headers, t.Name)
+		}
+		if len(t.Env) > 0 {
+			s.env[t.Name] = t.Env
+		} else {
+			delete(s.env, t.Name)
 		}
 		s.mu.Unlock()
 		if _, err := s.opts.Store.GetMCPServer(ctx, t.Name); err == nil {

@@ -241,9 +241,16 @@ type Tool struct {
 	Parameters  json.RawMessage `json:"parameters,omitempty"`
 
 	// McpServer fields. Name is shared with the function member, which is
-	// what Google's own schema does.
+	// what Google's own schema does. URL/Headers dial an HTTP server;
+	// Command/Args/Env dial one over stdio (internal/mcpclient's
+	// store.MCPTransportStdio dialer, already used for harness serve's own
+	// operator-configured servers). The two pairs are mutually exclusive: a
+	// declaration naming both, or neither, is refused.
 	URL          string            `json:"url,omitempty"`
 	Headers      map[string]string `json:"headers,omitempty"`
+	Command      string            `json:"command,omitempty"`
+	Args         []string          `json:"args,omitempty"`
+	Env          map[string]string `json:"env,omitempty"`
 	AllowedTools []AllowedTools    `json:"allowed_tools,omitempty"`
 
 	Harness *ToolHarness `json:"harness,omitempty"`
