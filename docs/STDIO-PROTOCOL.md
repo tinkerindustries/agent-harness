@@ -18,6 +18,12 @@ place the two differ.
 This document is the contract. A client is built from it and never needs to
 read Go.
 
+Turret's own cross-repository design (`docs/design/gemini-agent-harness.md` in
+`desktop-coding-client`) pins the revision this document and the wire agree on
+as of the additions below: `c039c0b4d7bea9f657e09b80d38af833f00c3182`
+(`v0.48.0-10-gc039c0b`). `model_details` and stdio `mcp_server` support landed
+on top of that revision; a client built against this document handles both.
+
 ## Contents
 
 - [Starting the process](#starting-the-process)
@@ -51,7 +57,13 @@ with:
 | `GOOGLE_API_KEY` | The same thing under the name Google's own SDKs read. Used when `GEMINI_API_KEY` is unset. |
 
 There is no settings store here and no screen to type a key into, so a hosted
-session's credentials are the host's to supply. **When neither is set**,
+session's credentials are the host's to supply. The key reaches this
+process's own Google API client directly and is never written to the state
+directory's own settings table, and it is stripped from the environment
+`Bash` and a stdio `mcp_server` child inherit — both would otherwise get the
+whole of this process's own environment, key included, as "the parent's
+environment" the next paragraph describes for `Bash`. **When neither is
+set**,
 `initialize` still succeeds — a parent can start the process and query its
 capabilities without a key — and the first `interactions.create` fails with
 `-32003` and a message naming both variables. Nothing is attempted against
@@ -158,19 +170,39 @@ Result:
   },
   "models": ["gemini-3.7-flash"],
   "default_model": "gemini-3.7-flash",
-  "thinking_levels": {"gemini-3.7-flash": ["low", "medium", "high"]}
+  "model_details": [
+    {
+      "id": "gemini-3.7-flash",
+      "display_name": "Gemini 3.7 Flash",
+      "context_window_tokens": 1048576,
+      "thinking_levels": ["low", "medium", "high"]
+    }
+  ]
 }
 ```
 
 `mcp_servers` is false when the process was started without an MCP client; an
 `mcp_server` tool is then refused rather than ignored.
 
-`thinking_levels` says what `generation_config.thinking_level` may be **for
-each model**, because the answer differs between them: `gemini-3.7-flash`
-rejects `minimal` and its siblings accept it. Keyed by a name in `models`; a
-model absent from the map is unconstrained by this process. A create naming a
-level its model refuses is answered `-32602` before the run starts, rather
-than reaching Google and failing the interaction mid-stream.
+`model_details` is one array, ordered however `models` is, one entry per
+model this process accepts — never a parallel map a client has to reconcile
+against `models` by name. `server_info.protocol` and `server_info.version`
+remain the only two compatibility fields; `model_details` carries capability
+data, not a version.
+
+- `id` matches an entry in `models`.
+- `display_name` is a human-readable name, when this process has one to
+  offer; a client falls back to `id` when it is absent.
+- `context_window_tokens` is the model's total input token budget. A client
+  computing a context percentage divides the latest sub-turn's input tokens
+  by this figure, never the cumulative interaction total.
+- `thinking_levels` says what `generation_config.thinking_level` may be **for
+  this model**, because the answer differs between models:
+  `gemini-3.7-flash` rejects `minimal` and its siblings accept it. Empty when
+  this process has no table for the model, in which case any level reaches
+  the API for it to judge. A create naming a level its model refuses is
+  answered `-32602` before the run starts, rather than reaching Google and
+  failing the interaction mid-stream.
 
 ### `initialized` (notification)
 
@@ -505,6 +537,32 @@ each of its tools is offered under; a name carrying one could not be read back
 out, and the read-only gate is decided from it. `host` is reserved. A server
 that fails to probe contributes no tools and does not fail the create.
 
+An `mcp_server` declaration may dial over stdio instead, for a server the
+parent has no loopback endpoint to stand up:
+
+```jsonc
+{"type": "mcp_server",
+ "name": "filesystem",
+ "command": "npx",
+ "args": ["-y", "@modelcontextprotocol/server-filesystem", "/Users/you/Repos/thing"],
+ "env": {"NODE_ENV": "production"},
+ "harness": {"read_only": true}}
+```
+
+This process spawns `command` itself, exactly as an operator-configured
+stdio MCP server is spawned, and its tools join the session's array the same
+way an HTTP server's do. `url`/`headers` and `command`/`args`/`env` are
+mutually exclusive on one declaration: naming fields from both pairs, or
+neither, is `-32602`. `env` is a connection secret exactly as an HTTP
+server's `headers` are — kept in memory for the length of one dial and never
+written to this process's own database, so a `-state-dir` a parent keeps for
+resuming holds neither. A resuming create re-supplies it, the same way it
+re-supplies a bearer header, and the frozen-toolset check (see
+[Resuming across process restarts](#resuming-across-process-restarts))
+applies to a stdio server exactly as it does to an HTTP one: name, qualified
+tool names and schemas, and `read_only` must reproduce; `command`, `args` and
+`env` are connection metadata a resume re-supplies "good now."
+
 ### `function` — the parent answers over the pipe
 
 ```jsonc
@@ -621,11 +679,12 @@ session froze:
 Any of those failing is `-32006`, with the offending tool or server named.
 Changing a session's tools or its permissions means starting a new session.
 
-**Credentials in `headers` are never written to disk.** They stay in this
-process's memory and are put back on the connection for the length of each
-dial, so a `-state-dir` a parent keeps in order to resume holds no bearer
-token. They do have to be re-supplied on every resume, which is the same
-thing the URL requires and for the same reason.
+**Credentials in `headers` and stdio `env` are never written to disk.** They
+stay in this process's memory and are put back on the connection for the
+length of each dial, so a `-state-dir` a parent keeps in order to resume
+holds no bearer token and no stdio env value. They do have to be re-supplied
+on every resume, which is the same thing the URL or command requires and for
+the same reason.
 
 **A session an earlier process died holding is reclaimable.** The state
 directory belongs to one process at a time, so a row still marked running is a
@@ -667,10 +726,12 @@ others' marking. A parent that wants its read-only tools usable in a
 anyway.
 
 Note what `full` means here: the session runs `Bash` as this process's own
-user, in the parent's own working directory, with the parent's environment.
-There is no sandbox. Deciding whether a given session gets `full` is the
-parent's, and the mode is the whole of what this protocol gives it to decide
-with.
+user, in the parent's own working directory, with the parent's environment —
+**minus `GEMINI_API_KEY` and `GOOGLE_API_KEY`**, the one exception, stripped
+in both modes for the reason [Starting the process](#starting-the-process)
+gives. There is no sandbox otherwise. Deciding whether a given session gets
+`full` is the parent's, and the mode is the whole of what this protocol
+gives it to decide with.
 
 ## Errors
 

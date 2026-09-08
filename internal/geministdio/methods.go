@@ -63,12 +63,36 @@ type InitializeResult struct {
 	Models []string `json:"models"`
 	// DefaultModel is what a create body with no `model` gets.
 	DefaultModel string `json:"default_model"`
-	// ThinkingLevels is what generation_config.thinking_level may be, per
-	// model, because the answer differs between them: gemini-3.7-flash
-	// refuses "minimal" and its siblings accept it. Keyed by a name in
-	// Models. A model missing from the map takes any level — the process
-	// has no table for it and lets the API judge.
-	ThinkingLevels map[string][]string `json:"thinking_levels,omitempty"`
+	// ModelDetails carries the per-model capability data a bare id list
+	// cannot: how large a context window each model accepts and which
+	// generation_config.thinking_level values it honours, so a client never
+	// has to learn either from a failed create. One entry per name in
+	// Models, in the same order — never a parallel map a client has to
+	// reconcile against it by name. server_info.protocol and
+	// server_info.version remain the only two compatibility fields; this
+	// carries capability data, not a version.
+	ModelDetails []ModelDetail `json:"model_details,omitempty"`
+}
+
+// ModelDetail is one model's entry in InitializeResult.ModelDetails.
+type ModelDetail struct {
+	ID string `json:"id"`
+	// DisplayName is a human-readable name for the model, when
+	// internal/gemini has one to offer; omitted for a model this process
+	// accepts but cannot describe further.
+	DisplayName string `json:"display_name,omitempty"`
+	// ContextWindowTokens is the model's total input token budget, so a
+	// client can compute a context percentage without hardcoding a figure
+	// that drifts as Google's own limits change. Zero, and omitted, for a
+	// model this process has no figure for.
+	ContextWindowTokens int `json:"context_window_tokens,omitempty"`
+	// ThinkingLevels is what generation_config.thinking_level may be for
+	// this model, because the answer differs between them:
+	// gemini-3.7-flash refuses "minimal" and its siblings accept it. Empty
+	// when this process has no table for the model, in which case a create
+	// naming any level reaches the API for it to judge rather than being
+	// refused here.
+	ThinkingLevels []string `json:"thinking_levels,omitempty"`
 }
 
 // ServerInfo names this process.
@@ -217,9 +241,16 @@ type Tool struct {
 	Parameters  json.RawMessage `json:"parameters,omitempty"`
 
 	// McpServer fields. Name is shared with the function member, which is
-	// what Google's own schema does.
+	// what Google's own schema does. URL/Headers dial an HTTP server;
+	// Command/Args/Env dial one over stdio (internal/mcpclient's
+	// store.MCPTransportStdio dialer, already used for harness serve's own
+	// operator-configured servers). The two pairs are mutually exclusive: a
+	// declaration naming both, or neither, is refused.
 	URL          string            `json:"url,omitempty"`
 	Headers      map[string]string `json:"headers,omitempty"`
+	Command      string            `json:"command,omitempty"`
+	Args         []string          `json:"args,omitempty"`
+	Env          map[string]string `json:"env,omitempty"`
 	AllowedTools []AllowedTools    `json:"allowed_tools,omitempty"`
 
 	Harness *ToolHarness `json:"harness,omitempty"`

@@ -78,7 +78,7 @@ func main() {
 	// spawned it with. It also writes nothing but protocol frames to stdout,
 	// and the .env warning below would be one more thing that could.
 	if os.Args[1] == "gemini-session" {
-		if err := runGeminiSession(ctx, os.Args[2:]); err != nil {
+		if err := runGeminiSession(ctx, os.Args[2:], os.Stdin, os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, "harness gemini-session: "+err.Error())
 			os.Exit(1)
 		}

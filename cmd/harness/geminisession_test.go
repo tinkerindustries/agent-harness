@@ -1,10 +1,17 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/mrgeoffrich/agent-harness/internal/settings"
+	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
 // writeEnvFile writes a KEY=VALUE file and returns its path.
@@ -103,6 +110,49 @@ func TestGeminiAPIKeyEnvFileWithoutAKeyIsEmpty(t *testing.T) {
 	}
 	if key != "" {
 		t.Errorf("key = %q, want empty", key)
+	}
+}
+
+// TestHostedSessionNeverWritesTheKeyToSettings pins design §4.1/§6.4: the
+// key this process is handed reaches the Gemini API client without ever
+// becoming a row in the state directory's own settings table. stdin is
+// already at EOF, so the session starts, sees no interaction, and exits
+// cleanly on its own — the same shape as a parent that opened and
+// immediately closed the pipe (docs/STDIO-PROTOCOL.md, "the parent exits").
+func TestHostedSessionNeverWritesTheKeyToSettings(t *testing.T) {
+	clearKeyEnv(t)
+	t.Setenv("GEMINI_API_KEY", "AI-should-not-be-stored")
+	dir := t.TempDir()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := runGeminiSession(ctx, []string{"-state-dir", dir}, strings.NewReader(""), io.Discard); err != nil {
+		t.Fatalf("runGeminiSession: %v", err)
+	}
+
+	st, err := store.Open(filepath.Join(dir, "session.db"))
+	if err != nil {
+		t.Fatalf("open the state directory's database: %v", err)
+	}
+	defer st.Close()
+
+	res := settings.NewResolver(st)
+	key, err := res.GoogleAPIKey(context.Background())
+	if err != nil {
+		t.Fatalf("GoogleAPIKey: %v", err)
+	}
+	if key != "" {
+		t.Errorf("the settings table holds a Google key: %q", key)
+	}
+
+	// Every byte of the database, not just the column this reads: a key
+	// that leaked into any row would still be on disk.
+	db, err := os.ReadFile(filepath.Join(dir, "session.db"))
+	if err != nil {
+		t.Fatalf("read the database: %v", err)
+	}
+	if bytes.Contains(db, []byte("AI-should-not-be-stored")) {
+		t.Error("the API key is on disk in the state directory")
 	}
 }
 

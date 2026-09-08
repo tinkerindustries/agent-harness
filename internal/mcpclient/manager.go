@@ -76,6 +76,18 @@ type Manager struct {
 	// the transport still exercises the real client.
 	Dial func(ctx context.Context, srv store.MCPServer) (mcpsdk.Transport, error)
 
+	// EnvFilter, when set, is applied to this process's own environment
+	// before a stdio server's command is spawned, in place of the
+	// unfiltered os.Environ() the dialer would otherwise start from
+	// (dial.go, defaultDial). It exists for `harness gemini-session`: a
+	// hosted session's parent supplies GEMINI_API_KEY (or GOOGLE_API_KEY)
+	// only so this process's own API client can reach Google, and a stdio
+	// MCP child dialled from inside that session has no business seeing it
+	// (docs/STDIO-PROTOCOL.md, "Trust boundaries"). `harness serve`, whose
+	// operator-configured servers have no equivalent parent secret to
+	// protect, leaves this nil and keeps today's unfiltered behaviour.
+	EnvFilter func(base []string) []string
+
 	// Secrets, when set, is handed each server row on its way to a dial and
 	// returns the row to dial with. It exists so a caller can keep a
 	// credential out of the database: the row is stored without it, this
@@ -421,7 +433,7 @@ func (m *Manager) dial(ctx context.Context, srv store.MCPServer) (*cachedConn, e
 	}
 	dial := m.Dial
 	if dial == nil {
-		dial = defaultDial
+		dial = m.defaultDial
 	}
 	if m.Secrets != nil {
 		srv = m.Secrets(srv)

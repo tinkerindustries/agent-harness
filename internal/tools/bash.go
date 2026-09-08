@@ -50,9 +50,17 @@ func execBash(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 	// ambient credentials internal/githubauth sets reach git and gh. Env is
 	// only built explicitly when something has extra variables to add — a
 	// GitHub App installation token for gh, minted for this session's own
-	// repositories — and it then starts from the same os.Environ() the nil
-	// case would have inherited, so nothing is lost by taking this branch.
-	if e.ExtraEnv != nil {
+	// repositories — or when EnvFilter must run before anything is
+	// inherited at all; both branches start from the same os.Environ() the
+	// nil case would have inherited, so nothing is lost by taking either.
+	switch {
+	case e.EnvFilter != nil:
+		base := e.EnvFilter(os.Environ())
+		if e.ExtraEnv != nil {
+			base = append(base, e.ExtraEnv(ctx, e.Workspace)...)
+		}
+		cmd.Env = base
+	case e.ExtraEnv != nil:
 		if extra := e.ExtraEnv(ctx, e.Workspace); len(extra) > 0 {
 			cmd.Env = append(os.Environ(), extra...)
 		}

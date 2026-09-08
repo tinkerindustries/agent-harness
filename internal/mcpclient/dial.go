@@ -45,15 +45,16 @@ const dialTimeout = 3 * time.Minute
 // (manager.go, connect). The split is what lets a test swap in an
 // in-memory transport and still exercise every handler the real client
 // carries, rather than a client the test built itself with none of them.
-func defaultDial(ctx context.Context, srv store.MCPServer) (mcpsdk.Transport, error) {
+//
+// It is a method, not a package function, so a stdio dial can read
+// m.EnvFilter: the one place this process's own environment — carrying a
+// hosted session's GEMINI_API_KEY, for the parent that spawned it — becomes
+// a spawned child's environment too.
+func (m *Manager) defaultDial(ctx context.Context, srv store.MCPServer) (mcpsdk.Transport, error) {
 	switch srv.Transport {
 	case store.MCPTransportStdio:
 		cmd := exec.CommandContext(ctx, srv.Command, srv.Args...)
-		// Appended to, not replacing, the harness's own environment: a
-		// server launched as `uvx` or `npx` needs PATH and HOME to find its
-		// runtime and its own cache, not just the handful of variables the
-		// operator configured for it.
-		cmd.Env = append(os.Environ(), envPairs(srv.Env)...)
+		cmd.Env = stdioChildEnv(m.EnvFilter, srv.Env)
 		cmd.Stderr = &stderrLogger{server: srv.Name}
 		return &mcpsdk.CommandTransport{Command: cmd}, nil
 
@@ -81,6 +82,24 @@ func envPairs(env map[string]string) []string {
 		pairs = append(pairs, k+"="+v)
 	}
 	return pairs
+}
+
+// stdioChildEnv builds a stdio server's spawned environment: filter applied
+// to this process's own environment (nil leaves it unfiltered, today's
+// behaviour for harness serve), with the server's own configured variables
+// appended on top. A server launched as `uvx` or `npx` still gets PATH and
+// HOME from the base — filtering removes named variables, it does not
+// replace the base with just what the operator configured.
+//
+// A pure function of its inputs rather than a Manager method so a test can
+// pin the filtering rule directly, without spawning a process that would
+// also have to speak MCP to be dialled.
+func stdioChildEnv(filter func([]string) []string, serverEnv map[string]string) []string {
+	base := os.Environ()
+	if filter != nil {
+		base = filter(base)
+	}
+	return append(base, envPairs(serverEnv)...)
 }
 
 // headerRoundTripper adds a server's configured HTTP headers to every
