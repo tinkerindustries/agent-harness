@@ -18,6 +18,12 @@ place the two differ.
 This document is the contract. A client is built from it and never needs to
 read Go.
 
+Turret's own cross-repository design (`docs/design/gemini-agent-harness.md` in
+`desktop-coding-client`) pins the revision this document and the wire agree on
+as of the additions below: `c039c0b4d7bea9f657e09b80d38af833f00c3182`
+(`v0.48.0-10-gc039c0b`). `model_details` and stdio `mcp_server` support landed
+on top of that revision; a client built against this document handles both.
+
 ## Contents
 
 - [Starting the process](#starting-the-process)
@@ -158,19 +164,39 @@ Result:
   },
   "models": ["gemini-3.7-flash"],
   "default_model": "gemini-3.7-flash",
-  "thinking_levels": {"gemini-3.7-flash": ["low", "medium", "high"]}
+  "model_details": [
+    {
+      "id": "gemini-3.7-flash",
+      "display_name": "Gemini 3.7 Flash",
+      "context_window_tokens": 1048576,
+      "thinking_levels": ["low", "medium", "high"]
+    }
+  ]
 }
 ```
 
 `mcp_servers` is false when the process was started without an MCP client; an
 `mcp_server` tool is then refused rather than ignored.
 
-`thinking_levels` says what `generation_config.thinking_level` may be **for
-each model**, because the answer differs between them: `gemini-3.7-flash`
-rejects `minimal` and its siblings accept it. Keyed by a name in `models`; a
-model absent from the map is unconstrained by this process. A create naming a
-level its model refuses is answered `-32602` before the run starts, rather
-than reaching Google and failing the interaction mid-stream.
+`model_details` is one array, ordered however `models` is, one entry per
+model this process accepts — never a parallel map a client has to reconcile
+against `models` by name. `server_info.protocol` and `server_info.version`
+remain the only two compatibility fields; `model_details` carries capability
+data, not a version.
+
+- `id` matches an entry in `models`.
+- `display_name` is a human-readable name, when this process has one to
+  offer; a client falls back to `id` when it is absent.
+- `context_window_tokens` is the model's total input token budget. A client
+  computing a context percentage divides the latest sub-turn's input tokens
+  by this figure, never the cumulative interaction total.
+- `thinking_levels` says what `generation_config.thinking_level` may be **for
+  this model**, because the answer differs between models:
+  `gemini-3.7-flash` rejects `minimal` and its siblings accept it. Empty when
+  this process has no table for the model, in which case any level reaches
+  the API for it to judge. A create naming a level its model refuses is
+  answered `-32602` before the run starts, rather than reaching Google and
+  failing the interaction mid-stream.
 
 ### `initialized` (notification)
 

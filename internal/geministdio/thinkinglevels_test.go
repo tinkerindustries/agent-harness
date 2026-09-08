@@ -15,20 +15,33 @@ func TestHandshakeAdvertisesThinkingLevels(t *testing.T) {
 	f := newFixture(t, answer("hello"))
 	res := f.client.handshake(ClientCapabilities{})
 
-	levels, ok := res.ThinkingLevels[testModel]
-	if !ok {
-		t.Fatalf("thinking_levels has no entry for %s: %v", testModel, res.ThinkingLevels)
+	var detail ModelDetail
+	found := false
+	for _, d := range res.ModelDetails {
+		if d.ID == testModel {
+			detail, found = d, true
+			break
+		}
 	}
-	if slices.Contains(levels, gemini.ThinkingLevelMinimal) {
-		t.Errorf("%s levels = %v, must not offer minimal", testModel, levels)
+	if !found {
+		t.Fatalf("model_details has no entry for %s: %v", testModel, res.ModelDetails)
 	}
-	if !slices.Contains(levels, gemini.ThinkingLevelHigh) {
-		t.Errorf("%s levels = %v, want high in it", testModel, levels)
+	if slices.Contains(detail.ThinkingLevels, gemini.ThinkingLevelMinimal) {
+		t.Errorf("%s levels = %v, must not offer minimal", testModel, detail.ThinkingLevels)
 	}
-	// Only models this process accepts are described.
-	for model := range res.ThinkingLevels {
-		if !slices.Contains(res.Models, model) {
-			t.Errorf("thinking_levels describes %q, which is not in models %v", model, res.Models)
+	if !slices.Contains(detail.ThinkingLevels, gemini.ThinkingLevelHigh) {
+		t.Errorf("%s levels = %v, want high in it", testModel, detail.ThinkingLevels)
+	}
+	if detail.ContextWindowTokens <= 0 {
+		t.Errorf("%s context_window_tokens = %d, want a positive figure", testModel, detail.ContextWindowTokens)
+	}
+	// One entry per name in Models, same order, nothing extra.
+	if len(res.ModelDetails) != len(res.Models) {
+		t.Fatalf("model_details has %d entries, models has %d", len(res.ModelDetails), len(res.Models))
+	}
+	for i, m := range res.Models {
+		if res.ModelDetails[i].ID != m {
+			t.Errorf("model_details[%d].id = %q, want %q (models order)", i, res.ModelDetails[i].ID, m)
 		}
 	}
 }

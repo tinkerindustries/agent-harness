@@ -256,25 +256,26 @@ func (s *Server) initialize(params json.RawMessage) (any, *rpcError) {
 			FunctionTools:       true,
 			PermissionModes:     []string{string(tools.ModeReadOnly), string(tools.ModeFull)},
 		},
-		Models:         s.opts.Models,
-		DefaultModel:   s.opts.DefaultModel,
-		ThinkingLevels: thinkingLevels(s.opts.Models),
+		Models:       s.opts.Models,
+		DefaultModel: s.opts.DefaultModel,
+		ModelDetails: modelDetails(s.opts.Models),
 	}, nil
 }
 
-// thinkingLevels is the per-model level map the handshake advertises, for
-// the models this process accepts. A model internal/gemini has no table for
-// is left out rather than guessed at, which is the same thing its absence
-// means to a client: nothing here constrains it.
-func thinkingLevels(models []string) map[string][]string {
-	out := make(map[string][]string, len(models))
+// modelDetails is the per-model capability array the handshake advertises,
+// one entry per model this process accepts, in the same order. A field
+// internal/gemini has no table entry for comes back zero/empty on that
+// model's entry rather than being guessed at, which is the same thing its
+// absence means to a client: nothing here constrains it.
+func modelDetails(models []string) []ModelDetail {
+	out := make([]ModelDetail, 0, len(models))
 	for _, m := range models {
-		if levels := gemini.LevelsFor(m); levels != nil {
-			out[m] = levels
-		}
-	}
-	if len(out) == 0 {
-		return nil
+		out = append(out, ModelDetail{
+			ID:                  m,
+			DisplayName:         gemini.DisplayName(m),
+			ContextWindowTokens: gemini.ContextWindowTokens(m),
+			ThinkingLevels:      gemini.LevelsFor(m),
+		})
 	}
 	return out
 }
