@@ -8,14 +8,19 @@ import "slices"
 // model: gemini-3.7-flash rejects "minimal" with a 400 naming the three it
 // takes, while gemini-3.6-flash and 3.5-flash-lite accept all four. Measured
 // against the live API on 2026-09-08 (docs/OBSERVED.md) and matching
-// third_party/gemini-docs/thinking.md, "Levels Supported".
+// third_party/gemini-docs/thinking.md, "Levels Supported". gemini-3.8-flash
+// (released after that measurement) matches 3.7's shape — low/medium/high,
+// no minimal — per ai.google.dev/gemini-api/docs/thinking's own "Controlling
+// thinking" table, read 2026-09-08; unlike the other four entries here it is
+// not yet confirmed against a live 400.
 //
-// The table covers every Gemini model this repository names — the four
+// The table covers every Gemini model this repository names — the five
 // internal/provider routes and google.vision_model may be pointed at. A
 // model absent here is not refused: LevelsFor returns nil and the caller
 // passes the level through for the API to judge, because a table that has
 // not been updated for a new model must not be what stops it working.
 var thinkingLevels = map[string][]string{
+	"gemini-3.8-flash":      {ThinkingLevelLow, ThinkingLevelMedium, ThinkingLevelHigh},
 	"gemini-3.7-flash":      {ThinkingLevelLow, ThinkingLevelMedium, ThinkingLevelHigh},
 	"gemini-3.6-flash":      {ThinkingLevelMinimal, ThinkingLevelLow, ThinkingLevelMedium, ThinkingLevelHigh},
 	"gemini-3.5-flash":      {ThinkingLevelMinimal, ThinkingLevelLow, ThinkingLevelMedium, ThinkingLevelHigh},
@@ -52,6 +57,7 @@ func LevelSupported(model, level string) bool {
 // figure today; a model added later without an entry here reports zero,
 // which InitializeResult.ModelDetails then omits rather than guesses at.
 var contextWindowTokens = map[string]int{
+	"gemini-3.8-flash":      1048576,
 	"gemini-3.7-flash":      1048576,
 	"gemini-3.6-flash":      1048576,
 	"gemini-3.5-flash":      1048576,
@@ -62,6 +68,7 @@ var contextWindowTokens = map[string]int{
 // `models.get` response's displayName field. A model absent here has none:
 // callers fall back to the bare id rather than inventing one.
 var displayNames = map[string]string{
+	"gemini-3.8-flash":      "Gemini 3.8 Flash",
 	"gemini-3.7-flash":      "Gemini 3.7 Flash",
 	"gemini-3.6-flash":      "Gemini 3.6 Flash",
 	"gemini-3.5-flash":      "Gemini 3.5 Flash",

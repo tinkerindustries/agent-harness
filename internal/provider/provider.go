@@ -23,12 +23,12 @@ const (
 	DeepSeek Name = "deepseek"
 	// Kimi is Moonshot AI's platform, serving kimi-k3 (third_party/kimi-docs/).
 	Kimi Name = "kimi"
-	// Gemini is Google's Gemini API, serving gemini-3.7-flash, gemini-3.6-flash,
-	// gemini-3.5-flash and gemini-3.5-flash-lite through the Interactions
-	// surface (docs/GEMINI-INTEGRATION.md). internal/gemini also serves the
-	// vision tools (Glance, Ground, Detect) on this same provider, but that
-	// path is called directly (session.Runner.Gemini) rather than through this
-	// table — this entry is only for the agentic coding seam.
+	// Gemini is Google's Gemini API, serving gemini-3.8-flash, gemini-3.7-flash,
+	// gemini-3.6-flash, gemini-3.5-flash and gemini-3.5-flash-lite through the
+	// Interactions surface (docs/GEMINI-INTEGRATION.md). internal/gemini also
+	// serves the vision tools (Glance, Ground, Detect) on this same provider,
+	// but that path is called directly (session.Runner.Gemini) rather than
+	// through this table — this entry is only for the agentic coding seam.
 	Gemini Name = "gemini"
 )
 
@@ -41,6 +41,7 @@ var models = map[string]Name{
 	"deepseek-v4-flash":            DeepSeek,
 	"deepseek-v4-flash-vision-exp": DeepSeek,
 	"kimi-k3":                      Kimi,
+	"gemini-3.8-flash":             Gemini,
 	"gemini-3.7-flash":             Gemini,
 	"gemini-3.6-flash":             Gemini,
 	"gemini-3.5-flash":             Gemini,
@@ -96,11 +97,16 @@ func KnownModels() []string {
 // uniformly across "text / image / video / audio" — the same undifferentiated
 // per-modality pricing 3.7-flash itself carries — with nothing in the mirror
 // suggesting the 3.5/3.6 generation dropped image input that the 3.7 one has.
+// gemini-3.8-flash is set true on firmer ground: it postdates that mirror
+// (released after 2026-08-21), but its own live page at
+// ai.google.dev/gemini-api/docs/models/gemini-3.8-flash states its input
+// types outright — "Text, Image, Video, Audio, and PDF" — read 2026-09-08.
 var visionCapable = map[string]bool{
 	"deepseek-v4-pro":              false,
 	"deepseek-v4-flash":            false,
 	"deepseek-v4-flash-vision-exp": true,
 	"kimi-k3":                      true,
+	"gemini-3.8-flash":             true,
 	"gemini-3.7-flash":             true,
 	"gemini-3.6-flash":             true,
 	"gemini-3.5-flash":             true,
