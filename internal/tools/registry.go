@@ -258,6 +258,19 @@ type Executor struct {
 	// unchanged, exactly as it always has.
 	ExtraEnv func(ctx context.Context, workspace string) []string
 
+	// EnvFilter, when set, is applied to this process's own environment
+	// before a Bash call's subprocess inherits it, in place of the
+	// unfiltered os.Environ() a nil cmd.Env means. It exists for
+	// `harness gemini-session`: a hosted session's parent supplies
+	// GEMINI_API_KEY (or GOOGLE_API_KEY) only so this process's own API
+	// client can reach Google, and a Bash call running "as this process's
+	// own user, with the parent's environment" (docs/STDIO-PROTOCOL.md,
+	// "Permissions") has no business seeing it. Nil is every other caller —
+	// `harness serve`'s operator-configured sessions among them — and a
+	// Bash call then inherits this process's environment unchanged, exactly
+	// as it always has.
+	EnvFilter func(base []string) []string
+
 	// Settings, when set, is where the tool limits (output caps, timeouts,
 	// WebFetch and vision bounds) resolve from on every call, so a limit
 	// changed from the settings screen (tools.*) takes effect on the next

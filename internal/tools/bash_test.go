@@ -325,6 +325,74 @@ func TestBashExtraEnvReachesTheCommand(t *testing.T) {
 	}
 }
 
+// TestBashEnvFilterStripsAVariableBeforeInheritance pins the hosted-mode
+// credential boundary: a hosted Gemini session must not let its Bash calls
+// see GEMINI_API_KEY, which this process itself was handed only so its own
+// API client could reach Google (docs/STDIO-PROTOCOL.md, "Trust
+// boundaries"). EnvFilter runs even with no ExtraEnv configured, unlike a
+// nil-Env inherit which would leak the whole environment unfiltered.
+func TestBashEnvFilterStripsAVariableBeforeInheritance(t *testing.T) {
+	e, _ := newTestExecutor(t)
+	t.Setenv("GEMINI_API_KEY", "leaked-key")
+	t.Setenv("HARNESS_TEST_AMBIENT", "ambient")
+	e.EnvFilter = func(base []string) []string {
+		out := make([]string, 0, len(base))
+		for _, kv := range base {
+			if strings.HasPrefix(kv, "GEMINI_API_KEY=") {
+				continue
+			}
+			out = append(out, kv)
+		}
+		return out
+	}
+
+	res := execBash(t.Context(), e, mustJSON(t, bashArgs{Command: "echo [$GEMINI_API_KEY] $HARNESS_TEST_AMBIENT"}))
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	if strings.Contains(res.Content, "leaked-key") {
+		t.Errorf("output = %q, the filtered key reached the command", res.Content)
+	}
+	if !strings.Contains(res.Content, "[]") {
+		t.Errorf("output = %q, want GEMINI_API_KEY to expand empty", res.Content)
+	}
+	if !strings.Contains(res.Content, "ambient") {
+		t.Errorf("output = %q, want the rest of the environment still inherited", res.Content)
+	}
+}
+
+// TestBashEnvFilterComposesWithExtraEnv pins that the two hooks stack:
+// EnvFilter narrows the base environment and ExtraEnv still adds to what is
+// left, the same order a hosted session's Bash call and a GitHub App token
+// would combine in if both were ever configured together.
+func TestBashEnvFilterComposesWithExtraEnv(t *testing.T) {
+	e, _ := newTestExecutor(t)
+	t.Setenv("GEMINI_API_KEY", "leaked-key")
+	e.EnvFilter = func(base []string) []string {
+		out := make([]string, 0, len(base))
+		for _, kv := range base {
+			if !strings.HasPrefix(kv, "GEMINI_API_KEY=") {
+				out = append(out, kv)
+			}
+		}
+		return out
+	}
+	e.ExtraEnv = func(ctx context.Context, workspace string) []string {
+		return []string{"GH_TOKEN=ghs_from_extra_env"}
+	}
+
+	res := execBash(t.Context(), e, mustJSON(t, bashArgs{Command: "echo [$GEMINI_API_KEY] $GH_TOKEN"}))
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	if strings.Contains(res.Content, "leaked-key") {
+		t.Errorf("output = %q, the filtered key reached the command", res.Content)
+	}
+	if !strings.Contains(res.Content, "ghs_from_extra_env") {
+		t.Errorf("output = %q, want the ExtraEnv value on top of the filtered base", res.Content)
+	}
+}
+
 // TestBashExtraEnvIsGivenTheWorkspace pins that the closure is told which
 // session it is resolving for: the token it returns is chosen from the
 // clones in that workspace (cmd/harness/github.go).

@@ -320,6 +320,17 @@ type Runner struct {
 	// unchanged.
 	ToolEnv func(ctx context.Context, workspace string) []string
 
+	// ToolEnvFilter, when set, is handed to every Executor this Runner
+	// builds as tools.Executor.EnvFilter: applied to this process's own
+	// environment before a Bash call's subprocess inherits it. It exists
+	// for `harness gemini-session`, which must not let a hosted session's
+	// Bash calls see the GEMINI_API_KEY or GOOGLE_API_KEY the parent
+	// supplied only for this process's own API client (docs/STDIO-PROTOCOL.md,
+	// "Trust boundaries"). Nil is every other caller, `harness serve`
+	// included, and a Bash call then inherits this process's environment
+	// unchanged.
+	ToolEnvFilter func(base []string) []string
+
 	// Hub, when set, is where every committed event and every session
 	// state change gets published for a browser to watch live. Nil is a
 	// caller with none wired: nothing subscribes, so nothing is published.

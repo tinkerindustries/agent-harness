@@ -4,10 +4,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 
 	"github.com/mrgeoffrich/agent-harness/internal/config"
 	"github.com/mrgeoffrich/agent-harness/internal/gemini"
@@ -27,13 +29,16 @@ import (
 // source of truth: an unknown model is refused by provider.Known.
 const defaultGeminiSessionModel = "gemini-3.7-flash"
 
-// runGeminiSession hosts one coding session for a parent process over stdin
-// and stdout, speaking the protocol docs/STDIO-PROTOCOL.md describes.
+// runGeminiSession hosts one coding session for a parent process over in and
+// out, speaking the protocol docs/STDIO-PROTOCOL.md describes. main.go calls
+// it with os.Stdin and os.Stdout; a test calls it with a pipe, so the
+// process's whole setup — credential handling among it — runs without a
+// child process to launch or a real stdin to close.
 //
-// Nothing may reach stdout but protocol frames. Go's log package writes to
+// Nothing may reach out but protocol frames. Go's log package writes to
 // stderr already; this pins it, because a stray line on stdout would be an
 // unparseable frame to the parent and there is no recovering from that.
-func runGeminiSession(ctx context.Context, args []string) error {
+func runGeminiSession(ctx context.Context, args []string, in io.Reader, out io.Writer) error {
 	fs := flag.NewFlagSet("gemini-session", flag.ContinueOnError)
 	stateDir := fs.String("state-dir", "", "directory for this session's own SQLite state and transcript mirror (default: a per-process directory under the user cache dir)")
 	keepState := fs.Bool("keep-state", false, "leave the state directory behind when the process exits, for reading a finished session's transcript")
@@ -83,12 +88,14 @@ func runGeminiSession(ctx context.Context, args []string) error {
 	}
 	defer st.Close()
 
+	// The key reaches the Gemini API client directly, as a closure over this
+	// local variable, and never becomes a settings-table row: a -state-dir
+	// this process's parent keeps for resuming must not be a file holding
+	// the plaintext key (docs/STDIO-PROTOCOL.md, "Trust boundaries";
+	// cmd/harness/serve.go's own use of settings.KeyGoogleAPIKey is a
+	// different mode — an operator's key, typed into that harness's own
+	// settings screen, with a different lifetime — and is unaffected).
 	res := settings.NewResolver(st)
-	if apiKey != "" {
-		if err := res.Set(ctx, settings.KeyGoogleAPIKey, apiKey); err != nil {
-			return fmt.Errorf("record the API key: %w", err)
-		}
-	}
 
 	priceTable, err := pricing.Load(*prices)
 	if err != nil {
@@ -99,24 +106,26 @@ func runGeminiSession(ctx context.Context, args []string) error {
 	}
 
 	geminiClient := gemini.NewClient(gemini.DefaultBaseURL, gemini.WithAPIKeyProvider(func() (string, error) {
-		return res.GoogleAPIKey(ctx)
+		return apiKey, nil
 	}))
 
 	mcpMgr := mcpclient.New(st)
+	mcpMgr.EnvFilter = stripGoogleAPIKeys
 	defer mcpMgr.Close()
 
 	eventHub := hub.New()
 	runner := &session.Runner{
-		Store:       st,
-		Mirror:      store.NewMirror(dir),
-		Client:      geminiClient,
-		ClientFor:   func(string) session.Client { return geminiClient },
-		Prices:      priceTable,
-		Gemini:      geminiClient,
-		FlashModel:  *model,
-		Hub:         eventHub,
-		Settings:    res,
-		GeminiModel: func() (string, error) { return *model, nil },
+		Store:         st,
+		Mirror:        store.NewMirror(dir),
+		Client:        geminiClient,
+		ClientFor:     func(string) session.Client { return geminiClient },
+		Prices:        priceTable,
+		Gemini:        geminiClient,
+		FlashModel:    *model,
+		Hub:           eventHub,
+		Settings:      res,
+		GeminiModel:   func() (string, error) { return *model, nil },
+		ToolEnvFilter: stripGoogleAPIKeys,
 	}
 
 	srv := geministdio.NewServer(geministdio.Options{
@@ -126,15 +135,12 @@ func runGeminiSession(ctx context.Context, args []string) error {
 		MCP:          mcpMgr,
 		Models:       geminiModels(),
 		DefaultModel: *model,
-		HasAPIKey: func() bool {
-			k, err := res.GoogleAPIKey(ctx)
-			return err == nil && k != ""
-		},
-		Version: buildVersion(),
+		HasAPIKey:    func() bool { return apiKey != "" },
+		Version:      buildVersion(),
 	})
 
 	log.Printf("ready; state under %s", dir)
-	return srv.Serve(ctx, os.Stdin, os.Stdout)
+	return srv.Serve(ctx, in, out)
 }
 
 // geminiModels is the model list the handshake advertises: every model
@@ -189,6 +195,24 @@ func geminiAPIKey(envFile string) (string, error) {
 		return "", fmt.Errorf("-env %s: %w", envFile, err)
 	}
 	return firstNonEmpty(env, values["GEMINI_API_KEY"], values["GOOGLE_API_KEY"]), nil
+}
+
+// stripGoogleAPIKeys removes GEMINI_API_KEY and GOOGLE_API_KEY from base,
+// which every Bash call and every stdio MCP dial this hosted process makes
+// takes as its environment's starting point (tools.Executor.EnvFilter,
+// mcpclient.Manager.EnvFilter). Both names are read for the key
+// (geminiAPIKey), so both are stripped: a session tool seeing the raw
+// variable this process itself was handed would defeat the reason the key
+// never reaches the settings table either.
+func stripGoogleAPIKeys(base []string) []string {
+	out := make([]string, 0, len(base))
+	for _, kv := range base {
+		if strings.HasPrefix(kv, "GEMINI_API_KEY=") || strings.HasPrefix(kv, "GOOGLE_API_KEY=") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
 }
 
 func firstNonEmpty(values ...string) string {

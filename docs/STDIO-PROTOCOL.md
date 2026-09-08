@@ -57,7 +57,13 @@ with:
 | `GOOGLE_API_KEY` | The same thing under the name Google's own SDKs read. Used when `GEMINI_API_KEY` is unset. |
 
 There is no settings store here and no screen to type a key into, so a hosted
-session's credentials are the host's to supply. **When neither is set**,
+session's credentials are the host's to supply. The key reaches this
+process's own Google API client directly and is never written to the state
+directory's own settings table, and it is stripped from the environment
+`Bash` and a stdio `mcp_server` child inherit — both would otherwise get the
+whole of this process's own environment, key included, as "the parent's
+environment" the next paragraph describes for `Bash`. **When neither is
+set**,
 `initialize` still succeeds — a parent can start the process and query its
 capabilities without a key — and the first `interactions.create` fails with
 `-32003` and a message naming both variables. Nothing is attempted against
@@ -720,10 +726,12 @@ others' marking. A parent that wants its read-only tools usable in a
 anyway.
 
 Note what `full` means here: the session runs `Bash` as this process's own
-user, in the parent's own working directory, with the parent's environment.
-There is no sandbox. Deciding whether a given session gets `full` is the
-parent's, and the mode is the whole of what this protocol gives it to decide
-with.
+user, in the parent's own working directory, with the parent's environment —
+**minus `GEMINI_API_KEY` and `GOOGLE_API_KEY`**, the one exception, stripped
+in both modes for the reason [Starting the process](#starting-the-process)
+gives. There is no sandbox otherwise. Deciding whether a given session gets
+`full` is the parent's, and the mode is the whole of what this protocol
+gives it to decide with.
 
 ## Errors
 
