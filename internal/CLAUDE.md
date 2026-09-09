@@ -137,8 +137,11 @@ stdout, carrying the OpenAI Responses API's own vocabulary rather than one of
 this repo's invention — its REST methods on `POST /responses` as JSON-RPC
 methods, and that surface's semantic server-sent events as notifications
 (docs/STDIO-PROTOCOL.md). It is the same vocabulary `internal/deepseek` sends
-the provider (docs/DEEPSEEK-RESPONSES.md), so a `function_call` item a parent
-reads is the one the provider was sent. Two translators around an unmodified
+the provider (docs/DEEPSEEK-RESPONSES.md) — the same shapes under the same
+names — but nothing is forwarded: both ends are rendered independently from
+the session's event log, and the outbound one goes through `internal/fold`'s
+`[]wire.Message`, which is Chat-Completions-shaped. A create's `input` is
+read for its text alone. Two translators around an unmodified
 `session.Runner`: a create-response body becomes `RunOptions`, and the
 session's committed events plus the hub's live text deltas become `response.*`
 events. It streams text from the live frames and takes structure — tool

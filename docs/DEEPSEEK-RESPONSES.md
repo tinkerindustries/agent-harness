@@ -21,8 +21,16 @@ oversight.
 The stdio entry point speaks the Responses vocabulary to its parent
 ([`STDIO-PROTOCOL.md`](STDIO-PROTOCOL.md)). Speaking it to the provider as
 well makes one vocabulary run the length of the process: the parent's
-`function_call` item is the provider's `function_call` item, and the harness
-stops translating between two shapes of the same idea in the middle.
+`function_call` item and the provider's are the same shape under the same
+name, so a client learns one set of shapes rather than two.
+
+It does not make the process a proxy. Both ends are rendered independently
+from the session's own event log, and the outbound one passes through
+`internal/fold`'s `[]wire.Message` — the loop's provider-neutral vocabulary,
+which is modelled on Chat Completions — before `inputFromMessages` turns it
+into input items. The translation in §2 is real work happening on every
+request; what changed is that the shape it produces is the shape the parent
+already speaks.
 
 Two things fall out of it that are worth having on their own.
 

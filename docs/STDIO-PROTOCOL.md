@@ -16,13 +16,47 @@ every shape named here; this document says what a shape means when the loop
 runs on your machine instead of a provider's, and records every place the two
 differ.
 
-**The same vocabulary runs the length of the process.** `internal/deepseek`
-posts to DeepSeek's own `POST /responses`
-([`DEEPSEEK-RESPONSES.md`](DEEPSEEK-RESPONSES.md)), so a `function_call` item
-a parent reads here is a `function_call` item the provider was sent, and
-nothing in between translates between two shapes of the same idea. The Gemini
-models this process also hosts are translated into it by `internal/gemini`,
-which is the one place a second vocabulary still exists.
+**The same vocabulary runs the length of the process** — but it is not a
+proxy, and nothing is forwarded. `internal/deepseek` posts to DeepSeek's own
+`POST /responses` ([`DEEPSEEK-RESPONSES.md`](DEEPSEEK-RESPONSES.md)), so the
+`function_call` item a parent reads and the `function_call` item the provider
+is sent are the same shape, carrying the same call, named the same way. They
+are two renderings of one event log, not one object handed along:
+
+```
+create.input items ──► flattened to a plain string ──► the agent loop
+                                                            │
+                                    the loop's own event log (SQLite)
+                                     │                          │
+                internal/fold → []wire.Message → input items    │
+                                     │                          │
+                              POST /responses            response.* frames
+```
+
+Three things follow from that, and a client should know all three:
+
+- **A create's `input` is read for its text and nothing else.** Only
+  `message` items and bare content parts are accepted; a `function_call` or
+  `function_call_output` in `input` is refused. A client cannot replay a
+  conversation into this process, because the conversation it would be
+  replaying is already here — see
+  [Resuming](#resuming-across-process-restarts).
+- **What the model is actually sent is more than what the parent sent.** The
+  first user message the provider sees is the harness's opening message: the
+  task, the workspace listing, the skills catalogue, the repositories' own
+  instructions. `harness.source` on the user message item says which is
+  which.
+- **The intermediate form is Chat-Completions-shaped.** `[]wire.Message` is
+  the loop's provider-neutral vocabulary and is modelled on that dialect —
+  roles, `tool_calls`, `tool_call_id`. `internal/deepseek` translates it into
+  input items on the way out. The value of one vocabulary at both ends is
+  that a client learns one set of shapes and the risky ones (an image inside
+  a `function_call_output`) are documented at both, not that bytes pass
+  through untouched.
+
+The Gemini models this process also hosts are rendered from the same log by
+the same translator, with `internal/gemini` speaking Interactions to Google
+underneath.
 
 That is a statement about the wire rather than about the model: a client
 drives every hosted model with the same frames. `initialize`'s `models` and

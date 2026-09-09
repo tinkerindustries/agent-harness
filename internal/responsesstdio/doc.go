@@ -13,8 +13,12 @@
 //
 // The provider underneath speaks the same surface: internal/deepseek posts
 // to DeepSeek's own `POST /responses` (docs/DEEPSEEK-RESPONSES.md), so one
-// vocabulary runs the length of the process and the item a parent reads here
-// is the item the provider was sent.
+// vocabulary runs the length of the process. It is not a proxy and nothing is
+// forwarded — the frames a parent reads and the request the provider is sent
+// are rendered separately from the session's event log, the outbound one
+// through internal/fold's []wire.Message, which is Chat-Completions-shaped.
+// What one vocabulary buys is one set of shapes for a client to learn, not
+// bytes passing through untouched.
 //
 // The agent loop underneath is internal/session, unchanged and unforked. This
 // package is a translator on both sides of it: a create-response body becomes
