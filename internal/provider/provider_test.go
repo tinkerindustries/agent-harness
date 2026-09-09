@@ -83,10 +83,9 @@ func TestSeesImages(t *testing.T) {
 }
 
 // TestKnownModelsListsTheVisionModel pins that deepseek-v4-flash-vision-exp
-// appears in KnownModels(), the list GET /api/models answers verbatim
-// (internal/httpapi/models_test.go) and the queue validates a work request's
-// model name against (internal/queue). A model missing here cannot be
-// started from the browser at all, even though ModelFor would resolve it.
+// appears in KnownModels(), the list the handshake publishes verbatim
+// and a create body's model name is validated against. A model missing here cannot be
+// hosted at all, even though ModelFor would resolve it.
 func TestKnownModelsListsTheVisionModel(t *testing.T) {
 	found := false
 	for _, m := range KnownModels() {

@@ -10,7 +10,7 @@ import (
 )
 
 // screenshotExecutor returns an executor over a workspace that has the
-// scratch directory internal/workspace.Prepare creates for a real session,
+// scratch directory a real session's workspace carries,
 // since that is where every capture has to land.
 func screenshotExecutor(t *testing.T) (*Executor, string) {
 	t.Helper()

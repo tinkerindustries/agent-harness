@@ -124,7 +124,7 @@ func TestResumeContinuesSubTurnNumbering(t *testing.T) {
 // is frozen on the session row (store.Session.PromptVariant) and Resume
 // resolves through it, so a resumed arm of an eval stays that arm instead
 // of silently reverting to the provider's full array while nothing warns
-// anyone (docs/EVALS.md).
+// anyone.
 func TestResumeKeepsVariantHeadAndToolArray(t *testing.T) {
 	var mu sync.Mutex
 	var streamed [][]byte

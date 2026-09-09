@@ -1,6 +1,6 @@
 // Package promptvariant holds the named alternatives to the shipped system
 // prompt and the reminder cadences that go with them, so an eval can compare
-// two of them (docs/EVALS.md).
+// two of them.
 //
 // It imports nothing from this repository but the wire vocabulary, which is
 // what lets the queue validate a variant name without pulling the agent loop
@@ -16,7 +16,7 @@ import (
 
 // Prompt variants exist so a wording change can be measured before it ships.
 // An eval run publishes the same task under two of them and compares what the
-// sessions did (internal/evals). Nothing else sets one: a work request with no
+// sessions did. Nothing else sets one: a request with no
 // variant gets Base, whose text is the frozen prompt byte for byte, so the
 // shared prefix every production session builds is untouched (docs/CACHE.md).
 //

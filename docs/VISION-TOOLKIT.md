@@ -293,7 +293,7 @@ policy that the CLI route gives up.
 ## 7. What the live runs showed
 
 Two runs against the dev stack on 2026-08-15, `deepseek-v4-flash`, against
-this harness's own web UI. They are what turned the port from plausible into
+a real user interface. They are what turned the port from plausible into
 verified, and they found real defects.
 
 **The coordinate contract holds on a real page.** `Ground` located a nav tab
@@ -360,7 +360,7 @@ usage event, so a tool making fifteen calls either sums them or emits
 fifteen. Both give the right session total — `SessionUsageSummaries` sums
 every usage event. Neither gives the right *display*: the transcript's
 sub-turn card absorbs at most one usage block into its header and each later
-one for the same sub-turn replaces it (`web/src/api/groups.ts`), so fifteen
+one for the same sub-turn replaces it, so fifteen
 events would show one chunk's price on the card and drop fourteen. Given §3's
 finding — that losing vision spend from the figures is the thing not worth
 trading anything for, measured at 23% of one session's cost and 39% of
@@ -374,7 +374,7 @@ happened to be last.
 ### What the live runs showed, including the part that did not go as predicted
 
 Three runs against this branch's own stack on 2026-08-15, `deepseek-v4-flash`,
-against the harness's own settings screen.
+against the harness's own settings.
 
 **The mechanism works.** A 1280x8370 capture (the settings page with every
 row expanded, at desktop width) cut into 5 chunks; a 390x3729 one into 3.
@@ -429,8 +429,7 @@ Two things keep the tool worth having anyway, and one qualification:
   elements whose position was obvious from the layout. Nothing has tested a
   crowded form, overlapping controls, or an element the page renders twice.
 - **No eval has run.** The frozen head changed twice and every vision tool
-  was replaced underneath it; `internal/promptvariant` and `internal/evals`
-  exist to measure exactly that, and neither has been pointed at this.
+  was replaced underneath it, and nothing has measured what that cost.
 - **The evidence sentence is gone and its absence is untested.** `AskVision`
   forced every answer to open with what was actually visible, because a
   session once spent 23% of its cost proving a clean answer was clean

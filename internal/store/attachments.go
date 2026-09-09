@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Attachment is one image a work request carries (docs/DATA-API.md): the
+// Attachment is one image a request carries: the
 // bytes the worker materialises into scratch/attachments/ during workspace
 // preparation, plus the name and MIME type needed to write the file. Rows
 // live in the store rather than inline in the work request, so a mockup

@@ -47,7 +47,7 @@ func execBash(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 	cmd.Dir = e.Workspace
 
 	// A nil cmd.Env inherits this process's environment, which is how the
-	// ambient credentials internal/githubauth sets reach git and gh. Env is
+	// ambient credentials the parent process set reach git and gh. Env is
 	// only built explicitly when something has extra variables to add — a
 	// GitHub App installation token for gh, minted for this session's own
 	// repositories — or when EnvFilter must run before anything is

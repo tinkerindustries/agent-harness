@@ -96,7 +96,7 @@ const (
 // ErrNoAPIKey is returned before a request is sent when the key provider
 // supplies an empty key — the operator's fix is named rather than Gemini's
 // 400 being what they see.
-var ErrNoAPIKey = errors.New("no Google API key configured; set one from the settings screen or PUT /api/settings/google.api_key")
+var ErrNoAPIKey = errors.New("no Google API key configured; set GEMINI_API_KEY or GOOGLE_API_KEY in the environment this process was spawned with")
 
 // Client talks to a single Gemini base URL. The API key is supplied per
 // request by a provider, so a key stored in the database can change while

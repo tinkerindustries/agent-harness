@@ -187,50 +187,6 @@ func TestDeleteSessionRefusesCreating(t *testing.T) {
 	}
 }
 
-// TestListSessionsPagePlacesCreatingUnderRunning pins the status filter
-// widening: a "creating" row is live, so ?status=running must include it and
-// ?status=finished must not — otherwise a preparing session would vanish
-// from the in-flight list and appear in the finished table.
-func TestListSessionsPagePlacesCreatingUnderRunning(t *testing.T) {
-	s := openTestStore(t)
-	ctx := context.Background()
-	mustCreateSession(t, s, "run-1")
-	createCreatingSession(t, s, "creating-1")
-	mustCreateSession(t, s, "done-1")
-	finishSession(t, s, "done-1")
-
-	page, total, err := s.ListSessionsPage(ctx, SessionPageOptions{Status: "running", Limit: 20})
-	if err != nil {
-		t.Fatalf("list running: %v", err)
-	}
-	if total != 2 {
-		t.Fatalf("expected 2 live rows (running + creating), got total %d", total)
-	}
-	got := map[string]bool{}
-	for _, sess := range page {
-		got[sess.ID] = true
-		if !IsLive(sess.Status) {
-			t.Fatalf("expected only live rows under the running filter, got %q", sess.Status)
-		}
-	}
-	if !got["run-1"] || !got["creating-1"] {
-		t.Fatalf("expected run-1 and creating-1 under running, got %+v", page)
-	}
-
-	page, total, err = s.ListSessionsPage(ctx, SessionPageOptions{Status: "finished", Limit: 20})
-	if err != nil {
-		t.Fatalf("list finished: %v", err)
-	}
-	if total != 1 {
-		t.Fatalf("expected 1 finished row, got total %d", total)
-	}
-	for _, sess := range page {
-		if IsLive(sess.Status) {
-			t.Fatalf("expected no live rows under finished, got %q", sess.Status)
-		}
-	}
-}
-
 // TestIsLive pins the helper every store branch and SQL predicate builds
 // off: running and creating are live, everything else is not.
 func TestIsLive(t *testing.T) {

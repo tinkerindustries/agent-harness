@@ -48,26 +48,7 @@ func TestRegistryDefaultsMatchTheConstantsTheyReplaced(t *testing.T) {
 		{settings.KeyDefaultModel, "deepseek-v4-pro"},
 		{settings.KeyDefaultFlashModel, "deepseek-v4-flash"},
 		{settings.KeyDefaultEffort, "high"},
-		// The judge defaults to kimi-k3, not model.default: the judge runs on
-		// the provider's account, and K3 is the outside-the-family judge the
-		// eval exists to get (docs/EVALS.md).
-		{settings.KeyJudgeModel, "kimi-k3"},
 		{settings.KeyGoogleVisionModel, "gemini-3.7-flash"},
-		{settings.KeyWorkerPoolSize, "4"},
-		{settings.KeyWorkerConcurrencyPro, "500"},
-		{settings.KeyWorkerConcurrencyFlash, "2500"},
-		{settings.KeyHTTPEventsLimitDefault, "500"},
-		{settings.KeyHTTPEventsLimitMax, "5000"},
-		// The control token defaults to empty: it is generated at startup when
-		// unset, which is run control's job, not the registry's.
-		{settings.KeyHTTPControlToken, ""},
-		// The operator name defaults to empty: unset means runs from the web
-		// UI are recorded as started by an unnamed person (D7).
-		{settings.KeyIdentityOperator, ""},
-		// The external URL defaults to empty: unset means the
-		// DEEPSEEK_HARNESS_PUBLIC_URL env var (or the harness's own bind
-		// address) still decides the MCP tools' transcript links.
-		{settings.KeyHTTPExternalURL, ""},
 	}
 	for _, tc := range cases {
 		d, ok := settings.Lookup(tc.key)
@@ -145,7 +126,6 @@ func TestEveryDefaultModelIsPriced(t *testing.T) {
 	for _, key := range []string{
 		settings.KeyDefaultModel,
 		settings.KeyDefaultFlashModel,
-		settings.KeyJudgeModel,
 		settings.KeyGoogleVisionModel,
 	} {
 		d, ok := settings.Lookup(key)

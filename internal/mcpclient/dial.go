@@ -30,7 +30,7 @@ const clientVersion = "0.1.0"
 //
 // It is applied even when the caller already has a deadline, capped to
 // whichever is shorter, and it is deliberately shorter than
-// internal/httpapi's probe budget. That ordering is what makes a stuck dial
+// the caller's probe budget. That ordering is what makes a stuck dial
 // diagnosable: the inner bound fires first and reports what the dial was
 // waiting for, instead of the outer one firing and leaving a bare "context
 // deadline exceeded" on the row.
@@ -86,7 +86,7 @@ func envPairs(env map[string]string) []string {
 
 // stdioChildEnv builds a stdio server's spawned environment: filter applied
 // to this process's own environment (nil leaves it unfiltered, today's
-// behaviour for harness serve), with the server's own configured variables
+// behaviour when no filter is set), with the server's own configured variables
 // appended on top. A server launched as `uvx` or `npx` still gets PATH and
 // HOME from the base — filtering removes named variables, it does not
 // replace the base with just what the operator configured.

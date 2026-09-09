@@ -1,28 +1,22 @@
-// Package attachment validates one image a producer submitted alongside a
-// work request — POST /api/runs (internal/httpapi) or the MCP
-// deepseek_agent tool (internal/mcp) — before its bytes reach the store.
-// Both producers build the same queue.Request-bound attachment and used to
-// carry their own byte-for-byte copy of this check, including two identical
-// copies of the MIME-type-by-extension table; a divergence between them
-// would lose the name-shape check on one ingress without anyone noticing,
-// and that check is what confines the file the worker later writes to
-// scratch/attachments/ (internal/workspace.Prepare) rather than somewhere a
-// path-shaped name could reach.
+// Package attachment validates one image a client submitted alongside a
+// request, before its bytes reach the store, and writes the accepted ones
+// into a session's workspace. The name-shape check is what confines the file
+// to scratch/attachments/ rather than somewhere a path-shaped name could
+// reach, and it runs on both paths: once at ingress, once again at the
+// write.
 //
 // This package is deliberately a leaf, depending on nothing internal.
-// internal/httpapi imports neither internal/session nor internal/worker
-// (ARCHITECTURE.md), and internal/httpapi/screenshots.go's own
-// resolveWithinWorkspace already explains why that surface avoids
-// internal/tools for a narrower reason it needs itself: importing a
-// heavier package for one shared helper would pull that package's whole
-// dependency closure in behind it. A leaf validator sidesteps the question
-// for both internal/httpapi and internal/mcp.
+// Several packages have to agree on one spelling of that directory and on
+// one image-extension table, and a leaf is the only place all of them can
+// read it without pulling a heavier package's whole dependency closure in
+// behind it.
 package attachment
 
 import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -31,8 +25,7 @@ import (
 // MIME type it names: the three image types ReviewScreenshot accepts
 // (internal/tools/reviewscreenshot.go), and therefore the only types worth
 // accepting anywhere an attachment's whole purpose is being passed back to
-// that tool. Declared once so a producer, the screenshot-serving endpoint
-// (internal/httpapi/screenshots.go), and the vision tools
+// that tool. Declared once so the ingress check and the vision tools
 // (internal/tools/vision.go) cannot quietly disagree about the list.
 //
 // This is deliberately distinct from internal/tools/screenshot.go's
@@ -47,19 +40,9 @@ var ImageMIMETypes = map[string]string{
 }
 
 // WorkspaceDir is the directory, relative to a session's workspace root,
-// that every attachment is materialised into: the images a work request
-// carried, written by internal/workspace.Prepare, and the ones somebody
-// pasted into the composer of a session that already has a workspace,
-// written by internal/session (docs/RUN-CONTROL.md, "Images in the
-// composer").
-//
-// It lives here because four packages have to agree on it and two of them
-// must not import each other: internal/httpapi records the paths on a steer
-// it accepts, internal/session writes the files and names them to the model,
-// internal/workspace creates the directory, and the browser addresses each
-// file on GET /api/sessions/{id}/screenshot by exactly this path. A leaf
-// they all already depend on is the only place all four can read one
-// spelling.
+// that every attachment is materialised into: the images a request carried,
+// and the ones somebody sent into a session that already has a workspace
+// (docs/RUN-CONTROL.md, "Images in the composer").
 const WorkspaceDir = "scratch/attachments"
 
 // WorkspacePaths turns attachment file names into the workspace-relative
@@ -117,4 +100,38 @@ func Validate(name, mimeType, base64Data string, maxBytes int) (validName, resol
 		return "", "", nil, fmt.Errorf("attachment %q is empty", name)
 	}
 	return name, mime, decoded, nil
+}
+
+// File is one image ready to be written into a session's workspace: the
+// bytes the store held, plus the file name and MIME type to write them
+// under.
+type File struct {
+	Name     string
+	MIMEType string
+	Data     []byte
+}
+
+// Write materialises files into dir's scratch/attachments/, each under its
+// own name. The name must be a plain file name — no separators, no ".." —
+// so an attachment can never escape the attachments directory however it was
+// accepted; Validate enforces the same rule at ingress, and this is the
+// second line of defence.
+func Write(dir string, files []File) error {
+	if len(files) == 0 {
+		return nil
+	}
+	attDir := filepath.Join(dir, filepath.FromSlash(WorkspaceDir))
+	if err := os.MkdirAll(attDir, 0o755); err != nil {
+		return fmt.Errorf("attachment: create scratch/attachments in %q: %w", dir, err)
+	}
+	for _, f := range files {
+		name := filepath.Base(f.Name)
+		if name == "" || name == "." || name == ".." || name != f.Name {
+			return fmt.Errorf("attachment: name %q is not a plain file name", f.Name)
+		}
+		if err := os.WriteFile(filepath.Join(attDir, name), f.Data, 0o644); err != nil {
+			return fmt.Errorf("attachment: write %s: %w", name, err)
+		}
+	}
+	return nil
 }

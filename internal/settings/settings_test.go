@@ -66,7 +66,7 @@ func TestResolverRoundTrip(t *testing.T) {
 // TestResolverReadsThroughOnEveryCall pins that the resolver caches nothing:
 // a key written behind its back — the same database, another process — is
 // visible on the very next call, which is what lets an operator set a key
-// while harness serve is running and have the next request pick it up.
+// while the process is running and have the next request pick it up.
 func TestResolverReadsThroughOnEveryCall(t *testing.T) {
 	st := &fakeStore{values: map[string]string{}}
 	r := NewResolver(st)
@@ -97,7 +97,7 @@ func TestResolverRejectsUnknownKeys(t *testing.T) {
 			t.Fatalf("error = %v, want UnknownKeyError", err)
 		}
 		msg := ue.Error()
-		for _, want := range []string{`unknown setting "deepsek.api_key"`, "valid settings: deepseek.api_key, kimi.api_key, google.api_key", "worker.pool_size"} {
+		for _, want := range []string{`unknown setting "deepsek.api_key"`, "valid settings: deepseek.api_key, kimi.api_key, google.api_key", "google.vision_thinking_level"} {
 			if !strings.Contains(msg, want) {
 				t.Errorf("error text %q does not contain %q", msg, want)
 			}
@@ -151,7 +151,7 @@ func TestIsSecretKey(t *testing.T) {
 	if IsSecretKey(KeyGoogleVisionModel) {
 		t.Error("google.vision_model is not a secret and must print in full")
 	}
-	for _, key := range []string{KeyRunMaxTokens, KeyWorkerPoolSize, KeyDefaultModel, KeyToolOutputCap} {
+	for _, key := range []string{KeyRunMaxTokens, KeyDefaultModel, KeyToolOutputCap} {
 		if IsSecretKey(key) {
 			t.Errorf("%s is not a credential and must not be masked", key)
 		}
@@ -205,26 +205,6 @@ func TestTypedAccessorsResolveDefaultsAndStoredValues(t *testing.T) {
 	}
 }
 
-// TestJudgeModel pins the model.judge contract: an eval that names no judge
-// model resolves to kimi-k3 — the judge runs on the provider's account, not
-// the run's — and a stored value wins. The same registry default is pinned
-// in TestRegistryDefaultsMatchTheConstantsTheyReplaced.
-func TestJudgeModel(t *testing.T) {
-	r := NewResolver(&fakeStore{values: map[string]string{}})
-	ctx := context.Background()
-
-	if v, err := r.String(ctx, KeyJudgeModel); err != nil || v != "kimi-k3" {
-		t.Fatalf("String(model.judge) on empty store = %q err=%v, want kimi-k3 nil", v, err)
-	}
-
-	if err := r.Set(ctx, KeyJudgeModel, "deepseek-v4-pro"); err != nil {
-		t.Fatalf("Set model.judge: %v", err)
-	}
-	if v, err := r.String(ctx, KeyJudgeModel); err != nil || v != "deepseek-v4-pro" {
-		t.Fatalf("String(model.judge) after Set = %q err=%v, want deepseek-v4-pro nil", v, err)
-	}
-}
-
 // TestSetRejectsValuesOutOfBounds pins that validation lives in the registry
 // and fires on every write: a negative bash timeout, an effort outside the
 // enum, a non-integer max_tokens, and an out-of-range page limit all fail
@@ -244,7 +224,6 @@ func TestSetRejectsValuesOutOfBounds(t *testing.T) {
 		{KeyRunMaxTokens, "0", "out of range"},
 		{KeyRunMaxTokens, "5000000000", "out of range"},
 		{KeyDefaultEffort, "turbo", "must be one of low, high, max"},
-		{KeyHTTPEventsLimitMax, "0", "out of range"},
 	}
 	for _, tc := range cases {
 		err := r.Set(ctx, tc.key, tc.value)
@@ -261,21 +240,13 @@ func TestSetRejectsValuesOutOfBounds(t *testing.T) {
 	}
 }
 
-// TestRestartFlagsPins the six settings that need a restart, so the CLI and
-// the screen keep marking exactly them.
+// TestRestartFlags pins that no setting is read once at startup: every one
+// of them resolves through the store on each call, so a change takes effect
+// on the next request.
 func TestRestartFlags(t *testing.T) {
-	for _, key := range []string{
-		KeyWorkerPoolSize, KeyWorkerConcurrencyPro, KeyWorkerConcurrencyFlash,
-		KeyHTTPEventsLimitDefault, KeyHTTPEventsLimitMax,
-	} {
-		d, ok := Lookup(key)
-		if !ok || !d.Restart {
-			t.Errorf("%s must carry the restart flag", key)
-		}
-	}
-	for _, key := range []string{KeyRunMaxTokens, KeyToolOutputCap, KeyDefaultModel, KeyGoogleVisionModel} {
-		if d, ok := Lookup(key); !ok || d.Restart {
-			t.Errorf("%s must not carry the restart flag", key)
+	for _, d := range registry {
+		if d.Restart {
+			t.Errorf("%s carries the restart flag, but nothing reads a setting once at startup", d.Key)
 		}
 	}
 }

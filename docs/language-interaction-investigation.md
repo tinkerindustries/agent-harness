@@ -63,7 +63,7 @@ The saving is real money and the test is cheap. The cost that is not cheap is
 the one no source accounts for.
 
 Nobody here reads Mandarin. A Chinese reasoning trace is unreadable in the live
-transcript, and the read-only web UI streams `reasoning_content` by design
+transcript, and a client streams `reasoning_content` by design
 ([DESIGN.md](DESIGN.md)). Every debugging session that currently starts by
 reading what the model was thinking would first need a translation pass. That is
 a permanent tax on the main diagnostic surface of the harness, paid on every

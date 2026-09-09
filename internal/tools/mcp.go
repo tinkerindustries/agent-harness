@@ -60,7 +60,7 @@ type MCPPromptArg struct {
 // MCPProvider is the narrow seam the executor reaches configured MCP
 // servers through, declared here where it is consumed and implemented by
 // internal/mcpclient (docs/MCP.md). It is the same shape as session.Client
-// (internal/session/client.go) and internal/httpapi's RunController: a
+// (internal/session/client.go): a
 // narrow interface declared at the consumer, implemented elsewhere, wired
 // in cmd/harness.
 type MCPProvider interface {

@@ -264,7 +264,7 @@ func TestBuildSessionStateCarriesProvenance(t *testing.T) {
 		ParentIsUser:    true,
 		CompleteStatus:  "gave_up",
 	}
-	st := BuildSessionState(sess, store.SessionUsageSummary{}, "req-1", "")
+	st := BuildSessionState(sess, store.SessionUsageSummary{}, "")
 	if st.JobType != agentmeta.JobTypeOrchestration {
 		t.Fatalf("expected job type %q on the wire row, got %q", agentmeta.JobTypeOrchestration, st.JobType)
 	}
@@ -293,7 +293,7 @@ func TestBuildSessionStateCarriesLivePlan(t *testing.T) {
 		RecentToolCalls: []store.RecentToolCall{{Name: "Bash", Arguments: `{"command":"go build ./..."}`}},
 		Summary:         "wired it up",
 	}
-	st := BuildSessionState(sess, store.SessionUsageSummary{}, "req-1", "")
+	st := BuildSessionState(sess, store.SessionUsageSummary{}, "")
 	if st.Task != sess.Task {
 		t.Fatalf("expected task %q on the wire row, got %q", sess.Task, st.Task)
 	}
@@ -316,7 +316,7 @@ func TestBuildSessionStateCarriesLivePlan(t *testing.T) {
 	// The empty row omits them all: the wire must not carry a "plan":null
 	// or an empty task/title/description the browser would have to
 	// second-guess.
-	b, err := json.Marshal(BuildSessionState(store.Session{ID: "sess-2"}, store.SessionUsageSummary{}, "", ""))
+	b, err := json.Marshal(BuildSessionState(store.Session{ID: "sess-2"}, store.SessionUsageSummary{}, ""))
 	if err != nil {
 		t.Fatal(err)
 	}

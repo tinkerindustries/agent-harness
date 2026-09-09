@@ -3,8 +3,6 @@ package session
 import (
 	"context"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -104,51 +102,14 @@ func TestOpeningMessageUnchangedWithoutAResultSchema(t *testing.T) {
 
 // The system prompt names the binaries a session may rely on instead of
 // busybox's applets, which silently no-match on GNU flags
-// (docs/reviews/sess-bb6c0ed564ddae573c3b1832cb3981f4.md). The claim is only
-// true while the image installs them, so the two are asserted together — a
-// Dockerfile that drops one fails here rather than at run time, in a session
-// that has no way to tell it was misinformed.
-func TestSystemPromptNamesBinariesTheImageInstalls(t *testing.T) {
+// (docs/reviews/sess-bb6c0ed564ddae573c3b1832cb3981f4.md).
+func TestSystemPromptNamesTheBinariesItRelysOn(t *testing.T) {
 	sys := RenderSystemPrompt()
-	installed := apkPackages(t)
-	// Prompt wording to apk package, where the two differ.
-	for _, c := range []struct{ named, pkg string }{
-		{"bash", "bash"},
-		{"grep", "grep"},
-		{"rg", "ripgrep"},
-		{"curl", "curl"},
-		{"ps", "procps"},
-	} {
-		if !strings.Contains(sys, c.named) {
-			t.Errorf("system prompt should name %q, it does not", c.named)
-		}
-		if !installed[c.pkg] {
-			t.Errorf("system prompt names %q; the Dockerfile does not apk add %q", c.named, c.pkg)
+	for _, named := range []string{"bash", "grep", "rg", "curl", "ps"} {
+		if !strings.Contains(sys, named) {
+			t.Errorf("system prompt should name %q, it does not", named)
 		}
 	}
-}
-
-// apkPackages is the set of packages the Dockerfile installs, read as
-// whitespace-delimited tokens so "grep" does not match inside "ripgrep".
-func apkPackages(t *testing.T) map[string]bool {
-	t.Helper()
-	dockerfile, err := os.ReadFile(filepath.Join("..", "..", "Dockerfile"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	pkgs := map[string]bool{}
-	for _, line := range strings.Split(string(dockerfile), "\n") {
-		_, args, found := strings.Cut(line, "apk add ")
-		if !found {
-			continue
-		}
-		for _, f := range strings.Fields(args) {
-			if !strings.HasPrefix(f, "-") && f != "&&" {
-				pkgs[f] = true
-			}
-		}
-	}
-	return pkgs
 }
 
 // The system prompt tells the model where scratch output belongs: a scratch/

@@ -33,7 +33,7 @@ func (e *Executor) screenshotTimeout(ctx context.Context) time.Duration {
 
 // screenshotDriver is the Node script that drives the browser. It is embedded
 // rather than shipped as a file on disk so a plain `go build` binary carries
-// it (the same property internal/webassets gives the frontend), and written
+// it, and written
 // to a temporary path per call.
 //
 //go:embed screenshot.js

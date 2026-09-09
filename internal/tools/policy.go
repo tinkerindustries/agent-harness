@@ -95,7 +95,7 @@ var alwaysAllowed = map[string]bool{
 	// (resolveScratchImageOutput), so it cannot touch the deliverable or a
 	// cloned repository. Gating it by mode instead put the whole
 	// Ground-Crop-Glance pipeline behind full permissions, which is the
-	// mode that also hands the session the host docker socket — a large
+	// mode that hands the session every other broad grant — a large
 	// grant to buy a closer look at a screenshot.
 	"Crop":       true,
 	"TaskCreate": true,

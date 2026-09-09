@@ -3,7 +3,7 @@
 `harness stdio-session` is one process that runs one coding session for a
 parent application. The parent spawns it, owns the working directory, and
 drives it over stdin and stdout. There is no HTTP listener, no work queue and
-no worker pool: this is not `serve`.
+no worker pool.
 
 What crosses the pipe is **the OpenAI Responses API's own vocabulary**. The
 methods are its REST methods on `POST /responses`, and the notifications are

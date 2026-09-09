@@ -14,7 +14,7 @@ import (
 // usage maps onto cache hit and miss, the repair quirks — belong behind the
 // seam. A direct import would be obvious in review, but a transitive one is
 // not, so the check is on the closure rather than the import block, exactly
-// like internal/httpapi/boundary_test.go.
+// as a boundary test.
 func TestSessionDoesNotDependOnTheDeepSeekClient(t *testing.T) {
 	if _, err := exec.LookPath("go"); err != nil {
 		t.Skip("go is not on PATH")

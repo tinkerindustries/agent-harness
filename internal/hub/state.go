@@ -88,7 +88,7 @@ type SessionState struct {
 	CreatedAt  time.Time  `json:"created_at"`
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 	// Version is the row's optimistic-concurrency counter
-	// (docs/DATA-API.md): the value a mutating write must echo back in
+	// : the value a mutating write must echo back in
 	// If-Match, bumped by every change to the row. It rides on every
 	// representation — list, single, and the stream feed — so a client can
 	// always read a fresh version before writing.
@@ -232,11 +232,10 @@ type Usage struct {
 // on how the caller obtained those things, so both the live publish path
 // (session.Runner, after every commit) and the REST list handler (a batch
 // store query) build the identical shape from it.
-func BuildSessionState(sess store.Session, summary store.SessionUsageSummary, requestID, priceTableDate string) SessionState {
+func BuildSessionState(sess store.Session, summary store.SessionUsageSummary, priceTableDate string) SessionState {
 	return SessionState{
 		ID:              sess.ID,
 		ParentID:        sess.ParentID,
-		RequestID:       requestID,
 		JobType:         sess.JobType,
 		ParentAgentType: sess.ParentAgentType,
 		ParentAgentID:   sess.ParentAgentID,

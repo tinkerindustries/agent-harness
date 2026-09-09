@@ -45,7 +45,7 @@ func TestReadOnlyModeDenies(t *testing.T) {
 	// confined to scratch/ exactly as Screenshot's is
 	// (resolveScratchImageOutput), so it cannot reach the deliverable or a
 	// cloned repository. Denying it put the whole Ground-Crop-Glance pipeline
-	// behind full permissions, the mode that also carries the host docker
+	// behind full permissions, the mode that carries every other broad
 	// socket.
 	allowed := []string{"Read", "Glob", "Grep", "List", "WebFetch", "Glance", "Ground", "Detect", "Screenshot", "Crop", "TaskCreate", "TaskGet", "TaskList", "TaskUpdate", "Complete"}
 	for _, name := range allowed {

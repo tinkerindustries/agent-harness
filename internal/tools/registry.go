@@ -25,7 +25,7 @@ import (
 // the settings registry — internal/settings carries each of these as the
 // default of its tools.* key, and the two are pinned equal by
 // internal/settings/registry_test.go — so an operator can change any of them
-// from the settings screen without a rebuild (docs/TOOLS.md, "Execution
+// from the settings table without a rebuild (docs/TOOLS.md, "Execution
 // rules": "Every tool has a wall-clock timeout and an output byte cap, with
 // truncation labelled in the result").
 const (
@@ -80,7 +80,7 @@ const (
 // the model as the tool message; IsError and Truncated are metadata the
 // runner uses to build the store event. Diff and ChildSessionID ride along
 // for the two tools that have something structured to add on top of Content
-// — Edit's line-level diff and Task's spawned session id — so the browser
+// — Edit's line-level diff and Task's spawned session id — so a client
 // can shape their blocks without re-deriving either from prose: one shape
 // per tool (docs/TOOLS.md).
 type Result struct {
@@ -233,7 +233,7 @@ type Executor struct {
 
 	// GeminiModel resolves the vision model name per call, the same
 	// read-through-the-store shape as the DeepSeek API key provider, so a
-	// model changed from the settings screen (google.vision_model) takes
+	// model changed in the settings table (google.vision_model) takes
 	// effect without a restart. Nil falls back to gemini.DefaultModel.
 	GeminiModel func() (string, error)
 
@@ -241,7 +241,7 @@ type Executor struct {
 	// injected by internal/session, which imports internal/tools; tools
 	// cannot import session directly without a cycle. The returned session id
 	// is the subagent's own session row — a distinct id from this Executor's
-	// session, linked to it as parent (docs/DESIGN.md §4.7) — so the browser
+	// session, linked to it as parent (docs/DESIGN.md §4.7) — so a client
 	// can render it as a collapsed child transcript.
 	RunSubagent func(ctx context.Context, description, prompt, subagentType string) (summary string, sessionID string, err error)
 
@@ -250,7 +250,7 @@ type Executor struct {
 	// rather than held on the Executor. It exists for the GitHub App
 	// credential: an App has no single standing token, so GH_TOKEN cannot be
 	// made ambient for the whole process the way a personal access token is
-	// (internal/githubauth) — it has to be minted for the account this
+	// — it has to be minted for the account this
 	// session's repositories belong to, and re-minted as it expires, which
 	// only a call-time resolution can do. The closure is built in
 	// cmd/harness, which is where the App provider lives; nil is every other
@@ -266,14 +266,14 @@ type Executor struct {
 	// client can reach Google, and a Bash call running "as this process's
 	// own user, with the parent's environment" (docs/STDIO-PROTOCOL.md,
 	// "Permissions") has no business seeing it. Nil is every other caller —
-	// `harness serve`'s operator-configured sessions among them — and a
+	// an operator-configured session among them — and a
 	// Bash call then inherits this process's environment unchanged, exactly
 	// as it always has.
 	EnvFilter func(base []string) []string
 
 	// Settings, when set, is where the tool limits (output caps, timeouts,
 	// WebFetch and vision bounds) resolve from on every call, so a limit
-	// changed from the settings screen (tools.*) takes effect on the next
+	// changed in the settings table (tools.*) takes effect on the next
 	// tool call without a restart. Nil is the test path: the package
 	// constants below apply.
 	Settings *settings.Resolver

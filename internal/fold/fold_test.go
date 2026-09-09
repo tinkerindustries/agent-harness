@@ -39,7 +39,7 @@ func (b *eventBuilder) ev(kind store.EventKind, payload any) store.Event {
 // It is deliberately not a comparison of items with items. The loop's
 // vocabulary moved to the Responses shape; the Chat Completions providers
 // still render from it and must still send the bytes they always sent, and
-// `harness serve` has running sessions whose prompt cache depends on that
+// running sessions have a prompt cache that depends on that
 // (internal/wire/messages.go). Every `want` in this file is the array the
 // old fold built, left untouched, so each of these tests now pins the whole
 // chain: log to items to messages.

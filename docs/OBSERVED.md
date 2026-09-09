@@ -1084,7 +1084,7 @@ the provider's request and back with nothing translating in between.
 range of max_tokens is [1, 393216]". The field is nullable, and an intent
 that names no ceiling must omit it rather than send zero. Found by the run
 above, which is the first thing to send a request built from a create body
-that named no ceiling — `harness serve` always resolves one from its
+that named no ceiling — the harness always resolves one from its
 settings.
 
 ### Still untested — DeepSeek Responses

@@ -8,7 +8,7 @@ import "strings"
 // It exists so that moving the loop's own vocabulary to the Responses shape
 // cost the older dialect nothing: internal/deepseek's Chat Completions path
 // and internal/kimi call this and send exactly the bytes they always have.
-// `harness serve` runs on that path with sessions that predate the change,
+// sessions that predate the change run on that path,
 // and the head of every request is the frozen prefix its prompt cache is
 // built on (docs/DESIGN.md §3.2), so "exactly" is the requirement, not a
 // nicety. internal/fold's own test folds a log both ways and compares.

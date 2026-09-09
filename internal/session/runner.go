@@ -126,7 +126,7 @@ type RunOptions struct {
 	ReminderPolicy string
 
 	// AttachmentNames are the files the request's attachments were
-	// materialised into under scratch/attachments/ (internal/workspace).
+	// materialised into under scratch/attachments/.
 	// RenderOpeningMessage names them so the model knows they exist and can
 	// pass one to Glance.
 	AttachmentNames []string
@@ -313,8 +313,7 @@ type Runner struct {
 	// tools.Executor.ExtraEnv: the environment variables a session's Bash
 	// calls get on top of this process's own. It carries the GitHub App
 	// installation token for gh, which cannot be process-wide because an App
-	// mints a different token per account (internal/githubauth,
-	// docs/GITHUB-APP.md). Built in cmd/harness like the rest of the
+	// mints a different token per account. Built in cmd/harness like the rest of the
 	// composition; nil is every test and every harness on the github.token
 	// path, and a Bash call then inherits this process's environment
 	// unchanged.

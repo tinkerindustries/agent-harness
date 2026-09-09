@@ -288,7 +288,7 @@ which key is used. The per-model semaphore (§4.5) draws from the selected
 model's pool, so a session running flash subagents under a pro main loop is
 drawing on two pools at once.
 
-The worker pool multiplies both. N concurrent sessions each running a main-loop
+Concurrent sessions multiply both. N sessions each running a main-loop
 call and some number of subagents is what sets the real draw, so size the pool
 against the pro limit and let flash have the headroom.
 
@@ -299,7 +299,7 @@ startup and again after any 402.
 
 A 402 mid-run means the account is empty. It is reported in those words and not
 retried, because retrying an empty balance burns turns and reads as a hang. With
-a worker pool it stops the pool rather than failing each queued request in turn,
+it stops the run rather than burning a turn,
 since every one of them will hit the same wall.
 
 ## Gemini 3.7 Flash — a second provider
@@ -334,12 +334,12 @@ own price-table date is. Gemini's context caching also carries a per-hour
 storage charge with no counterpart in the harness's three-rate shape;
 a Gemini cost figure here covers cached reads, not cached storage.
 
-**`GET /api/models` never calls a live endpoint.** DeepSeek and Kimi both have
+**The model list never calls a live endpoint.** DeepSeek and Kimi both have
 a `GET /models`-shaped call of their own; the Interactions surface has none
 (GEMINI-INTEGRATION.md §2). None of the three reaches this endpoint's list,
 though — it always serves the static provider table
 (`internal/provider.KnownModels()`) instead, the same one that validates a
-work request and routes a run to its client, so the browser's model dropdowns
+create body and routes a run to its client, so a client's model list
 see exactly what the rest of the harness runs on.
 
 **No concurrency ceiling is wired for it.** `ModelLimits` (§ "Concurrency is
@@ -371,7 +371,7 @@ this means for the churn diagnostic.
 
 ## Where selection happens
 
-At session creation, from the work request's `model` and `effort` fields, and
+At session creation, from the create body's `model` and `effort` fields, and
 fixed for the session's life. There is no mid-session switch:
 it is a full cache miss, and the read-only UI has nobody to price that choice
 for. A caller wanting a different model sends a different request.

@@ -10,7 +10,7 @@ below cite it rather than restating from memory.
 The harness runs one provider today. `internal/deepseek` is both the API client
 and the wire vocabulary every other package speaks: `internal/fold` folds the
 event log into `[]deepseek.Message`, `internal/session` builds
-`deepseek.ChatCompletionRequest`, `internal/evals` uses the client for its
+`deepseek.ChatCompletionRequest`, an eval harness would use the client for its
 judge. Nine packages import it.
 
 Adding Kimi K3 means separating those two jobs. The vocabulary is shared; the
@@ -127,12 +127,12 @@ replays the prompt it was created with. A Kimi-specific prompt is therefore a
 second frozen head, not a mutation of the first.
 
 `internal/promptvariant` already exists for exactly this: named alternatives to
-the shipped prompt, validated on the work request, with `internal/session`
+the shipped prompt, validated on the request, with `internal/session`
 owning the text. A Kimi prompt starts as a variant.
 
 That also means it can be measured. `harness eval` runs a suite under two named
 variants and compares what the sessions did
-([`docs/EVALS.md`](EVALS.md)). The question "does K3 need different wording"
+by measurement. The question "does K3 need different wording"
 has a machine answer here rather than an opinion, and the machinery is already
 built. Kimi publishes its own
 [prompt guidance](../third_party/kimi-docs/guide/prompt-best-practice.md)
@@ -237,7 +237,7 @@ container, so the run verified itself by hand instead.
 
 Every remaining phase is a Go change verified by an agent running in the
 harness image, and none of them could run `scripts/test.sh` as it stood: the
-script started its broker with `docker compose`, published on the host's
+script started its broker, published on the host's
 loopback, which the container cannot reach, and the local broker-binary
 fallback it prescribed was not in the image. The phase baked that broker
 binary into the Dockerfile and taught the script to start it directly when
@@ -345,7 +345,7 @@ for Kimi and had to be restated regardless. Two halves:
    costs real tokens against a live key and was recorded `not_run` at
    landing; run it before shipping any wording as K3's default.
 
-Verify: the eval comparison, recorded per [`docs/EVALS.md`](EVALS.md).
+Verify: an A/B comparison against the shipped prompt.
 
 ## 7. What this plan does not cover
 

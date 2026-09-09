@@ -88,7 +88,7 @@ permission modes gate execution, not availability: every one of a session's
 tools ships on every request in every mode, and a disallowed call is refused
 at execution with an error result the model can read. Removing tools per
 mode would give each mode its own prefix and make mode switching a cold
-start. A work request's `result_schema` is the tempting exception: it
+start. A create body's `result_schema` is the tempting exception: it
 belongs in the opening user message, never in `Complete`'s definition.
 Evolving an array *between releases* is different from varying it per
 request: when the vision tools were replaced — two tools,
@@ -113,7 +113,7 @@ description against this rule.
 **Order tool results by `tool_calls` index**, never by completion order.
 
 **Keep volatile content out of the head.** No clock, cwd, git status, or file
-listing in the system prompt. Nothing from a work request either — workspace
+listing in the system prompt. Nothing from a create body either — workspace
 path, task instructions, and result schema all go in the opening user message.
 Environment context is injected once at session start; refreshing it happens
 through a tool call the model makes, which appends.

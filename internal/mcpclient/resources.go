@@ -130,7 +130,7 @@ func (m *Manager) GetPrompt(ctx context.Context, server, name string, args map[s
 // for the operator surface: given a prompt or resource template and the
 // argument being typed, it returns the values the server suggests. Nothing
 // in a run calls it — a model does not autocomplete — so it lives here for
-// internal/httpapi rather than on the MCPProvider seam, and takes plain
+// an operator surface rather than on the MCPProvider seam, and takes plain
 // strings so that package needs no MCP types of its own.
 //
 // kind is "prompt" or "resource"; ref is the prompt's name or the resource

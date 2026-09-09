@@ -33,7 +33,7 @@ type EventKind string
 
 // EventKinds is every kind the event log can hold, in declaration order. The
 // HTTP layer's ?kind= filter and its 400 "valid kinds" message derive from
-// this list rather than a literal of their own (docs/DATA-API.md "events"),
+// this list rather than a literal of their own,
 // so adding an event kind to the log automatically extends the API's filter
 // surface instead of silently leaving the new kind unfilterable.
 var EventKinds = []EventKind{
@@ -87,7 +87,7 @@ type SessionStartedPayload struct {
 	Task string `json:"task,omitempty"`
 	// Attachments are the paths the request's attachments were materialised
 	// into — "scratch/attachments/<name>" inside the session workspace
-	// (internal/workspace), the same paths the opening message lists, empty
+	// , the same paths the opening message lists, empty
 	// when the request carried none. Stored separately the way SkillCatalogue
 	// is, so the browser can render the images through
 	// GET /api/sessions/{id}/screenshot without parsing the message text.

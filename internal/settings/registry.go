@@ -8,8 +8,8 @@ import (
 )
 
 // Type is the value type of a setting, carried on its registry descriptor so
-// the HTTP API and the settings screen both render and validate it the same
-// way instead of each re-inferring it from the key.
+// every caller renders and validates it the same way instead of
+// re-inferring it from the key.
 type Type int
 
 const (
@@ -35,15 +35,12 @@ func (t Type) String() string {
 	}
 }
 
-// Setting groups, in registry order. The settings screen renders one heading
-// per group, in the same order GET /api/settings returns them.
+// Setting groups, in registry order.
 const (
-	GroupCredentials     = "Credentials"
-	GroupIdentity        = "Identity"
-	GroupRunBudget       = "Run budget"
-	GroupToolLimits      = "Tool limits"
-	GroupModels          = "Models"
-	GroupRequiresRestart = "Requires a restart"
+	GroupCredentials = "Credentials"
+	GroupRunBudget   = "Run budget"
+	GroupToolLimits  = "Tool limits"
+	GroupModels      = "Models"
 )
 
 // Setting keys. The registry below is the single source of truth; these
@@ -54,9 +51,6 @@ const (
 	KeyGoogleAPIKey              = "google.api_key"
 	KeyGoogleVisionModel         = "google.vision_model"
 	KeyGoogleVisionThinkingLevel = "google.vision_thinking_level"
-	KeyGitHubToken               = "github.token"
-	KeyGitHubAppID               = "github.app_id"
-	KeyGitHubAppPrivateKey       = "github.app_private_key"
 
 	KeyRunMaxTokens                 = "run.max_tokens"
 	KeyRunMaxSubTurns               = "run.max_sub_turns"
@@ -89,17 +83,6 @@ const (
 	KeyDefaultModel      = "model.default"
 	KeyDefaultFlashModel = "model.flash"
 	KeyDefaultEffort     = "model.effort"
-	KeyJudgeModel        = "model.judge"
-
-	KeyWorkerPoolSize            = "worker.pool_size"
-	KeyWorkerMaxDeliveryAttempts = "worker.max_delivery_attempts"
-	KeyWorkerConcurrencyPro      = "worker.model_concurrency_pro"
-	KeyWorkerConcurrencyFlash    = "worker.model_concurrency_flash"
-	KeyHTTPEventsLimitDefault    = "http.events_limit_default"
-	KeyHTTPEventsLimitMax        = "http.events_limit_max"
-	KeyHTTPControlToken          = "http.control_token"
-	KeyHTTPExternalURL           = "http.external_url"
-	KeyIdentityOperator          = "identity.operator"
 )
 
 // Descriptor is one registry entry: everything the harness knows about a
@@ -121,18 +104,16 @@ type Descriptor struct {
 	// TypeString setting.
 	Allowed     []string
 	Description string
-	// Secret settings are masked by GET /api/settings (the last four
-	// characters show) and typed into a password field by the screen.
+	// Secret marks a setting that holds a credential, so a caller printing
+	// settings masks it rather than showing the value.
 	Secret bool
-	// Restart marks a setting read once at startup or baked into a stream
-	// definition: a change takes effect on the next start, not the next
-	// request. The API payload and the screen both surface it.
+	// Restart marks a setting read once at startup rather than on every
+	// call. Nothing carries it today.
 	Restart bool
 }
 
-// registry is the ordered list of every setting, in the order GET
-// /api/settings serves and the screen renders. Groups run together in
-// order: Credentials, Run budget, Tool limits, Models, Requires a restart.
+// registry is the ordered list of every setting. Groups run together in
+// order: Credentials, Run budget, Tool limits, Models.
 var registry = []Descriptor{
 	// --- Credentials ---
 	stringSetting(KeyDeepSeekAPIKey, GroupCredentials,
@@ -141,28 +122,16 @@ var registry = []Descriptor{
 		"Kimi API key — Moonshot AI account used for kimi-k3 runs (third_party/kimi-docs/api/overview.md)", "", true, false),
 	stringSetting(KeyGoogleAPIKey, GroupCredentials,
 		"Google API key — sent to Gemini by the vision tools (Glance, Ground, Detect)", "", true, false),
-	stringSetting(KeyGitHubToken, GroupCredentials,
-		"GitHub personal access token — one account's credential, used for a private clone (internal/workspace/clone.go), the git and gh calls an agent session makes from inside its own workspace, and the start-run form's repo search (GET /api/github/repos). A configured GitHub App (github.app_id and github.app_private_key) takes precedence over this and reaches every account the App is installed on; this key stays as the single-account path and the fallback when no App is set. internal/githubauth.Sync makes a stored value ambient for every subprocess this process spawns; no restart needed after a change.", "", true, false),
-	stringSetting(KeyGitHubAppID, GroupCredentials,
-		"GitHub App id (the number on the App's settings page), paired with github.app_private_key. Set both and the harness authenticates as the App: it mints an installation token per account the App is installed on, so one credential covers a personal account and an organisation at once, which a fine-grained personal access token cannot do (docs/GITHUB-APP.md).", "", false, false),
-	stringSetting(KeyGitHubAppPrivateKey, GroupCredentials,
-		"Private key GitHub issued for the App, pasted whole. The PEM's newlines do not survive a single-line field and do not need to: the parser strips whitespace and accepts the flattened paste, the canonical PEM, and a bare base64 key alike (internal/githubapp.ParsePrivateKey). The key signs the JWT that mints installation tokens and is never sent anywhere but api.github.com.", "", true, false),
-	stringSetting(KeyHTTPControlToken, GroupCredentials,
-		"Bearer token the run-control endpoints require (docs/RUN-CONTROL.md). Generated at startup when unset.", "", true, false),
-
-	// --- Identity ---
-	stringSetting(KeyIdentityOperator, GroupIdentity,
-		"Name recorded as the parent of a run started from the web UI — stamped into parent_agent_id by POST /api/runs. Empty means the run is recorded as started by an unnamed person.", "", false, false),
 
 	// --- Run budget ---
 	intSetting(KeyRunMaxTokens, GroupRunBudget, 48000, 1, 1_000_000,
 		"Default max output tokens for a run that omits max_tokens. The real ceiling is DeepSeek's output limit; this is the harness's own default."),
 	intSetting(KeyRunMaxSubTurns, GroupRunBudget, 400, 1, 1_000_000,
-		"Sub-turn budget a work request that omits max_sub_turns gets. Chosen against run.deadline: a flash sub-turn averages about six seconds, so a full 400-sub-turn run needs roughly 40 minutes of wall clock. Raising one without the other does nothing."),
+		"Sub-turn budget a request that omits max_sub_turns gets. Chosen against run.deadline: a flash sub-turn averages about six seconds, so a full 400-sub-turn run needs roughly 40 minutes of wall clock. Raising one without the other does nothing."),
 	intSetting(KeyRunMaxSubTurnsKimiK3, GroupRunBudget, 100, 1, 1_000_000,
-		"Sub-turn budget a kimi-k3 work request that omits max_sub_turns gets, replacing run.max_sub_turns for that model. K3 output costs $15.00/M against deepseek-v4-pro's $0.87 — about 17x (configs/prices.json) — so the global 400-sub-turn ceiling, chosen against DeepSeek's rates, would let a K3 run spend up to 17x a DeepSeek run's worst-case output. 100 caps the ceiling at a quarter of the sub-turns, bounding the worst case to roughly 4x DeepSeek's (100/400 of the budget at 17x the rate), while still leaving a multi-tool task room (docs/KIMI-INTEGRATION.md §3)."),
+		"Sub-turn budget a kimi-k3 request that omits max_sub_turns gets, replacing run.max_sub_turns for that model. K3 output costs $15.00/M against deepseek-v4-pro's $0.87 — about 17x (configs/prices.json) — so the global 400-sub-turn ceiling, chosen against DeepSeek's rates, would let a K3 run spend up to 17x a DeepSeek run's worst-case output. 100 caps the ceiling at a quarter of the sub-turns, bounding the worst case to roughly 4x DeepSeek's (100/400 of the budget at 17x the rate), while still leaving a multi-tool task room (docs/KIMI-INTEGRATION.md §3)."),
 	durationSetting(KeyRunDeadline, GroupRunBudget, "1h", time.Second, 365*24*time.Hour,
-		"Wall clock a work request that omits deadline_ms gets. Chosen against run.max_sub_turns: 400 sub-turns at roughly six seconds each need about 40 minutes, and this hour leaves headroom. Raising one without the other does nothing."),
+		"Wall clock a request that omits deadline_ms gets. Chosen against run.max_sub_turns: 400 sub-turns at roughly six seconds each need about 40 minutes, and this hour leaves headroom. Raising one without the other does nothing."),
 	intSetting(KeyRunCompactionThreshold, GroupRunBudget, 768*1024, 1024, 1_000_000,
 		"Prompt-token threshold at which the session compacts its history (DeepSeek's recommended Claude Code compaction window, 768K of the 1M context)"),
 	intSetting(KeyRunCompactionThresholdKimiK3, GroupRunBudget, 128*1024, 1024, 1_000_000,
@@ -204,7 +173,7 @@ var registry = []Descriptor{
 	intSetting(KeyToolReviewScreenshotMaxBytes, GroupToolLimits, 5<<20, 1024, 1<<30,
 		"Maximum bytes per image file for Glance, Ground, and Detect (5 MB at the default; the key keeps the name of the tool it originally bounded)"),
 	intSetting(KeyToolAttachmentsMaxCount, GroupToolLimits, 8, 1, 100,
-		"Maximum image attachments one work request may carry (POST /api/runs and the MCP deepseek_agent tool)"),
+		"Maximum image attachments one request may carry"),
 	intSetting(KeyToolAttachmentsMaxBytes, GroupToolLimits, 5<<20, 1024, 1<<30,
 		"Maximum bytes per image attachment, matching the vision tools' per-file cap so an attachment can always be looked at (5 MB at the default)"),
 	durationSetting(KeyToolMCPTimeout, GroupToolLimits, "120s", time.Second, 24*time.Hour,
@@ -218,29 +187,11 @@ var registry = []Descriptor{
 	stringSetting(KeyDefaultEffort, GroupModels,
 		"Default reasoning effort for runs that omit effort", "high", false, false).
 		withAllowed("low", "high", "max"),
-	stringSetting(KeyJudgeModel, GroupModels,
-		"Model the eval judge scores transcripts with, when an eval names none (docs/EVALS.md). Defaults to kimi-k3 — the expensive judge: K3 output costs $15.00/M against deepseek-v4-pro's $0.87 (configs/prices.json), and a verdict is bounded by the 384K-token JudgeMaxTokens ceiling, so a judge that runs to it costs ~$5.90 on K3 against ~$0.34 on pro. A verbose verdict on a big eval is a cost to see coming.", "kimi-k3", false, false),
 	stringSetting(KeyGoogleVisionModel, GroupModels,
 		"Gemini model the vision tools (Glance, Ground, Detect) send images to. Defaults to gemini-3.7-flash, which bills the same input as 3.5 Flash and 2.4x less output ($3.75/M against $9.00/M, configs/prices.json) while being the newer model at the thing these tools do. Its rates are introductory and double on 2027-01-01. A model with no entry in the price table still runs — the cost lookup fails and the caller keeps zero (internal/tools/vision.go), so its spend silently vanishes from every figure in the UI rather than erroring. Add the entry before changing this.", "gemini-3.7-flash", false, false),
 	stringSetting(KeyGoogleVisionThinkingLevel, GroupModels,
 		"How hard the vision model thinks before answering a Glance, Ground, or Detect call. Thinking bills at the output rate and is where a call's cost goes — an empty findings list has been measured at 1,947 thinking tokens against one token of answer. \"auto\" lets the tool choose per call: medium for Glance's default description or a query, low for Ground and Detect, which are locating rather than reasoning. \"minimal\" is not offered: gemini-3.7-flash, the default vision model, refuses it with a 400 naming the three it takes, so pinning it here would fail every Glance, Ground, and Detect call (internal/gemini.LevelsFor).", "auto", false, false).
 		withAllowed("auto", "low", "medium", "high"),
-
-	// --- Requires a restart ---
-	intSetting(KeyWorkerPoolSize, GroupRequiresRestart, 4, 1, 100_000,
-		"Worker pool size, also how many queue rows the pool holds leased at once").withRestart(),
-	intSetting(KeyWorkerMaxDeliveryAttempts, GroupRequiresRestart, 5, 1, 100,
-		"Times one work request may be delivered before the queue stops redelivering it. A work request is single-use once it has a session, so this is a backstop for requests that die before their session exists: one that keeps dying during workspace preparation would otherwise be redelivered forever. The last attempt publishes a failed result rather than vanishing.").withRestart(),
-	intSetting(KeyWorkerConcurrencyPro, GroupRequiresRestart, 500, 1, 1_000_000,
-		"Account-wide concurrent-request ceiling for the pro model").withRestart(),
-	intSetting(KeyWorkerConcurrencyFlash, GroupRequiresRestart, 2500, 1, 1_000_000,
-		"Account-wide concurrent-request ceiling for the flash model").withRestart(),
-	intSetting(KeyHTTPEventsLimitDefault, GroupRequiresRestart, 500, 1, 1_000_000,
-		"Default page size for GET /api/sessions/{id}/events").withRestart(),
-	intSetting(KeyHTTPEventsLimitMax, GroupRequiresRestart, 5000, 1, 1_000_000,
-		"Largest page size GET /api/sessions/{id}/events accepts").withRestart(),
-	stringSetting(KeyHTTPExternalURL, GroupRequiresRestart,
-		"Base URL the deepseek_agent / deepseek_status / deepseek_result MCP tools build their transcript_url link from (internal/mcp/render.go's transcriptURL). When set here it overrides the DEEPSEEK_HARNESS_PUBLIC_URL env var; empty (the default) keeps today's behavior — the env var, or the harness's own bind address, is used instead.", "", false, false).withRestart(),
 }
 
 func stringSetting(key, group, description, def string, secret, restart bool) Descriptor {
@@ -261,32 +212,6 @@ func durationSetting(key, group, def string, min, max time.Duration, description
 	return Descriptor{Key: key, Group: group, Type: TypeDuration, Default: def, Min: int64(min), Max: int64(max), Description: description}
 }
 
-// SeedableCredentialKeys returns the credential settings worth copying from
-// one installation of the harness to another, in registry order: the API
-// keys and the GitHub credential, which are an operator's own accounts and
-// are the same wherever the harness runs.
-//
-// Derived from the group rather than listed by hand, so a credential added
-// to the registry later is seeded without anyone remembering to come back
-// here. http.control_token is the one credential deliberately left out: it
-// is generated per installation and guards that installation's run-control
-// endpoints, so copying it would make one stack's bearer token work on
-// another, which is the opposite of what it is for.
-//
-// Nothing else in the store travels with these — not the work queue, not
-// sessions, not workspace leases, not the MCP server registry
-// (docs/WORKTREES.md, "Seeding a worktree's credentials").
-func SeedableCredentialKeys() []string {
-	var keys []string
-	for _, d := range registry {
-		if d.Group != GroupCredentials || d.Key == KeyHTTPControlToken {
-			continue
-		}
-		keys = append(keys, d.Key)
-	}
-	return keys
-}
-
 func (d Descriptor) withRestart() Descriptor {
 	d.Restart = true
 	return d
@@ -297,9 +222,8 @@ func (d Descriptor) withAllowed(values ...string) Descriptor {
 	return d
 }
 
-// ValidKeys lists every known setting key in registry order, the order
-// GET /api/settings serves. It is derived from the registry, never
-// hand-maintained.
+// ValidKeys lists every known setting key in registry order. It is derived
+// from the registry, never hand-maintained.
 var ValidKeys = func() []string {
 	keys := make([]string, len(registry))
 	for i, d := range registry {
@@ -325,8 +249,8 @@ func Descriptors() []Descriptor {
 	return out
 }
 
-// IsSecretKey reports whether key holds a credential that GET /api/settings
-// masks by default. Derived from the registry.
+// IsSecretKey reports whether key holds a credential worth masking.
+// Derived from the registry.
 func IsSecretKey(key string) bool {
 	d, ok := Lookup(key)
 	return ok && d.Secret

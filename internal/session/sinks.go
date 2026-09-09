@@ -72,7 +72,7 @@ func (r *Runner) publishEvents(sess store.Session, events []store.Event) {
 // the publishEvents every other batch goes through.
 //
 // The ordering is the contract. A session's SSE stream closes the moment one
-// of these two kinds lands (internal/httpapi/sse.go), so a state frame
+// of these two kinds lands, so a state frame
 // published afterwards fans out to a subscriber that is already gone, and the
 // browser's last word on the session stays "running" forever: the finished
 // band never replaces the composer, and a run that is over goes on offering
@@ -82,10 +82,10 @@ func (r *Runner) publishTerminalEvents(sess store.Session, events []store.Event)
 }
 
 // publishState recomputes sess's session-list row and fans it out to the
-// list stream (docs/DESIGN.md §5.8). It reads the usage summary and request
-// id back from the store rather than threading them through the run loop,
-// so the row a live subscriber sees is always exactly what a fresh GET
-// /api/sessions would return for the same session.
+// list stream (docs/DESIGN.md §5.8). It reads the usage summary back from
+// the store rather than threading it through the run loop, so the row a
+// live subscriber sees is always exactly what a fresh read of the session
+// would return.
 func (r *Runner) publishState(ctx context.Context, sess store.Session) {
 	if r.Hub == nil {
 		return
@@ -95,12 +95,7 @@ func (r *Runner) publishState(ctx context.Context, sess store.Session) {
 		log.Printf("session: usage summary for %s: %v", sess.ID, err)
 		return
 	}
-	requestIDs, err := r.Store.RequestIDsForSessions(ctx, []string{sess.ID})
-	if err != nil {
-		log.Printf("session: request id lookup for %s: %v", sess.ID, err)
-		return
-	}
-	r.Hub.PublishSessionState(hub.BuildSessionState(sess, summaries[sess.ID], requestIDs[sess.ID], r.priceTableDate()))
+	r.Hub.PublishSessionState(hub.BuildSessionState(sess, summaries[sess.ID], r.priceTableDate()))
 }
 
 // priceTableDate is r.Prices's capture date, or "" when this Runner has no

@@ -7,7 +7,7 @@ import "github.com/mrgeoffrich/agent-harness/internal/wire"
 // sent before it. Nothing in the production request path calls this; it
 // exists so the churn diagnostic's catastrophic-head claim (docs/CACHE.md,
 // "cheap tail, catastrophic head") can be exercised on purpose, gated behind
-// an explicit debug option rather than reachable from a work request.
+// an explicit debug option rather than reachable from a request.
 // items is never modified in place.
 func Mutate(items []wire.Item, i int) []wire.Item {
 	out := append([]wire.Item(nil), items...)

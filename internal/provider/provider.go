@@ -1,6 +1,6 @@
 // Package provider holds the single table that maps a model name to the
 // provider serving it (docs/KIMI-INTEGRATION.md §4.3). Both client
-// construction (cmd/harness) and request validation (internal/queue) reach
+// construction (cmd/harness) and request validation reach
 // it without importing the agent loop, which is why it is a package of its
 // own rather than a helper inside internal/session or internal/deepseek.
 // DeepSeek is the default provider; Kimi K3 was the second entry

@@ -93,7 +93,7 @@ in exchange for nothing the harness cannot already do.
 **`code_execution` — no, and it would actively mislead.** It runs in Google's
 sandbox. The harness's entire model is a workspace with repositories cloned
 into it at a path that is identical on both sides of the container mount
-(`docs/WORKTREES.md`, "Path parity"). Code executing on Google's infrastructure
+Code executing on Google's infrastructure
 cannot see those repositories, cannot edit a file, and produces nothing that
 reaches the deliverable. Sitting in the array beside `Bash`, it is a trap: two
 tools that look like "run code", one of which silently cannot do the job.
@@ -170,7 +170,7 @@ array, every vision-capable model another (`internal/tools.DefinitionsFor`,
 `provider.SeesImages`). So divergence is not new. What is new is divergence
 in *what the session can reach*, rather than in how it is told to reach it.
 
-`internal/evals` compares two arms of the same suite. If a Gemini arm can
+An A/B comparison runs two arms of the same suite. If a Gemini arm can
 search the web and a DeepSeek arm cannot, "the same task on two models" is no
 longer the same task, and a score difference has an extra explanation nobody
 controlled for. That does not block adoption, but an eval run spanning

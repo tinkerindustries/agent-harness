@@ -45,55 +45,12 @@ CREATE TABLE IF NOT EXISTS events (
 	PRIMARY KEY (session_id, seq)
 );
 
-CREATE TABLE IF NOT EXISTS work_requests (
-	request_id     TEXT PRIMARY KEY,
-	session_id     TEXT,
-	status         TEXT NOT NULL,
-	result         TEXT,
-	received_at    TEXT NOT NULL,
-	finished_at    TEXT,
-	delivery_count INTEGER NOT NULL DEFAULT 0,
-	version        INTEGER NOT NULL DEFAULT 1
-);
-
-CREATE TABLE IF NOT EXISTS workspace_leases (
-	workspace    TEXT PRIMARY KEY,
-	session_id   TEXT NOT NULL,
-	acquired_at  TEXT NOT NULL,
-	heartbeat_at TEXT NOT NULL,
-	version      INTEGER NOT NULL DEFAULT 1
-);
-
 CREATE TABLE IF NOT EXISTS settings (
 	key        TEXT PRIMARY KEY,
 	value      TEXT NOT NULL,
 	updated_at TEXT NOT NULL
 );
 
--- An eval run and the sessions it compares (docs/EVALS.md). suite_json is the
--- suite as it was loaded: the file under evals/ changes, and a run has to keep
--- saying what it actually ran.
-CREATE TABLE IF NOT EXISTS eval_runs (
-	id          TEXT PRIMARY KEY,
-	suite       TEXT NOT NULL,
-	suite_json  TEXT NOT NULL,
-	variants    TEXT NOT NULL,
-	replicates  INTEGER NOT NULL,
-	judge_model TEXT NOT NULL DEFAULT '',
-	note        TEXT NOT NULL DEFAULT '',
-	status      TEXT NOT NULL,
-	started_at  TEXT NOT NULL,
-	finished_at TEXT,
-	version     INTEGER NOT NULL DEFAULT 1
-);
-
--- One image a work request carries (docs/DATA-API.md). The bytes live in the
--- database, never inline in the work request: the store is the authority the
--- disk mirror derives from, so the mirror stays complete however the row is
--- reached, and a request never carries bytes that could blow its size. A
--- producer writes one row per attachment and the request carries the ids;
--- the worker reads the rows back and internal/workspace materialises them
--- into scratch/attachments/ before the session starts.
 CREATE TABLE IF NOT EXISTS attachments (
 	id         TEXT PRIMARY KEY,
 	name       TEXT NOT NULL,
@@ -104,59 +61,7 @@ CREATE TABLE IF NOT EXISTS attachments (
 
 -- One member per (task, variant, replicate). scores and verdict are stored
 -- rather than recomputed: deleting a session removes the event log a rescore
--- would read, and a judge verdict is a model call that cannot be repeated for
--- free. session_id carries no foreign key, matching work_requests — a deleted
--- session leaves the numbers and loses only the link.
-CREATE TABLE IF NOT EXISTS eval_members (
-	eval_run_id TEXT NOT NULL,
-	request_id  TEXT NOT NULL,
-	task_id     TEXT NOT NULL,
-	variant     TEXT NOT NULL,
-	replicate   INTEGER NOT NULL,
-	session_id  TEXT,
-	status      TEXT NOT NULL,
-	scores      TEXT,
-	verdict     TEXT,
-	cost_usd    REAL NOT NULL DEFAULT 0,
-	sub_turns   INTEGER NOT NULL DEFAULT 0,
-	error       TEXT NOT NULL DEFAULT '',
-	PRIMARY KEY (eval_run_id, request_id)
-);
 
--- The work queue: the WORK stream's successor (docs/QUEUE-MIGRATION-PLAN.md
--- §1.2). One row per enqueued request, claimed by the worker pool, acked by
--- deleting the row.
---
--- The primary key is a surrogate id, NOT request_id, on purpose: the WORK
--- stream never deduplicated requests, so two publishes of one request_id are
--- two independent messages, each with its own delivery counter starting at
--- 1. store.shouldClaim depends on exactly that — a second, independently
--- published message for the same request_id starts back at 1, which is what
--- makes a genuine race between two live attempts fall through to "still
--- owned elsewhere" instead of running twice. A request_id primary key with
--- INSERT OR IGNORE would collapse the second enqueue into the first and
--- destroy the RefusalOwnedElsewhere and RefusalSpent paths. One enqueue =
--- one row = one independent delivery counter. Do not "fix" this.
---
--- visible_at_ms and lease_expires_ms are integer Unix milliseconds, not the
--- RFC3339Nano TEXT every other table uses, on purpose: Go's RFC3339Nano
--- trims trailing zeros from the fraction, so "…:00Z" and "…:00.5Z" compare
--- as '.'(0x2E) < 'Z'(0x5A) — the half-second timestamp sorts BEFORE the
--- whole-second one. Elsewhere in this schema that is a cosmetic ordering
--- wart; here it is the claim predicate, so it would be a correctness bug.
--- enqueued_at stays RFC3339Nano TEXT because it is only ever displayed.
--- lease_expires_ms = 0 means unleased, so a single
--- "lease_expires_ms <= now_ms" covers both "never leased" and "lease
--- expired".
-CREATE TABLE IF NOT EXISTS work_queue (
-	id               INTEGER PRIMARY KEY AUTOINCREMENT,
-	request_id       TEXT    NOT NULL,
-	payload          TEXT    NOT NULL,
-	enqueued_at      TEXT    NOT NULL,
-	visible_at_ms    INTEGER NOT NULL,
-	lease_expires_ms INTEGER NOT NULL DEFAULT 0,
-	delivery_count   INTEGER NOT NULL DEFAULT 0
-);
 
 -- The operator's global MCP server registry (docs/MCP.md, "The table"). One
 -- row per server, no per-request scoping, which is what makes enable/disable
@@ -195,20 +100,9 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
 	version        INTEGER NOT NULL DEFAULT 1
 );
 
--- Read paths: the session list's usage summary filters events down to two
--- kinds before scanning, and looks a session up by the request that
--- created it.
+-- Read path: the usage summary filters events down to two kinds before
+-- scanning.
 CREATE INDEX IF NOT EXISTS idx_events_session_kind ON events (session_id, kind);
-CREATE INDEX IF NOT EXISTS idx_work_requests_session_id ON work_requests (session_id);
-
--- The claim scans visible_at_ms in (visible_at_ms, id) order and the
--- operator-facing queries look rows up by request_id.
-CREATE INDEX IF NOT EXISTS idx_work_queue_claimable ON work_queue (visible_at_ms, id);
-CREATE INDEX IF NOT EXISTS idx_work_queue_request_id ON work_queue (request_id);
-
--- The session page asks "which eval does this session belong to?" on every
--- load, which is the reverse of the membership table's own key.
-CREATE INDEX IF NOT EXISTS idx_eval_members_session ON eval_members (session_id);
 `
 
 // Open opens (creating if needed) the SQLite database at path, applies the
@@ -249,16 +143,6 @@ func Open(path string) (*Store, error) {
 		writeDB.Close()
 		readDB.Close()
 		return nil, fmt.Errorf("store: migrate sessions table: %w", err)
-	}
-	if err := migrateTableColumns(writeDB, "work_requests", workRequestMigrationColumns); err != nil {
-		writeDB.Close()
-		readDB.Close()
-		return nil, fmt.Errorf("store: migrate work_requests table: %w", err)
-	}
-	if err := migrateTableColumns(writeDB, "workspace_leases", workspaceLeaseMigrationColumns); err != nil {
-		writeDB.Close()
-		readDB.Close()
-		return nil, fmt.Errorf("store: migrate workspace_leases table: %w", err)
 	}
 	if err := migrateTableColumns(writeDB, "mcp_servers", mcpServerMigrationColumns); err != nil {
 		writeDB.Close()
@@ -398,7 +282,7 @@ var sessionMigrationColumns = []migrationColumn{
 	// string, which the browser renders as no subtitle.
 	{"summary", "TEXT NOT NULL DEFAULT ''"},
 	// version: the optimistic-concurrency counter every mutating write
-	// checks and bumps (docs/DATA-API.md). Older rows default to 1, which is
+	// checks and bumps. Older rows default to 1, which is
 	// also the version a freshly created row starts at.
 	{"version", "INTEGER NOT NULL DEFAULT 1"},
 	// parent_is_user: producer-stamped provenance; older rows default to 0,
@@ -409,24 +293,6 @@ var sessionMigrationColumns = []migrationColumn{
 	// under, so a resume keeps the variant's tool array and head. Older rows
 	// default to the empty string, which is the shipped prompt.
 	{"prompt_variant", "TEXT NOT NULL DEFAULT ''"},
-}
-
-// workRequestMigrationColumns are the columns migrateTableColumns adds to a
-// work_requests table created by an older binary.
-var workRequestMigrationColumns = []migrationColumn{
-	// version: the optimistic-concurrency counter every mutating write
-	// checks and bumps (docs/DATA-API.md). Older rows default to 1, which is
-	// also the version a freshly created row starts at.
-	{"version", "INTEGER NOT NULL DEFAULT 1"},
-}
-
-// workspaceLeaseMigrationColumns are the columns migrateTableColumns adds to
-// a workspace_leases table created by an older binary.
-var workspaceLeaseMigrationColumns = []migrationColumn{
-	// version: the optimistic-concurrency counter every mutating write
-	// checks and bumps (docs/DATA-API.md). Older rows default to 1, which is
-	// also the version a freshly created row starts at.
-	{"version", "INTEGER NOT NULL DEFAULT 1"},
 }
 
 // mcpServerMigrationColumns are the columns migrateTableColumns adds to an

@@ -287,7 +287,7 @@ func TestDiscoverWorkspaceAndRepoSkills(t *testing.T) {
 	}
 }
 
-// An empty skills directory is the normal state — internal/workspace creates
+// An empty skills directory is the normal state — a workspace can carry
 // it on every run whether or not anything ever lands in it.
 func TestDiscoverEmptyWorkspaceSkillsDir(t *testing.T) {
 	ws := t.TempDir()

@@ -146,8 +146,9 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 	deepSeekClient := deepseek.NewResponsesClient(deepseek.DefaultBaseURL, "", deepseek.WithAPIKeyProvider(func() (string, error) {
 		return deepSeekKey, nil
 	}))
-	// The same dispatch harness serve does (clientForModel), with no Kimi
-	// client because no Kimi model is hosted here.
+	// The composition point the architecture names: one client per provider,
+	// and one place that decides which of them a model resolves to. No Kimi
+	// client, because no Kimi model is hosted here.
 	clientFor := func(m string) session.Client {
 		if providerFor(m) == provider.DeepSeek {
 			return deepSeekClient

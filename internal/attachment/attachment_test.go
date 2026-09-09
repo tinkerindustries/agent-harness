@@ -6,9 +6,8 @@ import (
 	"testing"
 )
 
-// These pin the messages internal/httpapi/server_test.go and
-// internal/mcp/launch_validation_test.go assert on by substring, now that
-// both producers call through here instead of carrying their own copy.
+// The rejection messages are asserted by substring elsewhere, so they are
+// pinned here rather than left to drift.
 func TestValidateRejections(t *testing.T) {
 	valid := base64.StdEncoding.EncodeToString([]byte("mockup bytes"))
 	cases := []struct {

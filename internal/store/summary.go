@@ -21,7 +21,7 @@ func (s *Store) GetEventsAfter(ctx context.Context, sessionID string, afterSeq i
 // GetEventsAfterKinds is GetEventsAfter with a kind filter: only events
 // whose kind is one of kinds are returned, and the filter runs in SQL, so a
 // paged read of, say, tool traffic never pulls the transcript's reasoning
-// and content deltas off the disk (docs/DATA-API.md "events"). kinds nil or
+// and content deltas off the disk. kinds nil or
 // empty means no restriction — the SSE replay path's unfiltered read. limit
 // caps the number of rows; limit <= 0 means unlimited.
 func (s *Store) GetEventsAfterKinds(ctx context.Context, sessionID string, afterSeq int64, limit int, kinds []EventKind) ([]Event, error) {
@@ -133,36 +133,6 @@ func (s *Store) SessionUsageSummaries(ctx context.Context, sessionIDs []string) 
 			sum = sum.add(p)
 		}
 		out[sessionID] = sum
-	}
-	return out, rows.Err()
-}
-
-// RequestIDsForSessions maps each session id a work request named as its
-// session_id back to that request's request_id. A session absent from the
-// result was never created from a work request — a CLI-driven run, most
-// often.
-func (s *Store) RequestIDsForSessions(ctx context.Context, sessionIDs []string) (map[string]string, error) {
-	out := make(map[string]string, len(sessionIDs))
-	if len(sessionIDs) == 0 {
-		return out, nil
-	}
-	args := make([]any, len(sessionIDs))
-	for i, id := range sessionIDs {
-		args[i] = id
-	}
-	query := fmt.Sprintf(`SELECT session_id, request_id FROM work_requests WHERE session_id IN (%s)`, sqlPlaceholders(len(sessionIDs)))
-	rows, err := s.readDB.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var sessionID, requestID string
-		if err := rows.Scan(&sessionID, &requestID); err != nil {
-			return nil, err
-		}
-		out[sessionID] = requestID
 	}
 	return out, rows.Err()
 }

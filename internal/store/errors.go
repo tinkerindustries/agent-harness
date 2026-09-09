@@ -54,7 +54,7 @@ func (e *SessionFinishedError) Error() string {
 // whose status is still live ("running", or "creating" while a worker is
 // preparing its workspace): nothing may delete (or otherwise overwrite) a
 // row a live session goroutine is still writing.
-// It surfaces as a 409 on the HTTP surface (docs/DATA-API.md).
+// It reports a caller's precondition failing.
 type SessionRunningError struct {
 	SessionID string
 }
@@ -66,7 +66,7 @@ func (e *SessionRunningError) Error() string {
 // ActiveSessionError is returned when a write would close a running session
 // whose most recent event is newer than the caller's idle threshold — the
 // row looks live, so the write refuses rather than race the run loop
-// (docs/DATA-API.md "Preconditions"). LastEventAt is what the 409 message
+// . LastEventAt is what the message
 // names: when the session was actually last heard from.
 type ActiveSessionError struct {
 	SessionID   string
@@ -80,7 +80,7 @@ func (e *ActiveSessionError) Error() string {
 
 // VersionConflictError is returned when a mutating write carries an If-Match
 // version that does not equal the row's current version — the client read the
-// row before someone else changed it (docs/DATA-API.md "Optimistic
+// row before someone else changed it (optimistic
 // concurrency"). It surfaces as a 412 on the HTTP surface. Resource names the
 // row ("session <id>", "work_request <id>") so the message is
 // self-describing in every resource's handler.
@@ -100,7 +100,7 @@ func (e *VersionConflictError) Error() string {
 // which will publish its own terminal result. The request's session id is
 // the signal: the session's most recent event newer than the caller's idle
 // threshold means the request is genuinely in flight, so the write refuses
-// rather than race the worker (docs/DATA-API.md "Preconditions"). It
+// rather than race the run. It
 // surfaces as a 409 on the HTTP surface, and LastEventAt is what the message
 // names: when the session was actually last heard from.
 type ActiveRequestError struct {
@@ -117,7 +117,7 @@ func (e *ActiveRequestError) Error() string {
 // ActiveLeaseError is returned when a write would release a workspace lease
 // whose heartbeat is newer than the caller's idle threshold — the lease a
 // live session is still holding, so the write refuses rather than releasing
-// a workspace that is being used right now (docs/DATA-API.md
+// a workspace that is being used right now (
 // "Preconditions"). It surfaces as a 409 on the HTTP surface, and
 // LastHeartbeatAt is what the message names: when the lease was actually
 // last heartbeated.

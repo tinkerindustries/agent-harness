@@ -5,25 +5,16 @@ Model Context Protocol server once, globally, and every session started after
 that carries the server's tools in its tool array alongside the built-in
 twenty.
 
-This is the client side. It is not to be confused with `internal/mcp`, which
-is the *server* the harness exposes at `/mcp` so an external agent harness can
-launch runs here. The two never meet: `internal/mcp` publishes work,
-`internal/mcpclient` consumes tools.
-
-That collision is also why the browser screen lives at `/mcp-servers` and not
-at `/mcp`: `harness serve` mounts the outward-facing MCP server on `/mcp` of
-the same port, so a screen routed there is simply unreachable — the browser
-gets that endpoint's `Bad Request: GET requires an Mcp-Session-Id header`
-instead of the app. Do not "tidy" the route back.
+This is the client side, and it is the only MCP direction the harness has.
 
 ## The shape of it
 
 ```
-browser /mcp-servers screen ─POST/PATCH/DELETE─▶ internal/httpapi ──▶ mcp_servers table
-                                                │                     │
-                                          refresh (probe)             │ snapshot
-                                                ▼                     ▼
-                                        internal/mcpclient.Manager ◀───┘
+operator ──────────────────────────────────────▶ mcp_servers table
+                                                │                │
+                                          refresh (probe)        │ snapshot
+                                                ▼                ▼
+                                        internal/mcpclient.Manager ◀┘
                                           │            │
                                     stdio/HTTP     Definitions() / Call()
                                           ▼            ▼
@@ -49,8 +40,8 @@ time, rather than silently shrinking the array — which matters because the
 array is the frozen request head (ARCHITECTURE.md, "The request head is
 frozen"): two sessions whose arrays differ share no prompt cache, and a
 resumed session whose array shrank under it would invalidate its own prefix.
-A server that has never probed successfully contributes nothing, and the
-screen shows the error.
+A server that has never probed successfully contributes nothing, and its
+`probe_error` says why.
 
 **Resolution happens once per run.** `Runner.Run` resolves the array — the
 provider's frozen definitions plus the MCP snapshot — and stores it on the
@@ -141,9 +132,7 @@ must never read this probe's tools under an earlier probe's instructions.
 indistinguishable from a server that sends none; the operator's next Refresh
 fills it in.
 
-Secrets: `env` values and `headers` values can hold API keys. `GET
-/api/mcp/servers` masks them the way the settings surface masks a secret key
-(`internal/redact.Secret`) — keys in the clear, values masked. A write that
+Secrets: `env` values and `headers` values can hold API keys. A write that
 sends an empty string as a value keeps the stored value for that key; removing
 the key removes the value. The full values never leave the process.
 
@@ -190,10 +179,10 @@ about a probe that plainly did not work.
 point of an explicit probe is to prove the *current* configuration actually
 connects, not that some earlier connection is still alive.
 
-A probe failure is never an error to the caller of the HTTP surface: create
-still answers 201 and refresh still answers 200, both carrying the row with
-`probe_error` on it. The screen renders that reason, and replacing it with
-a 5xx would take away the one thing an operator can act on.
+A probe failure is never an error to the caller: create and refresh both
+succeed, carrying the row with `probe_error` on it. That reason is the one
+thing an operator can act on, and returning a bare failure instead would take
+it away.
 
 ## Connections
 
@@ -332,10 +321,9 @@ is telling the operator something about how it expects to be driven.
 
 ## Completions
 
-`POST /api/mcp/servers/{name}/complete` asks a server what values an argument
-could take — `{"kind":"prompt"|"resource","ref":…,"argument":…,"value":…}`.
-It is an operator-surface endpoint only: nothing in a run calls it, because a
-model does not autocomplete. A server without the capability answers with an
+`Complete` asks a server what values an argument could take. It is an
+operator-facing call only: nothing in a run makes it, because a model does not
+autocomplete. A server without the capability answers with an
 error, which surfaces as a 502 naming the server rather than a 500 that reads
 like the harness broke.
 
@@ -442,34 +430,28 @@ session still starts.
 
 ## Adding a server
 
-The `/mcp-servers` screen's add form is behind a paste box rather than a set of
-fields to fill in by hand: paste a line copied straight out of a server's own
-README or shell history and it turns into the fields itself
-(`web/src/api/mcpCommand.ts`'s `parseMCPCommand`) — a `claude mcp add ...`
-invocation, a bare command, or a bare URL. `--scope` is accepted and
-silently dropped, because this harness's configuration is global rather than
-per-project or per-user (above) — there is nothing here for it to mean.
+A server is added as a row: transport, command and args for `stdio`, or URL
+and headers for `http`. Most servers' own READMEs give the line in
+`claude mcp add` form, which names the same fields.
 
-Walking through the example the screen itself shows:
+Walking through one:
 
 ```
 claude mcp add --scope user blender -- uvx blender-mcp
 ```
 
 parses to a stdio server named `blender`, command `uvx`, args
-`["blender-mcp"]`. Saving it does what any create does: `POST
-/api/mcp/servers`, then an immediate probe — `uvx blender-mcp` launched as a
-subprocess *inside the harness container*, given up to a minute to resolve
-and install the package cold and speak MCP over stdio ("Probing" above). A
+`["blender-mcp"]`. Saving it does what any create does: the row, then an immediate probe — `uvx
+blender-mcp` launched as a subprocess on this machine, given up to a minute to
+resolve and install the package cold and speak MCP over stdio ("Probing"
+above). A
 successful probe fills the card with `blender`'s tool list; a failed one
 leaves `probe_error` on the row, truncated to 500 bytes, and the card shows
 it with nothing to list yet under `tools_json` — there is no snapshot from
 an earlier success to fall back to for a server that has never probed
-successfully. The usual causes are mundane: a command that doesn't exist on
-the image (a runtime the container doesn't carry), a malformed URL or header
-for an `http` server, an env var the operator meant to set and didn't — and,
-for a server that bridges to an application, the one the next section is
-about.
+successfully. The usual causes are mundane: a command that is not on this machine's `PATH`,
+a malformed URL or header for an `http` server, an env var the operator meant
+to set and didn't.
 
 ## Blender, the worked example
 
@@ -482,7 +464,7 @@ uvx --from git+https://projects.blender.org/lab/blender_mcp@<sha>#subdirectory=m
     --with 'mcp[cli]<2' blender-mcp
 ```
 
-with `BLENDER_MCP_HOST=host.docker.internal` in `env`. Do not confuse it with
+Do not confuse it with
 the community `uvx blender-mcp` package, which is a different server with a
 different tool list (Poly Haven, Sketchfab and Hyper3D asset tools) and reads
 a differently named `BLENDER_HOST`.
@@ -499,28 +481,16 @@ understand before debugging one.** Fourteen of them — `execute_blender_code`,
 the `jump_to_*` navigation, the screenshots — talk over TCP to the add-on
 running inside the operator's *interactive* Blender, the one with the scene
 open on screen. The other twelve, every name ending `_for_cli`, do not: they
-shell out to `blender --background` from the MCP server subprocess, which
-runs inside the harness container. So one half drives the operator's live
-session and the other half opens a `.blend` in a throwaway process, and a
-tool that fails tells you which half you were in.
+shell out to `blender --background` from the MCP server subprocess. So one
+half drives the live session and the other half opens a `.blend` in a
+throwaway process, and a tool that fails tells you which half you were in.
 
-The add-on half is the one likely to catch a first-time user out, because the
-subprocess dials from *inside* the container. A Blender running on the
-operator's own machine and nowhere else is a `localhost:9876` the container
-cannot reach, so the probe fails with a connection error naming the MCP
-server, not Blender — that is as far as the subprocess itself got. On Docker
-Desktop `host.docker.internal` reaches the host's loopback and the add-on's
-default bind is enough; anywhere else Blender has to be reachable from the
-container's own network, the same "which side of the docker socket" question
-that already governs what a `full`-mode session can reach (ARCHITECTURE.md,
-"Gotchas").
-
-The CLI half needs no network and a binary instead: the image carries Blender
-itself, pinned in the Dockerfile to the same version the operator runs, for
-exactly these twelve tools. The comment on that layer is the reference for
-why it comes from Alpine's `edge` repository and why `spirv-tools` is named
-alongside it. Without it the twelve fail on every call with an error naming
-Python rather than the missing Blender.
+The add-on half needs Blender running with the add-on listening, by default on
+`localhost:9876`; without it the probe fails with a connection error naming
+the MCP server rather than Blender, because that is as far as the subprocess
+got. The CLI half needs no network and a `blender` binary on `PATH` instead;
+without one the twelve fail on every call with an error naming Python rather
+than the missing Blender.
 
 **The two image screenshot tools need `size_limit_in_bytes` set.** Left at
 its default of `0` — no limit — `get_screenshot_of_window_as_image` and
@@ -535,10 +505,5 @@ with their defaults. Nothing here can fix it from this side; it is the
 vendored server's own wire format, and the workaround is to pass the
 argument.
 
-Paths cross the same divide. The add-on resolves a path on the *host*, the
-CLI tools resolve one inside the *container*, and the two agree only where
-the workspace mount makes them agree — source and target are the same
-absolute path there by design (docs/WORKTREES.md, "Path parity"), so a
-`render_viewport_to_path` written under the workspace root is a file the
-session can then read back. A path anywhere else means whichever filesystem
-that half happens to be standing on.
+Both halves resolve paths on this machine, so a `render_viewport_to_path`
+written under the workspace root is a file the session can read back.

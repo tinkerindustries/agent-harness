@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/mrgeoffrich/agent-harness/internal/agentmeta"
@@ -79,7 +78,7 @@ type Session struct {
 	// runs under, frozen on the row like SystemPrompt and ToolSchema: a
 	// resumed session must keep sending the array and rendering the head its
 	// variant asks for, and the name is the only record of that once the run
-	// is over (docs/EVALS.md). Empty is the shipped prompt.
+	// is over. Empty is the shipped prompt.
 	PromptVariant  string
 	Effort         string
 	Thinking       bool
@@ -121,7 +120,7 @@ type Session struct {
 	Summary    string
 	CreatedAt  time.Time
 	FinishedAt *time.Time
-	// Version is the row's optimistic-concurrency counter (docs/DATA-API.md
+	// Version is the row's optimistic-concurrency counter
 	// "Optimistic concurrency"): 1 at creation, incremented by 1 on every
 	// successful mutation. The HTTP surface returns it in the session
 	// representation and requires it echoed back in If-Match on a mutating
@@ -397,7 +396,7 @@ func (s *Store) CancelRunningSession(ctx context.Context, id string, now time.Ti
 }
 
 // CloseSession transitions id to a terminal status — the write that lets an
-// operator close a session a dead worker left running (docs/DATA-API.md).
+// caller close a session an interrupted run left behind.
 // A "creating" row — a dead worker's attempt that was still preparing its
 // workspace — is treated exactly like "running": it takes the new status,
 // so an operator can close a row a dead worker left mid-clone.
@@ -494,7 +493,7 @@ func lastEventAt(tx *sql.Tx, sessionID string) (time.Time, bool, error) {
 // session whose status is still live — "running", or "creating" while a
 // worker is cloning into that directory: nothing may delete a row a live
 // session goroutine is still writing. wantVersion enforces the
-// optimistic-concurrency precondition (docs/DATA-API.md): it must equal the
+// optimistic-concurrency precondition: it must equal the
 // row's current version, or VersionConflictError is returned, so a delete
 // based on a stale read refuses instead of deleting a row that changed since
 // the client saw it. The caller is responsible for removing the disk mirror
@@ -629,76 +628,6 @@ func (s *Store) ListSessions(ctx context.Context) ([]Session, error) {
 		out = append(out, sess)
 	}
 	return out, rows.Err()
-}
-
-// SessionPageOptions is the filter and window one page of the session list is
-// read with (GET /api/sessions). Status "" means any; "running" means the
-// live set — running plus creating, the rows the in-flight list shows;
-// anything else is "finished" — everything not live. Query is a
-// case-insensitive substring across the three places the browser filter
-// searches: the session id, the workspace, and the work request id (via the
-// work_requests join). Limit and Offset window the rows in the store's own
-// order, created_at DESC.
-type SessionPageOptions struct {
-	Status string // "" (any), "running", or "finished" (everything not live)
-	Query  string // matches session id, workspace, or work request id; "" matches all
-	Limit  int
-	Offset int
-}
-
-// ListSessionsPage returns one page of sessions, newest first — the same
-// created_at DESC order ListSessions uses, so a row's position never depends
-// on which call fetched it — plus the total number of rows matching the
-// filter, ignoring limit/offset. One COUNT(*) and one SELECT over the same
-// WHERE, both against s.readDB. SQLite's LIKE is case-insensitive for ASCII,
-// which is exactly what the browser's toLowerCase().includes() was doing.
-func (s *Store) ListSessionsPage(ctx context.Context, opts SessionPageOptions) ([]Session, int, error) {
-	where := ""
-	var args []any
-	if opts.Status != "" {
-		// Built off the StatusRunning constant and IsLive, never string
-		// literals: the SQL and the Go branch cannot disagree about what
-		// "running" and "finished" mean. "running" is the live set —
-		// StatusRunning plus StatusCreating — and "finished" is its negation,
-		// so a preparing session shows up in the in-flight list, not the
-		// finished table.
-		if opts.Status == StatusRunning {
-			where += " AND status IN (?, ?)"
-			args = append(args, StatusRunning, StatusCreating)
-		} else {
-			where += " AND status NOT IN (?, ?)"
-			args = append(args, StatusRunning, StatusCreating)
-		}
-	}
-	if opts.Query != "" {
-		where += ` AND (id LIKE '%'||?||'%' OR workspace LIKE '%'||?||'%' OR
-			EXISTS (SELECT 1 FROM work_requests wr WHERE wr.session_id = sessions.id AND wr.request_id LIKE '%'||?||'%'))`
-		args = append(args, opts.Query, opts.Query, opts.Query)
-	}
-	if where != "" {
-		where = " WHERE " + strings.TrimPrefix(where, " AND ")
-	}
-
-	var total int
-	if err := s.readDB.QueryRowContext(ctx, `SELECT COUNT(*) FROM sessions`+where, args...).Scan(&total); err != nil {
-		return nil, 0, err
-	}
-
-	rows, err := s.readDB.QueryContext(ctx, `SELECT `+sessionColumns+` FROM sessions`+where+
-		` ORDER BY created_at DESC LIMIT ? OFFSET ?`, append(args, opts.Limit, opts.Offset)...)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer rows.Close()
-	var out []Session
-	for rows.Next() {
-		sess, err := scanSession(rows)
-		if err != nil {
-			return nil, 0, err
-		}
-		out = append(out, sess)
-	}
-	return out, total, rows.Err()
 }
 
 // mcpReadOnlyJSON encodes a session's per-server read-only allowance for the

@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"testing"
-	"time"
 )
 
 func TestGetEventsAfterRanges(t *testing.T) {
@@ -164,30 +163,5 @@ func TestSessionUsageSummaries(t *testing.T) {
 	}
 	if _, ok := summaries["does-not-exist"]; ok {
 		t.Fatal("expected no entry for a session with no events")
-	}
-}
-
-func TestRequestIDsForSessions(t *testing.T) {
-	s := openTestStore(t)
-	ctx := context.Background()
-	mustCreateSession(t, s, "sess-1")
-	mustCreateSession(t, s, "sess-2")
-
-	if _, err := s.ClaimWorkRequest(ctx, "req-1", 1, time.Now()); err != nil {
-		t.Fatalf("claim: %v", err)
-	}
-	if err := s.SetWorkRequestSession(ctx, "req-1", "sess-1"); err != nil {
-		t.Fatalf("set session: %v", err)
-	}
-
-	ids, err := s.RequestIDsForSessions(ctx, []string{"sess-1", "sess-2"})
-	if err != nil {
-		t.Fatalf("request ids for sessions: %v", err)
-	}
-	if ids["sess-1"] != "req-1" {
-		t.Fatalf("expected sess-1 to map to req-1, got %+v", ids)
-	}
-	if _, ok := ids["sess-2"]; ok {
-		t.Fatal("expected sess-2, created outside any work request, to have no entry")
 	}
 }

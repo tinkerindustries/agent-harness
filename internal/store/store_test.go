@@ -68,7 +68,7 @@ func TestCreateAndGetSession(t *testing.T) {
 	if got.Status != StatusOK || got.FinishedAt == nil {
 		t.Fatalf("expected finished session, got %+v", got)
 	}
-	// The optimistic-concurrency counter (docs/DATA-API.md) starts at 1 and
+	// The optimistic-concurrency counter starts at 1 and
 	// increments on every successful mutation.
 	if got.Version != 2 {
 		t.Fatalf("expected version 2 after one mutation, got %d", got.Version)
@@ -280,74 +280,6 @@ VALUES ('legacy-1', 'deepseek-v4-pro', 'high', 1, '/tmp/ws', 'default',
 		}
 		if got.Phase != 0 || got.TotalPhases != 0 {
 			t.Fatalf("open %d: expected phase and total_phases to default to zero on a pre-migration row, got %d/%d", attempt, got.Phase, got.TotalPhases)
-		}
-		if err := s.Close(); err != nil {
-			t.Fatalf("close %d: %v", attempt, err)
-		}
-	}
-}
-
-// TestOpenMigratesLegacyRequestsAndLeasesTables covers the migration
-// (docs/DATA-API.md): work_requests and workspace_leases rows written by an
-// older binary have no version column, and Open adds it with default 1,
-// backfilling existing rows, and a second Open is a no-op.
-func TestOpenMigratesLegacyRequestsAndLeasesTables(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "legacy.db")
-
-	legacy := `
-CREATE TABLE work_requests (
-	request_id     TEXT PRIMARY KEY,
-	session_id     TEXT,
-	status         TEXT NOT NULL,
-	result         TEXT,
-	received_at    TEXT NOT NULL,
-	finished_at    TEXT,
-	delivery_count INTEGER NOT NULL DEFAULT 0
-);
-INSERT INTO work_requests (request_id, session_id, status, result, received_at, finished_at, delivery_count)
-VALUES ('legacy-req', 'legacy-sess', 'running', NULL, '2026-01-02T03:04:05Z', NULL, 3);
-CREATE TABLE workspace_leases (
-	workspace    TEXT PRIMARY KEY,
-	session_id   TEXT NOT NULL,
-	acquired_at  TEXT NOT NULL,
-	heartbeat_at TEXT NOT NULL
-);
-INSERT INTO workspace_leases (workspace, session_id, acquired_at, heartbeat_at)
-VALUES ('/tmp/legacy', 'legacy-sess', '2026-01-02T03:04:05Z', '2026-01-02T04:04:05Z');`
-	db, err := sql.Open("sqlite", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := db.Exec(legacy); err != nil {
-		t.Fatalf("build legacy db: %v", err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	ctx := context.Background()
-	for attempt := 1; attempt <= 2; attempt++ {
-		s, err := Open(path)
-		if err != nil {
-			t.Fatalf("open %d: %v", attempt, err)
-		}
-		wr, err := s.GetWorkRequest(ctx, "legacy-req")
-		if err != nil {
-			t.Fatalf("get work request after open %d: %v", attempt, err)
-		}
-		if wr.Version != 1 {
-			t.Fatalf("open %d: expected a pre-migration work request at version 1, got %d", attempt, wr.Version)
-		}
-		if wr.DeliveryCount != 3 || wr.SessionID != "legacy-sess" {
-			t.Fatalf("open %d: migration must not disturb the row's own fields, got %+v", attempt, wr)
-		}
-		leases, err := s.ListWorkspaceLeases(ctx)
-		if err != nil {
-			t.Fatalf("list leases after open %d: %v", attempt, err)
-		}
-		if len(leases) != 1 || leases[0].Workspace != "/tmp/legacy" || leases[0].Version != 1 {
-			t.Fatalf("open %d: expected the legacy lease at version 1, got %+v", attempt, leases)
 		}
 		if err := s.Close(); err != nil {
 			t.Fatalf("close %d: %v", attempt, err)
@@ -622,28 +554,6 @@ func TestAppendEventsConcurrentSessionsDoNotInterleaveSeq(t *testing.T) {
 	}
 }
 
-func TestWorkspaceLease(t *testing.T) {
-	s := openTestStore(t)
-	ctx := context.Background()
-
-	if err := s.AcquireWorkspaceLease(ctx, "/tmp/ws", "sess-1"); err != nil {
-		t.Fatalf("acquire: %v", err)
-	}
-	// Re-acquiring for the same session is fine (idempotent heartbeat).
-	if err := s.AcquireWorkspaceLease(ctx, "/tmp/ws", "sess-1"); err != nil {
-		t.Fatalf("re-acquire same session: %v", err)
-	}
-	if err := s.AcquireWorkspaceLease(ctx, "/tmp/ws", "sess-2"); err != ErrWorkspaceLeased {
-		t.Fatalf("expected ErrWorkspaceLeased, got %v", err)
-	}
-	if err := s.ReleaseWorkspaceLease(ctx, "/tmp/ws", "sess-1"); err != nil {
-		t.Fatalf("release: %v", err)
-	}
-	if err := s.AcquireWorkspaceLease(ctx, "/tmp/ws", "sess-2"); err != nil {
-		t.Fatalf("acquire after release: %v", err)
-	}
-}
-
 func mustCreateSession(t *testing.T, s *Store, id string) {
 	t.Helper()
 	err := s.CreateSession(context.Background(), Session{
@@ -757,7 +667,7 @@ func TestDeleteSessionRefusesRunning(t *testing.T) {
 }
 
 // TestDeleteSessionVersionConflict pins the optimistic-concurrency
-// precondition (docs/DATA-API.md): a delete carrying a version that does not
+// precondition: a delete carrying a version that does not
 // match the row refuses with VersionConflictError, and the row survives.
 func TestDeleteSessionVersionConflict(t *testing.T) {
 	s := openTestStore(t)

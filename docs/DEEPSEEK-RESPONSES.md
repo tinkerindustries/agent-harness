@@ -10,7 +10,7 @@ speaks both: `POST /chat/completions` (intent.go, stream.go) and
 provider, one transport, one narrow seam above them — two dialects
 underneath.
 
-`harness stdio-session` posts to `/responses`. `harness serve` still posts to
+`harness stdio-session` posts to `/responses`.
 `/chat/completions`, and §5 says why that is a decision rather than an
 oversight.
 
@@ -140,9 +140,9 @@ did not: an intent with no token ceiling was sending
 `"max_output_tokens": 0`, which DeepSeek refuses with "the valid range of
 max_tokens is [1, 393216]". The field is nullable and zero is not a legal
 value for it, so it is `omitempty` now and an unset ceiling means the model's
-own default. `harness serve` never hit it because it always resolves a
-ceiling from its settings; a hosted session takes whatever the create body
-named, and a create may name none.
+own default. A caller that always resolves a ceiling from its settings never
+hits it; a hosted session takes whatever the create body named, and a create
+may name none.
 
 ### Still unverified
 
@@ -157,14 +157,10 @@ named, and a create may name none.
   decoded and unit-tested against scripted frames; neither has been seen
   from DeepSeek itself.
 
-## 5. Why `harness serve` still posts to Chat Completions
+## 5. A session speaks one surface for its whole life
 
-A session speaks one surface for its whole life. The head of every request is
-the frozen prefix the prompt cache is built on ([`DESIGN.md`](DESIGN.md)
-§3.2), and the two dialects do not serialise alike, so a session that changed
-surface mid-run would re-read its whole conversation at full price — and
-`serve` resumes sessions that started before this existed.
-
-Switching it is a one-line change in `cmd/harness/serve.go`'s client
-construction. What it needs first is §4's "still unverified" list closed,
-because `serve` is the production stack and a run there is not a probe.
+The head of every request is the frozen prefix the prompt cache is built on
+([`DESIGN.md`](DESIGN.md) §3.2), and the two dialects do not serialise alike,
+so a session that changed surface mid-run would re-read its whole conversation
+at full price. `internal/deepseek` still carries the Chat Completions client
+for that reason: a session started on it resumes on it.

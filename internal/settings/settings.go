@@ -1,15 +1,12 @@
 // Package settings names the harness's stored settings and resolves them
-// through the SQLite store. Unlike the rest of configuration, which arrives
-// as environment variables read once at startup, settings live in the
-// database so an operator can change a key while harness serve is running
-// and have the next request pick the change up without a restart.
+// through the SQLite store. Settings live in the database rather than in
+// the environment so a key can change while the process is running and the
+// next request picks the change up without a restart.
 //
 // Every setting is one entry in the registry (registry.go): its key, type,
-// default, validation bounds, description, and the secret/restart flags.
-// The HTTP API and the settings screen both read from that one registry, so
-// a value rejected by a PUT to /api/settings reads identically from the
-// screen. Values are stored as text in the settings table and parsed on
-// read; nothing about the schema changes.
+// default, validation bounds, description, and the secret flag. Every write
+// path validates against that one registry. Values are stored as text in the
+// settings table and parsed on read; nothing about the schema changes.
 package settings
 
 import (
@@ -62,7 +59,7 @@ func (r *Resolver) Get(ctx context.Context, key string) (string, bool, error) {
 // Set writes key, rejecting any key outside the known set with an error that
 // lists the valid ones, and any value that fails the registry's type or
 // bounds check with a ValidationError. A rejected value is identical whether
-// it arrives from an HTTP PUT or the settings screen.
+// it arrives.
 func (r *Resolver) Set(ctx context.Context, key, value string) error {
 	if err := validate(key); err != nil {
 		return err

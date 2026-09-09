@@ -27,17 +27,15 @@ type Client struct {
 }
 
 // DefaultBaseURL is the host a caller with no configured base URL talks to.
-// `harness serve` reads its own from the environment (internal/config, which
-// depends on nothing internal and carries the same literal); this is for
-// `harness stdio-session`, which loads no configuration at all because the
-// parent owns its working directory and no .env of that directory may reach
-// this process (docs/STDIO-PROTOCOL.md).
+// `harness stdio-session` loads no configuration at all — the parent owns
+// its working directory and no .env of that directory may reach this
+// process (docs/STDIO-PROTOCOL.md) — so this literal is what it dials.
 const DefaultBaseURL = "https://api.deepseek.com"
 
 // ErrNoAPIKey is returned before a request is sent when the key provider
 // supplies an empty key — the operator's fix is named rather than DeepSeek's
 // 401 being what they see.
-var ErrNoAPIKey = errors.New("no DeepSeek API key configured; set one from the settings screen or PUT /api/settings/deepseek.api_key")
+var ErrNoAPIKey = errors.New("no DeepSeek API key configured; set DEEPSEEK_API_KEY in the environment this process was spawned with")
 
 // ClientOption customises a Client built by NewClient.
 type ClientOption func(*Client)

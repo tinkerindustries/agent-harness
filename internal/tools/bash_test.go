@@ -305,7 +305,7 @@ func TestBashWithoutStdoutSinkStillCapturesOutput(t *testing.T) {
 // credential rides on: a variable ExtraEnv returns is in the command's
 // environment, and the process's own environment is still there underneath
 // it (a Bash call inherits GIT_CONFIG_* and everything else
-// internal/githubauth set).
+// the parent process set).
 func TestBashExtraEnvReachesTheCommand(t *testing.T) {
 	e, _ := newTestExecutor(t)
 	t.Setenv("HARNESS_TEST_AMBIENT", "ambient")

@@ -43,7 +43,7 @@ const probeWriteTimeout = 10 * time.Second
 //
 // On success it returns the freshly reloaded row. On failure it still
 // returns the reloaded row, now carrying the new probe_error, alongside the
-// error — so a caller (the /mcp screen, by way of internal/httpapi) can
+// error — so a caller can
 // render both what went wrong and the row as it now stands, including
 // whatever tool snapshot survived from the last successful probe
 // (docs/MCP.md, "The tool array is built from a stored snapshot").

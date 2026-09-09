@@ -135,7 +135,7 @@ The highest-risk tool, and the one where harnesses diverge most in quality.
 The tool the permission policy exists for. Wall-clock timeout and an output byte
 cap on every invocation, with truncation labelled in the result so the model
 knows it saw a fragment. Both are defaults, not fixed values: an operator
-changes them on the settings screen, or with a `PUT` against
+changes them in the settings table:
 `tools.bash_timeout` (and `tools.bash_timeout_max`, the ceiling a request's
 own timeout is clamped to) and `tools.output_cap` — the whole `tools.` group
 of settings — and the next tool call picks the change up without a restart.
@@ -194,9 +194,9 @@ The split exists so a per-item update is cheap enough that an agent does not
 skip it mid-run. Rewriting the whole plan on every status change costs the
 model the full checklist to produce and the session a bigger message to
 append; naming one taskId in a short `TaskUpdate` call makes keeping the
-plan current the obvious move. A terminal harness renders the list as a
-checklist that scrolls away. A web UI can pin it as a live plan panel beside
-the transcript, which is one of the clearer wins the browser buys us.
+plan current the obvious move. A terminal client renders the list as a
+checklist that scrolls away; a client with a screen can pin it as a live plan
+panel beside the transcript.
 
 `TaskUpdate` patches only the fields present. `status: "deleted"` removes the
 task — it is only ever an input trigger, never a stored status, so a
@@ -373,10 +373,9 @@ way to look closer at a spot `Ground` or `Detect` already found; it works
 with exactly one image path.
 
 An image can also arrive with the task rather than being captured mid-session.
-A work request may carry attachments (`POST /api/runs`, the MCP
-`deepseek_agent` tool — docs/DATA-API.md): the bytes are stored in SQLite, the
-request carries only ids, and `internal/workspace` materialises them into
-`scratch/attachments/` during `Prepare`. The opening message names the files,
+A create body may carry attachments: the bytes are stored in SQLite, the
+request carries only ids, and `internal/attachment.Write` materialises them
+into `scratch/attachments/` before the loop starts. The opening message names the files,
 so the model knows they exist and can pass one to `Glance` as the image to
 compare against — "make it look like this mockup" becomes a question against
 the mockup itself instead of a prose description of it. Only PNG, JPEG, and
@@ -494,9 +493,8 @@ The usage of all of them is summed into a **single** `usage` event carrying
 `calls`, rather than one event per chunk. Both would give the right session
 total — `SessionUsageSummaries` sums every usage event it finds — but the
 transcript card absorbs at most one usage block per sub-turn and a later one
-replaces an earlier one (`web/src/api/groups.ts`), so fifteen events would
-put one chunk's price on the card and drop the other fourteen from the
-display. Vision spend has already been a third of a run's cost once
+replaces an earlier one, so fifteen events would put one chunk's price on the
+card and drop the other fourteen from the display. Vision spend has already been a third of a run's cost once
 ([`vision-path-2026-08-14.md`](reviews/vision-path-2026-08-14.md)), and
 under-reporting it on the screen where anyone would notice is a worse trade
 than losing the per-chunk breakdown, which nothing downstream reads and which
@@ -639,54 +637,30 @@ path uses, so a relative path lands under `scratch/` whether or not the
 prefix is spelled and an absolute path outside it is refused. It therefore
 cannot touch a deliverable or a cloned repository. Gating it by mode instead
 — which it was, at first — put the whole `Ground`→`Crop`→`Glance` pipeline
-behind `full` permissions, the mode that also hands the session the host
-docker socket: a large grant to buy a closer look at a screenshot
+behind `full` permissions: a large grant to buy a closer look at a screenshot
 (`internal/tools/policy.go`, "Permissions" below). It makes no Gemini call,
 so it keeps the ordinary 30-second tool timeout rather than the vision
 tools'.
 
 ### Seeing the screenshots
 
-A `Screenshot`, `Glance`, `Ground`, `Detect`, or `Crop` result renders the
-images above its text, served by `GET /api/sessions/{id}/screenshot?path=…`
-(`internal/httpapi/screenshots.go`). Without it a transcript reports what the
-vision model said about a page and never shows the page, which leaves the one
-artefact that would settle whether the model was right out of the record —
-and a session review has to take Gemini's prose on faith. `Crop` is the odd
-one out among the five: it makes no model call, and its `image_path` is
-usually already visible from an earlier call in the transcript, so the
-gallery shows what it *wrote* (`output`, or the default `<stem>.crop.png`
-name `execCrop` falls back to) rather than what it read — the produced crop,
-often upscaled, is the new thing a reader has not seen yet
-(`web/src/components/blocks/toolArgs.ts`).
+A `Screenshot`, `Glance`, `Ground`, `Detect`, or `Crop` result names the
+images it produced or read, so a client can render them above its text.
+Without that a transcript reports what the vision model said about a page and
+never shows the page, which leaves the one artefact that would settle whether
+the model was right out of the record. `Crop` is the odd one out among the
+five: it makes no model call, and its `image_path` is usually already visible
+from an earlier call in the transcript, so what is worth showing is what it
+*wrote* (`output`, or the default `<stem>.crop.png` name `execCrop` falls back
+to) rather than what it read — the produced crop, often upscaled, is the new
+thing a reader has not seen yet.
 
-The endpoint reads the session's live workspace. That is the trade-off it is
-built on: no schema change and the image at full resolution, against the fact
-that a workspace gets cleaned up (docs/RUN-CONTROL.md) and an old session then
-has no images left to serve. A missing file is therefore an ordinary 404 that
-the transcript renders as "screenshot no longer available", keeping the path
-visible, rather than an error or a broken image. Storing a downscaled copy in
-the database is the alternative if that becomes the common case.
+The path is the one the model passed to the tool. A client resolving it should
+do what the tools do: a relative path that names nothing at the workspace root
+is tried once more under `scratch/`, which is where a relative capture lands.
 
-The `path` is the one the model passed to the tool, because that is what the
-gallery renders from (`web/src/components/blocks/toolArgs.ts`), so the endpoint
-resolves it the way the tools do: a relative path that names nothing at the
-workspace root is tried once more under `scratch/`, which is where a relative
-capture lands. Without that second attempt the transcript reports "no longer
-available" over an image sitting on disk.
-
-Three properties keep it from being a general file read over the workspace: the
-path must resolve inside that session's own workspace with symlinks fully
-resolved, the `scratch/` attempt joins before it resolves so a traversal cannot
-climb out by spelling `../`, and the extension must be one of the three image
-types the vision tools accept. An escape and a missing file return the same
-404 with the same text, so a caller probing for a path outside the workspace
-learns only that it cannot have it. Like every other `GET` on the surface it
-carries no control token; the write endpoints are the authenticated ones.
-
-A `Task` child's transcript re-provides its own session id, so a subagent's
-screenshots resolve against the workspace the subagent ran in rather than its
-parent's.
+A `Task` child runs in its own workspace, so a subagent's screenshots resolve
+against that one rather than its parent's.
 
 ### Complete
 
@@ -708,7 +682,7 @@ call this before it stops. The system prompt asks for it, and a run that ends
 without it returns its final assistant text with a null `result`. No error path
 is needed for the omission.
 
-Its schema never varies. When a work request supplies a `result_schema`, that
+Its schema never varies. When a create body supplies a `result_schema`, that
 schema goes in the opening user message and validation happens in Go against the
 stored copy. Putting it in the tool definition would give every request a
 different tool array and cost the whole shared prefix ([CACHE.md](CACHE.md)). A
@@ -732,9 +706,9 @@ expected object, got null` — an accurate message about what is missing that sa
 nothing about what was sent. `execComplete` detects that specific case and names
 the stray arguments.
 
-`Complete` ships in every session, including one a person starts from the
-browser and simply watches, with no caller ever reading its `result`. One
-tool array across every caller is what keeps the stable head shared.
+`Complete` ships in every session, including one a person starts and simply
+watches, with no caller ever reading its `result`. One tool array across every
+caller is what keeps the stable head shared.
 
 ### MCP tools
 
@@ -823,8 +797,7 @@ These hold for every tool and live in Go, not in prompt text.
 - Every tool has a wall-clock timeout and an output byte cap, with truncation
   labelled in the result. Both are settings (`tools.` group) with the defaults
   listed above; the values are resolved from the settings table on each call,
-  so a limit changed on the settings screen, or with a direct `PUT`, applies
-  without a restart.
+  so a limit changed in the settings table applies without a restart.
 - Tool results are appended in `tool_calls` array order, never in completion
   order. Parallel tool calling is always on and cannot be disabled: the
   Responses API guide states it outright, the Codex model catalogue declares
@@ -847,8 +820,8 @@ These hold for every tool and live in Go, not in prompt text.
 
 ## Permissions
 
-Permission is a policy the session is given at creation, not a question it asks
-later. The browser is read-only, so there is nobody there to ask.
+Permission is a policy the session is given at creation, not a question it
+asks later. A run may have nobody watching it, so there is nobody to ask.
 
 Two modes, fixed for the life of a session and required on every request:
 
@@ -866,12 +839,11 @@ Two modes, fixed for the life of a session and required on every request:
   `Edit` use, and its default output sits next to the source image rather
   than under `scratch/`, so it is gated by mode like every other
   file-writing tool instead (`internal/tools/policy.go`).
-- Full access. Everything runs, as root, inside the workspace mount.
+- Full access. Everything runs, as this process's own user, in the workspace.
 
-There is no third mode between them and no default. Every ingress — the
-browser's start form and the MCP launch tool — rejects a request that does not
-name one, so no configuration value decides a session's permissions on a
-caller's behalf.
+There is no third mode between them and no default. A create body that names
+neither is rejected, so no configuration value decides a session's permissions
+on a caller's behalf.
 
 A middle mode existed until it was removed. It gated `Bash` behind an
 executable allowlist that included `go`, `npm`, `make`, and `python`, each of
@@ -885,7 +857,7 @@ what a session can change on disk rather than what it can send.
 over the network, changing nothing on disk. `Crop` reads a file too, but it
 writes one back — see above for why that puts it in the other group.
 
-A work request may add `deny` patterns on top of its mode. They only ever
+A create body may add `deny` patterns on top of its mode. They only ever
 subtract; a request cannot widen the mode it asked for.
 
 Modes gate execution, never availability. All of a session's tools are sent

@@ -33,7 +33,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -83,9 +82,9 @@ type Manager struct {
 	// hosted session's parent supplies GEMINI_API_KEY (or GOOGLE_API_KEY)
 	// only so this process's own API client can reach Google, and a stdio
 	// MCP child dialled from inside that session has no business seeing it
-	// (docs/STDIO-PROTOCOL.md, "Trust boundaries"). `harness serve`, whose
-	// operator-configured servers have no equivalent parent secret to
-	// protect, leaves this nil and keeps today's unfiltered behaviour.
+	// (docs/STDIO-PROTOCOL.md, "Trust boundaries"). A caller with no
+	// equivalent parent secret to protect leaves this nil and keeps the
+	// unfiltered behaviour.
 	EnvFilter func(base []string) []string
 
 	// Secrets, when set, is handed each server row on its way to a dial and
@@ -145,34 +144,19 @@ type cachedConn struct {
 	roots       []string
 }
 
-// New builds a Manager reading through st, with the real dialer and roots
-// backed by the workspace leases st already holds.
+// New builds a Manager reading through st, with the real dialer and no
+// roots.
 //
-// Leases are the honest answer to "which directories is this client working
-// in": one row per live session's workspace, acquired when a run starts and
-// released when it ends (internal/store/leases.go), which is exactly the
-// set a server is entitled to know about. It also means roots follow the
-// process rather than any one session — a server connected once and shared
-// by every session in the process cannot be told a different set per
-// caller, and claiming otherwise would be a lie told per tool call.
+// Roots are left unset because this process does not choose the directory a
+// session works in: the client names it on each create call
+// (docs/STDIO-PROTOCOL.md, harness.cwd), and a Manager shared by every
+// request in the process cannot report a different set per caller. A parent
+// that wants its servers told about a directory sets Roots itself.
 func New(st *store.Store) *Manager {
-	m := &Manager{
+	return &Manager{
 		Store: st,
 		conns: make(map[string]*cachedConn),
 	}
-	m.Roots = func(ctx context.Context) []string {
-		leases, err := st.ListWorkspaceLeases(ctx)
-		if err != nil {
-			log.Printf("mcpclient: read workspace leases for roots: %v", err)
-			return nil
-		}
-		out := make([]string, 0, len(leases))
-		for _, l := range leases {
-			out = append(out, l.Workspace)
-		}
-		return out
-	}
-	return m
 }
 
 // emptyObjectSchema is what an empty or unparseable tool input schema

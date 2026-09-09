@@ -48,7 +48,7 @@ func TestStdioChildEnvFiltersBeforeAppendingServerEnv(t *testing.T) {
 	}
 }
 
-// TestStdioChildEnvWithNoFilterKeepsTheBase pins harness serve's own
+// TestStdioChildEnvWithNoFilterKeepsTheBase pins the unfiltered
 // unaffected path: a nil filter is today's behaviour, and this process's own
 // environment reaches the child exactly as unfiltered os.Environ() would.
 func TestStdioChildEnvWithNoFilterKeepsTheBase(t *testing.T) {

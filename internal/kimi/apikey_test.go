@@ -11,7 +11,7 @@ import (
 // TestEmptyKeyFailsBeforeSending pins the same contract internal/deepseek
 // tests: a provider that returns an empty key fails the request locally with
 // ErrNoAPIKey before anything is sent, so the operator sees the fix (set one
-// from the settings screen or PUT /api/settings/kimi.api_key) rather than
+// naming the environment variable to set) rather than
 // Kimi's 401.
 func TestEmptyKeyFailsBeforeSending(t *testing.T) {
 	hit := false

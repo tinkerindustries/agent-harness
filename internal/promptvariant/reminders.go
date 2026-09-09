@@ -10,7 +10,7 @@ import (
 // A rule stated once in the system prompt decays as the context grows.
 // Measured over 85 production sessions, the share of searches made with the
 // Grep and Glob tools fell from 41.7% under 16k tokens to 3.5% above 128k,
-// and edits refused for want of a read rose from 0% to 1.95% (docs/EVALS.md).
+// and edits refused for want of a read rose from 0% to 1.95%.
 // A reminder re-states the rule further down the conversation, where the
 // system prompt's hold has weakened.
 //
@@ -44,7 +44,7 @@ type Policy struct {
 	// is what an operator steer is. DeepSeek's schema accepts a system
 	// message at any position in the array, and whether one carries further
 	// than a user message here is unmeasured — which is why it is a field
-	// rather than a decision (docs/EVALS.md).
+	// rather than a decision.
 	role string
 }
 

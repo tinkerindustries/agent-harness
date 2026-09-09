@@ -257,7 +257,7 @@ const (
 // (store.SessionUsageSummaries), so the session total would have been right
 // either way. What would NOT have been right is what a human reads: the
 // transcript's sub-turn card absorbs at most one usage block into its header
-// and each later one for the same sub-turn REPLACES it (web/src/api/groups.ts,
+// and each later one for the same sub-turn REPLACES it (
 // pushBlock's "usage" case). Fifteen events would put one chunk's cost on the
 // card and drop the other fourteen from the display — a tool whose true cost
 // is fifteen calls showing the price of one. Vision spend has already been a

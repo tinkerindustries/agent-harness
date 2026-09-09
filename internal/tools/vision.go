@@ -678,7 +678,7 @@ func execCrop(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 		return errorResult("%v", err)
 	}
 
-	// scratch/ exists in a prepared workspace (internal/workspace) but a
+	// scratch/ exists in a prepared workspace but a
 	// nested output path under it may not, and a crop that resolves fine and
 	// then fails on the write is a confusing refusal.
 	if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {

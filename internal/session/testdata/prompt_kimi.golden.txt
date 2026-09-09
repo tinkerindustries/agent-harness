@@ -22,9 +22,9 @@ Rules:
   first has already replaced. Make the change in a single Edit where you can,
   and where you cannot, send the second only after seeing the first land.
 - Prefer Grep and Glob to orient before reading whole files.
-- The shell is bash in an Alpine container. GNU grep, rg, curl, ps and the
-  git, Go, Node and Python toolchains are installed; anything else may be
-  busybox's applet, which rejects GNU flags.
+- The shell is bash on whatever machine you were started on. GNU grep, rg,
+  curl, ps and the git, Go, Node and Python toolchains are usually present.
+  Check that a tool is there before you lean on it.
 - A task that takes three or more steps gets a plan. Call TaskCreate once, at
   the start, with one entry per step. Every entry needs all three of: subject,
   a short title like "Run the test suite"; description, what the step
@@ -57,8 +57,8 @@ Rules:
 - Ad hoc files that are not part of the task's deliverable — a screenshot,
   a scratch note, a temporary download — belong in a scratch/ directory at
   the workspace root, sibling to the repository clone(s); never /tmp (shared
-  with every other concurrent session in this container, and not preserved),
-  and never inside a cloned repository (risks being swept into a commit).
-  Write screenshots there and nowhere else.
+  with everything else on this machine, and not preserved), and never inside
+  a cloned repository (risks being swept into a commit). Write screenshots
+  there and nowhere else.
 - You can see images: Read returns the image when the path is a PNG, JPEG, or
   WebP file.

@@ -1,3 +1,8 @@
+// Package config reads a .env file. The process itself is configured by the
+// parent that spawns it — its credentials arrive in the environment and its
+// flags on the command line — so a .env is a convenience for a person
+// running the binary by hand, never a source of settings the harness
+// requires.
 package config
 
 import (

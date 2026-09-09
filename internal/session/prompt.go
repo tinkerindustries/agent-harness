@@ -228,9 +228,9 @@ var toolFragments = []toolFragment{
 	},
 	{
 		needs: []string{"Bash"},
-		text: `- The shell is bash in an Alpine container. GNU grep, rg, curl, ps and the
-  git, Go, Node and Python toolchains are installed; anything else may be
-  busybox's applet, which rejects GNU flags.
+		text: `- The shell is bash on whatever machine you were started on. GNU grep, rg,
+  curl, ps and the git, Go, Node and Python toolchains are usually present.
+  Check that a tool is there before you lean on it.
 `,
 	},
 	{
@@ -300,9 +300,9 @@ var toolFragments = []toolFragment{
 		text: `- Ad hoc files that are not part of the task's deliverable — a screenshot
   taken for Glance, a scratch note, a temporary download — belong in a
   scratch/ directory at the workspace root, sibling to the repository
-  clone(s); never /tmp (shared with every other concurrent session in this
-  container, and not preserved), and never inside a cloned repository (risks
-  being swept into a commit). Screenshot writes there and nowhere else.
+  clone(s); never /tmp (shared with everything else on this machine, and not
+  preserved), and never inside a cloned repository (risks being swept into a
+  commit). Screenshot writes there and nowhere else.
 `,
 	},
 	{
@@ -310,9 +310,9 @@ var toolFragments = []toolFragment{
 		text: `- Ad hoc files that are not part of the task's deliverable — a screenshot,
   a scratch note, a temporary download — belong in a scratch/ directory at
   the workspace root, sibling to the repository clone(s); never /tmp (shared
-  with every other concurrent session in this container, and not preserved),
-  and never inside a cloned repository (risks being swept into a commit).
-  Write screenshots there and nowhere else.
+  with everything else on this machine, and not preserved), and never inside
+  a cloned repository (risks being swept into a commit). Write screenshots
+  there and nowhere else.
 `,
 	},
 	{
@@ -484,7 +484,7 @@ func RenderMCPBlock(array []wire.Tool, instructions map[string]string) string {
 // produces.
 //
 // attachments names the files the request's attachments were materialised
-// into under scratch/attachments/ (internal/workspace). The model cannot
+// into under scratch/attachments/. The model cannot
 // guess they exist — nothing in the task text says so — so they are named
 // here, ahead of the task, with the path a tool call can use; the common
 // use is passing one to Glance as the mockup the page should be judged
@@ -527,7 +527,7 @@ func RenderOpeningMessage(workspace, task string, resultSchema json.RawMessage, 
 }
 
 // RenderAttachmentBlock names the image files an attachment-carrying message
-// was materialised into under scratch/attachments/ (internal/workspace). The
+// was materialised into under scratch/attachments/. The
 // model cannot guess they exist — nothing in the message text says so — so
 // they are named ahead of the words, with the path a tool call can use; the
 // common use is passing one to Glance as the mockup the page should be

@@ -40,7 +40,7 @@ var skillDirs = []string{
 }
 
 // WorkspaceSkillsDir is the harness's own skill directory, created by
-// internal/workspace beside scratch/ and scanned like a repository's
+// the workspace root beside scratch/ and scanned like a repository's
 // .claude/skills. It exists so a skill can be given to a session without
 // being committed to any of the repositories the session is working in: a
 // skill dropped in a clone shows up in that repository's diff and in its pull

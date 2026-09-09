@@ -4,9 +4,7 @@
 # Windows clone a CRLF working tree, and `gofmt -l cmd internal` then reports
 # every Go file in the repository as unformatted — gofmt's output is LF-only,
 # so scripts/build.sh fails at its first stage with a list of 300 files and no
-# hint that line endings are the cause. The shell scripts and the Dockerfiles
-# have the same requirement for a different reason: they are copied into Linux
-# images, where a CRLF shebang line makes the interpreter unfindable.
+# hint that line endings are the cause.
 * text=auto eol=lf
 
 # Binary assets: never touched, so a font or an image is not corrupted by
