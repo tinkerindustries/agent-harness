@@ -137,11 +137,11 @@ stdout, carrying the OpenAI Responses API's own vocabulary rather than one of
 this repo's invention — its REST methods on `POST /responses` as JSON-RPC
 methods, and that surface's semantic server-sent events as notifications
 (docs/STDIO-PROTOCOL.md). It is the same vocabulary `internal/deepseek` sends
-the provider (docs/DEEPSEEK-RESPONSES.md) — the same shapes under the same
-names — but nothing is forwarded: both ends are rendered independently from
-the session's event log, and the outbound one goes through `internal/fold`'s
-`[]wire.Message`, which is Chat-Completions-shaped. A create's `input` is
-read for its text alone. Two translators around an unmodified
+the provider (docs/DEEPSEEK-RESPONSES.md) and the same one the loop itself
+folds into (`wire.Item`), so the provider request is the fold's output
+serialised as it stands. It is still not a proxy: the loop runs the tools, so
+what a parent reads is rendered from the event log rather than forwarded, and
+a create's `input` is read for its text alone. Two translators around an unmodified
 `session.Runner`: a create-response body becomes `RunOptions`, and the
 session's committed events plus the hub's live text deltas become `response.*`
 events. It streams text from the live frames and takes structure — tool
@@ -196,8 +196,13 @@ those packages can read one string.
 Depends on: nothing internal.
 
 ### `internal/wire`
-The provider-neutral wire vocabulary every request path speaks: the message
-and tool types, the request and response bodies, the streaming chunk types,
+The provider-neutral wire vocabulary every request path speaks. `item.go` is
+the loop's own conversation form — `Item`, the Responses API's input-item
+shape, which `internal/fold` produces and `internal/deepseek`'s Responses
+client serialises unchanged; `messages.go` renders it back into a messages
+array for the two Chat Completions dialects, byte for byte what they were
+always sent, which is what kept that move free for `harness serve`. The rest
+is the older dialect's own: the message and tool types, the request and response bodies, the streaming chunk types,
 the role, finish-reason, effort, and thinking constants, the SSE scanner,
 the tool-call assembler, and the stream event vocabulary — plus
 `ChatIntent`, the provider-neutral request intent the session seam speaks

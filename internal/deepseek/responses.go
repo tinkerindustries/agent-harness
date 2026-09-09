@@ -20,26 +20,6 @@ import (
 // map[string]any, for that same reason: encoding/json emits fields in
 // declaration order, so identical values always produce identical bytes.
 
-// Item types in the `input` list. Only the five the harness produces are
-// named; the API takes two more (custom_tool_call, web_search_call) that
-// nothing here sends.
-const (
-	itemTypeMessage            = "message"
-	itemTypeReasoning          = "reasoning"
-	itemTypeFunctionCall       = "function_call"
-	itemTypeFunctionCallOutput = "function_call_output"
-)
-
-// Content part types. The Responses API splits by direction where Chat
-// Completions had one "text": model input is input_text, model output
-// replayed back is output_text, and chain-of-thought is reasoning_text.
-const (
-	partInputText     = "input_text"
-	partOutputText    = "output_text"
-	partInputImage    = "input_image"
-	partReasoningText = "reasoning_text"
-)
-
 // effortNone disables thinking mode. The Responses API has no separate
 // toggle — where Chat Completions takes `thinking: {"type": "disabled"}`
 // beside `reasoning_effort`, this surface folds both into one field, and
@@ -63,7 +43,7 @@ const effortNone = "none"
 type responsesRequest struct {
 	Model           string           `json:"model"`
 	Instructions    string           `json:"instructions,omitempty"`
-	Input           []inputItem      `json:"input"`
+	Input           []wire.Item      `json:"input"`
 	Reasoning       *reasoningConfig `json:"reasoning,omitempty"`
 	MaxOutputTokens int              `json:"max_output_tokens,omitempty"`
 	Tools           []responsesTool  `json:"tools,omitempty"`
@@ -73,52 +53,6 @@ type responsesRequest struct {
 // reasoningConfig is the thinking mode toggle and effort in one field.
 type reasoningConfig struct {
 	Effort string `json:"effort"`
-}
-
-// inputItem is one entry of the `input` list. It is one struct covering
-// every item kind rather than an interface per kind, so field order is
-// fixed across kinds and a marshalled item cannot vary with which Go type
-// produced it. Every field but Type is omitempty, so each kind emits only
-// its own.
-type inputItem struct {
-	Type      string       `json:"type"`
-	Role      string       `json:"role,omitempty"`
-	Content   *itemContent `json:"content,omitempty"`
-	CallID    string       `json:"call_id,omitempty"`
-	Name      string       `json:"name,omitempty"`
-	Arguments string       `json:"arguments,omitempty"`
-	Output    *itemContent `json:"output,omitempty"`
-}
-
-// itemContent is the API's oneOf[string, array of parts], the same shape
-// wire.Content carries for Chat Completions and marshalled the same way: a
-// bare string when there are no parts, the array when there are. Text-only
-// content is by far the common case and stays one string on the wire.
-type itemContent struct {
-	Text  string
-	Parts []contentPart
-}
-
-// MarshalJSON emits the string form when Parts is empty and the array form
-// otherwise.
-func (c itemContent) MarshalJSON() ([]byte, error) {
-	if len(c.Parts) == 0 {
-		return json.Marshal(c.Text)
-	}
-	return json.Marshal(c.Parts)
-}
-
-// contentPart is one part of an itemContent.
-//
-// ImageURL is a plain string here, where Chat Completions wraps it in an
-// object with its own `url` field. That difference is the kind of thing
-// this whole file exists for: the same image, the same base64 data URL, a
-// different envelope (third_party/deepseek-docs/api/create-response.md,
-// "Image content part").
-type contentPart struct {
-	Type     string `json:"type"`
-	Text     string `json:"text,omitempty"`
-	ImageURL string `json:"image_url,omitempty"`
 }
 
 // responsesTool is a function tool. The Responses API flattens what Chat
@@ -133,10 +67,22 @@ type responsesTool struct {
 
 // responsesRequestFromIntent turns the loop's provider-neutral intent into a
 // Responses API body. It is intent.go's requestFromIntent for the other
-// surface, and the two must agree on meaning while agreeing on nothing at
-// all about bytes.
+// surface, and it has almost nothing to do.
+//
+// The loop's own conversation vocabulary **is** this surface's
+// (wire.Item, internal/wire/item.go), so `input` is the intent's items
+// serialised as they stand — no translation, no per-item rebuild, no second
+// representation to keep in step. The only work is lifting the leading
+// system item into `instructions`, which is where this surface carries the
+// system prompt, and folding the loop's two reasoning controls into the one
+// field this surface has.
+//
+// That is the whole point of the loop speaking items: the other three
+// renderings (Chat Completions for DeepSeek and Kimi, Interactions for
+// Gemini) do real work, and the path this repository's stdio entry point
+// runs does none.
 func responsesRequestFromIntent(intent wire.ChatIntent) responsesRequest {
-	instructions, items := inputFromMessages(intent.Messages)
+	instructions, items := wire.SystemPromptOf(intent.Items)
 	return responsesRequest{
 		Model:           intent.Model,
 		Instructions:    instructions,
@@ -176,123 +122,6 @@ func responsesToolsFrom(tools []wire.Tool) []responsesTool {
 			Description: t.Function.Description,
 			Parameters:  t.Function.Parameters,
 		})
-	}
-	return out
-}
-
-// inputFromMessages translates the folded message array into instructions
-// plus an input item list.
-//
-// The shapes differ more than the names suggest, and three of the
-// translations are load-bearing:
-//
-//   - The system prompt becomes `instructions` rather than a system message
-//     item. The API inserts it as the first system message, so the model
-//     sees exactly what it saw before.
-//
-//   - An assistant message carrying reasoning becomes **two** items, a
-//     `reasoning` item followed by the message. That is not cosmetic: with
-//     a `tools` array in the request — which every request of this harness
-//     carries — DeepSeek requires the intermediate assistant's
-//     chain-of-thought to be passed back in every later turn and answers
-//     400 when it is not (third_party/deepseek-docs/guides/
-//     thinking_mode.md, "Tool Calls"). Chat Completions replays it as
-//     `reasoning_content` on the message; here it is an item of its own,
-//     which the API merges back into the adjacent assistant message.
-//
-//   - A tool result becomes a `function_call_output` item whose `output`
-//     may carry `input_image` parts. Chat Completions has no documented
-//     home for an image in a tool message — the harness sends one anyway,
-//     on measured behaviour its vendor's schema contradicts
-//     (docs/DEEPSEEK-VISION.md §2). This surface documents it, so the
-//     vision path stops resting on an undocumented allowance.
-//
-// An assistant message with no text emits no message item, only its
-// reasoning and its calls: an empty assistant message would be a turn the
-// model never took.
-func inputFromMessages(msgs []wire.Message) (instructions string, items []inputItem) {
-	items = make([]inputItem, 0, len(msgs))
-	for i, m := range msgs {
-		switch m.Role {
-		case wire.RoleSystem:
-			// Only the first system message becomes instructions; the
-			// harness sends exactly one, at index 0. A second would be a
-			// system message item, which the API takes, rather than being
-			// silently concatenated into the first.
-			if i == 0 && instructions == "" {
-				instructions = m.Content.String()
-				continue
-			}
-			items = append(items, inputItem{
-				Type: itemTypeMessage, Role: wire.RoleSystem,
-				Content: contentFor(m.Content, partInputText),
-			})
-
-		case wire.RoleUser:
-			items = append(items, inputItem{
-				Type: itemTypeMessage, Role: wire.RoleUser,
-				Content: contentFor(m.Content, partInputText),
-			})
-
-		case wire.RoleAssistant:
-			if m.ReasoningContent != nil && *m.ReasoningContent != "" {
-				items = append(items, inputItem{
-					Type: itemTypeReasoning,
-					Content: &itemContent{Parts: []contentPart{
-						{Type: partReasoningText, Text: *m.ReasoningContent},
-					}},
-				})
-			}
-			// Either form of content counts. Text-only is what the fold
-			// produces today (wire.TextContent of the accumulated answer),
-			// but a parts content carries its text in the parts and leaves
-			// Content.Text empty, so testing the string alone would drop a
-			// whole assistant turn silently.
-			if m.Content.Text != "" || len(m.Content.Parts) > 0 {
-				items = append(items, inputItem{
-					Type: itemTypeMessage, Role: wire.RoleAssistant,
-					Content: contentFor(m.Content, partOutputText),
-				})
-			}
-			for _, tc := range m.ToolCalls {
-				items = append(items, inputItem{
-					Type:      itemTypeFunctionCall,
-					CallID:    tc.ID,
-					Name:      tc.Function.Name,
-					Arguments: tc.Function.Arguments,
-				})
-			}
-
-		case wire.RoleTool:
-			items = append(items, inputItem{
-				Type:   itemTypeFunctionCallOutput,
-				CallID: m.ToolCallID,
-				Output: contentFor(m.Content, partInputText),
-			})
-		}
-	}
-	return instructions, items
-}
-
-// contentFor turns one message's content into an item's content, using
-// textPart as the type of its text parts — input_text for anything the
-// model reads, output_text for its own words being replayed. Text-only
-// content stays a bare string, which is what all but the vision path sends.
-func contentFor(c wire.Content, textPart string) *itemContent {
-	if len(c.Parts) == 0 {
-		return &itemContent{Text: c.Text}
-	}
-	out := &itemContent{Parts: make([]contentPart, 0, len(c.Parts))}
-	for _, p := range c.Parts {
-		switch p.Type {
-		case wire.PartTypeImageURL:
-			if p.ImageURL == nil {
-				continue
-			}
-			out.Parts = append(out.Parts, contentPart{Type: partInputImage, ImageURL: p.ImageURL.URL})
-		default:
-			out.Parts = append(out.Parts, contentPart{Type: textPart, Text: p.Text})
-		}
 	}
 	return out
 }
@@ -347,7 +176,7 @@ func finishReasonFor(r *responseObject) string {
 		return wire.FinishLength
 	case statusCompleted:
 		for _, item := range r.Output {
-			if item.Type == itemTypeFunctionCall {
+			if item.Type == wire.ItemFunctionCall {
 				return wire.FinishToolCalls
 			}
 		}
@@ -368,15 +197,15 @@ func messageFromResponse(r *responseObject) wire.Message {
 	var calls []wire.ToolCall
 	for _, item := range r.Output {
 		switch item.Type {
-		case itemTypeReasoning:
+		case wire.ItemReasoning:
 			for _, p := range item.Content {
 				reasoning.WriteString(p.Text)
 			}
-		case itemTypeMessage:
+		case wire.ItemMessage:
 			for _, p := range item.Content {
 				content.WriteString(p.Text)
 			}
-		case itemTypeFunctionCall:
+		case wire.ItemFunctionCall:
 			calls = append(calls, wire.ToolCall{
 				ID:       item.CallID,
 				Type:     "function",

@@ -1,8 +1,8 @@
 package wire
 
 // ChatIntent is everything the agent loop wants from one request, expressed
-// provider-neutrally: the model, the messages, the reasoning effort, whether
-// to think, the token ceiling, and the tools. It is the seam between
+// provider-neutrally: the model, the conversation as items, the reasoning
+// effort, whether to think, the token ceiling, and the tools. It is the seam between
 // internal/session and a provider's client (docs/KIMI-INTEGRATION.md §4.1):
 // the loop states intent, and each provider implementation turns it into its
 // own request shape — DeepSeek's `thinking: {type}` plus `reasoning_effort`,
@@ -14,7 +14,7 @@ package wire
 // import the agent loop.
 type ChatIntent struct {
 	Model     string
-	Messages  []Message
+	Items     []Item
 	Effort    string
 	Thinking  bool
 	MaxTokens int

@@ -33,8 +33,19 @@ func (b *eventBuilder) ev(kind store.EventKind, payload any) store.Event {
 	return store.Event{SessionID: "sess-1", Seq: b.seq, Kind: kind, Payload: p, CreatedAt: time.Unix(0, b.seq).UTC()}
 }
 
-func requireEqualMessages(t *testing.T, got, want []wire.Message) {
+// requireEqualMessages renders the fold's items back into a messages array
+// and compares that with what the fold used to produce directly.
+//
+// It is deliberately not a comparison of items with items. The loop's
+// vocabulary moved to the Responses shape; the Chat Completions providers
+// still render from it and must still send the bytes they always sent, and
+// `harness serve` has running sessions whose prompt cache depends on that
+// (internal/wire/messages.go). Every `want` in this file is the array the
+// old fold built, left untouched, so each of these tests now pins the whole
+// chain: log to items to messages.
+func requireEqualMessages(t *testing.T, gotItems []wire.Item, want []wire.Message) {
 	t.Helper()
+	got := wire.MessagesFromItems(gotItems)
 	gj, err := json.Marshal(got)
 	if err != nil {
 		t.Fatalf("marshal got: %v", err)
@@ -114,8 +125,11 @@ func TestFoldToolCallTurn(t *testing.T) {
 	requireEqualMessages(t, got, want)
 
 	// The tool-call assistant message must serialise content as "" per
-	// docs/DESIGN.md §4.4, never as a null.
-	raw, err := json.Marshal(got[2])
+	// docs/DESIGN.md §4.4, never as a null. That is a property of the Chat
+	// Completions rendering, so it is asserted there: the items themselves
+	// carry a tool call as its own function_call item with no content field
+	// at all.
+	raw, err := json.Marshal(wire.MessagesFromItems(got)[2])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,10 +262,11 @@ func TestFoldThoughtSignatureNoReasoning(t *testing.T) {
 	}
 	requireEqualMessages(t, got, want)
 
-	// ReasoningContent must stay nil, not a pointer to an empty string — the
-	// same "absent, not empty" distinction the rest of the fold observes.
-	if got[2].ReasoningContent != nil {
-		t.Errorf("ReasoningContent = %v, want nil when no reasoning_delta event carried text", *got[2].ReasoningContent)
+	// ReasoningContent must stay nil on the rendered message, not a pointer
+	// to an empty string — the same "absent, not empty" distinction the rest
+	// of the fold observes, now made by wire.MessagesFromItems.
+	if msgs := wire.MessagesFromItems(got); msgs[2].ReasoningContent != nil {
+		t.Errorf("ReasoningContent = %v, want nil when no reasoning_delta event carried text", *msgs[2].ReasoningContent)
 	}
 }
 
@@ -329,8 +344,8 @@ func TestFoldDeepSeekUnaffectedByThoughtSignature(t *testing.T) {
 		{Role: wire.RoleAssistant, Content: wire.TextContent("fixed."), ReasoningContent: &reasoning},
 	}
 	requireEqualMessages(t, got, want)
-	if got[2].ThoughtSignature != nil {
-		t.Errorf("ThoughtSignature = %v, want nil for an event with no thought_signature field", *got[2].ThoughtSignature)
+	if msgs := wire.MessagesFromItems(got); msgs[2].ThoughtSignature != nil {
+		t.Errorf("ThoughtSignature = %v, want nil for an event with no thought_signature field", *msgs[2].ThoughtSignature)
 	}
 }
 
@@ -491,8 +506,10 @@ func TestFoldImageToolResult(t *testing.T) {
 
 	// The parts array must serialise as the array form on the wire — the
 	// shape a tool message carries an image in
-	// (third_party/kimi-docs/openapi.json "Message").
-	raw, err := json.Marshal(got[3])
+	// (third_party/kimi-docs/openapi.json "Message"). Again a property of
+	// the rendering: as an item the same image is an input_image part in the
+	// function_call_output's own output.
+	raw, err := json.Marshal(wire.MessagesFromItems(got)[3])
 	if err != nil {
 		t.Fatal(err)
 	}

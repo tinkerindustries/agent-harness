@@ -39,7 +39,7 @@ func TestChatCompletionSendsGoogAPIKeyNoAuthorization(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-secret", nil }))
-	intent := wire.ChatIntent{Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("hi")}}
+	intent := wire.ChatIntent{Model: "gemini-3.7-flash", Items: []wire.Item{wire.UserItem("hi")}}
 
 	ch, err := c.StreamChatCompletion(context.Background(), intent)
 	if err != nil {
@@ -89,7 +89,7 @@ func TestStreamChatCompletionRetriesTransientStatusThenSucceeds(t *testing.T) {
 	c.chatTransport.RetryBase = 1 // shrink real backoff sleeps to keep the test fast
 	c.chatTransport.RetryMax = 5
 
-	ch, err := c.StreamChatCompletion(context.Background(), wire.ChatIntent{Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("hi")}})
+	ch, err := c.StreamChatCompletion(context.Background(), wire.ChatIntent{Model: "gemini-3.7-flash", Items: []wire.Item{wire.UserItem("hi")}})
 	if err != nil {
 		t.Fatalf("StreamChatCompletion: %v", err)
 	}
@@ -140,7 +140,7 @@ func TestStreamChatCompletionDoesNotRetryPermanentStatus(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }))
-	_, err = c.StreamChatCompletion(context.Background(), wire.ChatIntent{Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("hi")}})
+	_, err = c.StreamChatCompletion(context.Background(), wire.ChatIntent{Model: "gemini-3.7-flash", Items: []wire.Item{wire.UserItem("hi")}})
 	if err == nil {
 		t.Fatal("expected an error")
 	}

@@ -72,12 +72,12 @@ func TestFoldToGeminiRequestCarriesSignatures(t *testing.T) {
 		ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "stop"}),
 	}
 
-	messages, err := fold.Fold(sess, events)
+	items, err := fold.Fold(sess, events)
 	if err != nil {
 		t.Fatalf("fold: %v", err)
 	}
 
-	req := requestFromIntent(wire.ChatIntent{Model: sess.Model, Messages: messages, Effort: wire.EffortHigh})
+	req := requestFromIntent(wire.ChatIntent{Model: sess.Model, Items: items, Effort: wire.EffortHigh})
 
 	wantTypes := []string{
 		StepTypeUserInput,

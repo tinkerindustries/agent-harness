@@ -20,7 +20,7 @@ import "github.com/mrgeoffrich/agent-harness/internal/wire"
 func requestFromIntent(intent wire.ChatIntent) wire.ChatCompletionRequest {
 	return wire.ChatCompletionRequest{
 		Model:           intent.Model,
-		Messages:        intent.Messages,
+		Messages:        wire.MessagesFromItems(intent.Items),
 		ReasoningEffort: intent.Effort,
 		MaxTokens:       intent.MaxTokens,
 		Tools:           intent.Tools,

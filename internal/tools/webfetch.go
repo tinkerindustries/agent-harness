@@ -118,9 +118,9 @@ func (e *Executor) summarizeFetch(ctx context.Context, content, prompt string) (
 	}
 	intent := wire.ChatIntent{
 		Model: model,
-		Messages: []wire.Message{
-			wire.SystemMessage("Answer the question using only the page content the user provides. If the answer is not present in it, say so plainly."),
-			wire.UserMessage(fmt.Sprintf("Question: %s\n\nPage content:\n%s", prompt, content)),
+		Items: []wire.Item{
+			wire.SystemItem("Answer the question using only the page content the user provides. If the answer is not present in it, say so plainly."),
+			wire.UserItem(fmt.Sprintf("Question: %s\n\nPage content:\n%s", prompt, content)),
 		},
 		Thinking:  false,
 		MaxTokens: 4000,

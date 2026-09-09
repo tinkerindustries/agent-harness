@@ -91,21 +91,21 @@ func TestRunStoresGeminiThoughtSignature(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	messages, err := fold.Fold(sess, events)
+	items, err := fold.Fold(sess, events)
 	if err != nil {
 		t.Fatalf("fold: %v", err)
 	}
-	var sawAssistant bool
-	for _, m := range messages {
-		if m.Role != wire.RoleAssistant {
+	var sawReasoning bool
+	for _, item := range items {
+		if item.Type != wire.ItemReasoning {
 			continue
 		}
-		sawAssistant = true
-		if m.ThoughtSignature == nil || *m.ThoughtSignature != "sig" {
-			t.Errorf("assistant message ThoughtSignature = %v, want a pointer to %q", m.ThoughtSignature, "sig")
+		sawReasoning = true
+		if item.ThoughtSignature != "sig" {
+			t.Errorf("reasoning item ThoughtSignature = %q, want %q", item.ThoughtSignature, "sig")
 		}
 	}
-	if !sawAssistant {
-		t.Fatal("expected an assistant message in the fold")
+	if !sawReasoning {
+		t.Fatal("expected a reasoning item in the fold")
 	}
 }

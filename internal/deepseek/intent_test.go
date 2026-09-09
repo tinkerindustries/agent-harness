@@ -16,9 +16,9 @@ import (
 // golden request-body test in internal/wire pins the struct itself
 // (docs/KIMI-INTEGRATION.md §4.2).
 func TestRequestFromIntentMatchesDirectBuild(t *testing.T) {
-	messages := []wire.Message{
-		wire.SystemMessage("You are a helpful assistant."),
-		wire.UserMessage("What is in this workspace?"),
+	items := []wire.Item{
+		wire.SystemItem("You are a helpful assistant."),
+		wire.UserItem("What is in this workspace?"),
 	}
 	tools := []wire.Tool{
 		{Type: "function", Function: wire.ToolFunction{Name: "List", Description: "List a directory", Parameters: json.RawMessage(`{"type":"object"}`)}},
@@ -26,7 +26,7 @@ func TestRequestFromIntentMatchesDirectBuild(t *testing.T) {
 
 	intent := wire.ChatIntent{
 		Model:     "deepseek-v4-pro",
-		Messages:  messages,
+		Items:     items,
 		Effort:    wire.EffortHigh,
 		Thinking:  true,
 		MaxTokens: 48000,
@@ -35,7 +35,7 @@ func TestRequestFromIntentMatchesDirectBuild(t *testing.T) {
 	got := requestFromIntent(intent)
 	want := wire.ChatCompletionRequest{
 		Model:           "deepseek-v4-pro",
-		Messages:        messages,
+		Messages:        wire.MessagesFromItems(items),
 		Thinking:        &wire.ThinkingConfig{Type: wire.ThinkingEnabled},
 		ReasoningEffort: wire.EffortHigh,
 		MaxTokens:       48000,
@@ -56,14 +56,14 @@ func TestRequestFromIntentMatchesDirectBuild(t *testing.T) {
 func TestRequestFromIntentCompactionShape(t *testing.T) {
 	intent := wire.ChatIntent{
 		Model:     "deepseek-v4-flash",
-		Messages:  []wire.Message{wire.UserMessage("summarise")},
+		Items:     []wire.Item{wire.UserItem("summarise")},
 		Thinking:  false,
 		MaxTokens: 8000,
 	}
 	got := requestFromIntent(intent)
 	want := wire.ChatCompletionRequest{
 		Model:     "deepseek-v4-flash",
-		Messages:  []wire.Message{wire.UserMessage("summarise")},
+		Messages:  wire.MessagesFromItems([]wire.Item{wire.UserItem("summarise")}),
 		Thinking:  &wire.ThinkingConfig{Type: wire.ThinkingDisabled},
 		MaxTokens: 8000,
 	}

@@ -147,7 +147,7 @@ func TestStreamAssemblesFullResponse(t *testing.T) {
 
 	c := NewClient(srv.URL, "test-key")
 	events, err := c.StreamChatCompletion(context.Background(), wire.ChatIntent{
-		Model: "kimi-k3", Messages: []wire.Message{wire.UserMessage("hi")},
+		Model: "kimi-k3", Items: []wire.Item{wire.UserItem("hi")},
 		Effort: wire.EffortHigh, MaxTokens: 48000,
 	})
 	if err != nil {

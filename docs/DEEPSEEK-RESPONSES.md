@@ -24,13 +24,16 @@ well makes one vocabulary run the length of the process: the parent's
 `function_call` item and the provider's are the same shape under the same
 name, so a client learns one set of shapes rather than two.
 
-It does not make the process a proxy. Both ends are rendered independently
-from the session's own event log, and the outbound one passes through
-`internal/fold`'s `[]wire.Message` — the loop's provider-neutral vocabulary,
-which is modelled on Chat Completions — before `inputFromMessages` turns it
-into input items. The translation in §2 is real work happening on every
-request; what changed is that the shape it produces is the shape the parent
-already speaks.
+The loop's own conversation vocabulary moved with it: `internal/fold`
+produces `[]wire.Item`, the Responses input-item shape, and this client
+serialises those into `input` without rebuilding them. §2's table is
+therefore a description of two renderings that still happen —
+`wire.MessagesFromItems` for Chat Completions and `internal/gemini`'s for
+Interactions — and of one that no longer does.
+
+It still does not make the process a proxy. The loop runs the tools, so what
+a parent reads is rendered from the session's event log rather than forwarded
+from a provider.
 
 Two things fall out of it that are worth having on their own.
 
@@ -53,7 +56,11 @@ terminal event carries the whole response object, usage included.
 The loop states `wire.ChatIntent` and never learns which surface answered
 it. Everything below happens inside `internal/deepseek`.
 
-| The loop's intent | Chat Completions | Responses |
+The loop's intent is items (`wire.Item`). The Responses column is what those
+items already are; the Chat Completions column is what `wire.MessagesFromItems`
+renders them into.
+
+| The loop's item | Chat Completions | Responses |
 | --- | --- | --- |
 | system prompt | `messages[0]`, role `system` | `instructions` |
 | user message | `messages[]`, role `user` | `input[]` item, `type: message` |

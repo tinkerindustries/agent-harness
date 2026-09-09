@@ -16,24 +16,30 @@ every shape named here; this document says what a shape means when the loop
 runs on your machine instead of a provider's, and records every place the two
 differ.
 
-**The same vocabulary runs the length of the process** — but it is not a
-proxy, and nothing is forwarded. `internal/deepseek` posts to DeepSeek's own
-`POST /responses` ([`DEEPSEEK-RESPONSES.md`](DEEPSEEK-RESPONSES.md)), so the
-`function_call` item a parent reads and the `function_call` item the provider
-is sent are the same shape, carrying the same call, named the same way. They
-are two renderings of one event log, not one object handed along:
+**The same vocabulary runs the length of the process.** `internal/deepseek`
+posts to DeepSeek's own `POST /responses`
+([`DEEPSEEK-RESPONSES.md`](DEEPSEEK-RESPONSES.md)), and the loop's own
+conversation vocabulary is that surface's too (`wire.Item`), so the request
+body's `input` is what the fold produced, serialised as it stands — no
+per-item rebuild between them:
 
 ```
 create.input items ──► flattened to a plain string ──► the agent loop
                                                             │
                                     the loop's own event log (SQLite)
                                      │                          │
-                internal/fold → []wire.Message → input items    │
-                                     │                          │
+                     internal/fold → []wire.Item                │
+                                     │  (serialised as they are)│
                               POST /responses            response.* frames
 ```
 
-Three things follow from that, and a client should know all three:
+The two ends are still rendered separately from that log rather than one
+being forwarded to the other — the loop runs the tools, so the frames a
+parent reads describe work the provider never saw. What is gone is the second
+representation in the middle: the Chat Completions providers now render *from*
+items (`wire.MessagesFromItems`) rather than items being rendered from them.
+
+Three things follow, and a client should know all three:
 
 - **A create's `input` is read for its text and nothing else.** Only
   `message` items and bare content parts are accepted; a `function_call` or
@@ -46,13 +52,11 @@ Three things follow from that, and a client should know all three:
   task, the workspace listing, the skills catalogue, the repositories' own
   instructions. `harness.source` on the user message item says which is
   which.
-- **The intermediate form is Chat-Completions-shaped.** `[]wire.Message` is
-  the loop's provider-neutral vocabulary and is modelled on that dialect —
-  roles, `tool_calls`, `tool_call_id`. `internal/deepseek` translates it into
-  input items on the way out. The value of one vocabulary at both ends is
-  that a client learns one set of shapes and the risky ones (an image inside
-  a `function_call_output`) are documented at both, not that bytes pass
-  through untouched.
+- **A response's `output` is not the provider's `output`.** Both are lists of
+  the same item types, but the parent's carries the whole agentic run — every
+  sub-turn's calls, their results, and the user messages the loop folded in —
+  where each provider request carries one turn's worth. `harness.sub_turn`
+  is how a client recovers the boundaries.
 
 The Gemini models this process also hosts are rendered from the same log by
 the same translator, with `internal/gemini` speaking Interactions to Google

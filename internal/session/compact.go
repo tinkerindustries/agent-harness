@@ -51,11 +51,11 @@ import (
 // the compacted session keeps the same tool array and result schema the
 // run it continues was already using.
 func (r *Runner) compact(ctx context.Context, sess store.Session, allEvents []store.Event, workspace string) (store.Session, []store.Event, error) {
-	messages, err := fold.Fold(sess, allEvents)
+	items, err := fold.Fold(sess, allEvents)
 	if err != nil {
 		return sess, allEvents, fmt.Errorf("session: fold for compaction: %w", err)
 	}
-	summary, err := r.summarize(httplog.WithSessionID(ctx, sess.ID), messages)
+	summary, err := r.summarize(httplog.WithSessionID(ctx, sess.ID), items)
 	if err != nil {
 		return sess, allEvents, fmt.Errorf("session: summarise for compaction: %w", err)
 	}
@@ -115,21 +115,30 @@ func (r *Runner) compact(ctx context.Context, sess store.Session, allEvents []st
 // and can force output shape, though a plain instruction is enough here
 // (docs/MODELS.md). The intent states thinking:false and no tools; the
 // provider spells that as it spells its own non-thinking mode.
-func (r *Runner) summarize(ctx context.Context, messages []wire.Message) (string, error) {
+func (r *Runner) summarize(ctx context.Context, items []wire.Item) (string, error) {
+	// One labelled line per item that carries prose. A tool call's arguments
+	// and a reasoning item are left out: the summary exists so the work can
+	// continue in a new session, and neither survives compaction anyway.
 	var b strings.Builder
-	for _, m := range messages {
-		if m.Content.String() == "" {
-			continue
+	for _, item := range items {
+		switch item.Type {
+		case wire.ItemMessage:
+			if text := item.Content.String(); text != "" {
+				fmt.Fprintf(&b, "[%s] %s\n", item.Role, text)
+			}
+		case wire.ItemFunctionCallOutput:
+			if text := item.Output.String(); text != "" {
+				fmt.Fprintf(&b, "[tool] %s\n", text)
+			}
 		}
-		fmt.Fprintf(&b, "[%s] %s\n", m.Role, m.Content.String())
 	}
 
 	intent := wire.ChatIntent{
 		Model: r.flashModel(ctx),
-		Messages: []wire.Message{
-			wire.SystemMessage("Summarise the following agent session transcript so the work can continue in a new session without it. " +
+		Items: []wire.Item{
+			wire.SystemItem("Summarise the following agent session transcript so the work can continue in a new session without it. " +
 				"Cover: the original task, what has been done, the current state of the workspace, and what remains."),
-			wire.UserMessage(b.String()),
+			wire.UserItem(b.String()),
 		},
 		Thinking:  false,
 		MaxTokens: 8000,

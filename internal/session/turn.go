@@ -242,19 +242,19 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 		return subTurnOutcome{}, err
 	}
 
-	messages, err := fold.Fold(sess, *allEvents)
+	items, err := fold.Fold(sess, *allEvents)
 	if err != nil {
 		return subTurnOutcome{}, fmt.Errorf("session: fold: %w", err)
 	}
 
 	// The deliberate-churn debug hook (RunOptions.DebugChurnOnSubTurn):
 	// break this one request's shared prefix on purpose so the diagnostic
-	// below has a real divergence to name. messages[1] is the opening user
+	// below has a real divergence to name. items[1] is the opening user
 	// message, the earliest content that varies per session. The mutation
 	// only touches the copy sent on the wire; *allEvents, and therefore
 	// every later fold, is untouched.
-	if opts.DebugChurnOnSubTurn > 0 && opts.DebugChurnOnSubTurn == subTurn && len(messages) > 1 {
-		messages = cache.Mutate(messages, 1)
+	if opts.DebugChurnOnSubTurn > 0 && opts.DebugChurnOnSubTurn == subTurn && len(items) > 1 {
+		items = cache.Mutate(items, 1)
 	}
 
 	// turn_started is committed on its own, before the request, and not with
@@ -286,7 +286,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	// wall time the run waited on the API.
 	streamStart := time.Now()
 	live := newLiveSink(r.Hub, sess.ID, subTurn)
-	reasoning, content, assembler, finishReason, usage, signature, err := r.stream(httplog.WithSessionID(ctx, sess.ID), sess.Model, opts.Tools, messages, opts.Effort, opts.Thinking, opts.MaxTokens, live)
+	reasoning, content, assembler, finishReason, usage, signature, err := r.stream(httplog.WithSessionID(ctx, sess.ID), sess.Model, opts.Tools, items, opts.Effort, opts.Thinking, opts.MaxTokens, live)
 	if err != nil {
 		return subTurnOutcome{}, fmt.Errorf("session: sub-turn %d: %w", subTurn, err)
 	}
@@ -303,7 +303,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	var starved *wire.Usage
 	if r.clientFor(sess.Model).IsReasoningStarved(finishReason, content) && len(assembler.Finalize()) == 0 {
 		starved = usage
-		reasoning, content, assembler, finishReason, usage, signature, err = r.stream(ctx, sess.Model, opts.Tools, messages, opts.Effort, opts.Thinking, opts.MaxTokens*2, live)
+		reasoning, content, assembler, finishReason, usage, signature, err = r.stream(ctx, sess.Model, opts.Tools, items, opts.Effort, opts.Thinking, opts.MaxTokens*2, live)
 		if err != nil {
 			return subTurnOutcome{}, fmt.Errorf("session: sub-turn %d retry: %w", subTurn, err)
 		}
@@ -368,7 +368,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	if starved != nil {
 		attempt = 2
 	}
-	usagePayload := r.buildUsagePayload(sess.Model, usage, messages, detector, subTurn, attempt, streamStart)
+	usagePayload := r.buildUsagePayload(sess.Model, usage, items, detector, subTurn, attempt, streamStart)
 	inputs = append(inputs, store.EventInput{Kind: store.KindUsage, Payload: usagePayload})
 
 	appended, err := r.Store.AppendEvents(ctx, sess.ID, inputs)
@@ -469,7 +469,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 // buildUsagePayload turns one request's usage into its store event. A nil
 // detector skips the churn report, for an attempt whose prefix the next turn
 // will not build on.
-func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestMessages []wire.Message,
+func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestItems []wire.Item,
 	detector *cache.Detector, subTurn, attempt int, sentAt time.Time) store.UsagePayload {
 
 	if usage == nil {
@@ -505,7 +505,7 @@ func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestMessa
 		// raw usage: DeepSeek reports a hit/miss pair, Kimi K3 a single
 		// cached_tokens, so a detector fed the raw usage would compare its
 		// prediction against a field Kimi never populates (internal/cache/churn.go).
-		report = detector.Observe(requestMessages, cache.Split{
+		report = detector.Observe(requestItems, cache.Split{
 			PromptTokens:     usage.PromptTokens,
 			CacheHitTokens:   cacheHit,
 			CacheMissTokens:  cacheMiss,
@@ -546,12 +546,12 @@ func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestMessa
 // one, both match the head rendered from the same array and the schema
 // stored on the row. A resumed session's array cannot drift even if a
 // server is enabled or disabled, or a variant redefined, while it runs.
-func (r *Runner) stream(ctx context.Context, model string, toolArray []wire.Tool, messages []wire.Message, effort string, thinking bool, maxTokens int, live *liveSink) (
+func (r *Runner) stream(ctx context.Context, model string, toolArray []wire.Tool, items []wire.Item, effort string, thinking bool, maxTokens int, live *liveSink) (
 	reasoning, content string, assembler *wire.ToolCallAssembler, finishReason string, usage *wire.Usage, signature string, err error) {
 
 	intent := wire.ChatIntent{
 		Model:     model,
-		Messages:  messages,
+		Items:     items,
 		Effort:    effort,
 		Thinking:  thinking,
 		MaxTokens: maxTokens,

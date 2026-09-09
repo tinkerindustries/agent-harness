@@ -60,7 +60,7 @@ func TestStreamChatCompletionToolCall(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }))
-	ch, err := c.StreamChatCompletion(context.Background(), wire.ChatIntent{Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("weather?")}})
+	ch, err := c.StreamChatCompletion(context.Background(), wire.ChatIntent{Model: "gemini-3.7-flash", Items: []wire.Item{wire.UserItem("weather?")}})
 	if err != nil {
 		t.Fatalf("StreamChatCompletion: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestStreamChatCompletionParallelCalls(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }))
-	ch, err := c.StreamChatCompletion(context.Background(), wire.ChatIntent{Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("weather in three cities?")}})
+	ch, err := c.StreamChatCompletion(context.Background(), wire.ChatIntent{Model: "gemini-3.7-flash", Items: []wire.Item{wire.UserItem("weather in three cities?")}})
 	if err != nil {
 		t.Fatalf("StreamChatCompletion: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestStreamChatCompletionSSEFramedError(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }))
-	_, err = c.StreamChatCompletion(context.Background(), wire.ChatIntent{Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("hi")}})
+	_, err = c.StreamChatCompletion(context.Background(), wire.ChatIntent{Model: "gemini-3.7-flash", Items: []wire.Item{wire.UserItem("hi")}})
 	if err == nil {
 		t.Fatal("expected an error")
 	}
@@ -212,7 +212,7 @@ func TestStreamChatCompletionMidStreamError(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }))
-	ch, err := c.StreamChatCompletion(context.Background(), wire.ChatIntent{Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("hi")}})
+	ch, err := c.StreamChatCompletion(context.Background(), wire.ChatIntent{Model: "gemini-3.7-flash", Items: []wire.Item{wire.UserItem("hi")}})
 	if err != nil {
 		t.Fatalf("StreamChatCompletion: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestStreamChatCompletionTruncatedStream(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }))
-	ch, err := c.StreamChatCompletion(context.Background(), wire.ChatIntent{Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("hi")}})
+	ch, err := c.StreamChatCompletion(context.Background(), wire.ChatIntent{Model: "gemini-3.7-flash", Items: []wire.Item{wire.UserItem("hi")}})
 	if err != nil {
 		t.Fatalf("StreamChatCompletion: %v", err)
 	}
@@ -262,7 +262,7 @@ func TestStreamChatCompletionPlainText(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }))
-	ch, err := c.StreamChatCompletion(context.Background(), wire.ChatIntent{Model: "gemini-3.5-flash", Messages: []wire.Message{wire.UserMessage("primary colors?")}})
+	ch, err := c.StreamChatCompletion(context.Background(), wire.ChatIntent{Model: "gemini-3.5-flash", Items: []wire.Item{wire.UserItem("primary colors?")}})
 	if err != nil {
 		t.Fatalf("StreamChatCompletion: %v", err)
 	}
@@ -313,7 +313,7 @@ func TestStreamChatCompletionIdleTimeout(t *testing.T) {
 	c := NewClient(srv.URL,
 		WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }),
 		WithChatIdleTimeout(20*time.Millisecond))
-	ch, err := c.StreamChatCompletion(context.Background(), wire.ChatIntent{Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("hi")}})
+	ch, err := c.StreamChatCompletion(context.Background(), wire.ChatIntent{Model: "gemini-3.7-flash", Items: []wire.Item{wire.UserItem("hi")}})
 	if err != nil {
 		t.Fatalf("StreamChatCompletion: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestCreateChatCompletionUnarySignature(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }))
-	resp, err := c.CreateChatCompletion(context.Background(), wire.ChatIntent{Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("weather?")}})
+	resp, err := c.CreateChatCompletion(context.Background(), wire.ChatIntent{Model: "gemini-3.7-flash", Items: []wire.Item{wire.UserItem("weather?")}})
 	if err != nil {
 		t.Fatalf("CreateChatCompletion: %v", err)
 	}
@@ -387,7 +387,7 @@ func TestCreateChatCompletionPlainTextFinish(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }))
-	resp, err := c.CreateChatCompletion(context.Background(), wire.ChatIntent{Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("summarise")}})
+	resp, err := c.CreateChatCompletion(context.Background(), wire.ChatIntent{Model: "gemini-3.7-flash", Items: []wire.Item{wire.UserItem("summarise")}})
 	if err != nil {
 		t.Fatalf("CreateChatCompletion: %v", err)
 	}
@@ -516,7 +516,7 @@ func TestStreamChatCompletionIncompleteStatus(t *testing.T) {
 	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }))
 	ch, err := c.StreamChatCompletion(context.Background(), wire.ChatIntent{
 		Model: "gemini-3.7-flash", MaxTokens: 50,
-		Messages: []wire.Message{wire.UserMessage("write an essay")},
+		Items: []wire.Item{wire.UserItem("write an essay")},
 	})
 	if err != nil {
 		t.Fatalf("StreamChatCompletion: %v", err)

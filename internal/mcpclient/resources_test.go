@@ -271,8 +271,8 @@ func TestSamplingRunsAModelTurnForAnAllowedServer(t *testing.T) {
 	if sampler.intent.Thinking {
 		t.Error("a server's sampling turn should not be a thinking turn")
 	}
-	if len(sampler.intent.Messages) != 2 || sampler.intent.Messages[0].Role != wire.RoleSystem {
-		t.Fatalf("messages = %+v, want the system prompt then the user turn", sampler.intent.Messages)
+	if len(sampler.intent.Items) != 2 || sampler.intent.Items[0].Role != wire.RoleSystem {
+		t.Fatalf("messages = %+v, want the system prompt then the user turn", sampler.intent.Items)
 	}
 }
 

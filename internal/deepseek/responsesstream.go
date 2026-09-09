@@ -48,7 +48,7 @@ func decodeResponsesFrame(data string) ([]wire.Event, bool, error) {
 		// Only a function call opens anything the loop tracks. A reasoning
 		// or message item's text arrives as deltas, which need no opening
 		// event to be accumulated.
-		if ev.Item == nil || ev.Item.Type != itemTypeFunctionCall {
+		if ev.Item == nil || ev.Item.Type != wire.ItemFunctionCall {
 			return nil, false, nil
 		}
 		return []wire.Event{{Type: wire.EventToolCallDelta, ToolCall: wire.ToolCallDelta{

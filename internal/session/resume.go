@@ -224,7 +224,7 @@ func primeDetector(sess store.Session, events []store.Event) *cache.Detector {
 		return cache.NewDetector()
 	}
 
-	primeMessages, err := fold.Fold(sess, events[:lastTurnIdx])
+	primeItems, err := fold.Fold(sess, events[:lastTurnIdx])
 	if err != nil {
 		return cache.NewDetector()
 	}
@@ -245,5 +245,5 @@ func primeDetector(sess store.Session, events []store.Event) *cache.Detector {
 	if last == nil {
 		return cache.NewDetector()
 	}
-	return cache.NewDetectorFrom(last.PromptTokens+last.CompletionTokens, primeMessages)
+	return cache.NewDetectorFrom(last.PromptTokens+last.CompletionTokens, primeItems)
 }

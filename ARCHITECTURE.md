@@ -82,17 +82,20 @@ and the notifications are that surface's semantic server-sent events.
 [`docs/STDIO-PROTOCOL.md`](docs/STDIO-PROTOCOL.md) is the wire reference and
 the record of where it departs from the HTTP surface and why.
 
-**It is the same vocabulary underneath, not a proxy.** `internal/deepseek`
-posts to DeepSeek's own `POST /responses`
-([`docs/DEEPSEEK-RESPONSES.md`](docs/DEEPSEEK-RESPONSES.md)), so the item a
-parent reads and the item the provider is sent are the same shape carrying
-the same call. Nothing is forwarded between them: both are rendered from the
-session's own event log, the outbound one through `internal/fold`'s
-`[]wire.Message` — which is Chat-Completions-shaped — and back out as input
-items. What one vocabulary at both ends buys is that a client learns one set
-of shapes; it does not mean bytes pass through untouched. The Gemini models
-the process also hosts are rendered from the same log, with `internal/gemini`
-speaking Interactions to Google underneath.
+**It is the same vocabulary underneath.** `internal/deepseek` posts to
+DeepSeek's own `POST /responses`
+([`docs/DEEPSEEK-RESPONSES.md`](docs/DEEPSEEK-RESPONSES.md)), and so does the
+loop's own conversation form: `internal/fold` produces `[]wire.Item`, the
+Responses input-item shape, which that client serialises without rebuilding.
+The Chat Completions providers render *from* items with
+`wire.MessagesFromItems`, byte for byte what they were always sent, and
+`internal/gemini` renders Interactions steps from them.
+
+It is still not a proxy. The loop runs the tools, so what a parent reads is
+rendered from the session's event log rather than forwarded from a provider,
+and a create's `input` reaches the loop as a plain string. What one
+vocabulary buys is one set of shapes and one place a mistake in them can
+hide.
 
 That vocabulary is the wire's, not the model's. The process hosts every
 Gemini model the harness routes and one DeepSeek model,

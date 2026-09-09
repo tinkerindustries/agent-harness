@@ -100,9 +100,9 @@ func (j Judge) Score(ctx context.Context, rubric string, events []store.Event) (
 		// content, not thinking itself.
 		Thinking:  true,
 		MaxTokens: maxTokens,
-		Messages: []wire.Message{
-			wire.SystemMessage(judgeSystemPrompt),
-			wire.UserMessage("Rubric:\n" + rubric + "\n\nTranscript:\n" + transcript),
+		Items: []wire.Item{
+			wire.SystemItem(judgeSystemPrompt),
+			wire.UserItem("Rubric:\n" + rubric + "\n\nTranscript:\n" + transcript),
 		},
 	})
 	if err != nil {

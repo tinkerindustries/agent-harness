@@ -21,7 +21,7 @@ import (
 func TestRequestFromIntentCarriesReasoningEffortAndNoThinking(t *testing.T) {
 	intent := wire.ChatIntent{
 		Model:     "kimi-k3",
-		Messages:  []wire.Message{wire.UserMessage("hello")},
+		Items:     []wire.Item{wire.UserItem("hello")},
 		Effort:    wire.EffortHigh,
 		Thinking:  true,
 		MaxTokens: 48000,
@@ -48,7 +48,7 @@ func TestRequestFromIntentCarriesReasoningEffortAndNoThinking(t *testing.T) {
 func TestRequestFromIntentOmitsForbiddenSamplingParameters(t *testing.T) {
 	intent := wire.ChatIntent{
 		Model:     "kimi-k3",
-		Messages:  []wire.Message{wire.UserMessage("hello")},
+		Items:     []wire.Item{wire.UserItem("hello")},
 		Effort:    wire.EffortMax,
 		MaxTokens: 48000,
 	}
@@ -83,7 +83,7 @@ func TestStreamRequestBodyOnTheWire(t *testing.T) {
 	c := NewClient(srv.URL, "test-key")
 	intent := wire.ChatIntent{
 		Model:     "kimi-k3",
-		Messages:  []wire.Message{wire.UserMessage("hello")},
+		Items:     []wire.Item{wire.UserItem("hello")},
 		Effort:    wire.EffortLow,
 		Thinking:  true,
 		MaxTokens: 48000,

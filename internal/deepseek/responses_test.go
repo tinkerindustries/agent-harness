@@ -12,25 +12,18 @@ import (
 // reasoning and a tool call, and that call's result. It is the intent the
 // live probes in docs/OBSERVED.md were run with.
 func probeIntent() wire.ChatIntent {
-	reasoning := "The user wants the file listing. I should call List."
+	const reasoning = "The user wants the file listing. I should call List."
 	return wire.ChatIntent{
 		Model:     "deepseek-v4-flash",
 		Thinking:  true,
 		Effort:    wire.EffortLow,
 		MaxTokens: 2000,
-		Messages: []wire.Message{
-			wire.SystemMessage("You are a terse assistant."),
-			wire.UserMessage("List the files, then say DONE."),
-			{
-				Role:             wire.RoleAssistant,
-				Content:          wire.TextContent(""),
-				ReasoningContent: &reasoning,
-				ToolCalls: []wire.ToolCall{{
-					ID: "call_1", Type: "function",
-					Function: wire.ToolCallFunc{Name: "List", Arguments: `{"path":"."}`},
-				}},
-			},
-			{Role: wire.RoleTool, ToolCallID: "call_1", Content: wire.TextContent("a.go\nb.go")},
+		Items: []wire.Item{
+			wire.SystemItem("You are a terse assistant."),
+			wire.UserItem("List the files, then say DONE."),
+			wire.ReasoningItem(reasoning),
+			wire.FunctionCallItem("call_1", "List", `{"path":"."}`),
+			wire.FunctionCallOutputItem("call_1", "a.go\nb.go", ""),
 		},
 		Tools: []wire.Tool{{
 			Type: "function",
@@ -73,66 +66,65 @@ func TestResponsesRequestBody(t *testing.T) {
 	}
 }
 
-// The system prompt becomes `instructions`, not an item, and an assistant
-// turn with no text emits its reasoning and its call but no empty message —
-// an empty assistant message would be a turn the model never took.
-func TestInputFromMessagesShape(t *testing.T) {
-	instructions, items := inputFromMessages(probeIntent().Messages)
+// The `input` list is the intent's own items, unchanged. This is the
+// property the whole arrangement exists for: the loop's conversation
+// vocabulary is this surface's, so building a request means lifting the
+// system item into `instructions` and serialising the rest as they stand
+// (internal/wire/item.go, docs/DEEPSEEK-RESPONSES.md).
+//
+// It is asserted as identity rather than field by field on purpose: a
+// future change that reintroduced a per-item rebuild would still pass a
+// shape test and would fail this one.
+func TestInputIsTheIntentsItemsUnchanged(t *testing.T) {
+	intent := probeIntent()
+	req := responsesRequestFromIntent(intent)
 
-	if instructions != "You are a terse assistant." {
-		t.Errorf("instructions = %q", instructions)
+	if req.Instructions != "You are a terse assistant." {
+		t.Errorf("instructions = %q", req.Instructions)
 	}
-	want := []string{itemTypeMessage, itemTypeReasoning, itemTypeFunctionCall, itemTypeFunctionCallOutput}
-	if len(items) != len(want) {
-		t.Fatalf("got %d items, want %d: %+v", len(items), len(want), items)
+	want := intent.Items[1:] // everything after the system item
+	if len(req.Input) != len(want) {
+		t.Fatalf("input has %d items, want the intent's %d", len(req.Input), len(want))
 	}
-	for i, w := range want {
-		if items[i].Type != w {
-			t.Errorf("item %d is %q, want %q", i, items[i].Type, w)
+	for i := range want {
+		gotJSON, _ := json.Marshal(req.Input[i])
+		wantJSON, _ := json.Marshal(want[i])
+		if string(gotJSON) != string(wantJSON) {
+			t.Errorf("item %d was rebuilt on the way out.\n got: %s\nwant: %s", i, gotJSON, wantJSON)
 		}
 	}
-	// The reasoning item comes before the call it explains: DeepSeek merges
-	// it into the adjacent assistant message, and with tools in the request
-	// a missing one is a 400 (third_party/deepseek-docs/guides/
-	// thinking_mode.md, "Tool Calls").
-	if items[1].Content == nil || len(items[1].Content.Parts) != 1 ||
-		items[1].Content.Parts[0].Type != partReasoningText {
-		t.Errorf("the reasoning item is not one reasoning_text part: %+v", items[1])
+
+	// The order the fold puts them in is the order that matters: the
+	// reasoning item ahead of the call it explains, because DeepSeek answers
+	// 400 without it on a request carrying tools
+	// (third_party/deepseek-docs/guides/thinking_mode.md, "Tool Calls").
+	kinds := make([]string, len(req.Input))
+	for i, item := range req.Input {
+		kinds[i] = item.Type
 	}
-	if items[2].CallID != items[3].CallID {
-		t.Errorf("the call and its output are not paired: %q vs %q", items[2].CallID, items[3].CallID)
+	wantKinds := []string{wire.ItemMessage, wire.ItemReasoning, wire.ItemFunctionCall, wire.ItemFunctionCallOutput}
+	for i, w := range wantKinds {
+		if kinds[i] != w {
+			t.Errorf("item %d is %q, want %q (kinds: %v)", i, kinds[i], w, kinds)
+		}
 	}
 }
 
-// An image in a tool result becomes an input_image part in the item's
+// An image in a tool result rides as an input_image part in the item's own
 // `output`, with image_url a bare string — this surface's envelope, where
 // Chat Completions wraps the same URL in an object. It is also the one the
-// vendor documents: the Chat Completions shape the harness sends today is
-// contradicted by DeepSeek's own schema (docs/DEEPSEEK-VISION.md §2).
+// vendor documents: the Chat Completions shape is contradicted by DeepSeek's
+// own schema (docs/DEEPSEEK-VISION.md §2).
+//
+// The item is built by wire.FunctionCallOutputItem and sent as it stands, so
+// what this pins is the bytes that leave the process.
 func TestToolResultCarriesAnImagePart(t *testing.T) {
-	_, items := inputFromMessages([]wire.Message{
-		wire.SystemMessage("s"),
-		{Role: wire.RoleTool, ToolCallID: "call_1", Content: wire.Content{Parts: []wire.Part{
-			{Type: wire.PartTypeText, Text: "Screenshot saved"},
-			{Type: wire.PartTypeImageURL, ImageURL: &wire.ImageURL{URL: "data:image/png;base64,AAA"}},
-		}}},
-	})
-	if len(items) != 1 || items[0].Type != itemTypeFunctionCallOutput {
-		t.Fatalf("want one function_call_output, got %+v", items)
-	}
-	parts := items[0].Output.Parts
-	if len(parts) != 2 {
-		t.Fatalf("want two output parts, got %+v", parts)
-	}
-	if parts[0].Type != partInputText || parts[0].Text != "Screenshot saved" {
-		t.Errorf("part 0 = %+v, want an input_text label", parts[0])
-	}
-	if parts[1].Type != partInputImage || parts[1].ImageURL != "data:image/png;base64,AAA" {
-		t.Errorf("part 1 = %+v, want an input_image with a bare url", parts[1])
-	}
+	item := wire.FunctionCallOutputItem("call_1", "Screenshot saved", "data:image/png;base64,AAA")
 
-	// The bare-string envelope, on the wire rather than in the struct.
-	body, _ := json.Marshal(items[0])
+	body, err := json.Marshal(item)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
 	const want = `{"type":"function_call_output","call_id":"call_1","output":[` +
 		`{"type":"input_text","text":"Screenshot saved"},` +
 		`{"type":"input_image","image_url":"data:image/png;base64,AAA"}]}`
@@ -141,20 +133,19 @@ func TestToolResultCarriesAnImagePart(t *testing.T) {
 	}
 }
 
-// A user message carrying an image uses input_text for its text, where the
-// assistant's replayed words use output_text. Sending the wrong one is the
-// kind of mistake that costs a 400 on a surface that splits by direction.
+// Text is typed by direction on this surface: what the model reads is
+// input_text and what it wrote is output_text. Sending the wrong one is the
+// kind of mistake that costs a 400.
 func TestTextPartDirection(t *testing.T) {
-	_, items := inputFromMessages([]wire.Message{
-		wire.SystemMessage("s"),
-		{Role: wire.RoleUser, Content: wire.Content{Parts: []wire.Part{{Type: wire.PartTypeText, Text: "look"}}}},
-		{Role: wire.RoleAssistant, Content: wire.Content{Parts: []wire.Part{{Type: wire.PartTypeText, Text: "looked"}}}},
-	})
-	if got := items[0].Content.Parts[0].Type; got != partInputText {
-		t.Errorf("user text part = %q, want %q", got, partInputText)
+	user, _ := json.Marshal(wire.UserItem("look"))
+	if got := string(user); got != `{"type":"message","role":"user","content":"look"}` {
+		t.Errorf("user item = %s", got)
 	}
-	if got := items[1].Content.Parts[0].Type; got != partOutputText {
-		t.Errorf("assistant text part = %q, want %q", got, partOutputText)
+
+	assistant, _ := json.Marshal(wire.AssistantItem("looked"))
+	const wantAssistant = `{"type":"message","role":"assistant","content":[{"type":"output_text","text":"looked"}]}`
+	if got := string(assistant); got != wantAssistant {
+		t.Errorf("assistant item = %s, want %s", got, wantAssistant)
 	}
 }
 
@@ -188,7 +179,7 @@ func TestResponsesEffort(t *testing.T) {
 func TestNoToolsOmitsTheField(t *testing.T) {
 	body, _ := json.Marshal(responsesRequestFromIntent(wire.ChatIntent{
 		Model: "deepseek-v4-flash", Thinking: true,
-		Messages: []wire.Message{wire.SystemMessage("s"), wire.UserMessage("hi")},
+		Items: []wire.Item{wire.SystemItem("s"), wire.UserItem("hi")},
 	}))
 	if got := string(body); contains(got, `"tools"`) {
 		t.Errorf("an empty tool array reached the wire: %s", got)
@@ -251,7 +242,7 @@ func TestFinishReasonFor(t *testing.T) {
 		{"nil is a plain stop", nil, wire.FinishStop},
 		{"completed with text", &responseObject{Status: statusCompleted}, wire.FinishStop},
 		{"completed with a call", &responseObject{Status: statusCompleted,
-			Output: []outputItem{{Type: itemTypeMessage}, {Type: itemTypeFunctionCall}}}, wire.FinishToolCalls},
+			Output: []outputItem{{Type: wire.ItemMessage}, {Type: wire.ItemFunctionCall}}}, wire.FinishToolCalls},
 		{"truncated", &responseObject{Status: statusIncomplete,
 			IncompleteDetails: &incompleteDetails{Reason: "max_output_tokens"}}, wire.FinishLength},
 		{"filtered", &responseObject{Status: statusIncomplete,

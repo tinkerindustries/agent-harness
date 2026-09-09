@@ -32,43 +32,45 @@ func requestFromIntent(intent wire.ChatIntent) ChatInteractionRequest {
 	// schema; a call_id this map has never seen just answers with no name.
 	callName := map[string]string{}
 
-	for _, m := range intent.Messages {
-		switch m.Role {
-		case wire.RoleSystem:
-			if systemInstruction.Len() > 0 {
-				systemInstruction.WriteString("\n\n")
+	for _, item := range intent.Items {
+		switch item.Type {
+		case wire.ItemMessage:
+			switch item.Role {
+			case wire.RoleSystem:
+				if systemInstruction.Len() > 0 {
+					systemInstruction.WriteString("\n\n")
+				}
+				systemInstruction.WriteString(item.Content.String())
+			case wire.RoleUser:
+				input = append(input, UserInputStep{Type: StepTypeUserInput, Content: contentBlocksFromItem(item.Content)})
+			case wire.RoleAssistant:
+				input = append(input, ModelOutputStep{Type: StepTypeModelOutput, Content: contentBlocksFromItem(item.Content)})
 			}
-			systemInstruction.WriteString(m.Content.String())
-		case wire.RoleUser:
-			input = append(input, UserInputStep{Type: StepTypeUserInput, Content: contentBlocksFromWire(m.Content)})
-		case wire.RoleAssistant:
+		case wire.ItemReasoning:
 			// A signature is a step of its own, ordered ahead of whatever it
 			// produced — exactly the shape the fixtures show: one thought
 			// step, then the function_call or model_output step(s) that
 			// followed it (docs/OBSERVED.md, "the parallel-call signature
-			// rule holds").
-			if m.ThoughtSignature != nil {
-				input = append(input, ThoughtStep{Type: StepTypeThought, Signature: *m.ThoughtSignature})
+			// rule holds"). A reasoning item carrying no signature is one
+			// from a provider that does not mint them, and contributes no
+			// step: this surface has nowhere to put bare reasoning text.
+			if item.ThoughtSignature != "" {
+				input = append(input, ThoughtStep{Type: StepTypeThought, Signature: item.ThoughtSignature})
 			}
-			if len(m.ToolCalls) > 0 {
-				for _, tc := range m.ToolCalls {
-					callName[tc.ID] = tc.Function.Name
-					input = append(input, FunctionCallStep{
-						Type:      StepTypeFunctionCall,
-						ID:        tc.ID,
-						Name:      tc.Function.Name,
-						Arguments: argumentsToObject(tc.Function.Arguments),
-					})
-				}
-			} else {
-				input = append(input, ModelOutputStep{Type: StepTypeModelOutput, Content: contentBlocksFromWire(m.Content)})
-			}
-		case wire.RoleTool:
+		case wire.ItemFunctionCall:
+			callName[item.CallID] = item.Name
+			input = append(input, FunctionCallStep{
+				Type:      StepTypeFunctionCall,
+				ID:        item.CallID,
+				Name:      item.Name,
+				Arguments: argumentsToObject(item.Arguments),
+			})
+		case wire.ItemFunctionCallOutput:
 			input = append(input, FunctionResultStep{
 				Type:   StepTypeFunctionResult,
-				CallID: m.ToolCallID,
-				Name:   callName[m.ToolCallID],
-				Result: contentBlocksFromWire(m.Content),
+				CallID: item.CallID,
+				Name:   callName[item.CallID],
+				Result: contentBlocksFromItem(item.Output),
 			})
 		}
 	}
@@ -138,6 +140,36 @@ func thinkingLevelFromEffort(effort string) string {
 // and the field is left unset, the documented API default). A video part
 // has no Gemini counterpart in the shapes this harness sends and is dropped
 // rather than guessed at.
+// contentBlocksFromItem is contentBlocksFromWire for the loop's own item
+// content: the same blocks, read out of the Responses part vocabulary, where
+// text is typed by direction and an image is a bare data URL rather than an
+// object wrapping one.
+func contentBlocksFromItem(c *wire.ItemContent) []Content {
+	if c == nil {
+		return nil
+	}
+	if len(c.Parts) == 0 {
+		if c.Text == "" {
+			return nil
+		}
+		return []Content{{Type: ContentTypeText, Text: c.Text}}
+	}
+	blocks := make([]Content, 0, len(c.Parts))
+	for _, p := range c.Parts {
+		switch p.Type {
+		case wire.PartInputImage:
+			if mime, data, ok := decodeDataURI(p.ImageURL); ok {
+				blocks = append(blocks, Content{Type: ContentTypeImage, MIMEType: mime, Data: data})
+			}
+		default:
+			if p.Text != "" {
+				blocks = append(blocks, Content{Type: ContentTypeText, Text: p.Text})
+			}
+		}
+	}
+	return blocks
+}
+
 func contentBlocksFromWire(c wire.Content) []Content {
 	if len(c.Parts) == 0 {
 		if c.Text == "" {

@@ -65,9 +65,9 @@ func (m *Manager) createMessage(ctx context.Context, srv store.MCPServer, req *m
 	if model == "" {
 		model = defaultSamplingModel
 	}
-	messages := make([]wire.Message, 0, len(req.Params.Messages)+1)
+	items := make([]wire.Item, 0, len(req.Params.Messages)+1)
 	if sys := strings.TrimSpace(req.Params.SystemPrompt); sys != "" {
-		messages = append(messages, wire.SystemMessage(sys))
+		items = append(items, wire.SystemItem(sys))
 	}
 	for _, msg := range req.Params.Messages {
 		text := textOfContent(msg.Content)
@@ -75,12 +75,12 @@ func (m *Manager) createMessage(ctx context.Context, srv store.MCPServer, req *m
 			continue
 		}
 		if msg.Role == "assistant" {
-			messages = append(messages, wire.Message{Role: wire.RoleAssistant, Content: wire.TextContent(text)})
+			items = append(items, wire.AssistantItem(text))
 			continue
 		}
-		messages = append(messages, wire.UserMessage(text))
+		items = append(items, wire.UserItem(text))
 	}
-	if len(messages) == 0 {
+	if len(items) == 0 {
 		return nil, errors.New("sampling request carried no text this client can send")
 	}
 
@@ -89,10 +89,10 @@ func (m *Manager) createMessage(ctx context.Context, srv store.MCPServer, req *m
 		maxTokens = int(req.Params.MaxTokens)
 	}
 
-	log.Printf("mcpclient: %s: sampling %d message(s) on model %s", srv.Name, len(messages), model)
+	log.Printf("mcpclient: %s: sampling %d message(s) on model %s", srv.Name, len(items), model)
 	resp, err := m.Sampler.CreateChatCompletion(ctx, wire.ChatIntent{
-		Model:    model,
-		Messages: messages,
+		Model: model,
+		Items: items,
 		// Off for the same reason internal/tools disables it on side work:
 		// a server wants an answer, not the reasoning that produced it, and
 		// non-thinking turns are cheaper (docs/MODELS.md).

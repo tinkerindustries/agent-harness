@@ -44,7 +44,7 @@ func kimiSplit(usage wire.Usage) Split {
 
 func TestFirstObserveHasNoChurn(t *testing.T) {
 	d := NewDetector()
-	messages := []wire.Message{wire.SystemMessage("sys"), wire.UserMessage("hi")}
+	messages := []wire.Item{wire.SystemItem("sys"), wire.UserItem("hi")}
 	report := d.Observe(messages, deepSeekSplit(wire.Usage{PromptTokens: 300, PromptCacheHitTokens: 0, PromptCacheMissTokens: 300}))
 	if report.Churned {
 		t.Fatal("first observation should never be reported as churn")
@@ -56,12 +56,12 @@ func TestFirstObserveHasNoChurn(t *testing.T) {
 
 func TestAppendOnlyGrowthDoesNotChurn(t *testing.T) {
 	d := NewDetector()
-	first := []wire.Message{wire.SystemMessage("sys"), wire.UserMessage("hi")}
+	first := []wire.Item{wire.SystemItem("sys"), wire.UserItem("hi")}
 	d.Observe(first, deepSeekSplit(wire.Usage{PromptTokens: 1000, PromptCacheHitTokens: 0, PromptCacheMissTokens: 1000}))
 
 	// Second request appends one message (a tool result) and the API
 	// reports the full first request's floor(1000/128)*128 = 896 as a hit.
-	second := append(append([]wire.Message{}, first...), wire.Message{Role: wire.RoleAssistant, Content: wire.TextContent("ok")})
+	second := append(append([]wire.Item{}, first...), wire.AssistantItem("ok"))
 	report := d.Observe(second, deepSeekSplit(wire.Usage{PromptTokens: 1080, PromptCacheHitTokens: 896, PromptCacheMissTokens: 184}))
 	if report.Churned {
 		t.Fatalf("appending content should not churn: %+v", report)
@@ -73,12 +73,12 @@ func TestAppendOnlyGrowthDoesNotChurn(t *testing.T) {
 
 func TestMutatingAnEarlierMessageChurns(t *testing.T) {
 	d := NewDetector()
-	first := []wire.Message{wire.SystemMessage("sys"), wire.UserMessage("hi"), wire.UserMessage("more")}
+	first := []wire.Item{wire.SystemItem("sys"), wire.UserItem("hi"), wire.UserItem("more")}
 	d.Observe(first, deepSeekSplit(wire.Usage{PromptTokens: 1000, PromptCacheHitTokens: 0, PromptCacheMissTokens: 1000}))
 
 	// Second request mutates message index 1 instead of only appending —
 	// the whole conversation should now report as a near-total miss.
-	mutated := []wire.Message{wire.SystemMessage("sys"), wire.UserMessage("hi, edited"), wire.UserMessage("more")}
+	mutated := []wire.Item{wire.SystemItem("sys"), wire.UserItem("hi, edited"), wire.UserItem("more")}
 	report := d.Observe(mutated, deepSeekSplit(wire.Usage{PromptTokens: 1000, PromptCacheHitTokens: 0, PromptCacheMissTokens: 1000}))
 	if !report.Churned {
 		t.Fatal("mutating an earlier message should be reported as churn")
@@ -94,19 +94,19 @@ func TestMutatingAnEarlierMessageChurns(t *testing.T) {
 // first post-resume sub-turn instead of the always-clean report a fresh
 // Detector gives its first call.
 func TestPrimedDetectorContinuesAcrossResume(t *testing.T) {
-	priorRequest := []wire.Message{wire.SystemMessage("sys"), wire.UserMessage("hi")}
+	priorRequest := []wire.Item{wire.SystemItem("sys"), wire.UserItem("hi")}
 	d := NewDetectorFrom(1000, priorRequest)
 
 	// A healthy continuation: the new request only appends past
 	// priorRequest, so it must not churn.
-	healthy := append(append([]wire.Message{}, priorRequest...), wire.UserMessage("continue"))
+	healthy := append(append([]wire.Item{}, priorRequest...), wire.UserItem("continue"))
 	report := d.Observe(healthy, deepSeekSplit(wire.Usage{PromptTokens: 1050, PromptCacheHitTokens: 896, PromptCacheMissTokens: 154}))
 	if report.Churned {
 		t.Fatalf("appending after a primed detector should not churn: %+v", report)
 	}
 
 	d2 := NewDetectorFrom(1000, priorRequest)
-	mutated := []wire.Message{wire.SystemMessage("sys"), wire.UserMessage("hi, edited")}
+	mutated := []wire.Item{wire.SystemItem("sys"), wire.UserItem("hi, edited")}
 	report2 := d2.Observe(mutated, deepSeekSplit(wire.Usage{PromptTokens: 1000, PromptCacheHitTokens: 0, PromptCacheMissTokens: 1000}))
 	if !report2.Churned {
 		t.Fatal("mutating the message a primed detector remembers should churn")
@@ -124,10 +124,10 @@ func TestPrimedDetectorContinuesAcrossResume(t *testing.T) {
 // session.RunOptions.DebugChurnOnSubTurn (internal/session/turn.go).
 func TestMutateChurnsAndNamesTheIndex(t *testing.T) {
 	d := NewDetector()
-	first := []wire.Message{
-		wire.SystemMessage("sys"),
-		wire.UserMessage("workspace and task"),
-		{Role: wire.RoleAssistant, Content: wire.TextContent("ok")},
+	first := []wire.Item{
+		wire.SystemItem("sys"),
+		wire.UserItem("workspace and task"),
+		wire.AssistantItem("ok"),
 	}
 	d.Observe(first, deepSeekSplit(wire.Usage{PromptTokens: 2000, PromptCacheHitTokens: 0, PromptCacheMissTokens: 2000}))
 
@@ -150,8 +150,8 @@ func TestMutateChurnsAndNamesTheIndex(t *testing.T) {
 // seam's derived split instead, the same input must produce exactly the
 // verdict and churn point the DeepSeek-shaped equivalent produces.
 func TestKimiShapedUsageChurnsLikeDeepSeek(t *testing.T) {
-	first := []wire.Message{wire.SystemMessage("sys"), wire.UserMessage("hi"), wire.UserMessage("more")}
-	mutated := []wire.Message{wire.SystemMessage("sys"), wire.UserMessage("hi, edited"), wire.UserMessage("more")}
+	first := []wire.Item{wire.SystemItem("sys"), wire.UserItem("hi"), wire.UserItem("more")}
+	mutated := []wire.Item{wire.SystemItem("sys"), wire.UserItem("hi, edited"), wire.UserItem("more")}
 
 	// The churned request's raw usage, as Kimi reports it: prompt 1000,
 	// cached_tokens 0 (the prefix collapsed, so nothing hit). The raw
@@ -227,13 +227,13 @@ func TestKimiThirteenObservedSubTurnsDoNotChurn(t *testing.T) {
 		name := fmt.Sprintf("run%d/subturn%d", tc.run, tc.subTurn)
 		t.Run(name, func(t *testing.T) {
 			d := NewDetector()
-			first := []wire.Message{wire.SystemMessage("sys"), wire.UserMessage("hi")}
+			first := []wire.Item{wire.SystemItem("sys"), wire.UserItem("hi")}
 			// Prime so that floor(prevCacheableTokens/128)*128 reproduces
 			// the row's predicted hit exactly: a cacheable total of
 			// expectedHit tokens with nothing appended yet.
 			d.Observe(first, kimiSplit(wire.Usage{PromptTokens: tc.expectedHit, CachedTokens: tc.expectedHit}))
 
-			second := append(append([]wire.Message{}, first...), wire.Message{Role: wire.RoleAssistant, Content: wire.TextContent("ok")})
+			second := append(append([]wire.Item{}, first...), wire.AssistantItem("ok"))
 			report := d.Observe(second, kimiSplit(wire.Usage{PromptTokens: tc.prompt, CachedTokens: tc.actualHit}))
 
 			if report.Churned {
@@ -262,11 +262,11 @@ func TestKimiThirteenObservedSubTurnsDoNotChurn(t *testing.T) {
 // would agree.
 func TestDeepSeekToleranceBoundaryUnchanged(t *testing.T) {
 	prime := func(d *Detector) {
-		first := []wire.Message{wire.SystemMessage("sys"), wire.UserMessage("hi")}
+		first := []wire.Item{wire.SystemItem("sys"), wire.UserItem("hi")}
 		d.Observe(first, deepSeekSplit(wire.Usage{PromptTokens: 1000, PromptCacheHitTokens: 0, PromptCacheMissTokens: 1000}))
 	}
 
-	second := []wire.Message{wire.SystemMessage("sys"), wire.UserMessage("hi"), wire.Message{Role: wire.RoleAssistant, Content: wire.TextContent("ok")}}
+	second := []wire.Item{wire.SystemItem("sys"), wire.UserItem("hi"), wire.AssistantItem("ok")}
 
 	// Miss of expected + 127: the full trailing block's worth, quiet.
 	d := NewDetector()
@@ -292,7 +292,7 @@ func TestDeepSeekToleranceBoundaryUnchanged(t *testing.T) {
 // tolerance that hid a broken prefix would be worse than the noise it
 // silences.
 func TestKimiChurnedPrefixStillChurns(t *testing.T) {
-	first := []wire.Message{wire.SystemMessage("sys"), wire.UserMessage("hi"), wire.UserMessage("more")}
+	first := []wire.Item{wire.SystemItem("sys"), wire.UserItem("hi"), wire.UserItem("more")}
 
 	for _, tc := range []struct {
 		name       string
@@ -336,10 +336,10 @@ func TestKimiChurnedPrefixStillChurns(t *testing.T) {
 // positives.
 func TestKimiShapedHealthyUsageDoesNotChurn(t *testing.T) {
 	d := NewDetector()
-	first := []wire.Message{wire.SystemMessage("sys"), wire.UserMessage("hi")}
+	first := []wire.Item{wire.SystemItem("sys"), wire.UserItem("hi")}
 	d.Observe(first, kimiSplit(wire.Usage{PromptTokens: 1000, CachedTokens: 0}))
 
-	second := append(append([]wire.Message{}, first...), wire.Message{Role: wire.RoleAssistant, Content: wire.TextContent("ok")})
+	second := append(append([]wire.Item{}, first...), wire.AssistantItem("ok"))
 	report := d.Observe(second, kimiSplit(wire.Usage{PromptTokens: 1080, CachedTokens: 896}))
 	if report.Churned {
 		t.Fatalf("kimi-shaped append-only growth should not churn: %+v", report)

@@ -24,19 +24,13 @@ func TestRequestFromIntentMessageRoles(t *testing.T) {
 	sig := "sig-abc"
 	intent := wire.ChatIntent{
 		Model: "gemini-3.7-flash",
-		Messages: []wire.Message{
-			wire.SystemMessage("you are a coding agent"),
-			wire.UserMessage("list the files"),
-			{
-				Role:             wire.RoleAssistant,
-				Content:          wire.TextContent(""),
-				ThoughtSignature: &sig,
-				ToolCalls: []wire.ToolCall{
-					{ID: "call_01", Type: "function", Function: wire.ToolCallFunc{Name: "List", Arguments: `{"path":"."}`}},
-				},
-			},
-			{Role: wire.RoleTool, Content: wire.TextContent("a.go\nb.go"), ToolCallID: "call_01"},
-			{Role: wire.RoleAssistant, Content: wire.TextContent("Found two files.")},
+		Items: []wire.Item{
+			wire.SystemItem("you are a coding agent"),
+			wire.UserItem("list the files"),
+			signedReasoning(sig),
+			wire.FunctionCallItem("call_01", "List", `{"path":"."}`),
+			wire.FunctionCallOutputItem("call_01", "a.go\nb.go", ""),
+			wire.AssistantItem("Found two files."),
 		},
 		Effort: wire.EffortHigh,
 	}
@@ -59,19 +53,13 @@ func TestRequestFromIntentStepShapes(t *testing.T) {
 	sig := "sig-xyz"
 	intent := wire.ChatIntent{
 		Model: "gemini-3.7-flash",
-		Messages: []wire.Message{
-			wire.SystemMessage("sys"),
-			wire.UserMessage("do the thing"),
-			{
-				Role:             wire.RoleAssistant,
-				Content:          wire.TextContent(""),
-				ThoughtSignature: &sig,
-				ToolCalls: []wire.ToolCall{
-					{ID: "call_01", Type: "function", Function: wire.ToolCallFunc{Name: "get_weather", Arguments: `{"location":"Hobart, Tasmania"}`}},
-				},
-			},
-			{Role: wire.RoleTool, Content: wire.TextContent("Sunny, 18C"), ToolCallID: "call_01"},
-			{Role: wire.RoleAssistant, Content: wire.TextContent("It's sunny in Hobart.")},
+		Items: []wire.Item{
+			wire.SystemItem("sys"),
+			wire.UserItem("do the thing"),
+			signedReasoning(sig),
+			wire.FunctionCallItem("call_01", "get_weather", `{"location":"Hobart, Tasmania"}`),
+			wire.FunctionCallOutputItem("call_01", "Sunny, 18C", ""),
+			wire.AssistantItem("It's sunny in Hobart."),
 		},
 	}
 	req := requestFromIntent(intent)
@@ -140,19 +128,13 @@ func TestRequestFromIntentParallelToolCalls(t *testing.T) {
 	sig := "sig-parallel"
 	intent := wire.ChatIntent{
 		Model: "gemini-3.7-flash",
-		Messages: []wire.Message{
-			wire.SystemMessage("sys"),
-			wire.UserMessage("check the weather in three cities"),
-			{
-				Role:             wire.RoleAssistant,
-				Content:          wire.TextContent(""),
-				ThoughtSignature: &sig,
-				ToolCalls: []wire.ToolCall{
-					{ID: "call_00_a", Type: "function", Function: wire.ToolCallFunc{Name: "get_weather", Arguments: `{"location":"Hobart"}`}},
-					{ID: "call_01_b", Type: "function", Function: wire.ToolCallFunc{Name: "get_weather", Arguments: `{"location":"Perth"}`}},
-					{ID: "call_02_c", Type: "function", Function: wire.ToolCallFunc{Name: "get_weather", Arguments: `{"location":"Darwin"}`}},
-				},
-			},
+		Items: []wire.Item{
+			wire.SystemItem("sys"),
+			wire.UserItem("check the weather in three cities"),
+			signedReasoning(sig),
+			wire.FunctionCallItem("call_00_a", "get_weather", `{"location":"Hobart"}`),
+			wire.FunctionCallItem("call_01_b", "get_weather", `{"location":"Perth"}`),
+			wire.FunctionCallItem("call_02_c", "get_weather", `{"location":"Darwin"}`),
 		},
 	}
 	req := requestFromIntent(intent)
@@ -192,24 +174,11 @@ func TestRequestFromIntentFunctionResultImage(t *testing.T) {
 	const pngData = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 	intent := wire.ChatIntent{
 		Model: "gemini-3.7-flash",
-		Messages: []wire.Message{
-			wire.SystemMessage("sys"),
-			wire.UserMessage("take a screenshot and check it"),
-			{
-				Role:    wire.RoleAssistant,
-				Content: wire.TextContent(""),
-				ToolCalls: []wire.ToolCall{
-					{ID: "call_01", Type: "function", Function: wire.ToolCallFunc{Name: "Read", Arguments: `{"file_path":"scratch/screenshot.png"}`}},
-				},
-			},
-			{
-				Role:       wire.RoleTool,
-				ToolCallID: "call_01",
-				Content: wire.Content{Parts: []wire.Part{
-					{Type: wire.PartTypeText, Text: "Image: scratch/screenshot.png"},
-					{Type: wire.PartTypeImageURL, ImageURL: &wire.ImageURL{URL: "data:image/png;base64," + pngData}},
-				}},
-			},
+		Items: []wire.Item{
+			wire.SystemItem("sys"),
+			wire.UserItem("take a screenshot and check it"),
+			wire.FunctionCallItem("call_01", "Read", `{"file_path":"scratch/screenshot.png"}`),
+			wire.FunctionCallOutputItem("call_01", "Image: scratch/screenshot.png", "data:image/png;base64,"+pngData),
 		},
 	}
 
@@ -263,24 +232,11 @@ func TestRequestFromIntentFunctionResultImageFromMCP(t *testing.T) {
 	const jpegData = "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkI"
 	intent := wire.ChatIntent{
 		Model: "gemini-3.7-flash",
-		Messages: []wire.Message{
-			wire.SystemMessage("sys"),
-			wire.UserMessage("render the viewport"),
-			{
-				Role:    wire.RoleAssistant,
-				Content: wire.TextContent(""),
-				ToolCalls: []wire.ToolCall{
-					{ID: "call_09", Type: "function", Function: wire.ToolCallFunc{Name: "mcp__blender__render_viewport_to_path", Arguments: `{}`}},
-				},
-			},
-			{
-				Role:       wire.RoleTool,
-				ToolCallID: "call_09",
-				Content: wire.Content{Parts: []wire.Part{
-					{Type: wire.PartTypeText, Text: "Wrote scratch/mcp/blender-render_viewport_to_path-1.jpg"},
-					{Type: wire.PartTypeImageURL, ImageURL: &wire.ImageURL{URL: "data:image/jpeg;base64," + jpegData}},
-				}},
-			},
+		Items: []wire.Item{
+			wire.SystemItem("sys"),
+			wire.UserItem("render the viewport"),
+			wire.FunctionCallItem("call_09", "mcp__blender__render_viewport_to_path", `{}`),
+			wire.FunctionCallOutputItem("call_09", "Wrote scratch/mcp/blender-render_viewport_to_path-1.jpg", "data:image/jpeg;base64,"+jpegData),
 		},
 	}
 
@@ -309,9 +265,9 @@ func TestRequestFromIntentFunctionResultImageFromMCP(t *testing.T) {
 // store:true, so an absent field would silently opt into it.
 func TestRequestFromIntentOmitsToolChoiceAndSamplingParams(t *testing.T) {
 	intent := wire.ChatIntent{
-		Model:    "gemini-3.7-flash",
-		Messages: []wire.Message{wire.SystemMessage("sys"), wire.UserMessage("hi")},
-		Effort:   wire.EffortHigh,
+		Model:  "gemini-3.7-flash",
+		Items:  []wire.Item{wire.SystemItem("sys"), wire.UserItem("hi")},
+		Effort: wire.EffortHigh,
 	}
 	raw, err := json.Marshal(requestFromIntent(intent))
 	if err != nil {
@@ -365,7 +321,7 @@ func TestThinkingLevelFromEffort(t *testing.T) {
 	// An empty mapped level must omit the thinking_level field, leaving it
 	// to the API's default. generation_config itself is still sent, because
 	// thinking_summaries always rides on it.
-	req := requestFromIntent(wire.ChatIntent{Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("hi")}})
+	req := requestFromIntent(wire.ChatIntent{Model: "gemini-3.7-flash", Items: []wire.Item{wire.UserItem("hi")}})
 	if req.GenerationConfig == nil || req.GenerationConfig.ThinkingLevel != "" {
 		t.Errorf("generation_config = %+v, want an empty thinking_level when Effort is empty", req.GenerationConfig)
 	}
@@ -374,7 +330,7 @@ func TestThinkingLevelFromEffort(t *testing.T) {
 	} else if contains(string(raw), "thinking_level") {
 		t.Errorf("request body carries thinking_level for an empty Effort, got: %s", raw)
 	}
-	req = requestFromIntent(wire.ChatIntent{Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("hi")}, Effort: wire.EffortHigh})
+	req = requestFromIntent(wire.ChatIntent{Model: "gemini-3.7-flash", Items: []wire.Item{wire.UserItem("hi")}, Effort: wire.EffortHigh})
 	if req.GenerationConfig == nil || req.GenerationConfig.ThinkingLevel != ThinkingLevelHigh {
 		t.Errorf("generation_config = %+v, want thinking_level high", req.GenerationConfig)
 	}
@@ -390,7 +346,7 @@ func TestThinkingLevelFromEffort(t *testing.T) {
 // default rather than an explicit but meaningless zero.
 func TestRequestFromIntentMaxTokens(t *testing.T) {
 	req := requestFromIntent(wire.ChatIntent{
-		Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("hi")}, MaxTokens: 4096,
+		Model: "gemini-3.7-flash", Items: []wire.Item{wire.UserItem("hi")}, MaxTokens: 4096,
 	})
 	if req.GenerationConfig == nil || req.GenerationConfig.MaxOutputTokens != 4096 {
 		t.Fatalf("generation_config = %+v, want max_output_tokens 4096", req.GenerationConfig)
@@ -403,7 +359,7 @@ func TestRequestFromIntentMaxTokens(t *testing.T) {
 		t.Errorf("request body does not carry max_output_tokens, got: %s", raw)
 	}
 
-	zero := requestFromIntent(wire.ChatIntent{Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("hi")}})
+	zero := requestFromIntent(wire.ChatIntent{Model: "gemini-3.7-flash", Items: []wire.Item{wire.UserItem("hi")}})
 	if zero.GenerationConfig == nil || zero.GenerationConfig.MaxOutputTokens != 0 {
 		t.Errorf("generation_config = %+v, want max_output_tokens unset when MaxTokens is zero", zero.GenerationConfig)
 	}
@@ -418,7 +374,7 @@ func TestRequestFromIntentMaxTokens(t *testing.T) {
 	// MaxTokens and Effort combine into the one generation_config object,
 	// rather than either field forcing the other to a zero value.
 	both := requestFromIntent(wire.ChatIntent{
-		Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("hi")},
+		Model: "gemini-3.7-flash", Items: []wire.Item{wire.UserItem("hi")},
 		MaxTokens: 8000, Effort: wire.EffortHigh,
 	})
 	if both.GenerationConfig == nil || both.GenerationConfig.MaxOutputTokens != 8000 || both.GenerationConfig.ThinkingLevel != ThinkingLevelHigh {
@@ -438,9 +394,9 @@ func TestRequestFromIntentMaxTokens(t *testing.T) {
 // the only request field that produces it.
 func TestRequestFromIntentThinkingSummaries(t *testing.T) {
 	for _, intent := range []wire.ChatIntent{
-		{Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("hi")}},
-		{Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("hi")}, Effort: wire.EffortMax},
-		{Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("hi")}, MaxTokens: 4096},
+		{Model: "gemini-3.7-flash", Items: []wire.Item{wire.UserItem("hi")}},
+		{Model: "gemini-3.7-flash", Items: []wire.Item{wire.UserItem("hi")}, Effort: wire.EffortMax},
+		{Model: "gemini-3.7-flash", Items: []wire.Item{wire.UserItem("hi")}, MaxTokens: 4096},
 	} {
 		req := requestFromIntent(intent)
 		if req.GenerationConfig == nil || req.GenerationConfig.ThinkingSummaries != ThinkingSummariesAuto {
@@ -533,19 +489,13 @@ func goldenChatRequest() ChatInteractionRequest {
 	params := json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}`)
 	intent := wire.ChatIntent{
 		Model: "gemini-3.7-flash",
-		Messages: []wire.Message{
-			wire.SystemMessage("You are a helpful coding agent."),
-			wire.UserMessage("What is in this workspace?"),
-			{
-				Role:             wire.RoleAssistant,
-				Content:          wire.TextContent(""),
-				ThoughtSignature: &sig,
-				ToolCalls: []wire.ToolCall{
-					{ID: "call_01", Type: "function", Function: wire.ToolCallFunc{Name: "List", Arguments: `{"path":"."}`}},
-				},
-			},
-			{Role: wire.RoleTool, Content: wire.TextContent("README.md\nmain.go"), ToolCallID: "call_01"},
-			{Role: wire.RoleAssistant, Content: wire.TextContent("This workspace has a README and main.go.")},
+		Items: []wire.Item{
+			wire.SystemItem("You are a helpful coding agent."),
+			wire.UserItem("What is in this workspace?"),
+			signedReasoning(sig),
+			wire.FunctionCallItem("call_01", "List", `{"path":"."}`),
+			wire.FunctionCallOutputItem("call_01", "README.md\nmain.go", ""),
+			wire.AssistantItem("This workspace has a README and main.go."),
 		},
 		Effort:    wire.EffortHigh,
 		MaxTokens: 48000,
@@ -574,4 +524,12 @@ func TestChatRequestBodyGolden(t *testing.T) {
 	if string(got) != string(want) {
 		t.Fatalf("request body differs from golden file:\ngot:  %s\nwant: %s", got, want)
 	}
+}
+
+// signedReasoning is the item a Gemini sub-turn's thought step becomes: no
+// text, and the signature that must be replayed verbatim.
+func signedReasoning(sig string) wire.Item {
+	item := wire.ReasoningItem("")
+	item.ThoughtSignature = sig
+	return item
 }

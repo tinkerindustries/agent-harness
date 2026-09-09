@@ -48,7 +48,7 @@ func TestCancelledStreamDoesNotStrandPump(t *testing.T) {
 	c := NewClient(srv.URL, "test-key")
 	events, err := c.StreamChatCompletion(ctx, wire.ChatIntent{
 		Model:     "deepseek-v4-flash",
-		Messages:  []wire.Message{wire.UserMessage("hi")},
+		Items:     []wire.Item{wire.UserItem("hi")},
 		MaxTokens: 100,
 	})
 	if err != nil {

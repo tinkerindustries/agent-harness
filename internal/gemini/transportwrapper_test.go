@@ -84,7 +84,7 @@ func TestWithTransportWrapperCoversEveryCaller(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	intent := wire.ChatIntent{Model: "gemini-3.7-flash", Messages: []wire.Message{wire.UserMessage("hi")}}
+	intent := wire.ChatIntent{Model: "gemini-3.7-flash", Items: []wire.Item{wire.UserItem("hi")}}
 
 	if _, err := c.CreateChatCompletion(ctx, intent); err != nil {
 		t.Fatalf("CreateChatCompletion: %v", err)

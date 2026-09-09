@@ -75,16 +75,16 @@ func NewDetector() *Detector {
 }
 
 // NewDetectorFrom returns a Detector primed as though Observe had just been
-// called for a sub-turn whose request was prevMessages and whose usage
+// called for a sub-turn whose request was prevItems and whose usage
 // totalled prevCacheableTokens (prompt tokens plus completion tokens).
 // Resuming a session uses this so the churn check on the first sub-turn
 // after resume compares against the session's real prior request instead of
 // silently skipping it the way a fresh Detector would (docs/CACHE.md).
-func NewDetectorFrom(prevCacheableTokens int, prevMessages []wire.Message) *Detector {
+func NewDetectorFrom(prevCacheableTokens int, prevItems []wire.Item) *Detector {
 	return &Detector{
 		have:                true,
 		prevCacheableTokens: prevCacheableTokens,
-		prevHashes:          hashMessages(prevMessages),
+		prevHashes:          hashItems(prevItems),
 	}
 }
 
@@ -94,8 +94,8 @@ func NewDetectorFrom(prevCacheableTokens int, prevMessages []wire.Message) *Dete
 // the raw wire.Usage (see Split); split.Slack must carry that provider's
 // tolerance. The first call on a fresh Detector has nothing to compare
 // against, so it reports the actual miss as fully expected.
-func (d *Detector) Observe(messages []wire.Message, split Split) Report {
-	hashes := hashMessages(messages)
+func (d *Detector) Observe(items []wire.Item, split Split) Report {
+	hashes := hashItems(items)
 
 	var report Report
 	if !d.have {
@@ -120,9 +120,9 @@ func (d *Detector) Observe(messages []wire.Message, split Split) Report {
 	return report
 }
 
-func hashMessages(messages []wire.Message) []string {
-	out := make([]string, len(messages))
-	for i, m := range messages {
+func hashItems(items []wire.Item) []string {
+	out := make([]string, len(items))
+	for i, m := range items {
 		b, err := json.Marshal(m)
 		if err != nil {
 			out[i] = ""

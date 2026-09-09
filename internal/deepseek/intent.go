@@ -9,6 +9,11 @@ import "github.com/mrgeoffrich/agent-harness/internal/wire"
 // reasoning_effort and no thinking field — which is the whole point of the
 // seam: the loop states intent and the provider spells it.
 //
+// The messages array is rendered from the loop's items by
+// wire.MessagesFromItems, which produces the bytes this surface has always
+// been sent — the loop's own vocabulary moved to the Responses shape and
+// this path did not (internal/wire/messages.go).
+//
 // The field order follows wire.ChatCompletionRequest's declaration order,
 // which is the byte-stability contract the prompt cache depends on
 // (docs/DESIGN.md §3.2, docs/KIMI-INTEGRATION.md §4.2): building the request
@@ -23,7 +28,7 @@ func requestFromIntent(intent wire.ChatIntent) wire.ChatCompletionRequest {
 	}
 	return wire.ChatCompletionRequest{
 		Model:           intent.Model,
-		Messages:        intent.Messages,
+		Messages:        wire.MessagesFromItems(intent.Items),
 		Thinking:        &wire.ThinkingConfig{Type: thinkingType},
 		ReasoningEffort: intent.Effort,
 		MaxTokens:       intent.MaxTokens,
