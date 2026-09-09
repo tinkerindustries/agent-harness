@@ -82,9 +82,10 @@ renders them into.
 chain-of-thought to be replayed in every later turn of a request that
 carries `tools`, and answers 400 when it is missing
 (`third_party/deepseek-docs/guides/thinking_mode.md`, "Tool Calls"). Every
-request this harness sends carries tools. `inputFromMessages` therefore emits
-a `reasoning` item before the assistant message it belongs to, which is where
-Chat Completions' `reasoning_content` field goes on this surface.
+request this harness sends carries tools. `internal/fold` therefore emits a
+`reasoning` item ahead of the text and calls it explains, and this client
+sends it as it stands — where Chat Completions carries the same text as
+`reasoning_content` on the assistant message `wire.MessagesFromItems` builds.
 
 ## 3. What the loop above never sees
 
