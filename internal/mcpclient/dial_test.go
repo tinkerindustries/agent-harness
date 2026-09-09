@@ -8,7 +8,7 @@ import (
 // TestStdioChildEnvFiltersBeforeAppendingServerEnv pins the hosted-mode
 // credential boundary at the exact line the design names
 // (dial.go:56/docs/STDIO-PROTOCOL.md, "Trust boundaries"): a stdio MCP
-// server dialled from `harness gemini-session` must not inherit
+// server dialled from `harness stdio-session` must not inherit
 // GEMINI_API_KEY, which this process itself was handed only so its own API
 // client could reach Google. filter runs against the base environment
 // before the server's own configured Env is appended, so a server cannot

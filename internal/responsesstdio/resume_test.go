@@ -1,4 +1,4 @@
-package geministdio
+package responsesstdio
 
 import (
 	"bytes"
@@ -39,11 +39,11 @@ func TestResumeAcrossProcesses(t *testing.T) {
 		t.Fatal("the handshake does not advertise resume_session")
 	}
 	var one CreateResult
-	if rerr := a.client.call(MethodInteractionsCreate, a.createParams("first task"), &one); rerr != nil {
+	if rerr := a.client.call(MethodResponsesCreate, a.createParams("first task"), &one); rerr != nil {
 		t.Fatalf("first create: %v", rerr)
 	}
-	a.client.waitFor(NotifyInteractionCompleted)
-	sessionID := one.Interaction.Harness.SessionID
+	a.client.waitFor(NotifyResponseCompleted)
+	sessionID := one.Response.Harness.SessionID
 	if sessionID == "" {
 		t.Fatal("the first interaction reported no harness.session_id")
 	}
@@ -61,30 +61,30 @@ func TestResumeAcrossProcesses(t *testing.T) {
 
 	// An interaction id from process A means nothing here, and the error
 	// says which field does.
-	stale := CreateParams{Model: testModel, PreviousInteractionID: one.Interaction.ID}
+	stale := CreateParams{Model: testModel, PreviousResponseID: one.Response.ID}
 	stale.Input, _ = json.Marshal("stale")
-	rerr := b.client.call(MethodInteractionsCreate, stale, &CreateResult{})
-	if rerr == nil || rerr.Code != CodeInteractionNotFound {
-		t.Fatalf("previous_interaction_id across processes: want %d, got %v", CodeInteractionNotFound, rerr)
+	rerr := b.client.call(MethodResponsesCreate, stale, &CreateResult{})
+	if rerr == nil || rerr.Code != CodeResponseNotFound {
+		t.Fatalf("previous_interaction_id across processes: want %d, got %v", CodeResponseNotFound, rerr)
 	}
 	if !strings.Contains(rerr.Message, "resume_session_id") {
 		t.Errorf("the error does not point at resume_session_id: %s", rerr.Message)
 	}
 
 	var two CreateResult
-	if rerr := b.client.call(MethodInteractionsCreate, resumeParams(sessionID, "second task"), &two); rerr != nil {
+	if rerr := b.client.call(MethodResponsesCreate, resumeParams(sessionID, "second task"), &two); rerr != nil {
 		t.Fatalf("resume: %v", rerr)
 	}
-	b.client.waitFor(NotifyInteractionCompleted)
+	b.client.waitFor(NotifyResponseCompleted)
 
-	if two.Interaction.Harness.SessionID != sessionID {
-		t.Errorf("the resumed interaction reports session %q, not %q", two.Interaction.Harness.SessionID, sessionID)
+	if two.Response.Harness.SessionID != sessionID {
+		t.Errorf("the resumed response reports session %q, not %q", two.Response.Harness.SessionID, sessionID)
 	}
-	if two.Interaction.ID == one.Interaction.ID {
-		t.Error("the resumed interaction reused the first process's interaction id")
+	if two.Response.ID == one.Response.ID {
+		t.Error("the resumed response reused the first process's interaction id")
 	}
-	if two.Interaction.Model != testModel {
-		t.Errorf("the resumed interaction runs on %q, not the session's %q", two.Interaction.Model, testModel)
+	if two.Response.Model != testModel {
+		t.Errorf("the resumed response runs on %q, not the session's %q", two.Response.Model, testModel)
 	}
 
 	// The whole point: the model is sent the conversation the first process
@@ -99,15 +99,15 @@ func TestResumeAcrossProcesses(t *testing.T) {
 	}
 
 	// And the chain continues in this process the ordinary way.
-	next := CreateParams{Model: testModel, PreviousInteractionID: two.Interaction.ID}
+	next := CreateParams{Model: testModel, PreviousResponseID: two.Response.ID}
 	next.Input, _ = json.Marshal("third task")
 	var three CreateResult
-	if rerr := b.client.call(MethodInteractionsCreate, next, &three); rerr != nil {
+	if rerr := b.client.call(MethodResponsesCreate, next, &three); rerr != nil {
 		t.Fatalf("third create: %v", rerr)
 	}
-	b.client.waitFor(NotifyInteractionCompleted)
-	if three.Interaction.Harness.SessionID != sessionID {
-		t.Errorf("the continued interaction left the session: %q", three.Interaction.Harness.SessionID)
+	b.client.waitFor(NotifyResponseCompleted)
+	if three.Response.Harness.SessionID != sessionID {
+		t.Errorf("the continued response left the session: %q", three.Response.Harness.SessionID)
 	}
 }
 
@@ -118,7 +118,7 @@ func TestResumeUnknownSession(t *testing.T) {
 	f := newFixture(t, answer("unused"))
 	f.client.handshake(ClientCapabilities{})
 
-	rerr := f.client.call(MethodInteractionsCreate, resumeParams("sess-nothing", "go"), &CreateResult{})
+	rerr := f.client.call(MethodResponsesCreate, resumeParams("sess-nothing", "go"), &CreateResult{})
 	if rerr == nil || rerr.Code != CodeSessionNotFound {
 		t.Fatalf("want %d, got %v", CodeSessionNotFound, rerr)
 	}
@@ -135,11 +135,11 @@ func TestResumeRefusesAChangedPrefix(t *testing.T) {
 	a := newFixtureIn(t, dir, cwd, answer("first"))
 	a.client.handshake(ClientCapabilities{})
 	var one CreateResult
-	if rerr := a.client.call(MethodInteractionsCreate, a.createParams("first task"), &one); rerr != nil {
+	if rerr := a.client.call(MethodResponsesCreate, a.createParams("first task"), &one); rerr != nil {
 		t.Fatalf("first create: %v", rerr)
 	}
-	a.client.waitFor(NotifyInteractionCompleted)
-	sessionID := one.Interaction.Harness.SessionID
+	a.client.waitFor(NotifyResponseCompleted)
+	sessionID := one.Response.Harness.SessionID
 	a.close()
 
 	b := newFixtureIn(t, dir, cwd, answer("second"))
@@ -153,13 +153,13 @@ func TestResumeRefusesAChangedPrefix(t *testing.T) {
 		{"a different directory", func(p *CreateParams) { p.Harness.CWD = t.TempDir() }, "cannot change directory"},
 		{"a different permission mode", func(p *CreateParams) { p.Harness.PermissionMode = "full" }, "permission mode"},
 		{"a different deny list", func(p *CreateParams) { p.Harness.Deny = []string{"git push"} }, "deny patterns"},
-		{"a different model", func(p *CreateParams) { p.Model = "deepseek-v4-flash" }, "cannot change model"},
+		{"a different model", func(p *CreateParams) { p.Model = testAltModel }, "cannot change model"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			p := resumeParams(sessionID, "second task")
 			tc.edit(&p)
-			rerr := b.client.call(MethodInteractionsCreate, p, &CreateResult{})
+			rerr := b.client.call(MethodResponsesCreate, p, &CreateResult{})
 			if rerr == nil {
 				t.Fatalf("%s was accepted", tc.name)
 			}
@@ -175,8 +175,8 @@ func TestResumeRefusesAChangedPrefix(t *testing.T) {
 	// Both ways of naming a conversation at once is a client bug, not a
 	// precedence question.
 	both := resumeParams(sessionID, "second task")
-	both.PreviousInteractionID = one.Interaction.ID
-	rerr := b.client.call(MethodInteractionsCreate, both, &CreateResult{})
+	both.PreviousResponseID = one.Response.ID
+	rerr := b.client.call(MethodResponsesCreate, both, &CreateResult{})
 	if rerr == nil || rerr.Code != CodeInvalidParams {
 		t.Fatalf("both ids at once: want %d, got %v", CodeInvalidParams, rerr)
 	}
@@ -200,18 +200,18 @@ func TestResumeChecksTheFrozenToolset(t *testing.T) {
 	first := a.createParams("first task")
 	first.Tools = []Tool{widget}
 	var one CreateResult
-	if rerr := a.client.call(MethodInteractionsCreate, first, &one); rerr != nil {
+	if rerr := a.client.call(MethodResponsesCreate, first, &one); rerr != nil {
 		t.Fatalf("first create: %v", rerr)
 	}
-	a.client.waitFor(NotifyInteractionCompleted)
-	sessionID := one.Interaction.Harness.SessionID
+	a.client.waitFor(NotifyResponseCompleted)
+	sessionID := one.Response.Harness.SessionID
 	a.close()
 
 	b := newFixtureIn(t, dir, cwd, answer("second"))
 	b.client.handshake(ClientCapabilities{FunctionCalls: true})
 
 	// Declaring nothing loses the tool.
-	rerr := b.client.call(MethodInteractionsCreate, resumeParams(sessionID, "second task"), &CreateResult{})
+	rerr := b.client.call(MethodResponsesCreate, resumeParams(sessionID, "second task"), &CreateResult{})
 	if rerr == nil || rerr.Code != CodeToolsetMismatch {
 		t.Fatalf("a dropped function tool: want %d, got %v", CodeToolsetMismatch, rerr)
 	}
@@ -222,7 +222,7 @@ func TestResumeChecksTheFrozenToolset(t *testing.T) {
 	// A different schema under the same name is the same problem.
 	changed := widget
 	changed.Parameters = json.RawMessage(`{"type":"object","properties":{"title":{"type":"number"}}}`)
-	rerr = b.client.call(MethodInteractionsCreate, resumeParams(sessionID, "second task", changed), &CreateResult{})
+	rerr = b.client.call(MethodResponsesCreate, resumeParams(sessionID, "second task", changed), &CreateResult{})
 	if rerr == nil || rerr.Code != CodeToolsetMismatch {
 		t.Fatalf("a changed schema: want %d, got %v", CodeToolsetMismatch, rerr)
 	}
@@ -233,7 +233,7 @@ func TestResumeChecksTheFrozenToolset(t *testing.T) {
 	// A tool the session never had cannot be added: the frozen array has
 	// no room for it.
 	extra := Tool{Type: ToolFunction, Name: "play_sound", Parameters: json.RawMessage(`{"type":"object","properties":{}}`)}
-	rerr = b.client.call(MethodInteractionsCreate, resumeParams(sessionID, "second task", widget, extra), &CreateResult{})
+	rerr = b.client.call(MethodResponsesCreate, resumeParams(sessionID, "second task", widget, extra), &CreateResult{})
 	if rerr == nil || rerr.Code != CodeToolsetMismatch {
 		t.Fatalf("an added tool: want %d, got %v", CodeToolsetMismatch, rerr)
 	}
@@ -246,12 +246,12 @@ func TestResumeChecksTheFrozenToolset(t *testing.T) {
 	respelled := widget
 	respelled.Parameters = json.RawMessage("{\n  \"properties\": {\"title\": {\"type\": \"string\"}},\n  \"type\": \"object\"\n}")
 	var two CreateResult
-	if rerr := b.client.call(MethodInteractionsCreate, resumeParams(sessionID, "second task", respelled), &two); rerr != nil {
+	if rerr := b.client.call(MethodResponsesCreate, resumeParams(sessionID, "second task", respelled), &two); rerr != nil {
 		t.Fatalf("resume with the same toolset: %v", rerr)
 	}
-	b.client.waitFor(NotifyInteractionCompleted)
-	if two.Interaction.Harness.SessionID != sessionID {
-		t.Errorf("the resumed interaction reports session %q", two.Interaction.Harness.SessionID)
+	b.client.waitFor(NotifyResponseCompleted)
+	if two.Response.Harness.SessionID != sessionID {
+		t.Errorf("the resumed response reports session %q", two.Response.Harness.SessionID)
 	}
 }
 
@@ -392,11 +392,11 @@ func TestResumeRefusesAWidenedReadOnlyAllowance(t *testing.T) {
 	first := a.createParams("first task")
 	first.Tools = []Tool{plain}
 	var one CreateResult
-	if rerr := a.client.call(MethodInteractionsCreate, first, &one); rerr != nil {
+	if rerr := a.client.call(MethodResponsesCreate, first, &one); rerr != nil {
 		t.Fatalf("first create: %v", rerr)
 	}
-	a.client.waitFor(NotifyInteractionCompleted)
-	sessionID := one.Interaction.Harness.SessionID
+	a.client.waitFor(NotifyResponseCompleted)
+	sessionID := one.Response.Harness.SessionID
 	a.close()
 
 	b := newFixtureIn(t, dir, cwd, answer("second"))
@@ -404,7 +404,7 @@ func TestResumeRefusesAWidenedReadOnlyAllowance(t *testing.T) {
 
 	widened := plain
 	widened.Harness = &ToolHarness{ReadOnly: true}
-	rerr := b.client.call(MethodInteractionsCreate, resumeParams(sessionID, "second task", widened), &CreateResult{})
+	rerr := b.client.call(MethodResponsesCreate, resumeParams(sessionID, "second task", widened), &CreateResult{})
 	if rerr == nil || rerr.Code != CodeToolsetMismatch {
 		t.Fatalf("a widened allowance: want %d, got %v", CodeToolsetMismatch, rerr)
 	}
@@ -414,10 +414,10 @@ func TestResumeRefusesAWidenedReadOnlyAllowance(t *testing.T) {
 
 	// Unchanged, the same resume is accepted.
 	var two CreateResult
-	if rerr := b.client.call(MethodInteractionsCreate, resumeParams(sessionID, "second task", plain), &two); rerr != nil {
+	if rerr := b.client.call(MethodResponsesCreate, resumeParams(sessionID, "second task", plain), &two); rerr != nil {
 		t.Fatalf("resume with the same permissions: %v", rerr)
 	}
-	b.client.waitFor(NotifyInteractionCompleted)
+	b.client.waitFor(NotifyResponseCompleted)
 }
 
 // TestMCPHeadersNeverReachTheStore pins that a bearer token a parent hands
@@ -476,17 +476,17 @@ func TestCompletionFreesTheSlotBeforeItIsAnnounced(t *testing.T) {
 	for i := 0; i < 4; i++ {
 		p := f.createParams("task")
 		if prev != "" {
-			p.PreviousInteractionID = prev
+			p.PreviousResponseID = prev
 			p.Harness.CWD = ""
 		}
 		var res CreateResult
-		if rerr := f.client.call(MethodInteractionsCreate, p, &res); rerr != nil {
+		if rerr := f.client.call(MethodResponsesCreate, p, &res); rerr != nil {
 			t.Fatalf("create %d: %v", i, rerr)
 		}
 		// The next create goes out the moment interaction.completed
 		// arrives, which is exactly what used to race the bookkeeping.
-		f.client.waitFor(NotifyInteractionCompleted)
-		prev = res.Interaction.ID
+		f.client.waitFor(NotifyResponseCompleted)
+		prev = res.Response.ID
 	}
 }
 
@@ -511,11 +511,11 @@ func TestResumeWithAServerThatAdvertisedNothing(t *testing.T) {
 	first := a.createParams("first task")
 	first.Tools = []Tool{server}
 	var one CreateResult
-	if rerr := a.client.call(MethodInteractionsCreate, first, &one); rerr != nil {
+	if rerr := a.client.call(MethodResponsesCreate, first, &one); rerr != nil {
 		t.Fatalf("first create: %v", rerr)
 	}
-	a.client.waitFor(NotifyInteractionCompleted)
-	sessionID := one.Interaction.Harness.SessionID
+	a.client.waitFor(NotifyResponseCompleted)
+	sessionID := one.Response.Harness.SessionID
 	a.close()
 
 	b := newFixtureIn(t, dir, cwd, answer("second"), answer("third"))
@@ -523,18 +523,18 @@ func TestResumeWithAServerThatAdvertisedNothing(t *testing.T) {
 
 	// Re-declaring it is what the parent should do, and it has to work.
 	var two CreateResult
-	if rerr := b.client.call(MethodInteractionsCreate, resumeParams(sessionID, "second task", server), &two); rerr != nil {
+	if rerr := b.client.call(MethodResponsesCreate, resumeParams(sessionID, "second task", server), &two); rerr != nil {
 		t.Fatalf("resume re-declaring the server: %v", rerr)
 	}
-	b.client.waitFor(NotifyInteractionCompleted)
-	if two.Interaction.Harness.SessionID != sessionID {
-		t.Errorf("the resumed interaction reports session %q", two.Interaction.Harness.SessionID)
+	b.client.waitFor(NotifyResponseCompleted)
+	if two.Response.Harness.SessionID != sessionID {
+		t.Errorf("the resumed response reports session %q", two.Response.Harness.SessionID)
 	}
 
 	// Dropping it is refused, and named as the server it is — a session
 	// keeps the servers it was started with whether or not any of them
 	// managed to advertise a tool.
-	rerr := b.client.call(MethodInteractionsCreate, resumeParams(sessionID, "third task"), &CreateResult{})
+	rerr := b.client.call(MethodResponsesCreate, resumeParams(sessionID, "third task"), &CreateResult{})
 	if rerr == nil || rerr.Code != CodeToolsetMismatch {
 		t.Fatalf("dropping the server: want %d, got %v", CodeToolsetMismatch, rerr)
 	}

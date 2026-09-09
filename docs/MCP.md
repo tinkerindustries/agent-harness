@@ -404,7 +404,7 @@ and the copy it started with is kept on the session row (`mcp_read_only`)
 beside the permission mode and the deny patterns. A resume resolves it fresh,
 so an operator who revokes a server's allowance has the next resume honour it.
 That is right where an operator owns the registry and wrong where the caller
-does — `harness gemini-session`'s client supplies both the tools and their
+does — `harness stdio-session`'s client supplies both the tools and their
 allowance in the same request — so that surface holds a resume to the stored
 copy instead, and refuses a create that would move it
 (docs/STDIO-PROTOCOL.md, "Resuming across process restarts").

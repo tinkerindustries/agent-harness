@@ -28,18 +28,39 @@ subcommand git runs, not a person, dispatched before `.env` loading and
 silent on stdout except for the credential
 ([`../docs/GITHUB-APP.md`](../docs/GITHUB-APP.md)). `geminisession.go` is the
 second entry point's composition: one store, one hub, one `session.Runner`
-pinned to the Gemini client, handed to `internal/geministdio`. It is
+handed to `internal/responsesstdio`, with a client per provider behind the same
+model dispatch `serve.go` uses. It hosts every Gemini model the repository
+routes plus exactly one DeepSeek model, `deepseek-v4-flash-vision-exp`
+(`deepSeekSessionModel`) — the only one that reads images natively, which is
+what keeps a DeepSeek session here to one credential; the other two would
+carry the vision tools built for a model that cannot see, four of which reach
+Google (docs/DEEPSEEK-VISION.md). It is
 dispatched in `main.go` before `.env` is loaded, for the same reason the
 credential helper is — the parent owns the working directory, and a `.env` in
 a repository the session is about to work in must not feed this process — and
 because nothing but protocol frames may reach its stdout.
 
 ### `internal/deepseek`
-The DeepSeek API client: the request body it builds from a `wire.ChatIntent`,
+The DeepSeek API client, speaking **two** surfaces at one base URL: Chat
+Completions (`intent.go`, `stream.go`, `client.go`) and the Responses API
+(`responses.go`, `responsestypes.go`, `responsesstream.go`,
+`responsesclient.go` — docs/DEEPSEEK-RESPONSES.md). `ResponsesClient` embeds
+`*Client` rather than reimplementing it, because the retry classification,
+the usage split, the cache slack and both quirk repairs are the provider's
+and not the surface's; what it replaces is the two request methods, the body
+they send and the frames they read. A session speaks one surface for its
+whole life — the two dialects do not serialise alike and the request head is
+the frozen cache prefix (docs/DESIGN.md §3.2). The rest of this entry
+describes the Chat Completions half: the request body it builds from a
+`wire.ChatIntent`,
 the auxiliary endpoints (`/models`, `/user/balance`), the error body, retry
 classification, and the narrow repairs for the quirks recorded in
 docs/OBSERVED.md (the misplaced brace in large arguments objects, and
-reasoning starvation under a small max_tokens budget). Implements the narrow
+reasoning starvation under a small max_tokens budget). `modelinfo.go` is the
+per-model descriptive tables — advertised reasoning efforts, context window,
+display name — this provider's answer to `internal/gemini/thinkinglevels.go`,
+read by `harness stdio-session`'s handshake (docs/STDIO-PROTOCOL.md,
+`model_details`) and by nothing on the request path. Implements the narrow
 `Client` seam `internal/session` declares (docs/KIMI-INTEGRATION.md §4.1): it
 turns the loop's `wire.ChatIntent` into DeepSeek's request shape —
 `thinking: {type}` and `reasoning_effort` — maps usage onto cache-hit and
@@ -53,7 +74,11 @@ or storage. Depends on: `internal/wire`, `internal/providerhttp`. §4.3, §4.4.
 The HTTP transport `internal/deepseek` and `internal/kimi` share: a request
 retried with backoff on a provider-supplied set of transient status codes,
 and a streaming response pumped as SSE frames into `wire.Event`s behind an
-idle watchdog. Carries no provider dialect — no request shape, no usage
+idle watchdog. `PumpStreamWith` takes the frame decoder as an argument —
+chat completion chunks ending at `[DONE]`, or DeepSeek's semantic Responses
+events ending at `response.completed` — so the watchdog, the
+context-guarded sends and the line reader that cannot be stranded are
+written once for both. Carries no provider dialect — no request shape, no usage
 mapping, no error-body parsing, no quirk repairs — so each provider keeps its
 own `Client` type satisfying the narrow `session.Client` seam independently;
 this package only removes the near-verbatim duplication two full client
@@ -106,33 +131,42 @@ structs, never `map[string]any`, for the same byte-stability reason as the
 other two clients. Depends on: `internal/wire`, `internal/providerhttp` (just
 `Transport`, for retry-with-backoff — never `PumpStream`).
 
-### `internal/geministdio`
-The protocol `harness gemini-session` speaks: JSON-RPC 2.0 over stdin and
-stdout, carrying Google's own Interactions vocabulary rather than one of this
-repo's invention — the four REST methods on `POST /v1beta/interactions` as
-JSON-RPC methods, and that surface's server-sent events as notifications
-(docs/STDIO-PROTOCOL.md). Two translators around an unmodified
-`session.Runner`: a Google create-interaction body becomes `RunOptions`, and
-the session's committed events plus the hub's live text deltas become Google
-step events. It streams text from the live frames and takes structure — tool
+### `internal/responsesstdio`
+The protocol `harness stdio-session` speaks: JSON-RPC 2.0 over stdin and
+stdout, carrying the OpenAI Responses API's own vocabulary rather than one of
+this repo's invention — its REST methods on `POST /responses` as JSON-RPC
+methods, and that surface's semantic server-sent events as notifications
+(docs/STDIO-PROTOCOL.md). It is the same vocabulary `internal/deepseek` sends
+the provider (docs/DEEPSEEK-RESPONSES.md), so a `function_call` item a parent
+reads is the one the provider was sent. Two translators around an unmodified
+`session.Runner`: a create-response body becomes `RunOptions`, and the
+session's committed events plus the hub's live text deltas become `response.*`
+events. It streams text from the live frames and takes structure — tool
 calls, results, thought signatures, usage, the run's end — from the log, which
-is why a `thought` step and a `model_output` step can be open at once here and
-never are on Google's own stream: the thought signature is only known when the
-sub-turn commits. Also implements `tools.MCPProvider` for the two tool shapes
+is why a `reasoning` item and a `message` item can be open at once here and
+never are on the HTTP surface's own stream: the harness streams text from the
+live frames and structure from the committed log. Also implements `tools.MCPProvider` for the two tool shapes
 a client may declare, `function` (called back over the pipe) and `mcp_server`
-(dialled by `internal/mcpclient` as any configured server is). `resume.go` is
+(dialled by `internal/mcpclient` as any configured server is). `modelinfo.go`
+is the one file here that knows a model has a provider at all: the handshake's
+per-model details and the create's effort check are answered out of
+`internal/gemini`'s or `internal/deepseek`'s tables, so the two providers'
+differing effort sets reach a client as data rather than as a special case
+anywhere else in the package. `resume.go` is
 the seam between the two ways a create names a conversation: an interaction id
 is minted in memory and dies with the process, so continuing across a restart
 goes by session id out of the `-state-dir` store instead, and everything the
 session's prompt prefix is built from — model, workspace, permission mode,
 deny patterns, and the frozen tool array the create has to re-declare with
 live connection metadata — is checked against the row rather than taken from
-the create. It is not
-`internal/gemini`'s counterpart and the two never meet: that one speaks this
-vocabulary *to* Google, this one speaks it *to the parent process*, and
-`internal/session` between them knows about neither. Depends on:
+the create. Two output item types are this package's own, and both follow from a response
+being a whole agentic run rather than one model turn: `function_call_output`,
+which on the HTTP surface a client sends back rather than receives, and a
+`message` with `role: "user"`, which there only ever appears in input. Depends on:
 `internal/session`, `internal/store`, `internal/hub`, `internal/tools`,
-`internal/mcpclient`, `internal/provider`.
+`internal/mcpclient`, `internal/provider`, and — in `modelinfo.go` alone, for
+the descriptive tables the handshake publishes — `internal/gemini` and
+`internal/deepseek`.
 
 ### `internal/attachment`
 Validates one image attachment a producer submitted — POST /api/runs, POST

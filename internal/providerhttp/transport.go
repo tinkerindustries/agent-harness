@@ -218,7 +218,42 @@ func BackoffDelay(attempt int, base, max time.Duration) time.Duration {
 // provider's own ErrIdleTimeout, so identity checks against it
 // (errors.Is(err, deepseek.ErrIdleTimeout) or kimi's) keep working across
 // this extraction.
+// FrameDecoder turns one SSE `data:` payload into the events it carries.
+// done ends the stream normally — the sentinel frame on a surface that has
+// one, the terminal event on a surface that does not. An error ends it with
+// that error as the last event.
+//
+// It is the one thing that differs between the two OpenAI-format streams
+// this transport pumps: Chat Completions frames are wire.ChatCompletionChunk
+// and end at `data: [DONE]`, while the Responses API sends semantic events
+// that end at response.completed and never send a sentinel
+// (third_party/deepseek-docs/api/create-response.md). Everything else — the
+// idle watchdog, the context-guarded sends, the line reader that cannot be
+// stranded — is identical, which is why it is shared rather than written
+// twice.
+type FrameDecoder func(data string) (events []wire.Event, done bool, err error)
+
+// PumpStream reads a Chat Completions SSE body into events.
 func (t *Transport) PumpStream(ctx context.Context, body io.ReadCloser, events chan<- wire.Event, idleErr error) {
+	t.PumpStreamWith(ctx, body, events, idleErr, t.chatCompletionFrames)
+}
+
+// chatCompletionFrames is PumpStream's decoder: one wire.ChatCompletionChunk
+// per frame, ending at the [DONE] sentinel.
+func (t *Transport) chatCompletionFrames(data string) ([]wire.Event, bool, error) {
+	if data == "[DONE]" {
+		return nil, true, nil
+	}
+	var chunk wire.ChatCompletionChunk
+	if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+		return nil, false, t.errorf("decode chunk", err)
+	}
+	return ChunkToEvents(chunk), false, nil
+}
+
+// PumpStreamWith is PumpStream with the frame decoder named, for a surface
+// whose frames are not chat completion chunks.
+func (t *Transport) PumpStreamWith(ctx context.Context, body io.ReadCloser, events chan<- wire.Event, idleErr error, decode FrameDecoder) {
 	defer close(events)
 	defer body.Close()
 
@@ -234,6 +269,21 @@ func (t *Transport) PumpStream(ctx context.Context, body io.ReadCloser, events c
 		}
 	}
 
+	// stopped releases the line reader when this function returns for any
+	// reason other than the body ending: a decoder that reported done, a
+	// send that lost its race with cancellation, an idle timeout. Without
+	// it the reader blocks forever on an unbuffered send that nobody will
+	// ever receive, holding the response body open with it.
+	//
+	// The Chat Completions stream hid this: its [DONE] sentinel is the last
+	// frame, so the reader hit EOF at almost the same moment the pump
+	// returned. The Responses stream ends on a semantic event with a blank
+	// line after it, so there is always a line in flight when the pump
+	// stops, and every stream would have leaked one goroutine and one
+	// connection.
+	stopped := make(chan struct{})
+	defer close(stopped)
+
 	lines := make(chan string)
 	lineErrs := make(chan error, 1)
 	go func() {
@@ -243,13 +293,18 @@ func (t *Transport) PumpStream(ctx context.Context, body io.ReadCloser, events c
 			line, err := scanner.Scan()
 			if err != nil {
 				if err != io.EOF {
-					lineErrs <- err
+					select {
+					case lineErrs <- err:
+					case <-stopped:
+					}
 				}
 				return
 			}
 			select {
 			case lines <- line:
 			case <-ctx.Done():
+				return
+			case <-stopped:
 				return
 			}
 		}
@@ -286,18 +341,18 @@ func (t *Transport) PumpStream(ctx context.Context, body io.ReadCloser, events c
 			case wire.FrameComment, wire.FrameBlank, wire.FrameOther:
 				continue
 			case wire.FrameData:
-				if f.Data == "[DONE]" {
+				decoded, done, err := decode(f.Data)
+				if err != nil {
+					send(wire.Event{Type: wire.EventError, Err: err})
 					return
 				}
-				var chunk wire.ChatCompletionChunk
-				if err := json.Unmarshal([]byte(f.Data), &chunk); err != nil {
-					send(wire.Event{Type: wire.EventError, Err: t.errorf("decode chunk", err)})
-					return
-				}
-				for _, e := range ChunkToEvents(chunk) {
+				for _, e := range decoded {
 					if !send(e) {
 						return
 					}
+				}
+				if done {
+					return
 				}
 			}
 		}

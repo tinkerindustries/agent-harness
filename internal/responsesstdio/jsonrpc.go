@@ -1,4 +1,4 @@
-package geministdio
+package responsesstdio
 
 import (
 	"bufio"
@@ -22,12 +22,12 @@ const (
 	// CodeNotInitialized is returned for any method that arrives before the
 	// initialize/initialized handshake completes.
 	CodeNotInitialized = -32000
-	// CodeInteractionNotFound names an interaction id this process has never
+	// CodeResponseNotFound names a response id this process has never
 	// minted, or has already deleted.
-	CodeInteractionNotFound = -32001
-	// CodeInteractionNotRunning is returned by a method that only means
+	CodeResponseNotFound = -32001
+	// CodeResponseNotRunning is returned by a method that only means
 	// something for an interaction still in progress — cancel and append.
-	CodeInteractionNotRunning = -32002
+	CodeResponseNotRunning = -32002
 	// CodeCredentialsMissing is returned by interactions.create when no API
 	// key reached this process.
 	CodeCredentialsMissing = -32003
@@ -129,13 +129,13 @@ func NewConn(r io.Reader, w io.Writer, h handler, serial func(method string) boo
 func (c *Conn) Notify(method string, params any) error {
 	raw, err := json.Marshal(params)
 	if err != nil {
-		return fmt.Errorf("geministdio: encode %s params: %w", method, err)
+		return fmt.Errorf("responsesstdio: encode %s params: %w", method, err)
 	}
 	return c.write(message{Method: method, Params: raw})
 }
 
 // ErrConnClosed is returned by Call and Notify once the pipe has gone.
-var ErrConnClosed = errors.New("geministdio: connection closed")
+var ErrConnClosed = errors.New("responsesstdio: connection closed")
 
 // Call sends a server-initiated request and waits for the client's answer.
 // It is how a function tool the client declared gets executed: this side
@@ -148,7 +148,7 @@ var ErrConnClosed = errors.New("geministdio: connection closed")
 func (c *Conn) Call(ctx context.Context, method string, params any, result any) error {
 	raw, err := json.Marshal(params)
 	if err != nil {
-		return fmt.Errorf("geministdio: encode %s params: %w", method, err)
+		return fmt.Errorf("responsesstdio: encode %s params: %w", method, err)
 	}
 
 	c.mu.Lock()
@@ -187,7 +187,7 @@ func (c *Conn) Call(ctx context.Context, method string, params any, result any) 
 			return nil
 		}
 		if err := json.Unmarshal(reply.Result, result); err != nil {
-			return fmt.Errorf("geministdio: decode %s result: %w", method, err)
+			return fmt.Errorf("responsesstdio: decode %s result: %w", method, err)
 		}
 		return nil
 	}
@@ -203,7 +203,7 @@ func (c *Conn) write(m message) error {
 		return ErrConnClosed
 	}
 	if err := c.enc.Encode(m); err != nil {
-		return fmt.Errorf("geministdio: write frame: %w", err)
+		return fmt.Errorf("responsesstdio: write frame: %w", err)
 	}
 	return nil
 }
@@ -260,7 +260,7 @@ func (c *Conn) Serve(ctx context.Context) error {
 		}
 	}
 	if err := sc.Err(); err != nil {
-		return fmt.Errorf("geministdio: read stdin: %w", err)
+		return fmt.Errorf("responsesstdio: read stdin: %w", err)
 	}
 	return nil
 }

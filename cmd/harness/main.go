@@ -38,8 +38,9 @@ commands:
                     the other (scripts/wt-seed.sh pairs them)
   github-credential  git credential helper for a harness running as a GitHub App;
                     git runs it, people do not (docs/GITHUB-APP.md)
-  gemini-session    host one coding session for a parent process over stdin and stdout,
-                    speaking Google's Interactions vocabulary (docs/STDIO-PROTOCOL.md)
+  stdio-session     host one coding session for a parent process over stdin and stdout,
+                    speaking the OpenAI Responses API's vocabulary (docs/STDIO-PROTOCOL.md).
+                    gemini-session is the former name and still works
 
 "harness <command> -h" lists that command's flags.`
 
@@ -70,16 +71,23 @@ func main() {
 		return
 	}
 
-	// gemini-session is dispatched before .env loading for the reason the
+	// stdio-session is dispatched before .env loading for the reason the
 	// credential helper is: the parent owns the working directory, which for
 	// a hosted coding session is a repository the session is about to work
 	// in, and a .env sitting in it must not contribute environment to this
 	// process. Its own credentials come from the environment the parent
 	// spawned it with. It also writes nothing but protocol frames to stdout,
 	// and the .env warning below would be one more thing that could.
-	if os.Args[1] == "gemini-session" {
-		if err := runGeminiSession(ctx, os.Args[2:], os.Stdin, os.Stdout); err != nil {
-			fmt.Fprintln(os.Stderr, "harness gemini-session: "+err.Error())
+	//
+	// gemini-session is what this command was called when the only models it
+	// hosted were Google's, and it is kept as an alias: a parent that spawns
+	// the old name gets the same process, and the handshake reports back the
+	// name it was actually spawned as, so a client pinning server_info.name
+	// keeps working until it has moved (docs/STDIO-PROTOCOL.md, "Starting
+	// the process").
+	if invoked := os.Args[1]; invoked == "stdio-session" || invoked == "gemini-session" {
+		if err := runStdioSession(ctx, invoked, os.Args[2:], os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "harness "+invoked+": "+err.Error())
 			os.Exit(1)
 		}
 		return

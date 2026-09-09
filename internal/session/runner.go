@@ -323,7 +323,7 @@ type Runner struct {
 	// ToolEnvFilter, when set, is handed to every Executor this Runner
 	// builds as tools.Executor.EnvFilter: applied to this process's own
 	// environment before a Bash call's subprocess inherits it. It exists
-	// for `harness gemini-session`, which must not let a hosted session's
+	// for `harness stdio-session`, which must not let a hosted session's
 	// Bash calls see the GEMINI_API_KEY or GOOGLE_API_KEY the parent
 	// supplied only for this process's own API client (docs/STDIO-PROTOCOL.md,
 	// "Trust boundaries"). Nil is every other caller, `harness serve`

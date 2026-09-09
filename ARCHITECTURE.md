@@ -22,7 +22,7 @@ a store write by the handler and a store read by the loop, with the database
 as the boundary.
 
 One binary, `harness`, is every entry point. `serve` is the long-running
-service below; `gemini-session` is the second way a run can start and has its
+service below; `stdio-session` is the second way a run can start and has its
 own section; `worktree` is repo development infrastructure — allocating the
 ports and compose project names sibling git worktrees need
 ([`docs/WORKTREES.md`](docs/WORKTREES.md)) — and out of scope for the rest of
@@ -67,28 +67,46 @@ which tool calls *run*, never which tools are *offered*. A resumable session
 stores the prompt and schema it was created with, so a harness upgrade cannot
 rewrite its prefix.
 
-### `harness gemini-session`: one session hosted by another application
+### `harness stdio-session`: one session hosted by another application
 
-The queue is not the only way a run starts. `gemini-session` is one process
+The queue is not the only way a run starts. `stdio-session` is one process
 that hosts one session for a parent application, driven over stdin and stdout:
 the parent spawns it, owns the working directory, and gets the session's whole
 event stream back. There is no queue, no worker pool, no HTTP listener and no
 web UI — it is `internal/session` and its tools, with a protocol translator
 either side.
 
-The protocol is Google's own Interactions vocabulary rather than one of this
-repo's invention: the methods are the four REST methods on
-`POST /v1beta/interactions`, and the notifications are that surface's
-server-sent events, so both sides of the process speak the same API.
+The protocol is the OpenAI Responses API's own vocabulary rather than one of
+this repo's invention: the methods are its REST methods on `POST /responses`,
+and the notifications are that surface's semantic server-sent events.
 [`docs/STDIO-PROTOCOL.md`](docs/STDIO-PROTOCOL.md) is the wire reference and
-the record of where it departs from Google's HTTP surface and why.
+the record of where it departs from the HTTP surface and why.
+
+**It is the same vocabulary underneath.** `internal/deepseek` posts to
+DeepSeek's own `POST /responses`, so a `function_call` item the parent reads
+is the `function_call` item the provider was sent and nothing between them
+translates ([`docs/DEEPSEEK-RESPONSES.md`](docs/DEEPSEEK-RESPONSES.md)). The
+Gemini models the process also hosts are translated into it by
+`internal/gemini`, which is the one place a second vocabulary still lives.
+
+That vocabulary is the wire's, not the model's. The process hosts every
+Gemini model the harness routes and one DeepSeek model,
+`deepseek-v4-flash-vision-exp`, chosen by the create body's `model` and
+dispatched to a client per provider exactly as `serve` does; the parent
+supplies whichever keys it wants usable. DeepSeek's other two models are
+refused rather than hosted, because neither reads images and a session on
+such a model is given the vision tools that compensate — four of which send
+their images to Google, so hosting one would mean a DeepSeek run needing a
+Google key as well ([`docs/DEEPSEEK-VISION.md`](docs/DEEPSEEK-VISION.md)).
 
 ```mermaid
 flowchart LR
-    parent[parent application] <-->|JSON-RPC over stdio<br/>Google Interactions payloads| gs[internal/geministdio]
+    parent[parent application] <-->|JSON-RPC over stdio<br/>Responses API payloads| gs[internal/responsesstdio]
     gs --> session2[internal/session<br/>the same loop serve runs]
     session2 -->|wire.ChatIntent| gc[internal/gemini]
+    session2 -->|wire.ChatIntent| dc[internal/deepseek]
     gc --> gapi[generativelanguage.googleapis.com]
+    dc --> dapi[api.deepseek.com]
     session2 --> tools2[internal/tools<br/>in the parent's own directory]
     session2 --> st2[(SQLite, private to the process)]
     session2 --> hub2[internal/hub]
@@ -310,12 +328,12 @@ are here.
   agent asserts. `parent_agent_type` remains caller-asserted and is therefore
   not trustworthy the way `parent_is_user` is.
 - **A hosted session works in a directory it did not create.**
-  `harness gemini-session` sets `RunOptions.Workspace` to the directory its
+  `harness stdio-session` sets `RunOptions.Workspace` to the directory its
   parent named and never calls `internal/workspace`. Nothing on the session
   path may come to assume a workspace root the harness itself laid out — a
   `scratch/` directory, a cloned repository, a lease. Both entry points pass a
   path and only a path.
-- **`internal/geministdio` is the only place Google's wire vocabulary is
+- **`internal/responsesstdio` is the only place the parent's wire vocabulary is
   spoken outbound.** `internal/gemini` speaks it inbound, to the API. Neither
   knows about the other, and `internal/session` knows about neither: it states
   intent as `wire.ChatIntent` and records `store.Event`s, and the translation
@@ -352,7 +370,7 @@ publishes the same text to the hub as it arrives, coalesced on an interval and
 always flushed before the sub-turn ends, as `hub.LiveDelta` frames that are
 never stored. A consumer wanting text at something like token rate reads the
 live frames; a consumer wanting the authoritative record reads the events; a
-consumer wanting both must not count the text twice. `internal/geministdio`
+consumer wanting both must not count the text twice. `internal/responsesstdio`
 does exactly that split — live frames for the text, events for the structure —
 and its own doc comment says why.
 

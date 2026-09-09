@@ -1,4 +1,4 @@
-package geministdio
+package responsesstdio
 
 import (
 	"bufio"
@@ -25,7 +25,21 @@ import (
 // scripted event-stream server. Nothing here reaches Google: the SSE bodies
 // are built by geminitest, the same builder internal/gemini's own tests use.
 
-const testModel = "gemini-3.7-flash"
+const (
+	testModel = "gemini-3.7-flash"
+	// testAltModel is a second hosted model, for the checks that need two
+	// names this process accepts — a resume may not change model, and that
+	// is a different refusal from naming a model nobody hosts.
+	testAltModel = "gemini-3.5-flash"
+	// testDeepSeekModel is the one DeepSeek model cmd/harness hosts
+	// (deepSeekSessionModel), advertised here so the create path is
+	// exercised with a model from the other provider.
+	testDeepSeekModel = "deepseek-v4-flash-vision-exp"
+	// testUnhostedModel is routable by internal/provider and deliberately
+	// not hosted: it cannot see images, so a session on it would carry
+	// vision tools that need Google's credentials (docs/DEEPSEEK-VISION.md).
+	testUnhostedModel = "deepseek-v4-flash"
+)
 
 // scriptedGemini answers each request with the next stream in its script,
 // repeating the last one once the script runs out.
@@ -256,7 +270,7 @@ func newFixture(t *testing.T, streams ...string) *fixture {
 // newFixtureIn is newFixture with the state directory and the working
 // directory named, so a test can stand a second server up over the state a
 // first one left behind. That is what a parent respawning
-// `harness gemini-session` on the same -state-dir does, and it is the only
+// `harness stdio-session` on the same -state-dir does, and it is the only
 // way to exercise harness.resume_session_id.
 func newFixtureIn(t *testing.T, dir, cwd string, streams ...string) *fixture {
 	t.Helper()
@@ -290,9 +304,10 @@ func newFixtureIn(t *testing.T, dir, cwd string, streams ...string) *fixture {
 
 	srv := NewServer(Options{
 		Store: st, Runner: runner, Hub: eventHub, MCP: mgr,
-		Models: []string{testModel}, DefaultModel: testModel,
-		HasAPIKey: func() bool { return true },
-		Version:   "test",
+		Models:       []string{testModel, testAltModel, testDeepSeekModel},
+		DefaultModel: testModel,
+		HasAPIKey:    func(string) bool { return true },
+		Version:      "test",
 	})
 
 	clientIn, serverIn := io.Pipe()
@@ -356,13 +371,13 @@ func (f *fixture) createParams(text string) CreateParams {
 }
 
 // steps pulls every step.start payload out of a run of notifications.
-func steps(ms []message) []stepStart {
-	var out []stepStart
+func steps(ms []message) []itemEvent {
+	var out []itemEvent
 	for _, m := range ms {
-		if m.Method != NotifyStepStart {
+		if m.Method != NotifyOutputItemAdded {
 			continue
 		}
-		var p stepStart
+		var p itemEvent
 		if json.Unmarshal(m.Params, &p) == nil {
 			out = append(out, p)
 		}
@@ -374,7 +389,7 @@ func stepTypes(ms []message) []string {
 	ss := steps(ms)
 	out := make([]string, len(ss))
 	for i, s := range ss {
-		out[i] = s.Step.Type
+		out[i] = s.Item.Type
 	}
 	return out
 }
@@ -388,47 +403,47 @@ func (f *fixture) srvRunningDone() <-chan struct{} {
 	return closed
 }
 
-// assertStepLifecycle checks the ordering guarantee the protocol makes: every
-// step.delta and step.stop names a step some step.start opened, and no step is
-// stopped twice.
+// assertStepLifecycle checks the ordering guarantee the protocol makes:
+// every delta and every output_item.done names an item some
+// output_item.added opened, and no item is done twice.
 func assertStepLifecycle(t *testing.T, ms []message) {
 	t.Helper()
 	started := map[int]string{}
 	stopped := map[int]bool{}
 	for _, m := range ms {
 		switch m.Method {
-		case NotifyStepStart:
-			var p stepStart
+		case NotifyOutputItemAdded:
+			var p itemEvent
 			if err := json.Unmarshal(m.Params, &p); err != nil {
-				t.Fatalf("decode step.start: %v", err)
+				t.Fatalf("decode output_item.added: %v", err)
 			}
-			if _, dup := started[p.Index]; dup {
-				t.Errorf("step index %d was started twice", p.Index)
+			if _, dup := started[p.OutputIndex]; dup {
+				t.Errorf("output index %d was added twice", p.OutputIndex)
 			}
-			started[p.Index] = p.Step.Type
-		case NotifyStepDelta:
-			var p stepDelta
+			started[p.OutputIndex] = p.Item.Type
+		case NotifyOutputTextDelta, NotifyReasoningTextDelta, NotifyFunctionCallArgsDelta:
+			var p textDelta
 			if err := json.Unmarshal(m.Params, &p); err != nil {
-				t.Fatalf("decode step.delta: %v", err)
+				t.Fatalf("decode %s: %v", m.Method, err)
 			}
-			if _, ok := started[p.Index]; !ok {
-				t.Errorf("step.delta for index %d, which no step.start opened", p.Index)
+			if _, ok := started[p.OutputIndex]; !ok {
+				t.Errorf("%s for index %d, which no output_item.added opened", m.Method, p.OutputIndex)
 			}
-			if stopped[p.Index] {
-				t.Errorf("step.delta for index %d after its step.stop", p.Index)
+			if stopped[p.OutputIndex] {
+				t.Errorf("%s for index %d after its output_item.done", m.Method, p.OutputIndex)
 			}
-		case NotifyStepStop:
-			var p stepStop
+		case NotifyOutputItemDone:
+			var p itemEvent
 			if err := json.Unmarshal(m.Params, &p); err != nil {
 				t.Fatalf("decode step.stop: %v", err)
 			}
-			if _, ok := started[p.Index]; !ok {
-				t.Errorf("step.stop for index %d, which no step.start opened", p.Index)
+			if _, ok := started[p.OutputIndex]; !ok {
+				t.Errorf("step.stop for index %d, which no step.start opened", p.OutputIndex)
 			}
-			if stopped[p.Index] {
-				t.Errorf("step index %d was stopped twice", p.Index)
+			if stopped[p.OutputIndex] {
+				t.Errorf("step index %d was stopped twice", p.OutputIndex)
 			}
-			stopped[p.Index] = true
+			stopped[p.OutputIndex] = true
 		}
 	}
 	for idx, kind := range started {
@@ -439,60 +454,58 @@ func assertStepLifecycle(t *testing.T, ms []message) {
 }
 
 // stepOfType finds the first step.start of the given type.
-func stepOfType(ms []message, kind string) (stepStart, bool) {
+func stepOfType(ms []message, kind string) (itemEvent, bool) {
 	for _, s := range steps(ms) {
-		if s.Step.Type == kind {
+		if s.Item.Type == kind {
 			return s, true
 		}
 	}
-	return stepStart{}, false
+	return itemEvent{}, false
 }
 
-// textOf concatenates the text deltas of every step of the given type.
+// textOf concatenates the output_text deltas of every item of the given
+// type. Only an assistant message ever carries them: a user message item
+// arrives complete on output_item.added.
 func textOf(ms []message, kind string) string {
 	want := map[int]bool{}
 	for _, s := range steps(ms) {
-		if s.Step.Type == kind {
-			want[s.Index] = true
+		if s.Item.Type == kind {
+			want[s.OutputIndex] = true
 		}
 	}
 	var out string
 	for _, m := range ms {
-		if m.Method != NotifyStepDelta {
+		if m.Method != NotifyOutputTextDelta {
 			continue
 		}
-		var p stepDelta
-		if json.Unmarshal(m.Params, &p) != nil || !want[p.Index] {
+		var p textDelta
+		if json.Unmarshal(m.Params, &p) != nil || !want[p.OutputIndex] {
 			continue
 		}
-		if p.Delta.Type == DeltaText {
-			out += p.Delta.Text
-		}
+		out += p.Delta
 	}
 	return out
 }
 
-// summaryOf concatenates every thought_summary delta.
+// summaryOf concatenates every reasoning_text delta.
 func summaryOf(ms []message) string {
 	var out string
 	for _, m := range ms {
-		if m.Method != NotifyStepDelta {
+		if m.Method != NotifyReasoningTextDelta {
 			continue
 		}
-		var p stepDelta
+		var p textDelta
 		if json.Unmarshal(m.Params, &p) != nil {
 			continue
 		}
-		if p.Delta.Type == DeltaThoughtSummary && p.Delta.Content != nil {
-			out += p.Delta.Content.Text
-		}
+		out += p.Delta
 	}
 	return out
 }
 
-func stepResultText(s Step) string {
+func stepResultText(s OutputItem) string {
 	var out string
-	for _, c := range s.Result {
+	for _, c := range s.Output {
 		out += c.Text
 	}
 	return out

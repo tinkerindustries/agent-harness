@@ -29,7 +29,7 @@ func LoadDotEnv(path string) error {
 
 // DotEnvValues parses path's KEY=VALUE lines and returns them without
 // touching the process environment, for a caller that wants one value out of
-// a file rather than the whole file made ambient — `harness gemini-session
+// a file rather than the whole file made ambient — `harness stdio-session
 // -env`, whose environment every command a session runs inherits.
 //
 // A missing file is an error here, unlike LoadDotEnv: a caller that named a

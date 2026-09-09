@@ -1,10 +1,11 @@
-package geministdio
+package responsesstdio
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/mrgeoffrich/agent-harness/internal/mcpclient"
@@ -65,10 +66,10 @@ type hostTools struct {
 	funcs map[string]hostFunc
 	// call sends one function call to the client and waits for its answer.
 	call func(ctx context.Context, p FunctionCallParams) (FunctionCallResult, error)
-	// interactionID rides on every call so a client hosting more than one
+	// responseID rides on every call so a client hosting more than one
 	// session in one process knows which asked.
-	interactionID string
-	readOnly      bool
+	responseID string
+	readOnly   bool
 }
 
 // hostFunc is one client-declared function tool, keyed by the qualified name
@@ -80,8 +81,8 @@ type hostFunc struct {
 	parameters  json.RawMessage
 }
 
-func newHostTools(mcp tools.MCPProvider, interactionID string, call func(context.Context, FunctionCallParams) (FunctionCallResult, error)) *hostTools {
-	return &hostTools{mcp: mcp, funcs: map[string]hostFunc{}, allow: map[string]bool{}, names: map[string]bool{}, call: call, interactionID: interactionID}
+func newHostTools(mcp tools.MCPProvider, responseID string, call func(context.Context, FunctionCallParams) (FunctionCallResult, error)) *hostTools {
+	return &hostTools{mcp: mcp, funcs: map[string]hostFunc{}, allow: map[string]bool{}, names: map[string]bool{}, call: call, responseID: responseID}
 }
 
 // addFunction registers one `function` tool from the create body.
@@ -273,12 +274,12 @@ func (h *hostTools) Call(ctx context.Context, toolName string, args json.RawMess
 		args = json.RawMessage("{}")
 	}
 	res, err := call(ctx, FunctionCallParams{
-		InteractionID: h.interactionID,
-		Type:          StepFunctionCall,
-		// The id is the one the client already saw on this call's
-		// function_call step, so the answer it renders lands under the
+		ResponseID: h.responseID,
+		Type:       ItemFunctionCall,
+		// The call id is the one the client already saw on this call's
+		// function_call item, so the answer it renders lands under the
 		// right call (internal/tools, WithCallID).
-		ID:        tools.CallIDFrom(ctx),
+		CallID:    tools.CallIDFrom(ctx),
 		Name:      f.name,
 		Arguments: args,
 	})
@@ -288,26 +289,54 @@ func (h *hostTools) Call(ctx context.Context, toolName string, args json.RawMess
 	return contentFrom(res), nil
 }
 
-// contentFrom flattens a client's FunctionResultStep into the MCPContent the
-// executor turns into a tool result — the same shape internal/mcpclient
+// contentFrom flattens a client's function_call_output into the MCPContent
+// the executor turns into a tool result — the same shape internal/mcpclient
 // produces from a real server's reply, so the executor cannot tell which
 // path a result came back on.
 func contentFrom(res FunctionCallResult) tools.MCPContent {
 	out := tools.MCPContent{IsError: res.IsError}
-	for _, c := range res.Result {
+	for _, c := range res.Output {
 		switch c.Type {
-		case "text":
+		case PartInputText, PartOutputText, "text":
 			if out.Text != "" {
 				out.Text += "\n"
 			}
 			out.Text += c.Text
-		case "image":
-			data, err := decodeBase64(c.Data)
+		case PartInputImage:
+			// The surface carries an image as one base64 data URL rather
+			// than a mime type beside a payload, so it is split here into
+			// what the executor's own image type wants.
+			mime, b64, ok := splitDataURI(c.ImageURL)
+			if !ok {
+				continue
+			}
+			data, err := decodeBase64(b64)
 			if err != nil {
 				continue
 			}
-			out.Images = append(out.Images, tools.MCPImage{MIMEType: c.MIMEType, Data: data})
+			out.Images = append(out.Images, tools.MCPImage{MIMEType: mime, Data: data})
 		}
 	}
 	return out
+}
+
+// splitDataURI splits a "data:<mime>;base64,<payload>" URL into its mime
+// type and payload. The Responses surface carries an image as one such URL,
+// where the executor's own image type wants the two separately.
+func splitDataURI(uri string) (mime, payload string, ok bool) {
+	const prefix = "data:"
+	if !strings.HasPrefix(uri, prefix) {
+		return "", "", false
+	}
+	rest := uri[len(prefix):]
+	comma := strings.IndexByte(rest, ',')
+	if comma < 0 {
+		return "", "", false
+	}
+	header := rest[:comma]
+	semi := strings.IndexByte(header, ';')
+	if semi < 0 || header[semi+1:] != "base64" {
+		return "", "", false
+	}
+	return header[:semi], rest[comma+1:], true
 }

@@ -261,7 +261,7 @@ type Executor struct {
 	// EnvFilter, when set, is applied to this process's own environment
 	// before a Bash call's subprocess inherits it, in place of the
 	// unfiltered os.Environ() a nil cmd.Env means. It exists for
-	// `harness gemini-session`: a hosted session's parent supplies
+	// `harness stdio-session`: a hosted session's parent supplies
 	// GEMINI_API_KEY (or GOOGLE_API_KEY) only so this process's own API
 	// client can reach Google, and a Bash call running "as this process's
 	// own user, with the parent's environment" (docs/STDIO-PROTOCOL.md,
@@ -563,7 +563,7 @@ type callIDKey struct{}
 // call, so anything reached from inside one can name the call it is serving
 // without the id being threaded through a signature that no other
 // implementation needs. It exists for the MCPProvider that answers a call by
-// asking the process's parent to run it (internal/geministdio): the parent
+// asking the process's parent to run it (internal/responsesstdio): the parent
 // has already been told about the call under this id, and a result it cannot
 // tie back to that id cannot be rendered against it.
 func WithCallID(ctx context.Context, id string) context.Context {

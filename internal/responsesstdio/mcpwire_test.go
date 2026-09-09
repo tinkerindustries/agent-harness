@@ -1,4 +1,4 @@
-package geministdio
+package responsesstdio
 
 import (
 	"bytes"

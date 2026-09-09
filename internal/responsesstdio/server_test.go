@@ -1,4 +1,4 @@
-package geministdio
+package responsesstdio
 
 import (
 	"encoding/json"
@@ -12,7 +12,7 @@ import (
 func TestHandshakeGatesEverything(t *testing.T) {
 	f := newFixture(t, answer("hello"))
 
-	rerr := f.client.call(MethodInteractionsCreate, f.createParams("do a thing"), nil)
+	rerr := f.client.call(MethodResponsesCreate, f.createParams("do a thing"), nil)
 	if rerr == nil {
 		t.Fatal("interactions.create was accepted before the handshake")
 	}
@@ -21,13 +21,13 @@ func TestHandshakeGatesEverything(t *testing.T) {
 	}
 
 	res := f.client.handshake(ClientCapabilities{})
-	if res.ServerInfo.Protocol != "google.interactions.v1beta" {
+	if res.ServerInfo.Protocol != "openai.responses.v1" {
 		t.Errorf("protocol = %q", res.ServerInfo.Protocol)
 	}
 	if res.DefaultModel != testModel {
 		t.Errorf("default model = %q, want %q", res.DefaultModel, testModel)
 	}
-	if !res.Capabilities.Append || !res.Capabilities.Cancel || !res.Capabilities.PreviousInteraction {
+	if !res.Capabilities.Append || !res.Capabilities.Cancel || !res.Capabilities.PreviousResponse {
 		t.Errorf("capabilities = %+v", res.Capabilities)
 	}
 
@@ -38,13 +38,13 @@ func TestHandshakeGatesEverything(t *testing.T) {
 	f.client.notify("notifications/something_new", map[string]any{"x": 1})
 
 	var created CreateResult
-	if rerr := f.client.call(MethodInteractionsCreate, f.createParams("do a thing"), &created); rerr != nil {
+	if rerr := f.client.call(MethodResponsesCreate, f.createParams("do a thing"), &created); rerr != nil {
 		t.Fatalf("interactions.create: %v", rerr)
 	}
-	if created.Interaction.Status != StatusInProgress {
-		t.Errorf("status = %q, want %q", created.Interaction.Status, StatusInProgress)
+	if created.Response.Status != StatusInProgress {
+		t.Errorf("status = %q, want %q", created.Response.Status, StatusInProgress)
 	}
-	f.client.waitFor(NotifyInteractionCompleted)
+	f.client.waitFor(NotifyResponseCompleted)
 }
 
 // TestTurnStreamsGoogleSteps is the shape of one whole turn on the wire: the
@@ -56,27 +56,27 @@ func TestTurnStreamsGoogleSteps(t *testing.T) {
 	f.client.handshake(ClientCapabilities{})
 
 	var created CreateResult
-	if rerr := f.client.call(MethodInteractionsCreate, f.createParams("say something"), &created); rerr != nil {
+	if rerr := f.client.call(MethodResponsesCreate, f.createParams("say something"), &created); rerr != nil {
 		t.Fatalf("interactions.create: %v", rerr)
 	}
-	seen := f.client.waitFor(NotifyInteractionCompleted)
+	seen := f.client.waitFor(NotifyResponseCompleted)
 
-	if got := seen[0].Method; got != NotifyInteractionCreated {
-		t.Fatalf("first notification = %q, want %q", got, NotifyInteractionCreated)
+	if got := seen[0].Method; got != NotifyResponseCreated {
+		t.Fatalf("first notification = %q, want %q", got, NotifyResponseCreated)
 	}
-	var first interactionEnvelope
+	var first responseEnvelope
 	if err := json.Unmarshal(seen[0].Params, &first); err != nil {
 		t.Fatalf("decode interaction.created: %v", err)
 	}
-	if first.Interaction.ID != created.Interaction.ID {
-		t.Errorf("created frame names %q, create returned %q", first.Interaction.ID, created.Interaction.ID)
+	if first.Response.ID != created.Response.ID {
+		t.Errorf("created frame names %q, create returned %q", first.Response.ID, created.Response.ID)
 	}
-	if first.EventType != NotifyInteractionCreated {
-		t.Errorf("event_type = %q, want %q", first.EventType, NotifyInteractionCreated)
+	if first.Type != NotifyResponseCreated {
+		t.Errorf("type = %q, want %q", first.Type, NotifyResponseCreated)
 	}
 
 	types := stepTypes(seen)
-	want := []string{StepUserInput, StepThought, StepModelOutput}
+	want := []string{ItemMessage, ItemReasoning, ItemMessage}
 	if len(types) != len(want) {
 		t.Fatalf("step types = %v, want %v", types, want)
 	}
@@ -88,12 +88,12 @@ func TestTurnStreamsGoogleSteps(t *testing.T) {
 
 	// The user_input step echoes the client's own message id, so a parent
 	// that optimistically rendered the message can match this to it.
-	if got := steps(seen)[0].Step.Harness.MessageID; got != "msg-1" {
+	if got := steps(seen)[0].Item.Harness.MessageID; got != "msg-1" {
 		t.Errorf("user_input message_id = %q, want msg-1", got)
 	}
 	// It also carries what the model was actually given, which includes the
 	// task the client sent.
-	if body := steps(seen)[0].Step.Content[0].Text; !strings.Contains(body, "say something") {
+	if body := steps(seen)[0].Item.Content[0].Text; !strings.Contains(body, "say something") {
 		t.Errorf("user_input step does not carry the task: %q", body)
 	}
 
@@ -102,7 +102,7 @@ func TestTurnStreamsGoogleSteps(t *testing.T) {
 	assertStepLifecycle(t, seen)
 
 	// The answer text arrives as text deltas on the model_output step.
-	if got := textOf(seen, StepModelOutput); got != "All done." {
+	if got := textOf(seen, ItemMessage); got != "All done." {
 		t.Errorf("model_output text = %q, want %q", got, "All done.")
 	}
 	// The thought summary arrives as thought_summary deltas, never as text.
@@ -110,17 +110,17 @@ func TestTurnStreamsGoogleSteps(t *testing.T) {
 		t.Errorf("thought summary = %q", got)
 	}
 
-	var done interactionEnvelope
+	var done responseEnvelope
 	if err := json.Unmarshal(seen[len(seen)-1].Params, &done); err != nil {
 		t.Fatalf("decode interaction.completed: %v", err)
 	}
-	if done.Interaction.Status != StatusCompleted {
-		t.Errorf("final status = %q, want %q", done.Interaction.Status, StatusCompleted)
+	if done.Response.Status != StatusCompleted {
+		t.Errorf("final status = %q, want %q", done.Response.Status, StatusCompleted)
 	}
-	if done.Interaction.Usage == nil || done.Interaction.Usage.TotalTokens == 0 {
-		t.Errorf("completed frame carries no usage: %+v", done.Interaction.Usage)
+	if done.Response.Usage == nil || done.Response.Usage.TotalTokens == 0 {
+		t.Errorf("completed frame carries no usage: %+v", done.Response.Usage)
 	}
-	if done.Interaction.Harness == nil || done.Interaction.Harness.Reason == "" {
+	if done.Response.Harness == nil || done.Response.Harness.Reason == "" {
 		t.Errorf("completed frame carries no harness.reason")
 	}
 }
@@ -149,7 +149,7 @@ func TestFunctionToolCallsBackOverThePipe(t *testing.T) {
 		f.client.mu.Lock()
 		asked = append(asked, p)
 		f.client.mu.Unlock()
-		return FunctionCallResult{Result: TextContent("pong")}, nil
+		return FunctionCallResult{Output: TextPart(PartInputText, "pong")}, nil
 	}
 	f.client.mu.Unlock()
 
@@ -163,10 +163,10 @@ func TestFunctionToolCallsBackOverThePipe(t *testing.T) {
 		// the same rule an MCP server gets (docs/MCP.md, "Permissions").
 		Harness: &ToolHarness{ReadOnly: true},
 	}}
-	if rerr := f.client.call(MethodInteractionsCreate, params, nil); rerr != nil {
+	if rerr := f.client.call(MethodResponsesCreate, params, nil); rerr != nil {
 		t.Fatalf("interactions.create: %v", rerr)
 	}
-	seen := f.client.waitFor(NotifyInteractionCompleted)
+	seen := f.client.waitFor(NotifyResponseCompleted)
 
 	f.client.mu.Lock()
 	got := append([]FunctionCallParams(nil), asked...)
@@ -177,31 +177,31 @@ func TestFunctionToolCallsBackOverThePipe(t *testing.T) {
 	if got[0].Name != "echo" {
 		t.Errorf("client was asked for %q, want the unqualified name %q", got[0].Name, "echo")
 	}
-	if got[0].ID != "call-1" {
-		t.Errorf("function call id = %q, want the id from the function_call step", got[0].ID)
+	if got[0].CallID != "call-1" {
+		t.Errorf("function call id = %q, want the id from the function_call step", got[0].CallID)
 	}
 	if string(got[0].Arguments) != `{"text":"ping"}` {
 		t.Errorf("arguments = %s", got[0].Arguments)
 	}
 
-	callStep, ok := stepOfType(seen, StepFunctionCall)
+	callStep, ok := stepOfType(seen, ItemFunctionCall)
 	if !ok {
 		t.Fatal("no function_call step reached the client")
 	}
-	if callStep.Step.Name != "mcp__host__echo" || callStep.Step.ID != "call-1" {
-		t.Errorf("function_call step = %+v", callStep.Step)
+	if callStep.Item.Name != "mcp__host__echo" || callStep.Item.CallID != "call-1" {
+		t.Errorf("function_call step = %+v", callStep.Item)
 	}
-	resultStep, ok := stepOfType(seen, StepFunctionResult)
+	resultStep, ok := stepOfType(seen, ItemFunctionCallOutput)
 	if !ok {
 		t.Fatal("no function_result step reached the client")
 	}
-	if resultStep.Step.CallID != "call-1" {
-		t.Errorf("function_result call_id = %q, want call-1", resultStep.Step.CallID)
+	if resultStep.Item.CallID != "call-1" {
+		t.Errorf("function_result call_id = %q, want call-1", resultStep.Item.CallID)
 	}
-	if resultStep.Step.IsError {
-		t.Errorf("function_result is flagged as an error: %+v", resultStep.Step)
+	if resultStep.Item.Harness.IsError {
+		t.Errorf("function_result is flagged as an error: %+v", resultStep.Item)
 	}
-	if txt := stepResultText(resultStep.Step); !strings.Contains(txt, "pong") {
+	if txt := stepResultText(resultStep.Item); !strings.Contains(txt, "pong") {
 		t.Errorf("function_result text = %q, want it to carry pong", txt)
 	}
 	assertStepLifecycle(t, seen)
@@ -216,7 +216,7 @@ func TestFunctionToolNeedsTheCapability(t *testing.T) {
 
 	params := f.createParams("use the tool")
 	params.Tools = []Tool{{Type: ToolFunction, Name: "echo"}}
-	rerr := f.client.call(MethodInteractionsCreate, params, nil)
+	rerr := f.client.call(MethodResponsesCreate, params, nil)
 	if rerr == nil {
 		t.Fatal("a function tool was accepted from a client with no function_calls capability")
 	}
@@ -240,22 +240,22 @@ func TestDeclinedFunctionCallBecomesAToolError(t *testing.T) {
 
 	params := f.createParams("use the tool")
 	params.Tools = []Tool{{Type: ToolFunction, Name: "echo", Harness: &ToolHarness{ReadOnly: true}}}
-	if rerr := f.client.call(MethodInteractionsCreate, params, nil); rerr != nil {
+	if rerr := f.client.call(MethodResponsesCreate, params, nil); rerr != nil {
 		t.Fatalf("interactions.create: %v", rerr)
 	}
-	seen := f.client.waitFor(NotifyInteractionCompleted)
+	seen := f.client.waitFor(NotifyResponseCompleted)
 
-	resultStep, ok := stepOfType(seen, StepFunctionResult)
+	resultStep, ok := stepOfType(seen, ItemFunctionCallOutput)
 	if !ok {
 		t.Fatal("no function_result step for the declined call")
 	}
-	if !resultStep.Step.IsError {
-		t.Errorf("a declined call produced a non-error result: %+v", resultStep.Step)
+	if !resultStep.Item.Harness.IsError {
+		t.Errorf("a declined call produced a non-error result: %+v", resultStep.Item)
 	}
-	var done interactionEnvelope
+	var done responseEnvelope
 	json.Unmarshal(seen[len(seen)-1].Params, &done)
-	if done.Interaction.Status != StatusCompleted {
-		t.Errorf("a declined call ended the run as %q, want it to carry on", done.Interaction.Status)
+	if done.Response.Status != StatusCompleted {
+		t.Errorf("a declined call ended the run as %q, want it to carry on", done.Response.Status)
 	}
 }
 
@@ -278,20 +278,20 @@ func TestReadOnlyRefusesAnUndeclaredClientTool(t *testing.T) {
 
 	params := f.createParams("use the tool")
 	params.Tools = []Tool{{Type: ToolFunction, Name: "echo"}}
-	if rerr := f.client.call(MethodInteractionsCreate, params, nil); rerr != nil {
+	if rerr := f.client.call(MethodResponsesCreate, params, nil); rerr != nil {
 		t.Fatalf("interactions.create: %v", rerr)
 	}
-	seen := f.client.waitFor(NotifyInteractionCompleted)
+	seen := f.client.waitFor(NotifyResponseCompleted)
 
-	resultStep, ok := stepOfType(seen, StepFunctionResult)
+	resultStep, ok := stepOfType(seen, ItemFunctionCallOutput)
 	if !ok {
 		t.Fatal("no function_result step for the refused call")
 	}
-	if !resultStep.Step.IsError {
-		t.Errorf("a refused call produced a non-error result: %+v", resultStep.Step)
+	if !resultStep.Item.Harness.IsError {
+		t.Errorf("a refused call produced a non-error result: %+v", resultStep.Item)
 	}
-	if resultStep.Step.Harness == nil || resultStep.Step.Harness.Rule == "" {
-		t.Errorf("a refused call carries no rule: %+v", resultStep.Step.Harness)
+	if resultStep.Item.Harness == nil || resultStep.Item.Harness.Rule == "" {
+		t.Errorf("a refused call carries no rule: %+v", resultStep.Item.Harness)
 	}
 }
 
@@ -308,42 +308,42 @@ func TestAppendSteersARunningInteraction(t *testing.T) {
 	f.client.handshake(ClientCapabilities{})
 
 	var created CreateResult
-	if rerr := f.client.call(MethodInteractionsCreate, f.createParams("start"), &created); rerr != nil {
+	if rerr := f.client.call(MethodResponsesCreate, f.createParams("start"), &created); rerr != nil {
 		t.Fatalf("interactions.create: %v", rerr)
 	}
 	// Wait until the run is under way before steering, so the append lands
 	// on a live interaction rather than racing its creation.
-	f.client.waitFor(NotifyStepStart)
+	f.client.waitFor(NotifyOutputItemAdded)
 
 	input, _ := json.Marshal("actually, do this instead")
 	var appended AppendResult
-	rerr := f.client.call(MethodInteractionsAppend, AppendParams{
-		InteractionID: created.Interaction.ID,
-		Input:         input,
-		Harness:       &AppendHarness{MessageID: "msg-2"},
+	rerr := f.client.call(MethodResponsesAppend, AppendParams{
+		ResponseID: created.Response.ID,
+		Input:      input,
+		Harness:    &AppendHarness{MessageID: "msg-2"},
 	}, &appended)
 	if rerr != nil {
 		t.Fatalf("interactions.append: %v", rerr)
 	}
-	if appended.InteractionID != created.Interaction.ID || appended.Seq == 0 {
+	if appended.ResponseID != created.Response.ID || appended.Seq == 0 {
 		t.Errorf("append result = %+v", appended)
 	}
 
-	seen := f.client.waitFor(NotifyInteractionCompleted)
-	var steered *stepStart
+	seen := f.client.waitFor(NotifyResponseCompleted)
+	var steered *itemEvent
 	for _, s := range steps(seen) {
 		s := s
-		if s.Step.Type == StepUserInput && s.Step.Harness != nil && s.Step.Harness.Source == "append" {
+		if s.Item.Type == ItemMessage && s.Item.Harness != nil && s.Item.Harness.Source == "append" {
 			steered = &s
 		}
 	}
 	if steered == nil {
 		t.Fatalf("no appended user_input step; steps were %v", stepTypes(seen))
 	}
-	if steered.Step.Harness.MessageID != "msg-2" {
-		t.Errorf("appended step message_id = %q, want msg-2", steered.Step.Harness.MessageID)
+	if steered.Item.Harness.MessageID != "msg-2" {
+		t.Errorf("appended step message_id = %q, want msg-2", steered.Item.Harness.MessageID)
 	}
-	if got := steered.Step.Content[0].Text; !strings.Contains(got, "actually, do this instead") {
+	if got := steered.Item.Content[0].Text; !strings.Contains(got, "actually, do this instead") {
 		t.Errorf("appended step text = %q", got)
 	}
 }
@@ -356,18 +356,18 @@ func TestAppendToAFinishedInteractionIsRefused(t *testing.T) {
 	f.client.handshake(ClientCapabilities{})
 
 	var created CreateResult
-	f.client.call(MethodInteractionsCreate, f.createParams("go"), &created)
-	f.client.waitFor(NotifyInteractionCompleted)
+	f.client.call(MethodResponsesCreate, f.createParams("go"), &created)
+	f.client.waitFor(NotifyResponseCompleted)
 
 	input, _ := json.Marshal("more")
-	rerr := f.client.call(MethodInteractionsAppend, AppendParams{
-		InteractionID: created.Interaction.ID, Input: input,
+	rerr := f.client.call(MethodResponsesAppend, AppendParams{
+		ResponseID: created.Response.ID, Input: input,
 	}, nil)
 	if rerr == nil {
 		t.Fatal("append to a finished interaction was accepted")
 	}
-	if rerr.Code != CodeInteractionNotRunning {
-		t.Errorf("code = %d, want %d", rerr.Code, CodeInteractionNotRunning)
+	if rerr.Code != CodeResponseNotRunning {
+		t.Errorf("code = %d, want %d", rerr.Code, CodeResponseNotRunning)
 	}
 }
 
@@ -381,33 +381,33 @@ func TestCancelEndsTheInteraction(t *testing.T) {
 	f.client.handshake(ClientCapabilities{})
 
 	var created CreateResult
-	if rerr := f.client.call(MethodInteractionsCreate, f.createParams("loop"), &created); rerr != nil {
+	if rerr := f.client.call(MethodResponsesCreate, f.createParams("loop"), &created); rerr != nil {
 		t.Fatalf("interactions.create: %v", rerr)
 	}
-	f.client.waitFor(NotifyStepStart)
+	f.client.waitFor(NotifyOutputItemAdded)
 
 	var cancelled GetResult
-	if rerr := f.client.call(MethodInteractionsCancel, IDParams{InteractionID: created.Interaction.ID}, &cancelled); rerr != nil {
+	if rerr := f.client.call(MethodResponsesCancel, IDParams{ResponseID: created.Response.ID}, &cancelled); rerr != nil {
 		t.Fatalf("interactions.cancel: %v", rerr)
 	}
-	if cancelled.Interaction.Status != StatusCancelled {
-		t.Fatalf("status after cancel = %q, want %q", cancelled.Interaction.Status, StatusCancelled)
+	if cancelled.Response.Status != StatusCancelled {
+		t.Fatalf("status after cancel = %q, want %q", cancelled.Response.Status, StatusCancelled)
 	}
-	if cancelled.Interaction.Harness.Reason != "cancelled" {
-		t.Errorf("harness.reason = %q, want cancelled", cancelled.Interaction.Harness.Reason)
+	if cancelled.Response.Harness.Reason != "cancelled" {
+		t.Errorf("harness.reason = %q, want cancelled", cancelled.Response.Harness.Reason)
 	}
 
-	seen := f.client.waitFor(NotifyInteractionCompleted)
-	var done interactionEnvelope
+	seen := f.client.waitFor(NotifyResponseCompleted)
+	var done responseEnvelope
 	json.Unmarshal(seen[len(seen)-1].Params, &done)
-	if done.Interaction.Status != StatusCancelled {
-		t.Errorf("completed frame status = %q, want %q", done.Interaction.Status, StatusCancelled)
+	if done.Response.Status != StatusCancelled {
+		t.Errorf("completed frame status = %q, want %q", done.Response.Status, StatusCancelled)
 	}
 
 	// Cancelling again is not an error: it is the state the caller asked
 	// for, and a client racing a completion should not have to handle both
 	// outcomes.
-	if rerr := f.client.call(MethodInteractionsCancel, IDParams{InteractionID: created.Interaction.ID}, nil); rerr != nil {
+	if rerr := f.client.call(MethodResponsesCancel, IDParams{ResponseID: created.Response.ID}, nil); rerr != nil {
 		t.Errorf("second cancel: %v", rerr)
 	}
 }
@@ -420,27 +420,27 @@ func TestPreviousInteractionContinuesTheSession(t *testing.T) {
 	f.client.handshake(ClientCapabilities{})
 
 	var one CreateResult
-	if rerr := f.client.call(MethodInteractionsCreate, f.createParams("first task"), &one); rerr != nil {
+	if rerr := f.client.call(MethodResponsesCreate, f.createParams("first task"), &one); rerr != nil {
 		t.Fatalf("first create: %v", rerr)
 	}
-	f.client.waitFor(NotifyInteractionCompleted)
+	f.client.waitFor(NotifyResponseCompleted)
 
 	next := CreateParams{
-		Model:                 testModel,
-		PreviousInteractionID: one.Interaction.ID,
+		Model:              testModel,
+		PreviousResponseID: one.Response.ID,
 	}
 	next.Input, _ = json.Marshal("second task")
 	var two CreateResult
-	if rerr := f.client.call(MethodInteractionsCreate, next, &two); rerr != nil {
+	if rerr := f.client.call(MethodResponsesCreate, next, &two); rerr != nil {
 		t.Fatalf("second create: %v", rerr)
 	}
-	f.client.waitFor(NotifyInteractionCompleted)
+	f.client.waitFor(NotifyResponseCompleted)
 
-	if two.Interaction.ID == one.Interaction.ID {
+	if two.Response.ID == one.Response.ID {
 		t.Error("a continued interaction reused the previous interaction's id")
 	}
-	if two.Interaction.Harness.SessionID != one.Interaction.Harness.SessionID {
-		t.Errorf("session ids differ: %q then %q", one.Interaction.Harness.SessionID, two.Interaction.Harness.SessionID)
+	if two.Response.Harness.SessionID != one.Response.Harness.SessionID {
+		t.Errorf("session ids differ: %q then %q", one.Response.Harness.SessionID, two.Response.Harness.SessionID)
 	}
 
 	// The second run's request replays the first run's conversation, which
@@ -463,29 +463,32 @@ func TestGetReturnsTheAssembledInteraction(t *testing.T) {
 	f.client.handshake(ClientCapabilities{})
 
 	var created CreateResult
-	f.client.call(MethodInteractionsCreate, f.createParams("go"), &created)
-	f.client.waitFor(NotifyInteractionCompleted)
+	f.client.call(MethodResponsesCreate, f.createParams("go"), &created)
+	f.client.waitFor(NotifyResponseCompleted)
 
 	var got GetResult
-	if rerr := f.client.call(MethodInteractionsGet, IDParams{InteractionID: created.Interaction.ID}, &got); rerr != nil {
-		t.Fatalf("interactions.get: %v", rerr)
+	if rerr := f.client.call(MethodResponsesGet, IDParams{ResponseID: created.Response.ID}, &got); rerr != nil {
+		t.Fatalf("responses.get: %v", rerr)
 	}
-	if got.Interaction.Status != StatusCompleted {
-		t.Errorf("status = %q", got.Interaction.Status)
+	if got.Response.Status != StatusCompleted {
+		t.Errorf("status = %q", got.Response.Status)
 	}
+	// Only the assistant's own message: a response's output here also
+	// carries the user message items the loop folded in, because a response
+	// spans a whole agentic run (docs/STDIO-PROTOCOL.md, "Deviations").
 	var text string
-	for _, s := range got.Interaction.Steps {
-		if s.Type == StepModelOutput {
+	for _, s := range got.Response.Output {
+		if s.Type == ItemMessage && s.Role == "assistant" {
 			for _, c := range s.Content {
 				text += c.Text
 			}
 		}
 	}
 	if text != "assembled" {
-		t.Errorf("assembled model_output = %q, want %q", text, "assembled")
+		t.Errorf("assembled assistant message = %q, want %q", text, "assembled")
 	}
-	if got.Interaction.Harness.Text != "assembled" {
-		t.Errorf("harness.text = %q", got.Interaction.Harness.Text)
+	if got.Response.Harness.Text != "assembled" {
+		t.Errorf("harness.text = %q", got.Response.Harness.Text)
 	}
 }
 
@@ -499,13 +502,13 @@ func TestNonStreamingCreateWaits(t *testing.T) {
 	no := false
 	params.Stream = &no
 	var res CreateResult
-	if rerr := f.client.call(MethodInteractionsCreate, params, &res); rerr != nil {
+	if rerr := f.client.call(MethodResponsesCreate, params, &res); rerr != nil {
 		t.Fatalf("interactions.create: %v", rerr)
 	}
-	if res.Interaction.Status != StatusCompleted {
-		t.Errorf("status = %q, want %q", res.Interaction.Status, StatusCompleted)
+	if res.Response.Status != StatusCompleted {
+		t.Errorf("status = %q, want %q", res.Response.Status, StatusCompleted)
 	}
-	if len(res.Interaction.Steps) == 0 {
+	if len(res.Response.Output) == 0 {
 		t.Error("a non-streaming create returned no steps")
 	}
 }
@@ -519,26 +522,27 @@ func TestRefusals(t *testing.T) {
 
 	base := f.createParams("go")
 
-	t.Run("agent", func(t *testing.T) {
+	t.Run("background", func(t *testing.T) {
 		p := base
-		p.Agent = "deep-research-pro-preview-12-2025"
-		rerr := f.client.call(MethodInteractionsCreate, p, nil)
+		yes := true
+		p.Background = &yes
+		rerr := f.client.call(MethodResponsesCreate, p, nil)
 		if rerr == nil || rerr.Code != CodeUnsupported {
-			t.Fatalf("agent was accepted or misreported: %v", rerr)
+			t.Fatalf("background was accepted or misreported: %v", rerr)
 		}
 	})
 	t.Run("server-side tool", func(t *testing.T) {
 		p := base
-		p.Tools = []Tool{{Type: "google_search"}}
-		rerr := f.client.call(MethodInteractionsCreate, p, nil)
+		p.Tools = []Tool{{Type: "web_search"}}
+		rerr := f.client.call(MethodResponsesCreate, p, nil)
 		if rerr == nil || rerr.Code != CodeUnsupported {
-			t.Fatalf("google_search was accepted or misreported: %v", rerr)
+			t.Fatalf("web_search was accepted or misreported: %v", rerr)
 		}
 	})
 	t.Run("unknown model", func(t *testing.T) {
 		p := base
 		p.Model = "gpt-9"
-		rerr := f.client.call(MethodInteractionsCreate, p, nil)
+		rerr := f.client.call(MethodResponsesCreate, p, nil)
 		if rerr == nil || rerr.Code != CodeInvalidParams {
 			t.Fatalf("an unknown model was accepted or misreported: %v", rerr)
 		}
@@ -546,7 +550,7 @@ func TestRefusals(t *testing.T) {
 	t.Run("no cwd", func(t *testing.T) {
 		p := base
 		p.Harness = &CreateHarness{}
-		rerr := f.client.call(MethodInteractionsCreate, p, nil)
+		rerr := f.client.call(MethodResponsesCreate, p, nil)
 		if rerr == nil || rerr.Code != CodeInvalidParams {
 			t.Fatalf("a create with no cwd was accepted or misreported: %v", rerr)
 		}
@@ -554,14 +558,14 @@ func TestRefusals(t *testing.T) {
 	t.Run("bad permission mode", func(t *testing.T) {
 		p := base
 		p.Harness = &CreateHarness{CWD: f.cwd, PermissionMode: "yolo"}
-		rerr := f.client.call(MethodInteractionsCreate, p, nil)
+		rerr := f.client.call(MethodResponsesCreate, p, nil)
 		if rerr == nil || rerr.Code != CodeInvalidParams {
 			t.Fatalf("an unknown permission mode was accepted or misreported: %v", rerr)
 		}
 	})
 	t.Run("unknown interaction", func(t *testing.T) {
-		rerr := f.client.call(MethodInteractionsGet, IDParams{InteractionID: "int_nope"}, nil)
-		if rerr == nil || rerr.Code != CodeInteractionNotFound {
+		rerr := f.client.call(MethodResponsesGet, IDParams{ResponseID: "int_nope"}, nil)
+		if rerr == nil || rerr.Code != CodeResponseNotFound {
 			t.Fatalf("an unknown interaction was accepted or misreported: %v", rerr)
 		}
 	})
@@ -578,10 +582,10 @@ func TestRefusals(t *testing.T) {
 // on its first request to Google.
 func TestMissingCredentialsAreOneClearError(t *testing.T) {
 	f := newFixture(t, answer("hi"))
-	f.srv.opts.HasAPIKey = func() bool { return false }
+	f.srv.opts.HasAPIKey = func(string) bool { return false }
 	f.client.handshake(ClientCapabilities{})
 
-	rerr := f.client.call(MethodInteractionsCreate, f.createParams("go"), nil)
+	rerr := f.client.call(MethodResponsesCreate, f.createParams("go"), nil)
 	if rerr == nil || rerr.Code != CodeCredentialsMissing {
 		t.Fatalf("a create with no API key was accepted or misreported: %v", rerr)
 	}
@@ -598,14 +602,14 @@ func TestStdinCloseEndsTheProcess(t *testing.T) {
 	f.client.handshake(ClientCapabilities{})
 
 	var created CreateResult
-	f.client.call(MethodInteractionsCreate, f.createParams("loop"), &created)
-	f.client.waitFor(NotifyStepStart)
+	f.client.call(MethodResponsesCreate, f.createParams("loop"), &created)
+	f.client.waitFor(NotifyOutputItemAdded)
 
 	f.stdin.Close()
 	// The fixture's cleanup asserts the server stopped; this asserts the
 	// run it was hosting stopped with it.
 	<-f.srvRunningDone()
-	if got := f.srv.interactions[created.Interaction.ID].snapshot(false).Status; got != StatusCancelled {
+	if got := f.srv.runs[created.Response.ID].snapshot(false).Status; got != StatusCancelled {
 		t.Errorf("status after stdin closed = %q, want %q", got, StatusCancelled)
 	}
 }
@@ -621,10 +625,10 @@ func TestPipelinedHandshakeIsOrdered(t *testing.T) {
 	f.client.send(mustFrame(t, "p1", MethodInitialize, InitializeParams{ClientInfo: ClientInfo{Name: "test"}}))
 	f.client.notify(MethodInitialized, map[string]any{})
 	var created CreateResult
-	if rerr := f.client.call(MethodInteractionsCreate, f.createParams("go"), &created); rerr != nil {
+	if rerr := f.client.call(MethodResponsesCreate, f.createParams("go"), &created); rerr != nil {
 		t.Fatalf("a create pipelined behind the handshake was refused: %v", rerr)
 	}
-	f.client.waitFor(NotifyInteractionCompleted)
+	f.client.waitFor(NotifyResponseCompleted)
 }
 
 // TestContinuedCreateCannotChangeTheSession pins the two things a continued
@@ -636,18 +640,18 @@ func TestContinuedCreateCannotChangeTheSession(t *testing.T) {
 	f.client.handshake(ClientCapabilities{})
 
 	var one CreateResult
-	if rerr := f.client.call(MethodInteractionsCreate, f.createParams("first task"), &one); rerr != nil {
+	if rerr := f.client.call(MethodResponsesCreate, f.createParams("first task"), &one); rerr != nil {
 		t.Fatalf("first create: %v", rerr)
 	}
-	f.client.waitFor(NotifyInteractionCompleted)
+	f.client.waitFor(NotifyResponseCompleted)
 
-	next := CreateParams{PreviousInteractionID: one.Interaction.ID, Model: testModel}
+	next := CreateParams{PreviousResponseID: one.Response.ID, Model: testModel}
 	next.Input, _ = json.Marshal("more")
 
 	t.Run("model", func(t *testing.T) {
 		p := next
 		p.Model = "deepseek-v4-pro"
-		rerr := f.client.call(MethodInteractionsCreate, p, nil)
+		rerr := f.client.call(MethodResponsesCreate, p, nil)
 		if rerr == nil || rerr.Code != CodeInvalidParams {
 			t.Fatalf("a continued create changed model: %v", rerr)
 		}
@@ -655,7 +659,7 @@ func TestContinuedCreateCannotChangeTheSession(t *testing.T) {
 	t.Run("cwd", func(t *testing.T) {
 		p := next
 		p.Harness = &CreateHarness{CWD: t.TempDir()}
-		rerr := f.client.call(MethodInteractionsCreate, p, nil)
+		rerr := f.client.call(MethodResponsesCreate, p, nil)
 		if rerr == nil || rerr.Code != CodeInvalidParams {
 			t.Fatalf("a continued create changed directory: %v", rerr)
 		}
@@ -671,17 +675,17 @@ func TestGetWorksWhileTheRunIsGoing(t *testing.T) {
 	f.client.handshake(ClientCapabilities{})
 
 	var created CreateResult
-	f.client.call(MethodInteractionsCreate, f.createParams("loop"), &created)
-	f.client.waitFor(NotifyStepStart)
+	f.client.call(MethodResponsesCreate, f.createParams("loop"), &created)
+	f.client.waitFor(NotifyOutputItemAdded)
 
 	var got GetResult
-	if rerr := f.client.call(MethodInteractionsGet, IDParams{InteractionID: created.Interaction.ID}, &got); rerr != nil {
-		t.Fatalf("interactions.get: %v", rerr)
+	if rerr := f.client.call(MethodResponsesGet, IDParams{ResponseID: created.Response.ID}, &got); rerr != nil {
+		t.Fatalf("responses.get: %v", rerr)
 	}
-	if got.Interaction.Status != StatusInProgress {
-		t.Errorf("status = %q, want %q", got.Interaction.Status, StatusInProgress)
+	if got.Response.Status != StatusInProgress {
+		t.Errorf("status = %q, want %q", got.Response.Status, StatusInProgress)
 	}
-	if len(got.Interaction.Steps) == 0 {
+	if len(got.Response.Output) == 0 {
 		t.Error("a running interaction reported no steps")
 	}
 }

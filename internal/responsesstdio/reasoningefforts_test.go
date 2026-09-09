@@ -1,4 +1,4 @@
-package geministdio
+package responsesstdio
 
 import (
 	"slices"
@@ -26,11 +26,11 @@ func TestHandshakeAdvertisesThinkingLevels(t *testing.T) {
 	if !found {
 		t.Fatalf("model_details has no entry for %s: %v", testModel, res.ModelDetails)
 	}
-	if slices.Contains(detail.ThinkingLevels, gemini.ThinkingLevelMinimal) {
-		t.Errorf("%s levels = %v, must not offer minimal", testModel, detail.ThinkingLevels)
+	if slices.Contains(detail.ReasoningEfforts, gemini.ThinkingLevelMinimal) {
+		t.Errorf("%s levels = %v, must not offer minimal", testModel, detail.ReasoningEfforts)
 	}
-	if !slices.Contains(detail.ThinkingLevels, gemini.ThinkingLevelHigh) {
-		t.Errorf("%s levels = %v, want high in it", testModel, detail.ThinkingLevels)
+	if !slices.Contains(detail.ReasoningEfforts, gemini.ThinkingLevelHigh) {
+		t.Errorf("%s levels = %v, want high in it", testModel, detail.ReasoningEfforts)
 	}
 	if detail.ContextWindowTokens <= 0 {
 		t.Errorf("%s context_window_tokens = %d, want a positive figure", testModel, detail.ContextWindowTokens)
@@ -55,9 +55,9 @@ func TestCreateRefusesAnUnsupportedThinkingLevel(t *testing.T) {
 	f.client.handshake(ClientCapabilities{})
 
 	p := f.createParams("do a thing")
-	p.GenerationConfig = &GenerationConfig{ThinkingLevel: gemini.ThinkingLevelMinimal}
+	p.Reasoning = &ReasoningConfig{Effort: gemini.ThinkingLevelMinimal}
 
-	rerr := f.client.call(MethodInteractionsCreate, p, nil)
+	rerr := f.client.call(MethodResponsesCreate, p, nil)
 	if rerr == nil {
 		t.Fatal("create accepted a thinking level the model refuses")
 	}
@@ -78,11 +78,11 @@ func TestCreateAcceptsASupportedThinkingLevel(t *testing.T) {
 	f.client.handshake(ClientCapabilities{})
 
 	p := f.createParams("do a thing")
-	p.GenerationConfig = &GenerationConfig{ThinkingLevel: gemini.ThinkingLevelLow}
+	p.Reasoning = &ReasoningConfig{Effort: gemini.ThinkingLevelLow}
 
 	var created CreateResult
-	if rerr := f.client.call(MethodInteractionsCreate, p, &created); rerr != nil {
+	if rerr := f.client.call(MethodResponsesCreate, p, &created); rerr != nil {
 		t.Fatalf("create refused a supported level: %v", rerr)
 	}
-	f.client.waitFor(NotifyInteractionCompleted)
+	f.client.waitFor(NotifyResponseCompleted)
 }

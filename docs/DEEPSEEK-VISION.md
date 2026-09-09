@@ -201,12 +201,41 @@ covers the shape now shipped.
 - Everything about `Ground` and `Detect`'s pixel-box convention. None of the
   measurements above asked the model for coordinates.
 
-## 6. The routes not taken
+## 6. The one hosted model over stdio
+
+`harness stdio-session` hosts this model and neither of the other two
+DeepSeek models, and §4 is the whole reason. That process hosts one session
+for a parent application over a pipe and takes its credentials from the
+environment the parent spawned it with
+([`STDIO-PROTOCOL.md`](STDIO-PROTOCOL.md)). A session on
+`deepseek-v4-flash` or `deepseek-v4-pro` there would be given the six tools
+that exist because a model cannot see — `Screenshot`, `Glance`, `Ground`,
+`Detect`, `Transcribe`, `Crop` — and four of those send their images to
+Google. The parent would have had to supply a Google API key to make a
+DeepSeek session work, or watch four tools fail whenever the model reached
+for one. Turning this model's vision capability on is what removes that: it
+is offered none of the six, `Read` hands it the image directly, and one
+credential is enough.
+
+Nothing about `harness serve` changes. It routes all three models as it
+always has, and the vision tools there have a Google key configured
+alongside.
+
+## 7. The routes not taken
 
 Two other surfaces were considered. This section records why Chat
 Completions is what shipped instead of either one.
 
-The Responses API is the first. DeepSeek documents images in
+The Responses API is the first — and it is no longer a route not taken:
+`internal/deepseek` speaks it, and `harness stdio-session` posts to it
+([`DEEPSEEK-RESPONSES.md`](DEEPSEEK-RESPONSES.md)). A live probe on
+2026-09-10 read an image out of a `function_call_output` correctly
+([`OBSERVED.md`](OBSERVED.md)), which is this document's §2 risk answered
+rather than accepted. What follows is the assessment as it stood when Chat
+Completions was chosen, kept because `harness serve` still posts there and
+the reasoning still applies to it.
+
+DeepSeek documents images in
 `function_call_output` and `custom_tool_call_output` output directly, with a
 `take_screenshot` example (`guides/responses_api.md`, "Image Input") — an
 image as part of a tool's own output, rather than a message that follows it.

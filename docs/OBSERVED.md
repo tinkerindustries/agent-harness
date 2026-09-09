@@ -1026,3 +1026,72 @@ rate, and a real one needs organic traffic rather than more synthetic
 probing, since replay is demonstrably unreliable at reproducing it. Whether a
 real 768K-token compaction (rather than Phase 8's forced-every-sub-turn
 stress test) behaves identically.
+
+## DeepSeek Responses API
+
+Measured 2026-09-10 against `https://api.deepseek.com/responses`, driving
+`internal/deepseek`'s own `ResponsesClient` rather than hand-built JSON, so
+what these establish is the shape the harness actually sends
+([`DEEPSEEK-RESPONSES.md`](DEEPSEEK-RESPONSES.md)). Four requests, all HTTP
+200.
+
+**The whole message shape is accepted, reasoning item included.** One
+request carried the arrangement every sub-turn after the first sends:
+`instructions`, a user `message` item, a `reasoning` item, a `function_call`,
+its `function_call_output`, and a `tools` array. The model answered from the
+tool's result — "DONE", as the prompt asked once it had the listing. That is
+the load-bearing measurement: the `reasoning` item is documented as required
+in later turns when a request carries tools, and this is the shape of it
+DeepSeek takes.
+
+**A tool call assembles across its frames.** A first turn with the tool
+forced returned `finish_reason: tool_calls` and one call —
+`call_00_ET_zRS5z0M9YHbgLFwrqV664566`, name `List`, arguments `{"path": "."}`
+— assembled from a `response.output_item.added` naming it and two
+`response.function_call_arguments.delta` frames, keyed only by
+`output_index`. Arguments were valid JSON.
+
+**An image inside `function_call_output` is read.** On
+`deepseek-v4-flash-vision-exp`, a 64×64 solid `rgb(0,153,102)` PNG as an
+`input_image` part in a tool call's `output`, with the model asked to name
+the colour: *"The image is filled with a single colour: green (a solid
+sea-green / teal shade)."* This is the shape
+[`DEEPSEEK-VISION.md`](DEEPSEEK-VISION.md) §2 could only get from an
+undocumented allowance on Chat Completions.
+
+**Prefix caching works here.** The non-streaming probe reported
+`input_tokens: 357` with `input_tokens_details.cached_tokens: 256` — a hit on
+the shared prefix of a request sent moments earlier by the streaming probe.
+The cache the whole request shape is built around survives the surface
+change.
+
+**Usage needs no asking.** There is no `stream_options` on this surface and
+none is sent; the terminal `response.completed` event carries the whole
+response object, `usage` included. Every probe got its usage.
+
+**A whole agentic session runs end to end over the stdio protocol.** Measured
+2026-09-10: a parent drove `harness stdio-session` on
+`deepseek-v4-flash-vision-exp` with a task needing a tool call, and got
+`response.created`, `response.in_progress`, a user `message` item, a
+`reasoning` item, `function_call(Read)` with its arguments delta,
+`function_call_output`, an assistant `message` streaming its text,
+`function_call(Complete)`, and `response.completed` — status `completed`,
+reason `complete`, 6,222 input tokens of which 3,072 cached, 208 output, 2
+sub-turns, $0.00085. The Responses vocabulary ran from the parent's frame to
+the provider's request and back with nothing translating in between.
+
+**`max_output_tokens: 0` is a 400.** "Invalid max_tokens value, the valid
+range of max_tokens is [1, 393216]". The field is nullable, and an intent
+that names no ceiling must omit it rather than send zero. Found by the run
+above, which is the first thing to send a request built from a create body
+that named no ceiling — `harness serve` always resolves one from its
+settings.
+
+### Still untested — DeepSeek Responses
+
+Whether the prefix stays stable across a
+long session the way [`CACHE.md`](CACHE.md) requires — one hit is the
+mechanism working, not a rate. Whether `response.incomplete` and
+`response.failed` arrive shaped as documented; both are decoded and unit
+tested against scripted frames, neither has been seen from the live API.
+Whether an image in a *user* message behaves as it does in a tool output.

@@ -79,7 +79,7 @@ type Manager struct {
 	// EnvFilter, when set, is applied to this process's own environment
 	// before a stdio server's command is spawned, in place of the
 	// unfiltered os.Environ() the dialer would otherwise start from
-	// (dial.go, defaultDial). It exists for `harness gemini-session`: a
+	// (dial.go, defaultDial). It exists for `harness stdio-session`: a
 	// hosted session's parent supplies GEMINI_API_KEY (or GOOGLE_API_KEY)
 	// only so this process's own API client can reach Google, and a stdio
 	// MCP child dialled from inside that session has no business seeing it
@@ -93,7 +93,7 @@ type Manager struct {
 	// credential out of the database: the row is stored without it, this
 	// puts it back for the length of one dial, and a state directory left on
 	// disk holds no bearer token. The row a caller cannot match is returned
-	// unchanged. `harness gemini-session` is the caller — a parent's
+	// unchanged. `harness stdio-session` is the caller — a parent's
 	// `mcp_server` tool carries an Authorization header for a loopback
 	// server it stood up, and that header has no business outliving the
 	// process (docs/STDIO-PROTOCOL.md).

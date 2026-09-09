@@ -1,4 +1,4 @@
-package geministdio
+package responsesstdio
 
 import (
 	"context"
@@ -21,7 +21,7 @@ import (
 // resolves against the state directory instead: the session row, its event
 // log and its frozen tool array are all in the SQLite file under -state-dir,
 // which outlives the process that wrote it. A parent that respawns
-// `harness gemini-session` on the same -state-dir hands the new process a
+// `harness stdio-session` on the same -state-dir hands the new process a
 // session id and gets the conversation back.
 //
 // What a resume must not do is move the session's prompt prefix. The system
@@ -82,9 +82,9 @@ func (s *Server) resumeTarget(ctx context.Context, p CreateParams) (store.Sessio
 	// The result schema is what the Complete tool validates the run's answer
 	// against, and it is on the row for the same reason the rest of this is:
 	// Resume reads it there rather than from the create.
-	if p.ResponseFormat != nil && len(p.ResponseFormat.Schema) > 0 &&
-		canonicalSchema(p.ResponseFormat.Schema) != canonicalSchema(sess.ResultSchema) {
-		return store.Session{}, errorf(CodeInvalidParams, "session %s carries its own result schema; a resumed session keeps the one it was started with, and response_format cannot replace it", id)
+	if schema := schemaOf(p.Text); len(schema) > 0 &&
+		canonicalSchema(schema) != canonicalSchema(sess.ResultSchema) {
+		return store.Session{}, errorf(CodeInvalidParams, "session %s carries its own result schema; a resumed session keeps the one it was started with, and text.format cannot replace it", id)
 	}
 	return sess, nil
 }

@@ -1,4 +1,4 @@
-package geministdio
+package responsesstdio
 
 import (
 	"context"
@@ -12,10 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mrgeoffrich/agent-harness/internal/gemini"
 	"github.com/mrgeoffrich/agent-harness/internal/hub"
 	"github.com/mrgeoffrich/agent-harness/internal/mcpclient"
-	"github.com/mrgeoffrich/agent-harness/internal/provider"
 	"github.com/mrgeoffrich/agent-harness/internal/session"
 	"github.com/mrgeoffrich/agent-harness/internal/store"
 	"github.com/mrgeoffrich/agent-harness/internal/tools"
@@ -32,15 +30,27 @@ type Options struct {
 	// through. Nil refuses such a tool rather than ignoring it.
 	MCP *mcpclient.Manager
 
+	// ServerName is what the handshake reports as server_info.name. It is
+	// the subcommand the process was spawned as, prefixed with the binary —
+	// "agent-harness stdio-session", or "agent-harness gemini-session" for
+	// the alias — because a parent may pin it, and an alias that reported
+	// the new name would break the client it exists to keep working. Empty
+	// falls back to the current name.
+	ServerName string
+
 	// Models is what a create body's `model` may name, and DefaultModel is
 	// what it gets when it names none.
 	Models       []string
 	DefaultModel string
 
-	// HasAPIKey reports whether a Google API key reached this process. It is
-	// checked at create so a missing key is one clear error before any work
-	// happens, rather than a stream that fails on its first request.
-	HasAPIKey func() bool
+	// HasAPIKey reports whether the API key the named model needs reached
+	// this process. It is checked at create so a missing key is one clear
+	// error before any work happens, rather than a stream that fails on its
+	// first request. It takes the model because this process can host two
+	// providers' models from one pipe: a host that supplied a DeepSeek key
+	// and no Google one can run the DeepSeek model, and must be told which
+	// variable is missing when it asks for the other (missingKeyMessage).
+	HasAPIKey func(model string) bool
 
 	Version string
 }
@@ -58,9 +68,9 @@ type Server struct {
 	handshakeAck bool
 	clientCaps   ClientCapabilities
 	clientInfo   ClientInfo
-	interactions map[string]*interaction
+	runs         map[string]*run
 	order        []string
-	running      *interaction
+	running      *run
 	shuttingDown bool
 	// headers holds the credentials a client's HTTP `mcp_server` tools
 	// carry, keyed by server name. They stay here and never reach the
@@ -79,9 +89,11 @@ type Server struct {
 	env map[string]map[string]string
 }
 
-// interaction is one run, in the shape Google's Interaction resource
-// describes it.
-type interaction struct {
+// run is one response, in the shape the Responses API's `response` resource
+// describes it. It is named for what it is here — a whole agentic run —
+// rather than for the resource, because the resource type is Response and
+// the two would otherwise be one letter apart.
+type run struct {
 	id        string
 	sessionID string
 	model     string
@@ -90,10 +102,10 @@ type interaction struct {
 
 	mu      sync.Mutex
 	status  string
-	steps   []Step
+	items   []OutputItem
 	usage   Usage
-	errors  []Error
-	harness InteractionHarness
+	err     *Error
+	harness ResponseHarness
 	created time.Time
 	updated time.Time
 
@@ -102,22 +114,22 @@ type interaction struct {
 	tr     *translator
 }
 
-// newInteractionID mints the id an interaction is addressed by. It is not
-// the session id: a chain of interactions linked by previous_interaction_id
-// is one session resumed repeatedly, so the two cannot be the same value.
-// harness.session_id on every interaction carries the session's own.
-func newInteractionID() string {
+// newResponseID mints the id a response is addressed by. It is not the
+// session id: a chain of responses linked by previous_response_id is one
+// session resumed repeatedly, so the two cannot be the same value.
+// harness.session_id on every response carries the session's own.
+func newResponseID() string {
 	var b [12]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		panic("geministdio: crypto/rand unavailable: " + err.Error())
+		panic("responsesstdio: crypto/rand unavailable: " + err.Error())
 	}
-	return "int_" + hex.EncodeToString(b[:])
+	return "resp_" + hex.EncodeToString(b[:])
 }
 
 // NewServer wires a server onto r/w. Serve runs it.
 func NewServer(opts Options) *Server {
 	s := &Server{
-		opts: opts, interactions: map[string]*interaction{},
+		opts: opts, runs: map[string]*run{},
 		headers: map[string]map[string]string{}, env: map[string]map[string]string{},
 	}
 	if opts.MCP != nil {
@@ -197,15 +209,15 @@ func (s *Server) handle(ctx context.Context, method string, params json.RawMessa
 	}
 
 	switch method {
-	case MethodInteractionsCreate:
+	case MethodResponsesCreate:
 		return s.create(ctx, params)
-	case MethodInteractionsAppend:
+	case MethodResponsesAppend:
 		return s.append(ctx, params)
-	case MethodInteractionsCancel:
-		return s.cancelInteraction(params)
-	case MethodInteractionsGet:
+	case MethodResponsesCancel:
+		return s.cancelRun(params)
+	case MethodResponsesGet:
 		return s.get(params)
-	case MethodInteractionsDelete:
+	case MethodResponsesDelete:
 		return s.delete(params)
 	case MethodShutdown:
 		go s.stopRunning("the client asked this session to shut down")
@@ -253,21 +265,25 @@ func (s *Server) initialize(params json.RawMessage) (any, *rpcError) {
 	s.clientInfo = p.ClientInfo
 	s.mu.Unlock()
 
+	name := s.opts.ServerName
+	if name == "" {
+		name = "agent-harness stdio-session"
+	}
 	return InitializeResult{
 		ServerInfo: ServerInfo{
-			Name:     "agent-harness gemini-session",
+			Name:     name,
 			Version:  s.opts.Version,
-			Protocol: "google.interactions.v1beta",
+			Protocol: "openai.responses.v1",
 		},
 		Capabilities: ServerCapabilities{
-			Streaming:           true,
-			Append:              true,
-			Cancel:              true,
-			PreviousInteraction: true,
-			ResumeSession:       true,
-			MCPServers:          s.opts.MCP != nil,
-			FunctionTools:       true,
-			PermissionModes:     []string{string(tools.ModeReadOnly), string(tools.ModeFull)},
+			Streaming:        true,
+			Append:           true,
+			Cancel:           true,
+			PreviousResponse: true,
+			ResumeSession:    true,
+			MCPServers:       s.opts.MCP != nil,
+			FunctionTools:    true,
+			PermissionModes:  []string{string(tools.ModeReadOnly), string(tools.ModeFull)},
 		},
 		Models:       s.opts.Models,
 		DefaultModel: s.opts.DefaultModel,
@@ -276,18 +292,19 @@ func (s *Server) initialize(params json.RawMessage) (any, *rpcError) {
 }
 
 // modelDetails is the per-model capability array the handshake advertises,
-// one entry per model this process accepts, in the same order. A field
-// internal/gemini has no table entry for comes back zero/empty on that
+// one entry per model this process accepts, in the same order. A field the
+// model's provider has no table entry for comes back zero/empty on that
 // model's entry rather than being guessed at, which is the same thing its
-// absence means to a client: nothing here constrains it.
+// absence means to a client: nothing here constrains it. Which provider is
+// asked is modelinfo.go's business and no other file's.
 func modelDetails(models []string) []ModelDetail {
 	out := make([]ModelDetail, 0, len(models))
 	for _, m := range models {
 		out = append(out, ModelDetail{
 			ID:                  m,
-			DisplayName:         gemini.DisplayName(m),
-			ContextWindowTokens: gemini.ContextWindowTokens(m),
-			ThinkingLevels:      gemini.LevelsFor(m),
+			DisplayName:         displayName(m),
+			ContextWindowTokens: contextWindowTokens(m),
+			ReasoningEfforts:    reasoningEfforts(m),
 		})
 	}
 	return out
@@ -298,16 +315,22 @@ func modelDetails(models []string) []ModelDetail {
 func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcError) {
 	var p CreateParams
 	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, errorf(CodeInvalidParams, "interactions.create params: %v", err)
+		return nil, errorf(CodeInvalidParams, "responses.create params: %v", err)
 	}
-	if p.Agent != "" {
-		return nil, errorf(CodeUnsupported, "agent %q: Google's managed agents run on Google's machines; this process runs the loop on yours, so only `model` is accepted", p.Agent)
+	if p.Background != nil && *p.Background {
+		return nil, errorf(CodeUnsupported, "background: every response here is already answered at once and streamed as it goes, so there is no foreground to move off")
 	}
 	model := p.Model
 	if model == "" {
 		model = s.opts.DefaultModel
 	}
-	if !provider.Known(model) {
+	// The handshake's own list, not provider.Known: this binary hosts a
+	// chosen few of the models the repository can route, and a model it can
+	// route but did not advertise — DeepSeek's two text-only models, which
+	// would arrive carrying vision tools that need a second provider's
+	// credentials to work (docs/DEEPSEEK-VISION.md) — must be refused here
+	// rather than started.
+	if !accepts(s.opts.Models, model) {
 		return nil, errorf(CodeInvalidParams, "unknown model %q; this process accepts %s", model, strings.Join(s.opts.Models, ", "))
 	}
 	// A level the model refuses is caught here rather than by Google. Left
@@ -315,25 +338,25 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 	// answered, steps stream, and the interaction ends `failed` carrying a
 	// message about a request the client cannot see. The levels are on the
 	// handshake, so a client has been told which are allowed.
-	if level := thinkingLevelOf(p.GenerationConfig); level != "" && !gemini.LevelSupported(model, level) {
-		return nil, errorf(CodeInvalidParams, "generation_config.thinking_level %q: %s accepts %s",
-			level, model, strings.Join(gemini.LevelsFor(model), ", "))
+	if effort := effortOf(p.Reasoning); effort != "" && !reasoningEffortSupported(model, effort) {
+		return nil, errorf(CodeInvalidParams, "reasoning.effort %q: %s accepts %s",
+			effort, model, strings.Join(reasoningEfforts(model), ", "))
 	}
-	if s.opts.HasAPIKey != nil && !s.opts.HasAPIKey() {
-		return nil, errorf(CodeCredentialsMissing, "no Google API key reached this process: set GEMINI_API_KEY (or GOOGLE_API_KEY) in the environment you spawn it with")
+	if s.opts.HasAPIKey != nil && !s.opts.HasAPIKey(model) {
+		return nil, errorf(CodeCredentialsMissing, "%s", missingKeyMessage(model))
 	}
 
 	text, rerr := inputText(p.Input)
 	if rerr != nil {
 		return nil, rerr
 	}
-	if p.SystemInstruction != "" {
+	if p.Instructions != "" {
 		// Prepended rather than replacing the harness's own system prompt,
 		// which is frozen for a session's life and is the shared prefix the
 		// prompt cache is built on (docs/CACHE.md). A parent's mode
 		// fragment or session preamble belongs on the first user message,
 		// which is where this puts it.
-		text = p.SystemInstruction + "\n\n" + text
+		text = p.Instructions + "\n\n" + text
 	}
 
 	s.mu.Lock()
@@ -344,7 +367,7 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 	if s.running != nil {
 		id := s.running.id
 		s.mu.Unlock()
-		return nil, errorf(CodeInvalidRequest, "interaction %s is still running; one process hosts one session, so cancel it or wait for it to complete", id)
+		return nil, errorf(CodeInvalidRequest, "response %s is still running; one process hosts one session, so cancel it or wait for it to complete", id)
 	}
 	s.mu.Unlock()
 
@@ -369,20 +392,20 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 	)
 	resumeID := harnessString(p.Harness, func(h *CreateHarness) string { return h.ResumeSessionID })
 	switch {
-	case p.PreviousInteractionID != "" && resumeID != "":
-		return nil, errorf(CodeInvalidParams, "previous_interaction_id and harness.resume_session_id both name a conversation to continue; send one. previous_interaction_id continues an interaction this process ran, harness.resume_session_id continues a session out of the state directory")
+	case p.PreviousResponseID != "" && resumeID != "":
+		return nil, errorf(CodeInvalidParams, "previous_response_id and harness.resume_session_id both name a conversation to continue; send one. previous_response_id continues a response this process ran, harness.resume_session_id continues a session out of the state directory")
 
-	case p.PreviousInteractionID != "":
-		prev, ok := s.lookup(p.PreviousInteractionID)
+	case p.PreviousResponseID != "":
+		prev, ok := s.lookup(p.PreviousResponseID)
 		if !ok {
-			return nil, errorf(CodeInteractionNotFound, "no interaction %q was minted by this process; an interaction id does not outlive the process that made it, so continue across a restart with harness.resume_session_id instead", p.PreviousInteractionID)
+			return nil, errorf(CodeResponseNotFound, "no response %q was minted by this process; a response id does not outlive the process that made it, so continue across a restart with harness.resume_session_id instead", p.PreviousResponseID)
 		}
 		sessionID, cwd, resume = prev.sessionID, prev.cwd, true
 		if p.Harness != nil && p.Harness.CWD != "" && p.Harness.CWD != cwd {
-			return nil, errorf(CodeInvalidParams, "interaction %s works in %s; a continued interaction cannot change directory, and inherits the one its chain started in", prev.id, cwd)
+			return nil, errorf(CodeInvalidParams, "response %s works in %s; a continued response cannot change directory, and inherits the one its chain started in", prev.id, cwd)
 		}
 		if prev.model != model {
-			return nil, errorf(CodeInvalidParams, "interaction %s ran on %s; a continued interaction cannot change model, because the session's prefix is frozen", prev.id, prev.model)
+			return nil, errorf(CodeInvalidParams, "response %s ran on %s; a continued response cannot change model, because the session's prefix is frozen", prev.id, prev.model)
 		}
 
 	case resumeID != "":
@@ -433,17 +456,17 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 		}
 	}
 
-	it := &interaction{
-		id: newInteractionID(), sessionID: sessionID, model: model,
-		prev: p.PreviousInteractionID, cwd: cwd,
+	it := &run{
+		id: newResponseID(), sessionID: sessionID, model: model,
+		prev: p.PreviousResponseID, cwd: cwd,
 		status: StatusInProgress, created: time.Now().UTC(), updated: time.Now().UTC(),
 		done: make(chan struct{}),
 	}
 	it.harness.SessionID = sessionID
-	host.interactionID = it.id
+	host.responseID = it.id
 
 	s.mu.Lock()
-	s.interactions[it.id] = it
+	s.runs[it.id] = it
 	s.order = append(s.order, it.id)
 	s.running = it
 	// The runner is shared and its MCP field is per interaction. Only one
@@ -493,22 +516,26 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 
 	opts := session.RunOptions{
 		Model:          model,
-		Effort:         effortFrom(p.GenerationConfig),
+		Effort:         effortFrom(p.Reasoning),
 		Thinking:       true,
-		MaxTokens:      maxTokensFrom(p.GenerationConfig),
+		MaxTokens:      p.MaxOutputTokens,
 		Workspace:      cwd,
 		PermissionMode: mode,
 		Deny:           harnessSlice(p.Harness, func(h *CreateHarness) []string { return h.Deny }),
 		Prompt:         text,
 		SessionID:      sessionID,
-		JobType:        "gemini-session",
-		ParentIsUser:   true,
-		Title:          harnessString(p.Harness, func(h *CreateHarness) string { return h.Title }),
-		Description:    harnessString(p.Harness, func(h *CreateHarness) string { return h.Description }),
-		MaxSubTurns:    harnessInt(p.Harness, func(h *CreateHarness) int { return h.MaxSubTurns }),
+		// Deliberately still the old command name. This is a stored column
+		// on the session row, not a name anybody types: changing it would
+		// split one label across every store written before and after the
+		// rename, for nothing a reader gains.
+		JobType:      "gemini-session",
+		ParentIsUser: true,
+		Title:        harnessString(p.Harness, func(h *CreateHarness) string { return h.Title }),
+		Description:  harnessString(p.Harness, func(h *CreateHarness) string { return h.Description }),
+		MaxSubTurns:  harnessInt(p.Harness, func(h *CreateHarness) int { return h.MaxSubTurns }),
 	}
-	if p.ResponseFormat != nil && len(p.ResponseFormat.Schema) > 0 {
-		opts.ResultSchema = p.ResponseFormat.Schema
+	if schema := schemaOf(p.Text); len(schema) > 0 {
+		opts.ResultSchema = schema
 	}
 
 	go func() {
@@ -555,23 +582,23 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 		select {
 		case <-it.done:
 		case <-ctx.Done():
-			return nil, errorf(CodeInternalError, "interaction %s: %v", it.id, ctx.Err())
+			return nil, errorf(CodeInternalError, "response %s: %v", it.id, ctx.Err())
 		}
-		return CreateResult{Interaction: it.snapshot(true)}, nil
+		return CreateResult{Response: it.snapshot(true)}, nil
 	}
-	return CreateResult{Interaction: it.snapshot(false)}, nil
+	return CreateResult{Response: it.snapshot(false)}, nil
 }
 
 // record writes the run's outcome onto the interaction and, for a run the
 // loop could not finish, emits the `error` notification that precedes the
 // terminal frame. complete emits the terminal frame itself, once the
 // interaction is no longer the running one.
-func (s *Server) record(it *interaction, tr *translator, res *session.RunResult, err error, cancelled bool) {
+func (s *Server) record(it *run, tr *translator, res *session.RunResult, err error, cancelled bool) {
 	tr.closeText()
 
-	steps, usage := tr.snapshot()
+	items, usage := tr.snapshot()
 	it.mu.Lock()
-	it.steps = steps
+	it.items = items
 	it.usage = usage
 	it.tr = nil
 	it.updated = time.Now().UTC()
@@ -581,7 +608,7 @@ func (s *Server) record(it *interaction, tr *translator, res *session.RunResult,
 		it.harness.Reason = "cancelled"
 	case err != nil:
 		it.status = StatusFailed
-		it.errors = append(it.errors, Error{Code: "internal", Message: err.Error()})
+		it.err = &Error{Code: "internal", Message: err.Error()}
 	case res != nil:
 		it.status = statusFor(res)
 		it.harness.Reason = res.Reason
@@ -597,26 +624,28 @@ func (s *Server) record(it *interaction, tr *translator, res *session.RunResult,
 	it.mu.Unlock()
 
 	if err != nil && !cancelled {
-		s.notify(NotifyError, errorEvent{
-			InteractionID: it.id,
-			Error:         Error{Code: "internal", Message: err.Error()},
-			EventType:     NotifyError,
+		// response.failed carries the whole response object, the way the
+		// surface's own terminal error event does, so a client that reads
+		// only terminal frames still gets the run's status and usage with
+		// the message.
+		s.notify(NotifyResponseFailed, responseEnvelope{
+			Type: NotifyResponseFailed, Response: it.snapshot(false),
 		})
 	}
 }
 
-// complete emits the last notification an interaction ever produces.
-func (s *Server) complete(it *interaction) {
-	s.notify(NotifyInteractionCompleted, interactionEnvelope{
-		Interaction: it.snapshot(false), EventType: NotifyInteractionCompleted,
+// complete emits the last notification a response ever produces.
+func (s *Server) complete(it *run) {
+	s.notify(NotifyResponseCompleted, responseEnvelope{
+		Type: NotifyResponseCompleted, Response: it.snapshot(true),
 	})
 }
 
-// statusFor maps a run's terminal reason onto Google's status enum. A run
-// that hit its sub-turn ceiling is `incomplete`, which is the same word
-// Google uses for a generation cut short by a token cap; everything else that
-// ended on its own terms is `completed`, with harness.reason carrying which
-// way (internal/session, RunResult.Reason).
+// statusFor maps a run's terminal reason onto the surface's status enum. A
+// run that hit its sub-turn ceiling is `incomplete`, which is the same word
+// the surface uses for a generation cut short by a token cap; everything
+// else that ended on its own terms is `completed`, with harness.reason
+// carrying which way (internal/session, RunResult.Reason).
 func statusFor(res *session.RunResult) string {
 	if res.Reason == "max_sub_turns" {
 		return StatusIncomplete
@@ -627,29 +656,30 @@ func statusFor(res *session.RunResult) string {
 	return StatusCompleted
 }
 
-// snapshot builds the Interaction resource. While a run is still going the
-// steps and usage come from its translator, so interactions.get on an
-// in-progress interaction answers with what has happened so far rather than
-// with nothing; once it has finished they are the values finish recorded.
-func (it *interaction) snapshot(withSteps bool) Interaction {
+// snapshot builds the `response` resource. While a run is still going the
+// items and usage come from its translator, so responses.get on an
+// in-progress response answers with what has happened so far rather than
+// with nothing; once it has finished they are the values record wrote.
+func (it *run) snapshot(withItems bool) Response {
 	it.mu.Lock()
 	defer it.mu.Unlock()
 	if it.tr != nil {
-		it.steps, it.usage = it.tr.snapshot()
+		it.items, it.usage = it.tr.snapshot()
 	}
-	out := Interaction{
-		ID: it.id, Object: "interaction", Model: it.model, Status: it.status,
-		Created: it.created.Format(time.RFC3339), Updated: it.updated.Format(time.RFC3339),
-		Errors: it.errors,
+	out := Response{
+		ID: it.id, Object: "response", Model: it.model, Status: it.status,
+		CreatedAt: it.created.Unix(),
+		Error:     it.err,
 	}
-	if withSteps {
-		out.Steps = it.steps
+	if withItems {
+		out.Output = it.items
 	}
 	if it.usage.TotalTokens > 0 {
 		u := it.usage
 		out.Usage = &u
 	}
 	h := it.harness
+	h.UpdatedAt = it.updated.Format(time.RFC3339)
 	out.Harness = &h
 	return out
 }
@@ -659,24 +689,24 @@ func (it *interaction) snapshot(withSteps bool) Interaction {
 func (s *Server) append(ctx context.Context, params json.RawMessage) (any, *rpcError) {
 	var p AppendParams
 	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, errorf(CodeInvalidParams, "interactions.append params: %v", err)
+		return nil, errorf(CodeInvalidParams, "responses.append params: %v", err)
 	}
-	it, ok := s.lookup(p.InteractionID)
+	it, ok := s.lookup(p.ResponseID)
 	if !ok {
-		return nil, errorf(CodeInteractionNotFound, "no interaction %q", p.InteractionID)
+		return nil, errorf(CodeResponseNotFound, "no response %q", p.ResponseID)
 	}
 	it.mu.Lock()
 	status := it.status
 	it.mu.Unlock()
 	if status != StatusInProgress {
-		return nil, errorf(CodeInteractionNotRunning, "interaction %s is %s; start a new interaction with previous_interaction_id set to it instead", it.id, status)
+		return nil, errorf(CodeResponseNotRunning, "response %s is %s; start a new response with previous_response_id set to it instead", it.id, status)
 	}
 	text, rerr := inputText(p.Input)
 	if rerr != nil {
 		return nil, rerr
 	}
 	if text == "" {
-		return nil, errorf(CodeInvalidParams, "interactions.append needs some input")
+		return nil, errorf(CodeInvalidParams, "responses.append needs some input")
 	}
 
 	appended, err := s.opts.Store.AppendEvents(ctx, it.sessionID, []store.EventInput{{
@@ -689,17 +719,17 @@ func (s *Server) append(ctx context.Context, params json.RawMessage) (any, *rpcE
 	if p.Harness != nil && p.Harness.MessageID != "" {
 		s.rememberMessageID(it, appended[0].Seq, p.Harness.MessageID)
 	}
-	return AppendResult{InteractionID: it.id, Seq: appended[0].Seq}, nil
+	return AppendResult{ResponseID: it.id, Seq: appended[0].Seq}, nil
 }
 
-func (s *Server) cancelInteraction(params json.RawMessage) (any, *rpcError) {
+func (s *Server) cancelRun(params json.RawMessage) (any, *rpcError) {
 	var p IDParams
 	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, errorf(CodeInvalidParams, "interactions.cancel params: %v", err)
+		return nil, errorf(CodeInvalidParams, "responses.cancel params: %v", err)
 	}
-	it, ok := s.lookup(p.InteractionID)
+	it, ok := s.lookup(p.ResponseID)
 	if !ok {
-		return nil, errorf(CodeInteractionNotFound, "no interaction %q", p.InteractionID)
+		return nil, errorf(CodeResponseNotFound, "no response %q", p.ResponseID)
 	}
 	it.mu.Lock()
 	cancel, status := it.cancel, it.status
@@ -708,65 +738,65 @@ func (s *Server) cancelInteraction(params json.RawMessage) (any, *rpcError) {
 		// Cancelling something already finished is not an error: it is the
 		// state the caller asked for, and a client racing a completion
 		// should not have to handle both outcomes.
-		return GetResult{Interaction: it.snapshot(true)}, nil
+		return GetResult{Response: it.snapshot(true)}, nil
 	}
 	if cancel != nil {
 		cancel()
 	}
 	<-it.done
-	return GetResult{Interaction: it.snapshot(true)}, nil
+	return GetResult{Response: it.snapshot(true)}, nil
 }
 
 func (s *Server) get(params json.RawMessage) (any, *rpcError) {
 	var p IDParams
 	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, errorf(CodeInvalidParams, "interactions.get params: %v", err)
+		return nil, errorf(CodeInvalidParams, "responses.get params: %v", err)
 	}
-	it, ok := s.lookup(p.InteractionID)
+	it, ok := s.lookup(p.ResponseID)
 	if !ok {
-		return nil, errorf(CodeInteractionNotFound, "no interaction %q", p.InteractionID)
+		return nil, errorf(CodeResponseNotFound, "no response %q", p.ResponseID)
 	}
-	return GetResult{Interaction: it.snapshot(true)}, nil
+	return GetResult{Response: it.snapshot(true)}, nil
 }
 
 func (s *Server) delete(params json.RawMessage) (any, *rpcError) {
 	var p IDParams
 	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, errorf(CodeInvalidParams, "interactions.delete params: %v", err)
+		return nil, errorf(CodeInvalidParams, "responses.delete params: %v", err)
 	}
 	s.mu.Lock()
-	it, ok := s.interactions[p.InteractionID]
+	it, ok := s.runs[p.ResponseID]
 	if ok && s.running == it {
 		s.mu.Unlock()
-		return nil, errorf(CodeInteractionNotRunning, "interaction %s is still running; cancel it first", p.InteractionID)
+		return nil, errorf(CodeResponseNotRunning, "interaction %s is still running; cancel it first", p.ResponseID)
 	}
-	delete(s.interactions, p.InteractionID)
+	delete(s.runs, p.ResponseID)
 	for i, id := range s.order {
-		if id == p.InteractionID {
+		if id == p.ResponseID {
 			s.order = append(s.order[:i], s.order[i+1:]...)
 			break
 		}
 	}
 	s.mu.Unlock()
 	if !ok {
-		return nil, errorf(CodeInteractionNotFound, "no interaction %q", p.InteractionID)
+		return nil, errorf(CodeResponseNotFound, "no response %q", p.ResponseID)
 	}
 	// Google's delete answers with an empty body. The session's own
-	// transcript on disk is untouched: this forgets the interaction, it does
+	// transcript on disk is untouched: this forgets the response, it does
 	// not erase the run.
 	return map[string]any{}, nil
 }
 
 // --- helpers ---
 
-func (s *Server) lookup(id string) (*interaction, bool) {
+func (s *Server) lookup(id string) (*run, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	it, ok := s.interactions[id]
+	it, ok := s.runs[id]
 	return it, ok
 }
 
-func (s *Server) rememberMessageID(it *interaction, seq int64, id string) {
+func (s *Server) rememberMessageID(it *run, seq int64, id string) {
 	it.mu.Lock()
 	tr := it.tr
 	it.mu.Unlock()
@@ -952,63 +982,79 @@ func inputText(raw json.RawMessage) (string, *rpcError) {
 		return s, nil
 	}
 	if trimmed[0] == '{' {
-		var c Content
-		if err := json.Unmarshal(raw, &c); err != nil {
-			return "", errorf(CodeInvalidParams, "input: %v", err)
-		}
-		return contentText([]Content{c})
+		// One item, or one bare content part. The two are told apart the
+		// same way the array branch below tells them apart: by whether the
+		// `type` is one of the content-part types.
+		return inputElement(raw)
 	}
-	// An array: Google allows an array of Content or an array of Step, and
-	// the two are told apart element by element by the `type`
-	// discriminator. Anything with a Content type is content; anything else
-	// has to be a step.
+	// An array: the surface allows a list of input items, and a list of
+	// content parts is accepted too because a client that already had one
+	// should not have to wrap it. They are told apart element by element by
+	// the `type` discriminator.
 	var raws []json.RawMessage
 	if err := json.Unmarshal(raw, &raws); err != nil {
 		return "", errorf(CodeInvalidParams, "input: %v", err)
 	}
 	var parts []string
 	for _, el := range raws {
-		var probe struct {
-			Type string `json:"type"`
+		t, rerr := inputElement(el)
+		if rerr != nil {
+			return "", rerr
 		}
-		if err := json.Unmarshal(el, &probe); err != nil {
-			return "", errorf(CodeInvalidParams, "input: %v", err)
-		}
-		switch probe.Type {
-		case "text", "image":
-			var c Content
-			if err := json.Unmarshal(el, &c); err != nil {
-				return "", errorf(CodeInvalidParams, "input: %v", err)
-			}
-			t, rerr := contentText([]Content{c})
-			if rerr != nil {
-				return "", rerr
-			}
-			parts = append(parts, t)
-		case StepUserInput:
-			var st Step
-			if err := json.Unmarshal(el, &st); err != nil {
-				return "", errorf(CodeInvalidParams, "input: %v", err)
-			}
-			t, rerr := contentText(st.Content)
-			if rerr != nil {
-				return "", rerr
-			}
-			parts = append(parts, t)
-		default:
-			return "", errorf(CodeUnsupported, "input element type %q: only text and image content, and %q steps, are accepted as input", probe.Type, StepUserInput)
-		}
+		parts = append(parts, t)
 	}
 	return strings.Join(parts, "\n\n"), nil
 }
 
-func contentText(blocks []Content) (string, *rpcError) {
+// inputElement reads one element of an input array: a content part, or a
+// message item whose own content is content parts.
+//
+// Only `message` items are read. A create body carrying a function_call or a
+// function_call_output would be a client trying to replay a conversation
+// this process already holds in its own event log, and answering it as if
+// the replay were the truth is worse than refusing it: a resumed session
+// takes its history from the store, never from the create
+// (docs/STDIO-PROTOCOL.md, "Resuming across process restarts").
+func inputElement(raw json.RawMessage) (string, *rpcError) {
+	var probe struct {
+		Type string `json:"type"`
+		Role string `json:"role"`
+	}
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return "", errorf(CodeInvalidParams, "input: %v", err)
+	}
+	switch probe.Type {
+	case PartInputText, PartOutputText, "text", PartInputImage:
+		var c ContentPart
+		if err := json.Unmarshal(raw, &c); err != nil {
+			return "", errorf(CodeInvalidParams, "input: %v", err)
+		}
+		return contentText([]ContentPart{c})
+	case ItemMessage, "":
+		// `type` may be omitted on a message item when `role` is present,
+		// which is what the surface's own schema says.
+		if probe.Type == "" && probe.Role == "" {
+			return "", errorf(CodeInvalidParams, "input element has neither a type nor a role")
+		}
+		var item OutputItem
+		if err := json.Unmarshal(raw, &item); err != nil {
+			return "", errorf(CodeInvalidParams, "input: %v", err)
+		}
+		return contentText(item.Content)
+	default:
+		return "", errorf(CodeUnsupported,
+			"input element type %q: only text content and %q items are accepted as input",
+			probe.Type, ItemMessage)
+	}
+}
+
+func contentText(blocks []ContentPart) (string, *rpcError) {
 	var parts []string
 	for _, b := range blocks {
 		switch b.Type {
-		case "text":
+		case PartInputText, PartOutputText, "text":
 			parts = append(parts, b.Text)
-		case "image":
+		case PartInputImage:
 			// Not built. An image would have to be materialised into the
 			// working directory for the loop to name it in the opening
 			// message (internal/attachment), and writing into a directory
@@ -1021,30 +1067,34 @@ func contentText(blocks []Content) (string, *rpcError) {
 	return strings.Join(parts, "\n"), nil
 }
 
-// effortFrom maps Google's thinking_level onto the loop's effort. The two
-// vocabularies already overlap on "low" and "high", and anything else passes
-// through for internal/gemini to map (intent.go, thinkingLevelFromEffort).
-func effortFrom(g *GenerationConfig) string {
-	if g == nil || g.ThinkingLevel == "" {
+// effortFrom maps the create body's reasoning.effort onto the loop's effort.
+// They are the same vocabulary — the loop's wire.Effort* values are what
+// DeepSeek's reasoning_effort takes — so this passes through, and a provider
+// whose spellings differ maps it in its own client (internal/gemini's
+// intent.go does).
+func effortFrom(r *ReasoningConfig) string {
+	if r == nil || r.Effort == "" {
 		return wire.EffortHigh
 	}
-	return g.ThinkingLevel
+	return r.Effort
 }
 
-// thinkingLevelOf is the level a create body asked for, empty when it named
-// none.
-func thinkingLevelOf(g *GenerationConfig) string {
-	if g == nil {
+// schemaOf is the JSON Schema a create body's text.format named, or nil. It
+// is only ever a json_schema format's own schema: `text` and `json_object`
+// constrain nothing this harness can hold the Complete tool to.
+func schemaOf(t *TextConfig) []byte {
+	if t == nil || t.Format == nil || t.Format.Type != "json_schema" {
+		return nil
+	}
+	return t.Format.Schema
+}
+
+// effortOf is the effort a create body asked for, empty when it named none.
+func effortOf(r *ReasoningConfig) string {
+	if r == nil {
 		return ""
 	}
-	return g.ThinkingLevel
-}
-
-func maxTokensFrom(g *GenerationConfig) int {
-	if g == nil {
-		return 0
-	}
-	return g.MaxOutputTokens
+	return r.Effort
 }
 
 func harnessString(h *CreateHarness, get func(*CreateHarness) string) string {

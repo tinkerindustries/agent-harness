@@ -26,6 +26,14 @@ type Client struct {
 	transport *providerhttp.Transport
 }
 
+// DefaultBaseURL is the host a caller with no configured base URL talks to.
+// `harness serve` reads its own from the environment (internal/config, which
+// depends on nothing internal and carries the same literal); this is for
+// `harness stdio-session`, which loads no configuration at all because the
+// parent owns its working directory and no .env of that directory may reach
+// this process (docs/STDIO-PROTOCOL.md).
+const DefaultBaseURL = "https://api.deepseek.com"
+
 // ErrNoAPIKey is returned before a request is sent when the key provider
 // supplies an empty key — the operator's fix is named rather than DeepSeek's
 // 401 being what they see.
