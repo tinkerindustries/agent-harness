@@ -89,10 +89,10 @@ type Server struct {
 	env map[string]map[string]string
 }
 
-// run is one response, in the shape the Responses API's `response` resource
-// describes it. It is named for what it is here — a whole agentic run —
-// rather than for the resource, because the resource type is Response and
-// the two would otherwise be one letter apart.
+// run is one whole agentic run, in the neutral terms this server keeps it.
+// It holds no shape either surface puts on the wire: the assembled output
+// and the running usage live in the Translator, and the resource a client
+// reads is built from these facts and that document together (RunView).
 type run struct {
 	id        string
 	sessionID string
@@ -100,18 +100,34 @@ type run struct {
 	prev      string
 	cwd       string
 
-	mu      sync.Mutex
-	status  string
-	items   []OutputItem
-	usage   Usage
-	err     *Error
-	harness ResponseHarness
-	created time.Time
-	updated time.Time
+	mu     sync.Mutex
+	status string
+	// reason, text, result and subTurns are what the loop finished with
+	// (internal/session, RunResult), empty until it has.
+	reason   string
+	text     string
+	result   json.RawMessage
+	subTurns int
+	err      *RunError
+	created  time.Time
+	updated  time.Time
 
 	cancel context.CancelFunc
 	done   chan struct{}
-	tr     *translator
+	tr     Translator
+}
+
+// view is the run's facts as a Translator takes them. It is read under the
+// lock, so a get racing the run's end sees one consistent set.
+func (it *run) view(withItems bool) RunView {
+	it.mu.Lock()
+	defer it.mu.Unlock()
+	return RunView{
+		ID: it.id, Model: it.model, Status: it.status, SessionID: it.sessionID,
+		Created: it.created, Updated: it.updated,
+		Reason: it.reason, Text: it.text, Result: it.result,
+		SubTurns: it.subTurns, Err: it.err, WithItems: withItems,
+	}
 }
 
 // newResponseID mints the id a response is addressed by. It is not the
@@ -456,7 +472,6 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 		status: StatusInProgress, created: time.Now().UTC(), updated: time.Now().UTC(),
 		done: make(chan struct{}),
 	}
-	it.harness.SessionID = sessionID
 	host.responseID = it.id
 
 	s.mu.Lock()
@@ -478,12 +493,12 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 	frames, unsubscribe := s.opts.Hub.Subscribe(sessionID)
 	tr := newTranslator(it.id, model, s.notify)
 	if p.Harness != nil {
-		tr.setFirstMessageID(p.Harness.MessageID)
+		tr.SetFirstMessageID(p.Harness.MessageID)
 	}
 	it.mu.Lock()
 	it.tr = tr
 	it.mu.Unlock()
-	tr.created()
+	tr.Created()
 
 	pu := newPump()
 	go pu.drain(frames)
@@ -497,13 +512,13 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 			}
 			switch {
 			case f.Live != nil:
-				tr.live(*f.Live)
+				tr.Live(*f.Live)
 			case f.State != nil:
 				// The session's own metadata row. Nothing on it is part of
 				// the interaction: status and usage both reach the client
 				// through the events themselves.
 			default:
-				tr.event(f.Event)
+				tr.Event(f.Event)
 			}
 		}
 	}()
@@ -578,57 +593,46 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 		case <-ctx.Done():
 			return nil, errorf(CodeInternalError, "response %s: %v", it.id, ctx.Err())
 		}
-		return CreateResult{Response: it.snapshot(true)}, nil
+		return it.tr.Result(it.view(true)), nil
 	}
-	return CreateResult{Response: it.snapshot(false)}, nil
+	return it.tr.Result(it.view(false)), nil
 }
 
 // record writes the run's outcome onto the interaction and, for a run the
 // loop could not finish, emits the `error` notification that precedes the
 // terminal frame. complete emits the terminal frame itself, once the
 // interaction is no longer the running one.
-func (s *Server) record(it *run, tr *translator, res *session.RunResult, err error, cancelled bool) {
-	tr.closeText()
+func (s *Server) record(it *run, tr Translator, res *session.RunResult, err error, cancelled bool) {
+	tr.CloseText()
 
-	items, usage := tr.snapshot()
 	it.mu.Lock()
-	it.items = items
-	it.usage = usage
-	it.tr = nil
 	it.updated = time.Now().UTC()
 	switch {
 	case cancelled:
 		it.status = StatusCancelled
-		it.harness.Reason = "cancelled"
+		it.reason = "cancelled"
 	case err != nil:
 		it.status = StatusFailed
-		it.err = &Error{Code: "internal", Message: err.Error()}
+		it.err = &RunError{Code: "internal", Message: err.Error()}
 	case res != nil:
 		it.status = statusFor(res)
-		it.harness.Reason = res.Reason
-		it.harness.Text = res.Text
-		it.harness.Result = res.Result
-		it.harness.SubTurns = res.SubTurns
+		it.reason = res.Reason
+		it.text = res.Text
+		it.result = res.Result
+		it.subTurns = res.SubTurns
 	default:
 		it.status = StatusFailed
-	}
-	if it.usage.Harness != nil && res != nil {
-		it.usage.Harness.SubTurns = res.SubTurns
 	}
 	it.mu.Unlock()
 
 	if err != nil && !cancelled {
-		// response.failed carries the whole response object, the way the
-		// surface's own terminal error event does, so a client that reads
-		// only terminal frames still gets the run's status and usage with
-		// the message.
-		tr.terminal(NotifyResponseFailed, it.snapshot(false))
+		tr.Failed(it.view(false))
 	}
 }
 
 // complete emits the last notification a response ever produces.
-func (s *Server) complete(it *run, tr *translator) {
-	tr.terminal(NotifyResponseCompleted, it.snapshot(true))
+func (s *Server) complete(it *run, tr Translator) {
+	tr.Completed(it.view(true))
 }
 
 // statusFor maps a run's terminal reason onto the surface's status enum. A
@@ -644,34 +648,6 @@ func statusFor(res *session.RunResult) string {
 		return StatusFailed
 	}
 	return StatusCompleted
-}
-
-// snapshot builds the `response` resource. While a run is still going the
-// items and usage come from its translator, so responses.get on an
-// in-progress response answers with what has happened so far rather than
-// with nothing; once it has finished they are the values record wrote.
-func (it *run) snapshot(withItems bool) Response {
-	it.mu.Lock()
-	defer it.mu.Unlock()
-	if it.tr != nil {
-		it.items, it.usage = it.tr.snapshot()
-	}
-	out := Response{
-		ID: it.id, Object: "response", Model: it.model, Status: it.status,
-		CreatedAt: it.created.Unix(),
-		Error:     it.err,
-	}
-	if withItems {
-		out.Output = it.items
-	}
-	if it.usage.TotalTokens > 0 {
-		u := it.usage
-		out.Usage = &u
-	}
-	h := it.harness
-	h.UpdatedAt = it.updated.Format(time.RFC3339)
-	out.Harness = &h
-	return out
 }
 
 // --- append, cancel, get, delete ---
@@ -725,13 +701,13 @@ func (s *Server) cancelRun(params json.RawMessage) (any, *rpcError) {
 		// Cancelling something already finished is not an error: it is the
 		// state the caller asked for, and a client racing a completion
 		// should not have to handle both outcomes.
-		return GetResult{Response: it.snapshot(true)}, nil
+		return it.tr.Result(it.view(true)), nil
 	}
 	if cancel != nil {
 		cancel()
 	}
 	<-it.done
-	return GetResult{Response: it.snapshot(true)}, nil
+	return it.tr.Result(it.view(true)), nil
 }
 
 func (s *Server) get(params json.RawMessage) (any, *rpcError) {
@@ -743,7 +719,7 @@ func (s *Server) get(params json.RawMessage) (any, *rpcError) {
 	if !ok {
 		return nil, errorf(CodeResponseNotFound, "no response %q", p.ResponseID)
 	}
-	return GetResult{Response: it.snapshot(true)}, nil
+	return it.tr.Result(it.view(true)), nil
 }
 
 func (s *Server) delete(params json.RawMessage) (any, *rpcError) {
@@ -788,7 +764,7 @@ func (s *Server) rememberMessageID(it *run, seq int64, id string) {
 	tr := it.tr
 	it.mu.Unlock()
 	if tr != nil {
-		tr.setMessageID(seq, id)
+		tr.SetMessageID(seq, id)
 	}
 }
 
@@ -948,110 +924,6 @@ func (s *Server) callFunction(ctx context.Context, p FunctionCallParams) (Functi
 		return FunctionCallResult{}, err
 	}
 	return res, nil
-}
-
-// inputText flattens Google's polymorphic `input` into the instruction the
-// loop takes. All four forms Google accepts are read: a bare string, one
-// Content, an array of Content, and an array of Step.
-func inputText(raw json.RawMessage) (string, *rpcError) {
-	if len(raw) == 0 {
-		return "", nil
-	}
-	trimmed := strings.TrimSpace(string(raw))
-	if trimmed == "null" {
-		return "", nil
-	}
-	if trimmed[0] == '"' {
-		var s string
-		if err := json.Unmarshal(raw, &s); err != nil {
-			return "", errorf(CodeInvalidParams, "input: %v", err)
-		}
-		return s, nil
-	}
-	if trimmed[0] == '{' {
-		// One item, or one bare content part. The two are told apart the
-		// same way the array branch below tells them apart: by whether the
-		// `type` is one of the content-part types.
-		return inputElement(raw)
-	}
-	// An array: the surface allows a list of input items, and a list of
-	// content parts is accepted too because a client that already had one
-	// should not have to wrap it. They are told apart element by element by
-	// the `type` discriminator.
-	var raws []json.RawMessage
-	if err := json.Unmarshal(raw, &raws); err != nil {
-		return "", errorf(CodeInvalidParams, "input: %v", err)
-	}
-	var parts []string
-	for _, el := range raws {
-		t, rerr := inputElement(el)
-		if rerr != nil {
-			return "", rerr
-		}
-		parts = append(parts, t)
-	}
-	return strings.Join(parts, "\n\n"), nil
-}
-
-// inputElement reads one element of an input array: a content part, or a
-// message item whose own content is content parts.
-//
-// Only `message` items are read. A create body carrying a function_call or a
-// function_call_output would be a client trying to replay a conversation
-// this process already holds in its own event log, and answering it as if
-// the replay were the truth is worse than refusing it: a resumed session
-// takes its history from the store, never from the create
-// (docs/STDIO-PROTOCOL.md, "Resuming across process restarts").
-func inputElement(raw json.RawMessage) (string, *rpcError) {
-	var probe struct {
-		Type string `json:"type"`
-		Role string `json:"role"`
-	}
-	if err := json.Unmarshal(raw, &probe); err != nil {
-		return "", errorf(CodeInvalidParams, "input: %v", err)
-	}
-	switch probe.Type {
-	case PartInputText, PartOutputText, "text", PartInputImage:
-		var c ContentPart
-		if err := json.Unmarshal(raw, &c); err != nil {
-			return "", errorf(CodeInvalidParams, "input: %v", err)
-		}
-		return contentText([]ContentPart{c})
-	case ItemMessage, "":
-		// `type` may be omitted on a message item when `role` is present,
-		// which is what the surface's own schema says.
-		if probe.Type == "" && probe.Role == "" {
-			return "", errorf(CodeInvalidParams, "input element has neither a type nor a role")
-		}
-		var item OutputItem
-		if err := json.Unmarshal(raw, &item); err != nil {
-			return "", errorf(CodeInvalidParams, "input: %v", err)
-		}
-		return contentText(item.Content)
-	default:
-		return "", errorf(CodeUnsupported,
-			"input element type %q: only text content and %q items are accepted as input",
-			probe.Type, ItemMessage)
-	}
-}
-
-func contentText(blocks []ContentPart) (string, *rpcError) {
-	var parts []string
-	for _, b := range blocks {
-		switch b.Type {
-		case PartInputText, PartOutputText, "text":
-			parts = append(parts, b.Text)
-		case PartInputImage:
-			// Not built. An image would have to be materialised into the
-			// working directory for the loop to name it in the opening
-			// message (internal/attachment), and writing into a directory
-			// the client owns is a decision this protocol has not taken.
-			return "", errorf(CodeUnsupported, "image input is not implemented: write the file into the working directory and name its path in the text instead")
-		default:
-			return "", errorf(CodeInvalidParams, "input content type %q", b.Type)
-		}
-	}
-	return strings.Join(parts, "\n"), nil
 }
 
 // effortFrom maps the create body's reasoning.effort onto the loop's effort.

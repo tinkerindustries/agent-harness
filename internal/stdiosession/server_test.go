@@ -609,7 +609,7 @@ func TestStdinCloseEndsTheProcess(t *testing.T) {
 	// The fixture's cleanup asserts the server stopped; this asserts the
 	// run it was hosting stopped with it.
 	<-f.srvRunningDone()
-	if got := f.srv.runs[created.Response.ID].snapshot(false).Status; got != StatusCancelled {
+	if got := f.srv.runs[created.Response.ID].view(false).Status; got != StatusCancelled {
 		t.Errorf("status after stdin closed = %q, want %q", got, StatusCancelled)
 	}
 }

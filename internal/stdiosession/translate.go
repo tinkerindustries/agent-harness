@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/mrgeoffrich/agent-harness/internal/hub"
 	"github.com/mrgeoffrich/agent-harness/internal/store"
@@ -103,7 +104,7 @@ func (t *translator) terminal(method string, resp Response) {
 }
 
 // created emits response.created, the first frame of every stream.
-func (t *translator) created() {
+func (t *translator) Created() {
 	t.emit(NotifyResponseCreated, responseEnvelope{
 		Type:           NotifyResponseCreated,
 		SequenceNumber: t.next(),
@@ -204,7 +205,7 @@ func appendText(parts *[]ContentPart, kind, text string) {
 
 // live translates one hub live delta: the answer text and the reasoning
 // text as the model produces them.
-func (t *translator) live(d hub.LiveDelta) {
+func (t *translator) Live(d hub.LiveDelta) {
 	switch d.Channel {
 	case hub.ChannelReasoning:
 		if t.reasoning < 0 {
@@ -220,7 +221,7 @@ func (t *translator) live(d hub.LiveDelta) {
 }
 
 // event translates one committed event.
-func (t *translator) event(e store.Event) {
+func (t *translator) Event(e store.Event) {
 	switch e.Kind {
 	case store.KindSessionStarted:
 		var p store.SessionStartedPayload
@@ -231,7 +232,7 @@ func (t *translator) event(e store.Event) {
 		// task, the workspace listing, the skills catalogue, the repository
 		// instructions. A parent that wants to render only what its user
 		// typed reads harness.source and the task it sent, not this text.
-		t.userInput(p.OpeningMessage, "input", t.messageIDFor(0))
+		t.UserInput(p.OpeningMessage, "input", t.messageIDFor(0))
 	case store.KindSteerApplied:
 		var p store.SteerAppliedPayload
 		if json.Unmarshal(e.Payload, &p) != nil {
@@ -241,13 +242,13 @@ func (t *translator) event(e store.Event) {
 		if p.SourceSeq == 0 {
 			source = "reminder"
 		}
-		t.userInput(p.Text, source, t.messageIDFor(p.SourceSeq))
+		t.UserInput(p.Text, source, t.messageIDFor(p.SourceSeq))
 	case store.KindTurnStarted:
 		var p store.TurnStartedPayload
 		if json.Unmarshal(e.Payload, &p) != nil {
 			return
 		}
-		t.closeText()
+		t.CloseText()
 		t.subTurn = p.SubTurn
 		t.emit(NotifyResponseInProgress, inProgress{
 			Type: NotifyResponseInProgress, SequenceNumber: t.next(),
@@ -288,7 +289,7 @@ func (t *translator) event(e store.Event) {
 		if json.Unmarshal(e.Payload, &p) != nil {
 			return
 		}
-		t.closeText()
+		t.CloseText()
 		idx := t.addItem(OutputItem{
 			Type: ItemFunctionCall, CallID: p.ID, Name: p.Name,
 			Arguments: json.RawMessage("{}"),
@@ -352,13 +353,13 @@ func (t *translator) event(e store.Event) {
 			ResponseID: t.responseID, SubTurn: p.SubTurn, Usage: one,
 		})
 	case store.KindTurnFinished:
-		t.closeText()
+		t.CloseText()
 	case store.KindError:
 		var p store.ErrorPayload
 		if json.Unmarshal(e.Payload, &p) != nil {
 			return
 		}
-		t.closeText()
+		t.CloseText()
 		t.emit(NotifyResponseFailed, responseEnvelope{
 			Type: NotifyResponseFailed, SequenceNumber: t.next(),
 			Response: Response{
@@ -372,7 +373,7 @@ func (t *translator) event(e store.Event) {
 
 // setFirstMessageID records the id the create body's own input was sent
 // under, echoed on the user message item the run's opening message becomes.
-func (t *translator) setFirstMessageID(id string) {
+func (t *translator) SetFirstMessageID(id string) {
 	t.idMu.Lock()
 	t.firstMessageID = id
 	t.idMu.Unlock()
@@ -382,7 +383,7 @@ func (t *translator) setFirstMessageID(id string) {
 // steer_message sequence number the append landed at. The steer_applied
 // event that eventually folds it into the conversation names that same
 // sequence, which is what ties the echo back to what the client sent.
-func (t *translator) setMessageID(seq int64, id string) {
+func (t *translator) SetMessageID(seq int64, id string) {
 	t.idMu.Lock()
 	t.messageIDs[seq] = id
 	t.idMu.Unlock()
@@ -400,11 +401,11 @@ func (t *translator) messageIDFor(seq int64) string {
 // userInput emits a user message item. It carries its whole content on
 // output_item.added and emits no deltas, because the text was never streamed
 // — it was already complete when the loop recorded it.
-func (t *translator) userInput(text, source, messageID string) {
+func (t *translator) UserInput(text, source, messageID string) {
 	if text == "" {
 		return
 	}
-	t.closeText()
+	t.CloseText()
 	idx := t.addItem(OutputItem{
 		Type: ItemMessage, Role: "user",
 		Content: TextPart(PartInputText, text),
@@ -415,7 +416,7 @@ func (t *translator) userInput(text, source, messageID string) {
 
 // closeText closes whichever of the two streamed items is still open. Called
 // before anything that must not appear inside them.
-func (t *translator) closeText() {
+func (t *translator) CloseText() {
 	if t.reasoning >= 0 {
 		t.doneItem(t.reasoning)
 		t.reasoning = -1
@@ -472,4 +473,59 @@ func usageFrom(p store.UsagePayload) Usage {
 		TotalTokens:         input + p.CompletionTokens,
 		Harness:             &UsageX{CostUSD: p.CostUSD},
 	}
+}
+
+// Resource builds the `response` resource. The items and the usage come from
+// this translator whether the run is still going or has finished, so
+// responses.get on an in-progress response answers with what has happened so
+// far rather than with nothing.
+func (t *translator) Resource(v RunView) any {
+	items, usage := t.snapshot()
+	out := Response{
+		ID: v.ID, Object: "response", Model: v.Model, Status: v.Status,
+		CreatedAt: v.Created.Unix(),
+	}
+	if v.Err != nil {
+		out.Error = &Error{Code: v.Err.Code, Message: v.Err.Message}
+	}
+	if v.WithItems {
+		out.Output = items
+	}
+	if usage.TotalTokens > 0 {
+		if usage.Harness != nil && v.SubTurns > 0 {
+			h := *usage.Harness
+			h.SubTurns = v.SubTurns
+			usage.Harness = &h
+		}
+		out.Usage = &usage
+	}
+	out.Harness = &ResponseHarness{
+		SessionID: v.SessionID,
+		Reason:    v.Reason,
+		Text:      v.Text,
+		Result:    v.Result,
+		SubTurns:  v.SubTurns,
+		UpdatedAt: v.Updated.Format(time.RFC3339),
+	}
+	return out
+}
+
+// Result is the body responses.create, .cancel and .get answer with.
+func (t *translator) Result(v RunView) any {
+	return CreateResult{Response: t.Resource(v).(Response)}
+}
+
+// Completed emits response.completed, carrying the whole assembled response
+// the way the surface's own terminal frame does.
+func (t *translator) Completed(v RunView) {
+	v.WithItems = true
+	t.terminal(NotifyResponseCompleted, t.Resource(v).(Response))
+}
+
+// Failed emits response.failed. It carries the response object too, so a
+// client that reads only terminal frames still gets the run's status and
+// usage with the message.
+func (t *translator) Failed(v RunView) {
+	v.WithItems = false
+	t.terminal(NotifyResponseFailed, t.Resource(v).(Response))
 }

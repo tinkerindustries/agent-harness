@@ -1,6 +1,9 @@
 package stdiosession
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // CreateRequest is a create body with the vocabulary taken off it: what the
 // run is, in the terms the rest of this package and internal/session take it
@@ -136,4 +139,108 @@ func effortOf(r *ReasoningConfig) string {
 		return ""
 	}
 	return r.Effort
+}
+
+// inputText flattens the surface's polymorphic `input` into the one
+// instruction the loop takes. All four forms are read: a bare string, one
+// content part, an array of content parts, and an array of input items.
+func inputText(raw json.RawMessage) (string, *rpcError) {
+	if len(raw) == 0 {
+		return "", nil
+	}
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "null" {
+		return "", nil
+	}
+	if trimmed[0] == '"' {
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return "", errorf(CodeInvalidParams, "input: %v", err)
+		}
+		return s, nil
+	}
+	if trimmed[0] == '{' {
+		// One item, or one bare content part. The two are told apart the
+		// same way the array branch below tells them apart: by whether the
+		// `type` is one of the content-part types.
+		return inputElement(raw)
+	}
+	// An array: the surface allows a list of input items, and a list of
+	// content parts is accepted too because a client that already had one
+	// should not have to wrap it. They are told apart element by element by
+	// the `type` discriminator.
+	var raws []json.RawMessage
+	if err := json.Unmarshal(raw, &raws); err != nil {
+		return "", errorf(CodeInvalidParams, "input: %v", err)
+	}
+	var parts []string
+	for _, el := range raws {
+		t, rerr := inputElement(el)
+		if rerr != nil {
+			return "", rerr
+		}
+		parts = append(parts, t)
+	}
+	return strings.Join(parts, "\n\n"), nil
+}
+
+// inputElement reads one element of an input array: a content part, or a
+// message item whose own content is content parts.
+//
+// Only `message` items are read. A create body carrying a function_call or a
+// function_call_output would be a client trying to replay a conversation
+// this process already holds in its own event log, and answering it as if
+// the replay were the truth is worse than refusing it: a resumed session
+// takes its history from the store, never from the create
+// (docs/STDIO-PROTOCOL.md, "Resuming across process restarts").
+func inputElement(raw json.RawMessage) (string, *rpcError) {
+	var probe struct {
+		Type string `json:"type"`
+		Role string `json:"role"`
+	}
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return "", errorf(CodeInvalidParams, "input: %v", err)
+	}
+	switch probe.Type {
+	case PartInputText, PartOutputText, "text", PartInputImage:
+		var c ContentPart
+		if err := json.Unmarshal(raw, &c); err != nil {
+			return "", errorf(CodeInvalidParams, "input: %v", err)
+		}
+		return contentText([]ContentPart{c})
+	case ItemMessage, "":
+		// `type` may be omitted on a message item when `role` is present,
+		// which is what the surface's own schema says.
+		if probe.Type == "" && probe.Role == "" {
+			return "", errorf(CodeInvalidParams, "input element has neither a type nor a role")
+		}
+		var item OutputItem
+		if err := json.Unmarshal(raw, &item); err != nil {
+			return "", errorf(CodeInvalidParams, "input: %v", err)
+		}
+		return contentText(item.Content)
+	default:
+		return "", errorf(CodeUnsupported,
+			"input element type %q: only text content and %q items are accepted as input",
+			probe.Type, ItemMessage)
+	}
+}
+
+func contentText(blocks []ContentPart) (string, *rpcError) {
+	var parts []string
+	for _, b := range blocks {
+		switch b.Type {
+		case PartInputText, PartOutputText, "text":
+			parts = append(parts, b.Text)
+		case PartInputImage:
+			// Not built. An image would have to be materialised into the
+			// working directory for the loop to name it in the opening
+			// message (internal/attachment), and writing into a directory
+			// the client owns is a decision this protocol has not taken.
+			return "", errorf(CodeUnsupported, "image input is not implemented: write the file into the working directory and name its path in the text instead")
+		default:
+			return "", errorf(CodeInvalidParams, "input content type %q", b.Type)
+		}
+	}
+	return strings.Join(parts, "\n"), nil
 }
