@@ -38,6 +38,25 @@ func toolResultItem(p store.ToolResultPayload) wire.Item {
 	return wire.FunctionCallOutputItem(p.ToolCallID, p.Content, p.ImageURL)
 }
 
+// interruptedToolOutput stands in for a tool call the log carries no output
+// for. It says the call may well have run, because it may well have: the
+// tool was executing when the session was stopped, and a Bash command that
+// wrote a file wrote it whether or not the result was recorded.
+const interruptedToolOutput = "The session was stopped while this tool call was running, so its result was never recorded. " +
+	"The call may have finished, partly finished, or not run at all. Check the state of anything it would have " +
+	"changed before calling it again."
+
+// dropPending removes id from pending, keeping the order of the rest. A call
+// id appears at most once, so this stops at the first match.
+func dropPending(pending []string, id string) []string {
+	for i, p := range pending {
+		if p == id {
+			return append(pending[:i], pending[i+1:]...)
+		}
+	}
+	return pending
+}
+
 // Fold reconstructs the item list for sess from events: the frozen system
 // prompt, the opening user message, and every completed sub-turn. Events
 // past an incomplete sub-turn (deltas seen but no turn_finished yet)
@@ -61,6 +80,16 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Item, error) {
 	// byte-for-byte, not accumulate like prose.
 	var signature string
 	inTurn := false
+	// turnCallIDs are this sub-turn's call ids, buffered alongside toolCalls
+	// so they move into pending only when the calls themselves are emitted.
+	// An unfinished sub-turn's calls never reach the item list, and must not
+	// reach pending either, or the orphan flush below would emit an output
+	// addressed to a call the model was never shown.
+	var turnCallIDs []string
+	// pending holds the ids of emitted tool calls no output has been seen
+	// for, in call order. An id leaves it when its tool_result or
+	// tool_denied arrives.
+	var pending []string
 
 	flushAssistant := func() {
 		// The reasoning item comes first, ahead of the text and the calls it
@@ -77,11 +106,32 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Item, error) {
 			items = append(items, wire.AssistantItem(content.String()))
 		}
 		items = append(items, toolCalls...)
+		pending = append(pending, turnCallIDs...)
 		reasoning.Reset()
 		content.Reset()
 		toolCalls = nil
+		turnCallIDs = nil
 		signature = ""
 		inTurn = false
+	}
+
+	// flushOrphanedCalls closes off tool calls the log will never carry an
+	// output for. It runs where the conversation has demonstrably moved past
+	// the tool round — the next sub-turn starting, or a user message being
+	// placed — because neither of those can be reached until the previous
+	// sub-turn has committed its results or died trying. A call still
+	// pending at that point was interrupted, and its output is never coming.
+	//
+	// Waiting for one of those events is also what keeps the fold
+	// append-only (see the package comment): the ordinary window where a
+	// call has been emitted and its result has not yet been committed ends
+	// before any of them, so folding a prefix that stops inside that window
+	// emits no stand-in, and folding further only ever appends one.
+	flushOrphanedCalls := func() {
+		for _, id := range pending {
+			items = append(items, wire.FunctionCallOutputItem(id, interruptedToolOutput, ""))
+		}
+		pending = nil
 	}
 
 	for _, e := range events {
@@ -91,9 +141,11 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Item, error) {
 			if err := json.Unmarshal(e.Payload, &p); err != nil {
 				return nil, fmt.Errorf("fold: session_started at seq %d: %w", e.Seq, err)
 			}
+			flushOrphanedCalls()
 			items = append(items, wire.UserItem(p.OpeningMessage))
 
 		case store.KindTurnStarted:
+			flushOrphanedCalls()
 			inTurn = true
 
 		case store.KindReasoningDelta:
@@ -119,6 +171,7 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Item, error) {
 				return nil, fmt.Errorf("fold: tool_call at seq %d: %w", e.Seq, err)
 			}
 			toolCalls = append(toolCalls, wire.FunctionCallItem(p.ID, p.Name, p.Arguments))
+			turnCallIDs = append(turnCallIDs, p.ID)
 
 		case store.KindTurnFinished:
 			if inTurn {
@@ -131,6 +184,7 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Item, error) {
 				return nil, fmt.Errorf("fold: tool_result at seq %d: %w", e.Seq, err)
 			}
 			items = append(items, toolResultItem(p))
+			pending = dropPending(pending, p.ToolCallID)
 
 		case store.KindToolDenied:
 			var p store.ToolDeniedPayload
@@ -138,12 +192,14 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Item, error) {
 				return nil, fmt.Errorf("fold: tool_denied at seq %d: %w", e.Seq, err)
 			}
 			items = append(items, wire.FunctionCallOutputItem(p.ToolCallID, p.Content, ""))
+			pending = dropPending(pending, p.ToolCallID)
 
 		case store.KindSteerApplied:
 			var p store.SteerAppliedPayload
 			if err := json.Unmarshal(e.Payload, &p); err != nil {
 				return nil, fmt.Errorf("fold: steer_applied at seq %d: %w", e.Seq, err)
 			}
+			flushOrphanedCalls()
 			if p.Role == wire.RoleSystem {
 				items = append(items, wire.SystemItem(p.Text))
 			} else {

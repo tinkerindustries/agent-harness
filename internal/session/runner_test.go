@@ -1186,3 +1186,133 @@ func TestSeesImages(t *testing.T) {
 		}
 	}
 }
+
+// blockingBashServer answers the first streaming request with one Bash call
+// running cmd, and every later request with plain text. started closes once
+// the tool call has been handed back, so a test can cancel while the command
+// is running.
+func blockingBashServer(t *testing.T, cmd string, started chan struct{}) *httptest.Server {
+	var once sync.Once
+	var mu sync.Mutex
+	first := true
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		isFirst := first
+		first = false
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		if isFirst {
+			args := fmt.Sprintf(`{"command":%q}`, cmd)
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
+					Role:      "assistant",
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_slow", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Bash", Arguments: args}}},
+				}}},
+			})
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishToolCalls)}},
+				Usage:   &wire.Usage{PromptTokens: 200, CompletionTokens: 5},
+			})
+			fmt.Fprint(w, "data: [DONE]\n\n")
+			w.(http.Flusher).Flush()
+			once.Do(func() { close(started) })
+			return
+		}
+
+		writeSSEChunk(t, w, wire.ChatCompletionChunk{
+			Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{Role: "assistant", Content: strPtr("done")}}},
+		})
+		writeSSEChunk(t, w, wire.ChatCompletionChunk{
+			Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishStop)}},
+			Usage:   &wire.Usage{PromptTokens: 200, CompletionTokens: 5},
+		})
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		w.(http.Flusher).Flush()
+	}))
+}
+
+// TestToolResultsCommitAfterCancel is the log-integrity half of the
+// wedged-session fix. A stop cancels the run's context, which can land while
+// a tool is still running. The tool_call events were committed before the
+// tools ran, and Store.submit refuses a cancelled context outright, so
+// committing the results on the run's own context leaves a tool call in the
+// log with no output beside it — and every provider then rejects the next
+// request for the life of the session ("No tool output found for tool call
+// <id>"), which no retry, resume or new prompt can get past.
+//
+// The test cancels while a `sleep` is in flight and asserts the log holds a
+// tool_result for the call anyway. It fails if the results are committed on
+// the cancelled context: the append returns context.Canceled and the event
+// never lands.
+func TestToolResultsCommitAfterCancel(t *testing.T) {
+	started := make(chan struct{})
+	srv := blockingBashServer(t, "sleep 30", started)
+	defer srv.Close()
+	r := newTestRunner(t, srv.URL)
+
+	ws := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := r.Run(ctx, RunOptions{
+			SessionID: "sess-cancel-tools", Model: "test-model", Effort: wire.EffortHigh,
+			Thinking: true, MaxTokens: 4000,
+			Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "run the slow thing",
+		})
+		errCh <- err
+	}()
+
+	select {
+	case <-started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the run never reached its first tool call")
+	}
+	// The sub-turn has committed its tool_call and handed `sleep 30` to the
+	// executor. Cancelling here is a stop landing mid-tool-call.
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-errCh:
+	case <-time.After(40 * time.Second):
+		t.Fatal("run did not return after the cancel")
+	}
+
+	events, err := r.Store.GetEvents(context.Background(), "sess-cancel-tools")
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := map[string]bool{}
+	answered := map[string]bool{}
+	for _, e := range events {
+		switch e.Kind {
+		case store.KindToolCall:
+			var p store.ToolCallPayload
+			if err := json.Unmarshal(e.Payload, &p); err != nil {
+				t.Fatal(err)
+			}
+			calls[p.ID] = true
+		case store.KindToolResult:
+			var p store.ToolResultPayload
+			if err := json.Unmarshal(e.Payload, &p); err != nil {
+				t.Fatal(err)
+			}
+			answered[p.ToolCallID] = true
+		case store.KindToolDenied:
+			var p store.ToolDeniedPayload
+			if err := json.Unmarshal(e.Payload, &p); err != nil {
+				t.Fatal(err)
+			}
+			answered[p.ToolCallID] = true
+		}
+	}
+	if len(calls) == 0 {
+		t.Fatal("no tool_call event was committed, so the test proved nothing")
+	}
+	for id := range calls {
+		if !answered[id] {
+			t.Fatalf("tool call %s has no tool_result or tool_denied in the log — a request replaying it is refused by the provider", id)
+		}
+	}
+}

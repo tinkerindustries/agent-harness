@@ -52,6 +52,12 @@ const steerPollInterval = time.Second
 // (internal/hub). Coalescing is what keeps a watching tab attached.
 const liveFlushInterval = 100 * time.Millisecond
 
+// toolResultCommitTimeout bounds the tool-result append that runs on a
+// detached context after a sub-turn's tools have finished. Long enough that
+// a loaded SQLite writer still lands the batch, short enough that a stop
+// cannot be held up by one.
+const toolResultCommitTimeout = 10 * time.Second
+
 // liveSink publishes model output to the hub as it streams, coalesced into
 // at most one frame per channel per liveFlushInterval. Nothing it sends is
 // stored: the sub-turn's real reasoning_delta and content_delta events are
@@ -444,7 +450,17 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 		}
 	}
 
-	appended2, err := r.Store.AppendEvents(ctx, sess.ID, toolInputs)
+	// The tool results commit on a context detached from ctx, because a
+	// cancelled turn must still finish writing them. The tool_call events
+	// went into the log before the tools ran, and Store.submit refuses a
+	// cancelled context outright, so sharing ctx here leaves the log holding
+	// a tool call with no output — which every provider rejects on the next
+	// request, for the rest of the session's life, with no way back
+	// (docs/RUN-CONTROL.md, "A cancelled tool round"). The write is bounded
+	// on its own so a cancel cannot be made to wait here indefinitely.
+	commitCtx, cancelCommit := context.WithTimeout(context.WithoutCancel(ctx), toolResultCommitTimeout)
+	defer cancelCommit()
+	appended2, err := r.Store.AppendEvents(commitCtx, sess.ID, toolInputs)
 	if err != nil {
 		return subTurnOutcome{}, fmt.Errorf("session: commit tool results for sub-turn %d: %w", subTurn, err)
 	}
