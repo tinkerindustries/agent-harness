@@ -224,9 +224,9 @@ Our rule of never sending `tool_choice` from the main loop stands, because
 The most consequential result here, and a negative one.
 
 Three sources say omitting `reasoning_content` from a tool-call assistant
-message returns 400. `guides/thinking_mode.md`: "the API will return 400."
-`oh_my_pi.md`: "Skipping this causes 400." `copilot_cli.md` quotes the error
-text verbatim. DESIGN.md §3.1 was built on it.
+message returns 400. `guides/thinking_mode.md`: "the API will return a 400
+error." `oh_my_pi.md`: "Skipping this causes 400." `copilot_cli.md` quotes
+the error text verbatim. DESIGN.md §3.1 was built on it.
 
 It could not be provoked. Every one of these returned 200:
 
