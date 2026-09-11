@@ -250,8 +250,21 @@ unit of work for anything iterative: look, change something, look again.
 
 `internal/session`'s `Resume` is the whole of it. It reads the frozen session
 row back — workspace, model, effort, permission mode, deny patterns, the
-stored `tool_schema` — appends the continuation as a second `session_started`,
-promotes the row to `running` and re-enters the same loop.
+stored `tool_schema` — promotes the row to `running`, appends the
+continuation as a second `session_started`, and re-enters the same loop.
+
+The row is promoted *before* the continuation is appended, and that ordering
+is what makes a stopped session resumable at all: `cancelled` is one of the
+terminal statuses Resume accepts, and `AppendEvents` refuses to write to a
+session still in it ("Half two" fence, above). Promoting first, rather than
+appending against the still-cancelled row and promoting once that succeeds,
+is not a race against the stop that put it there — a session Resume reads as
+`cancelled` has already had its last store write from whichever goroutine
+cancelled it (`fail`, or `resumeTarget`'s reclaim of a row an earlier process
+left `running`), so there is nothing left to race. If the append then fails
+for some other reason, Resume writes the row back to the status and
+`finished_at` it read at the start, rather than leaving a `running` row with
+no goroutine behind it.
 
 A continuation cannot change the directory the chain started in. One chain of
 responses is one session, and one session is one workspace: the frozen head

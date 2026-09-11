@@ -111,6 +111,145 @@ func TestResumeAcrossProcesses(t *testing.T) {
 	}
 }
 
+// TestPreviousInteractionResumesAfterCancel reproduces the bug report end to
+// end: a client cancels an interaction mid-turn, and the very next message —
+// sent the ordinary way, naming the cancelled interaction as
+// previous_interaction_id — used to fail no matter what, with
+// "session: resume: record continuation: store: session is cancelled".
+// store.AppendEvents refuses to write to a "cancelled" row (the fence that
+// stops a wedged goroutine from dirtying the log it was stopped in), and
+// internal/session's Resume used to call it before lifting the row back to
+// running, so a genuine resume tripped the fence meant for somebody else's
+// write. This is the in-process continuation route: previous_interaction_id
+// resolves against this server's own memory, reaching Runner.Resume directly
+// with no reclaim logic in between (unlike harness.resume_session_id's
+// resumeTarget).
+func TestPreviousInteractionResumesAfterCancel(t *testing.T) {
+	// callThen keeps the run going with a tool call, so there is a turn in
+	// flight to cancel; one stream only, the way TestCancelEndsTheInteraction
+	// uses it, so the fake server's clamp-to-last-stream behaviour has
+	// nothing to disambiguate between the cancelled interaction's own
+	// requests and the resumed one's — every request, before and after the
+	// cancel, gets the same tool call and keeps the run going.
+	f := newFixture(t, callThen("call-1", "TodoWrite", `{"todos":[]}`))
+	f.client.handshake(ClientCapabilities{})
+
+	var created CreateResult
+	if rerr := f.client.call(MethodResponsesCreate, f.createParams("loop"), &created); rerr != nil {
+		t.Fatalf("first create: %v", rerr)
+	}
+	f.client.waitFor(NotifyOutputItemAdded)
+
+	var cancelled GetResult
+	if rerr := f.client.call(MethodResponsesCancel, IDParams{ResponseID: created.Response.ID}, &cancelled); rerr != nil {
+		t.Fatalf("cancel: %v", rerr)
+	}
+	if cancelled.Response.Status != StatusCancelled {
+		t.Fatalf("status after cancel = %q, want %q", cancelled.Response.Status, StatusCancelled)
+	}
+	f.client.waitFor(NotifyResponseCompleted)
+	sessionID := cancelled.Response.Harness.SessionID
+
+	sess, err := f.srv.opts.Store.GetSession(context.Background(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.Status != store.StatusCancelled {
+		t.Fatalf("stored session status = %q, want %q before resuming it", sess.Status, store.StatusCancelled)
+	}
+
+	next := CreateParams{Model: testModel, PreviousResponseID: created.Response.ID}
+	next.Input, _ = json.Marshal("continue after the stop")
+	var two CreateResult
+	if rerr := f.client.call(MethodResponsesCreate, next, &two); rerr != nil {
+		t.Fatalf("resume in the same process after a stop: %v", rerr)
+	}
+	seen := f.client.waitFor(NotifyResponseCompleted)
+	if two.Response.Harness.SessionID != sessionID {
+		t.Errorf("the resumed response left the session: got %q, want %q", two.Response.Harness.SessionID, sessionID)
+	}
+
+	// The script never stops asking for another tool call, so the resumed
+	// interaction runs out its remaining sub-turn budget rather than
+	// finishing on its own — the point here is only that it gets to run at
+	// all, landing on a normal terminal status instead of the
+	// "session is cancelled" store error the bug report hit on this exact
+	// path.
+	var done responseEnvelope
+	if err := json.Unmarshal(seen[len(seen)-1].Params, &done); err != nil {
+		t.Fatalf("decode interaction.completed: %v", err)
+	}
+	if done.Response.Status != StatusIncomplete {
+		t.Fatalf("resumed interaction status = %q, want %q", done.Response.Status, StatusIncomplete)
+	}
+
+	sess, err = f.srv.opts.Store.GetSession(context.Background(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.Status != store.StatusMaxTurns {
+		t.Fatalf("stored session status after the resume = %q, want %q", sess.Status, store.StatusMaxTurns)
+	}
+}
+
+// TestResumeAcrossProcessesAfterCancel is TestPreviousInteractionResumesAfterCancel's
+// counterpart for the route that survives a restart: harness.resume_session_id,
+// resolved against the state directory rather than this process's memory
+// (TestResumeAcrossProcesses). The session is left "cancelled" by the first
+// process — no in-process resume happens in between — so the second process
+// resumes it straight out of that status, the same shape
+// docs/RUN-CONTROL.md's "Continuing" describes and the bug report's repro
+// actually hit.
+func TestResumeAcrossProcessesAfterCancel(t *testing.T) {
+	dir, cwd := t.TempDir(), t.TempDir()
+	a := newFixtureIn(t, dir, cwd, callThen("call-1", "TodoWrite", `{"todos":[]}`))
+	a.client.handshake(ClientCapabilities{})
+
+	var created CreateResult
+	if rerr := a.client.call(MethodResponsesCreate, a.createParams("loop"), &created); rerr != nil {
+		t.Fatalf("first create: %v", rerr)
+	}
+	a.client.waitFor(NotifyOutputItemAdded)
+
+	var cancelled GetResult
+	if rerr := a.client.call(MethodResponsesCancel, IDParams{ResponseID: created.Response.ID}, &cancelled); rerr != nil {
+		t.Fatalf("cancel: %v", rerr)
+	}
+	if cancelled.Response.Status != StatusCancelled {
+		t.Fatalf("status after cancel = %q, want %q", cancelled.Response.Status, StatusCancelled)
+	}
+	a.client.waitFor(NotifyResponseCompleted)
+	sessionID := cancelled.Response.Harness.SessionID
+
+	if rerr := a.client.call(MethodShutdown, map[string]any{}, nil); rerr != nil {
+		t.Fatalf("shutdown: %v", rerr)
+	}
+	a.close()
+
+	// A fresh process over the same state directory. The row it reads back
+	// for sessionID is still "cancelled" — the first process never resumed
+	// it — which is exactly the state the bug report's repro left behind.
+	b := newFixtureIn(t, dir, cwd, answer("continued after the restart"))
+	b.client.handshake(ClientCapabilities{})
+
+	var two CreateResult
+	if rerr := b.client.call(MethodResponsesCreate, resumeParams(sessionID, "continue after the restart"), &two); rerr != nil {
+		t.Fatalf("resume across processes after a stop: %v", rerr)
+	}
+	b.client.waitFor(NotifyResponseCompleted)
+	if two.Response.Harness.SessionID != sessionID {
+		t.Errorf("the resumed response left the session: got %q, want %q", two.Response.Harness.SessionID, sessionID)
+	}
+
+	sess, err := b.srv.opts.Store.GetSession(context.Background(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.Status != store.StatusOK {
+		t.Fatalf("stored session status after the cross-process resume = %q, want %q", sess.Status, store.StatusOK)
+	}
+}
+
 // TestResumeUnknownSession pins that a session id from some other state
 // directory is refused by name, with the state directory named as the likely
 // cause.

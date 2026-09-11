@@ -1,7 +1,9 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/mrgeoffrich/agent-harness/internal/store"
 	"github.com/mrgeoffrich/agent-harness/internal/tools"
@@ -266,6 +269,192 @@ func TestResumeRefusesRunningOrCompacted(t *testing.T) {
 	}
 	if _, err := r.Resume(ctx, ResumeOptions{SessionID: "sess-compacted"}); err == nil {
 		t.Fatal("expected Resume to refuse a compacted session")
+	}
+}
+
+// TestResumeSucceedsAfterAStop pins the fix for a session that could never be
+// continued once a client stopped it mid-turn — not in this process, and not
+// after a restart. store.AppendEvents refuses to write to a session whose
+// status is "cancelled" (the fence that stops a wedged goroutine from
+// dirtying the log it was stopped in, docs/RUN-CONTROL.md "Half two"), and
+// Resume used to call it before lifting the row back to running, so a
+// genuine resume tripped the exact fence meant for somebody else's write —
+// "session is cancelled" on the very next message. This cancels a run the
+// way a stop does, by cancelling its context mid-request
+// (TestRunCancelMarksSessionCancelled's own pattern), then resumes the
+// session and asserts the continuation actually lands rather than refusing.
+func TestResumeSucceedsAfterAStop(t *testing.T) {
+	var calls int32Counter
+	started := make(chan struct{})
+	block := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.next() == 0 {
+			close(started)
+			<-block // held open until the test cancels the run
+			return
+		}
+
+		body, _ := io.ReadAll(r.Body)
+		var probe struct {
+			Stream bool `json:"stream"`
+		}
+		_ = json.Unmarshal(body, &probe)
+		if !probe.Stream {
+			resp := wire.ChatCompletionResponse{
+				Choices: []wire.Choice{{Message: wire.Message{Role: wire.RoleAssistant, Content: wire.TextContent("resumed answer")}, FinishReason: wire.FinishStop}},
+				Usage:   &wire.Usage{PromptTokens: 50, CompletionTokens: 10},
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(resp)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeSSEChunk(t, w, wire.ChatCompletionChunk{
+			Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{Role: "assistant", Content: strPtr("resumed answer")}}},
+		})
+		writeSSEChunk(t, w, wire.ChatCompletionChunk{
+			Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishStop)}},
+			Usage:   &wire.Usage{PromptTokens: 200, PromptCacheHitTokens: 100, PromptCacheMissTokens: 100, CompletionTokens: 5},
+		})
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		w.(http.Flusher).Flush()
+	}))
+	defer srv.Close()
+	defer close(block)
+	r := newTestRunner(t, srv.URL)
+
+	ws := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := r.Run(ctx, RunOptions{
+			SessionID: "sess-stop-resume", Model: "test-model", Effort: wire.EffortHigh,
+			Thinking: true, MaxTokens: 4000,
+			Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "do the thing",
+		})
+		errCh <- err
+	}()
+
+	// Wait until the run's request is in flight, then cancel the context the
+	// way a stop does (the parent's cancelRun cancels the run's own context).
+	select {
+	case <-started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the run's request never reached the server")
+	}
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("Run error = %v, want context.Canceled", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("run did not return after the cancel")
+	}
+
+	sess, err := r.Store.GetSession(t.Context(), "sess-stop-resume")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.Status != store.StatusCancelled {
+		t.Fatalf("session status = %q, want %q before resuming it", sess.Status, store.StatusCancelled)
+	}
+
+	resumed, err := r.Resume(t.Context(), ResumeOptions{
+		SessionID: "sess-stop-resume", Prompt: "keep going", MaxTokens: 4000,
+	})
+	if err != nil {
+		t.Fatalf("Resume after a stop: %v", err)
+	}
+	if resumed.Status != store.StatusOK {
+		t.Fatalf("expected the resumed run to finish ok, got %s: %+v", resumed.Status, resumed)
+	}
+	if resumed.Text != "resumed answer" {
+		t.Fatalf("expected the resumed answer text, got %q", resumed.Text)
+	}
+
+	events, err := r.Store.GetEvents(t.Context(), "sess-stop-resume")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var starts []store.SessionStartedPayload
+	for _, e := range events {
+		if e.Kind != store.KindSessionStarted {
+			continue
+		}
+		var p store.SessionStartedPayload
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			t.Fatal(err)
+		}
+		starts = append(starts, p)
+	}
+	if len(starts) != 2 {
+		t.Fatalf("expected the stopped run's opening message plus the resume's continuation, got %d session_started events", len(starts))
+	}
+	if starts[1].OpeningMessage != "keep going" {
+		t.Fatalf("expected the resume prompt as the continuation's opening message, got %q", starts[1].OpeningMessage)
+	}
+
+	final, err := r.Store.GetSession(t.Context(), "sess-stop-resume")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if final.Status != store.StatusOK {
+		t.Fatalf("expected the session to finish ok after the resume, got %s", final.Status)
+	}
+}
+
+// TestResumeOfASessionCancelledBeforeItsFirstTurnDoesNotHang pins a second
+// bug the first one was hiding: a stop that lands before the run's first
+// turn_started event ever commits leaves the session with zero committed
+// sub-turns, so a resume's startSubTurn (countTurns(events)+1) is 1 — the
+// same value a fresh, blank browser-start's is. runLoop's wait for the first
+// steer (lifecycle.go, "A browser-started run is created with no prompt")
+// used to key off exactly that: startSubTurn == 1 and opts.Prompt == "". A
+// resumed run's RunOptions never carries opts.Prompt regardless of what the
+// resume's own ResumeOptions.Prompt held (deliberately — see
+// RunOptions.session's doc comment), so both halves of that condition could
+// be true for a resume with every right to run, and it would block forever
+// on a steer nobody is going to send. RunOptions.Resuming is what tells
+// runLoop this is not the blank-start case. Before that fix existed, this
+// session: session is cancelled fix alone would have turned one hang
+// (an error on every resume attempt) into a different one (resume accepted,
+// then stuck forever) for exactly this timing — worse, not better. Bounded
+// with its own short deadline so a regression here fails this test rather
+// than hanging the suite.
+func TestResumeOfASessionCancelledBeforeItsFirstTurnDoesNotHang(t *testing.T) {
+	srv := plainAnswerServer(t, "after the stop")
+	defer srv.Close()
+	r := newTestRunner(t, srv.URL)
+	ctx := t.Context()
+
+	cancelledAt := time.Now().UTC()
+	if err := r.Store.CreateSession(ctx, store.Session{
+		ID: "sess-never-started", Model: "test-model", Effort: wire.EffortHigh,
+		Workspace: t.TempDir(), PermissionMode: string(tools.ModeFull),
+		SystemPrompt: RenderSystemPrompt(), ToolSchema: json.RawMessage(`[]`),
+		Status: store.StatusCancelled, FinishedAt: &cancelledAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	resumeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	resumed, err := r.Resume(resumeCtx, ResumeOptions{
+		SessionID: "sess-never-started", Prompt: "start over", MaxTokens: 4000,
+	})
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			t.Fatal("Resume hung waiting for a steer that was never going to arrive")
+		}
+		t.Fatalf("Resume: %v", err)
+	}
+	if resumed.Status != store.StatusOK {
+		t.Fatalf("expected the resumed run to finish ok, got %s: %+v", resumed.Status, resumed)
+	}
+	if resumed.Text != "after the stop" {
+		t.Fatalf("expected the resumed answer text, got %q", resumed.Text)
 	}
 }
 
