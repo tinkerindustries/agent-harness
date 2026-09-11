@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -550,11 +551,25 @@ var toolFuncs = map[string]toolFunc{
 	"MCPGetPrompt":     execMCPGetPrompt,
 }
 
+// toolArgs turns the argument text a model emitted into a JSON object. A call
+// that needs no arguments may carry no arguments field at all, which arrives
+// as the empty string, and every tool below unmarshals what it is handed: an
+// empty string is "unexpected end of JSON input", a parse error naming a
+// position in a byte stream the model cannot see. A call with no arguments is
+// the call with the empty object, which lets a tool whose fields are all
+// optional run and lets one with a required field refuse it by name.
+func toolArgs(s string) json.RawMessage {
+	if strings.TrimSpace(s) == "" {
+		return json.RawMessage("{}")
+	}
+	return json.RawMessage(s)
+}
+
 // Execute evaluates permission for call, then runs it (or Complete's
 // validation) under a per-tool timeout derived from ctx.
 func (e *Executor) Execute(ctx context.Context, call wire.ToolCall) Outcome {
 	name := call.Function.Name
-	argsRaw := json.RawMessage(call.Function.Arguments)
+	argsRaw := toolArgs(call.Function.Arguments)
 	descriptor := descriptorFor(name, argsRaw)
 
 	decision := e.Policy.Check(name, descriptor)
