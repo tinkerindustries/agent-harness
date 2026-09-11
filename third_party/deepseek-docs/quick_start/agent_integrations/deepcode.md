@@ -1,7 +1,7 @@
 ---
 title: Integrate with Deep Code
 source: https://api-docs.deepseek.com/quick_start/agent_integrations/deepcode
-fetched: 2026-08-27
+fetched: 2026-09-10
 ---
 
 # Integrate with Deep Code

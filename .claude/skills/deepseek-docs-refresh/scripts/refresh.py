@@ -44,6 +44,12 @@ HAND_WRITTEN = {"faq"}
 # prompt-library.md are maintained separately; see the mirror's README.
 NO_BODY = {"prompt-library"}
 
+# News posts upstream has retired. The sitemap still lists them and the URLs
+# still answer 200, but they render the docs root, so converting one replaces
+# the announcement the mirror holds with a copy of index.md. They are skipped
+# so the mirror keeps the post.
+RETIRED = {"news/news1226", "news/news251201"}
+
 # Fragments the converter faithfully reproduces but which carry no content,
 # because the real thing is an interactive widget. Each is rewritten in place
 # after conversion so a refresh does not undo the note.
@@ -134,7 +140,7 @@ def main():
 
     for url in sorted(urls):
         name = slug(url)
-        if name in HAND_WRITTEN or name in NO_BODY:
+        if name in HAND_WRITTEN or name in NO_BODY or name in RETIRED:
             buckets["skipped"].append(name)
             continue
         cache_path = args.cache and os.path.join(args.cache, name.replace("/", "_") + ".html")

@@ -1,7 +1,7 @@
 ---
 title: Upload File
 source: https://api-docs.deepseek.com/api/create-file
-fetched: 2026-08-27
+fetched: 2026-09-10
 ---
 
 # Upload File

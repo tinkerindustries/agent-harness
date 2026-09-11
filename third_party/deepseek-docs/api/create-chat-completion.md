@@ -1,7 +1,7 @@
 ---
 title: Chat Completions API
 source: https://api-docs.deepseek.com/api/create-chat-completion
-fetched: 2026-08-27
+fetched: 2026-09-10
 ---
 
 # Chat Completions API

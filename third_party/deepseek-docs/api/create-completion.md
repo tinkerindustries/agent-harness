@@ -1,7 +1,7 @@
 ---
 title: FIM Completion API (Beta)
 source: https://api-docs.deepseek.com/api/create-completion
-fetched: 2026-08-27
+fetched: 2026-09-10
 ---
 
 # FIM Completion API (Beta)

@@ -1,7 +1,7 @@
 ---
 title: Files API
 source: https://api-docs.deepseek.com/guides/files_api
-fetched: 2026-08-27
+fetched: 2026-09-10
 ---
 
 # Files API

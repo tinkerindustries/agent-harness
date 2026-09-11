@@ -1,7 +1,7 @@
 ---
 title: Using DeepSeek with Oh My Pi
 source: https://api-docs.deepseek.com/quick_start/agent_integrations/oh_my_pi
-fetched: 2026-08-27
+fetched: 2026-09-10
 ---
 
 # Using DeepSeek with Oh My Pi

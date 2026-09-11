@@ -56,6 +56,11 @@ schema serialiser specifically: it was built to reproduce those two exactly.
   markup, so there is no article body to convert. It and `_data/prompts.json`
   are maintained separately — check the JSON against the live file by hand.
   `prompt-library.en.md` is our translation, not upstream content.
+- **`news/news1226.md` and `news/news251201.md`** are news posts upstream has
+  retired. Their URLs are still in the sitemap and still answer 200, but they
+  render the docs root, so converting one replaces the announcement the mirror
+  holds with a copy of `index.md`. `RETIRED` in `refresh.py` skips them. Add an
+  entry there for any other page that starts serving the root.
 - **The image token calculator** at the foot of `quick_start/token_usage.md` is
   an interactive widget. The converter reproduces its bare labels; `LOCAL_NOTES`
   in `refresh.py` rewrites them into a note, and re-applies it on every run so a

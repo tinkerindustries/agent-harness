@@ -1,7 +1,7 @@
 ---
 title: Integrate with AstrBot
 source: https://api-docs.deepseek.com/quick_start/agent_integrations/astrbot
-fetched: 2026-08-27
+fetched: 2026-09-10
 ---
 
 # Integrate with AstrBot

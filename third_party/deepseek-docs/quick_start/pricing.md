@@ -1,7 +1,7 @@
 ---
 title: Models & Pricing
 source: https://api-docs.deepseek.com/quick_start/pricing
-fetched: 2026-08-27
+fetched: 2026-09-10
 ---
 
 # Models & Pricing
