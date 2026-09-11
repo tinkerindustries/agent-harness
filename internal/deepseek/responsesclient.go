@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/mrgeoffrich/agent-harness/internal/wire"
@@ -49,6 +50,14 @@ var ErrResponseFailed = errors.New("deepseek: response failed")
 // There is no stream_options here — the surface does not take one, and does
 // not need one: usage rides on the terminal event's response object rather
 // than on an extra final chunk a caller has to ask for.
+//
+// A connection that dies before producing any output is retried on
+// providerhttp.Transport.RetryStream's own backoff schedule rather than
+// ending the run (docs/DESIGN.md §4.3, "Retrying a stream that dies
+// mid-flight"); open is what RetryStream re-runs for a retry, so it holds
+// exactly the request-building and status-checking this method used to do
+// inline. This is the surface `harness stdio-session` actually runs DeepSeek
+// on, so it is the one that has to have it.
 func (c *ResponsesClient) StreamChatCompletion(ctx context.Context, intent wire.ChatIntent) (<-chan wire.Event, error) {
 	req := responsesRequestFromIntent(intent)
 	req.Stream = true
@@ -57,17 +66,26 @@ func (c *ResponsesClient) StreamChatCompletion(ctx context.Context, intent wire.
 		return nil, fmt.Errorf("deepseek: encode responses request: %w", err)
 	}
 
-	resp, err := c.transport.Do(ctx, http.MethodPost, "/responses", body)
-	if err != nil {
-		return nil, c.transport.WrapError("responses stream request", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, parseAPIError(resp)
+	open := func(ctx context.Context) (io.ReadCloser, error) {
+		resp, err := c.transport.Do(ctx, http.MethodPost, "/responses", body)
+		if err != nil {
+			return nil, c.transport.WrapError("responses stream request", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			return nil, parseAPIError(resp)
+		}
+		return resp.Body, nil
 	}
 
-	events := make(chan wire.Event)
-	go c.transport.PumpStreamWith(ctx, resp.Body, events, ErrIdleTimeout, decodeResponsesFrame)
-	return events, nil
+	respBody, err := open(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	pump := func(ctx context.Context, body io.ReadCloser, events chan<- wire.Event) {
+		c.transport.PumpStreamWith(ctx, body, events, ErrIdleTimeout, decodeResponsesFrame)
+	}
+	return c.transport.RetryStream(ctx, respBody, open, pump, ErrIdleTimeout), nil
 }
 
 // CreateChatCompletion sends one non-streaming response and waits for the
