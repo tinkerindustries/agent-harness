@@ -395,6 +395,50 @@ leave DeepSeek's and Kimi's golden files untouched. Any new field is
 `omitempty` and unset for them. If a golden file has to change, that is a
 signal the change is in the wrong place — put it in the Gemini package instead.
 
+### 5.6a What the Interactions API will accept in a tool's JSON Schema
+
+Measured against the live API, `parameters` is read far more loosely than
+Google's `Schema` proto suggests. All of these are accepted: `$schema`,
+`$ref` with `$defs`, `additionalProperties`, `const`, `oneOf`, `allOf`,
+`anyOf`, `default`, `format`, `examples`, `prefixItems`, a `type` union
+including `"null"`, property names that are not identifiers (`-A`, `-i`), and
+keywords the API has never heard of.
+
+One construct is refused — JSON Schema's tuple form, where `items` holds an
+array of per-position schemas rather than one schema for every element:
+
+```json
+{"type": "array", "items": [{"type": "number"}, {"type": "number"}]}
+```
+
+The answer is `400 invalid_request: Invalid JSON payload: syntax error in
+request body.` It names no tool, no field and no schema, and one offending
+declaration invalidates the entire payload — every other tool in the request
+goes down with it and the session dies on its first request, before a single
+token is generated.
+
+`internal/gemini/schema.go` rewrites the tuple into the single-schema form
+and restores the arity as `minItems`/`maxItems`. Members that agree collapse
+to the one schema; members that disagree become an `anyOf` over the distinct
+ones, which is weaker — it no longer says which member belongs in which
+position — but is the closest this surface can express.
+
+Nothing else is stripped. A pass that removed everything outside the `Schema`
+proto would rewrite schemas the API accepts, cost their authors' meaning, and
+move the frozen prefix for no gain.
+
+The lowering runs once, in `internal/session/lifecycle.go`, where the tool
+array is resolved and frozen, so the row, the head and every request all
+carry the same bytes. It is not in `toolsFromWire`: that path carries
+`parameters` through as raw bytes on purpose (§5.6, docs/DESIGN.md §3.2), and
+a per-request rewrite would be the map round trip that rule exists to
+prevent.
+
+An MCP server is where a tuple arrives. Its tools are declared by whoever
+wrote the server, against no constraint this process imposes. A Turret CAD
+session died on one `z.tuple([number, number, number])` in `design_render`,
+which took every other tool in the request down with it.
+
 ### 5.7 Vision: `seesImages` becomes true
 
 `internal/session/runner.go`'s `seesImages()` is currently true only for Kimi.

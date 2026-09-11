@@ -13,7 +13,9 @@ import (
 	"github.com/mrgeoffrich/agent-harness/internal/attachment"
 	"github.com/mrgeoffrich/agent-harness/internal/cache"
 	"github.com/mrgeoffrich/agent-harness/internal/claudemd"
+	"github.com/mrgeoffrich/agent-harness/internal/gemini"
 	"github.com/mrgeoffrich/agent-harness/internal/promptvariant"
+	"github.com/mrgeoffrich/agent-harness/internal/provider"
 	"github.com/mrgeoffrich/agent-harness/internal/skills"
 	"github.com/mrgeoffrich/agent-harness/internal/store"
 	"github.com/mrgeoffrich/agent-harness/internal/tools"
@@ -128,6 +130,25 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	// tools.DefinitionsForVariant or r.MCP.Definitions later in the run.
 	mcpDefs, mcpReadOnly := r.resolveMCPDefinitions(ctx, sessID)
 	opts.Tools = tools.WithMCP(tools.DefinitionsForVariant(opts.Model, opts.PromptVariant), mcpDefs)
+
+	// A Gemini session's tools go through gemini.LowerToolSchemas before
+	// anything else sees them, so the row, the head and every request all
+	// carry the lowered array — the agreement the tool-schema comment below
+	// rests on. The Interactions API refuses JSON Schema's tuple form for
+	// `items` and says only "syntax error in request body", taking every
+	// other tool in the payload down with the offending one
+	// (internal/gemini/schema.go). An MCP server is where one arrives: its
+	// tools are declared by whoever wrote the server, against no constraint
+	// this process imposes.
+	// A model ModelFor rejects is not Gemini's, and takes the default path
+	// here the same way it does everywhere else (docs/DESIGN.md §3.2).
+	if name, _ := provider.ModelFor(opts.Model); name == provider.Gemini {
+		lowered, err := gemini.LowerToolSchemas(opts.Tools)
+		if err != nil {
+			return nil, err
+		}
+		opts.Tools = lowered
+	}
 
 	policy := &tools.Policy{
 		Mode:               opts.PermissionMode,
