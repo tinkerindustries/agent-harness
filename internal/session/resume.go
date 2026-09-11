@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/mrgeoffrich/agent-harness/internal/cache"
 	"github.com/mrgeoffrich/agent-harness/internal/fold"
@@ -114,6 +115,7 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 		ParentIsUser: sess.ParentIsUser,
 		SessionID:    sess.ID,
 		Tools:        toolArray,
+		Resuming:     true,
 	}
 	executor.RunSubagent = r.subagentRunner(sess.ID, runOpts, executor.Workspace)
 
@@ -127,6 +129,21 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 	attachmentNames, err := r.materialiseAttachments(ctx, sess.Workspace, opts.AttachmentIDs)
 	if err != nil {
 		return nil, fmt.Errorf("session: resume: %w", err)
+	}
+
+	// A stopped session's row is "cancelled", and AppendEvents refuses to
+	// write to one (store.ErrSessionCancelled) — the fence exists so a
+	// wedged goroutine that wakes long after a stop cannot dirty the log it
+	// was stopped in (docs/RUN-CONTROL.md "Half two"). This resume is not
+	// that goroutine: the switch above already required sess.Status to be
+	// terminal, which for "cancelled" specifically means whichever writer
+	// last touched the row — fail, or resumeTarget's reclaim of a row an
+	// earlier process left running — had already made its last store write
+	// before this call ever read the row, so lifting it back to running here
+	// cannot race that write. Doing this before the continuation is appended
+	// below, rather than after, is what lets the append land at all.
+	if err := r.Store.ResumeSession(ctx, sess.ID); err != nil {
+		return nil, fmt.Errorf("session: resume: mark running: %w", err)
 	}
 
 	if opts.Prompt != "" || len(attachmentNames) > 0 {
@@ -145,6 +162,17 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 			}},
 		})
 		if err != nil {
+			// The row is running now and nothing will run it: put it back
+			// exactly as it stood before this call revived it — the status
+			// and finished_at sess already carried — rather than leaving a
+			// live-looking row for the reclaim path to have to find later.
+			// A fresh, bounded context: ctx may be why the append itself
+			// failed.
+			revertCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if revertErr := r.Store.UpdateSessionStatus(revertCtx, sess.ID, sess.Status, sess.FinishedAt); revertErr != nil {
+				log.Printf("session: resume: revert %s to %s after failed continuation append: %v", sess.ID, sess.Status, revertErr)
+			}
+			cancel()
 			return nil, fmt.Errorf("session: resume: record continuation: %w", err)
 		}
 		r.mirrorAppend(sess, appended)
@@ -152,9 +180,6 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 		allEvents = append(allEvents, appended...)
 	}
 
-	if err := r.Store.ResumeSession(ctx, sess.ID); err != nil {
-		return nil, fmt.Errorf("session: resume: mark running: %w", err)
-	}
 	curSess, err := r.Store.GetSession(ctx, sess.ID)
 	if err != nil {
 		return nil, fmt.Errorf("session: resume: reload: %w", err)

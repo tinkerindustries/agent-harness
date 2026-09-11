@@ -151,6 +151,19 @@ type RunOptions struct {
 	// truth.
 	Tools []wire.Tool
 
+	// Resuming is set only by Runner.Resume, and only to keep runLoop's
+	// empty-prompt wait (waitForFirstSteer, lifecycle.go) from firing on a
+	// resume whose session never got past its first sub-turn — a stop that
+	// lands before the run's first turn_started commits leaves countTurns at
+	// 0, so a resumed startSubTurn is 1 exactly the way a fresh browser
+	// start's is, and Resume's own RunOptions carries no Prompt regardless of
+	// what the resume's ResumeOptions.Prompt held (deliberately, per the
+	// session method's doc comment — it is not a resumed run's task to
+	// rewrite). Without this, that resume reads as "operator hasn't typed
+	// anything yet" and waits on a steer nobody is going to send
+	// (docs/RUN-CONTROL.md "Continuing").
+	Resuming bool
+
 	// DebugChurnOnSubTurn, when equal to a sub-turn number, deliberately
 	// breaks that one sub-turn's shared prefix before sending it (via
 	// cache.Mutate on the opening message) so the churn diagnostic has

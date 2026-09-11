@@ -604,6 +604,93 @@ func TestResumeSessionClearsFinishedAt(t *testing.T) {
 	}
 }
 
+// TestResumeSessionRevivesACancelledRow pins the primitive
+// internal/session's Resume relies on to make a stopped session resumable:
+// ResumeSession lifts a "cancelled" row back to "running" exactly the way it
+// lifts any other terminal status, with no special case for cancelled and no
+// need to go through AppendEvents' fence first — which is what lets Resume
+// call it before appending the continuation rather than after.
+func TestResumeSessionRevivesACancelledRow(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	mustCreateSession(t, s, "sess-stopped")
+	if err := s.CancelRunningSession(ctx, "sess-stopped", time.Now().UTC()); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+
+	if err := s.ResumeSession(ctx, "sess-stopped"); err != nil {
+		t.Fatalf("resume a cancelled row: %v", err)
+	}
+	got, err := s.GetSession(ctx, "sess-stopped")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusRunning {
+		t.Fatalf("expected status running, got %s", got.Status)
+	}
+	if got.FinishedAt != nil {
+		t.Fatalf("expected finished_at cleared, got %v", got.FinishedAt)
+	}
+
+	// A resumed row now accepts the append AppendEvents refused it before
+	// (TestAppendEventsRefusesCancelledSession).
+	if _, err := s.AppendEvents(ctx, "sess-stopped", []EventInput{
+		{Kind: KindContentDelta, Payload: ContentDeltaPayload{Text: "the continuation"}},
+	}); err != nil {
+		t.Fatalf("append after reviving a cancelled row: %v", err)
+	}
+}
+
+// TestResumeCanRevertToTheStatusItRevivedFrom pins the other half of the
+// same mechanism: internal/session's Resume calls ResumeSession before it
+// appends the continuation, so if that append then fails for some reason
+// other than the cancelled fence, it puts the row back to the exact status
+// and finished_at it read before reviving it — UpdateSessionStatus is what
+// it uses to do that, and this proves that write actually lands rather than
+// being refused the way it is when moving *out of* cancelled through the
+// normal (non-Resume) path.
+func TestResumeCanRevertToTheStatusItRevivedFrom(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	mustCreateSession(t, s, "sess-stopped")
+	cancelledAt := time.Now().UTC()
+	if err := s.CancelRunningSession(ctx, "sess-stopped", cancelledAt); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+	before, err := s.GetSession(ctx, "sess-stopped")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.ResumeSession(ctx, "sess-stopped"); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+
+	// The revert: back to exactly the status and finished_at the row
+	// carried before ResumeSession touched it.
+	if err := s.UpdateSessionStatus(ctx, "sess-stopped", before.Status, before.FinishedAt); err != nil {
+		t.Fatalf("revert to %s: %v", before.Status, err)
+	}
+	got, err := s.GetSession(ctx, "sess-stopped")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusCancelled {
+		t.Fatalf("expected the row back to cancelled, got %s", got.Status)
+	}
+	if got.FinishedAt == nil || !got.FinishedAt.Equal(cancelledAt) {
+		t.Fatalf("expected finished_at restored to %s, got %v", cancelledAt, got.FinishedAt)
+	}
+
+	// Still the fence a genuinely wedged goroutine trips: a reverted row is
+	// cancelled again, not a new kind of cancelled that appends anyway.
+	if _, err := s.AppendEvents(ctx, "sess-stopped", []EventInput{
+		{Kind: KindContentDelta, Payload: ContentDeltaPayload{Text: "late"}},
+	}); !errors.Is(err, ErrSessionCancelled) {
+		t.Fatalf("append to the reverted row = %v, want ErrSessionCancelled", err)
+	}
+}
+
 // TestDeleteSessionRemovesEventsToo proves DeleteSession is not just a
 // sessions-row delete: a session's whole event log goes with it, and a
 // second delete on the same id reports ErrNotFound rather than succeeding
@@ -819,8 +906,9 @@ func TestAppendEventsRefusesCancelledSession(t *testing.T) {
 	}
 
 	// Every other terminal status still accepts appends: compaction retires a
-	// parent as compacted and resume appends a continuation before flipping
-	// the row back to running.
+	// parent as compacted, and a resumed "cancelled" row is flipped back to
+	// running before Resume appends its continuation, so by the time that
+	// append runs the row is no longer in the status this test is pinning.
 	for _, status := range []string{StatusOK, StatusFailed, StatusTimeout, StatusMaxTurns, StatusCompacted} {
 		id := "sess-" + status
 		mustCreateSession(t, s, id)

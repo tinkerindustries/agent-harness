@@ -289,7 +289,15 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 	// wait is bounded by the run's own budget — ctx carries the request
 	// deadline and the stop cancellation — so an abandoned empty run
 	// expires at its deadline and a stop ends it immediately.
-	if startSubTurn == 1 && opts.Prompt == "" {
+	//
+	// !opts.Resuming is what keeps this from also catching a resume: a stop
+	// that lands before the first turn_started commits leaves startSubTurn
+	// at 1 on the resumed run too, and Resume never sets opts.Prompt
+	// (RunOptions.session's doc comment), so both halves of this condition
+	// can otherwise be true for a resume that has every right to run —
+	// waiting on a steer that Resume already delivered as a session_started
+	// event, not a steer_message, so it would never arrive.
+	if !opts.Resuming && startSubTurn == 1 && opts.Prompt == "" {
 		if err := r.waitForFirstSteer(ctx, curSess.ID); err != nil {
 			return r.fail(ctx, curSess, allEvents, startSubTurn-1, agg, err)
 		}
