@@ -189,7 +189,7 @@ func TestGeminiAPIKeyMissingEnvFileFails(t *testing.T) {
 // would mean a DeepSeek run needing a second provider's credentials
 // (docs/DEEPSEEK-VISION.md).
 func TestHostedModelsIsTheAdvertisedSet(t *testing.T) {
-	hosted := hostedModels()
+	hosted := hostedModels(false)
 
 	if !slices.Contains(hosted, deepSeekSessionModel) {
 		t.Errorf("hostedModels() = %v, want the vision model in it", hosted)
@@ -240,7 +240,7 @@ func TestResolveHostedModel(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := resolveHostedModel(tc.named, tc.google, tc.dsKey)
+			got, err := resolveHostedModel(tc.named, hostedModels(false), tc.google, tc.dsKey)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("resolveHostedModel(%q) = %q, want an error naming the hosted set", tc.named, got)
@@ -336,14 +336,26 @@ func TestStripProviderAPIKeysRemovesEveryProvidersKey(t *testing.T) {
 	}
 }
 
-// TestHandshakeReportsTheNameItWasSpawnedAs pins what makes `gemini-session`
-// a compatible alias rather than a redirect: a parent that pins
-// `server_info.name` is told the name it used, so it keeps working across
-// the rename until it has moved to `stdio-session` (docs/STDIO-PROTOCOL.md,
-// "Starting the process").
-func TestHandshakeReportsTheNameItWasSpawnedAs(t *testing.T) {
+// TestTheSubcommandPicksTheDialect pins what each name gets: the handshake
+// reports the name it was spawned as, the protocol that name speaks, and the
+// models that name hosts.
+//
+// `gemini-session` is not an alias. It speaks Google's Interactions
+// vocabulary and hosts Google's models; `stdio-session` speaks the Responses
+// vocabulary and hosts the DeepSeek vision model as well. A client picks its
+// command by the vocabulary it implements (docs/STDIO-PROTOCOL.md and
+// docs/STDIO-INTERACTIONS.md, "Starting the process").
+func TestTheSubcommandPicksTheDialect(t *testing.T) {
 	clearKeyEnv(t)
-	for _, invoked := range []string{"stdio-session", "gemini-session"} {
+	for _, tc := range []struct {
+		invoked      string
+		protocol     string
+		wantDeepSeek bool
+	}{
+		{"stdio-session", "openai.responses.v1", true},
+		{"gemini-session", "google.interactions.v1beta", false},
+	} {
+		invoked := tc.invoked
 		t.Run(invoked, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
@@ -372,14 +384,56 @@ func TestHandshakeReportsTheNameItWasSpawnedAs(t *testing.T) {
 			if want := "agent-harness " + invoked; frame.Result.ServerInfo.Name != want {
 				t.Errorf("server_info.name = %q, want %q", frame.Result.ServerInfo.Name, want)
 			}
-			// The alias is the same process, not a lesser one: the protocol
-			// and the hosted models do not depend on which name spawned it.
-			if frame.Result.ServerInfo.Protocol != "openai.responses.v1" {
-				t.Errorf("server_info.protocol = %q", frame.Result.ServerInfo.Protocol)
+			if frame.Result.ServerInfo.Protocol != tc.protocol {
+				t.Errorf("server_info.protocol = %q, want %q", frame.Result.ServerInfo.Protocol, tc.protocol)
 			}
-			if !slices.Contains(frame.Result.Models, deepSeekSessionModel) {
-				t.Errorf("models = %v, want the DeepSeek model in it", frame.Result.Models)
+			// Every command hosts Google's models. Only the Responses one
+			// hosts DeepSeek's, because a client speaking Google's
+			// vocabulary has no way to drive a model of another vendor's
+			// through it.
+			if !slices.Contains(frame.Result.Models, defaultGeminiSessionModel) {
+				t.Errorf("models = %v, want the default Gemini model in it", frame.Result.Models)
+			}
+			if got := slices.Contains(frame.Result.Models, deepSeekSessionModel); got != tc.wantDeepSeek {
+				t.Errorf("models = %v, DeepSeek model present = %v, want %v", frame.Result.Models, got, tc.wantDeepSeek)
 			}
 		})
+	}
+}
+
+// TestGeminiSessionNeverDefaultsToDeepSeek pins the one place the two
+// commands' credential handling differs.
+//
+// Started with only a DeepSeek key, `stdio-session` defaults to the DeepSeek
+// model: a host that supplied one key meant the model that key runs.
+// `gemini-session` cannot, because it does not host that model — a client
+// speaking Google's vocabulary would be driving it through
+// generation_config.thinking_level and reading its answers as Google steps.
+// It keeps the Google default, and the first create fails with -32003 naming
+// the variable a Google model needs.
+func TestGeminiSessionNeverDefaultsToDeepSeek(t *testing.T) {
+	responses := hostedModels(false)
+	interactions := hostedModels(true)
+
+	got, err := resolveHostedModel("", responses, "", "a-deepseek-key")
+	if err != nil {
+		t.Fatalf("stdio-session with only a DeepSeek key: %v", err)
+	}
+	if got != deepSeekSessionModel {
+		t.Errorf("stdio-session default = %q, want %q", got, deepSeekSessionModel)
+	}
+
+	got, err = resolveHostedModel("", interactions, "", "a-deepseek-key")
+	if err != nil {
+		t.Fatalf("gemini-session with only a DeepSeek key: %v", err)
+	}
+	if got != defaultGeminiSessionModel {
+		t.Errorf("gemini-session default = %q, want %q", got, defaultGeminiSessionModel)
+	}
+
+	// Naming it outright is refused there too, at startup rather than on
+	// the first create.
+	if _, err := resolveHostedModel(deepSeekSessionModel, interactions, "", "a-deepseek-key"); err == nil {
+		t.Error("gemini-session accepted -model " + deepSeekSessionModel)
 	}
 }

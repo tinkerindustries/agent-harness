@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strings"
 
 	"github.com/mrgeoffrich/agent-harness/internal/config"
@@ -86,7 +87,14 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 		return err
 	}
 
-	chosen, err := resolveHostedModel(*model, apiKey, deepSeekKey)
+	// The subcommand decides the parent-facing vocabulary, and with it
+	// which models this process offers: an Interactions client is driving
+	// Google's surface, so it is offered Google's models and not the
+	// DeepSeek one (hostedModels).
+	interactions := invoked == "gemini-session"
+	models := hostedModels(interactions)
+
+	chosen, err := resolveHostedModel(*model, models, apiKey, deepSeekKey)
 	if err != nil {
 		return err
 	}
@@ -192,12 +200,12 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 		// Responses API's; `gemini-session` will speak Google's
 		// Interactions API's, which is why this is chosen here rather than
 		// fixed inside the protocol package.
-		Dialect:      stdiosession.NewResponses(),
+		Dialect:      dialectFor(interactions),
 		Store:        st,
 		Runner:       runner,
 		Hub:          eventHub,
 		MCP:          mcpMgr,
-		Models:       hostedModels(),
+		Models:       models,
 		DefaultModel: chosen,
 		ServerName:   "agent-harness " + invoked,
 		HasAPIKey: func(m string) bool {
@@ -214,22 +222,39 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 }
 
 // hostedModels is the model list the handshake advertises, and the list a
-// create's `model` is checked against: every model internal/provider routes
-// to Google, then the one DeepSeek model this command hosts.
+// create's `model` is checked against.
 //
-// It is not "every model internal/provider knows". The repository routes
-// three DeepSeek models and one Kimi model this process does not offer —
-// Kimi because no client is built for it here, and DeepSeek's other two
-// because they cannot see images (deepSeekSessionModel). A create naming any
-// of them is refused by name against this list.
-func hostedModels() []string {
+// Under `stdio-session` it is every model internal/provider routes to Google,
+// then the one DeepSeek model this command hosts. Under `gemini-session` the
+// DeepSeek model is left off: that command speaks Google's own vocabulary to
+// the parent, and offering a model of another vendor's on it would mean a
+// client driving DeepSeek through `generation_config.thinking_level` and
+// reading its answers as Google steps.
+//
+// It is not "every model internal/provider knows" either way. The repository
+// routes three DeepSeek models and one Kimi model this process does not
+// offer — Kimi because no client is built for it here, and DeepSeek's other
+// two because they cannot see images (deepSeekSessionModel). A create naming
+// any of them is refused by name against this list.
+func hostedModels(interactions bool) []string {
 	var out []string
 	for _, m := range provider.KnownModels() {
 		if p, err := provider.ModelFor(m); err == nil && p == provider.Gemini {
 			out = append(out, m)
 		}
 	}
+	if interactions {
+		return out
+	}
 	return append(out, deepSeekSessionModel)
+}
+
+// dialectFor is the parent-facing vocabulary the subcommand asked for.
+func dialectFor(interactions bool) stdiosession.Dialect {
+	if interactions {
+		return stdiosession.NewInteractions()
+	}
+	return stdiosession.NewResponses()
 }
 
 // resolveHostedModel decides what a create body with no `model` runs on.
@@ -238,24 +263,24 @@ func hostedModels() []string {
 // list, so a name this process would refuse at create is refused at startup
 // instead — the parent hears it on the pipe it just spawned rather than on
 // its first interaction. Named nothing, the default follows the credentials:
-// Google's model normally, DeepSeek's when a DeepSeek key was supplied and a
-// Google one was not, because a host with one key meant the model that key
-// runs. With neither key the Google default stands and the first create
-// fails with -32003 naming the variables, which is the documented behaviour
-// for a process started without credentials (docs/STDIO-PROTOCOL.md).
-func resolveHostedModel(named, googleKey, deepSeekKey string) (string, error) {
+// Google's model normally, DeepSeek's when a DeepSeek key was supplied, a
+// Google one was not, and this process hosts DeepSeek at all. Under
+// `gemini-session` it does not, so the Google default stands there whatever
+// keys arrived and the first create fails with -32003 naming the variable a
+// Google model needs. With neither key the same is true of either command,
+// which is the documented behaviour for a process started without
+// credentials (docs/STDIO-PROTOCOL.md).
+func resolveHostedModel(named string, models []string, googleKey, deepSeekKey string) (string, error) {
 	if named == "" {
-		if googleKey == "" && deepSeekKey != "" {
+		if googleKey == "" && deepSeekKey != "" && slices.Contains(models, deepSeekSessionModel) {
 			return deepSeekSessionModel, nil
 		}
 		return defaultGeminiSessionModel, nil
 	}
-	for _, m := range hostedModels() {
-		if m == named {
-			return named, nil
-		}
+	if slices.Contains(models, named) {
+		return named, nil
 	}
-	return "", fmt.Errorf("-model %s: this process hosts %s", named, strings.Join(hostedModels(), ", "))
+	return "", fmt.Errorf("-model %s: this process hosts %s", named, strings.Join(models, ", "))
 }
 
 // geminiVisionModel is the Gemini model the vision tools send images to when

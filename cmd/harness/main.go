@@ -19,8 +19,15 @@ const usage = `usage: harness <command> [flags]
 
 commands:
   stdio-session     host one coding session for a parent process over stdin and stdout,
-                    speaking the OpenAI Responses API's vocabulary (docs/STDIO-PROTOCOL.md).
-                    gemini-session is the former name and still works
+                    speaking the OpenAI Responses API's vocabulary
+                    (docs/STDIO-PROTOCOL.md). Hosts every Gemini model this
+                    binary routes and one DeepSeek model.
+  gemini-session    the same session, spoken in Google's Interactions API
+                    vocabulary instead (docs/STDIO-INTERACTIONS.md). Hosts
+                    Google's models only.
+
+The two commands differ in what the parent reads off the pipe, not in what
+the session can do. Pick the one your client speaks.
 
 "harness <command> -h" lists that command's flags.`
 
@@ -34,12 +41,15 @@ func main() {
 	}
 
 	switch invoked := os.Args[1]; invoked {
-	// gemini-session is what this command was called when the only models it
-	// hosted were Google's, and it is kept as an alias: a parent that spawns
-	// the old name gets the same process, and the handshake reports back the
-	// name it was actually spawned as, so a client pinning server_info.name
-	// keeps working until it has moved (docs/STDIO-PROTOCOL.md, "Starting
-	// the process").
+	// The subcommand picks the parent-facing vocabulary, which is decided
+	// before the handshake and cannot be negotiated after it: `initialize`
+	// already has to answer with a protocol string, a capability named for
+	// its own continuation id, and a model's effort set under its own key.
+	//
+	// gemini-session is the name this command was called when the only
+	// models it hosted were Google's, and it spoke Interactions then. It
+	// speaks Interactions again, so a client pinned at the last revision
+	// that named it — c039c0b — works unchanged (docs/STDIO-INTERACTIONS.md).
 	case "stdio-session", "gemini-session":
 		if err := runStdioSession(ctx, invoked, os.Args[2:], os.Stdin, os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, "harness "+invoked+": "+err.Error())
