@@ -29,7 +29,7 @@
         {
           "content": [
             {
-              "text": "Workspace: /private<cwd>\n\nMCP servers: this session also has tools from configured MCP servers, named\nmcp__<server>__<tool>, which reach systems outside the workspace.\n- host (1 tool)\nTask:\nuse the tool\n",
+              "text": "Workspace: <cwd>\n\nMCP servers: this session also has tools from configured MCP servers, named\nmcp__<server>__<tool>, which reach systems outside the workspace.\n- host (1 tool)\nTask:\nuse the tool\n",
               "type": "input_text"
             }
           ],
@@ -153,7 +153,7 @@
         "item": {
           "content": [
             {
-              "text": "Workspace: /private<cwd>\n\nMCP servers: this session also has tools from configured MCP servers, named\nmcp__<server>__<tool>, which reach systems outside the workspace.\n- host (1 tool)\nTask:\nuse the tool\n",
+              "text": "Workspace: <cwd>\n\nMCP servers: this session also has tools from configured MCP servers, named\nmcp__<server>__<tool>, which reach systems outside the workspace.\n- host (1 tool)\nTask:\nuse the tool\n",
               "type": "input_text"
             }
           ],
@@ -178,7 +178,7 @@
         "item": {
           "content": [
             {
-              "text": "Workspace: /private<cwd>\n\nMCP servers: this session also has tools from configured MCP servers, named\nmcp__<server>__<tool>, which reach systems outside the workspace.\n- host (1 tool)\nTask:\nuse the tool\n",
+              "text": "Workspace: <cwd>\n\nMCP servers: this session also has tools from configured MCP servers, named\nmcp__<server>__<tool>, which reach systems outside the workspace.\n- host (1 tool)\nTask:\nuse the tool\n",
               "type": "input_text"
             }
           ],
@@ -546,7 +546,7 @@
             {
               "content": [
                 {
-                  "text": "Workspace: /private<cwd>\n\nMCP servers: this session also has tools from configured MCP servers, named\nmcp__<server>__<tool>, which reach systems outside the workspace.\n- host (1 tool)\nTask:\nuse the tool\n",
+                  "text": "Workspace: <cwd>\n\nMCP servers: this session also has tools from configured MCP servers, named\nmcp__<server>__<tool>, which reach systems outside the workspace.\n- host (1 tool)\nTask:\nuse the tool\n",
                   "type": "input_text"
                 }
               ],

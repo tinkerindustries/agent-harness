@@ -6,6 +6,7 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -117,7 +118,7 @@ func notificationFrames(t *testing.T, ms []message, cwd string) []any {
 		}
 		out = append(out, map[string]any{
 			"method": m.Method,
-			"params": scrub(params, cwd),
+			"params": scrub(params, cwdForms(cwd)),
 		})
 	}
 	return out
@@ -134,7 +135,26 @@ func normalise(t *testing.T, v any, cwd string) any {
 	if err := json.Unmarshal(raw, &out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	return scrub(out, cwd)
+	return scrub(out, cwdForms(cwd))
+}
+
+// cwdForms is every spelling of the working directory that can reach a
+// frame. macOS hands back a t.TempDir() under /var/folders unresolved while
+// the session quotes the /private/var/folders path that symlink points at,
+// so redacting only the string the test holds leaves a bare "/private" in
+// the recording and the file stops matching on any other platform. Longest
+// first, because the unresolved path is a substring of the resolved one and
+// replacing it first would leave that prefix behind.
+func cwdForms(cwd string) []string {
+	if cwd == "" {
+		return nil
+	}
+	forms := []string{cwd}
+	if resolved, err := filepath.EvalSymlinks(cwd); err == nil && resolved != cwd {
+		forms = append(forms, resolved)
+	}
+	sort.Slice(forms, func(i, j int) bool { return len(forms[i]) > len(forms[j]) })
+	return forms
 }
 
 // scrub replaces what differs between two runs of the same script: the
@@ -145,7 +165,7 @@ func normalise(t *testing.T, v any, cwd string) any {
 // Everything else — item ids, output indices, sequence numbers, call ids,
 // usage, every piece of text — is a function of the script and is compared
 // as it stands.
-func scrub(v any, cwd string) any {
+func scrub(v any, cwds []string) any {
 	switch t := v.(type) {
 	case map[string]any:
 		out := make(map[string]any, len(t))
@@ -156,14 +176,14 @@ func scrub(v any, cwd string) any {
 			case "updated_at":
 				out[k] = "<updated_at>"
 			default:
-				out[k] = scrub(val, cwd)
+				out[k] = scrub(val, cwds)
 			}
 		}
 		return out
 	case []any:
 		out := make([]any, len(t))
 		for i, val := range t {
-			out[i] = scrub(val, cwd)
+			out[i] = scrub(val, cwds)
 		}
 		return out
 	case string:
@@ -173,8 +193,8 @@ func scrub(v any, cwd string) any {
 		if strings.HasPrefix(t, "sess-") {
 			return "<session_id>"
 		}
-		if cwd != "" {
-			t = strings.ReplaceAll(t, cwd, "<cwd>")
+		for _, dir := range cwds {
+			t = strings.ReplaceAll(t, dir, "<cwd>")
 		}
 		return t
 	default:
