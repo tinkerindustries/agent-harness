@@ -80,9 +80,12 @@ renders them into.
 
 **The reasoning item is not optional.** DeepSeek requires an assistant turn's
 chain-of-thought to be replayed in every later turn of a request that
-carries `tools`, and answers 400 when it is missing
-(`third_party/deepseek-docs/guides/thinking_mode.md`, "Tool Calls"). Every
-request this harness sends carries tools. `internal/fold` therefore emits a
+carries `tools` (`third_party/deepseek-docs/guides/thinking_mode.md`,
+"Tool Calls"). That page says the API answers 400 when the replay is
+missing. Measurement could not provoke the 400 on either model, so the
+requirement is a strong convention rather than an enforced constraint
+([`OBSERVED.md`](OBSERVED.md)). The harness replays reasoning either way,
+and every request it sends carries tools. `internal/fold` therefore emits a
 `reasoning` item ahead of the text and calls it explains, and this client
 sends it as it stands — where Chat Completions carries the same text as
 `reasoning_content` on the assistant message `wire.MessagesFromItems` builds.
