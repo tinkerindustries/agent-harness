@@ -18,10 +18,11 @@ split so that nothing on the request path can perturb that head.
 ## Codemap
 
 ### `cmd/harness`
-Flag parsing and process wiring: `main.go` dispatches the one subcommand and
+Flag parsing and process wiring: `main.go` dispatches the two subcommands and
 holds the model→client dispatch, `stdiosession.go` composes the session — one
 store, one hub, one `session.Runner` handed to `internal/stdiosession`, with
-a client per provider behind that dispatch. Composition happens here and
+a client per provider behind that dispatch and the parent-facing dialect
+chosen from the subcommand the process was spawned as. Composition happens here and
 nowhere else; no `internal` package constructs another's dependencies.
 
 It hosts every Gemini model the repository routes plus exactly one DeepSeek
@@ -123,40 +124,53 @@ other two clients. Depends on: `internal/wire`, `internal/providerhttp` (just
 `Transport`, for retry-with-backoff — never `PumpStream`).
 
 ### `internal/stdiosession`
-The protocol `harness stdio-session` speaks: JSON-RPC 2.0 over stdin and
-stdout, carrying the OpenAI Responses API's own vocabulary rather than one of
-this repo's invention — its REST methods on `POST /responses` as JSON-RPC
-methods, and that surface's semantic server-sent events as notifications
-(docs/STDIO-PROTOCOL.md). It is the same vocabulary `internal/deepseek` sends
-the provider (docs/DEEPSEEK-RESPONSES.md) and the same one the loop itself
-folds into (`wire.Item`), so the provider request is the fold's output
-serialised as it stands. It is still not a proxy: the loop runs the tools, so
-what a parent reads is rendered from the event log rather than forwarded, and
-a create's `input` is read for its text alone. Two translators around an unmodified
-`session.Runner`: a create-response body becomes `RunOptions`, and the
-session's committed events plus the hub's live text deltas become `response.*`
-events. It streams text from the live frames and takes structure — tool
-calls, results, thought signatures, usage, the run's end — from the log, which
-is why a `reasoning` item and a `message` item can be open at once here and
-never are on the HTTP surface's own stream: the harness streams text from the
-live frames and structure from the committed log. Also implements `tools.MCPProvider` for the two tool shapes
-a client may declare, `function` (called back over the pipe) and `mcp_server`
-(dialled by `internal/mcpclient` as any configured server is). `modelinfo.go`
-is the one file here that knows a model has a provider at all: the handshake's
-per-model details and the create's effort check are answered out of
-`internal/gemini`'s or `internal/deepseek`'s tables, so the two providers'
-differing effort sets reach a client as data rather than as a special case
-anywhere else in the package. `resume.go` is
-the seam between the two ways a create names a conversation: an interaction id
-is minted in memory and dies with the process, so continuing across a restart
-goes by session id out of the `-state-dir` store instead, and everything the
-session's prompt prefix is built from — model, workspace, permission mode,
-deny patterns, and the frozen tool array the create has to re-declare with
-live connection metadata — is checked against the row rather than taken from
-the create. Two output item types are this package's own, and both follow from a response
-being a whole agentic run rather than one model turn: `function_call_output`,
-which on the HTTP surface a client sends back rather than receives, and a
-`message` with `role: "user"`, which there only ever appears in input. Depends on:
+The protocol `harness stdio-session` and `harness gemini-session` speak:
+JSON-RPC 2.0 over stdin and stdout, carrying a vendor's own vocabulary rather
+than one of this repo's invention. Two of them, behind one `Dialect` seam.
+`responses.go` is the OpenAI Responses API's — its REST methods on
+`POST /responses` as JSON-RPC methods and its semantic server-sent events as
+notifications (docs/STDIO-PROTOCOL.md), the same vocabulary
+`internal/deepseek` sends the provider and the same one the loop itself folds
+into (`wire.Item`). `interactions.go` is Google's Interactions API's — its
+methods on `POST /v1beta/interactions` and its step events
+(docs/STDIO-INTERACTIONS.md), the same vocabulary `internal/gemini` sends
+Google. `cmd/harness` picks one from the subcommand, which is where it has to
+be picked: `initialize` already answers with a protocol string, a capability
+named for its own continuation id, and each model's effort set under its own
+key, so there is nothing left to negotiate afterwards.
+
+Neither is a proxy. The loop runs the tools, so what a parent reads is
+rendered from the event log rather than forwarded, and a create's `input` is
+read for its text alone. `server.go` names no wire type of either vocabulary:
+it decodes into `CreateRequest` and keeps a run's neutral facts, and a
+`Translator` per run turns the committed events plus the hub's live text
+deltas into that vocabulary's frames and holds the document they assemble
+into. It streams text from the live frames and takes structure — tool calls,
+results, thought signatures, usage, the run's end — from the log, which is why
+a reasoning item and a message item can be open at once here and never are on
+either HTTP surface's own stream.
+
+The two vocabularies are not interchangeable in one respect: only the
+Interactions one carries a **thought signature**, the receipt Google issues
+for a thinking step. The loop replays it to Google either way — that is what
+makes a Gemini turn work — but a client that stores transcripts meaning to
+replay them elsewhere can only get it from `gemini-session`.
+
+Also implements `tools.MCPProvider` for the two tool shapes a client may
+declare, `function` (called back over the pipe) and `mcp_server` (dialled by
+`internal/mcpclient` as any configured server is); both are spelled the same
+in either vocabulary, so `Tool` is one type and the tool path sees no dialect.
+`modelinfo.go` is the one file here that knows a model has a provider at all:
+the handshake's per-model details and the create's effort check are answered
+out of `internal/gemini`'s or `internal/deepseek`'s tables, so the two
+providers' differing effort sets reach a client as data rather than as a
+special case anywhere else. `resume.go` is the seam between the two ways a
+create names a conversation: a run id is minted in memory and dies with the
+process, so continuing across a restart goes by session id out of the
+`-state-dir` store instead, and everything the session's prompt prefix is
+built from — model, workspace, permission mode, deny patterns, and the frozen
+tool array the create has to re-declare with live connection metadata — is
+checked against the row rather than taken from the create. Depends on:
 `internal/session`, `internal/store`, `internal/hub`, `internal/tools`,
 `internal/mcpclient`, `internal/provider`, and — in `modelinfo.go` alone, for
 the descriptive tables the handshake publishes — `internal/gemini` and

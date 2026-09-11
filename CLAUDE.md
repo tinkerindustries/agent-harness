@@ -6,8 +6,9 @@ provider; Gemini models are routed through the same loop, and Kimi K3 is
 being added behind a narrow dialect seam. Prefer the option that exercises a
 provider's real behaviour over a provider-agnostic abstraction.
 
-There is one entry point. `harness stdio-session` hosts a single coding
-session in a directory the parent owns: no queue, no worker pool, no HTTP
+There is one session, reachable under two subcommands. `harness stdio-session`
+and `harness gemini-session` host a single coding session in a directory the
+parent owns: no queue, no worker pool, no HTTP
 listener, no web UI. The parent supplies the credentials, names the working
 directory on each create call, and reads the session's events off the pipe.
 [ARCHITECTURE.md](ARCHITECTURE.md) maps how the packages relate and the
@@ -25,24 +26,29 @@ shaped that way.
 | Format and vet | `gofmt -l cmd internal && go vet ./cmd/... ./internal/...` |
 | Run one session by hand | `go run ./cmd/harness stdio-session -env .env` |
 
-`harness help` lists the subcommand and its arguments. `gemini-session` is
-the name this command was called when the only models it hosted were
-Google's, and it still works: a parent that spawns the old name gets the same
-process, and the handshake reports back the name it was actually spawned as.
+`harness help` lists the subcommands and their arguments. The two differ in
+the vocabulary they put on the pipe, not in what the session can do:
+`stdio-session` speaks the OpenAI Responses API's and hosts a DeepSeek model
+as well as Google's, `gemini-session` speaks Google's Interactions API's and
+hosts Google's alone. The choice is the subcommand's because it has to be
+made before `initialize` can answer.
 
 [TESTING.md](TESTING.md) covers running a subset and what each layer of the
 suite is for.
 
 - **The protocol is the contract with a process this repo does not contain.**
-  It uses the OpenAI Responses API's vocabulary rather than one of ours: the
-  methods are its REST methods on `POST /responses` and the notifications are
-  that surface's semantic server-sent events. `internal/stdiosession`
-  speaks it to the parent and `internal/deepseek` speaks it to DeepSeek, so
-  one vocabulary runs the length of the process; `internal/gemini` translates
-  for the Gemini models.
-  [`docs/STDIO-PROTOCOL.md`](docs/STDIO-PROTOCOL.md) is the wire reference and
-  is what a client is built from. Read it before changing anything under
-  `internal/stdiosession`, because every field on it is a contract.
+  It uses a vendor's vocabulary rather than one of ours, and which vendor's
+  is the subcommand's choice. `internal/stdiosession` holds both behind one
+  `Dialect` seam: the Responses API's REST methods and semantic SSE events,
+  which `internal/deepseek` also speaks to DeepSeek; and Google's
+  Interactions methods and step events, which `internal/gemini` also speaks
+  to Google. [`docs/STDIO-PROTOCOL.md`](docs/STDIO-PROTOCOL.md) and
+  [`docs/STDIO-INTERACTIONS.md`](docs/STDIO-INTERACTIONS.md) are the wire
+  references a client is built from, and the porting table in the first maps
+  one onto the other. Read the relevant one before changing anything under
+  `internal/stdiosession`, because every field on them is a contract. A
+  golden capture of the Responses frames guards that:
+  `go test ./internal/stdiosession -run TestGoldenFrames`.
 - **The process has a private SQLite file and that is deliberate** — the
   agent loop's state machine is its event log. It holds one session's rows and
   nothing else; nothing serves a queue from it, and nothing else reads it.
@@ -64,6 +70,8 @@ suite is for.
   one DeepSeek model,** `deepseek-v4-flash-vision-exp`. It refuses DeepSeek's
   other two because a model that cannot see is given vision tools that reach
   Google — so hosting one would need a second provider's key.
+  `harness gemini-session` hosts the Gemini models alone: a client speaking
+  Google's vocabulary has no way to drive another vendor's model through it.
 - **`docs/MCP.md`** is the reference for MCP client support: an operator
   registers an external MCP server and its tools join the session's array
   (`internal/mcpclient`).

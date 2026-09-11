@@ -45,7 +45,7 @@ hosting one would mean a DeepSeek run needing a Google key as well
 
 ```mermaid
 flowchart LR
-    parent[parent application] <-->|JSON-RPC over stdio<br/>Responses API payloads| gs[internal/stdiosession]
+    parent[parent application] <-->|JSON-RPC over stdio<br/>Responses or Interactions payloads| gs[internal/stdiosession]
     gs --> session2[internal/session<br/>the agent loop]
     session2 -->|wire.ChatIntent| gc[internal/gemini]
     session2 -->|wire.ChatIntent| dc[internal/deepseek]
@@ -147,8 +147,10 @@ The edges that matter:
   wiring the one concrete `Manager` into `internal/session`
   ([`docs/MCP.md`](docs/MCP.md)).
 - **`internal/stdiosession` sits above the loop and knows the parent's
-  vocabulary.** Nothing below it does, and it reaches the model only through
-  the loop.
+  vocabulary — both of them.** It speaks the Responses API's and Google's
+  Interactions API's behind one `Dialect` seam, chosen by the subcommand.
+  Nothing below it knows which, and it reaches the model only through the
+  loop.
 - Nothing imports `cmd/`.
 
 ## Cross-cutting concerns
@@ -228,11 +230,13 @@ are here.
   parent named. Nothing on the session path may come to assume a workspace
   root the harness itself laid out — a `scratch/` directory, a cloned
   repository, a lease. The loop is passed a path and only a path.
-- **`internal/stdiosession` is the only place the parent's wire vocabulary is
-  spoken outbound.** `internal/gemini` speaks it inbound, to the API. Neither
-  knows about the other, and `internal/session` knows about neither: it states
-  intent as `wire.ChatIntent` and records `store.Event`s, and the translation
-  in both directions happens at the edges.
+- **`internal/stdiosession` is the only place a parent's wire vocabulary is
+  spoken outbound,** and `internal/deepseek` and `internal/gemini` are the
+  only places a provider's is spoken inbound. That the same two vocabularies
+  appear on both sides is a convenience and not a passthrough: neither end
+  knows about the other, and `internal/session` knows about neither. It
+  states intent as `wire.ChatIntent` and records `store.Event`s, and the
+  translation in both directions happens at the edges.
 - **The vendored mirror in `third_party/deepseek-docs/` is generated.** Refresh
   it by re-scraping, never by editing a file.
 

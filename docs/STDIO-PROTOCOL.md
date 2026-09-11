@@ -71,18 +71,31 @@ hosts"](#which-models-this-process-hosts).
 This document is the contract. A client is built from it and never needs to
 read Go.
 
-**This document describes a protocol change, not an addition.** It previously
-described Google's Interactions vocabulary; the methods, the notifications and
-the payload shapes are all different now, and a client written against the old
-one does not work against this. Turret's own cross-repository design
-(`docs/design/gemini-agent-harness.md` in `desktop-coding-client`) pinned the
-last Interactions revision at `c039c0b4d7bea9f657e09b80d38af833f00c3182`
-(`v0.48.0-10-gc039c0b`); everything from `interactions.create` to `step.delta`
-is gone.
+**This is one of two vocabularies the same session speaks.**
+`harness gemini-session` runs the identical session and puts Google's
+Interactions vocabulary on the pipe instead, in the spelling
+`internal/gemini` already uses against Google;
+[STDIO-INTERACTIONS.md](STDIO-INTERACTIONS.md) is that document. The
+subcommand is what chooses, because the choice has to be made before
+`initialize` can answer: its result carries a protocol string, a capability
+named for its own continuation id, and each model's effort set under its own
+key.
 
-What replaced what, for a client being ported:
+Pick the one your client already implements. This one hosts a DeepSeek model
+as well as Google's; the other hosts Google's alone, since a client speaking
+Google's vocabulary has no way to drive a model of another vendor's through
+it. One thing this vocabulary cannot carry is a **thought signature**, which
+Google issues for a thinking step and a client storing transcripts for replay
+needs; see [STDIO-INTERACTIONS.md](STDIO-INTERACTIONS.md).
 
-| Interactions | Responses |
+Turret's own cross-repository design (`docs/design/gemini-agent-harness.md` in
+`desktop-coding-client`) pins the Interactions revision at
+`c039c0b4d7bea9f657e09b80d38af833f00c3182` (`v0.48.0-10-gc039c0b`), and a
+client at that revision drives `harness gemini-session` unchanged.
+
+The two vocabularies, shape for shape:
+
+| Interactions (`gemini-session`) | Responses (`stdio-session`) |
 | --- | --- |
 | `interactions.create` / `.append` / `.cancel` / `.get` / `.delete` | `responses.create` / `.append` / `.cancel` / `.get` / `.delete` |
 | `interaction_id` | `response_id` |
@@ -99,6 +112,8 @@ What replaced what, for a client being ported:
 | `previous_interaction_id` | `previous_response_id` |
 | `thinking_levels` on `model_details` | `reasoning_efforts` |
 | `index` on a step frame | `output_index` on an item frame |
+| `event_type` on every frame | `type`, and a `sequence_number` |
+| `thought_signature` delta | *(no counterpart)* |
 
 The `harness.*` extensions are unchanged in meaning throughout, and
 `harness.resume_session_id` still carries a conversation across a restart.
@@ -128,13 +143,12 @@ harness stdio-session [-state-dir DIR] [-keep-state] [-model NAME] [-prices PATH
                       [-env FILE]
 ```
 
-**`harness gemini-session` is the former name and still works.** It was named
-for the only models it hosted at the time, and it now hosts a DeepSeek model
-too. The alias is the same process with the same flags — and the handshake
-reports back **the name it was spawned as**, so a client that pins
-`server_info.name` keeps working across the rename. A client should move to
-`stdio-session`; the alias exists so it does not have to move in the same
-release the harness does.
+**`harness gemini-session` is not an alias for this.** It takes the same
+flags and runs the same session, and it speaks Google's Interactions
+vocabulary rather than this one
+([STDIO-INTERACTIONS.md](STDIO-INTERACTIONS.md)). The handshake reports back
+the name it was spawned as, so `server_info.name` says which you got and
+`server_info.protocol` says which vocabulary that name speaks.
 
 The parent supplies the API keys in the environment it spawns the process
 with:
@@ -195,13 +209,18 @@ environment.
 ## Which models this process hosts
 
 `initialize`'s `models` is the whole list, and `responses.create` refuses
-anything outside it. Today that is every Gemini model the harness routes,
-plus exactly one DeepSeek model:
+anything outside it. Under `stdio-session` that is every Gemini model the
+harness routes, plus exactly one DeepSeek model:
 
 | Model | Provider | Key |
 | --- | --- | --- |
 | `gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.5-flash-lite` | Google | `GEMINI_API_KEY` / `GOOGLE_API_KEY` |
 | `deepseek-v4-flash-vision-exp` | DeepSeek | `DEEPSEEK_API_KEY` |
+
+`harness gemini-session` advertises the Google rows and not the DeepSeek one.
+A client speaking Google's vocabulary would be naming a DeepSeek model in a
+`generation_config` and reading its answers as Google steps, so that command
+does not offer it; a `-model` naming it there is refused at startup.
 
 **One DeepSeek model, and it is the vision one.** The harness routes two
 others, `deepseek-v4-flash` and `deepseek-v4-pro`, and this process refuses
@@ -398,11 +417,12 @@ The Responses API's create-response body, narrowed, plus a `harness` block.
   "model": "gemini-3.7-flash",
   "input": "Add a test for the retry path.",
   "instructions": "You are working inside Turret.",
-  "previous_response_id": "int_9f0c…",
+  "previous_response_id": "resp_9f0c…",
   "tools": [ /* see Tools */ ],
-  "text.format": {"type": "text", "mime_type": "application/json",
-                      "schema": { /* JSON Schema */ }},
-  "reasoning": {"thinking_level": "high", "max_output_tokens": 0},
+  "text": {"format": {"type": "json_schema", "name": "result",
+                      "schema": { /* JSON Schema */ }}},
+  "reasoning": {"effort": "high"},
+  "max_output_tokens": 0,
   "stream": true,
   "store": true,
   "harness": {
@@ -623,6 +643,33 @@ parts, typed by direction the way the Responses surface types them:
 `image_url` is a base64 data URL (`data:image/png;base64,…`), which is the
 same string the provider is sent, so a parent renders a screenshot straight
 from the frame.
+
+### `harness.usage`
+
+One request's token accounting, as it happens:
+
+```jsonc
+{"type": "harness.usage", "sequence_number": 41, "response_id": "resp_…",
+ "sub_turn": 7,
+ "usage": {"input_tokens": 11800, "output_tokens": 190,
+           "total_tokens": 12043,
+           "input_tokens_details": {"cached_tokens": 9216},
+           "output_tokens_details": {"reasoning_tokens": 53},
+           "harness": {"cost_usd": 0.0031}}}
+```
+
+The HTTP surface reports usage once, on the terminal frame, which for a run
+spanning a hundred sub-turns is an hour late for anything showing spend as it
+accrues. The `response.completed` total still arrives and is still
+authoritative; these are its parts. `usage.harness.cost_usd` is this
+harness's own price table applied to those tokens, and is absent when no
+price table was loaded.
+
+`output_tokens` includes the reasoning tokens, and
+`output_tokens_details.reasoning_tokens` is the breakdown of it rather than a
+sibling to add on. The Interactions vocabulary splits the same figures the
+other way, so a client porting between them must not carry the arithmetic
+across.
 
 ### `harness.tool_output`
 
@@ -933,7 +980,7 @@ offers to continue.
 | **stdout breaks** | Writes fail silently — there is nowhere to report a failure to write. The read side discovers the same break and ends the session. |
 | **the parent exits** | Both pipes break; as above. The process does not outlive its parent. |
 | **a tool is running at cancel** | Its context is cancelled, which signals the whole process group of a `Bash` child. A grandchild holding the output pipe is bounded by the tool layer's own wait delay rather than waiting forever. |
-| **the model errors mid-turn** | The stream ends, the loop records the failure, and the client gets `error` then `response.completed` with `status: "failed"`. A reasoning-starved response — the budget spent before any answer text — is retried once at double the budget before that, and both attempts are billed and both appear on `harness.usage`. |
+| **the model errors mid-turn** | The stream ends, the loop records the failure, and the client gets `response.failed` carrying the whole response, then `response.completed` with `status: "failed"`. A reasoning-starved response — the budget spent before any answer text — is retried once at double the budget before that, and both attempts are billed and both appear on `harness.usage`. |
 | **the parent stops reading stdout** | Frames queue in this process rather than being dropped. There is no ceiling: a parent that has stopped reading has stopped hosting the session, and stdin closing is what ends it. |
 
 A run's transcript survives under the state directory. With the default state
