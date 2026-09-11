@@ -138,6 +138,11 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A background shell a Bash call started outlives the call itself; it
+	// must not outlive the run. Close kills whatever is still running on
+	// every return path, including the ones above this line's siblings
+	// return early on error, none of which have started anything yet.
+	defer executor.Close()
 	executor.Client = r.clientFor(r.flashModel(ctx))
 	executor.Prices = r.Prices
 	executor.FlashModel = r.flashModel(ctx)

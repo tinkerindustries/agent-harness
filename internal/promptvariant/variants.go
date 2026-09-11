@@ -125,10 +125,14 @@ var variants = map[string]variant{
 	// count follow the array — no replacements entry is needed, and one
 	// that restated the inventory would be the drift this mechanism
 	// exists to remove. What it measures is whether a session routes
-	// around a missing tool instead of stalling on it.
+	// around a missing tool instead of stalling on it. BashOutput and
+	// KillBash drop with it: neither means anything without Bash to start
+	// a background shell for them to act on, and leaving either in the
+	// array would put "Bash" back in the inventory sentence as a substring
+	// of their own names.
 	"no-bash": {
-		description: "the shipped prompt with the Bash tool dropped — no shell rule, no batch rule naming Bash, and an inventory that names the sixteen tools the session is actually sent",
-		dropTools:   []string{"Bash"},
+		description: "the shipped prompt with Bash, BashOutput, and KillBash dropped — no shell rule, no batch rule naming Bash, and an inventory that names the nineteen tools the session is actually sent",
+		dropTools:   []string{"Bash", "BashOutput", "KillBash"},
 	},
 }
 

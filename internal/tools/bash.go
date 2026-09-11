@@ -15,9 +15,10 @@ import (
 )
 
 type bashArgs struct {
-	Command     string `json:"command"`
-	TimeoutMS   int    `json:"timeout"`
-	Description string `json:"description"`
+	Command         string `json:"command"`
+	TimeoutMS       int    `json:"timeout"`
+	Description     string `json:"description"`
+	RunInBackground bool   `json:"run_in_background"`
 }
 
 // shellPath is the shell every Bash call runs through: bash where it exists,
@@ -41,6 +42,9 @@ func execBash(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 	}
 	if args.Command == "" {
 		return errorResult("command is required")
+	}
+	if args.RunInBackground {
+		return execBashBackground(ctx, e, args.Command)
 	}
 
 	cmd := exec.CommandContext(ctx, shellPath(), "-c", args.Command)

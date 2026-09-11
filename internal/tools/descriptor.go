@@ -21,6 +21,14 @@ func descriptorFor(name string, argsRaw json.RawMessage) string {
 		if cmd, ok := args["command"].(string); ok {
 			return cmd
 		}
+	case "BashOutput":
+		if id, _ := args["bash_id"].(string); id != "" {
+			return name + " " + id
+		}
+	case "KillBash":
+		if id, _ := args["shell_id"].(string); id != "" {
+			return name + " " + id
+		}
 	case "Read", "Write", "List":
 		if p := stringArg(args, "file_path", "path"); p != "" {
 			return name + " " + p

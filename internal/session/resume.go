@@ -92,6 +92,9 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 	if err != nil {
 		return nil, err
 	}
+	// See lifecycle.go's Run: a background shell must not outlive the run
+	// that started it.
+	defer executor.Close()
 	executor.Client = r.clientFor(r.flashModel(ctx))
 	executor.Prices = r.Prices
 	executor.FlashModel = r.flashModel(ctx)

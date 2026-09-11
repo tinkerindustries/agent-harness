@@ -52,7 +52,7 @@ not by describing what someone else should do.
 // (docs/CACHE.md, docs/VISION-TOOLKIT.md) — a cost paid deliberately at the
 // swap rather than drifted into.
 var toolOrder = []string{
-	"Read", "Write", "Edit", "Bash", "Glob", "Grep", "List",
+	"Read", "Write", "Edit", "Bash", "BashOutput", "KillBash", "Glob", "Grep", "List",
 	"TaskCreate", "TaskGet", "TaskList", "TaskUpdate", "Task", "WebFetch",
 	"Screenshot", "Glance", "Transcribe", "Ground", "Detect", "Crop", "Complete",
 }
@@ -234,6 +234,15 @@ var toolFragments = []toolFragment{
 `,
 	},
 	{
+		needs: []string{"Bash", "BashOutput", "KillBash"},
+		text: `- A dev server, a watcher, or anything else meant to keep running rather
+  than finish belongs in Bash with run_in_background set, not backgrounded
+  with & inside an ordinary call. Read what it has produced with BashOutput,
+  which returns only what is new since the last time you read it, and stop
+  it with KillBash when you are done with it rather than leaving it running.
+`,
+	},
+	{
 		needs: []string{"TaskCreate", "TaskGet", "TaskList", "TaskUpdate"},
 		text: `- A task that takes three or more steps gets a plan. Call TaskCreate once, at
   the start, with one entry per step. Every entry needs all three of: subject,
@@ -392,10 +401,10 @@ func RenderSystemPrompt() string {
 // RenderSystemPromptFor returns the frozen system prompt for the provider
 // serving model, with a named variant's edits made. An empty variant name is
 // the provider's shipped prompt, byte for byte (internal/promptvariant):
-// DeepSeek renders its seventeen-tool head, Kimi renders the head for its
-// fourteen-tool array — whose inventory, count word and rules all follow
+// DeepSeek renders its twenty-two-tool head, Kimi renders the head for its
+// sixteen-tool array — whose inventory, count word and rules all follow
 // from the array itself (docs/KIMI-INTEGRATION.md §4.4) — Gemini renders
-// the same fourteen-tool head Kimi does, since both resolve to
+// the same sixteen-tool head Kimi does, since both resolve to
 // tools.definitionsVisionCapable and both have seesImages() true
 // (docs/GEMINI-INTEGRATION.md §5.7) — and a variant that subtracts tools
 // (tools.DefinitionsForVariant) renders the head for its own smaller array,

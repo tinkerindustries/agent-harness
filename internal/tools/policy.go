@@ -7,7 +7,7 @@ import (
 
 // Mode is the permission mode a session holds for its whole life
 // (docs/TOOLS.md, "Permissions"). Modes gate execution, never the tool
-// array sent to the model: all twenty tools ship in every mode, and a
+// array sent to the model: all twenty-two tools ship in every mode, and a
 // disallowed call is refused at execution time.
 type Mode string
 

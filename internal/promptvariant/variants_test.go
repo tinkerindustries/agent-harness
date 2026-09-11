@@ -1,6 +1,7 @@
 package promptvariant
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -60,8 +61,8 @@ func TestToolsDroppedBy(t *testing.T) {
 			t.Errorf("ToolsDroppedBy(%q) = %v, want nil", name, got)
 		}
 	}
-	if got := ToolsDroppedBy("no-bash"); len(got) != 1 || got[0] != "Bash" {
-		t.Errorf("ToolsDroppedBy(no-bash) = %v, want [Bash]", got)
+	if got := ToolsDroppedBy("no-bash"); !reflect.DeepEqual(got, []string{"Bash", "BashOutput", "KillBash"}) {
+		t.Errorf("ToolsDroppedBy(no-bash) = %v, want [Bash BashOutput KillBash]", got)
 	}
 	if got := ToolsDroppedBy("kimi-steps"); got != nil {
 		t.Errorf("ToolsDroppedBy(kimi-steps) = %v, want nil (it drops no tools)", got)

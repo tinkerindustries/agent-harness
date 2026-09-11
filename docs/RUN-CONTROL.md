@@ -27,11 +27,16 @@ button.
 - **Approval-gated tool calls.** §4.6 rejected a loop that blocks on a human
   for exactly this reason: it stalls when nobody is watching. Steering adds a
   channel *into* the loop; it does not make the loop wait on it.
-- **Background shells with polling and kill tools.** [TOOLS.md](TOOLS.md)
-  names this separately as not built, for the `Bash` tool itself (letting a
-  command run detached, with its own poll/kill affordances). This design's
-  "kill a wedged call" is about ending a *foreground* call from outside; it is
-  a prerequisite for that, not a substitute for it.
+- **A stop control reaching into a background shell.** `Bash`'s
+  `run_in_background`, `BashOutput`, and `KillBash` ([TOOLS.md](TOOLS.md))
+  are the poll/kill affordances this section once named as not built, for a
+  command a model chose to detach on purpose. This design's "kill a wedged
+  call" is about ending a *foreground* call from outside when nothing chose
+  to detach it; "Half one" below is what a background shell's own
+  `cmd.WaitDelay` and process group reuse, not a substitute for either.
+  `Executor.Close` ends every background shell still running when a run's
+  own loop returns, on every path — the run-ending side of run control this
+  section covers, applied to a process rather than a goroutine.
 - **Killing one tool call and letting the run continue.** Stop is whole-run.
   See [What this does not promise](#what-this-does-not-promise).
 
