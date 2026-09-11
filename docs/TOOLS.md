@@ -90,6 +90,20 @@ a model that can see one.
 Returns line-numbered content, `cat -n` style, because that is the shape the
 target harnesses return and the model reads offsets out of it.
 
+`limit` bounds how many lines come back, and defaults to 2,000. A file longer
+than that is cut, and the cut is marked in the result:
+
+    [showing lines 1-2000 of 2145; read again with offset=2001 for the rest]
+
+The note is the only thing that shows it. Nothing in the numbered lines says
+where the file ended, and the output cap's own label does not cover this
+either: 2,000 lines of source sit well under it, so a cut file comes back
+looking exactly like a whole one. A model that believes it has seen the end
+goes on to edit on that belief. The total after "of" is counted by scanning
+the rest of the file, which is cheap beside the read that just happened; a
+remainder the scanner cannot get through costs the total and nothing else,
+and the note still reports the cut.
+
 On a model that sees images (Kimi K3, Gemini, and `deepseek-flash`
 — `provider.SeesImages`), a `Read` of a PNG, JPEG, or WebP path returns the
 file as an `image_url` part — the bytes base64-encoded into a
