@@ -53,7 +53,7 @@ const pingTimeout = 5 * time.Second
 
 // defaultSamplingModel is what a sampling turn runs on when the operator
 // has named no other.
-const defaultSamplingModel = "deepseek-v4-flash"
+const defaultSamplingModel = "deepseek-flash"
 
 // Manager is the Manager the internal/tools.MCPProvider seam is implemented
 // against (docs/MCP.md). One Manager is shared by every session in the

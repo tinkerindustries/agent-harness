@@ -73,10 +73,11 @@ The array is chosen per model, through `provider.SeesImages`
 K3 session gets the fourteen tools that remain when `Screenshot`, `Glance`,
 `Transcribe`, `Ground`, `Detect`, and `Crop` are dropped — K3 reads images
 natively, so all six are redundant for it, and capture happens through Bash
-and the `playwright-cli` skill instead. Gemini and `deepseek-v4-flash-vision-exp`
-get the same fourteen, for the same reason. DeepSeek's other two models,
-`deepseek-v4-pro` and `deepseek-v4-flash`, get the full twenty, unchanged
-byte for byte. Each array is a frozen request head shared by every session
+and the `playwright-cli` skill instead. Gemini and `deepseek-flash`, the only
+DeepSeek model this harness routes, get the same fourteen, for the same
+reason. Every model absent from `provider.SeesImages` — `deepseek-v4-pro`
+among them, though this harness does not route it — gets the full twenty,
+unchanged byte for byte. Each array is a frozen request head shared by every session
 that sends it, pinned by its own golden file
 (`internal/tools/testdata/tools_*.golden.json`, asserted by
 `TestToolArrayGolden`); the `Read` section below covers how an image reaches
@@ -89,7 +90,7 @@ a model that can see one.
 Returns line-numbered content, `cat -n` style, because that is the shape the
 target harnesses return and the model reads offsets out of it.
 
-On a model that sees images (Kimi K3, Gemini, and `deepseek-v4-flash-vision-exp`
+On a model that sees images (Kimi K3, Gemini, and `deepseek-flash`
 — `provider.SeesImages`), a `Read` of a PNG, JPEG, or WebP path returns the
 file as an `image_url` part — the bytes base64-encoded into a
 `data:image/<fmt>;base64,...` data URI, the exact shape the Kimi guide
@@ -209,9 +210,10 @@ compact checklist line deliberately leaves out.
 
 ### Task
 
-Delegates to a subagent on `deepseek-v4-flash`. DeepSeek's own recommended Claude
-Code configuration sets `CLAUDE_CODE_SUBAGENT_MODEL=deepseek-v4-flash`, so this
-is both the trained-in pattern and the cheap one.
+Delegates to a subagent on `deepseek-flash` (`model.flash`). DeepSeek's own
+recommended Claude Code configuration sets
+`CLAUDE_CODE_SUBAGENT_MODEL=deepseek-v4-flash` — `deepseek-flash`'s retired
+name — so this is both the trained-in pattern and the cheap one.
 
 The subagent runs in its own conversation. Its transcript never joins the parent
 message array — only its final result does. That keeps the parent prefix stable
@@ -320,9 +322,10 @@ being killed silently.
 ### Glance
 
 This is the general-purpose vision tool for a model that cannot see images
-itself — DeepSeek's `deepseek-v4-pro` and `deepseek-v4-flash`, the two
-models `Glance` is actually offered to (`provider.SeesImages`,
-docs/DEEPSEEK-VISION.md): it sends one or more images to Google Gemini and
+itself — every model `provider.SeesImages` resolves false, `deepseek-v4-pro`
+among them, though this harness does not currently route any DeepSeek model
+that resolves false (`provider.SeesImages`, docs/DEEPSEEK-VISION.md): it
+sends one or more images to Google Gemini and
 returns whatever comes back as prose — a description, an answer to a
 question, or a verbatim transcription. It is one of four tools ported from `Anionex/agent-vision-toolkit`
 (docs/VISION-TOOLKIT.md is the assessment behind the port) that between them

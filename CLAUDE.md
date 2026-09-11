@@ -67,9 +67,9 @@ suite is for.
   the working directory, and a `.env` sitting in a repository the session is
   about to work in must not feed this process.
 - **`harness stdio-session` hosts every Gemini model the harness routes and
-  one DeepSeek model,** `deepseek-v4-flash-vision-exp`. It refuses DeepSeek's
-  other two because a model that cannot see is given vision tools that reach
-  Google — so hosting one would need a second provider's key.
+  the one DeepSeek model it routes,** `deepseek-flash`, which reads images
+  natively — a model that could not see would be given vision tools that
+  reach Google, so hosting one would need a second provider's key.
   `harness gemini-session` hosts the Gemini models alone: a client speaking
   Google's vocabulary has no way to drive another vendor's model through it.
 - **`docs/MCP.md`** is the reference for MCP client support: an operator
@@ -110,12 +110,17 @@ of them drifted apart before.
 
 - Base URL, OpenAI format: `https://api.deepseek.com`
 - Base URL, Anthropic format: `https://api.deepseek.com/anthropic`
-- Models: `deepseek-v4-flash`, `deepseek-v4-pro`, and
-  `deepseek-v4-flash-vision-exp`. All three default to thinking mode and
-  support non-thinking mode. `deepseek-v4-flash-vision-exp` is the one that
-  reads images; see [`docs/DEEPSEEK-VISION.md`](docs/DEEPSEEK-VISION.md) for
-  how, and for what remains unverified against the live API.
-- The Responses API supports all three models, and this harness speaks it:
+- DeepSeek's API serves two models, `deepseek-flash` (DeepSeek-V4.1-Flash)
+  and `deepseek-v4-pro`. Both default to thinking mode and support
+  non-thinking mode. `deepseek-flash` is the one that reads images; see
+  [`docs/DEEPSEEK-VISION.md`](docs/DEEPSEEK-VISION.md) for how, and for what
+  remains unverified against the live API. `deepseek-v4-flash` and
+  `deepseek-v4-flash-vision-exp` are `deepseek-flash`'s retired names —
+  DeepSeek's API still accepts them. This harness routes `deepseek-flash`
+  alone; `internal/provider` does not know `deepseek-v4-pro` or either
+  retired name.
+- The Responses API supports both of DeepSeek's models, and this harness
+  speaks it:
   `harness stdio-session` posts to `/responses`.
   [`docs/DEEPSEEK-RESPONSES.md`](docs/DEEPSEEK-RESPONSES.md) is the
   reference, including what remains unverified. A session speaks one surface

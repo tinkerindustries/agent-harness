@@ -1,7 +1,7 @@
 ---
 title: Error Codes
 source: https://api-docs.deepseek.com/quick_start/error_codes
-fetched: 2026-09-10
+fetched: 2026-09-11
 ---
 
 # Error Codes

@@ -1,7 +1,7 @@
 ---
 title: Integrate with OpenCode
 source: https://api-docs.deepseek.com/quick_start/agent_integrations/opencode
-fetched: 2026-09-10
+fetched: 2026-09-11
 ---
 
 # Integrate with OpenCode
@@ -10,7 +10,7 @@ OpenCode is an open-source AI coding assistant available in terminal, web, and o
 
 ## Migrate from Existing Installation to DeepSeek
 
-If you already have OpenCode installed (version >= v1.14.24 recommended), simply run OpenCode and switch to the DeepSeek provider:
+If you already have OpenCode installed (version >= v1.18.30 recommended), simply run OpenCode and switch to the DeepSeek provider:
 
 1. Execute the `opencode` command
 2. Type `/connect` in the input box, then enter `deepseek` and select the provider
@@ -27,7 +27,7 @@ If you already have OpenCode installed (version >= v1.14.24 recommended), simply
 
   
 
-4. Select the DeepSeek-V4-Pro model
+4. Select the DeepSeek-V4-Flash model
 
 ![](../../_img/opencode_4.png)
 
@@ -39,11 +39,11 @@ If you already have OpenCode installed (version >= v1.14.24 recommended), simply
 
 For installation instructions, please refer to the [OpenCode download page](https://opencode.ai/download).
 
-To avoid compatibility issues, it is strongly recommended to upgrade OpenCode to the latest version, ensuring the version number is >= v1.14.24.
+To avoid compatibility issues, it is strongly recommended to upgrade OpenCode to the latest version, ensuring the version number is >= v1.18.30.
 
 #### 2. Run and Configure
 
 - Execute the `opencode` command
 - Type `/connect` in the input box, then enter `deepseek` and select the provider
 - Enter your [DeepSeek API Key](https://platform.deepseek.com/api_keys)
-- Select the DeepSeek-V4-Pro model
+- Select the DeepSeek-V4-Flash model

@@ -11,7 +11,7 @@ import (
 // nothing else: low, high, max (third_party/deepseek-docs/api/
 // create-chat-completion.md).
 func TestEffortsForAdvertisesTheDocumentedSet(t *testing.T) {
-	got := EffortsFor("deepseek-v4-flash-vision-exp")
+	got := EffortsFor("deepseek-flash")
 	want := []string{wire.EffortLow, wire.EffortHigh, wire.EffortMax}
 	if !slices.Equal(got, want) {
 		t.Errorf("EffortsFor = %v, want %v", got, want)
@@ -21,7 +21,7 @@ func TestEffortsForAdvertisesTheDocumentedSet(t *testing.T) {
 	}
 	// The caller may sort or truncate its copy without editing the table.
 	got[0] = "edited"
-	if EffortsFor("deepseek-v4-flash-vision-exp")[0] != wire.EffortLow {
+	if EffortsFor("deepseek-flash")[0] != wire.EffortLow {
 		t.Error("EffortsFor handed out the table itself")
 	}
 }
@@ -33,7 +33,7 @@ func TestEffortsForAdvertisesTheDocumentedSet(t *testing.T) {
 // those and is documented nowhere here, so it is refused before a run
 // starts rather than 400ing in the middle of one.
 func TestEffortSupported(t *testing.T) {
-	const model = "deepseek-v4-flash-vision-exp"
+	const model = "deepseek-flash"
 	for _, effort := range []string{wire.EffortLow, wire.EffortHigh, wire.EffortMax, "medium", "xhigh"} {
 		if !EffortSupported(model, effort) {
 			t.Errorf("EffortSupported(%s, %q) = false, want true", model, effort)
@@ -55,10 +55,10 @@ func TestEffortSupported(t *testing.T) {
 // the handshake rather than published as a guess, and an empty display name
 // makes a client fall back to the model id.
 func TestDescriptiveTables(t *testing.T) {
-	if ContextWindowTokens("deepseek-v4-flash-vision-exp") <= 0 {
+	if ContextWindowTokens("deepseek-flash") <= 0 {
 		t.Error("the vision model has no context window figure")
 	}
-	if DisplayName("deepseek-v4-flash-vision-exp") == "" {
+	if DisplayName("deepseek-flash") == "" {
 		t.Error("the vision model has no display name")
 	}
 	if got := ContextWindowTokens("gemini-3.7-flash"); got != 0 {
@@ -74,7 +74,7 @@ func TestDescriptiveTables(t *testing.T) {
 // advertise no efforts and no context window, which a client reads as "this
 // process constrains nothing" — a silent wrong answer rather than a loud one.
 func TestEveryDeepSeekModelHasEntries(t *testing.T) {
-	for _, m := range []string{"deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp"} {
+	for _, m := range []string{"deepseek-flash"} {
 		if EffortsFor(m) == nil {
 			t.Errorf("%s has no advertised efforts", m)
 		}

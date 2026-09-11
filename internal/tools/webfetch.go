@@ -114,7 +114,7 @@ func execWebFetch(ctx context.Context, e *Executor, argsRaw json.RawMessage) Res
 func (e *Executor) summarizeFetch(ctx context.Context, content, prompt string) (string, error) {
 	model := e.FlashModel
 	if model == "" {
-		model = "deepseek-v4-flash"
+		model = "deepseek-flash"
 	}
 	intent := wire.ChatIntent{
 		Model: model,

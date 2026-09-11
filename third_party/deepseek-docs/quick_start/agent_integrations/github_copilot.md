@@ -1,7 +1,7 @@
 ---
 title: Integrate with GitHub Copilot
 source: https://api-docs.deepseek.com/quick_start/agent_integrations/github_copilot
-fetched: 2026-09-10
+fetched: 2026-09-11
 ---
 
 # Integrate with GitHub Copilot

@@ -129,13 +129,13 @@ var registry = []Descriptor{
 	intSetting(KeyRunMaxSubTurns, GroupRunBudget, 400, 1, 1_000_000,
 		"Sub-turn budget a request that omits max_sub_turns gets. Chosen against run.deadline: a flash sub-turn averages about six seconds, so a full 400-sub-turn run needs roughly 40 minutes of wall clock. Raising one without the other does nothing."),
 	intSetting(KeyRunMaxSubTurnsKimiK3, GroupRunBudget, 100, 1, 1_000_000,
-		"Sub-turn budget a kimi-k3 request that omits max_sub_turns gets, replacing run.max_sub_turns for that model. K3 output costs $15.00/M against deepseek-v4-pro's $0.87 — about 17x (configs/prices.json) — so the global 400-sub-turn ceiling, chosen against DeepSeek's rates, would let a K3 run spend up to 17x a DeepSeek run's worst-case output. 100 caps the ceiling at a quarter of the sub-turns, bounding the worst case to roughly 4x DeepSeek's (100/400 of the budget at 17x the rate), while still leaving a multi-tool task room (docs/KIMI-INTEGRATION.md §3)."),
+		"Sub-turn budget a kimi-k3 request that omits max_sub_turns gets, replacing run.max_sub_turns for that model. K3 output costs $15.00/M against deepseek-flash's $0.60/M off-peak — about 25x (configs/prices.json) — so the global 400-sub-turn ceiling, chosen against DeepSeek's rates, would let a K3 run spend up to 25x a DeepSeek run's worst-case output. 100 caps the ceiling at a quarter of the sub-turns, bounding the worst case to roughly 6x DeepSeek's (100/400 of the budget at 25x the rate), while still leaving a multi-tool task room (docs/KIMI-INTEGRATION.md §3). DeepSeek cut deepseek-flash's rate on 2026-09-10; this ratio was about 17x and the bound about 4x against deepseek-v4-pro, the model this setting was originally sized against."),
 	durationSetting(KeyRunDeadline, GroupRunBudget, "1h", time.Second, 365*24*time.Hour,
 		"Wall clock a request that omits deadline_ms gets. Chosen against run.max_sub_turns: 400 sub-turns at roughly six seconds each need about 40 minutes, and this hour leaves headroom. Raising one without the other does nothing."),
 	intSetting(KeyRunCompactionThreshold, GroupRunBudget, 768*1024, 1024, 1_000_000,
 		"Prompt-token threshold at which the session compacts its history (DeepSeek's recommended Claude Code compaction window, 768K of the 1M context)"),
 	intSetting(KeyRunCompactionThresholdKimiK3, GroupRunBudget, 128*1024, 1024, 1_000_000,
-		"Prompt-token threshold at which a kimi-k3 session compacts its history, replacing run.compaction_threshold for that model. K3 cache-miss input costs $3.00/M against deepseek-v4-pro's $0.435 — about 7x (configs/prices.json) — so the global 768K threshold would expose a K3 cold start or churn to a ~$2.30 full-prompt miss. Scaling 768K by the miss-price ratio (0.435/3.00) gives ~111K; 128K is the round ceiling where a worst-case full-prompt miss costs ~$0.39, the same order as DeepSeek's ~$0.34 at 768K (docs/KIMI-INTEGRATION.md §3)."),
+		"Prompt-token threshold at which a kimi-k3 session compacts its history, replacing run.compaction_threshold for that model. K3 cache-miss input costs $3.00/M against deepseek-flash's $0.15/M off-peak — about 20x (configs/prices.json) — so the global 768K threshold would expose a K3 cold start or churn to a ~$2.30 full-prompt miss. 128K is unchanged from when this was scaled against deepseek-v4-pro (about 7x K3's rate): a worst-case full-prompt miss at 128K still costs ~$0.39, but that is now roughly 3x deepseek-flash's own ~$0.12 at 768K off-peak, not the same order it was against deepseek-v4-pro's ~$0.34. DeepSeek cut deepseek-flash's rate on 2026-09-10; this threshold has not been re-scaled against it (docs/KIMI-INTEGRATION.md §3)."),
 	durationSetting(KeyRunStopGracePeriod, GroupRunBudget, "30s", time.Second, time.Hour,
 		"How long a stop waits for a cancelled run to return before it gives up on the goroutine and finishes the run without it (docs/RUN-CONTROL.md \"Half two\"). Sized against the longest uninterruptible thing a healthy run does between context checks, not against sub-turn latency."),
 
@@ -181,9 +181,9 @@ var registry = []Descriptor{
 
 	// --- Models ---
 	stringSetting(KeyDefaultModel, GroupModels,
-		"Default model for runs that omit model", "deepseek-v4-pro", false, false),
+		"Default model for runs that omit model", "deepseek-flash", false, false),
 	stringSetting(KeyDefaultFlashModel, GroupModels,
-		"Model Task subagents and WebFetch summarisation run", "deepseek-v4-flash", false, false),
+		"Model Task subagents and WebFetch summarisation run", "deepseek-flash", false, false),
 	stringSetting(KeyDefaultEffort, GroupModels,
 		"Default reasoning effort for runs that omit effort", "high", false, false).
 		withAllowed("low", "high", "max"),

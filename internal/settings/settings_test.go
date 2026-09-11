@@ -193,8 +193,8 @@ func TestTypedAccessorsResolveDefaultsAndStoredValues(t *testing.T) {
 	if v, err := r.Duration(ctx, KeyRunDeadline); err != nil || v != 60*time.Minute {
 		t.Fatalf("Duration(run.deadline) on empty store = %v err=%v, want 1h nil", v, err)
 	}
-	if v, err := r.String(ctx, KeyDefaultModel); err != nil || v != "deepseek-v4-pro" {
-		t.Fatalf("String(model.default) on empty store = %q err=%v, want deepseek-v4-pro nil", v, err)
+	if v, err := r.String(ctx, KeyDefaultModel); err != nil || v != "deepseek-flash" {
+		t.Fatalf("String(model.default) on empty store = %q err=%v, want deepseek-flash nil", v, err)
 	}
 
 	if err := r.Set(ctx, KeyRunMaxTokens, "100"); err != nil {

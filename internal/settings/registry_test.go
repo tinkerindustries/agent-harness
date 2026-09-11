@@ -45,8 +45,8 @@ func TestRegistryDefaultsMatchTheConstantsTheyReplaced(t *testing.T) {
 		{settings.KeyToolAttachmentsMaxCount, "8"},
 		{settings.KeyToolAttachmentsMaxBytes, "5242880"},
 		{settings.KeyToolMCPTimeout, "120s"},
-		{settings.KeyDefaultModel, "deepseek-v4-pro"},
-		{settings.KeyDefaultFlashModel, "deepseek-v4-flash"},
+		{settings.KeyDefaultModel, "deepseek-flash"},
+		{settings.KeyDefaultFlashModel, "deepseek-flash"},
 		{settings.KeyDefaultEffort, "high"},
 		{settings.KeyGoogleVisionModel, "gemini-3.7-flash"},
 	}
@@ -96,7 +96,7 @@ func TestRunBudgetKeysForModel(t *testing.T) {
 	if !ok || key != settings.KeyRunMaxSubTurnsKimiK3 {
 		t.Errorf("RunBudgetKeysForModel(kimi-k3) = (%q, %v), want (%q, true)", key, ok, settings.KeyRunMaxSubTurnsKimiK3)
 	}
-	for _, model := range []string{"deepseek-v4-pro", "deepseek-v4-flash", "no-such-model"} {
+	for _, model := range []string{"deepseek-v4-pro", "deepseek-flash", "no-such-model"} {
 		if _, _, ok := settings.RunBudgetKeysForModel(model); ok {
 			t.Errorf("RunBudgetKeysForModel(%q) = ok, want no override", model)
 		}

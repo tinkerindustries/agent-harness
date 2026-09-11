@@ -1,7 +1,7 @@
 ---
 title: Integrate with Kilo Code
 source: https://api-docs.deepseek.com/quick_start/agent_integrations/kilo_code
-fetched: 2026-09-10
+fetched: 2026-09-11
 ---
 
 # Integrate with Kilo Code

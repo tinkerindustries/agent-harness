@@ -18,7 +18,7 @@ import (
 // so a failing assertion names the provider whose head moved, and the two
 // files can be regenerated independently.
 //
-// Gemini's case, and deepseek-v4-flash-vision-exp's, read Kimi's golden
+// Gemini's case, and deepseek-flash's, read Kimi's golden
 // file rather than a file of their own: renderSystemPromptFor is a pure
 // function of a tool array's names and the seesImages capability
 // (prompt.go), and all three share both — the same vision-capable tool
@@ -37,7 +37,7 @@ func TestPromptGolden(t *testing.T) {
 		{"deepseek", "deepseek-v4-pro", "prompt_deepseek.golden.txt"},
 		{"kimi", "kimi-k3", "prompt_kimi.golden.txt"},
 		{"gemini", "gemini-3.7-flash", "prompt_kimi.golden.txt"},
-		{"deepseek-vision-exp", "deepseek-v4-flash-vision-exp", "prompt_kimi.golden.txt"},
+		{"deepseek-flash", "deepseek-flash", "prompt_kimi.golden.txt"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

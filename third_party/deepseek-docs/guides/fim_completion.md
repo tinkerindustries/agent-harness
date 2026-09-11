@@ -1,7 +1,7 @@
 ---
 title: FIM Completion (Beta)
 source: https://api-docs.deepseek.com/guides/fim_completion
-fetched: 2026-09-10
+fetched: 2026-09-11
 ---
 
 # FIM Completion (Beta)
@@ -26,7 +26,7 @@ client = OpenAI(
 )
 
 response = client.completions.create(
-    model="deepseek-v4-pro",
+    model="deepseek-flash",
     prompt="def fib(a):",
     suffix="    return fib(a-1) + fib(a-2)",
     max_tokens=128

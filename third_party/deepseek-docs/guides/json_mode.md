@@ -1,7 +1,7 @@
 ---
 title: JSON Output
 source: https://api-docs.deepseek.com/guides/json_mode
-fetched: 2026-09-10
+fetched: 2026-09-11
 ---
 
 # JSON Output
@@ -51,7 +51,7 @@ messages = [{"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}]
 
 response = client.chat.completions.create(
-    model="deepseek-v4-pro",
+    model="deepseek-flash",
     messages=messages,
     response_format={
         'type': 'json_object'

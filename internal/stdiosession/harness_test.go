@@ -34,11 +34,11 @@ const (
 	// testDeepSeekModel is the one DeepSeek model cmd/harness hosts
 	// (deepSeekSessionModel), advertised here so the create path is
 	// exercised with a model from the other provider.
-	testDeepSeekModel = "deepseek-v4-flash-vision-exp"
+	testDeepSeekModel = "deepseek-flash"
 	// testUnhostedModel is routable by internal/provider and deliberately
 	// not hosted: it cannot see images, so a session on it would carry
 	// vision tools that need Google's credentials (docs/DEEPSEEK-VISION.md).
-	testUnhostedModel = "deepseek-v4-flash"
+	testUnhostedModel = "deepseek-v4-pro"
 )
 
 // scriptedGemini answers each request with the next stream in its script,

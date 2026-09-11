@@ -7,9 +7,7 @@ func TestModelForResolvesKnownModels(t *testing.T) {
 		model    string
 		provider Name
 	}{
-		{"deepseek-v4-pro", DeepSeek},
-		{"deepseek-v4-flash", DeepSeek},
-		{"deepseek-v4-flash-vision-exp", DeepSeek},
+		{"deepseek-flash", DeepSeek},
 		{"kimi-k3", Kimi},
 		{"gemini-3.8-flash", Gemini},
 		{"gemini-3.7-flash", Gemini},
@@ -32,13 +30,13 @@ func TestModelForResolvesKnownModels(t *testing.T) {
 // An unknown model must fail loudly: the table has no default, so a typo is
 // an error at validation rather than a silent run on the wrong provider.
 func TestModelForRejectsUnknownModel(t *testing.T) {
-	for _, model := range []string{"deepseek-v4-turbo", "kimi-k2.6", "gpt-4", ""} {
+	for _, model := range []string{"deepseek-v4-turbo", "deepseek-v4-pro", "deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "kimi-k2.6", "gpt-4", ""} {
 		if _, err := ModelFor(model); err == nil {
 			t.Errorf("ModelFor(%q) = nil error, want one", model)
 		}
 	}
-	if !Known("deepseek-v4-pro") {
-		t.Error("Known(deepseek-v4-pro) = false, want true")
+	if !Known("deepseek-flash") {
+		t.Error("Known(deepseek-flash) = false, want true")
 	}
 	if !Known("kimi-k3") {
 		t.Error("Known(kimi-k3) = false, want true")
@@ -52,21 +50,19 @@ func TestModelForRejectsUnknownModel(t *testing.T) {
 }
 
 // TestSeesImages pins the model→capability table directly, keyed by model
-// rather than by provider: deepseek-v4-flash-vision-exp is a DeepSeek model,
-// but this table is what lets its capability diverge from DeepSeek's other
-// two — it reads images natively, they don't (docs/DEEPSEEK-VISION.md).
-// internal/session's own seesImages and internal/tools.DefinitionsFor both
-// read through SeesImages, so a model added here without a matching entry
-// changes what both of them do; this test is what catches that at the
-// source rather than at either caller.
+// rather than by provider: deepseek-flash reads images natively
+// (docs/DEEPSEEK-VISION.md), and a future DeepSeek model that does not would
+// need its own entry rather than a provider-wide default. internal/session's
+// own seesImages and internal/tools.DefinitionsFor both read through
+// SeesImages, so a model added here without a matching entry changes what
+// both of them do; this test is what catches that at the source rather than
+// at either caller.
 func TestSeesImages(t *testing.T) {
 	cases := []struct {
 		model string
 		want  bool
 	}{
-		{"deepseek-v4-pro", false},
-		{"deepseek-v4-flash", false},
-		{"deepseek-v4-flash-vision-exp", true},
+		{"deepseek-flash", true},
 		{"kimi-k3", true},
 		{"gemini-3.8-flash", true},
 		{"gemini-3.7-flash", true},
@@ -82,20 +78,20 @@ func TestSeesImages(t *testing.T) {
 	}
 }
 
-// TestKnownModelsListsTheVisionModel pins that deepseek-v4-flash-vision-exp
-// appears in KnownModels(), the list the handshake publishes verbatim
-// and a create body's model name is validated against. A model missing here cannot be
+// TestKnownModelsListsTheVisionModel pins that deepseek-flash appears in
+// KnownModels(), the list the handshake publishes verbatim and a create
+// body's model name is validated against. A model missing here cannot be
 // hosted at all, even though ModelFor would resolve it.
 func TestKnownModelsListsTheVisionModel(t *testing.T) {
 	found := false
 	for _, m := range KnownModels() {
-		if m == "deepseek-v4-flash-vision-exp" {
+		if m == "deepseek-flash" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("KnownModels() = %v, want it to include deepseek-v4-flash-vision-exp", KnownModels())
+		t.Errorf("KnownModels() = %v, want it to include deepseek-flash", KnownModels())
 	}
 }
 

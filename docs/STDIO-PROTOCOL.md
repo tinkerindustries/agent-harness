@@ -157,7 +157,7 @@ with:
 | --- | --- |
 | `GEMINI_API_KEY` | The Google API key, for the Gemini models. Read first. |
 | `GOOGLE_API_KEY` | The same thing under the name the surface's own SDKs read. Used when `GEMINI_API_KEY` is unset. |
-| `DEEPSEEK_API_KEY` | The DeepSeek API key, for `deepseek-v4-flash-vision-exp`. |
+| `DEEPSEEK_API_KEY` | The DeepSeek API key, for `deepseek-flash`. |
 
 There is no settings store here and no screen to type a key into, so a hosted
 session's credentials are the host's to supply. A key reaches this process's
@@ -186,7 +186,7 @@ Flags:
 | --- | --- | --- |
 | `-state-dir` | a per-process directory under the user cache dir | Where this session's SQLite state and transcript mirror live. A directory the parent names is kept; the default one is removed when the process exits. It is also what `harness.resume_session_id` reads: a parent that wants a session to survive this process names one. |
 | `-keep-state` | off | Keep the default state directory after exit, for reading a finished session's transcript. |
-| `-model` | see below | What a create body with no `model` runs on. `initialize`'s `models` names every model this process accepts, and a `-model` outside that list is refused at startup rather than at the first create. Unset, it is `gemini-3.7-flash` — or `deepseek-v4-flash-vision-exp` when `DEEPSEEK_API_KEY` was supplied and neither Google variable was, because a host that gave one key meant the model that key runs. |
+| `-model` | see below | What a create body with no `model` runs on. `initialize`'s `models` names every model this process accepts, and a `-model` outside that list is refused at startup rather than at the first create. Unset, it is `gemini-3.7-flash` — or `deepseek-flash` when `DEEPSEEK_API_KEY` was supplied and neither Google variable was, because a host that gave one key meant the model that key runs. |
 | `-prices` | `configs/prices.json` | The price table behind the cost figure on `harness.usage`. A missing table costs the cost figure and nothing else. |
 | `-env` | unset | A `KEY=VALUE` file to take the API keys from when the environment carries none. **Only `GEMINI_API_KEY`, `GOOGLE_API_KEY` and `DEEPSEEK_API_KEY` are read out of it** — see below. A file that cannot be read is fatal. |
 
@@ -215,24 +215,25 @@ harness routes, plus exactly one DeepSeek model:
 | Model | Provider | Key |
 | --- | --- | --- |
 | `gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.5-flash-lite` | Google | `GEMINI_API_KEY` / `GOOGLE_API_KEY` |
-| `deepseek-v4-flash-vision-exp` | DeepSeek | `DEEPSEEK_API_KEY` |
+| `deepseek-flash` | DeepSeek | `DEEPSEEK_API_KEY` |
 
 `harness gemini-session` advertises the Google rows and not the DeepSeek one.
 A client speaking Google's vocabulary would be naming a DeepSeek model in a
 `generation_config` and reading its answers as Google steps, so that command
 does not offer it; a `-model` naming it there is refused at startup.
 
-**One DeepSeek model, and it is the vision one.** The harness routes two
-others, `deepseek-v4-flash` and `deepseek-v4-pro`, and this process refuses
-both. Neither reads images, and a session on a model that cannot see is given
-the six tools that exist to compensate — `Screenshot`, `Glance`, `Ground`,
-`Detect`, `Transcribe`, `Crop` — four of which send their images to Google.
-Hosting one would therefore mean a DeepSeek session that quietly needs a
-Google API key as well, or that carries six tools failing whenever the model
-reaches for them. `deepseek-v4-flash-vision-exp` reads images itself, so it
-is offered none of them and needs one credential
-(`docs/DEEPSEEK-VISION.md`). A create naming one of the other two is answered
-`-32602` with the hosted list in the message.
+**One DeepSeek model, and it is the vision one.** `deepseek-flash` reads
+images natively, which is why this is the DeepSeek model the harness routes
+at all: a model that could not see would be given the six tools that exist
+to compensate — `Screenshot`, `Glance`, `Ground`, `Detect`, `Transcribe`,
+`Crop` — four of which send their images to Google, meaning a DeepSeek
+session would quietly need a Google API key as well, or would carry six
+tools failing whenever the model reached for them. Because
+`deepseek-flash` reads images itself, it is offered none of them and needs
+one credential (`docs/DEEPSEEK-VISION.md`). DeepSeek's other model,
+`deepseek-v4-pro`, is unknown to `internal/provider`; a create naming it is
+answered `-32602` with the hosted list in the message, the same as any other
+unrecognised model.
 
 Everything else on the wire is the same for either provider. The frames are
 the surface's whatever the model is, the tool vocabulary is identical, resuming
@@ -312,7 +313,7 @@ Result:
     "function_tools": true,
     "permission_modes": ["readonly", "full"]
   },
-  "models": ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "deepseek-v4-flash-vision-exp"],
+  "models": ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "deepseek-flash"],
   "default_model": "gemini-3.7-flash",
   "model_details": [
     {
@@ -346,7 +347,7 @@ Result:
       "reasoning_efforts": ["minimal", "low", "medium", "high"]
     },
     {
-      "id": "deepseek-v4-flash-vision-exp",
+      "id": "deepseek-flash",
       "display_name": "DeepSeek V4 Flash Vision (experimental)",
       "context_window_tokens": 1000000,
       "reasoning_efforts": ["low", "high", "max"]

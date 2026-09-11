@@ -1,8 +1,18 @@
-# `deepseek-v4-flash-vision-exp` native vision
+# `deepseek-flash` native vision
 
 Assessed 2026-08-27 against the docs mirror refreshed the same day
 (`third_party/deepseek-docs/`). Implemented and verified against the live API
 2026-08-28 — see §5.
+
+DeepSeek renamed this model on 2026-09-10: `deepseek-v4-flash-vision-exp`,
+the name every section below was written against, is now a retired alias for
+`deepseek-flash` (DeepSeek-V4.1-Flash), and `deepseek-v4-flash` — flash
+without native vision — no longer exists as a separate model at all
+(`third_party/deepseek-docs/news/news260910.md`, `quick_start/pricing.md`).
+The findings below still hold; only the name changed. §6 uses the current
+name; §1-5 keep the name each was measured against. This harness has also
+since stopped routing `deepseek-v4-pro`, so `deepseek-flash` is now the only
+DeepSeek model `internal/provider` knows.
 
 The model reads images and prices them at a fraction of a Gemini call. The
 first assessment believed a Chat Completions tool message could not carry an
@@ -203,23 +213,21 @@ covers the shape now shipped.
 
 ## 6. The one hosted model over stdio
 
-`harness stdio-session` hosts this model and neither of the other two
-DeepSeek models, and §4 is the whole reason. That process hosts one session
-for a parent application over a pipe and takes its credentials from the
-environment the parent spawned it with
-([`STDIO-PROTOCOL.md`](STDIO-PROTOCOL.md)). A session on
-`deepseek-v4-flash` or `deepseek-v4-pro` there would be given the six tools
-that exist because a model cannot see — `Screenshot`, `Glance`, `Ground`,
-`Detect`, `Transcribe`, `Crop` — and four of those send their images to
-Google. The parent would have had to supply a Google API key to make a
-DeepSeek session work, or watch four tools fail whenever the model reached
-for one. Turning this model's vision capability on is what removes that: it
-is offered none of the six, `Read` hands it the image directly, and one
-credential is enough.
+`harness stdio-session` hosts this model, `deepseek-flash`, and §4 is the
+whole reason. That process hosts one session for a parent application over a
+pipe and takes its credentials from the environment the parent spawned it
+with ([`STDIO-PROTOCOL.md`](STDIO-PROTOCOL.md)). A session on a model that
+cannot see images would be given the six tools that exist to compensate —
+`Screenshot`, `Glance`, `Ground`, `Detect`, `Transcribe`, `Crop` — and four of
+those send their images to Google. The parent would have had to supply a
+Google API key to make a DeepSeek session work, or watch four tools fail
+whenever the model reached for one. `deepseek-flash`'s native vision is what
+removes that: it is offered none of the six, `Read` hands it the image
+directly, and one credential is enough. `internal/provider` does not route
+`deepseek-v4-pro` at all, so the choice is not a refusal of a second hosted
+model — there is only the one.
 
-Nothing about model routing changes. All three models route as they always
-have, and a caller that configures a Google key alongside keeps the vision
-tools.
+A caller that configures a Google key alongside keeps the vision tools.
 
 ## 7. The routes not taken
 

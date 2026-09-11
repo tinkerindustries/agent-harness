@@ -29,19 +29,14 @@ import (
 // when this process was given a Google key.
 const defaultGeminiSessionModel = "gemini-3.7-flash"
 
-// deepSeekSessionModel is the one DeepSeek model this command hosts, and the
-// only one it will host: it is the only DeepSeek model that reads images
-// natively (provider.SeesImages, docs/DEEPSEEK-VISION.md), which is what
-// makes a DeepSeek session here need one credential rather than two.
-//
-// The other two — deepseek-v4-flash and deepseek-v4-pro — are deliberately
-// not offered. A session on either gets the tool array built for a model
-// that cannot see (Screenshot, Glance, Ground, Detect, Transcribe, Crop),
-// and four of those six send their images to Google, so hosting them would
-// mean a DeepSeek run silently needing a Google API key as well or carrying
-// six tools that fail whenever the model reaches for them. Nothing about the
-// rest of the harness changes: `harness serve` routes all three as before.
-const deepSeekSessionModel = "deepseek-v4-flash-vision-exp"
+// deepSeekSessionModel is the one DeepSeek model this command hosts —
+// DeepSeek-V4.1-Flash, the only DeepSeek model internal/provider routes.
+// It reads images natively (provider.SeesImages,
+// docs/DEEPSEEK-VISION.md), which is what makes a DeepSeek session here need
+// one credential rather than two: a model that could not see would be given
+// the tool array built to compensate (Screenshot, Glance, Ground, Detect,
+// Transcribe, Crop), and four of those six send their images to Google.
+const deepSeekSessionModel = "deepseek-flash"
 
 // runStdioSession hosts one coding session for a parent process over in and
 // out, speaking the protocol docs/STDIO-PROTOCOL.md describes. main.go calls
@@ -232,10 +227,9 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 // reading its answers as Google steps.
 //
 // It is not "every model internal/provider knows" either way. The repository
-// routes three DeepSeek models and one Kimi model this process does not
-// offer — Kimi because no client is built for it here, and DeepSeek's other
-// two because they cannot see images (deepSeekSessionModel). A create naming
-// any of them is refused by name against this list.
+// routes one Kimi model this process does not offer, because no client is
+// built for it here. A create naming it is refused by name against this
+// list.
 func hostedModels(interactions bool) []string {
 	var out []string
 	for _, m := range provider.KnownModels() {

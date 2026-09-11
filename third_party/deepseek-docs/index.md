@@ -1,7 +1,7 @@
 ---
 title: Your First API Call
 source: https://api-docs.deepseek.com/
-fetched: 2026-09-10
+fetched: 2026-09-11
 ---
 
 # Your First API Call
@@ -13,9 +13,11 @@ The DeepSeek API uses an API format compatible with OpenAI/Anthropic. By modifyi
 | base_url (OpenAI) | `https://api.deepseek.com` |
 | base_url (Anthropic) | `https://api.deepseek.com/anthropic` |
 | api_key | apply for an [API key](https://platform.deepseek.com/api_keys) |
-| model(1) | `deepseek-v4-flash` `deepseek-v4-pro` `deepseek-v4-flash-vision-exp` |
+| model | `deepseek-flash`(1) `deepseek-v4-pro`(2) |
 
-(1) The `deepseek-v4-flash` model has been updated to DeepSeek-V4-Flash-0731, and the `deepseek-v4-pro` model has been updated to DeepSeek-V4-Pro-0813. The calling method remains unchanged — simply use `deepseek-v4-flash` or `deepseek-v4-pro` to access the latest version. The newly released `deepseek-v4-flash-vision-exp` is an experimental model that additionally accepts image input; set the model name to `deepseek-v4-flash-vision-exp` to use it, and see [Vision](guides/vision.md) for details.
+(1) Use `deepseek-flash` as the model name. The legacy names `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` are still accepted, but the corresponding models have been retired, their requests are served by the DeepSeek-V4.1-Flash model and billed at the Flash price.
+
+(2) After extensive testing, V4.1 Flash has comprehensively surpassed V4 Pro in performance, cost, speed, and total time, so we plan to retire V4 Pro in an orderly manner. From 12:00 Beijing Time on September 14, 2026, and until V4.1 Pro is released in the future, requests to `deepseek-v4-pro` will all be routed to V4.1 Flash and billed at the V4.1 Flash price.
 
 ## Integrate with Agent Tools
 
@@ -38,7 +40,7 @@ curl https://api.deepseek.com/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ${DEEPSEEK_API_KEY}" \
   -d '{
-        "model": "deepseek-v4-pro",
+        "model": "deepseek-flash",
         "messages": [
           {"role": "system", "content": "You are a helpful assistant."},
           {"role": "user", "content": "Hello!"}
@@ -61,7 +63,7 @@ client = OpenAI(
     base_url="https://api.deepseek.com")
 
 response = client.chat.completions.create(
-    model="deepseek-v4-pro",
+    model="deepseek-flash",
     messages=[
         {"role": "system", "content": "You are a helpful assistant"},
         {"role": "user", "content": "Hello"},
@@ -89,7 +91,7 @@ const openai = new OpenAI({
 async function main() {
   const completion = await openai.chat.completions.create({
     messages: [{ role: "system", content: "You are a helpful assistant." }],
-    model: "deepseek-v4-pro",
+    model: "deepseek-flash",
     thinking: {"type": "enabled"},
     reasoning_effort: "high",
     stream: false,

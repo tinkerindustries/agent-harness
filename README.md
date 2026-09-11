@@ -71,10 +71,10 @@ what a client is built from.
 
 ### Models
 
-Every Gemini model the harness routes, plus one DeepSeek model,
-`deepseek-v4-flash-vision-exp`. DeepSeek's other two are refused: neither
-reads images, and a session on a model that cannot see is given vision tools
-that reach Google, so hosting one would need a second provider's key
+Every Gemini model the harness routes, plus the one DeepSeek model it
+routes, `deepseek-flash`, which reads images natively. A model that could
+not see would be given vision tools that reach Google, so hosting one would
+need a second provider's key
 ([docs/DEEPSEEK-VISION.md](docs/DEEPSEEK-VISION.md)).
 
 ## Where state lives

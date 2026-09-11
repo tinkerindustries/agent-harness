@@ -48,12 +48,12 @@ func TestToolArrayGolden(t *testing.T) {
 		{"deepseek", "deepseek-v4-pro", "tools_deepseek.golden.json"},
 		{"kimi", "kimi-k3", "tools_kimi.golden.json"},
 		{"gemini", "gemini-3.7-flash", "tools_kimi.golden.json"},
-		// deepseek-v4-flash-vision-exp is the model DefinitionsFor resolves
-		// per model rather than per provider for (provider.SeesImages,
+		// deepseek-flash is the model DefinitionsFor resolves per model
+		// rather than per provider for (provider.SeesImages,
 		// docs/DEEPSEEK-VISION.md). Its capability is true, so — like Kimi
 		// and Gemini — it resolves to definitionsVisionCapable and reads
 		// Kimi's golden file rather than a third copy of the same bytes.
-		{"deepseek-vision-exp", "deepseek-v4-flash-vision-exp", "tools_kimi.golden.json"},
+		{"deepseek-flash", "deepseek-flash", "tools_kimi.golden.json"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -32,8 +32,8 @@ import (
 )
 
 // seesImages reports whether model reads images natively. It answers per
-// model, not per provider — deepseek-v4-flash-vision-exp is a DeepSeek model
-// whose vision capability disagrees with its provider's
+// model, not per provider — deepseek-flash is a DeepSeek model whose vision
+// capability disagrees with its provider's
 // (docs/DEEPSEEK-VISION.md) — by consulting internal/provider's one
 // model→capability table, provider.SeesImages, the source both this
 // function and internal/tools.DefinitionsFor read. It drives both halves of
@@ -67,11 +67,12 @@ const CompactionThresholdTokens = 768 * 1024
 // model (run.max_sub_turns_kimi_k3 and run.compaction_threshold_kimi_k3 in
 // the settings registry, which carries these exact values as defaults; the
 // two are pinned equal by internal/settings/registry_test.go, the same way
-// the global pair above are). K3 output costs about 17x deepseek-v4-pro's
-// and cache-miss input about 7x (configs/prices.json), so a sub-turn budget
+// the global pair above are). K3 output costs about 25x deepseek-flash's
+// and cache-miss input about 20x (configs/prices.json), so a sub-turn budget
 // chosen against DeepSeek's rates would let a K3 run spend an order of
-// magnitude more than the same run on pro; these ceilings bound that
-// (docs/KIMI-INTEGRATION.md §3).
+// magnitude more than the same run on the default model; these ceilings
+// bound that (docs/KIMI-INTEGRATION.md §3, internal/settings/registry.go's
+// own comment on run.max_sub_turns_kimi_k3).
 const KimiK3MaxSubTurns = 100
 
 const KimiK3CompactionThresholdTokens = 128 * 1024
@@ -455,7 +456,7 @@ func (r *Runner) flashModel(ctx context.Context) string {
 			return m
 		}
 	}
-	return "deepseek-v4-flash"
+	return "deepseek-flash"
 }
 
 // compactionThreshold resolves the prompt-token ceiling at which a session

@@ -316,9 +316,9 @@ func Definitions() []wire.Tool {
 
 // DefinitionsFor returns the frozen tool array for model, resolved through
 // the one model→capability table that decides vision (internal/provider,
-// provider.SeesImages) rather than through the provider serving it — a model
-// can disagree with its provider's default, as
-// deepseek-v4-flash-vision-exp will once its capability is turned on
+// provider.SeesImages) rather than through the provider serving it — a table
+// keyed by model rather than by provider is what would let a future DeepSeek
+// model disagree with deepseek-flash's own vision capability
 // (docs/DEEPSEEK-VISION.md). Every model behind provider.SeesImages == true
 // resolves to definitionsVisionCapable; every other model, known or not,
 // resolves to definitionsDeepSeek, so an unknown model — which queue

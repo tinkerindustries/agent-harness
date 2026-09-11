@@ -1,7 +1,7 @@
 ---
 title: Token & Token Usage
 source: https://api-docs.deepseek.com/quick_start/token_usage
-fetched: 2026-09-10
+fetched: 2026-09-11
 ---
 
 # Token & Token Usage

@@ -1,5 +1,15 @@
 # Models and thinking settings
 
+DeepSeek renamed its flash model on 2026-09-10: `deepseek-v4-flash` is now a
+retired alias for `deepseek-flash` (DeepSeek-V4.1-Flash), which reads images
+natively (docs/DEEPSEEK-VISION.md). DeepSeek's API still serves
+`deepseek-v4-pro` too, unaffected for now, though DeepSeek has said it will
+start routing it to `deepseek-flash` as well from 2026-09-14 — but this
+harness has separately stopped routing `deepseek-v4-pro` at all, so
+`deepseek-flash` is the only model `internal/provider` and `model.default`
+know. Every `deepseek-v4-flash` and `deepseek-v4-pro` below predates both
+changes; nothing in this document has been re-measured since.
+
 ## What DeepSeek recommends
 
 Their official Claude Code configuration is a recommendation for an agentic
@@ -319,13 +329,13 @@ off, and `temperature`/`top_p`/`top_k` must not be sent at all
 **It sees images.** `seesImages()` (`internal/session/runner.go`) resolves
 through `provider.SeesImages`, one model→capability table rather than a
 per-provider switch: it is true for Gemini, for Kimi K3, and for one of
-DeepSeek's own three models, `deepseek-v4-flash-vision-exp`
+DeepSeek's own two models, `deepseek-flash`
 (docs/DEEPSEEK-VISION.md). Wherever it is true, the session sends the
 vision-capable tool array, and `Read` and the MCP image path return an image
 part rather than a path. This is the practical argument for the model —
-`deepseek-v4-pro`, `deepseek-v4-flash`, and standard Kimi sessions describe a
-screenshot secondhand through `Glance`/`Ground`/`Detect`; a Gemini session,
-or a `deepseek-v4-flash-vision-exp` one, looks at it directly.
+`deepseek-v4-pro` and standard Kimi sessions describe a screenshot
+secondhand through `Glance`/`Ground`/`Detect`; a Gemini session, or a
+`deepseek-flash` one, looks at it directly.
 
 **Cost sits near DeepSeek Pro's standard tier, not its discounted one** —
 see the table in GEMINI-INTEGRATION.md §4. The rates are introductory and

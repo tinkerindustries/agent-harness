@@ -1,7 +1,7 @@
 ---
 title: thinking_mode_api_example_tool_call_output
 source: https://api-docs.deepseek.com/api_samples/thinking_mode_api_example_tool_call_output
-fetched: 2026-09-10
+fetched: 2026-09-11
 ---
 
 # thinking_mode_api_example_tool_call_output

@@ -17,15 +17,13 @@ import (
 //
 // DeepSeek's reasoning_effort takes low, high and max, and defaults to high
 // (third_party/deepseek-docs/api/create-chat-completion.md). Unlike Gemini's
-// thinking levels, the set does not differ between models: all three take the
-// same three. The table is still keyed by model, because the reason Gemini's
-// is — a model that accepts a different set — is a property of models rather
-// than of APIs, and a fourth DeepSeek model that narrows the set should have
-// somewhere to say so.
+// thinking levels, the set does not differ between models: both take the
+// same three. The table is still keyed by model, because the reason
+// Gemini's is — a model that accepts a different set — is a property of
+// models rather than of APIs, and a DeepSeek model that narrows the set
+// should have somewhere to say so.
 var advertisedEfforts = map[string][]string{
-	"deepseek-v4-pro":              {wire.EffortLow, wire.EffortHigh, wire.EffortMax},
-	"deepseek-v4-flash":            {wire.EffortLow, wire.EffortHigh, wire.EffortMax},
-	"deepseek-v4-flash-vision-exp": {wire.EffortLow, wire.EffortHigh, wire.EffortMax},
+	"deepseek-flash": {wire.EffortLow, wire.EffortHigh, wire.EffortMax},
 }
 
 // compatibilityEfforts are spellings DeepSeek accepts and maps onto high
@@ -78,18 +76,14 @@ func EffortSupported(model, effort string) bool {
 // by this to draw a context percentage, so a figure that is slightly low
 // reports slightly full, which is the harmless direction to be wrong in.
 var contextWindowTokens = map[string]int{
-	"deepseek-v4-pro":              1000000,
-	"deepseek-v4-flash":            1000000,
-	"deepseek-v4-flash-vision-exp": 1000000,
+	"deepseek-flash": 1000000,
 }
 
 // displayNames is a human-readable name for each model. DeepSeek publishes
 // no displayName field, so these are the model versions its own news posts
-// and pricing table use (third_party/deepseek-docs/news/news260821.md).
+// and pricing table use (third_party/deepseek-docs/news/news260910.md).
 var displayNames = map[string]string{
-	"deepseek-v4-pro":              "DeepSeek V4 Pro",
-	"deepseek-v4-flash":            "DeepSeek V4 Flash",
-	"deepseek-v4-flash-vision-exp": "DeepSeek V4 Flash Vision (experimental)",
+	"deepseek-flash": "DeepSeek V4.1 Flash",
 }
 
 // ContextWindowTokens returns model's total input token budget, or zero for

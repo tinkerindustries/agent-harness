@@ -1,7 +1,7 @@
 ---
 title: List Files
 source: https://api-docs.deepseek.com/api/list-files
-fetched: 2026-09-10
+fetched: 2026-09-11
 ---
 
 # List Files

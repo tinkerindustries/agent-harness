@@ -1,7 +1,7 @@
 ---
 title: Context Caching
 source: https://api-docs.deepseek.com/guides/kv_cache
-fetched: 2026-09-10
+fetched: 2026-09-11
 ---
 
 # Context Caching

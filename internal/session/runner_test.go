@@ -1121,7 +1121,7 @@ func TestClientForRoutesByModel(t *testing.T) {
 			return deepSeekClient
 		},
 		Prices:     testPrices(),
-		FlashModel: "deepseek-v4-flash",
+		FlashModel: "deepseek-flash",
 	}
 
 	ws := t.TempDir()
@@ -1164,21 +1164,18 @@ func TestClientForRoutesByModel(t *testing.T) {
 
 // TestSeesImages pins the vision split's model→capability table directly:
 // Kimi and Gemini read images natively (docs/KIMI-INTEGRATION.md §4.5,
-// docs/GEMINI-INTEGRATION.md §5.7), and so does deepseek-v4-flash-vision-exp
-// — the first DeepSeek model to (docs/DEEPSEEK-VISION.md) — while DeepSeek's
-// other two models don't, and an unknown model resolves to false, the
-// DeepSeek default named in seesImages' own comment. Exercised here so a
-// model added to internal/provider without a matching entry in its
-// capability table fails a test rather than silently seeing images (or not)
-// by accident.
+// docs/GEMINI-INTEGRATION.md §5.7), and so does deepseek-flash, the only
+// DeepSeek model this harness routes (docs/DEEPSEEK-VISION.md), and an
+// unknown model resolves to false, the DeepSeek default named in
+// seesImages' own comment. Exercised here so a model added to
+// internal/provider without a matching entry in its capability table fails
+// a test rather than silently seeing images (or not) by accident.
 func TestSeesImages(t *testing.T) {
 	cases := []struct {
 		model string
 		want  bool
 	}{
-		{"deepseek-v4-pro", false},
-		{"deepseek-v4-flash", false},
-		{"deepseek-v4-flash-vision-exp", true},
+		{"deepseek-flash", true},
 		{"kimi-k3", true},
 		{"gemini-3.7-flash", true},
 		{"not-a-real-model", false},

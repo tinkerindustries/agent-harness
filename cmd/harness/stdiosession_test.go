@@ -182,12 +182,9 @@ func TestGeminiAPIKeyMissingEnvFileFails(t *testing.T) {
 }
 
 // TestHostedModelsIsTheAdvertisedSet pins what this command offers: every
-// Gemini model the repository routes, plus one DeepSeek model — the only one
-// that reads images natively. The two text-only DeepSeek models are absent
-// on purpose: a session on either carries the vision tools built for a model
-// that cannot see, four of which send their images to Google, so hosting one
-// would mean a DeepSeek run needing a second provider's credentials
-// (docs/DEEPSEEK-VISION.md).
+// Gemini model the repository routes, plus the one DeepSeek model
+// internal/provider routes, deepseek-flash — the only one that reads images
+// natively (docs/DEEPSEEK-VISION.md).
 func TestHostedModelsIsTheAdvertisedSet(t *testing.T) {
 	hosted := hostedModels(false)
 
@@ -197,7 +194,7 @@ func TestHostedModelsIsTheAdvertisedSet(t *testing.T) {
 	if !slices.Contains(hosted, defaultGeminiSessionModel) {
 		t.Errorf("hostedModels() = %v, want the default Gemini model in it", hosted)
 	}
-	for _, unwanted := range []string{"deepseek-v4-flash", "deepseek-v4-pro", "kimi-k3"} {
+	for _, unwanted := range []string{"kimi-k3"} {
 		if slices.Contains(hosted, unwanted) {
 			t.Errorf("hostedModels() offers %s; this command hosts only %s from that provider",
 				unwanted, deepSeekSessionModel)
@@ -235,7 +232,7 @@ func TestResolveHostedModel(t *testing.T) {
 		{name: "only a Google key", google: "g", want: defaultGeminiSessionModel},
 		{name: "a named model wins over the keys", named: deepSeekSessionModel, google: "g", want: deepSeekSessionModel},
 		{name: "a named Gemini model", named: "gemini-3.5-flash", dsKey: "d", want: "gemini-3.5-flash"},
-		{name: "a model this command does not host", named: "deepseek-v4-flash", google: "g", wantErr: true},
+		{name: "a model this command does not host", named: "kimi-k3", google: "g", wantErr: true},
 		{name: "a model nothing routes", named: "gpt-9", google: "g", wantErr: true},
 	}
 	for _, tc := range cases {

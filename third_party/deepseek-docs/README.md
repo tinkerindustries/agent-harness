@@ -2,28 +2,32 @@
 
 Local mirror of <https://api-docs.deepseek.com/>, converted to Markdown.
 
-- Fetched: 2026-09-10
-- Pages: 71 (every URL in the site's `sitemap.xml`)
+- Fetched: 2026-09-11
+- Pages: 72 (every URL in the site's `sitemap.xml`)
 - Each file carries `source:` frontmatter pointing at the page it came from.
 
-On the 2026-09-10 refresh every page was re-fetched and re-converted by script.
+On the 2026-09-11 refresh every page was re-fetched and re-converted by script.
 The converter was checked by re-converting pages that had not changed upstream
 and requiring byte-identical output against the copy already here, so a diff on
-any page is an upstream edit rather than a conversion artefact. Two pages
-changed and none are new; the rest moved only their `fetched:` date. That date
-is the date of the last comparison, not of the last edit.
+any page is an upstream edit rather than a conversion artefact. 30 pages
+changed and one is new (`news/news260910.md`); the rest moved only their
+`fetched:` date. That date is the date of the last comparison, not of the last
+edit.
 
-`guides/thinking_mode.md` rewrites the summary of the `reasoning_content`
-round-trip rule. It now turns on whether the request carries `tools` alone: with
-`tools`, every previous turn's `reasoning_content` should be passed back and is
-concatenated into the context; without, it need not be and is ignored if sent.
-The earlier wording scoped both cases to the messages between two `user` turns
-and named the `400`. The `400` itself still stands, in the page's "Tool Calls"
-section. `quick_start/token_usage.md` moves the tokenizer download from
-`deepseek_v3_tokenizer.zip` to `deepseek_v4_tokenizer.zip`.
-
-The model list is unchanged: `deepseek-v4-flash`, `deepseek-v4-pro` and
-`deepseek-v4-flash-vision-exp`, at the versions `index.md` names.
+DeepSeek shipped DeepSeek-V4.1-Flash on 2026-09-10
+(`news/news260910.md`) and renamed the model catalogue around it: the model
+name is now `deepseek-flash`, with native multimodal support built in.
+`deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` are retired aliases
+that still route to it. `deepseek-v4-pro` is unaffected for now, but DeepSeek
+says it will start routing to `deepseek-flash` too from 2026-09-14, pending a
+future V4.1-Pro. `quick_start/pricing.md`, the API reference pages, the
+agent-integration guides, and `guides/vision.md` all changed to reflect this;
+`quick_start/pricing.md` also carries deepseek-flash's new, lower rates.
+`news/news250120.md` changed too, in an unrelated way: the URL used to render
+the "Your First API Call" quick-start content instead of its own announcement
+("DeepSeek-R1 Release"), the same rendering fault `news/news1226.md` and
+`news/news251201.md` still have; this refresh found the fault fixed for this
+one page.
 
 `news/news1226.md` and `news/news251201.md` are no longer re-converted. Both
 URLs are still in the sitemap and still answer 200, but they now render the docs
@@ -129,6 +133,7 @@ keeps the upstream structure, so it is a drop-in substitute.
 
 ## News / release notes
 
+- [DeepSeek-V4.1-Flash: Smarter, Faster, More Efficient](news/news260910.md)
 - [DeepSeek-V4-Flash-Vision-Exp Release](news/news260821.md)
 - [DeepSeek-V4-Pro GA Release](news/news260813.md)
 - [DeepSeek V4 Preview Release](news/news260424.md)
@@ -138,7 +143,7 @@ keeps the upstream structure, so it is a drop-in substitute.
 - [DeepSeek-V3.1 Release](news/news250821.md)
 - [DeepSeek-R1-0528 Release](news/news250528.md)
 - [DeepSeek-V3-0324 Release](news/news250325.md)
-- [Your First API Call](news/news250120.md)
+- [DeepSeek-R1 Release](news/news250120.md)
 - [Introducing DeepSeek App](news/news250115.md)
 - [Introducing DeepSeek-V3](news/news1226.md)
 - [DeepSeek V2.5: The Grand Finale](news/news1210.md)

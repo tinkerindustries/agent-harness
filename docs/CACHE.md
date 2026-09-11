@@ -77,11 +77,11 @@ binary. Otherwise upgrading the harness silently changes the prefix of every
 resumable session, and every resume is cold.
 
 **Never vary the tool array.** The array is chosen per model, through
-`provider.SeesImages` — DeepSeek's non-vision pair, `deepseek-v4-pro` and
-`deepseek-v4-flash`, get twenty tools; Kimi K3, Gemini, and
-`deepseek-v4-flash-vision-exp` get the same fourteen, without the six
-vision tools (docs/KIMI-INTEGRATION.md decision 5, docs/DEEPSEEK-VISION.md)
-— and each array is frozen
+`provider.SeesImages` — every model that resolves false gets twenty tools;
+Kimi K3, Gemini, and `deepseek-flash` (the only DeepSeek model this harness
+routes) get the same fourteen, without the six vision tools
+(docs/KIMI-INTEGRATION.md decision 5, docs/DEEPSEEK-VISION.md) — and each
+array is frozen
 and pinned by its own golden file
 (`internal/tools/testdata/tools_*.golden.json`). Within one of those arrays,
 permission modes gate execution, not availability: every one of a session's

@@ -65,15 +65,20 @@ Per million tokens, from `configs/prices.json` and
 
 | | cache hit | cache miss | output |
 | --- | --- | --- | --- |
-| `deepseek-v4-pro` | $0.003625 | $0.435 | $0.87 |
+| `deepseek-flash` (off-peak) | $0.003 | $0.15 | $0.60 |
 | `kimi-k3` | $0.30 | $3.00 | $15.00 |
 
-K3 costs roughly 7× more on a cache miss and 17× more on output. The
-cache-hit-to-miss ratio is 10× rather than DeepSeek's 120×, so the frozen-head
-discipline still pays but protects less of the bill.
+K3 costs roughly 20× more on a cache miss and 25× more on output, off-peak.
+This table originally compared K3 against `deepseek-v4-pro` at about 7×/17×;
+DeepSeek cut deepseek-flash's rate on 2026-09-10 and this harness has since
+stopped routing `deepseek-v4-pro`, widening the gap
+(`internal/settings/registry.go`'s comments on
+`run.max_sub_turns_kimi_k3` and `run.compaction_threshold_kimi_k3` carry the
+current numbers). The cache-hit-to-miss ratio is 10× rather than DeepSeek's
+50×, so the frozen-head discipline still pays but protects less of the bill.
 
 The practical consequence: K3 cannot inherit the DeepSeek run budget. A run
-that is affordable at `deepseek-v4-pro` output rates is not affordable at K3's.
+that is affordable at `deepseek-flash` output rates is not affordable at K3's.
 `run.max_sub_turns` and `run.compaction_threshold` need per-model resolution,
 or K3 needs its own lower ceilings.
 

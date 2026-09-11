@@ -37,15 +37,13 @@ const (
 // never by string prefix, so a model absent here fails loudly at validation
 // instead of silently defaulting to a provider (docs/KIMI-INTEGRATION.md §4.3).
 var models = map[string]Name{
-	"deepseek-v4-pro":              DeepSeek,
-	"deepseek-v4-flash":            DeepSeek,
-	"deepseek-v4-flash-vision-exp": DeepSeek,
-	"kimi-k3":                      Kimi,
-	"gemini-3.8-flash":             Gemini,
-	"gemini-3.7-flash":             Gemini,
-	"gemini-3.6-flash":             Gemini,
-	"gemini-3.5-flash":             Gemini,
-	"gemini-3.5-flash-lite":        Gemini,
+	"deepseek-flash":        DeepSeek,
+	"kimi-k3":               Kimi,
+	"gemini-3.8-flash":      Gemini,
+	"gemini-3.7-flash":      Gemini,
+	"gemini-3.6-flash":      Gemini,
+	"gemini-3.5-flash":      Gemini,
+	"gemini-3.5-flash-lite": Gemini,
 }
 
 // ModelFor returns the provider that serves model. The table has no
@@ -76,19 +74,17 @@ func KnownModels() []string {
 }
 
 // visionCapable is the one model→capability table for whether a model reads
-// images natively. It answers per model rather than per provider because
-// deepseek-v4-flash-vision-exp is the first model whose vision capability
-// disagrees with its provider's: DeepSeek's other two models don't see
-// images, but this one does (docs/DEEPSEEK-VISION.md). Kimi K3
-// (docs/KIMI-INTEGRATION.md §4.5) and Gemini (docs/GEMINI-INTEGRATION.md
-// §5.7) both see images too, so DeepSeek is now the only provider whose
-// models disagree with each other, which is exactly why this table is keyed
-// by model rather than by provider. A model absent from this table resolves
-// to false, the same as an unknown model resolves to false everywhere else
-// in this package, rather than panicking or erroring — callers such as
-// internal/tools.DefinitionsFor already fall back to the DeepSeek-shaped
-// default for a model ModelFor rejects, and SeesImages must agree with that
-// fallback rather than fail a different way.
+// images natively. It answers per model rather than per provider because a
+// future DeepSeek model could disagree with deepseek-flash the way
+// deepseek-v4-pro used to before this harness dropped it
+// (docs/DEEPSEEK-VISION.md): keying by provider would have no way to say so.
+// Kimi K3 (docs/KIMI-INTEGRATION.md §4.5) and Gemini
+// (docs/GEMINI-INTEGRATION.md §5.7) both see images too. A model absent from
+// this table resolves to false, the same as an unknown model resolves to
+// false everywhere else in this package, rather than panicking or erroring —
+// callers such as internal/tools.DefinitionsFor already fall back to the
+// DeepSeek-shaped default for a model ModelFor rejects, and SeesImages must
+// agree with that fallback rather than fail a different way.
 //
 // gemini-3.6-flash, gemini-3.5-flash and gemini-3.5-flash-lite are set true
 // alongside gemini-3.7-flash: third_party/gemini-docs/models.md describes
@@ -102,15 +98,13 @@ func KnownModels() []string {
 // ai.google.dev/gemini-api/docs/models/gemini-3.8-flash states its input
 // types outright — "Text, Image, Video, Audio, and PDF" — read 2026-09-08.
 var visionCapable = map[string]bool{
-	"deepseek-v4-pro":              false,
-	"deepseek-v4-flash":            false,
-	"deepseek-v4-flash-vision-exp": true,
-	"kimi-k3":                      true,
-	"gemini-3.8-flash":             true,
-	"gemini-3.7-flash":             true,
-	"gemini-3.6-flash":             true,
-	"gemini-3.5-flash":             true,
-	"gemini-3.5-flash-lite":        true,
+	"deepseek-flash":        true,
+	"kimi-k3":               true,
+	"gemini-3.8-flash":      true,
+	"gemini-3.7-flash":      true,
+	"gemini-3.6-flash":      true,
+	"gemini-3.5-flash":      true,
+	"gemini-3.5-flash-lite": true,
 }
 
 // SeesImages reports whether model reads images natively. It is the one

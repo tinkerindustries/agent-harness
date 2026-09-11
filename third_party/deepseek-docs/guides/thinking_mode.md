@@ -1,7 +1,7 @@
 ---
 title: Thinking Mode
 source: https://api-docs.deepseek.com/guides/thinking_mode
-fetched: 2026-09-10
+fetched: 2026-09-11
 ---
 
 # Thinking Mode
@@ -17,22 +17,24 @@ The DeepSeek model supports the thinking mode: before outputting the final answe
 | Thinking Effort Control(2) | `{"reasoning_effort": "low/high/max"}` | `{"output_config": {"effort": "low/high/max"}}` |
 
 (1) Thinking mode is enabled by default, with the default effort being `high`  
-(2) The mapping between the effort set by the user and the model's actual reasoning effort is as follows (identical for `deepseek-v4-flash` and `deepseek-v4-pro`):
+(2) The mapping between the effort set by the user and the model's actual reasoning effort is as follows:
 
 |  |  |
 | --- | --- |
 | Requested effort | Actual mapped effort |
+| minimal | low |
 | low | low |
 | medium | high |
 | high | high |
 | xhigh | high |
 | max | max |
+| ultra | max |
 
 When using Chat Completion with the OpenAI SDK to set the `thinking` parameter, you need to pass the `thinking` parameter within `extra_body`:
 
 ```python
 response = client.chat.completions.create(
-  model="deepseek-v4-pro",
+  model="deepseek-flash",
   # ...
   reasoning_effort="high",
   extra_body={"thinking": {"type": "enabled"}}
@@ -41,7 +43,9 @@ response = client.chat.completions.create(
 
 ## Input and Output Parameters
 
-Thinking mode does not support the `temperature`, `top_p`, `presence_penalty`, or `frequency_penalty` parameters. Please note that, for compatibility with existing software, setting these parameters will not trigger an error but will also have no effect.
+Thinking mode does not support the `temperature`, `presence_penalty`, or `frequency_penalty` parameters. Please note that, for compatibility with existing software, setting these parameters will not trigger an error but will also have no effect.
+
+`top_p` takes effect in thinking mode, but with a lower bound of `0.95`: values below `0.95` are raised to `0.95`. In non-thinking mode it is fixed at `1.0` and your value is ignored.
 
 In thinking mode, the chain-of-thought content is returned via the `reasoning_content` parameter, at the same level as `content`. In subsequent requests, whether `reasoning_content` should be passed back and whether it will be concatenated into the context depends on whether the request carries the `tools` parameter:
 
@@ -67,7 +71,7 @@ client = OpenAI(api_key="<DeepSeek API Key>", base_url="https://api.deepseek.com
 # Turn 1
 messages = [{"role": "user", "content": "9.11 and 9.8, which is greater?"}]
 response = client.chat.completions.create(
-    model="deepseek-v4-pro",
+    model="deepseek-flash",
     messages=messages,
     reasoning_effort="high"
     extra_body={"thinking": {"type": "enabled"}},
@@ -81,7 +85,7 @@ content = response.choices[0].message.content
 messages.append(response.choices[0].message)
 messages.append({'role': 'user', 'content': "How many Rs are there in the word 'strawberry'?"})
 response = client.chat.completions.create(
-    model="deepseek-v4-pro",
+    model="deepseek-flash",
     messages=messages,
     reasoning_effort="high"
     extra_body={"thinking": {"type": "enabled"}},
@@ -98,7 +102,7 @@ client = OpenAI(api_key="<DeepSeek API Key>", base_url="https://api.deepseek.com
 # Turn 1
 messages = [{"role": "user", "content": "9.11 and 9.8, which is greater?"}]
 response = client.chat.completions.create(
-    model="deepseek-v4-pro",
+    model="deepseek-flash",
     messages=messages,
     stream=True,
     reasoning_effort="high"
@@ -119,7 +123,7 @@ for chunk in response:
 messages.append({"role": "assistant", "reasoning_content": reasoning_content, "content": content})
 messages.append({'role': 'user', 'content': "How many Rs are there in the word 'strawberry'?"})
 response = client.chat.completions.create(
-    model="deepseek-v4-pro",
+    model="deepseek-flash",
     messages=messages,
     stream=True,
     reasoning_effort="high"
@@ -189,7 +193,7 @@ def run_turn(turn, messages):
     sub_turn = 1
     while True:
         response = client.chat.completions.create(
-            model='deepseek-v4-pro',
+            model='deepseek-flash',
             messages=messages,
             tools=tools,
             reasoning_effort="high",

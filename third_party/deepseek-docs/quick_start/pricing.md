@@ -1,7 +1,7 @@
 ---
 title: Models & Pricing
 source: https://api-docs.deepseek.com/quick_start/pricing
-fetched: 2026-09-10
+fetched: 2026-09-11
 ---
 
 # Models & Pricing
@@ -12,34 +12,37 @@ The prices listed below are in units of per 1M tokens. A token, the smallest uni
 
 ## Model Details
 
-|  |  |  |  |  |  |
-| --- | --- | --- | --- | --- | --- |
-| MODEL | | | deepseek-v4-flash | deepseek-v4-pro | deepseek-v4-flash-vision-exp |
-| BASE URL (OpenAI Format) | | | <https://api.deepseek.com> | | |
-| BASE URL (Anthropic Format) | | | <https://api.deepseek.com/anthropic> | | |
-| MODEL VERSION | | | DeepSeek-V4-Flash-0731 | DeepSeek-V4-Pro-0813 | DeepSeek-V4-Flash-Vision-Exp |
-| THINKING MODE | | | Supports both non-thinking and thinking (default) modes See [Thinking Mode](../guides/thinking_mode.md) for how to switch | | |
-| CONTEXT LENGTH | | | 1M | | |
-| MAX OUTPUT | | | MAXIMUM: 384K | | |
-| FEATURES | [Json Output](../guides/json_mode.md) | | ✓ | ✓ | ✓ |
-| [Tool Calls](../guides/tool_calls.md) | | ✓ | ✓ | ✓ |
-| [Responses API](../guides/responses_api.md) | | ✓ | ✓ | ✓ |
-| [Anthropic API](../guides/anthropic_api.md) | | ✓ | ✓ | ✓ |
-| [Chat Prefix Completion（Beta）](../guides/chat_prefix_completion.md) | | ✓ | ✓ | ✓ |
-| [FIM Completion（Beta）](../guides/fim_completion.md) | | Non-thinking mode only | Non-thinking mode only | Not supported |
-| PRICING(1)(2) | 1M INPUT TOKENS (CACHE HIT) | OFF-PEAK | $0.007 | $0.022 | $0.007 |
-| PEAK | $0.014 | $0.044 | $0.014 |
-| 1M INPUT TOKENS (CACHE MISS) | OFF-PEAK | $0.22 | $0.66 | $0.22 |
-| PEAK | $0.44 | $1.32 | $0.44 |
-| 1M OUTPUT TOKENS | OFF-PEAK | $0.66 | $1.98 | $0.66 |
-| PEAK | $1.32 | $3.96 | $1.32 |
-| Concurrency Limit(3) | | | 2500 | 500 | 2500 |
+|  |  |  |  |  |
+| --- | --- | --- | --- | --- |
+| MODEL | | | deepseek-flash(1) | deepseek-v4-pro(2) |
+| BASE URL (OpenAI Format) | | | <https://api.deepseek.com> | |
+| BASE URL (Anthropic Format) | | | <https://api.deepseek.com/anthropic> | |
+| MODEL VERSION | | | DeepSeek-V4.1-Flash | DeepSeek-V4-Pro-0813 |
+| THINKING MODE | | | Supports both non-thinking and thinking (default) modes See [Thinking Mode](../guides/thinking_mode.md) for how to switch | |
+| CONTEXT LENGTH | | | 1M | |
+| MAX OUTPUT | | | MAXIMUM: 384K | |
+| FEATURES | [Json Output](../guides/json_mode.md) | | ✓ | ✓ |
+| [Tool Calls](../guides/tool_calls.md) | | ✓ | ✓ |
+| [Responses API](../guides/responses_api.md) | | ✓ | ✓ |
+| [Anthropic API](../guides/anthropic_api.md) | | ✓ | ✓ |
+| [Chat Prefix Completion（Beta）](../guides/chat_prefix_completion.md) | | ✓ | ✓ |
+| [FIM Completion（Beta）](../guides/fim_completion.md) | | Non-thinking mode only | Non-thinking mode only |
+| [Vision](../guides/vision.md) | | ✓ | Not supported |
+| PRICING(3) | 1M INPUT TOKENS (CACHE HIT) | OFF-PEAK | $0.003 | $0.022 |
+| PEAK | $0.006 | $0.044 |
+| 1M INPUT TOKENS (CACHE MISS) | OFF-PEAK | $0.15 | $0.66 |
+| PEAK | $0.3 | $1.32 |
+| 1M OUTPUT TOKENS | OFF-PEAK | $0.6 | $1.98 |
+| PEAK | $1.2 | $3.96 |
+| Concurrency Limit(4) | | | 2500 | 500 |
 
-(1) Off-peak rates are half of the peak rates. Peak hours are 01:00 - 04:00 and 06:00 - 10:00 UTC, Monday through Friday (all other hours are off-peak).
+(1) Use `deepseek-flash` as the model name. The legacy names `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` are still accepted, but the corresponding models have been retired, their requests are served by the DeepSeek-V4.1-Flash model and billed at the Flash price.
 
-(2) Images sent to `deepseek-v4-flash-vision-exp` are converted into tokens based on their dimensions and billed as input tokens together with your text tokens. See [Vision: Token Usage](../guides/vision.md#token-usage) for the conversion rule.
+(2) After extensive testing, V4.1 Flash has comprehensively surpassed V4 Pro in performance, cost, speed, and total time, so we plan to retire V4 Pro in an orderly manner. From 12:00 Beijing Time on September 14, 2026, and until V4.1 Pro is released in the future, requests to `deepseek-v4-pro` will all be routed to V4.1 Flash and billed at the V4.1 Flash price.
 
-(3) For more details on concurrency limits, please refer to [Rate Limit & Isolation](rate_limit.md).
+(3) Off-peak rates are half of the peak rates. Peak hours are 01:00 - 04:00 and 06:00 - 10:00 UTC, Monday through Friday (all other hours are off-peak).
+
+(4) For more details on concurrency limits, please refer to [Rate Limit & Isolation](rate_limit.md).
 
 ---
 

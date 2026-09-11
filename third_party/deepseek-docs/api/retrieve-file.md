@@ -1,7 +1,7 @@
 ---
 title: Retrieve File
 source: https://api-docs.deepseek.com/api/retrieve-file
-fetched: 2026-09-10
+fetched: 2026-09-11
 ---
 
 # Retrieve File

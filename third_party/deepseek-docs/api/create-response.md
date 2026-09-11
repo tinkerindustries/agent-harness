@@ -1,7 +1,7 @@
 ---
 title: Responses API
 source: https://api-docs.deepseek.com/api/create-response
-fetched: 2026-09-10
+fetched: 2026-09-11
 ---
 
 # Responses API
@@ -22,13 +22,13 @@ The API is **stateless**: responses and conversations are not stored on the serv
 
 **required**
 
-- `model` (string) **required** — Possible values: [deepseek-v4-flash, deepseek-v4-pro, deepseek-v4-flash-vision-exp]. ID of the model to use.
-- `input` (object) **nullable** — The input to the model. Either a plain string (treated as a single `user` message), or a list of input items. Supported input item types are `message` / `function_call` / `function_call_output` / `custom_tool_call` / `custom_tool_call_output` / `reasoning` / `web_search_call`; other types are ignored. Message roles can be `user` / `assistant` / `system` / `developer` (`developer` is treated as `user`). With the `deepseek-v4-flash-vision-exp` model, `input_image` content parts are supported in `user` / `developer` message items and in the `output` of `function_call_output` / `custom_tool_call_output` items; images in `system` or `assistant` messages return a `400` error. With other models, `input_image` parts are replaced with a placeholder text. File inputs are not supported. At least one of `input` and `instructions` is required.
+- `model` (string) **required** — Possible values: [deepseek-flash, deepseek-v4-pro]. ID of the model to use. Use `deepseek-flash` or `deepseek-v4-pro`.
+- `input` (object) **nullable** — The input to the model. Either a plain string (treated as a single `user` message), or a list of input items. Supported input item types are `message` / `function_call` / `function_call_output` / `custom_tool_call` / `custom_tool_call_output` / `reasoning`; other types are ignored. Message roles can be `user` / `assistant` / `system` / `developer` (`developer` is treated as `user`). With the `deepseek-flash` model, `input_image` content parts are supported in `user` / `developer` message items and in the `output` of `function_call_output` / `custom_tool_call_output` items; images in `system` or `assistant` messages return a `400` error. File inputs are not supported. At least one of `input` and `instructions` is required.
   - *oneOf* — Text input — string
   - *oneOf* — Input item list
-    - `type` (string) — Possible values: [message, function_call, function_call_output, custom_tool_call, custom_tool_call_output, reasoning, web_search_call]. The type of the input item. For `message` items, this field can be omitted if `role` is present. `custom_tool_call` / `custom_tool_call_output` items are used together with the `apply_patch` custom tool.
+    - `type` (string) — Possible values: [message, function_call, function_call_output, custom_tool_call, custom_tool_call_output, reasoning]. The type of the input item. For `message` items, this field can be omitted if `role` is present. `custom_tool_call` / `custom_tool_call_output` items are used together with the `apply_patch` custom tool.
     - `role` (string) — Possible values: [user, assistant, system, developer]. For `message` items. The role of the message author. `developer` is treated as `user`.
-    - `content` (object) — For `message` items, the message content, either a plain string or a list of `input_text` / `output_text` / `input_image` content parts. With the `deepseek-v4-flash-vision-exp` model, `input_image` parts carry images; with other models they are replaced with a placeholder text. For `reasoning` items, a list of `reasoning_text` content parts.
+    - `content` (object) — For `message` items, the message content, either a plain string or a list of `input_text` / `output_text` / `input_image` content parts. For `reasoning` items, a list of `reasoning_text` content parts.
       - *oneOf* — Text content — string
       - *oneOf* — Array of content parts
         - *oneOf* — Text content part
@@ -45,7 +45,7 @@ The API is **stateless**: responses and conversations are not stored on the serv
     - `call_id` (string) — For `function_call` / `function_call_output` items. The ID pairing a function call with its output. Must be non-empty and unique, and every `function_call` must have a matching `function_call_output`.
     - `name` (string) — For `function_call` items. The name of the function to call.
     - `arguments` (string) — For `function_call` items. The arguments to call the function with, in JSON format.
-    - `output` (object) — For `function_call_output` / `custom_tool_call_output` items. The output of the tool call, either a plain string or a list of `input_text` / `input_image` content parts. With the `deepseek-v4-flash-vision-exp` model, `input_image` parts in the output are processed as real images; with other models they are replaced with a placeholder text.
+    - `output` (object) — For `function_call_output` / `custom_tool_call_output` items. The output of the tool call, either a plain string or a list of `input_text` / `input_image` content parts.
       - *oneOf* — Text output — string
       - *oneOf* — Array of content parts
         - *oneOf* — Text content part
@@ -61,26 +61,26 @@ The API is **stateless**: responses and conversations are not stored on the serv
           - `text` (string) **required** — The chain-of-thought text content.
 - `instructions` (string) **nullable** — A system-level instruction, inserted as the first system message of the model's context.
 - `reasoning` (object) **nullable** — Configuration of the thinking mode.
-  - `effort` (string) — Possible values: [none, minimal, low, medium, high, xhigh, max]. Controls the thinking mode toggle and the thinking effort. `none` disables thinking mode; `minimal` / `low` enable thinking mode with effort `low`; `medium` / `high` / `xhigh` enable thinking mode with effort `high`; `max` enables thinking mode with effort `max`. If not set, the model's default thinking behavior is used (enabled by default).
+  - `effort` (string) — Possible values: [none, low, high, max]. Controls the thinking mode toggle and the thinking effort. `none` disables thinking mode; `low` / `high` / `max` enable thinking mode. If not set, the model's default thinking behavior is used (enabled by default). For compatibility with existing software, `minimal` is accepted and mapped to `low`, and `medium` / `xhigh` are accepted and mapped to `high`.
 - `max_output_tokens` (integer) **nullable** — An upper bound for the number of tokens that can be generated in the response, including both the visible output tokens and the reasoning tokens.
 - `stream` (boolean) **nullable** — If set to `true`, the response is streamed as semantic server-sent events. The final event is `response.completed` / `response.incomplete` / `response.failed` (there is no `data: [DONE]` message). Please refer to the [Responses API Guide](../guides/responses_api.md#streaming) for the full event list.
 - `temperature` (number) **nullable** — Possible values: <= 2. Default value: 1. What sampling temperature to use, between 0 and 2. Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic. Has no effect in thinking mode.
-- `top_p` (number) **nullable** — Possible values: <= 1. Default value: 1. An alternative to sampling with temperature, called nucleus sampling. Has no effect in thinking mode.
+- `top_p` (number) **nullable** — Possible values: <= 1. Default value: 1. An alternative to sampling with temperature, called nucleus sampling. It takes effect in thinking mode, but values below 0.95 are raised to 0.95; in non-thinking mode it is fixed at 1.0 and the value you pass is ignored.
 - `text` (object) **nullable** — Configuration of the text output.
   - `format` (object) — The output format. `{"type": "text"}` (default) for plain text; `{"type": "json_object"}` for JSON mode; `{"type": "json_schema", "name": ..., "schema": ...}` for structured output conforming to the given JSON Schema.
     - `type` (string) — Possible values: [text, json_object, json_schema]. Default value: text
     - `name` (string) — The name of the schema. Required when `type` is `json_schema`.
     - `schema` (object) — The JSON Schema that the output must conform to. Required when `type` is `json_schema`.
-- `tools` (object[]) **nullable** — A list of tools the model may call. Function names must be non-empty, at most 128 characters, match `^[a-zA-Z0-9_-]+$`, and be unique across all tools. Besides `function`, the built-in `web_search` tool is supported and executed on the server side. Other built-in tool types are ignored. Please refer to the [Responses API Guide](../guides/responses_api.md) for details.
-  - `type` (string) **required** — Possible values: [function, web_search, web_search_2025_08_26]. The type of the tool.
+- `tools` (object[]) **nullable** — A list of tools the model may call. Function names must be non-empty, at most 128 characters, match `^[a-zA-Z0-9_-]+$`, and be unique across all tools. Built-in tool types are ignored. Please refer to the [Responses API Guide](../guides/responses_api.md) for details.
+  - `type` (string) **required** — Possible values: [function]. The type of the tool.
   - `name` (string) — For `function` tools. The name of the function. Must be non-empty, at most 128 characters, match `^[a-zA-Z0-9_-]+$`, and be unique across all tools.
   - `description` (string) — For `function` tools. A description of what the function does, used by the model to choose when and how to call the function.
   - `parameters` (object) — The parameters the functions accepts, described as a JSON Schema object. See the [Tool Calls Guide](../guides/tool_calls.md) for examples, and the [JSON Schema reference](https://json-schema.org/understanding-json-schema/) for documentation about the format. Omitting `parameters` defines a function with an empty parameter list.
     - `property name*` (any) — The parameters the functions accepts, described as a JSON Schema object. See the [Tool Calls Guide](../guides/tool_calls.md) for examples, and the [JSON Schema reference](https://json-schema.org/understanding-json-schema/) for documentation about the format. Omitting `parameters` defines a function with an empty parameter list.
-- `tool_choice` (object) **nullable** — Controls which (if any) tool is called by the model. `none` means the model will not call any tool and instead generates a message. `auto` (default) means the model can pick between generating a message or calling one or more tools. `required` means the model must call one or more tools. Specifying a particular tool via `{"type": "function", "name": "my_function"}` forces the model to call that tool. Specifying `{"type": "web_search"}` (or `{"type": "web_search_2025_08_26"}`) forces the model to perform a web search; the `web_search` tool must be present in `tools`, otherwise a `400` error is returned.
+- `tool_choice` (object) **nullable** — Controls which (if any) tool is called by the model. `none` means the model will not call any tool and instead generates a message. `auto` (default) means the model can pick between generating a message or calling one or more tools. `required` means the model must call one or more tools. Specifying a particular tool via `{"type": "function", "name": "my_function"}` forces the model to call that tool.
   - *oneOf* — Tool choice mode — string. **Possible values:** [`none`, `auto`, `required`]
   - *oneOf* — Named tool choice
-    - `type` (string) **required** — Possible values: [function, web_search, web_search_2025_08_26]
+    - `type` (string) **required** — Possible values: [function]
     - `name` (string) — The name of the function to call. Required when `type` is `function`.
 - `top_logprobs` (integer) **nullable** — Possible values: <= 20. An integer between 0 and 20 specifying the number of most likely tokens to return at each token position, each with an associated log probability.
 - `user` (string) **nullable** — A custom end-user identifier, with allowed character set [a-zA-Z0-9\-_] and a maximum length of 512. Do not include user privacy information.
@@ -101,8 +101,8 @@ OK, returns a `response` object
 - `incomplete_details` (object) **nullable** — The details about why the response is incomplete. The `reason` field can be `max_output_tokens` or `content_filter`.
   - `reason` (string) — Possible values: [max_output_tokens, content_filter]
 - `model` (string) **required** — The model used for the response.
-- `output` (object[]) **required** — The list of output items generated by the model. In thinking mode, the chain-of-thought is returned as a `reasoning` item before the `message` item. Function calls are returned as `function_call` items, and server-side web search actions as `web_search_call` items.
-  - `type` (string) — Possible values: [message, reasoning, function_call, web_search_call]. The type of the output item.
+- `output` (object[]) **required** — The list of output items generated by the model. In thinking mode, the chain-of-thought is returned as a `reasoning` item before the `message` item. Function calls are returned as `function_call` items.
+  - `type` (string) — Possible values: [message, reasoning, function_call]. The type of the output item.
   - `id` (string) — The unique ID of the output item.
   - `status` (string) — Possible values: [in_progress, completed, incomplete]. The status of the output item.
   - `role` (string) — Possible values: [assistant]. For `message` items. Always `assistant`.
@@ -112,7 +112,6 @@ OK, returns a `response` object
   - `call_id` (string) — For `function_call` items. An identifier used when passing the function output back to the API.
   - `name` (string) — For `function_call` items. The name of the function to call.
   - `arguments` (string) — For `function_call` items. The arguments to call the function with, as generated by the model in JSON format. Note that the model does not always generate valid JSON, and may hallucinate parameters not defined by your function schema. Validate the arguments in your code before calling your function.
-  - `action` (object) — For `web_search_call` items. An object describing the search action (`search` / `open_page` / `find_in_page`) executed on the server side.
 - `usage` (object) — Token usage statistics for the response.
   - `input_tokens` (integer) **required** — Number of input tokens.
   - `input_tokens_details` (object) — Breakdown of the input tokens.
@@ -130,7 +129,7 @@ OK, returns a `response` object
   "object": "response",
   "created_at": 1753000000,
   "status": "completed",
-  "model": "deepseek-v4-flash",
+  "model": "deepseek-flash",
   "output": [
     {
       "type": "reasoning",

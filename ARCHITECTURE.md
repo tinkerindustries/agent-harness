@@ -34,13 +34,13 @@ vocabulary buys is one set of shapes and one place a mistake in them can
 hide.
 
 That vocabulary is the wire's, not the model's. The process hosts every
-Gemini model the harness routes and one DeepSeek model,
-`deepseek-v4-flash-vision-exp`, chosen by the create body's `model` and
-dispatched to a client per provider; the parent supplies whichever keys it
-wants usable. DeepSeek's other two models are refused rather than hosted,
-because neither reads images and a session on such a model is given the
-vision tools that compensate — four of which send their images to Google, so
-hosting one would mean a DeepSeek run needing a Google key as well
+Gemini model the harness routes and the one DeepSeek model it routes,
+`deepseek-flash`, chosen by the create body's `model` and dispatched to a
+client per provider; the parent supplies whichever keys it wants usable.
+`deepseek-flash` reads images natively, which is what a DeepSeek session
+here needs: a model that could not see would be given the vision tools that
+compensate — four of which send their images to Google — so hosting one
+would mean a DeepSeek run needing a Google key as well
 ([`docs/DEEPSEEK-VISION.md`](docs/DEEPSEEK-VISION.md)).
 
 ```mermaid

@@ -1,7 +1,7 @@
 ---
 title: Lists Models
 source: https://api-docs.deepseek.com/api/list-models
-fetched: 2026-09-10
+fetched: 2026-09-11
 ---
 
 # Lists Models
@@ -33,7 +33,7 @@ OK, returns A list of models
   "object": "list",
   "data": [
     {
-      "id": "deepseek-v4-flash",
+      "id": "deepseek-flash",
       "object": "model",
       "owned_by": "deepseek"
     },

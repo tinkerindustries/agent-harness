@@ -25,11 +25,11 @@ a client per provider behind that dispatch and the parent-facing dialect
 chosen from the subcommand the process was spawned as. Composition happens here and
 nowhere else; no `internal` package constructs another's dependencies.
 
-It hosts every Gemini model the repository routes plus exactly one DeepSeek
-model, `deepseek-v4-flash-vision-exp` (`deepSeekSessionModel`) — the only one
-that reads images natively, which is what keeps a DeepSeek session here to one
-credential; the other two would carry the vision tools built for a model that
-cannot see, four of which reach Google
+It hosts every Gemini model the repository routes plus the one DeepSeek
+model the repository routes, `deepseek-flash` (`deepSeekSessionModel`) —
+which reads images natively, keeping a DeepSeek session here to one
+credential: a model that could not see would carry the vision tools built to
+compensate, four of which reach Google
 ([`../docs/DEEPSEEK-VISION.md`](../docs/DEEPSEEK-VISION.md)). Nothing but
 protocol frames may reach stdout, so the process logs to stderr and reads no
 `.env` of its own.
@@ -332,14 +332,15 @@ The one model→provider table (docs/KIMI-INTEGRATION.md §4.3): `ModelFor`
 maps a model name to the provider serving it, with no default — an unknown
 model is an error, so request validation rejects it loudly instead of
 silently routing to a provider. Three providers today: DeepSeek
-(`deepseek-v4-pro`, `deepseek-v4-flash`, `deepseek-v4-flash-vision-exp`),
-Kimi (`kimi-k3`), and Gemini (`gemini-3.7-flash`, docs/GEMINI-INTEGRATION.md
-§7 Phase 5). It also carries `SeesImages`, the one model→capability table
-for native vision — keyed by model rather than by provider, since
-`deepseek-v4-flash-vision-exp` is the first model whose capability disagrees
-with the rest of its provider's (docs/DEEPSEEK-VISION.md). It is a package
-of its own so that client construction and request validation can both reach
-it without importing the agent loop.
+(`deepseek-flash`), Kimi (`kimi-k3`), and Gemini (`gemini-3.7-flash`,
+docs/GEMINI-INTEGRATION.md §7 Phase 5). It also carries `SeesImages`, the
+one model→capability table for native vision — keyed by model rather than
+by provider, since a future DeepSeek model could disagree with
+`deepseek-flash`'s own vision capability the way `deepseek-v4-pro` used to
+before this harness dropped it (docs/DEEPSEEK-VISION.md). It is a package of
+its own so that client construction and request validation can both reach
+it without importing the
+agent loop.
 Depends on: nothing internal.
 
 ### `internal/skills`

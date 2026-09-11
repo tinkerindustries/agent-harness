@@ -202,8 +202,8 @@ type Executor struct {
 	FlashModel string
 
 	// SeeImages is true when the session's model reads images natively
-	// (Kimi K3, Gemini, and deepseek-v4-flash-vision-exp; DeepSeek's other
-	// two models do not, docs/DEEPSEEK-VISION.md). Read consults it: on a
+	// (Kimi K3, Gemini, and deepseek-flash; deepseek-v4-pro does not,
+	// docs/DEEPSEEK-VISION.md). Read consults it: on a
 	// vision-capable model, reading an image path returns the file as an
 	// image_url part instead of the binary-file refusal, and the vision
 	// tools that exist only because a model cannot see an image itself

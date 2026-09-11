@@ -124,18 +124,21 @@ From `configs/prices.json`:
 
 | Model | Cache-hit in | Cache-miss in | Output |
 | --- | --- | --- | --- |
-| `deepseek-v4-pro` (standard) | 0.044 | 1.32 | 3.96 |
-| `deepseek-v4-pro` (discounted) | 0.003625 | 0.435 | 0.87 |
+| `deepseek-flash` (peak) | 0.006 | 0.3 | 1.2 |
+| `deepseek-flash` (off-peak) | 0.003 | 0.15 | 0.6 |
 | `kimi-k3` | 0.30 | 3.00 | 15.00 |
 | `gemini-3.7-flash` | 0.075 | 0.75 | 3.75 |
 
-Per million tokens, USD.
+Per million tokens, USD. This table predates DeepSeek's 2026-09-10 rate cut
+and this harness dropping `deepseek-v4-pro`; re-read `configs/prices.json`
+rather than trusting these figures.
 
-Gemini 3.7 Flash lands near DeepSeek Pro's standard tier and well under Kimi
-K3. It is **not** a cost win against DeepSeek's discounted tier, which is
-roughly 4× cheaper on output. The argument for Gemini is capability — native
-vision in the main loop, and a model Google is positioning specifically at
-agentic coding — not price.
+Gemini 3.7 Flash lands well under Kimi K3 but is **not** a cost win against
+`deepseek-flash`, which is now roughly 3–6× cheaper on output depending on
+the hour — a bigger gap than when this was written against DeepSeek Pro's
+discounted tier. The argument for Gemini is capability — native vision in
+the main loop, and a model Google is positioning specifically at agentic
+coding — not price.
 
 Two cost facts that must not be lost:
 
