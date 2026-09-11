@@ -79,6 +79,69 @@ func TestBashTimeoutFires(t *testing.T) {
 	}
 }
 
+// TestBashTimeoutNamesTheClampedCeiling proves the message a clamped call gets
+// back tells it the request was clamped and what the real bound was. Without
+// this, a model that asked for an hour and was cut off at the ceiling reads
+// "command timed out" as a hung command and retries with the same hour. The
+// ceiling cannot be named in the tool description instead — it is a setting,
+// and the description is part of the frozen prompt-cache head (docs/CACHE.md).
+//
+// Driven through Execute rather than execBash, because Execute is what applies
+// timeoutFor's clamp and attaches the resulting limit to the context.
+func TestBashTimeoutNamesTheClampedCeiling(t *testing.T) {
+	e, _ := newTestExecutor(t)
+	e.Timeouts.BashMax = 200 * time.Millisecond
+
+	res := runTool(t, e, "Bash", bashArgs{Command: "sleep 5", TimeoutMS: 60 * 60 * 1000})
+
+	if !res.IsError {
+		t.Fatalf("expected the timed-out command to be reported as an error, got: %+v", res)
+	}
+	for _, want := range []string{"timed out after 200ms", "1h0m0s was requested", "clamped down to the harness ceiling"} {
+		if !strings.Contains(res.Content, want) {
+			t.Fatalf("expected the result to contain %q, got: %s", want, res.Content)
+		}
+	}
+}
+
+// TestBashTimeoutNamesTheDefaultWhenNoneRequested covers the other half of the
+// same problem: a call that named no timeout at all is bounded by
+// tools.bash_timeout, which is short, and the model has no way to know it
+// exists unless the expiry says so.
+func TestBashTimeoutNamesTheDefaultWhenNoneRequested(t *testing.T) {
+	e, _ := newTestExecutor(t)
+	e.Timeouts.BashDefault = 150 * time.Millisecond
+
+	res := runTool(t, e, "Bash", bashArgs{Command: "sleep 5"})
+
+	if !res.IsError {
+		t.Fatalf("expected the timed-out command to be reported as an error, got: %+v", res)
+	}
+	if !strings.Contains(res.Content, "150ms, the default for a call that names no timeout") {
+		t.Fatalf("expected the result to name the default, got: %s", res.Content)
+	}
+}
+
+// TestBashTimeoutHonouredRequestSaysNothingExtra pins that a request inside the
+// ceiling gets the bare limit and no clamp explanation, so the extra sentence
+// only ever appears when it is true.
+func TestBashTimeoutHonouredRequestSaysNothingExtra(t *testing.T) {
+	e, _ := newTestExecutor(t)
+	e.Timeouts.BashMax = 10 * time.Second
+
+	res := runTool(t, e, "Bash", bashArgs{Command: "sleep 5", TimeoutMS: 200})
+
+	if !res.IsError {
+		t.Fatalf("expected the timed-out command to be reported as an error, got: %+v", res)
+	}
+	if !strings.Contains(res.Content, "timed out after 200ms") {
+		t.Fatalf("expected the result to name the requested limit, got: %s", res.Content)
+	}
+	if strings.Contains(res.Content, "clamped") || strings.Contains(res.Content, "default") {
+		t.Fatalf("expected no clamp or default explanation, got: %s", res.Content)
+	}
+}
+
 // TestBashBackgroundedProcessDoesNotHang reproduces the production wedge
 // (sess-23f440713ef783c1484eb3eb0be24969): a command that backgrounds a child
 // holding stdout — `sleep 300 & echo started`, inheriting the captured pipe.

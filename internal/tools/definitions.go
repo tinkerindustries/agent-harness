@@ -57,7 +57,7 @@ var definitionsDeepSeek = []wire.Tool{
 		"type": "object",
 		"properties": {
 			"command": {"type": "string", "description": "The shell command to run"},
-			"timeout": {"type": "integer", "description": "Maximum time to allow the command to run, in milliseconds"},
+			"timeout": {"type": "integer", "description": "Maximum wall-clock time for the command, in milliseconds. Omitted, the command gets the harness default, which is short; name a timeout for anything that builds, installs, packages or runs a test suite. A value above the harness ceiling is clamped down to the ceiling rather than rejected, so a larger number buys no more time. The message a timed-out command returns names the limit that actually applied. Work that cannot finish inside the ceiling has to be split into steps, or started with its output redirected to a file that a later call reads."},
 			"description": {"type": "string", "description": "A short human-readable description of what the command does"}
 		},
 		"required": ["command"]
