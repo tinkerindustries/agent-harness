@@ -2,21 +2,34 @@
 
 Local mirror of <https://api-docs.deepseek.com/>, converted to Markdown.
 
-- Fetched: 2026-08-27
+- Fetched: 2026-09-10
 - Pages: 71 (every URL in the site's `sitemap.xml`)
 - Each file carries `source:` frontmatter pointing at the page it came from.
 
-On the 2026-08-27 refresh every page was re-fetched and re-converted by script.
+On the 2026-09-10 refresh every page was re-fetched and re-converted by script.
 The converter was checked by re-converting pages that had not changed upstream
 and requiring byte-identical output against the copy already here, so a diff on
-any page is an upstream edit rather than a conversion artefact. Fifteen pages
-changed and eight are new; the rest moved only their `fetched:` date. That date
+any page is an upstream edit rather than a conversion artefact. Two pages
+changed and none are new; the rest moved only their `fetched:` date. That date
 is the date of the last comparison, not of the last edit.
 
-The refresh added the vision model, `deepseek-v4-flash-vision-exp`: `guides/vision.md`,
-`guides/files_api.md` and the four `api/*-file*.md` endpoints are new, and it also
-appears in `quick_start/pricing.md`, `quick_start/rate_limit.md`, `index.md`, and
-the request schemas of `api/create-chat-completion.md` and `api/create-response.md`.
+`guides/thinking_mode.md` rewrites the summary of the `reasoning_content`
+round-trip rule. It now turns on whether the request carries `tools` alone: with
+`tools`, every previous turn's `reasoning_content` should be passed back and is
+concatenated into the context; without, it need not be and is ignored if sent.
+The earlier wording scoped both cases to the messages between two `user` turns
+and named the `400`. The `400` itself still stands, in the page's "Tool Calls"
+section. `quick_start/token_usage.md` moves the tokenizer download from
+`deepseek_v3_tokenizer.zip` to `deepseek_v4_tokenizer.zip`.
+
+The model list is unchanged: `deepseek-v4-flash`, `deepseek-v4-pro` and
+`deepseek-v4-flash-vision-exp`, at the versions `index.md` names.
+
+`news/news1226.md` and `news/news251201.md` are no longer re-converted. Both
+URLs are still in the sitemap and still answer 200, but they now render the docs
+root, so converting one would replace the announcement with a copy of
+`index.md`. `RETIRED` in the refresh script skips them and the mirror keeps the
+posts.
 
 DeepSeek publishes no OpenAPI spec and no docs source repository, so this is
 converted from the rendered site. Internal links are rewritten to relative
@@ -26,10 +39,7 @@ The schemas under `api/` are served in the HTML, inside collapsible widgets whos
 markup does not flatten into readable Markdown. They are serialised into a nested
 bullet list — `` `field` (type) **required** — description ``, with `oneOf` variants
 as their own branch. The serialiser reproduces `api/get-user-balance.md` and
-`api/list-models.md` byte for byte, which is how it was checked; on the
-2026-08-27 refresh it replaced the flattened widget text that
-`api/create-chat-completion.md`, `api/create-completion.md` and
-`api/create-response.md` had been carrying.
+`api/list-models.md` byte for byte, which is how it was checked.
 
 `faq.md` carries no content of its own — it redirects to a separate app on
 `static.deepseek.com`, which is not mirrored here. It is hand-written and is not

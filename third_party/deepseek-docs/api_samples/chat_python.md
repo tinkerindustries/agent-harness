@@ -1,7 +1,7 @@
 ---
 title: chat_python
 source: https://api-docs.deepseek.com/api_samples/chat_python
-fetched: 2026-08-27
+fetched: 2026-09-10
 ---
 
 # chat_python

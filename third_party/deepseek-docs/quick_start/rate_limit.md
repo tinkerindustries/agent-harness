@@ -1,7 +1,7 @@
 ---
 title: Rate Limit & Isolation
 source: https://api-docs.deepseek.com/quick_start/rate_limit
-fetched: 2026-08-27
+fetched: 2026-09-10
 ---
 
 # Rate Limit & Isolation

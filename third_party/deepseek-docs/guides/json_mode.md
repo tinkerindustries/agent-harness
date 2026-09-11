@@ -1,7 +1,7 @@
 ---
 title: JSON Output
 source: https://api-docs.deepseek.com/guides/json_mode
-fetched: 2026-08-27
+fetched: 2026-09-10
 ---
 
 # JSON Output

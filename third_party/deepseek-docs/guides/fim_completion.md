@@ -1,7 +1,7 @@
 ---
 title: FIM Completion (Beta)
 source: https://api-docs.deepseek.com/guides/fim_completion
-fetched: 2026-08-27
+fetched: 2026-09-10
 ---
 
 # FIM Completion (Beta)

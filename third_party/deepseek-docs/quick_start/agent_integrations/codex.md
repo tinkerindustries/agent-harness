@@ -1,7 +1,7 @@
 ---
 title: Integrate with Codex
 source: https://api-docs.deepseek.com/quick_start/agent_integrations/codex
-fetched: 2026-08-27
+fetched: 2026-09-10
 ---
 
 # Integrate with Codex

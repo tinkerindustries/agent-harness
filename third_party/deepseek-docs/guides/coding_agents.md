@@ -1,7 +1,7 @@
 ---
 title: Integrate with AI Tools
 source: https://api-docs.deepseek.com/guides/coding_agents
-fetched: 2026-08-27
+fetched: 2026-09-10
 ---
 
 # Integrate with AI Tools

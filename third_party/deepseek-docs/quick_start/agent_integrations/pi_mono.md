@@ -1,7 +1,7 @@
 ---
 title: Integrate with Pi
 source: https://api-docs.deepseek.com/quick_start/agent_integrations/pi_mono
-fetched: 2026-08-27
+fetched: 2026-09-10
 ---
 
 # Integrate with Pi
