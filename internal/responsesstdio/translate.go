@@ -63,11 +63,6 @@ type translator struct {
 	idMu           sync.Mutex
 	firstMessageID string
 	messageIDs     map[int64]string
-
-	// callNames remembers which function a call id belonged to, so a
-	// function_call_output can carry the name the surface's own item has no
-	// field for and a parent would otherwise have to look up.
-	callNames map[string]string
 }
 
 func newTranslator(responseID, model string, emit func(method string, params any)) *translator {
@@ -79,7 +74,6 @@ func newTranslator(responseID, model string, emit func(method string, params any
 		message:    -1,
 		itemAt:     map[int]int{},
 		messageIDs: map[int64]string{},
-		callNames:  map[string]string{},
 	}
 }
 
@@ -94,6 +88,19 @@ func (t *translator) next() int {
 // opaque ids; these are derived from the output index, which is the only
 // thing a client needs them for.
 func itemID(index int) string { return fmt.Sprintf("item_%d", index) }
+
+// terminal emits the last frame a run produces — response.completed, or
+// response.failed for one the loop could not finish — numbered in the same
+// sequence as every frame before it.
+//
+// It is here rather than in server.go because the sequence counter is here.
+// Built there, the two terminal frames carried no number at all, so a client
+// that had counted a stream up to N was handed a final frame claiming to be
+// frame 0 — and the two failure paths disagreed with each other, since the
+// one this file already emitted for store.KindError numbered itself.
+func (t *translator) terminal(method string, resp Response) {
+	t.emit(method, responseEnvelope{Type: method, SequenceNumber: t.next(), Response: resp})
+}
 
 // created emits response.created, the first frame of every stream.
 func (t *translator) created() {
@@ -282,7 +289,6 @@ func (t *translator) event(e store.Event) {
 			return
 		}
 		t.closeText()
-		t.callNames[p.ID] = p.Name
 		idx := t.addItem(OutputItem{
 			Type: ItemFunctionCall, CallID: p.ID, Name: p.Name,
 			Arguments: json.RawMessage("{}"),

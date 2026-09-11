@@ -571,7 +571,7 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 		// reacts to interaction.completed by creating the next interaction
 		// is doing the obvious thing, and it used to race the bookkeeping
 		// and be told the interaction was still running.
-		s.complete(it)
+		s.complete(it, tr)
 	}()
 
 	if p.Stream != nil && !*p.Stream {
@@ -628,17 +628,13 @@ func (s *Server) record(it *run, tr *translator, res *session.RunResult, err err
 		// surface's own terminal error event does, so a client that reads
 		// only terminal frames still gets the run's status and usage with
 		// the message.
-		s.notify(NotifyResponseFailed, responseEnvelope{
-			Type: NotifyResponseFailed, Response: it.snapshot(false),
-		})
+		tr.terminal(NotifyResponseFailed, it.snapshot(false))
 	}
 }
 
 // complete emits the last notification a response ever produces.
-func (s *Server) complete(it *run) {
-	s.notify(NotifyResponseCompleted, responseEnvelope{
-		Type: NotifyResponseCompleted, Response: it.snapshot(true),
-	})
+func (s *Server) complete(it *run, tr *translator) {
+	tr.terminal(NotifyResponseCompleted, it.snapshot(true))
 }
 
 // statusFor maps a run's terminal reason onto the surface's status enum. A
@@ -768,7 +764,7 @@ func (s *Server) delete(params json.RawMessage) (any, *rpcError) {
 	it, ok := s.runs[p.ResponseID]
 	if ok && s.running == it {
 		s.mu.Unlock()
-		return nil, errorf(CodeResponseNotRunning, "interaction %s is still running; cancel it first", p.ResponseID)
+		return nil, errorf(CodeResponseNotRunning, "response %s is still running; cancel it first", p.ResponseID)
 	}
 	delete(s.runs, p.ResponseID)
 	for i, id := range s.order {

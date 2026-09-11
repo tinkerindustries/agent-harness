@@ -689,3 +689,38 @@ func TestGetWorksWhileTheRunIsGoing(t *testing.T) {
 		t.Error("a running interaction reported no steps")
 	}
 }
+
+// TestSequenceNumbersRunUnbrokenToTheTerminalFrame pins that every frame of a
+// stream, the last one included, carries the next sequence number.
+//
+// The terminal frames used to be built in server.go rather than by the
+// translator, so they went out with no number at all: a client that had
+// counted a stream up to N was handed a response.completed claiming to be
+// frame 0. The two failure paths disagreed with each other for the same
+// reason — the one the translator emits for a loop error numbered itself and
+// the one record emitted did not.
+func TestSequenceNumbersRunUnbrokenToTheTerminalFrame(t *testing.T) {
+	f := newFixture(t, answer("All done."))
+	f.client.handshake(ClientCapabilities{})
+
+	var created CreateResult
+	if rerr := f.client.call(MethodResponsesCreate, f.createParams("say something"), &created); rerr != nil {
+		t.Fatalf("responses.create: %v", rerr)
+	}
+	seen := f.client.waitFor(NotifyResponseCompleted)
+
+	for i, m := range seen {
+		var frame struct {
+			SequenceNumber *int `json:"sequence_number"`
+		}
+		if err := json.Unmarshal(m.Params, &frame); err != nil {
+			t.Fatalf("decode %s: %v", m.Method, err)
+		}
+		if frame.SequenceNumber == nil {
+			t.Fatalf("%s carries no sequence_number", m.Method)
+		}
+		if *frame.SequenceNumber != i {
+			t.Errorf("%s (frame %d) has sequence_number %d", m.Method, i, *frame.SequenceNumber)
+		}
+	}
+}
