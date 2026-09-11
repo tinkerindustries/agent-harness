@@ -38,8 +38,55 @@ func TestGrepFindsMatchesAndRespectsOutputMode(t *testing.T) {
 	}
 
 	content := execGrep(t.Context(), e, mustJSON(t, grepArgs{Pattern: "Foo", OutputMode: "content"}))
-	if !strings.Contains(content.Content, "a.go:2:") {
-		t.Fatalf("expected a path:line:text match, got: %s", content.Content)
+	if !strings.Contains(content.Content, "a.go:func Foo") {
+		t.Fatalf("expected a path:text match with no line number by default, got: %s", content.Content)
+	}
+
+	numbered := execGrep(t.Context(), e, mustJSON(t, grepArgs{Pattern: "Foo", OutputMode: "content", ShowLineNumbers: true}))
+	if !strings.Contains(numbered.Content, "a.go:2:") {
+		t.Fatalf("expected a path:line:text match with -n, got: %s", numbered.Content)
+	}
+}
+
+// TestGrepContextLinesAndHeadLimit exercises -A/-B/-C and head_limit, the
+// two additions content mode's default shape does not exercise on its own.
+func TestGrepContextLinesAndHeadLimit(t *testing.T) {
+	e, root := newTestExecutor(t)
+	writeFile(t, root, "a.go", "package a\n\nfunc Foo() {}\n\nfunc Bar() {}\n")
+
+	ctx := execGrep(t.Context(), e, mustJSON(t, grepArgs{Pattern: "Foo", OutputMode: "content", ContextBefore: 1, ContextAfter: 1, ShowLineNumbers: true}))
+	for _, want := range []string{"a.go-2-", "a.go:3:func Foo", "a.go-4-"} {
+		if !strings.Contains(ctx.Content, want) {
+			t.Fatalf("expected %q in context output, got: %s", want, ctx.Content)
+		}
+	}
+
+	limited := execGrep(t.Context(), e, mustJSON(t, grepArgs{Pattern: "func", OutputMode: "content", HeadLimit: 1}))
+	if strings.Count(limited.Content, "\n") != 0 || !strings.Contains(limited.Content, "Foo") {
+		t.Fatalf("expected head_limit 1 to keep only the first match line, got: %s", limited.Content)
+	}
+}
+
+// TestGrepCaseInsensitiveAndType exercises -i and type, both of which widen
+// or narrow what the default pattern/glob-only search would find.
+func TestGrepCaseInsensitiveAndType(t *testing.T) {
+	e, root := newTestExecutor(t)
+	writeFile(t, root, "a.go", "package a\nfunc FOO() {}\n")
+	writeFile(t, root, "b.py", "def foo(): pass\n")
+
+	insensitive := execGrep(t.Context(), e, mustJSON(t, grepArgs{Pattern: "foo", CaseInsensitive: true}))
+	if !strings.Contains(insensitive.Content, "a.go") {
+		t.Fatalf("expected -i to match FOO against foo, got: %s", insensitive.Content)
+	}
+
+	typed := execGrep(t.Context(), e, mustJSON(t, grepArgs{Pattern: "foo", CaseInsensitive: true, FileType: "py"}))
+	if strings.Contains(typed.Content, "a.go") || !strings.Contains(typed.Content, "b.py") {
+		t.Fatalf("expected type py to keep only b.py, got: %s", typed.Content)
+	}
+
+	bad := execGrep(t.Context(), e, mustJSON(t, grepArgs{Pattern: "foo", FileType: "not-a-real-type"}))
+	if !bad.IsError {
+		t.Fatal("expected an unrecognised type to be an error")
 	}
 }
 

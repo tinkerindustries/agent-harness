@@ -80,11 +80,11 @@ func TestToolArrayGolden(t *testing.T) {
 func TestDefinitionsForProviderShape(t *testing.T) {
 	deepseek := tools.DefinitionsFor("deepseek-v4-pro")
 	kimi := tools.DefinitionsFor("kimi-k3")
-	if len(deepseek) != 20 {
-		t.Fatalf("DeepSeek array has %d tools, want 20", len(deepseek))
+	if len(deepseek) != 22 {
+		t.Fatalf("DeepSeek array has %d tools, want 22", len(deepseek))
 	}
-	if len(kimi) != 14 {
-		t.Fatalf("Kimi array has %d tools, want 14", len(kimi))
+	if len(kimi) != 16 {
+		t.Fatalf("Kimi array has %d tools, want 16", len(kimi))
 	}
 
 	// Walk both arrays with two pointers; DeepSeek's skips the six vision

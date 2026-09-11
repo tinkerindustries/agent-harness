@@ -161,13 +161,14 @@ func containsSorted(sorted []string, name string) bool {
 // of tool-dropping variants: a variant that subtracts a tool needs no
 // replacements entry, because the head is assembled from the session's
 // tool array (tools.DefinitionsForVariant) rather than from stored text.
-// Dropping Bash names one fewer tool in the inventory, corrects the count
-// word, and takes every rule gated on Bash — the shell rule, the batch
-// rule, and the plan bullet that mentions "a long run of Bash or Edit
-// calls" — out of the text, while every rule not about Bash survives
-// untouched. The plan group itself stays: it is gated on the four plan
-// tools, and its one Bash-naming bullet picks its wording from what is
-// present, so a no-bash head carries the same bullet without the mention.
+// Dropping Bash, BashOutput, and KillBash names three fewer tools in the
+// inventory, corrects the count word, and takes every rule gated on Bash —
+// the shell rule, the batch rule, the background-shell rule, and the plan
+// bullet that mentions "a long run of Bash or Edit calls" — out of the
+// text, while every rule not about Bash survives untouched. The plan group
+// itself stays: it is gated on the four plan tools, and its one
+// Bash-naming bullet picks its wording from what is present, so a no-bash
+// head carries the same bullet without the mention.
 func TestVariantDroppedToolRendersAHeadConsistentWithItsArray(t *testing.T) {
 	base, err := RenderSystemPromptFor("deepseek-v4-pro", "")
 	if err != nil {
@@ -181,8 +182,8 @@ func TestVariantDroppedToolRendersAHeadConsistentWithItsArray(t *testing.T) {
 	baseNames, _ := inventoryFromPrompt(t, base)
 	names, countWord := inventoryFromPrompt(t, got)
 
-	if len(names) != len(baseNames)-1 {
-		t.Fatalf("no-bash head names %d tools, want %d (one fewer than base)", len(names), len(baseNames)-1)
+	if len(names) != len(baseNames)-3 {
+		t.Fatalf("no-bash head names %d tools, want %d (three fewer than base)", len(names), len(baseNames)-3)
 	}
 	if containsSorted(names, "Bash") {
 		t.Error("no-bash inventory still names Bash")
@@ -259,7 +260,7 @@ func TestKimiStepsVariantAppliesToTheKimiHead(t *testing.T) {
 }
 
 // TestKimiHeadDiffersFromDeepSeekHeadOnlyWhereItMust pins the relationship
-// between the two heads: Kimi's inventory names the fourteen tools and not
+// between the two heads: Kimi's inventory names the sixteen tools and not
 // the two vision tools, and the vision rule is the one true sentence. The
 // shared rules text is the same in both, so a change to a shared rule lands
 // in both heads — that is what the derivation guarantees.
@@ -274,11 +275,11 @@ func TestKimiHeadDiffersFromDeepSeekHeadOnlyWhereItMust(t *testing.T) {
 			t.Errorf("Kimi head still mentions %q", gone)
 		}
 	}
-	if !strings.Contains(kimi, "All fourteen are always available") {
-		t.Error("Kimi head does not say \"All fourteen are always available\"")
+	if !strings.Contains(kimi, "All sixteen are always available") {
+		t.Error("Kimi head does not say \"All sixteen are always available\"")
 	}
-	if strings.Contains(deepseek, "All fourteen") {
-		t.Error("DeepSeek head mentions fourteen tools; it must stay sixteen")
+	if strings.Contains(deepseek, "All sixteen") {
+		t.Error("DeepSeek head mentions sixteen tools; it must stay twenty-two")
 	}
 	// Shared text: the search rule and the plan rule must read identically
 	// in both heads.

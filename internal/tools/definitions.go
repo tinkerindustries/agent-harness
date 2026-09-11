@@ -9,7 +9,7 @@ import (
 )
 
 // The tool array is per-provider (docs/KIMI-INTEGRATION.md §4.5, decision 5):
-// DeepSeek gets all twenty tools, and Kimi K3 gets the fourteen that remain
+// DeepSeek gets all twenty-two tools, and Kimi K3 gets the sixteen that remain
 // once the six vision tools are dropped — K3 reads images natively, so
 // Glance, Ground, Detect, Transcribe, Crop (the Gemini round-trips and the
 // local image operation that feeds them) and Screenshot (capture-and-describe)
@@ -53,14 +53,30 @@ var definitionsDeepSeek = []wire.Tool{
 		},
 		"required": ["file_path", "old_string", "new_string"]
 	}`),
-	function("Bash", "Run a shell command in the workspace. Foreground only; output is captured and returned once the command exits.", `{
+	function("Bash", "Run a shell command in the workspace. Output is captured and returned once the command exits, unless run_in_background is set, which returns immediately with an id BashOutput and KillBash can act on.", `{
 		"type": "object",
 		"properties": {
 			"command": {"type": "string", "description": "The shell command to run"},
 			"timeout": {"type": "integer", "description": "Maximum wall-clock time for the command, in milliseconds. Omitted, the command gets the harness default, which is short; name a timeout for anything that builds, installs, packages or runs a test suite. A value above the harness ceiling is clamped down to the ceiling rather than rejected, so a larger number buys no more time. The message a timed-out command returns names the limit that actually applied. Work that cannot finish inside the ceiling has to be split into steps, or started with its output redirected to a file that a later call reads."},
-			"description": {"type": "string", "description": "A short human-readable description of what the command does"}
+			"description": {"type": "string", "description": "A short human-readable description of what the command does"},
+			"run_in_background": {"type": "boolean", "description": "Set to true to run this command in the background instead of waiting for it to exit. The call returns immediately with a shell id; read its output so far with BashOutput, and stop it with KillBash. Use this for a dev server, a watcher, or anything else meant to keep running rather than finish."}
 		},
 		"required": ["command"]
+	}`),
+	function("BashOutput", "Read the output a background shell (started by Bash with run_in_background) has produced since the last time it was read, and whether it is still running.", `{
+		"type": "object",
+		"properties": {
+			"bash_id": {"type": "string", "description": "The id of the background shell to read, as returned by the Bash call that started it"},
+			"filter": {"type": "string", "description": "A regular expression. Only output lines matching it are returned; the rest are still consumed and will not be returned by a later call."}
+		},
+		"required": ["bash_id"]
+	}`),
+	function("KillBash", "Stop a background shell started by Bash with run_in_background.", `{
+		"type": "object",
+		"properties": {
+			"shell_id": {"type": "string", "description": "The id of the background shell to stop, as returned by the Bash call that started it"}
+		},
+		"required": ["shell_id"]
 	}`),
 	function("Glob", "Find files by path pattern, e.g. **/*.go.", `{
 		"type": "object",
@@ -76,7 +92,15 @@ var definitionsDeepSeek = []wire.Tool{
 			"pattern": {"type": "string", "description": "Regular expression to search for"},
 			"path": {"type": "string", "description": "File or directory to search; defaults to the workspace root"},
 			"glob": {"type": "string", "description": "Glob to filter which files are searched, e.g. *.go"},
-			"output_mode": {"type": "string", "enum": ["files_with_matches", "content", "count"], "description": "files_with_matches (default), content, or count"}
+			"type": {"type": "string", "description": "File type to search, e.g. js, py, go, rust. More efficient than glob for a standard file type; unrecognised names are refused."},
+			"output_mode": {"type": "string", "enum": ["files_with_matches", "content", "count"], "description": "files_with_matches (default), content, or count"},
+			"-i": {"type": "boolean", "description": "Case-insensitive search"},
+			"-n": {"type": "boolean", "description": "Show line numbers in output. Only for output_mode: content, ignored otherwise. Default false."},
+			"-A": {"type": "integer", "description": "Lines to show after each match. Only for output_mode: content, ignored otherwise."},
+			"-B": {"type": "integer", "description": "Lines to show before each match. Only for output_mode: content, ignored otherwise."},
+			"-C": {"type": "integer", "description": "Lines to show before and after each match; takes precedence over -A and -B. Only for output_mode: content, ignored otherwise."},
+			"multiline": {"type": "boolean", "description": "Enable multiline mode where . matches newlines and a pattern can span multiple lines. Default false."},
+			"head_limit": {"type": "integer", "description": "Limit the output to its first N lines or entries — files for files_with_matches, lines for content, entries for count. Applied whichever mode is in use, after everything else the call would otherwise return."}
 		},
 		"required": ["pattern"]
 	}`),
@@ -260,7 +284,7 @@ var definitionsDeepSeek = []wire.Tool{
 }
 
 // definitionsVisionCapable is the array for every model that reads images
-// natively (provider.SeesImages): DeepSeek's twenty minus the six tools that
+// natively (provider.SeesImages): DeepSeek's twenty-two minus the six tools that
 // exist only to get an image in front of a model that cannot see one
 // itself. Kimi K3 was the first (docs/KIMI-INTEGRATION.md §4.5) and Gemini
 // is the second (docs/GEMINI-INTEGRATION.md §5.7) — both drop the identical
@@ -304,7 +328,7 @@ func function(name, description, parameters string) wire.Tool {
 	}
 }
 
-// Definitions returns the DeepSeek tool array — the twenty tools the
+// Definitions returns the DeepSeek tool array — the twenty-two tools the
 // harness has always shipped, unchanged byte for byte
 // (docs/KIMI-INTEGRATION.md §4.2). It is the array every pre-Phase-8 caller
 // meant, and the default for anything that does not resolve to a provider

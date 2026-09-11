@@ -1,4 +1,4 @@
-// Package tools implements the twenty tools in docs/TOOLS.md: schemas that
+// Package tools implements the twenty-two tools in docs/TOOLS.md: schemas that
 // match the trained-in shape, argument validation in Go, workspace
 // confinement, per-tool timeouts and output caps, and the permission policy
 // that gates execution without ever changing which tools are on offer
@@ -285,6 +285,16 @@ type Executor struct {
 	todos      []Todo
 	nextTaskID int
 
+	// shellsMu guards the background shells Bash started with
+	// run_in_background: true. Ids are minted in call order from
+	// nextShellID, the same shape nextTaskID mints TaskCreate's — belongs to
+	// the Executor because the Executor belongs to exactly one session
+	// (docs/DESIGN.md §4.5), so a shell's id is only ever read back by
+	// BashOutput or KillBash calls on that same session.
+	shellsMu    sync.Mutex
+	shells      map[string]*backgroundShell
+	nextShellID int
+
 	// mcpImageMu guards the counter that makes each image an MCP tool
 	// returns land on its own path. Naming a file from the call's own
 	// arguments alone is not enough: calling one tool twice — render, look,
@@ -316,6 +326,31 @@ func NewExecutor(workspace string, policy *Policy) (*Executor, error) {
 		Policy:    policy,
 		reads:     make(map[string]bool),
 	}, nil
+}
+
+// Close ends every background shell this Executor's session started with
+// Bash's run_in_background that is still running. A background shell is a
+// live process outliving the tool call that started it, so nothing else
+// kills it once the run's own goroutine returns — the same "never leave an
+// agent behind" rule the harness holds itself to for a spawned session
+// applies to a spawned process (CLAUDE.md). internal/session calls this once
+// per run, after the loop returns on every path (docs/RUN-CONTROL.md).
+func (e *Executor) Close() {
+	e.shellsMu.Lock()
+	shells := make([]*backgroundShell, 0, len(e.shells))
+	for _, bg := range e.shells {
+		shells = append(shells, bg)
+	}
+	e.shellsMu.Unlock()
+
+	for _, bg := range shells {
+		bg.mu.Lock()
+		done := bg.done
+		bg.mu.Unlock()
+		if !done {
+			bg.killer.forceKill()
+		}
+	}
 }
 
 func (e *Executor) outputCap(ctx context.Context) int {
@@ -489,6 +524,8 @@ var toolFuncs = map[string]toolFunc{
 	"Write":      execWrite,
 	"Edit":       execEdit,
 	"Bash":       execBash,
+	"BashOutput": execBashOutput,
+	"KillBash":   execKillBash,
 	"Glob":       execGlob,
 	"Grep":       execGrep,
 	"List":       execList,

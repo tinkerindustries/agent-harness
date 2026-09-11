@@ -40,9 +40,11 @@ trying against `Edit` if exact-match replacement underperforms.
 | `Read` | `file_path`, `offset?`, `limit?` | Read a file, line-numbered |
 | `Write` | `file_path`, `content` | Create or overwrite a file |
 | `Edit` | `file_path`, `old_string`, `new_string`, `replace_all?` | Exact-match replacement |
-| `Bash` | `command`, `timeout?`, `description?` | Run a shell command |
+| `Bash` | `command`, `timeout?`, `description?`, `run_in_background?` | Run a shell command |
+| `BashOutput` | `bash_id`, `filter?` | Read a background shell's output since the last read |
+| `KillBash` | `shell_id` | Stop a background shell |
 | `Glob` | `pattern`, `path?` | Path matching by pattern |
-| `Grep` | `pattern`, `path?`, `glob?`, `output_mode?` | Content search, ripgrep-backed |
+| `Grep` | `pattern`, `path?`, `glob?`, `type?`, `output_mode?`, `-i?`, `-n?`, `-A?`, `-B?`, `-C?`, `multiline?`, `head_limit?` | Content search, ripgrep-backed |
 | `List` | `path`, `ignore?` | Directory listing |
 | `TaskCreate` | `tasks[]` | Append tasks to the working plan |
 | `TaskGet` | `taskId` | Fetch one task by taskId |
@@ -58,9 +60,9 @@ trying against `Edit` if exact-match replacement underperforms.
 | `Crop` | `image_path`, `region`, `output?`, `scale?` | Cut a pixel box out of an image into its own file — local, no model call |
 | `Complete` | `summary`, `result?`, `status?` | Emit the run's machine-readable result |
 
-Twenty tools. The first thirteen have a trained-in analogue in at least two
-of the three named harnesses. `Screenshot`, `Glance`, `Transcribe`, `Ground`,
-`Detect`, `Crop`, and `Complete` do not. The first six exist because most of
+Twenty-two tools. The first fifteen have a trained-in analogue in at least
+two of the three named harnesses. `Screenshot`, `Glance`, `Transcribe`,
+`Ground`, `Detect`, `Crop`, and `Complete` do not. The first six exist because most of
 the models this harness runs cannot see images, so the harness builds the
 whole visual path itself — a capture it controls (`Screenshot`), a prose
 answer or a located pixel box from Gemini (`Glance`, `Ground`, `Detect`), a
@@ -70,14 +72,14 @@ says nothing about any of them, and each is named for what it does.
 
 The array is chosen per model, through `provider.SeesImages`
 (docs/KIMI-INTEGRATION.md §4.5, decision 5; docs/DEEPSEEK-VISION.md). A Kimi
-K3 session gets the fourteen tools that remain when `Screenshot`, `Glance`,
+K3 session gets the sixteen tools that remain when `Screenshot`, `Glance`,
 `Transcribe`, `Ground`, `Detect`, and `Crop` are dropped — K3 reads images
 natively, so all six are redundant for it, and capture happens through Bash
 and the `playwright-cli` skill instead. Gemini and `deepseek-flash`, the only
-DeepSeek model this harness routes, get the same fourteen, for the same
+DeepSeek model this harness routes, get the same sixteen, for the same
 reason. Every model absent from `provider.SeesImages` — `deepseek-v4-pro`
-among them, though this harness does not route it — gets the full twenty,
-unchanged byte for byte. Each array is a frozen request head shared by every session
+among them, though this harness does not route it — gets the full
+twenty-two, unchanged byte for byte. Each array is a frozen request head shared by every session
 that sends it, pinned by its own golden file
 (`internal/tools/testdata/tools_*.golden.json`, asserted by
 `TestToolArrayGolden`); the `Read` section below covers how an image reaches
@@ -177,8 +179,18 @@ resolved once at first use. The image installs bash, so a session gets it;
 models write `${PIPESTATUS[0]}`, `[[ ]]` and arrays regardless of what the
 shell is, and busybox ash answers those with a syntax error.
 
-Foreground only. Background shells with separate output-polling and kill
-tools are not built, and they matter for dev servers and test watchers.
+Foreground by default, and that is the wrong shape for a dev server or a
+test watcher: those need `run_in_background`, which starts the command
+without waiting for it, returns a shell id straight away, and lets
+`BashOutput` and `KillBash` act on it afterward — the output-polling and
+kill tools RUN-CONTROL.md's "Half one" once named as not built. A
+backgrounded command is not tied to the tool call's own timeout: it runs
+under its own process group, exactly like a foreground command, and only
+`KillBash` or the session ending (`Executor.Close`) ever ends it before it
+exits on its own. `BashOutput` returns only what a shell has produced since
+the last time it was read — never the whole buffer again — so polling a
+long-lived process does not re-send, or re-bill, output the model has
+already seen.
 
 A command that backgrounds a process without redirecting its output —
 `node server.js &`, inheriting the captured pipe — leaves that pipe open after
@@ -201,11 +213,29 @@ is killed.
 
 ### Grep and Glob
 
-Backed by ripgrep where available, with a Go fallback. `Grep` defaults to
-returning matching file paths; content and count modes are selected by
-`output_mode`. Keeping the default cheap matters because the model uses search
-to orient and would otherwise pull large content into a context that gets
-re-sent every sub-turn.
+A Go fallback, not ripgrep itself — matching Claude Code's real `Grep`
+argument shape (`-i`, `-n`, `-A`/`-B`/`-C`, `type`, `multiline`,
+`head_limit`) is one thing; matching ripgrep's own hundreds of registered
+file types and its regex engine's exact semantics is another, and this
+package does neither. `type` is a fixed table of common extensions rather
+than ripgrep's `--type-list`, and the pattern compiles as Go's `regexp`
+(RE2), not the Rust `regex` crate ripgrep and the trained-in vocabulary both
+assume — a pattern using lookaround or backreferences is rejected here where
+a real ripgrep-backed harness would accept it.
+
+`Grep` defaults to returning matching file paths; content and count modes
+are selected by `output_mode`. Keeping the default cheap matters because the
+model uses search to orient and would otherwise pull large content into a
+context that gets re-sent every sub-turn. Content mode renders the way
+ripgrep's own CLI does — `path:line:text` for a match, `path-line-text` for
+a context line `-A`/`-B`/`-C` added, and a bare `--` between two blocks of
+the same file that are not contiguous — so a session trained against a real
+rg-backed harness reads a familiar shape. `-n` is off by default even in
+content mode: line numbers appear only when asked for. `multiline` switches
+matching from one line at a time to the whole file as one string, with `.`
+matching newlines, the only way a pattern spanning more than one line can
+match at all. `head_limit` applies last, across every mode, the same
+`| head -N` shape whichever mode produced the lines it is cutting.
 
 ### TaskCreate, TaskGet, TaskList, TaskUpdate
 
