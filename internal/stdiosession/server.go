@@ -313,12 +313,9 @@ func modelDetails(models []string) []ModelDetail {
 // --- create ---
 
 func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcError) {
-	var p CreateParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, errorf(CodeInvalidParams, "responses.create params: %v", err)
-	}
-	if p.Background != nil && *p.Background {
-		return nil, errorf(CodeUnsupported, "background: every response here is already answered at once and streamed as it goes, so there is no foreground to move off")
+	p, rerr := decodeCreate(params)
+	if rerr != nil {
+		return nil, rerr
 	}
 	model := p.Model
 	if model == "" {
@@ -338,7 +335,7 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 	// answered, steps stream, and the interaction ends `failed` carrying a
 	// message about a request the client cannot see. The levels are on the
 	// handshake, so a client has been told which are allowed.
-	if effort := effortOf(p.Reasoning); effort != "" && !reasoningEffortSupported(model, effort) {
+	if effort := p.Effort; effort != "" && !reasoningEffortSupported(model, effort) {
 		return nil, errorf(CodeInvalidParams, "reasoning.effort %q: %s accepts %s",
 			effort, model, strings.Join(reasoningEfforts(model), ", "))
 	}
@@ -346,10 +343,7 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 		return nil, errorf(CodeCredentialsMissing, "%s", missingKeyMessage(model))
 	}
 
-	text, rerr := inputText(p.Input)
-	if rerr != nil {
-		return nil, rerr
-	}
+	text := p.Prompt
 	if p.Instructions != "" {
 		// Prepended rather than replacing the harness's own system prompt,
 		// which is frozen for a session's life and is the shared prefix the
@@ -392,13 +386,13 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 	)
 	resumeID := harnessString(p.Harness, func(h *CreateHarness) string { return h.ResumeSessionID })
 	switch {
-	case p.PreviousResponseID != "" && resumeID != "":
+	case p.PreviousRunID != "" && resumeID != "":
 		return nil, errorf(CodeInvalidParams, "previous_response_id and harness.resume_session_id both name a conversation to continue; send one. previous_response_id continues a response this process ran, harness.resume_session_id continues a session out of the state directory")
 
-	case p.PreviousResponseID != "":
-		prev, ok := s.lookup(p.PreviousResponseID)
+	case p.PreviousRunID != "":
+		prev, ok := s.lookup(p.PreviousRunID)
 		if !ok {
-			return nil, errorf(CodeResponseNotFound, "no response %q was minted by this process; a response id does not outlive the process that made it, so continue across a restart with harness.resume_session_id instead", p.PreviousResponseID)
+			return nil, errorf(CodeResponseNotFound, "no response %q was minted by this process; a response id does not outlive the process that made it, so continue across a restart with harness.resume_session_id instead", p.PreviousRunID)
 		}
 		sessionID, cwd, resume = prev.sessionID, prev.cwd, true
 		if p.Harness != nil && p.Harness.CWD != "" && p.Harness.CWD != cwd {
@@ -458,7 +452,7 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 
 	it := &run{
 		id: newResponseID(), sessionID: sessionID, model: model,
-		prev: p.PreviousResponseID, cwd: cwd,
+		prev: p.PreviousRunID, cwd: cwd,
 		status: StatusInProgress, created: time.Now().UTC(), updated: time.Now().UTC(),
 		done: make(chan struct{}),
 	}
@@ -516,7 +510,7 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 
 	opts := session.RunOptions{
 		Model:          model,
-		Effort:         effortFrom(p.Reasoning),
+		Effort:         effortFrom(p.Effort),
 		Thinking:       true,
 		MaxTokens:      p.MaxOutputTokens,
 		Workspace:      cwd,
@@ -534,7 +528,7 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 		Description:  harnessString(p.Harness, func(h *CreateHarness) string { return h.Description }),
 		MaxSubTurns:  harnessInt(p.Harness, func(h *CreateHarness) int { return h.MaxSubTurns }),
 	}
-	if schema := schemaOf(p.Text); len(schema) > 0 {
+	if schema := p.ResultSchema; len(schema) > 0 {
 		opts.ResultSchema = schema
 	}
 
@@ -683,13 +677,13 @@ func (it *run) snapshot(withItems bool) Response {
 // --- append, cancel, get, delete ---
 
 func (s *Server) append(ctx context.Context, params json.RawMessage) (any, *rpcError) {
-	var p AppendParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, errorf(CodeInvalidParams, "responses.append params: %v", err)
+	p, rerr := decodeAppend(params)
+	if rerr != nil {
+		return nil, rerr
 	}
-	it, ok := s.lookup(p.ResponseID)
+	it, ok := s.lookup(p.RunID)
 	if !ok {
-		return nil, errorf(CodeResponseNotFound, "no response %q", p.ResponseID)
+		return nil, errorf(CodeResponseNotFound, "no response %q", p.RunID)
 	}
 	it.mu.Lock()
 	status := it.status
@@ -697,13 +691,10 @@ func (s *Server) append(ctx context.Context, params json.RawMessage) (any, *rpcE
 	if status != StatusInProgress {
 		return nil, errorf(CodeResponseNotRunning, "response %s is %s; start a new response with previous_response_id set to it instead", it.id, status)
 	}
-	text, rerr := inputText(p.Input)
-	if rerr != nil {
-		return nil, rerr
-	}
-	if text == "" {
+	if p.Prompt == "" {
 		return nil, errorf(CodeInvalidParams, "responses.append needs some input")
 	}
+	text := p.Prompt
 
 	appended, err := s.opts.Store.AppendEvents(ctx, it.sessionID, []store.EventInput{{
 		Kind:    store.KindSteerMessage,
@@ -712,8 +703,8 @@ func (s *Server) append(ctx context.Context, params json.RawMessage) (any, *rpcE
 	if err != nil {
 		return nil, errorf(CodeInternalError, "record the input: %v", err)
 	}
-	if p.Harness != nil && p.Harness.MessageID != "" {
-		s.rememberMessageID(it, appended[0].Seq, p.Harness.MessageID)
+	if p.MessageID != "" {
+		s.rememberMessageID(it, appended[0].Seq, p.MessageID)
 	}
 	return AppendResult{ResponseID: it.id, Seq: appended[0].Seq}, nil
 }
@@ -1068,29 +1059,11 @@ func contentText(blocks []ContentPart) (string, *rpcError) {
 // DeepSeek's reasoning_effort takes — so this passes through, and a provider
 // whose spellings differ maps it in its own client (internal/gemini's
 // intent.go does).
-func effortFrom(r *ReasoningConfig) string {
-	if r == nil || r.Effort == "" {
+func effortFrom(effort string) string {
+	if effort == "" {
 		return wire.EffortHigh
 	}
-	return r.Effort
-}
-
-// schemaOf is the JSON Schema a create body's text.format named, or nil. It
-// is only ever a json_schema format's own schema: `text` and `json_object`
-// constrain nothing this harness can hold the Complete tool to.
-func schemaOf(t *TextConfig) []byte {
-	if t == nil || t.Format == nil || t.Format.Type != "json_schema" {
-		return nil
-	}
-	return t.Format.Schema
-}
-
-// effortOf is the effort a create body asked for, empty when it named none.
-func effortOf(r *ReasoningConfig) string {
-	if r == nil {
-		return ""
-	}
-	return r.Effort
+	return effort
 }
 
 func harnessString(h *CreateHarness, get func(*CreateHarness) string) string {

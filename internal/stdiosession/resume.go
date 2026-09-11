@@ -36,7 +36,7 @@ import (
 // checks that nothing the create names would change the session's frozen
 // shape. It returns the session row, whose Workspace and Model the
 // interaction inherits.
-func (s *Server) resumeTarget(ctx context.Context, p CreateParams) (store.Session, *rpcError) {
+func (s *Server) resumeTarget(ctx context.Context, p *CreateRequest) (store.Session, *rpcError) {
 	id := p.Harness.ResumeSessionID
 	sess, err := s.opts.Store.GetSession(ctx, id)
 	if errors.Is(err, store.ErrNotFound) {
@@ -82,7 +82,7 @@ func (s *Server) resumeTarget(ctx context.Context, p CreateParams) (store.Sessio
 	// The result schema is what the Complete tool validates the run's answer
 	// against, and it is on the row for the same reason the rest of this is:
 	// Resume reads it there rather than from the create.
-	if schema := schemaOf(p.Text); len(schema) > 0 &&
+	if schema := p.ResultSchema; len(schema) > 0 &&
 		canonicalSchema(schema) != canonicalSchema(sess.ResultSchema) {
 		return store.Session{}, errorf(CodeInvalidParams, "session %s carries its own result schema; a resumed session keeps the one it was started with, and text.format cannot replace it", id)
 	}
