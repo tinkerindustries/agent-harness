@@ -29,8 +29,33 @@ func pollBashOutput(t *testing.T, e *Executor, args bashOutputArgs, until func(R
 	return last
 }
 
+// drainBackgroundUntilDone polls BashOutput until the shell stops reporting
+// "running" and returns every poll's content joined together.
+//
+// Joining is what makes an assertion about the shell's output
+// deterministic. BashOutput consumes the output it returns, so a poll
+// landing between a line being written and the process exiting carries that
+// line away with it and the final poll says "(no new output)". A test that
+// read only the last poll held when one poll happened to see the line and
+// the exit together, and failed under load when two polls split them.
+//
+// waitForBackgroundDone is the one to use when the assertion is about the
+// shell's final status rather than its output, because a joined content
+// still has the earlier "Status: running" polls at the front of it.
+func drainBackgroundUntilDone(t *testing.T, e *Executor, id string) Result {
+	t.Helper()
+	var seen strings.Builder
+	res := pollBashOutput(t, e, bashOutputArgs{BashID: id}, func(r Result) bool {
+		seen.WriteString(r.Content)
+		seen.WriteString("\n")
+		return !strings.HasPrefix(r.Content, "Status: running")
+	})
+	res.Content = seen.String()
+	return res
+}
+
 // waitForBackgroundDone polls BashOutput until the shell reports anything
-// other than "running".
+// other than "running", and returns that last poll.
 func waitForBackgroundDone(t *testing.T, e *Executor, id string) Result {
 	t.Helper()
 	return pollBashOutput(t, e, bashOutputArgs{BashID: id}, func(r Result) bool {
@@ -67,7 +92,7 @@ func TestBashOutputReturnsOnlyNewOutputSinceLastRead(t *testing.T) {
 		t.Fatalf("expected the first poll to not yet see \"second\", got: %s", first.Content)
 	}
 
-	second := waitForBackgroundDone(t, e, id)
+	second := drainBackgroundUntilDone(t, e, id)
 	if strings.Contains(second.Content, "first") {
 		t.Fatalf("expected the second poll to not repeat \"first\", got: %s", second.Content)
 	}

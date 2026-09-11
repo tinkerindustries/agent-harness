@@ -143,6 +143,39 @@ cannot move `finished_at` off the moment the stop actually landed.
 work; the child fails normally and its own row records that. Nothing here
 cancels a child independently, and nothing needs to.
 
+### A cancelled tool round still commits its results
+
+A sub-turn writes its `tool_call` events before the tools run and its
+`tool_result` events after, in two batches. A cancel between the two is the
+ordinary case, not a rare one: a stop is most often aimed at a session that
+is busy, and a session is busy because a tool is running.
+
+**Every `tool_call` in the log must have a `tool_result` or a `tool_denied`
+beside it.** The fold turns each `tool_call` into a function-call item and
+each result into the output item answering it, and a provider refuses a
+request carrying a call with no output. DeepSeek answers `400
+invalid_request_error: No tool output found for tool call <id>`. The log is
+the only thing a request is ever built from, so a call left unanswered is not
+one bad request — it is every request the session makes from then on, and no
+retry, resume or new prompt gets past it.
+
+Two things hold the invariant:
+
+- The tool-result batch commits on a context detached from the run's, with
+  its own short timeout (`internal/session/turn.go`). `Store.submit` returns
+  `ctx.Err()` on a cancelled context without ever offering the batch to the
+  writer, so sharing the run's context here is what orphaned the call. The
+  `cancelled` status fence described above is not reached yet at this point:
+  the row is still `running` until the run's finish path marks it.
+- The fold closes off any call still unanswered once the log shows the
+  conversation moved past it — the next sub-turn starting, or a user message
+  being placed (`internal/fold/fold.go`). This is what makes a log written
+  before the first fix replayable. It waits for one of those events rather
+  than synthesising eagerly, because a call whose result is merely not
+  committed *yet* is the ordinary mid-round state, and inventing an output
+  for it would both lie to the model and break the fold's append-only
+  property when the real result landed.
+
 ## Steering: augment, don't gate
 
 A steer is a new user message appended to the tail of the conversation, folded

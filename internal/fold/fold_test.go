@@ -694,3 +694,210 @@ func TestAppendOnly(t *testing.T) {
 		}
 	}
 }
+
+// TestFoldInterruptedToolCallGetsStandInOutput is the fold half of the
+// wedged-session fix. A session stopped while a tool was running leaves a
+// tool_call in the log with no tool_result beside it (internal/session's
+// TestToolResultsCommitAfterCancel is why that is now rare rather than
+// routine, but logs written before it exist). Every provider rejects a
+// request carrying a call with no output — DeepSeek answers
+// "400 invalid_request_error: No tool output found for tool call <id>" — and
+// since the fold is the only thing that builds a request from the log, a
+// session in that state could never send anything again.
+//
+// The fold closes the call off with a stand-in output once the log shows the
+// conversation moved past it. It would fail if the orphan produced no output
+// item, or if the stand-in landed after the user message that follows it.
+func TestFoldInterruptedToolCallGetsStandInOutput(t *testing.T) {
+	b := &eventBuilder{}
+	events := []store.Event{
+		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "run the suite"}),
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
+		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 0, ID: "call_00_run", Name: "Bash", Arguments: `{"command":"pnpm test"}`}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "tool_calls"}),
+		// The stop landed here. No tool_result was ever written.
+		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "resume now"}),
+	}
+
+	got, err := Fold(testSession(), events)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []wire.Message{
+		wire.SystemMessage("you are a coding agent"),
+		wire.UserMessage("run the suite"),
+		{
+			Role:    wire.RoleAssistant,
+			Content: wire.TextContent(""),
+			ToolCalls: []wire.ToolCall{
+				{ID: "call_00_run", Type: "function", Function: wire.ToolCallFunc{Name: "Bash", Arguments: `{"command":"pnpm test"}`}},
+			},
+		},
+		{Role: wire.RoleTool, Content: wire.TextContent(interruptedToolOutput), ToolCallID: "call_00_run"},
+		wire.UserMessage("resume now"),
+	}
+	requireEqualMessages(t, got, want)
+}
+
+// TestFoldInterruptedToolCallStandInBeforeNextTurn covers the other place
+// the conversation can demonstrably move past an orphaned call: the next
+// sub-turn starting, with no user message in between. A resume that carries
+// no prompt takes this path.
+func TestFoldInterruptedToolCallStandInBeforeNextTurn(t *testing.T) {
+	b := &eventBuilder{}
+	events := []store.Event{
+		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "run the suite"}),
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
+		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 0, ID: "call_00_a", Name: "Bash", Arguments: `{"command":"a"}`}),
+		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 1, ID: "call_01_b", Name: "Bash", Arguments: `{"command":"b"}`}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "tool_calls"}),
+		// One of the two landed before the stop; the other did not.
+		b.ev(store.KindToolResult, store.ToolResultPayload{ToolCallID: "call_00_a", Name: "Bash", Content: "a done"}),
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 2}),
+		b.ev(store.KindContentDelta, store.ContentDeltaPayload{Text: "carrying on"}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "stop"}),
+	}
+
+	got, err := Fold(testSession(), events)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []wire.Message{
+		wire.SystemMessage("you are a coding agent"),
+		wire.UserMessage("run the suite"),
+		{
+			Role:    wire.RoleAssistant,
+			Content: wire.TextContent(""),
+			ToolCalls: []wire.ToolCall{
+				{ID: "call_00_a", Type: "function", Function: wire.ToolCallFunc{Name: "Bash", Arguments: `{"command":"a"}`}},
+				{ID: "call_01_b", Type: "function", Function: wire.ToolCallFunc{Name: "Bash", Arguments: `{"command":"b"}`}},
+			},
+		},
+		{Role: wire.RoleTool, Content: wire.TextContent("a done"), ToolCallID: "call_00_a"},
+		{Role: wire.RoleTool, Content: wire.TextContent(interruptedToolOutput), ToolCallID: "call_01_b"},
+		{Role: wire.RoleAssistant, Content: wire.TextContent("carrying on")},
+	}
+	requireEqualMessages(t, got, want)
+}
+
+// TestFoldOutstandingToolCallGetsNoStandIn is the boundary the stand-in must
+// not cross. A tool call whose result has simply not been committed yet —
+// the ordinary window between a sub-turn's tool_call batch and its
+// tool_result batch — is not orphaned, and emitting a stand-in for it would
+// both lie to the model and break the fold's append-only property, because
+// the real result would have to replace it. It fails if the fold emits
+// anything after the assistant's tool-call message.
+func TestFoldOutstandingToolCallGetsNoStandIn(t *testing.T) {
+	b := &eventBuilder{}
+	events := []store.Event{
+		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "run the suite"}),
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
+		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 0, ID: "call_00_run", Name: "Bash", Arguments: `{"command":"pnpm test"}`}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "tool_calls"}),
+		b.ev(store.KindUsage, store.UsagePayload{PromptTokens: 100}),
+	}
+
+	got, err := Fold(testSession(), events)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []wire.Message{
+		wire.SystemMessage("you are a coding agent"),
+		wire.UserMessage("run the suite"),
+		{
+			Role:    wire.RoleAssistant,
+			Content: wire.TextContent(""),
+			ToolCalls: []wire.ToolCall{
+				{ID: "call_00_run", Type: "function", Function: wire.ToolCallFunc{Name: "Bash", Arguments: `{"command":"pnpm test"}`}},
+			},
+		},
+	}
+	requireEqualMessages(t, got, want)
+}
+
+// TestFoldUnfinishedSubTurnToolCallGetsNoStandIn covers the case that would
+// make the stand-in address a call the model was never shown: a sub-turn
+// that streamed tool_call events but never reached turn_finished, so the
+// fold drops its calls entirely. The ids must be dropped with them.
+func TestFoldUnfinishedSubTurnToolCallGetsNoStandIn(t *testing.T) {
+	b := &eventBuilder{}
+	events := []store.Event{
+		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "run the suite"}),
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
+		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 0, ID: "call_00_never", Name: "Bash", Arguments: `{"command":"a"}`}),
+		// No turn_finished: the request died mid-stream.
+		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "resume now"}),
+	}
+
+	got, err := Fold(testSession(), events)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []wire.Message{
+		wire.SystemMessage("you are a coding agent"),
+		wire.UserMessage("run the suite"),
+		wire.UserMessage("resume now"),
+	}
+	requireEqualMessages(t, got, want)
+}
+
+// TestInterruptedToolCallAppendOnly holds the stand-in to the property the
+// prompt cache rests on (see the package comment): folding any prefix of the
+// log must agree with the full fold on every item both include. The stand-in
+// is the risky case, because it is an item the fold invents — emitting it
+// one event too early would have the real tool_result overwrite it in a
+// longer fold, which is exactly the rewrite TestAppendOnly forbids.
+func TestInterruptedToolCallAppendOnly(t *testing.T) {
+	b := &eventBuilder{}
+	events := []store.Event{
+		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "run two things"}),
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
+		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 0, ID: "call_00_a", Name: "Bash", Arguments: `{"command":"a"}`}),
+		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 1, ID: "call_01_b", Name: "Bash", Arguments: `{"command":"b"}`}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "tool_calls"}),
+		b.ev(store.KindToolResult, store.ToolResultPayload{ToolCallID: "call_00_a", Name: "Bash", Content: "a done"}),
+		// call_01_b never got one: the stop landed here.
+		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "resume now"}),
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 2}),
+		b.ev(store.KindContentDelta, store.ContentDeltaPayload{Text: "all done"}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "stop"}),
+		b.ev(store.KindRunFinished, store.RunFinishedPayload{Reason: "no_tool_calls", Text: "all done"}),
+	}
+
+	sess := testSession()
+	full, err := Fold(sess, events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fullJSON := make([]string, len(full))
+	for i, m := range full {
+		raw, err := json.Marshal(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fullJSON[i] = string(raw)
+	}
+
+	for n := 0; n <= len(events); n++ {
+		partial, err := Fold(sess, events[:n])
+		if err != nil {
+			t.Fatalf("fold events[:%d]: %v", n, err)
+		}
+		if len(partial) > len(full) {
+			t.Fatalf("fold events[:%d] produced %d messages, more than the full fold's %d", n, len(partial), len(full))
+		}
+		for i, m := range partial {
+			raw, err := json.Marshal(m)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(raw) != fullJSON[i] {
+				t.Fatalf("fold events[:%d] message %d differs from the full fold:\n partial: %s\n   full: %s", n, i, raw, fullJSON[i])
+			}
+		}
+	}
+}
