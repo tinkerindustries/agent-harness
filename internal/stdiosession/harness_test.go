@@ -207,6 +207,26 @@ func (c *client) handshake(caps ClientCapabilities) InitializeResult {
 	return res
 }
 
+// handshakeRaw does the handshake, decodes the result into out, and returns
+// the raw JSON so a test can assert on a key being absent as well as
+// present. The Responses-shaped handshake above cannot: an unknown key is
+// simply not decoded into it.
+func (c *client) handshakeRaw(caps ClientCapabilities, out any) string {
+	c.t.Helper()
+	var raw json.RawMessage
+	if rerr := c.call(MethodInitialize, InitializeParams{
+		ClientInfo:   ClientInfo{Name: "test", Version: "0"},
+		Capabilities: caps,
+	}, &raw); rerr != nil {
+		c.t.Fatalf("initialize: %v", rerr)
+	}
+	if err := json.Unmarshal(raw, out); err != nil {
+		c.t.Fatalf("decode the handshake: %v", err)
+	}
+	c.notify(MethodInitialized, map[string]any{})
+	return string(raw)
+}
+
 // waitFor collects notifications until one with the given method arrives,
 // returning everything seen including it.
 func (c *client) waitFor(method string) []message {
@@ -267,6 +287,20 @@ func newFixture(t *testing.T, streams ...string) *fixture {
 	return newFixtureIn(t, t.TempDir(), t.TempDir(), streams...)
 }
 
+// dialectUnderTest is the vocabulary newFixtureIn builds its server with.
+// It is a package variable rather than a parameter because every existing
+// test calls newFixture positionally; a test that wants the other dialect
+// sets it with useDialect and the rest are unaffected.
+var dialectUnderTest Dialect = NewResponses()
+
+// useDialect runs the rest of this test against d.
+func useDialect(t *testing.T, d Dialect) {
+	t.Helper()
+	prev := dialectUnderTest
+	dialectUnderTest = d
+	t.Cleanup(func() { dialectUnderTest = prev })
+}
+
 // newFixtureIn is newFixture with the state directory and the working
 // directory named, so a test can stand a second server up over the state a
 // first one left behind. That is what a parent respawning
@@ -304,6 +338,7 @@ func newFixtureIn(t *testing.T, dir, cwd string, streams ...string) *fixture {
 
 	srv := NewServer(Options{
 		Store: st, Runner: runner, Hub: eventHub, MCP: mgr,
+		Dialect:      dialectUnderTest,
 		Models:       []string{testModel, testAltModel, testDeepSeekModel},
 		DefaultModel: testModel,
 		HasAPIKey:    func(string) bool { return true },
