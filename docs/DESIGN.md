@@ -278,6 +278,50 @@ it ([OBSERVED.md](OBSERVED.md)) — DeepSeek emits OpenAI's indexed incremental
 form, and `arguments` fragment mid-token. The assembler is keyed by `index` and
 accumulates `id`, `name`, and `arguments`.
 
+#### Retrying a stream that dies mid-flight
+
+`providerhttp.Transport.Do` retries a transient 429/500/503 with backoff
+before a stream starts. It has no counterpart for a request that gets a 200
+and then dies partway through the body: a TCP reset, a truncated read, the
+idle watchdog firing. That gap ended a 23-sub-turn production run outright
+([OBSERVED.md](OBSERVED.md), "A mid-stream TCP reset lost a 23-sub-turn
+run"). `providerhttp.Transport.RetryStream` closes it, on two rules.
+
+**A stream that has already produced output is never retried.** A reasoning
+delta, a content delta, a tool-call delta, or a thought-signature delta may
+already be live on the hub a browser is watching, or already queued into the
+batch `internal/session` commits for the sub-turn. Reopening the request
+after any of those would send a second, independent completion. Nothing
+downstream could tell its text apart from the first attempt's — DeepSeek's
+Chat Completions surface has no notion of resuming a stream from where it
+left off. So once a stream has spoken, it fails exactly as it did before
+this existed: loud, ending the sub-turn. A stream that produced nothing at
+all is the only one RetryStream reopens, because nothing needs reconciling
+with a second attempt's output.
+
+**Only a failure that looks like a dead connection is retried.** A
+connection reset, an unexpected EOF, any other `net.Error`, and the idle
+watchdog's own sentinel all read as "the connection is gone", and get the
+pre-stream 503's backoff schedule and retry budget. A decode error from a
+malformed frame does not: the bytes on the wire would be identical on a
+second attempt, so retrying would only resend them into the same bug.
+`context.Canceled` and `context.DeadlineExceeded` are excluded by
+`errors.Is`, checked directly against the error rather than against which
+code path delivered it. The same incident's logs carried a cancellation that
+reached the line-reader's error branch instead of the context-cancellation
+branch beside it, so the exclusion has to catch both. The operator pressing
+stop must never come back as a retried run.
+
+`RetryStream` lives in `internal/providerhttp`, not in each provider's own
+retry predicate or in `internal/session`: the gap is the same for all three
+providers, whatever their frames look like. It takes the request-opener and
+the frame pump as arguments. DeepSeek's and Kimi's `StreamChatCompletion`
+hand it `Transport.PumpStream`; Gemini's hands it `pumpChatEvents`, a pump
+reading a step-typed frame vocabulary neither of the other two shares, with
+no adapter needed — a pump's signature is "read a body, write typed events",
+whatever it decodes to get there. `internal/session` sees none of this: a
+retried stream looks the same as one that never failed.
+
 ### 4.4 Request shape
 
 Details that do not appear in the API reference and that a generic
