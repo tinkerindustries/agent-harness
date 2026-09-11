@@ -533,9 +533,11 @@ func (e *Executor) Execute(ctx context.Context, call wire.ToolCall) Outcome {
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, e.timeoutFor(ctx, name, argsRaw))
+	limit := e.timeoutFor(ctx, name, argsRaw)
+	ctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 	ctx = WithCallID(ctx, call.ID)
+	ctx = withToolLimit(ctx, limit)
 
 	// An MCP call is routed to the configured provider instead of
 	// toolFuncs, inside the same per-tool timeout and after the same policy
@@ -554,6 +556,29 @@ func (e *Executor) Execute(ctx context.Context, call wire.ToolCall) Outcome {
 		return Outcome{Name: name, Result: errorResult("unknown tool %q", name)}
 	}
 	return Outcome{Name: name, Result: fn(ctx, e, argsRaw)}
+}
+
+// toolLimitKey is the context key the running call's own wall-clock limit is
+// attached under.
+type toolLimitKey struct{}
+
+// withToolLimit attaches the timeout Execute actually applied. A tool that
+// reports its own expiry needs the limit that bit, and that is not always the
+// one the model asked for: timeoutFor clamps a Bash request down to
+// tools.bash_timeout_max, and substitutes tools.bash_timeout for a call that
+// named none. docs/CACHE.md keeps both numbers out of the tool description, so
+// the expiry message is the only place the model can learn what the bound
+// really was.
+func withToolLimit(ctx context.Context, limit time.Duration) context.Context {
+	return context.WithValue(ctx, toolLimitKey{}, limit)
+}
+
+// toolLimitFrom returns the limit Execute applied, and whether one was set at
+// all. A tool reached other than through Execute — a test driving the function
+// directly — carries no limit, and has to fall back to ctx's own deadline.
+func toolLimitFrom(ctx context.Context) (time.Duration, bool) {
+	limit, ok := ctx.Value(toolLimitKey{}).(time.Duration)
+	return limit, ok
 }
 
 // callIDKey is the context key the running call's own id is attached under.

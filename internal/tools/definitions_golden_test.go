@@ -33,12 +33,12 @@ import (
 // Neither file is a claim that the array never changes — it is a claim that
 // it never changes by accident. Regenerating one is a deliberate act with a
 // cost attached: the head is the shared prompt-cache prefix, so a moved byte
-// invalidates the cache for every session on that provider and the change is
-// at least a minor release (RELEASE.md). The DeepSeek golden was last moved
-// on purpose to replace ReviewScreenshot and AskVision with Glance, Ground,
-// Detect, and Crop, ported from agent-vision-toolkit
-// (docs/VISION-TOOLKIT.md); the vision-capable array drops all six vision
-// tools and so was untouched by that change.
+// invalidates the cache for every session on that provider. Both goldens were
+// last moved on purpose to tell Bash's `timeout` argument that a default and a
+// ceiling exist and that a request above the ceiling is clamped rather than
+// refused — models were routinely asking for thirty and sixty minutes, being
+// cut off at the ceiling, and reading the bare "command timed out" as a hung
+// command. Bash is in both arrays, so both files moved together.
 func TestToolArrayGolden(t *testing.T) {
 	cases := []struct {
 		name   string

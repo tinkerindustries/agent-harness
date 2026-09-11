@@ -90,6 +90,20 @@ a model that can see one.
 Returns line-numbered content, `cat -n` style, because that is the shape the
 target harnesses return and the model reads offsets out of it.
 
+`limit` bounds how many lines come back, and defaults to 2,000. A file longer
+than that is cut, and the cut is marked in the result:
+
+    [showing lines 1-2000 of 2145; read again with offset=2001 for the rest]
+
+The note is the only thing that shows it. Nothing in the numbered lines says
+where the file ended, and the output cap's own label does not cover this
+either: 2,000 lines of source sit well under it, so a cut file comes back
+looking exactly like a whole one. A model that believes it has seen the end
+goes on to edit on that belief. The total after "of" is counted by scanning
+the rest of the file, which is cheap beside the read that just happened; a
+remainder the scanner cannot get through costs the total and nothing else,
+and the note still reports the cut.
+
 On a model that sees images (Kimi K3, Gemini, and `deepseek-flash`
 — `provider.SeesImages`), a `Read` of a PNG, JPEG, or WebP path returns the
 file as an `image_url` part — the bytes base64-encoded into a
@@ -140,6 +154,23 @@ changes them in the settings table:
 `tools.bash_timeout` (and `tools.bash_timeout_max`, the ceiling a request's
 own timeout is clamped to) and `tools.output_cap` — the whole `tools.` group
 of settings — and the next tool call picks the change up without a restart.
+
+Because both numbers are settings, neither appears in the tool description:
+the description is part of the frozen request head, and a number an operator
+can change must not vary the head per installation (docs/CACHE.md, "Never
+quote a configurable limit in a tool description"). The expiry message is
+where the model learns the real bound instead. It names the limit that
+actually applied, and says when that limit is not the one the call asked for:
+
+    command timed out after 10m0s; 30m0s was requested and clamped down to
+    the harness ceiling, so asking for longer will not help
+
+    command timed out after 2m0s, the default for a call that names no timeout
+
+A model told only "command timed out" reads a clamped request as a hung
+command and retries it unchanged. The `timeout` argument's own description
+carries the same three facts without the numbers: there is a default, there is
+a ceiling, and a request above the ceiling is clamped rather than refused.
 
 Commands run through `bash` where the machine has one and `/bin/sh` otherwise,
 resolved once at first use. The image installs bash, so a session gets it;

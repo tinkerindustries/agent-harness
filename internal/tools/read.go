@@ -87,12 +87,14 @@ func execRead(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
 	line := 0
 	written := 0
+	cut := false
 	for scanner.Scan() {
 		line++
 		if line < start {
 			continue
 		}
 		if written >= limit {
+			cut = true
 			break
 		}
 		fmt.Fprintf(&b, "%6d\t%s\n", line, scanner.Text())
@@ -110,7 +112,43 @@ func execRead(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 
 	e.markRead(path)
 	out, truncated := truncate(b.String(), e.outputCap(ctx))
+	if cut {
+		// Appended after truncate, so the byte cap cannot eat the one line
+		// that says the read was partial. truncate's own label does the same.
+		out += cutNote(scanner, start, line)
+	}
+	// Truncated stays for the byte cap alone: both stdio protocols document
+	// the wire field as "cut to the tool output cap"
+	// (internal/stdiosession/wiretypes.go), and a line cut is not that. The
+	// note in the content is what tells the model.
 	return Result{Content: out, Truncated: truncated}
+}
+
+// cutNote says a Read stopped at its line limit rather than at the end of the
+// file, and where to pick the file up again. Nothing in the numbered lines
+// themselves shows a cut, and truncate's byte label does not cover one: 2,000
+// lines of source sit well under the output cap, so a 2,145-line file read
+// with no limit comes back looking exactly like a whole file. A model that
+// believes it has seen the end goes on to edit the file on that belief.
+//
+// next is the first line not shown — Scan advanced onto it before the loop
+// broke — so the last line shown is next-1, and counting from here gives the
+// file's length. The count is a second pass over the remainder of an
+// already-open file, which is cheap beside the read that just happened. A
+// remainder that cannot be scanned (a line past the scanner's buffer) costs
+// only the total: the note still reports the cut, which is the part that
+// matters.
+func cutNote(scanner *bufio.Scanner, start, next int) string {
+	rest := 0
+	for scanner.Scan() {
+		rest++
+	}
+	total := ""
+	if scanner.Err() == nil {
+		total = fmt.Sprintf(" of %d", next+rest)
+	}
+	return fmt.Sprintf("\n[showing lines %d-%d%s; read again with offset=%d for the rest]\n",
+		start, next-1, total, next)
 }
 
 // readImage returns asPath as an image_url part for a vision provider: the

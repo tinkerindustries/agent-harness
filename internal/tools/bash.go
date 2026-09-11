@@ -82,6 +82,7 @@ func execBash(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 	cmd.Stdout = io.MultiWriter(&out, live)
 	cmd.Stderr = io.MultiWriter(&out, live)
 
+	started := time.Now()
 	runErr := cmd.Run()
 	if errors.Is(runErr, exec.ErrWaitDelay) {
 		// The command exited but a grandchild kept its output pipe open; Wait
@@ -97,7 +98,8 @@ func execBash(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 	result := Result{Content: text, Truncated: truncated}
 
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		result.Content = fmt.Sprintf("command timed out\n\npartial output:\n%s", text)
+		result.Content = fmt.Sprintf("command timed out after %s\n\npartial output:\n%s",
+			bashLimitNote(ctx, started, args.TimeoutMS), text)
 		result.IsError = true
 		return result
 	}
@@ -202,5 +204,35 @@ func (w *liveStdoutWriter) flush() {
 	w.mu.Unlock()
 	if chunk != "" {
 		w.sink(chunk)
+	}
+}
+
+// bashLimitNote names the wall-clock bound that actually expired, and says why
+// it is not the one the caller asked for when those differ. docs/CACHE.md bars
+// tools.bash_timeout and tools.bash_timeout_max from the tool description,
+// because the description is part of the frozen request head and an operator
+// can change either number; this message is where the rule says the model
+// learns the real limit instead. A model told only "command timed out" reads a
+// clamped 30-minute request as a hung command and retries it the same way.
+func bashLimitNote(ctx context.Context, started time.Time, requestedMS int) string {
+	limit, ok := toolLimitFrom(ctx)
+	if !ok {
+		// Reached other than through Executor.Execute, so nothing attached
+		// the limit. The deadline still holds it, minus the setup between
+		// WithTimeout and the command actually starting.
+		deadline, hasDeadline := ctx.Deadline()
+		if !hasDeadline {
+			return "its timeout"
+		}
+		limit = deadline.Sub(started).Round(time.Millisecond)
+	}
+	requested := time.Duration(requestedMS) * time.Millisecond
+	switch {
+	case requestedMS <= 0:
+		return fmt.Sprintf("%s, the default for a call that names no timeout", limit)
+	case requested > limit:
+		return fmt.Sprintf("%s; %s was requested and clamped down to the harness ceiling, so asking for longer will not help", limit, requested)
+	default:
+		return limit.String()
 	}
 }

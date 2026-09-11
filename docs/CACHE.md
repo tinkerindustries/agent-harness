@@ -110,6 +110,17 @@ that replaced it — `Glance`, `Ground`, `Detect`, `Crop` — carry no numbers
 either, for the same reason (`internal/tools/definitions.go`); check any new
 description against this rule.
 
+Obeying the rule means the refusal message has real work to do, and `Bash`
+showed what it costs when it does not. Its `timeout` description said only
+what the argument meant, and its expiry said only "command timed out" — so
+nothing anywhere told a model that a default and a ceiling existed. Models
+asked for thirty and sixty minutes, were cut off at the ceiling, and read the
+result as a hung command. The numbers stayed out of the description, which is
+right; what was missing was the description saying a ceiling exists at all,
+and the expiry naming the limit that actually applied (docs/TOOLS.md, "Bash").
+A bound the model can neither see nor discover is the failure this rule has to
+be paired against.
+
 **Order tool results by `tool_calls` index**, never by completion order.
 
 **Keep volatile content out of the head.** No clock, cwd, git status, or file
