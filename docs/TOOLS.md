@@ -237,6 +237,13 @@ matching newlines, the only way a pattern spanning more than one line can
 match at all. `head_limit` applies last, across every mode, the same
 `| head -N` shape whichever mode produced the lines it is cutting.
 
+`Grep`'s `path` names one file or one directory. Matches are reported relative
+to that search root, so a directory search reads from the directory the caller
+named. A single file is its own search root, and reports its matches under the
+path the caller gave instead: the file's path relative to itself would be `.`,
+which names nothing the caller can open. `Glob` walks from a directory and
+refuses a file, since the walk never offers its own root as a match.
+
 ### TaskCreate, TaskGet, TaskList, TaskUpdate
 
 The target harnesses all carry a todo tool, so V4 will reach for one. Where

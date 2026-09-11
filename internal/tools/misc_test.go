@@ -27,6 +27,23 @@ func TestGlobFindsNestedFiles(t *testing.T) {
 	}
 }
 
+// TestGlobRejectsAFileRoot proves Glob names a file it was handed as its
+// search root rather than answering "no files matched" for a path that is
+// sitting there. Glob resolves its root the way Grep does, and its walk
+// skips the root entry itself, so a file root can never contribute a match.
+func TestGlobRejectsAFileRoot(t *testing.T) {
+	e, root := newTestExecutor(t)
+	writeFile(t, root, "a.go", "package a")
+
+	res := execGlob(t.Context(), e, mustJSON(t, globArgs{Pattern: "**/*.go", Path: "a.go"}))
+	if !res.IsError {
+		t.Fatalf("expected an error for a file root, got: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, "a.go") {
+		t.Fatalf("expected the error to name the path, got: %s", res.Content)
+	}
+}
+
 func TestGrepFindsMatchesAndRespectsOutputMode(t *testing.T) {
 	e, root := newTestExecutor(t)
 	writeFile(t, root, "a.go", "package a\nfunc Foo() {}\n")
@@ -87,6 +104,47 @@ func TestGrepCaseInsensitiveAndType(t *testing.T) {
 	bad := execGrep(t.Context(), e, mustJSON(t, grepArgs{Pattern: "foo", FileType: "not-a-real-type"}))
 	if !bad.IsError {
 		t.Fatal("expected an unrecognised type to be an error")
+	}
+}
+
+// TestGrepSingleFilePathLabelsMatches proves a search rooted at one file
+// reports its matches under that file's path, and searches nothing else. A
+// match's path is relative to the search root, and a file is its own search
+// root, whose path relative to itself is ".".
+func TestGrepSingleFilePathLabelsMatches(t *testing.T) {
+	e, root := newTestExecutor(t)
+	mustMkdirAll(t, root, "projects")
+	writeFile(t, root, "projects/DESIGN-NOTES.md", "intro\nneedle here\n")
+	writeFile(t, root, "projects/DESIGN-LOG.md", "needle elsewhere\n")
+
+	files := execGrep(t.Context(), e, mustJSON(t, grepArgs{Pattern: "needle", Path: "projects/DESIGN-NOTES.md"}))
+	if files.Content != "projects/DESIGN-NOTES.md" {
+		t.Fatalf("expected files_with_matches to name the file searched, got: %q", files.Content)
+	}
+
+	content := execGrep(t.Context(), e, mustJSON(t, grepArgs{
+		Pattern: "needle", Path: "projects/DESIGN-NOTES.md", OutputMode: "content", ShowLineNumbers: true}))
+	if content.Content != "projects/DESIGN-NOTES.md:2:needle here" {
+		t.Fatalf("expected content to prefix the match with the file's path, got: %q", content.Content)
+	}
+
+	counted := execGrep(t.Context(), e, mustJSON(t, grepArgs{Pattern: "needle", Path: "projects/DESIGN-NOTES.md", OutputMode: "count"}))
+	if counted.Content != "projects/DESIGN-NOTES.md:1" {
+		t.Fatalf("expected count to name the file searched, got: %q", counted.Content)
+	}
+
+	// An absolute path is reported as the caller spelled it, the way
+	// ripgrep's own CLI does.
+	abs := filepath.Join(root, "projects", "DESIGN-NOTES.md")
+	absolute := execGrep(t.Context(), e, mustJSON(t, grepArgs{Pattern: "needle", Path: abs}))
+	if absolute.Content != filepath.ToSlash(abs) {
+		t.Fatalf("expected an absolute search to report the path given, got: %q", absolute.Content)
+	}
+
+	// A directory root keeps reporting matches relative to that directory.
+	dir := execGrep(t.Context(), e, mustJSON(t, grepArgs{Pattern: "needle", Path: "projects"}))
+	if dir.Content != "DESIGN-LOG.md\nDESIGN-NOTES.md" {
+		t.Fatalf("expected a directory search to report paths relative to it, got: %q", dir.Content)
 	}
 }
 

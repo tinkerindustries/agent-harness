@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"sort"
 )
@@ -34,6 +35,12 @@ func execGlob(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 		resolved, err := ResolvePath(e.Workspace, args.Path)
 		if err != nil {
 			return errorResult("%v", err)
+		}
+		// The walk skips the entry at the root itself, so a root that is a
+		// file contributes no match whatever the pattern says; "no files
+		// matched" would report a path that is sitting there as absent.
+		if info, err := os.Stat(resolved); err == nil && !info.IsDir() {
+			return errorResult("%s is a file, not a directory", args.Path)
 		}
 		root = resolved
 	}

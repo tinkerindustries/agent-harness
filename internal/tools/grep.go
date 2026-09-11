@@ -110,12 +110,35 @@ func execGrep(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 	}
 
 	root := e.Workspace
+	// fileLabel is the caller's own spelling of args.Path, set when that path
+	// names a single file: a file is its own search root, and a match's path
+	// is relative to the search root, so filepath.Rel of the file to itself
+	// is ".". The caller's path is the one label that names something it can
+	// open.
+	fileLabel := ""
 	if args.Path != "" {
 		resolved, err := ResolvePath(e.Workspace, args.Path)
 		if err != nil {
 			return errorResult("%v", err)
 		}
 		root = resolved
+		if info, err := os.Stat(resolved); err == nil && !info.IsDir() {
+			fileLabel = filepath.ToSlash(filepath.Clean(args.Path))
+		}
+	}
+
+	// matchPath is the path a match is reported under: relative to the search
+	// root, so a directory search reports what the caller sees from there,
+	// and a single-file search reports the file itself.
+	matchPath := func(path string) string {
+		if fileLabel != "" {
+			return fileLabel
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return filepath.ToSlash(path)
+		}
+		return filepath.ToSlash(rel)
 	}
 
 	var globRe *regexp.Regexp
@@ -158,10 +181,11 @@ func execGrep(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 		if typeExts != nil && !hasExtension(d.Name(), typeExts) {
 			return nil
 		}
-		lines, rel, ok := readTextLines(path, root)
+		lines, ok := readTextLines(path)
 		if !ok {
 			return nil
 		}
+		rel := matchPath(path)
 		fileMatches := grepFile(rel, re, lines, args.Multiline, mode == "files_with_matches")
 		if len(fileMatches) == 0 {
 			return nil
@@ -196,36 +220,30 @@ func hasExtension(name string, exts []string) bool {
 	return false
 }
 
-// readTextLines reads path's lines and its workspace-relative form, or
-// reports false for a binary-looking or unreadable file.
-func readTextLines(path, root string) (lines []string, rel string, ok bool) {
+// readTextLines reads path's lines, or reports false for a binary-looking or
+// unreadable file.
+func readTextLines(path string) (lines []string, ok bool) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, "", false
+		return nil, false
 	}
 	defer f.Close()
 
 	head := make([]byte, 8000)
 	n, _ := f.Read(head)
 	if bytes.IndexByte(head[:n], 0) >= 0 {
-		return nil, "", false
+		return nil, false
 	}
 	if _, err := f.Seek(0, 0); err != nil {
-		return nil, "", false
+		return nil, false
 	}
-
-	rel, err = filepath.Rel(root, path)
-	if err != nil {
-		rel = path
-	}
-	rel = filepath.ToSlash(rel)
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
 	}
-	return lines, rel, true
+	return lines, true
 }
 
 // grepFile matches re against lines, one line at a time by default. In
