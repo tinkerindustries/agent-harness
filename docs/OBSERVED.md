@@ -1095,3 +1095,46 @@ mechanism working, not a rate. Whether `response.incomplete` and
 `response.failed` arrive shaped as documented; both are decoded and unit
 tested against scripted frames, neither has been seen from the live API.
 Whether an image in a *user* message behaves as it does in a tool output.
+
+## A mid-stream TCP reset lost a 23-sub-turn run
+
+Production, 2026-09-11, a Turret DeepSeek session on `deepseek-flash`. The
+terminal error:
+
+    session: sub-turn 23: deepseek: stream read: read tcp 192.168.0.50:56783->3.173.21.63:443: read: connection reset by peer
+
+Sub-turn 23 opened at 09:06:49.732Z; the error landed at 09:07:14.985Z — 25
+seconds with no SSE frame at all, not even a keep-alive comment, before the
+peer (an AWS address in front of `api.deepseek.com`) reset the connection.
+The 22 sub-turns before it all succeeded, the last of them in under six
+seconds. The run had no retry for a stream that died after its request was
+already accepted with a 200, so the whole run ended with no answer.
+
+Ruled out: context exhaustion (sub-turn 22 billed 133,787 prompt tokens
+against the model's 1M window, docs/MODELS.md); the idle watchdog, which is
+120 seconds and only 25 had elapsed, and which reports its own
+`ErrIdleTimeout` rather than this text; a host-side kill, since the wording
+is the harness's own "stream read" wrap.
+
+The same day's logs also carried two occurrences of `context canceled`
+wrapped in that identical "stream read" text: the operator pressing stop
+mid-stream, reaching the line-reader's error branch instead of the
+context-cancellation branch beside it, because a cancelled context can make
+the underlying read fail before the pump's `select` observes `ctx.Done()`
+directly. A fix keyed only on the "stream read" text would have retried a
+deliberate stop along with a genuine reset.
+
+**Fix.** `internal/providerhttp.Transport.RetryStream` retries a stream that
+ends in a transient error — a network-level read failure, or the idle
+watchdog firing — before it has produced any output, on the same backoff
+`BackoffDelay` already gives a pre-stream 503. `context.Canceled` and
+`context.DeadlineExceeded` are checked with `errors.Is` against the error
+itself, so both are excluded no matter which branch delivered them. A decode
+error from a malformed frame is excluded too: retrying would only resend the
+same bytes into the same bug. A stream that has already produced a delta is
+never retried, whatever error ends it — see [DESIGN.md §4.3](DESIGN.md),
+"Retrying a stream that dies mid-flight", for why that case stays a hard
+failure. All three providers share the fix: DeepSeek's and Kimi's
+`StreamChatCompletion` route through it identically, and Gemini's does too,
+handing its own `pumpChatEvents` to `RetryStream` directly, since that
+method's signature already matches what `RetryStream` needs.

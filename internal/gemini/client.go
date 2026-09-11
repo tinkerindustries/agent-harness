@@ -408,6 +408,16 @@ func parseAPIError(resp *http.Response) error {
 // Transport.Do returns the response before any body is read, so the
 // retrying stops there and pumpChatEvents, this package's own SSE reader,
 // still owns everything downstream of a 200.
+//
+// A connection that dies before producing any output is retried on
+// providerhttp.Transport.RetryStream's own backoff schedule rather than
+// ending the run (docs/DESIGN.md §4.3, "Retrying a stream that dies
+// mid-flight") — the same mechanism DeepSeek's and Kimi's clients use, with
+// pumpChatEvents supplied as RetryStream's pump directly: its signature
+// already matches providerhttp.StreamPump, so no adapter is needed even
+// though it reads a frame vocabulary PumpStream knows nothing about. open is
+// what RetryStream re-runs for a retry, so it holds exactly the
+// request-building and status-checking this method used to do inline.
 func (c *Client) StreamChatCompletion(ctx context.Context, intent wire.ChatIntent) (<-chan wire.Event, error) {
 	req := requestFromIntent(intent)
 	req.Stream = true
@@ -416,21 +426,27 @@ func (c *Client) StreamChatCompletion(ctx context.Context, intent wire.ChatInten
 		return nil, fmt.Errorf("gemini: encode request: %w", err)
 	}
 
-	resp, err := c.chatTransport.Do(ctx, http.MethodPost, "/v1beta/interactions", body)
-	if err != nil {
-		return nil, c.chatTransport.WrapError("stream request", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		// docs/OBSERVED.md's central finding for this phase: a bad or
-		// missing thought signature answers 400 with an SSE-framed body,
-		// not the plain JSON parseAPIError (the vision path's own error
-		// reader) expects.
-		return nil, parseAgenticAPIError(resp)
+	open := func(ctx context.Context) (io.ReadCloser, error) {
+		resp, err := c.chatTransport.Do(ctx, http.MethodPost, "/v1beta/interactions", body)
+		if err != nil {
+			return nil, c.chatTransport.WrapError("stream request", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			// docs/OBSERVED.md's central finding for this phase: a bad or
+			// missing thought signature answers 400 with an SSE-framed body,
+			// not the plain JSON parseAPIError (the vision path's own error
+			// reader) expects.
+			return nil, parseAgenticAPIError(resp)
+		}
+		return resp.Body, nil
 	}
 
-	events := make(chan wire.Event)
-	go c.pumpChatEvents(ctx, resp.Body, events)
-	return events, nil
+	respBody, err := open(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return c.chatTransport.RetryStream(ctx, respBody, open, c.pumpChatEvents, ErrIdleTimeout), nil
 }
 
 // CreateChatCompletion sends one non-streaming interaction expressing the
