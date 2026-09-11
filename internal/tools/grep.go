@@ -10,7 +10,9 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -29,54 +31,33 @@ type grepArgs struct {
 	HeadLimit       int    `json:"head_limit"`
 }
 
-// grepMatch is one match against a file's lines, already resolved to a
-// workspace-relative path. startLine and endLine are the same value except
-// for a multiline match spanning more than one line.
+// grepMatch is one match against a file's lines, already resolved to the path
+// it is reported under. startLine and endLine are the same value except for a
+// multiline match spanning more than one line.
 type grepMatch struct {
 	path      string
 	startLine int
 	endLine   int
 }
 
-// grepTypeExtensions is a Go-fallback subset of ripgrep's own, much larger,
-// --type-list (docs/TOOLS.md, "Grep and Glob": ripgrep acceleration is
-// deferred and this package matches by extension instead). It covers the
-// languages and formats this harness's own sessions actually search; an
-// unrecognised type name is refused rather than silently matching nothing.
-var grepTypeExtensions = map[string][]string{
-	"js":     {"js", "mjs", "cjs", "jsx"},
-	"ts":     {"ts", "tsx", "mts", "cts"},
-	"py":     {"py", "pyi"},
-	"go":     {"go"},
-	"rust":   {"rs"},
-	"java":   {"java"},
-	"kotlin": {"kt", "kts"},
-	"c":      {"c", "h"},
-	"cpp":    {"cpp", "cc", "cxx", "hpp", "hh", "hxx"},
-	"csharp": {"cs"},
-	"ruby":   {"rb"},
-	"php":    {"php"},
-	"swift":  {"swift"},
-	"scala":  {"scala"},
-	"lua":    {"lua"},
-	"sh":     {"sh", "bash", "zsh"},
-	"sql":    {"sql"},
-	"html":   {"html", "htm"},
-	"css":    {"css", "scss", "sass", "less"},
-	"vue":    {"vue"},
-	"md":     {"md", "markdown"},
-	"json":   {"json"},
-	"yaml":   {"yaml", "yml"},
-	"toml":   {"toml"},
-	"xml":    {"xml"},
-	"txt":    {"txt"},
-	"proto":  {"proto"},
-}
+// grepSkipDirs are the version-control directories a Grep never searches, at
+// any depth. ripgrep's --hidden lifts its own dot-directory skipping, so
+// ripgrepArgs excludes each one by name; the fallback walk skips each one by
+// name. One list, because the same call has to answer the same way whichever
+// path serves it.
+var grepSkipDirs = []string{".git", ".svn", ".hg", ".bzr", ".jj", ".sl"}
 
-// execGrep implements Grep with a Go fallback (docs/TOOLS.md; ripgrep
-// acceleration is deferred). Defaults to files_with_matches so the model
+// execGrep implements Grep: ripgrep when the session has one (Executor.RG),
+// the Go walk when it does not. Defaults to files_with_matches so the model
 // orients cheaply instead of pulling large content into a context that gets
-// re-sent every sub-turn.
+// re-sent every sub-turn (docs/TOOLS.md, "Grep and Glob").
+//
+// The search root is resolved once, for the confinement check every tool path
+// goes through, and the caller's own spelling of it is kept: ripgrep prints a
+// path as the caller wrote it — "./src/x.md" stays "./src/x.md", an absolute
+// path stays absolute — and a directory root reports the rest of the path
+// under that spelling rather than relative to the root, which would name a
+// file the model cannot open without re-prefixing it.
 func execGrep(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result {
 	var args grepArgs
 	if err := json.Unmarshal(argsRaw, &args); err != nil {
@@ -91,6 +72,45 @@ func execGrep(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 	}
 	if mode != "files_with_matches" && mode != "content" && mode != "count" {
 		return errorResult("invalid output_mode %q: must be files_with_matches, content, or count", mode)
+	}
+
+	root := e.Workspace
+	spelled := ""
+	if args.Path != "" {
+		resolved, err := ResolvePath(e.Workspace, args.Path)
+		if err != nil {
+			return errorResult("%v", err)
+		}
+		root = resolved
+		spelled = strings.TrimRight(filepath.ToSlash(args.Path), "/")
+		if spelled == "" {
+			spelled = "/"
+		}
+	}
+	var rootIsFile bool
+	if info, err := os.Stat(root); err == nil && !info.IsDir() {
+		rootIsFile = true
+	}
+
+	if e.RG != "" {
+		return execRipgrep(ctx, e, args, mode, spelled)
+	}
+	return execGrepWalk(ctx, e, args, mode, root, spelled, rootIsFile)
+}
+
+// execGrepWalk is the Go fallback: it walks the search root and matches each
+// readable text file itself. It answers a call the way execRipgrep does — the
+// same labels, the same separators, the same long-line omissions
+// (TestGrepFallbackMatchesRipgrep pins that) — for a machine with no ripgrep
+// on it.
+//
+// type filtering is the one thing it cannot do. ripgrep's type names are
+// ripgrep's own table of extensions, and an approximate list here would
+// answer a call differently from the ripgrep path, silently. It refuses
+// instead, and says which binary is missing.
+func execGrepWalk(ctx context.Context, e *Executor, args grepArgs, mode, root, spelled string, rootIsFile bool) Result {
+	if args.FileType != "" {
+		return errorResult("type %q: filtering by file type needs ripgrep, and none was found (pass -rg PATH or set AGENT_HARNESS_RG)", args.FileType)
 	}
 
 	pattern := args.Pattern
@@ -109,53 +129,12 @@ func execGrep(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 		return errorResult("invalid pattern: %v", err)
 	}
 
-	root := e.Workspace
-	// fileLabel is the caller's own spelling of args.Path, set when that path
-	// names a single file: a file is its own search root, and a match's path
-	// is relative to the search root, so filepath.Rel of the file to itself
-	// is ".". The caller's path is the one label that names something it can
-	// open.
-	fileLabel := ""
-	if args.Path != "" {
-		resolved, err := ResolvePath(e.Workspace, args.Path)
-		if err != nil {
-			return errorResult("%v", err)
-		}
-		root = resolved
-		if info, err := os.Stat(resolved); err == nil && !info.IsDir() {
-			fileLabel = filepath.ToSlash(filepath.Clean(args.Path))
-		}
-	}
-
-	// matchPath is the path a match is reported under: relative to the search
-	// root, so a directory search reports what the caller sees from there,
-	// and a single-file search reports the file itself.
-	matchPath := func(path string) string {
-		if fileLabel != "" {
-			return fileLabel
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return filepath.ToSlash(path)
-		}
-		return filepath.ToSlash(rel)
-	}
-
 	var globRe *regexp.Regexp
 	if args.Glob != "" {
 		globRe, err = globToRegexp(args.Glob)
 		if err != nil {
 			return errorResult("invalid glob: %v", err)
 		}
-	}
-
-	var typeExts []string
-	if args.FileType != "" {
-		exts, ok := grepTypeExtensions[args.FileType]
-		if !ok {
-			return errorResult("unrecognized type %q", args.FileType)
-		}
-		typeExts = exts
 	}
 
 	before, after := args.ContextBefore, args.ContextAfter
@@ -170,58 +149,81 @@ func execGrep(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 			return nil
 		}
 		if d.IsDir() {
-			if path != root && skipDirs[d.Name()] {
+			if path != root && slices.Contains(grepSkipDirs, d.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if globRe != nil && !globRe.MatchString(d.Name()) {
-			return nil
-		}
-		if typeExts != nil && !hasExtension(d.Name(), typeExts) {
+		reported := reportedPath(root, spelled, rootIsFile, path)
+		// ripgrep matches a --glob carrying a directory against the whole
+		// path and one without against the file's name alone; trying both
+		// covers the two the same way.
+		if globRe != nil && !globRe.MatchString(d.Name()) && !globRe.MatchString(strings.TrimPrefix(reported, "./")) {
 			return nil
 		}
 		lines, ok := readTextLines(path)
 		if !ok {
 			return nil
 		}
-		rel := matchPath(path)
-		fileMatches := grepFile(rel, re, lines, args.Multiline, mode == "files_with_matches")
+		fileMatches := grepFile(reported, re, lines, args.Multiline, mode == "files_with_matches")
 		if len(fileMatches) == 0 {
 			return nil
 		}
 		matches = append(matches, fileMatches...)
 		if mode == "content" {
-			fileLines[rel] = lines
+			fileLines[reported] = lines
 		}
 		return nil
 	})
 	if walkErr != nil {
-		return errorResult("search %s: %v", args.Path, walkErr)
+		return errorResult("search %s: %v", searchedName(args.Path), walkErr)
 	}
 
-	text := formatGrepMatches(matches, mode, fileLines, args.ShowLineNumbers, before, after)
-	if args.HeadLimit > 0 {
-		text = headLimitLines(text, args.HeadLimit)
+	text := formatGrepMatches(matches, mode, fileLines, !rootIsFile, args.ShowLineNumbers, before, after)
+	return finishGrepResult(ctx, e, text, args.HeadLimit)
+}
+
+// reportedPath is the path a match found at path is reported under: the
+// search path as the caller spelled it, with the file's own path relative to
+// the search root appended. A single-file search reports that file's own
+// path, which is what the caller named and what it can open.
+func reportedPath(root, spelled string, rootIsFile bool, path string) string {
+	if rootIsFile {
+		return spelled
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return filepath.ToSlash(path)
+	}
+	rel = filepath.ToSlash(rel)
+	switch {
+	case spelled == "":
+		return rel
+	case spelled == ".":
+		return "./" + rel
+	case strings.HasSuffix(spelled, "/"):
+		return spelled + rel
+	}
+	return spelled + "/" + rel
+}
+
+// finishGrepResult applies the two caps that sit on top of whichever path
+// produced the text: head_limit's first-n-lines cut, then the output byte cap.
+func finishGrepResult(ctx context.Context, e *Executor, text string, headLimit int) Result {
+	if headLimit > 0 {
+		text = headLimitLines(text, headLimit)
 	}
 	out, truncated := truncate(text, e.outputCap(ctx))
 	return Result{Content: out, Truncated: truncated}
 }
 
-// hasExtension reports whether name's extension (lowercased, without the
-// leading dot) is one of exts.
-func hasExtension(name string, exts []string) bool {
-	got := strings.TrimPrefix(strings.ToLower(filepath.Ext(name)), ".")
-	for _, e := range exts {
-		if got == e {
-			return true
-		}
-	}
-	return false
-}
-
 // readTextLines reads path's lines, or reports false for a binary-looking or
 // unreadable file.
+//
+// Lines are split on "\n" alone. bufio.ScanLines also drops a trailing
+// carriage return, and ripgrep does not: a CRLF file's line is reported with
+// its \r on the end by the path that runs ripgrep, so the fallback has to
+// keep it to answer the same call the same way.
 func readTextLines(path string) (lines []string, ok bool) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -240,10 +242,24 @@ func readTextLines(path string) (lines []string, ok bool) {
 
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	scanner.Split(splitOnNewline)
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
 	}
 	return lines, true
+}
+
+// splitOnNewline is bufio.ScanLines without its trailing-carriage-return
+// strip, so a line's bytes reach the pattern and the result exactly as they
+// are in the file.
+func splitOnNewline(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	if i := bytes.IndexByte(data, '\n'); i >= 0 {
+		return i + 1, data[:i], nil
+	}
+	if atEOF && len(data) > 0 {
+		return len(data), data, nil
+	}
+	return 0, nil, nil
 }
 
 // grepFile matches re against lines, one line at a time by default. In
@@ -293,7 +309,11 @@ func lineOf(content string, pos int) int {
 // harness expects: ":" between a match line's path, line number and text,
 // "-" for a context line's, and a bare "--" between two blocks of the same
 // file that are not contiguous.
-func formatGrepMatches(matches []grepMatch, mode string, fileLines map[string][]string, showLineNumbers bool, before, after int) string {
+//
+// printPath is off for a content search rooted at a single file, which is
+// where ripgrep prints no path either: the caller named the file, and a path
+// is shown only when more than one file is searched.
+func formatGrepMatches(matches []grepMatch, mode string, fileLines map[string][]string, printPath, showLineNumbers bool, before, after int) string {
 	if len(matches) == 0 {
 		return "no matches"
 	}
@@ -328,7 +348,7 @@ func formatGrepMatches(matches []grepMatch, mode string, fileLines map[string][]
 		return joinLines(lines)
 
 	case "content":
-		return formatGrepContent(matches, fileLines, showLineNumbers, before, after)
+		return formatGrepContent(matches, fileLines, printPath, showLineNumbers, before, after)
 	}
 	return ""
 }
@@ -337,7 +357,16 @@ func formatGrepMatches(matches []grepMatch, mode string, fileLines map[string][]
 // -n line numbers. lastPrintedLine tracks, per file, how far the previous
 // match's context already reached, so two matches whose windows overlap do
 // not repeat a line, and a "--" separator marks a real gap between them.
-func formatGrepContent(matches []grepMatch, fileLines map[string][]string, showLineNumbers bool, before, after int) string {
+//
+// The separator appears only when context was asked for — ripgrep prints
+// none in a plain content search however far apart the matches are — and a
+// block opening in another file is never contiguous with the one before it,
+// so it takes one whatever the line numbers say.
+//
+// A line that is itself part of a match is labelled as one even when an
+// earlier match's context already reached it, which is how ripgrep prints
+// two matches one line apart: the second is a match line, not context.
+func formatGrepContent(matches []grepMatch, fileLines map[string][]string, printPath, showLineNumbers bool, before, after int) string {
 	sort.Slice(matches, func(i, j int) bool {
 		if matches[i].path != matches[j].path {
 			return matches[i].path < matches[j].path
@@ -345,6 +374,17 @@ func formatGrepContent(matches []grepMatch, fileLines map[string][]string, showL
 		return matches[i].startLine < matches[j].startLine
 	})
 
+	covered := map[string]map[int]bool{}
+	for _, m := range matches {
+		if covered[m.path] == nil {
+			covered[m.path] = map[int]bool{}
+		}
+		for ln := m.startLine; ln <= m.endLine; ln++ {
+			covered[m.path][ln] = true
+		}
+	}
+
+	withContext := before > 0 || after > 0
 	var out []string
 	lastPath := ""
 	lastPrintedLine := 0
@@ -359,9 +399,12 @@ func formatGrepContent(matches []grepMatch, fileLines map[string][]string, showL
 			to = len(lines)
 		}
 		if m.path != lastPath {
+			if withContext && lastPath != "" {
+				out = append(out, "--")
+			}
+			lastPath = m.path
 			lastPrintedLine = 0
-		}
-		if lastPrintedLine > 0 && from > lastPrintedLine+1 {
+		} else if withContext && lastPrintedLine > 0 && from > lastPrintedLine+1 {
 			out = append(out, "--")
 		}
 		if lastPrintedLine > 0 && from <= lastPrintedLine {
@@ -369,21 +412,41 @@ func formatGrepContent(matches []grepMatch, fileLines map[string][]string, showL
 		}
 		for ln := from; ln <= to; ln++ {
 			sep := "-"
-			if ln >= m.startLine && ln <= m.endLine {
+			isMatch := covered[m.path][ln]
+			if isMatch {
 				sep = ":"
 			}
-			if showLineNumbers {
-				out = append(out, fmt.Sprintf("%s%s%d%s%s", m.path, sep, ln, sep, lines[ln-1]))
-			} else {
-				out = append(out, fmt.Sprintf("%s%s%s", m.path, sep, lines[ln-1]))
-			}
+			out = append(out, grepText(m.path, lines[ln-1], ln, sep, printPath, showLineNumbers, isMatch))
 		}
-		lastPath = m.path
 		if to > lastPrintedLine {
 			lastPrintedLine = to
 		}
 	}
 	return joinLines(out)
+}
+
+// grepText renders one line: the path when the caller is shown one, the line
+// number when -n asked for it, then the text. A line at least
+// ripgrepMaxColumns bytes long is replaced by ripgrep's own omission marker,
+// so a single minified file cannot fill the result.
+func grepText(path, text string, line int, sep string, printPath, showLineNumbers, isMatch bool) string {
+	if len(text) >= ripgrepMaxColumns {
+		text = "[Omitted long context line]"
+		if isMatch {
+			text = "[Omitted long matching line]"
+		}
+	}
+	var b strings.Builder
+	if printPath {
+		b.WriteString(path)
+		b.WriteString(sep)
+	}
+	if showLineNumbers {
+		b.WriteString(strconv.Itoa(line))
+		b.WriteString(sep)
+	}
+	b.WriteString(text)
+	return b.String()
 }
 
 // headLimitLines keeps only the first n lines of text, the way head -n

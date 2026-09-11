@@ -63,7 +63,7 @@ vocabulary instead; it does not any more.
 
 ```
 harness gemini-session [-state-dir DIR] [-keep-state] [-model NAME] [-prices PATH]
-                       [-env FILE]
+                       [-env FILE] [-rg PATH]
 ```
 
 `harness stdio-session` takes the same flags and speaks the other vocabulary.
@@ -103,6 +103,7 @@ Flags:
 | `-model` | `gemini-3.7-flash` | What a create body with no `model` runs on. `initialize`'s `models` names every model this process accepts; see below. |
 | `-prices` | `configs/prices.json` | The price table behind the cost figure on `harness.usage`. A missing table costs the cost figure and nothing else. |
 | `-env` | unset | A `KEY=VALUE` file to take the API key from when the environment carries none. **Only `GEMINI_API_KEY` and `GOOGLE_API_KEY` are read out of it** — see below. A file that cannot be read is fatal. |
+| `-rg` | `$AGENT_HARNESS_RG`, then `rg` on the `PATH` | The ripgrep binary the session's `Grep` calls run. A parent that ships one names it here. A path that is not there is fatal at startup, and nothing on the `PATH` is used when the flag is set. With no binary named and none on the `PATH`, `Grep` falls back to its own Go walk (docs/TOOLS.md, "Grep and Glob"). |
 
 **stdout carries protocol frames and nothing else.** Every log line, warning
 and diagnostic goes to stderr. No `.env` is read implicitly: the parent owns

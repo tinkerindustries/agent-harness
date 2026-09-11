@@ -106,6 +106,7 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 	executor.EnvFilter = r.ToolEnvFilter
 	executor.ResultSchema = sess.ResultSchema
 	executor.MCP = r.MCP
+	executor.RG = r.RG
 
 	runOpts := RunOptions{
 		Model: sess.Model, Effort: sess.Effort, Thinking: sess.Thinking,

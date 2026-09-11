@@ -23,6 +23,7 @@ import (
 	"github.com/mrgeoffrich/agent-harness/internal/settings"
 	"github.com/mrgeoffrich/agent-harness/internal/stdiosession"
 	"github.com/mrgeoffrich/agent-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/tools"
 )
 
 // defaultGeminiSessionModel is what a create body with no `model` runs on
@@ -61,6 +62,7 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 	prices := fs.String("prices", "configs/prices.json", "price table, for the cost figures reported on harness.usage")
 	model := fs.String("model", "", "model a create body with no `model` runs on (default gemini-3.7-flash, or "+deepSeekSessionModel+" when only a DeepSeek key was supplied)")
 	envFile := fs.String("env", "", "read the API keys from this KEY=VALUE `file` when the environment does not carry them, for driving the process by hand")
+	rgBinary := fs.String("rg", "", "`path` to the ripgrep binary the session's Grep calls run (default: $AGENT_HARNESS_RG, then `rg` on the PATH, then Grep's own Go walk)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -90,6 +92,17 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 	models := hostedModels(interactions)
 
 	chosen, err := resolveHostedModel(*model, models, apiKey, deepSeekKey)
+	if err != nil {
+		return err
+	}
+
+	// The ripgrep binary every Grep call this process runs will exec, decided
+	// once here: -rg names it (the parent that ships a binary says so), then
+	// AGENT_HARNESS_RG, then the PATH. Nothing found is not a failure — Grep
+	// falls back to its own walk — but a binary the flag or the environment
+	// names and that is not there is, because falling back would answer the
+	// session's searches out of a tree it was told not to walk.
+	rgPath, err := tools.RipgrepPath(*rgBinary)
 	if err != nil {
 		return err
 	}
@@ -188,6 +201,7 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 		// be if that ever changed rather than something in use today.
 		GeminiModel:   func() (string, error) { return geminiVisionModel(chosen), nil },
 		ToolEnvFilter: stripProviderAPIKeys,
+		RG:            rgPath,
 	}
 
 	srv := stdiosession.NewServer(stdiosession.Options{

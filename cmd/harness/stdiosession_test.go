@@ -164,6 +164,25 @@ func TestHostedSessionNeverWritesTheKeyToSettings(t *testing.T) {
 	}
 }
 
+// TestStdioSessionRefusesAMissingRipgrepBinary pins the -rg contract: a
+// parent that names the binary it ships gets that binary or a refusal at
+// startup, never a session that quietly searches with the harness's own walk
+// instead. It fails if -rg stops being read, or if a path that is not there
+// stops being fatal.
+func TestStdioSessionRefusesAMissingRipgrepBinary(t *testing.T) {
+	clearKeyEnv(t)
+	missing := filepath.Join(t.TempDir(), "rg")
+
+	err := runStdioSession(context.Background(), "stdio-session",
+		[]string{"-state-dir", t.TempDir(), "-rg", missing}, strings.NewReader(""), io.Discard)
+	if err == nil {
+		t.Fatal("expected -rg naming a binary that is not there to fail startup")
+	}
+	if !strings.Contains(err.Error(), missing) {
+		t.Errorf("the refusal must name the binary, got: %v", err)
+	}
+}
+
 // A named file that cannot be read is fatal even when the environment
 // already carries a key: a mistyped path is worth hearing about at once,
 // not on the machine where the environment happens to be empty.
