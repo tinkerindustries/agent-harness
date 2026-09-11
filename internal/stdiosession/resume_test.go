@@ -64,8 +64,8 @@ func TestResumeAcrossProcesses(t *testing.T) {
 	stale := CreateParams{Model: testModel, PreviousResponseID: one.Response.ID}
 	stale.Input, _ = json.Marshal("stale")
 	rerr := b.client.call(MethodResponsesCreate, stale, &CreateResult{})
-	if rerr == nil || rerr.Code != CodeResponseNotFound {
-		t.Fatalf("previous_interaction_id across processes: want %d, got %v", CodeResponseNotFound, rerr)
+	if rerr == nil || rerr.Code != CodeRunNotFound {
+		t.Fatalf("previous_interaction_id across processes: want %d, got %v", CodeRunNotFound, rerr)
 	}
 	if !strings.Contains(rerr.Message, "resume_session_id") {
 		t.Errorf("the error does not point at resume_session_id: %s", rerr.Message)
@@ -359,7 +359,7 @@ func TestHostNamespaceIsReadOnlyOnlyWhenEveryFunctionIs(t *testing.T) {
 		{"none read-only", []Tool{rw}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			h := newHostTools(nil, "int_1", nil)
+			h := newHostTools(nil, NewResponses(), "int_1", nil)
 			for _, d := range tc.decls {
 				if err := h.addFunction(d); err != nil {
 					t.Fatalf("add %s: %v", d.Name, err)

@@ -22,18 +22,18 @@ const (
 	// CodeNotInitialized is returned for any method that arrives before the
 	// initialize/initialized handshake completes.
 	CodeNotInitialized = -32000
-	// CodeResponseNotFound names a response id this process has never
-	// minted, or has already deleted.
-	CodeResponseNotFound = -32001
-	// CodeResponseNotRunning is returned by a method that only means
-	// something for an interaction still in progress — cancel and append.
-	CodeResponseNotRunning = -32002
-	// CodeCredentialsMissing is returned by interactions.create when no API
-	// key reached this process.
+	// CodeRunNotFound names a run id this process has never minted, or has
+	// already deleted.
+	CodeRunNotFound = -32001
+	// CodeRunNotRunning is returned by a method that only means something
+	// for a run still in progress — cancel and append.
+	CodeRunNotRunning = -32002
+	// CodeCredentialsMissing is returned by a create when no API key for
+	// the named model's provider reached this process.
 	CodeCredentialsMissing = -32003
-	// CodeUnsupported names a field of Google's create-interaction body that
-	// this surface understands but cannot honour — an `agent` rather than a
-	// `model`, a server-side tool it has no way to run.
+	// CodeUnsupported names a field of a create body that the surface
+	// understands but this process cannot honour — a managed agent rather
+	// than a model, a server-side tool it has no way to run.
 	CodeUnsupported = -32004
 	// CodeSessionNotFound names a harness.resume_session_id the state
 	// directory this process opened holds no session for. The usual cause is
@@ -94,8 +94,8 @@ type handler func(ctx context.Context, method string, params json.RawMessage) (a
 //
 // Every write goes through one mutex, so the order notifications are enqueued
 // in is the order they reach the parent. That is the whole of the ordering
-// guarantee docs/STDIO-PROTOCOL.md makes: step events for one interaction
-// arrive in the order this process produced them.
+// guarantee docs/STDIO-PROTOCOL.md makes: the events of one run arrive in
+// the order this process produced them.
 type Conn struct {
 	r io.Reader
 	w io.Writer
@@ -214,9 +214,9 @@ func (c *Conn) write(m message) error {
 // skipped, because one malformed line is not a reason to end a session.
 //
 // Each client request runs on its own goroutine — except the ones serial
-// names — so a long-running interactions.create does not stop
-// interactions.cancel or an append from being read. Serialisation of anything that needs it belongs to the handler,
-// not here.
+// names — so a long-running create does not stop a cancel or an append from
+// being read. Serialisation of anything that needs it belongs to the
+// handler, not here.
 func (c *Conn) Serve(ctx context.Context) error {
 	defer c.shutdown()
 

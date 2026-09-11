@@ -366,8 +366,8 @@ func TestAppendToAFinishedInteractionIsRefused(t *testing.T) {
 	if rerr == nil {
 		t.Fatal("append to a finished interaction was accepted")
 	}
-	if rerr.Code != CodeResponseNotRunning {
-		t.Errorf("code = %d, want %d", rerr.Code, CodeResponseNotRunning)
+	if rerr.Code != CodeRunNotRunning {
+		t.Errorf("code = %d, want %d", rerr.Code, CodeRunNotRunning)
 	}
 }
 
@@ -565,7 +565,7 @@ func TestRefusals(t *testing.T) {
 	})
 	t.Run("unknown interaction", func(t *testing.T) {
 		rerr := f.client.call(MethodResponsesGet, IDParams{ResponseID: "int_nope"}, nil)
-		if rerr == nil || rerr.Code != CodeResponseNotFound {
+		if rerr == nil || rerr.Code != CodeRunNotFound {
 			t.Fatalf("an unknown interaction was accepted or misreported: %v", rerr)
 		}
 	})

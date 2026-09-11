@@ -16,8 +16,8 @@ import (
 
 // Resuming a session across a restart of this process.
 //
-// previous_interaction_id resolves against this process's own memory, so it
-// reaches only interactions this process ran. harness.resume_session_id
+// The continuation id resolves against this process's own memory, so it
+// reaches only runs this process made. harness.resume_session_id
 // resolves against the state directory instead: the session row, its event
 // log and its frozen tool array are all in the SQLite file under -state-dir,
 // which outlives the process that wrote it. A parent that respawns
@@ -35,7 +35,7 @@ import (
 // resumeTarget resolves harness.resume_session_id against the store and
 // checks that nothing the create names would change the session's frozen
 // shape. It returns the session row, whose Workspace and Model the
-// interaction inherits.
+// run inherits.
 func (s *Server) resumeTarget(ctx context.Context, p *CreateRequest) (store.Session, *rpcError) {
 	id := p.Harness.ResumeSessionID
 	sess, err := s.opts.Store.GetSession(ctx, id)
@@ -84,7 +84,7 @@ func (s *Server) resumeTarget(ctx context.Context, p *CreateRequest) (store.Sess
 	// Resume reads it there rather than from the create.
 	if schema := p.ResultSchema; len(schema) > 0 &&
 		canonicalSchema(schema) != canonicalSchema(sess.ResultSchema) {
-		return store.Session{}, errorf(CodeInvalidParams, "session %s carries its own result schema; a resumed session keeps the one it was started with, and text.format cannot replace it", id)
+		return store.Session{}, errorf(CodeInvalidParams, s.m.SchemaFrozen, id)
 	}
 	return sess, nil
 }

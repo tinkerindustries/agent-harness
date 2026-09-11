@@ -188,6 +188,11 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 	}
 
 	srv := stdiosession.NewServer(stdiosession.Options{
+		// The parent-facing vocabulary. `stdio-session` speaks the OpenAI
+		// Responses API's; `gemini-session` will speak Google's
+		// Interactions API's, which is why this is chosen here rather than
+		// fixed inside the protocol package.
+		Dialect:      stdiosession.NewResponses(),
 		Store:        st,
 		Runner:       runner,
 		Hub:          eventHub,

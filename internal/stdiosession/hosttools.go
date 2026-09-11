@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 
 	"github.com/mrgeoffrich/agent-harness/internal/mcpclient"
@@ -22,7 +21,7 @@ import (
 // tool called "host" is refused.
 const HostServerName = "host"
 
-// hostTools implements tools.MCPProvider for one interaction. It merges two
+// hostTools implements tools.MCPProvider for one run. It merges two
 // sources, which is the answer docs/STDIO-PROTOCOL.md argues for on whose
 // tools a session gets:
 //
@@ -41,16 +40,16 @@ const HostServerName = "host"
 // are not affected by either: they are the session's whole reason to be
 // running on the parent's filesystem.
 type hostTools struct {
-	// mcp is the manager for the interaction's mcp_server tools, or nil
+	// mcp is the manager for the run's mcp_server tools, or nil
 	// when the create body declared none.
 	mcp tools.MCPProvider
-	// allow is the set of server names this interaction declared, and names
+	// allow is the set of server names this run declared, and names
 	// the qualified tool names those servers advertised when they were
 	// probed. The manager underneath is the process's own and answers for
 	// every enabled row in the store, which for a state directory that has
-	// hosted more than one session includes servers this interaction knows
+	// hosted more than one session includes servers this run knows
 	// nothing about — and a create that was refused still leaves its row
-	// behind. Filtering here is what keeps an interaction's tools the ones
+	// behind. Filtering here is what keeps a run's tools the ones
 	// it asked for.
 	//
 	// names is an exact set taken from each declared server's own probe
@@ -65,11 +64,15 @@ type hostTools struct {
 	mu    sync.Mutex
 	funcs map[string]hostFunc
 	// call sends one function call to the client and waits for its answer.
-	call func(ctx context.Context, p FunctionCallParams) (FunctionCallResult, error)
-	// responseID rides on every call so a client hosting more than one
-	// session in one process knows which asked.
-	responseID string
-	readOnly   bool
+	// Both the params and the answer are the dialect's own shapes, so this
+	// side builds one and reads the other through d rather than naming
+	// either.
+	call func(ctx context.Context, params any) (json.RawMessage, error)
+	d    Dialect
+	// runID rides on every call so a client hosting more than one session
+	// in one process knows which asked.
+	runID    string
+	readOnly bool
 }
 
 // hostFunc is one client-declared function tool, keyed by the qualified name
@@ -81,8 +84,8 @@ type hostFunc struct {
 	parameters  json.RawMessage
 }
 
-func newHostTools(mcp tools.MCPProvider, responseID string, call func(context.Context, FunctionCallParams) (FunctionCallResult, error)) *hostTools {
-	return &hostTools{mcp: mcp, funcs: map[string]hostFunc{}, allow: map[string]bool{}, names: map[string]bool{}, call: call, responseID: responseID}
+func newHostTools(mcp tools.MCPProvider, d Dialect, runID string, call func(context.Context, any) (json.RawMessage, error)) *hostTools {
+	return &hostTools{mcp: mcp, funcs: map[string]hostFunc{}, allow: map[string]bool{}, names: map[string]bool{}, call: call, d: d, runID: runID}
 }
 
 // addFunction registers one `function` tool from the create body.
@@ -118,7 +121,7 @@ func (h *hostTools) addFunction(t Tool) error {
 }
 
 // declaredTool reports whether a qualified name belongs to this
-// interaction: one of the client's own functions, or a tool one of the
+// run: one of the client's own functions, or a tool one of the
 // servers it declared advertised at its probe. Both sides are exact sets.
 func (h *hostTools) declaredTool(qualified string) bool {
 	if _, ok := h.funcs[qualified]; ok {
@@ -217,7 +220,7 @@ func (h *hostTools) Resources(ctx context.Context) ([]tools.MCPResource, error) 
 
 func (h *hostTools) ReadResource(ctx context.Context, server, uri string) (tools.MCPContent, error) {
 	if h.mcp == nil || !h.allow[server] {
-		return tools.MCPContent{}, fmt.Errorf("no MCP server named %q is configured for this interaction", server)
+		return tools.MCPContent{}, fmt.Errorf("no MCP server named %q is configured for this run", server)
 	}
 	return h.mcp.ReadResource(ctx, server, uri)
 }
@@ -241,7 +244,7 @@ func (h *hostTools) Prompts(ctx context.Context) ([]tools.MCPPrompt, error) {
 
 func (h *hostTools) GetPrompt(ctx context.Context, server, name string, args map[string]string) (tools.MCPContent, error) {
 	if h.mcp == nil || !h.allow[server] {
-		return tools.MCPContent{}, fmt.Errorf("no MCP server named %q is configured for this interaction", server)
+		return tools.MCPContent{}, fmt.Errorf("no MCP server named %q is configured for this run", server)
 	}
 	return h.mcp.GetPrompt(ctx, server, name, args)
 }
@@ -273,70 +276,18 @@ func (h *hostTools) Call(ctx context.Context, toolName string, args json.RawMess
 	if len(args) == 0 {
 		args = json.RawMessage("{}")
 	}
-	res, err := call(ctx, FunctionCallParams{
-		ResponseID: h.responseID,
-		Type:       ItemFunctionCall,
-		// The call id is the one the client already saw on this call's
-		// function_call item, so the answer it renders lands under the
-		// right call (internal/tools, WithCallID).
-		CallID:    tools.CallIDFrom(ctx),
-		Name:      f.name,
-		Arguments: args,
-	})
+	// The call id is the one the client already saw on this call's
+	// function_call item, so the answer it renders lands under the right
+	// call (internal/tools, WithCallID).
+	raw, err := call(ctx, h.d.CallParams(FunctionCall{
+		RunID: h.runID, CallID: tools.CallIDFrom(ctx), Name: f.name, Arguments: args,
+	}))
 	if err != nil {
 		return tools.MCPContent{Text: fmt.Sprintf("the client could not run %s: %v", f.name, err), IsError: true}, nil
 	}
-	return contentFrom(res), nil
-}
-
-// contentFrom flattens a client's function_call_output into the MCPContent
-// the executor turns into a tool result — the same shape internal/mcpclient
-// produces from a real server's reply, so the executor cannot tell which
-// path a result came back on.
-func contentFrom(res FunctionCallResult) tools.MCPContent {
-	out := tools.MCPContent{IsError: res.IsError}
-	for _, c := range res.Output {
-		switch c.Type {
-		case PartInputText, PartOutputText, "text":
-			if out.Text != "" {
-				out.Text += "\n"
-			}
-			out.Text += c.Text
-		case PartInputImage:
-			// The surface carries an image as one base64 data URL rather
-			// than a mime type beside a payload, so it is split here into
-			// what the executor's own image type wants.
-			mime, b64, ok := splitDataURI(c.ImageURL)
-			if !ok {
-				continue
-			}
-			data, err := decodeBase64(b64)
-			if err != nil {
-				continue
-			}
-			out.Images = append(out.Images, tools.MCPImage{MIMEType: mime, Data: data})
-		}
+	content, err := h.d.CallContent(raw)
+	if err != nil {
+		return tools.MCPContent{Text: fmt.Sprintf("the client's answer for %s will not decode: %v", f.name, err), IsError: true}, nil
 	}
-	return out
-}
-
-// splitDataURI splits a "data:<mime>;base64,<payload>" URL into its mime
-// type and payload. The Responses surface carries an image as one such URL,
-// where the executor's own image type wants the two separately.
-func splitDataURI(uri string) (mime, payload string, ok bool) {
-	const prefix = "data:"
-	if !strings.HasPrefix(uri, prefix) {
-		return "", "", false
-	}
-	rest := uri[len(prefix):]
-	comma := strings.IndexByte(rest, ',')
-	if comma < 0 {
-		return "", "", false
-	}
-	header := rest[:comma]
-	semi := strings.IndexByte(header, ';')
-	if semi < 0 || header[semi+1:] != "base64" {
-		return "", "", false
-	}
-	return header[:semi], rest[comma+1:], true
+	return content, nil
 }

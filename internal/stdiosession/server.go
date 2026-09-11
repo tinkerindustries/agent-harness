@@ -2,8 +2,6 @@ package stdiosession
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -53,6 +51,12 @@ type Options struct {
 	HasAPIKey func(model string) bool
 
 	Version string
+
+	// Dialect is the parent-facing vocabulary this process speaks. The
+	// composition point picks it from the subcommand the process was
+	// spawned as; nil is the Responses one, which is what `stdio-session`
+	// gets (cmd/harness/stdiosession.go).
+	Dialect Dialect
 }
 
 // Server implements the protocol over one pipe. One process hosts one
@@ -62,6 +66,11 @@ type Options struct {
 type Server struct {
 	opts Options
 	conn *Conn
+	// d is opts.Dialect, defaulted. Every method name, wire shape and
+	// error string this server produces comes through it.
+	d Dialect
+	// m is d.Messages(), read once: it is a value and never changes.
+	m Messages
 
 	mu           sync.Mutex
 	initialized  bool
@@ -130,22 +139,14 @@ func (it *run) view(withItems bool) RunView {
 	}
 }
 
-// newResponseID mints the id a response is addressed by. It is not the
-// session id: a chain of responses linked by previous_response_id is one
-// session resumed repeatedly, so the two cannot be the same value.
-// harness.session_id on every response carries the session's own.
-func newResponseID() string {
-	var b [12]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		panic("stdiosession: crypto/rand unavailable: " + err.Error())
-	}
-	return "resp_" + hex.EncodeToString(b[:])
-}
-
 // NewServer wires a server onto r/w. Serve runs it.
 func NewServer(opts Options) *Server {
+	d := opts.Dialect
+	if d == nil {
+		d = NewResponses()
+	}
 	s := &Server{
-		opts: opts, runs: map[string]*run{},
+		opts: opts, d: d, m: d.Messages(), runs: map[string]*run{},
 		headers: map[string]map[string]string{}, env: map[string]map[string]string{},
 	}
 	if opts.MCP != nil {
@@ -224,16 +225,16 @@ func (s *Server) handle(ctx context.Context, method string, params json.RawMessa
 		return nil, errorf(CodeNotInitialized, "%s before the initialize/initialized handshake", method)
 	}
 
-	switch method {
-	case MethodResponsesCreate:
+	switch verbs := s.d.Methods(); method {
+	case verbs.Create:
 		return s.create(ctx, params)
-	case MethodResponsesAppend:
+	case verbs.Append:
 		return s.append(ctx, params)
-	case MethodResponsesCancel:
+	case verbs.Cancel:
 		return s.cancelRun(params)
-	case MethodResponsesGet:
+	case verbs.Get:
 		return s.get(params)
-	case MethodResponsesDelete:
+	case verbs.Delete:
 		return s.delete(params)
 	case MethodShutdown:
 		go s.stopRunning("the client asked this session to shut down")
@@ -285,51 +286,21 @@ func (s *Server) initialize(params json.RawMessage) (any, *rpcError) {
 	if name == "" {
 		name = "agent-harness stdio-session"
 	}
-	return InitializeResult{
-		ServerInfo: ServerInfo{
-			Name:     name,
-			Version:  s.opts.Version,
-			Protocol: "openai.responses.v1",
-		},
-		Capabilities: ServerCapabilities{
-			Streaming:        true,
-			Append:           true,
-			Cancel:           true,
-			PreviousResponse: true,
-			ResumeSession:    true,
-			MCPServers:       s.opts.MCP != nil,
-			FunctionTools:    true,
-			PermissionModes:  []string{string(tools.ModeReadOnly), string(tools.ModeFull)},
-		},
-		Models:       s.opts.Models,
-		DefaultModel: s.opts.DefaultModel,
-		ModelDetails: modelDetails(s.opts.Models),
-	}, nil
-}
-
-// modelDetails is the per-model capability array the handshake advertises,
-// one entry per model this process accepts, in the same order. A field the
-// model's provider has no table entry for comes back zero/empty on that
-// model's entry rather than being guessed at, which is the same thing its
-// absence means to a client: nothing here constrains it. Which provider is
-// asked is modelinfo.go's business and no other file's.
-func modelDetails(models []string) []ModelDetail {
-	out := make([]ModelDetail, 0, len(models))
-	for _, m := range models {
-		out = append(out, ModelDetail{
-			ID:                  m,
-			DisplayName:         displayName(m),
-			ContextWindowTokens: contextWindowTokens(m),
-			ReasoningEfforts:    reasoningEfforts(m),
-		})
-	}
-	return out
+	return s.d.Initialize(Handshake{
+		Name:            name,
+		Version:         s.opts.Version,
+		Models:          s.opts.Models,
+		DefaultModel:    s.opts.DefaultModel,
+		Details:         modelDetailsFor(s.opts.Models),
+		MCPServers:      s.opts.MCP != nil,
+		PermissionModes: []string{string(tools.ModeReadOnly), string(tools.ModeFull)},
+	}), nil
 }
 
 // --- create ---
 
 func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcError) {
-	p, rerr := decodeCreate(params)
+	p, rerr := s.d.DecodeCreate(params)
 	if rerr != nil {
 		return nil, rerr
 	}
@@ -352,8 +323,7 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 	// message about a request the client cannot see. The levels are on the
 	// handshake, so a client has been told which are allowed.
 	if effort := p.Effort; effort != "" && !reasoningEffortSupported(model, effort) {
-		return nil, errorf(CodeInvalidParams, "reasoning.effort %q: %s accepts %s",
-			effort, model, strings.Join(reasoningEfforts(model), ", "))
+		return nil, errorf(CodeInvalidParams, s.m.EffortRefused, effort, model, strings.Join(reasoningEfforts(model), ", "))
 	}
 	if s.opts.HasAPIKey != nil && !s.opts.HasAPIKey(model) {
 		return nil, errorf(CodeCredentialsMissing, "%s", missingKeyMessage(model))
@@ -377,7 +347,7 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 	if s.running != nil {
 		id := s.running.id
 		s.mu.Unlock()
-		return nil, errorf(CodeInvalidRequest, "response %s is still running; one process hosts one session, so cancel it or wait for it to complete", id)
+		return nil, errorf(CodeInvalidRequest, s.m.AlreadyRunning, id)
 	}
 	s.mu.Unlock()
 
@@ -403,19 +373,19 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 	resumeID := harnessString(p.Harness, func(h *CreateHarness) string { return h.ResumeSessionID })
 	switch {
 	case p.PreviousRunID != "" && resumeID != "":
-		return nil, errorf(CodeInvalidParams, "previous_response_id and harness.resume_session_id both name a conversation to continue; send one. previous_response_id continues a response this process ran, harness.resume_session_id continues a session out of the state directory")
+		return nil, errorf(CodeInvalidParams, "%s", s.m.BothContinuations)
 
 	case p.PreviousRunID != "":
 		prev, ok := s.lookup(p.PreviousRunID)
 		if !ok {
-			return nil, errorf(CodeResponseNotFound, "no response %q was minted by this process; a response id does not outlive the process that made it, so continue across a restart with harness.resume_session_id instead", p.PreviousRunID)
+			return nil, errorf(CodeRunNotFound, s.m.PreviousNotFound, p.PreviousRunID)
 		}
 		sessionID, cwd, resume = prev.sessionID, prev.cwd, true
 		if p.Harness != nil && p.Harness.CWD != "" && p.Harness.CWD != cwd {
-			return nil, errorf(CodeInvalidParams, "response %s works in %s; a continued response cannot change directory, and inherits the one its chain started in", prev.id, cwd)
+			return nil, errorf(CodeInvalidParams, s.m.PreviousChangedCWD, prev.id, cwd)
 		}
 		if prev.model != model {
-			return nil, errorf(CodeInvalidParams, "response %s ran on %s; a continued response cannot change model, because the session's prefix is frozen", prev.id, prev.model)
+			return nil, errorf(CodeInvalidParams, s.m.PreviousChangedModel, prev.id, prev.model)
 		}
 
 	case resumeID != "":
@@ -467,12 +437,12 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 	}
 
 	it := &run{
-		id: newResponseID(), sessionID: sessionID, model: model,
+		id: s.d.NewRunID(), sessionID: sessionID, model: model,
 		prev: p.PreviousRunID, cwd: cwd,
 		status: StatusInProgress, created: time.Now().UTC(), updated: time.Now().UTC(),
 		done: make(chan struct{}),
 	}
-	host.responseID = it.id
+	host.runID = it.id
 
 	s.mu.Lock()
 	s.runs[it.id] = it
@@ -491,7 +461,7 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 	it.mu.Unlock()
 
 	frames, unsubscribe := s.opts.Hub.Subscribe(sessionID)
-	tr := newTranslator(it.id, model, s.notify)
+	tr := s.d.NewTranslator(it.id, model, s.notify)
 	if p.Harness != nil {
 		tr.SetFirstMessageID(p.Harness.MessageID)
 	}
@@ -591,7 +561,7 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 		select {
 		case <-it.done:
 		case <-ctx.Done():
-			return nil, errorf(CodeInternalError, "response %s: %v", it.id, ctx.Err())
+			return nil, errorf(CodeInternalError, s.m.ContextEnded, it.id, ctx.Err())
 		}
 		return it.tr.Result(it.view(true)), nil
 	}
@@ -630,7 +600,7 @@ func (s *Server) record(it *run, tr Translator, res *session.RunResult, err erro
 	}
 }
 
-// complete emits the last notification a response ever produces.
+// complete emits the last notification a run ever produces.
 func (s *Server) complete(it *run, tr Translator) {
 	tr.Completed(it.view(true))
 }
@@ -653,22 +623,22 @@ func statusFor(res *session.RunResult) string {
 // --- append, cancel, get, delete ---
 
 func (s *Server) append(ctx context.Context, params json.RawMessage) (any, *rpcError) {
-	p, rerr := decodeAppend(params)
+	p, rerr := s.d.DecodeAppend(params)
 	if rerr != nil {
 		return nil, rerr
 	}
 	it, ok := s.lookup(p.RunID)
 	if !ok {
-		return nil, errorf(CodeResponseNotFound, "no response %q", p.RunID)
+		return nil, errorf(CodeRunNotFound, s.m.NotFound, p.RunID)
 	}
 	it.mu.Lock()
 	status := it.status
 	it.mu.Unlock()
 	if status != StatusInProgress {
-		return nil, errorf(CodeResponseNotRunning, "response %s is %s; start a new response with previous_response_id set to it instead", it.id, status)
+		return nil, errorf(CodeRunNotRunning, s.m.AppendNotRunning, it.id, status)
 	}
 	if p.Prompt == "" {
-		return nil, errorf(CodeInvalidParams, "responses.append needs some input")
+		return nil, errorf(CodeInvalidParams, "%s", s.m.AppendNeedsInput)
 	}
 	text := p.Prompt
 
@@ -682,17 +652,17 @@ func (s *Server) append(ctx context.Context, params json.RawMessage) (any, *rpcE
 	if p.MessageID != "" {
 		s.rememberMessageID(it, appended[0].Seq, p.MessageID)
 	}
-	return AppendResult{ResponseID: it.id, Seq: appended[0].Seq}, nil
+	return s.d.AppendResult(it.id, appended[0].Seq), nil
 }
 
 func (s *Server) cancelRun(params json.RawMessage) (any, *rpcError) {
-	var p IDParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, errorf(CodeInvalidParams, "responses.cancel params: %v", err)
+	id, rerr := s.d.DecodeID(s.d.Methods().Cancel, params)
+	if rerr != nil {
+		return nil, rerr
 	}
-	it, ok := s.lookup(p.ResponseID)
+	it, ok := s.lookup(id)
 	if !ok {
-		return nil, errorf(CodeResponseNotFound, "no response %q", p.ResponseID)
+		return nil, errorf(CodeRunNotFound, s.m.NotFound, id)
 	}
 	it.mu.Lock()
 	cancel, status := it.cancel, it.status
@@ -711,41 +681,41 @@ func (s *Server) cancelRun(params json.RawMessage) (any, *rpcError) {
 }
 
 func (s *Server) get(params json.RawMessage) (any, *rpcError) {
-	var p IDParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, errorf(CodeInvalidParams, "responses.get params: %v", err)
+	id, rerr := s.d.DecodeID(s.d.Methods().Get, params)
+	if rerr != nil {
+		return nil, rerr
 	}
-	it, ok := s.lookup(p.ResponseID)
+	it, ok := s.lookup(id)
 	if !ok {
-		return nil, errorf(CodeResponseNotFound, "no response %q", p.ResponseID)
+		return nil, errorf(CodeRunNotFound, s.m.NotFound, id)
 	}
 	return it.tr.Result(it.view(true)), nil
 }
 
 func (s *Server) delete(params json.RawMessage) (any, *rpcError) {
-	var p IDParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, errorf(CodeInvalidParams, "responses.delete params: %v", err)
+	id, rerr := s.d.DecodeID(s.d.Methods().Delete, params)
+	if rerr != nil {
+		return nil, rerr
 	}
 	s.mu.Lock()
-	it, ok := s.runs[p.ResponseID]
+	it, ok := s.runs[id]
 	if ok && s.running == it {
 		s.mu.Unlock()
-		return nil, errorf(CodeResponseNotRunning, "response %s is still running; cancel it first", p.ResponseID)
+		return nil, errorf(CodeRunNotRunning, s.m.DeleteStillRunning, id)
 	}
-	delete(s.runs, p.ResponseID)
-	for i, id := range s.order {
-		if id == p.ResponseID {
+	delete(s.runs, id)
+	for i, have := range s.order {
+		if have == id {
 			s.order = append(s.order[:i], s.order[i+1:]...)
 			break
 		}
 	}
 	s.mu.Unlock()
 	if !ok {
-		return nil, errorf(CodeResponseNotFound, "no response %q", p.ResponseID)
+		return nil, errorf(CodeRunNotFound, s.m.NotFound, id)
 	}
 	// Google's delete answers with an empty body. The session's own
-	// transcript on disk is untouched: this forgets the response, it does
+	// transcript on disk is untouched: this forgets the run, it does
 	// not erase the run.
 	return map[string]any{}, nil
 }
@@ -780,7 +750,7 @@ func (s *Server) notify(method string, params any) {
 // buildTools turns the create body's `tools` array into the provider the run
 // reaches its non-built-in tools through.
 func (s *Server) buildTools(ctx context.Context, decls []Tool) (*hostTools, *rpcError) {
-	host := newHostTools(nil, "", nil)
+	host := newHostTools(nil, s.d, "", nil)
 	var servers []Tool
 	for _, t := range decls {
 		switch t.Type {
@@ -918,10 +888,10 @@ func (s *Server) registerServers(ctx context.Context, servers []Tool, names map[
 }
 
 // callFunction asks the client to run one function tool and waits.
-func (s *Server) callFunction(ctx context.Context, p FunctionCallParams) (FunctionCallResult, error) {
-	var res FunctionCallResult
-	if err := s.conn.Call(ctx, MethodFunctionCall, p, &res); err != nil {
-		return FunctionCallResult{}, err
+func (s *Server) callFunction(ctx context.Context, params any) (json.RawMessage, error) {
+	var res json.RawMessage
+	if err := s.conn.Call(ctx, MethodFunctionCall, params, &res); err != nil {
+		return nil, err
 	}
 	return res, nil
 }
