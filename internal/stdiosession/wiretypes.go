@@ -1,4 +1,4 @@
-package responsesstdio
+package stdiosession
 
 import "encoding/json"
 

@@ -1,4 +1,4 @@
-package responsesstdio
+package stdiosession
 
 import (
 	"slices"
@@ -9,7 +9,7 @@ import (
 )
 
 // This file is the one place the protocol's model vocabulary meets a
-// provider's. Everything else under internal/responsesstdio is provider-neutral:
+// provider's. Everything else under internal/stdiosession is provider-neutral:
 // the frames are Google's, the loop underneath is internal/session, and which
 // company serves a model is a fact only these four functions consult.
 //

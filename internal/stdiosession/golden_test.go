@@ -1,4 +1,4 @@
-package responsesstdio
+package stdiosession
 
 import (
 	"bytes"
@@ -93,12 +93,12 @@ func TestGoldenFrames(t *testing.T) {
 
 	want, err := os.ReadFile(path)
 	if err != nil {
-		t.Fatalf("read %s (run `go test ./internal/responsesstdio -run TestGoldenFrames -update-golden` to create it): %v", path, err)
+		t.Fatalf("read %s (run `go test ./internal/stdiosession -run TestGoldenFrames -update-golden` to create it): %v", path, err)
 	}
 	if string(out) != string(want) {
 		t.Errorf("the frames this run produced differ from %s.\n"+
 			"If the change is one docs/STDIO-PROTOCOL.md sanctions, re-record with\n"+
-			"  go test ./internal/responsesstdio -run TestGoldenFrames -update-golden\n"+
+			"  go test ./internal/stdiosession -run TestGoldenFrames -update-golden\n"+
 			"and put the diff in the commit. Otherwise it is a regression.\n\ngot:\n%s", path, out)
 	}
 }

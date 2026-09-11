@@ -1,4 +1,4 @@
-// Package responsesstdio hosts one coding session for a parent process over a
+// Package stdiosession hosts one coding session for a parent process over a
 // pipe, speaking the OpenAI Responses API's vocabulary rather than a protocol
 // of this harness's own.
 //
@@ -25,4 +25,4 @@
 // session.RunOptions, and the session's committed event log becomes semantic
 // response events. docs/STDIO-PROTOCOL.md is the wire reference and records
 // every place this deviates from what the HTTP surface does, with the reason.
-package responsesstdio
+package stdiosession

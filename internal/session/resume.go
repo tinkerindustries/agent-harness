@@ -80,7 +80,7 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 	// — which is what lets an operator revoke a server's allowance and have
 	// the next resume honour it. The session's own allowance at run start is
 	// on the row (Session.MCPReadOnly) for a caller that has to hold a
-	// resume to it; internal/responsesstdio is the one that does, because there
+	// resume to it; internal/stdiosession is the one that does, because there
 	// the allowance is supplied by the client rather than by an operator.
 	policy := &tools.Policy{
 		Mode:               tools.Mode(sess.PermissionMode),

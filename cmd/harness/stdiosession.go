@@ -18,9 +18,9 @@ import (
 	"github.com/mrgeoffrich/agent-harness/internal/mcpclient"
 	"github.com/mrgeoffrich/agent-harness/internal/pricing"
 	"github.com/mrgeoffrich/agent-harness/internal/provider"
-	"github.com/mrgeoffrich/agent-harness/internal/responsesstdio"
 	"github.com/mrgeoffrich/agent-harness/internal/session"
 	"github.com/mrgeoffrich/agent-harness/internal/settings"
+	"github.com/mrgeoffrich/agent-harness/internal/stdiosession"
 	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
@@ -80,7 +80,7 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 	//
 	// Both providers' keys are read, and neither is required: a host with
 	// one key runs that provider's models and is told which variable is
-	// missing if it asks for the other's (responsesstdio's missingKeyMessage).
+	// missing if it asks for the other's (stdiosession's missingKeyMessage).
 	apiKey, deepSeekKey, err := apiKeys(*envFile)
 	if err != nil {
 		return err
@@ -187,7 +187,7 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 		ToolEnvFilter: stripProviderAPIKeys,
 	}
 
-	srv := responsesstdio.NewServer(responsesstdio.Options{
+	srv := stdiosession.NewServer(stdiosession.Options{
 		Store:        st,
 		Runner:       runner,
 		Hub:          eventHub,

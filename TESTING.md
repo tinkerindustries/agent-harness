@@ -9,7 +9,7 @@ the only gate there is.
 | Layer | Purpose here | Touches | Runner | Lives in |
 | --- | --- | --- | --- | --- |
 | Unit | Everything that is a pure function of its inputs: folds, diffs, SSE parsing, tool-call assembly, permission decisions, pricing | Nothing external; a temp dir and a local shell at most | `go test` | Beside the code, `internal/<pkg>/*_test.go` |
-| Integration | The store's edges against a real SQLite file, and the stdio protocol end to end against a fake provider | A fresh SQLite file in a temp dir | `scripts/test.sh` | `internal/store`, `internal/responsesstdio` |
+| Integration | The store's edges against a real SQLite file, and the stdio protocol end to end against a fake provider | A fresh SQLite file in a temp dir | `scripts/test.sh` | `internal/store`, `internal/stdiosession` |
 
 Nothing in the suite calls `api.deepseek.com`. Findings that needed the live
 API were measured by hand and written down in
@@ -48,7 +48,7 @@ through to `go test`.
   ordering, resume replaying an event log to the same messages. These are the
   tests that fail when someone perturbs the cached head, and the reason to write
   a new one is that a change touched the request path.
-- **`internal/responsesstdio`** — the wire contract with a process this repo
+- **`internal/stdiosession`** — the wire contract with a process this repo
   does not contain. Every field on it is a promise, so the end-to-end tests
   drive a session over a pipe against a fake provider and read the frames back.
 - **`internal/tools`** — argument validation, workspace confinement, and every

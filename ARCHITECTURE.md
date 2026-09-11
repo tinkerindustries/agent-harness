@@ -45,7 +45,7 @@ hosting one would mean a DeepSeek run needing a Google key as well
 
 ```mermaid
 flowchart LR
-    parent[parent application] <-->|JSON-RPC over stdio<br/>Responses API payloads| gs[internal/responsesstdio]
+    parent[parent application] <-->|JSON-RPC over stdio<br/>Responses API payloads| gs[internal/stdiosession]
     gs --> session2[internal/session<br/>the agent loop]
     session2 -->|wire.ChatIntent| gc[internal/gemini]
     session2 -->|wire.ChatIntent| dc[internal/deepseek]
@@ -115,7 +115,7 @@ deepseek    │        │        │        │         │
   ↑                  │        │        │         │
 session ─────────────┴────────┴────────┤         │
   ↑                                    │         │
-responsesstdio ← hub ──────────────────┘         │
+stdiosession ← hub ──────────────────┘         │
   ↑                                              │
 mcpclient ───────────────────────────────────────┘  (store, wire, tools)
 ```
@@ -146,7 +146,7 @@ The edges that matter:
   declares — the same declared-seam shape `Client` takes, with `cmd/harness`
   wiring the one concrete `Manager` into `internal/session`
   ([`docs/MCP.md`](docs/MCP.md)).
-- **`internal/responsesstdio` sits above the loop and knows the parent's
+- **`internal/stdiosession` sits above the loop and knows the parent's
   vocabulary.** Nothing below it does, and it reaches the model only through
   the loop.
 - Nothing imports `cmd/`.
@@ -228,7 +228,7 @@ are here.
   parent named. Nothing on the session path may come to assume a workspace
   root the harness itself laid out — a `scratch/` directory, a cloned
   repository, a lease. The loop is passed a path and only a path.
-- **`internal/responsesstdio` is the only place the parent's wire vocabulary is
+- **`internal/stdiosession` is the only place the parent's wire vocabulary is
   spoken outbound.** `internal/gemini` speaks it inbound, to the API. Neither
   knows about the other, and `internal/session` knows about neither: it states
   intent as `wire.ChatIntent` and records `store.Event`s, and the translation
@@ -254,7 +254,7 @@ publishes the same text to the hub as it arrives, coalesced on an interval and
 always flushed before the sub-turn ends, as `hub.LiveDelta` frames that are
 never stored. A consumer wanting text at something like token rate reads the
 live frames; a consumer wanting the authoritative record reads the events; a
-consumer wanting both must not count the text twice. `internal/responsesstdio`
+consumer wanting both must not count the text twice. `internal/stdiosession`
 does exactly that split — live frames for the text, events for the structure —
 and its own doc comment says why.
 

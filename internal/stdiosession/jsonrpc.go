@@ -1,4 +1,4 @@
-package responsesstdio
+package stdiosession
 
 import (
 	"bufio"
@@ -129,13 +129,13 @@ func NewConn(r io.Reader, w io.Writer, h handler, serial func(method string) boo
 func (c *Conn) Notify(method string, params any) error {
 	raw, err := json.Marshal(params)
 	if err != nil {
-		return fmt.Errorf("responsesstdio: encode %s params: %w", method, err)
+		return fmt.Errorf("stdiosession: encode %s params: %w", method, err)
 	}
 	return c.write(message{Method: method, Params: raw})
 }
 
 // ErrConnClosed is returned by Call and Notify once the pipe has gone.
-var ErrConnClosed = errors.New("responsesstdio: connection closed")
+var ErrConnClosed = errors.New("stdiosession: connection closed")
 
 // Call sends a server-initiated request and waits for the client's answer.
 // It is how a function tool the client declared gets executed: this side
@@ -148,7 +148,7 @@ var ErrConnClosed = errors.New("responsesstdio: connection closed")
 func (c *Conn) Call(ctx context.Context, method string, params any, result any) error {
 	raw, err := json.Marshal(params)
 	if err != nil {
-		return fmt.Errorf("responsesstdio: encode %s params: %w", method, err)
+		return fmt.Errorf("stdiosession: encode %s params: %w", method, err)
 	}
 
 	c.mu.Lock()
@@ -187,7 +187,7 @@ func (c *Conn) Call(ctx context.Context, method string, params any, result any) 
 			return nil
 		}
 		if err := json.Unmarshal(reply.Result, result); err != nil {
-			return fmt.Errorf("responsesstdio: decode %s result: %w", method, err)
+			return fmt.Errorf("stdiosession: decode %s result: %w", method, err)
 		}
 		return nil
 	}
@@ -203,7 +203,7 @@ func (c *Conn) write(m message) error {
 		return ErrConnClosed
 	}
 	if err := c.enc.Encode(m); err != nil {
-		return fmt.Errorf("responsesstdio: write frame: %w", err)
+		return fmt.Errorf("stdiosession: write frame: %w", err)
 	}
 	return nil
 }
@@ -260,7 +260,7 @@ func (c *Conn) Serve(ctx context.Context) error {
 		}
 	}
 	if err := sc.Err(); err != nil {
-		return fmt.Errorf("responsesstdio: read stdin: %w", err)
+		return fmt.Errorf("stdiosession: read stdin: %w", err)
 	}
 	return nil
 }

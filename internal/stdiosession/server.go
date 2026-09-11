@@ -1,4 +1,4 @@
-package responsesstdio
+package stdiosession
 
 import (
 	"context"
@@ -121,7 +121,7 @@ type run struct {
 func newResponseID() string {
 	var b [12]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		panic("responsesstdio: crypto/rand unavailable: " + err.Error())
+		panic("stdiosession: crypto/rand unavailable: " + err.Error())
 	}
 	return "resp_" + hex.EncodeToString(b[:])
 }

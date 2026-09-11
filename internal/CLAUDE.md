@@ -20,7 +20,7 @@ split so that nothing on the request path can perturb that head.
 ### `cmd/harness`
 Flag parsing and process wiring: `main.go` dispatches the one subcommand and
 holds the model→client dispatch, `stdiosession.go` composes the session — one
-store, one hub, one `session.Runner` handed to `internal/responsesstdio`, with
+store, one hub, one `session.Runner` handed to `internal/stdiosession`, with
 a client per provider behind that dispatch. Composition happens here and
 nowhere else; no `internal` package constructs another's dependencies.
 
@@ -122,7 +122,7 @@ structs, never `map[string]any`, for the same byte-stability reason as the
 other two clients. Depends on: `internal/wire`, `internal/providerhttp` (just
 `Transport`, for retry-with-backoff — never `PumpStream`).
 
-### `internal/responsesstdio`
+### `internal/stdiosession`
 The protocol `harness stdio-session` speaks: JSON-RPC 2.0 over stdin and
 stdout, carrying the OpenAI Responses API's own vocabulary rather than one of
 this repo's invention — its REST methods on `POST /responses` as JSON-RPC

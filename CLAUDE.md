@@ -36,13 +36,13 @@ suite is for.
 - **The protocol is the contract with a process this repo does not contain.**
   It uses the OpenAI Responses API's vocabulary rather than one of ours: the
   methods are its REST methods on `POST /responses` and the notifications are
-  that surface's semantic server-sent events. `internal/responsesstdio`
+  that surface's semantic server-sent events. `internal/stdiosession`
   speaks it to the parent and `internal/deepseek` speaks it to DeepSeek, so
   one vocabulary runs the length of the process; `internal/gemini` translates
   for the Gemini models.
   [`docs/STDIO-PROTOCOL.md`](docs/STDIO-PROTOCOL.md) is the wire reference and
   is what a client is built from. Read it before changing anything under
-  `internal/responsesstdio`, because every field on it is a contract.
+  `internal/stdiosession`, because every field on it is a contract.
 - **The process has a private SQLite file and that is deliberate** — the
   agent loop's state machine is its event log. It holds one session's rows and
   nothing else; nothing serves a queue from it, and nothing else reads it.

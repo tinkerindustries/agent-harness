@@ -563,7 +563,7 @@ type callIDKey struct{}
 // call, so anything reached from inside one can name the call it is serving
 // without the id being threaded through a signature that no other
 // implementation needs. It exists for the MCPProvider that answers a call by
-// asking the process's parent to run it (internal/responsesstdio): the parent
+// asking the process's parent to run it (internal/stdiosession): the parent
 // has already been told about the call under this id, and a result it cannot
 // tie back to that id cannot be rendered against it.
 func WithCallID(ctx context.Context, id string) context.Context {
