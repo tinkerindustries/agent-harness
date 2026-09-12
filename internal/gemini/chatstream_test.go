@@ -296,7 +296,16 @@ func TestStreamChatCompletionPlainText(t *testing.T) {
 
 // TestStreamChatCompletionIdleTimeout pins the watchdog: a server that opens
 // the connection and never sends a frame ends the stream with
-// ErrIdleTimeout rather than hanging the loop forever.
+// ErrIdleTimeout rather than hanging the loop forever. This server is idle
+// on every attempt, so RetryStream (client.go's StreamChatCompletion) retries
+// it up to MaxRetries times before giving up — shrinkBackoff keeps that
+// exhaustion fast and its duration bounded well under drainEvents' deadline
+// deterministically, rather than at the mercy of the real 500ms-4s backoff
+// schedule production uses, which this test carried until it was found
+// flaky: RetryStream started retrying an idle timeout the moment it landed
+// (d606e3a, "Retry a stream that dies before its first frame, on all three
+// providers"), and this test's fixed 5-second deadline was never widened to
+// cover the retries' own worst case, so roughly 1 run in 4 exceeded it.
 func TestStreamChatCompletionIdleTimeout(t *testing.T) {
 	block := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -313,6 +322,7 @@ func TestStreamChatCompletionIdleTimeout(t *testing.T) {
 	c := NewClient(srv.URL,
 		WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }),
 		WithChatIdleTimeout(20*time.Millisecond))
+	shrinkBackoff(c)
 	ch, err := c.StreamChatCompletion(context.Background(), wire.ChatIntent{Model: "gemini-3.7-flash", Items: []wire.Item{wire.UserItem("hi")}})
 	if err != nil {
 		t.Fatalf("StreamChatCompletion: %v", err)
