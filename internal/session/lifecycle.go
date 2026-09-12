@@ -175,6 +175,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	executor.EnvFilter = r.ToolEnvFilter
 	executor.ResultSchema = opts.ResultSchema
 	executor.MCP = r.MCP
+	executor.RG = r.RG
 
 	// The schema stored on the session row is exactly the array every
 	// request of this run sends — opts.Tools, resolved once above — so the

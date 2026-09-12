@@ -213,36 +213,94 @@ is killed.
 
 ### Grep and Glob
 
-A Go fallback, not ripgrep itself — matching Claude Code's real `Grep`
-argument shape (`-i`, `-n`, `-A`/`-B`/`-C`, `type`, `multiline`,
-`head_limit`) is one thing; matching ripgrep's own hundreds of registered
-file types and its regex engine's exact semantics is another, and this
-package does neither. `type` is a fixed table of common extensions rather
-than ripgrep's `--type-list`, and the pattern compiles as Go's `regexp`
-(RE2), not the Rust `regex` crate ripgrep and the trained-in vocabulary both
-assume — a pattern using lookaround or backreferences is rejected here where
-a real ripgrep-backed harness would accept it.
+`Grep` runs ripgrep. Claude Code's own `Grep` bundles a ripgrep binary and
+execs it, and the shape the trained-in vocabulary expects is ripgrep's own, so
+this tool hands ripgrep's stdout back as it printed it: `path:line:text` for a
+match, `path-line-text` for a context line `-A`/`-B`/`-C` added, a bare `--`
+between two blocks that are not contiguous, one path per line for
+`files_with_matches`, `path:count` for `count`. `head_limit` cuts the first N
+lines of that output and the output byte cap truncates it. Nothing else
+re-labels a match.
 
-`Grep` defaults to returning matching file paths; content and count modes
-are selected by `output_mode`. Keeping the default cheap matters because the
-model uses search to orient and would otherwise pull large content into a
-context that gets re-sent every sub-turn. Content mode renders the way
-ripgrep's own CLI does — `path:line:text` for a match, `path-line-text` for
-a context line `-A`/`-B`/`-C` added, and a bare `--` between two blocks of
-the same file that are not contiguous — so a session trained against a real
-rg-backed harness reads a familiar shape. `-n` is off by default even in
-content mode: line numbers appear only when asked for. `multiline` switches
-matching from one line at a time to the whole file as one string, with `.`
-matching newlines, the only way a pattern spanning more than one line can
-match at all. `head_limit` applies last, across every mode, the same
-`| head -N` shape whichever mode produced the lines it is cutting.
+The binary is resolved once, when the process starts: `-rg PATH` on either
+subcommand, then `AGENT_HARNESS_RG`, then `rg` on the `PATH`. A path named by
+the flag or the variable has to exist, and the process refuses to start
+without it: a caller that names a binary is stating where ripgrep is, and
+silently searching the tree instead would answer its searches out of the
+wrong place. Nothing found anywhere means the Go walk below runs, which is
+what a developer running `go run ./cmd/harness` without ripgrep installed
+gets.
 
-`Grep`'s `path` names one file or one directory. Matches are reported relative
-to that search root, so a directory search reads from the directory the caller
-named. A single file is its own search root, and reports its matches under the
-path the caller gave instead: the file's path relative to itself would be `.`,
-which names nothing the caller can open. `Glob` walks from a directory and
-refuses a file, since the walk never offers its own root as a match.
+The arguments become flags. Always `--hidden`, `--max-columns 500` and
+`--sort=path`, plus one `--glob !<dir>` for each version-control directory
+(`.git`, `.svn`, `.hg`, `.bzr`, `.jj`, `.sl`), since `--hidden` otherwise
+brings `.git` into every search. `files_with_matches` adds `-l --null`, and
+`count` adds `-c -H --null`. Content mode adds `-H`, `-n` unless the caller
+turned line numbers off, and `-C`, or `-B` and `-A`, when context was asked
+for. `-i`, `multiline`, `glob` and `type` add `-i`, `-U --multiline-dotall`,
+`--glob` and `--type`, and a pattern that starts with a dash is passed as
+`-e <pattern>` so it is never read as a flag. `--sort=path` keeps the order of
+results stable, so `head_limit` cuts the same lines twice, which ripgrep's
+parallel walk would otherwise not guarantee. `--max-columns 500` replaces a
+matching or context line at least 500 bytes long with
+`[Omitted long matching line]` or `[Omitted long context line]`, so one
+minified file cannot fill a result.
+
+`Grep` defaults to returning matching file paths; content and count modes are
+selected by `output_mode`. Keeping the default cheap matters because the model
+uses search to orient and would otherwise pull large content into a context
+that gets re-sent every sub-turn. `-n` is on by default in content mode, so a
+match a model reads carries the line number it needs to hand to `Read`; an
+explicit `-n: false` leaves the numbers off. `multiline` matches the file as
+one string, with `.` matching newlines, the only way a pattern spanning more
+than one line can match at all. `head_limit` applies last, across every mode,
+the same `| head -N` shape whichever mode produced the lines it is cutting.
+
+`path` names one file or one directory. Paths are reported as the caller
+spelled them, with the file's own path underneath: a search of `src` reports
+`src/main/prompts/cad.md`, a search of `.` reports `./src/main/prompts/cad.md`,
+an absolute path stays absolute. A search of a directory the caller named is
+therefore reported under a path the model can hand straight to `Read`. Every
+mode names the file each result came from, whether the root was a file or a
+directory: `files_with_matches` and `count` print the path for a single file
+anyway, and content mode passes `-H` so it does too. That is one deliberate
+difference from raw ripgrep, which prints no path in content mode when one
+file was named. Uniform output is worth more than byte-identical output when
+the caller is a model that should not have to remember which shape a mode
+returns for which kind of root.
+
+`files_with_matches` and `count` are asked for `--null`, so a path containing
+a colon is framed by a NUL byte and cannot be read as two fields; the path
+list comes back one path per line. Content mode keeps ripgrep's
+`path:line:text` exactly as printed, colons and all.
+
+`type` is ripgrep's own type list, whose names run from `js` and `py` to
+`haskell` and `elixir`; an unrecognised name is refused by ripgrep, which
+names the one it did not recognise. The pattern is ripgrep's regex dialect,
+Rust `regex`'s: no backreferences and no lookaround. That is a caller-visible
+change from the Go `regexp` this tool used to compile patterns with, and it is
+the engine the trained-in vocabulary assumes.
+
+ripgrep's exit codes carry the outcome. 0 is matches, 1 is none and returns
+the usual no-matches result, and 2 is a real error whose stderr becomes the
+result — which is how a missing path comes back as a message naming it
+instead of as a search that found nothing.
+
+The Go walk is the fallback for a machine with no ripgrep, and it answers a
+call the way the ripgrep path does: the same labels, the same separators, the
+same long-line omissions.
+`TestGrepFallbackMatchesRipgrep` runs a fixture tree through both and fails on
+any difference. Two things it cannot mirror. `type` filtering is ripgrep's
+table, so the fallback refuses a type filter by name instead of approximating
+it with an extension list. And it does not read ignore files, which ripgrep
+does inside a git repository, so a search of a gitignored directory returns
+results on the fallback and nothing on the ripgrep path. Its own pattern
+compiles as Go's `regexp` (RE2), the same no-lookaround, no-backreference
+dialect, and it skips binary files the way ripgrep's walk does.
+
+`Glob` runs the Go walk and nothing else: it matches paths with its own glob
+syntax and refuses a file as its root, since the walk never offers its own
+root as a match.
 
 ### TaskCreate, TaskGet, TaskList, TaskUpdate
 

@@ -54,14 +54,16 @@ func TestGrepFindsMatchesAndRespectsOutputMode(t *testing.T) {
 		t.Fatalf("expected only a.go in files_with_matches, got: %s", files.Content)
 	}
 
+	// Line numbers default on, so a match a model reads can be handed to
+	// Read with an offset.
 	content := execGrep(t.Context(), e, mustJSON(t, grepArgs{Pattern: "Foo", OutputMode: "content"}))
-	if !strings.Contains(content.Content, "a.go:func Foo") {
-		t.Fatalf("expected a path:text match with no line number by default, got: %s", content.Content)
+	if !strings.Contains(content.Content, "a.go:2:func Foo") {
+		t.Fatalf("expected a path:line:text match by default, got: %s", content.Content)
 	}
 
-	numbered := execGrep(t.Context(), e, mustJSON(t, grepArgs{Pattern: "Foo", OutputMode: "content", ShowLineNumbers: true}))
-	if !strings.Contains(numbered.Content, "a.go:2:") {
-		t.Fatalf("expected a path:line:text match with -n, got: %s", numbered.Content)
+	plain := execGrep(t.Context(), e, mustJSON(t, grepArgs{Pattern: "Foo", OutputMode: "content", ShowLineNumbers: lineNumbers(false)}))
+	if !strings.Contains(plain.Content, "a.go:func Foo") || strings.Contains(plain.Content, "a.go:2:") {
+		t.Fatalf("expected an explicit -n false to leave the numbers off, got: %s", plain.Content)
 	}
 }
 
@@ -71,7 +73,7 @@ func TestGrepContextLinesAndHeadLimit(t *testing.T) {
 	e, root := newTestExecutor(t)
 	writeFile(t, root, "a.go", "package a\n\nfunc Foo() {}\n\nfunc Bar() {}\n")
 
-	ctx := execGrep(t.Context(), e, mustJSON(t, grepArgs{Pattern: "Foo", OutputMode: "content", ContextBefore: 1, ContextAfter: 1, ShowLineNumbers: true}))
+	ctx := execGrep(t.Context(), e, mustJSON(t, grepArgs{Pattern: "Foo", OutputMode: "content", ContextBefore: 1, ContextAfter: 1}))
 	for _, want := range []string{"a.go-2-", "a.go:3:func Foo", "a.go-4-"} {
 		if !strings.Contains(ctx.Content, want) {
 			t.Fatalf("expected %q in context output, got: %s", want, ctx.Content)
@@ -84,9 +86,11 @@ func TestGrepContextLinesAndHeadLimit(t *testing.T) {
 	}
 }
 
-// TestGrepCaseInsensitiveAndType exercises -i and type, both of which widen
-// or narrow what the default pattern/glob-only search would find.
-func TestGrepCaseInsensitiveAndType(t *testing.T) {
+// TestGrepCaseInsensitive exercises -i, which widens what the default
+// pattern-only search finds. `type` is not here: it is ripgrep's own table of
+// names, so the ripgrep path carries it (TestGrepRipgrepUsesRipgrepsTypeList)
+// and the fallback refuses it (TestGrepFallbackRefusesTypeWithoutRipgrep).
+func TestGrepCaseInsensitive(t *testing.T) {
 	e, root := newTestExecutor(t)
 	writeFile(t, root, "a.go", "package a\nfunc FOO() {}\n")
 	writeFile(t, root, "b.py", "def foo(): pass\n")
@@ -95,22 +99,16 @@ func TestGrepCaseInsensitiveAndType(t *testing.T) {
 	if !strings.Contains(insensitive.Content, "a.go") {
 		t.Fatalf("expected -i to match FOO against foo, got: %s", insensitive.Content)
 	}
-
-	typed := execGrep(t.Context(), e, mustJSON(t, grepArgs{Pattern: "foo", CaseInsensitive: true, FileType: "py"}))
-	if strings.Contains(typed.Content, "a.go") || !strings.Contains(typed.Content, "b.py") {
-		t.Fatalf("expected type py to keep only b.py, got: %s", typed.Content)
-	}
-
-	bad := execGrep(t.Context(), e, mustJSON(t, grepArgs{Pattern: "foo", FileType: "not-a-real-type"}))
-	if !bad.IsError {
-		t.Fatal("expected an unrecognised type to be an error")
-	}
 }
 
 // TestGrepSingleFilePathLabelsMatches proves a search rooted at one file
-// reports its matches under that file's path, and searches nothing else. A
-// match's path is relative to the search root, and a file is its own search
-// root, whose path relative to itself is ".".
+// searches that file, and names it the way ripgrep does. A directory root
+// reports each match under the path the caller spelled and the file's path
+// beneath it; a single file reports the path the caller gave, which is what
+// it can open. Content mode is the one place this deliberately differs from
+// raw ripgrep: ripgrep prints no path when one file was named, and the
+// ripgrep path passes -H to make it print one anyway, so every mode names the
+// file whatever kind of root was searched.
 func TestGrepSingleFilePathLabelsMatches(t *testing.T) {
 	e, root := newTestExecutor(t)
 	mustMkdirAll(t, root, "projects")
@@ -123,7 +121,7 @@ func TestGrepSingleFilePathLabelsMatches(t *testing.T) {
 	}
 
 	content := execGrep(t.Context(), e, mustJSON(t, grepArgs{
-		Pattern: "needle", Path: "projects/DESIGN-NOTES.md", OutputMode: "content", ShowLineNumbers: true}))
+		Pattern: "needle", Path: "projects/DESIGN-NOTES.md", OutputMode: "content"}))
 	if content.Content != "projects/DESIGN-NOTES.md:2:needle here" {
 		t.Fatalf("expected content to prefix the match with the file's path, got: %q", content.Content)
 	}
@@ -141,10 +139,12 @@ func TestGrepSingleFilePathLabelsMatches(t *testing.T) {
 		t.Fatalf("expected an absolute search to report the path given, got: %q", absolute.Content)
 	}
 
-	// A directory root keeps reporting matches relative to that directory.
+	// A directory root reports the caller's spelling and the file's path
+	// beneath it, so the path a match is reported under is one the caller can
+	// hand to Read without re-prefixing it.
 	dir := execGrep(t.Context(), e, mustJSON(t, grepArgs{Pattern: "needle", Path: "projects"}))
-	if dir.Content != "DESIGN-LOG.md\nDESIGN-NOTES.md" {
-		t.Fatalf("expected a directory search to report paths relative to it, got: %q", dir.Content)
+	if dir.Content != "projects/DESIGN-LOG.md\nprojects/DESIGN-NOTES.md" {
+		t.Fatalf("expected a directory search to report paths under it, got: %q", dir.Content)
 	}
 }
 

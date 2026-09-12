@@ -344,6 +344,13 @@ type Runner struct {
 	// unchanged.
 	ToolEnvFilter func(base []string) []string
 
+	// RG is the ripgrep binary the session's Grep calls exec, resolved once
+	// when the Runner is built (tools.RipgrepPath, from -rg, then
+	// AGENT_HARNESS_RG, then the PATH) and handed to every Executor as
+	// tools.Executor.RG. Empty means none was found and Grep falls back to
+	// its own walk.
+	RG string
+
 	// Hub, when set, is where every committed event and every session
 	// state change gets published for a browser to watch live. Nil is a
 	// caller with none wired: nothing subscribes, so nothing is published.

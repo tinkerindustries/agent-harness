@@ -272,6 +272,13 @@ type Executor struct {
 	// as it always has.
 	EnvFilter func(base []string) []string
 
+	// RG is the ripgrep binary Grep execs, resolved once at startup by
+	// RipgrepPath from -rg, then AGENT_HARNESS_RG, then the PATH. Empty means
+	// none was found, and Grep falls back to its own walk — the same output
+	// for the same call, except that the walk cannot filter by file type
+	// (internal/tools/grep.go, docs/TOOLS.md).
+	RG string
+
 	// Settings, when set, is where the tool limits (output caps, timeouts,
 	// WebFetch and vision bounds) resolve from on every call, so a limit
 	// changed in the settings table (tools.*) takes effect on the next

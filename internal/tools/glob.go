@@ -14,7 +14,9 @@ type globArgs struct {
 	Path    string `json:"path"`
 }
 
-// skipDirs are noise directories excluded from Glob and Grep walks.
+// skipDirs are noise directories excluded from Glob's walk. Grep keeps its
+// own list (grepSkipDirs): it answers to ripgrep's behaviour, which searches
+// node_modules.
 var skipDirs = map[string]bool{
 	".git": true, "node_modules": true, ".hg": true, ".svn": true,
 }
