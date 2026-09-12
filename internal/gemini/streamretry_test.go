@@ -39,6 +39,15 @@ const streamRetrySuccessBody = "event: step.start\n" +
 	"event: done\n" +
 	"data: [DONE]\n\n"
 
+// shrinkBackoff points a test Client's retry schedule at millisecond scale,
+// so a test exercising RetryStream's real backoff sleep does not take real
+// time to run — the same helper internal/deepseek's streamretry_test.go
+// carries for its own Client.
+func shrinkBackoff(c *Client) {
+	c.chatTransport.RetryBase = time.Millisecond
+	c.chatTransport.RetryMax = 5 * time.Millisecond
+}
+
 // TestStreamChatCompletionRetriesResetBeforeFirstFrame proves Gemini's
 // client gets the same mid-stream retry internal/deepseek and internal/kimi
 // do, even though it supplies its own pump (pumpChatEvents, reading a frame
@@ -66,8 +75,7 @@ func TestStreamChatCompletionRetriesResetBeforeFirstFrame(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "gk-test", nil }))
-	c.chatTransport.RetryBase = time.Millisecond
-	c.chatTransport.RetryMax = 5 * time.Millisecond
+	shrinkBackoff(c)
 
 	events, err := c.StreamChatCompletion(context.Background(), wire.ChatIntent{
 		Model: "gemini-3.7-flash", Items: []wire.Item{wire.UserItem("hi")},
