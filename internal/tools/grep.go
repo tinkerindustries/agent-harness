@@ -23,12 +23,21 @@ type grepArgs struct {
 	FileType        string `json:"type"`
 	OutputMode      string `json:"output_mode"`
 	CaseInsensitive bool   `json:"-i"`
-	ShowLineNumbers bool   `json:"-n"`
-	ContextAfter    int    `json:"-A"`
-	ContextBefore   int    `json:"-B"`
-	Context         int    `json:"-C"`
-	Multiline       bool   `json:"multiline"`
-	HeadLimit       int    `json:"head_limit"`
+	// ShowLineNumbers is tri-state: absent means on (lineNumbers below), and
+	// only an explicit false turns the numbers off.
+	ShowLineNumbers *bool `json:"-n"`
+	ContextAfter    int   `json:"-A"`
+	ContextBefore   int   `json:"-B"`
+	Context         int   `json:"-C"`
+	Multiline       bool  `json:"multiline"`
+	HeadLimit       int   `json:"head_limit"`
+}
+
+// lineNumbers reports whether this call wants line numbers. Absent means on,
+// because a content match with no line number gives a model nothing to aim
+// its next Read at; a caller that wants the lines alone says so.
+func (a grepArgs) lineNumbers() bool {
+	return a.ShowLineNumbers == nil || *a.ShowLineNumbers
 }
 
 // grepMatch is one match against a file's lines, already resolved to the path
@@ -179,7 +188,7 @@ func execGrepWalk(ctx context.Context, e *Executor, args grepArgs, mode, root, s
 		return errorResult("search %s: %v", searchedName(args.Path), walkErr)
 	}
 
-	text := formatGrepMatches(matches, mode, fileLines, !rootIsFile, args.ShowLineNumbers, before, after)
+	text := formatGrepMatches(matches, mode, fileLines, args.lineNumbers(), before, after)
 	return finishGrepResult(ctx, e, text, args.HeadLimit)
 }
 
@@ -310,10 +319,10 @@ func lineOf(content string, pos int) int {
 // "-" for a context line's, and a bare "--" between two blocks of the same
 // file that are not contiguous.
 //
-// printPath is off for a content search rooted at a single file, which is
-// where ripgrep prints no path either: the caller named the file, and a path
-// is shown only when more than one file is searched.
-func formatGrepMatches(matches []grepMatch, mode string, fileLines map[string][]string, printPath, showLineNumbers bool, before, after int) string {
+// Every mode names the file: the ripgrep path asks for -H in content mode to
+// get the same thing, so a caller never has to remember which shape a mode
+// returns for which kind of search root.
+func formatGrepMatches(matches []grepMatch, mode string, fileLines map[string][]string, showLineNumbers bool, before, after int) string {
 	if len(matches) == 0 {
 		return "no matches"
 	}
@@ -348,7 +357,7 @@ func formatGrepMatches(matches []grepMatch, mode string, fileLines map[string][]
 		return joinLines(lines)
 
 	case "content":
-		return formatGrepContent(matches, fileLines, printPath, showLineNumbers, before, after)
+		return formatGrepContent(matches, fileLines, showLineNumbers, before, after)
 	}
 	return ""
 }
@@ -366,7 +375,7 @@ func formatGrepMatches(matches []grepMatch, mode string, fileLines map[string][]
 // A line that is itself part of a match is labelled as one even when an
 // earlier match's context already reached it, which is how ripgrep prints
 // two matches one line apart: the second is a match line, not context.
-func formatGrepContent(matches []grepMatch, fileLines map[string][]string, printPath, showLineNumbers bool, before, after int) string {
+func formatGrepContent(matches []grepMatch, fileLines map[string][]string, showLineNumbers bool, before, after int) string {
 	sort.Slice(matches, func(i, j int) bool {
 		if matches[i].path != matches[j].path {
 			return matches[i].path < matches[j].path
@@ -416,7 +425,7 @@ func formatGrepContent(matches []grepMatch, fileLines map[string][]string, print
 			if isMatch {
 				sep = ":"
 			}
-			out = append(out, grepText(m.path, lines[ln-1], ln, sep, printPath, showLineNumbers, isMatch))
+			out = append(out, grepText(m.path, lines[ln-1], ln, sep, showLineNumbers, isMatch))
 		}
 		if to > lastPrintedLine {
 			lastPrintedLine = to
@@ -425,11 +434,11 @@ func formatGrepContent(matches []grepMatch, fileLines map[string][]string, print
 	return joinLines(out)
 }
 
-// grepText renders one line: the path when the caller is shown one, the line
-// number when -n asked for it, then the text. A line at least
-// ripgrepMaxColumns bytes long is replaced by ripgrep's own omission marker,
-// so a single minified file cannot fill the result.
-func grepText(path, text string, line int, sep string, printPath, showLineNumbers, isMatch bool) string {
+// grepText renders one line: the path, the line number when -n asked for it,
+// then the text. A line at least ripgrepMaxColumns bytes long is replaced by
+// ripgrep's own omission marker, so a single minified file cannot fill the
+// result.
+func grepText(path, text string, line int, sep string, showLineNumbers, isMatch bool) string {
 	if len(text) >= ripgrepMaxColumns {
 		text = "[Omitted long context line]"
 		if isMatch {
@@ -437,10 +446,8 @@ func grepText(path, text string, line int, sep string, printPath, showLineNumber
 		}
 	}
 	var b strings.Builder
-	if printPath {
-		b.WriteString(path)
-		b.WriteString(sep)
-	}
+	b.WriteString(path)
+	b.WriteString(sep)
 	if showLineNumbers {
 		b.WriteString(strconv.Itoa(line))
 		b.WriteString(sep)

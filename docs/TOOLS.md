@@ -235,33 +235,39 @@ The arguments become flags. Always `--hidden`, `--max-columns 500` and
 `--sort=path`, plus one `--glob !<dir>` for each version-control directory
 (`.git`, `.svn`, `.hg`, `.bzr`, `.jj`, `.sl`), since `--hidden` otherwise
 brings `.git` into every search. `files_with_matches` adds `-l --null`, and
-`count` adds `-c -H --null`. Content mode adds `-n` when `-n` was set, and
-`-C`, or `-B` and `-A`, when context was asked for. `-i`, `multiline`, `glob`
-and `type` add `-i`, `-U --multiline-dotall`, `--glob` and `--type`, and a
-pattern that starts with a dash is passed as `-e <pattern>` so it is never
-read as a flag. `--sort=path` keeps the order of results
-stable, so `head_limit` cuts the same lines twice, which ripgrep's parallel
-walk would otherwise not guarantee. `--max-columns 500` replaces a matching
-or context line at least 500 bytes long with `[Omitted long matching line]`
-or `[Omitted long context line]`, so one minified file cannot fill a result.
+`count` adds `-c -H --null`. Content mode adds `-H`, `-n` unless the caller
+turned line numbers off, and `-C`, or `-B` and `-A`, when context was asked
+for. `-i`, `multiline`, `glob` and `type` add `-i`, `-U --multiline-dotall`,
+`--glob` and `--type`, and a pattern that starts with a dash is passed as
+`-e <pattern>` so it is never read as a flag. `--sort=path` keeps the order of
+results stable, so `head_limit` cuts the same lines twice, which ripgrep's
+parallel walk would otherwise not guarantee. `--max-columns 500` replaces a
+matching or context line at least 500 bytes long with
+`[Omitted long matching line]` or `[Omitted long context line]`, so one
+minified file cannot fill a result.
 
 `Grep` defaults to returning matching file paths; content and count modes are
 selected by `output_mode`. Keeping the default cheap matters because the model
 uses search to orient and would otherwise pull large content into a context
-that gets re-sent every sub-turn. `-n` is off by default even in content mode:
-line numbers appear only when asked for. `multiline` matches the file as one
-string, with `.` matching newlines, the only way a pattern spanning more than
-one line can match at all. `head_limit` applies last, across every mode, the
-same `| head -N` shape whichever mode produced the lines it is cutting.
+that gets re-sent every sub-turn. `-n` is on by default in content mode, so a
+match a model reads carries the line number it needs to hand to `Read`; an
+explicit `-n: false` leaves the numbers off. `multiline` matches the file as
+one string, with `.` matching newlines, the only way a pattern spanning more
+than one line can match at all. `head_limit` applies last, across every mode,
+the same `| head -N` shape whichever mode produced the lines it is cutting.
 
 `path` names one file or one directory. Paths are reported as the caller
 spelled them, with the file's own path underneath: a search of `src` reports
 `src/main/prompts/cad.md`, a search of `.` reports `./src/main/prompts/cad.md`,
 an absolute path stays absolute. A search of a directory the caller named is
-therefore reported under a path the model can hand straight to `Read`. A
-search naming one file reports that file's path in `files_with_matches` and in
-`count`; content mode prints the lines alone, because ripgrep prints no path
-when one file was named and this tool passes its output through.
+therefore reported under a path the model can hand straight to `Read`. Every
+mode names the file each result came from, whether the root was a file or a
+directory: `files_with_matches` and `count` print the path for a single file
+anyway, and content mode passes `-H` so it does too. That is one deliberate
+difference from raw ripgrep, which prints no path in content mode when one
+file was named. Uniform output is worth more than byte-identical output when
+the caller is a model that should not have to remember which shape a mode
+returns for which kind of root.
 
 `files_with_matches` and `count` are asked for `--null`, so a path containing
 a colon is framed by a NUL byte and cannot be read as two fields; the path

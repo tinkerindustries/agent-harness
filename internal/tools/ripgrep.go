@@ -79,7 +79,13 @@ func ripgrepArgs(args grepArgs, mode, path string) []string {
 	case "count":
 		argv = append(argv, "-c", "-H", "--null")
 	case "content":
-		if args.ShowLineNumbers {
+		// -H always, so every mode names the file each line came from
+		// whatever kind of root was searched. ripgrep prints no path itself
+		// when one file was named, and a caller that has to remember which
+		// shape a mode returns for which kind of root is the bug this is
+		// here to remove.
+		argv = append(argv, "-H")
+		if args.lineNumbers() {
 			argv = append(argv, "-n")
 		}
 		if args.Context > 0 {

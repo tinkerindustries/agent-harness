@@ -95,7 +95,7 @@ var definitionsDeepSeek = []wire.Tool{
 			"type": {"type": "string", "description": "File type to search, using ripgrep's own type names, e.g. js, py, go, rust. More efficient than glob for a standard file type; an unrecognised name is refused."},
 			"output_mode": {"type": "string", "enum": ["files_with_matches", "content", "count"], "description": "files_with_matches (default), content, or count"},
 			"-i": {"type": "boolean", "description": "Case-insensitive search"},
-			"-n": {"type": "boolean", "description": "Show line numbers in output. Only for output_mode: content, ignored otherwise. Default false."},
+			"-n": {"type": "boolean", "description": "Show line numbers in output. Only for output_mode: content, ignored otherwise. Default true."},
 			"-A": {"type": "integer", "description": "Lines to show after each match. Only for output_mode: content, ignored otherwise."},
 			"-B": {"type": "integer", "description": "Lines to show before each match. Only for output_mode: content, ignored otherwise."},
 			"-C": {"type": "integer", "description": "Lines to show before and after each match; takes precedence over -A and -B. Only for output_mode: content, ignored otherwise."},

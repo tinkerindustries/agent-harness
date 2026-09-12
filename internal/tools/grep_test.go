@@ -7,6 +7,11 @@ import (
 	"testing"
 )
 
+// lineNumbers spells an explicit -n argument. Absent means on
+// (grepArgs.lineNumbers), so only a caller that wants the lines alone needs
+// this.
+func lineNumbers(on bool) *bool { return &on }
+
 // ripgrepForTest returns the ripgrep binary the Grep path would run, or skips
 // the test naming what it could not find. A machine with no ripgrep falls
 // back to the Go walk, which is the path these tests compare against, so
@@ -94,28 +99,34 @@ func TestGrepRipgrepArguments(t *testing.T) {
 			extra: []string{"-c", "-H", "--null", "needle"},
 		},
 		{
-			name:  "content takes line numbers from -n only",
+			name:  "content names every file and turns line numbers on by default",
 			args:  grepArgs{Pattern: "needle"},
 			mode:  "content",
-			extra: []string{"needle"},
+			extra: []string{"-H", "-n", "needle"},
 		},
 		{
-			name:  "content carries line numbers, context, case and the file filters",
-			args:  grepArgs{Pattern: "needle", ShowLineNumbers: true, Context: 2, CaseInsensitive: true, Glob: "*.go", FileType: "go"},
+			name:  "an explicit -n false leaves the lines alone",
+			args:  grepArgs{Pattern: "needle", ShowLineNumbers: lineNumbers(false)},
 			mode:  "content",
-			extra: []string{"-n", "-C", "2", "-i", "--glob", "*.go", "--type", "go", "needle"},
+			extra: []string{"-H", "needle"},
+		},
+		{
+			name:  "content carries context, case and the file filters",
+			args:  grepArgs{Pattern: "needle", Context: 2, CaseInsensitive: true, Glob: "*.go", FileType: "go"},
+			mode:  "content",
+			extra: []string{"-H", "-n", "-C", "2", "-i", "--glob", "*.go", "--type", "go", "needle"},
 		},
 		{
 			name:  "content translates -B and -A when no -C was given",
 			args:  grepArgs{Pattern: "needle", ContextBefore: 1, ContextAfter: 2},
 			mode:  "content",
-			extra: []string{"-B", "1", "-A", "2", "needle"},
+			extra: []string{"-H", "-n", "-B", "1", "-A", "2", "needle"},
 		},
 		{
 			name:  "multiline matches across lines with . matching a newline",
 			args:  grepArgs{Pattern: "a.b", Multiline: true},
 			mode:  "content",
-			extra: []string{"-U", "--multiline-dotall", "a.b"},
+			extra: []string{"-H", "-n", "-U", "--multiline-dotall", "a.b"},
 		},
 		{
 			name:  "a pattern starting with a dash is passed as a pattern",
@@ -352,18 +363,18 @@ func TestGrepFallbackMatchesRipgrep(t *testing.T) {
 		{"files_with_matches with no matches", grepArgs{Pattern: "no-such-token-anywhere"}},
 		{"count in the workspace", grepArgs{Pattern: "needle", OutputMode: "count"}},
 		{"count on one file", grepArgs{Pattern: "needle", Path: "a:b.md", OutputMode: "count"}},
-		{"content with line numbers", grepArgs{Pattern: "needle", OutputMode: "content", ShowLineNumbers: true}},
-		{"content without line numbers", grepArgs{Pattern: "needle", OutputMode: "content"}},
-		{"content on one file drops the path ripgrep drops", grepArgs{Pattern: "needle", Path: "sub/b.go", OutputMode: "content", ShowLineNumbers: true}},
-		{"content with context separators", grepArgs{Pattern: "needle", OutputMode: "content", ShowLineNumbers: true, Context: 1}},
-		{"content with -B and -A", grepArgs{Pattern: "needle", OutputMode: "content", ShowLineNumbers: true, ContextBefore: 1, ContextAfter: 2}},
+		{"content with line numbers on by default", grepArgs{Pattern: "needle", OutputMode: "content"}},
+		{"content with line numbers turned off", grepArgs{Pattern: "needle", OutputMode: "content", ShowLineNumbers: lineNumbers(false)}},
+		{"content on one file names the file too", grepArgs{Pattern: "needle", Path: "sub/b.go", OutputMode: "content"}},
+		{"content with context separators", grepArgs{Pattern: "needle", OutputMode: "content", Context: 1}},
+		{"content with -B and -A", grepArgs{Pattern: "needle", OutputMode: "content", ContextBefore: 1, ContextAfter: 2}},
 		{"content with no matches", grepArgs{Pattern: "no-such-token-anywhere", OutputMode: "content"}},
 		{"case insensitive", grepArgs{Pattern: "NEEDLE", CaseInsensitive: true}},
 		{"glob by extension", grepArgs{Pattern: "needle", Glob: "*.py"}},
 		{"glob naming a directory", grepArgs{Pattern: "needle", Glob: "sub/*.md"}},
-		{"multiline across lines", grepArgs{Pattern: "alpha.*gamma", Multiline: true, OutputMode: "content", ShowLineNumbers: true}},
-		{"head_limit keeps the first line", grepArgs{Pattern: "needle", OutputMode: "content", ShowLineNumbers: true, HeadLimit: 1}},
-		{"a line past the column cap is omitted", grepArgs{Pattern: "x{5}", OutputMode: "content", ShowLineNumbers: true}},
+		{"multiline across lines", grepArgs{Pattern: "alpha.*gamma", Multiline: true, OutputMode: "content"}},
+		{"head_limit keeps the first line", grepArgs{Pattern: "needle", OutputMode: "content", HeadLimit: 1}},
+		{"a line past the column cap is omitted", grepArgs{Pattern: "x{5}", OutputMode: "content"}},
 	}
 
 	for _, tc := range cases {
