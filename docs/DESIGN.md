@@ -198,15 +198,18 @@ source of truth, three consumers.
 
 Events: `session_started`, `turn_started`, `reasoning_delta`, `content_delta`,
 `tool_call`, `tool_denied`, `tool_stdout`, `tool_result`, `usage`,
-`turn_finished`, `run_finished`, `error`, `steer_message`, `steer_applied`.
-Each carries a per-session monotonic sequence number.
+`turn_finished`, `run_finished`, `error`, `steer_message`, `steer_applied`,
+`steer_withdrawn`. Each carries a per-session monotonic sequence number.
 
-The last two are the steering pair (docs/RUN-CONTROL.md "Two event kinds,
+The last three are the steering events (docs/RUN-CONTROL.md "Two event kinds,
 not one"): `steer_message` records that an operator sent text at this
 instant and carries no messages-array content, and `steer_applied` records
 that the loop folded that text into a user message at this sub-turn
 boundary — linked by the applied event's `source_seq`, which is what lets a
 resumed run recompute which steers are outstanding from the log alone.
+`steer_withdrawn` closes a steer the run ended without applying, by the same
+`source_seq`, so no later run applies it (docs/RUN-CONTROL.md "A steer the
+run never reached").
 
 There is no approval event. A permission decision resolves synchronously inside
 the tool call from a policy the session already holds (§4.6), so the loop never

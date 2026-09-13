@@ -48,7 +48,45 @@ type scriptedGemini struct {
 	streams  []string
 	requests []json.RawMessage
 	n        int
+	// holds parks the request with a given index until the test releases
+	// it (hold).
+	holds map[int]*heldRequest
 }
+
+// heldRequest is one request parked in the fake provider. arrived closes when
+// the request reaches it, which is after the loop has passed that sub-turn's
+// steer pickup; release closes when the test lets the answer go.
+type heldRequest struct {
+	t       *testing.T
+	arrived chan struct{}
+	release chan struct{}
+}
+
+// hold parks the n-th request (counting from zero) until released, so a
+// test can act while that sub-turn's request is in flight rather than racing
+// a provider that answers at once.
+func (s *scriptedGemini) hold(t *testing.T, n int) *heldRequest {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.holds == nil {
+		s.holds = map[int]*heldRequest{}
+	}
+	h := &heldRequest{t: t, arrived: make(chan struct{}), release: make(chan struct{})}
+	s.holds[n] = h
+	return h
+}
+
+// waitArrived blocks until the held request has reached the provider.
+func (h *heldRequest) waitArrived() {
+	h.t.Helper()
+	select {
+	case <-h.arrived:
+	case <-time.After(30 * time.Second):
+		h.t.Fatal("the held request never reached the provider")
+	}
+}
+
+func (h *heldRequest) let() { close(h.release) }
 
 func (s *scriptedGemini) serve() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -59,9 +97,20 @@ func (s *scriptedGemini) serve() *httptest.Server {
 		if i >= len(s.streams) {
 			i = len(s.streams) - 1
 		}
+		held := s.holds[s.n]
 		s.n++
 		out := s.streams[i]
 		s.mu.Unlock()
+		if held != nil {
+			close(held.arrived)
+			// A cancelled run abandons the request, which is what ends the
+			// wait when a test never releases it.
+			select {
+			case <-held.release:
+			case <-r.Context().Done():
+				return
+			}
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Write([]byte(out))
 	}))

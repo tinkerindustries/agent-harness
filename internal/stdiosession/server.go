@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -121,6 +122,23 @@ type run struct {
 	created  time.Time
 	updated  time.Time
 
+	// unapplied is the client's message ids for the steers withdrawn when
+	// the run ended, in commit order (withdrawSteers).
+	unapplied []string
+
+	// inputMu makes an append's status check and its commit one step with
+	// respect to the run ending. append holds it from reading the status to
+	// recording the message id; record holds it from before the status
+	// leaves in_progress until the withdrawal sweep's ids are on the run. So
+	// every steer an append committed is either applied by the loop or seen
+	// by the sweep, and an append that arrives later is refused. The pump
+	// takes it before translating a steer_applied, so an id the append is
+	// still recording is on the translator before the echo is built.
+	inputMu sync.Mutex
+	// messageIDs maps a steer_message seq to the id the client appended it
+	// under. Guarded by inputMu.
+	messageIDs map[int64]string
+
 	cancel context.CancelFunc
 	done   chan struct{}
 	tr     Translator
@@ -136,6 +154,7 @@ func (it *run) view(withItems bool) RunView {
 		Created: it.created, Updated: it.updated,
 		Reason: it.reason, Text: it.text, Result: it.result,
 		SubTurns: it.subTurns, Err: it.err, WithItems: withItems,
+		UnappliedMessageIDs: append([]string(nil), it.unapplied...),
 	}
 }
 
@@ -440,7 +459,7 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 		id: s.d.NewRunID(), sessionID: sessionID, model: model,
 		prev: p.PreviousRunID, cwd: cwd,
 		status: StatusInProgress, created: time.Now().UTC(), updated: time.Now().UTC(),
-		done: make(chan struct{}),
+		done: make(chan struct{}), messageIDs: map[int64]string{},
 	}
 	host.runID = it.id
 
@@ -488,6 +507,12 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 				// the interaction: status and usage both reach the client
 				// through the events themselves.
 			default:
+				// An append may still be recording this steer's message id
+				// (run.inputMu).
+				if f.Event.Kind == store.KindSteerApplied {
+					it.inputMu.Lock()
+					it.inputMu.Unlock()
+				}
 				tr.Event(f.Event)
 			}
 		}
@@ -572,10 +597,18 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 // loop could not finish, emits the `error` notification that precedes the
 // terminal frame. complete emits the terminal frame itself, once the
 // interaction is no longer the running one.
+//
+// The run leaves in_progress here, with inputMu held across the withdrawal
+// sweep, so no append commits a steer after the sweep has looked.
 func (s *Server) record(it *run, tr Translator, res *session.RunResult, err error, cancelled bool) {
 	tr.CloseText()
 
+	it.inputMu.Lock()
+	defer it.inputMu.Unlock()
+	unapplied := s.withdrawSteers(it)
+
 	it.mu.Lock()
+	it.unapplied = unapplied
 	it.updated = time.Now().UTC()
 	switch {
 	case cancelled:
@@ -598,6 +631,30 @@ func (s *Server) record(it *run, tr Translator, res *session.RunResult, err erro
 	if err != nil && !cancelled {
 		tr.Failed(it.view(false))
 	}
+}
+
+// withdrawSteers closes every steer committed to the run's session that the
+// loop never applied, so no later run delivers it, and returns the client's
+// message ids for them in commit order. A steer appended without an id is
+// withdrawn and contributes none. The caller holds it.inputMu.
+//
+// The run's own context is usually cancelled by now, and the store refuses
+// work on a cancelled context, so the sweep gets its own.
+func (s *Server) withdrawSteers(it *run) []string {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	seqs, err := s.opts.Store.WithdrawUnappliedSteers(ctx, it.sessionID)
+	if err != nil {
+		log.Printf("stdiosession: withdraw unapplied steers for %s: %v", it.sessionID, err)
+		return nil
+	}
+	var ids []string
+	for _, seq := range seqs {
+		if id := it.messageIDs[seq]; id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 // complete emits the last notification a run ever produces.
@@ -631,8 +688,10 @@ func (s *Server) append(ctx context.Context, params json.RawMessage) (any, *rpcE
 	if !ok {
 		return nil, errorf(CodeRunNotFound, s.m.NotFound, p.RunID)
 	}
+	it.inputMu.Lock()
+	defer it.inputMu.Unlock()
 	it.mu.Lock()
-	status := it.status
+	status, tr := it.status, it.tr
 	it.mu.Unlock()
 	if status != StatusInProgress {
 		return nil, errorf(CodeRunNotRunning, s.m.AppendNotRunning, it.id, status)
@@ -640,19 +699,28 @@ func (s *Server) append(ctx context.Context, params json.RawMessage) (any, *rpcE
 	if p.Prompt == "" {
 		return nil, errorf(CodeInvalidParams, "%s", s.m.AppendNeedsInput)
 	}
-	text := p.Prompt
 
 	appended, err := s.opts.Store.AppendEvents(ctx, it.sessionID, []store.EventInput{{
 		Kind:    store.KindSteerMessage,
-		Payload: store.SteerMessagePayload{Text: text, Source: "cli"},
+		Payload: store.SteerMessagePayload{Text: p.Prompt, Source: "cli"},
 	}})
+	if errors.Is(err, store.ErrSessionCancelled) {
+		// The loop has marked the session cancelled and record has not yet
+		// moved the run out of in_progress. A moment later this append would
+		// be refused on the status, so it is refused the same way now.
+		return nil, errorf(CodeRunNotRunning, s.m.AppendNotRunning, it.id, StatusCancelled)
+	}
 	if err != nil {
 		return nil, errorf(CodeInternalError, "record the input: %v", err)
 	}
+	seq := appended[0].Seq
 	if p.MessageID != "" {
-		s.rememberMessageID(it, appended[0].Seq, p.MessageID)
+		it.messageIDs[seq] = p.MessageID
+		if tr != nil {
+			tr.SetMessageID(seq, p.MessageID)
+		}
 	}
-	return s.d.AppendResult(it.id, appended[0].Seq), nil
+	return s.d.AppendResult(it.id, seq), nil
 }
 
 func (s *Server) cancelRun(params json.RawMessage) (any, *rpcError) {
@@ -727,15 +795,6 @@ func (s *Server) lookup(id string) (*run, bool) {
 	defer s.mu.Unlock()
 	it, ok := s.runs[id]
 	return it, ok
-}
-
-func (s *Server) rememberMessageID(it *run, seq int64, id string) {
-	it.mu.Lock()
-	tr := it.tr
-	it.mu.Unlock()
-	if tr != nil {
-		tr.SetMessageID(seq, id)
-	}
 }
 
 // notify writes one notification. A write failure means the pipe has gone,

@@ -431,6 +431,35 @@ func TestFoldSteer(t *testing.T) {
 	requireEqualMessages(t, got, want)
 }
 
+// TestFoldWithdrawnSteer pins that a steer a host withdrew when its run ended
+// never reaches the conversation: steer_withdrawn places nothing, and the
+// steer_message it closes places nothing either. It fails if the fold starts
+// treating a withdrawal as delivery, or errors on the kind.
+func TestFoldWithdrawnSteer(t *testing.T) {
+	b := &eventBuilder{}
+	events := []store.Event{
+		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "do it"}),
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
+		b.ev(store.KindContentDelta, store.ContentDeltaPayload{Text: "done"}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "stop"}),
+		b.ev(store.KindSteerMessage, store.SteerMessagePayload{Text: "be terse", Source: "cli"}),
+		b.ev(store.KindRunFinished, store.RunFinishedPayload{Reason: "no_tool_calls", Text: "done"}),
+		b.ev(store.KindSteerWithdrawn, store.SteerWithdrawnPayload{SourceSeq: 5}),
+		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "next"}),
+	}
+	got, err := Fold(testSession(), events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []wire.Message{
+		wire.SystemMessage("you are a coding agent"),
+		wire.UserMessage("do it"),
+		{Role: wire.RoleAssistant, Content: wire.TextContent("done")},
+		wire.UserMessage("next"),
+	}
+	requireEqualMessages(t, got, want)
+}
+
 // TestFoldTwoSteersInOneBatch covers the loop's batch append: two steers the
 // loop applies at one sub-turn boundary (a single AppendEvents batch, so the
 // mirror and hub see one batch) fold to two user messages in seq order — the

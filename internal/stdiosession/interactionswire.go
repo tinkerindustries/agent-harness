@@ -191,6 +191,12 @@ type iactInteractionHarness struct {
 	Result json.RawMessage `json:"result,omitempty"`
 	// SubTurns is how many sub-turns the run took.
 	SubTurns int `json:"sub_turns,omitempty"`
+	// UnappliedMessageIDs names, by the message_id each was appended under,
+	// the steers the run ended without applying, in the order they were
+	// committed. The harness withdrew them, so no later run applies them; a
+	// client that still wants one sent starts a new run with it
+	// (docs/STDIO-INTERACTIONS.md, "interactions.append").
+	UnappliedMessageIDs []string `json:"unapplied_message_ids,omitempty"`
 }
 
 // iactError is Google's iactError shape: a string code and a human-readable message.

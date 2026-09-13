@@ -206,14 +206,16 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Item, error) {
 				items = append(items, wire.UserItem(p.Text))
 			}
 
-		case store.KindToolStdout, store.KindUsage, store.KindRunFinished, store.KindError, store.KindSteerMessage:
+		case store.KindToolStdout, store.KindUsage, store.KindRunFinished, store.KindError, store.KindSteerMessage,
+			store.KindSteerWithdrawn:
 			// Carry no conversation content. Usage and errors are
 			// diagnostics; run_finished is a terminal marker read by the
 			// runner, not something the model replays. steer_message joins
 			// them, unlike steer_applied: only the loop's later steer_applied
 			// places the text as a user item, so a steer mid-tool-call cannot
 			// move an item the fold had already placed (docs/RUN-CONTROL.md
-			// "Two event kinds, not one").
+			// "Two event kinds, not one"). steer_withdrawn closes a steer the
+			// model was never shown, so it places nothing either.
 		}
 	}
 

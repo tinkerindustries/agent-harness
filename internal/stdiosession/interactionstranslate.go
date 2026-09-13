@@ -492,6 +492,8 @@ func (t *iactTranslator) Resource(v RunView) any {
 		Text:      v.Text,
 		Result:    v.Result,
 		SubTurns:  v.SubTurns,
+
+		UnappliedMessageIDs: v.UnappliedMessageIDs,
 	}
 	return out
 }

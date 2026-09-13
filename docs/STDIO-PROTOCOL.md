@@ -520,6 +520,24 @@ An append to a response that is not `in_progress` is refused with
 `-32002`; start a new response with `previous_response_id` set to it
 instead.
 
+**A steer the run never reaches is withdrawn.** The loop applies a steer only
+at a sub-turn boundary. A run can end with no boundary after the steer: the
+model answers with no tool calls, calls `Complete`, hits
+`harness.max_sub_turns`, is cancelled, or fails. Every steer still unapplied
+at that point is withdrawn. The model never sees it, and no later response in
+the session applies it. The response lists the withdrawn steers' `message_id`s
+in `harness.unapplied_message_ids`, in the order they were appended. The list
+is on `response.completed`, on the `responses.cancel` answer, and on
+`responses.get` afterwards, and is absent when nothing was withdrawn. A steer
+appended without a `message_id` is withdrawn the same way and adds nothing to
+the list. A client that still wants a withdrawn steer sent starts a new
+response with `previous_response_id` and that text as its input.
+
+Every answered append ends up in exactly one of two places: its user message
+item streamed before `response.completed`, or `harness.unapplied_message_ids`.
+The run stops taking appends at the moment it leaves `in_progress`, so an
+append that arrives later is refused with `-32002`.
+
 ### `responses.cancel`
 
 ```jsonc
@@ -699,6 +717,8 @@ output.
    [Deviations](#deviations-from-the-http-surface).
 6. An `responses.append` that has been answered is committed. Its
    user message item appears at the next sub-turn boundary, not immediately.
+   If the run ends first, its `message_id` is in the terminal response's
+   `harness.unapplied_message_ids` instead.
 
 ## Tools
 
@@ -974,6 +994,10 @@ or `cancelled`. The surface's status enum does not separate an agent that finish
 from one that ran out of room, and the difference decides whether a parent
 offers to continue.
 
+`harness.unapplied_message_ids` on a response that is no longer `in_progress`
+names the steers the run ended without applying, whatever its status. See
+[`responses.append`](#responsesappend).
+
 ## Lifecycle
 
 | Event | What happens |
@@ -983,6 +1007,7 @@ offers to continue.
 | **the parent exits** | Both pipes break; as above. The process does not outlive its parent. |
 | **a tool is running at cancel** | Its context is cancelled, which signals the whole process group of a `Bash` child. A grandchild holding the output pipe is bounded by the tool layer's own wait delay rather than waiting forever. |
 | **the model errors mid-turn** | The stream ends, the loop records the failure, and the client gets `response.failed` carrying the whole response, then `response.completed` with `status: "failed"`. A reasoning-starved response — the budget spent before any answer text — is retried once at double the budget before that, and both attempts are billed and both appear on `harness.usage`. |
+| **a steer is still unapplied when the run ends** | It is withdrawn whatever ended the run, and its `message_id` is listed in `harness.unapplied_message_ids` on the terminal response. No later response in the session applies it. |
 | **the parent stops reading stdout** | Frames queue in this process rather than being dropped. There is no ceiling: a parent that has stopped reading has stopped hosting the session, and stdin closing is what ends it. |
 
 A run's transcript survives under the state directory. With the default state

@@ -231,6 +231,7 @@ next sub-turn boundary, never mid-call. So the split is made in the log:
 | --- | --- | --- | --- |
 | `steer_message` | the protocol handler, immediately | no | somebody sent this text at this instant |
 | `steer_applied` | the session loop, at a sub-turn boundary | yes — a user message | the model was shown this text here |
+| `steer_withdrawn` | the stdio host, when a run ends | no | the run ended before this text reached the model, and no later run will show it |
 
 `steer_applied` is only ever appended where the message array is at rest, so
 its fold position is final the moment it exists, and the append-only property
@@ -245,8 +246,9 @@ the log alone, with no in-memory high-water mark to lose.
 ### How the loop picks one up
 
 At the top of `runSubTurn`, before folding: one indexed query for
-`steer_message` events with `seq >` the highest `source_seq` this session has
-already applied, capped at a small batch. For each, append a `steer_applied`
+`steer_message` events with `seq >` the highest `source_seq` across this
+session's `steer_applied` and `steer_withdrawn` events, capped at a small
+batch. For each, append a `steer_applied`
 event, and push it onto the loop's local `allEvents` so the fold that follows
 includes it. The applied high-water mark is derived from the log on entry to
 `runLoop`, so `Resume` and a compacted successor both recompute it rather than
@@ -256,9 +258,44 @@ This is a store read per sub-turn against an indexed `(session_id, kind, seq)`
 predicate, on a loop whose other step is a multi-second API call. It is not a
 cost worth designing around.
 
-**A steer on a wedged run is not lost, only unapplied.** It sits in the log as
-a `steer_message` with no `steer_applied`, which is exactly what a client
-should show: *sent, not yet delivered*.
+**A steer on a wedged run stays unapplied while the run is wedged.** It sits
+in the log as a `steer_message` with no `steer_applied`, which is exactly what
+a client should show: *sent, not yet delivered*.
+
+### A steer the run never reached
+
+A run can end with no sub-turn boundary after a steer: the model answers with
+no tool calls, calls `Complete`, runs out of sub-turns, is stopped, or fails.
+Left in the log, that steer would be applied at the first boundary of
+whichever run the session had next. A client that had sent it again as a new
+message would then have it delivered twice.
+
+`internal/stdiosession` closes each one when the run ends. After the loop
+returns, the host stops accepting appends and calls
+`store.WithdrawUnappliedSteers`, which appends one `steer_withdrawn` per
+outstanding steer, naming it by `source_seq`, in one write transaction. The
+high-water mark counts a withdrawn steer as consumed, so the next run's pickup
+starts past it. The terminal response names the withdrawn steers by the
+client's message ids ([STDIO-PROTOCOL.md](STDIO-PROTOCOL.md),
+"`responses.append`"), and the client decides whether to send any of them
+again.
+
+Three things keep an accepted steer from being lost between the two:
+
+- The append handler checks that the run is in progress and commits the
+  `steer_message` under one lock. The host takes the same lock before the run
+  leaves in progress and holds it through the sweep. An append either commits
+  before the sweep looks or is refused.
+- The handler records the client's message id under that lock too, and the
+  frame pump waits on the lock before translating a `steer_applied`, so an
+  applied steer's echo always carries its id.
+- `WithdrawUnappliedSteers` writes to a cancelled session, which
+  `AppendEvents` refuses ("Half two", above). A withdrawal adds nothing to the
+  conversation, and a stopped run is the likeliest to leave a steer behind.
+
+A process that dies before its run ends records no withdrawal. A session
+resumed from its state directory after that still applies those steers at its
+first boundary.
 
 ### The message array shape it produces
 

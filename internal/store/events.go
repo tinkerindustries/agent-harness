@@ -26,6 +26,7 @@ const (
 	KindError          EventKind = "error"
 	KindSteerMessage   EventKind = "steer_message"
 	KindSteerApplied   EventKind = "steer_applied"
+	KindSteerWithdrawn EventKind = "steer_withdrawn"
 )
 
 // EventKind is the tag on an Event row that says how to decode its payload.
@@ -40,6 +41,7 @@ var EventKinds = []EventKind{
 	KindSessionStarted, KindTurnStarted, KindReasoningDelta, KindContentDelta,
 	KindToolCall, KindToolDenied, KindToolStdout, KindToolResult, KindUsage,
 	KindTurnFinished, KindRunFinished, KindError, KindSteerMessage, KindSteerApplied,
+	KindSteerWithdrawn,
 }
 
 // ValidEventKind reports whether name is a kind the event log can hold — the
@@ -293,6 +295,15 @@ type SteerAppliedPayload struct {
 	Role string `json:"role,omitempty"`
 }
 
+// SteerWithdrawnPayload closes a steer_message the model was never shown. A
+// host that ends a run with steers still unapplied records one per steer, so
+// the applied high-water mark moves past them and no later run delivers them
+// (docs/RUN-CONTROL.md "A steer the run never reached"). It contributes nothing
+// to the conversation.
+type SteerWithdrawnPayload struct {
+	SourceSeq int64 `json:"source_seq"`
+}
+
 // Event is one row of a session's append-only log, keyed by (session_id,
 // seq). Payload's shape depends on Kind; see events.go. The JSON tags are
 // load-bearing: the HTTP layer marshals Event directly onto the wire, for
@@ -434,16 +445,25 @@ func (s *Store) SteerMessagesAfter(ctx context.Context, sessionID string, afterS
 }
 
 // LastAppliedSteerSeq returns the highest SourceSeq across the session's
-// steer_applied events, or 0 when there are none. The session loop runs this
-// once when a run starts or resumes — not per sub-turn — so reading the
-// steer_applied payloads and taking the max in Go is simpler than SQL JSON
-// extraction, and those payloads are tiny.
+// steer_applied and steer_withdrawn events, or 0 when there are none. A
+// withdrawn steer counts as consumed, the same as an applied one: both close
+// the steer_message they name. The session loop runs this once when a run
+// starts or resumes — not per sub-turn — so reading the payloads and taking
+// the max in Go is simpler than SQL JSON extraction, and those payloads are
+// tiny.
 func (s *Store) LastAppliedSteerSeq(ctx context.Context, sessionID string) (int64, error) {
 	rows, err := s.readDB.QueryContext(ctx,
-		`SELECT payload FROM events WHERE session_id = ? AND kind = ?`, sessionID, KindSteerApplied)
+		`SELECT payload FROM events WHERE session_id = ? AND kind IN (?, ?)`,
+		sessionID, KindSteerApplied, KindSteerWithdrawn)
 	if err != nil {
 		return 0, err
 	}
+	return maxSourceSeq(rows)
+}
+
+// maxSourceSeq reads source_seq out of each payload row and returns the
+// highest. It closes rows.
+func maxSourceSeq(rows *sql.Rows) (int64, error) {
 	defer rows.Close()
 	var max int64
 	for rows.Next() {
@@ -451,13 +471,88 @@ func (s *Store) LastAppliedSteerSeq(ctx context.Context, sessionID string) (int6
 		if err := rows.Scan(&payload); err != nil {
 			return 0, err
 		}
-		var p SteerAppliedPayload
+		var p SteerWithdrawnPayload
 		if err := json.Unmarshal([]byte(payload), &p); err != nil {
-			return 0, fmt.Errorf("store: decode steer_applied payload: %w", err)
+			return 0, fmt.Errorf("store: decode steer source_seq payload: %w", err)
 		}
 		if p.SourceSeq > max {
 			max = p.SourceSeq
 		}
 	}
 	return max, rows.Err()
+}
+
+// WithdrawUnappliedSteers records a steer_withdrawn event for every
+// steer_message past the session's applied high-water mark, and returns the
+// seqs it withdrew in seq order. Reading the mark, finding the steers and
+// writing the withdrawals happen in one write transaction, so no other store
+// write lands between them.
+//
+// It writes to a cancelled session, which AppendEvents refuses. That fence
+// stops a wedged goroutine growing a stopped run's conversation; a withdrawal
+// adds nothing to the conversation and is the bookkeeping a stopped run needs
+// most, since a cancelled run is the likeliest to have left a steer unapplied.
+//
+// The caller must hold off new steer_message commits and the loop's own
+// pickup while this runs. internal/stdiosession calls it after a run's loop
+// has returned and after it has stopped accepting appends.
+func (s *Store) WithdrawUnappliedSteers(ctx context.Context, sessionID string) ([]int64, error) {
+	var withdrawn []int64
+	err := s.submit(ctx, func(tx *sql.Tx) error {
+		withdrawn = nil
+		rows, err := tx.Query(`SELECT payload FROM events WHERE session_id = ? AND kind IN (?, ?)`,
+			sessionID, KindSteerApplied, KindSteerWithdrawn)
+		if err != nil {
+			return err
+		}
+		mark, err := maxSourceSeq(rows)
+		if err != nil {
+			return err
+		}
+
+		seqRows, err := tx.Query(`SELECT seq FROM events WHERE session_id = ? AND kind = ? AND seq > ? ORDER BY seq ASC`,
+			sessionID, KindSteerMessage, mark)
+		if err != nil {
+			return err
+		}
+		for seqRows.Next() {
+			var seq int64
+			if err := seqRows.Scan(&seq); err != nil {
+				seqRows.Close()
+				return err
+			}
+			withdrawn = append(withdrawn, seq)
+		}
+		if err := seqRows.Close(); err != nil {
+			return err
+		}
+		if len(withdrawn) == 0 {
+			return nil
+		}
+
+		var maxSeq sql.NullInt64
+		if err := tx.QueryRow(`SELECT MAX(seq) FROM events WHERE session_id = ?`, sessionID).Scan(&maxSeq); err != nil {
+			return err
+		}
+		stmt, err := tx.Prepare(`INSERT INTO events (session_id, seq, kind, payload, created_at) VALUES (?, ?, ?, ?, ?)`)
+		if err != nil {
+			return err
+		}
+		defer stmt.Close()
+		createdAt := time.Now().UTC().Format(time.RFC3339Nano)
+		for i, source := range withdrawn {
+			payload, err := json.Marshal(SteerWithdrawnPayload{SourceSeq: source})
+			if err != nil {
+				return err
+			}
+			if _, err := stmt.Exec(sessionID, maxSeq.Int64+1+int64(i), string(KindSteerWithdrawn), string(payload), createdAt); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return withdrawn, nil
 }

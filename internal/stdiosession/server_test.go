@@ -305,15 +305,17 @@ func TestAppendSteersARunningInteraction(t *testing.T) {
 		callThen("call-1", "TodoWrite", `{"todos":[]}`),
 		answer("Steered."),
 	)
+	// The first request is held until the append is in, so the steer lands
+	// before the boundary that applies it. Released early, the run could
+	// reach its last sub-turn first and withdraw the steer instead.
+	held := f.script.hold(t, 0)
 	f.client.handshake(ClientCapabilities{})
 
 	var created CreateResult
 	if rerr := f.client.call(MethodResponsesCreate, f.createParams("start"), &created); rerr != nil {
 		t.Fatalf("interactions.create: %v", rerr)
 	}
-	// Wait until the run is under way before steering, so the append lands
-	// on a live interaction rather than racing its creation.
-	f.client.waitFor(NotifyOutputItemAdded)
+	held.waitArrived()
 
 	input, _ := json.Marshal("actually, do this instead")
 	var appended AppendResult
@@ -328,6 +330,7 @@ func TestAppendSteersARunningInteraction(t *testing.T) {
 	if appended.ResponseID != created.Response.ID || appended.Seq == 0 {
 		t.Errorf("append result = %+v", appended)
 	}
+	held.let()
 
 	seen := f.client.waitFor(NotifyResponseCompleted)
 	var steered *itemEvent
