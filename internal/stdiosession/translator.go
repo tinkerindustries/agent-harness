@@ -87,6 +87,10 @@ type RunView struct {
 	SubTurns int
 	Err      *RunError
 
+	// UnappliedMessageIDs are the client's ids for the steers withdrawn when
+	// the run ended, in commit order. Empty until it has ended.
+	UnappliedMessageIDs []string
+
 	// WithItems asks for the whole output array. A streaming create's first
 	// answer leaves it false; get, cancel and a stream:false create set it.
 	WithItems bool

@@ -220,6 +220,12 @@ type ResponseHarness struct {
 	// UpdatedAt is when the response last changed, which a long agentic run
 	// has and a single model call does not.
 	UpdatedAt string `json:"updated_at,omitempty"`
+	// UnappliedMessageIDs names, by the message_id each was appended under,
+	// the steers the run ended without applying, in the order they were
+	// committed. The harness withdrew them, so no later run applies them; a
+	// client that still wants one sent starts a new run with it
+	// (docs/STDIO-PROTOCOL.md, "responses.append").
+	UnappliedMessageIDs []string `json:"unapplied_message_ids,omitempty"`
 }
 
 // Error is the Responses error shape: a string code and a human-readable

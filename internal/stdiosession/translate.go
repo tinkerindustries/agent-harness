@@ -506,6 +506,8 @@ func (t *translator) Resource(v RunView) any {
 		Result:    v.Result,
 		SubTurns:  v.SubTurns,
 		UpdatedAt: v.Updated.Format(time.RFC3339),
+
+		UnappliedMessageIDs: v.UnappliedMessageIDs,
 	}
 	return out
 }

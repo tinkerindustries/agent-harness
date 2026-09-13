@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestSteerMessagesAfter pins the session loop's per-sub-turn steer query:
@@ -94,5 +95,84 @@ func TestLastAppliedSteerSeq(t *testing.T) {
 	}
 	if max != 9 {
 		t.Fatalf("expected the highest SourceSeq 9, got %d", max)
+	}
+}
+
+// TestWithdrawUnappliedSteers pins the sweep a host runs when a run ends:
+// every steer_message past the applied mark is closed with a steer_withdrawn
+// naming it, in seq order, and the mark then counts those steers as consumed,
+// so the next run's SteerMessagesAfter(mark) finds nothing. An applied steer
+// is left alone, and a second sweep withdraws nothing. It also writes to a
+// cancelled session, which AppendEvents refuses, because a cancelled run is
+// the one likeliest to leave a steer behind.
+func TestWithdrawUnappliedSteers(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	mustCreateSession(t, s, "sess-1")
+
+	if _, err := s.AppendEvents(ctx, "sess-1", []EventInput{
+		{Kind: KindSteerMessage, Payload: SteerMessagePayload{Text: "applied"}},
+		{Kind: KindSteerApplied, Payload: SteerAppliedPayload{SourceSeq: 1, Text: "applied", SubTurn: 1}},
+		{Kind: KindSteerMessage, Payload: SteerMessagePayload{Text: "late one"}},
+		{Kind: KindRunFinished, Payload: RunFinishedPayload{Reason: "no_tool_calls"}},
+		{Kind: KindSteerMessage, Payload: SteerMessagePayload{Text: "late two"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CancelRunningSession(ctx, "sess-1", time.Now().UTC()); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+
+	got, err := s.WithdrawUnappliedSteers(ctx, "sess-1")
+	if err != nil {
+		t.Fatalf("withdraw on a cancelled session: %v", err)
+	}
+	if len(got) != 2 || got[0] != 3 || got[1] != 5 {
+		t.Fatalf("withdrew %v, want [3 5]", got)
+	}
+
+	events, err := s.GetEvents(ctx, "sess-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sources []int64
+	for _, e := range events {
+		if e.Kind != KindSteerWithdrawn {
+			continue
+		}
+		var p SteerWithdrawnPayload
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			t.Fatal(err)
+		}
+		sources = append(sources, p.SourceSeq)
+	}
+	if len(sources) != 2 || sources[0] != 3 || sources[1] != 5 {
+		t.Fatalf("steer_withdrawn source seqs = %v, want [3 5]", sources)
+	}
+	if last := events[len(events)-1].Seq; last != 7 {
+		t.Errorf("last seq = %d, want 7: the withdrawals follow the log's tail", last)
+	}
+
+	mark, err := s.LastAppliedSteerSeq(ctx, "sess-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mark != 5 {
+		t.Fatalf("mark after withdrawal = %d, want 5", mark)
+	}
+	pending, err := s.SteerMessagesAfter(ctx, "sess-1", mark, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("%d steers still pending past the mark after withdrawal", len(pending))
+	}
+
+	again, err := s.WithdrawUnappliedSteers(ctx, "sess-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again) != 0 {
+		t.Errorf("a second sweep withdrew %v", again)
 	}
 }
