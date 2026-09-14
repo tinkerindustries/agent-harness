@@ -72,15 +72,16 @@ K3 costs roughly 20× more on a cache miss and 25× more on output, off-peak.
 This table originally compared K3 against `deepseek-v4-pro` at about 7×/17×;
 DeepSeek cut deepseek-flash's rate on 2026-09-10 and this harness has since
 stopped routing `deepseek-v4-pro`, widening the gap
-(`internal/settings/registry.go`'s comments on
-`run.max_sub_turns_kimi_k3` and `run.compaction_threshold_kimi_k3` carry the
-current numbers). The cache-hit-to-miss ratio is 10× rather than DeepSeek's
+(`internal/settings/registry.go`'s description of
+`run.compaction_threshold_kimi_k3` carries the current numbers). The cache-hit-to-miss ratio is 10× rather than DeepSeek's
 50×, so the frozen-head discipline still pays but protects less of the bill.
 
-The practical consequence: K3 cannot inherit the DeepSeek run budget. A run
-that is affordable at `deepseek-flash` output rates is not affordable at K3's.
-`run.max_sub_turns` and `run.compaction_threshold` need per-model resolution,
-or K3 needs its own lower ceilings.
+The practical consequence: K3 cannot inherit DeepSeek's compaction threshold.
+A full-prompt cache miss at 768K tokens is cheap at `deepseek-flash` input
+rates and dear at K3's, so `run.compaction_threshold` resolves per model and
+K3 has its own lower threshold, `run.compaction_threshold_kimi_k3`. A run has
+no sub-turn ceiling on any model, so nothing bounds how many sub-turns of K3
+output a run buys. A caller that needs that bound cancels the run.
 
 ## 4. The seams
 
@@ -287,7 +288,7 @@ Route a full session through the Kimi dialect. Confirm streamed reasoning and
 tool-call deltas assemble correctly, that Preserved Thinking replay is accepted
 across sub-turns, and that the prefix cache actually hits — Kimi's 256-token
 floor and the effort-switching rule both need observing rather than assuming.
-Set K3's own `run.max_sub_turns` and compaction ceiling per §3.
+Set K3's own compaction threshold per §3.
 
 Verify: a live multi-tool run end to end, `internal/cache` reporting hits, and
 recorded cost matching the price table. Findings go in

@@ -129,8 +129,7 @@ wedged goroutine ever wakes:
 
 This is worth more than tidiness: it is a second, independent stop. A wedged
 goroutine that wakes finds its next append refused, fails the run, and unwinds
-— so the leak is bounded by the wedged syscall, not by the run's remaining
-sub-turn budget.
+— so the leak ends at the wedged syscall.
 
 **A cancel must not relabel a run that finished first.**
 `store.CancelRunningSession` refuses any row that is already terminal with a
@@ -265,7 +264,7 @@ a client should show: *sent, not yet delivered*.
 ### A steer the run never reached
 
 A run can end with no sub-turn boundary after a steer: the model answers with
-no tool calls, calls `Complete`, runs out of sub-turns, is stopped, or fails.
+no tool calls, calls `Complete`, is stopped, or fails.
 Left in the log, that steer would be applied at the first boundary of
 whichever run the session had next. A client that had sent it again as a new
 message would then have it delivered twice.

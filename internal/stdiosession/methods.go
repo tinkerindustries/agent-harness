@@ -233,9 +233,11 @@ type CreateHarness struct {
 	// Deny is the substring patterns a tool call's descriptor is refused
 	// for. It only ever subtracts from what PermissionMode allows.
 	Deny []string `json:"deny,omitempty"`
-	// MaxSubTurns caps how many sub-turns the run may take. Zero is the
-	// harness's own default.
-	MaxSubTurns int `json:"max_sub_turns,omitempty"`
+	// MaxSubTurns is decoded only so a create that names it can be refused.
+	// A run has no sub-turn ceiling, and a client that asked for one must
+	// not start a run it believes is bounded (docs/STDIO-PROTOCOL.md, "No
+	// sub-turn ceiling").
+	MaxSubTurns json.RawMessage `json:"max_sub_turns,omitempty"`
 	// MessageID is echoed back on the user message item this input becomes,
 	// so a parent that optimistically rendered the message can match the
 	// echo to it.

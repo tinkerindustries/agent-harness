@@ -23,8 +23,8 @@ type ResumeOptions struct {
 	SessionID string
 	// Prompt, when non-empty, is appended as a new user message before the
 	// loop continues. Left empty, Resume just re-runs sub-turns against the
-	// session's existing log — the shape a run that stopped at
-	// MaxSubTurns without finishing needs.
+	// session's existing log — the shape a run that was stopped or failed
+	// between sub-turns needs.
 	Prompt string
 	// AttachmentIDs names the images the continuation carries, as rows of
 	// the attachments table (docs/RUN-CONTROL.md, "Images in the composer").
@@ -33,7 +33,6 @@ type ResumeOptions struct {
 	// workspace itself, before the message naming them is appended.
 	AttachmentIDs []string
 	MaxTokens     int
-	MaxSubTurns   int
 }
 
 // Resume continues a session that reached a terminal status. It refuses a
@@ -113,9 +112,9 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 		PromptVariant: sess.PromptVariant,
 		MaxTokens:     opts.MaxTokens, Workspace: sess.Workspace,
 		PermissionMode: tools.Mode(sess.PermissionMode), Deny: sess.DenyPatterns,
-		ResultSchema: sess.ResultSchema, MaxSubTurns: opts.MaxSubTurns,
-		ParentID: sess.ParentID,
-		JobType:  sess.JobType, ParentAgentType: sess.ParentAgentType, ParentAgentID: sess.ParentAgentID,
+		ResultSchema: sess.ResultSchema,
+		ParentID:     sess.ParentID,
+		JobType:      sess.JobType, ParentAgentType: sess.ParentAgentType, ParentAgentID: sess.ParentAgentID,
 		ParentIsUser: sess.ParentIsUser,
 		SessionID:    sess.ID,
 		Tools:        toolArray,

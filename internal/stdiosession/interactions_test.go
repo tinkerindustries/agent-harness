@@ -226,6 +226,29 @@ func TestInteractionsRefusesAnAgent(t *testing.T) {
 	}
 }
 
+// TestInteractionsRefusesMaxSubTurns pins that the Interactions vocabulary
+// refuses harness.max_sub_turns the same way the Responses one does: a run
+// has no sub-turn ceiling, and a client that asked for one must not get a
+// run it believes is bounded.
+func TestInteractionsRefusesMaxSubTurns(t *testing.T) {
+	useDialect(t, NewInteractions())
+	f := newFixture(t, answer("unused"))
+	f.client.handshake(ClientCapabilities{})
+
+	params := map[string]any{
+		"model":   testModel,
+		"input":   "do a thing",
+		"harness": map[string]any{"cwd": f.cwd, "max_sub_turns": 200},
+	}
+	rerr := f.client.call(MethodInteractionsCreate, params, nil)
+	if rerr == nil {
+		t.Fatal("a create naming harness.max_sub_turns was accepted")
+	}
+	if rerr.Code != CodeUnsupported {
+		t.Errorf("code = %d, want %d", rerr.Code, CodeUnsupported)
+	}
+}
+
 // TestInteractionsHandshakeSpellsGoogle pins the three parts of the
 // handshake the two vocabularies disagree about.
 func TestInteractionsHandshakeSpellsGoogle(t *testing.T) {

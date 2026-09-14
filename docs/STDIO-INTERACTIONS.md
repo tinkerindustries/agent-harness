@@ -288,7 +288,6 @@ Google's create-interaction body, narrowed, plus a `harness` block.
     "resume_session_id": "sess-3b71…",
     "permission_mode": "full",
     "deny": ["rm -rf", "git push"],
-    "max_sub_turns": 200,
     "message_id": "msg-1",
     "title": "Retry path test",
     "description": "Cover the 429 branch"
@@ -313,9 +312,27 @@ Google's create-interaction body, narrowed, plus a `harness` block.
 | `harness.resume_session_id` | no | Continue that session, read out of the state directory. See [Resuming across process restarts](#resuming-across-process-restarts). |
 | `harness.permission_mode` | no | `readonly` (default) or `full`. See [Permissions](#permissions). |
 | `harness.deny` | no | Substring patterns matched against a call's descriptor. Only ever subtracts from what the mode allows. |
-| `harness.max_sub_turns` | no | Ceiling on how many model round-trips the run may take. Zero is the harness default. |
+| `harness.max_sub_turns` | — | **Refused** with `-32004`, whatever its value. See [No sub-turn ceiling](#no-sub-turn-ceiling). |
 | `harness.message_id` | no | Echoed on the `user_input` step this input becomes. |
 | `harness.title`, `harness.description` | no | Name the run in this harness's own records. |
+
+#### No sub-turn ceiling
+
+A run takes as many sub-turns as it needs. It ends when the model answers
+without a tool call, calls `Complete`, has `Complete` rejected three times
+running with the same error, fails, or is cancelled. Nothing counts sub-turns
+against it. A parent that wants a run bounded cancels it with
+`interactions.cancel`.
+
+A create that names `harness.max_sub_turns` is refused with `-32004`, whatever
+the value, including zero. A parent that sends the field is asking for a
+ceiling, and a run started without one would not be the run it asked for.
+The refusal tells that parent at once. An ignored field would leave it
+believing the run was bounded.
+
+A session row an earlier binary finished at its sub-turn ceiling carries the
+stored status `max_turns`. It still loads, and `harness.resume_session_id`
+continues it like any other finished session.
 
 **Result.** With `stream` true or absent, the answer is the interaction as at
 `interaction.created` and the steps follow as notifications:
@@ -378,8 +395,7 @@ instead.
 
 **A steer the run never reaches is withdrawn.** The loop applies a steer only
 at a sub-turn boundary. A run can end with no boundary after the steer: the
-model answers with no tool calls, calls `Complete`, hits
-`harness.max_sub_turns`, is cancelled, or fails. Every steer still unapplied
+model answers with no tool calls, calls `Complete`, is cancelled, or fails. Every steer still unapplied
 at that point is withdrawn. The model never sees it, and no later interaction
 in the session applies it. The interaction lists the withdrawn steers'
 `message_id`s in `harness.unapplied_message_ids`, in the order they were
@@ -818,7 +834,7 @@ client has the vendor's string code as well as this protocol's numeric one.
 | `-32001` | interaction not found | An interaction id this process never minted, or has deleted. |
 | `-32002` | interaction not running | An append or delete against an interaction that is not `in_progress`. |
 | `-32003` | credentials missing | `interactions.create` with no API key in the environment. |
-| `-32004` | unsupported | `agent`; a server-side tool type; an `mcp_server` tool with no MCP client; image input. |
+| `-32004` | unsupported | `agent`; `harness.max_sub_turns`; a server-side tool type; an `mcp_server` tool with no MCP client; image input. |
 | `-32005` | session not found | A `harness.resume_session_id` this process's state directory holds no session for. |
 | `-32006` | toolset mismatch | A resuming create whose tools do not reproduce the array the session froze. |
 
@@ -833,16 +849,15 @@ answered. They arrive as an `error` notification followed by
 | --- | --- |
 | `in_progress` | Running. |
 | `completed` | The run ended on its own terms. `harness.reason` says which way. |
-| `incomplete` | The run hit `harness.max_sub_turns`. Continuing it with `previous_interaction_id` is the sensible next move. |
 | `cancelled` | `interactions.cancel`, `shutdown`, or stdin closing. |
 | `failed` | The loop could not finish: a model error, a transport failure, a store failure. |
 
 `harness.reason` on a completed interaction is `complete` (the agent called
 `Complete`), `no_tool_calls` (it answered and asked for nothing else),
-`max_sub_turns`, `complete_rejected` (its structured result failed the schema),
-or `cancelled`. Google's status enum does not separate an agent that finished
-from one that ran out of room, and the difference decides whether a parent
-offers to continue.
+`complete_rejected` (its structured result failed the schema), or `cancelled`.
+Google's status enum does not separate an agent that called `Complete` from
+one that answered without a tool call. This process never sends the surface's
+`incomplete` status.
 
 `harness.unapplied_message_ids` on an interaction that is no longer
 `in_progress` names the steers the run ended without applying, whatever its

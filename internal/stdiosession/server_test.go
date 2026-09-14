@@ -542,6 +542,16 @@ func TestRefusals(t *testing.T) {
 			t.Fatalf("web_search was accepted or misreported: %v", rerr)
 		}
 	})
+	t.Run("max_sub_turns", func(t *testing.T) {
+		p := base
+		h := *base.Harness
+		h.MaxSubTurns = json.RawMessage(`200`)
+		p.Harness = &h
+		rerr := f.client.call(MethodResponsesCreate, p, nil)
+		if rerr == nil || rerr.Code != CodeUnsupported || !strings.Contains(rerr.Message, "harness.max_sub_turns") {
+			t.Fatalf("harness.max_sub_turns was accepted or misreported: %v", rerr)
+		}
+	})
 	t.Run("unknown model", func(t *testing.T) {
 		p := base
 		p.Model = "gpt-9"

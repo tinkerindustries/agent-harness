@@ -77,7 +77,6 @@ const (
 const (
 	StatusInProgress = "in_progress"
 	StatusCompleted  = "completed"
-	StatusIncomplete = "incomplete"
 	StatusFailed     = "failed"
 	StatusCancelled  = "cancelled"
 )
@@ -203,10 +202,9 @@ type ResponseHarness struct {
 	// should quote; the response id is derived from it.
 	SessionID string `json:"session_id,omitempty"`
 	// Reason is why the run ended — "complete", "no_tool_calls",
-	// "max_sub_turns", "complete_rejected", "cancelled". The status enum
-	// does not separate an agent that finished from one that ran out of
-	// sub-turns, and the difference decides whether a parent offers to
-	// continue.
+	// "complete_rejected", "cancelled". The status enum does not separate
+	// an agent that called Complete from one that answered without a tool
+	// call.
 	Reason string `json:"reason,omitempty"`
 	// Text is the final assistant message of the run — the surface's own
 	// `output_text` convenience, computed here so a parent does not have to

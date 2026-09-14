@@ -494,8 +494,8 @@ func TestRunDoneSetsCompleteStatus(t *testing.T) {
 // correcting anything, and the loop must stop paying for it: one run
 // spent eleven sub-turns and 7% of its budget on identical rejections
 // (docs/reviews/sess-bb6c0ed564ddae573c3b1832cb3981f4.md). The server here
-// answers every request with the same schema-failing Complete, so an unbounded
-// loop would run to the sub-turn limit.
+// answers every request with the same schema-failing Complete, so without the
+// rejection count the run would never end.
 func TestRepeatedCompleteRejectionsEndTheRun(t *testing.T) {
 	srv := completeToolServer(t, "done", "fixed it")
 	defer srv.Close()
@@ -505,7 +505,6 @@ func TestRepeatedCompleteRejectionsEndTheRun(t *testing.T) {
 	res, err := r.Run(t.Context(), RunOptions{
 		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "fix the bug",
-		MaxSubTurns:  50,
 		ResultSchema: json.RawMessage(`{"type":"object","properties":{"count":{"type":"integer"}},"required":["count"]}`),
 	})
 	if err != nil {
@@ -546,14 +545,22 @@ func TestRepeatedCompleteRejectionsEndTheRun(t *testing.T) {
 func TestDifferingCompleteRejectionsDoNotAccumulate(t *testing.T) {
 	var n int
 	var mu sync.Mutex
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		n++
 		i := n
 		mu.Unlock()
+		// The run has no other way to end, so the test stops it after five
+		// rejections.
+		if i > 5 {
+			cancel()
+			return
+		}
 		// Alternating between a wrong type and a missing property means no
 		// two consecutive rejections carry the same message, so the run
-		// should keep going and exhaust its sub-turn budget instead.
+		// should keep going until the test stops it.
 		result := `{"count":"not a number"}`
 		if i%2 == 0 {
 			result = `{}`
@@ -576,20 +583,22 @@ func TestDifferingCompleteRejectionsDoNotAccumulate(t *testing.T) {
 	defer srv.Close()
 	r := newTestRunner(t, srv.URL)
 
-	res, err := r.Run(t.Context(), RunOptions{
+	res, err := r.Run(ctx, RunOptions{
 		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: t.TempDir(), PermissionMode: tools.ModeFull, Prompt: "fix the bug",
-		MaxSubTurns:  5,
 		ResultSchema: json.RawMessage(`{"type":"object","properties":{"count":{"type":"integer"}},"required":["count"]}`),
 	})
-	if err != nil {
-		t.Fatalf("Run: %v", err)
+	if err == nil {
+		t.Fatal("Run: expected the cancellation as an error")
 	}
 	if res.Reason == ReasonCompleteRejected {
 		t.Fatal("distinct rejections must not be counted as one stuck loop")
 	}
+	if res.Status != store.StatusCancelled {
+		t.Fatalf("expected the run to end cancelled, got %s", res.Status)
+	}
 	if res.SubTurns != 5 {
-		t.Fatalf("expected the run to reach its sub-turn limit, got %d", res.SubTurns)
+		t.Fatalf("expected five completed sub-turns before the cancel, got %d", res.SubTurns)
 	}
 }
 

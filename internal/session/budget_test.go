@@ -37,28 +37,17 @@ func budgetRunner(store *fakeSettingsStore) *Runner {
 	return r
 }
 
-// TestPerModelRunBudgetResolution pins the resolution order for both budget
-// keys: kimi-k3 resolves its own ceilings (the registry defaults when
-// nothing is stored), every other model — known or not — resolves the
-// global values, and a stored per-model value beats the model's default
-// while never leaking onto other models.
+// TestPerModelRunBudgetResolution pins the resolution order for the
+// compaction threshold: kimi-k3 resolves its own (the registry default when
+// nothing is stored), every other model — known or not — resolves the global
+// value, and a stored per-model value beats the model's default while never
+// leaking onto other models.
 func TestPerModelRunBudgetResolution(t *testing.T) {
 	ctx := context.Background()
 
-	// Nothing stored: kimi-k3 gets its own registry defaults, the rest get
-	// the global ones.
+	// Nothing stored: kimi-k3 gets its own registry default, the rest get
+	// the global one.
 	r := budgetRunner(&fakeSettingsStore{values: map[string]string{}})
-	if got := r.maxSubTurns(ctx, "kimi-k3"); got != KimiK3MaxSubTurns {
-		t.Errorf("maxSubTurns(kimi-k3) with nothing stored = %d, want %d", got, KimiK3MaxSubTurns)
-	}
-	if got := r.maxSubTurns(ctx, "deepseek-v4-pro"); got != DefaultMaxSubTurns {
-		t.Errorf("maxSubTurns(deepseek-v4-pro) with nothing stored = %d, want %d", got, DefaultMaxSubTurns)
-	}
-	// A model with no override — including one nobody has heard of —
-	// resolves the global default, unchanged.
-	if got := r.maxSubTurns(ctx, "no-such-model"); got != DefaultMaxSubTurns {
-		t.Errorf("maxSubTurns(no-such-model) with nothing stored = %d, want %d", got, DefaultMaxSubTurns)
-	}
 	if got := r.compactionThreshold(ctx, "kimi-k3"); got != KimiK3CompactionThresholdTokens {
 		t.Errorf("compactionThreshold(kimi-k3) with nothing stored = %d, want %d", got, KimiK3CompactionThresholdTokens)
 	}
@@ -72,20 +61,9 @@ func TestPerModelRunBudgetResolution(t *testing.T) {
 	// A stored per-model value applies to kimi-k3 and to nobody else, and a
 	// stored global value applies to everyone without an override.
 	r = budgetRunner(&fakeSettingsStore{values: map[string]string{
-		settings.KeyRunMaxSubTurnsKimiK3:         "50",
 		settings.KeyRunCompactionThresholdKimiK3: "65536",
-		settings.KeyRunMaxSubTurns:               "300",
 		settings.KeyRunCompactionThreshold:       "524288",
 	}})
-	if got := r.maxSubTurns(ctx, "kimi-k3"); got != 50 {
-		t.Errorf("maxSubTurns(kimi-k3) with per-model value = %d, want 50", got)
-	}
-	if got := r.maxSubTurns(ctx, "deepseek-v4-pro"); got != 300 {
-		t.Errorf("maxSubTurns(deepseek-v4-pro) with global value = %d, want 300", got)
-	}
-	if got := r.maxSubTurns(ctx, "no-such-model"); got != 300 {
-		t.Errorf("maxSubTurns(no-such-model) with global value = %d, want 300", got)
-	}
 	if got := r.compactionThreshold(ctx, "kimi-k3"); got != 65536 {
 		t.Errorf("compactionThreshold(kimi-k3) with per-model value = %d, want 65536", got)
 	}
@@ -93,34 +71,20 @@ func TestPerModelRunBudgetResolution(t *testing.T) {
 		t.Errorf("compactionThreshold(deepseek-v4-pro) with global value = %d, want 524288", got)
 	}
 
-	// The Runner-level fields keep their precedence: an explicit override
-	// wins for every model, exactly as before the per-model resolution
-	// existed.
+	// The Runner-level field keeps its precedence: an explicit override
+	// wins for every model.
 	r = budgetRunner(&fakeSettingsStore{values: map[string]string{
-		settings.KeyRunMaxSubTurnsKimiK3: "50",
+		settings.KeyRunCompactionThresholdKimiK3: "65536",
 	}})
-	r.MaxSubTurns = 40
 	r.CompactionThresholdTokens = 500
-	if got := r.maxSubTurns(ctx, "kimi-k3"); got != 40 {
-		t.Errorf("maxSubTurns(kimi-k3) with Runner override = %d, want 40", got)
-	}
-	if got := r.maxSubTurns(ctx, "deepseek-v4-pro"); got != 40 {
-		t.Errorf("maxSubTurns(deepseek-v4-pro) with Runner override = %d, want 40", got)
-	}
 	if got := r.compactionThreshold(ctx, "kimi-k3"); got != 500 {
 		t.Errorf("compactionThreshold(kimi-k3) with Runner override = %d, want 500", got)
 	}
 
-	// Nil settings resolver (the test path): the per-model constants still
-	// apply — the registry defaults are pinned equal to them by
+	// Nil settings resolver (the test path): the per-model constant still
+	// applies — the registry default is pinned equal to it by
 	// internal/settings/registry_test.go.
 	r = budgetRunner(nil)
-	if got := r.maxSubTurns(ctx, "kimi-k3"); got != KimiK3MaxSubTurns {
-		t.Errorf("maxSubTurns(kimi-k3) with nil resolver = %d, want %d", got, KimiK3MaxSubTurns)
-	}
-	if got := r.maxSubTurns(ctx, "deepseek-v4-pro"); got != DefaultMaxSubTurns {
-		t.Errorf("maxSubTurns(deepseek-v4-pro) with nil resolver = %d, want %d", got, DefaultMaxSubTurns)
-	}
 	if got := r.compactionThreshold(ctx, "kimi-k3"); got != KimiK3CompactionThresholdTokens {
 		t.Errorf("compactionThreshold(kimi-k3) with nil resolver = %d, want %d", got, KimiK3CompactionThresholdTokens)
 	}

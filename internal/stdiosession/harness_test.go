@@ -374,8 +374,6 @@ func newFixtureIn(t *testing.T, dir, cwd string, streams ...string) *fixture {
 		Client:    gc,
 		ClientFor: func(string) session.Client { return gc },
 		Hub:       eventHub,
-		// A small ceiling keeps a misbehaving script from looping.
-		MaxSubTurns: 8,
 	}
 
 	// A real manager, so the mcp_server path — registering a declaration,

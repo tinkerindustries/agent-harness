@@ -459,8 +459,10 @@ func TestResumeOfASessionCancelledBeforeItsFirstTurnDoesNotHang(t *testing.T) {
 }
 
 // TestResumeWithoutPromptContinuesTheExistingTask exercises Resume with an
-// empty Prompt — the shape a run that stopped at MaxSubTurns without
-// finishing needs: pick the loop back up with no new user message appended.
+// empty Prompt: pick the loop back up with no new user message appended. The
+// session row carries max_turns, the status an earlier binary wrote for a run
+// that reached its sub-turn ceiling, which a row in a kept state directory can
+// still hold and which must still resume.
 func TestResumeWithoutPromptContinuesTheExistingTask(t *testing.T) {
 	var calls atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -481,8 +483,7 @@ func TestResumeWithoutPromptContinuesTheExistingTask(t *testing.T) {
 
 		w.Header().Set("Content-Type", "text/event-stream")
 		if n == 1 {
-			// First sub-turn: a tool call that keeps the loop going, so the
-			// session ends at max_sub_turns rather than finishing outright.
+			// First sub-turn: a tool call that keeps the loop going.
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
@@ -493,6 +494,13 @@ func TestResumeWithoutPromptContinuesTheExistingTask(t *testing.T) {
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishToolCalls)}},
 				Usage:   &wire.Usage{PromptTokens: 300, PromptCacheHitTokens: 0, PromptCacheMissTokens: 300, CompletionTokens: 5},
 			})
+		} else if n == 2 {
+			// The first run's second request fails, ending it between
+			// sub-turns with one turn in the log.
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error":{"message":"end the first run here","type":"invalid_request_error"}}`)
+			return
 		} else {
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{Role: "assistant", Content: strPtr("done now")}}},
@@ -512,24 +520,36 @@ func TestResumeWithoutPromptContinuesTheExistingTask(t *testing.T) {
 	first, err := r.Run(t.Context(), RunOptions{
 		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "start a task",
-		MaxSubTurns: 1,
 	})
-	if err != nil {
-		t.Fatalf("Run: %v", err)
+	if err == nil {
+		t.Fatal("Run: expected the first run to fail on its second request")
 	}
-	if first.Status != store.StatusMaxTurns {
-		t.Fatalf("expected the first run to stop at max_turns, got %s", first.Status)
+	if first.SubTurns != 1 {
+		t.Fatalf("expected the first run to end after one sub-turn, got %d", first.SubTurns)
+	}
+	finished := time.Now().UTC()
+	if err := r.Store.UpdateSessionStatus(t.Context(), first.SessionID, store.StatusMaxTurns, &finished); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := r.Store.GetSession(t.Context(), first.SessionID)
+	if err != nil {
+		t.Fatalf("load a max_turns row: %v", err)
+	}
+	if loaded.Status != store.StatusMaxTurns {
+		t.Fatalf("stored status = %q, want %q", loaded.Status, store.StatusMaxTurns)
 	}
 
-	resumed, err := r.Resume(t.Context(), ResumeOptions{SessionID: first.SessionID, MaxTokens: 4000, MaxSubTurns: 5})
+	resumed, err := r.Resume(t.Context(), ResumeOptions{SessionID: first.SessionID, MaxTokens: 4000})
 	if err != nil {
 		t.Fatalf("Resume: %v", err)
 	}
 	if resumed.Status != store.StatusOK || resumed.Text != "done now" {
 		t.Fatalf("unexpected resumed result: %+v", resumed)
 	}
-	if resumed.SubTurns != 2 {
-		t.Fatalf("expected the resumed run to finish at sub-turn 2, got %d", resumed.SubTurns)
+	// The failed request opened sub-turn 2 before it failed, so the resumed
+	// run's numbering continues at 3.
+	if resumed.SubTurns != 3 {
+		t.Fatalf("expected the resumed run to finish at sub-turn 3, got %d", resumed.SubTurns)
 	}
 
 	events, err := r.Store.GetEvents(t.Context(), first.SessionID)
@@ -754,7 +774,7 @@ func TestResumeMaterialisesAttachmentsBeforeTheContinuation(t *testing.T) {
 // a screenshot and sending it without typing anything is a complete thing to
 // say, and the continuation it produces is the attachment block alone rather
 // than nothing at all — a resume with neither words nor images still appends
-// no session_started, which is the shape a run that stopped at MaxSubTurns
+// no session_started, which is the shape a run stopped between sub-turns
 // needs.
 func TestResumeWithImagesAndNoWordsIsAMessage(t *testing.T) {
 	srv := plainAnswerServer(t, "first answer")

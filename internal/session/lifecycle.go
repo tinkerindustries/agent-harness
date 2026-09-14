@@ -101,10 +101,10 @@ func (r *Runner) FailSetup(ctx context.Context, sessionID string, cause error) e
 }
 
 // Run drives one session from creation to a terminal state: a response with
-// no tool calls, a successful Complete call, exhausting MaxSubTurns, or an
-// unrecoverable error. The returned error is non-nil only for
-// infrastructure failures (store or stream errors); a task the model gave
-// up on is a normal RunResult, not an error.
+// no tool calls, a successful Complete call, a cancelled or expired context,
+// or an unrecoverable error. No count of sub-turns ends it. The returned
+// error is non-nil only for infrastructure failures (store or stream errors);
+// a task the model gave up on is a normal RunResult, not an error.
 func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	if opts.Model == "" {
 		return nil, errors.New("session: model is required")
@@ -268,20 +268,16 @@ func attachmentPaths(names []string) []string {
 	return attachment.WorkspacePaths(names)
 }
 
-// runLoop iterates sub-turns from startSubTurn through opts.MaxSubTurns (or
-// the Runner default) until the session reaches a terminal state. Both Run
-// and Resume end by calling this; they differ only in how curSess, allEvents,
-// executor, and detector got built — a fresh session versus one reloaded
-// from the store — and in where their own numbering starts.
+// runLoop iterates sub-turns from startSubTurn until the session reaches a
+// terminal state. Both Run and Resume end by calling this; they differ only
+// in how curSess, allEvents, executor, and detector got built — a fresh
+// session versus one reloaded from the store — and in where their own
+// numbering starts.
 func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents []store.Event, opts RunOptions,
 	executor *tools.Executor, detector *cache.Detector, startSubTurn int) (*RunResult, error) {
 
 	var agg Usage
 	var lastText string
-	maxTurns := opts.MaxSubTurns
-	if maxTurns <= 0 {
-		maxTurns = r.maxSubTurns(ctx, opts.Model)
-	}
 
 	// The applied-steer high-water mark is derived from the log, once, when a
 	// run starts or resumes — never carried in memory across runs, so Resume
@@ -334,7 +330,7 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 	// maxCompleteRejections.
 	lastCompleteError, completeRejections := "", 0
 
-	for subTurn := startSubTurn; subTurn <= maxTurns; subTurn++ {
+	for subTurn := startSubTurn; ; subTurn++ {
 		outcome, err := r.runSubTurn(ctx, curSess, &allEvents, opts, executor, detector, subTurn, &appliedSeq, &reminders, contextTokens)
 		if err != nil {
 			return r.fail(ctx, curSess, allEvents, subTurn-1, agg, err)
@@ -385,8 +381,6 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 			}
 		}
 	}
-
-	return r.finishRun(ctx, curSess, allEvents, "max_sub_turns", store.StatusMaxTurns, lastText, nil, "", "", agg, maxTurns)
 }
 
 // subagentRunner builds the closure Task uses to delegate to a nested,

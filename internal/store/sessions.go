@@ -11,7 +11,9 @@ import (
 	"github.com/mrgeoffrich/agent-harness/internal/agentmeta"
 )
 
-// Session statuses.
+// Session statuses. StatusMaxTurns is what an earlier binary wrote for a run
+// that reached its sub-turn ceiling. Nothing writes it now, and a row that
+// carries it still loads and resumes like any other terminal status.
 const (
 	StatusRunning   = "running"
 	StatusCreating  = "creating"
