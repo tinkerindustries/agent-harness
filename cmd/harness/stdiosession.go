@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/mrgeoffrich/agent-harness/internal/androiddns"
 	"github.com/mrgeoffrich/agent-harness/internal/config"
 	"github.com/mrgeoffrich/agent-harness/internal/deepseek"
 	"github.com/mrgeoffrich/agent-harness/internal/gemini"
@@ -68,6 +69,9 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 	}
 	log.SetOutput(os.Stderr)
 	log.SetPrefix("harness " + invoked + ": ")
+	if servers := androiddns.Install(); servers != nil {
+		log.Printf("no /etc/resolv.conf; resolving DNS through %s", strings.Join(servers, ", "))
+	}
 
 	// The keys arrive in the environment the parent spawned this process
 	// with. There is no settings store to read one from and no screen to

@@ -402,6 +402,12 @@ request without restarting anything (restart-flagged keys are the exception:
 they are read once at startup and marked as such). Depends on: the
 settings surface of `internal/store` only.
 
+### `internal/androiddns`
+Redirects Go's resolver to real name servers when a `CGO_ENABLED=0` build runs
+on Android, which has no `/etc/resolv.conf`. `cmd/harness` installs it at
+startup; it changes nothing on any other GOOS
+([`../docs/ANDROID.md`](../docs/ANDROID.md)). Depends on: nothing internal.
+
 ### `internal/pricing`
 The price table, loaded from JSON at runtime and carrying its own capture date.
 Depends on: nothing internal. §4.9.
