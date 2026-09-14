@@ -394,9 +394,15 @@ a run can see:
   second, so a client can render it live. The log's shape is unchanged and a
   reconnect rebuilds from it alone.
 
-Retry 429, 500, and 503 with exponential backoff and jitter. Do not retry 400,
-401, 402, or 422 — those are bugs or an empty account, and a retry burns a turn.
-Surface 402 distinctly: it means the balance is gone, not that the harness broke.
+Retry 429, 500, 502, 503, and 504 with exponential backoff and jitter for
+DeepSeek and Kimi K3: 502 and 504 are the reverse-proxy gateway in front of
+the API answering its own fault rather than the model backend's, the same
+class of error 500 and 503 already cover (docs/OBSERVED.md, "A gateway 502
+ended a run at sub-turn 91"). Gemini retries only 429, 500, and 503, for
+want of evidence that its Interactions API sits behind a comparable gateway
+(internal/gemini/retry.go). Do not retry 400, 401, 402, or 422 — those are
+bugs or an empty account, and a retry burns a turn. Surface 402 distinctly:
+it means the balance is gone, not that the harness broke.
 
 ### 4.6 Tools and permission policy
 

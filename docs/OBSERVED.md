@@ -1138,3 +1138,29 @@ failure. All three providers share the fix: DeepSeek's and Kimi's
 `StreamChatCompletion` route through it identically, and Gemini's does too,
 handing its own `pumpChatEvents` to `RetryStream` directly, since that
 method's signature already matches what `RetryStream` needs.
+
+## A gateway 502 ended a run at sub-turn 91
+
+Production, 2026-09-14, a Turret DeepSeek session on `deepseek-flash`, 90
+sub-turns in. Sub-turn 91's request hung for about two minutes and then the
+reverse-proxy gateway in front of DeepSeek's API answered with a plain 502,
+HTML rather than the `{"error": {...}}` envelope DeepSeek's own errors take:
+
+    session: sub-turn 91: deepseek: 502 : <html>\r\n<head><title>502 Bad Gateway</title></head>…<center>openresty</center>…</html>
+
+`internal/deepseek.isRetryableStatus` retried only 429, 500, and 503 — the
+request never reached the model at all, so this was the gateway reporting
+its own fault, the same class of error 503 already covers, and there was no
+reason it should have ended the run any more than a 503 would have.
+
+**Fix.** `isRetryableStatus` retries 502 and 504 too, in both
+`internal/deepseek` and `internal/kimi` (whose own predicate already
+retried 504 on a documented 900-second gateway timeout, but not 502).
+`internal/gemini`'s predicate is unchanged: nothing documents or has been
+observed to show a comparable gateway in front of the Interactions API, so
+extending it there would be a guess rather than a citation — see
+`internal/gemini/retry.go` for where that evidence would go if it ever
+shows up. The decision is unaffected by the HTML body: `Transport.Do`
+classifies a response as retryable from `resp.StatusCode` alone, before
+anything reads or decodes the body, so an HTML gateway page and a JSON
+model error are retried or not on exactly the same basis.

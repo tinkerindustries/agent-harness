@@ -5,9 +5,9 @@ import "testing"
 // TestIsRetryableStatus pins the set retry.go's own comment argues for: the
 // three codes DeepSeek retries (429, 500, 503), on the strength of their
 // being the standard transient trio and the vendored docs' silence on this
-// endpoint's error behaviour rather than any Gemini-specific citation. 504
-// is deliberately absent — see retry.go for why that is not the same
-// omission.
+// endpoint's error behaviour rather than any Gemini-specific citation. 502
+// and 504 are deliberately absent, even though DeepSeek and Kimi now both
+// retry them — see retry.go for why that is not the same omission.
 func TestIsRetryableStatus(t *testing.T) {
 	retryable := []int{429, 500, 503}
 	notRetryable := []int{400, 401, 402, 403, 404, 422, 428, 502, 504, 200, 201, 301}
