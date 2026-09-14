@@ -1,6 +1,7 @@
 #!/bin/sh
 # The build, as one command, failing at the first thing that is wrong:
-# gofmt, vet, the Go suite, then the binary.
+# gofmt, vet, the Go suite, a CGO_ENABLED=0 build for every release
+# target, then the binary.
 #
 # Usage: scripts/build.sh
 set -eu
@@ -21,6 +22,13 @@ echo "clean"
 
 stage "tests"
 scripts/test.sh
+
+stage "cross-compile"
+for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 android/arm64 windows/amd64; do
+	CGO_ENABLED=0 GOOS="${target%/*}" GOARCH="${target#*/}" go build -o /dev/null ./cmd/harness \
+		|| die "CGO_ENABLED=0 build for $target"
+	echo "$target"
+done
 
 stage "go build"
 go build -o bin/harness ./cmd/harness

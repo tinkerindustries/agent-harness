@@ -21,7 +21,7 @@ shaped that way.
 
 | Task | Command |
 | --- | --- |
-| Build | `scripts/build.sh` — gofmt, vet, the suite, then the binary |
+| Build | `scripts/build.sh` — gofmt, vet, the suite, a `CGO_ENABLED=0` build per release target, then the binary |
 | Test | `scripts/test.sh` |
 | Format and vet | `gofmt -l cmd internal && go vet ./cmd/... ./internal/...` |
 | Run one session by hand | `go run ./cmd/harness stdio-session -env .env` |
@@ -72,6 +72,9 @@ suite is for.
   reach Google, so hosting one would need a second provider's key.
   `harness gemini-session` hosts the Gemini models alone: a client speaking
   Google's vocabulary has no way to drive another vendor's model through it.
+- **`docs/ANDROID.md`** covers running the binary under Termux, including
+  the DNS fallback a `CGO_ENABLED=0` build needs there
+  (`internal/androiddns`).
 - **`docs/MCP.md`** is the reference for MCP client support: an operator
   registers an external MCP server and its tools join the session's array
   (`internal/mcpclient`).

@@ -472,3 +472,15 @@ func TestBashExtraEnvIsGivenTheWorkspace(t *testing.T) {
 		t.Errorf("ExtraEnv was given %q, want the executor's workspace %q (from %q)", got, e.Workspace, dir)
 	}
 }
+
+func TestSystemShell(t *testing.T) {
+	for goos, want := range map[string]string{
+		"android": "/system/bin/sh",
+		"linux":   "/bin/sh",
+		"darwin":  "/bin/sh",
+	} {
+		if got := systemShell(goos); got != want {
+			t.Errorf("systemShell(%q) = %q, want %q", goos, got, want)
+		}
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -22,15 +23,23 @@ type bashArgs struct {
 }
 
 // shellPath is the shell every Bash call runs through: bash where it exists,
-// /bin/sh otherwise. The tool is named Bash and models write bash — arrays,
-// [[ ]], ${PIPESTATUS[0]} — which busybox ash rejects as a syntax error.
-// Resolved once, since PATH does not change under a running process.
+// the system sh otherwise. The tool is named Bash and models write bash —
+// arrays, [[ ]], ${PIPESTATUS[0]} — which busybox ash rejects as a syntax
+// error. Resolved once, since PATH does not change under a running process.
 var shellPath = sync.OnceValue(func() string {
 	if path, err := exec.LookPath("bash"); err == nil {
 		return path
 	}
-	return "/bin/sh"
+	return systemShell(runtime.GOOS)
 })
+
+// systemShell is where goos keeps its POSIX sh. Android has no /bin.
+func systemShell(goos string) string {
+	if goos == "android" {
+		return "/system/bin/sh"
+	}
+	return "/bin/sh"
+}
 
 // execBash implements Bash: foreground only, wall-clock timeout from ctx
 // (set in Executor.timeoutFor), output capped and labelled on truncation
