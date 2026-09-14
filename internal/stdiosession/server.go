@@ -323,6 +323,9 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 	if rerr != nil {
 		return nil, rerr
 	}
+	if p.Harness != nil && len(p.Harness.MaxSubTurns) > 0 {
+		return nil, errorf(CodeUnsupported, "harness.max_sub_turns: this process does not cap a run by sub-turns; a run ends when the model finishes or the client cancels it")
+	}
 	model := p.Model
 	if model == "" {
 		model = s.opts.DefaultModel
@@ -536,7 +539,6 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 		ParentIsUser: true,
 		Title:        harnessString(p.Harness, func(h *CreateHarness) string { return h.Title }),
 		Description:  harnessString(p.Harness, func(h *CreateHarness) string { return h.Description }),
-		MaxSubTurns:  harnessInt(p.Harness, func(h *CreateHarness) int { return h.MaxSubTurns }),
 	}
 	if schema := p.ResultSchema; len(schema) > 0 {
 		opts.ResultSchema = schema
@@ -551,7 +553,7 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 		if resume {
 			res, err = s.opts.Runner.Resume(runCtx, session.ResumeOptions{
 				SessionID: sessionID, Prompt: text,
-				MaxTokens: opts.MaxTokens, MaxSubTurns: opts.MaxSubTurns,
+				MaxTokens: opts.MaxTokens,
 			})
 		} else {
 			res, err = s.opts.Runner.Run(runCtx, opts)
@@ -662,15 +664,11 @@ func (s *Server) complete(it *run, tr Translator) {
 	tr.Completed(it.view(true))
 }
 
-// statusFor maps a run's terminal reason onto the surface's status enum. A
-// run that hit its sub-turn ceiling is `incomplete`, which is the same word
-// the surface uses for a generation cut short by a token cap; everything
-// else that ended on its own terms is `completed`, with harness.reason
-// carrying which way (internal/session, RunResult.Reason).
+// statusFor maps a run's terminal reason onto the surface's status enum: a
+// failed run is `failed`, and everything else that ended on its own terms is
+// `completed`, with harness.reason carrying which way (internal/session,
+// RunResult.Reason).
 func statusFor(res *session.RunResult) string {
-	if res.Reason == "max_sub_turns" {
-		return StatusIncomplete
-	}
 	if res.Status == store.StatusFailed {
 		return StatusFailed
 	}
@@ -977,13 +975,6 @@ func harnessString(h *CreateHarness, get func(*CreateHarness) string) string {
 func harnessSlice(h *CreateHarness, get func(*CreateHarness) []string) []string {
 	if h == nil {
 		return nil
-	}
-	return get(h)
-}
-
-func harnessInt(h *CreateHarness, get func(*CreateHarness) int) int {
-	if h == nil {
-		return 0
 	}
 	return get(h)
 }

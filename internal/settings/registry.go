@@ -53,8 +53,6 @@ const (
 	KeyGoogleVisionThinkingLevel = "google.vision_thinking_level"
 
 	KeyRunMaxTokens                 = "run.max_tokens"
-	KeyRunMaxSubTurns               = "run.max_sub_turns"
-	KeyRunMaxSubTurnsKimiK3         = "run.max_sub_turns_kimi_k3"
 	KeyRunDeadline                  = "run.deadline"
 	KeyRunCompactionThreshold       = "run.compaction_threshold"
 	KeyRunCompactionThresholdKimiK3 = "run.compaction_threshold_kimi_k3"
@@ -126,12 +124,8 @@ var registry = []Descriptor{
 	// --- Run budget ---
 	intSetting(KeyRunMaxTokens, GroupRunBudget, 48000, 1, 1_000_000,
 		"Default max output tokens for a run that omits max_tokens. The real ceiling is DeepSeek's output limit; this is the harness's own default."),
-	intSetting(KeyRunMaxSubTurns, GroupRunBudget, 400, 1, 1_000_000,
-		"Sub-turn budget a request that omits max_sub_turns gets. Chosen against run.deadline: a flash sub-turn averages about six seconds, so a full 400-sub-turn run needs roughly 40 minutes of wall clock. Raising one without the other does nothing."),
-	intSetting(KeyRunMaxSubTurnsKimiK3, GroupRunBudget, 100, 1, 1_000_000,
-		"Sub-turn budget a kimi-k3 request that omits max_sub_turns gets, replacing run.max_sub_turns for that model. K3 output costs $15.00/M against deepseek-flash's $0.60/M off-peak — about 25x (configs/prices.json) — so the global 400-sub-turn ceiling, chosen against DeepSeek's rates, would let a K3 run spend up to 25x a DeepSeek run's worst-case output. 100 caps the ceiling at a quarter of the sub-turns, bounding the worst case to roughly 6x DeepSeek's (100/400 of the budget at 25x the rate), while still leaving a multi-tool task room (docs/KIMI-INTEGRATION.md §3). DeepSeek cut deepseek-flash's rate on 2026-09-10; this ratio was about 17x and the bound about 4x against deepseek-v4-pro, the model this setting was originally sized against."),
 	durationSetting(KeyRunDeadline, GroupRunBudget, "1h", time.Second, 365*24*time.Hour,
-		"Wall clock a request that omits deadline_ms gets. Chosen against run.max_sub_turns: 400 sub-turns at roughly six seconds each need about 40 minutes, and this hour leaves headroom. Raising one without the other does nothing."),
+		"Wall clock a request that omits deadline_ms gets."),
 	intSetting(KeyRunCompactionThreshold, GroupRunBudget, 768*1024, 1024, 1_000_000,
 		"Prompt-token threshold at which the session compacts its history (DeepSeek's recommended Claude Code compaction window, 768K of the 1M context)"),
 	intSetting(KeyRunCompactionThresholdKimiK3, GroupRunBudget, 128*1024, 1024, 1_000_000,
@@ -256,21 +250,17 @@ func IsSecretKey(key string) bool {
 	return ok && d.Secret
 }
 
-// RunBudgetKeysForModel returns the settings keys whose per-model values
-// replace the global run budget for model — run.max_sub_turns_kimi_k3 and
-// run.compaction_threshold_kimi_k3 for kimi-k3 — and whether model has an
-// override. A model without an entry resolves the global keys, which keeps
-// the current values the default for every model without an override. The
-// table is the run-budget counterpart of the model→provider table in
-// internal/provider (docs/KIMI-INTEGRATION.md §4.3): one place, keyed by
-// name, so a model's own ceilings and the fallback for every other model
-// both read from the same source.
-func RunBudgetKeysForModel(model string) (maxSubTurnsKey, compactionKey string, ok bool) {
+// CompactionKeyForModel returns the settings key whose per-model value
+// replaces run.compaction_threshold for model — run.compaction_threshold_kimi_k3
+// for kimi-k3 — and whether model has an override. A model without an entry
+// resolves the global key. The table is the run-budget counterpart of the
+// model→provider table in internal/provider (docs/KIMI-INTEGRATION.md §4.3).
+func CompactionKeyForModel(model string) (string, bool) {
 	switch model {
 	case "kimi-k3":
-		return KeyRunMaxSubTurnsKimiK3, KeyRunCompactionThresholdKimiK3, true
+		return KeyRunCompactionThresholdKimiK3, true
 	}
-	return "", "", false
+	return "", false
 }
 
 // validate rejects value unless it fits the descriptor's type and bounds.

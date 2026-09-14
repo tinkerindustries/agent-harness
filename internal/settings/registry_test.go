@@ -24,8 +24,6 @@ func TestRegistryDefaultsMatchTheConstantsTheyReplaced(t *testing.T) {
 		want string
 	}{
 		{settings.KeyRunMaxTokens, "48000"},
-		{settings.KeyRunMaxSubTurns, "400"},
-		{settings.KeyRunMaxSubTurnsKimiK3, "100"},
 		{settings.KeyRunDeadline, "1h"},
 		{settings.KeyRunCompactionThreshold, "786432"},
 		{settings.KeyRunCompactionThresholdKimiK3, "131072"},
@@ -72,33 +70,38 @@ func TestRegistryDefaultsMatchTheConstantsTheyReplaced(t *testing.T) {
 	if got := tools.DefaultMCPTimeout; got != 120*time.Second {
 		t.Errorf("tools.DefaultMCPTimeout = %s, want 120s", got)
 	}
-	if got := session.DefaultMaxSubTurns; got != 400 {
-		t.Errorf("session.DefaultMaxSubTurns = %d, want 400", got)
-	}
 	if got := session.CompactionThresholdTokens; got != 768*1024 {
 		t.Errorf("session.CompactionThresholdTokens = %d, want 786432", got)
 	}
-	// The per-model constants are pinned the same way: kimi-k3's own
-	// ceilings live in both the registry and the session package's nil-path
+	// The per-model constant is pinned the same way: kimi-k3's own
+	// threshold lives in both the registry and the session package's nil-path
 	// fallback, and the two must not drift.
-	if got := session.KimiK3MaxSubTurns; got != 100 {
-		t.Errorf("session.KimiK3MaxSubTurns = %d, want 100", got)
-	}
 	if got := session.KimiK3CompactionThresholdTokens; got != 128*1024 {
 		t.Errorf("session.KimiK3CompactionThresholdTokens = %d, want 131072", got)
 	}
 }
 
-// TestRunBudgetKeysForModel pins the model→override-key table: kimi-k3 has
-// per-model run budget keys, every other model resolves the global keys.
-func TestRunBudgetKeysForModel(t *testing.T) {
-	key, _, ok := settings.RunBudgetKeysForModel("kimi-k3")
-	if !ok || key != settings.KeyRunMaxSubTurnsKimiK3 {
-		t.Errorf("RunBudgetKeysForModel(kimi-k3) = (%q, %v), want (%q, true)", key, ok, settings.KeyRunMaxSubTurnsKimiK3)
+// TestCompactionKeyForModel pins the model→override-key table: kimi-k3 has
+// its own compaction threshold key, every other model resolves the global key.
+func TestCompactionKeyForModel(t *testing.T) {
+	key, ok := settings.CompactionKeyForModel("kimi-k3")
+	if !ok || key != settings.KeyRunCompactionThresholdKimiK3 {
+		t.Errorf("CompactionKeyForModel(kimi-k3) = (%q, %v), want (%q, true)", key, ok, settings.KeyRunCompactionThresholdKimiK3)
 	}
 	for _, model := range []string{"deepseek-v4-pro", "deepseek-flash", "no-such-model"} {
-		if _, _, ok := settings.RunBudgetKeysForModel(model); ok {
-			t.Errorf("RunBudgetKeysForModel(%q) = ok, want no override", model)
+		if _, ok := settings.CompactionKeyForModel(model); ok {
+			t.Errorf("CompactionKeyForModel(%q) = ok, want no override", model)
+		}
+	}
+}
+
+// TestNoSubTurnSettings pins that the registry carries no sub-turn ceiling.
+// A run ends when the model finishes, the caller cancels, or a budget that
+// does not count turns stops it.
+func TestNoSubTurnSettings(t *testing.T) {
+	for _, key := range []string{"run.max_sub_turns", "run.max_sub_turns_kimi_k3"} {
+		if _, ok := settings.Lookup(key); ok {
+			t.Errorf("registry has an entry for %s", key)
 		}
 	}
 }

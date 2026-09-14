@@ -179,10 +179,9 @@ type iactInteractionHarness struct {
 	// should quote; the interaction id is derived from it.
 	SessionID string `json:"session_id,omitempty"`
 	// Reason is why the run ended — "complete", "no_tool_calls",
-	// "max_sub_turns", "complete_rejected", "cancelled". Google's status
-	// enum does not separate an agent that finished from one that ran out of
-	// sub-turns, and the difference decides whether a parent offers to
-	// continue.
+	// "complete_rejected", "cancelled". The status enum does not separate
+	// an agent that called Complete from one that answered without a tool
+	// call.
 	Reason string `json:"reason,omitempty"`
 	// Text is the final assistant message of the run.
 	Text string `json:"text,omitempty"`

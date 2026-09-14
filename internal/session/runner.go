@@ -7,8 +7,8 @@
 //
 // Runner's five jobs are split by file, all on the same type: this file
 // holds RunOptions, the Runner type itself, and the settings accessors
-// beside it (clientFor, acquireModelSlot, maxSubTurns, flashModel,
-// compactionThreshold); lifecycle.go is Create/FailSetup/Run and the loop
+// beside it (clientFor, acquireModelSlot, flashModel, compactionThreshold);
+// lifecycle.go is Create/FailSetup/Run and the loop
 // that drives a run to a terminal result; sinks.go is where a sub-turn's
 // output goes (the disk mirror, the hub); tooldispatch.go executes a
 // sub-turn's tool calls; livestate.go persists the plan and recent-calls
@@ -46,35 +46,22 @@ func seesImages(model string) bool {
 	return provider.SeesImages(model)
 }
 
-// DefaultMaxSubTurns and CompactionThresholdTokens are the built-in run
-// budget defaults when the Runner has no settings resolver attached (the
-// test path). Production resolves both through the settings registry
-// (run.max_sub_turns, run.compaction_threshold), which carries these exact
-// values as defaults; the two are pinned equal by
-// internal/settings/registry_test.go. The sub-turn budget's other home —
-// config's old defaultMaxSubTurns — was folded into the registry alongside
-// this one, so both read the same setting and cannot drift again
-// (docs/DESIGN.md §4.10).
-const DefaultMaxSubTurns = 400
-
-// CompactionThresholdTokens is DeepSeek's recommended Claude Code
+// CompactionThresholdTokens is the built-in compaction threshold when the
+// Runner has no settings resolver attached (the test path). Production
+// resolves it through the settings registry (run.compaction_threshold), which
+// carries this exact value as its default; the two are pinned equal by
+// internal/settings/registry_test.go. It is DeepSeek's recommended Claude Code
 // compaction window, 768K of the 1M context (docs/TOOLS.md, "Context and
 // compaction").
 const CompactionThresholdTokens = 768 * 1024
 
-// KimiK3MaxSubTurns and KimiK3CompactionThresholdTokens are kimi-k3's own
-// run budget ceilings, resolving ahead of the global defaults for that
-// model (run.max_sub_turns_kimi_k3 and run.compaction_threshold_kimi_k3 in
-// the settings registry, which carries these exact values as defaults; the
-// two are pinned equal by internal/settings/registry_test.go, the same way
-// the global pair above are). K3 output costs about 25x deepseek-flash's
-// and cache-miss input about 20x (configs/prices.json), so a sub-turn budget
-// chosen against DeepSeek's rates would let a K3 run spend an order of
-// magnitude more than the same run on the default model; these ceilings
-// bound that (docs/KIMI-INTEGRATION.md §3, internal/settings/registry.go's
-// own comment on run.max_sub_turns_kimi_k3).
-const KimiK3MaxSubTurns = 100
-
+// KimiK3CompactionThresholdTokens is kimi-k3's own compaction threshold,
+// resolving ahead of the global default for that model
+// (run.compaction_threshold_kimi_k3 in the settings registry, which carries
+// this exact value as its default and pins it equal the same way). K3
+// cache-miss input costs about 20x deepseek-flash's (configs/prices.json),
+// so a full-prompt miss at DeepSeek's threshold would cost an order of
+// magnitude more (docs/KIMI-INTEGRATION.md §3).
 const KimiK3CompactionThresholdTokens = 128 * 1024
 
 // RunOptions is everything one session run needs. It is deliberately flat
@@ -91,7 +78,6 @@ type RunOptions struct {
 	Deny           []string
 	Prompt         string
 	ResultSchema   json.RawMessage
-	MaxSubTurns    int
 	ParentID       string
 	JobType        string
 	// Title is the run's name, at most agentmeta.MaxTitleWords words, shown
@@ -263,9 +249,9 @@ type RunResult struct {
 	// tool call (docs/DESIGN.md §4.6) — not a sign of anything wrong.
 	CompleteStatus string
 	// Reason is run_finished's reason for the run ending: "complete",
-	// "no_tool_calls", "max_sub_turns", "complete_rejected". Status alone
-	// does not separate the ways a run can end without a valid result, and
-	// the queue result's error code is derived from this.
+	// "no_tool_calls", "complete_rejected". Status alone does not separate
+	// the ways a run can end without a valid result, and the queue result's
+	// error code is derived from this.
 	Reason string
 }
 
@@ -364,11 +350,10 @@ type Runner struct {
 	// their own file.
 	Recorder *httplog.Recorder
 
-	MaxSubTurns               int
 	CompactionThresholdTokens int
 
-	// Settings, when set, is where the run budget (run.max_sub_turns and
-	// run.compaction_threshold, plus the per-model keys that replace them for
+	// Settings, when set, is where the compaction threshold
+	// (run.compaction_threshold, plus the per-model key that replaces it for
 	// kimi-k3) and the flash model (model.flash) resolve from, read through
 	// the store on every call, so a key changed from the settings screen
 	// takes effect on the next session without a restart. Nil is the test
@@ -428,32 +413,6 @@ func (r *Runner) acquireModelSlot(ctx context.Context, model string) (func(), er
 	}
 }
 
-// maxSubTurns resolves the sub-turn budget for model: the Runner-level
-// override when set, else the model's own ceiling when it has one
-// (run.max_sub_turns_kimi_k3), else the global run.max_sub_turns, else the
-// package default. The per-model resolution is what keeps a K3 run from
-// inheriting a sub-turn budget chosen against DeepSeek's rates
-// (docs/KIMI-INTEGRATION.md §3).
-func (r *Runner) maxSubTurns(ctx context.Context, model string) int {
-	if r.MaxSubTurns > 0 {
-		return r.MaxSubTurns
-	}
-	if r.Settings != nil {
-		if key, _, ok := settings.RunBudgetKeysForModel(model); ok {
-			if v, err := r.Settings.Int(ctx, key); err == nil {
-				return v
-			}
-		}
-		if v, err := r.Settings.Int(ctx, settings.KeyRunMaxSubTurns); err == nil {
-			return v
-		}
-	}
-	if _, _, ok := settings.RunBudgetKeysForModel(model); ok {
-		return KimiK3MaxSubTurns
-	}
-	return DefaultMaxSubTurns
-}
-
 func (r *Runner) flashModel(ctx context.Context) string {
 	if r.FlashModel != "" {
 		return r.FlashModel
@@ -467,16 +426,15 @@ func (r *Runner) flashModel(ctx context.Context) string {
 }
 
 // compactionThreshold resolves the prompt-token ceiling at which a session
-// on model compacts its history, in the same per-model order as
-// maxSubTurns: the Runner-level override, the model's own threshold when it
-// has one (run.compaction_threshold_kimi_k3), the global
+// on model compacts its history: the Runner-level override, the model's own
+// threshold when it has one (run.compaction_threshold_kimi_k3), the global
 // run.compaction_threshold, then the package default.
 func (r *Runner) compactionThreshold(ctx context.Context, model string) int {
 	if r.CompactionThresholdTokens != 0 {
 		return r.CompactionThresholdTokens
 	}
 	if r.Settings != nil {
-		if _, key, ok := settings.RunBudgetKeysForModel(model); ok {
+		if key, ok := settings.CompactionKeyForModel(model); ok {
 			if v, err := r.Settings.Int(ctx, key); err == nil {
 				return v
 			}
@@ -485,7 +443,7 @@ func (r *Runner) compactionThreshold(ctx context.Context, model string) int {
 			return v
 		}
 	}
-	if _, _, ok := settings.RunBudgetKeysForModel(model); ok {
+	if _, ok := settings.CompactionKeyForModel(model); ok {
 		return KimiK3CompactionThresholdTokens
 	}
 	return CompactionThresholdTokens

@@ -823,8 +823,8 @@ Three consecutive rejections carrying the *same* message end the run:
 validation message. A correction opportunity the model is not taking is a budget
 leak, and one live run spent eleven sub-turns and 7% of its cost re-sending a
 payload whose shape it never varied. A rejection whose message *differs* from
-the last one is progress and restarts the count; the sub-turn limit remains the
-backstop for a model cycling between several wrong shapes.
+the last one is progress and restarts the count. Nothing counts sub-turns, so a
+model cycling between several wrong shapes keeps going until it is cancelled.
 
 Because the schema lives in the opening message rather than the tool definition,
 that message also carries a worked example of the call built from the schema's

@@ -360,13 +360,12 @@ one of those two settings at `gemini-3.7-flash` — the harness relies on
 Google's own account-level limits rather than applying its own.
 
 **No per-model run budget either, deliberately.** `kimi-k3` has its own
-`run.max_sub_turns_kimi_k3` / `run.compaction_threshold_kimi_k3` pair
-(`settings.RunBudgetKeysForModel`), sized down from the global defaults
-because K3's rates are far above DeepSeek's. Gemini has no entry, so it
-inherits the global 400-sub-turn / 768K-token defaults, the same as an
-unrecognised model would — decided in Phase 5, on the reasoning that
+`run.compaction_threshold_kimi_k3` (`settings.CompactionKeyForModel`), sized
+down from the global default because K3's rates are far above DeepSeek's.
+Gemini has no entry, so it inherits the global 768K-token threshold, the same
+as an unrecognised model would — decided in Phase 5, on the reasoning that
 Gemini's rates sit at or below DeepSeek Pro's standard tier, so the cost
-argument that motivated K3's own ceiling does not apply. That reasoning
+argument that motivated K3's own threshold does not apply. That reasoning
 lives only in the Phase 5 commit message, not in code or in
 GEMINI-INTEGRATION.md itself, which is why it is repeated here; see
 `docs/OBSERVED.md`, Phase 8.

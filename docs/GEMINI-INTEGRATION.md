@@ -678,7 +678,7 @@ without the field still decode; `TestAppendOnly` and the wire goldens hold.
 content shape. A Gemini system prompt if Phase 2 or 9 shows it needs one —
 Gemini 3.x wants concise prompts and reacts badly to chain-of-thought
 scaffolding written for older models (`docs/gemini-3.5-flash-ui-review-prompting.md`).
-~~Run budgets for the model, as `KimiK3MaxSubTurns` does for K3.~~ Already
+~~Run budgets for the model, as `run.compaction_threshold_kimi_k3` does for K3.~~ Already
 decided against in Phase 5 (see that phase's "Done" note above) — this line
 was stale by the time this phase ran and stays here struck through rather
 than silently deleted, since it is what Phase 8 caught and corrected.

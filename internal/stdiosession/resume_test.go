@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
@@ -164,31 +165,32 @@ func TestPreviousInteractionResumesAfterCancel(t *testing.T) {
 	if rerr := f.client.call(MethodResponsesCreate, next, &two); rerr != nil {
 		t.Fatalf("resume in the same process after a stop: %v", rerr)
 	}
-	seen := f.client.waitFor(NotifyResponseCompleted)
+	f.client.waitFor(NotifyUsage)
 	if two.Response.Harness.SessionID != sessionID {
 		t.Errorf("the resumed response left the session: got %q, want %q", two.Response.Harness.SessionID, sessionID)
 	}
 
 	// The script never stops asking for another tool call, so the resumed
-	// interaction runs out its remaining sub-turn budget rather than
-	// finishing on its own — the point here is only that it gets to run at
-	// all, landing on a normal terminal status instead of the
-	// "session is cancelled" store error the bug report hit on this exact
-	// path.
-	var done responseEnvelope
-	if err := json.Unmarshal(seen[len(seen)-1].Params, &done); err != nil {
-		t.Fatalf("decode interaction.completed: %v", err)
+	// interaction runs until it is cancelled again. The point here is only
+	// that it gets to run at all: a sub-turn reports its usage, and the
+	// cancel lands on a running interaction rather than one the "session is
+	// cancelled" store error the bug report hit on this exact path had
+	// already failed.
+	var again GetResult
+	if rerr := f.client.call(MethodResponsesCancel, IDParams{ResponseID: two.Response.ID}, &again); rerr != nil {
+		t.Fatalf("cancel the resumed response: %v", rerr)
 	}
-	if done.Response.Status != StatusIncomplete {
-		t.Fatalf("resumed interaction status = %q, want %q", done.Response.Status, StatusIncomplete)
+	if again.Response.Status != StatusCancelled {
+		t.Fatalf("resumed interaction status after cancel = %q, want %q", again.Response.Status, StatusCancelled)
 	}
+	f.client.waitFor(NotifyResponseCompleted)
 
 	sess, err = f.srv.opts.Store.GetSession(context.Background(), sessionID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sess.Status != store.StatusMaxTurns {
-		t.Fatalf("stored session status after the resume = %q, want %q", sess.Status, store.StatusMaxTurns)
+	if sess.Status != store.StatusCancelled {
+		t.Fatalf("stored session status after the resume = %q, want %q", sess.Status, store.StatusCancelled)
 	}
 }
 
@@ -247,6 +249,48 @@ func TestResumeAcrossProcessesAfterCancel(t *testing.T) {
 	}
 	if sess.Status != store.StatusOK {
 		t.Fatalf("stored session status after the cross-process resume = %q, want %q", sess.Status, store.StatusOK)
+	}
+}
+
+// TestResumeAcrossProcessesOfAMaxTurnsSession pins that a state directory an
+// earlier binary wrote stays usable: a session row that binary finished at
+// its sub-turn ceiling carries the status max_turns, which nothing writes now,
+// and harness.resume_session_id still continues it.
+func TestResumeAcrossProcessesOfAMaxTurnsSession(t *testing.T) {
+	dir, cwd := t.TempDir(), t.TempDir()
+	a := newFixtureIn(t, dir, cwd, answer("first"))
+	a.client.handshake(ClientCapabilities{})
+	var one CreateResult
+	if rerr := a.client.call(MethodResponsesCreate, a.createParams("first task"), &one); rerr != nil {
+		t.Fatalf("first create: %v", rerr)
+	}
+	a.client.waitFor(NotifyResponseCompleted)
+	sessionID := one.Response.Harness.SessionID
+	finished := time.Now().UTC()
+	if err := a.srv.opts.Store.UpdateSessionStatus(context.Background(), sessionID, store.StatusMaxTurns, &finished); err != nil {
+		t.Fatal(err)
+	}
+	if rerr := a.client.call(MethodShutdown, map[string]any{}, nil); rerr != nil {
+		t.Fatalf("shutdown: %v", rerr)
+	}
+	a.close()
+
+	b := newFixtureIn(t, dir, cwd, answer("second"))
+	b.client.handshake(ClientCapabilities{})
+	var two CreateResult
+	if rerr := b.client.call(MethodResponsesCreate, resumeParams(sessionID, "second task"), &two); rerr != nil {
+		t.Fatalf("resume a max_turns session: %v", rerr)
+	}
+	b.client.waitFor(NotifyResponseCompleted)
+	if two.Response.Harness.SessionID != sessionID {
+		t.Errorf("the resumed response left the session: got %q, want %q", two.Response.Harness.SessionID, sessionID)
+	}
+	sess, err := b.srv.opts.Store.GetSession(context.Background(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.Status != store.StatusOK {
+		t.Fatalf("stored session status after the resume = %q, want %q", sess.Status, store.StatusOK)
 	}
 }
 

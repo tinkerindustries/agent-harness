@@ -130,11 +130,10 @@ func newDeepSeekFixture(t *testing.T, streams ...string) (*fixture, *deepseekRec
 	client := deepseek.NewResponsesClient(api.URL, "sk-test")
 	eventHub := hub.New()
 	runner := &session.Runner{
-		Store:       st,
-		Client:      client,
-		ClientFor:   func(string) session.Client { return client },
-		Hub:         eventHub,
-		MaxSubTurns: 8,
+		Store:     st,
+		Client:    client,
+		ClientFor: func(string) session.Client { return client },
+		Hub:       eventHub,
 	}
 	mgr := mcpclient.New(st)
 	t.Cleanup(func() { mgr.Close() })
