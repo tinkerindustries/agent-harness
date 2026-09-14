@@ -7,7 +7,7 @@
 // retry.go — a near-verbatim fork of one provider's plumbing into the other.
 //
 // It carries no provider dialect. Base URL, the retryable-status predicate
-// (DeepSeek and Kimi K3 disagree by one code), the "no API key configured"
+// (DeepSeek and Kimi K3 now agree; Gemini's differs), the "no API key configured"
 // error, the error-message prefix, and how the credential rides on the
 // request are all fields a provider supplies when it builds a Transport;
 // everything dialect-shaped — the request body, usage mapping, error-body
@@ -67,10 +67,13 @@ type Transport struct {
 	RetryBase      time.Duration
 	RetryMax       time.Duration
 
-	// Retryable classifies a response status code as transient. DeepSeek
-	// retries 429/500/503; Kimi K3 also retries 504 (a documented gateway
-	// timeout its docs say to retry). That one-code difference is why this
-	// is a field rather than logic living here.
+	// Retryable classifies a response status code as transient. DeepSeek and
+	// Kimi K3 agree on 429/500/502/503/504; Gemini's own predicate retries
+	// only 429/500/503, for want of evidence that its Interactions API sits
+	// behind a gateway that returns 502 or 504 the way DeepSeek's and Kimi's
+	// are documented or observed to (internal/gemini/retry.go). That
+	// per-provider difference is why this is a field rather than logic
+	// living here.
 	Retryable func(statusCode int) bool
 
 	// NoAPIKey is returned by NewRequest, before anything is sent, when

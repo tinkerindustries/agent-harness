@@ -12,14 +12,16 @@ import (
 	"time"
 )
 
-// TestIsRetryableStatus pins the documented status code classification:
-// 429 (rate limit / quota pressure), 500, 503, and 504 are transient per
-// third_party/kimi-docs/api/errors.md; 400, 401, 403, 404 (bad request, bad
-// key, permission, unknown model) and 499 (client-closed request, a
-// client-side disconnect) are not.
+// TestIsRetryableStatus pins the status code classification: 429 (rate
+// limit / quota pressure), 500, 503, and 504 are transient per
+// third_party/kimi-docs/api/errors.md; 502 joins them undocumented, on the
+// same gateway-fault reasoning as 503 and 504 and the live DeepSeek 502
+// that motivated it (internal/kimi/retry.go, docs/OBSERVED.md). 400, 401,
+// 403, 404 (bad request, bad key, permission, unknown model) and 499
+// (client-closed request, a client-side disconnect) are not retried.
 func TestIsRetryableStatus(t *testing.T) {
-	retryable := []int{429, 500, 503, 504}
-	notRetryable := []int{400, 401, 402, 403, 404, 422, 499, 200, 201, 301, 502}
+	retryable := []int{429, 500, 502, 503, 504}
+	notRetryable := []int{400, 401, 402, 403, 404, 422, 499, 200, 201, 301}
 
 	for _, code := range retryable {
 		if !isRetryableStatus(code) {
