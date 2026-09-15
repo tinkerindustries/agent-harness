@@ -185,7 +185,7 @@ func (t *translator) foldDelta(method string, idx int, text string) {
 		appendText(&item.Content, PartReasoningText, text)
 	case NotifyFunctionCallArgsDelta:
 		if len(item.Arguments) == 0 || string(item.Arguments) == "{}" {
-			item.Arguments = json.RawMessage(text)
+			item.Arguments = toolArguments(text)
 			return
 		}
 		item.Arguments = append(item.Arguments, []byte(text)...)
@@ -292,7 +292,7 @@ func (t *translator) Event(e store.Event) {
 		t.CloseText()
 		idx := t.addItem(OutputItem{
 			Type: ItemFunctionCall, CallID: p.ID, Name: p.Name,
-			Arguments: json.RawMessage("{}"),
+			Arguments: toolArguments("{}"),
 		})
 		if p.Arguments != "" {
 			t.delta(NotifyFunctionCallArgsDelta, idx, p.Arguments)

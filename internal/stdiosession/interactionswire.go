@@ -92,7 +92,7 @@ type iactStep struct {
 	ID        string           `json:"id,omitempty"`
 	Name      string           `json:"name,omitempty"`
 	CallID    string           `json:"call_id,omitempty"`
-	Arguments json.RawMessage  `json:"arguments,omitempty"`
+	Arguments toolArguments    `json:"arguments,omitempty"`
 	Content   []iactContent    `json:"content,omitempty"`
 	Summary   []iactContent    `json:"summary,omitempty"`
 	Signature string           `json:"signature,omitempty"`

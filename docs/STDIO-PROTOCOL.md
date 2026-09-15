@@ -660,6 +660,10 @@ transcript keys on `type` **and** `role`, never on `type` alone: an assistant
 message is the model's answer and streams its text as deltas; a user message
 is what the loop put in front of the model and arrives complete.
 
+A `function_call` item's assembled `arguments` is the JSON the model wrote.
+When the model wrote text that does not parse as JSON, `arguments` is that
+text as a JSON string.
+
 Every item carries `id` and `status`. The id is `item_<output_index>` and is
 what the deltas name in `item_id`; the status is `in_progress` on `.added` and
 `completed` on `.done`.

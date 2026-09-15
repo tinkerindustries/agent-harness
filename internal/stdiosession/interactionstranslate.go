@@ -143,7 +143,7 @@ func (t *iactTranslator) foldDelta(idx int, d iactDelta) {
 		s.Signature = d.Signature
 	case iactDeltaArguments:
 		if len(s.Arguments) == 0 || string(s.Arguments) == "{}" {
-			s.Arguments = json.RawMessage(d.Arguments)
+			s.Arguments = toolArguments(d.Arguments)
 			return
 		}
 		s.Arguments = append(s.Arguments, []byte(d.Arguments)...)
@@ -254,7 +254,7 @@ func (t *iactTranslator) Event(e store.Event) {
 		t.CloseText()
 		idx := t.startStep(iactStep{
 			Type: iactStepFunctionCall, ID: p.ID, Name: p.Name,
-			Arguments: json.RawMessage("{}"),
+			Arguments: toolArguments("{}"),
 		})
 		if p.Arguments != "" {
 			t.delta(idx, iactDelta{Type: iactDeltaArguments, Arguments: p.Arguments})

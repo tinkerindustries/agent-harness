@@ -109,16 +109,35 @@ func TextPart(kind, s string) []ContentPart {
 // Harness carries the fields this protocol adds, and is absent on every item
 // where there is nothing to add.
 type OutputItem struct {
-	Type      string          `json:"type"`
-	ID        string          `json:"id,omitempty"`
-	Status    string          `json:"status,omitempty"`
-	Role      string          `json:"role,omitempty"`
-	Content   []ContentPart   `json:"content,omitempty"`
-	CallID    string          `json:"call_id,omitempty"`
-	Name      string          `json:"name,omitempty"`
-	Arguments json.RawMessage `json:"arguments,omitempty"`
-	Output    []ContentPart   `json:"output,omitempty"`
-	Harness   *ItemHarness    `json:"harness,omitempty"`
+	Type      string        `json:"type"`
+	ID        string        `json:"id,omitempty"`
+	Status    string        `json:"status,omitempty"`
+	Role      string        `json:"role,omitempty"`
+	Content   []ContentPart `json:"content,omitempty"`
+	CallID    string        `json:"call_id,omitempty"`
+	Name      string        `json:"name,omitempty"`
+	Arguments toolArguments `json:"arguments,omitempty"`
+	Output    []ContentPart `json:"output,omitempty"`
+	Harness   *ItemHarness  `json:"harness,omitempty"`
+}
+
+// toolArguments is a function call's arguments as the model wrote them. Text
+// that parses as JSON is written as that JSON. Anything else is written as a
+// JSON string holding the text, because encoding/json refuses to encode
+// invalid raw JSON and every frame and resource carrying the item would
+// otherwise fail to encode.
+type toolArguments []byte
+
+func (a toolArguments) MarshalJSON() ([]byte, error) {
+	if json.Valid(a) {
+		return a, nil
+	}
+	return json.Marshal(string(a))
+}
+
+func (a *toolArguments) UnmarshalJSON(data []byte) error {
+	*a = append((*a)[:0], data...)
+	return nil
 }
 
 // ItemHarness is the harness extension block on an output item.

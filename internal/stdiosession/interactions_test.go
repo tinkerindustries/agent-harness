@@ -273,3 +273,36 @@ func TestInteractionsHandshakeSpellsGoogle(t *testing.T) {
 		t.Errorf("the Interactions handshake carries Responses keys: %s", raw)
 	}
 }
+
+// TestInteractionsMalformedToolArgumentsStillComplete is
+// TestMalformedToolArgumentsStillComplete in Google's vocabulary.
+func TestInteractionsMalformedToolArgumentsStillComplete(t *testing.T) {
+	useDialect(t, NewInteractions())
+	const args = `{"task">racing-start: "done"}`
+	f := newFixture(t, callThen("call-1", "Read", args), answer("All done."))
+	f.client.handshake(ClientCapabilities{})
+
+	var created iactCreateResult
+	if rerr := f.client.call(MethodInteractionsCreate, f.createParams("read something"), &created); rerr != nil {
+		t.Fatalf("interactions.create: %v", rerr)
+	}
+	f.client.waitFor(notifyIactCompleted)
+
+	var got iactCreateResult
+	if rerr := f.client.call(MethodInteractionsGet, iactIDParams{InteractionID: created.Interaction.ID}, &got); rerr != nil {
+		t.Fatalf("interactions.get: %v", rerr)
+	}
+	var call *iactStep
+	for i := range got.Interaction.Steps {
+		if got.Interaction.Steps[i].Type == iactStepFunctionCall {
+			call = &got.Interaction.Steps[i]
+		}
+	}
+	if call == nil {
+		t.Fatalf("interactions.get carries no function_call step: %+v", got.Interaction.Steps)
+	}
+	var text string
+	if err := json.Unmarshal(call.Arguments, &text); err != nil || text != args {
+		t.Errorf("function_call arguments = %s, want the model's text %q as a JSON string", call.Arguments, args)
+	}
+}
