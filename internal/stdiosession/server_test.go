@@ -737,3 +737,38 @@ func TestSequenceNumbersRunUnbrokenToTheTerminalFrame(t *testing.T) {
 		}
 	}
 }
+
+// TestMalformedToolArgumentsStillComplete runs a sub-turn whose function call
+// carries arguments that do not parse as JSON, the way a model sometimes
+// writes them. The item's arguments go on the wire as that text in a JSON
+// string, and the run still ends on response.completed.
+func TestMalformedToolArgumentsStillComplete(t *testing.T) {
+	const args = `{"task">racing-start: "done"}`
+	f := newFixture(t, callThen("call-1", "Read", args), answer("All done."))
+	f.client.handshake(ClientCapabilities{})
+
+	var created CreateResult
+	if rerr := f.client.call(MethodResponsesCreate, f.createParams("read something"), &created); rerr != nil {
+		t.Fatalf("responses.create: %v", rerr)
+	}
+	seen := f.client.waitFor(NotifyResponseCompleted)
+	assertStepLifecycle(t, seen)
+
+	var done responseEnvelope
+	if err := json.Unmarshal(seen[len(seen)-1].Params, &done); err != nil {
+		t.Fatalf("decode response.completed: %v", err)
+	}
+	var call *OutputItem
+	for i := range done.Response.Output {
+		if done.Response.Output[i].Type == ItemFunctionCall {
+			call = &done.Response.Output[i]
+		}
+	}
+	if call == nil {
+		t.Fatalf("response.completed carries no function_call item: %+v", done.Response.Output)
+	}
+	var got string
+	if err := json.Unmarshal(call.Arguments, &got); err != nil || got != args {
+		t.Errorf("function_call arguments = %s, want the model's text %q as a JSON string", call.Arguments, args)
+	}
+}

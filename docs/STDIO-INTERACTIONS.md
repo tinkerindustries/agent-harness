@@ -529,7 +529,8 @@ that ran as its own session.
 
 `text` and `thought_summary` deltas are fragments and must be concatenated.
 `arguments_delta` fragments must be concatenated into one JSON string and
-parsed at `step.stop`.
+parsed at `step.stop`. The model sometimes writes arguments that do not parse.
+The assembled step then carries that text as a JSON string in `arguments`.
 
 `thought_signature` is **not** a fragment. It is one complete opaque value, the
 receipt Google issues for a thinking step, and it arrives once, as the last

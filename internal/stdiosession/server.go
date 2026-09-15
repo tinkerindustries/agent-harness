@@ -795,13 +795,17 @@ func (s *Server) lookup(id string) (*run, bool) {
 	return it, ok
 }
 
-// notify writes one notification. A write failure means the pipe has gone,
-// which the read side is already discovering; there is nowhere to report it.
+// notify writes one notification. A closed pipe is not reported, because the
+// read side is already discovering it. Any other failure drops the frame, so
+// it is logged: a client left waiting for that frame has only stderr to say
+// why.
 func (s *Server) notify(method string, params any) {
 	if s.conn == nil {
 		return
 	}
-	_ = s.conn.Notify(method, params)
+	if err := s.conn.Notify(method, params); err != nil && !errors.Is(err, ErrConnClosed) {
+		log.Printf("stdiosession: drop %s: %v", method, err)
+	}
 }
 
 // buildTools turns the create body's `tools` array into the provider the run
