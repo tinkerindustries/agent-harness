@@ -60,10 +60,9 @@ type Session struct {
 	// page. Empty covers a pre-migration row and a producer that left it
 	// blank; the browser falls back to the task as the description line.
 	Description string
-	// Phase is this run's 1-based position in a multi-phase chain (the
-	// deepseek-flash-plan skill cuts a job into phases). Zero together with
-	// TotalPhases zero means the run is not part of a chain; the browser
-	// shows no phase chip then.
+	// Phase is this run's 1-based position in a multi-phase chain. Zero
+	// together with TotalPhases zero means the run is not part of a chain;
+	// the browser shows no phase chip then.
 	Phase int
 	// TotalPhases is how many phases the chain has. Zero together with Phase
 	// zero means the run is not part of a chain; when set, Phase is 1-based

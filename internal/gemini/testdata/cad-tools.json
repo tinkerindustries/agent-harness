@@ -1895,7 +1895,7 @@
   "type": "function",
   "function": {
    "name": "mcp__orchestrator__restart_to_update",
-   "description": "Replaces the running Turret application with a bundle that has just been packaged, and reopens it. This is how a release cut from inside Turret gets installed: `pnpm release` leaves the bundle under `out/` and names it, and `scripts/install-app.mjs` cannot take it from there, because installing means quitting the app that is running this session. An installer that outlives the app does the swap instead. Everything in this app stops: the turn this call is in ends when the app quits, and the session comes back on the new version with a notice saying whether it worked.",
+   "description": "Replaces the running application with a freshly packaged bundle and reopens it. The turn this call is in ends when the app quits, and the session comes back on the new version with a notice saying whether it worked.",
    "parameters": {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "properties": {

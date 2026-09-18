@@ -435,7 +435,7 @@ a per-request rewrite would be the map round trip that rule exists to
 prevent.
 
 An MCP server is where a tuple arrives. Its tools are declared by whoever
-wrote the server, against no constraint this process imposes. A Turret CAD
+wrote the server, against no constraint this process imposes. A CAD
 session died on one `z.tuple([number, number, number])` in `design_render`,
 which took every other tool in the request down with it.
 

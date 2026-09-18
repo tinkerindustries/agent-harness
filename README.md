@@ -116,3 +116,8 @@ exactly one DeepSeek model; the error names which.
   API, which override the vendored docs where they disagree
 - [`third_party/deepseek-docs/`](third_party/deepseek-docs/README.md) — a
   Markdown mirror of DeepSeek's own API documentation
+
+## Licence
+
+MIT. See [LICENSE](LICENSE). The vendored documentation under `third_party/`
+belongs to its publishers and is not covered by this licence.

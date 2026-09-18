@@ -100,7 +100,7 @@ func TestValidateParent(t *testing.T) {
 		want         bool
 	}{
 		{true, "", "", true},
-		{true, "", "geoff", true},
+		{true, "", "someone", true},
 		{true, "claude-code", "x", false},
 		{false, "claude-code", "sess-1", true},
 		{false, "", "sess-1", false},

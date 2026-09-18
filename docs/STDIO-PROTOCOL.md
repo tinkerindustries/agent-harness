@@ -88,8 +88,7 @@ it. One thing this vocabulary cannot carry is a **thought signature**, which
 Google issues for a thinking step and a client storing transcripts for replay
 needs; see [STDIO-INTERACTIONS.md](STDIO-INTERACTIONS.md).
 
-Turret's own cross-repository design (`docs/design/gemini-agent-harness.md` in
-`desktop-coding-client`) pins the Interactions revision at
+The Interactions vocabulary is pinned at revision
 `c039c0b4d7bea9f657e09b80d38af833f00c3182` (`v0.48.0-10-gc039c0b`), and a
 client at that revision drives `harness gemini-session` unchanged.
 
@@ -284,7 +283,7 @@ them without waiting, so sending `initialize`, `initialized` and a first
 
 ```jsonc
 {
-  "client_info": {"name": "Turret", "version": "1.4.0"},
+  "client_info": {"name": "example-client", "version": "1.4.0"},
   "capabilities": {
     "function_calls": true   // this client answers harness.function_call
   }
@@ -418,7 +417,7 @@ The Responses API's create-response body, narrowed, plus a `harness` block.
 {
   "model": "gemini-3.7-flash",
   "input": "Add a test for the retry path.",
-  "instructions": "You are working inside Turret.",
+  "instructions": "You are working inside example-client.",
   "previous_response_id": "resp_9f0c…",
   "tools": [ /* see Tools */ ],
   "text": {"format": {"type": "json_schema", "name": "result",

@@ -202,21 +202,12 @@ options, and has to drive `playwright-cli` through Bash instead.
 2. **The Go module path does not change.** Renaming it while the repository
    keeps its name breaks `go get` and touches every import for nothing.
 
-3. **The MCP tool names do not change.** `deepseek_agent` and its siblings are
-   what external callers use, and the installed `deepseek-flash-*` skills call
-   them by name. Renaming them is a coordinated break, independent of this
-   work.
-
-4. **`$HOME/.deepseek-harness` and the compose project names do not change.**
-   The worktree port registry lives in that directory and `deepseek-harness-prod`
-   is a live stack. Either rename needs a migration and an operator window.
-
-5. **Kimi sessions get their own tool array**, without `Screenshot`,
+3. **Kimi sessions get their own tool array**, without `Screenshot`,
    `Glance`, `Ground`, `Detect`, or `Crop`. K3 sees images directly, so the
    Gemini round-trips and the capture tool are all redundant for it.
 
-6. **A second frozen head is now a supported thing, and nothing enforces it —
-   until Phase 8.** Decision 5 means the tool array varies by provider, which
+4. **A second frozen head is now a supported thing, and nothing enforces it —
+   until Phase 8.** Decision 3 means the tool array varies by provider, which
    the architecture permits but had never had to hold. Until Phase 8,
    "permission changes which tool calls run, never which tools are offered"
    made the array a single constant. Phase 8 settled the guard: **a golden
@@ -233,7 +224,7 @@ Each phase leaves the system working and is independently revertible.
 
 ### Phase 1 — Rename the product identity — done
 
-Landed as PR #80, squashed onto the integration branch as `b1ca077`. 13 files,
+Landed squashed onto the integration branch as `b1ca077`. 13 files,
 27 insertions. Every protected identifier verified intact afterwards.
 
 It surfaced Phase 2: `scripts/test.sh` cannot run from inside an agent
@@ -305,10 +296,10 @@ covering a message that does carry parts.
 
 ### Phase 8 — Kimi's tool array and image Read — done
 
-Landed as PR #93: `internal/tools` now ships two frozen arrays (DeepSeek's
+Landed: `internal/tools` now ships two frozen arrays (DeepSeek's
 sixteen unchanged byte for byte, Kimi's fourteen without `Screenshot` and
 `ReviewScreenshot`), each pinned by its own golden file
-(`TestToolArrayGolden`, decision 6). DeepSeek's array has grown since — an
+(`TestToolArrayGolden`, decision 4). DeepSeek's array has grown since — an
 `AskVision` tool was added, and then both `ReviewScreenshot` and `AskVision`
 were replaced by `Glance`, `Ground`, `Detect`, and `Crop`
 (docs/VISION-TOOLKIT.md) — but the golden-file mechanism this phase built is

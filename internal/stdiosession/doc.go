@@ -2,14 +2,13 @@
 // pipe, speaking the OpenAI Responses API's vocabulary rather than a protocol
 // of this harness's own.
 //
-// The parent — Turret, an Electron app that hosts coding sessions — spawns
-// `harness stdio-session`, owns the working directory, and drives the
-// session over stdin and stdout. What travels between them is JSON-RPC 2.0
-// in newline-delimited JSON, and every payload inside that envelope is a
-// Responses API shape: the create-response request body, the output item
-// union, and the semantic event union. A client that can already read a
-// `POST /responses` event stream can read this one, because the frames are
-// the same frames.
+// The parent process spawns `harness stdio-session`, owns the working
+// directory, and drives the session over stdin and stdout. What travels
+// between them is JSON-RPC 2.0 in newline-delimited JSON, and every payload
+// inside that envelope is a Responses API shape: the create-response request
+// body, the output item union, and the semantic event union. A client that
+// can already read a `POST /responses` event stream can read this one,
+// because the frames are the same frames.
 //
 // The provider underneath speaks the same surface: internal/deepseek posts
 // to DeepSeek's own `POST /responses` (docs/DEEPSEEK-RESPONSES.md), so one

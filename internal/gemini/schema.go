@@ -26,7 +26,7 @@ import (
 //
 // which names no tool, no field and no schema — and because one bad
 // declaration invalidates the whole payload, every tool in the request goes
-// down with it and the session dies on its first request. A Turret CAD
+// down with it and the session dies on its first request. A CAD
 // session died this way for one `z.tuple([number, number, number])` in a
 // single tool, and finding it meant diffing the tool array against a session
 // that still worked.
