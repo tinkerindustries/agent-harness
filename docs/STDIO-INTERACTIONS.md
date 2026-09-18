@@ -32,11 +32,10 @@ place the two differ.
 This document is the contract. A client is built from it and never needs to
 read Go.
 
-Turret's own cross-repository design (`docs/design/gemini-agent-harness.md` in
-`desktop-coding-client`) pins the revision this document and the wire agree on
-as of the additions below: `c039c0b4d7bea9f657e09b80d38af833f00c3182`
-(`v0.48.0-10-gc039c0b`). `model_details` and stdio `mcp_server` support landed
-on top of that revision; a client built against this document handles both.
+This document and the wire agree as of the additions below at revision
+`c039c0b4d7bea9f657e09b80d38af833f00c3182` (`v0.48.0-10-gc039c0b`).
+`model_details` and stdio `mcp_server` support landed on top of that
+revision; a client built against this document handles both.
 
 A client pinned at that revision works against `harness gemini-session`
 unchanged. For a period the name was an alias that spoke the Responses
@@ -160,7 +159,7 @@ them without waiting, so sending `initialize`, `initialized` and a first
 
 ```jsonc
 {
-  "client_info": {"name": "Turret", "version": "1.4.0"},
+  "client_info": {"name": "example-client", "version": "1.4.0"},
   "capabilities": {
     "function_calls": true   // this client answers harness.function_call
   }
@@ -275,7 +274,7 @@ Google's create-interaction body, narrowed, plus a `harness` block.
 {
   "model": "gemini-3.7-flash",
   "input": "Add a test for the retry path.",
-  "system_instruction": "You are working inside Turret.",
+  "system_instruction": "You are working inside example-client.",
   "previous_interaction_id": "int_9f0c…",
   "tools": [ /* see Tools */ ],
   "response_format": {"type": "text", "mime_type": "application/json",

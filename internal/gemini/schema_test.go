@@ -111,8 +111,8 @@ func TestLowerLeavesCleanSchemasByteIdentical(t *testing.T) {
 	}
 }
 
-// TestLowerTurretCADToolsRemovesEveryTuple runs the pass over the tool array
-// that actually broke: the tools a Turret CAD session sent to
+// TestLowerCADToolsRemovesEveryTuple runs the pass over the tool array
+// that actually broke: the tools a CAD session sent to
 // gemini-3.8-flash, which the Interactions API refused wholesale over one
 // z.tuple in design_render's `target`. The unlowered array is checked to
 // still carry a tuple, so the fixture cannot rot into proving nothing.
@@ -120,8 +120,8 @@ func TestLowerLeavesCleanSchemasByteIdentical(t *testing.T) {
 // Verified against the live API while this was written: the array as
 // checked in answers 400 "Invalid JSON payload: syntax error in request
 // body", and the lowered array answers 200.
-func TestLowerTurretCADToolsRemovesEveryTuple(t *testing.T) {
-	raw, err := os.ReadFile("testdata/turret-cad-tools.json")
+func TestLowerCADToolsRemovesEveryTuple(t *testing.T) {
+	raw, err := os.ReadFile("testdata/cad-tools.json")
 	if err != nil {
 		t.Fatal(err)
 	}

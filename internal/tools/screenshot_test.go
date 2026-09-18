@@ -474,7 +474,7 @@ func TestScreenshotRunsActionsBeforeCapturing(t *testing.T) {
 		Path:     "scratch/panel.png",
 		Selector: "#panel",
 		Actions: []screenshotAction{
-			{Type: "fill", Selector: "#name", Value: "geoff"},
+			{Type: "fill", Selector: "#name", Value: "someone"},
 			{Type: "click", Selector: "#open"},
 		},
 	})

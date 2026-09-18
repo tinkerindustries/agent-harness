@@ -1098,10 +1098,10 @@ Whether an image in a *user* message behaves as it does in a tool output.
 
 ## A mid-stream TCP reset lost a 23-sub-turn run
 
-Production, 2026-09-11, a Turret DeepSeek session on `deepseek-flash`. The
+Production, 2026-09-11, a DeepSeek session on `deepseek-flash`. The
 terminal error:
 
-    session: sub-turn 23: deepseek: stream read: read tcp 192.168.0.50:56783->3.173.21.63:443: read: connection reset by peer
+    session: sub-turn 23: deepseek: stream read: read tcp 192.0.2.10:56783->198.51.100.20:443: read: connection reset by peer
 
 Sub-turn 23 opened at 09:06:49.732Z; the error landed at 09:07:14.985Z — 25
 seconds with no SSE frame at all, not even a keep-alive comment, before the
@@ -1141,7 +1141,7 @@ method's signature already matches what `RetryStream` needs.
 
 ## A gateway 502 ended a run at sub-turn 91
 
-Production, 2026-09-14, a Turret DeepSeek session on `deepseek-flash`, 90
+Production, 2026-09-14, a DeepSeek session on `deepseek-flash`, 90
 sub-turns in. Sub-turn 91's request hung for about two minutes and then the
 reverse-proxy gateway in front of DeepSeek's API answered with a plain 502,
 HTML rather than the `{"error": {...}}` envelope DeepSeek's own errors take:
