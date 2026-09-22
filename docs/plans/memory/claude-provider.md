@@ -46,6 +46,8 @@ whitespace.
 | `internal/stdiosession/modelinfo.go` | The one place the protocol's model vocabulary meets a provider's |
 | `internal/anthropic/modelinfo.go` | Display name, context window and effort set per Claude model. This is what `stdiosession/modelinfo.go` calls |
 | `internal/anthropic/intent.go` (`systemMessageModels`) | Which Claude models accept mid-conversation system messages. Don't duplicate this table elsewhere |
+| `internal/stdiosession/claude_test.go` | End-to-end over a pipe against a fake Anthropic recorder. Extend this file for new Claude behaviour |
+| `internal/tools/testdata/tools_claude.golden.json` | Claude's frozen tool array: the vision-capable array without WebFetch |
 | `internal/anthropic/live_test.go` | The live check, gated on `RUN_ANTHROPIC_LIVE_TEST`. The suite never sets it |
 | `docs/OBSERVED.md`, "Claude Messages API" | Live findings: 2-token genuine miss (`CacheSlack` 1024), at most one thinking block per response so far |
 | `docs/STDIO-INTERACTIONS.md` | The model for `docs/STDIO-MANAGED-AGENTS.md` |
