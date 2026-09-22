@@ -103,6 +103,7 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 	executor.Settings = r.Settings
 	executor.ExtraEnv = r.ToolEnv
 	executor.EnvFilter = r.ToolEnvFilter
+	executor.Timeouts = r.ToolTimeouts
 	executor.ResultSchema = sess.ResultSchema
 	executor.MCP = r.MCP
 	executor.RG = r.RG

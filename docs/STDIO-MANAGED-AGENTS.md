@@ -810,6 +810,54 @@ already stream every delta unconditionally, so this one does too, for
 where `agent.thinking`'s preview carries no text at all — see [Not
 built](#not-built)).
 
+**12. `initial_events` requires exactly one `user.message`.** Phase 4 does
+not build the zero-event, "session created idle, no turn started" shape this
+document originally described in [`sessions.create`](#sessionscreate) and
+[Session statuses](#session-statuses) — every `sessions.create` this build
+answers has already started running by the time it returns. A client wanting
+a session with no turn yet posts its first `user.message` through
+`sessions.events` immediately after a create that inherits it none the less
+requires `harness.cwd` there and then; open an issue if a genuinely turnless
+session matters to a client of this build.
+
+**13. `agent.custom_tool_use`'s own id is the tool call's id, not a minted
+`sevt_…` one.** The worked example above shows `"id": "sevt_98231"`; this
+build reuses the same id `agent.tool_use`/`agent.mcp_tool_use` already carry
+for a built-in or MCP call — the provider's own `tool_use` id — because it is
+already unique per call and already what `agent.tool_result.tool_use_id`
+names back, so minting a second one would only be a second name for the same
+thing. `stop_reason.event_ids` and `user.custom_tool_result.custom_tool_use_id`
+both use this same id.
+
+**14. `agent.tool_use`/`agent.mcp_tool_use` carry no `evaluated_permission`.**
+This harness's own tool_call event commits to the log — and so reaches the
+translator — before permission is checked, which happens inside `Execute`
+once dispatch actually starts the call; there is no honest answer to give at
+notification time for a call about to be denied. The eventual
+`agent.tool_result` carries `is_error` and `harness.rule` instead, the same
+place a denial already shows up on the other two dialects.
+
+**15. `terminated` is not rendered.** [Session statuses](#session-statuses)
+above describes it as reachable for an unrecoverable failure; this build has
+no such distinction from an ordinary one and reports every non-running
+session `idle`, matching the row's own broader "includes ... one that
+failed" reading. Revisit if a client needs to tell the two apart.
+
+**16. `sessions.events`' interrupt-then-message ordering is enforced
+per call, not across calls.** "A `user.message` and a `user.interrupt` in the
+same call is `-32602`" is read literally: one `sessions.events` call may
+carry at most one of the two, in either order relative to any
+`user.custom_tool_result` events alongside it, and the code is `-32602`
+(`CodeInvalidParams`) rather than a distinct one.
+
+**17. Every run under this dialect sends a fixed `max_tokens`.** This
+vocabulary has no `max_output_tokens`/`generation_config.max_output_tokens`
+field on `sessions.create` at all for a client to set. The live API refuses
+a streaming Messages request with `max_tokens: 0` outright — found during
+this phase's own live check, the first request `harness claude-session` ever
+sent for real — so this build sends a fixed 8192 on every request rather
+than the zero a client's silence would otherwise resolve to.
+
 ## Deviations from Codex's app-server
 
 The same three binaries were specified to mirror Codex's `app-server`
@@ -916,10 +964,65 @@ or give it a much larger one, and should read the actual mechanism in
 `internal/tools` before deciding which — this document does not know its
 exact shape and neither figure should be asserted here.
 
+### What phase 4 actually built
+
+Everything above held. Four things this document did not, or could not,
+foresee exactly:
+
+- **`Dialect` grew two members, not one `AddressID`, and `AddressID` turned
+  out unused.** `AddressID(runID, sessionID string) string` is as proposed,
+  but the "append-result echo" it was proposed for does not need it after
+  all: `AppendResult(runID string, seq int64) any` already decides per
+  dialect where `runID` goes — nested under `harness.turn_id` for
+  ManagedAgents, the top-level id for the other two — so the call site
+  passes the plain turn id straight through on every dialect, and an earlier
+  build of this phase that ran it through `AddressID` first put the
+  *session* id under `harness.turn_id` by mistake (caught by this phase's own
+  live check, not by a test). `AddressID` is kept on the interface, unused,
+  as a documented available seam rather than removed mid-phase. What
+  `Server.get`/`.delete` actually needed is `AddressesSession() bool`
+  (`false` on Responses and Interactions, `true` here), which they use to
+  fall back to a session-keyed lookup when a bare id does not resolve as a
+  run id first — the smaller, boolean alternative this document's own seam
+  section named as an option.
+- **`NewTranslator` gained a `sessionID` parameter.** `RunView` already
+  carrying both ids covers every *terminal* frame (`Resource`/`Result`/
+  `Completed`/`Failed`), but `Live` and `Event` — which fire throughout a
+  turn, long before any `RunView` exists — need `session_id` on every one of
+  ManagedAgents' own frames too, and had no way to reach it. Responses and
+  Interactions both ignore the new parameter; neither ever needed it.
+- **The timeout fix lives partly outside `internal/tools`.**
+  `tools.Timeouts` gained one field, `HostTool`, consulted only for the
+  reserved client-tool namespace (renamed `tools.ClientToolServerName`,
+  formerly a literal `internal/stdiosession` alone knew) and only when set —
+  zero keeps every existing caller, `stdio-session`'s and `gemini-session`'s
+  own blocking `harness.function_call` included, on the unchanged MCP
+  timeout. Setting it for one process alone needed a new
+  `session.Runner.ToolTimeouts` field, threaded into the `tools.Executor`
+  `Run`/`Resume` already build, because `tools.NewExecutor` takes no
+  timeouts today. `harness claude-session` sets it to a large, finite figure
+  (24 hours) — not truly unbounded, since a process a stuck call can wedge
+  forever is a worse failure mode than a very long one, and `user.interrupt`
+  is the documented way to escape it sooner.
+- **A registration race, and the pragmatic fix.** The `KindToolCall` event
+  behind `agent.custom_tool_use` commits, and reaches the client, strictly
+  before the tool-dispatch goroutine that will register the pending wait
+  even starts (`internal/session/turn.go` commits a sub-turn's whole
+  tool-call batch before `executeToolCalls` runs it) — on a local pipe a
+  fast client can answer before this side has anywhere to put the answer.
+  `Server`'s registry stashes an early answer for `registerCustomTool` to
+  claim, which is indistinguishable from an id this process never declared
+  at all; a `user.custom_tool_result` naming an unmet id is therefore
+  accepted rather than refused with `-32002` in that narrow case, a
+  deliberate simplification over a full three-state registry.
+
 ## Not built
 
 Raised rather than fixed, in this repo's own convention:
 
+- **A session created idle, with `initial_events` empty and no turn started.**
+  See Deviation 12, above. `sessions.create` in this build always starts the
+  session's first turn.
 - **`GET /v1/sessions/{id}/events`** (the flat, paginated event-history
   endpoint) is not mirrored. `sessions.get` already answers "what has this
   turn done so far" from this process's own in-memory assembly, the same

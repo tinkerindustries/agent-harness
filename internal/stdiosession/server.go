@@ -97,6 +97,19 @@ type Server struct {
 	// here rather than in the mcp_servers.env column internal/store
 	// persists for harness serve's own operator-configured servers.
 	env map[string]map[string]string
+
+	// customMu guards customPending, ManagedAgents' registry of pending
+	// client-declared tool calls, keyed by the tool call's own id
+	// (docs/STDIO-MANAGED-AGENTS.md, "The seam"). A separate lock from mu:
+	// a custom tool's answer arrives on sessions.events, an entirely
+	// different call than the one whose tool-dispatch goroutine is waiting
+	// on it, and neither needs to hold the other's lock.
+	customMu      sync.Mutex
+	customPending map[string]chan customToolResult
+	// customReady stashes an answer that arrived before its call was
+	// registered — a real race, not just a theoretical one (see
+	// registerCustomTool's own comment in managedagentsevents.go).
+	customReady map[string]customToolResult
 }
 
 // run is one whole agentic run, in the neutral terms this server keeps it.
@@ -142,6 +155,18 @@ type run struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 	tr     Translator
+
+	// host is this run's tool provider. ManagedAgents keeps it around after
+	// the run ends: a session's tools are never re-declared once its first
+	// turn starts (docs/STDIO-MANAGED-AGENTS.md, "sessions.events" —
+	// "nothing is re-declared, because nothing left this process's
+	// memory"), so the next turn a user.message on an idle session starts
+	// reuses this same instance rather than rebuilding one from a create
+	// body that, on this dialect, carries no tools field at all. Responses
+	// and Interactions never read it back: their own continuation paths
+	// always take a fresh tools array off the create body that named
+	// previous_response_id/previous_interaction_id.
+	host *hostTools
 }
 
 // view is the run's facts as a Translator takes them. It is read under the
@@ -167,6 +192,8 @@ func NewServer(opts Options) *Server {
 	s := &Server{
 		opts: opts, d: d, m: d.Messages(), runs: map[string]*run{},
 		headers: map[string]map[string]string{}, env: map[string]map[string]string{},
+		customPending: map[string]chan customToolResult{},
+		customReady:   map[string]customToolResult{},
 	}
 	if opts.MCP != nil {
 		opts.MCP.Secrets = s.dialSecrets
@@ -242,6 +269,15 @@ func (s *Server) handle(ctx context.Context, method string, params json.RawMessa
 			return nil, nil
 		}
 		return nil, errorf(CodeNotInitialized, "%s before the initialize/initialized handshake", method)
+	}
+
+	if method == MethodSessionsEvents {
+		// ManagedAgents' one wire method for steering, interrupting and
+		// answering a pending custom tool call — nothing the other two
+		// dialects' MethodSet ever names, so this is checked ahead of the
+		// generic switch rather than folded into it
+		// (docs/STDIO-MANAGED-AGENTS.md, "The seam").
+		return s.events(ctx, params)
 	}
 
 	switch verbs := s.d.Methods(); method {
@@ -458,13 +494,57 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 		}
 	}
 
+	return s.beginRun(ctx, beginRunParams{
+		model: model, sessionID: sessionID, cwd: cwd, mode: mode,
+		deny:            harnessSlice(p.Harness, func(h *CreateHarness) []string { return h.Deny }),
+		prompt:          text,
+		effort:          p.Effort,
+		maxOutputTokens: p.MaxOutputTokens,
+		resultSchema:    p.ResultSchema,
+		prevRunID:       p.PreviousRunID,
+		resume:          resume,
+		messageID:       harnessString(p.Harness, func(h *CreateHarness) string { return h.MessageID }),
+		title:           harnessString(p.Harness, func(h *CreateHarness) string { return h.Title }),
+		description:     harnessString(p.Harness, func(h *CreateHarness) string { return h.Description }),
+		stream:          p.Stream,
+		host:            host,
+	})
+}
+
+// beginRunParams is what starting a run needs. create() builds one for every
+// way it reaches a session (fresh, continuing a run this process holds,
+// resuming one out of the state directory); sessions.events builds one too,
+// for a ManagedAgents session's idle session that user.message continues
+// (docs/STDIO-MANAGED-AGENTS.md, "The unit of work" — "posting a message to
+// an idle session *is* starting the next turn").
+type beginRunParams struct {
+	model, sessionID, cwd         string
+	mode                          tools.Mode
+	deny                          []string
+	prompt, effort                string
+	maxOutputTokens               int
+	resultSchema                  json.RawMessage
+	prevRunID                     string
+	resume                        bool
+	messageID, title, description string
+	stream                        *bool
+	host                          *hostTools
+}
+
+// beginRun mints a run, opens its translator and pump, and starts the loop —
+// on Runner.Resume when p.resume, on Runner.Run otherwise. It is create()'s
+// own tail, factored out so sessions.events can start the same kind of run
+// on an idle ManagedAgents session without going through a create body at
+// all.
+func (s *Server) beginRun(ctx context.Context, p beginRunParams) (any, *rpcError) {
 	it := &run{
-		id: s.d.NewRunID(), sessionID: sessionID, model: model,
-		prev: p.PreviousRunID, cwd: cwd,
+		id: s.d.NewRunID(), sessionID: p.sessionID, model: p.model,
+		prev: p.prevRunID, cwd: p.cwd,
 		status: StatusInProgress, created: time.Now().UTC(), updated: time.Now().UTC(),
 		done: make(chan struct{}), messageIDs: map[int64]string{},
+		host: p.host,
 	}
-	host.runID = it.id
+	p.host.runID = it.id
 
 	s.mu.Lock()
 	s.runs[it.id] = it
@@ -474,7 +554,7 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 	// interaction runs at a time (the guard above), and this is set before
 	// the run starts and left alone until it ends, so the field is never
 	// written while a loop is reading it.
-	s.opts.Runner.MCP = host
+	s.opts.Runner.MCP = p.host
 	s.mu.Unlock()
 
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
@@ -482,11 +562,9 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 	it.cancel = cancel
 	it.mu.Unlock()
 
-	frames, unsubscribe := s.opts.Hub.Subscribe(sessionID)
-	tr := s.d.NewTranslator(it.id, model, s.notify)
-	if p.Harness != nil {
-		tr.SetFirstMessageID(p.Harness.MessageID)
-	}
+	frames, unsubscribe := s.opts.Hub.Subscribe(p.sessionID)
+	tr := s.d.NewTranslator(it.id, p.sessionID, p.model, s.notify)
+	tr.SetFirstMessageID(p.messageID)
 	it.mu.Lock()
 	it.tr = tr
 	it.mu.Unlock()
@@ -522,26 +600,26 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 	}()
 
 	opts := session.RunOptions{
-		Model:          model,
-		Effort:         effortFrom(p.Effort),
+		Model:          p.model,
+		Effort:         effortFrom(p.effort),
 		Thinking:       true,
-		MaxTokens:      p.MaxOutputTokens,
-		Workspace:      cwd,
-		PermissionMode: mode,
-		Deny:           harnessSlice(p.Harness, func(h *CreateHarness) []string { return h.Deny }),
-		Prompt:         text,
-		SessionID:      sessionID,
+		MaxTokens:      p.maxOutputTokens,
+		Workspace:      p.cwd,
+		PermissionMode: p.mode,
+		Deny:           p.deny,
+		Prompt:         p.prompt,
+		SessionID:      p.sessionID,
 		// Deliberately still the old command name. This is a stored column
 		// on the session row, not a name anybody types: changing it would
 		// split one label across every store written before and after the
 		// rename, for nothing a reader gains.
 		JobType:      "gemini-session",
 		ParentIsUser: true,
-		Title:        harnessString(p.Harness, func(h *CreateHarness) string { return h.Title }),
-		Description:  harnessString(p.Harness, func(h *CreateHarness) string { return h.Description }),
+		Title:        p.title,
+		Description:  p.description,
 	}
-	if schema := p.ResultSchema; len(schema) > 0 {
-		opts.ResultSchema = schema
+	if len(p.resultSchema) > 0 {
+		opts.ResultSchema = p.resultSchema
 	}
 
 	go func() {
@@ -550,9 +628,9 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 			res *session.RunResult
 			err error
 		)
-		if resume {
+		if p.resume {
 			res, err = s.opts.Runner.Resume(runCtx, session.ResumeOptions{
-				SessionID: sessionID, Prompt: text,
+				SessionID: p.sessionID, Prompt: p.prompt,
 				MaxTokens: opts.MaxTokens,
 			})
 		} else {
@@ -580,7 +658,7 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 		s.complete(it, tr)
 	}()
 
-	if p.Stream != nil && !*p.Stream {
+	if p.stream != nil && !*p.stream {
 		// Google's non-streaming create answers with the whole finished
 		// interaction. The step notifications are sent either way; a client
 		// that asked for stream:false and ignores them gets exactly Google's
@@ -686,6 +764,14 @@ func (s *Server) append(ctx context.Context, params json.RawMessage) (any, *rpcE
 	if !ok {
 		return nil, errorf(CodeRunNotFound, s.m.NotFound, p.RunID)
 	}
+	return s.appendInput(ctx, it, p)
+}
+
+// appendInput is append's own logic, against a run already resolved —
+// factored out so sessions.events' user.message, resolved against the
+// session id rather than the run id, can steer through the identical path
+// (docs/STDIO-MANAGED-AGENTS.md, "sessions.events").
+func (s *Server) appendInput(ctx context.Context, it *run, p *AppendRequest) (any, *rpcError) {
 	it.inputMu.Lock()
 	defer it.inputMu.Unlock()
 	it.mu.Lock()
@@ -730,6 +816,13 @@ func (s *Server) cancelRun(params json.RawMessage) (any, *rpcError) {
 	if !ok {
 		return nil, errorf(CodeRunNotFound, s.m.NotFound, id)
 	}
+	return s.cancelRunItem(it), nil
+}
+
+// cancelRunItem is cancel's own logic against a run already resolved —
+// factored out so sessions.events' user.interrupt, resolved against the
+// session id, can cancel through the identical path.
+func (s *Server) cancelRunItem(it *run) any {
 	it.mu.Lock()
 	cancel, status := it.cancel, it.status
 	it.mu.Unlock()
@@ -737,13 +830,13 @@ func (s *Server) cancelRun(params json.RawMessage) (any, *rpcError) {
 		// Cancelling something already finished is not an error: it is the
 		// state the caller asked for, and a client racing a completion
 		// should not have to handle both outcomes.
-		return it.tr.Result(it.view(true)), nil
+		return it.tr.Result(it.view(true))
 	}
 	if cancel != nil {
 		cancel()
 	}
 	<-it.done
-	return it.tr.Result(it.view(true)), nil
+	return it.tr.Result(it.view(true))
 }
 
 func (s *Server) get(params json.RawMessage) (any, *rpcError) {
@@ -751,17 +844,32 @@ func (s *Server) get(params json.RawMessage) (any, *rpcError) {
 	if rerr != nil {
 		return nil, rerr
 	}
-	it, ok := s.lookup(id)
+	it, ok := s.resolveID(id)
 	if !ok {
 		return nil, errorf(CodeRunNotFound, s.m.NotFound, id)
 	}
 	return it.tr.Result(it.view(true)), nil
 }
 
+// resolveID looks id up as a run id first, and — for a dialect whose client
+// addresses everything by session id — as a session id if that fails.
+func (s *Server) resolveID(id string) (*run, bool) {
+	if it, ok := s.lookup(id); ok {
+		return it, true
+	}
+	if s.d.AddressesSession() {
+		return s.lookupBySession(id)
+	}
+	return nil, false
+}
+
 func (s *Server) delete(params json.RawMessage) (any, *rpcError) {
 	id, rerr := s.d.DecodeID(s.d.Methods().Delete, params)
 	if rerr != nil {
 		return nil, rerr
+	}
+	if resolved, ok := s.resolveID(id); ok {
+		id = resolved.id
 	}
 	s.mu.Lock()
 	it, ok := s.runs[id]
@@ -793,6 +901,24 @@ func (s *Server) lookup(id string) (*run, bool) {
 	defer s.mu.Unlock()
 	it, ok := s.runs[id]
 	return it, ok
+}
+
+// lookupBySession finds this process's current or most recently run run for
+// sessionID — the lookup ManagedAgents' sessions.* methods need, since a
+// client of that dialect never learns a bare run id at all and addresses
+// everything by the one session id it holds
+// (docs/STDIO-MANAGED-AGENTS.md, "The seam"). One process hosts one session
+// for its whole life, so there is at most one id in s.order this can ever
+// match; scanning from the end costs nothing a second index would save.
+func (s *Server) lookupBySession(sessionID string) (*run, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := len(s.order) - 1; i >= 0; i-- {
+		if it := s.runs[s.order[i]]; it != nil && it.sessionID == sessionID {
+			return it, true
+		}
+	}
+	return nil, false
 }
 
 // notify writes one notification. A closed pipe is not reported, because the
@@ -838,7 +964,11 @@ func (s *Server) buildTools(ctx context.Context, decls []Tool) (*hostTools, *rpc
 		if !caps.FunctionCalls {
 			return nil, errorf(CodeInvalidParams, "the create body declares function tools but the client did not claim the function_calls capability at initialize, so there would be nothing to call them with")
 		}
-		host.call = s.callFunction
+		if _, managed := s.d.(ManagedAgents); managed {
+			host.async = s.callCustomTool
+		} else {
+			host.call = s.callFunction
+		}
 	}
 
 	if len(servers) > 0 {

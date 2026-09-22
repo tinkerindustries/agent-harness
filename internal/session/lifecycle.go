@@ -173,6 +173,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	executor.Settings = r.Settings
 	executor.ExtraEnv = r.ToolEnv
 	executor.EnvFilter = r.ToolEnvFilter
+	executor.Timeouts = r.ToolTimeouts
 	executor.ResultSchema = opts.ResultSchema
 	executor.MCP = r.MCP
 	executor.RG = r.RG

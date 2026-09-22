@@ -11,7 +11,10 @@ working directory, names that directory on each create call, and gets the
 session's whole event stream back. The agent loop reads and writes files and
 runs commands in there, and publishes a result. There is no queue, no worker
 pool, no HTTP listener and no web UI — it is `internal/session` and its tools,
-with a protocol translator either side.
+with a protocol translator either side. `harness gemini-session` and `harness
+claude-session` are the identical process and loop, with that translator
+speaking Google's or Anthropic's own parent-facing vocabulary instead — the
+subcommand is the only thing that differs.
 
 The protocol is the OpenAI Responses API's own vocabulary rather than one of
 this repo's invention: the methods are its REST methods on `POST /responses`,
@@ -156,10 +159,15 @@ The edges that matter:
   wiring the one concrete `Manager` into `internal/session`
   ([`docs/MCP.md`](docs/MCP.md)).
 - **`internal/stdiosession` sits above the loop and knows the parent's
-  vocabulary — both of them.** It speaks the Responses API's and Google's
-  Interactions API's behind one `Dialect` seam, chosen by the subcommand.
-  Nothing below it knows which, and it reaches the model only through the
-  loop.
+  vocabulary — all three of them.** It speaks the Responses API's, Google's
+  Interactions API's and Anthropic's Managed Agents session and event API's
+  behind one `Dialect` seam, chosen by the subcommand. Nothing below it knows
+  which, and it reaches the model only through the loop. The third dialect
+  addresses a session that goes `running` → `idle` → `running` rather than a
+  run, and a client's declared tool crosses as an asynchronous
+  `agent.custom_tool_use` notification answered later through
+  `sessions.events`, rather than a blocking `harness.function_call`
+  (`docs/STDIO-MANAGED-AGENTS.md`).
 - Nothing imports `cmd/`.
 
 ## Cross-cutting concerns

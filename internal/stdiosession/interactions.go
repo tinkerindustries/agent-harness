@@ -65,6 +65,12 @@ func (Interactions) NewRunID() string {
 	return "int_" + hex.EncodeToString(b[:])
 }
 
+// AddressID returns runID unchanged: a client of this dialect holds the
+// interaction id as its primary address.
+func (Interactions) AddressID(runID, sessionID string) string { return runID }
+
+func (Interactions) AddressesSession() bool { return false }
+
 func (Interactions) Messages() Messages {
 	return Messages{
 		AlreadyRunning:       "interaction %s is still running; one process hosts one session, so cancel it or wait for it to complete",
@@ -303,7 +309,7 @@ func (Interactions) AppendResult(runID string, seq int64) any {
 	return iactAppendResult{InteractionID: runID, Seq: seq}
 }
 
-func (Interactions) NewTranslator(runID, model string, emit func(method string, params any)) Translator {
+func (Interactions) NewTranslator(runID, sessionID, model string, emit func(method string, params any)) Translator {
 	return newIactTranslator(runID, model, emit)
 }
 

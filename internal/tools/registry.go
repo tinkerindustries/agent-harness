@@ -174,6 +174,18 @@ type Timeouts struct {
 	Screenshot       time.Duration
 	Transcribe       time.Duration
 	MCP              time.Duration
+	// HostTool, when set, is the wall-clock bound on a call to
+	// ClientToolServerName alone — a client-declared tool this process calls
+	// back over its own pipe — in place of MCP's. Zero keeps every such call
+	// on the ordinary MCP timeout, which is every existing caller: a client
+	// function tool answered synchronously over harness.function_call has no
+	// reason to wait any longer than a dialled server does. `harness
+	// claude-session`'s async custom-tool flow is the one caller that sets
+	// this, and to a much larger figure than MCP's own default — the call it
+	// bounds is a wait on a human- or system-gated answer that may be
+	// minutes away, not a tool that runs to completion on its own
+	// (docs/STDIO-MANAGED-AGENTS.md, "The seam").
+	HostTool time.Duration
 }
 
 // ChatClient is the narrow seam the executor's own model calls use —
@@ -377,7 +389,10 @@ func (e *Executor) timeoutFor(ctx context.Context, name string, argsRaw json.Raw
 	// An MCP tool's name is dynamic — server and tool names an operator
 	// configured, not a literal the switch below can case on — so it is
 	// checked ahead of the switch rather than folded into it.
-	if _, ok := MCPServerOf(name); ok {
+	if server, ok := MCPServerOf(name); ok {
+		if server == ClientToolServerName && e.Timeouts.HostTool > 0 {
+			return e.Timeouts.HostTool
+		}
 		return e.mcpTimeout(ctx)
 	}
 	switch name {

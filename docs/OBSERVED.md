@@ -1287,3 +1287,67 @@ base input rate dominate, not any inefficiency in the request). Well within
 **No bug, refusal, or schema disagreement surfaced against the live API**
 in this check. Every finding matched `docs/ANTHROPIC-INTEGRATION.md` and
 the Phase 2 findings above.
+
+## Claude Managed Agents vocabulary — Phase 4 live check (`claude-session`)
+
+A real `harness claude-session -env ~/.config/agent-harness/anthropic.env`
+process, `claude-sonnet-5`, driven by hand over the pipe: `initialize`, a
+`sessions.create` whose task calls `Bash` once and a client-declared custom
+tool (`log_note`) once, an answer to the pending `agent.custom_tool_use`
+through `sessions.events`, a `sessions.get`, a `user.message` on the now-idle
+session (starting a second turn), a `user.interrupt` sent moments later, a
+fresh process resuming the session with `harness.resume_session_id`, and a
+further `user.message` asking a question only answerable from the first
+turn's history.
+
+**The async custom-tool round worked exactly as designed on the first
+live attempt.** `agent.custom_tool_use` fired naming `log_note` and its
+input; `session.status_idle` followed with
+`stop_reason: {type: "requires_action", event_ids: [the tool_use id]}`;
+answering it through `sessions.events` resumed the turn
+(`session.status_running`) and the model's final plain-text answer ended it
+with `stop_reason: {type: "end_turn"}`.
+
+**`user.interrupt` while a turn is running works end to end.** The
+in-flight `Bash sleep 4` sub-turn ended with `session.error` (the cancelled
+request) immediately followed by `session.status_idle` carrying
+`stop_reason: {type: "user_interrupt"}`, before the `sessions.events` call
+itself returned its own result — matching the "waits for the turn to
+actually stop before answering" contract.
+
+**Resume needs the same tools re-declared, the same as
+`harness.resume_session_id` on the other two dialects.** A resuming
+`sessions.create` that omitted the original `log_note` tool declaration was
+refused `-32006` (toolset mismatch) exactly as `docs/STDIO-MANAGED-AGENTS.md`
+says; re-declaring it (same name, schema and description) succeeded, and
+the resumed session correctly recalled the first turn's exact Bash command.
+
+**Two real bugs surfaced and were fixed before this report, not left for a
+later phase:**
+
+1. Every request this dialect sends carried `max_tokens: 0` (the vocabulary
+   has no client-settable field for it), and the live Messages API refused
+   a streaming request shaped that way outright:
+   `400 invalid_request_error: stream cannot be true when max_tokens is 0`.
+   Fixed by sending a fixed `8192` on every request under this dialect
+   (`docs/STDIO-MANAGED-AGENTS.md`, Deviation 17).
+2. The steer/next-turn result's `harness.turn_id` echoed the *session* id
+   instead of the actual turn id, because an early build ran the turn id
+   through the new `Dialect.AddressID` seam addition before handing it to
+   `AppendResult` — `AddressID` was designed for a different call site and
+   should never have touched this one. Caught by inspecting this very live
+   transcript, not by any test; fixed by passing the turn id straight
+   through (`docs/STDIO-MANAGED-AGENTS.md`, "What phase 4 actually built").
+
+**`is_error` on `user.custom_tool_result` behaved as inferred.** The one
+call made carried `is_error: false` and was accepted and folded in
+correctly; no live payload exercised the `true` path in this check.
+
+**Spend for the whole check**: well under $0.10 (Sonnet 5, three short runs
+totalling under fifteen sub-turns while the bugs above were being found and
+re-verified) — no price table was loaded for this hand-driven check (`-prices`
+defaults to a path relative to the repository root, and the check ran with a
+scratch working directory), so no `cost_usd` figure is quoted; the token
+counts are the small, single-digit-thousands-per-request figures phase 2/3
+already established are typical for a short tool-using exchange on this
+model.

@@ -926,7 +926,15 @@ These hold for every tool and live in Go, not in prompt text.
 - Every tool has a wall-clock timeout and an output byte cap, with truncation
   labelled in the result. Both are settings (`tools.` group) with the defaults
   listed above; the values are resolved from the settings table on each call,
-  so a limit changed in the settings table applies without a restart.
+  so a limit changed in the settings table applies without a restart. One
+  call site departs from the settings table: `harness claude-session`'s
+  client-declared ("host") tools resolve asynchronously, on a client's own
+  answer through `sessions.events` rather than on this process's own work, so
+  that one process sets `tools.Timeouts.HostTool` to a figure with no natural
+  ceiling instead (`internal/session.Runner.ToolTimeouts`,
+  `docs/STDIO-MANAGED-AGENTS.md`, "The seam"). Every other tool, and this same
+  namespace under `stdio-session`/`gemini-session`'s own blocking
+  `harness.function_call`, keeps the ordinary MCP timeout unchanged.
 - Tool results are appended in `tool_calls` array order, never in completion
   order. Parallel tool calling is always on and cannot be disabled: the
   Responses API guide states it outright, the Codex model catalogue declares

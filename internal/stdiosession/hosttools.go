@@ -19,7 +19,7 @@ import (
 // client declared needs a server name to live under even though there is no
 // server. This one is reserved: a client that also declares an `mcp_server`
 // tool called "host" is refused.
-const HostServerName = "host"
+const HostServerName = tools.ClientToolServerName
 
 // hostTools implements tools.MCPProvider for one run. It merges two
 // sources, which is the answer docs/STDIO-PROTOCOL.md argues for on whose
@@ -66,9 +66,16 @@ type hostTools struct {
 	// call sends one function call to the client and waits for its answer.
 	// Both the params and the answer are the dialect's own shapes, so this
 	// side builds one and reads the other through d rather than naming
-	// either.
+	// either. Nil under ManagedAgents, which sets async instead.
 	call func(ctx context.Context, params any) (json.RawMessage, error)
-	d    Dialect
+	// async is ManagedAgents' own client-tool call: it registers the pending
+	// wait, blocks on it, and returns the content directly rather than a raw
+	// reply for d.CallContent to decode — there is no request/response pair
+	// to decode a reply out of, only an event (user.custom_tool_result) that
+	// arrives on a different call (docs/STDIO-MANAGED-AGENTS.md, "The
+	// seam"). Nil under Responses and Interactions, which set call instead.
+	async func(ctx context.Context, id, name string, args json.RawMessage) (tools.MCPContent, error)
+	d     Dialect
 	// runID rides on every call so a client hosting more than one session
 	// in one process knows which asked.
 	runID    string
@@ -262,13 +269,19 @@ func (h *hostTools) GetPrompt(ctx context.Context, server, name string, args map
 func (h *hostTools) Call(ctx context.Context, toolName string, args json.RawMessage) (tools.MCPContent, error) {
 	h.mu.Lock()
 	f, ok := h.funcs[toolName]
-	call := h.call
+	call, async := h.call, h.async
 	h.mu.Unlock()
 	if !ok {
 		if h.mcp == nil || !h.declaredTool(toolName) {
 			return tools.MCPContent{}, fmt.Errorf("no MCP server serves %q", toolName)
 		}
 		return h.mcp.Call(ctx, toolName, args)
+	}
+	if async != nil {
+		if len(args) == 0 {
+			args = json.RawMessage("{}")
+		}
+		return async(ctx, tools.CallIDFrom(ctx), f.name, args)
 	}
 	if call == nil {
 		return tools.MCPContent{}, fmt.Errorf("this session cannot call client function %q: the client did not declare the function_calls capability", f.name)

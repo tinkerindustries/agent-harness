@@ -51,6 +51,12 @@ func (Responses) NewRunID() string {
 	return "resp_" + hex.EncodeToString(b[:])
 }
 
+// AddressID returns runID unchanged: a client of this dialect holds the
+// response id as its primary address.
+func (Responses) AddressID(runID, sessionID string) string { return runID }
+
+func (Responses) AddressesSession() bool { return false }
+
 func (Responses) Messages() Messages {
 	return Messages{
 		AlreadyRunning:       "response %s is still running; one process hosts one session, so cancel it or wait for it to complete",
@@ -120,7 +126,7 @@ func (Responses) AppendResult(runID string, seq int64) any {
 	return AppendResult{ResponseID: runID, Seq: seq}
 }
 
-func (Responses) NewTranslator(runID, model string, emit func(method string, params any)) Translator {
+func (Responses) NewTranslator(runID, sessionID, model string, emit func(method string, params any)) Translator {
 	return newTranslator(runID, model, emit)
 }
 

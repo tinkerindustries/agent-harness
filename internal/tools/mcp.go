@@ -14,6 +14,14 @@ import (
 // chosen deliberately because it is a shape models have already seen.
 const MCPToolPrefix = "mcp__"
 
+// ClientToolServerName is the server name a hosted session's own
+// stdiosession package reserves for a client's declared function/custom
+// tools, which have no real MCP server behind them and are called back over
+// the parent's own pipe instead of dialled (internal/stdiosession,
+// HostServerName — kept here too because Timeouts.HostTool has to name it
+// without importing stdiosession, a leaf package this one may not depend on).
+const ClientToolServerName = "host"
+
 // MCPImage is one image content block an MCP tool returned.
 type MCPImage struct {
 	MIMEType string
