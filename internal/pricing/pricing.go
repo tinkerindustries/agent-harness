@@ -39,9 +39,17 @@ type ModelPrices struct {
 	InputCacheHitPerMillionUSD  float64 `json:"input_cache_hit_per_million_usd"`
 	InputCacheMissPerMillionUSD float64 `json:"input_cache_miss_per_million_usd"`
 	OutputPerMillionUSD         float64 `json:"output_per_million_usd"`
-	Source                      string  `json:"source,omitempty"`
-	CapturedAt                  string  `json:"captured_at,omitempty"`
-	Note                        string  `json:"note,omitempty"`
+	// InputCacheWritePerMillionUSD is what a provider charges to write into
+	// its prompt cache, distinct from the ordinary cache-miss rate above.
+	// Anthropic is the one provider this table prices that charges for it;
+	// zero — every model before this field existed, and every DeepSeek,
+	// Gemini and Kimi entry — means a cache write costs the same as any
+	// other cache miss, which is what Cost already computed before this
+	// field existed.
+	InputCacheWritePerMillionUSD float64 `json:"input_cache_write_per_million_usd,omitempty"`
+	Source                       string  `json:"source,omitempty"`
+	CapturedAt                   string  `json:"captured_at,omitempty"`
+	Note                         string  `json:"note,omitempty"`
 }
 
 // Tier names which set of rates a cost was computed at, so a figure can say
@@ -298,13 +306,18 @@ func (t *Table) RatesAt(model string, at time.Time) (ModelPrices, Tier, error) {
 // while it runs. The caller is the only thing that knows which instant it
 // means — internal/session passes the moment the request was sent, which is
 // when the tokens were submitted for billing.
-func (t *Table) Cost(model string, at time.Time, cacheHitTokens, cacheMissTokens, completionTokens int) (float64, Tier, error) {
+//
+// cacheWriteTokens prices at InputCacheWritePerMillionUSD, distinct from
+// cacheMissTokens' rate; every caller before that field existed passes zero,
+// which contributes nothing here regardless of the rate.
+func (t *Table) Cost(model string, at time.Time, cacheHitTokens, cacheMissTokens, cacheWriteTokens, completionTokens int) (float64, Tier, error) {
 	p, tier, err := t.RatesAt(model, at)
 	if err != nil {
 		return 0, "", err
 	}
 	cost := float64(cacheHitTokens)/1e6*p.InputCacheHitPerMillionUSD +
 		float64(cacheMissTokens)/1e6*p.InputCacheMissPerMillionUSD +
+		float64(cacheWriteTokens)/1e6*p.InputCacheWritePerMillionUSD +
 		float64(completionTokens)/1e6*p.OutputPerMillionUSD
 	return cost, tier, nil
 }

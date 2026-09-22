@@ -43,6 +43,17 @@ type Item struct {
 	// otherwise this struct verbatim. internal/gemini reads it off the Go
 	// value; the other providers ignore it.
 	ThoughtSignature string `json:"-"`
+
+	// ProviderBlocks is one Anthropic response's assistant `content` array,
+	// captured exactly as the API returned it and carried on the sub-turn's
+	// reasoning item the same way ThoughtSignature is
+	// (docs/ANTHROPIC-INTEGRATION.md, the raw-block replay unit). Like
+	// ThoughtSignature it rides on the Go value only — json:"-" keeps it out
+	// of every other provider's request body — and only internal/anthropic
+	// reads it: when an assistant turn carries blocks, that package renders
+	// the turn from them verbatim rather than rebuilding it from Content and
+	// the function_call items.
+	ProviderBlocks json.RawMessage `json:"-"`
 }
 
 // Item types, from the Responses input-item union. These four are what the

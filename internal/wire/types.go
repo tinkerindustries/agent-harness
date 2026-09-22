@@ -160,6 +160,12 @@ type Usage struct {
 	TotalTokens             int                      `json:"total_tokens"`
 	CachedTokens            int                      `json:"cached_tokens,omitempty"`
 	CompletionTokensDetails *CompletionTokensDetails `json:"completion_tokens_details,omitempty"`
+	// CacheWriteTokens is Anthropic's cache_creation_input_tokens: tokens
+	// written to the prompt cache on this request, billed at their own rate
+	// (pricing.ModelPrices.InputCacheWritePerMillionUSD) rather than the
+	// cache-miss rate PromptCacheMissTokens bills at. DeepSeek, Gemini and
+	// Kimi never set it, so it is zero and omitted on every body they send.
+	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
 }
 
 // CompletionTokensDetails breaks down CompletionTokens.
