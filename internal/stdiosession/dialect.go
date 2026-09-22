@@ -37,6 +37,23 @@ type Dialect interface {
 	// runs linked by the continuation id is one session resumed repeatedly.
 	NewRunID() string
 
+	// AddressID says which of a run's two ids a client sends back to this
+	// process: the run id itself, or the session it belongs to. Responses
+	// and Interactions return runID unchanged — a client holds the run id as
+	// its primary address on both. ManagedAgents returns sessionID instead:
+	// its client never learns a bare run id at all, only harness.turn_id
+	// nested under the session it addresses everything by
+	// (docs/STDIO-MANAGED-AGENTS.md, "The seam").
+	AddressID(runID, sessionID string) string
+
+	// AddressesSession says whether a bare id this dialect's client sends on
+	// get and delete is the session id rather than the run id — false for
+	// Responses and Interactions, true for ManagedAgents, whose client never
+	// learns a run id to send in the first place. Server falls back to
+	// lookupBySession only when this is true and DecodeID's own id resolved
+	// against s.lookup to nothing.
+	AddressesSession() bool
+
 	// Methods names the five verbs a client calls. The handshake pair,
 	// shutdown and harness.function_call are spelled the same in both and
 	// are not here.
@@ -66,8 +83,13 @@ type Dialect interface {
 	// under this surface's own key, and where the input landed in the log.
 	AppendResult(runID string, seq int64) any
 
-	// NewTranslator opens the per-run renderer.
-	NewTranslator(runID, model string, emit func(method string, params any)) Translator
+	// NewTranslator opens the per-run renderer. sessionID is passed
+	// alongside runID because ManagedAgents' every notification — not only
+	// its terminal resource, which RunView.SessionID already covers —
+	// carries the session id rather than the run id; Responses and
+	// Interactions ignore it, since neither ever puts a session id on a
+	// mid-stream frame.
+	NewTranslator(runID, sessionID, model string, emit func(method string, params any)) Translator
 
 	// CallParams builds the params of the one request this side sends, and
 	// CallContent reads the client's answer into what the executor turns

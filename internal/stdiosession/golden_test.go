@@ -104,6 +104,91 @@ func TestGoldenFrames(t *testing.T) {
 	}
 }
 
+// TestManagedAgentsGoldenFrames is TestGoldenFrames' own scripted run,
+// applied to the ManagedAgents dialect against a fake Anthropic Messages API
+// instead of a fake Gemini one: a create whose model calls a client-declared
+// custom tool, answered through sessions.events, ending in a plain-text
+// reply. Re-record with
+// `go test ./internal/stdiosession -run TestManagedAgentsGoldenFrames -update-golden`.
+func TestManagedAgentsGoldenFrames(t *testing.T) {
+	f, _ := newManagedAgentsFixture(t, 0,
+		claudeToolCall("toolu_1", "mcp__host__echo", `{"text":"ping"}`),
+		claudeAnswer("The tool said pong."),
+	)
+	var hs maInitializeResult
+	f.client.handshakeRaw(ClientCapabilities{FunctionCalls: true}, &hs)
+
+	p := maCreateParamsFor(f, "use the tool", &Tool{
+		Type: ToolFunction, Name: "echo", Description: "Echo the text back",
+		Parameters: json.RawMessage(`{"type":"object","properties":{"text":{"type":"string"}}}`),
+		Harness:    &ToolHarness{ReadOnly: true},
+	})
+
+	var created maCreateResult
+	if rerr := f.client.call(MethodSessionsCreate, p, &created); rerr != nil {
+		t.Fatalf("sessions.create: %v", rerr)
+	}
+	seen := f.client.waitFor(notifyMASessionStatusIdle)
+
+	var use maCustomToolUse
+	for _, m := range seen {
+		if m.Method == notifyMAAgentCustomToolUse {
+			json.Unmarshal(m.Params, &use)
+		}
+	}
+	resultEvt, _ := json.Marshal(maWireEvent{
+		Type: maEventUserCustomToolResult, CustomToolUseID: use.ID,
+		Content: maTextContent("pong"),
+	})
+	var answered maEventsResult
+	if rerr := f.client.call(MethodSessionsEvents, maEventsParams{SessionID: created.Session.ID, Events: []json.RawMessage{resultEvt}}, &answered); rerr != nil {
+		t.Fatalf("sessions.events: %v", rerr)
+	}
+	seen = append(seen, f.client.waitFor(notifyMASessionStatusIdle)...)
+
+	var got maGetResult
+	if rerr := f.client.call(MethodSessionsGet, maIDParams{SessionID: created.Session.ID}, &got); rerr != nil {
+		t.Fatalf("sessions.get: %v", rerr)
+	}
+
+	capture := map[string]any{
+		"create_answer": normalise(t, created, f.cwd),
+		"notifications": notificationFrames(t, seen, f.cwd),
+		"get_answer":    normalise(t, got, f.cwd),
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(capture); err != nil {
+		t.Fatalf("encode the capture: %v", err)
+	}
+	out := buf.Bytes()
+
+	path := filepath.Join("testdata", "managedagents-frames.json")
+	if *updateGolden {
+		if err := os.MkdirAll("testdata", 0o755); err != nil {
+			t.Fatalf("make testdata: %v", err)
+		}
+		if err := os.WriteFile(path, out, 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+		t.Logf("wrote %s", path)
+		return
+	}
+
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s (run `go test ./internal/stdiosession -run TestManagedAgentsGoldenFrames -update-golden` to create it): %v", path, err)
+	}
+	if string(out) != string(want) {
+		t.Errorf("the frames this run produced differ from %s.\n"+
+			"If the change is one docs/STDIO-MANAGED-AGENTS.md sanctions, re-record with\n"+
+			"  go test ./internal/stdiosession -run TestManagedAgentsGoldenFrames -update-golden\n"+
+			"and put the diff in the commit. Otherwise it is a regression.\n\ngot:\n%s", path, out)
+	}
+}
+
 // notificationFrames renders the stream as a list of {method, params}, with
 // the params normalised.
 func notificationFrames(t *testing.T, ms []message, cwd string) []any {
@@ -189,6 +274,9 @@ func scrub(v any, cwds []string) any {
 	case string:
 		if strings.HasPrefix(t, "resp_") {
 			return "<response_id>"
+		}
+		if strings.HasPrefix(t, "turn_") {
+			return "<turn_id>"
 		}
 		if strings.HasPrefix(t, "sess-") {
 			return "<session_id>"

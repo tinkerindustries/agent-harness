@@ -71,29 +71,37 @@ hosts"](#which-models-this-process-hosts).
 This document is the contract. A client is built from it and never needs to
 read Go.
 
-**This is one of two vocabularies the same session speaks.**
+**This is one of three vocabularies the same session speaks.**
 `harness gemini-session` runs the identical session and puts Google's
 Interactions vocabulary on the pipe instead, in the spelling
 `internal/gemini` already uses against Google;
-[STDIO-INTERACTIONS.md](STDIO-INTERACTIONS.md) is that document. The
+[STDIO-INTERACTIONS.md](STDIO-INTERACTIONS.md) is that document.
+`harness claude-session` puts Anthropic's Managed Agents vocabulary on the
+pipe instead, addressing a **session** rather than a run;
+[STDIO-MANAGED-AGENTS.md](STDIO-MANAGED-AGENTS.md) is that one. The
 subcommand is what chooses, because the choice has to be made before
 `initialize` can answer: its result carries a protocol string, a capability
 named for its own continuation id, and each model's effort set under its own
 key.
 
 Pick the one your client already implements. This one hosts a DeepSeek model
-and three Claude models as well as Google's; the other hosts Google's alone,
-since a client speaking Google's vocabulary has no way to drive a model of
-another vendor's through it. One thing this vocabulary cannot carry is a
-**thought signature**, which Google issues for a thinking step and a client
-storing transcripts for replay needs; see
+and three Claude models as well as Google's; `gemini-session` hosts Google's
+alone and `claude-session` hosts the three Claude models alone, since a
+client speaking one vendor's vocabulary has no way to drive another vendor's
+model through it. One thing this vocabulary cannot carry is a **thought
+signature**, which Google issues for a thinking step and a client storing
+transcripts for replay needs; see
 [STDIO-INTERACTIONS.md](STDIO-INTERACTIONS.md).
 
 The Interactions vocabulary is pinned at revision
 `c039c0b4d7bea9f657e09b80d38af833f00c3182` (`v0.48.0-10-gc039c0b`), and a
 client at that revision drives `harness gemini-session` unchanged.
 
-The two vocabularies, shape for shape:
+The two run-addressed vocabularies, shape for shape — ManagedAgents' own
+porting table, against a **session** rather than a run, is
+[STDIO-MANAGED-AGENTS.md](STDIO-MANAGED-AGENTS.md)'s own "Deviations from
+Codex's app-server" section, since the two shapes differ too much for one
+table to carry both usefully:
 
 | Interactions (`gemini-session`) | Responses (`stdio-session`) |
 | --- | --- |
@@ -116,7 +124,9 @@ The two vocabularies, shape for shape:
 | `thought_signature` delta | *(no counterpart)* |
 
 The `harness.*` extensions are unchanged in meaning throughout, and
-`harness.resume_session_id` still carries a conversation across a restart.
+`harness.resume_session_id` still carries a conversation across a restart —
+`claude-session` included, though there a client's own primary address is
+already the session id `harness.resume_session_id` names, never a run id.
 
 ## Contents
 
@@ -143,11 +153,14 @@ harness stdio-session [-state-dir DIR] [-keep-state] [-model NAME] [-prices PATH
                       [-env FILE] [-rg PATH]
 ```
 
-**`harness gemini-session` is not an alias for this.** It takes the same
-flags and runs the same session, and it speaks Google's Interactions
-vocabulary rather than this one
-([STDIO-INTERACTIONS.md](STDIO-INTERACTIONS.md)). The handshake reports back
-the name it was spawned as, so `server_info.name` says which you got and
+**`harness gemini-session` and `harness claude-session` are not aliases for
+this.** Both take the same flags and run the same session; the first speaks
+Google's Interactions vocabulary
+([STDIO-INTERACTIONS.md](STDIO-INTERACTIONS.md)) and the second Anthropic's
+Managed Agents vocabulary
+([STDIO-MANAGED-AGENTS.md](STDIO-MANAGED-AGENTS.md)), addressed by session id
+rather than by a per-run one. The handshake reports back the name it was
+spawned as, so `server_info.name` says which you got and
 `server_info.protocol` says which vocabulary that name speaks.
 
 The parent supplies the API keys in the environment it spawns the process
@@ -224,7 +237,10 @@ harness routes, plus exactly one DeepSeek model, plus three Claude models:
 Anthropic ones. A client speaking Google's vocabulary would be naming a
 DeepSeek or Claude model in a `generation_config` and reading its answers as
 Google steps, so that command does not offer them; a `-model` naming one
-there is refused at startup.
+there is refused at startup. `harness claude-session` advertises the three
+Claude rows alone, for the same reason in reverse
+([STDIO-MANAGED-AGENTS.md](STDIO-MANAGED-AGENTS.md)); it reads
+`ANTHROPIC_API_KEY` alone and never the other three variables.
 
 **One DeepSeek model, and it is the vision one.** `deepseek-flash` reads
 images natively, which is why this is the DeepSeek model the harness routes

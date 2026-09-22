@@ -26,8 +26,12 @@ commands:
   gemini-session    the same session, spoken in Google's Interactions API
                     vocabulary instead (docs/STDIO-INTERACTIONS.md). Hosts
                     Google's models only.
+  claude-session    the same session, spoken in Anthropic's Managed Agents
+                    vocabulary instead (docs/STDIO-MANAGED-AGENTS.md). Hosts
+                    the three Claude models only: claude-opus-5,
+                    claude-sonnet-5, claude-fable-5-1.
 
-The two commands differ in what the parent reads off the pipe, not in what
+The three commands differ in what the parent reads off the pipe, not in what
 the session can do. Pick the one your client speaks.
 
 "harness <command> -h" lists that command's flags.`
@@ -53,6 +57,11 @@ func main() {
 	// that named it — c039c0b — works unchanged (docs/STDIO-INTERACTIONS.md).
 	case "stdio-session", "gemini-session":
 		if err := runStdioSession(ctx, invoked, os.Args[2:], os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "harness "+invoked+": "+err.Error())
+			os.Exit(1)
+		}
+	case "claude-session":
+		if err := runClaudeSession(ctx, os.Args[2:], os.Stdin, os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, "harness "+invoked+": "+err.Error())
 			os.Exit(1)
 		}
