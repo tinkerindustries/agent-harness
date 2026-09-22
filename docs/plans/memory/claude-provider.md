@@ -16,6 +16,13 @@ Every session working on this feature reads this file. Keep it to one screen. No
 
 Only `internal/anthropic` reads `ProviderBlocks`. When an assistant turn has them, the client
 renders that turn from them verbatim and does not rebuild it from the text and call items.
+An Anthropic sub-turn's `reasoning_delta` event normally has empty `text` and
+`thought_signature` and non-empty `provider_blocks`. The signature lives inside the blocks.
+The blocks round-trip JSON-equivalent, which is not byte-identical: `json.Marshal` compacts
+whitespace.
+
+`pricing.Table.Cost` takes a `cacheWriteTokens` argument. `store.UsagePayload` records
+`prompt_cache_write_tokens`. Anthropic's `UsageSplit` leaves cache writes out of the miss count.
 
 ## Invariants
 
@@ -37,6 +44,10 @@ renders that turn from them verbatim and does not rebuild it from the text and c
 | `internal/stdiosession/dialect.go`, `translator.go`, `interactions*.go` | The dialect seam and the last dialect added through it |
 | `cmd/harness/stdiosession.go` | Keys, client dispatch, hosted models, dialect choice |
 | `internal/stdiosession/modelinfo.go` | The one place the protocol's model vocabulary meets a provider's |
+| `internal/anthropic/modelinfo.go` | Display name, context window and effort set per Claude model. This is what `stdiosession/modelinfo.go` calls |
+| `internal/anthropic/intent.go` (`systemMessageModels`) | Which Claude models accept mid-conversation system messages. Don't duplicate this table elsewhere |
+| `internal/anthropic/live_test.go` | The live check, gated on `RUN_ANTHROPIC_LIVE_TEST`. The suite never sets it |
+| `docs/OBSERVED.md`, "Claude Messages API" | Live findings: 2-token genuine miss (`CacheSlack` 1024), at most one thinking block per response so far |
 | `docs/STDIO-INTERACTIONS.md` | The model for `docs/STDIO-MANAGED-AGENTS.md` |
 
 ## External facts
