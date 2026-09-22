@@ -25,14 +25,19 @@ a client per provider behind that dispatch and the parent-facing dialect
 chosen from the subcommand the process was spawned as. Composition happens here and
 nowhere else; no `internal` package constructs another's dependencies.
 
-It hosts every Gemini model the repository routes plus the one DeepSeek
-model the repository routes, `deepseek-flash` (`deepSeekSessionModel`) —
-which reads images natively, keeping a DeepSeek session here to one
-credential: a model that could not see would carry the vision tools built to
-compensate, four of which reach Google
-([`../docs/DEEPSEEK-VISION.md`](../docs/DEEPSEEK-VISION.md)). Nothing but
-protocol frames may reach stdout, so the process logs to stderr and reads no
-`.env` of its own.
+It hosts every Gemini model the repository routes, the one DeepSeek model
+the repository routes, `deepseek-flash` (`deepSeekSessionModel`), which
+reads images natively, and all three Claude models. `deepseek-flash` reading
+images natively is what keeps a DeepSeek session here to one credential: a
+model that could not see would carry the vision tools built to compensate,
+four of which reach Google
+([`../docs/DEEPSEEK-VISION.md`](../docs/DEEPSEEK-VISION.md)). The Claude
+models read images natively too, and their tool array
+(`internal/tools.DefinitionsFor`) drops the harness's own `WebFetch` in
+favour of Anthropic's own server-side `web_search` and `web_fetch`
+([`../docs/ANTHROPIC-INTEGRATION.md`](../docs/ANTHROPIC-INTEGRATION.md)).
+Nothing but protocol frames may reach stdout, so the process logs to stderr
+and reads no `.env` of its own.
 
 ### `internal/deepseek`
 The DeepSeek API client, speaking **two** surfaces at one base URL: Chat
@@ -123,6 +128,38 @@ structs, never `map[string]any`, for the same byte-stability reason as the
 other two clients. Depends on: `internal/wire`, `internal/providerhttp` (just
 `Transport`, for retry-with-backoff — never `PumpStream`).
 
+### `internal/anthropic`
+The Anthropic client, hand-rolled the same way `internal/gemini` and
+`internal/deepseek` are: `POST https://api.anthropic.com/v1/messages`, Go
+structs rather than `map[string]any` for byte-stable requests. Hosts three
+models — `claude-opus-5`, `claude-sonnet-5`, `claude-fable-5-1`
+(`modelinfo.go`). Implements the narrow `Client` seam `internal/session`
+declares: `intent.go`'s `requestFromIntent` renders the system prompt into
+top-level `system`, items into `user`/`assistant` messages, and up to three
+cache breakpoints (`applyCacheBreakpoints`); mid-conversation system items
+render as a system message on Opus 5 and Fable 5.1 and as a user text block
+on Sonnet 5 (`systemMessageModels`). Owns the one shape with no counterpart
+in either OpenAI-format dialect: a whole response's assistant `content`
+array captured verbatim as `wire.EventProviderBlocks` and replayed
+byte-for-byte on the next request, because Anthropic's preserved-thinking
+check needs every `thinking` and `redacted_thinking` block back in original
+order alongside blocks (`server_tool_use`, `*_tool_result`) `wire.Item` has
+no field for — DeepSeek, Kimi and Gemini never set this event and their
+goldens pin that unchanged. `stream.go`'s `readSSE` is this client's own SSE
+decoder for the surface's named-event vocabulary
+(`message_start`/`content_block_start`/`content_block_delta`/`message_delta`/
+`message_stop`), wrapped by `client.go`'s `streamOneRound` in a
+`providerhttp.StreamOpener`/`StreamPump` pair so a connection that dies
+after a 200 reopens on `providerhttp.Transport.RetryStream`'s backoff, per
+HTTP round rather than around the whole `pause_turn` resume loop —
+`pause_turn` (Claude wanting another round of server-tool use) resumes
+internally, bounded, so the loop always sees one logical response.
+`errors.go` retries 429, the 5xx faults, and 529 (`overloaded_error`); a
+`stop_reason: "refusal"` ends the turn with `*RefusalError`. Depends on:
+`internal/wire`, `internal/providerhttp` (`Transport`, `SetAuth` for
+`x-api-key`, and `RetryStream`). `docs/ANTHROPIC-INTEGRATION.md` is the
+provider reference.
+
 ### `internal/stdiosession`
 The protocol `harness stdio-session` and `harness gemini-session` speak:
 JSON-RPC 2.0 over stdin and stdout, carrying a vendor's own vocabulary rather
@@ -173,8 +210,8 @@ tool array the create has to re-declare with live connection metadata — is
 checked against the row rather than taken from the create. Depends on:
 `internal/session`, `internal/store`, `internal/hub`, `internal/tools`,
 `internal/mcpclient`, `internal/provider`, and — in `modelinfo.go` alone, for
-the descriptive tables the handshake publishes — `internal/gemini` and
-`internal/deepseek`.
+the descriptive tables the handshake publishes — `internal/gemini`,
+`internal/deepseek` and `internal/anthropic`.
 
 ### `internal/attachment`
 Validates one image attachment a client submitted before its bytes reach the
@@ -282,8 +319,8 @@ tools read images by).
 
 ### `internal/fold`
 Folds the event log into the wire `messages` array (`internal/wire`'s
-`Message`, the shape both providers send). Pure, append-only, a
-switch on event kind. §4.1.
+`Message`, the shape every provider's Chat-Completions-style request is
+rendered from). Pure, append-only, a switch on event kind. §4.1.
 
 ### `internal/store`
 SQLite (`modernc.org/sqlite`, pure Go, WAL) plus the derived disk mirror under
@@ -331,9 +368,11 @@ the prompt text; this package owns the edits to it.
 The one model→provider table (docs/KIMI-INTEGRATION.md §4.3): `ModelFor`
 maps a model name to the provider serving it, with no default — an unknown
 model is an error, so request validation rejects it loudly instead of
-silently routing to a provider. Three providers today: DeepSeek
-(`deepseek-flash`), Kimi (`kimi-k3`), and Gemini (`gemini-3.7-flash`,
-docs/GEMINI-INTEGRATION.md §7 Phase 5). It also carries `SeesImages`, the
+silently routing to a provider. Four providers today: DeepSeek
+(`deepseek-flash`), Kimi (`kimi-k3`), Gemini (`gemini-3.7-flash`,
+docs/GEMINI-INTEGRATION.md §7 Phase 5), and Anthropic (`claude-opus-5`,
+`claude-sonnet-5`, `claude-fable-5-1`, docs/ANTHROPIC-INTEGRATION.md). It
+also carries `SeesImages`, the
 one model→capability table for native vision — keyed by model rather than
 by provider, since a future DeepSeek model could disagree with
 `deepseek-flash`'s own vision capability the way `deepseek-v4-pro` used to

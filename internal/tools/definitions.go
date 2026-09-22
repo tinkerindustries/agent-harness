@@ -298,6 +298,15 @@ var definitionsDeepSeek = []wire.Tool{
 // file rather than a duplicate).
 var definitionsVisionCapable = without(definitionsDeepSeek, "Screenshot", "Glance", "Ground", "Detect", "Transcribe", "Crop")
 
+// definitionsClaude is definitionsVisionCapable minus WebFetch: a Claude
+// session carries Anthropic's own server-side web_search and web_fetch tools
+// instead (internal/anthropic's intent renderer appends them after this
+// array, docs/ANTHROPIC-INTEGRATION.md), so the harness's own WebFetch would
+// be a second, redundant way to fetch a URL. The six vision tools are
+// already dropped for the same reason every vision-capable model drops
+// them — Claude reads images natively.
+var definitionsClaude = without(definitionsVisionCapable, "WebFetch")
+
 // without returns tools minus every entry whose name is in drop. Callers
 // must not mutate the result.
 func without(tools []wire.Tool, drop ...string) []wire.Tool {
@@ -338,19 +347,27 @@ func Definitions() []wire.Tool {
 	return definitionsDeepSeek
 }
 
-// DefinitionsFor returns the frozen tool array for model, resolved through
-// the one model→capability table that decides vision (internal/provider,
-// provider.SeesImages) rather than through the provider serving it — a table
-// keyed by model rather than by provider is what would let a future DeepSeek
-// model disagree with deepseek-flash's own vision capability
-// (docs/DEEPSEEK-VISION.md). Every model behind provider.SeesImages == true
-// resolves to definitionsVisionCapable; every other model, known or not,
-// resolves to definitionsDeepSeek, so an unknown model — which queue
-// validation rejects before a session is created — falls back to the
-// DeepSeek array here too, belt-and-braces for direct CLI callers rather
-// than a route anything can take by mistake. Callers must not mutate the
-// result.
+// DefinitionsFor returns the frozen tool array for model. A Claude model
+// resolves to definitionsClaude before the vision check runs, because
+// provider.SeesImages is also true for it and would otherwise hand back
+// definitionsVisionCapable with WebFetch still in it — the one array-level
+// decision that is the provider's rather than the vision table's, since it
+// is about which web tool the model carries rather than whether it can see.
+// Every other model resolves through the one model→capability table that
+// decides vision (internal/provider, provider.SeesImages) rather than
+// through the provider serving it — a table keyed by model rather than by
+// provider is what would let a future DeepSeek model disagree with
+// deepseek-flash's own vision capability (docs/DEEPSEEK-VISION.md). Every
+// model behind provider.SeesImages == true resolves to
+// definitionsVisionCapable; every other model, known or not, resolves to
+// definitionsDeepSeek, so an unknown model — which queue validation rejects
+// before a session is created — falls back to the DeepSeek array here too,
+// belt-and-braces for direct CLI callers rather than a route anything can
+// take by mistake. Callers must not mutate the result.
 func DefinitionsFor(model string) []wire.Tool {
+	if name, err := provider.ModelFor(model); err == nil && name == provider.Anthropic {
+		return definitionsClaude
+	}
 	if provider.SeesImages(model) {
 		return definitionsVisionCapable
 	}

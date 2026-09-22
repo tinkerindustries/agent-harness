@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"time"
@@ -146,6 +147,13 @@ func NewClient(baseURL string, opts ...ClientOption) *Client {
 // one EventProviderBlocks carrying every block from every resumed request
 // concatenated in order, one EventUsage summing their usage, then
 // EventFinish or EventError.
+//
+// Each round's own connection gets the same mid-stream reconnection every
+// other provider's client does: a connection that dies after a 200 but
+// before producing any output is reopened with the same request body and
+// re-pumped, on providerhttp.Transport.RetryStream's own backoff schedule
+// (docs/DESIGN.md §4.3, "Retrying a stream that dies mid-flight"), rather
+// than ending the sub-turn (streamOneRound's own doc comment).
 func (c *Client) StreamChatCompletion(ctx context.Context, intent wire.ChatIntent) (<-chan wire.Event, error) {
 	req := requestFromIntent(intent)
 	req.Stream = true
@@ -172,19 +180,10 @@ func (c *Client) StreamChatCompletion(ctx context.Context, intent wire.ChatInten
 				send(wire.Event{Type: wire.EventError, Err: fmt.Errorf("anthropic: encode request: %w", err)})
 				return
 			}
-			resp, err := c.transport.Do(ctx, http.MethodPost, "/v1/messages", body)
-			if err != nil {
-				send(wire.Event{Type: wire.EventError, Err: c.transport.WrapError("stream request", err)})
-				return
-			}
-			if resp.StatusCode != http.StatusOK {
-				send(wire.Event{Type: wire.EventError, Err: parseAPIError(resp)})
-				return
-			}
 
-			result, err := c.readSSE(ctx, resp.Body, send)
+			result, err := c.streamOneRound(ctx, body, send)
 			if err != nil {
-				send(wire.Event{Type: wire.EventError, Err: err})
+				// streamOneRound already forwarded the terminal EventError.
 				return
 			}
 			allBlocks = append(allBlocks, result.blocks...)
@@ -217,6 +216,75 @@ func (c *Client) StreamChatCompletion(ctx context.Context, intent wire.ChatInten
 		send(wire.Event{Type: wire.EventError, Err: fmt.Errorf("anthropic: exceeded %d pause_turn resumes in one sub-turn", maxPauseTurnResumes)})
 	}()
 	return out, nil
+}
+
+// streamOneRound issues one Messages API request for reqBody and pumps its
+// SSE stream, forwarding every delta to send as it arrives, exactly as the
+// inline call this replaced did. The difference is what happens when the
+// connection dies after a 200 but before the stream reaches message_stop: to
+// providerhttp.Transport.RetryStream, "one HTTP response's whole SSE body"
+// is the retry unit, so it is applied here, per round, rather than around
+// the pause_turn loop that calls this — a round that has already streamed
+// output before dying still ends the sub-turn on that output (RetryStream's
+// own "has this stream spoken yet" gate), the same as every other provider.
+//
+// readSSE is unmodified: this wraps it in a providerhttp.StreamOpener/
+// StreamPump pair rather than splitting it, since RetryStream only needs
+// its existing (body, send) shape called again on a fresh body — result and
+// its error are captured by the closure for streamOneRound to read once the
+// retried channel drains, which is safe because a channel close
+// happens-after every send (and every closure write ahead of it) the
+// closing goroutine performed.
+//
+// On success, the terminal EventProviderBlocks/EventUsage/EventFinish or a
+// pause_turn continuation is still StreamChatCompletion's job — this
+// returns only the one round's streamResult. On failure, the terminal
+// EventError has already reached send by the time this returns a non-nil
+// error, so the only thing left for the caller to do is stop.
+func (c *Client) streamOneRound(ctx context.Context, reqBody []byte, send func(wire.Event) bool) (streamResult, error) {
+	open := func(ctx context.Context) (io.ReadCloser, error) {
+		resp, err := c.transport.Do(ctx, http.MethodPost, "/v1/messages", reqBody)
+		if err != nil {
+			return nil, c.transport.WrapError("stream request", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			return nil, parseAPIError(resp)
+		}
+		return resp.Body, nil
+	}
+
+	firstBody, err := open(ctx)
+	if err != nil {
+		send(wire.Event{Type: wire.EventError, Err: err})
+		return streamResult{}, err
+	}
+
+	var result streamResult
+	pump := func(ctx context.Context, body io.ReadCloser, events chan<- wire.Event) {
+		defer close(events)
+		forward := func(e wire.Event) bool {
+			select {
+			case events <- e:
+				return true
+			case <-ctx.Done():
+				return false
+			}
+		}
+		res, err := c.readSSE(ctx, body, forward)
+		result = res
+		if err != nil {
+			forward(wire.Event{Type: wire.EventError, Err: err})
+		}
+	}
+
+	for ev := range c.transport.RetryStream(ctx, firstBody, open, pump, ErrIdleTimeout) {
+		if ev.Type == wire.EventError {
+			send(ev)
+			return streamResult{}, ev.Err
+		}
+		send(ev)
+	}
+	return result, nil
 }
 
 // CreateChatCompletion sends one non-streaming request expressing the

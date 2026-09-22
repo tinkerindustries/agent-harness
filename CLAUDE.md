@@ -2,9 +2,9 @@
 
 A harness for running one coding session against a model provider's own API,
 hosted for a parent process over stdin and stdout. DeepSeek is the default
-provider; Gemini models are routed through the same loop, and Kimi K3 is
-being added behind a narrow dialect seam. Prefer the option that exercises a
-provider's real behaviour over a provider-agnostic abstraction.
+provider; Gemini and Claude models are routed through the same loop, and
+Kimi K3 is being added behind a narrow dialect seam. Prefer the option that
+exercises a provider's real behaviour over a provider-agnostic abstraction.
 
 There is one session, reachable under two subcommands. `harness stdio-session`
 and `harness gemini-session` host a single coding session in a directory the
@@ -55,21 +55,25 @@ suite is for.
   `-state-dir` names the directory; without one the process makes a
   per-pid directory under the user cache dir and removes it on exit.
 - **Credentials are the parent's to supply**, in `GEMINI_API_KEY` /
-  `GOOGLE_API_KEY` and `DEEPSEEK_API_KEY`. Neither is required and neither
-  implies the other: a host with one key runs that provider's models and is
-  told which variable is missing if it asks for the other's. `-env` names a
-  KEY=VALUE file to fall back to, for driving the process by hand. No key is
-  ever written to the settings table, because a `-state-dir` the parent keeps
-  for resuming must not become a file holding a plaintext key.
+  `GOOGLE_API_KEY`, `DEEPSEEK_API_KEY` and `ANTHROPIC_API_KEY`. None is
+  required and none implies another: a host with one key runs that
+  provider's models and is told which variable is missing if it asks for
+  another's. `-env` names a KEY=VALUE file to fall back to, for driving the
+  process by hand. No key is ever written to the settings table, because a
+  `-state-dir` the parent keeps for resuming must not become a file holding
+  a plaintext key.
 - **Nothing but protocol frames may reach stdout.** A stray line there is an
   unparseable frame to the parent and there is no recovering from it. The
   process logs to stderr, and it reads no `.env` of its own — the parent owns
   the working directory, and a `.env` sitting in a repository the session is
   about to work in must not feed this process.
-- **`harness stdio-session` hosts every Gemini model the harness routes and
-  the one DeepSeek model it routes,** `deepseek-flash`, which reads images
-  natively — a model that could not see would be given vision tools that
-  reach Google, so hosting one would need a second provider's key.
+- **`harness stdio-session` hosts every Gemini model the harness routes, the
+  one DeepSeek model it routes, and all three Claude models,**
+  `deepseek-flash`, which reads images natively — a model that could not see
+  would be given vision tools that reach Google, so hosting one would need a
+  second provider's key. The Claude models read images natively too, and
+  drop the harness's own `WebFetch` in favour of Anthropic's server-side
+  `web_search` and `web_fetch` (`docs/ANTHROPIC-INTEGRATION.md`).
   `harness gemini-session` hosts the Gemini models alone: a client speaking
   Google's vocabulary has no way to drive another vendor's model through it.
 - **`docs/ANDROID.md`** covers running the binary under Termux, including

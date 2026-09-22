@@ -11,9 +11,13 @@ cache depends on (`docs/DESIGN.md` §3.2). It implements
 never learns Anthropic's request shape.
 
 It hosts three models: `claude-opus-5`, `claude-sonnet-5` and
-`claude-fable-5-1` (`modelinfo.go`). Nothing outside this package names a
-Claude model yet — the provider table, the tool array and `cmd/harness`
-wiring are a later phase's.
+`claude-fable-5-1` (`modelinfo.go`). `internal/provider.Anthropic` routes
+them, `internal/tools.DefinitionsFor` gives them the vision-capable tool
+array without `WebFetch` (Anthropic's own `web_search` and `web_fetch`
+server tools ride the request instead, appended after the client-declared
+array by `intent.go`'s `toolsFromWire`), and `harness stdio-session` hosts
+all three behind `ANTHROPIC_API_KEY` (`cmd/harness/stdiosession.go`,
+`docs/STDIO-PROTOCOL.md`).
 
 ## The raw-block replay unit
 
@@ -201,6 +205,26 @@ docs are explicit about the wider set, unlike the Interactions API's silent
 A `stop_reason: "refusal"` response — HTTP 200, Claude having declined to
 continue — ends the turn with a `*RefusalError` carrying the response's
 `stop_details` verbatim, on both the streaming and unary paths.
+
+## Mid-stream retry
+
+A connection that dies after a 200 but before `message_stop` — a reset, a
+timeout on `readSSE`'s own idle watchdog (`ErrIdleTimeout`) — is reopened
+with the same request body and re-pumped, on
+`providerhttp.Transport.RetryStream`'s own backoff schedule
+(`docs/DESIGN.md` §4.3, "Retrying a stream that dies mid-flight"), the same
+mechanism `internal/deepseek`, `internal/kimi` and `internal/gemini` wire
+onto their own streams. `client.go`'s `streamOneRound` is the seam:
+`readSSE` is unmodified and wrapped in a `providerhttp.StreamOpener`/
+`StreamPump` pair per call, because the retry unit is one HTTP response's
+whole SSE body and `pause_turn` can mean several of those within a single
+sub-turn the loop sees as one request. The retry applies per round rather
+than around the whole `pause_turn` loop: a round that already streamed
+output before dying still ends the sub-turn on that output, exactly like
+every other provider (`RetryStream`'s own "has this stream spoken yet"
+gate) — reopening would resend a request the API may already be mid-way
+through answering, and there is no way to tell the caller's already-forwarded
+deltas apart from a second, independent completion's.
 
 ## The rest of the seam
 

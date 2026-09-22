@@ -58,7 +58,12 @@ through to `go test`.
   `go test ./internal/stdiosession -run TestGoldenFrames -update-golden` when
   the protocol document sanctions the change, and put the diff in the commit.
   A test that wants the Interactions vocabulary calls `useDialect`; the rest
-  get the Responses one.
+  get the Responses one. `endtoend_test.go` and `claude_test.go` go further
+  still, for DeepSeek and Claude respectively: a real provider client against
+  a fake HTTP recorder at one end of the pipe and a real client at the other,
+  so the outbound provider request and the inbound parent frames are both
+  asserted from the same run rather than each dialect's shape being taken on
+  faith from the other end.
 - **`internal/tools`** — argument validation, workspace confinement, and every
   permission decision in both modes. Policy tests also assert that the tool
   *definitions* are unchanged by mode, which is the cache invariant in test form.

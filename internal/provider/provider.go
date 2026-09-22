@@ -30,6 +30,9 @@ const (
 	// but that path is called directly (session.Runner.Gemini) rather than
 	// through this table — this entry is only for the agentic coding seam.
 	Gemini Name = "gemini"
+	// Anthropic is Claude's own Messages API, serving claude-opus-5,
+	// claude-sonnet-5 and claude-fable-5-1 (docs/ANTHROPIC-INTEGRATION.md).
+	Anthropic Name = "anthropic"
 )
 
 // models is the one model→provider table. The names are exactly what
@@ -44,6 +47,9 @@ var models = map[string]Name{
 	"gemini-3.6-flash":      Gemini,
 	"gemini-3.5-flash":      Gemini,
 	"gemini-3.5-flash-lite": Gemini,
+	"claude-opus-5":         Anthropic,
+	"claude-sonnet-5":       Anthropic,
+	"claude-fable-5-1":      Anthropic,
 }
 
 // ModelFor returns the provider that serves model. The table has no
@@ -97,6 +103,12 @@ func KnownModels() []string {
 // (released after 2026-08-21), but its own live page at
 // ai.google.dev/gemini-api/docs/models/gemini-3.8-flash states its input
 // types outright — "Text, Image, Video, Audio, and PDF" — read 2026-09-08.
+// claude-opus-5, claude-sonnet-5 and claude-fable-5-1 are set true on the
+// same grounds as every other entry here reading images is a trained-in
+// capability of the model itself, and Anthropic's own vision docs
+// (platform.claude.com/docs/en/build-with-claude/vision) describe image
+// input as a feature of the Claude models generally, not a per-tool
+// capability internal/anthropic adds.
 var visionCapable = map[string]bool{
 	"deepseek-flash":        true,
 	"kimi-k3":               true,
@@ -105,6 +117,9 @@ var visionCapable = map[string]bool{
 	"gemini-3.6-flash":      true,
 	"gemini-3.5-flash":      true,
 	"gemini-3.5-flash-lite": true,
+	"claude-opus-5":         true,
+	"claude-sonnet-5":       true,
+	"claude-fable-5-1":      true,
 }
 
 // SeesImages reports whether model reads images natively. It is the one

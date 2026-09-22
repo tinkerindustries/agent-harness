@@ -82,11 +82,12 @@ named for its own continuation id, and each model's effort set under its own
 key.
 
 Pick the one your client already implements. This one hosts a DeepSeek model
-as well as Google's; the other hosts Google's alone, since a client speaking
-Google's vocabulary has no way to drive a model of another vendor's through
-it. One thing this vocabulary cannot carry is a **thought signature**, which
-Google issues for a thinking step and a client storing transcripts for replay
-needs; see [STDIO-INTERACTIONS.md](STDIO-INTERACTIONS.md).
+and three Claude models as well as Google's; the other hosts Google's alone,
+since a client speaking Google's vocabulary has no way to drive a model of
+another vendor's through it. One thing this vocabulary cannot carry is a
+**thought signature**, which Google issues for a thinking step and a client
+storing transcripts for replay needs; see
+[STDIO-INTERACTIONS.md](STDIO-INTERACTIONS.md).
 
 The Interactions vocabulary is pinned at revision
 `c039c0b4d7bea9f657e09b80d38af833f00c3182` (`v0.48.0-10-gc039c0b`), and a
@@ -157,22 +158,23 @@ with:
 | `GEMINI_API_KEY` | The Google API key, for the Gemini models. Read first. |
 | `GOOGLE_API_KEY` | The same thing under the name the surface's own SDKs read. Used when `GEMINI_API_KEY` is unset. |
 | `DEEPSEEK_API_KEY` | The DeepSeek API key, for `deepseek-flash`. |
+| `ANTHROPIC_API_KEY` | The Anthropic API key, for `claude-opus-5`, `claude-sonnet-5` and `claude-fable-5-1`. |
 
 There is no settings store here and no screen to type a key into, so a hosted
 session's credentials are the host's to supply. A key reaches this process's
 own API client for that provider directly and is never written to the state
-directory's own settings table, and all three variables are stripped from the
+directory's own settings table, and all four variables are stripped from the
 environment `Bash` and a stdio `mcp_server` child inherit — both would
 otherwise get the whole of this process's own environment, keys included, as
 "the parent's environment" the next paragraph describes for `Bash`.
 
-**Neither key is required, and neither implies the other.** A host that
-supplies one runs that provider's models; the models it did not supply a key
-for are still advertised on `initialize`, and a create naming one fails with
+**No key is required, and none implies another.** A host that supplies one
+runs that provider's models; the models it did not supply a key for are
+still advertised on `initialize`, and a create naming one fails with
 `-32003` and a message naming **that provider's** variable. **When no key is
 set at all**, `initialize` still succeeds — a parent can start the process
 and query its capabilities without one — and the first `responses.create`
-fails the same way. Nothing is attempted against either provider, so a
+fails the same way. Nothing is attempted against any provider, so a
 misconfigured host gets one clear error before any work happens rather than a
 stream that dies on its first request. **When a key is present but rejected
 by the provider**, the run starts, the request fails, and the response
@@ -185,9 +187,9 @@ Flags:
 | --- | --- | --- |
 | `-state-dir` | a per-process directory under the user cache dir | Where this session's SQLite state and transcript mirror live. A directory the parent names is kept; the default one is removed when the process exits. It is also what `harness.resume_session_id` reads: a parent that wants a session to survive this process names one. |
 | `-keep-state` | off | Keep the default state directory after exit, for reading a finished session's transcript. |
-| `-model` | see below | What a create body with no `model` runs on. `initialize`'s `models` names every model this process accepts, and a `-model` outside that list is refused at startup rather than at the first create. Unset, it is `gemini-3.7-flash` — or `deepseek-flash` when `DEEPSEEK_API_KEY` was supplied and neither Google variable was, because a host that gave one key meant the model that key runs. |
+| `-model` | see below | What a create body with no `model` runs on. `initialize`'s `models` names every model this process accepts, and a `-model` outside that list is refused at startup rather than at the first create. Unset, it is `gemini-3.7-flash` — or `deepseek-flash` when `DEEPSEEK_API_KEY` was supplied and neither Google variable was, or `claude-sonnet-5` when `ANTHROPIC_API_KEY` was supplied and neither Google nor DeepSeek variable was, because a host that gave one key meant the model that key runs. DeepSeek's default takes precedence over Anthropic's when both arrive with no Google key. |
 | `-prices` | `configs/prices.json` | The price table behind the cost figure on `harness.usage`. A missing table costs the cost figure and nothing else. |
-| `-env` | unset | A `KEY=VALUE` file to take the API keys from when the environment carries none. **Only `GEMINI_API_KEY`, `GOOGLE_API_KEY` and `DEEPSEEK_API_KEY` are read out of it** — see below. A file that cannot be read is fatal. |
+| `-env` | unset | A `KEY=VALUE` file to take the API keys from when the environment carries none. **Only `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `DEEPSEEK_API_KEY` and `ANTHROPIC_API_KEY` are read out of it** — see below. A file that cannot be read is fatal. |
 | `-rg` | `$AGENT_HARNESS_RG`, then `rg` on the `PATH` | The ripgrep binary the session's `Grep` calls run. A parent that ships one names it here. A path that is not there is fatal at startup, and nothing on the `PATH` is used when the flag is set. With no binary named and none on the `PATH`, `Grep` falls back to its own Go walk (docs/TOOLS.md, "Grep and Glob"). |
 
 **stdout carries protocol frames and nothing else.** Every log line, warning
@@ -199,7 +201,7 @@ inherits that environment.
 
 `-env FILE` is the one way a file reaches this process, and it does not
 weaken that rule. The path is explicit, so no directory contributes anything
-by merely being the working directory; and **only the three key variables are
+by merely being the working directory; and **only the four key variables are
 taken from the file**, never the rest of it, so nothing in it becomes ambient
 for the session's own subprocesses. The environment still wins where both
 carry a key. The flag is for a person driving the process by hand without
@@ -210,17 +212,19 @@ environment.
 
 `initialize`'s `models` is the whole list, and `responses.create` refuses
 anything outside it. Under `stdio-session` that is every Gemini model the
-harness routes, plus exactly one DeepSeek model:
+harness routes, plus exactly one DeepSeek model, plus three Claude models:
 
 | Model | Provider | Key |
 | --- | --- | --- |
 | `gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.5-flash-lite` | Google | `GEMINI_API_KEY` / `GOOGLE_API_KEY` |
 | `deepseek-flash` | DeepSeek | `DEEPSEEK_API_KEY` |
+| `claude-opus-5`, `claude-sonnet-5`, `claude-fable-5-1` | Anthropic | `ANTHROPIC_API_KEY` |
 
-`harness gemini-session` advertises the Google rows and not the DeepSeek one.
-A client speaking Google's vocabulary would be naming a DeepSeek model in a
-`generation_config` and reading its answers as Google steps, so that command
-does not offer it; a `-model` naming it there is refused at startup.
+`harness gemini-session` advertises the Google rows and not the DeepSeek or
+Anthropic ones. A client speaking Google's vocabulary would be naming a
+DeepSeek or Claude model in a `generation_config` and reading its answers as
+Google steps, so that command does not offer them; a `-model` naming one
+there is refused at startup.
 
 **One DeepSeek model, and it is the vision one.** `deepseek-flash` reads
 images natively, which is why this is the DeepSeek model the harness routes
@@ -235,13 +239,20 @@ one credential (`docs/DEEPSEEK-VISION.md`). DeepSeek's other model,
 answered `-32602` with the hosted list in the message, the same as any other
 unrecognised model.
 
-Everything else on the wire is the same for either provider. The frames are
+**All three Claude models read images natively too**, and additionally drop
+`WebFetch`: Anthropic's own server-side `web_search` and `web_fetch` tools
+ride every Claude session's request instead (`docs/ANTHROPIC-INTEGRATION.md`),
+appended after the client-declared array in a fixed order, so a Claude
+session's tool array is one shorter than a Gemini or DeepSeek vision session's
+rather than one longer.
+
+Everything else on the wire is the same for every provider. The frames are
 the surface's whatever the model is, the tool vocabulary is identical, resuming
-works the same way — and a resumed session cannot change model, so a DeepSeek
-session stays one for its whole life. Two things do differ, and both are
-answered per model on the handshake rather than by the client knowing whose
-model it is: `context_window_tokens`, and `reasoning_efforts` (below, and
-["Deviations from the HTTP
+works the same way — and a resumed session cannot change model, so a session
+on any one provider stays on it for its whole life. Two things do differ, and
+both are answered per model on the handshake rather than by the client
+knowing whose model it is: `context_window_tokens`, and `reasoning_efforts`
+(below, and ["Deviations from the HTTP
 surface"](#deviations-from-the-http-surface)).
 
 ## Framing
@@ -379,13 +390,15 @@ data, not a version.
   answered `-32602` before the run starts, rather than reaching the provider
   and failing the response mid-stream.
 
-  **The two providers' sets differ, and neither is a superset.** DeepSeek's is `low`,
-  `high`, `max` — DeepSeek's `reasoning_effort` values, which the level maps
-  onto — while the Gemini models take `low`, `medium`, `high` and sometimes
-  `minimal`, neither of which DeepSeek advertises. A client that renders this array gets it right; a
-  client that hardcoded one provider's set offers `minimal`, which DeepSeek
-  refuses, and
-  hides `max`, which works. Read the array.
+  **The three providers' sets differ, and none is a superset of another.**
+  DeepSeek's is `low`, `high`, `max` — DeepSeek's `reasoning_effort` values,
+  which the level maps onto — while the Gemini models take `low`, `medium`,
+  `high` and sometimes `minimal`, neither of which DeepSeek advertises, and
+  the three Claude models all take `low`, `medium`, `high`, `xhigh`, `max` —
+  the widest of the three, and the only one with `xhigh`. A client that
+  renders this array gets it right; a client that hardcoded one provider's
+  set offers `minimal`, which DeepSeek and Claude both refuse, and hides
+  `max` and `xhigh`, both of which work somewhere. Read the array.
 
   `medium` is the one value accepted without being advertised: DeepSeek maps
   it onto `high` rather than rejecting it, so a client offering Gemini's set
@@ -1105,18 +1118,21 @@ Here it is the interrupt, and it applies to whatever is running.
 to a response in flight, because on its surface there is no window in
 which to add anything.
 
-**11. `model` may name a model from either of two providers, and
-`reasoning.effort` may then take a value one of them does not have.** One DeepSeek model is hosted here
+**11. `model` may name a model from any of three providers, and
+`reasoning.effort` may then take a value another does not have.** One DeepSeek model is hosted here
 ([above](#which-models-this-process-hosts)), and its thinking levels are
 `low`, `high`, `max` — DeepSeek's own `reasoning_effort` values, which the
 level maps onto. `max` is the deviation: it is a legal value of this field
 for that model and for no Gemini model. `minimal` moves the
-other way, being legal there and refused here for that model.
+other way, being legal there and refused here for that model. The three
+Claude models add a third vocabulary again: `low`, `medium`, `high`,
+`xhigh`, `max` — Anthropic's own `output_config.effort` values, all five
+legal on all three models.
 
 Nothing about the frame changes, and nothing about the field's meaning
 changes — it is still "how hard should this model think". A client that reads
 `model_details.reasoning_efforts` rather than assuming one provider's set needs no
-special case for either, which is the same discipline the Gemini models
+special case for any of them, which is the same discipline the Gemini models
 already require of it, since `gemini-3.7-flash` refuses `minimal` and its
 siblings accept it.
 
