@@ -176,6 +176,9 @@ array and `cmd/harness` are phase 3's.
   and `HasAPIKey`. `hostedModels` adds the Claude models under `stdio-session`.
   `resolveHostedModel` defaults to a Claude model only when the Anthropic key is the only key
   present. The flash model follows the session's own model, as it already does.
+- **Mid-stream retry.** Wire `internal/anthropic` into `providerhttp.Transport.RetryStream`,
+  the way DeepSeek, Kimi and Gemini reopen a stream that dies after a 200 before any output.
+  Phase 2 left this undone, and a Claude session in real traffic needs it.
 - **`configs/prices.json`.** Entries for the three models with the cache-write rate, source
   URL and capture date, read from the live pricing page.
 - **Docs.** `CLAUDE.md`, `ARCHITECTURE.md`, `internal/CLAUDE.md` (a codemap entry for
@@ -254,3 +257,5 @@ Any Managed Agents resource beyond sessions and events (see Not building).
   the blocking `harness.function_call`. Phase 4 grew to build both. If phase 4 turns out too
   big for one session, split the async tool pause and resume in `session.Runner` into its
   own phase ahead of the dialect.
+- Phase 2 left mid-stream reconnection undone (`providerhttp.Transport.RetryStream`). Every
+  other provider has it and a hosted Claude session needs it, so it moved into phase 3.
