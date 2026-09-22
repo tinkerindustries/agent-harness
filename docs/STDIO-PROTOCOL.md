@@ -171,7 +171,7 @@ with:
 | `GEMINI_API_KEY` | The Google API key, for the Gemini models. Read first. |
 | `GOOGLE_API_KEY` | The same thing under the name the surface's own SDKs read. Used when `GEMINI_API_KEY` is unset. |
 | `DEEPSEEK_API_KEY` | The DeepSeek API key, for `deepseek-flash`. |
-| `ANTHROPIC_API_KEY` | The Anthropic API key, for `claude-opus-5`, `claude-sonnet-5` and `claude-fable-5-1`. |
+| `ANTHROPIC_API_KEY` | The Anthropic API key, for `claude-opus-5-5`, `claude-sonnet-5` and `claude-fable-5-1`. |
 
 There is no settings store here and no screen to type a key into, so a hosted
 session's credentials are the host's to supply. A key reaches this process's
@@ -231,7 +231,7 @@ harness routes, plus exactly one DeepSeek model, plus three Claude models:
 | --- | --- | --- |
 | `gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.5-flash-lite` | Google | `GEMINI_API_KEY` / `GOOGLE_API_KEY` |
 | `deepseek-flash` | DeepSeek | `DEEPSEEK_API_KEY` |
-| `claude-opus-5`, `claude-sonnet-5`, `claude-fable-5-1` | Anthropic | `ANTHROPIC_API_KEY` |
+| `claude-opus-5-5`, `claude-sonnet-5`, `claude-fable-5-1` | Anthropic | `ANTHROPIC_API_KEY` |
 
 `harness gemini-session` advertises the Google rows and not the DeepSeek or
 Anthropic ones. A client speaking Google's vocabulary would be naming a

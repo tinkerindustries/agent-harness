@@ -9,14 +9,14 @@ import (
 
 // systemMessageModels is which of the three models this client hosts
 // accepts a mid-conversation `{"role":"system"}` message inside `messages`
-// — Opus 5 and Fable 5.1, not Sonnet 5
+// — Opus 5.5 and Fable 5.1, not Sonnet 5
 // (docs/ANTHROPIC-INTEGRATION.md, "Request", citing
 // <https://platform.claude.com/docs/en/build-with-claude/prompt-caching>,
 // "Mid-Conversation System Messages"). A model this map does not name
 // renders the item as a user text block instead, the same fallback Sonnet 5
 // gets.
 var systemMessageModels = map[string]bool{
-	ModelOpus5:   true,
+	ModelOpus55:  true,
 	ModelFable51: true,
 }
 

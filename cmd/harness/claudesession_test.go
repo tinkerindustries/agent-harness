@@ -42,7 +42,7 @@ func TestClaudeAPIKeyFromTheEnvironmentAndFile(t *testing.T) {
 // hosts one provider's models alone.
 func TestClaudeHostedModelsIsAllThreeClaudeModels(t *testing.T) {
 	got := claudeHostedModels()
-	want := []string{"claude-opus-5", "claude-sonnet-5", "claude-fable-5-1"}
+	want := []string{"claude-opus-5-5", "claude-sonnet-5", "claude-fable-5-1"}
 	for _, m := range want {
 		found := false
 		for _, g := range got {

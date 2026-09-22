@@ -68,7 +68,7 @@ func TestRequestFromIntentSystemPromptAndUserMessage(t *testing.T) {
 
 func TestRequestFromIntentToolUseAndResult(t *testing.T) {
 	intent := wire.ChatIntent{
-		Model: ModelOpus5,
+		Model: ModelOpus55,
 		Items: []wire.Item{
 			wire.SystemItem("system"),
 			wire.UserItem("run ls"),
@@ -114,7 +114,7 @@ func TestRequestFromIntentToolUseAndResult(t *testing.T) {
 
 func TestRequestFromIntentMultipleToolResultsCollapseIntoOneMessage(t *testing.T) {
 	intent := wire.ChatIntent{
-		Model: ModelOpus5,
+		Model: ModelOpus55,
 		Items: []wire.Item{
 			wire.SystemItem("system"),
 			wire.UserItem("do two things"),
@@ -149,7 +149,7 @@ func TestRequestFromIntentRawBlocksReplayedVerbatim(t *testing.T) {
 	reasoningItem.ProviderBlocks = raw
 
 	intent := wire.ChatIntent{
-		Model: ModelOpus5,
+		Model: ModelOpus55,
 		Items: []wire.Item{
 			wire.SystemItem("system"),
 			wire.UserItem("where am I"),
@@ -175,9 +175,9 @@ func TestRequestFromIntentRawBlocksReplayedVerbatim(t *testing.T) {
 }
 
 func TestSystemMessageForModelDifference(t *testing.T) {
-	opus := systemMessageFor(ModelOpus5, "reminder text")
+	opus := systemMessageFor(ModelOpus55, "reminder text")
 	if opus.role != wire.RoleSystem {
-		t.Errorf("Opus 5: role = %q, want system", opus.role)
+		t.Errorf("Opus 5.5: role = %q, want system", opus.role)
 	}
 	sonnet := systemMessageFor(ModelSonnet5, "reminder text")
 	if sonnet.role != wire.RoleUser {
@@ -213,7 +213,7 @@ func TestToolsFromWireAppendsServerToolsInFixedOrder(t *testing.T) {
 
 func TestApplyCacheBreakpoints(t *testing.T) {
 	intent := wire.ChatIntent{
-		Model: ModelOpus5,
+		Model: ModelOpus55,
 		Items: []wire.Item{
 			wire.SystemItem("system"),
 			wire.UserItem("hello"),
@@ -317,7 +317,7 @@ func TestArgumentsObjectRoundTrip(t *testing.T) {
 
 func TestOutputConfigOmittedWhenEffortEmpty(t *testing.T) {
 	intent := wire.ChatIntent{
-		Model:     ModelOpus5,
+		Model:     ModelOpus55,
 		Items:     []wire.Item{wire.UserItem("hi")},
 		MaxTokens: 100,
 	}
