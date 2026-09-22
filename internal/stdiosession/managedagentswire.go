@@ -411,7 +411,7 @@ type maErrorEvent struct {
 
 // maUsage is the usage object this dialect reports — its own vocabulary,
 // since Anthropic's real Managed Agents usage shape is not one this process
-// reads from live traffic (docs/plans/claude-provider.md, "Not building").
+// reads from live traffic (docs/plans/archive/claude-provider.md, "Not building").
 type maUsage struct {
 	InputTokens          int       `json:"input_tokens"`
 	CacheReadInputTokens int       `json:"cache_read_input_tokens,omitempty"`

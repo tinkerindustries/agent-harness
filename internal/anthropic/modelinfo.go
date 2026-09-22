@@ -1,6 +1,6 @@
 package anthropic
 
-// The three models this client hosts (docs/plans/claude-provider.md's "Not
+// The three models this client hosts (docs/plans/archive/claude-provider.md's "Not
 // building" names every other Claude model as out of scope for this
 // feature).
 const (

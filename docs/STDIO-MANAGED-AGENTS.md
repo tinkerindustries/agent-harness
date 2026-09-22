@@ -599,7 +599,7 @@ dialects both still apply, spelled in this vocabulary's own tool union:
 `web_search` and `web_fetch` are **not** declared this way. They are
 Claude's own server tools, added by `internal/anthropic` after the frozen
 array the same way the plan's phase 2/3 describe
-(`docs/plans/claude-provider.md`, "Tools"). A `tools` entry naming
+(`docs/plans/archive/claude-provider.md`, "Tools"). A `tools` entry naming
 `web_search`/`web_fetch` explicitly is refused with `-32602`: a client
 cannot turn them off or on per session, matching how neither of the other
 two dialects lets a client touch their hosted tool set either.

@@ -2,7 +2,7 @@
 
 - **Slug**: claude-provider
 - **Memory**: [memory/claude-provider.md](memory/claude-provider.md)
-- **Reports**: [reports/claude-provider/](reports/claude-provider/)
+- **Reports**: [reports/claude-provider/](../reports/claude-provider/)
 
 ## What this builds
 
