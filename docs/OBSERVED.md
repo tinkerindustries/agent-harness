@@ -1164,3 +1164,190 @@ shows up. The decision is unaffected by the HTML body: `Transport.Do`
 classifies a response as retryable from `resp.StatusCode` alone, before
 anything reads or decodes the body, so an HTML gateway page and a JSON
 model error are retried or not on exactly the same basis.
+
+## Claude Messages API — Phase 2 live check
+
+`internal/anthropic/live_test.go`'s `TestLiveMessagesAPI`, run by hand
+against `claude-opus-5`, `claude-sonnet-5` and `claude-fable-5-1` with a
+real `ANTHROPIC_API_KEY`. Six exchanges: a two-request tool-call-then-
+thinking-replay pair on each model at `low` effort, a second such pair on
+Opus 5 and Sonnet 5 at `high` effort with an arithmetic prompt shaped to
+provoke real reasoning, and one web-search exchange on Sonnet 5.
+
+**No thinking block on four of the five pairs.** Both `low`-effort pairs on
+all three models, and the `high`-effort pair on Opus 5, called the
+`get_time` tool with zero `thinking` blocks in the response — Claude judged
+the task not worth reasoning about, which the docs already say is
+per-request and per-model ("the same conversation can contain turns with
+and without thinking"). Only Sonnet 5 at `high` effort, asked to work
+through a multiplication step by step before calling the tool, produced one
+`thinking` block carrying a real signature. That request's raw blocks:
+
+    [{"type":"thinking","thinking":"47 times 89 comes out to 4183, then subtracting 100 gives 4083. Now let me check the current time in Hobart.\n\n","signature":"ErQCCpABCBIYAipAnho4fY6Vk0b3xCVxY3YOztWzvSoo8dDHEHcgM+DoOPS6K5ojqGWS1WHBCL7Xg8Te026aR/eRTnZWrsMqFkvI7jIPY2xhdWRlLXNvbm5ldC01OABCCHRoaW5raW5nW..."}, {"type":"tool_use","id":"toolu_014Q5o7zrckzyj25VvdfmdQM","name":"get_time","input":{"city":"Hobart"}}]
+
+The second request replayed that block verbatim, under the
+`thinking-binding-controls-2026-08-01` beta header with
+`prefix_mismatch_behavior: "error"`, and succeeded — no 400, an answer
+citing both the arithmetic result and the tool's time. That is the one
+measured confirmation this phase got that the raw-block replay path and the
+preserved-thinking prefix check work together end to end on a real
+response.
+
+**No response carried more than one `thinking` block**, across all five
+pairs on Opus 5 and Sonnet 5 — the plan's open question, answered as far as
+this narrow probe goes. Every response carried zero or exactly one. This is
+five short exchanges on simple tool-calling prompts, not a search for the
+condition that would produce two; a later phase driving harder multi-step
+agentic tasks may still find one.
+
+**Cache reads landed at 99.3–100% of the second request's prompt on every
+pair**, all six models × effort combinations. The genuine cache miss
+(prompt tokens minus cache-read tokens minus cache-write tokens — the
+tokens billed at neither the cache-hit nor the cache-write rate) was
+exactly 2 tokens on every single pair, regardless of model or effort level
+or whether a thinking block was replayed:
+
+| Pair | Request 2 prompt | cache_read | cache_write | genuine miss |
+| --- | --- | --- | --- | --- |
+| Opus 5, low | 14595 | 14531 | 62 | 2 |
+| Sonnet 5, low | 14663 | 14599 | 62 | 2 |
+| Fable 5.1, low | 14597 | 14531 | 64 | 2 |
+| Opus 5, high | 14617 | 14553 | 62 | 2 |
+| Sonnet 5, high | 14724 | 14621 | 101 | 2 |
+
+`internal/anthropic.Client.CacheSlack()` is set to 1024 on the strength of
+this — generous headroom over the measured 2, since this is a single short
+session (one tool round each) rather than the multi-sub-turn
+incrementally-growing session `internal/gemini`'s own `CacheSlack` was
+tuned against (`docs/GEMINI-INTEGRATION.md` §5.5, §7 Phase 8). A later
+phase driving a real multi-sub-turn Anthropic session should re-measure the
+way Gemini's Phase 8 did, rather than trust this figure indefinitely.
+
+**Web search round-tripped clean.** Sonnet 5 called `web_search` for "the
+current top Hacker News post", the response carried a `server_tool_use`
+block and a `web_search_tool_result` block, and this client's
+"keep the `content_block_start` object verbatim for a block kind it does
+not reassemble from deltas" fallback captured both without needing to know
+their exact shape in advance. The answer cited a real, current result.
+
+**Cache-write pricing needs a live source before phase 3 fills in
+`configs/prices.json`.** `cache_write` showed up distinctly from
+`cache_read` on every first request of a pair (14531–14621 tokens, the
+whole system-prompt-plus-tools prefix on a cold cache) and every second
+request that added new content (62–101 tokens, the new tool-call/tool-result
+or thinking exchange) — `wire.Usage.CacheWriteTokens` and
+`pricing.ModelPrices.InputCacheWritePerMillionUSD` are exercised and
+correctly separated from an ordinary cache miss, but no rate was looked up
+against a live pricing page as part of this check (out of scope for phase 2,
+whose "Not building" list defers `configs/prices.json` to phase 3).
+
+## Claude Messages API — Phase 3 live check (`stdio-session`)
+
+A real `harness stdio-session` process, one per Claude model, driven by
+hand over the pipe with the key from `~/.config/agent-harness/anthropic.env`:
+`initialize`, a `responses.create` whose task calls `Bash` once, a
+`responses.append` steer sent while that first tool call is still in
+flight, then — once `response.completed` arrived — a second
+`responses.create` naming the first response's id as
+`previous_response_id`, asking a question only answerable from the first
+response's history. All three models: the steer's own tool call landed in
+the same response as a second sub-turn, the resume recalled the exact
+first command verbatim, and no request failed.
+
+**The handshake publishes all three models correctly.** `initialize`'s
+`model_details` carried `claude-opus-5`, `claude-sonnet-5` and
+`claude-fable-5-1`, each with `context_window_tokens: 1000000` and
+`reasoning_efforts: ["low","medium","high","xhigh","max"]` — confirming
+`internal/stdiosession/modelinfo.go`'s new Anthropic case reads
+`internal/anthropic/modelinfo.go` correctly end to end, not just in the
+unit tests.
+
+**The tool array Claude sessions actually send needed no live surprise.**
+Every `Bash` call across all three models succeeded first time; nothing in
+`internal/tools.definitionsClaude` (the vision-capable array minus
+`WebFetch`) drew a schema refusal, so none of Gemini's `LowerToolSchemas`
+handling was needed for Claude and `internal/session/lifecycle.go` was
+correctly left unchanged for this phase.
+
+**Prompt caching held up under the harness's own request shape, not just
+the bare-client probe phase 2 measured.** Every sub-turn after the first on
+every model read back 99.6–99.98% of its prompt from cache
+(`cached_tokens` in `harness.usage`) — for example Sonnet 5's third and
+fourth requests read 23113/23118 and 11710/11712 input tokens from cache
+respectively. `Client.CacheSlack()`'s 1024 remained generous headroom over
+the real churn a multi-sub-turn harness session with a steer produces, not
+just the single tool round phase 2 measured.
+
+**Total spend for the whole check, all three models, six sub-turns each
+across the two responses**: claude-sonnet-5 $0.038, claude-opus-5 $0.099,
+claude-fable-5-1 $0.172 (Fable 5.1's 5x-of-Sonnet output rate and higher
+base input rate dominate, not any inefficiency in the request). Well within
+"keep the live spend small."
+
+**No bug, refusal, or schema disagreement surfaced against the live API**
+in this check. Every finding matched `docs/ANTHROPIC-INTEGRATION.md` and
+the Phase 2 findings above.
+
+## Claude Managed Agents vocabulary — Phase 4 live check (`claude-session`)
+
+A real `harness claude-session -env ~/.config/agent-harness/anthropic.env`
+process, `claude-sonnet-5`, driven by hand over the pipe: `initialize`, a
+`sessions.create` whose task calls `Bash` once and a client-declared custom
+tool (`log_note`) once, an answer to the pending `agent.custom_tool_use`
+through `sessions.events`, a `sessions.get`, a `user.message` on the now-idle
+session (starting a second turn), a `user.interrupt` sent moments later, a
+fresh process resuming the session with `harness.resume_session_id`, and a
+further `user.message` asking a question only answerable from the first
+turn's history.
+
+**The async custom-tool round worked exactly as designed on the first
+live attempt.** `agent.custom_tool_use` fired naming `log_note` and its
+input; `session.status_idle` followed with
+`stop_reason: {type: "requires_action", event_ids: [the tool_use id]}`;
+answering it through `sessions.events` resumed the turn
+(`session.status_running`) and the model's final plain-text answer ended it
+with `stop_reason: {type: "end_turn"}`.
+
+**`user.interrupt` while a turn is running works end to end.** The
+in-flight `Bash sleep 4` sub-turn ended with `session.error` (the cancelled
+request) immediately followed by `session.status_idle` carrying
+`stop_reason: {type: "user_interrupt"}`, before the `sessions.events` call
+itself returned its own result — matching the "waits for the turn to
+actually stop before answering" contract.
+
+**Resume needs the same tools re-declared, the same as
+`harness.resume_session_id` on the other two dialects.** A resuming
+`sessions.create` that omitted the original `log_note` tool declaration was
+refused `-32006` (toolset mismatch) exactly as `docs/STDIO-MANAGED-AGENTS.md`
+says; re-declaring it (same name, schema and description) succeeded, and
+the resumed session correctly recalled the first turn's exact Bash command.
+
+**Two real bugs surfaced and were fixed before this report, not left for a
+later phase:**
+
+1. Every request this dialect sends carried `max_tokens: 0` (the vocabulary
+   has no client-settable field for it), and the live Messages API refused
+   a streaming request shaped that way outright:
+   `400 invalid_request_error: stream cannot be true when max_tokens is 0`.
+   Fixed by sending a fixed `8192` on every request under this dialect
+   (`docs/STDIO-MANAGED-AGENTS.md`, Deviation 17).
+2. The steer/next-turn result's `harness.turn_id` echoed the *session* id
+   instead of the actual turn id, because an early build ran the turn id
+   through the new `Dialect.AddressID` seam addition before handing it to
+   `AppendResult` — `AddressID` was designed for a different call site and
+   should never have touched this one. Caught by inspecting this very live
+   transcript, not by any test; fixed by passing the turn id straight
+   through (`docs/STDIO-MANAGED-AGENTS.md`, "What phase 4 actually built").
+
+**`is_error` on `user.custom_tool_result` behaved as inferred.** The one
+call made carried `is_error: false` and was accepted and folded in
+correctly; no live payload exercised the `true` path in this check.
+
+**Spend for the whole check**: well under $0.10 (Sonnet 5, three short runs
+totalling under fifteen sub-turns while the bugs above were being found and
+re-verified) — no price table was loaded for this hand-driven check (`-prices`
+defaults to a path relative to the repository root, and the check ran with a
+scratch working directory), so no `cost_usd` figure is quoted; the token
+counts are the small, single-digit-thousands-per-request figures phase 2/3
+already established are typical for a short tool-using exchange on this
+model.

@@ -49,16 +49,27 @@ through to `go test`.
   tests that fail when someone perturbs the cached head, and the reason to write
   a new one is that a change touched the request path.
 - **`internal/stdiosession`** — the wire contract with a process this repo
-  does not contain, in both vocabularies. Every field on it is a promise, so
-  the end-to-end tests drive a session over a pipe against a fake provider and
-  read the frames back. `TestGoldenFrames` goes further and compares a whole
-  scripted run's frames against a checked-in capture, byte for byte: the other
-  tests assert facts about frames and would not notice a field that quietly
-  changed name or stopped being emitted. Re-record it with
-  `go test ./internal/stdiosession -run TestGoldenFrames -update-golden` when
-  the protocol document sanctions the change, and put the diff in the commit.
-  A test that wants the Interactions vocabulary calls `useDialect`; the rest
-  get the Responses one.
+  does not contain, in all three vocabularies. Every field on it is a
+  promise, so the end-to-end tests drive a session over a pipe against a
+  fake provider and read the frames back. `TestGoldenFrames` and
+  `TestManagedAgentsGoldenFrames` go further and compare a whole scripted
+  run's frames against a checked-in capture, byte for byte: the other tests
+  assert facts about frames and would not notice a field that quietly
+  changed name or stopped being emitted. Re-record either with
+  `-run <name> -update-golden` when the matching protocol document sanctions
+  the change, and put the diff in the commit. A test that wants the
+  Interactions vocabulary calls `useDialect`; one that wants ManagedAgents
+  calls `newManagedAgentsFixture`; the rest get the Responses one.
+  `endtoend_test.go` and `claude_test.go` go further still, for DeepSeek and
+  Claude respectively: a real provider client against a fake HTTP recorder at
+  one end of the pipe and a real client at the other, so the outbound
+  provider request and the inbound parent frames are both asserted from the
+  same run rather than each dialect's shape being taken on faith from the
+  other end. `managedagents_test.go` is the same shape again, against
+  ManagedAgents' own methods: a create whose model calls a client-declared
+  custom tool, the async round through `sessions.events` (including a stray
+  event refused while a result is pending), steer, interrupt, get by turn id,
+  delete and resume.
 - **`internal/tools`** — argument validation, workspace confinement, and every
   permission decision in both modes. Policy tests also assert that the tool
   *definitions* are unchanged by mode, which is the cache invariant in test form.

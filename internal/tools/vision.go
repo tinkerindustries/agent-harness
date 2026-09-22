@@ -1070,7 +1070,7 @@ func geminiUsagePayload(prices *pricing.Table, model string, billedAt time.Time,
 		ReasoningTokens:       reasoning,
 	}
 	if prices != nil {
-		if c, tier, err := prices.Cost(model, billedAt, cacheHit, cacheMiss, completion); err == nil {
+		if c, tier, err := prices.Cost(model, billedAt, cacheHit, cacheMiss, 0, completion); err == nil {
 			payload.CostUSD = c
 			payload.RateTier = string(tier)
 		}

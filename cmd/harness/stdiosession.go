@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/mrgeoffrich/agent-harness/internal/androiddns"
+	"github.com/mrgeoffrich/agent-harness/internal/anthropic"
 	"github.com/mrgeoffrich/agent-harness/internal/config"
 	"github.com/mrgeoffrich/agent-harness/internal/deepseek"
 	"github.com/mrgeoffrich/agent-harness/internal/gemini"
@@ -40,6 +41,13 @@ const defaultGeminiSessionModel = "gemini-3.7-flash"
 // Transcribe, Crop), and four of those six send their images to Google.
 const deepSeekSessionModel = "deepseek-flash"
 
+// defaultClaudeSessionModel is what a create body with no `model` runs on
+// when this process was given an Anthropic key and no other — the same
+// "the key you gave me names the model" reasoning deepSeekSessionModel's
+// default gets, applied to the middle of the three Claude models this
+// command hosts rather than to the only one DeepSeek offers.
+const defaultClaudeSessionModel = "claude-sonnet-5"
+
 // runStdioSession hosts one coding session for a parent process over in and
 // out, speaking the protocol docs/STDIO-PROTOCOL.md describes. main.go calls
 // it with os.Stdin and os.Stdout; a test calls it with a pipe, so the
@@ -61,7 +69,7 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 	stateDir := fs.String("state-dir", "", "directory for this session's own SQLite state and transcript mirror (default: a per-process directory under the user cache dir)")
 	keepState := fs.Bool("keep-state", false, "leave the state directory behind when the process exits, for reading a finished session's transcript")
 	prices := fs.String("prices", "configs/prices.json", "price table, for the cost figures reported on harness.usage")
-	model := fs.String("model", "", "model a create body with no `model` runs on (default gemini-3.7-flash, or "+deepSeekSessionModel+" when only a DeepSeek key was supplied)")
+	model := fs.String("model", "", "model a create body with no `model` runs on (default gemini-3.7-flash, or "+deepSeekSessionModel+" when only a DeepSeek key was supplied, or "+defaultClaudeSessionModel+" when only an Anthropic key was supplied)")
 	envFile := fs.String("env", "", "read the API keys from this KEY=VALUE `file` when the environment does not carry them, for driving the process by hand")
 	rgBinary := fs.String("rg", "", "`path` to the ripgrep binary the session's Grep calls run (default: $AGENT_HARNESS_RG, then `rg` on the PATH, then Grep's own Go walk)")
 	if err := fs.Parse(args); err != nil {
@@ -80,10 +88,10 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 	// Google's own SDKs read. -env names a file to fall back to, for a
 	// person driving the process by hand rather than a parent application.
 	//
-	// Both providers' keys are read, and neither is required: a host with
+	// All three providers' keys are read, and none is required: a host with
 	// one key runs that provider's models and is told which variable is
-	// missing if it asks for the other's (stdiosession's missingKeyMessage).
-	apiKey, deepSeekKey, err := apiKeys(*envFile)
+	// missing if it asks for another's (stdiosession's missingKeyMessage).
+	apiKey, deepSeekKey, anthropicKey, err := apiKeys(*envFile)
 	if err != nil {
 		return err
 	}
@@ -91,11 +99,11 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 	// The subcommand decides the parent-facing vocabulary, and with it
 	// which models this process offers: an Interactions client is driving
 	// Google's surface, so it is offered Google's models and not the
-	// DeepSeek one (hostedModels).
+	// DeepSeek or Anthropic ones (hostedModels).
 	interactions := invoked == "gemini-session"
 	models := hostedModels(interactions)
 
-	chosen, err := resolveHostedModel(*model, models, apiKey, deepSeekKey)
+	chosen, err := resolveHostedModel(*model, models, apiKey, deepSeekKey, anthropicKey)
 	if err != nil {
 		return err
 	}
@@ -166,14 +174,21 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 	deepSeekClient := deepseek.NewResponsesClient(deepseek.DefaultBaseURL, "", deepseek.WithAPIKeyProvider(func() (string, error) {
 		return deepSeekKey, nil
 	}))
+	anthropicClient := anthropic.NewClient(anthropic.DefaultBaseURL, anthropic.WithAPIKeyProvider(func() (string, error) {
+		return anthropicKey, nil
+	}))
 	// The composition point the architecture names: one client per provider,
 	// and one place that decides which of them a model resolves to. No Kimi
 	// client, because no Kimi model is hosted here.
 	clientFor := func(m string) session.Client {
-		if providerFor(m) == provider.DeepSeek {
+		switch providerFor(m) {
+		case provider.DeepSeek:
 			return deepSeekClient
+		case provider.Anthropic:
+			return anthropicClient
+		default:
+			return geminiClient
 		}
-		return geminiClient
 	}
 
 	mcpMgr := mcpclient.New(st)
@@ -222,10 +237,14 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 		DefaultModel: chosen,
 		ServerName:   "agent-harness " + invoked,
 		HasAPIKey: func(m string) bool {
-			if providerFor(m) == provider.DeepSeek {
+			switch providerFor(m) {
+			case provider.DeepSeek:
 				return deepSeekKey != ""
+			case provider.Anthropic:
+				return anthropicKey != ""
+			default:
+				return apiKey != ""
 			}
-			return apiKey != ""
 		},
 		Version: buildVersion(),
 	})
@@ -237,12 +256,13 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 // hostedModels is the model list the handshake advertises, and the list a
 // create's `model` is checked against.
 //
-// Under `stdio-session` it is every model internal/provider routes to Google,
-// then the one DeepSeek model this command hosts. Under `gemini-session` the
-// DeepSeek model is left off: that command speaks Google's own vocabulary to
-// the parent, and offering a model of another vendor's on it would mean a
-// client driving DeepSeek through `generation_config.thinking_level` and
-// reading its answers as Google steps.
+// Under `stdio-session` it is every model internal/provider routes to
+// Google, then the one DeepSeek model this command hosts, then the three
+// Claude models. Under `gemini-session` the DeepSeek and Claude models are
+// left off: that command speaks Google's own vocabulary to the parent, and
+// offering a model of another vendor's on it would mean a client driving
+// DeepSeek through `generation_config.thinking_level` or Claude through the
+// same and reading its answers as Google steps.
 //
 // It is not "every model internal/provider knows" either way. The repository
 // routes one Kimi model this process does not offer, because no client is
@@ -258,7 +278,13 @@ func hostedModels(interactions bool) []string {
 	if interactions {
 		return out
 	}
-	return append(out, deepSeekSessionModel)
+	out = append(out, deepSeekSessionModel)
+	for _, m := range provider.KnownModels() {
+		if p, err := provider.ModelFor(m); err == nil && p == provider.Anthropic {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // dialectFor is the parent-facing vocabulary the subcommand asked for.
@@ -275,17 +301,24 @@ func dialectFor(interactions bool) stdiosession.Dialect {
 // list, so a name this process would refuse at create is refused at startup
 // instead — the parent hears it on the pipe it just spawned rather than on
 // its first interaction. Named nothing, the default follows the credentials:
-// Google's model normally, DeepSeek's when a DeepSeek key was supplied, a
-// Google one was not, and this process hosts DeepSeek at all. Under
-// `gemini-session` it does not, so the Google default stands there whatever
-// keys arrived and the first create fails with -32003 naming the variable a
-// Google model needs. With neither key the same is true of either command,
-// which is the documented behaviour for a process started without
-// credentials (docs/STDIO-PROTOCOL.md).
-func resolveHostedModel(named string, models []string, googleKey, deepSeekKey string) (string, error) {
+// Google's model normally, DeepSeek's when a DeepSeek key was supplied and a
+// Google one was not, and Anthropic's default (defaultClaudeSessionModel)
+// only when the Anthropic key is the only one of the three present —
+// DeepSeek's own default takes precedence over Anthropic's when both arrive
+// with no Google key, the same way Google's takes precedence over both when
+// all three do. Under `gemini-session` neither DeepSeek nor Anthropic is
+// hosted at all, so the Google default stands there whatever keys arrived
+// and the first create fails with -32003 naming the variable a Google model
+// needs. With no key the same is true of either command, which is the
+// documented behaviour for a process started without credentials
+// (docs/STDIO-PROTOCOL.md).
+func resolveHostedModel(named string, models []string, googleKey, deepSeekKey, anthropicKey string) (string, error) {
 	if named == "" {
-		if googleKey == "" && deepSeekKey != "" && slices.Contains(models, deepSeekSessionModel) {
+		switch {
+		case googleKey == "" && deepSeekKey != "" && slices.Contains(models, deepSeekSessionModel):
 			return deepSeekSessionModel, nil
+		case googleKey == "" && deepSeekKey == "" && anthropicKey != "" && slices.Contains(models, defaultClaudeSessionModel):
+			return defaultClaudeSessionModel, nil
 		}
 		return defaultGeminiSessionModel, nil
 	}
@@ -332,29 +365,31 @@ func buildVersion() string {
 	return info.Main.Version
 }
 
-// apiKeys resolves both providers' keys: the environment first, then the
-// file -env names, if it named one. Either may come back empty — a host that
-// supplies one key runs that provider's models — and the file is read once
-// for both.
-func apiKeys(envFile string) (google, deepSeek string, err error) {
+// apiKeys resolves all three providers' keys: the environment first, then
+// the file -env names, if it named one. Any may come back empty — a host
+// that supplies one key runs that provider's models — and the file is read
+// once for all three.
+func apiKeys(envFile string) (google, deepSeek, anthropicKey string, err error) {
 	google = firstNonEmpty(os.Getenv("GEMINI_API_KEY"), os.Getenv("GOOGLE_API_KEY"))
 	deepSeek = os.Getenv("DEEPSEEK_API_KEY")
+	anthropicKey = os.Getenv("ANTHROPIC_API_KEY")
 	if envFile == "" {
-		return google, deepSeek, nil
+		return google, deepSeek, anthropicKey, nil
 	}
 	values, err := config.DotEnvValues(envFile)
 	if err != nil {
-		return "", "", fmt.Errorf("-env %s: %w", envFile, err)
+		return "", "", "", fmt.Errorf("-env %s: %w", envFile, err)
 	}
 	return firstNonEmpty(google, values["GEMINI_API_KEY"], values["GOOGLE_API_KEY"]),
 		firstNonEmpty(deepSeek, values["DEEPSEEK_API_KEY"]),
+		firstNonEmpty(anthropicKey, values["ANTHROPIC_API_KEY"]),
 		nil
 }
 
 // providerAPIKeyVars are the environment variables this process reads a
 // model provider's credential from (apiKeys). Every one of them is stripped
 // from what a session's tools inherit.
-var providerAPIKeyVars = []string{"GEMINI_API_KEY", "GOOGLE_API_KEY", "DEEPSEEK_API_KEY"}
+var providerAPIKeyVars = []string{"GEMINI_API_KEY", "GOOGLE_API_KEY", "DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY"}
 
 // stripProviderAPIKeys removes every variable in providerAPIKeyVars from
 // base, which every Bash call and every stdio MCP dial this hosted process

@@ -3,6 +3,7 @@ package stdiosession
 import (
 	"slices"
 
+	"github.com/mrgeoffrich/agent-harness/internal/anthropic"
 	"github.com/mrgeoffrich/agent-harness/internal/deepseek"
 	"github.com/mrgeoffrich/agent-harness/internal/gemini"
 	"github.com/mrgeoffrich/agent-harness/internal/provider"
@@ -27,6 +28,8 @@ func displayName(model string) string {
 	switch providerOf(model) {
 	case provider.DeepSeek:
 		return deepseek.DisplayName(model)
+	case provider.Anthropic:
+		return anthropic.DisplayName(model)
 	default:
 		return gemini.DisplayName(model)
 	}
@@ -39,6 +42,8 @@ func contextWindowTokens(model string) int {
 	switch providerOf(model) {
 	case provider.DeepSeek:
 		return deepseek.ContextWindowTokens(model)
+	case provider.Anthropic:
+		return anthropic.ContextWindowTokens(model)
 	default:
 		return gemini.ContextWindowTokens(model)
 	}
@@ -58,6 +63,8 @@ func reasoningEfforts(model string) []string {
 	switch providerOf(model) {
 	case provider.DeepSeek:
 		return deepseek.EffortsFor(model)
+	case provider.Anthropic:
+		return anthropic.EffortLevelsFor(model)
 	default:
 		return gemini.LevelsFor(model)
 	}
@@ -74,6 +81,8 @@ func reasoningEffortSupported(model, effort string) bool {
 	switch providerOf(model) {
 	case provider.DeepSeek:
 		return deepseek.EffortSupported(model, effort)
+	case provider.Anthropic:
+		return anthropic.EffortSupported(model, effort)
 	default:
 		return gemini.LevelSupported(model, effort)
 	}
@@ -88,6 +97,8 @@ func missingKeyMessage(model string) string {
 	switch providerOf(model) {
 	case provider.DeepSeek:
 		return "no DeepSeek API key reached this process: set DEEPSEEK_API_KEY in the environment you spawn it with"
+	case provider.Anthropic:
+		return "no Anthropic API key reached this process: set ANTHROPIC_API_KEY in the environment you spawn it with"
 	default:
 		return "no Google API key reached this process: set GEMINI_API_KEY (or GOOGLE_API_KEY) in the environment you spawn it with"
 	}

@@ -54,6 +54,12 @@ func TestToolArrayGolden(t *testing.T) {
 		// and Gemini — it resolves to definitionsVisionCapable and reads
 		// Kimi's golden file rather than a third copy of the same bytes.
 		{"deepseek-flash", "deepseek-flash", "tools_kimi.golden.json"},
+		// Claude reads images natively like Kimi and Gemini, but also drops
+		// WebFetch — Anthropic's own server-side web_search and web_fetch
+		// tools ride the request instead (internal/anthropic's intent
+		// renderer, docs/ANTHROPIC-INTEGRATION.md) — so its array is one
+		// tool shorter than Kimi's and gets its own golden file.
+		{"claude", "claude-sonnet-5", "tools_claude.golden.json"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

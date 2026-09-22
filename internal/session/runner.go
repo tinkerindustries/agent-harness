@@ -330,6 +330,15 @@ type Runner struct {
 	// unchanged.
 	ToolEnvFilter func(base []string) []string
 
+	// ToolTimeouts, when set, is handed to every Executor this Runner builds
+	// as tools.Executor.Timeouts. Zero fields keep the package defaults; it
+	// exists for `harness claude-session`, which sets HostTool alone, to a
+	// figure with no natural ceiling, because that dialect's client-declared
+	// tools resolve on a client's own answer rather than on a wall clock
+	// this process can bound (docs/STDIO-MANAGED-AGENTS.md, "The seam").
+	// Every other caller leaves it unset, which is every existing test.
+	ToolTimeouts tools.Timeouts
+
 	// RG is the ripgrep binary the session's Grep calls exec, resolved once
 	// when the Runner is built (tools.RipgrepPath, from -rg, then
 	// AGENT_HARNESS_RG, then the PATH) and handed to every Executor as

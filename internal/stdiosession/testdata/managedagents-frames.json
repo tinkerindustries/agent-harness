@@ -1,0 +1,365 @@
+{
+  "create_answer": {
+    "session": {
+      "agent": {
+        "model": {
+          "id": "claude-sonnet-5"
+        }
+      },
+      "created_at": "<created_at>",
+      "harness": {
+        "turn_id": "<turn_id>"
+      },
+      "id": "<session_id>",
+      "status": "running",
+      "updated_at": "<updated_at>"
+    }
+  },
+  "get_answer": {
+    "session": {
+      "agent": {
+        "model": {
+          "id": "claude-sonnet-5"
+        }
+      },
+      "created_at": "<created_at>",
+      "events": [
+        {
+          "content": [
+            {
+              "text": "Workspace: <cwd>\n\nMCP servers: this session also has tools from configured MCP servers, named\nmcp__<server>__<tool>, which reach systems outside the workspace.\n- host (1 tool)\nTask:\nuse the tool\n",
+              "type": "text"
+            }
+          ],
+          "harness": {
+            "source": "input",
+            "turn_id": "<turn_id>"
+          },
+          "type": "user.message"
+        },
+        {
+          "harness": {
+            "sub_turn": 1,
+            "turn_id": "<turn_id>"
+          },
+          "id": "evt_2",
+          "thinking": [
+            {
+              "text": "I should use a tool.",
+              "type": "text"
+            }
+          ],
+          "type": "agent.thinking"
+        },
+        {
+          "harness": {
+            "sub_turn": 1,
+            "turn_id": "<turn_id>"
+          },
+          "id": "toolu_1",
+          "input": {
+            "text": "ping"
+          },
+          "name": "echo",
+          "type": "agent.custom_tool_use"
+        },
+        {
+          "content": [
+            {
+              "text": "pong",
+              "type": "text"
+            }
+          ],
+          "harness": {
+            "sub_turn": 1,
+            "turn_id": "<turn_id>"
+          },
+          "id": "evt_3",
+          "tool_use_id": "toolu_1",
+          "type": "agent.tool_result"
+        },
+        {
+          "content": [
+            {
+              "text": "The tool said pong.",
+              "type": "text"
+            }
+          ],
+          "harness": {
+            "sub_turn": 2,
+            "turn_id": "<turn_id>"
+          },
+          "id": "evt_5",
+          "type": "agent.message"
+        }
+      ],
+      "harness": {
+        "reason": "no_tool_calls",
+        "sub_turns": 2,
+        "text": "The tool said pong.",
+        "turn_id": "<turn_id>"
+      },
+      "id": "<session_id>",
+      "status": "idle",
+      "updated_at": "<updated_at>",
+      "usage": {
+        "harness": {
+          "cost_usd": 0,
+          "sub_turns": 2
+        },
+        "input_tokens": 300,
+        "output_tokens": 50,
+        "total_tokens": 350
+      }
+    }
+  },
+  "notifications": [
+    {
+      "method": "session.status_running",
+      "params": {
+        "harness": {
+          "turn_id": "<turn_id>"
+        },
+        "session_id": "<session_id>"
+      }
+    },
+    {
+      "method": "span.model_request_start",
+      "params": {
+        "harness": {
+          "sub_turn": 1,
+          "turn_id": "<turn_id>"
+        },
+        "id": "evt_1",
+        "model": "claude-sonnet-5",
+        "session_id": "<session_id>"
+      }
+    },
+    {
+      "method": "session.status_running",
+      "params": {
+        "harness": {
+          "sub_turn": 1,
+          "turn_id": "<turn_id>"
+        },
+        "session_id": "<session_id>"
+      }
+    },
+    {
+      "method": "event_start",
+      "params": {
+        "event": {
+          "id": "evt_2",
+          "type": "thinking"
+        },
+        "session_id": "<session_id>"
+      }
+    },
+    {
+      "method": "event_delta",
+      "params": {
+        "delta": {
+          "text": "I should use a tool."
+        },
+        "event_id": "evt_2",
+        "session_id": "<session_id>"
+      }
+    },
+    {
+      "method": "agent.thinking",
+      "params": {
+        "harness": {
+          "sub_turn": 1,
+          "turn_id": "<turn_id>"
+        },
+        "id": "evt_2",
+        "session_id": "<session_id>",
+        "thinking": [
+          {
+            "text": "I should use a tool.",
+            "type": "text"
+          }
+        ]
+      }
+    },
+    {
+      "method": "agent.custom_tool_use",
+      "params": {
+        "harness": {
+          "sub_turn": 1,
+          "turn_id": "<turn_id>"
+        },
+        "id": "toolu_1",
+        "input": {
+          "text": "ping"
+        },
+        "name": "echo",
+        "session_id": "<session_id>"
+      }
+    },
+    {
+      "method": "span.model_request_end",
+      "params": {
+        "harness": {
+          "sub_turn": 1,
+          "turn_id": "<turn_id>"
+        },
+        "id": "evt_1",
+        "session_id": "<session_id>"
+      }
+    },
+    {
+      "method": "session.status_idle",
+      "params": {
+        "harness": {
+          "sub_turn": 1,
+          "turn_id": "<turn_id>"
+        },
+        "session_id": "<session_id>",
+        "stop_reason": {
+          "event_ids": [
+            "toolu_1"
+          ],
+          "type": "requires_action"
+        }
+      }
+    },
+    {
+      "method": "session.usage",
+      "params": {
+        "harness": {
+          "sub_turn": 1,
+          "turn_id": "<turn_id>"
+        },
+        "session_id": "<session_id>",
+        "usage": {
+          "harness": {
+            "cost_usd": 0
+          },
+          "input_tokens": 100,
+          "output_tokens": 20,
+          "total_tokens": 120
+        }
+      }
+    },
+    {
+      "method": "agent.tool_result",
+      "params": {
+        "content": [
+          {
+            "text": "pong",
+            "type": "text"
+          }
+        ],
+        "harness": {
+          "sub_turn": 1,
+          "turn_id": "<turn_id>"
+        },
+        "id": "evt_3",
+        "session_id": "<session_id>",
+        "tool_use_id": "toolu_1"
+      }
+    },
+    {
+      "method": "span.model_request_start",
+      "params": {
+        "harness": {
+          "sub_turn": 2,
+          "turn_id": "<turn_id>"
+        },
+        "id": "evt_4",
+        "model": "claude-sonnet-5",
+        "session_id": "<session_id>"
+      }
+    },
+    {
+      "method": "session.status_running",
+      "params": {
+        "harness": {
+          "sub_turn": 2,
+          "turn_id": "<turn_id>"
+        },
+        "session_id": "<session_id>"
+      }
+    },
+    {
+      "method": "event_start",
+      "params": {
+        "event": {
+          "id": "evt_5",
+          "type": "message"
+        },
+        "session_id": "<session_id>"
+      }
+    },
+    {
+      "method": "event_delta",
+      "params": {
+        "delta": {
+          "text": "The tool said pong."
+        },
+        "event_id": "evt_5",
+        "session_id": "<session_id>"
+      }
+    },
+    {
+      "method": "agent.message",
+      "params": {
+        "content": [
+          {
+            "text": "The tool said pong.",
+            "type": "text"
+          }
+        ],
+        "harness": {
+          "sub_turn": 2,
+          "turn_id": "<turn_id>"
+        },
+        "id": "evt_5",
+        "session_id": "<session_id>"
+      }
+    },
+    {
+      "method": "span.model_request_end",
+      "params": {
+        "harness": {
+          "sub_turn": 2,
+          "turn_id": "<turn_id>"
+        },
+        "id": "evt_4",
+        "session_id": "<session_id>"
+      }
+    },
+    {
+      "method": "session.usage",
+      "params": {
+        "harness": {
+          "sub_turn": 2,
+          "turn_id": "<turn_id>"
+        },
+        "session_id": "<session_id>",
+        "usage": {
+          "harness": {
+            "cost_usd": 0
+          },
+          "input_tokens": 200,
+          "output_tokens": 30,
+          "total_tokens": 230
+        }
+      }
+    },
+    {
+      "method": "session.status_idle",
+      "params": {
+        "harness": {
+          "reason": "no_tool_calls",
+          "turn_id": "<turn_id>"
+        },
+        "session_id": "<session_id>",
+        "stop_reason": {
+          "type": "end_turn"
+        }
+      }
+    }
+  ]
+}

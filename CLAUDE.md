@@ -2,19 +2,19 @@
 
 A harness for running one coding session against a model provider's own API,
 hosted for a parent process over stdin and stdout. DeepSeek is the default
-provider; Gemini models are routed through the same loop, and Kimi K3 is
-being added behind a narrow dialect seam. Prefer the option that exercises a
-provider's real behaviour over a provider-agnostic abstraction.
+provider; Gemini and Claude models are routed through the same loop, and
+Kimi K3 is being added behind a narrow dialect seam. Prefer the option that
+exercises a provider's real behaviour over a provider-agnostic abstraction.
 
-There is one session, reachable under two subcommands. `harness stdio-session`
-and `harness gemini-session` host a single coding session in a directory the
-parent owns: no queue, no worker pool, no HTTP
-listener, no web UI. The parent supplies the credentials, names the working
-directory on each create call, and reads the session's events off the pipe.
-[ARCHITECTURE.md](ARCHITECTURE.md) maps how the packages relate and the
-invariants between them, and [`internal/CLAUDE.md`](internal/CLAUDE.md) is the
-codemap — one entry per Go package, loaded automatically when you work in one;
-[`docs/DESIGN.md`](docs/DESIGN.md) is the reference for why any of it is
+There is one session, reachable under three subcommands. `harness
+stdio-session`, `harness gemini-session` and `harness claude-session` host a
+single coding session in a directory the parent owns: no queue, no worker
+pool, no HTTP listener, no web UI. The parent supplies the credentials, names
+the working directory on each create call, and reads the session's events off
+the pipe. [ARCHITECTURE.md](ARCHITECTURE.md) maps how the packages relate and
+the invariants between them, and [`internal/CLAUDE.md`](internal/CLAUDE.md) is
+the codemap — one entry per Go package, loaded automatically when you work in
+one; [`docs/DESIGN.md`](docs/DESIGN.md) is the reference for why any of it is
 shaped that way.
 
 ## Commands
@@ -26,52 +26,70 @@ shaped that way.
 | Format and vet | `gofmt -l cmd internal && go vet ./cmd/... ./internal/...` |
 | Run one session by hand | `go run ./cmd/harness stdio-session -env .env` |
 
-`harness help` lists the subcommands and their arguments. The two differ in
+`harness help` lists the subcommands and their arguments. The three differ in
 the vocabulary they put on the pipe, not in what the session can do:
 `stdio-session` speaks the OpenAI Responses API's and hosts a DeepSeek model
-as well as Google's, `gemini-session` speaks Google's Interactions API's and
-hosts Google's alone. The choice is the subcommand's because it has to be
-made before `initialize` can answer.
+as well as Google's and Anthropic's, `gemini-session` speaks Google's
+Interactions API's and hosts Google's alone, `claude-session` speaks
+Anthropic's Managed Agents API's — addressed by session id rather than by a
+per-run one — and hosts the three Claude models alone. The choice is the
+subcommand's because it has to be made before `initialize` can answer.
 
 [TESTING.md](TESTING.md) covers running a subset and what each layer of the
 suite is for.
 
 - **The protocol is the contract with a process this repo does not contain.**
   It uses a vendor's vocabulary rather than one of ours, and which vendor's
-  is the subcommand's choice. `internal/stdiosession` holds both behind one
-  `Dialect` seam: the Responses API's REST methods and semantic SSE events,
-  which `internal/deepseek` also speaks to DeepSeek; and Google's
+  is the subcommand's choice. `internal/stdiosession` holds all three behind
+  one `Dialect` seam: the Responses API's REST methods and semantic SSE
+  events, which `internal/deepseek` also speaks to DeepSeek; Google's
   Interactions methods and step events, which `internal/gemini` also speaks
-  to Google. [`docs/STDIO-PROTOCOL.md`](docs/STDIO-PROTOCOL.md) and
-  [`docs/STDIO-INTERACTIONS.md`](docs/STDIO-INTERACTIONS.md) are the wire
+  to Google; and Anthropic's Managed Agents session and event methods, a
+  parent-facing vocabulary only — the loop underneath still calls the plain
+  Messages API through `internal/anthropic`, never Anthropic's real
+  `/v1/sessions`. [`docs/STDIO-PROTOCOL.md`](docs/STDIO-PROTOCOL.md),
+  [`docs/STDIO-INTERACTIONS.md`](docs/STDIO-INTERACTIONS.md) and
+  [`docs/STDIO-MANAGED-AGENTS.md`](docs/STDIO-MANAGED-AGENTS.md) are the wire
   references a client is built from, and the porting table in the first maps
-  one onto the other. Read the relevant one before changing anything under
-  `internal/stdiosession`, because every field on them is a contract. A
-  golden capture of the Responses frames guards that:
-  `go test ./internal/stdiosession -run TestGoldenFrames`.
+  the first two onto each other. Read the relevant one before changing
+  anything under `internal/stdiosession`, because every field on them is a
+  contract. A golden capture of each vocabulary's frames guards that:
+  `go test ./internal/stdiosession -run TestGoldenFrames`, and
+  `-run TestManagedAgentsGoldenFrames` for the third.
 - **The process has a private SQLite file and that is deliberate** — the
   agent loop's state machine is its event log. It holds one session's rows and
   nothing else; nothing serves a queue from it, and nothing else reads it.
   `-state-dir` names the directory; without one the process makes a
   per-pid directory under the user cache dir and removes it on exit.
 - **Credentials are the parent's to supply**, in `GEMINI_API_KEY` /
-  `GOOGLE_API_KEY` and `DEEPSEEK_API_KEY`. Neither is required and neither
-  implies the other: a host with one key runs that provider's models and is
-  told which variable is missing if it asks for the other's. `-env` names a
-  KEY=VALUE file to fall back to, for driving the process by hand. No key is
-  ever written to the settings table, because a `-state-dir` the parent keeps
-  for resuming must not become a file holding a plaintext key.
+  `GOOGLE_API_KEY`, `DEEPSEEK_API_KEY` and `ANTHROPIC_API_KEY`. None is
+  required and none implies another: a host with one key runs that
+  provider's models and is told which variable is missing if it asks for
+  another's. `harness claude-session` reads `ANTHROPIC_API_KEY` alone and
+  never the other three. `-env` names a KEY=VALUE file to fall back to, for
+  driving the process by hand. No key is ever written to the settings table,
+  because a `-state-dir` the parent keeps for resuming must not become a file
+  holding a plaintext key.
 - **Nothing but protocol frames may reach stdout.** A stray line there is an
   unparseable frame to the parent and there is no recovering from it. The
   process logs to stderr, and it reads no `.env` of its own — the parent owns
   the working directory, and a `.env` sitting in a repository the session is
   about to work in must not feed this process.
-- **`harness stdio-session` hosts every Gemini model the harness routes and
-  the one DeepSeek model it routes,** `deepseek-flash`, which reads images
-  natively — a model that could not see would be given vision tools that
-  reach Google, so hosting one would need a second provider's key.
+- **`harness stdio-session` hosts every Gemini model the harness routes, the
+  one DeepSeek model it routes, and all three Claude models,**
+  `deepseek-flash`, which reads images natively — a model that could not see
+  would be given vision tools that reach Google, so hosting one would need a
+  second provider's key. The Claude models read images natively too, and
+  drop the harness's own `WebFetch` in favour of Anthropic's server-side
+  `web_search` and `web_fetch` (`docs/ANTHROPIC-INTEGRATION.md`).
   `harness gemini-session` hosts the Gemini models alone: a client speaking
   Google's vocabulary has no way to drive another vendor's model through it.
+  `harness claude-session` hosts the three Claude models alone, the same
+  reason, speaking Anthropic's Managed Agents session and event vocabulary
+  (`docs/STDIO-MANAGED-AGENTS.md`) — addressed by session id rather than by
+  a per-run one, and with a client's declared tool crossing as an
+  asynchronous `agent.custom_tool_use` rather than a blocking
+  `harness.function_call`.
 - **`docs/ANDROID.md`** covers running the binary under Termux, including
   the DNS fallback a `CGO_ENABLED=0` build needs there
   (`internal/androiddns`).

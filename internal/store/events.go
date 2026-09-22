@@ -121,6 +121,14 @@ type TurnStartedPayload struct {
 type ReasoningDeltaPayload struct {
 	Text             string `json:"text"`
 	ThoughtSignature string `json:"thought_signature,omitempty"`
+	// ProviderBlocks is Anthropic's raw-block replay unit for this sub-turn
+	// — the assistant `content` array exactly as the API returned it — kept
+	// beside ThoughtSignature for the same reason: both are a provider's own
+	// receipt for a sub-turn rather than prose to accumulate, and both ride
+	// on the same reasoning item the fold already emits. DeepSeek, Gemini and
+	// Kimi never populate this field, so it is empty and omitted on every
+	// event they emit (docs/ANTHROPIC-INTEGRATION.md).
+	ProviderBlocks json.RawMessage `json:"provider_blocks,omitempty"`
 }
 
 // ContentDeltaPayload is one fragment of content, accumulated the same way.
@@ -198,15 +206,21 @@ type ToolStdoutPayload struct {
 // (docs/reviews/vision-path-2026-08-14.md measured it at 39% of a session's
 // cost, invisible in the log).
 type UsagePayload struct {
-	SubTurn               int     `json:"sub_turn"`
-	Attempt               int     `json:"attempt,omitempty"`
-	Model                 string  `json:"model,omitempty"`
-	PromptTokens          int     `json:"prompt_tokens"`
-	PromptCacheHitTokens  int     `json:"prompt_cache_hit_tokens"`
-	PromptCacheMissTokens int     `json:"prompt_cache_miss_tokens"`
-	CompletionTokens      int     `json:"completion_tokens"`
-	ReasoningTokens       int     `json:"reasoning_tokens"`
-	CostUSD               float64 `json:"cost_usd"`
+	SubTurn               int    `json:"sub_turn"`
+	Attempt               int    `json:"attempt,omitempty"`
+	Model                 string `json:"model,omitempty"`
+	PromptTokens          int    `json:"prompt_tokens"`
+	PromptCacheHitTokens  int    `json:"prompt_cache_hit_tokens"`
+	PromptCacheMissTokens int    `json:"prompt_cache_miss_tokens"`
+	// PromptCacheWriteTokens is Anthropic's cache_creation_input_tokens,
+	// priced at pricing.ModelPrices.InputCacheWritePerMillionUSD rather than
+	// the cache-miss rate. DeepSeek, Gemini and Kimi never write to a cache
+	// this harness pays for separately from a miss, so this is zero and
+	// omitted on every usage event they commit.
+	PromptCacheWriteTokens int     `json:"prompt_cache_write_tokens,omitempty"`
+	CompletionTokens       int     `json:"completion_tokens"`
+	ReasoningTokens        int     `json:"reasoning_tokens"`
+	CostUSD                float64 `json:"cost_usd"`
 	// RateTier is which set of rates CostUSD was computed at — "flat",
 	// "peak" or "off_peak" (internal/pricing). From 2026-08-16 DeepSeek
 	// bills peak hours at twice off-peak, so two identical sub-turns can

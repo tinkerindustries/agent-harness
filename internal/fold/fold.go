@@ -79,6 +79,12 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Item, error) {
 	// appended to — a signature is opaque and must survive replay
 	// byte-for-byte, not accumulate like prose.
 	var signature string
+	// providerBlocks is the sub-turn's Anthropic raw-block replay unit, held
+	// separately from reasoning and signature for the same reason signature
+	// is: it is an opaque receipt to carry byte-for-byte, not prose to
+	// accumulate, and it is set even on a sub-turn whose reasoning text is
+	// empty (docs/ANTHROPIC-INTEGRATION.md).
+	var providerBlocks json.RawMessage
 	inTurn := false
 	// turnCallIDs are this sub-turn's call ids, buffered alongside toolCalls
 	// so they move into pending only when the calls themselves are emitted.
@@ -97,9 +103,10 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Item, error) {
 		// carries tools and answers 400 without it
 		// (third_party/deepseek-docs/guides/thinking_mode.md, "Tool Calls"),
 		// and Gemini's thought signature rides on the same item.
-		if reasoning.Len() > 0 || signature != "" {
+		if reasoning.Len() > 0 || signature != "" || len(providerBlocks) > 0 {
 			item := wire.ReasoningItem(reasoning.String())
 			item.ThoughtSignature = signature
+			item.ProviderBlocks = providerBlocks
 			items = append(items, item)
 		}
 		if content.Len() > 0 {
@@ -112,6 +119,7 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Item, error) {
 		toolCalls = nil
 		turnCallIDs = nil
 		signature = ""
+		providerBlocks = nil
 		inTurn = false
 	}
 
@@ -156,6 +164,9 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Item, error) {
 			reasoning.WriteString(p.Text)
 			if p.ThoughtSignature != "" {
 				signature = p.ThoughtSignature
+			}
+			if len(p.ProviderBlocks) > 0 {
+				providerBlocks = p.ProviderBlocks
 			}
 
 		case store.KindContentDelta:

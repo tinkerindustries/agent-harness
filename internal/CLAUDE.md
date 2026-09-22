@@ -18,21 +18,35 @@ split so that nothing on the request path can perturb that head.
 ## Codemap
 
 ### `cmd/harness`
-Flag parsing and process wiring: `main.go` dispatches the two subcommands and
-holds the model→client dispatch, `stdiosession.go` composes the session — one
-store, one hub, one `session.Runner` handed to `internal/stdiosession`, with
-a client per provider behind that dispatch and the parent-facing dialect
-chosen from the subcommand the process was spawned as. Composition happens here and
-nowhere else; no `internal` package constructs another's dependencies.
+Flag parsing and process wiring: `main.go` dispatches the three subcommands
+and holds the model→client dispatch, `stdiosession.go` composes
+`stdio-session`/`gemini-session` and `claudesession.go` composes
+`claude-session` — each its own store, hub and `session.Runner` handed to
+`internal/stdiosession`, with a client per provider behind that dispatch and
+the parent-facing dialect chosen from the subcommand the process was spawned
+as. Composition happens here and nowhere else; no `internal` package
+constructs another's dependencies.
 
-It hosts every Gemini model the repository routes plus the one DeepSeek
-model the repository routes, `deepseek-flash` (`deepSeekSessionModel`) —
-which reads images natively, keeping a DeepSeek session here to one
-credential: a model that could not see would carry the vision tools built to
-compensate, four of which reach Google
-([`../docs/DEEPSEEK-VISION.md`](../docs/DEEPSEEK-VISION.md)). Nothing but
-protocol frames may reach stdout, so the process logs to stderr and reads no
-`.env` of its own.
+`stdio-session` hosts every Gemini model the repository routes, the one
+DeepSeek model the repository routes, `deepseek-flash`
+(`deepSeekSessionModel`), which reads images natively, and all three Claude
+models; `claude-session` hosts the three Claude models alone, with
+`ANTHROPIC_API_KEY` the one credential it reads. `deepseek-flash` reading
+images natively is what keeps a DeepSeek session here to one credential: a
+model that could not see would carry the vision tools built to compensate,
+four of which reach Google
+([`../docs/DEEPSEEK-VISION.md`](../docs/DEEPSEEK-VISION.md)). The Claude
+models read images natively too, and their tool array
+(`internal/tools.DefinitionsFor`) drops the harness's own `WebFetch` in
+favour of Anthropic's own server-side `web_search` and `web_fetch`
+([`../docs/ANTHROPIC-INTEGRATION.md`](../docs/ANTHROPIC-INTEGRATION.md)).
+`claude-session`'s own `Runner.ToolTimeouts.HostTool` is set to a figure with
+no natural ceiling: its client-declared tools resolve on an asynchronous
+answer through `sessions.events` rather than a bounded call, the one
+`internal/tools` timeout this repository ever widens per subcommand
+(`internal/tools.Timeouts.HostTool`, `../docs/STDIO-MANAGED-AGENTS.md`, "The
+seam"). Nothing but protocol frames may reach stdout, so the process logs to
+stderr and reads no `.env` of its own.
 
 ### `internal/deepseek`
 The DeepSeek API client, speaking **two** surfaces at one base URL: Chat
@@ -123,58 +137,112 @@ structs, never `map[string]any`, for the same byte-stability reason as the
 other two clients. Depends on: `internal/wire`, `internal/providerhttp` (just
 `Transport`, for retry-with-backoff — never `PumpStream`).
 
+### `internal/anthropic`
+The Anthropic client, hand-rolled the same way `internal/gemini` and
+`internal/deepseek` are: `POST https://api.anthropic.com/v1/messages`, Go
+structs rather than `map[string]any` for byte-stable requests. Hosts three
+models — `claude-opus-5`, `claude-sonnet-5`, `claude-fable-5-1`
+(`modelinfo.go`). Implements the narrow `Client` seam `internal/session`
+declares: `intent.go`'s `requestFromIntent` renders the system prompt into
+top-level `system`, items into `user`/`assistant` messages, and up to three
+cache breakpoints (`applyCacheBreakpoints`); mid-conversation system items
+render as a system message on Opus 5 and Fable 5.1 and as a user text block
+on Sonnet 5 (`systemMessageModels`). Owns the one shape with no counterpart
+in either OpenAI-format dialect: a whole response's assistant `content`
+array captured verbatim as `wire.EventProviderBlocks` and replayed
+byte-for-byte on the next request, because Anthropic's preserved-thinking
+check needs every `thinking` and `redacted_thinking` block back in original
+order alongside blocks (`server_tool_use`, `*_tool_result`) `wire.Item` has
+no field for — DeepSeek, Kimi and Gemini never set this event and their
+goldens pin that unchanged. `stream.go`'s `readSSE` is this client's own SSE
+decoder for the surface's named-event vocabulary
+(`message_start`/`content_block_start`/`content_block_delta`/`message_delta`/
+`message_stop`), wrapped by `client.go`'s `streamOneRound` in a
+`providerhttp.StreamOpener`/`StreamPump` pair so a connection that dies
+after a 200 reopens on `providerhttp.Transport.RetryStream`'s backoff, per
+HTTP round rather than around the whole `pause_turn` resume loop —
+`pause_turn` (Claude wanting another round of server-tool use) resumes
+internally, bounded, so the loop always sees one logical response.
+`errors.go` retries 429, the 5xx faults, and 529 (`overloaded_error`); a
+`stop_reason: "refusal"` ends the turn with `*RefusalError`. Depends on:
+`internal/wire`, `internal/providerhttp` (`Transport`, `SetAuth` for
+`x-api-key`, and `RetryStream`). `docs/ANTHROPIC-INTEGRATION.md` is the
+provider reference.
+
 ### `internal/stdiosession`
-The protocol `harness stdio-session` and `harness gemini-session` speak:
-JSON-RPC 2.0 over stdin and stdout, carrying a vendor's own vocabulary rather
-than one of this repo's invention. Two of them, behind one `Dialect` seam.
-`responses.go` is the OpenAI Responses API's — its REST methods on
-`POST /responses` as JSON-RPC methods and its semantic server-sent events as
-notifications (docs/STDIO-PROTOCOL.md), the same vocabulary
-`internal/deepseek` sends the provider and the same one the loop itself folds
-into (`wire.Item`). `interactions.go` is Google's Interactions API's — its
-methods on `POST /v1beta/interactions` and its step events
-(docs/STDIO-INTERACTIONS.md), the same vocabulary `internal/gemini` sends
-Google. `cmd/harness` picks one from the subcommand, which is where it has to
-be picked: `initialize` already answers with a protocol string, a capability
-named for its own continuation id, and each model's effort set under its own
-key, so there is nothing left to negotiate afterwards.
+The protocol `harness stdio-session`, `harness gemini-session` and `harness
+claude-session` speak: JSON-RPC 2.0 over stdin and stdout, carrying a
+vendor's own vocabulary rather than one of this repo's invention. Three of
+them, behind one `Dialect` seam. `responses.go` is the OpenAI Responses
+API's — its REST methods on `POST /responses` as JSON-RPC methods and its
+semantic server-sent events as notifications (docs/STDIO-PROTOCOL.md), the
+same vocabulary `internal/deepseek` sends the provider and the same one the
+loop itself folds into (`wire.Item`). `interactions.go` is Google's
+Interactions API's — its methods on `POST /v1beta/interactions` and its step
+events (docs/STDIO-INTERACTIONS.md), the same vocabulary `internal/gemini`
+sends Google. `managedagents.go`, `managedagentstranslate.go`,
+`managedagentswire.go` and `managedagentsevents.go` are Anthropic's Managed
+Agents API's — `sessions.create`/`.get`/`.delete` and one `sessions.events`
+covering steering, interrupting and answering a custom tool call
+(docs/STDIO-MANAGED-AGENTS.md) — a parent-facing vocabulary only: nothing
+here calls Anthropic's real `/v1/sessions`, and the loop underneath still
+calls the plain Messages API through `internal/anthropic`. `cmd/harness`
+picks one from the subcommand, which is where it has to be picked:
+`initialize` already answers with a protocol string, a capability named for
+its own continuation id, and each model's effort set under its own key, so
+there is nothing left to negotiate afterwards.
 
-Neither is a proxy. The loop runs the tools, so what a parent reads is
-rendered from the event log rather than forwarded, and a create's `input` is
-read for its text alone. `server.go` names no wire type of either vocabulary:
-it decodes into `CreateRequest` and keeps a run's neutral facts, and a
-`Translator` per run turns the committed events plus the hub's live text
-deltas into that vocabulary's frames and holds the document they assemble
-into. It streams text from the live frames and takes structure — tool calls,
-results, thought signatures, usage, the run's end — from the log, which is why
-a reasoning item and a message item can be open at once here and never are on
-either HTTP surface's own stream.
+None is a proxy. The loop runs the tools, so what a parent reads is rendered
+from the event log rather than forwarded, and a create's `input` is read for
+its text alone. `server.go` names no wire type of any vocabulary: it decodes
+into `CreateRequest` and keeps a run's neutral facts, and a `Translator` per
+run turns the committed events plus the hub's live text deltas into that
+vocabulary's frames and holds the document they assemble into. It streams
+text from the live frames and takes structure — tool calls, results, thought
+signatures, usage, the run's end — from the log, which is why a reasoning
+item and a message item can be open at once here and never are on any HTTP
+surface's own stream.
 
-The two vocabularies are not interchangeable in one respect: only the
+The three vocabularies are not interchangeable in every respect. Only the
 Interactions one carries a **thought signature**, the receipt Google issues
-for a thinking step. The loop replays it to Google either way — that is what
-makes a Gemini turn work — but a client that stores transcripts meaning to
-replay them elsewhere can only get it from `gemini-session`.
+for a thinking step; the loop replays it to Google either way, but a client
+that stores transcripts meaning to replay them elsewhere can only get it from
+`gemini-session`. Only ManagedAgents addresses a **session** rather than a
+run — `Dialect.AddressID` and `Dialect.AddressesSession` are the seam that
+lets `Server.get`/`.delete`/append's own result echo resolve either way — and
+only it delivers a client-declared tool asynchronously:
+`agent.custom_tool_use` fires as an ordinary notification, the session goes
+idle with `stop_reason: {type: "requires_action"}`, and
+`user.custom_tool_result` through `sessions.events` resumes the turn.
+`hostTools.Call` blocks on a small map-plus-channel registry
+(`managedagentsevents.go`, `Server.customPending`/`.customReady`) instead of
+on `conn.Call` under this dialect alone; `Server.beginRun` factors create's
+own run-starting tail out so `sessions.events`' `user.message` on an idle
+session can start the next turn the identical way, reusing the same
+per-session `hostTools` a session's first turn built rather than rebuilding
+one, since nothing on this dialect's own wire ever re-declares tools.
 
 Also implements `tools.MCPProvider` for the two tool shapes a client may
-declare, `function` (called back over the pipe) and `mcp_server` (dialled by
-`internal/mcpclient` as any configured server is); both are spelled the same
-in either vocabulary, so `Tool` is one type and the tool path sees no dialect.
+declare, `function` (called back over the pipe, or — under ManagedAgents —
+answered asynchronously) and `mcp_server` (dialled by `internal/mcpclient` as
+any configured server is); both are spelled the same in every vocabulary, so
+`Tool` is one type and the tool path sees no dialect beyond the one branch in
+`Server.buildTools` that picks `hostTools.call` or `hostTools.async`.
 `modelinfo.go` is the one file here that knows a model has a provider at all:
 the handshake's per-model details and the create's effort check are answered
-out of `internal/gemini`'s or `internal/deepseek`'s tables, so the two
-providers' differing effort sets reach a client as data rather than as a
-special case anywhere else. `resume.go` is the seam between the two ways a
-create names a conversation: a run id is minted in memory and dies with the
-process, so continuing across a restart goes by session id out of the
-`-state-dir` store instead, and everything the session's prompt prefix is
+out of `internal/gemini`'s, `internal/deepseek`'s or `internal/anthropic`'s
+tables, so the providers' differing effort sets reach a client as data rather
+than as a special case anywhere else. `resume.go` is the seam between the two
+ways a create names a conversation: a run id is minted in memory and dies
+with the process, so continuing across a restart goes by session id out of
+the `-state-dir` store instead, and everything the session's prompt prefix is
 built from — model, workspace, permission mode, deny patterns, and the frozen
 tool array the create has to re-declare with live connection metadata — is
 checked against the row rather than taken from the create. Depends on:
 `internal/session`, `internal/store`, `internal/hub`, `internal/tools`,
 `internal/mcpclient`, `internal/provider`, and — in `modelinfo.go` alone, for
-the descriptive tables the handshake publishes — `internal/gemini` and
-`internal/deepseek`.
+the descriptive tables the handshake publishes — `internal/gemini`,
+`internal/deepseek` and `internal/anthropic`.
 
 ### `internal/attachment`
 Validates one image attachment a client submitted before its bytes reach the
@@ -282,8 +350,8 @@ tools read images by).
 
 ### `internal/fold`
 Folds the event log into the wire `messages` array (`internal/wire`'s
-`Message`, the shape both providers send). Pure, append-only, a
-switch on event kind. §4.1.
+`Message`, the shape every provider's Chat-Completions-style request is
+rendered from). Pure, append-only, a switch on event kind. §4.1.
 
 ### `internal/store`
 SQLite (`modernc.org/sqlite`, pure Go, WAL) plus the derived disk mirror under
@@ -331,9 +399,11 @@ the prompt text; this package owns the edits to it.
 The one model→provider table (docs/KIMI-INTEGRATION.md §4.3): `ModelFor`
 maps a model name to the provider serving it, with no default — an unknown
 model is an error, so request validation rejects it loudly instead of
-silently routing to a provider. Three providers today: DeepSeek
-(`deepseek-flash`), Kimi (`kimi-k3`), and Gemini (`gemini-3.7-flash`,
-docs/GEMINI-INTEGRATION.md §7 Phase 5). It also carries `SeesImages`, the
+silently routing to a provider. Four providers today: DeepSeek
+(`deepseek-flash`), Kimi (`kimi-k3`), Gemini (`gemini-3.7-flash`,
+docs/GEMINI-INTEGRATION.md §7 Phase 5), and Anthropic (`claude-opus-5`,
+`claude-sonnet-5`, `claude-fable-5-1`, docs/ANTHROPIC-INTEGRATION.md). It
+also carries `SeesImages`, the
 one model→capability table for native vision — keyed by model rather than
 by provider, since a future DeepSeek model could disagree with
 `deepseek-flash`'s own vision capability the way `deepseek-v4-pro` used to

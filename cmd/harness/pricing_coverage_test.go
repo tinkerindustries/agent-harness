@@ -49,7 +49,7 @@ func TestGeminiCodingModelResolvesThroughTheCostLookup(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load the shipped price table: %v", err)
 	}
-	cost, _, err := table.Cost("gemini-3.7-flash", time.Now(), 1000, 2000, 500)
+	cost, _, err := table.Cost("gemini-3.7-flash", time.Now(), 1000, 2000, 0, 500)
 	if err != nil {
 		t.Fatalf("Cost(gemini-3.7-flash): %v", err)
 	}
