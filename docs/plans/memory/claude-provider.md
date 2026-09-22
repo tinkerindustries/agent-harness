@@ -75,6 +75,12 @@ The user's Anthropic key is in `~/.config/agent-harness/anthropic.env`, as one
 `ANTHROPIC_API_KEY=` line. Pass that path to `-env`, or source it for a hand-driven client
 test. Never copy the key into the repository, a report, a commit or a log.
 
+## claude-session
+
+- `docs/STDIO-MANAGED-AGENTS.md` is the contract. Nothing calls Anthropic's real `POST /v1/sessions`: the vocabulary is parent-facing, and the loop underneath calls the Messages API.
+- The async client-tool shape still blocks the tool-dispatch goroutine inside `hostTools.Call`. It waits on a map-plus-channel keyed by `custom_tool_use_id`, which `user.custom_tool_result` signals, instead of on `conn.Call`. `session.Runner`'s dispatch needs no pause and resume. The one change outside `internal/stdiosession` is the per-tool timeout in `internal/tools` for this call site.
+- `is_error` on `user.custom_tool_result` is inferred from the Messages API's `tool_result` block. No Managed Agents page names it.
+
 ## Vocabulary
 
 - **Raw blocks**: one response's assistant `content` array as Anthropic sent it. The replay unit.

@@ -212,8 +212,10 @@ No `claude-session` subcommand and no Managed Agents dialect. Those are phase 4'
 - **Per-turn id.** The harness-level turn id `docs/STDIO-MANAGED-AGENTS.md` specifies. The
   session id is the conversation's address, and the turn id lets get and interrupt address a
   single turn.
-- **Async client-declared tools.** Teach `session.Runner` to pause a run on a client tool
-  call and resume it when the result arrives, as `docs/STDIO-MANAGED-AGENTS.md` specifies. The
+- **Async client-declared tools.** Build the pending-call registry and the timeout change
+  that `docs/STDIO-MANAGED-AGENTS.md`, "The seam", specifies. The tool-dispatch goroutine
+  still blocks, but on the registry rather than on `conn.Call`, so `session.Runner` needs no
+  pause and resume. The
   parent receives `agent.custom_tool_use` as a notification, the session goes idle with
   `stop_reason: requires_action`, and `user.custom_tool_result` through `sessions.events`
   resumes the run. The Responses and Interactions dialects keep the blocking
@@ -259,3 +261,6 @@ Any Managed Agents resource beyond sessions and events (see Not building).
   own phase ahead of the dialect.
 - Phase 2 left mid-stream reconnection undone (`providerhttp.Transport.RetryStream`). Every
   other provider has it and a hosted Claude session needs it, so it moved into phase 3.
+- Phase 1's contract keeps the tool-dispatch goroutine blocking on a pending-call registry.
+  `session.Runner` needs no pause and resume, so phase 4 is smaller than the earlier change
+  expected, and the split it mentions is unlikely to be needed.
