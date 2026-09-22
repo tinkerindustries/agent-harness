@@ -1,5 +1,7 @@
 package wire
 
+import "encoding/json"
+
 // EventType tags the payload carried by an Event.
 type EventType int
 
@@ -14,6 +16,13 @@ const (
 	// a signature is not prose to accumulate: a client emits it as one
 	// complete value in Event.ThoughtSignature.
 	EventThoughtSignatureDelta
+	// EventProviderBlocks carries one response's assistant content array
+	// exactly as Anthropic returned it — the replay unit
+	// docs/ANTHROPIC-INTEGRATION.md describes. internal/anthropic emits
+	// exactly one of these per response, after the last content delta and
+	// before EventUsage/EventFinish, so the caller has the complete array in
+	// hand before the sub-turn commits. No other provider emits it.
+	EventProviderBlocks
 	EventUsage
 	EventFinish
 	EventError
@@ -27,7 +36,10 @@ type Event struct {
 	Content          string
 	ToolCall         ToolCallDelta
 	ThoughtSignature string
-	FinishReason     string
-	Usage            *Usage
-	Err              error
+	// ProviderBlocks is EventProviderBlocks' payload: one complete raw JSON
+	// value, never a fragment to accumulate.
+	ProviderBlocks json.RawMessage
+	FinishReason   string
+	Usage          *Usage
+	Err            error
 }

@@ -71,7 +71,7 @@ func TestCost(t *testing.T) {
 
 	// 512 cache-hit tokens, 97 cache-miss tokens, 238 completion tokens —
 	// figures drawn from docs/OBSERVED.md's cache table and a real flash run.
-	got, tier, err := table.Cost("deepseek-v4-flash", someInstant, 512, 97, 238)
+	got, tier, err := table.Cost("deepseek-v4-flash", someInstant, 512, 97, 0, 238)
 	if err != nil {
 		t.Fatalf("Cost: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestCostZeroTokens(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	got, _, err := table.Cost("deepseek-v4-flash", someInstant, 0, 0, 0)
+	got, _, err := table.Cost("deepseek-v4-flash", someInstant, 0, 0, 0, 0)
 	if err != nil {
 		t.Fatalf("Cost: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestCostUnknownModel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if _, _, err := table.Cost("deepseek-v4-nonexistent", someInstant, 1, 1, 1); err == nil {
+	if _, _, err := table.Cost("deepseek-v4-nonexistent", someInstant, 1, 1, 0, 1); err == nil {
 		t.Fatal("Cost of unknown model: want error, got nil")
 	}
 }
@@ -356,15 +356,15 @@ func TestCostAcrossTheSplit(t *testing.T) {
 	table := loadScheduled(t)
 	const hit, miss, out = 100_000, 10_000, 5_000
 
-	before, _, err := table.Cost("deepseek-v4-flash", time.Date(2026, 8, 15, 2, 0, 0, 0, time.UTC), hit, miss, out)
+	before, _, err := table.Cost("deepseek-v4-flash", time.Date(2026, 8, 15, 2, 0, 0, 0, time.UTC), hit, miss, 0, out)
 	if err != nil {
 		t.Fatal(err)
 	}
-	offPeak, _, err := table.Cost("deepseek-v4-flash", utc(12, 0), hit, miss, out)
+	offPeak, _, err := table.Cost("deepseek-v4-flash", utc(12, 0), hit, miss, 0, out)
 	if err != nil {
 		t.Fatal(err)
 	}
-	peak, _, err := table.Cost("deepseek-v4-flash", utc(2, 0), hit, miss, out)
+	peak, _, err := table.Cost("deepseek-v4-flash", utc(2, 0), hit, miss, 0, out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -401,7 +401,7 @@ func TestModelOutsideTheScheduleStaysFlat(t *testing.T) {
 // would look wrong.
 func TestZeroTimeIsRefused(t *testing.T) {
 	table := loadScheduled(t)
-	if _, _, err := table.Cost("deepseek-v4-flash", time.Time{}, 1, 1, 1); err == nil {
+	if _, _, err := table.Cost("deepseek-v4-flash", time.Time{}, 1, 1, 0, 1); err == nil {
 		t.Fatal("Cost with the zero time: want an error, got nil")
 	}
 }

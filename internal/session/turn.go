@@ -292,7 +292,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	// wall time the run waited on the API.
 	streamStart := time.Now()
 	live := newLiveSink(r.Hub, sess.ID, subTurn)
-	reasoning, content, assembler, finishReason, usage, signature, err := r.stream(httplog.WithSessionID(ctx, sess.ID), sess.Model, opts.Tools, items, opts.Effort, opts.Thinking, opts.MaxTokens, live)
+	reasoning, content, assembler, finishReason, usage, signature, providerBlocks, err := r.stream(httplog.WithSessionID(ctx, sess.ID), sess.Model, opts.Tools, items, opts.Effort, opts.Thinking, opts.MaxTokens, live)
 	if err != nil {
 		return subTurnOutcome{}, fmt.Errorf("session: sub-turn %d: %w", subTurn, err)
 	}
@@ -309,7 +309,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	var starved *wire.Usage
 	if r.clientFor(sess.Model).IsReasoningStarved(finishReason, content) && len(assembler.Finalize()) == 0 {
 		starved = usage
-		reasoning, content, assembler, finishReason, usage, signature, err = r.stream(ctx, sess.Model, opts.Tools, items, opts.Effort, opts.Thinking, opts.MaxTokens*2, live)
+		reasoning, content, assembler, finishReason, usage, signature, providerBlocks, err = r.stream(ctx, sess.Model, opts.Tools, items, opts.Effort, opts.Thinking, opts.MaxTokens*2, live)
 		if err != nil {
 			return subTurnOutcome{}, fmt.Errorf("session: sub-turn %d retry: %w", subTurn, err)
 		}
@@ -351,9 +351,9 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	// or the common signature-with-no-summary sub-turn would lose its
 	// signature and a resumed session would replay history with the thought
 	// step missing.
-	if reasoning != "" || signature != "" {
+	if reasoning != "" || signature != "" || len(providerBlocks) > 0 {
 		inputs = append(inputs, store.EventInput{Kind: store.KindReasoningDelta, Payload: store.ReasoningDeltaPayload{
-			Text: reasoning, ThoughtSignature: signature,
+			Text: reasoning, ThoughtSignature: signature, ProviderBlocks: providerBlocks,
 		}})
 	}
 	if content != "" {
@@ -503,6 +503,11 @@ func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestItems
 	// over-prediction, not a property of its cache (docs/OBSERVED.md).
 	client := r.clientFor(model)
 	cacheHit, cacheMiss := client.UsageSplit(usage)
+	// CacheWriteTokens is a plain field on wire.Usage, not a provider-mapped
+	// split: only internal/anthropic ever sets it, so there is nothing for a
+	// per-provider seam to decide the way UsageSplit decides cacheHit and
+	// cacheMiss.
+	cacheWrite := usage.CacheWriteTokens
 	// sentAt, not time.Now(): from 2026-08-16 DeepSeek bills by the hour the
 	// request was made in (configs/prices.json rate_schedule), and a sub-turn
 	// that starts at 03:58 UTC and returns at 04:03 has crossed out of a peak
@@ -510,7 +515,7 @@ func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestItems
 	cost := 0.0
 	rateTier := ""
 	if r.Prices != nil {
-		if c, tier, err := r.Prices.Cost(model, sentAt, cacheHit, cacheMiss, usage.CompletionTokens); err == nil {
+		if c, tier, err := r.Prices.Cost(model, sentAt, cacheHit, cacheMiss, cacheWrite, usage.CompletionTokens); err == nil {
 			cost = c
 			rateTier = string(tier)
 		}
@@ -530,17 +535,18 @@ func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestItems
 		})
 	}
 	return store.UsagePayload{
-		SubTurn:               subTurn,
-		Attempt:               attempt,
-		PromptTokens:          usage.PromptTokens,
-		PromptCacheHitTokens:  cacheHit,
-		PromptCacheMissTokens: cacheMiss,
-		CompletionTokens:      usage.CompletionTokens,
-		ReasoningTokens:       reasoningTokens,
-		CostUSD:               cost,
-		RateTier:              rateTier,
-		ExpectedMissTokens:    report.ExpectedMissTokens,
-		ChurnPointIndex:       report.ChurnPointIndex,
+		SubTurn:                subTurn,
+		Attempt:                attempt,
+		PromptTokens:           usage.PromptTokens,
+		PromptCacheHitTokens:   cacheHit,
+		PromptCacheMissTokens:  cacheMiss,
+		PromptCacheWriteTokens: cacheWrite,
+		CompletionTokens:       usage.CompletionTokens,
+		ReasoningTokens:        reasoningTokens,
+		CostUSD:                cost,
+		RateTier:               rateTier,
+		ExpectedMissTokens:     report.ExpectedMissTokens,
+		ChurnPointIndex:        report.ChurnPointIndex,
 	}
 }
 
@@ -563,7 +569,7 @@ func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestItems
 // stored on the row. A resumed session's array cannot drift even if a
 // server is enabled or disabled, or a variant redefined, while it runs.
 func (r *Runner) stream(ctx context.Context, model string, toolArray []wire.Tool, items []wire.Item, effort string, thinking bool, maxTokens int, live *liveSink) (
-	reasoning, content string, assembler *wire.ToolCallAssembler, finishReason string, usage *wire.Usage, signature string, err error) {
+	reasoning, content string, assembler *wire.ToolCallAssembler, finishReason string, usage *wire.Usage, signature string, providerBlocks json.RawMessage, err error) {
 
 	intent := wire.ChatIntent{
 		Model:     model,
@@ -576,13 +582,13 @@ func (r *Runner) stream(ctx context.Context, model string, toolArray []wire.Tool
 
 	release, err := r.acquireModelSlot(ctx, model)
 	if err != nil {
-		return "", "", nil, "", nil, "", err
+		return "", "", nil, "", nil, "", nil, err
 	}
 	defer release()
 
 	events, err := r.clientFor(model).StreamChatCompletion(ctx, intent)
 	if err != nil {
-		return "", "", nil, "", nil, "", err
+		return "", "", nil, "", nil, "", nil, err
 	}
 
 	var reasoningBuf, contentBuf strings.Builder
@@ -613,6 +619,11 @@ func (r *Runner) stream(ctx context.Context, model string, toolArray []wire.Tool
 			// only the step nearest step.stop is the one requestFromIntent must
 			// replay.
 			signature = ev.ThoughtSignature
+		case wire.EventProviderBlocks:
+			// One complete value, like EventThoughtSignatureDelta above:
+			// assignment, never accumulation. Emitted at most once per
+			// response (internal/anthropic's own doc comment).
+			providerBlocks = ev.ProviderBlocks
 		case wire.EventFinish:
 			finishReason = ev.FinishReason
 		case wire.EventUsage:
@@ -622,9 +633,9 @@ func (r *Runner) stream(ctx context.Context, model string, toolArray []wire.Tool
 		}
 	}
 	if streamErr != nil {
-		return "", "", nil, "", nil, "", streamErr
+		return "", "", nil, "", nil, "", nil, streamErr
 	}
-	return reasoningBuf.String(), contentBuf.String(), assembler, finishReason, usage, signature, nil
+	return reasoningBuf.String(), contentBuf.String(), assembler, finishReason, usage, signature, providerBlocks, nil
 }
 
 // emitDueReminder appends a reminder when the run's policy says the context
