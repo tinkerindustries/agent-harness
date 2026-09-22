@@ -10,7 +10,7 @@ no worker pool.
 and put the OpenAI Responses API's and Google's Interactions API's own
 vocabularies on the pipe; [STDIO-PROTOCOL.md](STDIO-PROTOCOL.md) and
 [STDIO-INTERACTIONS.md](STDIO-INTERACTIONS.md) are those documents. This one
-hosts Claude alone — `claude-opus-5`, `claude-sonnet-5`, `claude-fable-5-1` —
+hosts Claude alone — `claude-opus-5-5`, `claude-sonnet-5`, `claude-fable-5-1` —
 because a client speaking Anthropic's own vocabulary has no way to drive
 another vendor's model through it, the same reason `gemini-session` hosts
 only Google's models. The subcommand is what chooses, because the choice has
@@ -136,24 +136,24 @@ handled in arrival order.
     "custom_tools": true,
     "permission_modes": ["readonly", "full"]
   },
-  "models": ["claude-opus-5", "claude-sonnet-5", "claude-fable-5-1"],
+  "models": ["claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5"],
   "default_model": "claude-sonnet-5",
   "model_details": [
     {
-      "id": "claude-opus-5",
-      "display_name": "Claude Opus 5",
+      "id": "claude-fable-5-1",
+      "display_name": "Claude Fable 5.1",
+      "context_window_tokens": 1000000,
+      "effort_levels": ["low", "medium", "high", "xhigh", "max"]
+    },
+    {
+      "id": "claude-opus-5-5",
+      "display_name": "Claude Opus 5.5",
       "context_window_tokens": 1000000,
       "effort_levels": ["low", "medium", "high", "xhigh", "max"]
     },
     {
       "id": "claude-sonnet-5",
       "display_name": "Claude Sonnet 5",
-      "context_window_tokens": 1000000,
-      "effort_levels": ["low", "medium", "high", "xhigh", "max"]
-    },
-    {
-      "id": "claude-fable-5-1",
-      "display_name": "Claude Fable 5.1",
       "context_window_tokens": 1000000,
       "effort_levels": ["low", "medium", "high", "xhigh", "max"]
     }

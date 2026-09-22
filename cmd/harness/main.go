@@ -28,7 +28,7 @@ commands:
                     Google's models only.
   claude-session    the same session, spoken in Anthropic's Managed Agents
                     vocabulary instead (docs/STDIO-MANAGED-AGENTS.md). Hosts
-                    the three Claude models only: claude-opus-5,
+                    the three Claude models only: claude-opus-5-5,
                     claude-sonnet-5, claude-fable-5-1.
 
 The three commands differ in what the parent reads off the pipe, not in what

@@ -300,7 +300,7 @@ func TestResolveHostedModel(t *testing.T) {
 		{name: "all three keys, nothing named", google: "g", dsKey: "d", akKey: "a", want: defaultGeminiSessionModel},
 		{name: "a named model wins over the keys", named: deepSeekSessionModel, google: "g", want: deepSeekSessionModel},
 		{name: "a named Gemini model", named: "gemini-3.5-flash", dsKey: "d", want: "gemini-3.5-flash"},
-		{name: "a named Claude model", named: "claude-opus-5", google: "g", want: "claude-opus-5"},
+		{name: "a named Claude model", named: "claude-opus-5-5", google: "g", want: "claude-opus-5-5"},
 		{name: "a model this command does not host", named: "kimi-k3", google: "g", wantErr: true},
 		{name: "a model nothing routes", named: "gpt-9", google: "g", wantErr: true},
 	}

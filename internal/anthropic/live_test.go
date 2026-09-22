@@ -58,7 +58,7 @@ func TestLiveMessagesAPI(t *testing.T) {
 		},
 	}
 
-	models := []string{ModelOpus5, ModelSonnet5, ModelFable51}
+	models := []string{ModelOpus55, ModelSonnet5, ModelFable51}
 	for _, model := range models {
 		t.Run(model, func(t *testing.T) {
 			runTwoSubTurns(t, c, model, systemPrompt, tool, "low",
@@ -72,7 +72,7 @@ func TestLiveMessagesAPI(t *testing.T) {
 	// trigger real reasoning, at "high" effort, on the two models whose
 	// preserved-thinking prefix check the plan calls out
 	// (docs/ANTHROPIC-INTEGRATION.md's External facts table).
-	for _, model := range []string{ModelOpus5, ModelSonnet5} {
+	for _, model := range []string{ModelOpus55, ModelSonnet5} {
 		t.Run(model+"_high_effort_thinking", func(t *testing.T) {
 			runTwoSubTurns(t, c, model, systemPrompt, tool, "high",
 				"Work through this step by step: what is 47 times 89, minus 100? "+

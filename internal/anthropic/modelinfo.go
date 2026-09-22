@@ -4,14 +4,14 @@ package anthropic
 // building" names every other Claude model as out of scope for this
 // feature).
 const (
-	ModelOpus5   = "claude-opus-5"
+	ModelOpus55  = "claude-opus-5-5"
 	ModelSonnet5 = "claude-sonnet-5"
 	ModelFable51 = "claude-fable-5-1"
 )
 
 // displayNames is a human-readable name for each model.
 var displayNames = map[string]string{
-	ModelOpus5:   "Claude Opus 5",
+	ModelOpus55:  "Claude Opus 5.5",
 	ModelSonnet5: "Claude Sonnet 5",
 	ModelFable51: "Claude Fable 5.1",
 }
@@ -20,7 +20,7 @@ var displayNames = map[string]string{
 // for all three, per the memory's External facts table, read from
 // <https://platform.claude.com/docs/en/about-claude/models/overview.md>.
 var contextWindowTokens = map[string]int{
-	ModelOpus5:   1_000_000,
+	ModelOpus55:  1_000_000,
 	ModelSonnet5: 1_000_000,
 	ModelFable51: 1_000_000,
 }
@@ -28,7 +28,7 @@ var contextWindowTokens = map[string]int{
 // effortLevels is the effort set every model this client hosts accepts —
 // all five (low/medium/high/xhigh/max), per
 // <https://platform.claude.com/docs/en/build-with-claude/effort>'s
-// per-model recommendation sections for Opus 5, Sonnet 5 and Fable 5.1.
+// per-model recommendation sections for Opus 5.5, Sonnet 5 and Fable 5.1.
 // wire's own effort constants ("low", "high", "max") are a subset of this
 // vocabulary; "medium" and "xhigh" have no wire constant and are passed
 // through as literal strings.
