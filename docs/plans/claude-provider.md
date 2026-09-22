@@ -206,6 +206,15 @@ No `claude-session` subcommand and no Managed Agents dialect. Those are phase 4'
   `docs/STDIO-MANAGED-AGENTS.md` specifies, as a third `Dialect` in `internal/stdiosession`.
   Follow the file split of `interactions.go`, `interactionstranslate.go` and
   `interactionswire.go`, and make the seam changes phase 1 named.
+- **Per-turn id.** The harness-level turn id `docs/STDIO-MANAGED-AGENTS.md` specifies. The
+  session id is the conversation's address, and the turn id lets get and interrupt address a
+  single turn.
+- **Async client-declared tools.** Teach `session.Runner` to pause a run on a client tool
+  call and resume it when the result arrives, as `docs/STDIO-MANAGED-AGENTS.md` specifies. The
+  parent receives `agent.custom_tool_use` as a notification, the session goes idle with
+  `stop_reason: requires_action`, and `user.custom_tool_result` through `sessions.events`
+  resumes the run. The Responses and Interactions dialects keep the blocking
+  `harness.function_call` unchanged.
 - **`cmd/harness`.** A `claude-session` subcommand that hosts the Claude models alone, in
   `main.go`'s dispatch, `harness help` and `dialectFor`, with the Anthropic key only.
 - **Tests.** End-to-end tests over a pipe against a fake Anthropic server, and a golden
@@ -236,3 +245,12 @@ Any Managed Agents resource beyond sessions and events (see Not building).
 - How server-side web tool activity appears to a `stdio-session` parent in the Responses and
   Interactions vocabularies. Phase 3 decides, and it must not change a frame for a non-Claude
   session. Phase 1 decides it for `claude-session`.
+
+## Changes to this plan
+
+- Phase 1 sign-off. The user chose to expose a harness-level per-turn id alongside the
+  session id, and to deliver client-declared tools through Anthropic's async shape
+  (`agent.custom_tool_use` → idle `requires_action` → `user.custom_tool_result`) rather than
+  the blocking `harness.function_call`. Phase 4 grew to build both. If phase 4 turns out too
+  big for one session, split the async tool pause and resume in `session.Runner` into its
+  own phase ahead of the dialect.
