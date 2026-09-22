@@ -21,7 +21,8 @@ commands:
   stdio-session     host one coding session for a parent process over stdin and stdout,
                     speaking the OpenAI Responses API's vocabulary
                     (docs/STDIO-PROTOCOL.md). Hosts every Gemini model this
-                    binary routes and one DeepSeek model.
+                    binary routes, one DeepSeek model, and three Claude
+                    models.
   gemini-session    the same session, spoken in Google's Interactions API
                     vocabulary instead (docs/STDIO-INTERACTIONS.md). Hosts
                     Google's models only.

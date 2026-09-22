@@ -46,7 +46,7 @@ func TestGeminiAPIKeyFromTheEnvironment(t *testing.T) {
 	clearKeyEnv(t)
 	t.Setenv("GEMINI_API_KEY", "AI-env")
 
-	key, _, err := apiKeys("")
+	key, _, _, err := apiKeys("")
 	if err != nil {
 		t.Fatalf("apiKeys: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestGeminiAPIKeyFallsBackToGoogleAPIKey(t *testing.T) {
 	clearKeyEnv(t)
 	t.Setenv("GOOGLE_API_KEY", "AI-google")
 
-	key, _, err := apiKeys("")
+	key, _, _, err := apiKeys("")
 	if err != nil {
 		t.Fatalf("apiKeys: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestGeminiAPIKeyFromTheEnvFile(t *testing.T) {
 	clearKeyEnv(t)
 	path := writeEnvFile(t, "# a comment\nGEMINI_API_KEY=AI-file\nDATABASE_URL=postgres://nope\n")
 
-	key, _, err := apiKeys(path)
+	key, _, _, err := apiKeys(path)
 	if err != nil {
 		t.Fatalf("apiKeys: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestGeminiAPIKeyPrefersTheEnvironmentOverTheFile(t *testing.T) {
 	t.Setenv("GEMINI_API_KEY", "AI-env")
 	path := writeEnvFile(t, "GEMINI_API_KEY=AI-file\n")
 
-	key, _, err := apiKeys(path)
+	key, _, _, err := apiKeys(path)
 	if err != nil {
 		t.Fatalf("apiKeys: %v", err)
 	}
@@ -112,12 +112,38 @@ func TestGeminiAPIKeyEnvFileWithoutAKeyIsEmpty(t *testing.T) {
 	clearKeyEnv(t)
 	path := writeEnvFile(t, "SOMETHING=else\n")
 
-	key, _, err := apiKeys(path)
+	key, _, _, err := apiKeys(path)
 	if err != nil {
 		t.Fatalf("apiKeys: %v", err)
 	}
 	if key != "" {
 		t.Errorf("key = %q, want empty", key)
+	}
+}
+
+// The Anthropic key is read from the environment and the -env file the same
+// way the other two are, and is independent of both: a host that supplies it
+// alone runs the Claude models without needing Google's or DeepSeek's.
+func TestAnthropicAPIKeyFromTheEnvironmentAndFile(t *testing.T) {
+	clearKeyEnv(t)
+	t.Setenv("ANTHROPIC_API_KEY", "ak-env")
+
+	_, _, anthropicKey, err := apiKeys("")
+	if err != nil {
+		t.Fatalf("apiKeys: %v", err)
+	}
+	if anthropicKey != "ak-env" {
+		t.Errorf("anthropic key = %q, want ak-env", anthropicKey)
+	}
+
+	clearKeyEnv(t)
+	path := writeEnvFile(t, "ANTHROPIC_API_KEY=ak-file\n")
+	_, _, anthropicKey, err = apiKeys(path)
+	if err != nil {
+		t.Fatalf("apiKeys: %v", err)
+	}
+	if anthropicKey != "ak-file" {
+		t.Errorf("anthropic key = %q, want ak-file", anthropicKey)
 	}
 }
 
@@ -191,7 +217,7 @@ func TestGeminiAPIKeyMissingEnvFileFails(t *testing.T) {
 	t.Setenv("GEMINI_API_KEY", "AI-env")
 	missing := filepath.Join(t.TempDir(), "nope.env")
 
-	_, _, err := apiKeys(missing)
+	_, _, _, err := apiKeys(missing)
 	if err == nil {
 		t.Fatal("expected an error for a -env file that does not exist")
 	}
@@ -226,6 +252,12 @@ func TestHostedModelsIsTheAdvertisedSet(t *testing.T) {
 			t.Errorf("hostedModels() = %v, missing the routed Gemini model %s", hosted, m)
 		}
 	}
+	// All three Claude models are offered under stdio-session.
+	for _, m := range provider.KnownModels() {
+		if p, err := provider.ModelFor(m); err == nil && p == provider.Anthropic && !slices.Contains(hosted, m) {
+			t.Errorf("hostedModels() = %v, missing the routed Claude model %s", hosted, m)
+		}
+	}
 	// Every hosted model reads images natively. That is the property that
 	// makes one credential enough: a model that could not see would be
 	// handed the vision tools, and those reach Google.
@@ -236,27 +268,45 @@ func TestHostedModelsIsTheAdvertisedSet(t *testing.T) {
 	}
 }
 
+// TestHostedModelsExcludesClaudeUnderInteractions pins the same "this
+// vocabulary is Google's alone" rule for Claude that already held for
+// DeepSeek: a client speaking Interactions has no way to drive a Claude
+// model through generation_config.thinking_level and read its answers as
+// Google steps.
+func TestHostedModelsExcludesClaudeUnderInteractions(t *testing.T) {
+	hosted := hostedModels(true)
+	for _, m := range provider.KnownModels() {
+		if p, err := provider.ModelFor(m); err == nil && p == provider.Anthropic && slices.Contains(hosted, m) {
+			t.Errorf("hostedModels(true) offers Claude model %s; gemini-session hosts Google's models only", m)
+		}
+	}
+}
+
 // The default model follows the credentials the host supplied: a host that
 // gave one key meant the model that key runs.
 func TestResolveHostedModel(t *testing.T) {
 	cases := []struct {
-		name                 string
-		named, google, dsKey string
-		want                 string
-		wantErr              bool
+		name                        string
+		named, google, dsKey, akKey string
+		want                        string
+		wantErr                     bool
 	}{
 		{name: "both keys, nothing named", google: "g", dsKey: "d", want: defaultGeminiSessionModel},
 		{name: "no keys at all", want: defaultGeminiSessionModel},
 		{name: "only a DeepSeek key", dsKey: "d", want: deepSeekSessionModel},
 		{name: "only a Google key", google: "g", want: defaultGeminiSessionModel},
+		{name: "only an Anthropic key", akKey: "a", want: defaultClaudeSessionModel},
+		{name: "Anthropic and DeepSeek keys, no Google: DeepSeek wins", dsKey: "d", akKey: "a", want: deepSeekSessionModel},
+		{name: "all three keys, nothing named", google: "g", dsKey: "d", akKey: "a", want: defaultGeminiSessionModel},
 		{name: "a named model wins over the keys", named: deepSeekSessionModel, google: "g", want: deepSeekSessionModel},
 		{name: "a named Gemini model", named: "gemini-3.5-flash", dsKey: "d", want: "gemini-3.5-flash"},
+		{name: "a named Claude model", named: "claude-opus-5", google: "g", want: "claude-opus-5"},
 		{name: "a model this command does not host", named: "kimi-k3", google: "g", wantErr: true},
 		{name: "a model nothing routes", named: "gpt-9", google: "g", wantErr: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := resolveHostedModel(tc.named, hostedModels(false), tc.google, tc.dsKey)
+			got, err := resolveHostedModel(tc.named, hostedModels(false), tc.google, tc.dsKey, tc.akKey)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("resolveHostedModel(%q) = %q, want an error naming the hosted set", tc.named, got)
@@ -297,7 +347,7 @@ func TestAPIKeysReadsBothProviders(t *testing.T) {
 	clearKeyEnv(t)
 	t.Setenv("DEEPSEEK_API_KEY", "sk-env")
 
-	google, deepSeek, err := apiKeys("")
+	google, deepSeek, _, err := apiKeys("")
 	if err != nil {
 		t.Fatalf("apiKeys: %v", err)
 	}
@@ -310,7 +360,7 @@ func TestAPIKeysReadsBothProviders(t *testing.T) {
 
 	clearKeyEnv(t)
 	path := writeEnvFile(t, "DEEPSEEK_API_KEY=sk-file\nGEMINI_API_KEY=AI-file\nDATABASE_URL=postgres://nope\n")
-	google, deepSeek, err = apiKeys(path)
+	google, deepSeek, _, err = apiKeys(path)
 	if err != nil {
 		t.Fatalf("apiKeys: %v", err)
 	}
@@ -331,6 +381,7 @@ func TestStripProviderAPIKeysRemovesEveryProvidersKey(t *testing.T) {
 		"GEMINI_API_KEY=AI-1",
 		"GOOGLE_API_KEY=AI-2",
 		"DEEPSEEK_API_KEY=sk-1",
+		"ANTHROPIC_API_KEY=ak-1",
 		"DEEPSEEK_BASE_URL=https://api.deepseek.com",
 		"HOME=/home/agent",
 	}
@@ -367,9 +418,10 @@ func TestTheSubcommandPicksTheDialect(t *testing.T) {
 		invoked      string
 		protocol     string
 		wantDeepSeek bool
+		wantClaude   bool
 	}{
-		{"stdio-session", "openai.responses.v1", true},
-		{"gemini-session", "google.interactions.v1beta", false},
+		{"stdio-session", "openai.responses.v1", true, true},
+		{"gemini-session", "google.interactions.v1beta", false, false},
 	} {
 		invoked := tc.invoked
 		t.Run(invoked, func(t *testing.T) {
@@ -413,6 +465,9 @@ func TestTheSubcommandPicksTheDialect(t *testing.T) {
 			if got := slices.Contains(frame.Result.Models, deepSeekSessionModel); got != tc.wantDeepSeek {
 				t.Errorf("models = %v, DeepSeek model present = %v, want %v", frame.Result.Models, got, tc.wantDeepSeek)
 			}
+			if got := slices.Contains(frame.Result.Models, defaultClaudeSessionModel); got != tc.wantClaude {
+				t.Errorf("models = %v, Claude model present = %v, want %v", frame.Result.Models, got, tc.wantClaude)
+			}
 		})
 	}
 }
@@ -431,7 +486,7 @@ func TestGeminiSessionNeverDefaultsToDeepSeek(t *testing.T) {
 	responses := hostedModels(false)
 	interactions := hostedModels(true)
 
-	got, err := resolveHostedModel("", responses, "", "a-deepseek-key")
+	got, err := resolveHostedModel("", responses, "", "a-deepseek-key", "")
 	if err != nil {
 		t.Fatalf("stdio-session with only a DeepSeek key: %v", err)
 	}
@@ -439,7 +494,7 @@ func TestGeminiSessionNeverDefaultsToDeepSeek(t *testing.T) {
 		t.Errorf("stdio-session default = %q, want %q", got, deepSeekSessionModel)
 	}
 
-	got, err = resolveHostedModel("", interactions, "", "a-deepseek-key")
+	got, err = resolveHostedModel("", interactions, "", "a-deepseek-key", "")
 	if err != nil {
 		t.Fatalf("gemini-session with only a DeepSeek key: %v", err)
 	}
@@ -449,7 +504,27 @@ func TestGeminiSessionNeverDefaultsToDeepSeek(t *testing.T) {
 
 	// Naming it outright is refused there too, at startup rather than on
 	// the first create.
-	if _, err := resolveHostedModel(deepSeekSessionModel, interactions, "", "a-deepseek-key"); err == nil {
+	if _, err := resolveHostedModel(deepSeekSessionModel, interactions, "", "a-deepseek-key", ""); err == nil {
 		t.Error("gemini-session accepted -model " + deepSeekSessionModel)
+	}
+}
+
+// TestGeminiSessionNeverDefaultsToClaude mirrors
+// TestGeminiSessionNeverDefaultsToDeepSeek for the Anthropic key:
+// gemini-session cannot default to a Claude model either, for the same
+// reason — it does not host that model.
+func TestGeminiSessionNeverDefaultsToClaude(t *testing.T) {
+	interactions := hostedModels(true)
+
+	got, err := resolveHostedModel("", interactions, "", "", "an-anthropic-key")
+	if err != nil {
+		t.Fatalf("gemini-session with only an Anthropic key: %v", err)
+	}
+	if got != defaultGeminiSessionModel {
+		t.Errorf("gemini-session default = %q, want %q", got, defaultGeminiSessionModel)
+	}
+
+	if _, err := resolveHostedModel(defaultClaudeSessionModel, interactions, "", "", "an-anthropic-key"); err == nil {
+		t.Error("gemini-session accepted -model " + defaultClaudeSessionModel)
 	}
 }

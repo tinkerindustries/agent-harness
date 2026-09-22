@@ -1240,3 +1240,50 @@ or thinking exchange) — `wire.Usage.CacheWriteTokens` and
 correctly separated from an ordinary cache miss, but no rate was looked up
 against a live pricing page as part of this check (out of scope for phase 2,
 whose "Not building" list defers `configs/prices.json` to phase 3).
+
+## Claude Messages API — Phase 3 live check (`stdio-session`)
+
+A real `harness stdio-session` process, one per Claude model, driven by
+hand over the pipe with the key from `~/.config/agent-harness/anthropic.env`:
+`initialize`, a `responses.create` whose task calls `Bash` once, a
+`responses.append` steer sent while that first tool call is still in
+flight, then — once `response.completed` arrived — a second
+`responses.create` naming the first response's id as
+`previous_response_id`, asking a question only answerable from the first
+response's history. All three models: the steer's own tool call landed in
+the same response as a second sub-turn, the resume recalled the exact
+first command verbatim, and no request failed.
+
+**The handshake publishes all three models correctly.** `initialize`'s
+`model_details` carried `claude-opus-5`, `claude-sonnet-5` and
+`claude-fable-5-1`, each with `context_window_tokens: 1000000` and
+`reasoning_efforts: ["low","medium","high","xhigh","max"]` — confirming
+`internal/stdiosession/modelinfo.go`'s new Anthropic case reads
+`internal/anthropic/modelinfo.go` correctly end to end, not just in the
+unit tests.
+
+**The tool array Claude sessions actually send needed no live surprise.**
+Every `Bash` call across all three models succeeded first time; nothing in
+`internal/tools.definitionsClaude` (the vision-capable array minus
+`WebFetch`) drew a schema refusal, so none of Gemini's `LowerToolSchemas`
+handling was needed for Claude and `internal/session/lifecycle.go` was
+correctly left unchanged for this phase.
+
+**Prompt caching held up under the harness's own request shape, not just
+the bare-client probe phase 2 measured.** Every sub-turn after the first on
+every model read back 99.6–99.98% of its prompt from cache
+(`cached_tokens` in `harness.usage`) — for example Sonnet 5's third and
+fourth requests read 23113/23118 and 11710/11712 input tokens from cache
+respectively. `Client.CacheSlack()`'s 1024 remained generous headroom over
+the real churn a multi-sub-turn harness session with a steer produces, not
+just the single tool round phase 2 measured.
+
+**Total spend for the whole check, all three models, six sub-turns each
+across the two responses**: claude-sonnet-5 $0.038, claude-opus-5 $0.099,
+claude-fable-5-1 $0.172 (Fable 5.1's 5x-of-Sonnet output rate and higher
+base input rate dominate, not any inefficiency in the request). Well within
+"keep the live spend small."
+
+**No bug, refusal, or schema disagreement surfaced against the live API**
+in this check. Every finding matched `docs/ANTHROPIC-INTEGRATION.md` and
+the Phase 2 findings above.

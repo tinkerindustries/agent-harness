@@ -24,8 +24,9 @@ DeepSeek's own `POST /responses`
 loop's own conversation form: `internal/fold` produces `[]wire.Item`, the
 Responses input-item shape, which that client serialises without rebuilding.
 The Chat Completions dialect renders *from* items with
-`wire.MessagesFromItems`, and `internal/gemini` renders Interactions steps
-from them.
+`wire.MessagesFromItems`, `internal/gemini` renders Interactions steps from
+them, and `internal/anthropic` renders a Messages API request from them
+([`docs/ANTHROPIC-INTEGRATION.md`](docs/ANTHROPIC-INTEGRATION.md)).
 
 It is still not a proxy. The loop runs the tools, so what a parent reads is
 rendered from the session's event log rather than forwarded from a provider,
@@ -34,14 +35,18 @@ vocabulary buys is one set of shapes and one place a mistake in them can
 hide.
 
 That vocabulary is the wire's, not the model's. The process hosts every
-Gemini model the harness routes and the one DeepSeek model it routes,
-`deepseek-flash`, chosen by the create body's `model` and dispatched to a
+Gemini model the harness routes, the one DeepSeek model it routes, and all
+three Claude models, chosen by the create body's `model` and dispatched to a
 client per provider; the parent supplies whichever keys it wants usable.
 `deepseek-flash` reads images natively, which is what a DeepSeek session
 here needs: a model that could not see would be given the vision tools that
 compensate — four of which send their images to Google — so hosting one
 would mean a DeepSeek run needing a Google key as well
-([`docs/DEEPSEEK-VISION.md`](docs/DEEPSEEK-VISION.md)).
+([`docs/DEEPSEEK-VISION.md`](docs/DEEPSEEK-VISION.md)). The Claude models
+read images natively too, and their tool array drops the harness's own
+`WebFetch` in favour of Anthropic's own server-side `web_search` and
+`web_fetch` tools, which ride every Claude request instead
+([`docs/ANTHROPIC-INTEGRATION.md`](docs/ANTHROPIC-INTEGRATION.md)).
 
 ```mermaid
 flowchart LR
@@ -49,8 +54,10 @@ flowchart LR
     gs --> session2[internal/session<br/>the agent loop]
     session2 -->|wire.ChatIntent| gc[internal/gemini]
     session2 -->|wire.ChatIntent| dc[internal/deepseek]
+    session2 -->|wire.ChatIntent| ac[internal/anthropic]
     gc --> gapi[generativelanguage.googleapis.com]
     dc --> dapi[api.deepseek.com]
+    ac --> aapi[api.anthropic.com]
     session2 --> tools2[internal/tools<br/>in the parent's own directory]
     session2 --> mcpclient[internal/mcpclient<br/>configured MCP servers]
     session2 --> st2[(SQLite, private to the process)]
@@ -122,24 +129,26 @@ mcpclient ───────────────────────�
 
 `deepseek`, `tools`, `session`, and `fold` all read their vocabulary from
 `wire` — the client, the tool array, the agent loop, and the fold, each one
-level above the shared types. `deepseek`'s row stands for three sibling
-packages, not one: `internal/kimi` and `internal/gemini` sit at the same
-level, reading `wire` directly and depending on nothing else internal.
-`cache` and `promptvariant` import `wire` directly as well, and `provider` —
-the model→provider table both client construction and request validation
-consult (docs/KIMI-INTEGRATION.md §4.3) — is a leaf beside it.
+level above the shared types. `deepseek`'s row stands for four sibling
+packages, not one: `internal/kimi`, `internal/gemini` and
+`internal/anthropic` sit at the same level, reading `wire` directly and
+depending on nothing else internal. `cache` and `promptvariant` import
+`wire` directly as well, and `provider` — the model→provider table both
+client construction and request validation consult
+(docs/KIMI-INTEGRATION.md §4.3) — is a leaf beside it.
 
 The edges that matter:
 
 - **`internal/session` is the only package that speaks to both the model API
   and the tools**, and its reach to the API is through the narrow `Client`
-  seam it declares: `internal/deepseek`, `internal/kimi`, and
-  `internal/gemini` each implement it independently, turning the loop's
-  `wire.ChatIntent` into that provider's own request shape and owning that
-  provider's usage mapping and response quirks, and `cmd/harness` chooses
-  the implementation a session's model resolves to when it builds the
-  Runner (docs/KIMI-INTEGRATION.md §4.1, docs/GEMINI-INTEGRATION.md §5.1). A
-  change that needs both belongs there.
+  seam it declares: `internal/deepseek`, `internal/kimi`,
+  `internal/gemini` and `internal/anthropic` each implement it
+  independently, turning the loop's `wire.ChatIntent` into that provider's
+  own request shape and owning that provider's usage mapping and response
+  quirks, and `cmd/harness` chooses the implementation a session's model
+  resolves to when it builds the Runner (docs/KIMI-INTEGRATION.md §4.1,
+  docs/GEMINI-INTEGRATION.md §5.1, docs/ANTHROPIC-INTEGRATION.md). A change
+  that needs both belongs there.
 - **`internal/mcpclient` sits above `internal/store`, `internal/wire`, and
   `internal/tools`.** It reads the `mcp_servers` rows, speaks the tool-array
   vocabulary, and implements `MCPProvider`, the narrow seam `internal/tools`
