@@ -475,7 +475,9 @@ settings surface of `internal/store` only.
 ### `internal/androiddns`
 Redirects Go's resolver to real name servers when a `CGO_ENABLED=0` build runs
 on Android, which has no `/etc/resolv.conf`. `cmd/harness` installs it at
-startup; it changes nothing on any other GOOS
+startup, and each dial re-reads Termux's resolv.conf when a stat shows it
+changed, so a network switch reaches a running process; it changes nothing on
+any other GOOS
 ([`../docs/ANDROID.md`](../docs/ANDROID.md)). Depends on: nothing internal.
 
 ### `internal/pricing`
