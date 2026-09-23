@@ -3,6 +3,7 @@ package tools
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -74,7 +75,7 @@ func newGrepFixture(t *testing.T) string {
 // dropped or renamed flag changes what a search returns without changing its
 // shape, which no comparison of output against the fallback would catch.
 func TestGrepRipgrepArguments(t *testing.T) {
-	fixed := []string{"--hidden", "--max-columns", "500", "--sort=path"}
+	fixed := []string{"--hidden", "--max-columns", "500", "--sort=path", "--path-separator", "/"}
 	for _, dir := range grepSkipDirs {
 		fixed = append(fixed, "--glob", "!"+dir)
 	}
@@ -279,6 +280,9 @@ func TestGrepRipgrepReportsAMissingPathAsAnError(t *testing.T) {
 // mode whose output a model hands straight back to Read, and it comes back as
 // one whole path per line however the name is spelled.
 func TestGrepRipgrepKeepsAColonInAFileName(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows file names cannot hold a colon; on NTFS a:b.md names stream b.md of file a")
+	}
 	rg := ripgrepForTest(t)
 	root := t.TempDir()
 	writeFile(t, root, "a:b.md", "needle\nneedle\n")

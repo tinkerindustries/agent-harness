@@ -447,13 +447,14 @@ func runScreenshotDriver(ctx context.Context, workspace string, cfg screenshotDr
 	// that launched it, which would otherwise leave a headless Chromium
 	// running for the rest of the session (docs/TOOLS.md, "Bash").
 	group := bashGroup(cmd)
+	defer group.release()
 	cmd.WaitDelay = 2 * time.Second
 
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	runErr := cmd.Run()
+	runErr := runGrouped(cmd, group)
 	if errors.Is(runErr, exec.ErrWaitDelay) {
 		group.forceKill()
 	}

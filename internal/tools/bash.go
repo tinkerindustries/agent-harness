@@ -89,6 +89,7 @@ func execBash(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 	waitDelay := e.bashWaitDelay(ctx)
 	cmd.WaitDelay = waitDelay
 	group := bashGroup(cmd)
+	defer group.release()
 
 	var out capturedBuffer
 	live := &liveStdoutWriter{sink: stdoutSinkFromContext(ctx)}
@@ -96,7 +97,7 @@ func execBash(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 	cmd.Stderr = io.MultiWriter(&out, live)
 
 	started := time.Now()
-	runErr := cmd.Run()
+	runErr := runGrouped(cmd, group)
 	if errors.Is(runErr, exec.ErrWaitDelay) {
 		// The command exited but a grandchild kept its output pipe open; Wait
 		// returned after WaitDelay and nothing has been cancelled — this path
@@ -142,6 +143,18 @@ func execBash(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 		result.Content = "(no output)"
 	}
 	return result
+}
+
+// runGrouped is cmd.Run with the group killer told the child has started, in
+// the gap between Start and Wait that Run does not expose. On Windows that is
+// where the child joins the job object every process it starts inherits
+// (bash_windows.go); on unix Setpgid already did the equivalent at Start.
+func runGrouped(cmd *exec.Cmd, group *groupKiller) error {
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	group.started()
+	return cmd.Wait()
 }
 
 // capturedBuffer is the buffer a Bash call captures its command's stdout and
