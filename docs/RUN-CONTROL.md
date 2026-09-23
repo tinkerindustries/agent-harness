@@ -83,7 +83,11 @@ whether or not anything above them ever calls stop:
    `sh` pid. The same kill runs after a `WaitDelay` expiry, because that path
    has no cancellation behind it — without it, the orphan survives, keeps the
    port it bound, and the next run's `npm run dev` fails on an address already
-   in use.
+   in use. Windows has no process groups, so there the child joins a job
+   object right after `Start` and the kill terminates the job, plus a walk of
+   the child's tree by parent pid for anything started before it joined
+   (`internal/tools/bash_windows.go`). The job is what reaches Git Bash's
+   `sleep 300 &`, whose forked parent exits and leaves no chain to walk.
 3. **A mutex around the output buffer.** Once `WaitDelay` can make `Wait`
    return while a copy goroutine is still writing, the plain `bytes.Buffer`
    shared by `cmd.Stdout`, `cmd.Stderr` and the post-`Wait` read is a data

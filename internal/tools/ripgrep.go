@@ -63,8 +63,14 @@ func checkRipgrep(path string) error {
 // walks in parallel by default, so which lines survive a first-n cut would
 // otherwise vary between identical calls, and the fallback's sorted walk
 // could not agree with it.
+//
+// --path-separator / is what keeps a path the same on every platform:
+// ripgrep on Windows joins the rest of a path onto the caller's spelling with
+// a backslash, so "src" would come back as "src\main\x.md" while the
+// fallback, and the same call on any other platform, says "src/main/x.md".
+// Elsewhere it is ripgrep's default already.
 func ripgrepArgs(args grepArgs, mode, path string) []string {
-	argv := []string{"--hidden", "--max-columns", strconv.Itoa(ripgrepMaxColumns), "--sort=path"}
+	argv := []string{"--hidden", "--max-columns", strconv.Itoa(ripgrepMaxColumns), "--sort=path", "--path-separator", "/"}
 	for _, dir := range grepSkipDirs {
 		// --hidden lifts ripgrep's own dot-directory skipping, so each
 		// version-control directory has to be excluded by name.

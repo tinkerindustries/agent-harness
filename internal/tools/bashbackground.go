@@ -74,6 +74,7 @@ func execBashBackground(ctx context.Context, e *Executor, command string) Result
 	if err := cmd.Start(); err != nil {
 		return errorResult("start background command: %v", err)
 	}
+	killer.started()
 
 	bg := &backgroundShell{command: command, started: time.Now(), killer: killer, buf: buf}
 
@@ -91,6 +92,7 @@ func execBashBackground(ctx context.Context, e *Executor, command string) Result
 		if errors.Is(runErr, exec.ErrWaitDelay) {
 			killer.forceKill()
 		}
+		killer.release()
 		bg.mu.Lock()
 		defer bg.mu.Unlock()
 		bg.done = true

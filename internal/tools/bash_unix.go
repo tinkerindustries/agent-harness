@@ -86,6 +86,11 @@ func (k *groupKiller) forceKill() error {
 	return err
 }
 
+// started and release are Windows' job-object hooks (bash_windows.go). A
+// process group needs no setup after Start and holds nothing to let go of.
+func (*groupKiller) started() {}
+func (*groupKiller) release() {}
+
 // pgid returns the child's process group id. Setpgid makes the child the
 // leader of its own group, so its pid is the pgid. Zero when the command has
 // not started (Cancel is never called before Start; the guard is for safety).
