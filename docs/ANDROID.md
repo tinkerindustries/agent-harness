@@ -28,6 +28,14 @@ redirects those two addresses when the process runs on Android without
 none. On a network that blocks public DNS, put a reachable server in that file.
 The process logs the servers it chose to stderr at startup.
 
+A running process follows that file as it changes, so a host that rewrites it
+when the active network changes moves the session with it. Each DNS dial stats
+the file and re-reads it only when its mtime or size has moved, and falls back
+to the public servers whenever the file goes missing, becomes unreadable or
+loses its `nameserver` lines. The process logs the new servers to stderr each
+time a re-read changes them. Whether `/etc/resolv.conf` exists is checked once,
+at startup.
+
 ## CA roots
 
 Go reads Android's system roots from `/system/etc/security/cacerts`. No
