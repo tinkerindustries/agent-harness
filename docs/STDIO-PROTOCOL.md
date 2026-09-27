@@ -477,7 +477,7 @@ The Responses API's create-response body, narrowed, plus a `harness` block.
 | `previous_response_id` | no | Continue that response's session, in this process. See below. |
 | `text.format` | no | `schema` becomes the run's result schema, which the agent's `Complete` tool validates its answer against. |
 | `reasoning.effort` | no | One of the levels `initialize` gave for this model — `low`, `medium`, `high` for `gemini-3.7-flash`, which refuses `minimal`. Defaults to `high`. A level the model does not take is `-32602`. |
-| `reasoning.max_output_tokens` | no | Per-request output cap. Zero leaves the API's own default. |
+| `reasoning.max_output_tokens` | no | Per-request output cap. Zero leaves the provider's own default. Anthropic's Messages API has none and refuses zero, so a Claude model gets 64,000. |
 | `stream` | no | Default true. See below. |
 | `store` | no | Accepted and ignored: this process always stores, because the loop's state machine *is* its event log. |
 | `harness.cwd` | yes, unless continuing | The directory the session works in. Absolute. |

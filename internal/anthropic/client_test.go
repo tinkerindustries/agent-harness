@@ -369,3 +369,74 @@ func TestWithIdleTimeoutOverride(t *testing.T) {
 		t.Errorf("idleTimeout() = %v", c.idleTimeout())
 	}
 }
+
+// TestMaxTokensDefaultsWhenIntentNamesNone proves an intent with no ceiling
+// still sends a legal `max_tokens`. stdio-session leaves the intent at zero
+// whenever its parent omits `max_output_tokens`, as Turret always does, and
+// the live API refuses `max_tokens: 0` on the very first request of the
+// session. Removing either maxTokensOr call makes the matching case send zero
+// and fail here. An intent that names a ceiling keeps it.
+func TestMaxTokensDefaultsWhenIntentNamesNone(t *testing.T) {
+	var got atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req MessagesRequest
+		json.NewDecoder(r.Body).Decode(&req)
+		got.Store(int64(req.MaxTokens))
+		w.WriteHeader(http.StatusOK)
+		if !req.Stream {
+			json.NewEncoder(w).Encode(messagesResponse{
+				ID:         "msg_1",
+				StopReason: "end_turn",
+				Content:    []rawContentBlock{{Type: "text", Text: "ok"}},
+				Usage:      &messagesUsage{InputTokens: 1, OutputTokens: 1},
+			})
+			return
+		}
+		fmt.Fprint(w, sseResponse(
+			frame("message_start", `{"type":"message_start","message":{"usage":{"input_tokens":1,"output_tokens":1}}}`),
+			frame("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`),
+			frame("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}`),
+			frame("content_block_stop", `{"type":"content_block_stop","index":0}`),
+			frame("message_delta", `{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":1}}`),
+			frame("message_stop", `{"type":"message_stop"}`),
+		))
+	}))
+	defer srv.Close()
+	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "ak-test", nil }))
+
+	stream := func(maxTokens int) int64 {
+		intent := testIntent()
+		intent.MaxTokens = maxTokens
+		events, err := c.StreamChatCompletion(context.Background(), intent)
+		if err != nil {
+			t.Fatalf("StreamChatCompletion: %v", err)
+		}
+		for e := range events {
+			if e.Type == wire.EventError {
+				t.Fatalf("unexpected error event: %v", e.Err)
+			}
+		}
+		return got.Load()
+	}
+	unary := func(maxTokens int) int64 {
+		intent := testIntent()
+		intent.MaxTokens = maxTokens
+		if _, err := c.CreateChatCompletion(context.Background(), intent); err != nil {
+			t.Fatalf("CreateChatCompletion: %v", err)
+		}
+		return got.Load()
+	}
+
+	if n := stream(0); n != defaultStreamMaxTokens {
+		t.Errorf("streamed max_tokens with none named = %d, want %d", n, defaultStreamMaxTokens)
+	}
+	if n := unary(0); n != defaultUnaryMaxTokens {
+		t.Errorf("unary max_tokens with none named = %d, want %d", n, defaultUnaryMaxTokens)
+	}
+	if n := stream(4096); n != 4096 {
+		t.Errorf("streamed max_tokens with 4096 named = %d, want 4096", n)
+	}
+	if n := unary(4096); n != 4096 {
+		t.Errorf("unary max_tokens with 4096 named = %d, want 4096", n)
+	}
+}

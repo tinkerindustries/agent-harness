@@ -850,13 +850,16 @@ carry at most one of the two, in either order relative to any
 `user.custom_tool_result` events alongside it, and the code is `-32602`
 (`CodeInvalidParams`) rather than a distinct one.
 
-**17. Every run under this dialect sends a fixed `max_tokens`.** This
-vocabulary has no `max_output_tokens`/`generation_config.max_output_tokens`
-field on `sessions.create` at all for a client to set. The live API refuses
-a streaming Messages request with `max_tokens: 0` outright — found during
-this phase's own live check, the first request `harness claude-session` ever
-sent for real — so this build sends a fixed 8192 on every request rather
-than the zero a client's silence would otherwise resolve to.
+**17. Every run under this dialect sends `internal/anthropic`'s default
+`max_tokens`.** This vocabulary has no
+`max_output_tokens`/`generation_config.max_output_tokens` field on
+`sessions.create` for a client to set. The live API refuses a streaming
+Messages request with `max_tokens: 0` outright. That was found during
+phase 4's live check, on the first request `harness claude-session` ever
+sent for real. That phase patched it here with a fixed 8192. The same zero
+also reached the API from `stdio-session`, whose `max_output_tokens` is
+optional, so the default now lives in the Anthropic client: 64,000 on a
+streamed request, 16,000 on a unary one, whenever the intent names none.
 
 ## Deviations from Codex's app-server
 

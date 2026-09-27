@@ -1330,7 +1330,11 @@ later phase:**
    a streaming request shaped that way outright:
    `400 invalid_request_error: stream cannot be true when max_tokens is 0`.
    Fixed by sending a fixed `8192` on every request under this dialect
-   (`docs/STDIO-MANAGED-AGENTS.md`, Deviation 17).
+   (`docs/STDIO-MANAGED-AGENTS.md`, Deviation 17). `stdio-session` hit the
+   same 400 on its first Claude request when the parent sent no
+   `max_output_tokens`, as Turret's Android app always does. The default
+   has since moved into `internal/anthropic` and covers both dialects: 64,000
+   streamed, 16,000 unary.
 2. The steer/next-turn result's `harness.turn_id` echoed the *session* id
    instead of the actual turn id, because an early build ran the turn id
    through the new `Dialect.AddressID` seam addition before handing it to
