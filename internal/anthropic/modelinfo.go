@@ -25,6 +25,31 @@ var contextWindowTokens = map[string]int{
 	ModelFable51: 1_000_000,
 }
 
+// defaultStreamMaxTokens and defaultUnaryMaxTokens are the `max_tokens` a
+// request carries when its intent names no ceiling, which is every
+// sub-turn stdio-session runs: the Responses vocabulary's
+// `max_output_tokens` is optional and a parent that omits it leaves the
+// intent at zero. Other providers read zero as "the model's own default"
+// and leave the field out; the Messages API requires it and refuses zero
+// (`400 invalid_request_error: stream cannot be true when max_tokens is
+// 0`, docs/OBSERVED.md). All three models cap output at 128K. A streamed
+// request takes half of that, room for adaptive thinking plus a large tool
+// call. A unary one takes less, so the response returns before an HTTP
+// timeout.
+const (
+	defaultStreamMaxTokens = 64_000
+	defaultUnaryMaxTokens  = 16_000
+)
+
+// maxTokensOr returns requested when it names a ceiling and fallback when
+// it does not.
+func maxTokensOr(requested, fallback int) int {
+	if requested > 0 {
+		return requested
+	}
+	return fallback
+}
+
 // effortLevels is the effort set every model this client hosts accepts —
 // all five (low/medium/high/xhigh/max), per
 // <https://platform.claude.com/docs/en/build-with-claude/effort>'s

@@ -87,6 +87,13 @@ already holds. `web_search_20260209` and `web_fetch_20260209`
 order, on every request — this client's tool array is never shorter than
 those two entries.
 
+`max_tokens` is required, and zero is a 400. An intent that names no ceiling
+gets `defaultStreamMaxTokens` (64,000) on a streamed request and
+`defaultUnaryMaxTokens` (16,000) on a unary one (`modelinfo.go`). This is
+every sub-turn a parent runs without `max_output_tokens`. DeepSeek and
+Gemini read zero as their own default, so their clients leave the field out
+instead.
+
 ## Thinking and effort
 
 Every request sends adaptive thinking unconditionally:

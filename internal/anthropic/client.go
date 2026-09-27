@@ -157,6 +157,7 @@ func NewClient(baseURL string, opts ...ClientOption) *Client {
 func (c *Client) StreamChatCompletion(ctx context.Context, intent wire.ChatIntent) (<-chan wire.Event, error) {
 	req := requestFromIntent(intent)
 	req.Stream = true
+	req.MaxTokens = maxTokensOr(req.MaxTokens, defaultStreamMaxTokens)
 
 	out := make(chan wire.Event)
 	go func() {
@@ -297,6 +298,7 @@ func (c *Client) streamOneRound(ctx context.Context, reqBody []byte, send func(w
 func (c *Client) CreateChatCompletion(ctx context.Context, intent wire.ChatIntent) (*wire.ChatCompletionResponse, error) {
 	req := requestFromIntent(intent)
 	req.Stream = false
+	req.MaxTokens = maxTokensOr(req.MaxTokens, defaultUnaryMaxTokens)
 
 	var totalUsage wire.Usage
 	haveUsage := false

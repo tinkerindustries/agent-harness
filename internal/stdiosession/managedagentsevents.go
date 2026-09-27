@@ -211,8 +211,7 @@ func (s *Server) eventsMessage(ctx context.Context, it *run, e maWireEvent) (maE
 	res, rerr := s.beginRun(ctx, beginRunParams{
 		model: model, sessionID: it.sessionID, cwd: cwd,
 		prompt: text, prevRunID: it.id, resume: true,
-		maxOutputTokens: maDefaultMaxOutputTokens,
-		messageID:       messageID, host: host,
+		messageID: messageID, host: host,
 	})
 	if rerr != nil {
 		return maEventResultRow{}, rerr

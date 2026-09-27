@@ -30,17 +30,6 @@ const (
 	MethodSessionsDelete = "sessions.delete"
 )
 
-// maDefaultMaxOutputTokens is what a run's `max_tokens` gets when nothing
-// supplies one — every request under this dialect, since its own wire
-// vocabulary has no `max_output_tokens`/`generation_config.max_output_tokens`
-// field at all for a client to set (docs/STDIO-MANAGED-AGENTS.md's own
-// `sessions.create` field table has none to omit).
-// internal/anthropic sends whatever CreateRequest.MaxOutputTokens resolves
-// to verbatim as `max_tokens`, and the live API refuses a streaming request
-// with `max_tokens: 0` outright — measured live during this phase's own
-// check, not asserted from the vendored docs.
-const maDefaultMaxOutputTokens = 8192
-
 // ManagedAgents implements Dialect.
 type ManagedAgents struct{}
 
@@ -136,9 +125,8 @@ func (ManagedAgents) DecodeCreate(params json.RawMessage) (*CreateRequest, *rpcE
 		}
 		return &CreateRequest{
 			Model: model, Prompt: prompt, Effort: effort,
-			MaxOutputTokens: maDefaultMaxOutputTokens,
-			ResultSchema:    p.Harness.ResultSchema,
-			Tools:           p.Tools, Stream: p.Stream, Harness: p.Harness.toCreateHarness(),
+			ResultSchema: p.Harness.ResultSchema,
+			Tools:        p.Tools, Stream: p.Stream, Harness: p.Harness.toCreateHarness(),
 		}, nil
 	}
 
@@ -160,14 +148,13 @@ func (ManagedAgents) DecodeCreate(params json.RawMessage) (*CreateRequest, *rpcE
 	}
 
 	return &CreateRequest{
-		Model:           model,
-		Prompt:          prompt,
-		Effort:          effort,
-		MaxOutputTokens: maDefaultMaxOutputTokens,
-		ResultSchema:    p.Harness.ResultSchema,
-		Tools:           p.Tools,
-		Stream:          p.Stream,
-		Harness:         p.Harness.toCreateHarness(),
+		Model:        model,
+		Prompt:       prompt,
+		Effort:       effort,
+		ResultSchema: p.Harness.ResultSchema,
+		Tools:        p.Tools,
+		Stream:       p.Stream,
+		Harness:      p.Harness.toCreateHarness(),
 	}, nil
 }
 
