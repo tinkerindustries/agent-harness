@@ -17,7 +17,7 @@ import (
 
 func testIntent() wire.ChatIntent {
 	return wire.ChatIntent{
-		Model: ModelSonnet5,
+		Model: ModelSonnet55,
 		Items: []wire.Item{
 			wire.SystemItem("you are a coding agent"),
 			wire.UserItem("say hi"),

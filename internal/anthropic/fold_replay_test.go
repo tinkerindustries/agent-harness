@@ -20,7 +20,7 @@ import (
 func TestFoldToAnthropicRequestReplaysRawBlocksVerbatim(t *testing.T) {
 	sess := store.Session{
 		ID:           "sess-1",
-		Model:        ModelSonnet5,
+		Model:        ModelSonnet55,
 		SystemPrompt: "you are a coding agent",
 	}
 

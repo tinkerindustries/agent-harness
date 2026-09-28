@@ -10,7 +10,7 @@ no worker pool.
 and put the OpenAI Responses API's and Google's Interactions API's own
 vocabularies on the pipe; [STDIO-PROTOCOL.md](STDIO-PROTOCOL.md) and
 [STDIO-INTERACTIONS.md](STDIO-INTERACTIONS.md) are those documents. This one
-hosts Claude alone — `claude-opus-5-5`, `claude-sonnet-5`, `claude-fable-5-1` —
+hosts Claude alone — `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-fable-5-1` —
 because a client speaking Anthropic's own vocabulary has no way to drive
 another vendor's model through it, the same reason `gemini-session` hosts
 only Google's models. The subcommand is what chooses, because the choice has
@@ -80,7 +80,7 @@ One thing differs: the credential.
 | --- | --- |
 | `ANTHROPIC_API_KEY` | The Anthropic API key. The only credential this subcommand reads. |
 
-`-model` defaults to `claude-sonnet-5`. `initialize`'s `models` names the
+`-model` defaults to `claude-sonnet-5-5`. `initialize`'s `models` names the
 three Claude models this subcommand accepts; a `-model` outside that list is
 refused at startup. **When no key is set**, `initialize` still succeeds — a
 parent can start the process and query its capabilities without one — and
@@ -136,8 +136,8 @@ handled in arrival order.
     "custom_tools": true,
     "permission_modes": ["readonly", "full"]
   },
-  "models": ["claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5"],
-  "default_model": "claude-sonnet-5",
+  "models": ["claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5"],
+  "default_model": "claude-sonnet-5-5",
   "model_details": [
     {
       "id": "claude-fable-5-1",
@@ -152,8 +152,8 @@ handled in arrival order.
       "effort_levels": ["low", "medium", "high", "xhigh", "max"]
     },
     {
-      "id": "claude-sonnet-5",
-      "display_name": "Claude Sonnet 5",
+      "id": "claude-sonnet-5-5",
+      "display_name": "Claude Sonnet 5.5",
       "context_window_tokens": 1000000,
       "effort_levels": ["low", "medium", "high", "xhigh", "max"]
     }
@@ -254,7 +254,7 @@ follows that shape:
 {
   "agent": {
     "type": "agent_with_overrides",
-    "model": {"id": "claude-sonnet-5", "effort": "high"}
+    "model": {"id": "claude-sonnet-5-5", "effort": "high"}
   },
   "initial_events": [
     {"type": "user.message", "content": [{"type": "text", "text": "Add a test for the retry path."}]}
@@ -297,7 +297,7 @@ runs against a stored agent and a stored sandbox. This process has neither
 resource. `agent` is accepted in one shape only:
 
 ```jsonc
-{"type": "agent_with_overrides", "model": {"id": "claude-sonnet-5", "effort": "high"}}
+{"type": "agent_with_overrides", "model": {"id": "claude-sonnet-5-5", "effort": "high"}}
 ```
 
 which is Anthropic's own shape for "run this one session differently from
@@ -332,7 +332,7 @@ live):
 ```jsonc
 {"session": {"id": "sess-3b71…", "status": "running",
              "created_at": "2026-09-22T01:02:03Z", "updated_at": "…",
-             "agent": {"model": {"id": "claude-sonnet-5", "effort": "high"}},
+             "agent": {"model": {"id": "claude-sonnet-5-5", "effort": "high"}},
              "harness": {"turn_id": "turn_9f0c…"}}}
 ```
 

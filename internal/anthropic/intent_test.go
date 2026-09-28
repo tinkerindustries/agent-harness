@@ -23,7 +23,7 @@ func decodeRequest(t *testing.T, req MessagesRequest) map[string]any {
 
 func TestRequestFromIntentSystemPromptAndUserMessage(t *testing.T) {
 	intent := wire.ChatIntent{
-		Model: ModelSonnet5,
+		Model: ModelSonnet55,
 		Items: []wire.Item{
 			wire.SystemItem("You are a coding agent."),
 			wire.UserItem("List the files."),
@@ -33,8 +33,8 @@ func TestRequestFromIntentSystemPromptAndUserMessage(t *testing.T) {
 	}
 	req := requestFromIntent(intent)
 
-	if req.Model != ModelSonnet5 {
-		t.Errorf("Model = %q, want %q", req.Model, ModelSonnet5)
+	if req.Model != ModelSonnet55 {
+		t.Errorf("Model = %q, want %q", req.Model, ModelSonnet55)
 	}
 	if len(req.System) != 1 || req.System[0].Text != "You are a coding agent." {
 		t.Fatalf("System = %+v", req.System)
@@ -179,13 +179,17 @@ func TestSystemMessageForModelDifference(t *testing.T) {
 	if opus.role != wire.RoleSystem {
 		t.Errorf("Opus 5.5: role = %q, want system", opus.role)
 	}
-	sonnet := systemMessageFor(ModelSonnet5, "reminder text")
-	if sonnet.role != wire.RoleUser {
-		t.Errorf("Sonnet 5: role = %q, want user", sonnet.role)
+	sonnet := systemMessageFor(ModelSonnet55, "reminder text")
+	if sonnet.role != wire.RoleSystem {
+		t.Errorf("Sonnet 5.5: role = %q, want system", sonnet.role)
 	}
 	fable := systemMessageFor(ModelFable51, "reminder text")
 	if fable.role != wire.RoleSystem {
 		t.Errorf("Fable 5.1: role = %q, want system", fable.role)
+	}
+	unknown := systemMessageFor("claude-haiku-4-5", "reminder text")
+	if unknown.role != wire.RoleUser {
+		t.Errorf("unknown model: role = %q, want user", unknown.role)
 	}
 }
 
@@ -249,7 +253,7 @@ func TestApplyCacheBreakpoints(t *testing.T) {
 
 func TestRequestFromIntentByteStability(t *testing.T) {
 	intent := wire.ChatIntent{
-		Model: ModelSonnet5,
+		Model: ModelSonnet55,
 		Items: []wire.Item{
 			wire.SystemItem("system prompt"),
 			wire.UserItem("do the thing"),

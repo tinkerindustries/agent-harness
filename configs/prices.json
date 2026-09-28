@@ -83,16 +83,16 @@
       "output_per_million_usd": 20.0,
       "source": "https://platform.claude.com/docs/en/about-claude/pricing",
       "captured_at": "2026-09-23",
-      "note": "Cache hit multiplier is 0.05x base input on Opus 5.5, not the standard 0.1x Sonnet 5 uses. Cache write is the 5-minute rate (1.25x base input); internal/anthropic never requests the 1-hour TTL ($8/MTok), so that rate has no entry here."
+      "note": "Cache hit multiplier is 0.05x base input on Opus 5.5, not the standard 0.1x Sonnet 5.5 uses. Cache write is the 5-minute rate (1.25x base input); internal/anthropic never requests the 1-hour TTL ($8/MTok), so that rate has no entry here."
     },
-    "claude-sonnet-5": {
+    "claude-sonnet-5-5": {
       "input_cache_hit_per_million_usd": 0.20,
       "input_cache_miss_per_million_usd": 2.0,
       "input_cache_write_per_million_usd": 2.50,
       "output_per_million_usd": 10.0,
       "source": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "captured_at": "2026-09-22",
-      "note": "$2/$10 in/out is now Sonnet 5's standard price, not introductory — the scheduled 2026-09-01 increase to $3/$15 was cancelled. Cache write is the 5-minute rate (1.25x base input); internal/anthropic never requests the 1-hour TTL ($4/MTok), so that rate has no entry here."
+      "captured_at": "2026-09-29",
+      "note": "Cache write is the 5-minute rate (1.25x base input); internal/anthropic never requests the 1-hour TTL ($4/MTok), so that rate has no entry here."
     },
     "claude-fable-5-1": {
       "input_cache_hit_per_million_usd": 0.25,

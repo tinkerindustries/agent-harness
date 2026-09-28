@@ -7,17 +7,16 @@ import (
 	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
-// systemMessageModels is which of the three models this client hosts
-// accepts a mid-conversation `{"role":"system"}` message inside `messages`
-// — Opus 5.5 and Fable 5.1, not Sonnet 5
-// (docs/ANTHROPIC-INTEGRATION.md, "Request", citing
+// systemMessageModels is which models accept a mid-conversation
+// `{"role":"system"}` message inside `messages` — all three this client
+// hosts (docs/ANTHROPIC-INTEGRATION.md, "Request", citing
 // <https://platform.claude.com/docs/en/build-with-claude/prompt-caching>,
 // "Mid-Conversation System Messages"). A model this map does not name
-// renders the item as a user text block instead, the same fallback Sonnet 5
-// gets.
+// renders the item as a user text block instead.
 var systemMessageModels = map[string]bool{
-	ModelOpus55:  true,
-	ModelFable51: true,
+	ModelOpus55:   true,
+	ModelSonnet55: true,
+	ModelFable51:  true,
 }
 
 // builtMessage is one message under construction: either blocks this client
@@ -196,7 +195,7 @@ func messagesFromItems(items []wire.Item, model string) []builtMessage {
 // systemMessageFor renders a mid-conversation system-role item — a steer or
 // a reminder the loop injected with wire.RoleSystem
 // (internal/session/reminders.go) — as a system-role message on the models
-// that accept one, and as a user text block on Sonnet 5
+// that accept one, and as a user text block on any other
 // (systemMessageModels' own doc comment).
 func systemMessageFor(model, text string) builtMessage {
 	if systemMessageModels[model] {

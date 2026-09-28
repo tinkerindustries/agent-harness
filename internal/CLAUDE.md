@@ -141,13 +141,13 @@ other two clients. Depends on: `internal/wire`, `internal/providerhttp` (just
 The Anthropic client, hand-rolled the same way `internal/gemini` and
 `internal/deepseek` are: `POST https://api.anthropic.com/v1/messages`, Go
 structs rather than `map[string]any` for byte-stable requests. Hosts three
-models — `claude-opus-5-5`, `claude-sonnet-5`, `claude-fable-5-1`
+models — `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-fable-5-1`
 (`modelinfo.go`). Implements the narrow `Client` seam `internal/session`
 declares: `intent.go`'s `requestFromIntent` renders the system prompt into
 top-level `system`, items into `user`/`assistant` messages, and up to three
 cache breakpoints (`applyCacheBreakpoints`); mid-conversation system items
-render as a system message on Opus 5.5 and Fable 5.1 and as a user text block
-on Sonnet 5 (`systemMessageModels`). Owns the one shape with no counterpart
+render as a system message on the models `systemMessageModels` names and as a
+user text block on any other. Owns the one shape with no counterpart
 in either OpenAI-format dialect: a whole response's assistant `content`
 array captured verbatim as `wire.EventProviderBlocks` and replayed
 byte-for-byte on the next request, because Anthropic's preserved-thinking
@@ -402,7 +402,7 @@ model is an error, so request validation rejects it loudly instead of
 silently routing to a provider. Four providers today: DeepSeek
 (`deepseek-flash`), Kimi (`kimi-k3`), Gemini (`gemini-3.7-flash`,
 docs/GEMINI-INTEGRATION.md §7 Phase 5), and Anthropic (`claude-opus-5-5`,
-`claude-sonnet-5`, `claude-fable-5-1`, docs/ANTHROPIC-INTEGRATION.md). It
+`claude-sonnet-5-5`, `claude-fable-5-1`, docs/ANTHROPIC-INTEGRATION.md). It
 also carries `SeesImages`, the
 one model→capability table for native vision — keyed by model rather than
 by provider, since a future DeepSeek model could disagree with

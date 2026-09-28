@@ -167,7 +167,7 @@ func newClaudeFixture(t *testing.T, streams ...string) (*fixture, *anthropicReco
 // testClaudeModel is the model this file drives — the one the proof in
 // docs/plans/reports/claude-provider names, so a live transcript excerpt
 // and this fake one exercise the same model.
-const testClaudeModel = "claude-sonnet-5"
+const testClaudeModel = "claude-sonnet-5-5"
 
 // TestClaudeSessionOverResponsesDialect proves a Claude model drives
 // correctly under stdio-session: the parent-facing frames are the same

@@ -46,7 +46,7 @@ const deepSeekSessionModel = "deepseek-flash"
 // "the key you gave me names the model" reasoning deepSeekSessionModel's
 // default gets, applied to the middle of the three Claude models this
 // command hosts rather than to the only one DeepSeek offers.
-const defaultClaudeSessionModel = "claude-sonnet-5"
+const defaultClaudeSessionModel = "claude-sonnet-5-5"
 
 // runStdioSession hosts one coding session for a parent process over in and
 // out, speaking the protocol docs/STDIO-PROTOCOL.md describes. main.go calls

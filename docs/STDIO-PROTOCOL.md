@@ -171,7 +171,7 @@ with:
 | `GEMINI_API_KEY` | The Google API key, for the Gemini models. Read first. |
 | `GOOGLE_API_KEY` | The same thing under the name the surface's own SDKs read. Used when `GEMINI_API_KEY` is unset. |
 | `DEEPSEEK_API_KEY` | The DeepSeek API key, for `deepseek-flash`. |
-| `ANTHROPIC_API_KEY` | The Anthropic API key, for `claude-opus-5-5`, `claude-sonnet-5` and `claude-fable-5-1`. |
+| `ANTHROPIC_API_KEY` | The Anthropic API key, for `claude-opus-5-5`, `claude-sonnet-5-5` and `claude-fable-5-1`. |
 
 There is no settings store here and no screen to type a key into, so a hosted
 session's credentials are the host's to supply. A key reaches this process's
@@ -200,7 +200,7 @@ Flags:
 | --- | --- | --- |
 | `-state-dir` | a per-process directory under the user cache dir | Where this session's SQLite state and transcript mirror live. A directory the parent names is kept; the default one is removed when the process exits. It is also what `harness.resume_session_id` reads: a parent that wants a session to survive this process names one. |
 | `-keep-state` | off | Keep the default state directory after exit, for reading a finished session's transcript. |
-| `-model` | see below | What a create body with no `model` runs on. `initialize`'s `models` names every model this process accepts, and a `-model` outside that list is refused at startup rather than at the first create. Unset, it is `gemini-3.7-flash` — or `deepseek-flash` when `DEEPSEEK_API_KEY` was supplied and neither Google variable was, or `claude-sonnet-5` when `ANTHROPIC_API_KEY` was supplied and neither Google nor DeepSeek variable was, because a host that gave one key meant the model that key runs. DeepSeek's default takes precedence over Anthropic's when both arrive with no Google key. |
+| `-model` | see below | What a create body with no `model` runs on. `initialize`'s `models` names every model this process accepts, and a `-model` outside that list is refused at startup rather than at the first create. Unset, it is `gemini-3.7-flash` — or `deepseek-flash` when `DEEPSEEK_API_KEY` was supplied and neither Google variable was, or `claude-sonnet-5-5` when `ANTHROPIC_API_KEY` was supplied and neither Google nor DeepSeek variable was, because a host that gave one key meant the model that key runs. DeepSeek's default takes precedence over Anthropic's when both arrive with no Google key. |
 | `-prices` | `configs/prices.json` | The price table behind the cost figure on `harness.usage`. A missing table costs the cost figure and nothing else. |
 | `-env` | unset | A `KEY=VALUE` file to take the API keys from when the environment carries none. **Only `GEMINI_API_KEY`, `GOOGLE_API_KEY`, `DEEPSEEK_API_KEY` and `ANTHROPIC_API_KEY` are read out of it** — see below. A file that cannot be read is fatal. |
 | `-rg` | `$AGENT_HARNESS_RG`, then `rg` on the `PATH` | The ripgrep binary the session's `Grep` calls run. A parent that ships one names it here. A path that is not there is fatal at startup, and nothing on the `PATH` is used when the flag is set. With no binary named and none on the `PATH`, `Grep` falls back to its own Go walk (docs/TOOLS.md, "Grep and Glob"). |
@@ -231,7 +231,7 @@ harness routes, plus exactly one DeepSeek model, plus three Claude models:
 | --- | --- | --- |
 | `gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.5-flash-lite` | Google | `GEMINI_API_KEY` / `GOOGLE_API_KEY` |
 | `deepseek-flash` | DeepSeek | `DEEPSEEK_API_KEY` |
-| `claude-opus-5-5`, `claude-sonnet-5`, `claude-fable-5-1` | Anthropic | `ANTHROPIC_API_KEY` |
+| `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-fable-5-1` | Anthropic | `ANTHROPIC_API_KEY` |
 
 `harness gemini-session` advertises the Google rows and not the DeepSeek or
 Anthropic ones. A client speaking Google's vocabulary would be naming a
