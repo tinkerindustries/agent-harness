@@ -3,7 +3,7 @@
     "session": {
       "agent": {
         "model": {
-          "id": "claude-sonnet-5"
+          "id": "claude-sonnet-5-5"
         }
       },
       "created_at": "<created_at>",
@@ -19,7 +19,7 @@
     "session": {
       "agent": {
         "model": {
-          "id": "claude-sonnet-5"
+          "id": "claude-sonnet-5-5"
         }
       },
       "created_at": "<created_at>",
@@ -131,7 +131,7 @@
           "turn_id": "<turn_id>"
         },
         "id": "evt_1",
-        "model": "claude-sonnet-5",
+        "model": "claude-sonnet-5-5",
         "session_id": "<session_id>"
       }
     },
@@ -268,7 +268,7 @@
           "turn_id": "<turn_id>"
         },
         "id": "evt_4",
-        "model": "claude-sonnet-5",
+        "model": "claude-sonnet-5-5",
         "session_id": "<session_id>"
       }
     },

@@ -31,7 +31,7 @@ const (
 	// through this table — this entry is only for the agentic coding seam.
 	Gemini Name = "gemini"
 	// Anthropic is Claude's own Messages API, serving claude-opus-5-5,
-	// claude-sonnet-5 and claude-fable-5-1 (docs/ANTHROPIC-INTEGRATION.md).
+	// claude-sonnet-5-5 and claude-fable-5-1 (docs/ANTHROPIC-INTEGRATION.md).
 	Anthropic Name = "anthropic"
 )
 
@@ -48,7 +48,7 @@ var models = map[string]Name{
 	"gemini-3.5-flash":      Gemini,
 	"gemini-3.5-flash-lite": Gemini,
 	"claude-opus-5-5":       Anthropic,
-	"claude-sonnet-5":       Anthropic,
+	"claude-sonnet-5-5":     Anthropic,
 	"claude-fable-5-1":      Anthropic,
 }
 
@@ -103,7 +103,7 @@ func KnownModels() []string {
 // (released after 2026-08-21), but its own live page at
 // ai.google.dev/gemini-api/docs/models/gemini-3.8-flash states its input
 // types outright — "Text, Image, Video, Audio, and PDF" — read 2026-09-08.
-// claude-opus-5-5, claude-sonnet-5 and claude-fable-5-1 are set true on the
+// claude-opus-5-5, claude-sonnet-5-5 and claude-fable-5-1 are set true on the
 // same grounds as every other entry here reading images is a trained-in
 // capability of the model itself, and Anthropic's own vision docs
 // (platform.claude.com/docs/en/build-with-claude/vision) describe image
@@ -118,7 +118,7 @@ var visionCapable = map[string]bool{
 	"gemini-3.5-flash":      true,
 	"gemini-3.5-flash-lite": true,
 	"claude-opus-5-5":       true,
-	"claude-sonnet-5":       true,
+	"claude-sonnet-5-5":     true,
 	"claude-fable-5-1":      true,
 }
 

@@ -27,7 +27,7 @@ import (
 )
 
 // defaultClaudeModel is what a create body naming no agent.model.id runs on.
-const defaultClaudeModel = "claude-sonnet-5"
+const defaultClaudeModel = "claude-sonnet-5-5"
 
 // claudeCustomToolTimeout bounds a pending client-declared tool call under
 // claude-session's async flow (docs/STDIO-MANAGED-AGENTS.md, "The seam") —

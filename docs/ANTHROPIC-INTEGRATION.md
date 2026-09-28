@@ -10,7 +10,7 @@ cache depends on (`docs/DESIGN.md` §3.2). It implements
 `internal/kimi` and `internal/gemini` also implement, so the agent loop
 never learns Anthropic's request shape.
 
-It hosts three models: `claude-opus-5-5`, `claude-sonnet-5` and
+It hosts three models: `claude-opus-5-5`, `claude-sonnet-5-5` and
 `claude-fable-5-1` (`modelinfo.go`). `internal/provider.Anthropic` routes
 them, `internal/tools.DefinitionsFor` gives them the vision-capable tool
 array without `WebFetch` (Anthropic's own `web_search` and `web_fetch`
@@ -76,9 +76,9 @@ message:
   block, decoded from the data URI `wire.ItemPart.ImageURL` already
   carries.
 - A mid-conversation `wire.RoleSystem` item — a steer or a reminder the loop
-  injects — renders as a `system`-role message on Opus 5.5 and Fable 5.1, and
-  as a user text block on Sonnet 5, which does not accept one
-  (`systemMessageModels` in `intent.go`).
+  injects — renders as a `system`-role message on all three models. A model
+  `systemMessageModels` in `intent.go` does not name gets a user text block
+  instead.
 
 Tool schemas render as `input_schema` tools (`ToolDefinition`), carried
 through as the same `json.RawMessage` `wire.ToolFunction.Parameters`
@@ -118,7 +118,7 @@ not something to paper over with `"drop_block"`.
 
 `intent.Effort` maps straight onto `output_config.effort` when non-empty;
 empty omits the field, leaving the API's own per-model default in force —
-`"medium"` on Opus 5.5, `"high"` on Sonnet 5 and Fable 5.1. A session never
+`"medium"` on Opus 5.5, `"high"` on Sonnet 5.5 and Fable 5.1. A session never
 reaches that branch: `internal/stdiosession`'s `effortFrom` resolves a
 create naming no effort to `"high"` before the intent is built.
 `intent.Thinking` is not read — there is no on/off toggle to spell on this

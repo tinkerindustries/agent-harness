@@ -59,7 +59,7 @@ func TestToolArrayGolden(t *testing.T) {
 		// tools ride the request instead (internal/anthropic's intent
 		// renderer, docs/ANTHROPIC-INTEGRATION.md) — so its array is one
 		// tool shorter than Kimi's and gets its own golden file.
-		{"claude", "claude-sonnet-5", "tools_claude.golden.json"},
+		{"claude", "claude-sonnet-5-5", "tools_claude.golden.json"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

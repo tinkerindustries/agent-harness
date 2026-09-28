@@ -3,7 +3,7 @@ package anthropic
 import "testing"
 
 func TestModelInfoKnownModels(t *testing.T) {
-	for _, model := range []string{ModelOpus55, ModelSonnet5, ModelFable51} {
+	for _, model := range []string{ModelOpus55, ModelSonnet55, ModelFable51} {
 		if DisplayName(model) == "" {
 			t.Errorf("DisplayName(%q) is empty", model)
 		}
