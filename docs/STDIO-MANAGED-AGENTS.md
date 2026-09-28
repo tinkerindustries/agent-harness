@@ -548,8 +548,9 @@ would refuse is denied outright rather than asked about.
 | `complete_rejected` | **no — this process's own** | `Complete`'s structured answer failed the result schema three times running. Anthropic's own three-value enum has nothing for a harness-specific validation loop; adding a fourth is more honest than folding it into `end_turn`, which a client would read as success. |
 
 `harness.reason` carries what `harness.reason` already carries on the other
-two dialects (`complete`, `no_tool_calls`, `complete_rejected`, `cancelled`)
-— `stop_reason.type` is the coarse, Anthropic-shaped signal; `harness.reason`
+two dialects (`complete`, `no_tool_calls`, `complete_rejected`, `cancelled`),
+plus `failed` for a run that ended in an error, which this dialect has no
+`status` field to carry — `stop_reason.type` is the coarse, Anthropic-shaped signal; `harness.reason`
 is the fine one, same division of labour `status`/`harness.reason` already
 has on the other two dialects.
 

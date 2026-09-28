@@ -495,10 +495,16 @@ func (t *maTranslator) Result(v RunView) any {
 
 // Completed emits session.status_idle, ending the turn.
 func (t *maTranslator) Completed(v RunView) {
+	reason := v.Reason
+	if v.Status == StatusFailed && reason == "" {
+		// status_idle has no status field, so this is the only place a
+		// client reading terminal frames alone can tell a failure.
+		reason = "failed"
+	}
 	t.emit(notifyMASessionStatusIdle, maStatusIdle{
 		SessionID:  t.sessionID,
 		StopReason: maStopReason{Type: maStopReasonType(v.Reason)},
-		Harness:    &maStepHarness{TurnID: t.turnID, Reason: v.Reason},
+		Harness:    &maStepHarness{TurnID: t.turnID, Reason: reason},
 	})
 }
 
