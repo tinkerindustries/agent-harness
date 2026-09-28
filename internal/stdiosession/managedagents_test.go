@@ -387,3 +387,35 @@ func newManagedAgentsFixtureIn(t *testing.T, dir, cwd string, hostToolTimeout ti
 	f.client.handshakeRaw(ClientCapabilities{FunctionCalls: true}, &maInitializeResult{})
 	return f, rec
 }
+
+// TestManagedAgentsFailedRunReason pins docs/STDIO-MANAGED-AGENTS.md's claim
+// that a failed run's session.status_idle carries harness.reason "failed",
+// after the session.error that names the cause. status_idle has no status
+// field, so without the reason a client reading it alone sees an ordinary end.
+func TestManagedAgentsFailedRunReason(t *testing.T) {
+	f, _ := newManagedAgentsFixture(t, 0,
+		"event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"authentication_error\",\"message\":\"invalid x-api-key\"}}\n\n",
+	)
+	f.client.handshakeRaw(ClientCapabilities{}, &maInitializeResult{})
+
+	var created maCreateResult
+	if rerr := f.client.call(MethodSessionsCreate, maCreateParamsFor(f, "hello", nil), &created); rerr != nil {
+		t.Fatalf("sessions.create: %v", rerr)
+	}
+	seen := f.client.waitFor(notifyMASessionStatusIdle)
+
+	if len(maNotifications(seen, notifyMASessionError)) == 0 {
+		t.Error("no session.error before the idle")
+	}
+	idle := maNotifications(seen, notifyMASessionStatusIdle)
+	if len(idle) == 0 {
+		t.Fatal("no session.status_idle")
+	}
+	var got maStatusIdle
+	if err := json.Unmarshal(idle[len(idle)-1].Params, &got); err != nil {
+		t.Fatalf("decode status_idle: %v", err)
+	}
+	if got.Harness == nil || got.Harness.Reason != "failed" {
+		t.Errorf("status_idle harness = %+v, want reason %q", got.Harness, "failed")
+	}
+}

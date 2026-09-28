@@ -110,10 +110,17 @@ individual commands when you want one of them on its own.
 Then drive a real session, because nothing above talks to a model:
 
 ```
-DEEPSEEK_API_KEY=sk-... bin/harness stdio-session -state-dir /tmp/smoke -keep-state
+scripts/drive.sh -env .env -cwd /path/you/do/not/mind/writing/to "Read main.go and name its bug."
 ```
 
-Send a `create` naming a small task and a `harness.cwd` you do not mind being
-written to, and read the frames back. `-keep-state` leaves
-`/tmp/smoke/session.db` and the transcript mirror behind, which is what to
-read when the frames do not say enough.
+`scripts/drive.sh` builds `bin/harness`, does the handshake, sends one create,
+prints the frames until the run's terminal notification, then closes stdin. It
+exits 0 when the run completed and 1 otherwise, and prints the outcome and cost
+on stderr. `-dialect` picks `claude` (the default, `claude-session`),
+`responses` (`stdio-session`) or `interactions` (`gemini-session`); `-model`,
+`-effort`, `-mode` and `-state-dir` do what they say. `go run ./cmd/drive -h`
+lists them all. `-state-dir` keeps `session.db` and the transcript mirror,
+which is what to read when the frames do not say enough.
+
+A parent has to close stdin to end the process: `shutdown` cancels the running
+turn and answers, and the process exits when the pipe closes.
