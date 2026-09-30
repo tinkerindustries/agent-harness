@@ -261,6 +261,16 @@ This is a store read per sub-turn against an indexed `(session_id, kind, seq)`
 predicate, on a loop whose other step is a multi-second API call. It is not a
 cost worth designing around.
 
+**A boundary behind an open server tool is skipped.** On Anthropic, a
+response can call a server tool beside a client tool and end with the server
+call not yet run. The next request must end on the client tool results alone,
+or the API rejects it and every request after it
+([ANTHROPIC-INTEGRATION.md](ANTHROPIC-INTEGRATION.md), "Server tools left
+open across a tool round"). At such a boundary the loop applies no steer and
+no reminder. They wait one sub-turn, for the response that closes the call.
+If that response calls no tools, the run takes one more sub-turn instead of
+ending, so the waiting steer is delivered rather than withdrawn.
+
 **A steer on a wedged run stays unapplied while the run is wedged.** It sits
 in the log as a `steer_message` with no `steer_applied`, which is exactly what
 a client should show: *sent, not yet delivered*.

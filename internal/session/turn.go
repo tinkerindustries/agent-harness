@@ -25,6 +25,14 @@ type subTurnOutcome struct {
 	completed    bool
 	payload      tools.CompletePayload
 	text         string
+	// deferred is true when this sub-turn's request went out with something
+	// still owed to the model — a steer or reminder held back because the
+	// previous sub-turn left a server tool call open, or a tail the client
+	// withheld for the same reason (ServerToolHolder). A sub-turn that ends
+	// the run on no tool calls must not end it then: the loop runs one more,
+	// whose boundary is clear, so what was held back is delivered rather than
+	// withdrawn unseen.
+	deferred bool
 	// completeError is the message a rejected Complete came back with, and
 	// "" when this sub-turn had no rejected Complete. The loop in Run
 	// compares it across sub-turns to notice a model retrying an identical
@@ -241,16 +249,39 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	// round, never mid-call. A steer sent while a long tool call is running
 	// reaches the model only here, at the next natural boundary, which is
 	// what keeps §4.6's stalling problem closed.
-	if err := r.emitDueReminder(ctx, sess, allEvents, reminders, subTurn, contextTokens); err != nil {
-		return subTurnOutcome{}, err
-	}
-	if err := r.pickUpSteers(ctx, sess, allEvents, appliedSeq, subTurn); err != nil {
-		return subTurnOutcome{}, err
+	//
+	// A boundary behind a server tool call the previous sub-turn left open is
+	// not a natural one: the assistant turn is still in progress, and the
+	// provider rejects anything but tool results there (ServerToolHolder).
+	// Steers and reminders wait for the next boundary, which comes after the
+	// response that carries the open call's result.
+	holder, _ := r.clientFor(sess.Model).(ServerToolHolder)
+	open := holder != nil && holder.LeavesServerToolOpen(lastSubTurnProviderBlocks(*allEvents))
+	deferred := false
+	if open {
+		waiting, err := r.Store.SteerMessagesAfter(ctx, sess.ID, *appliedSeq, 1)
+		if err != nil {
+			return subTurnOutcome{}, fmt.Errorf("session: read pending steers: %w", err)
+		}
+		deferred = len(waiting) > 0
+	} else {
+		if err := r.emitDueReminder(ctx, sess, allEvents, reminders, subTurn, contextTokens); err != nil {
+			return subTurnOutcome{}, err
+		}
+		if err := r.pickUpSteers(ctx, sess, allEvents, appliedSeq, subTurn); err != nil {
+			return subTurnOutcome{}, err
+		}
 	}
 
 	items, err := fold.Fold(sess, *allEvents)
 	if err != nil {
 		return subTurnOutcome{}, fmt.Errorf("session: fold: %w", err)
+	}
+	// A log written before steers were deferred, or a run resumed with a new
+	// message behind an open call, has its tail held back by the client
+	// instead. That is owed to the model the same way a deferred steer is.
+	if open && !deferred {
+		deferred = holder.WithholdsTail(items)
 	}
 
 	// The deliberate-churn debug hook (RunOptions.DebugChurnOnSubTurn):
@@ -402,7 +433,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	r.publishState(ctx, sess)
 
 	if len(toolCalls) == 0 {
-		return subTurnOutcome{usagePayload: usagePayload, text: content}, nil
+		return subTurnOutcome{usagePayload: usagePayload, text: content, deferred: deferred}, nil
 	}
 
 	outcomes := r.executeToolCalls(ctx, sess, executor, toolCalls)
@@ -475,7 +506,33 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 		payload:       completePayload,
 		text:          content,
 		completeError: completeError,
+		deferred:      deferred,
 	}, nil
+}
+
+// lastSubTurnProviderBlocks returns the provider blocks the last committed
+// sub-turn carried — the one whose turn_finished is latest in events — or
+// nil when it carried none or no sub-turn has committed. A turn_started with
+// no turn_finished after it is a request that failed, and contributes
+// nothing, the same way the fold treats it.
+func lastSubTurnProviderBlocks(events []store.Event) json.RawMessage {
+	i := len(events) - 1
+	for i >= 0 && events[i].Kind != store.KindTurnFinished {
+		i--
+	}
+	for i--; i >= 0 && events[i].Kind != store.KindTurnStarted; i-- {
+		if events[i].Kind != store.KindReasoningDelta {
+			continue
+		}
+		var p store.ReasoningDeltaPayload
+		if err := json.Unmarshal(events[i].Payload, &p); err != nil {
+			return nil
+		}
+		if len(p.ProviderBlocks) > 0 {
+			return p.ProviderBlocks
+		}
+	}
+	return nil
 }
 
 // buildUsagePayload turns the API's usage figures into a stored

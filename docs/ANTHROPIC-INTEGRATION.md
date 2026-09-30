@@ -94,6 +94,82 @@ every sub-turn a parent runs without `max_output_tokens`. DeepSeek and
 Gemini read zero as their own default, so their clients leave the field out
 instead.
 
+## Server tools left open across a tool round
+
+Claude can call a server tool and a client tool in one group of parallel
+calls. With `web_search_20260209` and `web_fetch_20260209` that happens
+often, because dynamic filtering runs the search from inside a server-side
+`code_execution` call, which the response shows as a `server_tool_use`
+named `code_execution`. When a client call sits beside it, the API does
+not run the server call. The response ends `stop_reason: "tool_use"` with
+the `server_tool_use` carrying no result block. The next request's last
+message must hold the client `tool_result` blocks and **nothing else**. The
+API then runs the open call, and the next response opens with its
+`*_tool_result`, paired by `tool_use_id` across the two assistant messages.
+A block after the results, whether a steer, a reminder or a new task, tells
+the API the assistant turn is over. The request then fails 400 with
+`` `code_execution` tool use with id `srvtoolu_…` was found without a
+corresponding `code_execution_tool_result` block``
+(<https://platform.claude.com/docs/en/agents-and-tools/tool-use/server-tools>,
+"Mixing server tools and client tools in one turn"). The log replays, so
+every later request fails the same way and the session is wedged.
+
+The harness keeps that tail clear in two places:
+
+- **The loop does not write the shape.** `internal/session`'s `runSubTurn`
+  asks the client, through the optional `session.ServerToolHolder` seam,
+  whether the last committed sub-turn's provider blocks left a server call
+  open. If they did, it applies no steers and no reminder at that boundary.
+  They wait for the next boundary, which comes after the response that
+  closes the call. A sub-turn that went out with something held back is
+  marked `deferred`. If it then answers with no tool calls, the run does not
+  end there. One more sub-turn delivers what was held, so it is never
+  withdrawn unseen.
+- **The request builder repairs a log that already has the shape.**
+  `intent.go`'s `holdBehindOpenServerTools` moves every user or system
+  message that follows such a turn's tool results to after the next
+  assistant turn that leaves nothing open, and that turn's own tool
+  results. If the log has no such turn yet, the message is held back from
+  this request. Sessions written before the loop deferred steers need this.
+  So does a run that ended right after an open call, whether stopped,
+  failed, or finished on a `Complete` called beside it, when a new message
+  resumes it: `session_started` lands after the tool results, or after the
+  fold's interrupted stand-ins for them.
+
+A held-back tail is *not sent*. The alternatives were to fabricate a result
+block for the open call, or to drop the `server_tool_use` from the replayed
+turn. Both rewrite bytes this client has promised to replay verbatim, and
+both rest on API behaviour nothing documents. Not sending the tail keeps
+consecutive requests append-only, which preserved thinking's prefix check
+and the prompt cache both need. Every message in the held request comes
+back unchanged, in place, in the next one, and the held message follows
+after the closing turn. The cost is on the resumed-run path. The first
+request of the new run finishes the old turn: the API runs the open call
+and the model continues from where it stopped, without the new message.
+`WithholdsTail` reports that to the loop. The loop marks the sub-turn
+`deferred` and runs one more sub-turn, where the message is answered. The
+person sees the old turn's wrap-up first and then the answer, rather than
+an error on every message.
+
+An open call is recognised as a `server_tool_use` or `mcp_tool_use` with
+no `*_tool_result` paired to it in the same response, **and** a client
+`tool_use` beside it. That is the one shape the docs describe. An unpaired
+server call with no client call is left alone. A `pause_turn` is resumed
+inside the client and never reaches the log. Holding a message behind any
+other unpaired call would wait for a tool round that never comes.
+
+A `Complete` called beside an open server call still ends the run. A steer
+deferred at the boundary before it is withdrawn, and the client is told, the
+way any steer that arrives during a run's final sub-turn is
+(`docs/RUN-CONTROL.md`, "A steer the run never reached").
+
+Not verified against the live API: whether the pending `code_execution`
+still resumes after its container has expired, when a stopped run is
+resumed hours later. The Messages API docs say to pass a `container` id
+only for programmatic tool calling, so this client sends none. If the API
+rejects that request, the session gets an ordinary error rather than the
+400 above.
+
 ## Thinking and effort
 
 Every request sends adaptive thinking unconditionally:
@@ -173,12 +249,21 @@ accumulate.
 
 Every content block, known or not, is accumulated into a `blockState`
 (`stream.go`) and rendered into the raw block array once the stream ends at
-`message_stop`: the five kinds this client reassembles from deltas
-(`text`, `thinking`, `redacted_thinking`, `tool_use`, `server_tool_use`)
-render from their accumulated fields, and anything else — chiefly a
-`*_tool_result` block, which arrives whole at `content_block_start` with no
-deltas at all, per the streaming guide's own examples — is kept verbatim
-from that frame. One `wire.EventProviderBlocks` event carries the complete
+`message_stop`. The five kinds this client reassembles from deltas are
+`text`, `thinking`, `redacted_thinking`, `tool_use` and `server_tool_use`.
+Anything else is kept verbatim from its `content_block_start` frame. That
+is chiefly a `*_tool_result` block, which arrives whole in that frame with
+no deltas, per the streaming guide's own examples. `text`, `tool_use` and
+`server_tool_use` render as the start frame's own object, with only the
+accumulated fields written over it (`overlayObject`): `text`, `citations`
+from `citations_delta`, and `input`. A field this client has no struct
+member for keeps its value and position. Two such fields matter. A
+dynamic-filtering search's nested `server_tool_use` carries a `caller`
+naming the `code_execution` call that made it. A text block drawn from
+search results carries `citations`, whose `encrypted_index` the API needs
+back unchanged. Both used to be dropped, and the docs ask for blocks back
+exactly as received. `thinking` and `redacted_thinking` still render from
+their own fields. One `wire.EventProviderBlocks` event carries the complete
 array, emitted after the last delta and before `EventUsage` and
 `EventFinish`.
 

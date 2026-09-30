@@ -1,6 +1,7 @@
 package anthropic
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 
@@ -29,6 +30,11 @@ type builtMessage struct {
 	role   string
 	blocks []ContentBlock
 	raw    json.RawMessage
+	// toolResults marks the user message carrying one sub-turn's
+	// tool_result blocks and nothing else — the one kind of message that
+	// may follow an assistant turn left open on a server tool
+	// (holdBehindOpenServerTools).
+	toolResults bool
 }
 
 func (m builtMessage) toMessage() Message {
@@ -84,7 +90,7 @@ func requestFromIntent(intent wire.ChatIntent) MessagesRequest {
 		req.System = []ContentBlock{{Type: "text", Text: systemPrompt}}
 	}
 
-	messages := messagesFromItems(items, intent.Model)
+	messages, _ := holdBehindOpenServerTools(messagesFromItems(items, intent.Model))
 	applyCacheBreakpoints(req.System, req.Tools, messages)
 	req.Messages = make([]Message, len(messages))
 	for i, m := range messages {
@@ -180,7 +186,7 @@ func messagesFromItems(items []wire.Item, model string) []builtMessage {
 		case wire.ItemFunctionCallOutput:
 			flushAssistant()
 			if toolResults == nil {
-				toolResults = &builtMessage{role: wire.RoleUser}
+				toolResults = &builtMessage{role: wire.RoleUser, toolResults: true}
 			}
 			toolResults.blocks = append(toolResults.blocks, ContentBlock{
 				Type: "tool_result", ToolUseID: item.CallID, Content: contentBlocksFromItem(item.Output),
@@ -190,6 +196,124 @@ func messagesFromItems(items []wire.Item, model string) []builtMessage {
 	flushAssistant()
 	flushToolResults()
 	return out
+}
+
+// holdBehindOpenServerTools moves every user or system message that follows
+// an assistant turn left open on a server tool to after the assistant turn
+// that closes it, and returns how many it had to hold back because no such
+// turn exists yet.
+//
+// A response that calls a server tool (a dynamic-filtering web_search's
+// code_execution, a web_fetch) in parallel with a client tool ends
+// stop_reason "tool_use" with the server_tool_use block carrying no result.
+// The API runs that call on the next request, and the response to it begins
+// with the matching *_tool_result — but only if the user message in between
+// holds nothing but tool_result blocks. Anything after the results, a steer
+// or a reminder or a new task, tells the API the assistant turn is over, and
+// the request fails 400: "`code_execution` tool use with id `srvtoolu_…` was
+// found without a corresponding `code_execution_tool_result` block"
+// (<https://platform.claude.com/docs/en/agents-and-tools/tool-use/server-tools>,
+// "Mixing server tools and client tools in one turn"). The loop no longer
+// writes that shape (internal/session's runSubTurn defers steers and
+// reminders past such a boundary), but a log already written in it is
+// replayed on every request, and would wedge its session for good if it were
+// sent as it stands.
+//
+// A message held back from the tail is simply not sent: the request ends on
+// the tool results, the API finishes the open call, and the message is
+// placed once the next assistant turn is in the log. Every message this
+// emits was in the same position in the previous request, so consecutive
+// requests stay append-only — preserved thinking's prefix check and the
+// prompt cache both depend on that (docs/ANTHROPIC-INTEGRATION.md,
+// "Server tools left open across a tool round").
+func holdBehindOpenServerTools(msgs []builtMessage) ([]builtMessage, int) {
+	out := make([]builtMessage, 0, len(msgs))
+	var held []builtMessage
+	open := false
+	for _, m := range msgs {
+		if len(held) > 0 && !open && !m.toolResults {
+			out = append(out, held...)
+			held = nil
+		}
+		switch {
+		case m.role == wire.RoleAssistant:
+			open = leavesServerToolOpen(m.raw)
+		case m.toolResults:
+		case open:
+			held = append(held, m)
+			continue
+		}
+		out = append(out, m)
+	}
+	if !open {
+		out = append(out, held...)
+		held = nil
+	}
+	return out, len(held)
+}
+
+// leavesServerToolOpen reports whether one response's content blocks end a
+// turn with a server tool call still waiting to run: a server_tool_use (or
+// mcp_tool_use) with no result block paired to it by tool_use_id, alongside
+// at least one client tool_use — the "tool_use" stop the docs describe, and
+// the only shape whose next request the API expects to be tool results
+// alone. An unpaired server call with no client call beside it is not that
+// shape (a pause_turn is resumed inside the client and never reaches the
+// log), so it is not treated as one: holding a message back behind it would
+// wait on a result no tool round is coming to trigger.
+func leavesServerToolOpen(raw json.RawMessage) bool {
+	if len(raw) == 0 || (!bytes.Contains(raw, []byte(`"server_tool_use"`)) && !bytes.Contains(raw, []byte(`"mcp_tool_use"`))) {
+		return false
+	}
+	var blocks []struct {
+		Type      string `json:"type"`
+		ID        string `json:"id"`
+		ToolUseID string `json:"tool_use_id"`
+	}
+	if err := json.Unmarshal(raw, &blocks); err != nil {
+		return false
+	}
+	var calls []string
+	answered := map[string]bool{}
+	clientCall := false
+	for _, b := range blocks {
+		switch {
+		case b.Type == "tool_use":
+			clientCall = true
+		case b.Type == "server_tool_use" || b.Type == "mcp_tool_use":
+			calls = append(calls, b.ID)
+		case strings.HasSuffix(b.Type, "_tool_result") && b.ToolUseID != "":
+			answered[b.ToolUseID] = true
+		}
+	}
+	if !clientCall {
+		return false
+	}
+	for _, id := range calls {
+		if !answered[id] {
+			return true
+		}
+	}
+	return false
+}
+
+// LeavesServerToolOpen reports whether a committed sub-turn's provider
+// blocks left a server tool call waiting on the next request
+// (leavesServerToolOpen). internal/session reads it at a sub-turn boundary
+// to hold steers and reminders back until the call has run.
+func (c *Client) LeavesServerToolOpen(providerBlocks json.RawMessage) bool {
+	return leavesServerToolOpen(providerBlocks)
+}
+
+// WithholdsTail reports whether the request built from items would hold
+// back trailing messages behind a server tool call still open
+// (holdBehindOpenServerTools) — which means the response to it will not
+// have seen them, and the loop owes the model another sub-turn once they
+// can be placed.
+func (c *Client) WithholdsTail(items []wire.Item) bool {
+	_, rest := wire.SystemPromptOf(items)
+	_, held := holdBehindOpenServerTools(messagesFromItems(rest, ""))
+	return held > 0
 }
 
 // systemMessageFor renders a mid-conversation system-role item — a steer or

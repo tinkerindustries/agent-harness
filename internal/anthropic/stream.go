@@ -2,6 +2,7 @@ package anthropic
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -56,6 +57,11 @@ type blockState struct {
 	name      string
 	input     strings.Builder
 	data      string
+	// citations are a text block's citations_delta payloads, in arrival
+	// order. Each carries an encrypted_index the API needs back verbatim on
+	// later turns (web search's "Citations"), so dropping them would make a
+	// replayed text block something other than what was received.
+	citations []json.RawMessage
 	// startRaw is the content_block object exactly as content_block_start
 	// carried it, kept as a fallback for a block kind this client does not
 	// reassemble from deltas — chiefly a *_tool_result block, which the
@@ -67,6 +73,13 @@ type blockState struct {
 func (b *blockState) render() json.RawMessage {
 	switch b.typ {
 	case "text":
+		fields := []rawField{{"text", marshalOrEmpty(b.text.String())}}
+		if len(b.citations) > 0 {
+			fields = append(fields, rawField{"citations", marshalOrEmpty(b.citations)})
+		}
+		if out, ok := overlayObject(b.startRaw, fields); ok {
+			return out
+		}
 		return marshalOrEmpty(rawContentBlock{Type: "text", Text: b.text.String()})
 	case "thinking":
 		return marshalOrEmpty(rawContentBlock{Type: "thinking", Thinking: b.thinking.String(), Signature: b.signature})
@@ -77,6 +90,13 @@ func (b *blockState) render() json.RawMessage {
 		if input == "" {
 			input = "{}"
 		}
+		// The start frame's own object is the base, so a field this client
+		// has no struct member for survives: dynamic filtering puts a
+		// `caller` on every server_tool_use the code_execution call makes,
+		// and the docs ask for blocks back exactly as received.
+		if out, ok := overlayObject(b.startRaw, []rawField{{"input", json.RawMessage(input)}}); ok {
+			return out
+		}
 		return marshalOrEmpty(rawContentBlock{Type: b.typ, ID: b.id, Name: b.name, Input: json.RawMessage(input)})
 	default:
 		if len(b.startRaw) > 0 {
@@ -84,6 +104,78 @@ func (b *blockState) render() json.RawMessage {
 		}
 		return marshalOrEmpty(rawContentBlock{Type: b.typ})
 	}
+}
+
+// rawField is one member of a JSON object, its value kept as raw bytes.
+type rawField struct {
+	key string
+	val json.RawMessage
+}
+
+// overlayObject rebuilds the JSON object start with each override's value
+// in place of the member of the same key, appending any override start does
+// not carry. Every other member keeps its bytes and its position, which is
+// what lets a streamed block come back with fields this client never
+// modelled — `caller` on a nested server_tool_use, whatever the API adds
+// next — instead of only the ones rawContentBlock names. ok is false when
+// start is not an object or the result would not be valid JSON (an input
+// stream that never closed its object), and the caller falls back to
+// building the block from its own fields.
+func overlayObject(start json.RawMessage, overrides []rawField) (json.RawMessage, bool) {
+	if len(start) == 0 {
+		return nil, false
+	}
+	dec := json.NewDecoder(bytes.NewReader(start))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return nil, false
+	}
+	var fields []rawField
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, false
+		}
+		key, ok := tok.(string)
+		if !ok {
+			return nil, false
+		}
+		var val json.RawMessage
+		if err := dec.Decode(&val); err != nil {
+			return nil, false
+		}
+		fields = append(fields, rawField{key, val})
+	}
+	for _, o := range overrides {
+		replaced := false
+		for i := range fields {
+			if fields[i].key == o.key {
+				fields[i].val = o.val
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			fields = append(fields, o)
+		}
+	}
+	var buf bytes.Buffer
+	buf.WriteByte('{')
+	for i, f := range fields {
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		buf.Write(marshalOrEmpty(f.key))
+		buf.WriteByte(':')
+		buf.Write(f.val)
+	}
+	buf.WriteByte('}')
+	// Compacting is what the struct path's json.Marshal did to an input
+	// streamed with spaces in it, and it doubles as the validity check.
+	var out bytes.Buffer
+	if err := json.Compact(&out, buf.Bytes()); err != nil {
+		return nil, false
+	}
+	return out.Bytes(), true
 }
 
 func marshalOrEmpty(v any) json.RawMessage {
@@ -112,11 +204,12 @@ type sseContentBlockStart struct {
 type sseContentBlockDelta struct {
 	Index int `json:"index"`
 	Delta struct {
-		Type        string `json:"type"`
-		Text        string `json:"text"`
-		Thinking    string `json:"thinking"`
-		Signature   string `json:"signature"`
-		PartialJSON string `json:"partial_json"`
+		Type        string          `json:"type"`
+		Text        string          `json:"text"`
+		Thinking    string          `json:"thinking"`
+		Signature   string          `json:"signature"`
+		PartialJSON string          `json:"partial_json"`
+		Citation    json.RawMessage `json:"citation"`
 	} `json:"delta"`
 }
 
@@ -284,6 +377,10 @@ func (c *Client) readSSE(ctx context.Context, body io.ReadCloser, send func(wire
 				}
 			case "signature_delta":
 				b.signature = f.Delta.Signature
+			case "citations_delta":
+				if len(f.Delta.Citation) > 0 {
+					b.citations = append(b.citations, f.Delta.Citation)
+				}
 			case "input_json_delta":
 				b.input.WriteString(f.Delta.PartialJSON)
 				if b.typ == "tool_use" {

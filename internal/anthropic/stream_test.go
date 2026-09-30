@@ -223,3 +223,48 @@ func TestMergeUsagePrefersDeltaOutputTokensAndStartInputTokens(t *testing.T) {
 		t.Errorf("CachedTokens = %d, want 50", got.CachedTokens)
 	}
 }
+
+// TestReadSSEKeepsFieldsItDoesNotModel pins the replay unit's promise for the
+// fields this client has no struct member for: a dynamic-filtering web
+// search's nested server_tool_use carries a `caller` naming the
+// code_execution call that made it, and a text block drawn from search
+// results carries citations whose encrypted_index the API needs back on the
+// next turn (web search's "Citations"). Rebuilding either block from the
+// fields rawContentBlock names dropped them; the docs ask for blocks back
+// exactly as received.
+func TestReadSSEKeepsFieldsItDoesNotModel(t *testing.T) {
+	c := NewClient("")
+	citation := `{"type":"web_search_result_location","url":"https://example.com","title":"Example","encrypted_index":"Eo8BCioIAhgB","cited_text":"example text"}`
+	body := sseBody(
+		frame("message_start", `{"type":"message_start","message":{"usage":{"input_tokens":10,"output_tokens":1}}}`),
+		frame("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"srvtoolu_inner","name":"web_search","input":{},"caller":{"type":"code_execution_20260120","tool_id":"srvtoolu_outer"}}}`),
+		frame("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"query\": \"go\"}"}}`),
+		frame("content_block_stop", `{"type":"content_block_stop","index":0}`),
+		frame("content_block_start", `{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}`),
+		frame("content_block_delta", `{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Go is fast."}}`),
+		frame("content_block_delta", `{"type":"content_block_delta","index":1,"delta":{"type":"citations_delta","citation":`+citation+`}}`),
+		frame("content_block_stop", `{"type":"content_block_stop","index":1}`),
+		frame("content_block_start", `{"type":"content_block_start","index":2,"content_block":{"type":"text","text":""}}`),
+		frame("content_block_delta", `{"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":" Done."}}`),
+		frame("content_block_stop", `{"type":"content_block_stop","index":2}`),
+		frame("message_delta", `{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}`),
+		frame("message_stop", `{"type":"message_stop"}`),
+	)
+	_, result, err := collectEvents(t, c, body)
+	if err != nil {
+		t.Fatalf("readSSE: %v", err)
+	}
+	want := []string{
+		`{"type":"server_tool_use","id":"srvtoolu_inner","name":"web_search","input":{"query":"go"},"caller":{"type":"code_execution_20260120","tool_id":"srvtoolu_outer"}}`,
+		`{"type":"text","text":"Go is fast.","citations":[` + citation + `]}`,
+		`{"type":"text","text":" Done."}`,
+	}
+	if len(result.blocks) != len(want) {
+		t.Fatalf("blocks = %d, want %d", len(result.blocks), len(want))
+	}
+	for i := range want {
+		if string(result.blocks[i]) != want[i] {
+			t.Errorf("block %d =\n%s\nwant\n%s", i, result.blocks[i], want[i])
+		}
+	}
+}

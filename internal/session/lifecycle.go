@@ -343,7 +343,10 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 			return r.finishRun(ctx, curSess, allEvents, "complete", store.StatusOK,
 				outcome.text, outcome.payload.Result, outcome.payload.Summary, outcome.payload.Status, agg, subTurn)
 		}
-		if !outcome.hasToolCalls {
+		// A deferred sub-turn answered without seeing a steer or a message it
+		// was owed; the next boundary is clear, so one more sub-turn delivers
+		// it rather than ending the run and withdrawing it unseen.
+		if !outcome.hasToolCalls && !outcome.deferred {
 			return r.finishRun(ctx, curSess, allEvents, "no_tool_calls", store.StatusOK,
 				outcome.text, nil, "", "", agg, subTurn)
 		}
