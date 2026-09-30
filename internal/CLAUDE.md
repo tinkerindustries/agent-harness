@@ -154,7 +154,13 @@ byte-for-byte on the next request, because Anthropic's preserved-thinking
 check needs every `thinking` and `redacted_thinking` block back in original
 order alongside blocks (`server_tool_use`, `*_tool_result`) `wire.Item` has
 no field for — DeepSeek, Kimi and Gemini never set this event and their
-goldens pin that unchanged. `stream.go`'s `readSSE` is this client's own SSE
+goldens pin that unchanged. A turn that left a server tool open beside a
+client call must be followed by tool results alone, so `intent.go`'s
+`holdBehindOpenServerTools` moves any later user or system message past the
+turn that closes it, and the client implements `session.ServerToolHolder` so
+the loop defers steers and reminders at such a boundary
+(`docs/ANTHROPIC-INTEGRATION.md`, "Server tools left open across a tool
+round"). `stream.go`'s `readSSE` is this client's own SSE
 decoder for the surface's named-event vocabulary
 (`message_start`/`content_block_start`/`content_block_delta`/`message_delta`/
 `message_stop`), wrapped by `client.go`'s `streamOneRound` in a

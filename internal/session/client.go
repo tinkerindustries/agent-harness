@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
@@ -58,4 +59,26 @@ type Client interface {
 	// tool-call arguments — DeepSeek's quirk; Kimi's implementation is free
 	// to do nothing (docs/OBSERVED.md).
 	RepairArguments(finishReason, args string) (string, bool)
+}
+
+// ServerToolHolder is the optional half of the seam for a provider whose
+// responses can leave a server-side tool call open across a client tool
+// round — internal/anthropic alone today. Such a response ends with a
+// server tool call that has no result yet beside the client calls the loop
+// runs, and the next request's tail must be those calls' results and
+// nothing else, or the API rejects it and keeps rejecting every later
+// request that replays the log (docs/ANTHROPIC-INTEGRATION.md, "Server
+// tools left open across a tool round"). A client that does not implement
+// it never leaves one open, and the loop applies steers and reminders at
+// every boundary as it always has.
+type ServerToolHolder interface {
+	// LeavesServerToolOpen reports whether one committed sub-turn's
+	// provider blocks (wire.Item.ProviderBlocks) left a server tool call
+	// waiting on the next request.
+	LeavesServerToolOpen(providerBlocks json.RawMessage) bool
+
+	// WithholdsTail reports whether the request built from items would hold
+	// back trailing messages until the open call has run — so the response
+	// to it will not have seen them.
+	WithholdsTail(items []wire.Item) bool
 }
