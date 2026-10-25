@@ -16,10 +16,13 @@ package anthropic
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"github.com/mrgeoffrich/agent-harness/internal/providerhttp"
@@ -59,6 +62,12 @@ type Client struct {
 	httpClient          *http.Client
 	idleTimeoutOverride time.Duration
 	cacheSlackOverride  int
+	// dropMismatchedThinking is set the first time a request is refused
+	// because a replayed thinking block no longer matches its conversation
+	// prefix, and from then on every request this client sends asks the API
+	// to drop such blocks instead (relaxThinkingBinding). One process hosts
+	// one session, so this is that session's record of the choice.
+	dropMismatchedThinking atomic.Bool
 }
 
 // ClientOption customises a Client built by NewClient.
@@ -176,16 +185,22 @@ func (c *Client) StreamChatCompletion(ctx context.Context, intent wire.ChatInten
 		haveUsage := false
 
 		for attempt := 0; attempt < maxPauseTurnResumes; attempt++ {
-			body, err := json.Marshal(req)
-			if err != nil {
-				send(wire.Event{Type: wire.EventError, Err: fmt.Errorf("anthropic: encode request: %w", err)})
-				return
-			}
-
-			result, err := c.streamOneRound(ctx, body, send)
-			if err != nil {
-				// streamOneRound already forwarded the terminal EventError.
-				return
+			var result streamResult
+			for {
+				body, err := c.encode(req)
+				if err != nil {
+					send(wire.Event{Type: wire.EventError, Err: err})
+					return
+				}
+				result, err = c.streamOneRound(ctx, body, send)
+				if errors.Is(err, errThinkingBindingRelaxed) {
+					continue
+				}
+				if err != nil {
+					// streamOneRound already forwarded the terminal EventError.
+					return
+				}
+				break
 			}
 			allBlocks = append(allBlocks, result.blocks...)
 			if result.usage != nil {
@@ -241,7 +256,9 @@ func (c *Client) StreamChatCompletion(ctx context.Context, intent wire.ChatInten
 // pause_turn continuation is still StreamChatCompletion's job — this
 // returns only the one round's streamResult. On failure, the terminal
 // EventError has already reached send by the time this returns a non-nil
-// error, so the only thing left for the caller to do is stop.
+// error, so the only thing left for the caller to do is stop — except for
+// errThinkingBindingRelaxed, which sends nothing and asks the caller to
+// encode the round again and resend it.
 func (c *Client) streamOneRound(ctx context.Context, reqBody []byte, send func(wire.Event) bool) (streamResult, error) {
 	open := func(ctx context.Context) (io.ReadCloser, error) {
 		resp, err := c.transport.Do(ctx, http.MethodPost, "/v1/messages", reqBody)
@@ -256,6 +273,9 @@ func (c *Client) streamOneRound(ctx context.Context, reqBody []byte, send func(w
 
 	firstBody, err := open(ctx)
 	if err != nil {
+		if c.relaxThinkingBinding(err) {
+			return streamResult{}, errThinkingBindingRelaxed
+		}
 		send(wire.Event{Type: wire.EventError, Err: err})
 		return streamResult{}, err
 	}
@@ -306,16 +326,21 @@ func (c *Client) CreateChatCompletion(ctx context.Context, intent wire.ChatInten
 	var finalStop string
 
 	for attempt := 0; attempt < maxPauseTurnResumes; attempt++ {
-		body, err := json.Marshal(req)
+		body, err := c.encode(req)
 		if err != nil {
-			return nil, fmt.Errorf("anthropic: encode request: %w", err)
+			return nil, err
 		}
 		resp, err := c.transport.Do(ctx, http.MethodPost, "/v1/messages", body)
 		if err != nil {
 			return nil, c.transport.WrapError("chat completion request", err)
 		}
 		if resp.StatusCode != http.StatusOK {
-			return nil, parseAPIError(resp)
+			err := parseAPIError(resp)
+			if c.relaxThinkingBinding(err) {
+				attempt--
+				continue
+			}
+			return nil, err
 		}
 
 		var raw messagesResponse
@@ -324,6 +349,7 @@ func (c *Client) CreateChatCompletion(ctx context.Context, intent wire.ChatInten
 		if err != nil {
 			return nil, fmt.Errorf("anthropic: decode response: %w", err)
 		}
+		logInputTransformations(raw.ID, raw.InputTransformations)
 		if raw.Usage != nil {
 			totalUsage = sumUsage(totalUsage, *usageFromMessages(raw.Usage))
 			haveUsage = true
@@ -350,6 +376,63 @@ func (c *Client) CreateChatCompletion(ctx context.Context, intent wire.ChatInten
 		req.Messages = append(req.Messages, Message{Role: wire.RoleAssistant, Content: blocksJSON})
 	}
 	return nil, fmt.Errorf("anthropic: exceeded %d pause_turn resumes in one request", maxPauseTurnResumes)
+}
+
+// errThinkingBindingRelaxed is streamOneRound's signal that the round was
+// refused for a thinking block bound to a different conversation and the
+// client has just switched to dropping such blocks: encode the round again
+// and resend it. It never reaches the loop.
+var errThinkingBindingRelaxed = errors.New("anthropic: thinking binding relaxed; resend")
+
+// encode marshals req with the prefix-mismatch behaviour this client is
+// currently sending: "error" until a request has been refused for a
+// thinking block that no longer matches its conversation, "drop_block"
+// after. requestFromIntent stays a pure function of the intent; the choice
+// is applied to a copy of its thinking config here, on every round,
+// pause_turn continuations included.
+func (c *Client) encode(req MessagesRequest) ([]byte, error) {
+	if c.dropMismatchedThinking.Load() && req.Thinking != nil && req.Thinking.BlockBinding != nil {
+		thinking := *req.Thinking
+		thinking.BlockBinding = &BlockBinding{PrefixMismatchBehavior: "drop_block"}
+		req.Thinking = &thinking
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("anthropic: encode request: %w", err)
+	}
+	return body, nil
+}
+
+// relaxThinkingBinding reports whether err is a request refused because a
+// replayed thinking block is bound to a different conversation, and this
+// client has not yet switched to dropping such blocks. When both hold it
+// switches, logs the refusal in full, and the caller resends the same
+// request.
+//
+// Without this a session is wedged for good by one such block: the log
+// replays it on every request, and every request — "try again" included —
+// fails the same way. Anthropic's own handling for it is to retry once with
+// "drop_block" and keep sending that for the rest of the session. The API
+// then drops the first mismatched block and every thinking block after it,
+// the request goes through, and the model answers without that reasoning;
+// thinking minted from then on is valid as long as nothing before it
+// changes. "drop_block" on an intact history drops nothing, so a session
+// that never hits this sends "error" throughout and still fails loudly on
+// any other 400. The refusal's full text names the first message that
+// changed; it is logged here because the copy a parent shows its user is
+// often cut short (docs/ANTHROPIC-INTEGRATION.md, "When a replayed block no
+// longer matches").
+func (c *Client) relaxThinkingBinding(err error) bool {
+	apiErr, ok := IsAPIError(err)
+	if !ok || !apiErr.IsThinkingPrefixMismatch() {
+		return false
+	}
+	if !c.dropMismatchedThinking.CompareAndSwap(false, true) {
+		return false
+	}
+	log.Printf("anthropic: a replayed thinking block failed the history-editing check; resending with prefix_mismatch_behavior drop_block for the rest of this session (request %s, %s: %q): %s",
+		apiErr.RequestID, prefixMismatchHeader, apiErr.PrefixMismatch, apiErr.Message)
+	return true
 }
 
 func usageFrom(total wire.Usage, have bool) *wire.Usage {

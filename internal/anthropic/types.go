@@ -161,6 +161,10 @@ type messagesResponse struct {
 	StopSequence *string           `json:"stop_sequence"`
 	StopDetails  json.RawMessage   `json:"stop_details,omitempty"`
 	Usage        *messagesUsage    `json:"usage"`
+	// InputTransformations is what the API changed in the request before
+	// the model read it — under the thinking-binding-controls beta, every
+	// thinking block it dropped and why (logInputTransformations).
+	InputTransformations []json.RawMessage `json:"input_transformations,omitempty"`
 }
 
 // rawContentBlock reads any response content block generically: the union

@@ -7,7 +7,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -438,5 +440,133 @@ func TestMaxTokensDefaultsWhenIntentNamesNone(t *testing.T) {
 	}
 	if n := unary(4096); n != 4096 {
 		t.Errorf("unary max_tokens with 4096 named = %d, want 4096", n)
+	}
+}
+
+// mismatchMessage is the 400 preserved thinking's history-editing check
+// answers with, as the Android session that stopped taking turns got it.
+const mismatchMessage = "messages.5.content.7: Invalid `signature` in `thinking` block. The block is bound to a different conversation. " +
+	"Remove the block, or set `thinking.block_binding.prefix_mismatch_behavior` to \"drop_block\". " +
+	"Content that preceded this block when it was created is missing from this request, starting at `messages.2`."
+
+// bindingServer refuses every request sent with prefix_mismatch_behavior
+// "error" the way the API refuses a history carrying a mismatched thinking
+// block, answers one sent with "drop_block", and records the behaviour each
+// request asked for.
+func bindingServer(t *testing.T, refusal string, stream bool) (*httptest.Server, func() []string) {
+	t.Helper()
+	var mu sync.Mutex
+	var seen []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req MessagesRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		behavior := req.Thinking.BlockBinding.PrefixMismatchBehavior
+		mu.Lock()
+		seen = append(seen, behavior)
+		mu.Unlock()
+		if behavior == "error" || refusal != mismatchMessage {
+			w.Header().Set("anthropic-thinking-prefix-mismatch", "kind=blocks_modified; pattern=first_message_rewritten; changed_validated=messages.2")
+			w.WriteHeader(http.StatusBadRequest)
+			body, _ := json.Marshal(map[string]any{"type": "error", "error": map[string]any{"type": "invalid_request_error", "message": refusal}, "request_id": "req_1"})
+			w.Write(body)
+			return
+		}
+		if !stream {
+			fmt.Fprint(w, `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1},"input_transformations":[{"type":"thinking_dropped","path":"messages.5.content.7","reason":"prefix_binding_mismatch"}]}`)
+			return
+		}
+		fmt.Fprint(w, sseResponse(
+			frame("message_start", `{"type":"message_start","message":{"id":"msg_1","usage":{"input_tokens":1,"output_tokens":1},"input_transformations":[{"type":"thinking_dropped","path":"messages.5.content.7","reason":"prefix_binding_mismatch"}]}}`),
+			frame("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`),
+			frame("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hi"}}`),
+			frame("content_block_stop", `{"type":"content_block_stop","index":0}`),
+			frame("message_delta", `{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":1}}`),
+			frame("message_stop", `{"type":"message_stop"}`),
+		))
+	}))
+	t.Cleanup(srv.Close)
+	return srv, func() []string {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]string(nil), seen...)
+	}
+}
+
+func streamText(t *testing.T, c *Client) (string, error) {
+	t.Helper()
+	events, err := c.StreamChatCompletion(context.Background(), testIntent())
+	if err != nil {
+		t.Fatalf("StreamChatCompletion: %v", err)
+	}
+	var text strings.Builder
+	var streamErr error
+	for ev := range events {
+		switch ev.Type {
+		case wire.EventContentDelta:
+			text.WriteString(ev.Content)
+		case wire.EventError:
+			streamErr = ev.Err
+		}
+	}
+	return text.String(), streamErr
+}
+
+// A request refused because a replayed thinking block is bound to a
+// different conversation is resent once with "drop_block", and every later
+// request asks for "drop_block" from the start. Before this, the refusal
+// reached the loop, the log replayed the same block on every request, and
+// the session failed every turn from then on.
+func TestThinkingPrefixMismatchResendsWithDropBlock(t *testing.T) {
+	srv, seen := bindingServer(t, mismatchMessage, true)
+	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "k", nil }))
+
+	text, err := streamText(t, c)
+	if err != nil || text != "hi" {
+		t.Fatalf("first request = %q, %v; want the answer to the resent request", text, err)
+	}
+	if got := seen(); !reflect.DeepEqual(got, []string{"error", "drop_block"}) {
+		t.Fatalf("behaviours sent = %v, want error then drop_block", got)
+	}
+
+	if text, err := streamText(t, c); err != nil || text != "hi" {
+		t.Fatalf("second request = %q, %v", text, err)
+	}
+	if got := seen(); !reflect.DeepEqual(got, []string{"error", "drop_block", "drop_block"}) {
+		t.Fatalf("behaviours sent = %v, want the later request to ask for drop_block straight away", got)
+	}
+}
+
+func TestThinkingPrefixMismatchUnaryResendsWithDropBlock(t *testing.T) {
+	srv, seen := bindingServer(t, mismatchMessage, false)
+	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "k", nil }))
+
+	resp, err := c.CreateChatCompletion(context.Background(), testIntent())
+	if err != nil {
+		t.Fatalf("CreateChatCompletion: %v", err)
+	}
+	if got := resp.Choices[0].Message.Content.String(); got != "hi" {
+		t.Fatalf("content = %q", got)
+	}
+	if got := seen(); !reflect.DeepEqual(got, []string{"error", "drop_block"}) {
+		t.Fatalf("behaviours sent = %v, want error then drop_block", got)
+	}
+}
+
+// Any other 400 is not resent: a tampered signature fails with the same
+// leading clause but without the "bound to a different conversation"
+// sentence, and drop_block does not apply to it.
+func TestOtherInvalidRequestIsNotResent(t *testing.T) {
+	srv, seen := bindingServer(t, "messages.1.content.0: Invalid `signature` in `thinking` block.", true)
+	c := NewClient(srv.URL, WithAPIKeyProvider(func() (string, error) { return "k", nil }))
+
+	_, err := streamText(t, c)
+	apiErr, ok := IsAPIError(err)
+	if !ok || apiErr.StatusCode != http.StatusBadRequest {
+		t.Fatalf("err = %v, want the 400", err)
+	}
+	if got := seen(); !reflect.DeepEqual(got, []string{"error"}) {
+		t.Fatalf("behaviours sent = %v, want one request", got)
 	}
 }

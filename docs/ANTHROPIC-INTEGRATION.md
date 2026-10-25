@@ -190,7 +190,55 @@ it everywhere rather than branching on org age or model, since the loop's
 append-only history (`internal/CLAUDE.md`'s invariant) is exactly what
 `prefix_mismatch_behavior: "error"` is meant to enforce: a signature that no
 longer matches its conversation prefix is a bug in this client's replay,
-not something to paper over with `"drop_block"`.
+not something to paper over with `"drop_block"`. A session sends `"error"`
+until the API refuses a request on those grounds. After that it sends
+`"drop_block"` (next section).
+
+### When a replayed block no longer matches
+
+The check refuses a request with a 400 `invalid_request_error`:
+`` messages.N.content.M: Invalid `signature` in `thinking` block. The block
+is bound to a different conversation. … ``. Before this section existed,
+one such refusal wedged a session for good. The log replays the same block
+on every later request, so every later request fails the same way,
+"try again" included. A Sonnet 5.5 session on Android hit this on
+2026-10-25 at sub-turn 24, `messages.5.content.7`, and failed every turn
+after it.
+
+`client.go`'s `relaxThinkingBinding` now handles that refusal the way
+Anthropic's preserved-thinking guidance does. It resends the same request
+once with `prefix_mismatch_behavior: "drop_block"`, and from then on every
+request the client sends asks for `"drop_block"`. The API drops the first
+mismatched block and every thinking block after it, and the request goes
+through. The model answers without that reasoning. Thinking minted from
+then on stays valid as long as nothing before it changes. One process hosts
+one session, so the client's flag is that session's record of the choice. A
+respawned process starts on `"error"` again, takes one refusal, and
+switches. `"drop_block"` drops nothing from an intact history, so a session
+that never hits this sends `"error"` throughout. A tampered signature fails
+with the same first clause but without "bound to a different
+conversation". It is not resent, because `drop_block` does not apply to it.
+
+The refusal is logged to stderr in full: the request id, the message, and
+the `anthropic-thinking-prefix-mismatch` response header when the API sends
+one. The message's last sentence usually names the first message that
+changed, and the header names the shape of the edit. Anthropic has not
+published the header, so nothing branches on it. A parent's copy of the
+error is often cut short before that sentence. Every response's
+`input_transformations` entries are logged too, one line per dropped block
+with its path and reason.
+
+The Android session's cause is not established. The harness's own requests
+replay every block on the prefix it was minted on.
+`internal/session`'s `TestReplayedThinkingKeepsItsMintedPrefix` holds each
+replayed block to exactly that prefix across the session's shapes: parallel
+calls with thinking between them, a `pause_turn` continuation, a server
+tool left open beside client calls, a steer deferred behind it, and later
+turns resumed by a fresh process on the same state directory. The full 400
+text, which the parent's transcript cut off, is what would name the edit.
+Anthropic's guidance lists one way the tool set can change with an
+identical body: a server-side tool the API injects (code execution, the
+web-search fallback). That is not verified here.
 
 `intent.Effort` maps straight onto `output_config.effort` when non-empty;
 empty omits the field, leaving the API's own per-model default in force —

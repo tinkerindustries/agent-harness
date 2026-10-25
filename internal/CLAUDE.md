@@ -172,7 +172,12 @@ HTTP round rather than around the whole `pause_turn` resume loop —
 `pause_turn` (Claude wanting another round of server-tool use) resumes
 internally, bounded, so the loop always sees one logical response.
 `errors.go` retries 429, the 5xx faults, and 529 (`overloaded_error`); a
-`stop_reason: "refusal"` ends the turn with `*RefusalError`. Depends on:
+`stop_reason: "refusal"` ends the turn with `*RefusalError`. A 400 refusing
+a replayed thinking block as "bound to a different conversation" is resent
+once with `prefix_mismatch_behavior: "drop_block"`, and the client sends
+`"drop_block"` from then on (`client.go`'s `relaxThinkingBinding`), so one
+mismatched block cannot wedge the session (`docs/ANTHROPIC-INTEGRATION.md`,
+"When a replayed block no longer matches"). Depends on:
 `internal/wire`, `internal/providerhttp` (`Transport`, `SetAuth` for
 `x-api-key`, and `RetryStream`). `docs/ANTHROPIC-INTEGRATION.md` is the
 provider reference.
