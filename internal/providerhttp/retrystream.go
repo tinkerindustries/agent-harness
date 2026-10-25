@@ -3,6 +3,7 @@ package providerhttp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 
@@ -90,7 +91,7 @@ func (t *Transport) RetryStream(ctx context.Context, first io.ReadCloser, open S
 				return
 			}
 
-			if !t.sleepBackoff(ctx, attempt) {
+			if !t.sleepBackoff(ctx, attempt, fmt.Sprintf("stream ended before any output: %v", streamErr)) {
 				select {
 				case out <- wire.Event{Type: wire.EventError, Err: ctx.Err()}:
 				case <-ctx.Done():

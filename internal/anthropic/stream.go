@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mrgeoffrich/agent-harness/internal/providerhttp"
 	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
@@ -312,6 +313,7 @@ func (c *Client) readSSE(ctx context.Context, body io.ReadCloser, send func(wire
 
 	idle := time.NewTimer(c.idleTimeout())
 	defer idle.Stop()
+	gaps := providerhttp.NewGapLog("anthropic")
 
 	blocks := map[int]*blockState{}
 	var order []int
@@ -431,6 +433,7 @@ func (c *Client) readSSE(ctx context.Context, body io.ReadCloser, send func(wire
 			if !ok {
 				return streamResult{}, errors.New("anthropic: stream ended without a message_stop frame")
 			}
+			gaps.Line(len(line))
 			if !idle.Stop() {
 				<-idle.C
 			}
