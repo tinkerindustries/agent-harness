@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"strings"
 	"time"
 
@@ -216,8 +217,23 @@ type sseContentBlockDelta struct {
 
 type sseMessageStart struct {
 	Message struct {
-		Usage *messagesUsage `json:"usage"`
+		ID                   string            `json:"id"`
+		Usage                *messagesUsage    `json:"usage"`
+		InputTransformations []json.RawMessage `json:"input_transformations"`
 	} `json:"message"`
+}
+
+// logInputTransformations logs each change the API reports making to a
+// request before the model read it. Under the thinking-binding-controls
+// beta every response carries the array, empty when nothing was changed;
+// an entry is a thinking block dropped — after a mismatch, once this client
+// sends "drop_block" (relaxThinkingBinding), or on a model the block's
+// producer does not share it with — and the log is the one place a person
+// tracing lost reasoning back to its cause can find which block and why.
+func logInputTransformations(messageID string, entries []json.RawMessage) {
+	for _, e := range entries {
+		log.Printf("anthropic: response %s: input transformation %s", messageID, e)
+	}
 }
 
 type sseMessageDelta struct {
@@ -335,6 +351,7 @@ func (c *Client) readSSE(ctx context.Context, body io.ReadCloser, send func(wire
 				return false, err
 			}
 			startUsage = f.Message.Usage
+			logInputTransformations(f.Message.ID, f.Message.InputTransformations)
 
 		case "content_block_start":
 			var f sseContentBlockStart
