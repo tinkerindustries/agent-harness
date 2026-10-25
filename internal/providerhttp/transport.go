@@ -169,29 +169,39 @@ func (t *Transport) Do(ctx context.Context, method, path string, body []byte) (*
 		if err != nil {
 			return nil, err
 		}
+		sent := time.Now()
 		resp, err := t.HTTPClient.Do(req)
+		took := time.Since(sent)
 		if err != nil {
 			if attempt >= t.MaxRetries || ctx.Err() != nil {
 				return nil, err
 			}
-			if !t.sleepBackoff(ctx, attempt) {
+			if !t.sleepBackoff(ctx, attempt, fmt.Sprintf("%v after %.1fs", err, took.Seconds())) {
 				return nil, ctx.Err()
 			}
 			continue
+		}
+		if took >= StallThreshold {
+			logf("%s: %s %s answered %d after %.1fs (attempt %d)", t.ErrPrefix, method, path, resp.StatusCode, took.Seconds(), attempt+1)
 		}
 		if resp.StatusCode == http.StatusOK || !t.Retryable(resp.StatusCode) || attempt >= t.MaxRetries {
 			return resp, nil
 		}
 		io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
-		if !t.sleepBackoff(ctx, attempt) {
+		if !t.sleepBackoff(ctx, attempt, fmt.Sprintf("status %d after %.1fs", resp.StatusCode, took.Seconds())) {
 			return nil, ctx.Err()
 		}
 	}
 }
 
-func (t *Transport) sleepBackoff(ctx context.Context, attempt int) bool {
-	timer := time.NewTimer(BackoffDelay(attempt, t.RetryBase, t.RetryMax))
+// sleepBackoff waits out attempt's backoff, after logging why there is a
+// retry at all: nothing else would say a request was retried, and a few
+// retries add up to a silence long enough for a person to notice.
+func (t *Transport) sleepBackoff(ctx context.Context, attempt int, why string) bool {
+	delay := BackoffDelay(attempt, t.RetryBase, t.RetryMax)
+	logf("%s: attempt %d failed (%s); retrying in %.1fs", t.ErrPrefix, attempt+1, why, delay.Seconds())
+	timer := time.NewTimer(delay)
 	defer timer.Stop()
 	select {
 	case <-timer.C:
@@ -315,6 +325,7 @@ func (t *Transport) PumpStreamWith(ctx context.Context, body io.ReadCloser, even
 
 	idle := time.NewTimer(t.IdleTimeout)
 	defer idle.Stop()
+	gaps := NewGapLog(t.ErrPrefix)
 
 	for {
 		select {
@@ -334,6 +345,7 @@ func (t *Transport) PumpStreamWith(ctx context.Context, body io.ReadCloser, even
 			if !ok {
 				return
 			}
+			gaps.Line(len(line))
 			if !idle.Stop() {
 				<-idle.C
 			}

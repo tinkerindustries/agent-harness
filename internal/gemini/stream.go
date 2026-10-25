@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mrgeoffrich/agent-harness/internal/providerhttp"
 	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
@@ -371,6 +372,7 @@ func (c *Client) pumpChatEvents(ctx context.Context, body io.ReadCloser, events 
 
 	idle := time.NewTimer(c.idleTimeout())
 	defer idle.Stop()
+	gaps := providerhttp.NewGapLog("gemini")
 
 	var event, data string
 	var st chatStreamState
@@ -461,6 +463,7 @@ func (c *Client) pumpChatEvents(ctx context.Context, body io.ReadCloser, events 
 				send(wire.Event{Type: wire.EventError, Err: fmt.Errorf("gemini: stream ended without an %s or %s frame", eventInteractionCompleted, eventError)})
 				return
 			}
+			gaps.Line(len(line))
 			if !idle.Stop() {
 				<-idle.C
 			}

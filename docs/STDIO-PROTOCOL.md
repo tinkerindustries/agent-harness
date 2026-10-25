@@ -212,6 +212,21 @@ is about to work in, and a `.env` sitting in it must not contribute
 environment to this process — every command the session's Bash tool runs
 inherits that environment.
 
+Three stderr lines are there for a parent working out why its session went
+quiet, because nothing else records when a frame arrived (the event log
+stamps a whole sub-turn when it commits):
+
+- `<provider>: attempt N failed (…); retrying in Xs` — every provider retry,
+  with the status or error that caused it.
+- `<provider>: … answered <status> after Xs` — a response whose headers took
+  10 s or more, and `<provider>: stream quiet for Xs, …; data arriving
+  again` — a gap of 10 s or more inside a stream that had started. Text that
+  stops mid-sentence and then arrives in one lump, with this line beside it,
+  was held by the connection to the provider.
+- `stdiosession: writing a frame to stdout took Xs; the parent was not
+  reading` — a frame that waited 2 s or more on a full pipe. The hold was the
+  parent's.
+
 `-env FILE` is the one way a file reaches this process, and it does not
 weaken that rule. The path is explicit, so no directory contributes anything
 by merely being the working directory; and **only the four key variables are

@@ -86,7 +86,9 @@ idle watchdog. `PumpStreamWith` takes the frame decoder as an argument —
 chat completion chunks ending at `[DONE]`, or DeepSeek's semantic Responses
 events ending at `response.completed` — so the watchdog, the
 context-guarded sends and the line reader that cannot be stranded are
-written once for both. Carries no provider dialect — no request shape, no usage
+written once for both. `stall.go`'s `GapLog` logs a 10 s gap inside a stream,
+and `Do` logs every retry and slow headers; `internal/anthropic` and
+`internal/gemini` read their own streams and call `GapLog` too. Carries no provider dialect — no request shape, no usage
 mapping, no error-body parsing, no quirk repairs — so each provider keeps its
 own `Client` type satisfying the narrow `session.Client` seam independently;
 this package only removes the near-verbatim duplication two full client

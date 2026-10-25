@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"sync"
+	"time"
 )
 
 // JSON-RPC error codes. The first five are the standard set; the rest are
@@ -202,11 +204,24 @@ func (c *Conn) write(m message) error {
 	if closed {
 		return ErrConnClosed
 	}
+	started := time.Now()
 	if err := c.enc.Encode(m); err != nil {
 		return fmt.Errorf("stdiosession: write frame: %w", err)
 	}
+	if took := time.Since(started); took >= writeStallThreshold {
+		logf("stdiosession: writing a frame to stdout took %.1fs; the parent was not reading", took.Seconds())
+	}
 	return nil
 }
+
+// writeStallThreshold is how long one frame may take to reach stdout before
+// it is worth a line on stderr. A write only blocks once the pipe's buffer is
+// full, which means the parent stopped reading: the line tells a parent that
+// shows text late that the hold was its own, not the provider's.
+var writeStallThreshold = 2 * time.Second
+
+// logf is where the write-stall line goes; a test swaps it.
+var logf = log.Printf
 
 // Serve reads frames until the reader ends or ctx is cancelled. Reaching the
 // end of stdin is the parent saying the session is over, so Serve returns nil
