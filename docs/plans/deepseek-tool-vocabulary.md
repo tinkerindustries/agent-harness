@@ -157,7 +157,7 @@ The name matches; the description carries the difference.
 
 | Phase | Name | Depends on | Runs beside |
 | --- | --- | --- | --- |
-| 1 | Core tools: files, search, shell and jobs | nothing | 2 |
+| 1 | Core tools: files, search, shell and jobs | nothing | nothing |
 | 2 | `apply_patch` | 1 | 3 |
 | 3 | MCP resource templates | nothing | 2 |
 | 4 | Documentation | 1, 2, 3 | nothing |
