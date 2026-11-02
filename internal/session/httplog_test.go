@@ -176,8 +176,8 @@ func TestRunWithNilRecorderRunsNormally(t *testing.T) {
 	}
 }
 
-// WebFetch makes its own completion call on the tool-execution context, so
-// the session id must reach it there: a run that calls WebFetch records
+// web_fetch makes its own completion call on the tool-execution context, so
+// the session id must reach it there: a run that calls web_fetch records
 // every exchange — the sub-turn streams and the flash summariser's
 // completion — under the session id.
 func TestWebFetchCompletionIsAttributedToSession(t *testing.T) {
@@ -253,7 +253,7 @@ func TestWebFetchCompletionIsAttributedToSession(t *testing.T) {
 
 	lines := readHTTPExchanges(t, sessionHTTPLog(root, res.SessionID))
 	if len(lines) < 3 {
-		t.Fatalf("got %d exchanges, want at least 3 (two streams plus the WebFetch completion)", len(lines))
+		t.Fatalf("got %d exchanges, want at least 3 (two streams plus the web_fetch completion)", len(lines))
 	}
 	for i, ex := range lines {
 		if ex.SessionID != res.SessionID {
@@ -268,6 +268,6 @@ func TestWebFetchCompletionIsAttributedToSession(t *testing.T) {
 		}
 	}
 	if !webfetchCompletion {
-		t.Error("no exchange carries the WebFetch summariser's completion request")
+		t.Error("no exchange carries the web_fetch summariser's completion request")
 	}
 }

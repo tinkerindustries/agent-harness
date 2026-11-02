@@ -18,7 +18,7 @@ import (
 	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
-// runSteerScenario drives a two-sub-turn run — sub-turn 1 makes a TaskList
+// runSteerScenario drives a two-sub-turn run — sub-turn 1 makes a task_list
 // call so the loop continues, sub-turn 2 answers plainly and ends the run —
 // against a fake API that appends the given steer_message events while the
 // first request is still in flight, the exact shape a mid-run steer takes

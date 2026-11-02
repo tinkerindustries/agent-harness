@@ -77,23 +77,24 @@ binary. Otherwise upgrading the harness silently changes the prefix of every
 resumable session, and every resume is cold.
 
 **Never vary the tool array.** The array is chosen per model, through
-`provider.SeesImages` — every model that resolves false gets twenty tools;
-Kimi K3, Gemini, and `deepseek-flash` (the only DeepSeek model this harness
-routes) get the same fourteen, without the six vision tools
-(docs/KIMI-INTEGRATION.md decision 5, docs/DEEPSEEK-VISION.md) — and each
-array is frozen
-and pinned by its own golden file
+`provider.SeesImages` and the provider table
+(docs/KIMI-INTEGRATION.md decision 5, docs/DEEPSEEK-VISION.md), and
+`internal/tools/definitions.go` is the authority on what each one holds. Every
+model that reads images natively gets the base array without the six vision
+tools; DeepSeek's array is that one without `list`, the four task tools, `task`
+and `complete`; a model that resolves to neither gets the base array. Each
+array is frozen and pinned by its own golden file
 (`internal/tools/testdata/tools_*.golden.json`). Within one of those arrays,
 permission modes gate execution, not availability: every one of a session's
 tools ships on every request in every mode, and a disallowed call is refused
 at execution with an error result the model can read. Removing tools per
 mode would give each mode its own prefix and make mode switching a cold
 start. A create body's `result_schema` is the tempting exception: it
-belongs in the opening user message, never in `Complete`'s definition.
+belongs in the opening user message, never in `complete`'s definition.
 Evolving an array *between releases* is different from varying it per
 request: when the vision tools were replaced — two tools,
-`ReviewScreenshot` and `AskVision`, became four, `Glance`, `Ground`,
-`Detect`, and `Crop` (docs/VISION-TOOLKIT.md) — every session shipped the
+`ReviewScreenshot` and `AskVision`, became four, `glance`, `ground`,
+`detect`, and `crop` (docs/VISION-TOOLKIT.md) — every session shipped the
 new array together, so the head changed once, paid once, and stayed shared —
 the rule is that no session or request gets a head of its own, not that the
 head is frozen forever.
@@ -106,18 +107,18 @@ whole prompt cache on every change. The model discovers a bound from the tool's
 refusal message, which states the actual limit. `ReviewScreenshot`'s
 description was the first one this rule was learned from, and its numbers were
 removed in the same change that made the limits settings; the vision tools
-that replaced it — `Glance`, `Ground`, `Detect`, `Crop` — carry no numbers
+that replaced it — `glance`, `ground`, `detect`, `crop` — carry no numbers
 either, for the same reason (`internal/tools/definitions.go`); check any new
 description against this rule.
 
-Obeying the rule means the refusal message has real work to do, and `Bash`
-showed what it costs when it does not. Its `timeout` description said only
+Obeying the rule means the refusal message has real work to do, and `bash`
+showed what it costs when it does not. Its `timeoutMs` description said only
 what the argument meant, and its expiry said only "command timed out" — so
 nothing anywhere told a model that a default and a ceiling existed. Models
 asked for thirty and sixty minutes, were cut off at the ceiling, and read the
 result as a hung command. The numbers stayed out of the description, which is
 right; what was missing was the description saying a ceiling exists at all,
-and the expiry naming the limit that actually applied (docs/TOOLS.md, "Bash").
+and the expiry naming the limit that actually applied (docs/TOOLS.md, "bash").
 A bound the model can neither see nor discover is the failure this rule has to
 be paired against.
 

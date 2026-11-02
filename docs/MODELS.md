@@ -122,7 +122,7 @@ mismatch if you hit it.
 
 ## Where non-thinking earns its place
 
-Mechanical work with no judgement in it: session titling, `WebFetch` extraction,
+Mechanical work with no judgement in it: session titling, `web_fetch` extraction,
 compaction summaries, commit message drafts. Non-thinking is cheaper and returns
 sooner.
 
@@ -147,16 +147,16 @@ its documented failure mode is occasional empty content.
 | Main loop | pro | enabled | high | 48000 |
 | Main loop, quality-first | pro | enabled | max | 48000 |
 | Main loop, cost-conscious | flash | enabled | max | 24000 |
-| `Task` subagent | flash | enabled | max | 20000 |
-| `WebFetch` extraction | flash | disabled | — | 4000 |
+| `task` subagent | flash | enabled | max | 20000 |
+| `web_fetch` extraction | flash | disabled | — | 4000 |
 | Compaction summary | flash | disabled | — | 8000 |
 | Session title | flash | disabled | — | 200 |
 
 All of these are configuration, not constants. The main-loop row's model,
 effort, and `max_tokens` are settings in the harness's settings table
 (`model.default`, `model.flash`, `model.effort`, `run.max_tokens`) — the
-numbers in the table are the defaults an operator starts from. The `Task` and
-`WebFetch` rows' token budgets are code-level choices that stay as they are.
+numbers in the table are the defaults an operator starts from. The `task` and
+`web_fetch` rows' token budgets are code-level choices that stay as they are.
 
 ## Sizing max_tokens
 
@@ -331,10 +331,10 @@ through `provider.SeesImages`, one model→capability table rather than a
 per-provider switch: it is true for Gemini, for Kimi K3, and for one of
 DeepSeek's own two models, `deepseek-flash`
 (docs/DEEPSEEK-VISION.md). Wherever it is true, the session sends the
-vision-capable tool array, and `Read` and the MCP image path return an image
+vision-capable tool array, and `read` and the MCP image path return an image
 part rather than a path. This is the practical argument for the model —
 `deepseek-v4-pro` and standard Kimi sessions describe a screenshot
-secondhand through `Glance`/`Ground`/`Detect`; a Gemini session, or a
+secondhand through `glance`/`ground`/`detect`; a Gemini session, or a
 `deepseek-flash` one, looks at it directly.
 
 **Cost sits near DeepSeek Pro's standard tier, not its discounted one** —

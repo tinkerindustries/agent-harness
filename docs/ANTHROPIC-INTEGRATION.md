@@ -13,7 +13,7 @@ never learns Anthropic's request shape.
 It hosts three models: `claude-opus-5-5`, `claude-sonnet-5-5` and
 `claude-fable-5-1` (`modelinfo.go`). `internal/provider.Anthropic` routes
 them, `internal/tools.DefinitionsFor` gives them the vision-capable tool
-array without `WebFetch` (Anthropic's own `web_search` and `web_fetch`
+array without `web_fetch` (Anthropic's own `web_search` and `web_fetch`
 server tools ride the request instead, appended after the client-declared
 array by `intent.go`'s `toolsFromWire`), and `harness stdio-session` hosts
 all three behind `ANTHROPIC_API_KEY` (`cmd/harness/stdiosession.go`,
@@ -132,7 +132,7 @@ The harness keeps that tail clear in two places:
   results. If the log has no such turn yet, the message is held back from
   this request. Sessions written before the loop deferred steers need this.
   So does a run that ended right after an open call, whether stopped,
-  failed, or finished on a `Complete` called beside it, when a new message
+  failed, or finished on a `complete` called beside it, when a new message
   resumes it: `session_started` lands after the tool results, or after the
   fold's interrupted stand-ins for them.
 
@@ -158,7 +158,7 @@ server call with no client call is left alone. A `pause_turn` is resumed
 inside the client and never reaches the log. Holding a message behind any
 other unpaired call would wait for a tool round that never comes.
 
-A `Complete` called beside an open server call still ends the run. A steer
+A `complete` called beside an open server call still ends the run. A steer
 deferred at the boundary before it is withdrawn, and the client is told, the
 way any steer that arrives during a run's final sub-turn is
 (`docs/RUN-CONTROL.md`, "A steer the run never reached").

@@ -289,7 +289,7 @@ follows that shape:
 | `harness.max_sub_turns` | — | **Refused** with `-32004`, as the other two dialects — see [STDIO-PROTOCOL.md, "No sub-turn ceiling"](STDIO-PROTOCOL.md#no-sub-turn-ceiling). |
 | `harness.message_id` | no | Echoed on the `user.message` event this input becomes. |
 | `harness.title`, `harness.description` | no | Name the run in this harness's own records. |
-| `harness.result_schema` | no | Becomes the session's result schema, validated by `Complete`. Spelled under `harness` rather than as a top-level field, because Managed Agents has no `response_format`/`text.format` concept at all — this is the harness's own extension on every dialect, just homeless on this one's own vocabulary. |
+| `harness.result_schema` | no | Becomes the session's result schema, validated by `complete`. Spelled under `harness` rather than as a top-level field, because Managed Agents has no `response_format`/`text.format` concept at all — this is the harness's own extension on every dialect, just homeless on this one's own vocabulary. |
 
 #### The `agent` field
 
@@ -354,13 +354,13 @@ while it is already the one this process is running is refused — there is
 nothing to resume that is not already here; post a
 `user.message`/`user.interrupt` through `sessions.events` instead.
 
-**A finished background shell starts a turn of its own.** A Bash call with
-`run_in_background` returns a `bash_id`, and that shell belongs to the
-session, not to the turn that started it: the next turn's `BashOutput` finds
-it, and `KillBash` ends it. A shell that exits while the session is idle
+**A finished background shell starts a turn of its own.** A `bash` call with
+`run_in_background` returns a job id, and that shell belongs to the
+session, not to the turn that started it: the next turn's `job_output` finds
+it, and `job_kill` ends it. A shell that exits while the session is idle
 starts a turn, with the completion as its input: a user-message item whose
-`harness.source` is `"background"`, naming the shell, its exit code and the
-`bash_id`. The turn's frames follow the same vocabulary as a `user.message`
+`harness.source` is `"background"`, naming the shell, its exit code and that
+job id. The turn's frames follow the same vocabulary as a `user.message`
 turn, and the model continues the same session. A completion that arrives
 while a turn is running reaches the model at that turn's next sub-turn
 boundary; the running turn is not interrupted. A session that was
@@ -550,8 +550,8 @@ vocabulary has no id above `sub_turn` on its own frames the way
 Three call sites, one distinction Anthropic's own vocabulary already makes
 for exactly this split:
 
-- **This harness's own built-in tools** — `Bash`, `Read`, `Write`, `Edit`,
-  `Glob`, `Grep`, the plan tools, the vision tools, `Complete` — render as
+- **This harness's own built-in tools** — `bash`, `read`, `write`, `edit`,
+  `glob`, `grep`, the plan tools, the vision tools, `complete` — render as
   `agent.tool_use`/`agent.tool_result`, Anthropic's own shape for a
   server-run built-in (`bash`, `file_editor`, and the rest of
   `docs/managed-agents/tools`' own toolset).
@@ -581,10 +581,10 @@ would refuse is denied outright rather than asked about.
 
 | `stop_reason.type` | Anthropic's own | When |
 | --- | --- | --- |
-| `end_turn` | yes | The turn ended on its own terms — the model answered without a tool call, or called `Complete` successfully. |
+| `end_turn` | yes | The turn ended on its own terms — the model answered without a tool call, or called `complete` successfully. |
 | `requires_action` | yes | A custom tool call is pending; `stop_reason.event_ids` names it/them. |
 | `user_interrupt` | yes | `user.interrupt` ended the turn, or the process is shutting down. |
-| `complete_rejected` | **no — this process's own** | `Complete`'s structured answer failed the result schema three times running. Anthropic's own three-value enum has nothing for a harness-specific validation loop; adding a fourth is more honest than folding it into `end_turn`, which a client would read as success. |
+| `complete_rejected` | **no — this process's own** | `complete`'s structured answer failed the result schema three times running. Anthropic's own three-value enum has nothing for a harness-specific validation loop; adding a fourth is more honest than folding it into `end_turn`, which a client would read as success. |
 
 `harness.reason` carries what `harness.reason` already carries on the other
 two dialects (`complete`, `no_tool_calls`, `complete_rejected`, `cancelled`),
@@ -757,7 +757,7 @@ Unchanged in every particular from the other two dialects
 `readonly`/`full`, set once, `harness.deny` subtracting, the mode gating
 execution rather than the tool array, a client's own `custom` tools refused
 in `readonly` unless every one of them is marked `harness.read_only`. Note
-what `full` strips from `Bash`'s environment here: `ANTHROPIC_API_KEY`
+what `full` strips from `bash`'s environment here: `ANTHROPIC_API_KEY`
 alone, this subcommand's one credential.
 
 ## Errors

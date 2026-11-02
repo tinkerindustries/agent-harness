@@ -35,7 +35,7 @@ func pollJobOutput(t *testing.T, e *Executor, args jobOutputArgs, until func(Res
 // "running" and returns every poll's content joined together.
 //
 // Joining is what makes an assertion about the shell's output
-// deterministic. BashOutput consumes the output it returns, so a poll
+// deterministic. job_output consumes the output it returns, so a poll
 // landing between a line being written and the process exiting carries that
 // line away with it and the final poll says "(no new output)". A test that
 // read only the last poll held when one poll happened to see the line and
@@ -175,7 +175,7 @@ func TestJobKillStopsARunningShell(t *testing.T) {
 
 	res := waitForBackgroundDone(t, e, id)
 	if !strings.Contains(res.Content, "Status: killed") {
-		t.Fatalf("expected BashOutput to report killed, got: %s", res.Content)
+		t.Fatalf("expected job_output to report killed, got: %s", res.Content)
 	}
 }
 

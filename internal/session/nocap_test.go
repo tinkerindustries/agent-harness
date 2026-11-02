@@ -15,7 +15,7 @@ import (
 	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
-// toolLoopServer answers every streaming request with a TaskList call until
+// toolLoopServer answers every streaming request with a task_list call until
 // request answerAt, which gets a plain answer. An answerAt of zero never
 // answers, so the run keeps calling tools until something outside the model
 // stops it. onRequest, when set, sees each request's number before it is

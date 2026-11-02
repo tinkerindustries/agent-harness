@@ -16,8 +16,8 @@ docs present as mandatory and which measurement shows is not.
 ## 1. Scope
 
 One coding session hosted for a parent process over stdin and stdout, the
-twenty tools in [TOOLS.md](TOOLS.md), a declarative per-request permission
-policy, flash-backed subagents via `Task`, an append-only event log in SQLite
+tool array in [TOOLS.md](TOOLS.md), a declarative per-request permission
+policy, flash-backed subagents via `task`, an append-only event log in SQLite
 mirrored to disk for review, cost and cache accounting, session resume, and
 run control from the parent — starting, steering, continuing, and stopping a
 run (§4.2).
@@ -65,10 +65,11 @@ it cannot reach FIM, prefix completion, or strict tool mode. `CLAUDE.md` says
 to exercise DeepSeek's behaviour directly, which points at the native
 endpoint.
 
-The cost of this choice is server-side web search, which DeepSeek serves only
-through the Anthropic format — the OpenAI-format API accepts `type: "function"`
-tools and nothing else. We build `WebFetch` ourselves instead. TOOLS.md prices
-that trade-off in full.
+The cost of this choice is server-side web search. The Responses surface the
+stdio process speaks accepts `function` tools and the `apply_patch` custom tool
+and ignores every built-in tool type, `web_search` included; DeepSeek's
+Anthropic format carries it, and this process does not speak that surface. We
+build `web_fetch` ourselves instead, and TOOLS.md records why.
 
 The Anthropic endpoint was also credited with handling thinking-block replay
 itself, sparing callers a documented 400. Measurement since shows that 400 does
@@ -85,7 +86,7 @@ API also replaces image parts with placeholder text. No screenshots reach
 resolution and token cost [DEEPSEEK-VISION.md](DEEPSEEK-VISION.md) records,
 through the same tool-message image shape Kimi and Gemini use. For the model
 that cannot see images, vision is a set of tools instead:
-`Screenshot` captures a page, and `Glance`, `Ground`, `Detect`, and `Crop`
+`screenshot` captures a page, and `glance`, `ground`, `detect`, and `crop`
 send images to Google Gemini and return a prose answer, a located pixel box,
 or a local crop, so a screenshot the agent captures itself can still be
 looked at ([TOOLS.md](TOOLS.md)).
@@ -142,14 +143,14 @@ Rules that follow:
   no changed-file list, and nothing drawn from a create body.
 - Tool definitions are fixed for the life of a session and serialised in a
   stable order. The array is chosen per model, through `provider.SeesImages`
-  — every vision-capable model (Kimi K3, Gemini, and `deepseek-flash`, the
-  only DeepSeek model this harness routes) gets fourteen tools without the
-  six vision ones; every other model, including one `provider.ModelFor`
-  rejects, gets the twenty-tool default (docs/KIMI-INTEGRATION.md decision
-  5, docs/DEEPSEEK-VISION.md) — so there are two frozen heads, each shared
-  by every session that resolves to it and each pinned by its own golden
-  file. A session's head is chosen at creation from its model and never
-  changes for the session's life.
+  and the provider table in `internal/tools/definitions.go`
+  (docs/KIMI-INTEGRATION.md decision 5, docs/DEEPSEEK-VISION.md): every
+  vision-capable model gets the base array without the six vision tools, and
+  a DeepSeek model gets that array without `list`, the four task tools, `task`
+  and `complete` as well. Each array is a frozen head, shared by every session
+  that resolves to it and pinned by its own golden file. A session's head is
+  chosen at creation from its model and never changes for the session's
+  life.
 - Volatile context goes in the newest message. It is never retrofitted into an
   older one.
 - No mid-conversation compaction that rewrites history. At 768K tokens — the
@@ -174,10 +175,9 @@ Two rules follow that are not obvious from the invariant alone. The session
 freezes its rendered system prompt and tool schema at creation, so upgrading the
 harness cannot change the prefix of a resumable session. And permission modes
 gate execution rather than tool availability, so the tool array never varies
-within a session — the per-model split (twenty tools for DeepSeek's
-non-vision pair, fourteen for every vision-capable model) is chosen once at
-session creation and is part of the frozen head, not a per-request
-variation.
+within a session. The per-model split (`internal/tools/definitions.go`) is
+chosen once at session creation and is part of the frozen head, not a
+per-request variation.
 
 Running many sessions at once makes the shared head worth more. Every session
 sends the same rendered system prompt and the same tool array, so the first
@@ -365,8 +365,8 @@ Rules the arrangement imposes:
   from the request deadline. A cancelled session still writes its terminal
   events.
 - The workspace is the parent's, and the parent names it per create call. Two
-  sessions must never be pointed at one directory: concurrent `Edit` and
-  `Bash` calls against it interleave, and neither model can see why its file
+  sessions must never be pointed at one directory: concurrent `edit` and
+  `bash` calls against it interleave, and neither model can see why its file
   changed under it. Nothing here enforces that — the parent owns the
   directory, so the parent owns the rule.
 - Per-session state stays per-session. The churn diagnostic's
@@ -406,15 +406,17 @@ it means the balance is gone, not that the harness broke.
 
 ### 4.6 Tools and permission policy
 
-Specified in [TOOLS.md](TOOLS.md). The set is `Read`, `Write`, `Edit`, `Bash`,
-`Glob`, `Grep`, `List`, `TaskCreate`, `TaskGet`, `TaskList`, `TaskUpdate`,
-`Task`, and `WebFetch` — the vocabulary of the harnesses DeepSeek names as its
-V4 agent optimisation targets — plus `Complete`, which is ours, and the vision
-path — `Screenshot`, `Glance`, `Ground`, `Detect`, `Transcribe`, and `Crop` —
-sent to a model with no native vision capability: every model
-`provider.SeesImages` does not name true, `deepseek-v4-pro` among them —
-though this harness does not route that model at all
-(docs/DEEPSEEK-VISION.md).
+Specified in [TOOLS.md](TOOLS.md). The names come from the vendor's own
+harness, which is `lower_snake_case` throughout: `read`, `write`, `edit`,
+`apply_patch`, `bash`, `job_output`, `job_list`, `job_kill`, `glob`, `grep`,
+`list`, `task_create`, `task_get`, `task_list`, `task_update`, `task`,
+`web_fetch` and `complete`. Which of those a session is offered depends on its
+model: the four task tools, `list` and `complete` are this harness's own, and
+DeepSeek's array does not carry them (`internal/tools/definitions.go`). The
+vision path, `screenshot`, `glance`, `ground`, `detect`, `transcribe` and
+`crop`, is sent to a model with no native vision capability: every model
+`provider.SeesImages` does not name true, `deepseek-v4-pro` among them, though
+this harness does not route that model at all (docs/DEEPSEEK-VISION.md).
 
 Four points from that document bear on the rest of this design:
 
@@ -424,10 +426,12 @@ Four points from that document bear on the rest of this design:
 - Tool results append in `tool_calls` array order regardless of completion
   order. DeepSeek emits parallel tool calls and they cannot be disabled, so
   ordering is what protects the prefix (§3.2).
-- `Complete` carries the machine-readable result back to the requester. It
+- `complete` carries the machine-readable result back to the requester. It
   cannot be forced, because thinking mode rejects `tool_choice: required`
   ([OBSERVED.md](OBSERVED.md)), so the harness asks for it in the system prompt
-  and tolerates its absence by falling back to the final assistant text.
+  and tolerates its absence by falling back to the final assistant text. A
+  model whose array does not carry it cannot produce a structured result at
+  all, and `Runner.Run` refuses a create that asks for one.
 - Permission is a policy, not a prompt.
 
 That last point is where this design departs from an interactive harness. The
@@ -600,27 +604,27 @@ in every project root: they are the vendor-neutral spellings DeepSeek's own
 agent and Gemini's hosted environment have converged on, and a repository that
 adopted either is not silently ignored. The catalogue renders the names and
 descriptions into the opening user message ahead of the task. The model reads
-a skill's body with `Read` when it decides one applies.
+a skill's body with `read` when it decides one applies.
 
 A skill inside the workspace is named relative to the workspace root. One
 installed outside it — the user's, a plugin's, an ancestor repository's — is
 named absolutely, and `Executor.ReadRoots` carries the directory discovery
-found it in so `Read`, `List`, `Glob` and `Grep` can open it. That allowance
-is read-only and covers one discovered skill directory each: `Write`, `Edit`
-and every other mutating tool remain confined to the workspace.
+found it in so `read`, `list`, `glob` and `grep` can open it. That allowance
+is read-only and covers one discovered skill directory each: `write`, `edit`,
+`apply_patch` and every other mutating tool remain confined to the workspace.
 
 Three consequences follow from §3.2. The catalogue goes in the opening message,
 never the system prompt, so a repository's or the user's skills cannot disturb
-the cached head. No `Skill` tool exists, because a twentieth tool definition
-would enlarge that head for every session to duplicate what `Read` already
-does. An empty catalogue renders to nothing, leaving the opening message
+the cached head. No `skill` tool exists, because a definition would enlarge
+that head for every session to duplicate what `read` already does. An empty
+catalogue renders to nothing, leaving the opening message
 byte-identical to a run with no skills.
 
 The missing tool has one cost, and it is paid by whoever reads the transcript
-rather than in the cached head: with no `Skill` call and no event marking the
+rather than in the cached head: with no `skill` call and no event marking the
 moment, a skill being taken looks exactly like a file being read, on one row
 out of the hundreds a run produces. A client that wants to tell them apart
-matches each `Read` target against the catalogue's own paths rather than
+matches each `read` target against the catalogue's own paths rather than
 against the file name, which is what keeps it honest in a repository whose
 subject matter is skills.
 

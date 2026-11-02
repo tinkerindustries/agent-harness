@@ -23,7 +23,7 @@ type webFetchArgs struct {
 // webFetchMaxBody bounds how much of a fetched page is read before
 // extraction; webFetchMaxExtract bounds how much extracted text is sent to
 // the summarising model, so one huge page cannot blow the budget of the
-// flash call that reads it (docs/MODELS.md: WebFetch extraction gets 4000
+// flash call that reads it (docs/MODELS.md: web_fetch extraction gets 4000
 // max_tokens of output). Production resolves both through the settings
 // registry (tools.webfetch_max_body, tools.webfetch_max_extract); these are
 // the built-in defaults, pinned equal by internal/settings/registry_test.go.
@@ -50,7 +50,7 @@ func (e *Executor) webFetchMaxExtract(ctx context.Context) int {
 	return webFetchMaxExtract
 }
 
-// execWebFetch implements WebFetch: fetch a URL, extract it to text, then
+// execWebFetch implements web_fetch: fetch a URL, extract it to text, then
 // have flash answer the caller's prompt against that text, so the parent
 // context receives an answer rather than a page (docs/TOOLS.md).
 func execWebFetch(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result {

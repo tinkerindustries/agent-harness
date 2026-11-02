@@ -111,7 +111,7 @@ round-trip that would reorder keys.
 
 **Function results are multimodal.** `result` is an array of content blocks,
 each with a `type`. That is a direct fit for the harness's existing image
-handling: `Read` and the MCP image path already produce an image part when
+handling: `read` and the MCP image path already produce an image part when
 `SeeImages` is true, and Gemini is a native-vision model, so it should be true
 for it (§5.7).
 
@@ -278,7 +278,7 @@ live confirmation.
   "stream": true,
   "input": [ /* steps, in order */ ],
   "tools": [
-    {"type": "function", "name": "Read", "description": "...", "parameters": { /* JSON Schema */ }}
+    {"type": "function", "name": "read", "description": "...", "parameters": { /* JSON Schema */ }}
   ],
   "generation_config": {"thinking_level": "high"}
 }
@@ -444,12 +444,12 @@ which took every other tool in the request down with it.
 `internal/session/runner.go`'s `seesImages()` is currently true only for Kimi.
 Gemini is natively multimodal, so it becomes true for `gemini-3.7-flash` too.
 That flips two things automatically, both already built: which tool array the
-session sends (`tools.DefinitionsFor`) and whether `Read` and the MCP image
+session sends (`tools.DefinitionsFor`) and whether `read` and the MCP image
 path return an image part (`tools.Executor.SeeImages`).
 
 This is the main capability argument for the whole exercise. Today a DeepSeek
-session that screenshots a page has to write the image to disk and ask Glance
-to describe it, then reason about the description. A Gemini session sees the
+session that screenshots a page has to write the image to disk and ask
+`glance` to describe it, then reason about the description. A Gemini session sees the
 image.
 
 The image part shape differs — `wire.Part`/`ImageURL` is a data URI in
@@ -691,7 +691,7 @@ tool array and the `seesImages` capability with no provider baked in, so
 Gemini gets a truthful head automatically, with none of the
 chain-of-thought scaffolding Gemini 3.x reacts badly to. Tool-result image
 resolution is left unset, unlike the vision tools' first-high/rest-medium
-policy, since a `Read` or MCP result carries one ad hoc image with no batch
+policy, since a `read` or MCP result carries one ad hoc image with no batch
 to rank.
 
 ### Phase 8 — End to end
@@ -703,7 +703,7 @@ cannot. Update `docs/OBSERVED.md`, `docs/MODELS.md`, `ARCHITECTURE.md` and
 `internal/CLAUDE.md`.
 
 **Done.** Two substantial live sessions against this repository through the
-dev stack (`readonly`, real Read/Grep/Glob/List/Task* tool use, multiple
+dev stack (`readonly`, real `read`/`grep`/`glob`/`list`/`task_*` tool use, multiple
 sub-turns, real thought steps with signatures on every one) plus a
 throwaway compaction stress probe, all captured end to end in
 `internal/httplog` and verified against the trace, not just the unit test.
@@ -746,7 +746,7 @@ via the codemap entries already current) are updated; `internal/gemini`'s
   (`TestInteractHeadersUnchangedAfterTransportMigration`), and it sets no
   response-header timeout either, because `chatTransport.HTTPClient` is the
   same `*http.Client` `Interact` always used, not a fresh one — so a
-  Glance/Ground/Detect call now survives a transient 5xx the same way a
+  `glance`/`ground`/`detect` call now survives a transient 5xx the same way a
   coding sub-turn does. `internal/gemini/client.go`'s `newRequest` and
   `wrapClientError`, both now unreachable, were removed rather than left as
   dead code beside `chatTransport`.
@@ -765,7 +765,7 @@ via the codemap entries already current) are updated; `internal/gemini`'s
   terms-of-service question answered by a person. Still out of scope for this
   plan; no longer unexamined.
 - Audio, video and document content types.
-- Retiring `Glance`/`Ground`/`Detect` for Gemini sessions. They stay; a session
+- Retiring `glance`/`ground`/`detect` for Gemini sessions. They stay; a session
   that can see images natively may still want a cheap second opinion, and the
   tools are shared with DeepSeek sessions regardless.
 - The 2027-01-01 price doubling. Still unwatched, still out of scope, now

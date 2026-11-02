@@ -27,7 +27,7 @@ func callWithArguments(t *testing.T, e *Executor, name, arguments string) Outcom
 }
 
 // TestExecuteAbsentArgumentsRunAnAllOptionalTool proves a call whose
-// arguments field never arrived is the call with an empty object: TaskList's
+// arguments field never arrived is the call with an empty object: task_list's
 // fields are all optional, so it runs and lists the whole plan. Before the
 // normalisation the same call came back "invalid arguments: unexpected end of
 // JSON input", which sent the model looking for a filter it did not want.
@@ -36,16 +36,16 @@ func TestExecuteAbsentArgumentsRunAnAllOptionalTool(t *testing.T) {
 	created := callWithArguments(t, e, "task_create",
 		`{"tasks":[{"subject":"Fix the bug","description":"why","activeForm":"Fixing the bug"}]}`)
 	if created.Result.IsError {
-		t.Fatalf("TaskCreate failed: %s", created.Result.Content)
+		t.Fatalf("task_create failed: %s", created.Result.Content)
 	}
 
 	for _, arguments := range []string{"", " ", "\n\t "} {
 		got := callWithArguments(t, e, "task_list", arguments)
 		if got.Result.IsError {
-			t.Fatalf("TaskList with arguments %q failed: %s", arguments, got.Result.Content)
+			t.Fatalf("task_list with arguments %q failed: %s", arguments, got.Result.Content)
 		}
 		if !strings.Contains(got.Result.Content, "Fix the bug") {
-			t.Fatalf("TaskList with arguments %q returned %q, want the whole plan", arguments, got.Result.Content)
+			t.Fatalf("task_list with arguments %q returned %q, want the whole plan", arguments, got.Result.Content)
 		}
 	}
 }

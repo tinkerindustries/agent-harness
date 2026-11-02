@@ -33,7 +33,7 @@ through to `go test`.
 
 ### Prerequisites
 
-- **A POSIX shell** — the `Bash` tool tests run commands.
+- **A POSIX shell** — the `bash` tool tests run commands.
 - No API key, no `.env`, no network.
 
 ## What to test where

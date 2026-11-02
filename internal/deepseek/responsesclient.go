@@ -90,7 +90,7 @@ func (c *ResponsesClient) StreamChatCompletion(ctx context.Context, intent wire.
 
 // CreateChatCompletion sends one non-streaming response and waits for the
 // whole thing, shaped as the chat completion body the loop's non-streaming
-// callers already read (compaction, the eval judge, WebFetch). The
+// callers already read (compaction, the eval judge, web_fetch). The
 // translation is messageFromResponse's: output items flattened back into
 // one assistant message.
 func (c *ResponsesClient) CreateChatCompletion(ctx context.Context, intent wire.ChatIntent) (*wire.ChatCompletionResponse, error) {

@@ -18,7 +18,7 @@ import (
 
 // backgroundThenPollServer scripts a session across two runs: the first
 // sub-turn starts command in the background and the second ends the run, then
-// the next run's first sub-turn reads the shell with BashOutput. The id is
+// the next run's first sub-turn reads the shell with job_output. The id is
 // bash_1 because the registry the test hands in is fresh, which is the one
 // thing about the id a scripted request can know in advance.
 func backgroundThenPollServer(t *testing.T, command, firstAnswer, polledAnswer string) *httptest.Server {
@@ -87,8 +87,8 @@ func backgroundThenPollServer(t *testing.T, command, firstAnswer, polledAnswer s
 }
 
 // TestBackgroundShellSurvivesTheRunForTheNextResume is fix one: a shell a
-// Bash call started in one run is still addressable by the next run's
-// BashOutput. Before the session-scoped registry, the run's deferred
+// bash call started in one run is still addressable by the next run's
+// job_output. Before the session-scoped registry, the run's deferred
 // Executor.Close killed it and the resume answered "no background shell".
 func TestBackgroundShellSurvivesTheRunForTheNextResume(t *testing.T) {
 	srv := backgroundThenPollServer(t, "echo still-here; sleep 30", "started", "polled")
@@ -146,7 +146,7 @@ func TestBackgroundShellSurvivesTheRunForTheNextResume(t *testing.T) {
 		t.Fatal("the first run never started the background shell")
 	}
 	if !polled {
-		t.Fatal("the resumed run never called BashOutput")
+		t.Fatal("the resumed run never called job_output")
 	}
 }
 
@@ -322,7 +322,7 @@ func compactionShellServer(t *testing.T, command string, summarizerDelay time.Du
 
 // TestBackgroundShellFollowsCompaction pins the mid-run case: a shell the
 // model started before compaction is still the successor session's shell
-// afterwards. The registry moves with the run, so BashOutput finds the id and
+// afterwards. The registry moves with the run, so job_output finds the id and
 // any exit records against the row that is still running.
 func TestBackgroundShellFollowsCompaction(t *testing.T) {
 	srv := compactionShellServer(t, "sleep 30", 0)

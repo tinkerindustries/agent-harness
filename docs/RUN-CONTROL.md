@@ -27,15 +27,15 @@ button.
 - **Approval-gated tool calls.** §4.6 rejected a loop that blocks on a human
   for exactly this reason: it stalls when nobody is watching. Steering adds a
   channel *into* the loop; it does not make the loop wait on it.
-- **A stop control reaching into a background shell.** `Bash`'s
-  `run_in_background`, `BashOutput`, and `KillBash` ([TOOLS.md](TOOLS.md))
+- **A stop control reaching into a background shell.** `bash`'s
+  `run_in_background`, `job_output`, and `job_kill` ([TOOLS.md](TOOLS.md))
   are the poll/kill affordances this section once named as not built, for a
   command a model chose to detach on purpose. This design's "kill a wedged
   call" is about ending a *foreground* call from outside when nothing chose
   to detach it; "Half one" below is what a background shell's own
   `cmd.WaitDelay` and process group reuse, not a substitute for either. A
   shell outlives the run that started it, which is what makes the next
-  turn's `BashOutput` work, but a run that ends stopped, timed out or
+  turn's `job_output` work, but a run that ends stopped, timed out or
   failed calls `Executor.CloseAll`, and the process closes the session's
   registry when the pipe ends. Compaction is the one identity change: the
   registry follows the successor row, so a shell started before it is still
@@ -79,7 +79,7 @@ whether or not anything above them ever calls stop:
    `exec.ErrWaitDelay`. Note what this fixes and when — **not only after `ctx`
    is done**. The commonest shape of the bug is a command that *succeeds*:
    `sh` exits 0 in a millisecond and a backgrounded grandchild holds the pipe
-   for hours. `WaitDelay` bounds that case too, so a wedged `Bash` call ends a
+   for hours. `WaitDelay` bounds that case too, so a wedged `bash` call ends a
    couple of seconds after the shell exits rather than at the tool timeout, or
    never.
 2. **A process group.** `SysProcAttr{Setpgid: true}` makes the child a group
@@ -146,7 +146,7 @@ typed `SessionFinishedError` naming what it finished as. A second cancel of an
 already-cancelled row is a no-op rather than a version bump, so a retried stop
 cannot move `finished_at` off the moment the stop actually landed.
 
-**A cancelled parent takes its subagents with it.** A `Task` subagent runs
+**A cancelled parent takes its subagents with it.** A `task` subagent runs
 `Runner.Run` under the parent's `ctx`, so `cancel()` propagates without extra
 work; the child fails normally and its own row records that. Nothing here
 cancels a child independently, and nothing needs to.
@@ -283,7 +283,7 @@ a client should show: *sent, not yet delivered*.
 ### A steer the run never reached
 
 A run can end with no sub-turn boundary after a steer: the model answers with
-no tool calls, calls `Complete`, is stopped, or fails.
+no tool calls, calls `complete`, is stopped, or fails.
 Left in the log, that steer would be applied at the first boundary of
 whichever run the session had next. A client that had sent it again as a new
 message would then have it delivered twice.

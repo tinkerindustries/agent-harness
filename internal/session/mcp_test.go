@@ -122,7 +122,7 @@ func baseToolNames(model string) []string {
 	return names
 }
 
-// recordingMultiTurnServer answers a streamed request with a TaskList call
+// recordingMultiTurnServer answers a streamed request with a task_list call
 // on its first turn (keeping the loop going without touching anything
 // filesystem-related) and a plain answer on every turn after, recording
 // every request body along the way — so a test can inspect what every

@@ -63,7 +63,7 @@ Images cost at most **384 tokens each** (`guides/vision.md`, "Token Usage").
 Every image is resized to roughly 800×800 before inference, so a 5000px capture
 and a 2000px one bill the same. Up to 600 images ride in one request.
 
-That number is the argument. A `Glance` against Gemini measured 1,121–1,195
+That number is the argument. A `glance` against Gemini measured 1,121–1,195
 input tokens per image and, in one case, 3,331 output tokens
 ([`VISION-TOOLKIT.md`](VISION-TOOLKIT.md) §7). At `gemini-3.7-flash`'s rates
 that is around $0.013 for one look at one image. The same image inside a
@@ -131,7 +131,7 @@ the middle of a tool-result batch without checking this again first.
 ## 4. The resolution trade
 
 DeepSeek resizes every image to roughly 800×800 and caps it at 384 tokens
-regardless of the source resolution. A Gemini `Glance` was measured at
+regardless of the source resolution. A Gemini `glance` was measured at
 1,121–1,195 input tokens per image
 ([`VISION-TOOLKIT.md`](VISION-TOOLKIT.md) §7). Native DeepSeek vision costs
 about $0.000084 per look against roughly $0.013 for the equivalent Gemini
@@ -139,18 +139,18 @@ call, and gives roughly a third of the visual resolution in return. It is the
 cheap option. It is not strictly the better one.
 
 Small text on a full-page screenshot will be less legible at 384 tokens than
-it is to a Gemini call spending three times that. `Transcribe` and `Crop`
+it is to a Gemini call spending three times that. `transcribe` and `crop`
 existed specifically to compensate for a model that could not resolve fine
-detail on its own — `Transcribe` chunks a tall page into pieces small enough
-to read, and `Crop` cuts a region out so `Glance` can look at it at full
+detail on its own: `transcribe` chunks a tall page into pieces small enough
+to read, and `crop` cuts a region out so `glance` can look at it at full
 resolution. Turning the vision capability on for this model drops both of
-them, along with `Screenshot`, `Glance`, `Ground`, and `Detect`: the model
-reuses `definitionsVisionCapable`, the same fourteen-tool array Kimi and
-Gemini already share, instead of a third array carrying some subset of the
-six. The user decided this explicitly on 2026-08-28, aware of the
-consequence: a session on this model has no compensating tool to fall back
-on when a screenshot's detail exceeds what 384 tokens can carry. It works at
-native resolution or it does not work at all.
+them, along with `screenshot`, `glance`, `ground` and `detect`. It resolves to
+the vision-capable array Kimi and Gemini already share, and the array it is
+actually offered is that one minus the harness-added tools
+(`internal/tools/definitions.go`). The user decided this explicitly on
+2026-08-28, aware of the consequence: a session on this model has no
+compensating tool to fall back on when a screenshot's detail exceeds what 384
+tokens can carry. It works at native resolution or it does not work at all.
 
 ## 5. Verified against the live API
 
@@ -201,14 +201,14 @@ covers the shape now shipped.
 ### Still unverified
 
 - Whether the model's image understanding holds up across the range of work
-  `Glance`, `Ground`, and `Detect` did through Gemini. A handful of images
+  `glance`, `ground`, and `detect` did through Gemini. A handful of images
   read correctly is a handful of data points, all on large, high-contrast
   UI text.
 - Whether the 384-token ceiling makes screenshot-driven work materially worse
   in practice. §4 states the trade in principle. The probe images were around
   2,950 pixels wide and their small text was read correctly, which is
   encouraging and is not a measurement.
-- Everything about `Ground` and `Detect`'s pixel-box convention. None of the
+- Everything about `ground` and `detect`'s pixel-box convention. None of the
   measurements above asked the model for coordinates.
 
 ## 6. The one hosted model over stdio
@@ -217,12 +217,12 @@ covers the shape now shipped.
 whole reason. That process hosts one session for a parent application over a
 pipe and takes its credentials from the environment the parent spawned it
 with ([`STDIO-PROTOCOL.md`](STDIO-PROTOCOL.md)). A session on a model that
-cannot see images would be given the six tools that exist to compensate —
-`Screenshot`, `Glance`, `Ground`, `Detect`, `Transcribe`, `Crop` — and four of
+cannot see images would be given the six tools that exist to compensate:
+`screenshot`, `glance`, `ground`, `detect`, `transcribe`, `crop`. Four of
 those send their images to Google. The parent would have had to supply a
 Google API key to make a DeepSeek session work, or watch four tools fail
 whenever the model reached for one. `deepseek-flash`'s native vision is what
-removes that: it is offered none of the six, `Read` hands it the image
+removes that: it is offered none of the six, `read` hands it the image
 directly, and one credential is enough. `internal/provider` does not route
 `deepseek-v4-pro` at all, so the choice is not a refusal of a second hosted
 model — there is only the one.

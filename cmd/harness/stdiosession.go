@@ -203,7 +203,7 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 		ClientFor: clientFor,
 		Prices:    priceTable,
 		Gemini:    geminiClient,
-		// The flash model is what WebFetch summarises with and what
+		// The flash model is what web_fetch summarises with and what
 		// compaction runs on, so it follows the session's own model rather
 		// than being pinned to one provider — a DeepSeek session that
 		// summarised a page through Google would need the key the whole

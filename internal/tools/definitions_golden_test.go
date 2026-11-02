@@ -55,7 +55,7 @@ func TestToolArrayGolden(t *testing.T) {
 		// tools, task, complete), so its bytes are not Kimi's.
 		{"deepseek-flash", "deepseek-flash", "tools_deepseek_flash.golden.json"},
 		// Claude reads images natively like Kimi and Gemini, but also drops
-		// WebFetch — Anthropic's own server-side web_search and web_fetch
+		// web_fetch — Anthropic's own server-side web_search and web_fetch
 		// tools ride the request instead (internal/anthropic's intent
 		// renderer, docs/ANTHROPIC-INTEGRATION.md) — so its array is one
 		// tool shorter than Kimi's and gets its own golden file.

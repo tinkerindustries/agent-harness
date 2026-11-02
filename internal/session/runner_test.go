@@ -912,7 +912,7 @@ func TestRunGeminiCostShowsInSessionTotal(t *testing.T) {
 }
 
 // TestTaskCreateOrderingWithinSubTurn is the concurrency fix's own test: two
-// TaskCreate calls in one sub-turn must mint ids in the order the calls
+// task_create calls in one sub-turn must mint ids in the order the calls
 // appear in the array, because the store's plan replay
 // (internal/store/status.go RequestStatus) and the frontend both reconstruct
 // ids by walking the event log in that same order. If the two calls raced
@@ -930,14 +930,14 @@ func TestTaskCreateOrderingWithinSubTurn(t *testing.T) {
 	}
 	outcomes := r.executeToolCalls(t.Context(), store.Session{ID: "sess-order"}, executor, calls)
 
-	// Each TaskCreate renders the whole checklist, so the first outcome
+	// Each task_create renders the whole checklist, so the first outcome
 	// carries only its own task — the lower id — and the second outcome
 	// carries both, with its new task under a higher id.
 	if first := outcomes[0].Result.Content; !strings.Contains(first, "#1 First task") || strings.Contains(first, "#2") {
-		t.Fatalf("first TaskCreate rendered %q, want its own task with the lower id only", first)
+		t.Fatalf("first task_create rendered %q, want its own task with the lower id only", first)
 	}
 	if second := outcomes[1].Result.Content; !strings.Contains(second, "#1 First task") || !strings.Contains(second, "#2 Second task") {
-		t.Fatalf("second TaskCreate rendered %q, want both tasks with the second's id higher", second)
+		t.Fatalf("second task_create rendered %q, want both tasks with the second's id higher", second)
 	}
 }
 

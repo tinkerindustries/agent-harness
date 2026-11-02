@@ -287,7 +287,7 @@ type BackgroundFinishedPayload struct {
 }
 
 // Message is the text the model reads for this exit: what ended, how, and the
-// BashOutput call that still has its output. Fold and every parent-facing
+// job_output call that still has its output. Fold and every parent-facing
 // translator build the message here so they cannot word it differently.
 func (p BackgroundFinishedPayload) Message() string {
 	var b strings.Builder

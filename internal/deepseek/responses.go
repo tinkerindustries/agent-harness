@@ -188,7 +188,7 @@ func finishReasonFor(r *responseObject) string {
 
 // messageFromResponse rebuilds the assistant message a non-streaming
 // response describes, for the callers that want the whole answer at once
-// (compaction, the eval judge, WebFetch). The output items are flattened
+// (compaction, the eval judge, web_fetch). The output items are flattened
 // the way the streaming path accumulates them: reasoning into
 // reasoning_content, message text into content, function calls into
 // tool_calls.

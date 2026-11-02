@@ -55,7 +55,7 @@ func (e *Executor) execMCP(ctx context.Context, server, name string, argsRaw jso
 // the output cap, images written into the session's scratch/mcp/ and named
 // in the text, a server-reported isError carried through as an ordinary
 // failed result. Shared by the mcp__<server>__<tool> path above and by the
-// fixed MCPReadResource and MCPGetPrompt tools (mcpresources.go), which
+// fixed read_mcp_resource and get_mcp_prompt tools (mcpresources.go), which
 // receive exactly the same kind of content and have no reason to place it
 // differently.
 //

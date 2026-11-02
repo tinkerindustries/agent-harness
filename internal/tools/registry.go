@@ -1,5 +1,6 @@
-// Package tools implements the twenty-four tools in docs/TOOLS.md: schemas that
-// match the trained-in shape, argument validation in Go, workspace
+// Package tools implements the tools in docs/TOOLS.md (definitions.go is the
+// authoritative list): schemas that match the trained-in shape, argument
+// validation in Go, workspace
 // confinement, per-tool timeouts and output caps, and the permission policy
 // that gates execution without ever changing which tools are on offer
 // (docs/CACHE.md).
@@ -189,7 +190,7 @@ type Timeouts struct {
 }
 
 // ChatClient is the narrow seam the executor's own model calls use —
-// WebFetch's summarisation — declared here, where it is consumed, and
+// web_fetch's summarisation — declared here, where it is consumed, and
 // implemented by the provider clients; *deepseek.Client implements it today
 // and Kimi K3's client will tomorrow. It is the same shape as
 // internal/session's Client seam (docs/KIMI-INTEGRATION.md §4.1): the
@@ -234,10 +235,10 @@ type Executor struct {
 	// a session's life (docs/CACHE.md).
 	SeeImages bool
 
-	// Gemini is the client Glance, Ground, and Detect use to send images to
-	// Google's Gemini API (Crop makes no model call). Nil (a session with no
+	// Gemini is the client glance, ground, and detect use to send images to
+	// Google's Gemini API (crop makes no model call). Nil (a session with no
 	// client configured) makes a tool return an ordinary error result saying
-	// so, the same shape WebFetch uses for a nil Client — it never panics and
+	// so, the same shape web_fetch uses for a nil Client — it never panics and
 	// never fails the run.
 	Gemini *gemini.Client
 
@@ -246,7 +247,7 @@ type Executor struct {
 	// mcp__ prefix through instead of toolFuncs (docs/MCP.md, "Calling").
 	// Nil — no MCP client wired, the shape every existing test and a caller
 	// with none wired take — makes such a call return an ordinary error
-	// result naming the tool, the same shape WebFetch and Gemini use for a
+	// result naming the tool, the same shape web_fetch and Gemini use for a
 	// nil dependency: never a panic, never a failed run.
 	MCP MCPProvider
 
@@ -298,7 +299,7 @@ type Executor struct {
 	RG string
 
 	// Settings, when set, is where the tool limits (output caps, timeouts,
-	// WebFetch and vision bounds) resolve from on every call, so a limit
+	// web_fetch and vision bounds) resolve from on every call, so a limit
 	// changed in the settings table (tools.*) takes effect on the next
 	// tool call without a restart. Nil is the test path: the package
 	// constants below apply.
@@ -371,7 +372,7 @@ func (e *Executor) shellsRegistry() *Shells {
 
 // Close ends the background shells this Executor owns. A session registry it
 // was handed is the session's, not this run's: it is left alone so the next
-// run's BashOutput can still read a build the last run started. The session's
+// run's job_output can still read a build the last run started. The session's
 // owner calls CloseAll to end those, and internal/session calls CloseAll on a
 // stopped run instead of this.
 func (e *Executor) Close() {

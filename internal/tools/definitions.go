@@ -9,11 +9,13 @@ import (
 )
 
 // The tool array is per-provider (docs/KIMI-INTEGRATION.md §4.5, decision 5):
-// DeepSeek gets all twenty-four tools, and Kimi K3 gets the eighteen that remain
-// once the six vision tools are dropped — K3 reads images natively, so
-// Glance, Ground, Detect, Transcribe, Crop (the Gemini round-trips and the
-// local image operation that feeds them) and Screenshot (capture-and-describe)
-// are all redundant for it (docs/TOOLS.md). A provider's array is fixed and ordered,
+// definitionsDeepSeek below is the base array and carries every tool the
+// harness ships. A vision-capable model gets it without the six tools that
+// exist only to get an image in front of a model that cannot see one, since it
+// reads images natively: glance, ground, detect, transcribe, crop (the Gemini
+// round-trips and the local image operation that feeds them) and screenshot
+// (capture-and-describe) are all redundant for it (docs/TOOLS.md). A
+// provider's array is fixed and ordered,
 // shared by every session on that provider in every permission mode; it
 // never varies by mode or by request — that is what keeps the shared prefix
 // stable (docs/CACHE.md). Each array is pinned by its own golden file
@@ -196,10 +198,10 @@ var definitionsDeepSeek = []wire.Tool{
 	// message, which states the actual limit — the same shape the other
 	// tools' caps use.
 	//
-	// Glance is the general, prose-answering tool — what ReviewScreenshot and
-	// AskVision both were, now one tool with no imposed findings shape. Ground
-	// and Detect exist because prose is the wrong return type for "where is
-	// it": they hand back pixel boxes a caller can act on, feed to Crop for a
+	// glance is the general, prose-answering tool — what ReviewScreenshot and
+	// AskVision both were, now one tool with no imposed findings shape. ground
+	// and detect exist because prose is the wrong return type for "where is
+	// it": they hand back pixel boxes a caller can act on, feed to crop for a
 	// closer look, or drop straight into glance's region to ask about just
 	// that spot (docs/VISION-TOOLKIT.md §4, §6).
 	function("glance", "Ask Google Gemini's vision model about one or more images: describe them, ask a question in your own words, or transcribe the visible text verbatim. Use this for anything the answer to which is prose — comparing two captures, reading text off a chart, checking what a screenshot shows. When what you actually need is where something is, ground or detect return a pixel box instead of a description of one. query and ocr are mutually exclusive: query sends exactly the question you write, ocr transcribes text line by line without judging it, and omitting both describes the image in general. Put any spec, CSS, or context in query ahead of the question you ask, and say what standard you are judging against — a vision model given none falls back on general web convention and reports deliberate choices as breakage. region crops the image to a pixel box before sending it, so a spot ground or detect just located can be looked at closer and sharper than re-describing the whole page; it works with exactly one image. The first image goes at high resolution and the rest at medium, so put the one the question is really about first. A call without conversation_id starts a conversation and its result carries the id; passing that id continues it, so \"look closer at the header\" costs one call rather than a whole fresh look. Images are PNG, JPEG, or WebP, workspace-relative or absolute paths. A call costs many times an ordinary sub-turn and the result says what it cost.", `{
@@ -297,7 +299,7 @@ var definitionsDeepSeek = []wire.Tool{
 }
 
 // definitionsVisionCapable is the array for every model that reads images
-// natively (provider.SeesImages): DeepSeek's twenty-four minus the six tools that
+// natively (provider.SeesImages): definitionsDeepSeek minus the six tools that
 // exist only to get an image in front of a model that cannot see one
 // itself. Kimi K3 was the first (docs/KIMI-INTEGRATION.md §4.5) and Gemini
 // is the second (docs/GEMINI-INTEGRATION.md §5.7) — both drop the identical
@@ -359,8 +361,8 @@ func function(name, description, parameters string) wire.Tool {
 	}
 }
 
-// Definitions returns the DeepSeek tool array — the twenty-four tools the
-// harness ships, unchanged byte for byte
+// Definitions returns the base tool array: every tool the harness ships,
+// unchanged byte for byte
 // (docs/KIMI-INTEGRATION.md §4.2). It is the array every pre-Phase-8 caller
 // meant, and the default for anything that does not resolve to a provider
 // (an unknown model falls back to the default provider, DeepSeek). Callers

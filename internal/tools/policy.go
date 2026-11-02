@@ -7,8 +7,8 @@ import (
 
 // Mode is the permission mode a session holds for its whole life
 // (docs/TOOLS.md, "Permissions"). Modes gate execution, never the tool
-// array sent to the model: all twenty-four tools ship in every mode, and a
-// disallowed call is refused at execution time.
+// array sent to the model: every tool the session's array carries ships in
+// every mode, and a disallowed call is refused at execution time.
 type Mode string
 
 const (
@@ -56,9 +56,9 @@ type Policy struct {
 }
 
 // alwaysAllowed tools have no side effects outside the session's own
-// bookkeeping and run in every mode. Glance, Ground, Detect, and Transcribe
+// bookkeeping and run in every mode. glance, ground, detect and transcribe
 // read a file and send it over the network without changing anything on disk
-// — the same reasoning that puts WebFetch in read-only mode. Transcribe
+// — the same reasoning that puts web_fetch in read-only mode. transcribe
 // makes several of those requests instead of one, which costs more but
 // changes nothing about what it touches: it writes no chunk files, and the
 // boundaries it reports are y positions in the source image rather than
@@ -141,9 +141,9 @@ func (p *Policy) Check(toolName, descriptor string) Decision {
 		}
 	}
 
-	// MCPReadResource and MCPGetPrompt dial a server, so they answer to the
-	// same per-server gate its tools do (docs/MCP.md, "Permissions"). The
-	// server is not in the tool name — these four names are fixed — so it
+	// read_mcp_resource and get_mcp_prompt dial a server, so they answer to
+	// the same per-server gate its tools do (docs/MCP.md, "Permissions"). The
+	// server is not in the tool name — these five names are fixed — so it
 	// comes from the descriptor, which descriptor.go builds from the call's
 	// own server argument.
 	if server, ok := mcpAccessServerOf(toolName, descriptor); ok {

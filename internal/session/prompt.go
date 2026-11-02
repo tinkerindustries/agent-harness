@@ -107,7 +107,7 @@ func inventorySentence(names []string) string {
 }
 
 // numberWord spells n the way the head spells its availability count
-// ("All seventeen are always available"). The count is generated from the
+// ("All <word> are always available"). The count is generated from the
 // tool array, so a count past the end of the table renders "?" rather than a
 // word — visible in the golden head the moment it happens, which is what
 // forces the table to grow.
@@ -414,12 +414,12 @@ func RenderSystemPrompt() string {
 // RenderSystemPromptFor returns the frozen system prompt for the provider
 // serving model, with a named variant's edits made. An empty variant name is
 // the provider's shipped prompt, byte for byte (internal/promptvariant):
-// DeepSeek renders its eleven-tool head, Kimi renders the head for its
-// eighteen-tool array — whose inventory, count word and rules all follow
-// from the array itself (docs/KIMI-INTEGRATION.md §4.4) — Gemini renders
-// the same eighteen-tool head Kimi does, since both resolve to
+// DeepSeek renders the head for its hosted array, Kimi renders the head for
+// its own, whose inventory, count word and rules all follow from the array
+// itself (internal/tools/definitions.go, docs/KIMI-INTEGRATION.md §4.4),
+// Gemini renders the same head Kimi does, since both resolve to
 // tools.definitionsVisionCapable and both have seesImages() true
-// (docs/GEMINI-INTEGRATION.md §5.7) — and a variant that subtracts tools
+// (docs/GEMINI-INTEGRATION.md §5.7), and a variant that subtracts tools
 // (tools.DefinitionsForVariant) renders the head for its own smaller array,
 // with no replacements entry needed to keep the inventory truthful.
 func RenderSystemPromptFor(model, variant string) (string, error) {
