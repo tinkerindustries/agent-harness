@@ -30,6 +30,11 @@ keeps the methods it has.
 - `write`, `edit` and `apply_patch` are mutating and never in `alwaysAllowed`.
 - `apply_patch` parses and applies every hunk in memory before writing any file.
   One hunk that does not apply leaves the workspace untouched.
+- `apply_patch` requires a prior read of every existing file it changes; a file
+  it creates needs none. That is why a binary file cannot be deleted through it.
+- `MutationTargets` is the scheduling seam: a call reports every file it
+  rewrites, and the runner merges path groups so a multi-file call is ordered
+  against all of them. `Result.Diff` stays Edit's one-file line diff.
 - `definitionsVisionCapable` is the base array minus the six vision tools;
   `definitionsClaude` is that array minus `web_fetch`; DeepSeek's hosted array
   is `definitionsVisionCapable` minus the seven names above. A tool added to the
@@ -42,9 +47,8 @@ keeps the methods it has.
   `MCPAccessToolCount` and the slice length are pinned together at compile
   time; adding one shifts every later index, and `internal/session/mcp_test.go`
   spells the access array out.
-- The probe writes resource templates into the stored resources list with
-  `Template` set, so a template listing filters `MCPProvider.Resources`. It
-  adds no method, probe or snapshot field.
+- A tool-dropping variant needs no replacement entry when the head's rule about
+  that tool is its own fragment gated on the tool. `no-patch` relies on that.
 - The base array is served to no routed model. `Definitions()` returns it and
   an unknown model falls back to it; DeepSeek's, Kimi's, Gemini's and Claude's
   arrays are what sessions are sent. `RenderSystemPrompt()` renders the base
@@ -55,9 +59,7 @@ keeps the methods it has.
 - `web_fetch` is also Anthropic's server-side tool name. A Claude request
   carries only Anthropic's, so a test that checks for the harness's one tells
   them apart by shape (`input_schema` against `type`), never by name.
-- Lowercase names collide with English words (`ground` inside
-  `run_in_background`, `list` inside `job_list`). A test that scans prompt or
-  message text for a tool name needs word boundaries.
+
 
 ## Files that matter
 
@@ -68,6 +70,7 @@ keeps the methods it has.
 | `internal/tools/policy.go` | `alwaysAllowed` and the per-server MCP read-only gate |
 | `internal/tools/descriptor.go` | The string a deny pattern matches and a denial shows; rename its cases |
 | `internal/tools/mutation.go` | Same-file ordering for mutating tools; a new mutating tool belongs here too |
+| `internal/tools/patch.go` | The apply_patch grammar, staging and prior-read gate; its description is in the frozen head |
 | `internal/tools/bashbackground.go` | `Shells` and background-shell state; the job wait and listing read it |
 | `internal/session/prompt.go` | `toolOrder` and `toolFragments`; every fragment names tools in prose |
 | `internal/session/tooldispatch.go`, `livestate.go` | Task tool name comparisons and the Bash live-state case |
