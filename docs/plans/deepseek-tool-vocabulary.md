@@ -301,6 +301,10 @@ go test ./internal/mcpclient ./internal/tools
   Claude carry all seven. The "Web search is not on the endpoint we use"
   section is corrected to describe the Responses surface and the fact that
   built-in tool types are ignored there.
+- `docs/MCP.md`: the four older access-tool rows and the prose around them
+  still use the pre-rename `MCPListResources`, `MCPReadResource`,
+  `MCPListPrompts` and `MCPGetPrompt` spellings. Rename them, and check the
+  rest of the file for other old names.
 - `internal/CLAUDE.md`, `ARCHITECTURE.md` and `docs/DESIGN.md` wherever a tool
   is named.
 - Wherever a comment or a document restates the size of an array ("twenty-two",
