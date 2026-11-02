@@ -70,7 +70,7 @@ func (s *Server) resumeTarget(ctx context.Context, p *CreateRequest) (store.Sess
 	if p.Model != "" && p.Model != sess.Model {
 		return store.Session{}, errorf(CodeInvalidParams, "session %s ran on %s; a resumed session cannot change model, because its prompt prefix is frozen", id, sess.Model)
 	}
-	if p.Harness.CWD != "" && p.Harness.CWD != sess.Workspace {
+	if p.Harness.CWD != "" && !sameDir(p.Harness.CWD, sess.Workspace) {
 		return store.Session{}, errorf(CodeInvalidParams, "session %s works in %s; a resumed session cannot change directory, and inherits the one it started in", id, sess.Workspace)
 	}
 	if p.Harness.PermissionMode != "" && p.Harness.PermissionMode != sess.PermissionMode {

@@ -644,7 +644,7 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 			return nil, errorf(CodeRunNotFound, s.m.PreviousNotFound, p.PreviousRunID)
 		}
 		sessionID, cwd, resume = prev.sessionID, prev.cwd, true
-		if p.Harness != nil && p.Harness.CWD != "" && p.Harness.CWD != cwd {
+		if p.Harness != nil && p.Harness.CWD != "" && !sameDir(p.Harness.CWD, cwd) {
 			return nil, errorf(CodeInvalidParams, s.m.PreviousChangedCWD, prev.id, cwd)
 		}
 		if prev.model != model {
