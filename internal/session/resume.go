@@ -9,6 +9,7 @@ import (
 
 	"github.com/mrgeoffrich/agent-harness/internal/cache"
 	"github.com/mrgeoffrich/agent-harness/internal/fold"
+	"github.com/mrgeoffrich/agent-harness/internal/skills"
 	"github.com/mrgeoffrich/agent-harness/internal/store"
 	"github.com/mrgeoffrich/agent-harness/internal/tools"
 	"github.com/mrgeoffrich/agent-harness/internal/wire"
@@ -107,6 +108,10 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 	executor.ResultSchema = sess.ResultSchema
 	executor.MCP = r.MCP
 	executor.RG = r.RG
+	// The opening message a resumed session carries names the same skills,
+	// some of them outside the workspace, so Read gets the same allowance the
+	// first run had. Nothing about the catalogue reaches the request prefix.
+	executor.ReadRoots = skills.Discover(executor.Workspace).ReadRoots()
 
 	runOpts := RunOptions{
 		Model: sess.Model, Effort: sess.Effort, Thinking: sess.Thinking,

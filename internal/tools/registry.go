@@ -204,7 +204,13 @@ type ChatClient interface {
 // belongs to exactly one session; nothing on it is shared across sessions
 // (docs/DESIGN.md §4.5).
 type Executor struct {
-	Workspace    string
+	Workspace string
+	// ReadRoots are directories outside the workspace that the read-only
+	// tools may also read: one per skill discovered outside it, filled by
+	// internal/session from the skills catalogue. Each tool still refuses
+	// every other path outside the workspace, and Write, Edit and the other
+	// mutating tools stay confined to Workspace alone.
+	ReadRoots    []string
 	Policy       *Policy
 	ResultSchema json.RawMessage
 	OutputCap    int

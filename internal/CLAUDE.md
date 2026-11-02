@@ -427,14 +427,20 @@ agent loop.
 Depends on: nothing internal.
 
 ### `internal/skills`
-Scans each cloned repository for `.claude/skills/` and `.deepcode/skills/`,
-and the workspace's own `skills/` (`WorkspaceSkillsDir`), and renders what it
-finds into a catalogue. The workspace directory is how a skill reaches a
-session without being committed to any repository the session is working in —
-and it sits under the workspace root because the catalogue carries only
-descriptions, so the model opens each `SKILL.md` with `Read`, which is
-workspace-confined. Discovery never fails a run. Depends on: nothing
-internal. §4.11.
+Discovers Agent Skills from the locations Claude Code reads: the user's
+`~/.claude/skills` (or `$CLAUDE_CONFIG_DIR/skills`, including the `synced/`
+tree a claude.ai account's skills land in), each installed plugin's `skills/`,
+the enterprise managed settings directory, and project `.claude/skills/` at
+the workspace root, in each repository cloned directly beneath it, and in
+every directory up to the workspace's git repository root. It scans
+`.deepcode/skills/` and `.agents/skills/` beside `.claude/skills/`, and the
+workspace's own `skills/` (`WorkspaceSkillsDir`), and renders what it finds
+into a catalogue. The workspace directory is how a skill reaches a session
+without being committed to any repository the session is working in. A skill
+inside the workspace is named relatively; one outside it is named absolutely,
+and its directory comes back in `ReadRoots`, which `internal/session` hands to
+the tools `Executor` so the read-only tools can open it. Discovery never fails
+a run. Depends on: nothing internal. §4.11.
 
 ### `internal/claudemd`
 Scans the workspace and each cloned repository for a root `CLAUDE.md` and

@@ -30,7 +30,7 @@ func execRead(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 	if args.FilePath == "" {
 		return errorResult("file_path is required")
 	}
-	path, err := ResolvePath(e.Workspace, args.FilePath)
+	path, err := e.resolveReadPath(args.FilePath)
 	if err != nil {
 		return errorResult("%v", err)
 	}

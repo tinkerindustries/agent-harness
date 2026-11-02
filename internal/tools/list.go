@@ -23,7 +23,7 @@ func execList(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 	if args.Path == "" {
 		return errorResult("path is required")
 	}
-	path, err := ResolvePath(e.Workspace, args.Path)
+	path, err := e.resolveReadPath(args.Path)
 	if err != nil {
 		return errorResult("%v", err)
 	}

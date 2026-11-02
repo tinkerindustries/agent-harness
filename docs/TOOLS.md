@@ -92,6 +92,11 @@ a model that can see one.
 Returns line-numbered content, `cat -n` style, because that is the shape the
 target harnesses return and the model reads offsets out of it.
 
+A file under a skill directory discovered outside the workspace opens like
+any other, which is how the model reads a skill installed for the user. The
+catalogue names such a skill by its absolute path, and its directory is the
+allowance the read-only tools resolve against (see "Execution rules").
+
 `limit` bounds how many lines come back, and defaults to 2,000. A file longer
 than that is cut, and the cut is marked in the result:
 
@@ -922,7 +927,11 @@ wrong, since the endpoint is already config.
 These hold for every tool and live in Go, not in prompt text.
 
 - Paths resolve against the workspace root and are checked for escape after
-  symlink resolution. Escapes are rejected, not sanitised.
+  symlink resolution. Escapes are rejected, not sanitised. `Read`, `List`,
+  `Glob` and `Grep` have one read-only exception: a path under a skill
+  directory `internal/skills` discovered outside the workspace resolves there,
+  which is how a skill installed for the user is opened. `Write`, `Edit` and
+  every other tool that changes the filesystem stay inside the workspace.
 - Every tool has a wall-clock timeout and an output byte cap, with truncation
   labelled in the result. Both are settings (`tools.` group) with the defaults
   listed above; the values are resolved from the settings table on each call,
