@@ -276,6 +276,29 @@ func TestNoPatchVariantRendersAHeadWithoutThePatchRule(t *testing.T) {
 	}
 }
 
+func TestToolGuidanceVariantPreservesToolInventory(t *testing.T) {
+	for _, model := range []string{"deepseek-flash", "kimi-k3", "gemini-3.7-flash", "claude-opus-5-5"} {
+		t.Run(model, func(t *testing.T) {
+			base, err := RenderSystemPromptFor(model, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := RenderSystemPromptFor(model, "tool-guidance")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got == base {
+				t.Fatal("tool-guidance rendered the base prompt unchanged")
+			}
+			wantNames, wantCount := inventoryFromPrompt(t, base)
+			gotNames, gotCount := inventoryFromPrompt(t, got)
+			if !reflect.DeepEqual(gotNames, wantNames) || gotCount != wantCount {
+				t.Fatal("tool-guidance changed the tool inventory")
+			}
+		})
+	}
+}
+
 // TestKimiStepsVariantAppliesToTheKimiHead pins the wording variant to the
 // head the eval measures it against: the arm is base vs kimi-steps, both on
 // kimi-k3, so the variant must render on the Kimi head, differ from it, and
