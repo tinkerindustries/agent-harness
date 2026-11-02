@@ -458,6 +458,45 @@ func TestResumeOfASessionCancelledBeforeItsFirstTurnDoesNotHang(t *testing.T) {
 	}
 }
 
+// TestResumeKeepsWorkingForAStoredArrayThatCarriesComplete pins the other
+// half of Run's refusal. A DeepSeek session created before its array dropped
+// complete has the old array frozen on its row, and resuming it must keep
+// working: a resume sends the stored array and never goes through Run's
+// check on a freshly resolved one.
+func TestResumeKeepsWorkingForAStoredArrayThatCarriesComplete(t *testing.T) {
+	srv := plainAnswerServer(t, "after the resume")
+	defer srv.Close()
+	r := newTestRunner(t, srv.URL)
+	ctx := t.Context()
+
+	// tools.Definitions() still carries complete, which is the shape a row
+	// written before DeepSeek's array was narrowed holds.
+	stored, err := json.Marshal(tools.Definitions())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelledAt := time.Now().UTC()
+	if err := r.Store.CreateSession(ctx, store.Session{
+		ID: "sess-old-deepseek", Model: "deepseek-flash", Effort: wire.EffortHigh,
+		Workspace: t.TempDir(), PermissionMode: string(tools.ModeFull),
+		SystemPrompt: RenderSystemPrompt(), ToolSchema: stored,
+		ResultSchema: json.RawMessage(`{"type":"object","properties":{"count":{"type":"integer"}}}`),
+		Status:       store.StatusCancelled, FinishedAt: &cancelledAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	resumed, err := r.Resume(ctx, ResumeOptions{
+		SessionID: "sess-old-deepseek", Prompt: "carry on", MaxTokens: 4000,
+	})
+	if err != nil {
+		t.Fatalf("Resume: %v", err)
+	}
+	if resumed.Status != store.StatusOK {
+		t.Fatalf("expected the resumed run to finish ok, got %s", resumed.Status)
+	}
+}
+
 // TestResumeWithoutPromptContinuesTheExistingTask exercises Resume with an
 // empty Prompt: pick the loop back up with no new user message appended. The
 // session row carries max_turns, the status an earlier binary wrote for a run

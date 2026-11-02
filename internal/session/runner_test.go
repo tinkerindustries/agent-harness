@@ -490,6 +490,30 @@ func TestRunDoneSetsCompleteStatus(t *testing.T) {
 	}
 }
 
+// TestRunRefusesAResultSchemaWithoutTheCompleteTool pins the one arrangement
+// that cannot work. A result schema is a contract complete carries out: the
+// opening message tells the model its result argument must validate against
+// the schema, and DeepSeek's array does not offer complete. A run allowed to
+// start would instruct the model to call a tool it was never sent, and could
+// never produce the structured result the caller asked for.
+func TestRunRefusesAResultSchemaWithoutTheCompleteTool(t *testing.T) {
+	srv := plainAnswerServer(t, "all done")
+	defer srv.Close()
+	r := newTestRunner(t, srv.URL)
+
+	_, err := r.Run(t.Context(), RunOptions{
+		Model: "deepseek-flash", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Workspace: t.TempDir(), PermissionMode: tools.ModeFull, Prompt: "count them",
+		ResultSchema: json.RawMessage(`{"type":"object","properties":{"count":{"type":"integer"}}}`),
+	})
+	if err == nil {
+		t.Fatal("expected a run whose array has no complete tool to be refused")
+	}
+	if !strings.Contains(err.Error(), "deepseek-flash") || !strings.Contains(err.Error(), "complete") {
+		t.Fatalf("the refusal should name the model and the missing tool, got %q", err)
+	}
+}
+
 // A model that keeps re-sending a Complete the schema keeps rejecting is not
 // correcting anything, and the loop must stop paying for it: one run
 // spent eleven sub-turns and 7% of its budget on identical rejections

@@ -62,15 +62,32 @@ provider blocks were left alone: `internal/fold`, `internal/anthropic`,
 new names, including the `internal/stdiosession` fixtures and the `web_fetch` case in
 `claude_test.go`.
 
+A result schema needs `complete` to carry it out, and DeepSeek's array no longer offers it.
+`Runner.Run` now refuses a run whose `ResultSchema` is non-empty and whose resolved array
+has no `complete`, naming the model and the missing tool. The check is on the array Run
+itself resolves, so a resumed session is unaffected: `Resume` sends the array frozen on the
+session's row, and a session created before the change keeps working through it.
+`TestRunRefusesAResultSchemaWithoutTheCompleteTool` covers the refusal and
+`TestResumeKeepsWorkingForAStoredArrayThatCarriesComplete` covers the resume.
+
 ## What was verified, and how
 
 The phase's proof, run with `-count=1` so nothing came from the test cache:
 
 ```
 $ go test -count=1 ./internal/tools ./internal/session ./internal/promptvariant
-ok  	github.com/mrgeoffrich/agent-harness/internal/tools	8.842s
-ok  	github.com/mrgeoffrich/agent-harness/internal/session	10.532s
-ok  	github.com/mrgeoffrich/agent-harness/internal/promptvariant	0.625s
+ok  	github.com/mrgeoffrich/agent-harness/internal/tools	6.263s
+ok  	github.com/mrgeoffrich/agent-harness/internal/session	10.416s
+ok  	github.com/mrgeoffrich/agent-harness/internal/promptvariant	0.523s
+```
+
+The three packages the review named, after the `complete` refusal was added:
+
+```
+$ go test -count=1 ./internal/session ./internal/tools ./internal/stdiosession
+ok  	github.com/mrgeoffrich/agent-harness/internal/session	10.184s
+ok  	github.com/mrgeoffrich/agent-harness/internal/tools	10.051s
+ok  	github.com/mrgeoffrich/agent-harness/internal/stdiosession	3.367s
 ```
 
 The rename reaches beyond those three packages, so the whole tree was checked as well.
@@ -99,7 +116,8 @@ The new behaviour has its own tests: `TestJobListReportsEveryJob`,
 `internal/tools/bashbackground_test.go`, and `TestApplyTaskEventAcceptsTheNewToolNames`
 in `internal/store/status_test.go`. The first two check the listing's rows and its empty
 answer. The wait tests check that the call blocks until the job exits, and that a wait
-bounded by the context returns the output so far with the job still running.
+bounded by the context returns the output so far with the job still running. The two
+`complete`-refusal tests are described above.
 
 ## What was left undone
 
@@ -117,12 +135,21 @@ the release note carries that; the release note is documentation, which phase 4 
 
 ## Bugs found and not fixed
 
-None that remain. Two things are worth recording.
+Nothing outstanding. The `complete` gap was found in review and is fixed in this
+branch. Three things are worth recording.
 
 `TestVariantDroppedToolRendersAHeadConsistentWithItsArray` asserted the absence of a rule
 string that had already stopped existing ("- The shell is bash in an Alpine container"),
 so that half of the check was vacuous. It now names the current shell rule, the batch rule
 and the plan bullet, and those assertions are live.
+
+The review of PR #197 found the one that mattered. `RenderOpeningMessage` appends the
+"When you call complete..." block whenever `ResultSchema` is non-empty, and
+`Executor.ResultSchema` validates `complete`'s answer, but DeepSeek's array no longer
+carries `complete`. A DeepSeek session created with a result schema would have been told
+to call a tool it did not have and could never produce the structured result. `Runner.Run`
+refuses that combination now, before anything is written; the tests named above pin both
+sides of it. `complete` stays out of DeepSeek's array.
 
 Anthropic's own server-side `web_fetch` and this harness's `web_fetch` now share a name.
 A Claude request carries exactly one of them, because Claude's array drops the harness's
@@ -164,3 +191,6 @@ the tree for the next phase to rerun.
 - `RenderSystemPrompt()` renders the base array's head. A provider's head comes from
   `RenderSystemPromptFor(model, variant)`, and DeepSeek's is the ten-tool one.
 - The `no-bash` variant drops `job_list` with the other three shell tools.
+- A run with a non-empty result schema needs `complete` in its resolved array, and
+  `Runner.Run` refuses one without it. That is what keeps DeepSeek's array honest, and any
+  future variant or provider that drops `complete` inherits the refusal.
