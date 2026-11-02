@@ -252,7 +252,7 @@ func TestOutputCapTruncatesAndLabels(t *testing.T) {
 // three-byte characters, and the result travels to the API through
 // encoding/json, which silently substitutes U+FFFD for invalid UTF-8 rather
 // than refusing to marshal it. Every cap in the package shares this
-// function, so a Read of a UTF-8 source file is as exposed as a Bash dump.
+// function, so a `read` of a UTF-8 source file is as exposed as a `bash` dump.
 func TestTruncateNeverSplitsARune(t *testing.T) {
 	s := strings.Repeat("日", 40) // 120 bytes, no byte boundary shared with a rune boundary
 	for n := 1; n < len(s); n++ {
@@ -367,7 +367,7 @@ func TestBashWithoutStdoutSinkStillCapturesOutput(t *testing.T) {
 // TestBashExtraEnvReachesTheCommand pins the hook the GitHub App
 // credential rides on: a variable ExtraEnv returns is in the command's
 // environment, and the process's own environment is still there underneath
-// it (a Bash call inherits GIT_CONFIG_* and everything else
+// it (a `bash` call inherits GIT_CONFIG_* and everything else
 // the parent process set).
 func TestBashExtraEnvReachesTheCommand(t *testing.T) {
 	e, _ := newTestExecutor(t)
@@ -389,7 +389,7 @@ func TestBashExtraEnvReachesTheCommand(t *testing.T) {
 }
 
 // TestBashEnvFilterStripsAVariableBeforeInheritance pins the hosted-mode
-// credential boundary: a hosted Gemini session must not let its Bash calls
+// credential boundary: a hosted Gemini session must not let its `bash` calls
 // see GEMINI_API_KEY, which this process itself was handed only so its own
 // API client could reach Google (docs/STDIO-PROTOCOL.md, "Trust
 // boundaries"). EnvFilter runs even with no ExtraEnv configured, unlike a
@@ -426,7 +426,7 @@ func TestBashEnvFilterStripsAVariableBeforeInheritance(t *testing.T) {
 
 // TestBashEnvFilterComposesWithExtraEnv pins that the two hooks stack:
 // EnvFilter narrows the base environment and ExtraEnv still adds to what is
-// left, the same order a hosted session's Bash call and a GitHub App token
+// left, the same order a hosted session's `bash` call and a GitHub App token
 // would combine in if both were ever configured together.
 func TestBashEnvFilterComposesWithExtraEnv(t *testing.T) {
 	e, _ := newTestExecutor(t)

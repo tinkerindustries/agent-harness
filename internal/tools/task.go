@@ -12,7 +12,7 @@ type taskArgs struct {
 	SubagentType string `json:"subagent_type"`
 }
 
-// execTask implements Task by delegating to Executor.RunSubagent, which
+// execTask implements `task` by delegating to Executor.RunSubagent, which
 // internal/session wires up to a nested, flash-backed session loop. The
 // subagent's own transcript never joins this session's message array —
 // only the text this returns does (docs/TOOLS.md).

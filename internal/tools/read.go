@@ -19,7 +19,7 @@ type readArgs struct {
 	Limit    int    `json:"limit"`
 }
 
-// execRead implements Read: cat -n style output, because that is the shape
+// execRead implements `read`: cat -n style output, because that is the shape
 // the target harnesses return and the model reads offsets out of it
 // (docs/TOOLS.md).
 func execRead(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result {
@@ -124,7 +124,7 @@ func execRead(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 	return Result{Content: out, Truncated: truncated}
 }
 
-// cutNote says a Read stopped at its line limit rather than at the end of the
+// cutNote says a `read` stopped at its line limit rather than at the end of the
 // file, and where to pick the file up again. Nothing in the numbered lines
 // themselves shows a cut, and truncate's byte label does not cover one: 2,000
 // lines of source sit well under the output cap, so a 2,145-line file read
@@ -167,8 +167,8 @@ func cutNote(scanner *bufio.Scanner, start, next int) string {
 //     be re-sent on every sub-turn of the frozen prefix before the API
 //     rejected it — the most expensive way to discover the mistake.
 //   - The encoded size is capped by the existing vision cap setting
-//     (tools.reviewscreenshot_max_bytes, the same default of 5 MB Glance,
-//     Ground, and Detect enforce per file — docs/CACHE.md: the tool
+//     (tools.reviewscreenshot_max_bytes, the same default of 5 MB `glance`,
+//     `ground`, and `detect` enforce per file — docs/CACHE.md: the tool
 //     description names no numbers, and the model discovers the actual limit
 //     from this refusal). Images sit in the frozen-prefix conversation and
 //     are re-sent every sub-turn, so an unbounded image would bloat every

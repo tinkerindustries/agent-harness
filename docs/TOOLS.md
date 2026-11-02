@@ -63,10 +63,11 @@ and also a cheap one to be wrong about, since a rename is the whole fix.
 | `complete` | `summary`, `result?`, `status?` | Emit the run's machine-readable result |
 
 Most of these have a trained-in analogue in `dsh`. `list`, the vision path,
-`complete` and the four task tools do not: the vision tools exist because most
-of the models this harness runs cannot see images, so the harness builds the
-whole visual path itself, and each is named for what it does; `complete` and
-the task tools are this harness's own run machinery.
+`complete` and the four task tools do not. The six vision tools exist only in
+the base array: every model this harness routes reads images natively, so no
+routed session is offered them, and `internal/tools/definitions.go` is where
+that is decided. `complete` and the task tools are this harness's own run
+machinery.
 
 The array is chosen per model, through `provider.SeesImages` and
 `internal/tools.DefinitionsFor`
@@ -534,10 +535,10 @@ being killed silently.
 ### glance
 
 This is the general-purpose vision tool for a model that cannot see images
-itself — every model `provider.SeesImages` resolves false, `deepseek-v4-pro`
-among them, though this harness does not currently route any DeepSeek model
-that resolves false (`provider.SeesImages`, docs/DEEPSEEK-VISION.md): it
-sends one or more images to Google Gemini and
+itself, every model `provider.SeesImages` resolves false. No model this harness
+routes resolves false (`provider.SeesImages`, docs/DEEPSEEK-VISION.md), so no
+routed session is offered it today; it stays in the base array for a provider
+added later that cannot see. It sends one or more images to Google Gemini and
 returns whatever comes back as prose — a description, an answer to a
 question, or a verbatim transcription. It is one of four tools ported from `Anionex/agent-vision-toolkit`
 (docs/VISION-TOOLKIT.md is the assessment behind the port) that between them

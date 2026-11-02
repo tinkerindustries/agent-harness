@@ -135,7 +135,7 @@ func thinkingLevelFromEffort(effort string) string {
 // toolResultMessage actually builds, and produce byte-for-byte the
 // function_result image shape docs/OBSERVED.md measured against the live
 // API: {"type":"image","mime_type":...,"data":...}, no resolution key (§7's
-// decision: a Read/MCP result carries one ad hoc image, not the multi-image
+// decision: a `read`/MCP result carries one ad hoc image, not the multi-image
 // batch the vision tools scrutinise, so there is no "first image" to prefer
 // and the field is left unset, the documented API default). A video part
 // has no Gemini counterpart in the shapes this harness sends and is dropped

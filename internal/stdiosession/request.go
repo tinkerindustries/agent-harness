@@ -38,7 +38,7 @@ type CreateRequest struct {
 	// is per request, not per run: a run here spans many.
 	MaxOutputTokens int
 
-	// ResultSchema is the schema the Complete tool validates the run's
+	// ResultSchema is the schema the `complete` tool validates the run's
 	// result against (docs/TOOLS.md), already unwrapped from whichever
 	// wrapper its surface puts it in. Nil when the body asked for no
 	// structured result.
@@ -125,7 +125,7 @@ func decodeAppend(params json.RawMessage) (*AppendRequest, *rpcError) {
 
 // schemaOf is the JSON Schema a create body's text.format named, or nil. It
 // is only ever a json_schema format's own schema: `text` and `json_object`
-// constrain nothing this harness can hold the Complete tool to.
+// constrain nothing this harness can hold the `complete` tool to.
 func schemaOf(t *TextConfig) json.RawMessage {
 	if t == nil || t.Format == nil || t.Format.Type != "json_schema" {
 		return nil

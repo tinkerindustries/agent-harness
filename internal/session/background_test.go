@@ -190,7 +190,7 @@ func heldToolCallServer(t *testing.T, stall time.Duration) *httptest.Server {
 }
 
 // TestPrivateShellRegistryRecordsACompletion pins the fallback for a caller
-// with no session registry, which is the Task subagent path: Run builds a
+// with no session registry, which is the `task` subagent path: Run builds a
 // registry for the run, so a shell that exits mid-run still commits a
 // background_finished event even though no registry outlives the run.
 func TestPrivateShellRegistryRecordsACompletion(t *testing.T) {
@@ -260,7 +260,7 @@ func TestPrivateShellRegistryRecordsACompletion(t *testing.T) {
 	t.Fatal("the run's private registry never committed the shell's completion")
 }
 
-// compactionShellServer scripts one background Bash call, a summariser that
+// compactionShellServer scripts one background `bash` call, a summariser that
 // takes summarizerDelay before answering, and then a final answer. The first
 // streaming request carries usage over the threshold the tests set, so the
 // loop compacts right after that sub-turn.

@@ -8,10 +8,10 @@ phase 3's `list_mcp_resource_templates` included.
 
 `docs/TOOLS.md`, rewritten throughout:
 
-- "Why these names" gives the real reason now: the vocabulary is
-  [`deepseek-ai/deepseek-harness`](https://github.com/deepseek-ai/deepseek-harness)'s,
-  and `apply_patch` is the one tool name DeepSeek's API documents as tuned. The
-  old text argued from Claude Code's `TitleCase` set.
+- "Why these names" gives the real reason now: the vocabulary is the one
+  [`deepseek-ai/deepseek-harness`](https://github.com/deepseek-ai/deepseek-harness)
+  uses, and `apply_patch` is the one tool name DeepSeek's API documents as
+  tuned. The old text argued from Claude Code's `TitleCase` set.
 - "The built-in set" (was "The v1 set") carries the new table. `apply_patch`,
   `job_list` and the argument spellings are all there: `timeoutMs`, `workdir`,
   `job_id`, `filter`, `wait`, `input`.
@@ -64,8 +64,18 @@ Code comments and non-model-facing strings:
 
 - Every comment naming an old tool now names the current one, across
   `internal/tools`, `internal/session`, `internal/store`, `internal/deepseek`,
+  `internal/anthropic`, `internal/gemini`, `internal/fold`, `internal/skills`,
+  `internal/hub`, `internal/claudemd`, `internal/provider`, `internal/wire`,
   `internal/stdiosession`, `internal/promptvariant`, `internal/settings` and
-  `cmd/harness`.
+  `cmd/harness`. A second pass after review found the first one too narrow in
+  both directions. It had only searched for the names with no English meaning,
+  so `Bash`, `Screenshot`, `Glance`, `Ground`, `Detect`, `Crop` and
+  `Transcribe` were still in comments in more packages. And it had not
+  searched at all for `Read`, `Write`, `Edit`, `List`, `Glob`, `Grep`,
+  `Complete`, `Task` or `TodoWrite`, which are the names most likely to be
+  mistaken for English. `TodoWrite` is the plan tool's predecessor and named
+  the wrong writer for the plan column in five files; it now says
+  `task_create` and `task_update`.
 - Every comment restating an array size names `internal/tools/definitions.go`
   instead: three in `definitions.go`, and one each in `policy.go`,
   `registry.go`, `promptvariant/variants.go`, plus two in `prompt.go` and three
@@ -73,9 +83,31 @@ Code comments and non-model-facing strings:
   stay, because they are the one place a size change has to be acknowledged.
 - The `internal/settings` descriptions are operator-facing text rather than
   model-facing. They named `WebFetch`, `Task`, `Glance`, `Ground`, `Detect`,
-  `Bash` and `Crop`, and now name the current tools. No test asserts on them.
-- No model-facing string literal changed: no tool description, no system prompt
-  fragment, no opening message. No golden file moved.
+  `Crop`, `Screenshot`, `Transcribe` and `Bash`, and now name the current
+  tools. No test asserts on them. The first pass updated five of them and left
+  the rest; the review's count found the gap and it is closed.
+- No tool description, no system prompt fragment and no opening message
+  changed, and no golden file moved.
+
+Three model-facing strings outside the frozen head did change, all of them
+naming tools the model does not carry:
+
+- `internal/store/events.go`'s `BackgroundFinishedPayload.Message()` told the
+  model to read a finished shell "with BashOutput using bash_id". It now says
+  `job_output` and `job_id`, and `internal/store/events_test.go` pins the whole
+  notice. `TestFoldBackgroundFinished` compares `Message()` to itself, so it
+  could not have caught this.
+- `internal/promptvariant/reminders.go`'s three search reminders said "search
+  with the Grep and Glob tools rather than through Bash", and the read reminder
+  named `Read`, `Edit` and `Write`. All four now use the current names.
+- The test failure messages that named a tool by its old name now name the
+  current one. No assertion changed.
+
+`docs/TOOLS.md`'s paragraph after the built-in table said the vision tools
+exist "because most of the models this harness runs cannot see images". Every
+model this harness routes reads images natively, so no routed session is
+offered the six vision tools; they remain only in the base array. The
+paragraph and the `glance` section's opening now say that.
 
 ## What was verified, and how
 
@@ -93,15 +125,20 @@ clean
 
 === tests
 ?   	github.com/mrgeoffrich/agent-harness/cmd/drive	[no test files]
-ok  	github.com/mrgeoffrich/agent-harness/cmd/harness	0.485s
-...
-ok  	github.com/mrgeoffrich/agent-harness/internal/session	13.725s
-ok  	github.com/mrgeoffrich/agent-harness/internal/settings	3.644s
-ok  	github.com/mrgeoffrich/agent-harness/internal/skills	4.004s
-ok  	github.com/mrgeoffrich/agent-harness/internal/stdiosession	6.661s
-ok  	github.com/mrgeoffrich/agent-harness/internal/store	4.156s
-ok  	github.com/mrgeoffrich/agent-harness/internal/tools	10.450s
-ok  	github.com/mrgeoffrich/agent-harness/internal/wire	3.920s
+ok  	github.com/mrgeoffrich/agent-harness/cmd/harness	(cached)
+ok  	github.com/mrgeoffrich/agent-harness/internal/anthropic	(cached)
+ok  	github.com/mrgeoffrich/agent-harness/internal/deepseek	(cached)
+ok  	github.com/mrgeoffrich/agent-harness/internal/fold	(cached)
+ok  	github.com/mrgeoffrich/agent-harness/internal/gemini	(cached)
+ok  	github.com/mrgeoffrich/agent-harness/internal/mcpclient	(cached)
+ok  	github.com/mrgeoffrich/agent-harness/internal/promptvariant	(cached)
+ok  	github.com/mrgeoffrich/agent-harness/internal/session	(cached)
+ok  	github.com/mrgeoffrich/agent-harness/internal/settings	(cached)
+ok  	github.com/mrgeoffrich/agent-harness/internal/skills	(cached)
+ok  	github.com/mrgeoffrich/agent-harness/internal/stdiosession	(cached)
+ok  	github.com/mrgeoffrich/agent-harness/internal/store	(cached)
+ok  	github.com/mrgeoffrich/agent-harness/internal/tools	9.891s
+ok  	github.com/mrgeoffrich/agent-harness/internal/wire	(cached)
 
 === cross-compile
 darwin/arm64
@@ -115,7 +152,11 @@ windows/amd64
 bin/harness
 ```
 
-That is the proof for the Go comments. The documents are not tested, so the
+That run came after one that failed on
+`TestJobOutputConcurrentPollsDoNotPanicOrDuplicate` (reported below). Before
+the second attempt the test cache had been cleared, so the packages above that
+say `(cached)` had run for real in the failed attempt and passed; `internal/tools`
+ran again and passed. The gate is the proof for the Go comments. The documents are not tested, so the
 searches are their proof. Each ran from the workspace root, over `*.md` outside
 `third_party/`, `docs/plans/`, `docs/reviews/`, `docs/sources/` and
 `docs/OBSERVED.md`:
@@ -129,11 +170,20 @@ searches are their proof. Each ran from the workspace root, over `*.md` outside
 - `\b(twenty|fourteen|sixteen|seventeen|eighteen|nineteen)\b`: the only array
   count left is `docs/MCP.md`'s Blender tool count, which is the server's own
   and not this harness's array.
-- The same old-name search over `internal/` and `cmd/` for `*.go`: one hit,
-  `internal/store/events.go:306`, a model-facing string reported below. The
-  `internal/store/status_test.go` fixtures that spell `TaskCreate` and
-  `TaskUpdate` are deliberate: `internal/store/status.go` accepts both
-  spellings so a pre-rename plan still replays.
+- The same old-name search over `internal/` and `cmd/` for `*.go`, filtered to
+  hits that are not part of a Go identifier: the only names left are the
+  deliberate ones. `internal/store/status.go`'s two `"TaskCreate"` /
+  `"TaskUpdate"` cases and `internal/store/status_test.go`'s fixtures replay a
+  pre-rename plan on purpose. `internal/tools/checklist.go` names Claude Code's
+  own `TaskCreate`. `internal/tools/bash_windows.go` names Git Bash.
+  `internal/store/events_test.go` lists the old names to prove they are absent.
+  `internal/tools/registry.go`'s `WebFetch`, `Screenshot` and `Transcribe`
+  fields are identifiers. Three `Transcribe` occurrences are the imperative
+  verb in a prompt sent to Gemini, not a tool name.
+- The full Go scan first looks like it still finds 446 hits. Nearly all of them
+  are identifiers (`DefaultBashTimeout`, `execGlance`, `encodeScreenshot`,
+  `TestExecGround…`) and the setting keys under `internal/settings`, which keep
+  their names because an operator's stored configuration depends on them.
 
 ## What was left undone
 
@@ -160,19 +210,6 @@ Documents left as historical records, and why:
 
 ## Bugs found and not fixed
 
-**A model-facing notice names a tool that does not exist.**
-`internal/store/events.go:306` builds the message the model reads when a
-background shell exits:
-
-```
-Its output is still readable with BashOutput using bash_id "bash_1".
-```
-
-The tools are `job_output` and `job_id` now. A model that follows the message
-calls a tool its array does not carry, with an argument that tool does not
-accept. The fix is a string change in a model-facing message, which this phase
-does not own; it wants its own small change and whatever test pins that text.
-
 **`docs/DEEPSEEK-RESPONSES.md` section 1 has a broken sentence.** It reads
 "`harness stdio-session` posts to `/responses`. `/chat/completions`, and §5
 says why that is a decision rather than an oversight." The middle of the
@@ -185,6 +222,15 @@ image reaches any model but Gemini's" was true when the Kimi plan was written.
 describes Kimi's own multimodal path in its next paragraph. Left alone for the
 same reason as the sentence above: it is an accuracy issue outside the
 vocabulary sweep.
+
+**`TestJobOutputConcurrentPollsDoNotPanicOrDuplicate` is still flaky under
+load.** Phase 3 replaced its joined-text assertion with a byte sum, and it
+passes alone: 20 runs here, one after another. In the first fully uncached gate
+run of this phase, with every package's tests in flight at once, all 400
+concurrent polls returned before the shell had written anything, so the call
+ended with 0 of 1692 bytes. Nothing in the test makes the polls wait for the
+first line. The gate passed on the next attempt. It is a phase-1 test and its
+fix is not part of this phase.
 
 **Two contradictions in `docs/TOOLS.md` were fixed rather than reported.** The
 read-only list denied `crop`, which the code allows and the `crop` section
@@ -208,6 +254,16 @@ The gate runs gofmt, vet, the suite and six cross-compiles. It is long enough
 that one run at the end is the only practical shape, which means a doc edit
 made afterwards cannot be covered by it. There is no docs linter, so nothing
 checks a heading reference or a tool name in prose.
+
+The first comment sweep was too narrow, and the review found it. Its greps
+looked for the names with no English meaning (`BashOutput`, `WebFetch` and the
+rest), so the names that double as words (`Bash`, `Screenshot`, `Glance`,
+`Ground`, `Detect`, `Crop`, `Transcribe`) were never searched for in Go at all.
+The same narrowness cut the other way in `internal/settings`: the file's
+*identifiers* contain those names (`KeyToolBashTimeout`), so a grep that was
+meant to find descriptions found keys instead and the count said 39 when the
+prose had fewer. A name that is also a word needs a search that separates
+identifiers from prose, which is what the second pass did.
 
 ## Memory suggestions
 

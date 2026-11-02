@@ -14,7 +14,7 @@ import (
 	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
-// TestParallelToolResultsAppendInCallOrder gives the model two Bash calls
+// TestParallelToolResultsAppendInCallOrder gives the model two `bash` calls
 // where the second (index 1) finishes well before the first (index 0), and
 // asserts the stored tool_result events are still in call order — index
 // order, not completion order (docs/TOOLS.md, docs/CACHE.md). Execution is

@@ -37,10 +37,10 @@ type SessionState struct {
 	Workspace      string `json:"workspace"`
 	PermissionMode string `json:"permission_mode"`
 	Status         string `json:"status"`
-	// CompleteStatus is the status argument the model gave Complete ("done"
+	// CompleteStatus is the status argument the model gave `complete` ("done"
 	// or "gave_up"), so the session list can tell a finished task from one
 	// the model gave up on. Empty covers a
-	// pre-migration row and a session that ended without calling Complete;
+	// pre-migration row and a session that ended without calling `complete`;
 	// the browser renders it as the plain terminal status rather than
 	// guessing.
 	CompleteStatus string `json:"complete_status,omitempty"`
@@ -70,9 +70,9 @@ type SessionState struct {
 	// chip next to the title.
 	TotalPhases int `json:"total_phases,omitempty"`
 	// Plan is the session's working plan: the todos array of the most
-	// recent TodoWrite call, verbatim.
+	// recent `task_create` or `task_update` call, verbatim.
 	// Absent covers a pre-migration row and a session that never called
-	// TodoWrite; the browser renders the card without a plan section rather
+	// either; the browser renders the card without a plan section rather
 	// than an empty one.
 	Plan json.RawMessage `json:"plan,omitempty"`
 	// RecentToolCalls is the rolling roll of the last few tool calls the
@@ -80,9 +80,9 @@ type SessionState struct {
 	// it rides the plan's store write. The in-flight card no longer renders
 	// it. Absent when the session made none yet.
 	RecentToolCalls []store.RecentToolCall `json:"recent_tool_calls,omitempty"`
-	// Summary is the summary argument the model gave Complete, its own
+	// Summary is the summary argument the model gave `complete`, its own
 	// one-line account of the run, shown under the finished table's session
-	// id. Absent when Complete was never
+	// id. Absent when `complete` was never
 	// called.
 	Summary    string     `json:"summary,omitempty"`
 	CreatedAt  time.Time  `json:"created_at"`
@@ -126,7 +126,7 @@ const MaxListTaskChars = 300
 //
 //   - RecentToolCalls, the largest field on the row by some distance (9.9KB
 //     average, 35KB at the top end, measured over a live harness), carries
-//     each call's raw arguments — a Write's whole file body among them. The
+//     each call's raw arguments — a `write`'s whole file body among them. The
 //     in-flight card stopped rendering it and the field stayed on the wire
 //     because it rides the plan's store write.
 //   - Summary and the cache-token counts belong to the Finished table, which

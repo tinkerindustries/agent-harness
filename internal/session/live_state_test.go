@@ -208,7 +208,7 @@ func TestTaskReadsDoNotWritePlan(t *testing.T) {
 		t.Fatalf("expected no plan write for read-only task calls, got %q", sess.Plan)
 	}
 
-	// The read calls roll like any other tool, alongside the Complete call.
+	// The read calls roll like any other tool, alongside the `complete` call.
 	if len(sess.RecentToolCalls) != 3 ||
 		sess.RecentToolCalls[0].Name != "task_list" ||
 		sess.RecentToolCalls[1].Name != "task_get" ||
@@ -333,7 +333,7 @@ func TestSubTurnPublishesFreshPlanAndRecentToolCalls(t *testing.T) {
 
 	// The first sub-turn's publish (right after the task_create+bash sub-turn
 	// committed, before complete's sub-turn) must already carry the plan
-	// and the Bash call — not empty, and not the finished row's own later
+	// and the `bash` call — not empty, and not the finished row's own later
 	// state, which this asserts against by checking the still-running one.
 	// The plan is on both feeds; the roll is on the session's alone.
 	var sawFullWithPlanAndRoll bool

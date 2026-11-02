@@ -15,14 +15,14 @@ import (
 	"github.com/mrgeoffrich/agent-harness/internal/store"
 )
 
-// Transcribe: chunked OCR of an image too tall for one vision call to read.
+// `transcribe`: chunked OCR of an image too tall for one vision call to read.
 //
 // The reason it exists is a fixed cost, not a byte cap. An image costs the
 // vision model a flat ~1,120 input tokens at high resolution however large it
 // is (docs/gemini-3.5-flash-ui-review-prompting.md, and 1,121-1,195 measured
 // per image across a live run, docs/VISION-TOOLKIT.md §7). So a 1200x12000
 // page capture gets the same visual budget as a 1200x800 viewport shot —
-// roughly fifteen times less detail per unit of page — and Glance's answer
+// roughly fifteen times less detail per unit of page — and `glance`'s answer
 // about a tall capture describes the part it could still resolve. A live run
 // noticed that unprompted: a "whole page" description covered the captured
 // 800px viewport rather than the 2,640px document. Cutting the page into
@@ -153,7 +153,7 @@ func execTranscribe(ctx context.Context, e *Executor, argsRaw json.RawMessage) R
 	// geometry — works on exactly the pixels being transcribed. offset is
 	// what puts the reported cut positions back into the original image's
 	// coordinates, which is the only frame the caller can act on: a y from
-	// this report has to be a y it can hand to Crop.
+	// this report has to be a y it can hand to `crop`.
 	bounds := src.Bounds()
 	offset := 0
 	if args.Region != "" {
@@ -675,7 +675,7 @@ func (e *Executor) runTranscribeChunks(ctx context.Context, plan []transcribeChu
 }
 
 // transcribeUsagePayload prices one chunk's call, the same way visionResult
-// prices a Glance. Calls is set to one here and summed by sumTranscribeUsage.
+// prices a `glance`. Calls is set to one here and summed by sumTranscribeUsage.
 func (e *Executor) transcribeUsagePayload(sentAt time.Time, usage *gemini.Usage) *store.UsagePayload {
 	model := gemini.DefaultModel
 	if e.GeminiModel != nil {
@@ -688,7 +688,7 @@ func (e *Executor) transcribeUsagePayload(sentAt time.Time, usage *gemini.Usage)
 	return payload
 }
 
-// transcribePrompt is Glance's OCR instruction with upstream's chunk note
+// transcribePrompt is `glance`'s OCR instruction with upstream's chunk note
 // and its ordering requirements added. Two things it must say and does:
 // that this is one section of a taller image, so the model does not try to
 // summarise a document it can only see part of; and that it must not infer
@@ -852,7 +852,7 @@ func trimOuterBlankLines(text string) []string {
 // transcribeReport is the header every call returns ahead of the transcript:
 // what was cut where, what the merge did at each boundary, and which
 // boundaries to check. It names y positions in the ORIGINAL image's
-// coordinates, so a boundary marked for review can be cut out with Crop and
+// coordinates, so a boundary marked for review can be cut out with `crop` and
 // looked at without any arithmetic.
 func transcribeReport(args transcribeArgs, width, height, offset int, plan []transcribeChunk, seams []seam, notes []string) string {
 	var b strings.Builder

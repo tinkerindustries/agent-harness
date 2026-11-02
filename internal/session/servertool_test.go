@@ -266,7 +266,7 @@ func TestSteerWaitsBehindOpenServerTool(t *testing.T) {
 
 // TestResumeBehindOpenServerToolAnswersTheNewMessage is the second way into
 // the wedge: a run that ended right after a response that left a server tool
-// open (here, the model called Complete beside it), then a new message. The
+// open (here, the model called `complete` beside it), then a new message. The
 // client holds the message back from the first request so the open call can
 // finish, and the loop must not end the run on that request's plain answer
 // — the model has not seen the message yet.

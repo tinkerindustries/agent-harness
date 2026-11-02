@@ -154,11 +154,11 @@ type ToolCallPayload struct {
 }
 
 // ToolResultPayload is the outcome of executing one tool call. Diff and
-// ChildSessionID are populated only for the tools that produce them (Edit
-// and Task respectively); every other tool leaves them empty, and the
+// ChildSessionID are populated only for the tools that produce them (`edit`
+// and `task` respectively); every other tool leaves them empty, and the
 // frontend's per-tool block shaping reads them opt-in.
 //
-// ImageURL is the base64 data URI of an image Read returned as an image_url
+// ImageURL is the base64 data URI of an image `read` returned as an image_url
 // part (docs/KIMI-INTEGRATION.md §4.5). It is populated only for that case
 // and lives in the event payload rather than on disk: the fold rebuilds the
 // parts array from Content and ImageURL, so replaying the log reproduces
@@ -186,7 +186,7 @@ type ToolDeniedPayload struct {
 }
 
 // ToolStdoutPayload is incremental command output for live display. It is
-// never read back to build the message array; Bash still records the final
+// never read back to build the message array; `bash` still records the final
 // ToolResultPayload.
 type ToolStdoutPayload struct {
 	ToolCallID string `json:"tool_call_id"`
@@ -236,7 +236,7 @@ type UsagePayload struct {
 	// and on any usage the price table could not cost at all.
 	RateTier string `json:"rate_tier,omitempty"`
 	// Calls is how many provider requests this one event accounts for, set
-	// only where that is not one. Transcribe fans a tall image out over a
+	// only where that is not one. `transcribe` fans a tall image out over a
 	// call per chunk and sums them into a single event, because the
 	// transcript card shows one usage block per sub-turn and later ones
 	// replace earlier ones — fifteen events would display the price of one
@@ -303,7 +303,7 @@ func (p BackgroundFinishedPayload) Message() string {
 	default:
 		fmt.Fprintf(&b, "finished with exit code %d.", p.ExitCode)
 	}
-	fmt.Fprintf(&b, " Its output is still readable with BashOutput using bash_id %q.", p.BashID)
+	fmt.Fprintf(&b, " Its output is still readable with job_output using job_id %q.", p.BashID)
 	return b.String()
 }
 

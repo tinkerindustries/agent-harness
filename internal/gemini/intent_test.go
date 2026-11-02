@@ -157,7 +157,7 @@ func TestRequestFromIntentParallelToolCalls(t *testing.T) {
 	}
 }
 
-// TestRequestFromIntentFunctionResultImage pins the shape a Read call that
+// TestRequestFromIntentFunctionResultImage pins the shape a `read` call that
 // returned an image produces once it reaches the Gemini request builder
 // (docs/GEMINI-INTEGRATION.md §5.7, §7 "Phase 7"). internal/fold's
 // toolResultMessage builds exactly this parts shape for a tool_result event
@@ -203,7 +203,7 @@ func TestRequestFromIntentFunctionResultImage(t *testing.T) {
 		t.Errorf("block 1 = %+v, want image/png carrying the base64 payload unchanged", img)
 	}
 	if img.Resolution != "" {
-		t.Errorf("image block resolution = %q, want unset — Read/MCP images are one ad hoc image per tool result, not the multi-image batch Glance/Ground/Detect scrutinise", img.Resolution)
+		t.Errorf("image block resolution = %q, want unset — Read/MCP images are one ad hoc image per tool result, not the multi-image batch glance/ground/detect scrutinise", img.Resolution)
 	}
 
 	// The actual bytes on the wire, not just the struct: mime_type and data
@@ -225,9 +225,9 @@ func TestRequestFromIntentFunctionResultImage(t *testing.T) {
 // builds the identical "data:<mime>;base64,<...>" URI from an MCP server's
 // image content block, through the same ImageURL field and the same fold
 // path, so it reaches requestFromIntent as the same wire shape. This test
-// exercises a JPEG (Read only ever emits PNG/JPEG/WebP too, but a real MCP
+// exercises a JPEG (`read` only ever emits PNG/JPEG/WebP too, but a real MCP
 // server is not bounded to those three) with MCP-flavoured label text, to
-// pin that the conversion is not special-cased to Read's own wording.
+// pin that the conversion is not special-cased to `read`'s own wording.
 func TestRequestFromIntentFunctionResultImageFromMCP(t *testing.T) {
 	const jpegData = "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkI"
 	intent := wire.ChatIntent{

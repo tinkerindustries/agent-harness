@@ -58,7 +58,7 @@ type screenshotArgs struct {
 // frontend the state worth photographing is not the one a fresh load
 // produces: a dialog has to be opened, an overlay dismissed, a field filled.
 // Without these a session that needed any of that abandoned the tool
-// entirely and drove Playwright through Bash instead — which is exactly the
+// entirely and drove Playwright through `bash` instead — which is exactly the
 // ad hoc invocation the tool was built to replace, so it went back to
 // capturing full-page desktop light-scheme images with none of the standard
 // this tool owns (docs/reviews/vision-path-2026-08-14.md).
@@ -79,7 +79,7 @@ type screenshotAction struct {
 // stop a call producing an image nothing downstream can use.
 //
 // The viewport is a desktop layout wide enough for a two-column page. Device
-// scale stays at 1 by default: the image's next stop is usually Glance,
+// scale stays at 1 by default: the image's next stop is usually `glance`,
 // which downscales it to roughly a thousand image tokens anyway, so doubling
 // the pixels doubles the bytes against that tool's per-file cap and buys
 // nothing in what the vision model sees. Raise it when a human is going to
@@ -89,7 +89,7 @@ type screenshotAction struct {
 // single most common way to end up with an unreadable screenshot: it is
 // downscaled to the same token budget as a viewport shot, so every control on
 // it shrinks. The viewport shot, or a selector, is almost always the right
-// answer (docs/TOOLS.md, "Screenshot").
+// answer (docs/TOOLS.md, "screenshot").
 const (
 	screenshotDefaultWidth  = 1280
 	screenshotDefaultHeight = 800
@@ -110,12 +110,12 @@ const (
 	screenshotSettleTimeoutMS = 3_000
 )
 
-// execScreenshot implements Screenshot: drive a headless Chromium to a URL
+// execScreenshot implements `screenshot`: drive a headless Chromium to a URL
 // and write one PNG or JPEG into the session's scratch directory
-// (docs/TOOLS.md, "Screenshot").
+// (docs/TOOLS.md, "screenshot").
 //
 // The harness owns the capture rather than leaving the agent to compose a
-// Playwright invocation through Bash, because the things that decide whether
+// Playwright invocation through `bash`, because the things that decide whether
 // a screenshot is worth anything — viewport, colour scheme, whether it is
 // clipped to the element in question — are exactly the things an ad hoc
 // invocation gets wrong or omits. What comes back is the file path plus what
@@ -442,10 +442,10 @@ func runScreenshotDriver(ctx context.Context, workspace string, cfg screenshotDr
 
 	cmd := exec.CommandContext(ctx, node, script.Name(), string(payload))
 	cmd.Dir = workspace
-	// Chromium is a process tree, not one child. Reusing Bash's group killer
+	// Chromium is a process tree, not one child. Reusing `bash`'s group killer
 	// means a timeout reaches the browser rather than only the node process
 	// that launched it, which would otherwise leave a headless Chromium
-	// running for the rest of the session (docs/TOOLS.md, "Bash").
+	// running for the rest of the session (docs/TOOLS.md, "bash").
 	group := bashGroup(cmd)
 	defer group.release()
 	cmd.WaitDelay = 2 * time.Second
@@ -483,7 +483,7 @@ func runScreenshotDriver(ctx context.Context, workspace string, cfg screenshotDr
 
 // formatScreenshotReport is the tool result: what was written, then what the
 // page did while it was written. The path comes first and in full, because it
-// is the argument the model passes to Glance next.
+// is the argument the model passes to `glance` next.
 func formatScreenshotReport(report screenshotReport, path string, cfg screenshotDriverConfig, size int64) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Wrote %s (%d bytes)\n", path, size)

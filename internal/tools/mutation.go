@@ -9,16 +9,16 @@ import "encoding/json"
 // executeToolCalls). Everything else keeps running concurrently, so the
 // question this answers is deliberately narrow: which files, if any.
 //
-// Edit and Write rewrite one file each. apply_patch can rewrite any number,
+// `edit` and `write` rewrite one file each. apply_patch can rewrite any number,
 // so it reports every path its patch names, a move's destination included:
 // the caller orders the call against each of them, and a call naming several
 // is what makes the grouping more than a single path. Both read a file,
 // produce a new whole content, and write it back, so two of them on one path
 // lose an edit no matter which wins the race; every other tool either only
-// reads, or writes somewhere the model did not name. Bash is the honourable
+// reads, or writes somewhere the model did not name. `bash` is the honourable
 // exception: it can rewrite anything, but its target is not knowable from its
-// arguments, and pretending otherwise would serialise every Bash call against
-// every Edit for no gain.
+// arguments, and pretending otherwise would serialise every `bash` call against
+// every `edit` for no gain.
 //
 // The paths are resolved the way the tools themselves resolve them, so two
 // calls naming one file differently ("web/src/styles.css" and

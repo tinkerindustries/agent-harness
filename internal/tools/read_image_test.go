@@ -40,7 +40,7 @@ func visionExecutor(t *testing.T, root string) (*Executor, string) {
 }
 
 // TestReadImageOnVisionProvider is the heart of the phase: on a provider
-// that sees images, Read of an image path returns the file as an image_url
+// that sees images, `read` of an image path returns the file as an image_url
 // part — a base64 data URI of the exact shape the Kimi guide prescribes —
 // with a short text label naming the file (docs/KIMI-INTEGRATION.md §4.5,
 // third_party/kimi-docs/guide/use-kimi-vision-model.md).
@@ -103,7 +103,7 @@ func TestReadImageFormats(t *testing.T) {
 }
 
 // TestReadImageOnDeepSeekUnchanged pins the other half of the split: on a
-// provider that cannot see images, Read of an image path behaves exactly as
+// provider that cannot see images, `read` of an image path behaves exactly as
 // it always has — the binary-file refusal, byte for byte, no image part.
 func TestReadImageOnDeepSeekUnchanged(t *testing.T) {
 	e, root := newTestExecutor(t)

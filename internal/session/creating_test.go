@@ -185,7 +185,7 @@ func TestPromotedRowKeepsResultSchema(t *testing.T) {
 }
 
 // TestRunInsertsWhenNoRowExists pins the other half of promote-or-insert:
-// a caller with no pre-created row (harness run, harness resume, the Task
+// a caller with no pre-created row (harness run, harness resume, the `task`
 // subagent path, compaction) gets the row inserted exactly as before — as
 // running, not creating.
 func TestRunInsertsWhenNoRowExists(t *testing.T) {

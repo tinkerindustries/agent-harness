@@ -37,8 +37,8 @@ const defaultGeminiSessionModel = "gemini-3.7-flash"
 // It reads images natively (provider.SeesImages,
 // docs/DEEPSEEK-VISION.md), which is what makes a DeepSeek session here need
 // one credential rather than two: a model that could not see would be given
-// the tool array built to compensate (Screenshot, Glance, Ground, Detect,
-// Transcribe, Crop), and four of those six send their images to Google.
+// the tool array built to compensate (`screenshot`, `glance`, `ground`, `detect`,
+// `transcribe`, `crop`), and four of those six send their images to Google.
 const deepSeekSessionModel = "deepseek-flash"
 
 // defaultClaudeSessionModel is what a create body with no `model` runs on
@@ -108,9 +108,9 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 		return err
 	}
 
-	// The ripgrep binary every Grep call this process runs will exec, decided
+	// The ripgrep binary every `grep` call this process runs will exec, decided
 	// once here: -rg names it (the parent that ships a binary says so), then
-	// AGENT_HARNESS_RG, then the PATH. Nothing found is not a failure — Grep
+	// AGENT_HARNESS_RG, then the PATH. Nothing found is not a failure — `grep`
 	// falls back to its own walk — but a binary the flag or the environment
 	// names and that is not there is, because falling back would answer the
 	// session's searches out of a tree it was told not to walk.
@@ -211,8 +211,8 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 		FlashModel: chosen,
 		Hub:        eventHub,
 		Settings:   res,
-		// The vision tools this resolves the model for (Glance, Ground,
-		// Detect) are Google's whatever the session runs on, so it stays a
+		// The vision tools this resolves the model for (`glance`, `ground`,
+		// `detect`) are Google's whatever the session runs on, so it stays a
 		// Gemini name even when the session's own model is DeepSeek's. No
 		// model hosted here is offered those tools at all — every one of
 		// them reads images natively, which is why the DeepSeek model
@@ -392,7 +392,7 @@ func apiKeys(envFile string) (google, deepSeek, anthropicKey string, err error) 
 var providerAPIKeyVars = []string{"GEMINI_API_KEY", "GOOGLE_API_KEY", "DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY"}
 
 // stripProviderAPIKeys removes every variable in providerAPIKeyVars from
-// base, which every Bash call and every stdio MCP dial this hosted process
+// base, which every `bash` call and every stdio MCP dial this hosted process
 // makes takes as its environment's starting point (tools.Executor.EnvFilter,
 // mcpclient.Manager.EnvFilter). All the names a key is read under are
 // stripped, not just the one a given run used: a session tool seeing the raw

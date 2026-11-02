@@ -9,7 +9,7 @@ import (
 // TestRenderOpeningMessageNamesAttachments pins the contract that lets the
 // model find the files a request carried: the opening message lists each
 // attachment under scratch/attachments/, ahead of the task, with the path a
-// tool call can use — so the model can pass the mockup to Glance
+// tool call can use — so the model can pass the mockup to `glance`
 // instead of trying to describe it.
 func TestRenderOpeningMessageNamesAttachments(t *testing.T) {
 	msg := RenderOpeningMessage("/ws", "make the page match the mockup", nil, "", "", "", []string{"mockup.png", "light.webp"})

@@ -32,7 +32,7 @@ func (f *fakeSettingsStore) DeleteSetting(ctx context.Context, key string) error
 }
 
 // TestExecutorResolvesLimitsFromSettings pins the configurable tool limits:
-// with a settings resolver attached, Glance's image count and per-file size
+// with a settings resolver attached, `glance`'s image count and per-file size
 // caps come from the registry, and the refusal messages state the actual
 // limit — the shape the model discovers a changed bound from (docs/CACHE.md:
 // the tool description itself names no numbers). The keys keep the names of

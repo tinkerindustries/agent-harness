@@ -520,7 +520,7 @@ func TestFoldTwoSteersInOneBatch(t *testing.T) {
 }
 
 // TestFoldImageToolResult covers the parts-in-tool-message shape every
-// provider uses: a Read stored the image as ImageURL on the event, and the
+// provider uses: a `read` stored the image as ImageURL on the event, and the
 // fold must rebuild the parts array the model sees — a text label part then
 // the image_url part, exactly as the tool produced them
 // (docs/KIMI-INTEGRATION.md §4.5). The bytes come entirely from the event

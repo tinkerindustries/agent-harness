@@ -33,7 +33,7 @@ func testPrices() *pricing.Table {
 		CapturedAt: "2026-08-09",
 		Models: map[string]pricing.ModelPrices{
 			"test-model": {InputCacheHitPerMillionUSD: 0.003625, InputCacheMissPerMillionUSD: 0.435, OutputPerMillionUSD: 0.87},
-			// The vision model the Glance tool uses by default,
+			// The vision model the `glance` tool uses by default,
 			// with the introductory rates fetched from Google's pricing page
 			// on 2026-08-14, so the Gemini cost accounting test below has a
 			// real table to cost against. Keyed on the constant rather than a
@@ -350,7 +350,7 @@ func TestRunWritesProvenanceOntoSessionRow(t *testing.T) {
 
 // TestRunWritesTitleFieldsOntoSessionRow pins the four session fields end to
 // end on the run path: RunOptions carries them onto the store.Session it
-// creates, next to Task, so the session list can render a title and a phase
+// creates, next to `task`, so the session list can render a title and a phase
 // chip without reading the event log.
 func TestRunWritesTitleFieldsOntoSessionRow(t *testing.T) {
 	srv := plainAnswerServer(t, "all done")
@@ -386,7 +386,7 @@ func TestRunWritesTitleFieldsOntoSessionRow(t *testing.T) {
 }
 
 // TestSubagentTitleAndPhaseInheritance pins the child session's session
-// fields: the Task tool's own description argument becomes the child's title
+// fields: the `task` tool's own description argument becomes the child's title
 // (truncated to the title cap when a model supplies a long one), the child's
 // Description stays empty, and the parent's phase position is inherited — a
 // delegated slice of a phased job is still part of that job.
@@ -418,7 +418,7 @@ func TestSubagentTitleAndPhaseInheritance(t *testing.T) {
 }
 
 // completeToolServer answers every streaming request with a single call to
-// Complete, ending the run in one sub-turn. It is what
+// `complete`, ending the run in one sub-turn. It is what
 // TestRunGaveUpSetsCompleteStatus and its "done" counterpart drive against.
 func completeToolServer(t *testing.T, status, summary string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -440,7 +440,7 @@ func completeToolServer(t *testing.T, status, summary string) *httptest.Server {
 }
 
 // TestRunGaveUpSetsCompleteStatus is the session-level half of the gave_up
-// propagation fix (docs/DESIGN.md §4.10): a model that calls Complete with
+// propagation fix (docs/DESIGN.md §4.10): a model that calls `complete` with
 // status "gave_up" must have that status readable off RunResult, not just
 // buried in the run_finished event payload. The session's own terminal
 // status stays "ok" either way — gave_up describes how the model
@@ -514,11 +514,11 @@ func TestRunRefusesAResultSchemaWithoutTheCompleteTool(t *testing.T) {
 	}
 }
 
-// A model that keeps re-sending a Complete the schema keeps rejecting is not
+// A model that keeps re-sending a `complete` the schema keeps rejecting is not
 // correcting anything, and the loop must stop paying for it: one run
 // spent eleven sub-turns and 7% of its budget on identical rejections
 // (docs/reviews/sess-bb6c0ed564ddae573c3b1832cb3981f4.md). The server here
-// answers every request with the same schema-failing Complete, so without the
+// answers every request with the same schema-failing `complete`, so without the
 // rejection count the run would never end.
 func TestRepeatedCompleteRejectionsEndTheRun(t *testing.T) {
 	srv := completeToolServer(t, "done", "fixed it")
@@ -819,7 +819,7 @@ func (c *int32Counter) next() int {
 }
 
 // TestRunGeminiCostShowsInSessionTotal drives a full run whose first
-// sub-turn calls Glance, then asserts the session's cost total
+// sub-turn calls `glance`, then asserts the session's cost total
 // covers the Gemini call: the tool result carries its usage, the runner
 // commits it as its own usage event, and SessionUsageSummaries sums it into
 // the session cost exactly as it sums a DeepSeek turn's usage (docs/DESIGN.md
@@ -838,7 +838,7 @@ func TestRunGeminiCostShowsInSessionTotal(t *testing.T) {
 	deepseekSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		if toolCallSent.CompareAndSwap(false, true) {
-			// First sub-turn: a Glance call.
+			// First sub-turn: a `glance` call.
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
@@ -941,7 +941,7 @@ func TestTaskCreateOrderingWithinSubTurn(t *testing.T) {
 	}
 }
 
-// editBatchFixture writes a file, marks it read so Edit will accept it, and
+// editBatchFixture writes a file, marks it read so `edit` will accept it, and
 // returns the runner, executor and path the same-file tests share.
 func editBatchFixture(t *testing.T, content string) (*Runner, *tools.Executor, string) {
 	t.Helper()
@@ -955,7 +955,7 @@ func editBatchFixture(t *testing.T, content string) (*Runner, *tools.Executor, s
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Edit refuses a file this session has not read.
+	// `edit` refuses a file this session has not read.
 	read := executor.Execute(t.Context(), wire.ToolCall{
 		ID: "call_read", Type: "function",
 		Function: wire.ToolCallFunc{Name: "read", Arguments: `{"file_path":"styles.css"}`},
@@ -996,7 +996,7 @@ func TestSameFileEditsRunInOrder(t *testing.T) {
 }
 
 // TestSameFileEditsClashExplainsWhy covers the case ordering cannot rescue:
-// the second Edit was written against text the first one rewrote, so its
+// the second `edit` was written against text the first one rewrote, so its
 // old_string is genuinely gone. It has to fail — but "old_string not found"
 // alone sends the model hunting for a typo in text that was correct when it
 // wrote it, so the outcome carries the reason.
@@ -1135,7 +1135,7 @@ func TestAPatchIsOrderedAgainstEveryFileItNames(t *testing.T) {
 
 // TestTaskSubagentRunsAtMaxEffort pins the subagent's hardcoded effort:
 // subagentRunner launches its nested flash session at max effort, matching
-// docs/MODELS.md's `Task` subagent row. The child session row stores the
+// docs/MODELS.md's `task` subagent row. The child session row stores the
 // RunOptions effort verbatim, so a regression shows up as the wrong value on
 // the child rather than passing silently.
 func TestTaskSubagentRunsAtMaxEffort(t *testing.T) {
@@ -1296,7 +1296,7 @@ func TestSeesImages(t *testing.T) {
 	}
 }
 
-// blockingBashServer answers the first streaming request with one Bash call
+// blockingBashServer answers the first streaming request with one `bash` call
 // running cmd, and every later request with plain text. started closes once
 // the tool call has been handed back, so a test can cancel while the command
 // is running.

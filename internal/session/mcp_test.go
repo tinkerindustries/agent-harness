@@ -325,7 +325,7 @@ func TestResumeSendsStoredToolArrayNotAFreshResolution(t *testing.T) {
 	}
 }
 
-// TestTaskSubagentGetsMCPToolsToo pins that a Task subagent — which starts
+// TestTaskSubagentGetsMCPToolsToo pins that a `task` subagent — which starts
 // its own fresh session through Runner.Run (subagentRunner) rather than
 // inheriting the parent's array — gets the same MCP resolution any other
 // new run gets: it is its own run, so it resolves its own array from the

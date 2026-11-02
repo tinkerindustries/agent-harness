@@ -225,7 +225,7 @@ func TestScreenshotRequiresUrlAndPath(t *testing.T) {
 
 // Argument validation happens before the browser is reached for, so a call
 // with a bad argument gets the specific complaint even where node is absent —
-// the same ordering Glance, Ground, and Detect use for their capability
+// the same ordering `glance`, `ground`, and `detect` use for their capability
 // check.
 func TestScreenshotValidatesArgumentsBeforeLaunchingTheBrowser(t *testing.T) {
 	e, _ := screenshotExecutor(t)
@@ -451,7 +451,7 @@ func TestScreenshotActionValidation(t *testing.T) {
 // TestScreenshotRunsActionsBeforeCapturing is the end-to-end case the actions
 // exist for: a control that only appears once something has been clicked. A
 // session that could not do this abandoned the tool and drove Playwright
-// through Bash instead (docs/reviews/vision-path-2026-08-14.md).
+// through `bash` instead (docs/reviews/vision-path-2026-08-14.md).
 func TestScreenshotRunsActionsBeforeCapturing(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node is not on PATH")

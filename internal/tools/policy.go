@@ -27,7 +27,7 @@ func (m Mode) Valid() bool {
 type Decision struct {
 	Allow bool
 	// Rule names why, for both an allow ("read-only tools always run") and
-	// a deny ("Bash denied in readonly mode"). Denials show it to the model.
+	// a deny ("bash denied in readonly mode"). Denials show it to the model.
 	Rule string
 }
 
@@ -38,7 +38,7 @@ type Policy struct {
 	Mode Mode
 	// Deny holds substring patterns matched against a call's descriptor
 	// (docs/TOOLS.md does not pin the matching rule; substring-of-command
-	// for Bash and substring-of-"Tool arg" otherwise is what this
+	// for `bash` and substring-of-"Tool arg" otherwise is what this
 	// implementation chose). Deny only ever
 	// subtracts from what Mode allows; it can never widen it.
 	Deny []string
@@ -63,21 +63,21 @@ type Policy struct {
 // changes nothing about what it touches: it writes no chunk files, and the
 // boundaries it reports are y positions in the source image rather than
 // anything on disk. The four task tools carry
-// the same "the plan is the session's own bookkeeping" reasoning TodoWrite
-// had, so read-only-mode sessions keep full plan tracking.
+// the same "the plan is the session's own bookkeeping" reasoning the todo
+// tool it replaced had, so read-only-mode sessions keep full plan tracking.
 //
-// Screenshot is the one member that does write to disk, and it is here
+// `screenshot` is the one member that does write to disk, and it is here
 // because of where it is allowed to write: internal/tools/screenshot.go
 // confines its output to the workspace's scratch/ directory, which by the
 // system prompt's own definition holds nothing that is part of a run's
 // deliverable. A read-only session can therefore capture and review a page —
 // the whole point of a review run — without being able to leave a mark on a
-// cloned repository. It spawns a browser, which Bash-in-readonly is denied
+// cloned repository. It spawns a browser, which read-only mode denies `bash`
 // for, but it spawns exactly one command it composed itself against a URL:
 // there is no argument that turns it into arbitrary execution.
 //
-// Crop writes to disk too, and gets the allowance for the same reason
-// Screenshot does — the entry below says why, beside the entry itself.
+// `crop` writes to disk too, and gets the allowance for the same reason
+// `screenshot` does — the entry below says why, beside the entry itself.
 var alwaysAllowed = map[string]bool{
 	"read":       true,
 	"glob":       true,
@@ -89,12 +89,12 @@ var alwaysAllowed = map[string]bool{
 	"detect":     true,
 	"transcribe": true,
 	"screenshot": true,
-	// Crop writes a file, which is why it is worth saying why it sits
-	// here beside the readers rather than with Write and Edit: its output
-	// is confined to scratch/ by the same rule Screenshot's is
+	// `crop` writes a file, which is why it is worth saying why it sits
+	// here beside the readers rather than with `write` and `edit`: its output
+	// is confined to scratch/ by the same rule `screenshot`'s is
 	// (resolveScratchImageOutput), so it cannot touch the deliverable or a
 	// cloned repository. Gating it by mode instead put the whole
-	// Ground-Crop-Glance pipeline behind full permissions, which is the
+	// `ground`-`crop`-`glance` pipeline behind full permissions, which is the
 	// mode that hands the session every other broad grant — a large
 	// grant to buy a closer look at a screenshot.
 	"crop":        true,
@@ -114,7 +114,7 @@ var alwaysAllowed = map[string]bool{
 }
 
 // Check evaluates one tool call. descriptor is what a deny pattern matches
-// against and what a denial shows the model: the shell command for Bash,
+// against and what a denial shows the model: the shell command for `bash`,
 // "ToolName argument" for path-taking tools, and the bare tool name
 // otherwise.
 func (p *Policy) Check(toolName, descriptor string) Decision {

@@ -34,29 +34,29 @@ const (
 	DefaultOutputCap   = 200_000
 	DefaultBashTimeout = 2 * time.Minute
 	MaxBashTimeout     = 10 * time.Minute
-	// DefaultBashWaitDelay bounds how long Bash waits for a command's output
+	// DefaultBashWaitDelay bounds how long `bash` waits for a command's output
 	// pipes to close after the command exits or is cancelled, before it stops
-	// waiting and kills the process group (docs/TOOLS.md, "Bash").
+	// waiting and kills the process group (docs/TOOLS.md, "bash").
 	DefaultBashWaitDelay = 2 * time.Second
 	DefaultToolTimeout   = 30 * time.Second
 	WebFetchTimeout      = 45 * time.Second
 	TaskTimeout          = 10 * time.Minute
-	// ReviewScreenshotTimeout bounds one Gemini call made by Glance, Ground,
-	// or Detect: describing or locating something across up to four images
+	// ReviewScreenshotTimeout bounds one Gemini call made by `glance`, `ground`,
+	// or `detect`: describing or locating something across up to four images
 	// routinely takes longer than the 30-second default tool timeout, so
 	// these three get their own (docs/TOOLS.md). The name predates the tools
 	// it now bounds — it was ReviewScreenshot's alone — and is kept rather
 	// than renamed to match: it is also a stored setting key
 	// (tools.reviewscreenshot_timeout), and renaming it would be a silent
-	// config reset for every operator who has set one. Crop makes no model
+	// config reset for every operator who has set one. `crop` makes no model
 	// call and is not in this group; it keeps the default tool timeout.
-	// 120s rather than 60s: a Glance asked to describe a whole page at medium
+	// 120s rather than 60s: a `glance` asked to describe a whole page at medium
 	// thinking produced 1142 output tokens, 438 of them thinking, and hit the
 	// 60s ceiling mid-stream on a live run (sess-24bae5fa, seq 39). The model
 	// retried and the retry cost a second full call, so the ceiling was buying
 	// a stuck-call guard that a real answer was already exceeding.
 	ReviewScreenshotTimeout = 120 * time.Second
-	// TranscribeTimeout bounds one Transcribe call — every chunk of it, not
+	// TranscribeTimeout bounds one `transcribe` call — every chunk of it, not
 	// one Gemini request. A tall page is several calls, sent concurrently in
 	// waves of tools.transcribe_concurrency, so the wall time is a few of
 	// ReviewScreenshotTimeout rather than the sum of all of them; this is
@@ -68,7 +68,7 @@ const (
 	// waiting for the page to settle and encoding the image do not fit in the
 	// 30-second default, and the driver's own navigation timeout is derived
 	// from this one so a slow page fails with a message rather than being
-	// killed silently (docs/TOOLS.md, "Screenshot").
+	// killed silently (docs/TOOLS.md, "screenshot").
 	ScreenshotTimeout = 90 * time.Second
 	// DefaultMCPTimeout bounds one MCP tool call (docs/MCP.md, "Calling").
 	// Longer than DefaultToolTimeout: the calls that motivated MCP support —
@@ -82,7 +82,7 @@ const (
 // the model as the tool message; IsError and Truncated are metadata the
 // runner uses to build the store event. Diff and ChildSessionID ride along
 // for the two tools that have something structured to add on top of Content
-// — Edit's line-level diff and Task's spawned session id — so a client
+// — `edit`'s line-level diff and `task`'s spawned session id — so a client
 // can shape their blocks without re-deriving either from prose: one shape
 // per tool (docs/TOOLS.md).
 type Result struct {
@@ -91,23 +91,23 @@ type Result struct {
 	Truncated      bool
 	Diff           []store.DiffLine
 	ChildSessionID string
-	// ImageURL is the base64 data URI of an image Read returned as an
+	// ImageURL is the base64 data URI of an image `read` returned as an
 	// image_url part, set only on a vision provider (docs/KIMI-INTEGRATION.md
-	// §4.5). It never rides with IsError: a Read that fails is a refusal with
+	// §4.5). It never rides with IsError: a `read` that fails is a refusal with
 	// a text result, not a broken image part. The runner stores Content and
 	// ImageURL on the tool_result event and the fold rebuilds the parts array
 	// from them (internal/fold/fold.go), so the image bytes live in the event
 	// log and a replay reproduces them identically.
 	ImageURL string
-	// GeminiUsage is the costed token accounting of a Glance, Ground,
-	// Detect, or Transcribe call, set only when the tool made a successful
-	// request to Gemini (Crop never sets it: it makes no model call). The
+	// GeminiUsage is the costed token accounting of a `glance`, `ground`,
+	// `detect`, or `transcribe` call, set only when the tool made a successful
+	// request to Gemini (`crop` never sets it: it makes no model call). The
 	// runner commits it as its own usage event (internal/session/turn.go),
 	// so a Gemini call shows up in the session's cost total exactly the way
 	// a DeepSeek turn's usage does.
 	//
 	// One payload, and therefore one event, even for a tool that made many
-	// calls: Transcribe sends a request per chunk and sums them here, with
+	// calls: `transcribe` sends a request per chunk and sums them here, with
 	// Calls recording how many, because the transcript card absorbs one
 	// usage block per sub-turn and a later one replaces an earlier one
 	// (internal/tools/transcribe.go, sumTranscribeUsage, has the whole
@@ -145,7 +145,7 @@ func truncate(s string, n int) (string, bool) {
 }
 
 // CompletePayload is the parsed, schema-validated argument set from a
-// successful Complete call.
+// successful `complete` call.
 type CompletePayload struct {
 	Summary string
 	Result  json.RawMessage
@@ -209,7 +209,7 @@ type Executor struct {
 	// ReadRoots are directories outside the workspace that the read-only
 	// tools may also read: one per skill discovered outside it, filled by
 	// internal/session from the skills catalogue. Each tool still refuses
-	// every other path outside the workspace, and Write, Edit and the other
+	// every other path outside the workspace, and `write`, `edit` and the other
 	// mutating tools stay confined to Workspace alone.
 	ReadRoots    []string
 	Policy       *Policy
@@ -223,15 +223,15 @@ type Executor struct {
 
 	// SeeImages is true when the session's model reads images natively
 	// (Kimi K3, Gemini, and deepseek-flash; deepseek-v4-pro does not,
-	// docs/DEEPSEEK-VISION.md). Read consults it: on a
+	// docs/DEEPSEEK-VISION.md). `read` consults it: on a
 	// vision-capable model, reading an image path returns the file as an
 	// image_url part instead of the binary-file refusal, and the vision
 	// tools that exist only because a model cannot see an image itself
-	// (Screenshot, Glance, Ground, Detect, Transcribe, Crop) are not offered
+	// (`screenshot`, `glance`, `ground`, `detect`, `transcribe`, `crop`) are not offered
 	// at all (internal/tools/definitions.go, docs/KIMI-INTEGRATION.md §4.5,
 	// docs/GEMINI-INTEGRATION.md §5.7). Set by internal/session from the
 	// session's model at creation and on resume, and never changed
-	// mid-session — the tool array and Read's behaviour are both frozen for
+	// mid-session — the tool array and `read`'s behaviour are both frozen for
 	// a session's life (docs/CACHE.md).
 	SeeImages bool
 
@@ -257,7 +257,7 @@ type Executor struct {
 	// effect without a restart. Nil falls back to gemini.DefaultModel.
 	GeminiModel func() (string, error)
 
-	// RunSubagent executes Task by delegating to the session loop. It is
+	// RunSubagent executes `task` by delegating to the session loop. It is
 	// injected by internal/session, which imports internal/tools; tools
 	// cannot import session directly without a cycle. The returned session id
 	// is the subagent's own session row — a distinct id from this Executor's
@@ -266,7 +266,7 @@ type Executor struct {
 	RunSubagent func(ctx context.Context, description, prompt, subagentType string) (summary string, sessionID string, err error)
 
 	// ExtraEnv, when set, is asked for environment variables to add to
-	// every Bash call's subprocess, resolved at the moment of the call
+	// every `bash` call's subprocess, resolved at the moment of the call
 	// rather than held on the Executor. It exists for the GitHub App
 	// credential: an App has no single standing token, so GH_TOKEN cannot be
 	// made ambient for the whole process the way a personal access token is
@@ -274,26 +274,26 @@ type Executor struct {
 	// session's repositories belong to, and re-minted as it expires, which
 	// only a call-time resolution can do. The closure is built in
 	// cmd/harness, which is where the App provider lives; nil is every other
-	// caller, and a Bash call then inherits this process's environment
+	// caller, and a `bash` call then inherits this process's environment
 	// unchanged, exactly as it always has.
 	ExtraEnv func(ctx context.Context, workspace string) []string
 
 	// EnvFilter, when set, is applied to this process's own environment
-	// before a Bash call's subprocess inherits it, in place of the
+	// before a `bash` call's subprocess inherits it, in place of the
 	// unfiltered os.Environ() a nil cmd.Env means. It exists for
 	// `harness stdio-session`: a hosted session's parent supplies
 	// GEMINI_API_KEY (or GOOGLE_API_KEY) only so this process's own API
-	// client can reach Google, and a Bash call running "as this process's
+	// client can reach Google, and a `bash` call running "as this process's
 	// own user, with the parent's environment" (docs/STDIO-PROTOCOL.md,
 	// "Permissions") has no business seeing it. Nil is every other caller —
 	// an operator-configured session among them — and a
-	// Bash call then inherits this process's environment unchanged, exactly
+	// `bash` call then inherits this process's environment unchanged, exactly
 	// as it always has.
 	EnvFilter func(base []string) []string
 
-	// RG is the ripgrep binary Grep execs, resolved once at startup by
+	// RG is the ripgrep binary `grep` execs, resolved once at startup by
 	// RipgrepPath from -rg, then AGENT_HARNESS_RG, then the PATH. Empty means
-	// none was found, and Grep falls back to its own walk — the same output
+	// none was found, and `grep` falls back to its own walk — the same output
 	// for the same call, except that the walk cannot filter by file type
 	// (internal/tools/grep.go, docs/TOOLS.md).
 	RG string
@@ -333,7 +333,7 @@ type Executor struct {
 	mcpImageMu   sync.Mutex
 	nextMCPImage int
 
-	// Glance conversation state, held here because an Executor belongs to
+	// `glance` conversation state, held here because an Executor belongs to
 	// exactly one session (docs/DESIGN.md §4.5). See glanceConversation.
 	glanceMu            sync.Mutex
 	glanceConversations map[string]*glanceConversation
@@ -354,7 +354,7 @@ func NewExecutor(workspace string, policy *Policy) (*Executor, error) {
 	}, nil
 }
 
-// shellsRegistry is the registry this Executor's Bash calls use: the
+// shellsRegistry is the registry this Executor's `bash` calls use: the
 // session's when one was handed in, otherwise one this Executor owns. The
 // lazy own one is what keeps every caller that never wires a registry
 // (tests, the subagent path) behaving exactly as it did.
@@ -451,7 +451,7 @@ func (e *Executor) timeoutFor(ctx context.Context, name string, argsRaw json.Raw
 		}
 		return TaskTimeout
 	case "glance", "ground", "detect":
-		// Crop makes no model call, so it keeps the default tool timeout below
+		// `crop` makes no model call, so it keeps the default tool timeout below
 		// rather than this one — it has no Gemini round-trip to bound.
 		if e.Timeouts.ReviewScreenshot > 0 {
 			return e.Timeouts.ReviewScreenshot
@@ -463,7 +463,7 @@ func (e *Executor) timeoutFor(ctx context.Context, name string, argsRaw json.Raw
 		}
 		return ReviewScreenshotTimeout
 	case "transcribe":
-		// Not the Glance timeout: Transcribe's budget has to cover every
+		// Not the `glance` timeout: `transcribe`'s budget has to cover every
 		// chunk of an image, and inheriting a per-call one would kill a tall
 		// page part-way through and bill for the chunks that had already
 		// come back.
@@ -509,7 +509,7 @@ func (e *Executor) mcpTimeout(ctx context.Context) time.Duration {
 	return DefaultMCPTimeout
 }
 
-// bashTimeouts returns the Bash default and ceiling timeouts, honouring an
+// bashTimeouts returns the `bash` default and ceiling timeouts, honouring an
 // explicit Timeouts field first, then the settings, then the constants.
 func (e *Executor) bashTimeouts(ctx context.Context) (def, max time.Duration) {
 	def, max = DefaultBashTimeout, MaxBashTimeout
@@ -530,7 +530,7 @@ func (e *Executor) bashTimeouts(ctx context.Context) (def, max time.Duration) {
 	return def, max
 }
 
-// bashWaitDelay returns how long Bash keeps waiting for a command's output
+// bashWaitDelay returns how long `bash` keeps waiting for a command's output
 // pipes to close after the command exits or is cancelled before it gives up,
 // honours an explicit Timeouts field first, then the settings, then the
 // constant. The registry enforces the bounds on write, so like the timeout
@@ -549,7 +549,7 @@ func (e *Executor) bashWaitDelay(ctx context.Context) time.Duration {
 }
 
 // markRead records that path (already workspace-resolved) has been read
-// this session, satisfying the prior-read gate on Write and Edit
+// this session, satisfying the prior-read gate on `write` and `edit`
 // (docs/TOOLS.md).
 func (e *Executor) markRead(path string) {
 	e.readsMu.Lock()
@@ -613,7 +613,7 @@ func toolArgs(s string) json.RawMessage {
 	return json.RawMessage(s)
 }
 
-// Execute evaluates permission for call, then runs it (or Complete's
+// Execute evaluates permission for call, then runs it (or `complete`'s
 // validation) under a per-tool timeout derived from ctx.
 func (e *Executor) Execute(ctx context.Context, call wire.ToolCall) Outcome {
 	name := call.Function.Name
@@ -664,7 +664,7 @@ type toolLimitKey struct{}
 
 // withToolLimit attaches the timeout Execute actually applied. A tool that
 // reports its own expiry needs the limit that bit, and that is not always the
-// one the model asked for: timeoutFor clamps a Bash request down to
+// one the model asked for: timeoutFor clamps a `bash` request down to
 // tools.bash_timeout_max, and substitutes tools.bash_timeout for a call that
 // named none. docs/CACHE.md keeps both numbers out of the tool description, so
 // the expiry message is the only place the model can learn what the bound
@@ -712,7 +712,7 @@ func CallIDFrom(ctx context.Context) string {
 type stdoutSinkKey struct{}
 
 // WithStdoutSink attaches sink to ctx so a tool that produces incremental
-// output can forward it as it runs, ahead of the final Result. Bash and MCP
+// output can forward it as it runs, ahead of the final Result. `bash` and MCP
 // tool calls are the callers; session builds one sink per tool call, keyed
 // to that call's tool_call_id, before invoking Execute. A context with no
 // sink attached — a CLI run with no hub, every test — makes the forwarding
@@ -728,7 +728,7 @@ func stdoutSinkFromContext(ctx context.Context) func(string) {
 
 // StdoutSinkFrom is stdoutSinkFromContext for the one caller outside this
 // package: internal/mcpclient, which forwards a server's progress
-// notifications down the same channel a running Bash command's output uses
+// notifications down the same channel a running `bash` command's output uses
 // (docs/MCP.md, "What a server sends back unasked"). Nil when the context
 // carries no sink.
 func StdoutSinkFrom(ctx context.Context) func(string) {

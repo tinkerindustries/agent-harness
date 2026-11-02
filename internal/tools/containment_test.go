@@ -35,7 +35,7 @@ func runTool(t *testing.T, e *Executor, name string, args any) Result {
 }
 
 // markReadPath records path and its symlink-resolved spelling as read this
-// session, so an Edit under test reaches its write regardless of which
+// session, so an `edit` under test reaches its write regardless of which
 // spelling the implementation checks.
 func markReadPath(e *Executor, path string) {
 	e.markRead(path)
@@ -74,7 +74,7 @@ func assertFileState(t *testing.T, target string, want []byte) {
 // means to make is never made. A file in the test's own outside directory is
 // absolute on every platform and carries the same meaning.
 //
-// The content is what the tools are pointed at: Edit replaces "old", Grep
+// The content is what the tools are pointed at: `edit` replaces "old", `grep`
 // looks for "needle", so a containment regression that reaches the
 // filesystem changes or finds something the assertions catch, rather than
 // failing for an unrelated reason and passing the test.
@@ -189,7 +189,7 @@ func TestFileToolsContainToWorkspace(t *testing.T) {
 				}
 				// The target counts as read this session so a containment
 				// regression that reaches the write is caught by the file-state
-				// assertion rather than masked by Edit's prior-read gate. The
+				// assertion rather than masked by `edit`'s prior-read gate. The
 				// absolute case is deliberately not marked read: the file
 				// outside must stay untouched even against a broken
 				// implementation.

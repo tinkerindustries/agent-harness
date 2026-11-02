@@ -120,7 +120,7 @@ type iactCreateParams struct {
 
 // iactResponseFormat is Google's text response format: a JSON schema the
 // answer must satisfy. It becomes the session's result schema, which is what
-// the Complete tool validates against (docs/TOOLS.md).
+// the `complete` tool validates against (docs/TOOLS.md).
 type iactResponseFormat struct {
 	Type     string          `json:"type"`
 	MIMEType string          `json:"mime_type,omitempty"`

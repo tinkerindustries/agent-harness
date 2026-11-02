@@ -21,7 +21,7 @@ type DiffLine struct {
 	NewLine int    `json:"new_line,omitempty"`
 }
 
-// maxLCSLines bounds the O(n*m) table ComputeDiff builds. Edit's old_string
+// maxLCSLines bounds the O(n*m) table ComputeDiff builds. `edit`'s old_string
 // and new_string are normally a targeted snippet rather than a whole file, so
 // this ceiling is generous; a text past it falls back to a coarse
 // remove-all/add-all diff instead of allocating an oversized table.

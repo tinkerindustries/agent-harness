@@ -144,7 +144,7 @@ func TestEveryDefaultModelIsPriced(t *testing.T) {
 
 // TestGeminiDefaultModelMatchesTheRegistry pins the two copies of the vision
 // default together. internal/gemini holds one as a constant, for the vision
-// tools' (Glance, Ground, Detect) fallback path when there is no settings
+// tools' (`glance`, `ground`, `detect`) fallback path when there is no settings
 // resolver to ask; this registry holds the other, which is what every
 // ordinary call resolves through. gemini's own doc comment already claims
 // they agree, and a claim

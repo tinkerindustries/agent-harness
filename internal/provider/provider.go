@@ -26,7 +26,7 @@ const (
 	// Gemini is Google's Gemini API, serving gemini-3.8-flash, gemini-3.7-flash,
 	// gemini-3.6-flash, gemini-3.5-flash and gemini-3.5-flash-lite through the
 	// Interactions surface (docs/GEMINI-INTEGRATION.md). internal/gemini also
-	// serves the vision tools (Glance, Ground, Detect) on this same provider,
+	// serves the vision tools (`glance`, `ground`, `detect`) on this same provider,
 	// but that path is called directly (session.Runner.Gemini) rather than
 	// through this table — this entry is only for the agentic coding seam.
 	Gemini Name = "gemini"
@@ -124,7 +124,7 @@ var visionCapable = map[string]bool{
 
 // SeesImages reports whether model reads images natively. It is the one
 // source of truth both halves of the vision split consult: which tool array
-// a session sends (internal/tools.DefinitionsFor) and whether Read returns
+// a session sends (internal/tools.DefinitionsFor) and whether `read` returns
 // an image part (internal/session's seesImages, tools.Executor.SeeImages).
 func SeesImages(model string) bool {
 	return visionCapable[model]

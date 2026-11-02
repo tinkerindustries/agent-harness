@@ -5,7 +5,7 @@
 //
 // A skill is a directory holding a SKILL.md whose YAML frontmatter carries a
 // name and a description. Only that one-line description reaches the model up
-// front; the body is read on demand with the Read tool, which is why the
+// front; the body is read on demand with the `read` tool, which is why the
 // catalogue names each skill's path. Nothing here touches the system prompt
 // or the tool array, so adding skills to a repository does not disturb the
 // cached head (docs/CACHE.md).
@@ -84,7 +84,7 @@ type Skill struct {
 	// MaxDescriptionLen. A skill without one is skipped: the description is
 	// the only thing the model sees before deciding to open the skill.
 	Description string
-	// Path is the path the model passes back to Read. A skill inside the
+	// Path is the path the model passes back to `read`. A skill inside the
 	// workspace is named relative to the workspace root; one installed
 	// outside it — the user's own, a plugin's, or an ancestor repository's —
 	// is named absolutely, and ReadRoots carries the directory that makes it

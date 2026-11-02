@@ -53,7 +53,7 @@ func TestExecuteAbsentArgumentsRunAnAllOptionalTool(t *testing.T) {
 // TestExecuteAbsentArgumentsRefuseByFieldName proves the same call against a
 // tool with a required field is refused in terms the model can act on — the
 // missing field's name — rather than by a JSON parse error naming a byte
-// position it cannot see. Complete is in the table because Execute dispatches
+// position it cannot see. `complete` is in the table because Execute dispatches
 // it beside toolFuncs rather than through it.
 func TestExecuteAbsentArgumentsRefuseByFieldName(t *testing.T) {
 	e, _ := newTestExecutor(t)

@@ -13,7 +13,7 @@ type listArgs struct {
 	Ignore []string `json:"ignore"`
 }
 
-// execList implements List: the immediate entries of a directory, files and
+// execList implements `list`: the immediate entries of a directory, files and
 // subdirectories both, sorted, honouring glob ignore patterns.
 func execList(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result {
 	var args listArgs

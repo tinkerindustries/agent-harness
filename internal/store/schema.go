@@ -260,13 +260,14 @@ var sessionMigrationColumns = []migrationColumn{
 	{"total_phases", "INTEGER NOT NULL DEFAULT 0"},
 	{"parent_agent_type", "TEXT NOT NULL DEFAULT ''"},
 	{"parent_agent_id", "TEXT NOT NULL DEFAULT ''"},
-	// complete_status: the status argument to Complete, kept alongside the
+	// complete_status: the status argument to `complete`, kept alongside the
 	// session's own status so the session list can tell DONE from GAVE UP.
 	// Older rows default to the empty string,
 	// which the browser renders as the plain terminal status rather than
 	// guessing.
 	{"complete_status", "TEXT NOT NULL DEFAULT ''"},
-	// plan: the JSON todos array of the latest TodoWrite call, so the
+	// plan: the JSON todos array of the latest `task_create` or `task_update`
+	// call, so the
 	// session list carries the live plan without re-walking the event log
 	// and keeps it for finished sessions.
 	// Older rows default to the empty string, which the browser renders as
@@ -276,7 +277,7 @@ var sessionMigrationColumns = []migrationColumn{
 	// in-flight card no longer renders it; the column is kept because it is
 	// written in the same store write as the plan.
 	{"recent_tool_calls", "TEXT NOT NULL DEFAULT ''"},
-	// summary: the summary argument the model gave Complete, its own
+	// summary: the summary argument the model gave `complete`, its own
 	// one-line account of the run, shown under the finished table's session
 	// id. Older rows default to the empty
 	// string, which the browser renders as no subtitle.

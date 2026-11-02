@@ -33,8 +33,8 @@ type subTurnOutcome struct {
 	// whose boundary is clear, so what was held back is delivered rather than
 	// withdrawn unseen.
 	deferred bool
-	// completeError is the message a rejected Complete came back with, and
-	// "" when this sub-turn had no rejected Complete. The loop in Run
+	// completeError is the message a rejected `complete` came back with, and
+	// "" when this sub-turn had no rejected `complete`. The loop in Run
 	// compares it across sub-turns to notice a model retrying an identical
 	// rejection rather than correcting it (see maxCompleteRejections).
 	completeError string

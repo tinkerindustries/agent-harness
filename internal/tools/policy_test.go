@@ -41,10 +41,10 @@ func TestToolArrayIdenticalAcrossModes(t *testing.T) {
 
 func TestReadOnlyModeDenies(t *testing.T) {
 	p := &Policy{Mode: ModeReadOnly}
-	// Crop is in the allowed set despite writing a file: its output is
-	// confined to scratch/ exactly as Screenshot's is
+	// `crop` is in the allowed set despite writing a file: its output is
+	// confined to scratch/ exactly as `screenshot`'s is
 	// (resolveScratchImageOutput), so it cannot reach the deliverable or a
-	// cloned repository. Denying it put the whole Ground-Crop-Glance pipeline
+	// cloned repository. Denying it put the whole `ground`-`crop`-`glance` pipeline
 	// behind full permissions, the mode that carries every other broad
 	// socket.
 	allowed := []string{"read", "glob", "grep", "list", "web_fetch", "glance", "ground", "detect", "screenshot", "crop", "task_create", "task_get", "task_list", "task_update", "complete"}
@@ -61,7 +61,7 @@ func TestReadOnlyModeDenies(t *testing.T) {
 	}
 }
 
-// Mode has exactly two values. "default" was a third, gating Bash behind an
+// Mode has exactly two values. "default" was a third, gating `bash` behind an
 // allowlist; it was removed because that allowlist admitted go, npm, make,
 // and python, every one of which runs arbitrary code (docs/TOOLS.md).
 func TestModeValidAcceptsTwoModesAndRejectsRemovedDefault(t *testing.T) {
@@ -83,7 +83,7 @@ func TestFullModeAllowsEverything(t *testing.T) {
 		}
 	}
 	if d := p.Check("bash", "anything at all"); !d.Allow {
-		t.Error("full mode should allow an arbitrary Bash command")
+		t.Error("full mode should allow an arbitrary bash command")
 	}
 }
 

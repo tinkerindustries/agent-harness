@@ -4,8 +4,10 @@ import (
 	"testing"
 )
 
-// applyTaskEvent replays TaskCreate/TaskUpdate/TaskDelete in event order,
-// with a delete leaving the id burned.
+// applyTaskEvent replays the plan events in event order. The spellings below
+// are the pre-rename ones on purpose: status.go accepts both, so a plan
+// written before the rename still reconstructs. A delete leaves the id
+// burned.
 func TestApplyTaskEventReplaysCreateUpdateDeleteInOrder(t *testing.T) {
 	nextID := 0
 	var todos []StatusTodo

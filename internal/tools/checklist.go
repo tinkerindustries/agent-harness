@@ -61,7 +61,7 @@ type taskCreateItem struct {
 // outside the session (docs/TOOLS.md). Every item is validated before any is
 // committed, so a bad call mutates nothing; ids are minted in array order
 // from the executor's nextTaskID. subject and description are both required
-// on every item, matching Claude Code's real TaskCreate schema.
+// on every item, matching Claude Code's own TaskCreate schema.
 func execTaskCreate(_ context.Context, e *Executor, argsRaw json.RawMessage) Result {
 	var args taskCreateArgs
 	if err := json.Unmarshal(argsRaw, &args); err != nil {

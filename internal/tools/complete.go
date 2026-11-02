@@ -13,7 +13,7 @@ type completeArgs struct {
 	Status  string          `json:"status"`
 }
 
-// execComplete implements Complete. Unlike the other tools it can end the
+// execComplete implements `complete`. Unlike the other tools it can end the
 // run, so it returns the parsed payload alongside the Result rather than
 // through the generic toolFunc signature. A schema failure returns errors
 // through the tool result channel and does not end the run — the model
@@ -47,7 +47,7 @@ func (e *Executor) execComplete(argsRaw json.RawMessage) (Result, CompletePayloa
 	}, true
 }
 
-// completeParams are Complete's own arguments, which are never schema fields
+// completeParams are `complete`'s own arguments, which are never schema fields
 // however the result schema is shaped.
 var completeParams = map[string]bool{"summary": true, "result": true, "status": true}
 
@@ -55,7 +55,7 @@ var completeParams = map[string]bool{"summary": true, "result": true, "status": 
 // null" does not name: the schema's fields sent as top-level arguments
 // beside status instead of nested inside result. The generic error is
 // accurate but describes the absent argument rather than the present ones,
-// and a live run spent eleven consecutive Complete calls varying the payload
+// and a live run spent eleven consecutive `complete` calls varying the payload
 // size rather than its shape before ending on no_tool_calls
 // (docs/reviews/sess-bb6c0ed564ddae573c3b1832cb3981f4.md). It returns "" for
 // every other failure, so a genuinely malformed result still gets only the
