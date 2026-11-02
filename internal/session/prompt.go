@@ -52,7 +52,7 @@ not by describing what someone else should do.
 // (docs/CACHE.md, docs/VISION-TOOLKIT.md) — a cost paid deliberately at the
 // swap rather than drifted into.
 var toolOrder = []string{
-	"read", "write", "edit", "bash", "job_output", "job_kill", "job_list", "glob", "grep", "list",
+	"read", "write", "edit", "apply_patch", "bash", "job_output", "job_kill", "job_list", "glob", "grep", "list",
 	"task_create", "task_get", "task_list", "task_update", "task", "web_fetch",
 	"screenshot", "glance", "transcribe", "ground", "detect", "crop", "complete",
 }
@@ -207,6 +207,14 @@ var toolFragments = []toolFragment{
   edit. edit requires an exact, unique match of old_string against the file's
   real bytes; the line-number prefix read shows you is for your reference only
   and must never appear inside old_string.
+`,
+	},
+	{
+		needs: []string{"apply_patch"},
+		text: `- apply_patch carries a whole patch in input, from *** Begin Patch to
+  *** End Patch, and applies every hunk or none: one hunk that does not match
+  refuses the call and leaves every file unchanged. Every file it changes must
+  have been read this session first.
 `,
 	},
 	{
@@ -406,10 +414,10 @@ func RenderSystemPrompt() string {
 // RenderSystemPromptFor returns the frozen system prompt for the provider
 // serving model, with a named variant's edits made. An empty variant name is
 // the provider's shipped prompt, byte for byte (internal/promptvariant):
-// DeepSeek renders its ten-tool head, Kimi renders the head for its
-// seventeen-tool array — whose inventory, count word and rules all follow
+// DeepSeek renders its eleven-tool head, Kimi renders the head for its
+// eighteen-tool array — whose inventory, count word and rules all follow
 // from the array itself (docs/KIMI-INTEGRATION.md §4.4) — Gemini renders
-// the same seventeen-tool head Kimi does, since both resolve to
+// the same eighteen-tool head Kimi does, since both resolve to
 // tools.definitionsVisionCapable and both have seesImages() true
 // (docs/GEMINI-INTEGRATION.md §5.7) — and a variant that subtracts tools
 // (tools.DefinitionsForVariant) renders the head for its own smaller array,

@@ -134,6 +134,17 @@ var variants = map[string]variant{
 		description: "the shipped prompt with bash, job_output, job_kill and job_list dropped — no shell rule, no batch rule naming bash, and an inventory that names only the tools the session is actually sent",
 		dropTools:   []string{"bash", "job_output", "job_kill", "job_list"},
 	},
+
+	// no-patch is the editing-tool arm: the session is offered write and
+	// edit but not apply_patch, so the head's apply_patch rule falls out with
+	// the tool and the inventory names only what the session is sent. What
+	// it measures is whether a session does better with one editing tool
+	// than with two. The plan's risk is that a model picks a patch where edit
+	// was more reliable.
+	"no-patch": {
+		description: "the shipped prompt with apply_patch dropped: the editing rule names write and edit only, and an inventory that names only the tools the session is actually sent; compare with base on the same model",
+		dropTools:   []string{"apply_patch"},
+	},
 }
 
 // Apply returns base with the named variant's edits made. An empty name is

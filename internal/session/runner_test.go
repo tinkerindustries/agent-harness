@@ -1057,6 +1057,82 @@ func TestDifferentFileEditsStayConcurrent(t *testing.T) {
 	}
 }
 
+// patchToolCall builds one apply_patch call whose input is the patch.
+func patchToolCall(t *testing.T, id, patch string) wire.AssembledToolCall {
+	t.Helper()
+	args, err := json.Marshal(map[string]string{"input": patch})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return wire.AssembledToolCall{ID: id, Name: "apply_patch", Arguments: string(args)}
+}
+
+// TestTwoPatchesOnOneFileRunInOrder is the requirement apply_patch's
+// scheduling rests on: two patches naming one file must not race. The second
+// patch is written against the first one's result, so an unordered pair
+// either fails its hunk or silently loses the first change. Run with -race.
+func TestTwoPatchesOnOneFileRunInOrder(t *testing.T) {
+	r, executor, path := editBatchFixture(t, "alpha\nbravo\n")
+	calls := []wire.AssembledToolCall{
+		patchToolCall(t, "call_00_alpha", "*** Begin Patch\n*** Update File: styles.css\n@@\n-alpha\n+ALPHA\n*** End Patch\n"),
+		patchToolCall(t, "call_01_alpha", "*** Begin Patch\n*** Update File: ./styles.css\n@@\n-ALPHA\n+CHARLIE\n*** End Patch\n"),
+	}
+	outcomes := r.executeToolCalls(t.Context(), store.Session{ID: "sess-patches"}, executor, calls)
+	for i, o := range outcomes {
+		if o.Result.IsError {
+			t.Fatalf("patch %d failed: %s", i, o.Result.Content)
+		}
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "CHARLIE\nbravo\n" {
+		t.Fatalf("file = %q, want both patches applied in order", got)
+	}
+}
+
+// TestAPatchIsOrderedAgainstEveryFileItNames is the multi-file half: a patch
+// that spans two files and an edit of each must run as one ordered group, so
+// neither edit is written from bytes the patch has not yet replaced. Run with
+// -race.
+func TestAPatchIsOrderedAgainstEveryFileItNames(t *testing.T) {
+	r, executor, path := editBatchFixture(t, "alpha\nbravo\n")
+	other := filepath.Join(executor.Workspace, "other.css")
+	if err := os.WriteFile(other, []byte("charlie\ndelta\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	read := executor.Execute(t.Context(), wire.ToolCall{
+		ID: "call_read2", Type: "function",
+		Function: wire.ToolCallFunc{Name: "read", Arguments: `{"file_path":"other.css"}`},
+	})
+	if read.Result.IsError {
+		t.Fatalf("Read other.css: %s", read.Result.Content)
+	}
+
+	calls := []wire.AssembledToolCall{
+		patchToolCall(t, "call_00_patch", "*** Begin Patch\n*** Update File: styles.css\n@@\n-alpha\n+ALPHA\n"+
+			"*** Update File: other.css\n@@\n-charlie\n+CHARLIE\n*** End Patch\n"),
+		{ID: "call_01_styles", Name: "edit", Arguments: `{"file_path":"styles.css","old_string":"bravo","new_string":"BRAVO"}`},
+		{ID: "call_02_other", Name: "edit", Arguments: `{"file_path":"other.css","old_string":"delta","new_string":"DELTA"}`},
+	}
+	outcomes := r.executeToolCalls(t.Context(), store.Session{ID: "sess-spanning"}, executor, calls)
+	for i, o := range outcomes {
+		if o.Result.IsError {
+			t.Fatalf("call %d failed: %s", i, o.Result.Content)
+		}
+	}
+	for name, want := range map[string]string{path: "ALPHA\nBRAVO\n", other: "CHARLIE\nDELTA\n"} {
+		got, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != want {
+			t.Fatalf("%s = %q, want %q", filepath.Base(name), got, want)
+		}
+	}
+}
+
 // TestTaskSubagentRunsAtMaxEffort pins the subagent's hardcoded effort:
 // subagentRunner launches its nested flash session at max effort, matching
 // docs/MODELS.md's `Task` subagent row. The child session row stores the

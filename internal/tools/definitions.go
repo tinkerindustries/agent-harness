@@ -9,7 +9,7 @@ import (
 )
 
 // The tool array is per-provider (docs/KIMI-INTEGRATION.md §4.5, decision 5):
-// DeepSeek gets all twenty-three tools, and Kimi K3 gets the seventeen that remain
+// DeepSeek gets all twenty-four tools, and Kimi K3 gets the eighteen that remain
 // once the six vision tools are dropped — K3 reads images natively, so
 // Glance, Ground, Detect, Transcribe, Crop (the Gemini round-trips and the
 // local image operation that feeds them) and Screenshot (capture-and-describe)
@@ -52,6 +52,13 @@ var definitionsDeepSeek = []wire.Tool{
 			"replace_all": {"type": "boolean", "description": "Replace every occurrence instead of requiring a unique match"}
 		},
 		"required": ["file_path", "old_string", "new_string"]
+	}`),
+	function("apply_patch", "Apply a patch to one or more files in the workspace. input is the patch itself, from *** Begin Patch to *** End Patch: *** Add File: <path> followed by + lines, *** Update File: <path> with an optional *** Move to: <path>, *** Delete File: <path>, and hunks that start with an @@ context line and carry space (context), + (add) and - (remove) lines. *** End of File anchors a hunk to the end of the file. Every hunk applies to an in-memory copy of every file first: one that does not match fails the whole call and leaves every file unchanged. Paths are workspace-relative and resolve the same way write and edit's do. Requires having read each existing file the patch changes, in this session.", `{
+		"type": "object",
+		"properties": {
+			"input": {"type": "string", "description": "The patch, from *** Begin Patch to *** End Patch"}
+		},
+		"required": ["input"]
 	}`),
 	function("bash", "Run a shell command in the workspace. Output is captured and returned once the command exits, unless run_in_background is set, which returns immediately with an id job_output and job_kill can act on.", `{
 		"type": "object",
@@ -290,7 +297,7 @@ var definitionsDeepSeek = []wire.Tool{
 }
 
 // definitionsVisionCapable is the array for every model that reads images
-// natively (provider.SeesImages): DeepSeek's twenty-three minus the six tools that
+// natively (provider.SeesImages): DeepSeek's twenty-four minus the six tools that
 // exist only to get an image in front of a model that cannot see one
 // itself. Kimi K3 was the first (docs/KIMI-INTEGRATION.md §4.5) and Gemini
 // is the second (docs/GEMINI-INTEGRATION.md §5.7) — both drop the identical
@@ -352,7 +359,7 @@ func function(name, description, parameters string) wire.Tool {
 	}
 }
 
-// Definitions returns the DeepSeek tool array — the twenty-three tools the
+// Definitions returns the DeepSeek tool array — the twenty-four tools the
 // harness ships, unchanged byte for byte
 // (docs/KIMI-INTEGRATION.md §4.2). It is the array every pre-Phase-8 caller
 // meant, and the default for anything that does not resolve to a provider

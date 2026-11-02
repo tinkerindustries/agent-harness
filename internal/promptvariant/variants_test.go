@@ -64,6 +64,9 @@ func TestToolsDroppedBy(t *testing.T) {
 	if got := ToolsDroppedBy("no-bash"); !reflect.DeepEqual(got, []string{"bash", "job_output", "job_kill", "job_list"}) {
 		t.Errorf("ToolsDroppedBy(no-bash) = %v, want [bash job_output job_kill job_list]", got)
 	}
+	if got := ToolsDroppedBy("no-patch"); !reflect.DeepEqual(got, []string{"apply_patch"}) {
+		t.Errorf("ToolsDroppedBy(no-patch) = %v, want [apply_patch]", got)
+	}
 	if got := ToolsDroppedBy("kimi-steps"); got != nil {
 		t.Errorf("ToolsDroppedBy(kimi-steps) = %v, want nil (it drops no tools)", got)
 	}

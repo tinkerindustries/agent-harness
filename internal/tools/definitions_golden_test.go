@@ -88,14 +88,14 @@ func TestDefinitionsForProviderShape(t *testing.T) {
 	base := tools.DefinitionsFor("deepseek-v4-pro")
 	kimi := tools.DefinitionsFor("kimi-k3")
 	hosted := tools.DefinitionsFor("deepseek-flash")
-	if len(base) != 23 {
-		t.Fatalf("base array has %d tools, want 23", len(base))
+	if len(base) != 24 {
+		t.Fatalf("base array has %d tools, want 24", len(base))
 	}
-	if len(kimi) != 17 {
-		t.Fatalf("Kimi array has %d tools, want 17", len(kimi))
+	if len(kimi) != 18 {
+		t.Fatalf("Kimi array has %d tools, want 18", len(kimi))
 	}
-	if len(hosted) != 10 {
-		t.Fatalf("DeepSeek array has %d tools, want 10", len(hosted))
+	if len(hosted) != 11 {
+		t.Fatalf("DeepSeek array has %d tools, want 11", len(hosted))
 	}
 
 	assertSubtraction(t, base, kimi, "screenshot", "glance", "ground", "detect", "transcribe", "crop")

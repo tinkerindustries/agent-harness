@@ -13,11 +13,11 @@ import (
 // TestPromptNamesExactlyTheToolArray pins each provider's system prompt to
 // that provider's tool array: the prompt's "Tools:" inventory must name
 // exactly the tools in the array — no more, no less — and the availability
-// count ("All seventeen are always available") must match the array length.
+// count ("All eighteen are always available") must match the array length.
 //
 // The tool array is per-provider, and the system prompt is a second frozen
-// head that nothing else ties to it: the base head names twenty-three tools,
-// DeepSeek's ten and Kimi's seventeen, and each must be restated the moment
+// head that nothing else ties to it: the base head names twenty-four tools,
+// DeepSeek's eleven and Kimi's eighteen, and each must be restated the moment
 // a tool is added to or dropped from that array. The head is assembled from
 // the array (internal/session/prompt.go), so this test pins the assembly:
 // the rendered inventory must still name exactly the tools the array
@@ -240,6 +240,42 @@ func TestVariantDroppedToolRendersAHeadConsistentWithItsArray(t *testing.T) {
 	}
 }
 
+// TestNoPatchVariantRendersAHeadWithoutThePatchRule pins the no-patch
+// variant's payoff: the inventory loses apply_patch, the count follows the
+// array, and the rule that names the patch grammar goes with the tool rather
+// than staying behind to describe something the session cannot call.
+func TestNoPatchVariantRendersAHeadWithoutThePatchRule(t *testing.T) {
+	base, err := RenderSystemPromptFor("deepseek-v4-pro", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := RenderSystemPromptFor("deepseek-v4-pro", "no-patch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseNames, _ := inventoryFromPrompt(t, base)
+	names, countWord := inventoryFromPrompt(t, got)
+	if len(names) != len(baseNames)-1 {
+		t.Fatalf("no-patch head names %d tools, want %d (one fewer than base)", len(names), len(baseNames)-1)
+	}
+	if containsSorted(names, "apply_patch") {
+		t.Error("no-patch inventory still names apply_patch")
+	}
+	if strings.Contains(got, "apply_patch carries a whole patch") {
+		t.Error("no-patch head still carries the apply_patch rule")
+	}
+	array := tools.DefinitionsForVariant("deepseek-v4-pro", "no-patch")
+	if word := numberWord(len(array)); countWord != word {
+		t.Errorf("no-patch head says %q are always available, want %q for a %d-tool array",
+			countWord, word, len(array))
+	}
+	// The editing rule about write and edit survives: the variant drops one
+	// tool, not the rule about the two that remain.
+	if !strings.Contains(got, "- Call read on a file before overwriting it with write or changing it with") {
+		t.Error("no-patch head lost the write and edit rule")
+	}
+}
+
 // TestKimiStepsVariantAppliesToTheKimiHead pins the wording variant to the
 // head the eval measures it against: the arm is base vs kimi-steps, both on
 // kimi-k3, so the variant must render on the Kimi head, differ from it, and
@@ -264,7 +300,7 @@ func TestKimiStepsVariantAppliesToTheKimiHead(t *testing.T) {
 }
 
 // TestKimiHeadDiffersFromDeepSeekHeadOnlyWhereItMust pins the relationship
-// between the two heads: Kimi's inventory names the seventeen tools and not
+// between the two heads: Kimi's inventory names the eighteen tools and not
 // the six vision tools, and DeepSeek's names the ten it is offered. The
 // search rule is shared, so a change to it lands in both heads; the plan
 // rule is Kimi's alone, because DeepSeek's array carries no plan tools.
@@ -284,11 +320,11 @@ func TestKimiHeadDiffersFromDeepSeekHeadOnlyWhereItMust(t *testing.T) {
 			t.Errorf("Kimi head still mentions %q", gone)
 		}
 	}
-	if !strings.Contains(kimi, "All seventeen are always available") {
-		t.Error("Kimi head does not say \"All seventeen are always available\"")
+	if !strings.Contains(kimi, "All eighteen are always available") {
+		t.Error("Kimi head does not say \"All eighteen are always available\"")
 	}
-	if !strings.Contains(deepseek, "All ten are always available") {
-		t.Error("DeepSeek head does not say \"All ten are always available\"")
+	if !strings.Contains(deepseek, "All eleven are always available") {
+		t.Error("DeepSeek head does not say \"All eleven are always available\"")
 	}
 	shared := "- Prefer grep and glob to orient before reading whole files."
 	if !strings.Contains(kimi, shared) || !strings.Contains(deepseek, shared) {
