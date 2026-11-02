@@ -38,6 +38,13 @@ keeps the methods it has.
   configured (`WithMCP`), so changing them moves no golden file.
 - MCP listings read the stored snapshot; reading dials. The template listing
   follows the same rule.
+- `WithMCP` inserts the fixed access tools ahead of a configured server's own.
+  `MCPAccessToolCount` and the slice length are pinned together at compile
+  time; adding one shifts every later index, and `internal/session/mcp_test.go`
+  spells the access array out.
+- The probe writes resource templates into the stored resources list with
+  `Template` set, so a template listing filters `MCPProvider.Resources`. It
+  adds no method, probe or snapshot field.
 - The base array is served to no routed model. `Definitions()` returns it and
   an unknown model falls back to it; DeepSeek's, Kimi's, Gemini's and Claude's
   arrays are what sessions are sent. `RenderSystemPrompt()` renders the base
@@ -56,7 +63,7 @@ keeps the methods it has.
 
 | Path | Why an agent needs it |
 | --- | --- |
-| `internal/tools/definitions.go` | The three frozen arrays, the MCP access tools and `MCPAccessToolCount`; every name and schema lives here |
+| `internal/tools/definitions.go` | The frozen provider arrays, the MCP access tools and `MCPAccessToolCount`; every name and schema lives here |
 | `internal/tools/registry.go` | `toolFuncs` dispatch, `timeoutFor` name cases and the executor |
 | `internal/tools/policy.go` | `alwaysAllowed` and the per-server MCP read-only gate |
 | `internal/tools/descriptor.go` | The string a deny pattern matches and a denial shows; rename its cases |
