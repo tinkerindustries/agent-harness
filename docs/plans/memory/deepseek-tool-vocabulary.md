@@ -59,7 +59,9 @@ keeps the methods it has.
 - `web_fetch` is also Anthropic's server-side tool name. A Claude request
   carries only Anthropic's, so a test that checks for the harness's one tells
   them apart by shape (`input_schema` against `type`), never by name.
-
+- A count of an array in prose or a comment goes stale; point at
+  `internal/tools/definitions.go`. The operator-facing descriptions in
+  `internal/settings/registry.go` name tools and no test watches them.
 
 ## Files that matter
 
@@ -80,6 +82,8 @@ keeps the methods it has.
 | `internal/tools/mcpresources.go` | The fixed MCP access tools and their executors |
 | `internal/mcpclient/resources.go`, `refresh.go` | The resource/template snapshot and the live reads |
 | `docs/TOOLS.md`, `docs/MCP.md` | The catalogue, per-tool rules and the MCP tool table |
+| `internal/settings/registry.go` | Operator-facing setting descriptions that name tools; no test watches them |
+| `CLAUDE.md`, `docs/VALIDATION.md` | Repository instructions and the validation record; both name tools and argue the vocabulary |
 | `docs/plans/deepseek-tool-vocabulary.md` | The mapping, phases, proofs and **Not building** |
 
 ## External facts
