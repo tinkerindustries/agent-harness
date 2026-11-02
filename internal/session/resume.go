@@ -34,6 +34,11 @@ type ResumeOptions struct {
 	// workspace itself, before the message naming them is appended.
 	AttachmentIDs []string
 	MaxTokens     int
+	// Shells is the session's background-shell registry, the same one Run
+	// was handed, so a bash_id minted before the session went idle is still
+	// readable after it resumes. Nil is the test path: Resume creates a
+	// private registry for the run and closes it when the run ends.
+	Shells *tools.Shells
 }
 
 // Resume continues a session that reached a terminal status. It refuses a
@@ -41,7 +46,7 @@ type ResumeOptions struct {
 // or "creating" (its workspace is still being prepared, so there is no loop
 // to continue) — or that was retired by compaction (its continuation is the
 // compacted child, found at the child's ParentID, not this session).
-func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, error) {
+func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (result *RunResult, runErr error) {
 	sess, err := r.Store.GetSession(ctx, opts.SessionID)
 	if err != nil {
 		return nil, fmt.Errorf("session: resume: load %s: %w", opts.SessionID, err)
@@ -88,13 +93,36 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (*RunResult, er
 		Deny:               sess.DenyPatterns,
 		MCPReadOnlyServers: mcpReadOnly,
 	}
+	// See lifecycle.go's Run: a caller with no session registry gets one that
+	// records exits into this session's log for as long as the run lasts,
+	// and is closed with it.
+	shells := opts.Shells
+	ownShells := shells == nil
+	if ownShells {
+		shells = tools.NewShells(sess.ID, func(sessionID string, exit tools.ShellExit) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := r.RecordBackgroundFinished(ctx, sessionID, exit); err != nil {
+				log.Printf("session: record background exit %s for %s: %v", exit.ID, sessionID, err)
+			}
+		})
+	}
 	executor, err := tools.NewExecutor(sess.Workspace, policy)
 	if err != nil {
 		return nil, err
 	}
-	// See lifecycle.go's Run: a background shell must not outlive the run
-	// that started it.
-	defer executor.Close()
+	executor.Shells = shells
+	// See lifecycle.go's Run: a shell outlives an ok run and is ended
+	// explicitly when the run was stopped, timed out or failed.
+	defer func() {
+		if result == nil || result.Status != store.StatusOK || ctx.Err() != nil {
+			executor.CloseAll()
+		}
+		if ownShells {
+			shells.Close()
+		}
+		executor.Close()
+	}()
 	executor.Client = r.clientFor(r.flashModel(ctx))
 	executor.Prices = r.Prices
 	executor.FlashModel = r.flashModel(ctx)

@@ -201,6 +201,12 @@ func (t *iactTranslator) Event(e store.Event) {
 			source = "reminder"
 		}
 		t.UserInput(p.Text, source, t.messageIDFor(p.SourceSeq))
+	case store.KindBackgroundFinished:
+		var p store.BackgroundFinishedPayload
+		if json.Unmarshal(e.Payload, &p) != nil {
+			return
+		}
+		t.UserInput(p.Message(), "background", "")
 	case store.KindTurnStarted:
 		var p store.TurnStartedPayload
 		if json.Unmarshal(e.Payload, &p) != nil {

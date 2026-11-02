@@ -198,6 +198,29 @@ func (r *Runner) pickUpSteers(ctx context.Context, sess store.Session, allEvents
 	return nil
 }
 
+// pickUpBackground reads the background shell completions committed since
+// the loop last looked into its own event slice, so the fold that follows
+// includes them. Unlike a steer, the event is already in the log (the
+// shell's exit handler appended it when it happened), so this reads without
+// appending or publishing. The high-water mark is derived from the events
+// already in hand, the same way the applied-steer mark is derived from the
+// log, which is what makes a resume recompute it rather than carry it in
+// memory.
+func (r *Runner) pickUpBackground(ctx context.Context, sess store.Session, allEvents *[]store.Event) error {
+	var after int64
+	for _, e := range *allEvents {
+		if e.Kind == store.KindBackgroundFinished && e.Seq > after {
+			after = e.Seq
+		}
+	}
+	events, err := r.Store.GetEventsAfterKinds(ctx, sess.ID, after, -1, []store.EventKind{store.KindBackgroundFinished})
+	if err != nil {
+		return fmt.Errorf("session: read background completions: %w", err)
+	}
+	*allEvents = append(*allEvents, events...)
+	return nil
+}
+
 // steerText is the message a steer folds to: the operator's own words, with
 // the images they attached materialised into the session's workspace and
 // named ahead of them (docs/RUN-CONTROL.md, "Images in the composer"). A
@@ -266,6 +289,13 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 		deferred = len(waiting) > 0
 	} else {
 		if err := r.emitDueReminder(ctx, sess, allEvents, reminders, subTurn, contextTokens); err != nil {
+			return subTurnOutcome{}, err
+		}
+		// A background shell that finished since the last sub-turn is read
+		// into the loop's own slice before the fold, so the model sees the
+		// completion at this boundary. Its event is already committed: the
+		// shell's exit handler wrote it when it happened.
+		if err := r.pickUpBackground(ctx, sess, allEvents); err != nil {
 			return subTurnOutcome{}, err
 		}
 		if err := r.pickUpSteers(ctx, sess, allEvents, appliedSeq, subTurn); err != nil {

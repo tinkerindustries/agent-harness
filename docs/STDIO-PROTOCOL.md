@@ -51,7 +51,9 @@ Three things follow, and a client should know all three:
   first user message the provider sees is the harness's opening message: the
   task, the workspace listing, the skills catalogue, the repositories' own
   instructions. `harness.source` on the user message item says which is
-  which.
+  which: `input` for an opening message, `append` for a steer, `reminder` for
+  a cadence reminder, and `background` for a background shell's completion,
+  the one user item no client sent.
 - **A response's `output` is not the provider's `output`.** Both are lists of
   the same item types, but the parent's carries the whole agentic run — every
   sub-turn's calls, their results, and the user messages the loop folded in —
@@ -553,6 +555,19 @@ restart is `harness.resume_session_id`, below. Sending both on one create is
 
 **One at a time.** One process hosts one session, so a create while another
 response is in progress is refused with `-32600`. Cancel it or wait.
+
+**A finished background shell starts a response of its own.** A Bash call with
+`run_in_background` returns a `bash_id`, and that shell belongs to the session,
+not to the response that started it: the next response's `BashOutput` finds it,
+and `KillBash` ends it. A shell that exits while no response is running starts
+one, with the completion as its input: a user message item whose
+`harness.source` is `"background"`, naming the shell, its exit code and the
+`bash_id`. `response.created` for that response is the first frame, exactly as
+for a client-driven create, and the model continues the same
+`harness.session_id`. A completion that arrives while a response is running
+reaches the model at that response's next sub-turn boundary as the same user
+item; the running response is not interrupted. A session that was stopped,
+timed out or failed is not woken, and its shells are ended with it.
 
 ### `responses.append`
 

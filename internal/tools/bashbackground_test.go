@@ -203,8 +203,8 @@ func TestBashOutputAndKillBashUnknownIdAreErrors(t *testing.T) {
 }
 
 // TestExecutorCloseKillsRunningBackgroundShells pins the "never leave an
-// agent behind" rule applied to a process rather than a session: a run that
-// ends while a background shell is still alive must not leave it running.
+// agent behind" rule applied to a process rather than a session: an Executor
+// that owns its shells ends a run's shells with the run.
 func TestExecutorCloseKillsRunningBackgroundShells(t *testing.T) {
 	e, _ := newTestExecutor(t)
 	started := execBash(t.Context(), e, mustJSON(t, bashArgs{Command: "sleep 30", RunInBackground: true}))
@@ -215,6 +215,105 @@ func TestExecutorCloseKillsRunningBackgroundShells(t *testing.T) {
 	res := waitForBackgroundDone(t, e, id)
 	if strings.HasPrefix(res.Content, "Status: running") {
 		t.Fatalf("expected Close to have ended the shell, got: %s", res.Content)
+	}
+}
+
+// TestSessionShellsSurviveExecutorClose is that rule's other half: a registry
+// the Executor does not own is the session's, so an ordinary run ending
+// leaves the shell for the next run's BashOutput.
+func TestSessionShellsSurviveExecutorClose(t *testing.T) {
+	exits := make(chan ShellExit, 1)
+	registry := NewShells("sess-test", func(_ string, exit ShellExit) { exits <- exit })
+	e, _ := newTestExecutor(t)
+	e.Shells = registry
+
+	started := execBash(t.Context(), e, mustJSON(t, bashArgs{Command: "echo alive; sleep 30", RunInBackground: true}))
+	id := extractShellID(t, started.Content)
+	if id != "bash_1" {
+		t.Fatalf("expected the first id to be bash_1, got %q", id)
+	}
+
+	e.Close()
+
+	res := execBashOutput(t.Context(), e, mustJSON(t, bashOutputArgs{BashID: id}))
+	if !strings.HasPrefix(res.Content, "Status: running") {
+		t.Fatalf("expected the session registry's shell to outlive the run, got: %s", res.Content)
+	}
+
+	registry.Close()
+	res = waitForBackgroundDone(t, e, id)
+	if !strings.Contains(res.Content, "Status: killed") {
+		t.Fatalf("expected the registry's Close to kill the shell, got: %s", res.Content)
+	}
+	// A close is not a completion: the run or the process is going away, so
+	// the exit is kept out of the notice path.
+	select {
+	case exit := <-exits:
+		t.Fatalf("a Close must not report a completion, got %+v", exit)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// TestShellsReportsExitCode pins the payload a completion event is built
+// from: the shell's own exit code, and the command that produced it.
+func TestShellsReportsExitCode(t *testing.T) {
+	exits := make(chan ShellExit, 1)
+	registry := NewShells("sess-test", func(_ string, exit ShellExit) { exits <- exit })
+	e, _ := newTestExecutor(t)
+	e.Shells = registry
+
+	started := execBash(t.Context(), e, mustJSON(t, bashArgs{Command: "exit 7", RunInBackground: true}))
+	id := extractShellID(t, started.Content)
+	waitForBackgroundDone(t, e, id)
+
+	select {
+	case exit := <-exits:
+		if exit.ID != id || exit.ExitCode != 7 || exit.Killed || exit.Wedged {
+			t.Fatalf("expected exit 7 for %s, got %+v", id, exit)
+		}
+		if exit.Command != "exit 7" {
+			t.Fatalf("expected the command in the exit, got %q", exit.Command)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the registry never reported the shell's exit")
+	}
+}
+
+// TestShellsReportTheSessionCurrentAtExit pins the compaction handover: the
+// callback names the session the registry points at when the shell exits, not
+// the one it was created under, because by then the run may have compacted
+// into a successor row.
+func TestShellsReportTheSessionCurrentAtExit(t *testing.T) {
+	type report struct {
+		session string
+		exit    ShellExit
+	}
+	exits := make(chan report, 1)
+	registry := NewShells("sess-original", func(sessionID string, exit ShellExit) {
+		exits <- report{session: sessionID, exit: exit}
+	})
+	e, _ := newTestExecutor(t)
+	e.Shells = registry
+
+	started := execBash(t.Context(), e, mustJSON(t, bashArgs{
+		Command:         "sleep 0.3; exit 5",
+		RunInBackground: true,
+	}))
+	id := extractShellID(t, started.Content)
+
+	registry.SetSessionID("sess-successor")
+	waitForBackgroundDone(t, e, id)
+
+	select {
+	case got := <-exits:
+		if got.session != "sess-successor" {
+			t.Fatalf("the exit reported session %q, want the successor", got.session)
+		}
+		if got.exit.ID != id || got.exit.ExitCode != 5 {
+			t.Fatalf("unexpected exit report: %+v", got.exit)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the registry never reported the shell's exit")
 	}
 }
 

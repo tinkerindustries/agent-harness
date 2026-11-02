@@ -33,10 +33,15 @@ button.
   command a model chose to detach on purpose. This design's "kill a wedged
   call" is about ending a *foreground* call from outside when nothing chose
   to detach it; "Half one" below is what a background shell's own
-  `cmd.WaitDelay` and process group reuse, not a substitute for either.
-  `Executor.Close` ends every background shell still running when a run's
-  own loop returns, on every path — the run-ending side of run control this
-  section covers, applied to a process rather than a goroutine.
+  `cmd.WaitDelay` and process group reuse, not a substitute for either. A
+  shell outlives the run that started it, which is what makes the next
+  turn's `BashOutput` work, but a run that ends stopped, timed out or
+  failed calls `Executor.CloseAll`, and the process closes the session's
+  registry when the pipe ends. Compaction is the one identity change: the
+  registry follows the successor row, so a shell started before it is still
+  addressable and a completion is recorded against the session still
+  running. The run-ending side of run control applies to a process rather
+  than a goroutine: no shell outlives the session that owns it.
 - **Killing one tool call and letting the run continue.** Stop is whole-run.
   See [What this does not promise](#what-this-does-not-promise).
 

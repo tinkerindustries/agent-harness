@@ -366,6 +366,19 @@ restart is `harness.resume_session_id`, below. Sending both on one create is
 **One at a time.** One process hosts one session, so a create while another
 interaction is in progress is refused with `-32600`. Cancel it or wait.
 
+**A finished background shell starts an interaction of its own.** A Bash call
+with `run_in_background` returns a `bash_id`, and that shell belongs to the
+session, not to the interaction that started it: the next interaction's
+`BashOutput` finds it, and `KillBash` ends it. A shell that exits while no
+interaction is running starts one, with the completion as its input: a
+user-message item whose `harness.source` is `"background"`, naming the shell,
+its exit code and the `bash_id`. The interaction's created frame is the first
+notification, exactly as for a client-driven create, and the model continues
+the same `harness.session_id`. A completion that arrives while an interaction
+is running reaches the model at that interaction's next sub-turn boundary;
+the running one is not interrupted. A session that was stopped, timed out or
+failed is not woken, and its shells are ended with it.
+
 ### `interactions.append`
 
 Adds input to an interaction already in flight. This is steering.

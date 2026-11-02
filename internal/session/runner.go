@@ -138,6 +138,15 @@ type RunOptions struct {
 	// truth.
 	Tools []wire.Tool
 
+	// Shells, when set, is the session's background-shell registry: the one
+	// a bash_id from an earlier run is still found in. Run hands it to the
+	// Executor instead of letting the Executor own one, and the Executor's
+	// Close leaves it alone; the caller that owns it closes it when the
+	// session ends. Nil is the test path and the Task subagent path: Run
+	// creates a private registry for the run, which records completions
+	// while the run lasts and is closed when it ends.
+	Shells *tools.Shells
+
 	// Resuming is set only by Runner.Resume, and only to keep runLoop's
 	// empty-prompt wait (waitForFirstSteer, lifecycle.go) from firing on a
 	// resume whose session never got past its first sub-turn — a stop that

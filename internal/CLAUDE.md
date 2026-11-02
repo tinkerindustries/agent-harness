@@ -235,6 +235,20 @@ session can start the next turn the identical way, reusing the same
 per-session `hostTools` a session's first turn built rather than rebuilding
 one, since nothing on this dialect's own wire ever re-declares tools.
 
+The server also owns each session's `tools.Shells` registry, so a
+`run_in_background` shell survives the response that started it and the next
+response's `BashOutput` finds it. Its `OnExit` hook is `backgroundExited`:
+it commits a `background_finished` event through the Runner's
+`RecordBackgroundFinished`, and when no run is in flight starts one
+(`wakeForBackground`, a `Runner.Resume` with no prompt: the event is the
+message) so the model reads the completion in a turn of its own. `afterRun`
+makes the same decision for a completion that arrived too late for the run
+that was ending, and closes a stopped, timed-out or failed run's shells.
+`followCompaction` points the successor session id at the same registry and
+host when a run compacted, so a shell started after the fork is addressable
+by the successor's runs and its completion wakes the successor. `Serve`
+closes the registries when the pipe ends.
+
 Also implements `tools.MCPProvider` for the two tool shapes a client may
 declare, `function` (called back over the pipe, or — under ManagedAgents —
 answered asynchronously) and `mcp_server` (dialled by `internal/mcpclient` as
@@ -316,9 +330,22 @@ on the same type (`runner.go`'s own package doc names which file holds
 which): `RunOptions` and the `Runner` type stay in `runner.go` beside the
 settings accessors; `lifecycle.go` is `Create`/`FailSetup`/`Run` and the loop
 that drives a run to a terminal result; `sinks.go` is where a sub-turn's
-output goes (the disk mirror, the hub); `tooldispatch.go` executes a
-sub-turn's tool calls; `livestate.go` persists the plan and recent-calls
-roll. MCP support (`mcp.go`, [`../docs/MCP.md`](../docs/MCP.md)) is resolved
+output goes (the disk mirror, the hub) and where
+`RecordBackgroundFinished` commits a shell's exit; `tooldispatch.go`
+executes a sub-turn's tool calls; `livestate.go` persists the plan and
+recent-calls roll. A background shell outlives the run that started it:
+`RunOptions.Shells` and `ResumeOptions.Shells` hand the session's
+`tools.Shells` registry to the Executor, which leaves it alone on a run that
+ended ok and closes it on one that was stopped, timed out or failed. A
+caller with none (a Task subagent, a test) gets a private registry that
+records completions for that run's lifetime and is closed when the run
+ends. Compaction retargets the registry at the successor row
+(`SetSessionID`), so a shell started before or after the fork is recorded
+against the session still running, and `carryBackgroundNotices` copies a
+completion that lands mid-summary into the successor's log. `turn.go`'s
+`pickUpBackground` reads completions committed since the loop last looked
+into its own event slice, so `fold` renders them as a user message at the
+next sub-turn boundary. MCP support (`mcp.go`, [`../docs/MCP.md`](../docs/MCP.md)) is resolved
 once, not read live: `resolveMCPDefinitions` asks the `Runner`'s own `MCP
 tools.MCPProvider` seam — nil for a caller with none wired, every existing
 test among them — for the enabled servers' tool array and
@@ -355,8 +382,15 @@ failed result rather than a Go error — and the permission policy's
 at run start ([`../docs/MCP.md`](../docs/MCP.md)).
 `Executor.ExtraEnv` is the one hook that lets something outside decide part
 of a `Bash` call's environment, resolved at the moment of the call, for a
-value that cannot be process-wide because it differs per workspace. Depends
-on:
+value that cannot be process-wide because it differs per workspace.
+`Shells` (bashbackground.go) is the session's background-shell registry: an
+`Executor` handed one does not own it, so `Close` at the end of a run leaves
+those shells for the next run's `BashOutput`, while `CloseAll` is the stop
+path that ends them. It carries the session id its completions are recorded
+against, and `SetSessionID` moves that with a compaction. The registry's
+`OnExit` hook fires once per shell after `cmd.Wait`, with the session id
+current at that moment, which is how a completion becomes an event rather
+than a poll result. Depends on:
 `internal/wire`, `internal/provider`, `internal/promptvariant`,
 `internal/attachment` (the image-extension-to-MIME-type table the vision
 tools read images by).

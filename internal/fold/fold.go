@@ -217,6 +217,17 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Item, error) {
 				items = append(items, wire.UserItem(p.Text))
 			}
 
+		case store.KindBackgroundFinished:
+			var p store.BackgroundFinishedPayload
+			if err := json.Unmarshal(e.Payload, &p); err != nil {
+				return nil, fmt.Errorf("fold: background_finished at seq %d: %w", e.Seq, err)
+			}
+			// The same boundary a steer waits for: a shell can exit while a
+			// tool call is in flight, and the notice must not land between a
+			// call and its result.
+			flushOrphanedCalls()
+			items = append(items, wire.UserItem(p.Message()))
+
 		case store.KindToolStdout, store.KindUsage, store.KindRunFinished, store.KindError, store.KindSteerMessage,
 			store.KindSteerWithdrawn:
 			// Carry no conversation content. Usage and errors are

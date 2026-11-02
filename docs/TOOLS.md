@@ -190,12 +190,18 @@ without waiting for it, returns a shell id straight away, and lets
 `BashOutput` and `KillBash` act on it afterward — the output-polling and
 kill tools RUN-CONTROL.md's "Half one" once named as not built. A
 backgrounded command is not tied to the tool call's own timeout: it runs
-under its own process group, exactly like a foreground command, and only
-`KillBash` or the session ending (`Executor.Close`) ever ends it before it
-exits on its own. `BashOutput` returns only what a shell has produced since
-the last time it was read — never the whole buffer again — so polling a
-long-lived process does not re-send, or re-bill, output the model has
-already seen.
+under its own process group, exactly like a foreground command. The shell
+belongs to the session rather than to the run that started it: `BashOutput`
+in the next run still finds the same `bash_id`, and only `KillBash`, a
+stopped or failed run, or the process ending ends it before it exits on its
+own. Compaction moves the registry to the successor session, so a shell
+started before or after the fork stays addressable by the session that is
+still running. A shell that exits is reported as a `background_finished`
+event, which the model reads as a user message at the next sub-turn
+boundary, and which starts a run of its own when the session is idle.
+`BashOutput` returns only what a shell has produced since the last time it
+was read (never the whole buffer again), so polling a long-lived process
+does not re-send, or re-bill, output the model has already seen.
 
 A command that backgrounds a process without redirecting its output —
 `node server.js &`, inheriting the captured pipe — leaves that pipe open after

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -27,6 +28,11 @@ const (
 	KindSteerMessage   EventKind = "steer_message"
 	KindSteerApplied   EventKind = "steer_applied"
 	KindSteerWithdrawn EventKind = "steer_withdrawn"
+	// KindBackgroundFinished records a background shell's exit. It is the one
+	// event kind an append can carry that the model reads as a message the
+	// run did not ask for: a shell started in an earlier run finishing while
+	// the session is idle is what wakes it.
+	KindBackgroundFinished EventKind = "background_finished"
 )
 
 // EventKind is the tag on an Event row that says how to decode its payload.
@@ -41,7 +47,7 @@ var EventKinds = []EventKind{
 	KindSessionStarted, KindTurnStarted, KindReasoningDelta, KindContentDelta,
 	KindToolCall, KindToolDenied, KindToolStdout, KindToolResult, KindUsage,
 	KindTurnFinished, KindRunFinished, KindError, KindSteerMessage, KindSteerApplied,
-	KindSteerWithdrawn,
+	KindSteerWithdrawn, KindBackgroundFinished,
 }
 
 // ValidEventKind reports whether name is a kind the event log can hold — the
@@ -268,6 +274,50 @@ type ErrorPayload struct {
 	Message string `json:"message"`
 }
 
+// BackgroundFinishedPayload records one background shell ending. The model
+// reads it as a user message at the next sub-turn boundary (internal/fold),
+// and a session that is idle when it lands starts a run so the model is told
+// rather than left waiting (internal/stdiosession).
+type BackgroundFinishedPayload struct {
+	BashID   string `json:"bash_id"`
+	Command  string `json:"command,omitempty"`
+	ExitCode int    `json:"exit_code"`
+	Killed   bool   `json:"killed,omitempty"`
+	Wedged   bool   `json:"wedged,omitempty"`
+}
+
+// Message is the text the model reads for this exit: what ended, how, and the
+// BashOutput call that still has its output. Fold and every parent-facing
+// translator build the message here so they cannot word it differently.
+func (p BackgroundFinishedPayload) Message() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Background shell %s ", p.BashID)
+	if c := commandSummary(p.Command); c != "" {
+		fmt.Fprintf(&b, "(%s) ", c)
+	}
+	switch {
+	case p.Killed:
+		b.WriteString("was killed before it finished.")
+	case p.Wedged:
+		b.WriteString("exited, but left a process holding its output open, so the harness killed the process group.")
+	default:
+		fmt.Fprintf(&b, "finished with exit code %d.", p.ExitCode)
+	}
+	fmt.Fprintf(&b, " Its output is still readable with BashOutput using bash_id %q.", p.BashID)
+	return b.String()
+}
+
+// commandSummary is the shell command as one short line, capped so a
+// multi-line heredoc does not become the bulk of the notice.
+func commandSummary(command string) string {
+	command = strings.Join(strings.Fields(command), " ")
+	const max = 120
+	if len(command) <= max {
+		return command
+	}
+	return command[:max] + "…"
+}
+
 // SteerMessagePayload is an operator instruction accepted for a running
 // session (docs/RUN-CONTROL.md "Steering"). It carries no messages-array
 // content: the loop decides where the model sees it, and records that with a
@@ -456,6 +506,21 @@ func (s *Store) SteerMessagesAfter(ctx context.Context, sessionID string, afterS
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// LastKindSeq returns the highest seq of an event of kind for sessionID, or
+// 0 when the session has none. The session loop and the stdio server both use
+// it to tell a completion the model has already had a turn after from one it
+// has not.
+func (s *Store) LastKindSeq(ctx context.Context, sessionID string, kind EventKind) (int64, error) {
+	var seq sql.NullInt64
+	err := s.readDB.QueryRowContext(ctx,
+		`SELECT MAX(seq) FROM events WHERE session_id = ? AND kind = ?`,
+		sessionID, kind).Scan(&seq)
+	if err != nil {
+		return 0, err
+	}
+	return seq.Int64, nil
 }
 
 // LastAppliedSteerSeq returns the highest SourceSeq across the session's

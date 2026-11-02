@@ -110,6 +110,27 @@ type Server struct {
 	// registered — a real race, not just a theoretical one (see
 	// registerCustomTool's own comment in managedagentsevents.go).
 	customReady map[string]customToolResult
+
+	// shells is each session's background-shell registry. The server owns it
+	// rather than a run, so a shell a Bash call started in one run is still
+	// there for BashOutput in the next (internal/tools, Shells). Guarded by
+	// mu. The OnExit hook is what records the completion and, when nothing is
+	// running, starts the run that tells the model.
+	shells map[string]*tools.Shells
+	// hosts is the tool provider each session's last run was built with, so
+	// the run a background completion starts has the same client-declared
+	// tools the client last sent. Guarded by mu.
+	hosts map[string]*hostTools
+	// woken is the highest background_finished seq a wake run has been
+	// started for, per session. It is what stops a wake that cannot start
+	// from turning every end-of-run check into another attempt; a newer
+	// completion is past it and wakes as usual. Guarded by mu.
+	woken map[string]int64
+	// base is Serve's own context, the parent of every run begun without a
+	// client call of its own, a background completion's wake. Set once in
+	// Serve; nil before it (a test that drives beginRun directly) falls back
+	// to context.Background.
+	base context.Context
 }
 
 // run is one whole agentic run, in the neutral terms this server keeps it.
@@ -194,6 +215,9 @@ func NewServer(opts Options) *Server {
 		headers: map[string]map[string]string{}, env: map[string]map[string]string{},
 		customPending: map[string]chan customToolResult{},
 		customReady:   map[string]customToolResult{},
+		shells:        map[string]*tools.Shells{},
+		hosts:         map[string]*hostTools{},
+		woken:         map[string]int64{},
 	}
 	if opts.MCP != nil {
 		opts.MCP.Secrets = s.dialSecrets
@@ -223,9 +247,15 @@ func (s *Server) dialSecrets(srv store.MCPServer) store.MCPServer {
 // the parent saying the session is over: a run still in flight is cancelled
 // and given the chance to record its own terminal event before this returns.
 func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
+	s.mu.Lock()
+	s.base = ctx
+	s.mu.Unlock()
 	s.conn = NewConn(in, out, s.handle, isHandshake)
 	err := s.conn.Serve(ctx)
 	s.stopRunning("the client closed the connection")
+	// The connection is the session's owner: when it closes, a shell it left
+	// running is killed with the process, not left behind.
+	s.closeShells()
 	return err
 }
 
@@ -246,6 +276,177 @@ func (s *Server) stopRunning(reason string) {
 		cancel()
 	}
 	<-it.done
+}
+
+// --- background shells ---
+
+// shellsFor returns the session's background-shell registry, creating it on
+// first use. The registry outlives every run: that is what lets a bash_id
+// minted in one turn be read in the next, and what makes the OnExit hook
+// below the one place a completion is noticed.
+func (s *Server) shellsFor(sessionID string) *tools.Shells {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sh, ok := s.shells[sessionID]; ok {
+		return sh
+	}
+	sh := tools.NewShells(sessionID, func(id string, exit tools.ShellExit) { s.backgroundExited(id, exit) })
+	s.shells[sessionID] = sh
+	return sh
+}
+
+// closeShells ends every shell this process is still holding. Serve calls it
+// once the pipe is closed and the last run has stopped: a shell must not
+// outlive the process that owns it.
+func (s *Server) closeShells() {
+	s.mu.Lock()
+	all := make([]*tools.Shells, 0, len(s.shells))
+	for _, sh := range s.shells {
+		all = append(all, sh)
+	}
+	s.mu.Unlock()
+	for _, sh := range all {
+		sh.Close()
+	}
+}
+
+// backgroundExited is the registry's OnExit hook. It commits the completion
+// to the log. The model reads it as a message at its next sub-turn boundary,
+// and when no run is in flight it starts the run that delivers it. A run
+// that is in flight picks the event up at its own next boundary; if it ends
+// first, afterRun makes the same wake decision.
+func (s *Server) backgroundExited(sessionID string, exit tools.ShellExit) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := s.opts.Runner.RecordBackgroundFinished(ctx, sessionID, exit); err != nil {
+		// A stopped session refuses the append. That is the fence working:
+		// the stop killed the shell, and its log is closed to new events.
+		if errors.Is(err, store.ErrSessionCancelled) {
+			return
+		}
+		log.Printf("stdiosession: record background exit %s for %s: %v", exit.ID, sessionID, err)
+		return
+	}
+	s.mu.Lock()
+	idle := s.running == nil && !s.shuttingDown
+	s.mu.Unlock()
+	if idle {
+		s.wakeForBackground(sessionID)
+	}
+}
+
+// afterRun is the run-ending half of background shell life. A run that did
+// not end ok (stopped, timed out, failed) ends its shells, because nothing
+// is coming back to read them. Either way it checks for a completion that
+// landed after its last turn started: that one was folded into no request,
+// so if the session is idle the completion gets the wake the in-flight run
+// could not give it.
+func (s *Server) afterRun(sessionID string, shells *tools.Shells, res *session.RunResult, err error, cancelled bool) {
+	ok := !cancelled && err == nil && res != nil && res.Status == store.StatusOK
+	if !ok && shells != nil {
+		shells.Close()
+	}
+	s.wakeForBackground(sessionID)
+}
+
+// followCompaction points the successor session id at the same shell
+// registry and tool provider. Compaction retires the row a run started under
+// and continues it under a new one, so a shell started after that belongs to
+// the successor: its completion must be recorded there, and after the turn
+// ends a later run of the successor must find the same registry. It returns
+// the id afterRun should work against, which is the successor when the run
+// compacted and the original otherwise.
+func (s *Server) followCompaction(from string, res *session.RunResult, shells *tools.Shells) string {
+	if res == nil || res.SessionID == "" || res.SessionID == from {
+		return from
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.shells[res.SessionID]; !ok {
+		s.shells[res.SessionID] = shells
+	}
+	if host, ok := s.hosts[from]; ok {
+		if _, ok := s.hosts[res.SessionID]; !ok {
+			s.hosts[res.SessionID] = host
+		}
+	}
+	return res.SessionID
+}
+
+// wakeForBackground starts a run to deliver a background completion the model
+// has not seen. "Seen" is derived from the log: a completion with a seq above
+// the last turn_started arrived after the model's last request, so no request
+// has folded it. The wake is a Resume with no prompt: the notice is an event
+// in the log, so it renders into the conversation exactly like any other user
+// message, and the run needs no create body to carry it.
+func (s *Server) wakeForBackground(sessionID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	lastTurn, err := s.opts.Store.LastKindSeq(ctx, sessionID, store.KindTurnStarted)
+	if err != nil {
+		log.Printf("stdiosession: last turn for %s: %v", sessionID, err)
+		return
+	}
+	notices, err := s.opts.Store.GetEventsAfterKinds(ctx, sessionID, lastTurn, -1,
+		[]store.EventKind{store.KindBackgroundFinished})
+	if err != nil {
+		log.Printf("stdiosession: pending background completions for %s: %v", sessionID, err)
+		return
+	}
+	if len(notices) == 0 {
+		return
+	}
+	sess, err := s.opts.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		log.Printf("stdiosession: load %s for background wake: %v", sessionID, err)
+		return
+	}
+	// A stopped, failed or timed-out session is not woken: whoever ended it
+	// meant it, and a completion is not a reason to revive it.
+	if sess.Status != store.StatusOK {
+		return
+	}
+
+	last := notices[len(notices)-1].Seq
+	s.mu.Lock()
+	if s.woken[sessionID] >= last {
+		s.mu.Unlock()
+		return
+	}
+	host := s.hosts[sessionID]
+	busy := s.running != nil || s.shuttingDown
+	base := s.base
+	prev := s.woken[sessionID]
+	if !busy && host != nil {
+		// Marked before beginRun, not after: the run it starts can finish and
+		// call back into this before beginRun has returned, and that call must
+		// see the completion as already claimed.
+		s.woken[sessionID] = last
+	}
+	s.mu.Unlock()
+	if busy || host == nil {
+		return
+	}
+	if base == nil {
+		base = context.Background()
+	}
+
+	if _, rerr := s.beginRun(base, beginRunParams{
+		model: sess.Model, sessionID: sessionID, cwd: sess.Workspace,
+		mode: tools.Mode(sess.PermissionMode), deny: sess.DenyPatterns,
+		resume: true, host: host, notices: notices,
+	}); rerr != nil {
+		// Another run won the race. The claim is released so that run's own
+		// end-of-run check, or the next completion, can still deliver the
+		// notice.
+		s.mu.Lock()
+		if s.woken[sessionID] == last {
+			s.woken[sessionID] = prev
+		}
+		s.mu.Unlock()
+		log.Printf("stdiosession: wake %s for background completion: %s", sessionID, rerr.Message)
+	}
 }
 
 func (s *Server) handle(ctx context.Context, method string, params json.RawMessage) (any, *rpcError) {
@@ -529,6 +730,12 @@ type beginRunParams struct {
 	messageID, title, description string
 	stream                        *bool
 	host                          *hostTools
+	// notices are the background_finished events the run is starting to
+	// deliver. Only a wake passes any: the run has no create body to carry a
+	// user message, so the notice is fed to the translator before the loop
+	// folds it into the model's conversation. Empty for every client-driven
+	// run, which gets its messages from the pipe.
+	notices []store.Event
 }
 
 // beginRun mints a run, opens its translator and pump, and starts the loop —
@@ -547,15 +754,31 @@ func (s *Server) beginRun(ctx context.Context, p beginRunParams) (any, *rpcError
 	p.host.runID = it.id
 
 	s.mu.Lock()
+	// A background completion can reach beginRun from a goroutine of its own,
+	// so the one-run-at-a-time rule is checked here as well as in the client
+	// handlers that call it. A wake that loses the race logs and leaves the
+	// notice for the run already going or for the next wake.
+	if s.shuttingDown {
+		s.mu.Unlock()
+		return nil, errorf(CodeInvalidRequest, "this session is shutting down")
+	}
+	if s.running != nil {
+		id := s.running.id
+		s.mu.Unlock()
+		return nil, errorf(CodeInvalidRequest, s.m.AlreadyRunning, id)
+	}
 	s.runs[it.id] = it
 	s.order = append(s.order, it.id)
 	s.running = it
+	s.hosts[p.sessionID] = p.host
 	// The runner is shared and its MCP field is per interaction. Only one
 	// interaction runs at a time (the guard above), and this is set before
 	// the run starts and left alone until it ends, so the field is never
 	// written while a loop is reading it.
 	s.opts.Runner.MCP = p.host
 	s.mu.Unlock()
+
+	shells := s.shellsFor(p.sessionID)
 
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	it.mu.Lock()
@@ -569,6 +792,13 @@ func (s *Server) beginRun(ctx context.Context, p beginRunParams) (any, *rpcError
 	it.tr = tr
 	it.mu.Unlock()
 	tr.Created()
+	// A wake has no create body to render, so the completion that started it
+	// is placed in the parent's document here. Every client-driven run has
+	// none, and the model still reads the same event from the log when the
+	// loop folds it.
+	for _, notice := range p.notices {
+		tr.Event(notice)
+	}
 
 	pu := newPump()
 	go pu.drain(frames)
@@ -617,6 +847,7 @@ func (s *Server) beginRun(ctx context.Context, p beginRunParams) (any, *rpcError
 		ParentIsUser: true,
 		Title:        p.title,
 		Description:  p.description,
+		Shells:       shells,
 	}
 	if len(p.resultSchema) > 0 {
 		opts.ResultSchema = p.resultSchema
@@ -632,6 +863,7 @@ func (s *Server) beginRun(ctx context.Context, p beginRunParams) (any, *rpcError
 			res, err = s.opts.Runner.Resume(runCtx, session.ResumeOptions{
 				SessionID: p.sessionID, Prompt: p.prompt,
 				MaxTokens: opts.MaxTokens,
+				Shells:    shells,
 			})
 		} else {
 			res, err = s.opts.Runner.Run(runCtx, opts)
@@ -641,7 +873,8 @@ func (s *Server) beginRun(ctx context.Context, p beginRunParams) (any, *rpcError
 		// buffered in it, and the pump drains to exhaustion before closing.
 		unsubscribe()
 		<-streamed
-		s.record(it, tr, res, err, runCtx.Err() != nil)
+		cancelled := runCtx.Err() != nil
+		s.record(it, tr, res, err, cancelled)
 		cancel()
 
 		s.mu.Lock()
@@ -656,6 +889,13 @@ func (s *Server) beginRun(ctx context.Context, p beginRunParams) (any, *rpcError
 		// is doing the obvious thing, and it used to race the bookkeeping
 		// and be told the interaction was still running.
 		s.complete(it, tr)
+		// After the terminal frame, so a run ending is never overtaken by a
+		// background completion's wake frames. cancelled is the value record
+		// was told, read before cancel() made it always true. followCompaction
+		// is what makes this check run under the session the turn actually
+		// finished in.
+		finalID := s.followCompaction(p.sessionID, res, shells)
+		s.afterRun(finalID, shells, res, err, cancelled)
 	}()
 
 	if p.stream != nil && !*p.stream {
