@@ -82,7 +82,7 @@ func TestGeminiAPIKeyFromTheEnvFile(t *testing.T) {
 		t.Errorf("key = %q, want AI-file", key)
 	}
 	// Nothing else in the file becomes ambient. Every command a session's
-	// Bash tool runs inherits this process's environment, so a repository's
+	// `bash` tool runs inherits this process's environment, so a repository's
 	// own .env must not reach them through the flag.
 	if v, set := os.LookupEnv("DATABASE_URL"); set {
 		t.Errorf("-env made DATABASE_URL ambient (%q); only the key may be read", v)

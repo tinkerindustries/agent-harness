@@ -2,6 +2,35 @@ package tools
 
 import "testing"
 
+// TestMCPAccessToolsAreInTheDispatchTable covers the registry entry each of
+// the fixed MCP tools needs: a definition the model is offered but no
+// toolFuncs entry is a name the executor answers "unknown tool" to, which
+// reads to the model as a tool that does not exist. The count check is what
+// fails when a tool joins the slice and MCPAccessToolCount is not moved with
+// it.
+func TestMCPAccessToolsAreInTheDispatchTable(t *testing.T) {
+	if len(mcpAccessTools) != MCPAccessToolCount {
+		t.Fatalf("mcpAccessTools carries %d tools, MCPAccessToolCount says %d", len(mcpAccessTools), MCPAccessToolCount)
+	}
+	for _, def := range mcpAccessTools {
+		name := def.Function.Name
+		if _, ok := toolFuncs[name]; !ok {
+			t.Errorf("%s is offered to the model but has no toolFuncs entry", name)
+		}
+	}
+	// The fifth one by name, so a rename or a drop shows up here rather than
+	// only in the array a session is sent.
+	found := false
+	for _, def := range mcpAccessTools {
+		if def.Function.Name == "list_mcp_resource_templates" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("mcpAccessTools no longer carries list_mcp_resource_templates")
+	}
+}
+
 func TestMCPServerOf(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -17,7 +46,7 @@ func TestMCPServerOf(t *testing.T) {
 		},
 		{
 			name:     "prefix absent",
-			toolName: "Read",
+			toolName: "read",
 			wantOK:   false,
 		},
 		{

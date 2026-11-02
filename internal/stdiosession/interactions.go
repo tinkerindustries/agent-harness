@@ -120,7 +120,7 @@ type iactCreateParams struct {
 
 // iactResponseFormat is Google's text response format: a JSON schema the
 // answer must satisfy. It becomes the session's result schema, which is what
-// the Complete tool validates against (docs/TOOLS.md).
+// the `complete` tool validates against (docs/TOOLS.md).
 type iactResponseFormat struct {
 	Type     string          `json:"type"`
 	MIMEType string          `json:"mime_type,omitempty"`
@@ -437,7 +437,7 @@ func iactContentText(blocks []iactContent) (string, *rpcError) {
 		case "text":
 			parts = append(parts, c.Text)
 		case "image":
-			return "", errorf(CodeUnsupported, "an image in `input` is not read; this session reads images off its own filesystem with the Read tool")
+			return "", errorf(CodeUnsupported, "an image in `input` is not read; this session reads images off its own filesystem with the read tool")
 		}
 	}
 	return strings.Join(parts, "\n\n"), nil

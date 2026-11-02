@@ -7,7 +7,7 @@ import (
 )
 
 // StatusTodo is one entry of a run's working plan, recovered by replaying
-// TaskCreate/TaskUpdate tool-call events in event order. The field names
+// task_create/task_update tool-call events in event order. The field names
 // mirror internal/tools.Todo so a todo survives the trip unchanged.
 type StatusTodo struct {
 	TaskID      string `json:"taskId"`
@@ -17,10 +17,10 @@ type StatusTodo struct {
 	ActiveForm  string `json:"activeForm"`
 }
 
-// applyTaskEvent patches current with one TaskCreate or TaskUpdate tool-call
+// applyTaskEvent patches current with one task_create or task_update tool-call
 // event in event order, the way the live handlers mutate the executor's plan:
-// TaskCreate mints ids from *nextID (increment then use, decimal string) and
-// appends; TaskUpdate finds by taskId and patches the fields present or
+// task_create mints ids from *nextID (increment then use, decimal string) and
+// appends; task_update finds by taskId and patches the fields present or
 // removes the task with status "deleted". Events that the live handler would
 // have rejected — malformed JSON, an invalid status, an empty subject or
 // description, a "deleted" combined with a patch, an update with nothing to
@@ -29,7 +29,10 @@ type StatusTodo struct {
 // nothing here produces an error.
 func applyTaskEvent(current []StatusTodo, nextID *int, name, argsJSON string) []StatusTodo {
 	switch name {
-	case "TaskCreate":
+	// The old spellings are replay-only: an event log written before the
+	// rename keeps them, and a resumed session's plan still has to
+	// reconstruct. Dispatch and live state speak the new names alone.
+	case "task_create", "TaskCreate":
 		var args struct {
 			Tasks []StatusTodo `json:"tasks"`
 		}
@@ -61,7 +64,7 @@ func applyTaskEvent(current []StatusTodo, nextID *int, name, argsJSON string) []
 			})
 		}
 		return out
-	case "TaskUpdate":
+	case "task_update", "TaskUpdate":
 		var args struct {
 			TaskID      string `json:"taskId"`
 			Status      string `json:"status"`

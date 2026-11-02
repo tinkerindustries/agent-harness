@@ -8,11 +8,11 @@ import (
 )
 
 // ValidateAgainstSchema checks data against schema, a JSON Schema document.
-// It covers the subset a Complete result_schema realistically needs: type,
+// It covers the subset a `complete` result_schema realistically needs: type,
 // properties/required/additionalProperties, items, enum, and the numeric
 // and string bounds in docs/sources's tool_calls.md strict-mode subset. It
 // is not a full draft implementation — no $ref, no allOf/oneOf, no format
-// validators — because Complete's schemas are supplied by the request
+// validators — because `complete`'s schemas are supplied by the request
 // and are expected to be plain data shapes, not general-purpose contracts.
 func ValidateAgainstSchema(schema, data json.RawMessage) []string {
 	if len(schema) == 0 {

@@ -28,7 +28,7 @@ import (
 
 // toolResultItem rebuilds the function_call_output item a tool_result event
 // stands for. The ordinary shape is bare text. When the event carries
-// ImageURL — a Read that returned an image on a vision provider — the output
+// ImageURL — a `read` that returned an image on a vision provider — the output
 // is the parts array the model must see: a text part carrying the label,
 // then the input_image part with the data URI exactly as the tool produced
 // it. Everything comes from the event payload, never from the filesystem, so
@@ -40,7 +40,7 @@ func toolResultItem(p store.ToolResultPayload) wire.Item {
 
 // interruptedToolOutput stands in for a tool call the log carries no output
 // for. It says the call may well have run, because it may well have: the
-// tool was executing when the session was stopped, and a Bash command that
+// tool was executing when the session was stopped, and a `bash` command that
 // wrote a file wrote it whether or not the result was recorded.
 const interruptedToolOutput = "The session was stopped while this tool call was running, so its result was never recorded. " +
 	"The call may have finished, partly finished, or not run at all. Check the state of anything it would have " +

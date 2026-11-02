@@ -36,13 +36,13 @@ func TestFollowCompactionAliasesTheSuccessor(t *testing.T) {
 	}
 }
 
-// TestBackgroundShellCompletionWakesTheSession is fix two end to end: a Bash
+// TestBackgroundShellCompletionWakesTheSession is fix two end to end: a `bash`
 // call starts a shell, the run ends, and when the shell exits the server must
 // start a second response on its own with the completion as its input. Before
 // this, the shell was killed at the end of the run and nobody was ever told.
 func TestBackgroundShellCompletionWakesTheSession(t *testing.T) {
 	f := newFixture(t,
-		callThen("call_bash", "Bash", `{"command":"sleep 0.2; echo finished","run_in_background":true}`),
+		callThen("call_bash", "bash", `{"command":"sleep 0.2; echo finished","run_in_background":true}`),
 		answer("started"),
 		answer("the shell finished"),
 	)
@@ -50,7 +50,7 @@ func TestBackgroundShellCompletionWakesTheSession(t *testing.T) {
 	var created CreateResult
 	f.client.handshake(ClientCapabilities{})
 	p := f.createParams("run it")
-	// Bash is refused in the fixture's default read-only mode, and a denied
+	// `bash` is refused in the fixture's default read-only mode, and a denied
 	// call never starts a shell.
 	p.Harness.PermissionMode = "full"
 	if rerr := f.client.call(MethodResponsesCreate, p, &created); rerr != nil {

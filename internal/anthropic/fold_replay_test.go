@@ -204,7 +204,7 @@ func TestOpenServerToolHoldsLaterMessagesBack(t *testing.T) {
 			l.add(store.KindSteerApplied, store.SteerAppliedPayload{Text: "remember the plan", SubTurn: 2})
 		}, "remember the plan", wire.RoleUser},
 		{"interrupted run resumed with a new message", func(l *eventLog) {
-			// No tool_result: the run was stopped while List ran, and the
+			// No tool_result: the run was stopped while `list` ran, and the
 			// fold closes the call with its interrupted stand-in.
 			l.add(store.KindRunFinished, store.RunFinishedPayload{Reason: "cancelled"})
 			l.add(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "try again"})

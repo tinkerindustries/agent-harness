@@ -21,15 +21,15 @@ import (
 // tool call and already holds the store handle — rather than inside
 // tools.Executor, which deliberately does not import internal/store. The
 // plan column is written separately by persistTaskState, after the tool
-// calls have run, because a TaskCreate/TaskUpdate's effect (minted ids,
+// calls have run, because a task_create/task_update's effect (minted ids,
 // patched fields) only exists once the handler actually executes.
-// TaskCreate and TaskUpdate themselves are not rolled into the recent
-// calls: the plan panel already says what they said. TaskGet and TaskList
+// task_create and task_update themselves are not rolled into the recent
+// calls: the plan panel already says what they said. task_get and task_list
 // are non-mutating reads, so they roll like any other tool.
 func (r *Runner) persistLiveState(ctx context.Context, sess store.Session, calls []wire.AssembledToolCall) {
 	var recent []store.RecentToolCall
 	for _, c := range calls {
-		if c.Name == "TaskCreate" || c.Name == "TaskUpdate" {
+		if c.Name == "task_create" || c.Name == "task_update" {
 			continue
 		}
 		recent = append(recent, store.RecentToolCall{
@@ -48,8 +48,8 @@ func (r *Runner) persistLiveState(ctx context.Context, sess store.Session, calls
 
 // persistTaskState writes this sub-turn's plan to the session row, once the
 // tool calls have actually run. It is a no-op unless the sub-turn carried a
-// TaskCreate or TaskUpdate — the only two tools that mutate the plan — so a
-// TaskGet/TaskList-only sub-turn never clobbers the row, and the
+// task_create or task_update — the only two tools that mutate the plan — so a
+// task_get/task_list-only sub-turn never clobbers the row, and the
 // recent-tool-call roll for this sub-turn was already handled by
 // persistLiveState. The snapshot comes from executor.Todos() after
 // execution, the only source of truth for minted ids and applied patches;
@@ -58,7 +58,7 @@ func (r *Runner) persistLiveState(ctx context.Context, sess store.Session, calls
 func (r *Runner) persistTaskState(ctx context.Context, sess store.Session, executor *tools.Executor, calls []wire.AssembledToolCall) {
 	mutates := false
 	for _, c := range calls {
-		if c.Name == "TaskCreate" || c.Name == "TaskUpdate" {
+		if c.Name == "task_create" || c.Name == "task_update" {
 			mutates = true
 			break
 		}
@@ -73,7 +73,7 @@ func (r *Runner) persistTaskState(ctx context.Context, sess store.Session, execu
 	}
 	// sess is a copy passed in by the caller; its Plan field predates the
 	// write above (it was reloaded, if at all, before this sub-turn's
-	// TaskCreate/TaskUpdate ran). Set it directly from the value just
+	// task_create/task_update ran). Set it directly from the value just
 	// written rather than reloading from the store again — publishState
 	// only reads this copy, so mutating it here is enough to avoid the same
 	// stale-publish bug turn.go's reload fixes for the roll.
@@ -85,7 +85,7 @@ func (r *Runner) persistTaskState(ctx context.Context, sess store.Session, execu
 // the session row's plan column stores — store.StatusTodo, the same shape
 // the status endpoint replays. The conversion is explicit field by field
 // because there is no single raw-arguments source of truth anymore: the
-// plan lives in the executor, mutated by TaskCreate and TaskUpdate.
+// plan lives in the executor, mutated by task_create and task_update.
 func planSnapshot(todos []tools.Todo) string {
 	out := make([]store.StatusTodo, len(todos))
 	for i, t := range todos {

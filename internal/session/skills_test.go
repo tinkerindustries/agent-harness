@@ -99,9 +99,9 @@ func TestRunWithoutSkillsLeavesOpeningMessageUnchanged(t *testing.T) {
 }
 
 // A skill installed for the user lives outside the workspace, so the
-// catalogue names it absolutely and the run has to allow Read to open it.
+// catalogue names it absolutely and the run has to allow `read` to open it.
 // This drives the whole path: discovery, the opening message, the model's
-// Read call, and the body coming back as the tool result.
+// `read` call, and the body coming back as the tool result.
 func TestRunReadsASkillInstalledOutsideTheWorkspace(t *testing.T) {
 	config := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", config)
@@ -129,7 +129,7 @@ func TestRunReadsASkillInstalledOutsideTheWorkspace(t *testing.T) {
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role: "assistant",
 					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call-read", Type: "function",
-						Function: wire.ToolCallFuncDelta{Name: "Read", Arguments: string(args)}}},
+						Function: wire.ToolCallFuncDelta{Name: "read", Arguments: string(args)}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
@@ -179,7 +179,7 @@ func TestRunReadsASkillInstalledOutsideTheWorkspace(t *testing.T) {
 			if err := json.Unmarshal(event.Payload, &payload); err != nil {
 				t.Fatal(err)
 			}
-			if payload.Name == "Read" && !payload.IsError && strings.Contains(payload.Content, "Run the chain.") {
+			if payload.Name == "read" && !payload.IsError && strings.Contains(payload.Content, "Run the chain.") {
 				sawBody = true
 			}
 		}

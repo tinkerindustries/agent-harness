@@ -8,8 +8,8 @@ import (
 	"strings"
 )
 
-// The four fixed tools that reach an MCP server's resources and prompts
-// (docs/MCP.md, "Resources", "Prompts"). They exist as four definitions
+// The five fixed tools that reach an MCP server's resources and prompts
+// (docs/MCP.md, "Resources", "Prompts"). They exist as five definitions
 // rather than one per resource because the tool array is frozen for the
 // life of a run: a server holding a documentation set would otherwise put
 // hundreds of entries in every request, and any change to what it holds
@@ -27,6 +27,21 @@ type mcpListResourcesArgs struct {
 // execMCPListResources lists every enabled server's resources and resource
 // templates from the stored snapshot.
 func execMCPListResources(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result {
+	return listMCPResources(ctx, e, argsRaw, false)
+}
+
+// execMCPListResourceTemplates lists every enabled server's resource
+// templates alone: the URIs carrying {placeholders}, which read_mcp_resource
+// refuses until they are filled in.
+func execMCPListResourceTemplates(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result {
+	return listMCPResources(ctx, e, argsRaw, true)
+}
+
+// listMCPResources renders the listing both tools answer with, from the
+// stored snapshot, filtered to templates alone when templatesOnly is set.
+// No server is dialled: a listing that dialled would fail for an unreachable
+// server that had already told this process what it holds.
+func listMCPResources(ctx context.Context, e *Executor, argsRaw json.RawMessage, templatesOnly bool) Result {
 	if e.MCP == nil {
 		return errorResult("no MCP servers are configured")
 	}
@@ -44,6 +59,9 @@ func execMCPListResources(ctx context.Context, e *Executor, argsRaw json.RawMess
 	var b strings.Builder
 	var shown int
 	for _, r := range resources {
+		if templatesOnly && !r.Template {
+			continue
+		}
 		if args.Server != "" && r.Server != args.Server {
 			continue
 		}
@@ -62,13 +80,24 @@ func execMCPListResources(ctx context.Context, e *Executor, argsRaw json.RawMess
 		b.WriteString("\n")
 	}
 	if shown == 0 {
-		if args.Server != "" {
-			return Result{Content: fmt.Sprintf("The %q MCP server advertises no resources.", args.Server)}
-		}
-		return Result{Content: "No configured MCP server advertises any resources."}
+		return Result{Content: emptyMCPResourceListing(args.Server, templatesOnly)}
 	}
 	out, truncated := truncate(strings.TrimRight(b.String(), "\n"), e.outputCap(ctx))
 	return Result{Content: out, Truncated: truncated}
+}
+
+// emptyMCPResourceListing is what a listing says when it found nothing: an
+// answer naming what was looked for, rather than an empty result the model
+// might read as a failed call and retry.
+func emptyMCPResourceListing(server string, templatesOnly bool) string {
+	what := "resources"
+	if templatesOnly {
+		what = "resource templates"
+	}
+	if server != "" {
+		return fmt.Sprintf("The %q MCP server advertises no %s.", server, what)
+	}
+	return fmt.Sprintf("No configured MCP server advertises any %s.", what)
 }
 
 // mcpReadResourceArgs names one resource on one server.

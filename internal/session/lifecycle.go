@@ -101,7 +101,7 @@ func (r *Runner) FailSetup(ctx context.Context, sessionID string, cause error) e
 }
 
 // Run drives one session from creation to a terminal state: a response with
-// no tool calls, a successful Complete call, a cancelled or expired context,
+// no tool calls, a successful `complete` call, a cancelled or expired context,
 // or an unrecoverable error. No count of sub-turns ends it. The returned
 // error is non-nil only for infrastructure failures (store or stream errors);
 // a task the model gave up on is a normal RunResult, not an error.
@@ -131,6 +131,17 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (result *RunResult, r
 	mcpDefs, mcpReadOnly := r.resolveMCPDefinitions(ctx, sessID)
 	opts.Tools = tools.WithMCP(tools.DefinitionsForVariant(opts.Model, opts.PromptVariant), mcpDefs)
 
+	// A result schema is a contract complete has to carry out: the opening
+	// message tells the model its result argument must validate against the
+	// schema, and Executor.ResultSchema validates complete's answer. A model
+	// whose array does not offer complete can never satisfy it, so the run is
+	// refused here rather than left to discover the contradiction at the end
+	// of the work. DeepSeek is the one provider whose array drops complete
+	// (internal/tools/definitions.go).
+	if len(opts.ResultSchema) > 0 && !offersTool(opts.Tools, "complete") {
+		return nil, fmt.Errorf("session: model %q is not offered the complete tool, so it cannot produce the result schema this run was given; drop the schema or use a model whose array carries complete", opts.Model)
+	}
+
 	// A Gemini session's tools go through gemini.LowerToolSchemas before
 	// anything else sees them, so the row, the head and every request all
 	// carry the lowered array — the agreement the tool-schema comment below
@@ -155,7 +166,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (result *RunResult, r
 		Deny:               opts.Deny,
 		MCPReadOnlyServers: mcpReadOnly,
 	}
-	// A caller with no session registry (a Task subagent, a test) still gets
+	// A caller with no session registry (a `task` subagent, a test) still gets
 	// completion notices while its run lasts: the private registry records
 	// each exit into the log like the server's does, and Close ends what is
 	// left when the run does.
@@ -175,8 +186,8 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (result *RunResult, r
 		return nil, err
 	}
 	executor.Shells = shells
-	// A shell a Bash call started outlives this run: it is the session's, and
-	// the next turn's BashOutput has to find the same id. A run that ended in
+	// A shell a `bash` call started outlives this run: it is the session's, and
+	// the next turn's job_output has to find the same id. A run that ended in
 	// anything but ok is the exception: a stop, a timeout or a failure is
 	// not coming back to read those shells, so CloseAll ends them rather than
 	// leaving a build running with nobody to read it (docs/RUN-CONTROL.md).
@@ -226,7 +237,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (result *RunResult, r
 	// claimed. Run promotes that row to "running" — writing the four
 	// columns that are only resolvable now that the run is starting — and
 	// otherwise inserts the row exactly as it always has. Every caller that
-	// does not clone (a resumed session, the Task subagent path,
+	// does not clone (a resumed session, the `task` subagent path,
 	// compaction) has no pre-created row, so it always inserts, and none of
 	// them should ever show "creating".
 	if existing, err := r.Store.GetSession(ctx, sessID); err == nil && existing.Status == store.StatusCreating {
@@ -257,13 +268,13 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (result *RunResult, r
 	}
 	r.publishState(ctx, curSess)
 
-	// Discovery runs per session, including for each Task subagent, because a
+	// Discovery runs per session, including for each `task` subagent, because a
 	// subagent works the same workspace and benefits from the same skills and
 	// repository instructions.
 	found := skills.Discover(executor.Workspace)
 	// A skill installed outside the workspace — the user's own, a plugin's,
 	// or an ancestor repository's — is named by its absolute path in the
-	// catalogue, so Read needs the directory it lives in to open it.
+	// catalogue, so `read` needs the directory it lives in to open it.
 	executor.ReadRoots = found.ReadRoots()
 	catalogue := found.Render()
 	claudeMD := claudemd.Discover(executor.Workspace).Render()
@@ -359,7 +370,7 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 		}
 	}
 
-	// Consecutive Complete rejections carrying the same message: see
+	// Consecutive `complete` rejections carrying the same message: see
 	// maxCompleteRejections.
 	lastCompleteError, completeRejections := "", 0
 
@@ -385,7 +396,7 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 
 		switch {
 		case outcome.completeError == "":
-			// Anything other than a rejected Complete is progress by
+			// Anything other than a rejected `complete` is progress by
 			// definition: the model is doing something else.
 			lastCompleteError, completeRejections = "", 0
 		case outcome.completeError == lastCompleteError:
@@ -479,11 +490,11 @@ func (r *Runner) carryBackgroundNotices(ctx context.Context, parentID string, si
 	return append(events, appended...), nil
 }
 
-// subagentRunner builds the closure Task uses to delegate to a nested,
+// subagentRunner builds the closure `task` uses to delegate to a nested,
 // flash-backed session. Its transcript never joins the parent's message
 // array; only the text this returns does (docs/TOOLS.md). The session id it
 // also returns is what lets the browser find and render that transcript as a
-// collapsed child of the Task call that spawned it.
+// collapsed child of the `task` call that spawned it.
 func (r *Runner) subagentRunner(parentID string, parentOpts RunOptions, workspace string) func(context.Context, string, string, string) (string, string, error) {
 	return func(ctx context.Context, description, prompt, subagentType string) (string, string, error) {
 		// A subagent does work rather than orchestrating it, so its job type
@@ -505,7 +516,7 @@ func (r *Runner) subagentRunner(parentID string, parentOpts RunOptions, workspac
 			ParentAgentType: parentOpts.ParentAgentType,
 			ParentAgentID:   parentOpts.ParentAgentID,
 			ParentIsUser:    parentOpts.ParentIsUser,
-			// The Task tool's own description argument is exactly a short
+			// The `task` tool's own description argument is exactly a short
 			// label for the child's work, so it becomes the child's title —
 			// truncated to the title cap rather than failing the subagent
 			// call when a model supplies a long one. The child's Description
@@ -532,7 +543,7 @@ func (r *Runner) subagentRunner(parentID string, parentOpts RunOptions, workspac
 // truncateTitle clips a model-supplied label down to the title word cap
 // (agentmeta.MaxTitleWords): the first cap words, joined with single spaces
 // so a newline or a run of whitespace cannot smuggle itself into a title.
-// The alternative — letting a long Task description fail validation and
+// The alternative — letting a long `task` description fail validation and
 // abort the subagent call — would turn a cosmetic cap into a lost run.
 func truncateTitle(s string) string {
 	fields := strings.Fields(s)
@@ -542,9 +553,9 @@ func truncateTitle(s string) string {
 	return strings.Join(fields[:agentmeta.MaxTitleWords], " ")
 }
 
-// maxCompleteRejections is how many consecutive Complete calls may come back
+// maxCompleteRejections is how many consecutive `complete` calls may come back
 // with the same validation error before the run ends on that error instead of
-// letting the model keep rephrasing. Complete's schema failure deliberately
+// letting the model keep rephrasing. `complete`'s schema failure deliberately
 // does not end the run — the model gets to correct it (docs/TOOLS.md) — but a
 // model that has not corrected it in three identical attempts is not
 // correcting it at all: one live run spent eleven consecutive
@@ -557,15 +568,15 @@ func truncateTitle(s string) string {
 // model making progress toward a different failure, and the count restarts.
 const maxCompleteRejections = 3
 
-// abandonRun ends a run that cannot get its Complete result past the schema.
+// abandonRun ends a run that cannot get its `complete` result past the schema.
 // The rejection is recorded as an error event so the transcript says why the
 // run stopped where it did, and the session is marked failed rather than ok:
 // the requester asked for a schema-validated payload and there is none, which
-// is not the same outcome as a run that simply never called Complete.
+// is not the same outcome as a run that simply never called `complete`.
 func (r *Runner) abandonRun(ctx context.Context, sess store.Session, allEvents []store.Event,
 	agg Usage, subTurn int, lastText, completeError string) (*RunResult, error) {
 
-	msg := fmt.Sprintf("session: Complete rejected %d times running with the same error, ending the run: %s",
+	msg := fmt.Sprintf("session: complete rejected %d times running with the same error, ending the run: %s",
 		maxCompleteRejections, completeError)
 	appended, err := r.Store.AppendEvents(ctx, sess.ID, []store.EventInput{
 		{Kind: store.KindError, Payload: store.ErrorPayload{Message: msg}},
@@ -667,4 +678,16 @@ func (r *Runner) fail(ctx context.Context, sess store.Session, allEvents []store
 	}
 
 	return &RunResult{SessionID: sess.ID, Status: status, SubTurns: subTurns, Usage: agg}, cause
+}
+
+// offersTool reports whether name is one of the tools in array. Run consults
+// it for the one arrangement that cannot work: a result schema with no
+// complete tool to carry it out.
+func offersTool(array []wire.Tool, name string) bool {
+	for _, t := range array {
+		if t.Function.Name == name {
+			return true
+		}
+	}
+	return false
 }

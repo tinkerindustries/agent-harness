@@ -45,7 +45,7 @@ func TestRepairArguments(t *testing.T) {
 		wantOK:       false,
 	}, {
 		// Braces inside string values are not structure. This shape is
-		// from a real payload: a Bash command with a Go template in it,
+		// from a real payload: a `bash` command with a Go template in it,
 		// inside arguments that were one brace short.
 		name:         "braces inside strings are not counted",
 		finishReason: wire.FinishToolCalls,

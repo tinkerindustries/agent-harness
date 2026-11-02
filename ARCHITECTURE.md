@@ -47,7 +47,7 @@ compensate — four of which send their images to Google — so hosting one
 would mean a DeepSeek run needing a Google key as well
 ([`docs/DEEPSEEK-VISION.md`](docs/DEEPSEEK-VISION.md)). The Claude models
 read images natively too, and their tool array drops the harness's own
-`WebFetch` in favour of Anthropic's own server-side `web_search` and
+`web_fetch` in favour of Anthropic's own server-side `web_search` and
 `web_fetch` tools, which ride every Claude request instead
 ([`docs/ANTHROPIC-INTEGRATION.md`](docs/ANTHROPIC-INTEGRATION.md)).
 
@@ -95,9 +95,9 @@ protocol:
   `tools.NewExecutor` resolves that path and confines every file operation
   under it. `internal/skills` discovers from it and from the machine's Claude
   Code installation, and the directories of skills it finds outside the
-  workspace join `Executor.ReadRoots`, a read-only allowance for `Read`,
-  `List`, `Glob` and `Grep`. `internal/claudemd` discovers from the workspace,
-  `Screenshot` and `Crop` write under its `scratch/`, and
+  workspace join `Executor.ReadRoots`, a read-only allowance for `read`,
+  `list`, `glob` and `grep`. `internal/claudemd` discovers from the workspace,
+  `screenshot` and `crop` write under its `scratch/`, and
   `internal/attachment` addresses files by paths relative to it. What a
   hosted session gives up is the reason a per-run clone existed: an agent in
   `full` mode is loose in a repository somebody is editing, with no copy to
@@ -235,8 +235,8 @@ are here.
   finished first. Parallel calls cannot be disabled, so ordering is what
   protects the prefix.
 - **The skills catalogue goes in the opening user message, never the system
-  prompt**, and there is no `Skill` tool — a twelfth tool definition would
-  enlarge the frozen head to duplicate what `Read` already does (§4.11).
+  prompt**, and there is no `skill` tool: a definition would enlarge the
+  frozen head to duplicate what `read` already does (§4.11).
   Skills installed outside the workspace are named by absolute path, and the
   only paths outside the workspace a read-only tool accepts are the skill
   directories discovery reported.
@@ -267,8 +267,8 @@ are here.
 
 **`status: "ok"` does not mean the model succeeded.** `complete_status` is a
 separate field mirroring what the model said about finishing: `gave_up` is a run
-that completed cleanly and reported failure. Empty is normal, because `Complete`
-cannot be forced. A caller checking only `status` cannot tell the two apart.
+that completed cleanly and reported failure. Empty is normal, because
+`complete` cannot be forced. A caller checking only `status` cannot tell the two apart.
 
 **The `denied` result status is unused.** It described a workspace-lease
 conflict that a per-run directory made impossible. Don't build on it.

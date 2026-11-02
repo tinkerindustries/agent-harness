@@ -50,7 +50,7 @@ func progressServer(t *testing.T) *mcpsdk.Server {
 // TestCallStreamsProgressToTheSink is the difference between a transcript
 // that shows a long call working and one that looks like a hang: a
 // server's progress notifications arrive on the same channel a running
-// Bash command's output uses, while the call is still in flight.
+// `bash` command's output uses, while the call is still in flight.
 func TestCallStreamsProgressToTheSink(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()

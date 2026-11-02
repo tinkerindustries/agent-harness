@@ -7,8 +7,8 @@ import (
 
 // Mode is the permission mode a session holds for its whole life
 // (docs/TOOLS.md, "Permissions"). Modes gate execution, never the tool
-// array sent to the model: all twenty-two tools ship in every mode, and a
-// disallowed call is refused at execution time.
+// array sent to the model: every tool the session's array carries ships in
+// every mode, and a disallowed call is refused at execution time.
 type Mode string
 
 const (
@@ -27,7 +27,7 @@ func (m Mode) Valid() bool {
 type Decision struct {
 	Allow bool
 	// Rule names why, for both an allow ("read-only tools always run") and
-	// a deny ("Bash denied in readonly mode"). Denials show it to the model.
+	// a deny ("bash denied in readonly mode"). Denials show it to the model.
 	Rule string
 }
 
@@ -38,7 +38,7 @@ type Policy struct {
 	Mode Mode
 	// Deny holds substring patterns matched against a call's descriptor
 	// (docs/TOOLS.md does not pin the matching rule; substring-of-command
-	// for Bash and substring-of-"Tool arg" otherwise is what this
+	// for `bash` and substring-of-"Tool arg" otherwise is what this
 	// implementation chose). Deny only ever
 	// subtracts from what Mode allows; it can never widen it.
 	Deny []string
@@ -56,64 +56,65 @@ type Policy struct {
 }
 
 // alwaysAllowed tools have no side effects outside the session's own
-// bookkeeping and run in every mode. Glance, Ground, Detect, and Transcribe
+// bookkeeping and run in every mode. glance, ground, detect and transcribe
 // read a file and send it over the network without changing anything on disk
-// — the same reasoning that puts WebFetch in read-only mode. Transcribe
+// — the same reasoning that puts web_fetch in read-only mode. transcribe
 // makes several of those requests instead of one, which costs more but
 // changes nothing about what it touches: it writes no chunk files, and the
 // boundaries it reports are y positions in the source image rather than
 // anything on disk. The four task tools carry
-// the same "the plan is the session's own bookkeeping" reasoning TodoWrite
-// had, so read-only-mode sessions keep full plan tracking.
+// the same "the plan is the session's own bookkeeping" reasoning the todo
+// tool it replaced had, so read-only-mode sessions keep full plan tracking.
 //
-// Screenshot is the one member that does write to disk, and it is here
+// `screenshot` is the one member that does write to disk, and it is here
 // because of where it is allowed to write: internal/tools/screenshot.go
 // confines its output to the workspace's scratch/ directory, which by the
 // system prompt's own definition holds nothing that is part of a run's
 // deliverable. A read-only session can therefore capture and review a page —
 // the whole point of a review run — without being able to leave a mark on a
-// cloned repository. It spawns a browser, which Bash-in-readonly is denied
+// cloned repository. It spawns a browser, which read-only mode denies `bash`
 // for, but it spawns exactly one command it composed itself against a URL:
 // there is no argument that turns it into arbitrary execution.
 //
-// Crop writes to disk too, and gets the allowance for the same reason
-// Screenshot does — the entry below says why, beside the entry itself.
+// `crop` writes to disk too, and gets the allowance for the same reason
+// `screenshot` does — the entry below says why, beside the entry itself.
 var alwaysAllowed = map[string]bool{
-	"Read":       true,
-	"Glob":       true,
-	"Grep":       true,
-	"List":       true,
-	"WebFetch":   true,
-	"Glance":     true,
-	"Ground":     true,
-	"Detect":     true,
-	"Transcribe": true,
-	"Screenshot": true,
-	// Crop writes a file, which is why it is worth saying why it sits
-	// here beside the readers rather than with Write and Edit: its output
-	// is confined to scratch/ by the same rule Screenshot's is
+	"read":       true,
+	"glob":       true,
+	"grep":       true,
+	"list":       true,
+	"web_fetch":  true,
+	"glance":     true,
+	"ground":     true,
+	"detect":     true,
+	"transcribe": true,
+	"screenshot": true,
+	// `crop` writes a file, which is why it is worth saying why it sits
+	// here beside the readers rather than with `write` and `edit`: its output
+	// is confined to scratch/ by the same rule `screenshot`'s is
 	// (resolveScratchImageOutput), so it cannot touch the deliverable or a
 	// cloned repository. Gating it by mode instead put the whole
-	// Ground-Crop-Glance pipeline behind full permissions, which is the
+	// `ground`-`crop`-`glance` pipeline behind full permissions, which is the
 	// mode that hands the session every other broad grant — a large
 	// grant to buy a closer look at a screenshot.
-	"Crop":       true,
-	"TaskCreate": true,
-	"TaskGet":    true,
-	"TaskList":   true,
-	"TaskUpdate": true,
-	"Complete":   true,
-	// The two MCP listing tools read this harness's own stored snapshot of
+	"crop":        true,
+	"task_create": true,
+	"task_get":    true,
+	"task_list":   true,
+	"task_update": true,
+	"complete":    true,
+	// The three MCP listing tools read this harness's own stored snapshot of
 	// what its servers advertise. No server is dialled and nothing leaves
 	// the process, which puts them with the readers rather than behind the
 	// per-server gate their two dialling siblings answer to (see
 	// mcpAccessServerOf).
-	"MCPListResources": true,
-	"MCPListPrompts":   true,
+	"list_mcp_resources":          true,
+	"list_mcp_resource_templates": true,
+	"list_mcp_prompts":            true,
 }
 
 // Check evaluates one tool call. descriptor is what a deny pattern matches
-// against and what a denial shows the model: the shell command for Bash,
+// against and what a denial shows the model: the shell command for `bash`,
 // "ToolName argument" for path-taking tools, and the bare tool name
 // otherwise.
 func (p *Policy) Check(toolName, descriptor string) Decision {
@@ -140,9 +141,9 @@ func (p *Policy) Check(toolName, descriptor string) Decision {
 		}
 	}
 
-	// MCPReadResource and MCPGetPrompt dial a server, so they answer to the
-	// same per-server gate its tools do (docs/MCP.md, "Permissions"). The
-	// server is not in the tool name — these four names are fixed — so it
+	// read_mcp_resource and get_mcp_prompt dial a server, so they answer to
+	// the same per-server gate its tools do (docs/MCP.md, "Permissions"). The
+	// server is not in the tool name — these five names are fixed — so it
 	// comes from the descriptor, which descriptor.go builds from the call's
 	// own server argument.
 	if server, ok := mcpAccessServerOf(toolName, descriptor); ok {
@@ -188,7 +189,7 @@ func (p *Policy) Check(toolName, descriptor string) Decision {
 // that names no server to check.
 func mcpAccessServerOf(toolName, descriptor string) (string, bool) {
 	switch toolName {
-	case "MCPReadResource", "MCPGetPrompt":
+	case "read_mcp_resource", "get_mcp_prompt":
 	default:
 		return "", false
 	}

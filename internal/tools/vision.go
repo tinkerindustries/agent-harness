@@ -32,8 +32,8 @@ import (
 // AskVision. docs/VISION-TOOLKIT.md is the assessment that led here; the
 // short version is that our two tools both answered in prose, and prose is
 // the wrong return type for half the questions a session asks about a page.
-// Glance answers what something is; Ground and Detect answer where it is, in
-// pixels; Crop cuts a box out with no model call at all.
+// `glance` answers what something is; `ground` and `detect` answer where it is, in
+// pixels; `crop` cuts a box out with no model call at all.
 //
 // The prompts and the parsing are ported as faithfully as the shapes allow,
 // because they are the part that took measuring: the 0-1000 grid, the
@@ -102,7 +102,7 @@ func (e *Executor) visionThinkingLevel(ctx context.Context, fallback string) str
 }
 
 // ---------------------------------------------------------------------------
-// Glance
+// `glance`
 // ---------------------------------------------------------------------------
 
 type glanceArgs struct {
@@ -145,7 +145,7 @@ func glancePrompt(args glanceArgs, count int) string {
 	return "Please describe the contents of this image in detail."
 }
 
-// execGlance implements Glance: describe, answer a question about, or OCR one
+// execGlance implements `glance`: describe, answer a question about, or OCR one
 // or more images. It is the general vision tool — the replacement for
 // AskVision — and like AskVision it imposes no shape on the answer.
 //
@@ -168,7 +168,7 @@ func execGlance(ctx context.Context, e *Executor, argsRaw json.RawMessage) Resul
 			// from a conversation this session dropped past the cap reads
 			// identically to a typo, and the model can only act on the
 			// difference if it is told.
-			return errorResult("no Glance conversation %q in this session%s", args.ConversationID, glanceConversationHint(e))
+			return errorResult("no glance conversation %q in this session%s", args.ConversationID, glanceConversationHint(e))
 		}
 	}
 	// image_paths is required on a first call and optional on a follow-up,
@@ -189,7 +189,7 @@ func execGlance(ctx context.Context, e *Executor, argsRaw json.RawMessage) Resul
 	}
 	maxImages := e.visionMaxImages(ctx)
 	if len(args.ImagePaths) > maxImages {
-		return errorResult("Glance accepts at most %d images, got %d", maxImages, len(args.ImagePaths))
+		return errorResult("glance accepts at most %d images, got %d", maxImages, len(args.ImagePaths))
 	}
 
 	var images []gemini.Image
@@ -210,7 +210,7 @@ func execGlance(ctx context.Context, e *Executor, argsRaw json.RawMessage) Resul
 		return errorResult("%v", err)
 	}
 	if e.Gemini == nil {
-		return errorResult("Glance is not available in this context: no Gemini client configured")
+		return errorResult("glance is not available in this context: no Gemini client configured")
 	}
 
 	question := glancePrompt(args, len(images))
@@ -248,7 +248,7 @@ func execGlance(ctx context.Context, e *Executor, argsRaw json.RawMessage) Resul
 }
 
 // ---------------------------------------------------------------------------
-// Ground and Detect
+// `ground` and `detect`
 // ---------------------------------------------------------------------------
 
 type groundArgs struct {
@@ -280,7 +280,7 @@ func groundPrompt(target string) string {
 		"Use tight boxes in the original image. Return [] when nothing matches."
 }
 
-// detectTarget is detect.py's build_target: Detect is Ground with a canned
+// detectTarget is detect.py's build_target: `detect` is `ground` with a canned
 // target and nothing else.
 func detectTarget(category string) string {
 	if category == "" {
@@ -304,7 +304,7 @@ func execGround(ctx context.Context, e *Executor, argsRaw json.RawMessage) Resul
 	if args.Target == "" {
 		return errorResult("target is required: say what to locate")
 	}
-	return runLocate(ctx, e, "Ground", args.ImagePath, args.Target, args.Region)
+	return runLocate(ctx, e, "ground", args.ImagePath, args.Target, args.Region)
 }
 
 func execDetect(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result {
@@ -312,11 +312,11 @@ func execDetect(ctx context.Context, e *Executor, argsRaw json.RawMessage) Resul
 	if err := json.Unmarshal(argsRaw, &args); err != nil {
 		return errorResult("invalid arguments: %v", err)
 	}
-	return runLocate(ctx, e, "Detect", args.ImagePath, detectTarget(args.Category), args.Region)
+	return runLocate(ctx, e, "detect", args.ImagePath, detectTarget(args.Category), args.Region)
 }
 
 // runLocate is ground.py's locate() plus its output formatting. Both tools
-// share it because upstream Detect is a one-line wrapper around Ground.
+// share it because upstream `detect` is a one-line wrapper around `ground`.
 func runLocate(ctx context.Context, e *Executor, tool, userPath, target, region string) Result {
 	if userPath == "" {
 		return errorResult("image_path is required")
@@ -388,12 +388,12 @@ func runLocate(ctx context.Context, e *Executor, tool, userPath, target, region 
 	}
 
 	var lines []string
-	if tool == "Detect" {
+	if tool == "detect" {
 		lines = formatInventory(matches, width, height)
 	} else {
 		lines = formatMatches(matches, width, height)
 	}
-	// The downscale note matters more here than it does for Glance, not less.
+	// The downscale note matters more here than it does for `glance`, not less.
 	// The boxes are still in the original image's pixels — the grid is
 	// normalised, so the arithmetic survives a downscale untouched — but the
 	// model's ability to SEE a small target does not, and a locate that
@@ -615,7 +615,7 @@ func boxPosition(box [4]int, width, height int) string {
 }
 
 // ---------------------------------------------------------------------------
-// Crop
+// `crop`
 // ---------------------------------------------------------------------------
 
 type cropArgs struct {
@@ -627,7 +627,7 @@ type cropArgs struct {
 
 // execCrop is bin/crop: cut a pixel box out of an image into its own file,
 // optionally upscaled. No model call, no cost — it is here so a box from
-// Ground can become an image Glance reads at full resolution.
+// `ground` can become an image `glance` reads at full resolution.
 func execCrop(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result {
 	var args cropArgs
 	if err := json.Unmarshal(argsRaw, &args); err != nil {
@@ -667,8 +667,8 @@ func execCrop(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 		// right for a CLI on your own machine and wrong here: beside the input
 		// can be inside a cloned repository, where the crop turns up in that
 		// repository's diff. The base name alone is relative, so the scratch
-		// rule re-roots it under scratch/ — the same place Screenshot puts a
-		// capture, and what makes Crop safe to allow in read-only mode
+		// rule re-roots it under scratch/ — the same place `screenshot` puts a
+		// capture, and what makes `crop` safe to allow in read-only mode
 		// (policy.go).
 		base := filepath.Base(args.ImagePath)
 		out = strings.TrimSuffix(base, filepath.Ext(base)) + ".crop.png"
@@ -749,7 +749,7 @@ func visionInteract(ctx context.Context, e *Executor, instruction, prompt string
 		gemini.WithThinkingLevel(thinking),
 		// The field carries a type and no schema, so constraining the
 		// container empties or mangles the contents — measured, and the reason
-		// Ground parses tolerantly instead of asking for structured output
+		// `ground` parses tolerantly instead of asking for structured output
 		// (docs/VISION-TOOLKIT.md §6).
 		gemini.WithResponseFormat(""))
 	if err != nil {
@@ -820,7 +820,7 @@ func parseRegion(region string, width, height int) ([4]int, error) {
 }
 
 // imageDimensions reads an image's pixel size without decoding the whole
-// file. Ground scales its normalised boxes against these, not against
+// file. `ground` scales its normalised boxes against these, not against
 // whatever dimensions survived the byte cap.
 func imageDimensions(path string) (int, int, error) {
 	f, err := os.Open(path)
@@ -913,7 +913,7 @@ func loadVisionImages(ctx context.Context, e *Executor, paths []string) ([]gemin
 	var downscaled []string
 	for i, userPath := range paths {
 		// resolveImagePath rather than ResolvePath: a relative path that names
-		// nothing is tried once more under scratch/, which is where Screenshot
+		// nothing is tried once more under scratch/, which is where `screenshot`
 		// puts a relative capture, so the path the model wrote the image to is
 		// the path it can read it back from (workspace.go).
 		path, err := resolveImagePath(e.Workspace, userPath)
@@ -1128,10 +1128,10 @@ func maxInt(a, b int) int {
 }
 
 // ---------------------------------------------------------------------------
-// Glance conversations
+// `glance` conversations
 // ---------------------------------------------------------------------------
 
-// maxGlanceConversations caps how many Glance conversations one session holds
+// maxGlanceConversations caps how many `glance` conversations one session holds
 // at once. Each is a handful of paths and text pairs, so the cap bounds a long
 // session's growth rather than memory; the most recent are kept.
 const maxGlanceConversations = 5
@@ -1147,7 +1147,7 @@ type glanceTurn struct {
 // restating the thread: the image paths (files are re-read from disk each
 // time, so no bytes are held) and the exchanges so far.
 //
-// This is ReviewScreenshot's conversation_id, brought back onto Glance. It was
+// This is ReviewScreenshot's conversation_id, brought back onto `glance`. It was
 // lost in the port because the upstream CLI is stateless — every invocation is
 // a fresh process — and a CLI has nowhere to keep a thread. A tool call does.
 // Without it, "look closer at the header" re-uploads the image and re-derives

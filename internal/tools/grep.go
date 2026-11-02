@@ -35,7 +35,7 @@ type grepArgs struct {
 
 // lineNumbers reports whether this call wants line numbers. Absent means on,
 // because a content match with no line number gives a model nothing to aim
-// its next Read at; a caller that wants the lines alone says so.
+// its next `read` at; a caller that wants the lines alone says so.
 func (a grepArgs) lineNumbers() bool {
 	return a.ShowLineNumbers == nil || *a.ShowLineNumbers
 }
@@ -49,17 +49,17 @@ type grepMatch struct {
 	endLine   int
 }
 
-// grepSkipDirs are the version-control directories a Grep never searches, at
+// grepSkipDirs are the version-control directories a `grep` never searches, at
 // any depth. ripgrep's --hidden lifts its own dot-directory skipping, so
 // ripgrepArgs excludes each one by name; the fallback walk skips each one by
 // name. One list, because the same call has to answer the same way whichever
 // path serves it.
 var grepSkipDirs = []string{".git", ".svn", ".hg", ".bzr", ".jj", ".sl"}
 
-// execGrep implements Grep: ripgrep when the session has one (Executor.RG),
+// execGrep implements `grep`: ripgrep when the session has one (Executor.RG),
 // the Go walk when it does not. Defaults to files_with_matches so the model
 // orients cheaply instead of pulling large content into a context that gets
-// re-sent every sub-turn (docs/TOOLS.md, "Grep and Glob").
+// re-sent every sub-turn (docs/TOOLS.md, "grep and glob").
 //
 // The search root is resolved once, for the confinement check every tool path
 // goes through, and the caller's own spelling of it is kept: ripgrep prints a
@@ -274,7 +274,7 @@ func splitOnNewline(data []byte, atEOF bool) (advance int, token []byte, err err
 // grepFile matches re against lines, one line at a time by default. In
 // multiline mode it matches against the whole file joined by newlines
 // instead, where a match can span more than one line — the shape "." matches
-// newlines and a pattern can cross lines" (docs/TOOLS.md's Grep entry)
+// newlines and a pattern can cross lines" (docs/TOOLS.md's `grep` entry)
 // requires, since a per-line scan could never find such a match at all.
 // stopAtFirst short-circuits once a file has one match, all
 // files_with_matches needs.

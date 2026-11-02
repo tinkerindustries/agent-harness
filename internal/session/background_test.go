@@ -18,7 +18,7 @@ import (
 
 // backgroundThenPollServer scripts a session across two runs: the first
 // sub-turn starts command in the background and the second ends the run, then
-// the next run's first sub-turn reads the shell with BashOutput. The id is
+// the next run's first sub-turn reads the shell with job_output. The id is
 // bash_1 because the registry the test hands in is fresh, which is the one
 // thing about the id a scripted request can know in advance.
 func backgroundThenPollServer(t *testing.T, command, firstAnswer, polledAnswer string) *httptest.Server {
@@ -73,11 +73,11 @@ func backgroundThenPollServer(t *testing.T, command, firstAnswer, polledAnswer s
 
 		switch idx {
 		case 0:
-			writeToolCall("call_bash", "Bash", string(startArgs))
+			writeToolCall("call_bash", "bash", string(startArgs))
 		case 1:
 			answer(firstAnswer)
 		case 2:
-			writeToolCall("call_poll", "BashOutput", `{"bash_id":"bash_1"}`)
+			writeToolCall("call_poll", "job_output", `{"job_id":"bash_1"}`)
 		default:
 			answer(polledAnswer)
 		}
@@ -87,8 +87,8 @@ func backgroundThenPollServer(t *testing.T, command, firstAnswer, polledAnswer s
 }
 
 // TestBackgroundShellSurvivesTheRunForTheNextResume is fix one: a shell a
-// Bash call started in one run is still addressable by the next run's
-// BashOutput. Before the session-scoped registry, the run's deferred
+// bash call started in one run is still addressable by the next run's
+// job_output. Before the session-scoped registry, the run's deferred
 // Executor.Close killed it and the resume answered "no background shell".
 func TestBackgroundShellSurvivesTheRunForTheNextResume(t *testing.T) {
 	srv := backgroundThenPollServer(t, "echo still-here; sleep 30", "started", "polled")
@@ -135,7 +135,7 @@ func TestBackgroundShellSurvivesTheRunForTheNextResume(t *testing.T) {
 		if strings.HasPrefix(p.Content, "Running in the background with id bash_1") {
 			started = true
 		}
-		if p.Name == "BashOutput" {
+		if p.Name == "job_output" {
 			polled = true
 			if !strings.HasPrefix(p.Content, "Status: running") {
 				t.Fatalf("expected the resumed run to find the shell still running, got: %s", p.Content)
@@ -146,7 +146,7 @@ func TestBackgroundShellSurvivesTheRunForTheNextResume(t *testing.T) {
 		t.Fatal("the first run never started the background shell")
 	}
 	if !polled {
-		t.Fatal("the resumed run never called BashOutput")
+		t.Fatal("the resumed run never called job_output")
 	}
 }
 
@@ -170,7 +170,7 @@ func heldToolCallServer(t *testing.T, stall time.Duration) *httptest.Server {
 					Role: "assistant",
 					ToolCalls: []wire.ToolCallDelta{{
 						Index: 0, ID: "call_bash", Type: "function",
-						Function: wire.ToolCallFuncDelta{Name: "Bash", Arguments: string(startArgs)},
+						Function: wire.ToolCallFuncDelta{Name: "bash", Arguments: string(startArgs)},
 					}},
 				}}},
 			})
@@ -190,7 +190,7 @@ func heldToolCallServer(t *testing.T, stall time.Duration) *httptest.Server {
 }
 
 // TestPrivateShellRegistryRecordsACompletion pins the fallback for a caller
-// with no session registry, which is the Task subagent path: Run builds a
+// with no session registry, which is the `task` subagent path: Run builds a
 // registry for the run, so a shell that exits mid-run still commits a
 // background_finished event even though no registry outlives the run.
 func TestPrivateShellRegistryRecordsACompletion(t *testing.T) {
@@ -209,7 +209,7 @@ func TestPrivateShellRegistryRecordsACompletion(t *testing.T) {
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{ToolCalls: []wire.ToolCallDelta{{
 					Index: 0, ID: "call_bash", Type: "function",
-					Function: wire.ToolCallFuncDelta{Name: "Bash", Arguments: string(startArgs)},
+					Function: wire.ToolCallFuncDelta{Name: "bash", Arguments: string(startArgs)},
 				}}}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
@@ -260,7 +260,7 @@ func TestPrivateShellRegistryRecordsACompletion(t *testing.T) {
 	t.Fatal("the run's private registry never committed the shell's completion")
 }
 
-// compactionShellServer scripts one background Bash call, a summariser that
+// compactionShellServer scripts one background `bash` call, a summariser that
 // takes summarizerDelay before answering, and then a final answer. The first
 // streaming request carries usage over the threshold the tests set, so the
 // loop compacts right after that sub-turn.
@@ -298,7 +298,7 @@ func compactionShellServer(t *testing.T, command string, summarizerDelay time.Du
 					Role: "assistant",
 					ToolCalls: []wire.ToolCallDelta{{
 						Index: 0, ID: "call_bash", Type: "function",
-						Function: wire.ToolCallFuncDelta{Name: "Bash", Arguments: string(startArgs)},
+						Function: wire.ToolCallFuncDelta{Name: "bash", Arguments: string(startArgs)},
 					}},
 				}}},
 			})
@@ -322,7 +322,7 @@ func compactionShellServer(t *testing.T, command string, summarizerDelay time.Du
 
 // TestBackgroundShellFollowsCompaction pins the mid-run case: a shell the
 // model started before compaction is still the successor session's shell
-// afterwards. The registry moves with the run, so BashOutput finds the id and
+// afterwards. The registry moves with the run, so job_output finds the id and
 // any exit records against the row that is still running.
 func TestBackgroundShellFollowsCompaction(t *testing.T) {
 	srv := compactionShellServer(t, "sleep 30", 0)
@@ -357,7 +357,7 @@ func TestBackgroundShellFollowsCompaction(t *testing.T) {
 	e.Shells = registry
 	out := e.Execute(t.Context(), wire.ToolCall{
 		ID: "poll", Type: "function",
-		Function: wire.ToolCallFunc{Name: "BashOutput", Arguments: `{"bash_id":"bash_1"}`},
+		Function: wire.ToolCallFunc{Name: "job_output", Arguments: `{"job_id":"bash_1"}`},
 	})
 	if !strings.HasPrefix(out.Result.Content, "Status: running") {
 		t.Fatalf("expected the shell to survive compaction, got: %s", out.Result.Content)
@@ -458,7 +458,7 @@ func TestStoppedRunEndsItsBackgroundShells(t *testing.T) {
 	for {
 		out := e.Execute(t.Context(), wire.ToolCall{
 			ID: "poll", Type: "function",
-			Function: wire.ToolCallFunc{Name: "BashOutput", Arguments: `{"bash_id":"bash_1"}`},
+			Function: wire.ToolCallFunc{Name: "job_output", Arguments: `{"job_id":"bash_1"}`},
 		})
 		if !strings.HasPrefix(out.Result.Content, "Status: running") {
 			return

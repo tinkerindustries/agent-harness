@@ -296,7 +296,7 @@ type maStepHarness struct {
 	Rule string `json:"rule,omitempty"`
 	// Truncated says the result was cut to the tool output cap.
 	Truncated bool `json:"truncated,omitempty"`
-	// ChildTurnID is set on a Task tool's result: the sub-agent ran as its
+	// ChildTurnID is set on a `task` tool's result: the sub-agent ran as its
 	// own session, and this is the id to read it under.
 	ChildTurnID string `json:"child_turn_id,omitempty"`
 	// Source is where a user.message came from — "input", "append",

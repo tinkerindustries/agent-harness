@@ -2,95 +2,113 @@
 
 ## Why these names
 
-DeepSeek-V4 shipped with dedicated agent optimisations and names Claude Code,
-OpenClaw, and OpenCode as its integration targets. DeepSeek runs its own
-in-house agentic coding on it.
+The names follow the vendor's own harness,
+[`deepseek-ai/deepseek-harness`](https://github.com/deepseek-ai/deepseek-harness)
+(`dsh`). It names every built-in tool `lower_snake_case`: `read`, `write`,
+`edit`, `bash`, `glob`, `grep`, `job_output`, `job_list`, `job_kill`,
+`web_fetch`. It ships `apply_patch` too.
 
-That is the observation. The inference this document acts on: the tool
-vocabularies those harnesses use — names, argument names, result shapes — are
-the ones V4 handles most reliably. The inference is not stated anywhere in
-DeepSeek's docs, but matching a vocabulary costs nothing and diverging from one
-costs accuracy, so the asymmetry decides it.
+`apply_patch` is the one tool name DeepSeek's own API documents as tuned:
+`{"type": "custom", "name": "apply_patch"}` is accepted on the Responses API
+and any other custom name returns 400
+(`third_party/deepseek-docs/guides/responses_api.md`, `Tools`). The harness
+sends `apply_patch` as an ordinary function tool on the surface it uses, and
+the name is the one the model has seen.
 
-Claude Code and OpenCode converge on the same set. Where they differ in casing,
-this spec follows Claude Code, which DeepSeek names first and supports with
-explicit model mapping and a documented environment configuration.
+That is the evidence. `dsh` sits closer to the model's training data than an
+inference drawn from which harnesses DeepSeek names as integration targets:
+DeepSeek-V4 shipped with agent optimisations and names Claude Code, OpenClaw
+and OpenCode as targets, but naming them says nothing about what they call
+their tools. This document followed Claude Code's `TitleCase` set for that
+reason until the vendor shipped its own harness. Where the two disagree, the
+vendor's own wins.
 
 Function names must match `[a-zA-Z0-9_-]{1,64}` and a request may carry at most
-128 of them. Both vocabularies fit.
+128 of them.
 
 One caveat on the evidence, recorded in full in [VALIDATION.md](VALIDATION.md).
-The vendored docs establish that DeepSeek optimised V4 for those harnesses. They
-never state what those harnesses call their tools. The specific names below come
-from outside this repository, which makes them the weakest load-bearing
-assumption in the design — and also a cheap one to be wrong about, since a
-rename is the whole fix.
+The vendored docs establish that DeepSeek optimised V4 for agentic coding, and
+that `apply_patch` is a name it accepts. They say nothing about the rest of
+`dsh`'s catalogue; those names come from the harness's own repository, outside
+this one. That makes them the weakest load-bearing assumption in the design,
+and also a cheap one to be wrong about, since a rename is the whole fix.
 
-The one concrete coding tool name DeepSeek does document is `apply_patch`:
-`{"type": "custom", "name": "apply_patch"}` is accepted on the Responses API and
-any other custom name returns 400. That is direct evidence of tuning against
-Codex's patch format. It is Responses-API-only, so it does not
-reach our endpoint, but it suggests patch-shaped editing is trained in and worth
-trying against `Edit` if exact-match replacement underperforms.
-
-## The v1 set
+## The built-in set
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
-| `Read` | `file_path`, `offset?`, `limit?` | Read a file, line-numbered |
-| `Write` | `file_path`, `content` | Create or overwrite a file |
-| `Edit` | `file_path`, `old_string`, `new_string`, `replace_all?` | Exact-match replacement |
-| `Bash` | `command`, `timeout?`, `description?`, `run_in_background?` | Run a shell command |
-| `BashOutput` | `bash_id`, `filter?` | Read a background shell's output since the last read |
-| `KillBash` | `shell_id` | Stop a background shell |
-| `Glob` | `pattern`, `path?` | Path matching by pattern |
-| `Grep` | `pattern`, `path?`, `glob?`, `type?`, `output_mode?`, `-i?`, `-n?`, `-A?`, `-B?`, `-C?`, `multiline?`, `head_limit?` | Content search, ripgrep-backed |
-| `List` | `path`, `ignore?` | Directory listing |
-| `TaskCreate` | `tasks[]` | Append tasks to the working plan |
-| `TaskGet` | `taskId` | Fetch one task by taskId |
-| `TaskList` | `status?` | List the working plan (optionally one status) |
-| `TaskUpdate` | `taskId`, `status?`, `subject?`, `description?`, `activeForm?` | Patch one task by taskId, or remove it with `status: "deleted"` |
-| `Task` | `description`, `prompt`, `subagent_type` | Delegate to a flash-backed subagent |
-| `WebFetch` | `url`, `prompt` | Fetch a URL and extract against a question |
-| `Screenshot` | `url`, `path`, `width?`, `height?`, `device_scale_factor?`, `color_scheme?`, `full_page?`, `selector?`, `wait_for_selector?`, `wait_ms?` | Capture a page with a headless browser into `scratch/` |
-| `Glance` | `image_paths[]`, `query?`, `ocr?`, `ocr_extra?`, `region?` | Ask Gemini's vision model about one or more images: describe, answer a question, or transcribe the text |
-| `Transcribe` | `image_path`, `region?` | Read all the text off an image too tall for one look: chunk it on blank bands, one vision call each, merged with a seam report |
-| `Ground` | `image_path`, `target`, `region?` | Locate something in an image; every match comes back as a pixel box |
-| `Detect` | `image_path`, `category?`, `region?` | Inventory every instance of a kind of thing in an image; a numbered list of pixel boxes |
-| `Crop` | `image_path`, `region`, `output?`, `scale?` | Cut a pixel box out of an image into its own file — local, no model call |
-| `Complete` | `summary`, `result?`, `status?` | Emit the run's machine-readable result |
+| `read` | `file_path`, `offset?`, `limit?` | Read a file, line-numbered |
+| `write` | `file_path`, `content` | Create or overwrite a file |
+| `edit` | `file_path`, `old_string`, `new_string`, `replace_all?` | Exact-match replacement |
+| `apply_patch` | `input` | Apply a Codex-format patch to one or more files |
+| `bash` | `command`, `timeoutMs?`, `description?`, `run_in_background?`, `workdir?` | Run a shell command |
+| `job_output` | `job_id`, `filter?`, `wait?` | Read a background job's output since the last read, optionally waiting for it to finish |
+| `job_kill` | `job_id` | Stop a background job |
+| `job_list` | none | List every background job with its command, start time and state |
+| `glob` | `pattern`, `path?` | Path matching by pattern |
+| `grep` | `pattern`, `path?`, `glob?`, `type?`, `output_mode?`, `-i?`, `-n?`, `-A?`, `-B?`, `-C?`, `multiline?`, `head_limit?` | Content search, ripgrep-backed |
+| `list` | `path`, `ignore?` | Directory listing |
+| `task_create` | `tasks[]` | Append tasks to the working plan |
+| `task_get` | `taskId` | Fetch one task by taskId |
+| `task_list` | `status?` | List the working plan (optionally one status) |
+| `task_update` | `taskId`, `status?`, `subject?`, `description?`, `activeForm?` | Patch one task by taskId, or remove it with `status: "deleted"` |
+| `task` | `description`, `prompt`, `subagent_type` | Delegate to a flash-backed subagent |
+| `web_fetch` | `url`, `prompt` | Fetch a URL and extract against a question |
+| `screenshot` | `url`, `path`, `width?`, `height?`, `device_scale_factor?`, `color_scheme?`, `full_page?`, `selector?`, `wait_for_selector?`, `wait_ms?`, `actions?` | Capture a page with a headless browser into `scratch/` |
+| `glance` | `image_paths[]`, `query?`, `ocr?`, `ocr_extra?`, `conversation_id?`, `region?` | Ask Gemini's vision model about one or more images: describe, answer a question, or transcribe the text |
+| `transcribe` | `image_path`, `region?` | Read all the text off an image too tall for one look: chunk it on blank bands, one vision call each, merged with a seam report |
+| `ground` | `image_path`, `target`, `region?` | Locate something in an image; every match comes back as a pixel box |
+| `detect` | `image_path`, `category?`, `region?` | Inventory every instance of a kind of thing in an image; a numbered list of pixel boxes |
+| `crop` | `image_path`, `region`, `output?`, `scale?` | Cut a pixel box out of an image into its own file: local, no model call |
+| `complete` | `summary`, `result?`, `status?` | Emit the run's machine-readable result |
 
-Twenty-two tools. The first fifteen have a trained-in analogue in at least
-two of the three named harnesses. `Screenshot`, `Glance`, `Transcribe`,
-`Ground`, `Detect`, `Crop`, and `Complete` do not. The first six exist because most of
-the models this harness runs cannot see images, so the harness builds the
-whole visual path itself — a capture it controls (`Screenshot`), a prose
-answer or a located pixel box from Gemini (`Glance`, `Ground`, `Detect`), a
-chunked read of a page too tall for one call (`Transcribe`), and a local crop
-with no model call at all (`Crop`); the trained-vocabulary argument above
-says nothing about any of them, and each is named for what it does.
+Most of these have a trained-in analogue in `dsh`. `list`, the vision path,
+`complete` and the four task tools do not. The six vision tools exist only in
+the base array: every model this harness routes reads images natively, so no
+routed session is offered them, and `internal/tools/definitions.go` is where
+that is decided. `complete` and the task tools are this harness's own run
+machinery.
 
-The array is chosen per model, through `provider.SeesImages`
-(docs/KIMI-INTEGRATION.md §4.5, decision 5; docs/DEEPSEEK-VISION.md). A Kimi
-K3 session gets the sixteen tools that remain when `Screenshot`, `Glance`,
-`Transcribe`, `Ground`, `Detect`, and `Crop` are dropped — K3 reads images
-natively, so all six are redundant for it, and capture happens through Bash
-and the `playwright-cli` skill instead. Gemini and `deepseek-flash`, the only
-DeepSeek model this harness routes, get the same sixteen, for the same
-reason. Every model absent from `provider.SeesImages` — `deepseek-v4-pro`
-among them, though this harness does not route it — gets the full
-twenty-two, unchanged byte for byte. Each array is a frozen request head shared by every session
-that sends it, pinned by its own golden file
+The array is chosen per model, through `provider.SeesImages` and
+`internal/tools.DefinitionsFor`
+(docs/KIMI-INTEGRATION.md §4.5, decision 5; docs/DEEPSEEK-VISION.md), and
+`internal/tools/definitions.go` is the authority on what each one holds:
+
+- **Kimi, Gemini and Claude** carry the full set minus the six vision tools
+  (`screenshot`, `glance`, `ground`, `detect`, `transcribe`, `crop`), and keep
+  all seven harness-added tools (`list`, the four task tools, `task` and
+  `complete`): those models read images natively, so all six vision tools are
+  redundant, and capture happens
+  through `bash` and the `playwright-cli` skill instead. Claude's array drops
+  `web_fetch` as well, because Anthropic's own server-side `web_search` and
+  `web_fetch` ride every Claude request instead.
+- **DeepSeek** carries the same vision-free set minus `list`, `task_create`,
+  `task_get`, `task_list`, `task_update`, `task` and `complete`. None of the
+  seven has a counterpart in `dsh`: `list` is a directory listing `glob` and
+  `bash` already cover, the four task tools are this harness's plan machinery,
+  `task` is its blocking subagent, and `complete` is its run-ending report.
+  The array being aligned with the model's own harness is the one DeepSeek is
+  offered, so the harness-added tools come off it. A DeepSeek session cannot
+  keep a task list, delegate, or end with a structured result; `Runner.Run`
+  refuses a create that asks for a result schema and resolves to an array
+  without `complete`, naming the missing tool.
+- Any other model gets the base array, unchanged byte for byte: `Definitions`
+  returns it and an unknown name falls back to it. No routed model is sent it,
+  and request validation rejects an unknown name before a session exists.
+
+Each array is a frozen request head shared by every session that sends it,
+pinned by its own golden file
 (`internal/tools/testdata/tools_*.golden.json`, asserted by
-`TestToolArrayGolden`); the `Read` section below covers how an image reaches
+`TestToolArrayGolden`); the `read` section below covers how an image reaches
 a model that can see one.
 
 ## Per-tool notes
 
-### Read
+### read
 
 Returns line-numbered content, `cat -n` style, because that is the shape the
-target harnesses return and the model reads offsets out of it.
+harnesses this vocabulary comes from return and the model reads offsets out of
+it.
 
 A file under a skill directory discovered outside the workspace opens like
 any other, which is how the model reads a skill installed for the user. The
@@ -112,7 +130,7 @@ remainder the scanner cannot get through costs the total and nothing else,
 and the note still reports the cut.
 
 On a model that sees images (Kimi K3, Gemini, and `deepseek-flash`
-— `provider.SeesImages`), a `Read` of a PNG, JPEG, or WebP path returns the
+— `provider.SeesImages`), a `read` of a PNG, JPEG, or WebP path returns the
 file as an `image_url` part — the bytes base64-encoded into a
 `data:image/<fmt>;base64,...` data URI, the exact shape the Kimi guide
 prescribes (third_party/kimi-docs/guide/use-kimi-vision-model.md), with a
@@ -129,30 +147,71 @@ any other binary type is refused with a message that says so. On a model
 with no vision capability the behaviour is unchanged: an image is a binary
 file and is refused like any other.
 
-This creates a known friction with `Edit`: the line-number prefix is display
+This creates a known friction with `edit`: the line-number prefix is display
 only and must not appear in `old_string`. Detect a leading line-number pattern
 in `old_string` and return a targeted error naming the problem rather than a
 generic no-match. The model corrects on a specific error and flounders on a
 vague one.
 
-### Write
+### write
 
 Overwriting an existing file requires that the session has already read it. The
 gate forces the model to work from real bytes rather than remembered ones.
 Creating a new file needs no prior read.
 
-### Edit
+### edit
 
 The highest-risk tool, and the one where harnesses diverge most in quality.
 
 - `old_string` must match exactly once unless `replace_all` is set. On multiple
   matches, return the count and refuse. On zero matches, return the nearest
   candidate line range if one exists.
-- A prior `Read` of the file is required.
+- A prior `read` of the file is required.
 - The result carries the applied diff, so the model sees what actually landed
   rather than assuming its intent was realised.
 
-### Bash
+### apply_patch
+
+One call for an edit that spans files or separated regions. `input` is a patch
+in Codex's format, the one `dsh` uses and the one the name is tuned for:
+
+    *** Begin Patch
+    *** Update File: internal/tools/policy.go
+    @@ func (p *Policy) Check
+    -	old line
+    +	new line
+    *** Add File: internal/tools/patch_test.go
+    +package tools
+    *** End Patch
+
+The grammar is `*** Add File:`, `*** Update File:` with an optional
+`*** Move to:`, and `*** Delete File:`. A hunk is a `@@` line followed by
+space (context), `+` (add) and `-` (remove) lines. Text after `@@` anchors the
+hunk after the first line matching it, and `*** End of File` pins the last hunk
+to the end of the file.
+
+Every operation is staged against an in-memory copy of every file the patch
+names before a byte is written, so one hunk that does not match fails the whole
+call and leaves the workspace exactly as it was. Writes are committed before
+deletes. Paths resolve against the workspace root and go through the same
+escape check `write` and `edit` go through.
+
+The prior-read gate is the one `write` and `edit` carry: every existing file
+the patch changes or deletes must have been read in this session. A file the
+patch creates needs no read, and neither does a file an earlier operation in
+the same patch created. The patch's own context lines are not a substitute for
+the read. A binary file cannot be deleted through the tool, because `read`
+refuses a binary and the gate can never be satisfied; use `bash` for that.
+
+Hunk matching is exact. Trailing whitespace is not normalised, and a
+unified-diff header (`@@ -1,3 +1,3 @@`) is read as anchor text and will not
+match: the anchor form this grammar takes is `@@ <context>`.
+
+The tool ships enabled beside `edit`. The `no-patch` prompt variant drops it
+(`internal/promptvariant`), which is how the two editing tools get compared on
+the same tasks.
+
+### bash
 
 The tool the permission policy exists for. Wall-clock timeout and an output byte
 cap on every invocation, with truncation labelled in the result so the model
@@ -175,7 +234,7 @@ actually applied, and says when that limit is not the one the call asked for:
     command timed out after 2m0s, the default for a call that names no timeout
 
 A model told only "command timed out" reads a clamped request as a hung
-command and retries it unchanged. The `timeout` argument's own description
+command and retries it unchanged. The `timeoutMs` argument's own description
 carries the same three facts without the numbers: there is a default, there is
 a ceiling, and a request above the ceiling is clamped rather than refused.
 
@@ -184,24 +243,35 @@ resolved once at first use. The image installs bash, so a session gets it;
 models write `${PIPESTATUS[0]}`, `[[ ]]` and arrays regardless of what the
 shell is, and busybox ash answers those with a syntax error.
 
+`workdir` names the directory the command runs in, absolute or
+workspace-relative, and defaults to the workspace root. It goes through the
+same escape check every other path argument does, and must name a directory
+that exists. It applies to a `run_in_background` call as well.
+
 Foreground by default, and that is the wrong shape for a dev server or a
 test watcher: those need `run_in_background`, which starts the command
-without waiting for it, returns a shell id straight away, and lets
-`BashOutput` and `KillBash` act on it afterward — the output-polling and
-kill tools RUN-CONTROL.md's "Half one" once named as not built. A
+without waiting for it, returns a job id straight away, and lets
+`job_output`, `job_kill` and `job_list` act on it afterward. A
 backgrounded command is not tied to the tool call's own timeout: it runs
 under its own process group, exactly like a foreground command. The shell
-belongs to the session rather than to the run that started it: `BashOutput`
-in the next run still finds the same `bash_id`, and only `KillBash`, a
+belongs to the session rather than to the run that started it: `job_output`
+in the next run still finds the same `job_id`, and only `job_kill`, a
 stopped or failed run, or the process ending ends it before it exits on its
 own. Compaction moves the registry to the successor session, so a shell
 started before or after the fork stays addressable by the session that is
 still running. A shell that exits is reported as a `background_finished`
 event, which the model reads as a user message at the next sub-turn
 boundary, and which starts a run of its own when the session is idle.
-`BashOutput` returns only what a shell has produced since the last time it
+`job_output` returns only what a shell has produced since the last time it
 was read (never the whole buffer again), so polling a long-lived process
 does not re-send, or re-bill, output the model has already seen.
+
+`job_output`'s `wait` blocks until the job finishes or the call's own timeout
+expires, and a wait that runs out returns the output so far and leaves the job
+running. `job_list` reports every job the session holds, in start order, with
+its command, start time and whether it is still running, which is the answer to
+"what did I leave running" without a guess at an id. `job_kill` on a job that
+has already finished is a no-op.
 
 A command that backgrounds a process without redirecting its output —
 `node server.js &`, inheriting the captured pipe — leaves that pipe open after
@@ -222,9 +292,9 @@ whatever port it bound. A command that detaches with its output redirected is
 untouched: the pipes close with the shell, `Wait` returns normally, and nothing
 is killed.
 
-### Grep and Glob
+### grep and glob
 
-`Grep` runs ripgrep. Claude Code's own `Grep` bundles a ripgrep binary and
+`grep` runs ripgrep. Claude Code's own `Grep` bundles a ripgrep binary and
 execs it, and the shape the trained-in vocabulary expects is ripgrep's own, so
 this tool hands ripgrep's stdout back as it printed it: `path:line:text` for a
 match, `path-line-text` for a context line `-A`/`-B`/`-C` added, a bare `--`
@@ -257,11 +327,11 @@ matching or context line at least 500 bytes long with
 `[Omitted long matching line]` or `[Omitted long context line]`, so one
 minified file cannot fill a result.
 
-`Grep` defaults to returning matching file paths; content and count modes are
+`grep` defaults to returning matching file paths; content and count modes are
 selected by `output_mode`. Keeping the default cheap matters because the model
 uses search to orient and would otherwise pull large content into a context
 that gets re-sent every sub-turn. `-n` is on by default in content mode, so a
-match a model reads carries the line number it needs to hand to `Read`; an
+match a model reads carries the line number it needs to hand to `read`; an
 explicit `-n: false` leaves the numbers off. `multiline` matches the file as
 one string, with `.` matching newlines, the only way a pattern spanning more
 than one line can match at all. `head_limit` applies last, across every mode,
@@ -271,7 +341,7 @@ the same `| head -N` shape whichever mode produced the lines it is cutting.
 spelled them, with the file's own path underneath: a search of `src` reports
 `src/main/prompts/cad.md`, a search of `.` reports `./src/main/prompts/cad.md`,
 an absolute path stays absolute. A search of a directory the caller named is
-therefore reported under a path the model can hand straight to `Read`. Every
+therefore reported under a path the model can hand straight to `read`. Every
 mode names the file each result came from, whether the root was a file or a
 directory: `files_with_matches` and `count` print the path for a single file
 anyway, and content mode passes `-H` so it does too. That is one deliberate
@@ -309,43 +379,48 @@ results on the fallback and nothing on the ripgrep path. Its own pattern
 compiles as Go's `regexp` (RE2), the same no-lookaround, no-backreference
 dialect, and it skips binary files the way ripgrep's walk does.
 
-`Glob` runs the Go walk and nothing else: it matches paths with its own glob
+`glob` runs the Go walk and nothing else: it matches paths with its own glob
 syntax and refuses a file as its root, since the walk never offers its own
 root as a match.
 
-### TaskCreate, TaskGet, TaskList, TaskUpdate
+### task_create, task_get, task_list, task_update
 
-The target harnesses all carry a todo tool, so V4 will reach for one. Where
-they write the whole plan array on every change, this harness splits that
-into a CRUD family: `TaskCreate` appends tasks (ids minted in call order and
-stable for each task's whole life), `TaskUpdate` patches or removes one task
-by taskId, and `TaskGet`/`TaskList` read one task or the whole plan back.
-The field names match Claude Code's own Task tools — each item carries
+`dsh` carries `todo_write` instead of these four, and the harnesses this
+vocabulary came from all carry a todo tool, so the model will reach for one
+either way. Where they write the whole plan array on every change, this
+harness splits that into a CRUD family: `task_create` appends tasks (ids
+minted in call order and stable for each task's whole life), `task_update`
+patches or removes one task by taskId, and `task_get`/`task_list` read one
+task or the whole plan back.
+The field names match Claude Code's own task tools: each item carries
 `subject` ("a brief, actionable title"), `description` ("what needs to be
-done"), and `activeForm`, and the task identifier is `taskId` — with the
-deliberate deviations that `TaskCreate` keeps its batch-array shape
-(`{"tasks": [...]}`) so seeding a whole plan is one call, and `TaskList`
+done"), and `activeForm`, and the task identifier is `taskId`. The deliberate
+deviations are that `task_create` keeps its batch-array shape
+(`{"tasks": [...]}`) so seeding a whole plan is one call, and `task_list`
 keeps its optional `status` filter. No dependencies, `owner`, or `metadata`:
 a harness session is a single agent, not a team with tasks to claim.
+
+These four are this harness's own; DeepSeek's array does not carry them (see
+"The built-in set").
 
 The split exists so a per-item update is cheap enough that an agent does not
 skip it mid-run. Rewriting the whole plan on every status change costs the
 model the full checklist to produce and the session a bigger message to
-append; naming one taskId in a short `TaskUpdate` call makes keeping the
+append; naming one taskId in a short `task_update` call makes keeping the
 plan current the obvious move. A terminal client renders the list as a
 checklist that scrolls away; a client with a screen can pin it as a live plan
 panel beside the transcript.
 
-`TaskUpdate` patches only the fields present. `status: "deleted"` removes the
+`task_update` patches only the fields present. `status: "deleted"` removes the
 task — it is only ever an input trigger, never a stored status, so a
 "deleted" combined with a patch, an update with nothing to set, an unknown
 taskId, or an invalid status are all errors and mutate nothing — the same
 validation the event-log replay applies (`internal/store/status.go`), so a
 session's recovered plan can never drift from what the loop actually did.
-`TaskGet`'s single-item result shows the task's `description` too, which the
+`task_get`'s single-item result shows the task's `description` too, which the
 compact checklist line deliberately leaves out.
 
-### Task
+### task
 
 Delegates to a subagent on `deepseek-flash` (`model.flash`). DeepSeek's own
 recommended Claude Code configuration sets
@@ -356,23 +431,24 @@ The subagent runs in its own conversation. Its transcript never joins the parent
 message array — only its final result does. That keeps the parent prefix stable
 and avoids mixing caches across models.
 
-### WebFetch
+### web_fetch
 
-Ours, not DeepSeek's. See the endpoint trade-off below. Fetch, extract to text,
+Ours, not DeepSeek's. See "Web search is not available on the surface we
+speak" below. Fetch, extract to text,
 then have flash answer the caller's `prompt` against the extracted content, so
 the parent context receives an answer rather than a page. The fetch size cap,
 the extraction cap, and the call's timeout are defaults under the `tools.`
 group of settings (`tools.webfetch_max_body`, `tools.webfetch_max_extract`,
 `tools.webfetch_timeout`).
 
-### Screenshot
+### screenshot
 
 The capture half of the vision path. It drives a headless Chromium to a URL
-and writes one PNG or JPEG, which `Glance`, `Ground`, or `Detect` can then
+and writes one PNG or JPEG, which `glance`, `ground`, or `detect` can then
 send to Gemini and the transcript renders inline.
 
 The harness owns the capture rather than leaving the agent to compose a
-Playwright invocation through `Bash`, because the settings that decide whether
+Playwright invocation through `bash`, because the settings that decide whether
 a screenshot is worth anything — the viewport, the colour scheme, whether the
 image is clipped to the element actually in question — are exactly the ones an
 ad hoc invocation omits. An agent left to its own devices takes a full-page
@@ -384,7 +460,7 @@ So the defaults are the standard:
 - **The viewport, not the full page.** `full_page` is off. A full-page capture
   of a long document is downscaled to the same token budget as a viewport one,
   so every control on it shrinks until it is unreadable — the failure the
-  `Glance` notes below describe. When a viewport capture cuts the
+  `glance` notes below describe. When a viewport capture cuts the
   document off, the result says so, with both heights, so the model knows what
   it did not see rather than concluding the page ends there.
 - **`selector` clips to one element.** This is the answer to "the button looks
@@ -415,8 +491,8 @@ So the defaults are the standard:
 
   This is the gap that cost the tool a whole session. Asked to photograph a
   form that needed a click to open and an Escape to clear an overlay, a
-  production run used `Screenshot` zero times and drove Playwright through
-  `Bash` for all of it — which is exactly the ad hoc invocation the tool
+  production run used `screenshot` zero times and drove Playwright through
+  `bash` for all of it — which is exactly the ad hoc invocation the tool
   exists to replace, so the capture went back to being full-page, desktop-
   width and light-scheme with none of the standard above
   ([`docs/reviews/vision-path-2026-08-14.md`](reviews/vision-path-2026-08-14.md)).
@@ -438,8 +514,8 @@ path there satisfies it exactly as the explicit spelling does. An **absolute**
 path is left as given — it is a statement about where the file goes, so one
 outside `scratch/` is still refused rather than quietly re-rooted.
 
-The reading side matches, or the pairing would be pointless: `Glance`,
-`Ground`, `Detect`, and `Crop` all retry a relative image path that names
+The reading side matches, or the pairing would be pointless: `glance`,
+`ground`, `detect`, and `crop` all retry a relative image path that names
 nothing under `scratch/`, and so does the transcript's own image endpoint (see
 "Seeing the screenshots"). A path that does resolve to a real file is never
 second-guessed, so a file at the workspace root is never shadowed by a
@@ -456,27 +532,27 @@ the navigation, the settle and the encode), and the driver's own navigation
 timeout is derived from it so a slow page fails with a message rather than
 being killed silently.
 
-### Glance
+### glance
 
 This is the general-purpose vision tool for a model that cannot see images
-itself — every model `provider.SeesImages` resolves false, `deepseek-v4-pro`
-among them, though this harness does not currently route any DeepSeek model
-that resolves false (`provider.SeesImages`, docs/DEEPSEEK-VISION.md): it
-sends one or more images to Google Gemini and
+itself, every model `provider.SeesImages` resolves false. No model this harness
+routes resolves false (`provider.SeesImages`, docs/DEEPSEEK-VISION.md), so no
+routed session is offered it today; it stays in the base array for a provider
+added later that cannot see. It sends one or more images to Google Gemini and
 returns whatever comes back as prose — a description, an answer to a
 question, or a verbatim transcription. It is one of four tools ported from `Anionex/agent-vision-toolkit`
 (docs/VISION-TOOLKIT.md is the assessment behind the port) that between them
 replaced this harness's own `ReviewScreenshot` and `AskVision`, and it is
-designed to be used with the other three in sequence: `Screenshot` captures a
-page, `Ground` locates a spot on it, `Crop` cuts that spot out, and `Glance`
+designed to be used with the other three in sequence: `screenshot` captures a
+page, `ground` locates a spot on it, `crop` cuts that spot out, and `glance`
 reads the crop closely — capture, locate, cut, read. A caller that only ever
-calls `Glance` against a full page is skipping the rest of that pipeline, and
+calls `glance` against a full page is skipping the rest of that pipeline, and
 paying for it in how much of a busy screen actually gets seen.
 
 It accepts PNG, JPEG, or WebP files, workspace-confined like every other
 path-taking tool, and a relative `image_paths` entry that names nothing at
 the workspace root is retried once more under `scratch/`, the same as
-`Screenshot`'s own output (see "Screenshot"). The image count and the
+`screenshot`'s own output (see "screenshot"). The image count and the
 per-file size cap are defaults, not fixed values (`tools.reviewscreenshot_max_images`,
 `tools.reviewscreenshot_max_bytes` — the vision tools kept these setting
 names from the tools they replaced, so an operator's existing configuration
@@ -498,8 +574,8 @@ re-encoded bytes fit — and the answer is prefixed with a note naming which
 file was downscaled and to what dimensions, so the model knows it saw less
 detail than the file holds before it reads what it concluded. A full-page
 capture downscaled this way leaves a small control unreadable, which is the
-case `region` exists for: crop to the spot in question (with `Ground` or
-`Crop`) and `Glance` the crop at full resolution instead of the whole page.
+case `region` exists for: crop to the spot in question (with `ground` or
+`crop`) and `glance` the crop at full resolution instead of the whole page.
 
 `query` and `ocr` are mutually exclusive. `query` sends exactly the question
 written, with no fixed instruction wrapped around it; `ocr` transcribes every
@@ -509,14 +585,14 @@ labelled "Image 1", "Image 2" when there is more than one (a text part
 carrying the file's base name precedes each image part), so an answer about a
 multi-image comparison says which one it means. `region` crops the one image
 to a pixel box before sending, sending only the crop and nothing else — the
-way to look closer at a spot `Ground` or `Detect` already found; it works
+way to look closer at a spot `ground` or `detect` already found; it works
 with exactly one image path.
 
 An image can also arrive with the task rather than being captured mid-session.
 A create body may carry attachments: the bytes are stored in SQLite, the
 request carries only ids, and `internal/attachment.Write` materialises them
 into `scratch/attachments/` before the loop starts. The opening message names the files,
-so the model knows they exist and can pass one to `Glance` as the image to
+so the model knows they exist and can pass one to `glance` as the image to
 compare against — "make it look like this mockup" becomes a question against
 the mockup itself instead of a prose description of it. Only PNG, JPEG, and
 WebP are accepted, capped in count and per-file bytes by
@@ -530,13 +606,13 @@ there is no JSON document to sever. The model comes from the
 either can change without a restart; the call has its own timeout (120s,
 `tools.reviewscreenshot_timeout`) rather than the 30-second tool default. An
 operator can override the thinking default with `google.vision_thinking_level`;
-there is no longer a per-call `thinking_level` argument — `Glance`, `Ground`,
-and `Detect` each pick their own default and the operator's setting is the
+there is no longer a per-call `thinking_level` argument — `glance`, `ground`,
+and `detect` each pick their own default and the operator's setting is the
 only knob left over it.
 
 #### What was lost, and what to do instead
 
-`Glance` is one tool doing the work `ReviewScreenshot` and `AskVision` used
+`glance` is one tool doing the work `ReviewScreenshot` and `AskVision` used
 to split between them, and it inherits neither tool's guarantees. Gone: the
 structured findings list, each carrying a `confidence` and the screenshot it
 concerned; the instruction that told Gemini to judge only against a supplied
@@ -551,18 +627,18 @@ without re-uploading the images.
 A session that needs any of that now has to build it into its own `query`:
 state the standard being judged against, ask for a sentence on what is
 actually on the screen before the verdict, and ask for findings in whatever
-shape it wants back — as prose, not a validated schema. `Screenshot`'s own
+shape it wants back — as prose, not a validated schema. `screenshot`'s own
 result still reports the page's title, console errors, and whether the
 document ran past the viewport, which is real evidence a rendering-vs-review
 question can be checked against without a second Gemini call. A multi-step
 review — capture, judge, fix, re-capture, ask whether it is fixed — is now
-several independent `Glance` calls rather than one held conversation; each
+several independent `glance` calls rather than one held conversation; each
 has to restate its own context, because nothing on the harness side carries
 it forward between them.
 
-### Transcribe
+### transcribe
 
-`Glance` with `ocr` reads the text off an image in one call. `Transcribe`
+`glance` with `ocr` reads the text off an image in one call. `transcribe`
 reads it off an image that one call cannot resolve.
 
 The reason there is a difference is a fixed cost, not a size limit. An image
@@ -572,7 +648,7 @@ large it is — the documented budget
 and 1,121–1,195 per image measured across a live run
 (docs/VISION-TOOLKIT.md §7). So a 1200×12000 page capture gets the same
 visual budget as a 1200×800 viewport shot: roughly fifteen times less detail
-per unit of page. That is not theoretical — a live `Glance` describing a
+per unit of page. That is not theoretical — a live `glance` describing a
 "whole page" covered the 800px viewport rather than the 2,640px document, and
 said so unprompted. Cutting the image up buys effective resolution that no
 other argument to any of these tools can.
@@ -611,7 +687,7 @@ when the cut went through content. The flag does not soften when the exact
 match fires: this tool cannot check its own merge, and a wrongly merged seam
 reads as ordinary prose rather than as anything broken. The y positions are
 reported against the original file (the `region` offset applied) precisely so
-a flagged seam can be handed to `Crop` and looked at without arithmetic.
+a flagged seam can be handed to `crop` and looked at without arithmetic.
 
 **Failure is all-or-nothing.** A chunk whose call fails fails the whole call,
 with no partial transcript: a document with one chunk's worth missing from
@@ -647,54 +723,54 @@ happened to be last.
 the whole story. Three runs on 2026-08-15 confirmed the flat budget twice —
 one call on an 8,370px capture took 1,172 input tokens, one on a 3,709px
 capture took 1,097 — and then found that chunking recovered **no more text**
-than a single `Glance` with `ocr` on either page: 44 setting keys against 43,
+than a single `glance` with `ocr` on either page: 44 setting keys against 43,
 and on the shorter page an exact tie. `gemini-3.7-flash` reads a tall rendered
-web page about as well in one call as in five. What `Transcribe` did win on
+web page about as well in one call as in five. What `transcribe` did win on
 the taller page was **cost** ($0.0209 against $0.0383, because five bounded
 per-chunk outputs came to less than one unbounded 9,984-token one) and the
 seam report, which is a statement about the transcript's own reliability that
-a single `Glance` does not make. Neither target had genuinely small text — a
+a single `glance` does not make. Neither target had genuinely small text — a
 scan, a dense spreadsheet, a chat log — which is the case §6 of
 docs/VISION-TOOLKIT.md predicted and which remains untested. Prefer
-`Transcribe` for a long document you intend to rely on; do not assume it
-recovers text a `Glance` would miss until that has been measured on the kind
+`transcribe` for a long document you intend to rely on; do not assume it
+recovers text a `glance` would miss until that has been measured on the kind
 of image in front of you.
 
 Every chunk goes at high resolution — buying resolution is the intent of the
 split, and sending the later ones at medium would hand back whatever it does
 buy. Thinking defaults to low: transcription is copying what is visible, and
 budget spent deciding what the text *means* is budget spent wrong. The tool
-writes nothing to disk, so like `Glance`, `Ground`, and `Detect` it runs in
+writes nothing to disk, so like `glance`, `ground`, and `detect` it runs in
 every permission mode.
 
-### Ground and Detect
+### ground and detect
 
-Where `Glance` answers in prose, `Ground` and `Detect` answer in pixels:
+Where `glance` answers in prose, `ground` and `detect` answer in pixels:
 "where is the submit button" gets back a box, not a description of roughly
 where it is. Upstream, `detect` is `ground` with a canned target and no other
 logic at all (docs/VISION-TOOLKIT.md §6), and this harness ports them the
 same way — one implementation (`runLocate` in `internal/tools/vision.go`)
 behind two tool names, sharing every property below.
 
-`Ground` takes `target` — anything nameable, a labelled control or a region
-of the page — and returns every match. `Detect` takes an optional `category`,
+`ground` takes `target` — anything nameable, a labelled control or a region
+of the page — and returns every match. `detect` takes an optional `category`,
 defaulting to UI elements generally (buttons, links, inputs, icons, labels,
 headings, images, badges), and always numbers its results, with each entry's
-label carrying the element's own visible text; `Ground` prints a single match
+label carrying the element's own visible text; `ground` prints a single match
 bare and only numbers a list when there is more than one. Neither guesses:
-"no match found" (`Ground`) or "no elements detected" (`Detect`) is a real
+"no match found" (`ground`) or "no elements detected" (`detect`) is a real
 answer, not an error.
 
 Both accept exactly one image — PNG, JPEG, or WebP — with the same workspace
-confinement and `scratch/`-relative retry as `Glance`. `region` narrows the
+confinement and `scratch/`-relative retry as `glance`. `region` narrows the
 search to part of the image before sending, useful when roughly where to
 look is already known; the returned boxes are reported in the original
 image's coordinates either way (see below). An oversize image or crop is
-downscaled the same way `Glance`'s is; unlike `Glance`, neither tool surfaces
+downscaled the same way `glance`'s is; unlike `glance`, neither tool surfaces
 a note about it in the result — the coordinate contract below means the
 returned box still lands correctly regardless, though the model's perception
 of a downscaled image can still be worse than of the original. Thinking
-defaults to low rather than `Glance`'s medium: locating something is
+defaults to low rather than `glance`'s medium: locating something is
 perception, not reasoning, and it is most of what a call costs.
 
 #### The coordinate contract
@@ -723,12 +799,12 @@ answer turned out to be.
 
 Each match reports a coarse position (`top-left`, `center`, `bottom-right`,
 and the rest of that grid, from the box's centre) alongside its own
-`x1: … y1: … x2: … y2:` pixel box. Feed a box straight to `Crop` for a
-full-resolution look at just that spot, or to `Glance`'s `region` to ask a
+`x1: … y1: … x2: … y2:` pixel box. Feed a box straight to `crop` for a
+full-resolution look at just that spot, or to `glance`'s `region` to ask a
 question about it instead of the whole page.
 
 The model, the key, the settings that decide either, the call's own timeout,
-and the cost accounting below are all shared with `Glance` unchanged.
+and the cost accounting below are all shared with `glance` unchanged.
 
 #### What it costs, and who can see that
 
@@ -752,15 +828,15 @@ The tool description cannot carry the number: it is part of the frozen request
 head, so a figure there would vary per installation and per price table
 (docs/CACHE.md). It says a call is expensive in general; the result says what
 this one actually cost. An unpriced model prints no line at all, because an
-invented `$0.0000` reads as "this was free". `Glance`, `Ground`, and `Detect`
+invented `$0.0000` reads as "this was free". `glance`, `ground`, and `detect`
 all attach the same line the same way.
 
-### Crop
+### crop
 
 Local image manipulation: no model call, no cost, no usage event. It cuts
-`region` — the same `x1,y1,x2,y2` shape `Ground` and `Detect` report — out of
+`region` — the same `x1,y1,x2,y2` shape `ground` and `detect` report — out of
 `image_path` into its own file, the way a box either tool located becomes an
-image `Glance` can read at full resolution instead of as a few pixels of a
+image `glance` can read at full resolution instead of as a few pixels of a
 whole page. `output` defaults to the source's own name with `.crop.png`
 appended, written next to it; the extension of whatever path is given
 chooses the encoding, falling back to the source's own format when it names
@@ -769,14 +845,14 @@ factor from 1 to 8, for a source small enough that a plain crop would still
 be hard to read; the resample is `x/image`'s CatmullRom, the same resampler
 the byte-cap downscale uses standing in for upstream's LANCZOS.
 
-`Crop` writes a file, which is the one thing the other vision tools do not,
+`crop` writes a file, which is the one thing the other vision tools do not,
 and it is still in read-only mode's always-allowed set. What earns it that is
 where it is allowed to write: `output` resolves through
-`resolveScratchImageOutput`, the same `scratch/`-confined rule `Screenshot`'s
+`resolveScratchImageOutput`, the same `scratch/`-confined rule `screenshot`'s
 path uses, so a relative path lands under `scratch/` whether or not the
 prefix is spelled and an absolute path outside it is refused. It therefore
 cannot touch a deliverable or a cloned repository. Gating it by mode instead
-— which it was, at first — put the whole `Ground`→`Crop`→`Glance` pipeline
+— which it was, at first — put the whole `ground`→`crop`→`glance` pipeline
 behind `full` permissions: a large grant to buy a closer look at a screenshot
 (`internal/tools/policy.go`, "Permissions" below). It makes no Gemini call,
 so it keeps the ordinary 30-second tool timeout rather than the vision
@@ -784,11 +860,11 @@ tools'.
 
 ### Seeing the screenshots
 
-A `Screenshot`, `Glance`, `Ground`, `Detect`, or `Crop` result names the
+A `screenshot`, `glance`, `ground`, `detect`, or `crop` result names the
 images it produced or read, so a client can render them above its text.
 Without that a transcript reports what the vision model said about a page and
 never shows the page, which leaves the one artefact that would settle whether
-the model was right out of the record. `Crop` is the odd one out among the
+the model was right out of the record. `crop` is the odd one out among the
 five: it makes no model call, and its `image_path` is usually already visible
 from an earlier call in the transcript, so what is worth showing is what it
 *wrote* (`output`, or the default `<stem>.crop.png` name `execCrop` falls back
@@ -799,10 +875,10 @@ The path is the one the model passed to the tool. A client resolving it should
 do what the tools do: a relative path that names nothing at the workspace root
 is tried once more under `scratch/`, which is where a relative capture lands.
 
-A `Task` child runs in its own workspace, so a subagent's screenshots resolve
+A `task` child runs in its own workspace, so a subagent's screenshots resolve
 against that one rather than its parent's.
 
-### Complete
+### complete
 
 The seam between an agent run and the queue that asked for it. `summary` is
 prose for a human reading the transcript. `result` is the payload the requester
@@ -810,7 +886,7 @@ receives in `harness.work.result.<id>.final`. `status` distinguishes a finished
 job from one the model gave up on, which is a different thing from a harness
 error.
 
-A call to `Complete` ends the run. Parallel tool calls mean it can arrive
+A call to `complete` ends the run. Parallel tool calls mean it can arrive
 alongside others, so the rule is that the whole batch executes in `tool_calls`
 order and the run ends after it.
 
@@ -839,22 +915,22 @@ model cycling between several wrong shapes keeps going until it is cancelled.
 
 Because the schema lives in the opening message rather than the tool definition,
 that message also carries a worked example of the call built from the schema's
-own field names — `Complete(summary="…", status="done", result={"branch": …})`.
+own field names — `complete(summary="…", status="done", result={"branch": …})`.
 The schema alone does not say where its fields go, and the failure it invites is
 sending them as top-level arguments beside `status`, which produces `result:
 expected object, got null` — an accurate message about what is missing that says
 nothing about what was sent. `execComplete` detects that specific case and names
 the stray arguments.
 
-`Complete` ships in every session, including one a person starts and simply
+`complete` ships in every session, including one a person starts and simply
 watches, with no caller ever reading its `result`. One tool array across every
 caller is what keeps the stable head shared.
 
 ### MCP tools
 
 A server an operator has registered through the `/mcp-servers` screen
-([`MCP.md`](MCP.md)) contributes its own tools, appended *after* the twenty
-above rather than woven into the trained-vocabulary set — the whole point of
+([`MCP.md`](MCP.md)) contributes its own tools, appended *after* the built-in
+array rather than woven into the trained-vocabulary set. The whole point of
 the array above is that its bytes never depend on what is or is not
 configured, and MCP configuration is global rather than per-run, so what
 gets appended is whatever was enabled the moment a session resolved its
@@ -862,7 +938,12 @@ array, not a per-request choice. A tool from server `blender` called
 `get_objects_summary` is offered as `mcp__blender__get_objects_summary`, the
 `mcp__<server>__<tool>` convention Claude Code uses.
 
-An MCP call is gated the same way `Bash`, `Write`, and `Edit` are: it reaches
+Five fixed access tools sit between the two: `list_mcp_resources`,
+`list_mcp_resource_templates`, `read_mcp_resource`, `list_mcp_prompts` and
+`get_mcp_prompt`. They join an array only when at least one server is
+configured, and [`MCP.md`](MCP.md) "Resources" has the table.
+
+An MCP call is gated the same way `bash`, `write`, and `edit` are: it reaches
 outside the workspace by definition, so `readonly` denies it unless the
 server itself is marked `allow_readonly`, and `full` always allows it. Each
 call is bounded by `tools.mcp_timeout` (120s by default, longer than the
@@ -881,7 +962,7 @@ to end the run.
 [`MCP.md`](MCP.md) is the full reference: registering and probing a server,
 the naming and collision rules, and the permission table.
 
-## Two decisions this changes
+## Two decisions this rests on
 
 ### Strict mode is now per-tool, not global
 
@@ -890,7 +971,7 @@ decided before the trained-vocabulary evidence.
 
 Strict mode requires every object property to appear in `required` and
 `additionalProperties` to be `false`. The trained-in schemas have genuinely
-optional arguments — `Read`'s `offset` and `limit`, `Grep`'s `path` and `glob`.
+optional arguments — `read`'s `offset` and `limit`, `grep`'s `path` and `glob`.
 Under strict those become `anyOf` null-variants that are still listed as
 required, which is a different shape from the one the model was tuned against.
 
@@ -900,43 +981,36 @@ recovers — that channel exists for exactly this. Reserve strict mode for tools
 where a malformed argument is dangerous rather than merely wrong. Strict is also
 still Beta.
 
-### Web search is not on the endpoint we use
+### Web search is not available on the surface we speak
 
-DeepSeek serves a native, server-side web search tool on two of its three
-endpoints. The Anthropic compatibility table supports `server_tool_use` and
-`web_search_tool_result` content blocks, and the Responses API accepts
-`web_search` and `web_search_2025_08_26` as tool types. The OpenAI-format Chat
-Completions API, which is the one we use, supports `type: "function"` and
-nothing else.
+`harness stdio-session` posts to `/responses`
+([DEEPSEEK-RESPONSES.md](DEEPSEEK-RESPONSES.md)), and that surface gives a
+model no server-side search tool. Its tool table supports `function` tools and
+one `custom` tool, `apply_patch`; every built-in tool type, `web_search`
+included, is listed as ignored
+(`third_party/deepseek-docs/guides/responses_api.md`, `Tools`). DeepSeek's
+Anthropic-compatibility endpoint carries `server_tool_use` and
+`web_search_tool_result` blocks, and this process does not speak it.
 
-So the choice is:
+So `web_fetch` is the harness's own function tool: it fetches a URL, extracts
+the page to text, and has flash answer the caller's question against it. That
+covers the documentation-lookup case a coding harness actually needs, and
+DeepSeek's own note says its web search bills extra tokens for summarisation
+anyway.
 
-- Stay on Chat Completions (`DESIGN.md` §2) and keep strict mode and the
-  `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` split — but build
-  `WebFetch` ourselves and go without trained-in web search.
-- Move to `/responses` for server-side search. Cache accounting narrows to a
-  single `input_tokens_details.cached_tokens`, and the compatibility table does
-  not say whether a function tool's `strict` flag is honoured.
-- Move to `/anthropic` for server-side search and lose both.
-
-FIM and prefix completion sit on the `/beta` base URL and are unaffected by
-this choice.
-
-Recommendation: stay on Chat Completions. Search is one tool among twenty, our
-own `WebFetch` covers the documentation-lookup case that a coding harness
-actually needs, and DeepSeek's own note says its web search bills extra tokens
-for summarisation anyway. The decision is reversible per-session if it proves
-wrong, since the endpoint is already config.
+A server-side search tool would need a search provider, a credential and a
+billing path of its own. That is a feature in its own right, not a field on a
+tool definition.
 
 ## Execution rules
 
 These hold for every tool and live in Go, not in prompt text.
 
 - Paths resolve against the workspace root and are checked for escape after
-  symlink resolution. Escapes are rejected, not sanitised. `Read`, `List`,
-  `Glob` and `Grep` have one read-only exception: a path under a skill
+  symlink resolution. Escapes are rejected, not sanitised. `read`, `list`,
+  `glob` and `grep` have one read-only exception: a path under a skill
   directory `internal/skills` discovered outside the workspace resolves there,
-  which is how a skill installed for the user is opened. `Write`, `Edit` and
+  which is how a skill installed for the user is opened. `write`, `edit` and
   every other tool that changes the filesystem stay inside the workspace.
 - Every tool has a wall-clock timeout and an output byte cap, with truncation
   labelled in the result. Both are settings (`tools.` group) with the defaults
@@ -958,14 +1032,16 @@ These hold for every tool and live in Go, not in prompt text.
   appending out of order is not, because it churns the prefix and costs the
   cache (`DESIGN.md` §3.2).
 - Two calls that rewrite the same file run in order, not concurrently, and
-  files are grouped separately so different files still overlap. `Edit` and
-  `Write` each read a whole file, change their own copy and write it back, so
+  files are grouped separately so different files still overlap. `edit`,
+  `write` and `apply_patch` each read whole files, change their own copy and
+  write it back, so
   racing two of them on one path drops whichever finishes first while
   reporting both as successful — a silent lost edit, and one that was observed
   in a real run. Ordered, disjoint edits both land; an edit whose `old_string`
   the earlier one rewrote fails as it should, with a note naming the earlier
-  call so the model does not go hunting for a typo. `tools.MutationTarget`
-  decides what collides, by resolved path.
+  call so the model does not go hunting for a typo. `tools.MutationTargets`
+  decides what collides, by resolved path, and a patch reports every file it
+  names, so a patch spanning two files is ordered against an edit of either.
 - Never send `tool_choice`. Thinking mode accepts `auto` and `none` but rejects
   `required` and named-tool forcing, so no tool can be forced while thinking is
   on (`DESIGN.md` §4.4, [OBSERVED.md](OBSERVED.md)).
@@ -977,51 +1053,57 @@ asks later. A run may have nobody watching it, so there is nobody to ask.
 
 Two modes, fixed for the life of a session and required on every request:
 
-- Read-only. `Read`, `Glob`, `Grep`, `List`, `WebFetch`, `Screenshot`,
-  `Glance`, `Ground`, `Detect`, `TaskCreate`, `TaskGet`, `TaskList`,
-  `TaskUpdate`, and `Complete` run. `Write`, `Edit`, `Bash`, `Task`, and
-  `Crop` are denied. `Screenshot` is the one tool in that list that writes to
-  disk, and it is there because of where: its output is confined to
+- Read-only. `read`, `glob`, `grep`, `list`, `web_fetch`, `screenshot`,
+  `glance`, `ground`, `detect`, `crop`, `transcribe`, `task_create`,
+  `task_get`, `task_list`, `task_update`, `complete`, and the three MCP
+  listing tools run. `write`, `edit`, `apply_patch`, `bash`, and `task` are
+  denied. `screenshot` and `crop` are the two tools in that list that write to
+  disk, and they are there because of where: their output is confined to
   `scratch/`, which holds nothing that is part of a run's deliverable, so a
   read-only session can look at a page it is reviewing without being able to
   mark a cloned repository. Reviewing a UI is the read-only run's whole job,
   and denying it the capture would have left it reading markup and guessing.
-  `Crop` also writes to disk, but does not get the same allowance: its output
-  argument resolves through the same workspace-wide confinement `Write` and
-  `Edit` use, and its default output sits next to the source image rather
-  than under `scratch/`, so it is gated by mode like every other
-  file-writing tool instead (`internal/tools/policy.go`).
+  `crop` used to be denied by mode; that put the whole `ground`→`crop`→`glance`
+  pipeline behind `full` permissions, which is a large grant to buy a closer
+  look at a screenshot, so its output moved under `scratch/` and it joined the
+  readers (`internal/tools/policy.go`). The two MCP access tools that dial a
+  server answer to the per-server allowance instead, which
+  [`MCP.md`](MCP.md) "Permissions" covers.
 - Full access. Everything runs, as this process's own user, in the workspace.
 
 There is no third mode between them and no default. A create body that names
 neither is rejected, so no configuration value decides a session's permissions
 on a caller's behalf.
 
-A middle mode existed until it was removed. It gated `Bash` behind an
+A middle mode existed until it was removed. It gated `bash` behind an
 executable allowlist that included `go`, `npm`, `make`, and `python`, each of
 which runs arbitrary code, so the boundary it drew was narrower than it
 appeared. Read-only against full access is the distinction the harness can
 actually enforce.
 
-`WebFetch` runs in read-only mode. It reaches the network, so read-only bounds
+`web_fetch` runs in read-only mode. It reaches the network, so read-only bounds
 what a session can change on disk rather than what it can send.
-`Glance`, `Ground`, and `Detect` are the same: each reads a file and sends it
-over the network, changing nothing on disk. `Crop` reads a file too, but it
+`glance`, `ground`, and `detect` are the same: each reads a file and sends it
+over the network, changing nothing on disk. `crop` reads a file too, but it
 writes one back — see above for why that puts it in the other group.
 
 A create body may add `deny` patterns on top of its mode. They only ever
-subtract; a request cannot widen the mode it asked for.
+subtract; a request cannot widen the mode it asked for. A pattern matches the
+call's descriptor: the shell command for `bash`, `"<Tool> <arg>"` for the
+tools that name a path, URL, pattern, server or image, and the bare tool name
+otherwise. `apply_patch`'s descriptor is its bare name, because a patch can
+span files and there is no one path to name, so `-deny apply_patch` is the
+pattern that keeps a session off the tool entirely.
 
 Modes gate execution, never availability. All of a session's tools are sent
 on every request in every mode, and a call the mode disallows is refused at
 execution with an error result the model can read and route around. Removing
 tools per mode would give each mode a different prefix and make every mode
 switch a cold cache ([CACHE.md](CACHE.md)). The one thing that does vary the
-array is the model — DeepSeek's non-vision pair get twenty, every
-vision-capable model gets fourteen (`provider.SeesImages`,
-docs/DEEPSEEK-VISION.md) — and that is a
-per-session property, fixed at creation and never changed mid-session, so it
-never varies within a provider's sessions ([CACHE.md](CACHE.md)).
+array is the model, and `internal/tools/definitions.go` decides it through
+`provider.SeesImages` and the provider table (docs/DEEPSEEK-VISION.md). That
+is a per-session property, fixed at creation and never changed mid-session, so
+it never varies within a provider's sessions ([CACHE.md](CACHE.md)).
 
 A denial is not an error. It returns as a tool result naming the rule that
 refused it, which is the shape the model recovers from — it picks a different
@@ -1045,6 +1127,6 @@ visible rather than an unexplained cost spike.
 
 ## Deferred
 
-Background shells with output polling and kill. Notebook editing. FIM-backed
+Notebook editing. FIM-backed
 inline completion. Edit checkpointing and rollback. Each is additive against
 this set.

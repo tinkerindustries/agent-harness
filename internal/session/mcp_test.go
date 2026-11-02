@@ -98,13 +98,19 @@ func toolNames(t *testing.T, body []byte) []string {
 	return names
 }
 
-// mcpAccessToolNames are the four fixed tools tools.WithMCP inserts between
+// mcpAccessToolNames are the five fixed tools tools.WithMCP inserts between
 // the built-in array and a server's own whenever any MCP tool is present
 // (docs/MCP.md, "Resources"). Spelled out rather than derived from
 // tools.WithMCP, so these tests still assert the order the model is offered
 // rather than agreeing with whatever that function does today.
 func mcpAccessToolNames() []string {
-	return []string{"MCPListResources", "MCPReadResource", "MCPListPrompts", "MCPGetPrompt"}
+	return []string{
+		"list_mcp_resources",
+		"list_mcp_resource_templates",
+		"read_mcp_resource",
+		"list_mcp_prompts",
+		"get_mcp_prompt",
+	}
 }
 
 func baseToolNames(model string) []string {
@@ -116,7 +122,7 @@ func baseToolNames(model string) []string {
 	return names
 }
 
-// recordingMultiTurnServer answers a streamed request with a TaskList call
+// recordingMultiTurnServer answers a streamed request with a task_list call
 // on its first turn (keeping the loop going without touching anything
 // filesystem-related) and a plain answer on every turn after, recording
 // every request body along the way — so a test can inspect what every
@@ -135,7 +141,7 @@ func recordingMultiTurnServer(t *testing.T, bodies *[][]byte, mu *sync.Mutex) *h
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_list", Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_list", Type: "function", Function: wire.ToolCallFuncDelta{Name: "task_list", Arguments: `{}`}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
@@ -319,7 +325,7 @@ func TestResumeSendsStoredToolArrayNotAFreshResolution(t *testing.T) {
 	}
 }
 
-// TestTaskSubagentGetsMCPToolsToo pins that a Task subagent — which starts
+// TestTaskSubagentGetsMCPToolsToo pins that a `task` subagent — which starts
 // its own fresh session through Runner.Run (subagentRunner) rather than
 // inheriting the parent's array — gets the same MCP resolution any other
 // new run gets: it is its own run, so it resolves its own array from the
@@ -385,7 +391,7 @@ func TestCompactionKeepsTheSameMCPArray(t *testing.T) {
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_a", Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_a", Type: "function", Function: wire.ToolCallFuncDelta{Name: "task_list", Arguments: `{}`}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
@@ -648,11 +654,11 @@ func TestResumeEmptyStoredToolSchemaResolvesFresh(t *testing.T) {
 			t.Errorf("unmarshalToolSchema(%q) = nil error, want a failure so the caller resolves fresh", raw)
 		}
 	}
-	got, err := unmarshalToolSchema([]byte(`[{"type":"function","function":{"name":"Read"}}]`))
+	got, err := unmarshalToolSchema([]byte(`[{"type":"function","function":{"name":"read"}}]`))
 	if err != nil {
 		t.Fatalf("unmarshalToolSchema(one tool): %v", err)
 	}
-	if len(got) != 1 || got[0].Function.Name != "Read" {
+	if len(got) != 1 || got[0].Function.Name != "read" {
 		t.Fatalf("unmarshalToolSchema(one tool) = %+v, want the single Read tool", got)
 	}
 }

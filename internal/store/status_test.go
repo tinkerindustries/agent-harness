@@ -4,8 +4,10 @@ import (
 	"testing"
 )
 
-// applyTaskEvent replays TaskCreate/TaskUpdate/TaskDelete in event order,
-// with a delete leaving the id burned.
+// applyTaskEvent replays the plan events in event order. The spellings below
+// are the pre-rename ones on purpose: status.go accepts both, so a plan
+// written before the rename still reconstructs. A delete leaves the id
+// burned.
 func TestApplyTaskEventReplaysCreateUpdateDeleteInOrder(t *testing.T) {
 	nextID := 0
 	var todos []StatusTodo
@@ -71,5 +73,23 @@ func TestApplyTaskEventReplaysCreateUpdateDeleteInOrder(t *testing.T) {
 	}
 	if nextID != 3 {
 		t.Fatalf("expected nextID 3 after the third create, got %d", nextID)
+	}
+}
+
+// TestApplyTaskEventAcceptsTheNewToolNames pins the other half of the
+// rename: an event log written from now on carries task_create and
+// task_update, and a resumed session's plan has to reconstruct from those
+// as well as from the old spellings above.
+func TestApplyTaskEventAcceptsTheNewToolNames(t *testing.T) {
+	nextID := 0
+	var todos []StatusTodo
+	todos = applyTaskEvent(todos, &nextID, "task_create",
+		`{"tasks":[{"subject":"s","description":"d","activeForm":"Doing"}]}`)
+	if len(todos) != 1 || todos[0].TaskID != "1" {
+		t.Fatalf("task_create did not replay: %+v", todos)
+	}
+	todos = applyTaskEvent(todos, &nextID, "task_update", `{"taskId":"1","status":"completed"}`)
+	if len(todos) != 1 || todos[0].Status != "completed" {
+		t.Fatalf("task_update did not replay: %+v", todos)
 	}
 }

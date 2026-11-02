@@ -27,9 +27,9 @@ func TestGlobFindsNestedFiles(t *testing.T) {
 	}
 }
 
-// TestGlobRejectsAFileRoot proves Glob names a file it was handed as its
+// TestGlobRejectsAFileRoot proves `glob` names a file it was handed as its
 // search root rather than answering "no files matched" for a path that is
-// sitting there. Glob resolves its root the way Grep does, and its walk
+// sitting there. `glob` resolves its root the way `grep` does, and its walk
 // skips the root entry itself, so a file root can never contribute a match.
 func TestGlobRejectsAFileRoot(t *testing.T) {
 	e, root := newTestExecutor(t)
@@ -55,7 +55,7 @@ func TestGrepFindsMatchesAndRespectsOutputMode(t *testing.T) {
 	}
 
 	// Line numbers default on, so a match a model reads can be handed to
-	// Read with an offset.
+	// `read` with an offset.
 	content := execGrep(t.Context(), e, mustJSON(t, grepArgs{Pattern: "Foo", OutputMode: "content"}))
 	if !strings.Contains(content.Content, "a.go:2:func Foo") {
 		t.Fatalf("expected a path:line:text match by default, got: %s", content.Content)
@@ -141,7 +141,7 @@ func TestGrepSingleFilePathLabelsMatches(t *testing.T) {
 
 	// A directory root reports the caller's spelling and the file's path
 	// beneath it, so the path a match is reported under is one the caller can
-	// hand to Read without re-prefixing it.
+	// hand to `read` without re-prefixing it.
 	dir := execGrep(t.Context(), e, mustJSON(t, grepArgs{Pattern: "needle", Path: "projects"}))
 	if dir.Content != "projects/DESIGN-LOG.md\nprojects/DESIGN-NOTES.md" {
 		t.Fatalf("expected a directory search to report paths under it, got: %q", dir.Content)
@@ -380,7 +380,7 @@ func TestCompleteNamesFlattenedResultFields(t *testing.T) {
 			t.Fatalf("hint must contain %s, got: %s", want, res.Content)
 		}
 	}
-	// summary is one of Complete's own arguments, so its presence at the top
+	// summary is one of `complete`'s own arguments, so its presence at the top
 	// level is correct and must not be reported as a stray.
 	if strings.Contains(res.Content, `"summary" and`) || strings.Contains(res.Content, `"summary",`) {
 		t.Fatalf("summary is a Complete argument, not a stray: %s", res.Content)

@@ -498,9 +498,9 @@ func TestTranscribeEndToEnd(t *testing.T) {
 	})
 	e.Gemini = reviewScreenshotClient(srv)
 
-	res := runTool(t, e, "Transcribe", transcribeArgs{ImagePath: "page.png"})
+	res := runTool(t, e, "transcribe", transcribeArgs{ImagePath: "page.png"})
 	if res.IsError {
-		t.Fatalf("Transcribe failed: %s", res.Content)
+		t.Fatalf("transcribe failed: %s", res.Content)
 	}
 	chunks := callCount()
 	if chunks < 3 {
@@ -578,9 +578,9 @@ func TestTranscribeDenseImageOverlapsAndDedupes(t *testing.T) {
 	})
 	e.Gemini = reviewScreenshotClient(srv)
 
-	res := runTool(t, e, "Transcribe", transcribeArgs{ImagePath: "dense.png"})
+	res := runTool(t, e, "transcribe", transcribeArgs{ImagePath: "dense.png"})
 	if res.IsError {
-		t.Fatalf("Transcribe failed: %s", res.Content)
+		t.Fatalf("transcribe failed: %s", res.Content)
 	}
 	for i := 3; i < 3*callCount()+3; i++ {
 		if got := strings.Count(res.Content+"\n", fmt.Sprintf("row %d\n", i)); got != 1 {
@@ -612,9 +612,9 @@ func TestTranscribeReportsSeamsForReview(t *testing.T) {
 	})
 	e.Gemini = reviewScreenshotClient(srv)
 
-	res := runTool(t, e, "Transcribe", transcribeArgs{ImagePath: "page.png"})
+	res := runTool(t, e, "transcribe", transcribeArgs{ImagePath: "page.png"})
 	if res.IsError {
-		t.Fatalf("Transcribe failed: %s", res.Content)
+		t.Fatalf("transcribe failed: %s", res.Content)
 	}
 	if !strings.Contains(res.Content, "Every cut landed in blank space") {
 		t.Errorf("a page of clean gutter cuts should report every seam clean:\n%s", res.Content)
@@ -640,7 +640,7 @@ func TestTranscribeFailedChunkReturnsNoPartialTranscript(t *testing.T) {
 	})
 	e.Gemini = reviewScreenshotClient(srv)
 
-	res := runTool(t, e, "Transcribe", transcribeArgs{ImagePath: "page.png"})
+	res := runTool(t, e, "transcribe", transcribeArgs{ImagePath: "page.png"})
 	if !res.IsError {
 		t.Fatalf("a failed chunk must fail the call, got:\n%s", res.Content)
 	}
@@ -656,7 +656,7 @@ func TestTranscribeFailedChunkReturnsNoPartialTranscript(t *testing.T) {
 }
 
 // TestTranscribeRegionReportsOriginalCoordinates: a y in the report is only
-// useful if it can be handed to Crop against the file the caller named.
+// useful if it can be handed to `crop` against the file the caller named.
 func TestTranscribeRegionReportsOriginalCoordinates(t *testing.T) {
 	page := pageLayout{width: 800, bandH: 30, gutterH: 20, bands: 120}
 	e, root := newTestExecutor(t)
@@ -668,12 +668,12 @@ func TestTranscribeRegionReportsOriginalCoordinates(t *testing.T) {
 	e.Gemini = reviewScreenshotClient(srv)
 
 	const top = 2000
-	res := runTool(t, e, "Transcribe", transcribeArgs{
+	res := runTool(t, e, "transcribe", transcribeArgs{
 		ImagePath: "page.png",
 		Region:    fmt.Sprintf("0,%d,800,%d", top, page.height()),
 	})
 	if res.IsError {
-		t.Fatalf("Transcribe failed: %s", res.Content)
+		t.Fatalf("transcribe failed: %s", res.Content)
 	}
 	if callCount() < 2 {
 		t.Fatalf("the region should still have needed several chunks, got %d", callCount())
@@ -701,7 +701,7 @@ func TestTranscribeWithoutAGeminiClient(t *testing.T) {
 	e, root := newTestExecutor(t)
 	page.writePNG(t, filepath.Join(root, "page.png"))
 
-	res := runTool(t, e, "Transcribe", transcribeArgs{ImagePath: "page.png"})
+	res := runTool(t, e, "transcribe", transcribeArgs{ImagePath: "page.png"})
 	if !res.IsError || !strings.Contains(res.Content, "no Gemini client") {
 		t.Errorf("got %q, want a refusal naming the missing client", res.Content)
 	}
@@ -709,7 +709,7 @@ func TestTranscribeWithoutAGeminiClient(t *testing.T) {
 
 func TestTranscribeRejectsAMissingFile(t *testing.T) {
 	e, _ := newTestExecutor(t)
-	res := runTool(t, e, "Transcribe", transcribeArgs{ImagePath: "nope.png"})
+	res := runTool(t, e, "transcribe", transcribeArgs{ImagePath: "nope.png"})
 	if !res.IsError {
 		t.Fatal("a missing file should be refused")
 	}
@@ -736,8 +736,8 @@ func TestTranscribeSendsEveryChunkAtHighResolution(t *testing.T) {
 	defer srv.Close()
 	e.Gemini = reviewScreenshotClient(srv)
 
-	if res := runTool(t, e, "Transcribe", transcribeArgs{ImagePath: "page.png"}); res.IsError {
-		t.Fatalf("Transcribe failed: %s", res.Content)
+	if res := runTool(t, e, "transcribe", transcribeArgs{ImagePath: "page.png"}); res.IsError {
+		t.Fatalf("transcribe failed: %s", res.Content)
 	}
 	mu.Lock()
 	defer mu.Unlock()

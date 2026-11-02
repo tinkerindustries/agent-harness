@@ -33,7 +33,7 @@ func testPrices() *pricing.Table {
 		CapturedAt: "2026-08-09",
 		Models: map[string]pricing.ModelPrices{
 			"test-model": {InputCacheHitPerMillionUSD: 0.003625, InputCacheMissPerMillionUSD: 0.435, OutputPerMillionUSD: 0.87},
-			// The vision model the Glance tool uses by default,
+			// The vision model the `glance` tool uses by default,
 			// with the introductory rates fetched from Google's pricing page
 			// on 2026-08-14, so the Gemini cost accounting test below has a
 			// real table to cost against. Keyed on the constant rather than a
@@ -350,7 +350,7 @@ func TestRunWritesProvenanceOntoSessionRow(t *testing.T) {
 
 // TestRunWritesTitleFieldsOntoSessionRow pins the four session fields end to
 // end on the run path: RunOptions carries them onto the store.Session it
-// creates, next to Task, so the session list can render a title and a phase
+// creates, next to `task`, so the session list can render a title and a phase
 // chip without reading the event log.
 func TestRunWritesTitleFieldsOntoSessionRow(t *testing.T) {
 	srv := plainAnswerServer(t, "all done")
@@ -386,7 +386,7 @@ func TestRunWritesTitleFieldsOntoSessionRow(t *testing.T) {
 }
 
 // TestSubagentTitleAndPhaseInheritance pins the child session's session
-// fields: the Task tool's own description argument becomes the child's title
+// fields: the `task` tool's own description argument becomes the child's title
 // (truncated to the title cap when a model supplies a long one), the child's
 // Description stays empty, and the parent's phase position is inherited — a
 // delegated slice of a phased job is still part of that job.
@@ -418,7 +418,7 @@ func TestSubagentTitleAndPhaseInheritance(t *testing.T) {
 }
 
 // completeToolServer answers every streaming request with a single call to
-// Complete, ending the run in one sub-turn. It is what
+// `complete`, ending the run in one sub-turn. It is what
 // TestRunGaveUpSetsCompleteStatus and its "done" counterpart drive against.
 func completeToolServer(t *testing.T, status, summary string) *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -427,7 +427,7 @@ func completeToolServer(t *testing.T, status, summary string) *httptest.Server {
 		writeSSEChunk(t, w, wire.ChatCompletionChunk{
 			Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 				Role:      "assistant",
-				ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_complete", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Complete", Arguments: args}}},
+				ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_complete", Type: "function", Function: wire.ToolCallFuncDelta{Name: "complete", Arguments: args}}},
 			}}},
 		})
 		writeSSEChunk(t, w, wire.ChatCompletionChunk{
@@ -440,7 +440,7 @@ func completeToolServer(t *testing.T, status, summary string) *httptest.Server {
 }
 
 // TestRunGaveUpSetsCompleteStatus is the session-level half of the gave_up
-// propagation fix (docs/DESIGN.md §4.10): a model that calls Complete with
+// propagation fix (docs/DESIGN.md §4.10): a model that calls `complete` with
 // status "gave_up" must have that status readable off RunResult, not just
 // buried in the run_finished event payload. The session's own terminal
 // status stays "ok" either way — gave_up describes how the model
@@ -490,11 +490,35 @@ func TestRunDoneSetsCompleteStatus(t *testing.T) {
 	}
 }
 
-// A model that keeps re-sending a Complete the schema keeps rejecting is not
+// TestRunRefusesAResultSchemaWithoutTheCompleteTool pins the one arrangement
+// that cannot work. A result schema is a contract complete carries out: the
+// opening message tells the model its result argument must validate against
+// the schema, and DeepSeek's array does not offer complete. A run allowed to
+// start would instruct the model to call a tool it was never sent, and could
+// never produce the structured result the caller asked for.
+func TestRunRefusesAResultSchemaWithoutTheCompleteTool(t *testing.T) {
+	srv := plainAnswerServer(t, "all done")
+	defer srv.Close()
+	r := newTestRunner(t, srv.URL)
+
+	_, err := r.Run(t.Context(), RunOptions{
+		Model: "deepseek-flash", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Workspace: t.TempDir(), PermissionMode: tools.ModeFull, Prompt: "count them",
+		ResultSchema: json.RawMessage(`{"type":"object","properties":{"count":{"type":"integer"}}}`),
+	})
+	if err == nil {
+		t.Fatal("expected a run whose array has no complete tool to be refused")
+	}
+	if !strings.Contains(err.Error(), "deepseek-flash") || !strings.Contains(err.Error(), "complete") {
+		t.Fatalf("the refusal should name the model and the missing tool, got %q", err)
+	}
+}
+
+// A model that keeps re-sending a `complete` the schema keeps rejecting is not
 // correcting anything, and the loop must stop paying for it: one run
 // spent eleven sub-turns and 7% of its budget on identical rejections
 // (docs/reviews/sess-bb6c0ed564ddae573c3b1832cb3981f4.md). The server here
-// answers every request with the same schema-failing Complete, so without the
+// answers every request with the same schema-failing `complete`, so without the
 // rejection count the run would never end.
 func TestRepeatedCompleteRejectionsEndTheRun(t *testing.T) {
 	srv := completeToolServer(t, "done", "fixed it")
@@ -535,7 +559,7 @@ func TestRepeatedCompleteRejectionsEndTheRun(t *testing.T) {
 			errText = string(ev.Payload)
 		}
 	}
-	if !strings.Contains(errText, "Complete rejected") || !strings.Contains(errText, "expected object, got null") {
+	if !strings.Contains(errText, "complete rejected") || !strings.Contains(errText, "expected object, got null") {
 		t.Fatalf("expected an error event naming the rejection, got %q", errText)
 	}
 }
@@ -570,7 +594,7 @@ func TestDifferingCompleteRejectionsDoNotAccumulate(t *testing.T) {
 		writeSSEChunk(t, w, wire.ChatCompletionChunk{
 			Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 				Role:      "assistant",
-				ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_complete", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Complete", Arguments: args}}},
+				ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_complete", Type: "function", Function: wire.ToolCallFuncDelta{Name: "complete", Arguments: args}}},
 			}}},
 		})
 		writeSSEChunk(t, w, wire.ChatCompletionChunk{
@@ -709,7 +733,7 @@ func TestCompactionForksNewSession(t *testing.T) {
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_a", Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_a", Type: "function", Function: wire.ToolCallFuncDelta{Name: "task_list", Arguments: `{}`}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
@@ -795,7 +819,7 @@ func (c *int32Counter) next() int {
 }
 
 // TestRunGeminiCostShowsInSessionTotal drives a full run whose first
-// sub-turn calls Glance, then asserts the session's cost total
+// sub-turn calls `glance`, then asserts the session's cost total
 // covers the Gemini call: the tool result carries its usage, the runner
 // commits it as its own usage event, and SessionUsageSummaries sums it into
 // the session cost exactly as it sums a DeepSeek turn's usage (docs/DESIGN.md
@@ -814,11 +838,11 @@ func TestRunGeminiCostShowsInSessionTotal(t *testing.T) {
 	deepseekSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		if toolCallSent.CompareAndSwap(false, true) {
-			// First sub-turn: a Glance call.
+			// First sub-turn: a `glance` call.
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call-review", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Glance", Arguments: `{"image_paths":["shot.png"],"query":"what is wrong?"}`}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call-review", Type: "function", Function: wire.ToolCallFuncDelta{Name: "glance", Arguments: `{"image_paths":["shot.png"],"query":"what is wrong?"}`}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
@@ -888,7 +912,7 @@ func TestRunGeminiCostShowsInSessionTotal(t *testing.T) {
 }
 
 // TestTaskCreateOrderingWithinSubTurn is the concurrency fix's own test: two
-// TaskCreate calls in one sub-turn must mint ids in the order the calls
+// task_create calls in one sub-turn must mint ids in the order the calls
 // appear in the array, because the store's plan replay
 // (internal/store/status.go RequestStatus) and the frontend both reconstruct
 // ids by walking the event log in that same order. If the two calls raced
@@ -901,23 +925,23 @@ func TestTaskCreateOrderingWithinSubTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := []wire.AssembledToolCall{
-		{ID: "call_00_first", Name: "TaskCreate", Arguments: `{"tasks":[{"subject":"First task","description":"First thing","activeForm":"Firsting"}]}`},
-		{ID: "call_01_second", Name: "TaskCreate", Arguments: `{"tasks":[{"subject":"Second task","description":"Second thing","activeForm":"Seconding"}]}`},
+		{ID: "call_00_first", Name: "task_create", Arguments: `{"tasks":[{"subject":"First task","description":"First thing","activeForm":"Firsting"}]}`},
+		{ID: "call_01_second", Name: "task_create", Arguments: `{"tasks":[{"subject":"Second task","description":"Second thing","activeForm":"Seconding"}]}`},
 	}
 	outcomes := r.executeToolCalls(t.Context(), store.Session{ID: "sess-order"}, executor, calls)
 
-	// Each TaskCreate renders the whole checklist, so the first outcome
+	// Each task_create renders the whole checklist, so the first outcome
 	// carries only its own task — the lower id — and the second outcome
 	// carries both, with its new task under a higher id.
 	if first := outcomes[0].Result.Content; !strings.Contains(first, "#1 First task") || strings.Contains(first, "#2") {
-		t.Fatalf("first TaskCreate rendered %q, want its own task with the lower id only", first)
+		t.Fatalf("first task_create rendered %q, want its own task with the lower id only", first)
 	}
 	if second := outcomes[1].Result.Content; !strings.Contains(second, "#1 First task") || !strings.Contains(second, "#2 Second task") {
-		t.Fatalf("second TaskCreate rendered %q, want both tasks with the second's id higher", second)
+		t.Fatalf("second task_create rendered %q, want both tasks with the second's id higher", second)
 	}
 }
 
-// editBatchFixture writes a file, marks it read so Edit will accept it, and
+// editBatchFixture writes a file, marks it read so `edit` will accept it, and
 // returns the runner, executor and path the same-file tests share.
 func editBatchFixture(t *testing.T, content string) (*Runner, *tools.Executor, string) {
 	t.Helper()
@@ -931,10 +955,10 @@ func editBatchFixture(t *testing.T, content string) (*Runner, *tools.Executor, s
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Edit refuses a file this session has not read.
+	// `edit` refuses a file this session has not read.
 	read := executor.Execute(t.Context(), wire.ToolCall{
 		ID: "call_read", Type: "function",
-		Function: wire.ToolCallFunc{Name: "Read", Arguments: `{"file_path":"styles.css"}`},
+		Function: wire.ToolCallFunc{Name: "read", Arguments: `{"file_path":"styles.css"}`},
 	})
 	if read.Result.IsError {
 		t.Fatalf("Read fixture: %s", read.Result.Content)
@@ -952,8 +976,8 @@ func editBatchFixture(t *testing.T, content string) (*Runner, *tools.Executor, s
 func TestSameFileEditsRunInOrder(t *testing.T) {
 	r, executor, path := editBatchFixture(t, "alpha\nbravo\n")
 	calls := []wire.AssembledToolCall{
-		{ID: "call_00_alpha", Name: "Edit", Arguments: `{"file_path":"styles.css","old_string":"alpha","new_string":"ALPHA"}`},
-		{ID: "call_01_bravo", Name: "Edit", Arguments: `{"file_path":"./styles.css","old_string":"bravo","new_string":"BRAVO"}`},
+		{ID: "call_00_alpha", Name: "edit", Arguments: `{"file_path":"styles.css","old_string":"alpha","new_string":"ALPHA"}`},
+		{ID: "call_01_bravo", Name: "edit", Arguments: `{"file_path":"./styles.css","old_string":"bravo","new_string":"BRAVO"}`},
 	}
 	outcomes := r.executeToolCalls(t.Context(), store.Session{ID: "sess-edits"}, executor, calls)
 
@@ -972,15 +996,15 @@ func TestSameFileEditsRunInOrder(t *testing.T) {
 }
 
 // TestSameFileEditsClashExplainsWhy covers the case ordering cannot rescue:
-// the second Edit was written against text the first one rewrote, so its
+// the second `edit` was written against text the first one rewrote, so its
 // old_string is genuinely gone. It has to fail — but "old_string not found"
 // alone sends the model hunting for a typo in text that was correct when it
 // wrote it, so the outcome carries the reason.
 func TestSameFileEditsClashExplainsWhy(t *testing.T) {
 	r, executor, path := editBatchFixture(t, "alpha bravo\n")
 	calls := []wire.AssembledToolCall{
-		{ID: "call_00_wide", Name: "Edit", Arguments: `{"file_path":"styles.css","old_string":"alpha bravo","new_string":"charlie"}`},
-		{ID: "call_01_stale", Name: "Edit", Arguments: `{"file_path":"styles.css","old_string":"bravo","new_string":"BRAVO"}`},
+		{ID: "call_00_wide", Name: "edit", Arguments: `{"file_path":"styles.css","old_string":"alpha bravo","new_string":"charlie"}`},
+		{ID: "call_01_stale", Name: "edit", Arguments: `{"file_path":"styles.css","old_string":"bravo","new_string":"BRAVO"}`},
 	}
 	outcomes := r.executeToolCalls(t.Context(), store.Session{ID: "sess-clash"}, executor, calls)
 
@@ -1013,14 +1037,14 @@ func TestDifferentFileEditsStayConcurrent(t *testing.T) {
 	}
 	read := executor.Execute(t.Context(), wire.ToolCall{
 		ID: "call_read2", Type: "function",
-		Function: wire.ToolCallFunc{Name: "Read", Arguments: `{"file_path":"other.css"}`},
+		Function: wire.ToolCallFunc{Name: "read", Arguments: `{"file_path":"other.css"}`},
 	})
 	if read.Result.IsError {
 		t.Fatalf("Read other.css: %s", read.Result.Content)
 	}
 	calls := []wire.AssembledToolCall{
-		{ID: "call_00", Name: "Edit", Arguments: `{"file_path":"styles.css","old_string":"alpha","new_string":"ALPHA"}`},
-		{ID: "call_01", Name: "Edit", Arguments: `{"file_path":"other.css","old_string":"bravo","new_string":"BRAVO"}`},
+		{ID: "call_00", Name: "edit", Arguments: `{"file_path":"styles.css","old_string":"alpha","new_string":"ALPHA"}`},
+		{ID: "call_01", Name: "edit", Arguments: `{"file_path":"other.css","old_string":"bravo","new_string":"BRAVO"}`},
 	}
 	outcomes := r.executeToolCalls(t.Context(), store.Session{ID: "sess-two-files"}, executor, calls)
 	for i, o := range outcomes {
@@ -1033,9 +1057,85 @@ func TestDifferentFileEditsStayConcurrent(t *testing.T) {
 	}
 }
 
+// patchToolCall builds one apply_patch call whose input is the patch.
+func patchToolCall(t *testing.T, id, patch string) wire.AssembledToolCall {
+	t.Helper()
+	args, err := json.Marshal(map[string]string{"input": patch})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return wire.AssembledToolCall{ID: id, Name: "apply_patch", Arguments: string(args)}
+}
+
+// TestTwoPatchesOnOneFileRunInOrder is the requirement apply_patch's
+// scheduling rests on: two patches naming one file must not race. The second
+// patch is written against the first one's result, so an unordered pair
+// either fails its hunk or silently loses the first change. Run with -race.
+func TestTwoPatchesOnOneFileRunInOrder(t *testing.T) {
+	r, executor, path := editBatchFixture(t, "alpha\nbravo\n")
+	calls := []wire.AssembledToolCall{
+		patchToolCall(t, "call_00_alpha", "*** Begin Patch\n*** Update File: styles.css\n@@\n-alpha\n+ALPHA\n*** End Patch\n"),
+		patchToolCall(t, "call_01_alpha", "*** Begin Patch\n*** Update File: ./styles.css\n@@\n-ALPHA\n+CHARLIE\n*** End Patch\n"),
+	}
+	outcomes := r.executeToolCalls(t.Context(), store.Session{ID: "sess-patches"}, executor, calls)
+	for i, o := range outcomes {
+		if o.Result.IsError {
+			t.Fatalf("patch %d failed: %s", i, o.Result.Content)
+		}
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "CHARLIE\nbravo\n" {
+		t.Fatalf("file = %q, want both patches applied in order", got)
+	}
+}
+
+// TestAPatchIsOrderedAgainstEveryFileItNames is the multi-file half: a patch
+// that spans two files and an edit of each must run as one ordered group, so
+// neither edit is written from bytes the patch has not yet replaced. Run with
+// -race.
+func TestAPatchIsOrderedAgainstEveryFileItNames(t *testing.T) {
+	r, executor, path := editBatchFixture(t, "alpha\nbravo\n")
+	other := filepath.Join(executor.Workspace, "other.css")
+	if err := os.WriteFile(other, []byte("charlie\ndelta\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	read := executor.Execute(t.Context(), wire.ToolCall{
+		ID: "call_read2", Type: "function",
+		Function: wire.ToolCallFunc{Name: "read", Arguments: `{"file_path":"other.css"}`},
+	})
+	if read.Result.IsError {
+		t.Fatalf("Read other.css: %s", read.Result.Content)
+	}
+
+	calls := []wire.AssembledToolCall{
+		patchToolCall(t, "call_00_patch", "*** Begin Patch\n*** Update File: styles.css\n@@\n-alpha\n+ALPHA\n"+
+			"*** Update File: other.css\n@@\n-charlie\n+CHARLIE\n*** End Patch\n"),
+		{ID: "call_01_styles", Name: "edit", Arguments: `{"file_path":"styles.css","old_string":"bravo","new_string":"BRAVO"}`},
+		{ID: "call_02_other", Name: "edit", Arguments: `{"file_path":"other.css","old_string":"delta","new_string":"DELTA"}`},
+	}
+	outcomes := r.executeToolCalls(t.Context(), store.Session{ID: "sess-spanning"}, executor, calls)
+	for i, o := range outcomes {
+		if o.Result.IsError {
+			t.Fatalf("call %d failed: %s", i, o.Result.Content)
+		}
+	}
+	for name, want := range map[string]string{path: "ALPHA\nBRAVO\n", other: "CHARLIE\nDELTA\n"} {
+		got, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != want {
+			t.Fatalf("%s = %q, want %q", filepath.Base(name), got, want)
+		}
+	}
+}
+
 // TestTaskSubagentRunsAtMaxEffort pins the subagent's hardcoded effort:
 // subagentRunner launches its nested flash session at max effort, matching
-// docs/MODELS.md's `Task` subagent row. The child session row stores the
+// docs/MODELS.md's `task` subagent row. The child session row stores the
 // RunOptions effort verbatim, so a regression shows up as the wrong value on
 // the child rather than passing silently.
 func TestTaskSubagentRunsAtMaxEffort(t *testing.T) {
@@ -1196,7 +1296,7 @@ func TestSeesImages(t *testing.T) {
 	}
 }
 
-// blockingBashServer answers the first streaming request with one Bash call
+// blockingBashServer answers the first streaming request with one `bash` call
 // running cmd, and every later request with plain text. started closes once
 // the tool call has been handed back, so a test can cancel while the command
 // is running.
@@ -1216,7 +1316,7 @@ func blockingBashServer(t *testing.T, cmd string, started chan struct{}) *httpte
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_slow", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Bash", Arguments: args}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_slow", Type: "function", Function: wire.ToolCallFuncDelta{Name: "bash", Arguments: args}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{

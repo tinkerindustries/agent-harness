@@ -21,7 +21,7 @@ import (
 // reviewScreenshotClient builds a Gemini client pointed at srv, so a test can
 // drive a vision tool end to end without reaching the real API. Named for the
 // tool that originated it, back when it lived in reviewscreenshot_test.go
-// alongside the tool itself; kept here now that Glance, Ground, and Detect
+// alongside the tool itself; kept here now that `glance`, `ground`, and `detect`
 // are the only callers.
 func reviewScreenshotClient(srv *httptest.Server) *gemini.Client {
 	return gemini.NewClient(srv.URL, gemini.WithAPIKeyProvider(func() (string, error) {
@@ -288,7 +288,7 @@ func TestBoxPosition(t *testing.T) {
 	}
 }
 
-// TestExecGroundReturnsAndFormatsBoxes drives Ground end to end against a
+// TestExecGroundReturnsAndFormatsBoxes drives `ground` end to end against a
 // test Gemini server: the 0-1000 grid box in the answer must come back scaled
 // to the actual image's pixels and formatted the way formatMatches renders a
 // single match. This is the path TestParseMatches and TestBoxPosition only
@@ -306,7 +306,7 @@ func TestExecGroundReturnsAndFormatsBoxes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res := runTool(t, e, "Ground", groundArgs{ImagePath: "shot.png", Target: "the submit button"})
+	res := runTool(t, e, "ground", groundArgs{ImagePath: "shot.png", Target: "the submit button"})
 	if res.IsError {
 		t.Fatalf("unexpected error: %s", res.Content)
 	}
@@ -332,7 +332,7 @@ func TestExecGroundReportsNoMatch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res := runTool(t, e, "Ground", groundArgs{ImagePath: "shot.png", Target: "a dragon"})
+	res := runTool(t, e, "ground", groundArgs{ImagePath: "shot.png", Target: "a dragon"})
 	if res.IsError {
 		t.Fatalf("unexpected error: %s", res.Content)
 	}
@@ -341,10 +341,10 @@ func TestExecGroundReportsNoMatch(t *testing.T) {
 	}
 }
 
-// TestExecDetectUsesDefaultCategoryAndFormatsInventory pins Detect's one
+// TestExecDetectUsesDefaultCategoryAndFormatsInventory pins `detect`'s one
 // piece of logic: with no category, the request sent to Gemini names
 // detectDefaultCategory, and the result is always numbered (formatInventory),
-// unlike Ground's single-match bare form.
+// unlike `ground`'s single-match bare form.
 func TestExecDetectUsesDefaultCategoryAndFormatsInventory(t *testing.T) {
 	var gotPrompt string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -361,7 +361,7 @@ func TestExecDetectUsesDefaultCategoryAndFormatsInventory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res := runTool(t, e, "Detect", detectArgs{ImagePath: "shot.png"})
+	res := runTool(t, e, "detect", detectArgs{ImagePath: "shot.png"})
 	if res.IsError {
 		t.Fatalf("unexpected error: %s", res.Content)
 	}
@@ -377,7 +377,7 @@ func TestExecDetectUsesDefaultCategoryAndFormatsInventory(t *testing.T) {
 // path, an explicit one, the scale upscale, and the argument refusals. It is
 // also the regression test for a real bug found while wiring this port up —
 // execCrop originally called a nonexistent e.ResolvePath method (there is
-// only the package-level ResolvePath(root, path)), which meant Crop could
+// only the package-level ResolvePath(root, path)), which meant `crop` could
 // not compile, let alone run.
 func TestExecCrop(t *testing.T) {
 	e, root := newTestExecutor(t)
@@ -386,7 +386,7 @@ func TestExecCrop(t *testing.T) {
 	}
 
 	t.Run("default output path and dimensions", func(t *testing.T) {
-		res := runTool(t, e, "Crop", cropArgs{ImagePath: "shot.png", Region: "10,10,60,50"})
+		res := runTool(t, e, "crop", cropArgs{ImagePath: "shot.png", Region: "10,10,60,50"})
 		if res.IsError {
 			t.Fatalf("unexpected error: %s", res.Content)
 		}
@@ -407,7 +407,7 @@ func TestExecCrop(t *testing.T) {
 	})
 
 	t.Run("explicit output and scale enlarges the crop", func(t *testing.T) {
-		res := runTool(t, e, "Crop", cropArgs{ImagePath: "shot.png", Region: "0,0,20,20", Output: "scaled.png", Scale: 3})
+		res := runTool(t, e, "crop", cropArgs{ImagePath: "shot.png", Region: "0,0,20,20", Output: "scaled.png", Scale: 3})
 		if res.IsError {
 			t.Fatalf("unexpected error: %s", res.Content)
 		}
@@ -428,28 +428,28 @@ func TestExecCrop(t *testing.T) {
 	})
 
 	t.Run("region is required", func(t *testing.T) {
-		res := runTool(t, e, "Crop", cropArgs{ImagePath: "shot.png"})
+		res := runTool(t, e, "crop", cropArgs{ImagePath: "shot.png"})
 		if !res.IsError || !strings.Contains(res.Content, "region is required") {
 			t.Errorf("got: %s", res.Content)
 		}
 	})
 
 	t.Run("image_path is required", func(t *testing.T) {
-		res := runTool(t, e, "Crop", cropArgs{Region: "0,0,10,10"})
+		res := runTool(t, e, "crop", cropArgs{Region: "0,0,10,10"})
 		if !res.IsError || !strings.Contains(res.Content, "image_path is required") {
 			t.Errorf("got: %s", res.Content)
 		}
 	})
 
 	t.Run("an out-of-range scale is refused", func(t *testing.T) {
-		res := runTool(t, e, "Crop", cropArgs{ImagePath: "shot.png", Region: "0,0,10,10", Scale: 9})
+		res := runTool(t, e, "crop", cropArgs{ImagePath: "shot.png", Region: "0,0,10,10", Scale: 9})
 		if !res.IsError {
 			t.Error("expected a refusal for an out-of-range scale")
 		}
 	})
 }
 
-// Crop's output is confined to scratch/ the way Screenshot's is, which is
+// `crop`'s output is confined to scratch/ the way `screenshot`'s is, which is
 // what lets it run in read-only mode (policy.go). A relative path lands there
 // whether or not the caller spells the prefix — the measured lesson behind
 // resolveScratchImageOutput, where refusing the unprefixed spelling cost a
@@ -462,22 +462,22 @@ func TestExecCropConfinesOutputToScratch(t *testing.T) {
 	}
 
 	for _, out := range []string{"cut.png", "scratch/cut2.png"} {
-		res := runTool(t, e, "Crop", cropArgs{ImagePath: "shot.png", Region: "0,0,20,20", Output: out})
+		res := runTool(t, e, "crop", cropArgs{ImagePath: "shot.png", Region: "0,0,20,20", Output: out})
 		if res.IsError {
-			t.Fatalf("Crop(%q): %s", out, res.Content)
+			t.Fatalf("crop(%q): %s", out, res.Content)
 		}
 		if _, err := os.Stat(filepath.Join(root, "scratch", filepath.Base(out))); err != nil {
-			t.Errorf("Crop(%q) did not land under scratch/: %v", out, err)
+			t.Errorf("crop(%q) did not land under scratch/: %v", out, err)
 		}
 	}
 
-	res := runTool(t, e, "Crop", cropArgs{ImagePath: "shot.png", Region: "0,0,20,20", Output: absElsewhere(t, "escaped.png")})
+	res := runTool(t, e, "crop", cropArgs{ImagePath: "shot.png", Region: "0,0,20,20", Output: absElsewhere(t, "escaped.png")})
 	if !res.IsError {
 		t.Error("an absolute path outside scratch/ should be refused")
 	}
 }
 
-// A Glance conversation replays the earlier exchange into the follow-up's
+// A `glance` conversation replays the earlier exchange into the follow-up's
 // prompt, so "look closer at the header" costs one call rather than a fresh
 // description, and image_paths becomes optional. The test captures what the
 // harness actually sent, because that — not the tool result — is where the
@@ -498,7 +498,7 @@ func TestGlanceConversationReplaysTheThread(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first := runTool(t, e, "Glance", glanceArgs{ImagePaths: []string{"shot.png"}, Query: "what is on this page?"})
+	first := runTool(t, e, "glance", glanceArgs{ImagePaths: []string{"shot.png"}, Query: "what is on this page?"})
 	if first.IsError {
 		t.Fatalf("first call: %s", first.Content)
 	}
@@ -513,7 +513,7 @@ func TestGlanceConversationReplaysTheThread(t *testing.T) {
 	}
 
 	// No image_paths: the follow-up continues on the conversation's images.
-	second := runTool(t, e, "Glance", glanceArgs{ConversationID: id, Query: "how many buttons?"})
+	second := runTool(t, e, "glance", glanceArgs{ConversationID: id, Query: "how many buttons?"})
 	if second.IsError {
 		t.Fatalf("follow-up: %s", second.Content)
 	}
@@ -531,7 +531,7 @@ func TestGlanceConversationReplaysTheThread(t *testing.T) {
 		t.Errorf("history nested inside itself: %s", sent[1])
 	}
 
-	if bad := runTool(t, e, "Glance", glanceArgs{ConversationID: "gl-nope", Query: "?"}); !bad.IsError {
+	if bad := runTool(t, e, "glance", glanceArgs{ConversationID: "gl-nope", Query: "?"}); !bad.IsError {
 		t.Error("an unknown conversation_id should be refused")
 	} else if !strings.Contains(bad.Content, id) {
 		t.Errorf("the refusal should name the open conversations, got: %s", bad.Content)

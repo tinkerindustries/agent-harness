@@ -12,8 +12,8 @@ type writeArgs struct {
 	Content  string `json:"content"`
 }
 
-// execWrite implements Write. Overwriting an existing file requires a prior
-// Read of it this session, so the model edits real bytes rather than
+// execWrite implements `write`. Overwriting an existing file requires a prior
+// `read` of it this session, so the model edits real bytes rather than
 // remembered ones; creating a new file needs no prior read
 // (docs/TOOLS.md).
 func execWrite(_ context.Context, e *Executor, argsRaw json.RawMessage) Result {
@@ -37,7 +37,7 @@ func execWrite(_ context.Context, e *Executor, argsRaw json.RawMessage) Result {
 		existed = true
 	}
 	if existed && !e.wasRead(path) {
-		return errorResult("%s exists and has not been read in this session; Read it before overwriting", args.FilePath)
+		return errorResult("%s exists and has not been read in this session; read it before overwriting", args.FilePath)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

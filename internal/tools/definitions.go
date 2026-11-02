@@ -9,11 +9,13 @@ import (
 )
 
 // The tool array is per-provider (docs/KIMI-INTEGRATION.md §4.5, decision 5):
-// DeepSeek gets all twenty-two tools, and Kimi K3 gets the sixteen that remain
-// once the six vision tools are dropped — K3 reads images natively, so
-// Glance, Ground, Detect, Transcribe, Crop (the Gemini round-trips and the
-// local image operation that feeds them) and Screenshot (capture-and-describe)
-// are all redundant for it (docs/TOOLS.md). A provider's array is fixed and ordered,
+// definitionsDeepSeek below is the base array and carries every tool the
+// harness ships. A vision-capable model gets it without the six tools that
+// exist only to get an image in front of a model that cannot see one, since it
+// reads images natively: glance, ground, detect, transcribe, crop (the Gemini
+// round-trips and the local image operation that feeds them) and screenshot
+// (capture-and-describe) are all redundant for it (docs/TOOLS.md). A
+// provider's array is fixed and ordered,
 // shared by every session on that provider in every permission mode; it
 // never varies by mode or by request — that is what keeps the shared prefix
 // stable (docs/CACHE.md). Each array is pinned by its own golden file
@@ -26,7 +28,7 @@ import (
 // "required" rather than encoded as anyOf-null, matching the trained-in shape
 // the target harnesses use (docs/TOOLS.md).
 var definitionsDeepSeek = []wire.Tool{
-	function("Read", "Read a file from the workspace. Returns content with line numbers, cat -n style.", `{
+	function("read", "Read a file from the workspace. Returns content with line numbers, cat -n style.", `{
 		"type": "object",
 		"properties": {
 			"file_path": {"type": "string", "description": "Absolute or workspace-relative path to the file to read"},
@@ -35,7 +37,7 @@ var definitionsDeepSeek = []wire.Tool{
 		},
 		"required": ["file_path"]
 	}`),
-	function("Write", "Create a new file or overwrite an existing one. Overwriting a file requires having read it first in this session.", `{
+	function("write", "Create a new file or overwrite an existing one. Overwriting a file requires having read it first in this session.", `{
 		"type": "object",
 		"properties": {
 			"file_path": {"type": "string", "description": "Absolute or workspace-relative path to write"},
@@ -43,7 +45,7 @@ var definitionsDeepSeek = []wire.Tool{
 		},
 		"required": ["file_path", "content"]
 	}`),
-	function("Edit", "Replace an exact string in a file with another. old_string must match exactly once unless replace_all is set. Requires having read the file first in this session.", `{
+	function("edit", "Replace an exact string in a file with another. old_string must match exactly once unless replace_all is set. Requires having read the file first in this session.", `{
 		"type": "object",
 		"properties": {
 			"file_path": {"type": "string", "description": "Absolute or workspace-relative path to the file to edit"},
@@ -53,32 +55,45 @@ var definitionsDeepSeek = []wire.Tool{
 		},
 		"required": ["file_path", "old_string", "new_string"]
 	}`),
-	function("Bash", "Run a shell command in the workspace. Output is captured and returned once the command exits, unless run_in_background is set, which returns immediately with an id BashOutput and KillBash can act on.", `{
+	function("apply_patch", "Apply a patch to one or more files in the workspace. input is the patch itself, from *** Begin Patch to *** End Patch: *** Add File: <path> followed by + lines, *** Update File: <path> with an optional *** Move to: <path>, *** Delete File: <path>, and hunks that start with an @@ context line and carry space (context), + (add) and - (remove) lines. *** End of File anchors a hunk to the end of the file. Every hunk applies to an in-memory copy of every file first: one that does not match fails the whole call and leaves every file unchanged. Paths are workspace-relative and resolve the same way write and edit's do. Requires having read each existing file the patch changes, in this session.", `{
+		"type": "object",
+		"properties": {
+			"input": {"type": "string", "description": "The patch, from *** Begin Patch to *** End Patch"}
+		},
+		"required": ["input"]
+	}`),
+	function("bash", "Run a shell command in the workspace. Output is captured and returned once the command exits, unless run_in_background is set, which returns immediately with an id job_output and job_kill can act on.", `{
 		"type": "object",
 		"properties": {
 			"command": {"type": "string", "description": "The shell command to run"},
-			"timeout": {"type": "integer", "description": "Maximum wall-clock time for the command, in milliseconds. Omitted, the command gets the harness default, which is short; name a timeout for anything that builds, installs, packages or runs a test suite. A value above the harness ceiling is clamped down to the ceiling rather than rejected, so a larger number buys no more time. The message a timed-out command returns names the limit that actually applied. Work that cannot finish inside the ceiling has to be split into steps, or started with its output redirected to a file that a later call reads."},
+			"timeoutMs": {"type": "integer", "description": "Maximum wall-clock time for the command, in milliseconds. Omitted, the command gets the harness default, which is short; name a timeout for anything that builds, installs, packages or runs a test suite. A value above the harness ceiling is clamped down to the ceiling rather than rejected, so a larger number buys no more time. The message a timed-out command returns names the limit that actually applied. Work that cannot finish inside the ceiling has to be split into steps, or started with its output redirected to a file that a later call reads."},
 			"description": {"type": "string", "description": "A short human-readable description of what the command does"},
-			"run_in_background": {"type": "boolean", "description": "Set to true to run this command in the background instead of waiting for it to exit. The call returns immediately with a shell id; read its output so far with BashOutput, and stop it with KillBash. Use this for a dev server, a watcher, or anything else meant to keep running rather than finish."}
+			"run_in_background": {"type": "boolean", "description": "Set to true to run this command in the background instead of waiting for it to exit. The call returns immediately with a job id; read its output so far with job_output, and stop it with job_kill. Use this for a dev server, a watcher, or anything else meant to keep running rather than finish."},
+			"workdir": {"type": "string", "description": "Directory to run the command in, absolute or workspace-relative. Defaults to the workspace root. A path outside the workspace is refused, the same as every other path argument."}
 		},
 		"required": ["command"]
 	}`),
-	function("BashOutput", "Read the output a background shell (started by Bash with run_in_background) has produced since the last time it was read, and whether it is still running.", `{
+	function("job_output", "Read the output a background job (started by bash with run_in_background) has produced since the last time it was read, and whether it is still running.", `{
 		"type": "object",
 		"properties": {
-			"bash_id": {"type": "string", "description": "The id of the background shell to read, as returned by the Bash call that started it"},
-			"filter": {"type": "string", "description": "A regular expression. Only output lines matching it are returned; the rest are still consumed and will not be returned by a later call."}
+			"job_id": {"type": "string", "description": "The id of the background job to read, as returned by the bash call that started it"},
+			"filter": {"type": "string", "description": "A regular expression. Only output lines matching it are returned; the rest are still consumed and will not be returned by a later call."},
+			"wait": {"type": "boolean", "description": "Block until the job finishes before returning, up to this call's own timeout. A wait that runs out returns the output so far and leaves the job running."}
 		},
-		"required": ["bash_id"]
+		"required": ["job_id"]
 	}`),
-	function("KillBash", "Stop a background shell started by Bash with run_in_background.", `{
+	function("job_kill", "Stop a background job started by bash with run_in_background. Killing a job that has already finished is a no-op.", `{
 		"type": "object",
 		"properties": {
-			"shell_id": {"type": "string", "description": "The id of the background shell to stop, as returned by the Bash call that started it"}
+			"job_id": {"type": "string", "description": "The id of the background job to stop, as returned by the bash call that started it"}
 		},
-		"required": ["shell_id"]
+		"required": ["job_id"]
 	}`),
-	function("Glob", "Find files by path pattern, e.g. **/*.go.", `{
+	function("job_list", "List every background job this session holds: its id, the command it runs, when it started, and whether it is still running or has exited.", `{
+		"type": "object",
+		"properties": {}
+	}`),
+	function("glob", "Find files by path pattern, e.g. **/*.go.", `{
 		"type": "object",
 		"properties": {
 			"pattern": {"type": "string", "description": "Glob pattern to match"},
@@ -86,7 +101,7 @@ var definitionsDeepSeek = []wire.Tool{
 		},
 		"required": ["pattern"]
 	}`),
-	function("Grep", "Search file contents by regular expression. Defaults to returning matching file paths only.", `{
+	function("grep", "Search file contents by regular expression. Defaults to returning matching file paths only.", `{
 		"type": "object",
 		"properties": {
 			"pattern": {"type": "string", "description": "Regular expression to search for"},
@@ -104,7 +119,7 @@ var definitionsDeepSeek = []wire.Tool{
 		},
 		"required": ["pattern"]
 	}`),
-	function("List", "List the entries of a directory.", `{
+	function("list", "List the entries of a directory.", `{
 		"type": "object",
 		"properties": {
 			"path": {"type": "string", "description": "Directory to list"},
@@ -112,7 +127,7 @@ var definitionsDeepSeek = []wire.Tool{
 		},
 		"required": ["path"]
 	}`),
-	function("TaskCreate", "Add one or more tasks to the working plan. Takes an array so seeding a whole plan is still one call; each task is minted its own taskId for later TaskGet/TaskList/TaskUpdate calls. State only; no side effects outside the session.", `{
+	function("task_create", "Add one or more tasks to the working plan. Takes an array so seeding a whole plan is still one call; each task is minted its own taskId for later task_get/task_list/task_update calls. State only; no side effects outside the session.", `{
 		"type": "object",
 		"properties": {
 			"tasks": {
@@ -132,20 +147,20 @@ var definitionsDeepSeek = []wire.Tool{
 		},
 		"required": ["tasks"]
 	}`),
-	function("TaskGet", "Fetch one task from the working plan by taskId.", `{
+	function("task_get", "Fetch one task from the working plan by taskId.", `{
 		"type": "object",
 		"properties": {
 			"taskId": {"type": "string", "description": "The taskId to fetch"}
 		},
 		"required": ["taskId"]
 	}`),
-	function("TaskList", "List tasks in the working plan, optionally filtered by status. A fully optional call: no arguments lists the whole plan.", `{
+	function("task_list", "List tasks in the working plan, optionally filtered by status. A fully optional call: no arguments lists the whole plan.", `{
 		"type": "object",
 		"properties": {
 			"status": {"type": "string", "enum": ["pending", "in_progress", "completed"], "description": "Only list tasks with this status; omit for all"}
 		}
 	}`),
-	function("TaskUpdate", "Patch one task's status, subject, description, or activeForm by taskId, or remove it with status \"deleted\". A small, targeted call keeps the plan current without rewriting the whole list. State only; no side effects outside the session.", `{
+	function("task_update", "Patch one task's status, subject, description, or activeForm by taskId, or remove it with status \"deleted\". A small, targeted call keeps the plan current without rewriting the whole list. State only; no side effects outside the session.", `{
 		"type": "object",
 		"properties": {
 			"taskId": {"type": "string", "description": "The taskId to update or delete"},
@@ -156,7 +171,7 @@ var definitionsDeepSeek = []wire.Tool{
 		},
 		"required": ["taskId"]
 	}`),
-	function("Task", "Delegate a self-contained task to a subagent. The subagent runs in its own conversation; only its final result joins this one.", `{
+	function("task", "Delegate a self-contained task to a subagent. The subagent runs in its own conversation; only its final result joins this one.", `{
 		"type": "object",
 		"properties": {
 			"description": {"type": "string", "description": "A short, 3-5 word summary of the task"},
@@ -165,7 +180,7 @@ var definitionsDeepSeek = []wire.Tool{
 		},
 		"required": ["description", "prompt", "subagent_type"]
 	}`),
-	function("WebFetch", "Fetch a URL and answer a question against its content.", `{
+	function("web_fetch", "Fetch a URL and answer a question against its content.", `{
 		"type": "object",
 		"properties": {
 			"url": {"type": "string", "description": "The URL to fetch"},
@@ -183,25 +198,25 @@ var definitionsDeepSeek = []wire.Tool{
 	// message, which states the actual limit — the same shape the other
 	// tools' caps use.
 	//
-	// Glance is the general, prose-answering tool — what ReviewScreenshot and
-	// AskVision both were, now one tool with no imposed findings shape. Ground
-	// and Detect exist because prose is the wrong return type for "where is
-	// it": they hand back pixel boxes a caller can act on, feed to Crop for a
-	// closer look, or drop straight into Glance's region to ask about just
+	// glance is the general, prose-answering tool — what ReviewScreenshot and
+	// AskVision both were, now one tool with no imposed findings shape. ground
+	// and detect exist because prose is the wrong return type for "where is
+	// it": they hand back pixel boxes a caller can act on, feed to crop for a
+	// closer look, or drop straight into glance's region to ask about just
 	// that spot (docs/VISION-TOOLKIT.md §4, §6).
-	function("Glance", "Ask Google Gemini's vision model about one or more images: describe them, ask a question in your own words, or transcribe the visible text verbatim. Use this for anything the answer to which is prose — comparing two captures, reading text off a chart, checking what a screenshot shows. When what you actually need is where something is, Ground or Detect return a pixel box instead of a description of one. query and ocr are mutually exclusive: query sends exactly the question you write, ocr transcribes text line by line without judging it, and omitting both describes the image in general. Put any spec, CSS, or context in query ahead of the question you ask, and say what standard you are judging against — a vision model given none falls back on general web convention and reports deliberate choices as breakage. region crops the image to a pixel box before sending it, so a spot Ground or Detect just located can be looked at closer and sharper than re-describing the whole page; it works with exactly one image. The first image goes at high resolution and the rest at medium, so put the one the question is really about first. A call without conversation_id starts a conversation and its result carries the id; passing that id continues it, so \"look closer at the header\" costs one call rather than a whole fresh look. Images are PNG, JPEG, or WebP, workspace-relative or absolute paths. A call costs many times an ordinary sub-turn and the result says what it cost.", `{
+	function("glance", "Ask Google Gemini's vision model about one or more images: describe them, ask a question in your own words, or transcribe the visible text verbatim. Use this for anything the answer to which is prose — comparing two captures, reading text off a chart, checking what a screenshot shows. When what you actually need is where something is, ground or detect return a pixel box instead of a description of one. query and ocr are mutually exclusive: query sends exactly the question you write, ocr transcribes text line by line without judging it, and omitting both describes the image in general. Put any spec, CSS, or context in query ahead of the question you ask, and say what standard you are judging against — a vision model given none falls back on general web convention and reports deliberate choices as breakage. region crops the image to a pixel box before sending it, so a spot ground or detect just located can be looked at closer and sharper than re-describing the whole page; it works with exactly one image. The first image goes at high resolution and the rest at medium, so put the one the question is really about first. A call without conversation_id starts a conversation and its result carries the id; passing that id continues it, so \"look closer at the header\" costs one call rather than a whole fresh look. Images are PNG, JPEG, or WebP, workspace-relative or absolute paths. A call costs many times an ordinary sub-turn and the result says what it cost.", `{
 		"type": "object",
 		"properties": {
 			"image_paths": {"type": "array", "items": {"type": "string"}, "description": "Absolute or workspace-relative paths to PNG, JPEG, or WebP files. The first is read at high resolution and the rest at medium, so put the image the question is really about first."},
 			"query": {"type": "string", "description": "The question to ask about the image(s), in your own words, sent as you wrote it. Mutually exclusive with ocr. Naming the images helps when there is more than one — they arrive labelled Image 1, Image 2 in the order you list them."},
 			"ocr": {"type": "boolean", "description": "Transcribe every piece of visible text verbatim — titles, body text, labels, watermarks — instead of describing the image or answering a question. Mutually exclusive with query."},
 			"ocr_extra": {"type": "string", "description": "Additional requirements for the transcription, appended after the base instruction. Only meaningful alongside ocr."},
-			"conversation_id": {"type": "string", "description": "Id from an earlier Glance call, to ask a follow-up about the same images. The earlier questions and answers are re-sent with your new one, so \"look closer at the header\" costs one call rather than a fresh description, and image_paths becomes optional — omit it to keep discussing the same images, or pass new ones to swap in a re-capture while the thread survives. Omit conversation_id entirely to start fresh; the result of every call carries the id to continue it."},
-			"region": {"type": "string", "description": "Crop to this pixel box, X1,Y1,X2,Y2, before sending the image — the way to look closer at a spot Ground or Detect already located. Only valid with exactly one image path."}
+			"conversation_id": {"type": "string", "description": "Id from an earlier glance call, to ask a follow-up about the same images. The earlier questions and answers are re-sent with your new one, so \"look closer at the header\" costs one call rather than a fresh description, and image_paths becomes optional — omit it to keep discussing the same images, or pass new ones to swap in a re-capture while the thread survives. Omit conversation_id entirely to start fresh; the result of every call carries the id to continue it."},
+			"region": {"type": "string", "description": "Crop to this pixel box, X1,Y1,X2,Y2, before sending the image — the way to look closer at a spot ground or detect already located. Only valid with exactly one image path."}
 		},
 		"required": ["image_paths"]
 	}`),
-	function("Ground", "Locate something in an image and get back its pixel box, not a description of roughly where it is. Say what to find in target, described by what distinguishes it — its visible text, its position, the block it sits in — because the tool matches the words you gave it rather than the intent behind them: ask for \"the main heading\" on a page whose largest text is a nav brand and the nav brand is what comes back. Several numbered matches means the description fitted more than one element; narrow it and ask again rather than picking one. Every match comes back with a coarse position (top-left, center, bottom-right, and the rest of that grid) and its box as x1,y1,x2,y2 in the image's own pixels. Use the box to Crop a tight second look at full resolution, or pass it as Glance's region to ask a question about just that spot instead of the whole page. Returns \"no match found\" rather than guessing when nothing does. region here narrows the search to part of the image first — useful when you already know roughly where to look and want a tighter answer — and the returned box is still in the original image's coordinates either way. Images are PNG, JPEG, or WebP, workspace-relative or absolute paths. A call costs many times an ordinary sub-turn and the result says what it cost.", `{
+	function("ground", "Locate something in an image and get back its pixel box, not a description of roughly where it is. Say what to find in target, described by what distinguishes it — its visible text, its position, the block it sits in — because the tool matches the words you gave it rather than the intent behind them: ask for \"the main heading\" on a page whose largest text is a nav brand and the nav brand is what comes back. Several numbered matches means the description fitted more than one element; narrow it and ask again rather than picking one. Every match comes back with a coarse position (top-left, center, bottom-right, and the rest of that grid) and its box as x1,y1,x2,y2 in the image's own pixels. Use the box to crop a tight second look at full resolution, or pass it as glance's region to ask a question about just that spot instead of the whole page. Returns \"no match found\" rather than guessing when nothing does. region here narrows the search to part of the image first — useful when you already know roughly where to look and want a tighter answer — and the returned box is still in the original image's coordinates either way. Images are PNG, JPEG, or WebP, workspace-relative or absolute paths. A call costs many times an ordinary sub-turn and the result says what it cost.", `{
 		"type": "object",
 		"properties": {
 			"image_path": {"type": "string", "description": "Absolute or workspace-relative path to a PNG, JPEG, or WebP image."},
@@ -210,7 +225,7 @@ var definitionsDeepSeek = []wire.Tool{
 		},
 		"required": ["image_path", "target"]
 	}`),
-	function("Detect", "Inventory every instance of a kind of thing in an image and get back a numbered list of pixel boxes, one per match — for \"what buttons are on this page\" rather than \"where is the submit button\", which is what Ground answers. category names the kind to look for and is worth naming precisely: the model enumerates what LOOKS like the category, so a status badge shaped like a button is listed as a button, which makes an inventory a starting point to check against the markup rather than an authority on what the page holds. Omitted, category defaults to UI elements generally (buttons, links, inputs, icons, labels, headings, images, badges), and every entry's label carries the element's own visible text. Feed a box from the result to Crop for a full-resolution look at one entry, or to Glance's region to ask a question about just it. region narrows the search to part of the image first, the returned boxes staying in the original image's coordinates regardless. Images are PNG, JPEG, or WebP, workspace-relative or absolute paths. A call costs many times an ordinary sub-turn and the result says what it cost.", `{
+	function("detect", "Inventory every instance of a kind of thing in an image and get back a numbered list of pixel boxes, one per match — for \"what buttons are on this page\" rather than \"where is the submit button\", which is what ground answers. category names the kind to look for and is worth naming precisely: the model enumerates what LOOKS like the category, so a status badge shaped like a button is listed as a button, which makes an inventory a starting point to check against the markup rather than an authority on what the page holds. Omitted, category defaults to UI elements generally (buttons, links, inputs, icons, labels, headings, images, badges), and every entry's label carries the element's own visible text. Feed a box from the result to crop for a full-resolution look at one entry, or to glance's region to ask a question about just it. region narrows the search to part of the image first, the returned boxes staying in the original image's coordinates regardless. Images are PNG, JPEG, or WebP, workspace-relative or absolute paths. A call costs many times an ordinary sub-turn and the result says what it cost.", `{
 		"type": "object",
 		"properties": {
 			"image_path": {"type": "string", "description": "Absolute or workspace-relative path to a PNG, JPEG, or WebP image."},
@@ -219,22 +234,22 @@ var definitionsDeepSeek = []wire.Tool{
 		},
 		"required": ["image_path"]
 	}`),
-	function("Crop", "Cut a pixel box out of an image into its own file. No model call and no cost — this is local image manipulation, the way to turn a box Ground or Detect located into an image Glance can read at full resolution instead of as a few pixels of the whole page. region is the box to cut, the same x1,y1,x2,y2 shape Ground and Detect report. output names where to write the result, defaulting to the source's own name with .crop.png appended, next to it; scale enlarges the cut region by an integer factor, for a small source where a plain crop would still be too small to read clearly.", `{
+	function("crop", "Cut a pixel box out of an image into its own file. No model call and no cost — this is local image manipulation, the way to turn a box ground or detect located into an image glance can read at full resolution instead of as a few pixels of the whole page. region is the box to cut, the same x1,y1,x2,y2 shape ground and detect report. output names where to write the result, defaulting to the source's own name with .crop.png appended, next to it; scale enlarges the cut region by an integer factor, for a small source where a plain crop would still be too small to read clearly.", `{
 		"type": "object",
 		"properties": {
 			"image_path": {"type": "string", "description": "Absolute or workspace-relative path to the PNG, JPEG, or WebP image to cut from."},
-			"region": {"type": "string", "description": "The pixel box to cut out, X1,Y1,X2,Y2 — the same shape Ground and Detect report, so a match either tool located can be cut out directly."},
+			"region": {"type": "string", "description": "The pixel box to cut out, X1,Y1,X2,Y2 — the same shape ground and detect report, so a match either tool located can be cut out directly."},
 			"output": {"type": "string", "description": "Where to write the cropped image, under scratch/ — crops go where screenshots go, never beside a file in a cloned repository. Defaults to the source's name with .crop.png appended. A relative path lands under scratch/ whether or not you spell the prefix; an absolute path outside it is refused. The extension chooses the encoding; one this harness cannot encode falls back to the source's own format."},
 			"scale": {"type": "integer", "description": "Enlarge the cropped region by this integer factor before writing it, for a source small enough that a plain crop would still be hard to read."}
 		},
 		"required": ["image_path", "region"]
 	}`),
-	// Transcribe is the one vision tool that makes more than one call, and
+	// transcribe is the one vision tool that makes more than one call, and
 	// its description says so in words rather than numbers for the same
 	// reason as the rest: the chunk cap and the concurrency are settings,
 	// and a figure here would vary per installation inside the frozen
 	// request head (docs/CACHE.md).
-	function("Transcribe", "Read all the text off an image too tall for one look — a full-page screenshot, a long document, a scrolling capture. It cuts the image into horizontal chunks along bands of blank pixels so no line of text is sliced, transcribes each chunk in its own vision call at full resolution, and joins the results back into one document. Use it instead of Glance with ocr whenever the image is much taller than it is wide: a vision model spends the same fixed budget on an image whatever its size, so a tall page read in one call comes back with the detail of a thumbnail, and the transcript quietly covers only the part it could still resolve. The result opens with a report — where the image was cut, what was removed as a repeat at each join, and which joins to check against the image — and then the transcript. Read that report: a merge that goes wrong drops or duplicates a line silently, so a seam marked CHECK is the one place the text may not match the page, and the y positions it names can be handed straight to Crop for a closer look. Costs one vision call per chunk, all of them billed together, and the result says what the lot cost. Images are PNG, JPEG, or WebP, workspace-relative or absolute paths.", `{
+	function("transcribe", "Read all the text off an image too tall for one look — a full-page screenshot, a long document, a scrolling capture. It cuts the image into horizontal chunks along bands of blank pixels so no line of text is sliced, transcribes each chunk in its own vision call at full resolution, and joins the results back into one document. Use it instead of glance with ocr whenever the image is much taller than it is wide: a vision model spends the same fixed budget on an image whatever its size, so a tall page read in one call comes back with the detail of a thumbnail, and the transcript quietly covers only the part it could still resolve. The result opens with a report — where the image was cut, what was removed as a repeat at each join, and which joins to check against the image — and then the transcript. Read that report: a merge that goes wrong drops or duplicates a line silently, so a seam marked CHECK is the one place the text may not match the page, and the y positions it names can be handed straight to crop for a closer look. Costs one vision call per chunk, all of them billed together, and the result says what the lot cost. Images are PNG, JPEG, or WebP, workspace-relative or absolute paths.", `{
 		"type": "object",
 		"properties": {
 			"image_path": {"type": "string", "description": "Absolute or workspace-relative path to the PNG, JPEG, or WebP image to transcribe."},
@@ -246,11 +261,11 @@ var definitionsDeepSeek = []wire.Tool{
 	// timeout is a setting and the dimension bounds are stated by the
 	// refusal message that quotes them, so nothing here varies per
 	// installation (docs/CACHE.md).
-	function("Screenshot", "Capture a web page as an image with a headless browser, writing one PNG or JPEG into scratch/ for Glance to review or a human to look at in the transcript. Defaults to the visible viewport in the light colour scheme, which is almost always what you want: a full-page capture of a long document is downscaled to the same size as a viewport one, so everything on it shrinks until small controls are unreadable. When the question is about one control, pass selector and capture just that element. When the page has a dark mode, capture both colour schemes — a layout that holds in one can break in the other. When the state worth photographing is not the one a fresh load produces — a dialog that has to be opened, an overlay covering the form, a field that has to be filled — pass actions to drive the page there first, rather than dropping to a browser script and losing these defaults. The result reports the file written, which actions ran, whether the document ran past the bottom of the viewport, and any console or page errors, so a blank capture comes back with the reason it was blank.", `{
+	function("screenshot", "Capture a web page as an image with a headless browser, writing one PNG or JPEG into scratch/ for glance to review or a human to look at in the transcript. Defaults to the visible viewport in the light colour scheme, which is almost always what you want: a full-page capture of a long document is downscaled to the same size as a viewport one, so everything on it shrinks until small controls are unreadable. When the question is about one control, pass selector and capture just that element. When the page has a dark mode, capture both colour schemes — a layout that holds in one can break in the other. When the state worth photographing is not the one a fresh load produces — a dialog that has to be opened, an overlay covering the form, a field that has to be filled — pass actions to drive the page there first, rather than dropping to a browser script and losing these defaults. The result reports the file written, which actions ran, whether the document ran past the bottom of the viewport, and any console or page errors, so a blank capture comes back with the reason it was blank.", `{
 		"type": "object",
 		"properties": {
 			"url": {"type": "string", "description": "The http, https, or file URL to capture. A dev server this session started is the usual target."},
-			"path": {"type": "string", "description": "Where to write the image, under scratch/ — for example scratch/home-dark.png. Must end in .png, .jpg, or .jpeg. Name it for what it shows, because this path is what you pass to Glance and what a human sees under the image in the transcript."},
+			"path": {"type": "string", "description": "Where to write the image, under scratch/ — for example scratch/home-dark.png. Must end in .png, .jpg, or .jpeg. Name it for what it shows, because this path is what you pass to glance and what a human sees under the image in the transcript."},
 			"width": {"type": "integer", "description": "Viewport width in pixels. Defaults to a desktop layout; pass a phone width to check a responsive layout."},
 			"height": {"type": "integer", "description": "Viewport height in pixels."},
 			"device_scale_factor": {"type": "integer", "description": "Pixel density, 1 by default. Raise it only when fine detail has to stay readable at full size — it multiplies the file size, and a vision model downscales the image regardless."},
@@ -272,7 +287,7 @@ var definitionsDeepSeek = []wire.Tool{
 		},
 		"required": ["url", "path"]
 	}`),
-	function("Complete", "End the run and report its outcome. summary is prose for a human; result is the machine-readable payload, validated against the schema given in the opening message if one was supplied.", `{
+	function("complete", "End the run and report its outcome. summary is prose for a human; result is the machine-readable payload, validated against the schema given in the opening message if one was supplied.", `{
 		"type": "object",
 		"properties": {
 			"summary": {"type": "string", "description": "Prose summary of what was done, for a human reading the transcript"},
@@ -284,7 +299,7 @@ var definitionsDeepSeek = []wire.Tool{
 }
 
 // definitionsVisionCapable is the array for every model that reads images
-// natively (provider.SeesImages): DeepSeek's twenty-two minus the six tools that
+// natively (provider.SeesImages): definitionsDeepSeek minus the six tools that
 // exist only to get an image in front of a model that cannot see one
 // itself. Kimi K3 was the first (docs/KIMI-INTEGRATION.md §4.5) and Gemini
 // is the second (docs/GEMINI-INTEGRATION.md §5.7) — both drop the identical
@@ -296,16 +311,26 @@ var definitionsDeepSeek = []wire.Tool{
 // Kimi's name since it was captured for Kimi first and the bytes are
 // identical for Gemini; TestToolArrayGolden's gemini case reads the same
 // file rather than a duplicate).
-var definitionsVisionCapable = without(definitionsDeepSeek, "Screenshot", "Glance", "Ground", "Detect", "Transcribe", "Crop")
+var definitionsVisionCapable = without(definitionsDeepSeek, "screenshot", "glance", "ground", "detect", "transcribe", "crop")
 
-// definitionsClaude is definitionsVisionCapable minus WebFetch: a Claude
+// definitionsClaude is definitionsVisionCapable minus web_fetch: a Claude
 // session carries Anthropic's own server-side web_search and web_fetch tools
 // instead (internal/anthropic's intent renderer appends them after this
-// array, docs/ANTHROPIC-INTEGRATION.md), so the harness's own WebFetch would
+// array, docs/ANTHROPIC-INTEGRATION.md), so the harness's own web_fetch would
 // be a second, redundant way to fetch a URL. The six vision tools are
 // already dropped for the same reason every vision-capable model drops
 // them — Claude reads images natively.
-var definitionsClaude = without(definitionsVisionCapable, "WebFetch")
+var definitionsClaude = without(definitionsVisionCapable, "web_fetch")
+
+// definitionsDeepSeekHosted is the array a DeepSeek model is offered: the
+// vision-capable array minus the harness's own additions, which have no
+// counterpart in DeepSeek's harness
+// (docs/plans/archive/deepseek-tool-vocabulary.md, "DeepSeek's array drops the
+// harness-added tools"). Kimi, Gemini and Claude
+// keep all seven, because their arrays are this harness's own and nothing
+// about them is being aligned with DeepSeek's.
+var definitionsDeepSeekHosted = without(definitionsVisionCapable,
+	"list", "task_create", "task_get", "task_list", "task_update", "task", "complete")
 
 // without returns tools minus every entry whose name is in drop. Callers
 // must not mutate the result.
@@ -337,8 +362,8 @@ func function(name, description, parameters string) wire.Tool {
 	}
 }
 
-// Definitions returns the DeepSeek tool array — the twenty-two tools the
-// harness has always shipped, unchanged byte for byte
+// Definitions returns the base tool array: every tool the harness ships,
+// unchanged byte for byte
 // (docs/KIMI-INTEGRATION.md §4.2). It is the array every pre-Phase-8 caller
 // meant, and the default for anything that does not resolve to a provider
 // (an unknown model falls back to the default provider, DeepSeek). Callers
@@ -348,12 +373,17 @@ func Definitions() []wire.Tool {
 }
 
 // DefinitionsFor returns the frozen tool array for model. A Claude model
-// resolves to definitionsClaude before the vision check runs, because
+// resolves to definitionsClaude and a DeepSeek model to
+// definitionsDeepSeekHosted, both before the vision check runs, because
 // provider.SeesImages is also true for it and would otherwise hand back
-// definitionsVisionCapable with WebFetch still in it — the one array-level
+// definitionsVisionCapable with web_fetch still in it — the one array-level
 // decision that is the provider's rather than the vision table's, since it
 // is about which web tool the model carries rather than whether it can see.
-// Every other model resolves through the one model→capability table that
+// A DeepSeek model is the one provider whose array is subtracted from: the
+// harness-added list, task and complete tools have no counterpart in
+// DeepSeek's own harness, so they come off the array that model is offered
+// and stay in every other. Every other model resolves through the one
+// model→capability table that
 // decides vision (internal/provider, provider.SeesImages) rather than
 // through the provider serving it — a table keyed by model rather than by
 // provider is what would let a future DeepSeek model disagree with
@@ -365,8 +395,13 @@ func Definitions() []wire.Tool {
 // belt-and-braces for direct CLI callers rather than a route anything can
 // take by mistake. Callers must not mutate the result.
 func DefinitionsFor(model string) []wire.Tool {
-	if name, err := provider.ModelFor(model); err == nil && name == provider.Anthropic {
-		return definitionsClaude
+	if name, err := provider.ModelFor(model); err == nil {
+		switch name {
+		case provider.Anthropic:
+			return definitionsClaude
+		case provider.DeepSeek:
+			return definitionsDeepSeekHosted
+		}
 	}
 	if provider.SeesImages(model) {
 		return definitionsVisionCapable
@@ -401,7 +436,7 @@ func DefinitionsForVariant(model, variant string) []wire.Tool {
 	return without(defs, dropped...)
 }
 
-// mcpAccessTools are the four fixed tools that reach a server's resources
+// mcpAccessTools are the five fixed tools that reach a server's resources
 // and prompts (mcpresources.go, docs/MCP.md "Resources"). They sit between
 // the built-in array and the servers' own tools, and only when there are
 // servers' own tools to sit in front of: a session with nothing configured
@@ -411,15 +446,23 @@ func DefinitionsForVariant(model, variant string) []wire.Tool {
 var _ = [1]struct{}{}[len(mcpAccessTools)-MCPAccessToolCount]
 
 var mcpAccessTools = []wire.Tool{
-	function("MCPListResources", "List the resources and resource templates the configured MCP servers advertise. "+
-		"A resource is data a server exposes for reading — a file, a record, a document — reached with MCPReadResource. "+
+	function("list_mcp_resources", "List the resources and resource templates the configured MCP servers advertise. "+
+		"A resource is data a server exposes for reading — a file, a record, a document — reached with read_mcp_resource. "+
 		"A template has {placeholders} in its URI and must be filled in before it can be read.", `{
 		"type": "object",
 		"properties": {
 			"server": {"type": "string", "description": "Only list this server's resources. Omit for all of them."}
 		}
 	}`),
-	function("MCPReadResource", "Read one resource from one MCP server, by the URI MCPListResources gave.", `{
+	function("list_mcp_resource_templates", "List the resource templates the configured MCP servers advertise, without the resources beside them. "+
+		"A template has {placeholders} in its URI, so it is a shape to fill in rather than something readable as it stands: "+
+		"fill them in and read the result with read_mcp_resource.", `{
+		"type": "object",
+		"properties": {
+			"server": {"type": "string", "description": "Only list this server's resource templates. Omit for all of them."}
+		}
+	}`),
+	function("read_mcp_resource", "Read one resource from one MCP server, by the URI list_mcp_resources gave.", `{
 		"type": "object",
 		"properties": {
 			"server": {"type": "string", "description": "The MCP server holding the resource"},
@@ -427,18 +470,18 @@ var mcpAccessTools = []wire.Tool{
 		},
 		"required": ["server", "uri"]
 	}`),
-	function("MCPListPrompts", "List the prompts the configured MCP servers advertise, with the arguments each takes. "+
-		"A prompt is a message template its server composed for a task it supports; render one with MCPGetPrompt.", `{
+	function("list_mcp_prompts", "List the prompts the configured MCP servers advertise, with the arguments each takes. "+
+		"A prompt is a message template its server composed for a task it supports; render one with get_mcp_prompt.", `{
 		"type": "object",
 		"properties": {
 			"server": {"type": "string", "description": "Only list this server's prompts. Omit for all of them."}
 		}
 	}`),
-	function("MCPGetPrompt", "Render one prompt from one MCP server and return the messages it produces.", `{
+	function("get_mcp_prompt", "Render one prompt from one MCP server and return the messages it produces.", `{
 		"type": "object",
 		"properties": {
 			"server": {"type": "string", "description": "The MCP server holding the prompt"},
-			"name": {"type": "string", "description": "The prompt's name, as MCPListPrompts gave it"},
+			"name": {"type": "string", "description": "The prompt's name, as list_mcp_prompts gave it"},
 			"arguments": {"type": "object", "description": "The prompt's arguments, as name/value string pairs"}
 		},
 		"required": ["server", "name"]
@@ -446,12 +489,12 @@ var mcpAccessTools = []wire.Tool{
 }
 
 // MCPAccessToolCount is how many fixed tools WithMCP inserts ahead of a
-// server's own. Exported for tests that assert on array lengths, so a fifth
+// server's own. Exported for tests that assert on array lengths, so a sixth
 // access tool does not silently turn a meaningful assertion into an
 // arithmetic one.
-const MCPAccessToolCount = 4
+const MCPAccessToolCount = 5
 
-// WithMCP returns base, then the four fixed MCP access tools, then mcp — as
+// WithMCP returns base, then the five fixed MCP access tools, then mcp — as
 // a new slice, with the frozen provider/variant array's bytes first, so the
 // built-in portion's own bytes are unchanged by whatever is or is not
 // configured (docs/MCP.md, "Ordering is deterministic"). Runner.Run calls

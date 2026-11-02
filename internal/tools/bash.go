@@ -17,13 +17,14 @@ import (
 
 type bashArgs struct {
 	Command         string `json:"command"`
-	TimeoutMS       int    `json:"timeout"`
+	TimeoutMS       int    `json:"timeoutMs"`
 	Description     string `json:"description"`
 	RunInBackground bool   `json:"run_in_background"`
+	Workdir         string `json:"workdir"`
 }
 
-// shellPath is the shell every Bash call runs through: bash where it exists,
-// the system sh otherwise. The tool is named Bash and models write bash —
+// shellPath is the shell every bash call runs through: bash where it exists,
+// the system sh otherwise. The tool is named bash and models write bash —
 // arrays, [[ ]], ${PIPESTATUS[0]} — which busybox ash rejects as a syntax
 // error. Resolved once, since PATH does not change under a running process.
 var shellPath = sync.OnceValue(func() string {
@@ -41,7 +42,30 @@ func systemShell(goos string) string {
 	return "/bin/sh"
 }
 
-// execBash implements Bash: foreground only, wall-clock timeout from ctx
+// bashWorkdir resolves the directory a bash call runs in: the workspace when
+// the call named none, otherwise a path confined to the workspace the same
+// way every other path argument is. It must name an existing directory,
+// because os/exec's own failure for a bad Dir is a bare errno the model can
+// do nothing with.
+func (e *Executor) bashWorkdir(userPath string) (string, error) {
+	if strings.TrimSpace(userPath) == "" {
+		return e.Workspace, nil
+	}
+	dir, err := ResolvePath(e.Workspace, userPath)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(dir)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("%s is not a directory", userPath)
+	}
+	return dir, nil
+}
+
+// execBash implements bash: foreground only, wall-clock timeout from ctx
 // (set in Executor.timeoutFor), output capped and labelled on truncation
 // (docs/TOOLS.md).
 func execBash(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result {
@@ -52,12 +76,16 @@ func execBash(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 	if args.Command == "" {
 		return errorResult("command is required")
 	}
+	dir, err := e.bashWorkdir(args.Workdir)
+	if err != nil {
+		return errorResult("workdir: %v", err)
+	}
 	if args.RunInBackground {
-		return execBashBackground(ctx, e, args.Command)
+		return execBashBackground(ctx, e, args.Command, dir)
 	}
 
 	cmd := exec.CommandContext(ctx, shellPath(), "-c", args.Command)
-	cmd.Dir = e.Workspace
+	cmd.Dir = dir
 
 	// A nil cmd.Env inherits this process's environment, which is how the
 	// ambient credentials the parent process set reach git and gh. Env is
@@ -85,7 +113,7 @@ func execBash(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 	// forever — past the tool timeout, past a cancelled context. WaitDelay
 	// bounds that wait, and the process group (bashGroup) is what lets the
 	// kill reach the pipe-holder instead of only the direct shell child
-	// (docs/TOOLS.md, "Bash").
+	// (docs/TOOLS.md, "bash").
 	waitDelay := e.bashWaitDelay(ctx)
 	cmd.WaitDelay = waitDelay
 	group := bashGroup(cmd)
@@ -157,7 +185,7 @@ func runGrouped(cmd *exec.Cmd, group *groupKiller) error {
 	return cmd.Wait()
 }
 
-// capturedBuffer is the buffer a Bash call captures its command's stdout and
+// capturedBuffer is the buffer a `bash` call captures its command's stdout and
 // stderr into. cmd.Stdout and cmd.Stderr are distinct writer values, so the
 // two copy goroutines can call Write concurrently; and once WaitDelay can
 // make Wait return while a copy goroutine is still writing, the post-Wait read

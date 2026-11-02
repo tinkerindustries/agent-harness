@@ -3,7 +3,7 @@
 How the harness reaches tools that are not its own: an operator registers a
 Model Context Protocol server once, globally, and every session started after
 that carries the server's tools in its tool array alongside the built-in
-twenty.
+array.
 
 This is the client side, and it is the only MCP direction the harness has.
 
@@ -236,22 +236,23 @@ They are **not** tools on the model's array, and that is the whole design.
 The array is frozen for the life of a run, so a server holding a
 documentation set would either flood every request with hundreds of entries
 or change the array whenever its contents changed — invalidating the
-prompt-cache prefix of a session already running. Instead, four fixed tools
+prompt-cache prefix of a session already running. Instead, five fixed tools
 appear whenever a session has any MCP tools at all:
 
 | Tool | What it does |
 | --- | --- |
-| `MCPListResources` | lists resources and templates from the stored snapshot |
-| `MCPReadResource` | reads one, live, by server and URI |
-| `MCPListPrompts` | lists prompts and the arguments each takes |
-| `MCPGetPrompt` | renders one, live |
+| `list_mcp_resources` | lists resources and templates from the stored snapshot |
+| `list_mcp_resource_templates` | lists resource templates alone, from the stored snapshot |
+| `read_mcp_resource` | reads one, live, by server and URI |
+| `list_mcp_prompts` | lists prompts and the arguments each takes |
+| `get_mcp_prompt` | renders one, live |
 
-Four definitions, no matter how much is behind them. Listing reads the
+Five definitions, no matter how much is behind them. Listing reads the
 snapshot — so an unreachable server still lists what it had; reading dials,
 because the contents are the point and a stale copy would be worse than an
 error.
 
-`MCPReadResource` refuses a URI containing `{}`. Reading a template
+`read_mcp_resource` refuses a URI containing `{}`. Reading a template
 literally may well *succeed*, returning the server's answer for a record
 called `{id}` — a plausible wrong answer the model cannot tell from a right
 one.
@@ -260,11 +261,11 @@ one.
 
 A prompt is a message template its server composed for a task it supports,
 with named arguments. Snapshotted into `prompts_json` and reached through
-`MCPListPrompts` / `MCPGetPrompt`, for the same reason resources are. A
+`list_mcp_prompts` / `get_mcp_prompt`, for the same reason resources are. A
 prompt is listed with its arguments always: a prompt named alone is a prompt
 the model can only call wrong.
 
-`GetPrompt` flattens the messages a server returns into text with each
+`get_mcp_prompt` flattens the messages a server returns into text with each
 message's role in front of it. The roles stay because a prompt is a
 conversation the server composed, and running two speakers together loses
 where the turn changed.
@@ -321,7 +322,7 @@ is telling the operator something about how it expects to be driven.
 
 ## Completions
 
-`Complete` asks a server what values an argument could take. It is an
+The `completion/complete` request asks a server what values an argument could take. It is an
 operator-facing call only: nothing in a run makes it, because a model does not
 autocomplete. A server without the capability answers with an
 error, which surfaces as a 502 naming the server rather than a 500 that reads
@@ -335,7 +336,7 @@ they route differently because only one of them can be tied back to a caller.
 **Progress.** A notification names the call it belongs to, via a token this
 client attaches when — and only when — something is listening. It is
 streamed into the transcript as `tool_stdout`, the same channel a running
-`Bash` command's output uses, so a three-minute render shows progress
+`bash` command's output uses, so a three-minute render shows progress
 instead of looking like a hang. A token is not issued for a call nobody is
 watching: asking a server to narrate itself into a log nothing reads is
 traffic for its own sake.

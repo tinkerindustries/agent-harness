@@ -15,7 +15,7 @@ import (
 // parts, legal on any role. Both messages carry a text part and an image_url
 // part with a short base64 data URI, on a user message and on a tool-result
 // message (which the schema explicitly allows), since a tool result is how a
-// future Read of an image reaches the model (docs/KIMI-INTEGRATION.md §4.5).
+// future `read` of an image reaches the model (docs/KIMI-INTEGRATION.md §4.5).
 // The text-only shapes stay pinned by the original golden file.
 func partsGoldenRequest(t *testing.T) wire.ChatCompletionRequest {
 	t.Helper()

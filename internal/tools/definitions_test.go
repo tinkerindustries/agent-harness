@@ -40,7 +40,7 @@ func TestWithMCPCopiesAndDoesNotCorruptTheFrozenArray(t *testing.T) {
 
 	// The two results must be independent: first must carry only blender's
 	// tool, second only chrome's, and neither must have picked up the
-	// other's. Both also carry the four fixed MCP access tools, which sit
+	// other's. Both also carry the five fixed MCP access tools, which sit
 	// between the base array and the servers' own (docs/MCP.md,
 	// "Resources") — hence the offset on every index below.
 	access := tools.MCPAccessToolCount
@@ -80,8 +80,8 @@ func TestWithMCPCopiesAndDoesNotCorruptTheFrozenArray(t *testing.T) {
 // array instead of copying.
 func TestWithMCPDoesNotWriteIntoSpareCapacity(t *testing.T) {
 	base := make([]wire.Tool, 2, 5)
-	base[0] = mcpTool("Read")
-	base[1] = mcpTool("Write")
+	base[0] = mcpTool("read")
+	base[1] = mcpTool("write")
 
 	access := tools.MCPAccessToolCount
 	first := tools.WithMCP(base, []wire.Tool{mcpTool("mcp__blender__a")})

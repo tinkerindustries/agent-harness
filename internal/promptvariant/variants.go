@@ -57,23 +57,23 @@ type variant struct {
 // searchToolsRule is the base prompt's whole instruction about searching. It
 // is one line today, which is what the sessions measured against it ignored:
 // 1802 shell greps against 263 Grep calls and 19 Glob calls.
-const searchToolsRule = "- Prefer Grep and Glob to orient before reading whole files."
+const searchToolsRule = "- Prefer grep and glob to orient before reading whole files."
 
 // planRule is the base prompt's opening of the plan rule, present in both
 // provider heads. The kimi-steps variant extends it, so its anchor is a
 // complete sentence pair rather than a partial line.
-const planRule = "- A task that takes three or more steps gets a plan. Call TaskCreate once, at\n" +
+const planRule = "- A task that takes three or more steps gets a plan. Call task_create once, at\n" +
 	"  the start, with one entry per step."
 
 var variants = map[string]variant{
 	Base: {description: "the shipped prompt, unchanged"},
 
 	"search-first": {
-		description: "names the Grep and Glob tools as the way to search, and says what Bash is for instead",
+		description: "names the grep and glob tools as the way to search, and says what bash is for instead",
 		replacements: map[string]string{
-			searchToolsRule: "- Search with the Grep and Glob tools, not with Bash. Grep takes a\n" +
-				"  regular expression and an optional glob; Glob takes a path pattern like\n" +
-				"  **/*.go. Reach for Bash when you need a shell — running a build, a test,\n" +
+			searchToolsRule: "- Search with the grep and glob tools, not with bash. grep takes a\n" +
+				"  regular expression and an optional glob; glob takes a path pattern like\n" +
+				"  **/*.go. Reach for bash when you need a shell — running a build, a test,\n" +
 				"  a git command — not to find a file or a string.",
 		},
 	},
@@ -86,9 +86,9 @@ var variants = map[string]variant{
 	"search-first-remind": {
 		description: "the search-first wording, re-stated as the context grows",
 		replacements: map[string]string{
-			searchToolsRule: "- Search with the Grep and Glob tools, not with Bash. Grep takes a\n" +
-				"  regular expression and an optional glob; Glob takes a path pattern like\n" +
-				"  **/*.go. Reach for Bash when you need a shell — running a build, a test,\n" +
+			searchToolsRule: "- Search with the grep and glob tools, not with bash. grep takes a\n" +
+				"  regular expression and an optional glob; glob takes a path pattern like\n" +
+				"  **/*.go. Reach for bash when you need a shell — running a build, a test,\n" +
 				"  a git command — not to find a file or a string.",
 		},
 		reminder: "search-64k",
@@ -97,7 +97,7 @@ var variants = map[string]variant{
 	"search-cost": {
 		description: "gives the reason to prefer the search tools rather than only the instruction",
 		replacements: map[string]string{
-			searchToolsRule: "- Search with the Grep and Glob tools rather than shelling out. They\n" +
+			searchToolsRule: "- Search with the grep and glob tools rather than shelling out. They\n" +
 				"  return the same answer in one call, already scoped to the workspace, and\n" +
 				"  they cannot fail on a flag the shell's own grep does not have.",
 		},
@@ -106,7 +106,8 @@ var variants = map[string]variant{
 	// kimi-steps is the wording arm of the Kimi prompt A/B
 	// (docs/KIMI-INTEGRATION.md §4.4, Phase 9). The other arm is base on
 	// kimi-k3: a Kimi session's shipped head now carries the corrected
-	// fourteen-tool inventory (internal/session), and this variant adds
+	// inventory for its array (internal/session, internal/tools/definitions.go),
+	// and this variant adds
 	// step-by-step execution wording drawn from Kimi's own prompt guidance
 	// (third_party/kimi-docs/guide/prompt-best-practice.md, "Clearly Define
 	// the Steps Needed to Complete the Task"). Running the same suite under
@@ -119,20 +120,31 @@ var variants = map[string]variant{
 		},
 	},
 
-	// no-bash is the tool-dropping arm: the session is offered no Bash
+	// no-bash is the tool-dropping arm: the session is offered no bash
 	// tool, so the shell rule, the batch rule and every other fragment that
-	// needs Bash fall out of the head with it, and the inventory and its
+	// needs bash fall out of the head with it, and the inventory and its
 	// count follow the array — no replacements entry is needed, and one
 	// that restated the inventory would be the drift this mechanism
 	// exists to remove. What it measures is whether a session routes
-	// around a missing tool instead of stalling on it. BashOutput and
-	// KillBash drop with it: neither means anything without Bash to start
-	// a background shell for them to act on, and leaving either in the
-	// array would put "Bash" back in the inventory sentence as a substring
+	// around a missing tool instead of stalling on it. job_output,
+	// job_kill and job_list drop with it: none means anything without bash
+	// to start a background job for them to act on, and leaving any in the
+	// array would put "bash" back in the inventory sentence as a substring
 	// of their own names.
 	"no-bash": {
-		description: "the shipped prompt with Bash, BashOutput, and KillBash dropped — no shell rule, no batch rule naming Bash, and an inventory that names the nineteen tools the session is actually sent",
-		dropTools:   []string{"Bash", "BashOutput", "KillBash"},
+		description: "the shipped prompt with bash, job_output, job_kill and job_list dropped — no shell rule, no batch rule naming bash, and an inventory that names only the tools the session is actually sent",
+		dropTools:   []string{"bash", "job_output", "job_kill", "job_list"},
+	},
+
+	// no-patch is the editing-tool arm: the session is offered write and
+	// edit but not apply_patch, so the head's apply_patch rule falls out with
+	// the tool and the inventory names only what the session is sent. What
+	// it measures is whether a session does better with one editing tool
+	// than with two. The plan's risk is that a model picks a patch where edit
+	// was more reliable.
+	"no-patch": {
+		description: "the shipped prompt with apply_patch dropped: the editing rule names write and edit only, and an inventory that names only the tools the session is actually sent; compare with base on the same model",
+		dropTools:   []string{"apply_patch"},
 	},
 }
 

@@ -33,8 +33,8 @@ type subTurnOutcome struct {
 	// whose boundary is clear, so what was held back is delivered rather than
 	// withdrawn unseen.
 	deferred bool
-	// completeError is the message a rejected Complete came back with, and
-	// "" when this sub-turn had no rejected Complete. The loop in Run
+	// completeError is the message a rejected `complete` came back with, and
+	// "" when this sub-turn had no rejected `complete`. The loop in Run
 	// compares it across sub-turns to notice a model retrying an identical
 	// rejection rather than correcting it (see maxCompleteRejections).
 	completeError string
@@ -467,8 +467,8 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	}
 
 	outcomes := r.executeToolCalls(ctx, sess, executor, toolCalls)
-	// The plan column can only be persisted after the calls ran: TaskCreate
-	// mints ids and TaskUpdate patches fields inside the handlers, so
+	// The plan column can only be persisted after the calls ran: task_create
+	// mints ids and task_update patches fields inside the handlers, so
 	// executor.Todos() below reflects this sub-turn's mutations. The roll was
 	// already handled by persistLiveState before execution.
 	r.persistTaskState(ctx, sess, executor, toolCalls)
@@ -506,7 +506,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 			completed = true
 			completePayload = oc.CompletePayload
 		}
-		if oc.Name == "Complete" && !oc.IsComplete && oc.Result.IsError && completeError == "" {
+		if oc.Name == "complete" && !oc.IsComplete && oc.Result.IsError && completeError == "" {
 			completeError = oc.Result.Content
 		}
 	}

@@ -13,12 +13,13 @@ import (
 	"time"
 )
 
-// backgroundShell tracks one Bash call started with run_in_background: true,
-// so a later BashOutput can read what it has produced since the last poll
-// and KillBash can end it. It is session state, not the tool call's: the
+// backgroundShell tracks one bash call started with run_in_background: true,
+// so a later job_output can read what it has produced since the last poll
+// and job_kill can end it. It is session state, not the tool call's: the
 // call that started it has already returned by the time anything reads
 // this.
 type backgroundShell struct {
+	command string
 	started time.Time
 	killer  *groupKiller
 	buf     *capturedBuffer
@@ -33,6 +34,10 @@ type backgroundShell struct {
 	quiet    bool
 	exitCode int
 	wedged   bool // exec.ErrWaitDelay: exited, but left a process holding its output open
+
+	// doneCh closes once, after cmd.Wait has set done and the exit fields
+	// above, so a job_output with wait parks on it rather than polling.
+	doneCh chan struct{}
 }
 
 // ShellExit is one background shell's ending. The registry reports it once,
@@ -47,9 +52,9 @@ type ShellExit struct {
 }
 
 // Shells is the set of background shells one session has running, keyed by
-// the id Bash mints. It belongs to the session rather than to an Executor,
-// because a shell a Bash call started outlives the run that started it: the
-// next run's BashOutput has to find the same id. The process closes it when
+// the id bash mints. It belongs to the session rather than to an Executor,
+// because a shell a bash call started outlives the run that started it: the
+// next run's job_output has to find the same id. The process closes it when
 // the session ends, and a stopped run closes it explicitly; Close on an
 // Executor that was handed one of these leaves it alone.
 //
@@ -58,9 +63,11 @@ type ShellExit struct {
 // it under a new one, and a shell started after that belongs to the new row.
 // SetSessionID is how the loop moves the registry with it.
 type Shells struct {
-	mu      sync.Mutex
-	byID    map[string]*backgroundShell
-	nextID  int
+	mu     sync.Mutex
+	byID   map[string]*backgroundShell
+	order  []string
+	nextID int
+	// session and onExit are guarded by mu like the rest of the registry.
 	session string
 	onExit  func(sessionID string, exit ShellExit)
 }
@@ -99,6 +106,7 @@ func (s *Shells) add(bg *backgroundShell) string {
 	s.nextID++
 	id := fmt.Sprintf("bash_%d", s.nextID)
 	s.byID[id] = bg
+	s.order = append(s.order, id)
 	return id
 }
 
@@ -107,6 +115,64 @@ func (s *Shells) get(id string) (*backgroundShell, bool) {
 	defer s.mu.Unlock()
 	bg, ok := s.byID[id]
 	return bg, ok
+}
+
+// jobState is one job's row in job_list: the id bash minted, the command it
+// runs, when it started and how it stands.
+type jobState struct {
+	ID       string
+	Command  string
+	Started  time.Time
+	Done     bool
+	Killed   bool
+	Wedged   bool
+	ExitCode int
+}
+
+// list returns every job the registry holds, in the order the jobs were
+// started. A finished job stays in the registry, so a job that exited while
+// the model was busy elsewhere is still there to be listed and read.
+func (s *Shells) list() []jobState {
+	type entry struct {
+		id string
+		bg *backgroundShell
+	}
+	s.mu.Lock()
+	entries := make([]entry, 0, len(s.order))
+	for _, id := range s.order {
+		if bg, ok := s.byID[id]; ok {
+			entries = append(entries, entry{id: id, bg: bg})
+		}
+	}
+	s.mu.Unlock()
+
+	out := make([]jobState, 0, len(entries))
+	for _, e := range entries {
+		e.bg.mu.Lock()
+		out = append(out, jobState{
+			ID:       e.id,
+			Command:  e.bg.command,
+			Started:  e.bg.started,
+			Done:     e.bg.done,
+			Killed:   e.bg.killed,
+			Wedged:   e.bg.wedged,
+			ExitCode: e.bg.exitCode,
+		})
+		e.bg.mu.Unlock()
+	}
+	return out
+}
+
+// wait blocks until bg exits or ctx is done, and reports whether it exited.
+// A timed-out wait leaves the job running; the caller reports the output so
+// far either way.
+func (s *Shells) wait(ctx context.Context, bg *backgroundShell) bool {
+	select {
+	case <-bg.doneCh:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 func (s *Shells) finished(exit ShellExit) {
@@ -133,7 +199,7 @@ func (s *Shells) Close() {
 		bg.mu.Lock()
 		done := bg.done
 		if !done {
-			// Marked before the kill for the same reason KillBash marks it:
+			// Marked before the kill for the same reason job_kill marks it:
 			// the wait goroutine reads this when it builds the ShellExit, and
 			// a stop's notice should say killed, not "exit code -1". quiet
 			// keeps that same exit out of the completion callback: the run is
@@ -148,25 +214,25 @@ func (s *Shells) Close() {
 	}
 }
 
-// execBashBackground implements Bash's run_in_background: true path. It
+// execBashBackground implements bash's run_in_background: true path. It
 // starts command exactly as the foreground path does — same shell, same
 // working directory, same environment resolution, same process group and
 // WaitDelay for the orphaned-pipe case docs/RUN-CONTROL.md names — but does
 // not wait for it: it mints an id, records the shell in the session's
 // registry, and returns immediately. The command is deliberately not tied to
 // ctx, which Execute cancels the moment this function returns (registry.go,
-// "Execute"); a background shell's whole purpose is to outlive the call that
+// "Execute"); a background job's whole purpose is to outlive the call that
 // started it, so cmd.Wait runs in its own goroutine against the process
-// alone, and only KillBash, a stopped run, or the process exiting ever end it
+// alone, and only job_kill, a stopped run, or the process exiting ever end it
 // early.
-func execBashBackground(ctx context.Context, e *Executor, command string) Result {
+func execBashBackground(ctx context.Context, e *Executor, command, dir string) Result {
 	// context.Background(), not ctx: os/exec refuses a non-nil cmd.Cancel
 	// (bashGroup below sets one) on a Cmd not created through
 	// CommandContext, and Background() is never Done, so cmd.Cancel is
 	// simply never invoked by it — the command's own lifetime comes only
-	// from KillBash or the registry's Close calling the group killer directly.
+	// from job_kill or the registry's Close calling the group killer directly.
 	cmd := exec.CommandContext(context.Background(), shellPath(), "-c", command)
-	cmd.Dir = e.Workspace
+	cmd.Dir = dir
 
 	switch {
 	case e.EnvFilter != nil:
@@ -193,7 +259,13 @@ func execBashBackground(ctx context.Context, e *Executor, command string) Result
 	}
 	killer.started()
 
-	bg := &backgroundShell{started: time.Now(), killer: killer, buf: buf}
+	bg := &backgroundShell{
+		command: command,
+		started: time.Now(),
+		killer:  killer,
+		buf:     buf,
+		doneCh:  make(chan struct{}),
+	}
 	registry := e.shellsRegistry()
 	id := registry.add(bg)
 
@@ -215,6 +287,7 @@ func execBashBackground(ctx context.Context, e *Executor, command string) Result
 		bg.exitCode = exitCode
 		killed, quiet := bg.killed, bg.quiet
 		bg.mu.Unlock()
+		close(bg.doneCh)
 		if quiet {
 			return
 		}
@@ -222,31 +295,38 @@ func execBashBackground(ctx context.Context, e *Executor, command string) Result
 	}()
 
 	return Result{Content: fmt.Sprintf(
-		"Running in the background with id %s. Use BashOutput with this id to read its output, and KillBash to stop it.", id)}
+		"Running in the background with id %s. Use job_output with this id to read its output, job_list to see every job, and job_kill to stop it.", id)}
 }
 
-type bashOutputArgs struct {
-	BashID string `json:"bash_id"`
+type jobOutputArgs struct {
+	JobID  string `json:"job_id"`
 	Filter string `json:"filter"`
+	Wait   bool   `json:"wait"`
 }
 
-// execBashOutput implements BashOutput: the output a background shell has
+// execJobOutput implements job_output: the output a background job has
 // produced since the last time it was read, plus whether it is still
 // running. Consuming the output on read — rather than replaying it whole
 // every call — is what keeps a long-running dev server's log from being
 // re-sent, and re-billed, on every poll.
-func execBashOutput(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result {
-	var args bashOutputArgs
+//
+// wait blocks until the job finishes or this call's own timeout expires. A
+// wait that runs out returns what the job has written so far and leaves the
+// job running, so a model that asked for a build to finish can read where it
+// got to without losing the job.
+func execJobOutput(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result {
+	var args jobOutputArgs
 	if err := json.Unmarshal(argsRaw, &args); err != nil {
 		return errorResult("invalid arguments: %v", err)
 	}
-	if args.BashID == "" {
-		return errorResult("bash_id is required")
+	if args.JobID == "" {
+		return errorResult("job_id is required")
 	}
 
-	bg, ok := e.shellsRegistry().get(args.BashID)
+	registry := e.shellsRegistry()
+	bg, ok := registry.get(args.JobID)
 	if !ok {
-		return errorResult("no background shell with id %q", args.BashID)
+		return errorResult("no background job with id %q", args.JobID)
 	}
 
 	var filterRe *regexp.Regexp
@@ -258,8 +338,13 @@ func execBashOutput(ctx context.Context, e *Executor, argsRaw json.RawMessage) R
 		filterRe = re
 	}
 
+	waitedOut := false
+	if args.Wait {
+		waitedOut = !registry.wait(ctx, bg)
+	}
+
 	// buf.String() must be taken under bg.mu, alongside readOffset:
-	// otherwise two concurrent BashOutput calls on the same shell could each
+	// otherwise two concurrent job_output calls on the same job could each
 	// snapshot the buffer at a different length while sharing one
 	// readOffset, and whichever locks second could slice its own, shorter
 	// snapshot from an offset the first call already advanced past it.
@@ -290,6 +375,9 @@ func execBashOutput(ctx context.Context, e *Executor, argsRaw json.RawMessage) R
 	case done:
 		status = fmt.Sprintf("completed (exit code %d)", exitCode)
 	}
+	if waitedOut {
+		status += " (the wait ended on this call's own timeout; the job is still running)"
+	}
 
 	text := newOutput
 	if text == "" {
@@ -299,32 +387,32 @@ func execBashOutput(ctx context.Context, e *Executor, argsRaw json.RawMessage) R
 	return Result{Content: fmt.Sprintf("Status: %s\n\n%s", status, out), Truncated: truncated}
 }
 
-type killBashArgs struct {
-	ShellID string `json:"shell_id"`
+type jobKillArgs struct {
+	JobID string `json:"job_id"`
 }
 
-// execKillBash implements KillBash: end a background shell before it exits
-// on its own. Killing an already-finished shell is not an error — reported
-// as a no-op — because the model cannot always tell from BashOutput's status
+// execJobKill implements job_kill: end a background job before it exits
+// on its own. Killing an already-finished job is not an error — reported
+// as a no-op — because the model cannot always tell from job_output's status
 // alone whether a kill would still land before the process exits by itself.
-func execKillBash(_ context.Context, e *Executor, argsRaw json.RawMessage) Result {
-	var args killBashArgs
+func execJobKill(_ context.Context, e *Executor, argsRaw json.RawMessage) Result {
+	var args jobKillArgs
 	if err := json.Unmarshal(argsRaw, &args); err != nil {
 		return errorResult("invalid arguments: %v", err)
 	}
-	if args.ShellID == "" {
-		return errorResult("shell_id is required")
+	if args.JobID == "" {
+		return errorResult("job_id is required")
 	}
 
-	bg, ok := e.shellsRegistry().get(args.ShellID)
+	bg, ok := e.shellsRegistry().get(args.JobID)
 	if !ok {
-		return errorResult("no background shell with id %q", args.ShellID)
+		return errorResult("no background job with id %q", args.JobID)
 	}
 
 	bg.mu.Lock()
 	if bg.done {
 		bg.mu.Unlock()
-		return Result{Content: fmt.Sprintf("%s had already finished; nothing to kill.", args.ShellID)}
+		return Result{Content: fmt.Sprintf("%s had already finished; nothing to kill.", args.JobID)}
 	}
 	// Set before the kill, so the wait goroutine's ShellExit reports killed
 	// rather than a bare signal exit whichever way the race goes.
@@ -332,8 +420,35 @@ func execKillBash(_ context.Context, e *Executor, argsRaw json.RawMessage) Resul
 	bg.mu.Unlock()
 
 	if err := bg.killer.forceKill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return errorResult("kill %s: %v", args.ShellID, err)
+		return errorResult("kill %s: %v", args.JobID, err)
 	}
 
-	return Result{Content: fmt.Sprintf("%s killed.", args.ShellID)}
+	return Result{Content: fmt.Sprintf("%s killed.", args.JobID)}
+}
+
+// execJobList implements job_list: every background job the session still
+// holds, with the command it runs, when it started and whether it is running
+// or has exited. Finished jobs stay in the registry, so a job that ended
+// while the model was busy elsewhere shows up here rather than vanishing.
+func execJobList(ctx context.Context, e *Executor, _ json.RawMessage) Result {
+	jobs := e.shellsRegistry().list()
+	if len(jobs) == 0 {
+		return Result{Content: "No background jobs."}
+	}
+	var b strings.Builder
+	for _, j := range jobs {
+		state := "running"
+		switch {
+		case j.Killed:
+			state = "killed"
+		case j.Wedged:
+			state = "exited, but left a process holding its output open and was killed"
+		case j.Done:
+			state = fmt.Sprintf("exited (exit code %d)", j.ExitCode)
+		}
+		fmt.Fprintf(&b, "- %s: %s, started %s, command: %s\n",
+			j.ID, state, j.Started.UTC().Format(time.RFC3339), j.Command)
+	}
+	out, truncated := truncate(b.String(), e.outputCap(ctx))
+	return Result{Content: out, Truncated: truncated}
 }

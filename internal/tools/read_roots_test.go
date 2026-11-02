@@ -81,7 +81,7 @@ func TestWriteCannotReachAReadRoot(t *testing.T) {
 	}
 }
 
-// List answers for a skill directory, which is how a model finds the files a
+// `list` answers for a skill directory, which is how a model finds the files a
 // skill bundles beside its SKILL.md.
 func TestListReachesAReadRoot(t *testing.T) {
 	e, _, root := skillRoot(t)
@@ -95,8 +95,8 @@ func TestListReachesAReadRoot(t *testing.T) {
 	}
 }
 
-// Glob under a skill directory reports absolute paths, because a path
-// relative to that root would not resolve back through Read.
+// `glob` under a skill directory reports absolute paths, because a path
+// relative to that root would not resolve back through `read`.
 func TestGlobUnderAReadRootReportsAbsolutePaths(t *testing.T) {
 	e, _, root := skillRoot(t)
 
@@ -110,7 +110,7 @@ func TestGlobUnderAReadRootReportsAbsolutePaths(t *testing.T) {
 	}
 }
 
-// Grep searches a skill directory too, so a skill that ships reference
+// `grep` searches a skill directory too, so a skill that ships reference
 // material can be searched the way any other directory is.
 func TestGrepReachesAReadRoot(t *testing.T) {
 	e, _, root := skillRoot(t)

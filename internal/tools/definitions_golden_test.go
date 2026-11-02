@@ -7,13 +7,15 @@ import (
 	"testing"
 
 	"github.com/mrgeoffrich/agent-harness/internal/tools"
+	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
 // TestToolArrayGolden pins the exact serialised tool array of each provider
-// against its own committed golden file. There are two frozen request head
-// shapes now — DeepSeek's twenty tools, and the vision-capable fourteen
-// without the six vision tools (docs/KIMI-INTEGRATION.md decisions 5 and 6)
-// — and both need the byte-stability guard the single array used to have:
+// against its own committed golden file. There are four frozen shapes: the
+// base array, DeepSeek's hosted array, the vision-capable array without the
+// six vision tools (docs/KIMI-INTEGRATION.md decisions 5 and 6), and Claude's
+// one shorter than that. Each needs the byte-stability guard the single
+// array used to have:
 // the head of every request is frozen and shared (docs/DESIGN.md §3.2,
 // docs/CACHE.md), and the prompt cache depends on identical bytes. Gemini
 // joined the vision-capable shape in Phase 7 (docs/GEMINI-INTEGRATION.md
@@ -34,11 +36,11 @@ import (
 // it never changes by accident. Regenerating one is a deliberate act with a
 // cost attached: the head is the shared prompt-cache prefix, so a moved byte
 // invalidates the cache for every session on that provider. Both goldens were
-// last moved on purpose to tell Bash's `timeout` argument that a default and a
+// last moved on purpose to tell `bash`'s `timeoutMs` argument that a default and a
 // ceiling exist and that a request above the ceiling is clamped rather than
 // refused — models were routinely asking for thirty and sixty minutes, being
 // cut off at the ceiling, and reading the bare "command timed out" as a hung
-// command. Bash is in both arrays, so both files moved together.
+// command. `bash` is in both arrays, so both files moved together.
 func TestToolArrayGolden(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -48,14 +50,12 @@ func TestToolArrayGolden(t *testing.T) {
 		{"deepseek", "deepseek-v4-pro", "tools_deepseek.golden.json"},
 		{"kimi", "kimi-k3", "tools_kimi.golden.json"},
 		{"gemini", "gemini-3.7-flash", "tools_kimi.golden.json"},
-		// deepseek-flash is the model DefinitionsFor resolves per model
-		// rather than per provider for (provider.SeesImages,
-		// docs/DEEPSEEK-VISION.md). Its capability is true, so — like Kimi
-		// and Gemini — it resolves to definitionsVisionCapable and reads
-		// Kimi's golden file rather than a third copy of the same bytes.
-		{"deepseek-flash", "deepseek-flash", "tools_kimi.golden.json"},
+		// deepseek-flash reads its own file: DeepSeek is the one provider
+		// whose array drops the harness-added tools (list, the four task
+		// tools, task, complete), so its bytes are not Kimi's.
+		{"deepseek-flash", "deepseek-flash", "tools_deepseek_flash.golden.json"},
 		// Claude reads images natively like Kimi and Gemini, but also drops
-		// WebFetch — Anthropic's own server-side web_search and web_fetch
+		// web_fetch — Anthropic's own server-side web_search and web_fetch
 		// tools ride the request instead (internal/anthropic's intent
 		// renderer, docs/ANTHROPIC-INTEGRATION.md) — so its array is one
 		// tool shorter than Kimi's and gets its own golden file.
@@ -79,57 +79,66 @@ func TestToolArrayGolden(t *testing.T) {
 	}
 }
 
-// TestDefinitionsForProviderShape pins the relationship between the two
-// arrays directly: Kimi's is DeepSeek's twenty minus exactly the six
-// vision tools, in the same order, with the surviving tools byte-identical. The
-// golden files pin the bytes; this pins the subtraction.
+// TestDefinitionsForProviderShape pins the relationships between the arrays
+// directly: Kimi's is the base array minus exactly the six vision tools, and
+// DeepSeek's hosted array is Kimi's minus exactly the seven harness-added
+// tools it does not carry — each in the same order, with the surviving tools
+// byte-identical. The golden files pin the bytes; this pins the subtraction.
 func TestDefinitionsForProviderShape(t *testing.T) {
-	deepseek := tools.DefinitionsFor("deepseek-v4-pro")
+	base := tools.DefinitionsFor("deepseek-v4-pro")
 	kimi := tools.DefinitionsFor("kimi-k3")
-	if len(deepseek) != 22 {
-		t.Fatalf("DeepSeek array has %d tools, want 22", len(deepseek))
+	hosted := tools.DefinitionsFor("deepseek-flash")
+	if len(base) != 24 {
+		t.Fatalf("base array has %d tools, want 24", len(base))
 	}
-	if len(kimi) != 16 {
-		t.Fatalf("Kimi array has %d tools, want 16", len(kimi))
+	if len(kimi) != 18 {
+		t.Fatalf("Kimi array has %d tools, want 18", len(kimi))
+	}
+	if len(hosted) != 11 {
+		t.Fatalf("DeepSeek array has %d tools, want 11", len(hosted))
 	}
 
-	// Walk both arrays with two pointers; DeepSeek's skips the six vision
-	// tools, Kimi's does not. Every surviving pair must be byte-identical.
-	dj, _ := json.Marshal(deepseek)
-	var ds []struct {
-		Function struct {
-			Name string `json:"name"`
-		} `json:"function"`
-	}
-	if err := json.Unmarshal(dj, &ds); err != nil {
-		t.Fatal(err)
-	}
-	dropped := []string{"Screenshot", "Glance", "Ground", "Detect", "Transcribe", "Crop"}
-	var j int
-	for i, d := range ds {
-		isDropped := false
-		for _, name := range dropped {
-			if d.Function.Name == name {
-				isDropped = true
-				break
+	assertSubtraction(t, base, kimi, "screenshot", "glance", "ground", "detect", "transcribe", "crop")
+	assertSubtraction(t, kimi, hosted,
+		"list", "task_create", "task_get", "task_list", "task_update", "task", "complete")
+}
+
+// assertSubtraction pins that sub is base minus exactly the tools named in
+// dropped, in the same order, with every surviving tool byte-identical.
+func assertSubtraction(t *testing.T, base, sub []wire.Tool, dropped ...string) {
+	t.Helper()
+	droppedName := func(name string) bool {
+		for _, d := range dropped {
+			if d == name {
+				return true
 			}
 		}
-		if isDropped {
+		return false
+	}
+	var j int
+	for i, b := range base {
+		if droppedName(b.Function.Name) {
 			continue
 		}
-		if j >= len(kimi) {
-			t.Fatalf("Kimi array ended early at DeepSeek index %d (%s)", i, d.Function.Name)
+		if j >= len(sub) {
+			t.Fatalf("the subtracted array ended early at base index %d (%s)", i, b.Function.Name)
 		}
-		kj, _ := json.Marshal(kimi[j])
-		di, _ := json.Marshal(deepseek[i])
-		if string(kj) != string(di) {
-			t.Fatalf("Kimi tool %s (index %d) differs from the DeepSeek tool of the same name:\ngot:  %s\nwant: %s",
-				kimi[j].Function.Name, j, kj, di)
+		bj, err := json.Marshal(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sj, err := json.Marshal(sub[j])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(bj) != string(sj) {
+			t.Fatalf("tool %s (index %d) differs from the base tool of the same name:\ngot:  %s\nwant: %s",
+				sub[j].Function.Name, j, sj, bj)
 		}
 		j++
 	}
-	if j != len(kimi) {
-		t.Fatalf("Kimi array has %d entries the DeepSeek array does not account for", len(kimi)-j)
+	if j != len(sub) {
+		t.Fatalf("the subtracted array has %d entries the base array does not account for", len(sub)-j)
 	}
 }
 

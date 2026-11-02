@@ -174,26 +174,27 @@ explains the apparent conflict.
 
 This section is the point of the exercise.
 
-**The specific tool names.** TOOLS.md builds on Claude Code's vocabulary being
-`Read`, `Write`, `Edit`, `Bash`, `Glob`, `Grep`, `TaskCreate`, `TaskGet`,
-`TaskList`, `TaskUpdate`, `Task`, `WebFetch`. Those names appear nowhere in the
-vendored docs. What the docs establish is that DeepSeek optimised V4 for Claude
-Code, OpenClaw, and OpenCode — not what those harnesses call their tools. The
-vocabulary comes from outside this repo and is the weakest load-bearing
-assumption in the design.
+**Most of the specific tool names.** TOOLS.md takes its vocabulary from
+[`deepseek-ai/deepseek-harness`](https://github.com/deepseek-ai/deepseek-harness),
+the vendor's own harness, which names every built-in tool `lower_snake_case`.
+Those names appear nowhere in the vendored docs. What the docs establish is
+that DeepSeek optimised V4 for agentic coding and names Claude Code, OpenClaw
+and OpenCode as targets, not what any of those harnesses calls its tools. The
+vocabulary comes from the harness's own repository, outside this one, and is the
+weakest load-bearing assumption in the design.
 
 It is also cheap to be wrong about. Names are a rename away, and the argument
 shapes are conventional.
 
-One adjacent fact the docs do supply: DeepSeek accepts
+One name the docs do supply: DeepSeek accepts
 `{"type": "custom", "name": "apply_patch"}` on the Responses API and returns 400
-for any other custom tool name. That is direct evidence of tuning against
-Codex's patch-application format, and it is the only concrete coding tool name
-DeepSeek documents. It is Responses-API-only, so it does not
-apply to our endpoint, but it is a signal that patch-format editing is
-trained-in.
+for any other custom tool name (`guides/responses_api.md`, `Tools`). That is
+direct evidence of tuning against Codex's patch-application format, and it is
+the only concrete coding tool name DeepSeek documents. This process posts to
+`/responses`, so the tool rides every request as a function tool under that
+name.
 
-**Line-numbered `Read` output.** Same gap, same source, same cheap fix.
+**Line-numbered `read` output.** Same gap, same source, same cheap fix.
 
 **Effort changes not disturbing the cache.** Not documented. Reasoning from
 effort being a request parameter rather than prompt content.
@@ -211,9 +212,12 @@ shipping their own harness. Worth watching, given the name of this repository.
 Checked on 2026-08-10: still unreleased. An invite-only beta opened on
 2026-08-01 for developers with existing open-source agent projects, announced by
 Harness team lead Cui Tianyi on X; press reports put registrations around 712 by
-2026-08-04. The `deepseek-ai` GitHub org has no harness repository, and no
-licence or release date has been announced. The `deepseek-harness` repositories
-on GitHub are unrelated third-party work.
+2026-08-04. The `deepseek-ai` GitHub org had no harness repository at that
+date, and no licence or release date had been announced; the
+`deepseek-harness` repositories on GitHub were unrelated third-party work. The
+organisation publishes the harness at
+[`deepseek-ai/deepseek-harness`](https://github.com/deepseek-ai/deepseek-harness)
+now, and it is where TOOLS.md's vocabulary comes from.
 
 `oh_my_pi.md` warns that `reasoning_content` replay behaviour varies across
 unofficial providers — DeepInfra, KiloCode, NVIDIA NIM, Zenmux — and advises the

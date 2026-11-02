@@ -38,7 +38,7 @@ import (
 // model→capability table, provider.SeesImages, the source both this
 // function and internal/tools.DefinitionsFor read. It drives both halves of
 // the vision split: which tool array the session sends
-// (internal/tools.DefinitionsFor) and whether Read returns an image part
+// (internal/tools.DefinitionsFor) and whether `read` returns an image part
 // (tools.Executor.SeeImages). An unknown model resolves to false, the
 // DeepSeek default; queue validation rejects unknown models before a session
 // exists, so nothing real can land here.
@@ -115,7 +115,7 @@ type RunOptions struct {
 	// AttachmentNames are the files the request's attachments were
 	// materialised into under scratch/attachments/.
 	// RenderOpeningMessage names them so the model knows they exist and can
-	// pass one to Glance.
+	// pass one to `glance`.
 	AttachmentNames []string
 
 	// SessionID, when set, is used instead of generating a fresh one. A
@@ -142,7 +142,7 @@ type RunOptions struct {
 	// a bash_id from an earlier run is still found in. Run hands it to the
 	// Executor instead of letting the Executor own one, and the Executor's
 	// Close leaves it alone; the caller that owns it closes it when the
-	// session ends. Nil is the test path and the Task subagent path: Run
+	// session ends. Nil is the test path and the `task` subagent path: Run
 	// creates a private registry for the run, which records completions
 	// while the run lasts and is closed when it ends.
 	Shells *tools.Shells
@@ -252,8 +252,8 @@ type RunResult struct {
 	Summary   string
 	SubTurns  int
 	Usage     Usage
-	// CompleteStatus is the status argument to Complete, when the model
-	// called it: "done" or "gave_up". Empty means Complete was never
+	// CompleteStatus is the status argument to `complete`, when the model
+	// called it: "done" or "gave_up". Empty means `complete` was never
 	// called, which is a normal outcome — thinking mode cannot force a
 	// tool call (docs/DESIGN.md §4.6) — not a sign of anything wrong.
 	CompleteStatus string
@@ -297,7 +297,7 @@ type Runner struct {
 	// Gemini is the client the vision tools use to send images
 	// to Google's Gemini API. Nil is a caller's case when none is configured:
 	// the tool then reports itself unavailable instead of failing the run
-	// (internal/tools, Glance).
+	// (internal/tools, `glance`).
 	Gemini *gemini.Client
 
 	// MCP is the seam to every configured MCP server (internal/mcpclient
@@ -319,23 +319,23 @@ type Runner struct {
 	GeminiModel func() (string, error)
 
 	// ToolEnv, when set, is handed to every Executor this Runner builds as
-	// tools.Executor.ExtraEnv: the environment variables a session's Bash
+	// tools.Executor.ExtraEnv: the environment variables a session's `bash`
 	// calls get on top of this process's own. It carries the GitHub App
 	// installation token for gh, which cannot be process-wide because an App
 	// mints a different token per account. Built in cmd/harness like the rest of the
 	// composition; nil is every test and every harness on the github.token
-	// path, and a Bash call then inherits this process's environment
+	// path, and a `bash` call then inherits this process's environment
 	// unchanged.
 	ToolEnv func(ctx context.Context, workspace string) []string
 
 	// ToolEnvFilter, when set, is handed to every Executor this Runner
 	// builds as tools.Executor.EnvFilter: applied to this process's own
-	// environment before a Bash call's subprocess inherits it. It exists
+	// environment before a `bash` call's subprocess inherits it. It exists
 	// for `harness stdio-session`, which must not let a hosted session's
-	// Bash calls see the GEMINI_API_KEY or GOOGLE_API_KEY the parent
+	// `bash` calls see the GEMINI_API_KEY or GOOGLE_API_KEY the parent
 	// supplied only for this process's own API client (docs/STDIO-PROTOCOL.md,
 	// "Trust boundaries"). Nil is every other caller, `harness serve`
-	// included, and a Bash call then inherits this process's environment
+	// included, and a `bash` call then inherits this process's environment
 	// unchanged.
 	ToolEnvFilter func(base []string) []string
 
@@ -348,10 +348,10 @@ type Runner struct {
 	// Every other caller leaves it unset, which is every existing test.
 	ToolTimeouts tools.Timeouts
 
-	// RG is the ripgrep binary the session's Grep calls exec, resolved once
+	// RG is the ripgrep binary the session's `grep` calls exec, resolved once
 	// when the Runner is built (tools.RipgrepPath, from -rg, then
 	// AGENT_HARNESS_RG, then the PATH) and handed to every Executor as
-	// tools.Executor.RG. Empty means none was found and Grep falls back to
+	// tools.Executor.RG. Empty means none was found and `grep` falls back to
 	// its own walk.
 	RG string
 
@@ -364,7 +364,7 @@ type Runner struct {
 	// its own file under the recorder's root (docs/DESIGN.md §4.8). Nil is
 	// the normal case when capture is off; every use is guarded. The runner
 	// opens a session's writer where its row is created and closes it when
-	// the run ends, so compacted successors and Task subagents each get
+	// the run ends, so compacted successors and `task` subagents each get
 	// their own file.
 	Recorder *httplog.Recorder
 

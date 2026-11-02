@@ -460,7 +460,7 @@ func TestResumeChecksTheFrozenToolset(t *testing.T) {
 // qualified name apart.
 func TestResumeChecksServerDeclarations(t *testing.T) {
 	schema := json.RawMessage(`[
-		{"type":"function","function":{"name":"Read","parameters":{}}},
+		{"type":"function","function":{"name":"read","parameters":{}}},
 		{"type":"function","function":{"name":"mcp__orchestrator__list_sessions","parameters":{"type":"object"}}},
 		{"type":"function","function":{"name":"mcp__orchestrator__view_session","parameters":{"type":"object"}}},
 		{"type":"function","function":{"name":"mcp__host__show_widget","parameters":{"type":"object"}}}
@@ -472,7 +472,7 @@ func TestResumeChecksServerDeclarations(t *testing.T) {
 	if got := len(frozen.schemas); got != 3 {
 		t.Errorf("read %d mcp tools, want 3", got)
 	}
-	if _, ok := frozen.schemas["Read"]; ok {
+	if _, ok := frozen.schemas["read"]; ok {
 		t.Error("a built-in tool was counted as part of the resumable toolset")
 	}
 	if len(frozen.servers) != 1 || !frozen.servers["orchestrator"] {

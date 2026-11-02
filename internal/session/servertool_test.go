@@ -198,7 +198,7 @@ func TestSteerWaitsBehindOpenServerTool(t *testing.T) {
 	const sessionID = "sess-open-server-tool"
 	const steer = "also check the changelog"
 	script := &claudeScript{streams: []string{
-		claudeOpenServerTool("toolu_list", "TaskList", `{}`),
+		claudeOpenServerTool("toolu_list", "task_list", `{}`),
 		claudeServerToolClosed("searched and listed"),
 		claudePlainAnswer("the changelog says so"),
 	}}
@@ -266,7 +266,7 @@ func TestSteerWaitsBehindOpenServerTool(t *testing.T) {
 
 // TestResumeBehindOpenServerToolAnswersTheNewMessage is the second way into
 // the wedge: a run that ended right after a response that left a server tool
-// open (here, the model called Complete beside it), then a new message. The
+// open (here, the model called `complete` beside it), then a new message. The
 // client holds the message back from the first request so the open call can
 // finish, and the loop must not end the run on that request's plain answer
 // — the model has not seen the message yet.
@@ -280,7 +280,7 @@ func TestResumeBehindOpenServerToolAnswersTheNewMessage(t *testing.T) {
 
 	const followUp = "now summarise what you found"
 	script := &claudeScript{streams: []string{
-		claudeOpenServerTool("toolu_complete", "Complete", `{"summary":"done","status":"done"}`),
+		claudeOpenServerTool("toolu_complete", "complete", `{"summary":"done","status":"done"}`),
 		claudeServerToolClosed("the search finished"),
 		claudePlainAnswer("here is the summary"),
 	}}

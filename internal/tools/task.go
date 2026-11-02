@@ -12,7 +12,7 @@ type taskArgs struct {
 	SubagentType string `json:"subagent_type"`
 }
 
-// execTask implements Task by delegating to Executor.RunSubagent, which
+// execTask implements `task` by delegating to Executor.RunSubagent, which
 // internal/session wires up to a nested, flash-backed session loop. The
 // subagent's own transcript never joins this session's message array —
 // only the text this returns does (docs/TOOLS.md).
@@ -31,7 +31,7 @@ func execTask(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 		return errorResult("subagent_type is required")
 	}
 	if e.RunSubagent == nil {
-		return errorResult("Task is not available in this context: no subagent runner configured")
+		return errorResult("task is not available in this context: no subagent runner configured")
 	}
 
 	summary, childSessionID, err := e.RunSubagent(ctx, args.Description, args.Prompt, args.SubagentType)

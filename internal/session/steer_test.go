@@ -18,7 +18,7 @@ import (
 	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
-// runSteerScenario drives a two-sub-turn run — sub-turn 1 makes a TaskList
+// runSteerScenario drives a two-sub-turn run — sub-turn 1 makes a task_list
 // call so the loop continues, sub-turn 2 answers plainly and ends the run —
 // against a fake API that appends the given steer_message events while the
 // first request is still in flight, the exact shape a mid-run steer takes
@@ -69,7 +69,7 @@ func runSteerScenario(t *testing.T, sessionID string, steers func(*store.Store) 
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_steer_0", Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_steer_0", Type: "function", Function: wire.ToolCallFuncDelta{Name: "task_list", Arguments: `{}`}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{

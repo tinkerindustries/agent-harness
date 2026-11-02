@@ -15,9 +15,9 @@ import (
 )
 
 // TestTaskCallsPersistPlanToSessionRow drives a run whose first sub-turn
-// calls TaskCreate (with a two-item plan) alongside a Bash call, whose
-// second sub-turn patches one task with TaskUpdate, and whose third finishes
-// with Complete. It asserts the session row carries the plan — the current
+// calls task_create (with a two-item plan) alongside a bash call, whose
+// second sub-turn patches one task with task_update, and whose third finishes
+// with complete. It asserts the session row carries the plan — the current
 // full checklist, minted ids included and the patch applied, not the raw
 // arguments of any one call — the filtered recent-tool-call roll, and the
 // model's own summary: the data the session list renders the in-flight card
@@ -46,8 +46,8 @@ func TestTaskCallsPersistPlanToSessionRow(t *testing.T) {
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role: "assistant",
 					ToolCalls: []wire.ToolCallDelta{
-						{Index: 0, ID: "call_00_create", Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskCreate", Arguments: `{"tasks":[{"subject":"Read the spec","description":"Read it","activeForm":"Reading"},{"subject":"Wire it up","description":"Wire it","activeForm":"Wiring"}]}`}},
-						{Index: 1, ID: "call_01_bash", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Bash", Arguments: `{"command":"echo hi"}`}},
+						{Index: 0, ID: "call_00_create", Type: "function", Function: wire.ToolCallFuncDelta{Name: "task_create", Arguments: `{"tasks":[{"subject":"Read the spec","description":"Read it","activeForm":"Reading"},{"subject":"Wire it up","description":"Wire it","activeForm":"Wiring"}]}`}},
+						{Index: 1, ID: "call_01_bash", Type: "function", Function: wire.ToolCallFuncDelta{Name: "bash", Arguments: `{"command":"echo hi"}`}},
 					},
 				}}},
 			})
@@ -59,7 +59,7 @@ func TestTaskCallsPersistPlanToSessionRow(t *testing.T) {
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_10_update", Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskUpdate", Arguments: `{"taskId":"1","status":"completed"}`}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_10_update", Type: "function", Function: wire.ToolCallFuncDelta{Name: "task_update", Arguments: `{"taskId":"1","status":"completed"}`}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
@@ -70,7 +70,7 @@ func TestTaskCallsPersistPlanToSessionRow(t *testing.T) {
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_20_complete", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Complete", Arguments: `{"summary":"wired it up","status":"done"}`}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_20_complete", Type: "function", Function: wire.ToolCallFuncDelta{Name: "complete", Arguments: `{"summary":"wired it up","status":"done"}`}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
@@ -102,7 +102,7 @@ func TestTaskCallsPersistPlanToSessionRow(t *testing.T) {
 	}
 
 	// The plan is what the handlers built — minted ids included, with the
-	// TaskUpdate patch applied — not the raw arguments of any one call.
+	// task_update patch applied — not the raw arguments of any one call.
 	var todos []store.StatusTodo
 	if err := json.Unmarshal([]byte(sess.Plan), &todos); err != nil {
 		t.Fatalf("decode stored plan %q: %v", sess.Plan, err)
@@ -117,21 +117,22 @@ func TestTaskCallsPersistPlanToSessionRow(t *testing.T) {
 		t.Fatalf("unexpected second task: %+v", todos[1])
 	}
 
-	// The roll keeps the Bash call and the finishing Complete call, and
-	// drops TaskCreate/TaskUpdate, whose effect the plan panel already shows.
-	if len(sess.RecentToolCalls) != 2 || sess.RecentToolCalls[0].Name != "Bash" || sess.RecentToolCalls[1].Name != "Complete" {
+	// The roll keeps the bash call and the finishing complete call, and
+	// drops task_create/task_update, whose effect the plan panel already
+	// shows.
+	if len(sess.RecentToolCalls) != 2 || sess.RecentToolCalls[0].Name != "bash" || sess.RecentToolCalls[1].Name != "complete" {
 		t.Fatalf("unexpected recent tool call roll: %+v", sess.RecentToolCalls)
 	}
 
 	if sess.Summary != "wired it up" {
-		t.Fatalf("expected the Complete summary on the row, got %q", sess.Summary)
+		t.Fatalf("expected the complete summary on the row, got %q", sess.Summary)
 	}
 }
 
 // TestTaskReadsDoNotWritePlan drives a run whose only tool calls are the
-// non-mutating task tools — TaskList and TaskGet — and asserts the session
+// non-mutating task tools, task_list and task_get, and asserts the session
 // row's plan column stays empty: persistTaskState only writes when the
-// sub-turn carries a TaskCreate or TaskUpdate. The read calls themselves do
+// sub-turn carries a task_create or task_update. The read calls themselves do
 // land in the recent-tool-call roll like any other tool.
 func TestTaskReadsDoNotWritePlan(t *testing.T) {
 	var streamCall int32Counter
@@ -157,8 +158,8 @@ func TestTaskReadsDoNotWritePlan(t *testing.T) {
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role: "assistant",
 					ToolCalls: []wire.ToolCallDelta{
-						{Index: 0, ID: "call_00_list", Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}},
-						{Index: 1, ID: "call_01_get", Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskGet", Arguments: `{"taskId":"1"}`}},
+						{Index: 0, ID: "call_00_list", Type: "function", Function: wire.ToolCallFuncDelta{Name: "task_list", Arguments: `{}`}},
+						{Index: 1, ID: "call_01_get", Type: "function", Function: wire.ToolCallFuncDelta{Name: "task_get", Arguments: `{"taskId":"1"}`}},
 					},
 				}}},
 			})
@@ -170,7 +171,7 @@ func TestTaskReadsDoNotWritePlan(t *testing.T) {
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_10_complete", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Complete", Arguments: `{"summary":"nothing to do","status":"done"}`}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_10_complete", Type: "function", Function: wire.ToolCallFuncDelta{Name: "complete", Arguments: `{"summary":"nothing to do","status":"done"}`}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
@@ -201,17 +202,17 @@ func TestTaskReadsDoNotWritePlan(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// No TaskCreate/TaskUpdate ever ran, so persistTaskState never wrote the
+	// No task_create/task_update ever ran, so persistTaskState never wrote the
 	// plan column.
 	if sess.Plan != "" {
 		t.Fatalf("expected no plan write for read-only task calls, got %q", sess.Plan)
 	}
 
-	// The read calls roll like any other tool, alongside the Complete call.
+	// The read calls roll like any other tool, alongside the `complete` call.
 	if len(sess.RecentToolCalls) != 3 ||
-		sess.RecentToolCalls[0].Name != "TaskList" ||
-		sess.RecentToolCalls[1].Name != "TaskGet" ||
-		sess.RecentToolCalls[2].Name != "Complete" {
+		sess.RecentToolCalls[0].Name != "task_list" ||
+		sess.RecentToolCalls[1].Name != "task_get" ||
+		sess.RecentToolCalls[2].Name != "complete" {
 		t.Fatalf("unexpected recent tool call roll: %+v", sess.RecentToolCalls)
 	}
 }
@@ -253,8 +254,8 @@ func TestSubTurnPublishesFreshPlanAndRecentToolCalls(t *testing.T) {
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role: "assistant",
 					ToolCalls: []wire.ToolCallDelta{
-						{Index: 0, ID: "call_00_create", Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskCreate", Arguments: `{"tasks":[{"subject":"Wire it up","description":"Wire it","activeForm":"Wiring"}]}`}},
-						{Index: 1, ID: "call_01_bash", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Bash", Arguments: `{"command":"echo hi"}`}},
+						{Index: 0, ID: "call_00_create", Type: "function", Function: wire.ToolCallFuncDelta{Name: "task_create", Arguments: `{"tasks":[{"subject":"Wire it up","description":"Wire it","activeForm":"Wiring"}]}`}},
+						{Index: 1, ID: "call_01_bash", Type: "function", Function: wire.ToolCallFuncDelta{Name: "bash", Arguments: `{"command":"echo hi"}`}},
 					},
 				}}},
 			})
@@ -266,7 +267,7 @@ func TestSubTurnPublishesFreshPlanAndRecentToolCalls(t *testing.T) {
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_10_complete", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Complete", Arguments: `{"summary":"wired it up","status":"done"}`}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_10_complete", Type: "function", Function: wire.ToolCallFuncDelta{Name: "complete", Arguments: `{"summary":"wired it up","status":"done"}`}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
@@ -330,9 +331,9 @@ func TestSubTurnPublishesFreshPlanAndRecentToolCalls(t *testing.T) {
 	<-drained
 	<-framesDrained
 
-	// The first sub-turn's publish (right after the TaskCreate+Bash sub-turn
-	// committed, before Complete's sub-turn) must already carry the plan
-	// and the Bash call — not empty, and not the finished row's own later
+	// The first sub-turn's publish (right after the task_create+bash sub-turn
+	// committed, before complete's sub-turn) must already carry the plan
+	// and the `bash` call — not empty, and not the finished row's own later
 	// state, which this asserts against by checking the still-running one.
 	// The plan is on both feeds; the roll is on the session's alone.
 	var sawFullWithPlanAndRoll bool
@@ -346,7 +347,7 @@ func TestSubTurnPublishesFreshPlanAndRecentToolCalls(t *testing.T) {
 		if !planHasSubject(t, s.Plan, "Wire it up") {
 			continue
 		}
-		if len(s.RecentToolCalls) == 1 && s.RecentToolCalls[0].Name == "Bash" {
+		if len(s.RecentToolCalls) == 1 && s.RecentToolCalls[0].Name == "bash" {
 			sawFullWithPlanAndRoll = true
 		}
 	}
@@ -369,7 +370,7 @@ func TestSubTurnPublishesFreshPlanAndRecentToolCalls(t *testing.T) {
 }
 
 // planHasSubject reports whether a published plan is the single-item plan
-// this test's TaskCreate wrote. Shared by the two assertions above so the
+// this test's task_create wrote. Shared by the two assertions above so the
 // list feed and the session stream are held to the same plan.
 func planHasSubject(t *testing.T, plan json.RawMessage, subject string) bool {
 	t.Helper()

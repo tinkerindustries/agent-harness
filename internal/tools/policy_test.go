@@ -34,26 +34,26 @@ func TestToolArrayIdenticalAcrossModes(t *testing.T) {
 	if string(readonly) != string(after) {
 		t.Fatal("tool array changed after exercising permission checks across modes")
 	}
-	if len(Definitions()) != 22 {
-		t.Fatalf("expected 22 tools, got %d", len(Definitions()))
+	if len(Definitions()) != 24 {
+		t.Fatalf("expected 24 tools, got %d", len(Definitions()))
 	}
 }
 
 func TestReadOnlyModeDenies(t *testing.T) {
 	p := &Policy{Mode: ModeReadOnly}
-	// Crop is in the allowed set despite writing a file: its output is
-	// confined to scratch/ exactly as Screenshot's is
+	// `crop` is in the allowed set despite writing a file: its output is
+	// confined to scratch/ exactly as `screenshot`'s is
 	// (resolveScratchImageOutput), so it cannot reach the deliverable or a
-	// cloned repository. Denying it put the whole Ground-Crop-Glance pipeline
+	// cloned repository. Denying it put the whole `ground`-`crop`-`glance` pipeline
 	// behind full permissions, the mode that carries every other broad
 	// socket.
-	allowed := []string{"Read", "Glob", "Grep", "List", "WebFetch", "Glance", "Ground", "Detect", "Screenshot", "Crop", "TaskCreate", "TaskGet", "TaskList", "TaskUpdate", "Complete"}
+	allowed := []string{"read", "glob", "grep", "list", "web_fetch", "glance", "ground", "detect", "screenshot", "crop", "task_create", "task_get", "task_list", "task_update", "complete"}
 	for _, name := range allowed {
 		if d := p.Check(name, name); !d.Allow {
 			t.Errorf("readonly mode should allow %s, got denied: %s", name, d.Rule)
 		}
 	}
-	denied := []string{"Write", "Edit", "Bash", "Task"}
+	denied := []string{"write", "edit", "apply_patch", "bash", "task"}
 	for _, name := range denied {
 		if d := p.Check(name, name); d.Allow {
 			t.Errorf("readonly mode should deny %s", name)
@@ -61,7 +61,7 @@ func TestReadOnlyModeDenies(t *testing.T) {
 	}
 }
 
-// Mode has exactly two values. "default" was a third, gating Bash behind an
+// Mode has exactly two values. "default" was a third, gating `bash` behind an
 // allowlist; it was removed because that allowlist admitted go, npm, make,
 // and python, every one of which runs arbitrary code (docs/TOOLS.md).
 func TestModeValidAcceptsTwoModesAndRejectsRemovedDefault(t *testing.T) {
@@ -82,8 +82,8 @@ func TestFullModeAllowsEverything(t *testing.T) {
 			t.Errorf("full mode should allow %s, got denied: %s", tool.Function.Name, d.Rule)
 		}
 	}
-	if d := p.Check("Bash", "anything at all"); !d.Allow {
-		t.Error("full mode should allow an arbitrary Bash command")
+	if d := p.Check("bash", "anything at all"); !d.Allow {
+		t.Error("full mode should allow an arbitrary bash command")
 	}
 }
 
@@ -143,10 +143,10 @@ func TestMCPDenyPatternMatchesFullPrefixedName(t *testing.T) {
 
 func TestDenyPatternsSubtractFromMode(t *testing.T) {
 	p := &Policy{Mode: ModeFull, Deny: []string{"git push"}}
-	if d := p.Check("Bash", "git push origin main"); d.Allow {
+	if d := p.Check("bash", "git push origin main"); d.Allow {
 		t.Error("a deny pattern should refuse a call full mode would otherwise allow")
 	}
-	if d := p.Check("Bash", "git status"); !d.Allow {
+	if d := p.Check("bash", "git status"); !d.Allow {
 		t.Error("a deny pattern should not affect unrelated commands")
 	}
 }
@@ -160,7 +160,7 @@ func TestExecuteDenialProducesReadableToolResult(t *testing.T) {
 		ID:   "call_00_x",
 		Type: "function",
 		Function: wire.ToolCallFunc{
-			Name:      "Bash",
+			Name:      "bash",
 			Arguments: `{"command":"ls"}`,
 		},
 	}

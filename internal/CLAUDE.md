@@ -37,7 +37,7 @@ model that could not see would carry the vision tools built to compensate,
 four of which reach Google
 ([`../docs/DEEPSEEK-VISION.md`](../docs/DEEPSEEK-VISION.md)). The Claude
 models read images natively too, and their tool array
-(`internal/tools.DefinitionsFor`) drops the harness's own `WebFetch` in
+(`internal/tools.DefinitionsFor`) drops the harness's own `web_fetch` in
 favour of Anthropic's own server-side `web_search` and `web_fetch`
 ([`../docs/ANTHROPIC-INTEGRATION.md`](../docs/ANTHROPIC-INTEGRATION.md)).
 `claude-session`'s own `Runner.ToolTimeouts.HostTool` is set to a figure with
@@ -115,7 +115,7 @@ the narrow `Client` seam `internal/session` declares
 Google's Gemini API client, hand-rolled rather than the official SDK because
 the SDK targets the legacy `generateContent` surface, not
 `POST /v1beta/interactions` (docs/GEMINI-INTEGRATION.md §2). Two callers: the
-vision tools — `Glance`, `Ground`, `Detect` (docs/TOOLS.md) — through
+vision tools — `glance`, `ground`, `detect` (docs/TOOLS.md) — through
 `Interact`, whose request and response shapes are unchanged since before this
 package spoke chat completions at all; and the agent loop, through
 `StreamChatCompletion` and `CreateChatCompletion`, the same narrow `Client`
@@ -237,7 +237,7 @@ one, since nothing on this dialect's own wire ever re-declares tools.
 
 The server also owns each session's `tools.Shells` registry, so a
 `run_in_background` shell survives the response that started it and the next
-response's `BashOutput` finds it. Its `OnExit` hook is `backgroundExited`:
+response's `job_output` finds it. Its `OnExit` hook is `backgroundExited`:
 it commits a `background_finished` event through the Runner's
 `RecordBackgroundFinished`, and when no run is in flight starts one
 (`wakeForBackground`, a `Runner.Resume` with no prompt: the event is the
@@ -341,7 +341,7 @@ recent-calls roll. A background shell outlives the run that started it:
 `RunOptions.Shells` and `ResumeOptions.Shells` hand the session's
 `tools.Shells` registry to the Executor, which leaves it alone on a run that
 ended ok and closes it on one that was stopped, timed out or failed. A
-caller with none (a Task subagent, a test) gets a private registry that
+caller with none (a `task` subagent, a test) gets a private registry that
 records completions for that run's lifetime and is closed when the run
 ends. Compaction retargets the registry at the successor row
 (`SetSessionID`), so a shell started before or after the fork is recorded
@@ -369,11 +369,14 @@ composer").
 Every tool the model can call: schemas matching the trained-in shape, argument
 validation in Go, workspace confinement, per-tool timeouts and output caps, and
 the permission policy that gates execution. Also owns the frozen tool
-definitions the request head carries — the per-provider arrays, and
-`DefinitionsForVariant`, which resolves a session's array through the
-provider→model table and subtracts the named variant's dropped tools
-(`internal/promptvariant`), so a variant session's row, head, and requests all
-carry the same smaller array. The catalogue and its wording are
+definitions the request head carries (`definitions.go`): the base array, the
+vision-capable array the base yields once the six vision tools come off, the
+Claude array that drops the harness's `web_fetch` as well, and DeepSeek's
+hosted array, which is the vision-capable one minus `list`, the four task
+tools, `task` and `complete`. `DefinitionsForVariant` resolves a session's
+array from those through the provider→model table and subtracts the named
+variant's dropped tools (`internal/promptvariant`), so a variant session's
+row, head, and requests all carry the same smaller array. The catalogue and its wording are
 [`../docs/TOOLS.md`](../docs/TOOLS.md); a change here is a cache-prefix change.
 It also declares `MCPProvider`, the narrow seam `internal/mcpclient`
 implements, and owns the `mcp__` naming vocabulary
@@ -385,11 +388,11 @@ failed result rather than a Go error — and the permission policy's
 `MCPReadOnlyServers` map is the per-server readonly allowance frozen onto it
 at run start ([`../docs/MCP.md`](../docs/MCP.md)).
 `Executor.ExtraEnv` is the one hook that lets something outside decide part
-of a `Bash` call's environment, resolved at the moment of the call, for a
+of a `bash` call's environment, resolved at the moment of the call, for a
 value that cannot be process-wide because it differs per workspace.
 `Shells` (bashbackground.go) is the session's background-shell registry: an
 `Executor` handed one does not own it, so `Close` at the end of a run leaves
-those shells for the next run's `BashOutput`, while `CloseAll` is the stop
+those shells for the next run's `job_output`, while `CloseAll` is the stop
 path that ends them. It carries the session id its completions are recorded
 against, and `SetSessionID` moves that with a compaction. The registry's
 `OnExit` hook fires once per shell after `cmd.Wait`, with the session id

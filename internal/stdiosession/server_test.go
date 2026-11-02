@@ -791,7 +791,7 @@ func TestSequenceNumbersRunUnbrokenToTheTerminalFrame(t *testing.T) {
 // string, and the run still ends on response.completed.
 func TestMalformedToolArgumentsStillComplete(t *testing.T) {
 	const args = `{"task">racing-start: "done"}`
-	f := newFixture(t, callThen("call-1", "Read", args), answer("All done."))
+	f := newFixture(t, callThen("call-1", "read", args), answer("All done."))
 	f.client.handshake(ClientCapabilities{})
 
 	var created CreateResult

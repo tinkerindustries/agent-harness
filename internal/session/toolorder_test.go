@@ -14,7 +14,7 @@ import (
 	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
-// TestParallelToolResultsAppendInCallOrder gives the model two Bash calls
+// TestParallelToolResultsAppendInCallOrder gives the model two `bash` calls
 // where the second (index 1) finishes well before the first (index 0), and
 // asserts the stored tool_result events are still in call order — index
 // order, not completion order (docs/TOOLS.md, docs/CACHE.md). Execution is
@@ -42,8 +42,8 @@ func TestParallelToolResultsAppendInCallOrder(t *testing.T) {
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role: "assistant",
 					ToolCalls: []wire.ToolCallDelta{
-						{Index: 0, ID: "call_00_slow", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Bash", Arguments: `{"command":"sleep 0.2 && echo slow"}`}},
-						{Index: 1, ID: "call_01_fast", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Bash", Arguments: `{"command":"echo fast"}`}},
+						{Index: 0, ID: "call_00_slow", Type: "function", Function: wire.ToolCallFuncDelta{Name: "bash", Arguments: `{"command":"sleep 0.2 && echo slow"}`}},
+						{Index: 1, ID: "call_01_fast", Type: "function", Function: wire.ToolCallFuncDelta{Name: "bash", Arguments: `{"command":"echo fast"}`}},
 					},
 				}}},
 			})

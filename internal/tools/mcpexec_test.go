@@ -112,7 +112,7 @@ func TestExecMCPTruncatesAtTheOutputCap(t *testing.T) {
 // TestExecMCPWritesImageUnderScratch pins the image-writing contract: an
 // image content block lands at scratch/mcp/<server>-<tool>-<n>.<ext>, with
 // the extension resolved from the MIME type, and the result text names the
-// workspace-relative path so Glance can be pointed at it. <n> counts up per
+// workspace-relative path so `glance` can be pointed at it. <n> counts up per
 // session rather than per call, which the second half of this test is
 // about: calling one tool twice must produce two files, because a run that
 // renders, looks, changes something and renders again would otherwise
@@ -160,7 +160,7 @@ func TestExecMCPWritesImageUnderScratch(t *testing.T) {
 
 // TestExecMCPFirstImageRidesBackAsImageURLOnVisionProvider pins the vision
 // path: on a provider that reads images natively, the first image also
-// comes back as Result.ImageURL, the same shape Read uses.
+// comes back as Result.ImageURL, the same shape `read` uses.
 func TestExecMCPFirstImageRidesBackAsImageURLOnVisionProvider(t *testing.T) {
 	e, _ := newTestExecutor(t)
 	e.SeeImages = true
