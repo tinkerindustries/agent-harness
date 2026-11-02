@@ -1,7 +1,7 @@
 # Tool vocabulary alignment with the official DeepSeek harness
 
 - **Slug**: deepseek-tool-vocabulary
-- **Reports**: [reports/deepseek-tool-vocabulary/](reports/deepseek-tool-vocabulary/)
+- **Reports**: [../reports/deepseek-tool-vocabulary/](../reports/deepseek-tool-vocabulary/)
 
 ## What this builds
 

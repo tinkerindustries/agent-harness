@@ -84,7 +84,7 @@ keeps the methods it has.
 | `docs/TOOLS.md`, `docs/MCP.md` | The catalogue, per-tool rules and the MCP tool table |
 | `internal/settings/registry.go` | Operator-facing setting descriptions that name tools; no test watches them |
 | `CLAUDE.md`, `docs/VALIDATION.md` | Repository instructions and the validation record; both name tools and argue the vocabulary |
-| `docs/plans/deepseek-tool-vocabulary.md` | The mapping, phases, proofs and **Not building** |
+| `../deepseek-tool-vocabulary.md` | The mapping, phases, proofs and **Not building** |
 
 ## External facts
 

@@ -324,8 +324,9 @@ var definitionsClaude = without(definitionsVisionCapable, "web_fetch")
 
 // definitionsDeepSeekHosted is the array a DeepSeek model is offered: the
 // vision-capable array minus the harness's own additions, which have no
-// counterpart in DeepSeek's harness (docs/plans/deepseek-tool-vocabulary.md,
-// "DeepSeek's array drops the harness-added tools"). Kimi, Gemini and Claude
+// counterpart in DeepSeek's harness
+// (docs/plans/archive/deepseek-tool-vocabulary.md, "DeepSeek's array drops the
+// harness-added tools"). Kimi, Gemini and Claude
 // keep all seven, because their arrays are this harness's own and nothing
 // about them is being aligned with DeepSeek's.
 var definitionsDeepSeekHosted = without(definitionsVisionCapable,
