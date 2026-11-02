@@ -14,9 +14,13 @@ keeps the methods it has.
   server keeps the `mcp__<server>__<tool>` shape.
 - The mapping table in the plan is the complete rename list, and phase 1 carries
   all of it. No later phase renames a tool.
+- DeepSeek's hosted array omits `list`, the four task tools, `task` and
+  `complete`. `DefinitionsFor` subtracts those seven for a DeepSeek model
+  alone; the base array keeps them, so Kimi's, Gemini's and Claude's arrays do
+  too.
 - The provider tool arrays are frozen for a session's life. A rename or an added
-  tool moves all three array goldens, and both prompt goldens whenever the
-  array's membership or a fragment's wording moves.
+  tool moves all four array goldens (base, DeepSeek hosted, Kimi, Claude) and
+  all three prompt goldens whenever membership or a fragment's wording moves.
 - Old event logs keep the old names. Dispatch and live state speak the new
   names; `internal/store/status.go` accepts both, so a pre-rename plan still
   reconstructs.
@@ -26,9 +30,10 @@ keeps the methods it has.
 - `write`, `edit` and `apply_patch` are mutating and never in `alwaysAllowed`.
 - `apply_patch` parses and applies every hunk in memory before writing any file.
   One hunk that does not apply leaves the workspace untouched.
-- `definitionsVisionCapable` is DeepSeek's array minus the six vision tools;
-  `definitionsClaude` is that array minus `web_fetch`. A tool added to DeepSeek
-  reaches both unless it is named in a drop list.
+- `definitionsVisionCapable` is the base array minus the six vision tools;
+  `definitionsClaude` is that array minus `web_fetch`; DeepSeek's hosted array
+  is `definitionsVisionCapable` minus the seven names above. A tool added to the
+  base reaches all three unless it is named in a drop list.
 - The five MCP access tools join an array only when at least one MCP server is
   configured (`WithMCP`), so changing them moves no golden file.
 - MCP listings read the stored snapshot; reading dials. The template listing
@@ -47,8 +52,8 @@ keeps the methods it has.
 | `internal/session/prompt.go` | `toolOrder` and `toolFragments`; every fragment names tools in prose |
 | `internal/session/tooldispatch.go`, `livestate.go` | Task tool name comparisons and the Bash live-state case |
 | `internal/promptvariant/variants.go` | The `no-bash` drop list; the `no-patch` variant is added here |
-| `internal/tools/testdata/tools_{claude,deepseek,kimi}.golden.json` | Frozen arrays; regenerate, never hand-edit |
-| `internal/session/testdata/prompt_{deepseek,kimi}.golden.txt` | Frozen heads; regenerate, never hand-edit |
+| `internal/tools/testdata/tools_{claude,deepseek,kimi}.golden.json`, `tools_deepseek_flash.golden.json` | Frozen arrays; regenerate, never hand-edit |
+| `internal/session/testdata/prompt_{deepseek,kimi}.golden.txt`, `prompt_deepseek_flash.golden.txt` | Frozen heads; regenerate, never hand-edit |
 | `internal/tools/mcpresources.go` | The fixed MCP access tools and their executors |
 | `internal/mcpclient/resources.go`, `refresh.go` | The resource/template snapshot and the live reads |
 | `docs/TOOLS.md`, `docs/MCP.md` | The catalogue, per-tool rules and the MCP tool table |
@@ -62,6 +67,7 @@ keeps the methods it has.
 | dsh's `bash` takes `timeoutMs` and `workdir`; `job_output` takes `job_id` and `wait`; `job_kill` takes `job_id`; `apply_patch` takes `input` in the Codex grammar | same |
 | Only `{"type": "custom", "name": "apply_patch"}` is accepted as a custom tool, and other custom names return 400. Built-in tool types, `web_search` included, are ignored | `third_party/deepseek-docs/guides/responses_api.md`, `api/create-response.md` |
 | dsh ships `apply_patch` disabled behind an `applyPatch` flag; this harness ships it enabled | same catalogue, and the plan's decision |
+| dsh has none of `list`, `complete`, `task`, `task_create`, `task_get`, `task_list` or `task_update`. It uses `todo_write` and the subagent tools instead, which this plan does not build | same catalogue |
 
 The mapping table is the whole of the argument changes. dsh's `grep include`,
 `job_output timeout_ms` and required `bash description` are not adopted.

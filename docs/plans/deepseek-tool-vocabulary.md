@@ -20,10 +20,12 @@ The built-in tool array speaks the vocabulary of
 - `apply_patch` joins the array, carrying a Codex-format patch in an `input`
   string.
 - `list_mcp_resource_templates` joins the four MCP access tools.
-- The tools this harness added on top keep their behaviour and adopt the same
-  casing: `list`, `task_create`, `task_get`, `task_list`, `task_update`,
-  `task`, `complete`, `screenshot`, `glance`, `transcribe`, `ground`,
-  `detect`, `crop`.
+- The harness-added set follows the array it sits in. `list`, `task_create`,
+  `task_get`, `task_list`, `task_update`, `task` and `complete` take their new
+  names on Kimi, Gemini and Claude, and are not offered to DeepSeek at all.
+  The six vision tools keep their casing in the base array; every
+  vision-capable model, DeepSeek included, drops them because it reads images
+  natively.
 
 The reason is evidence. `docs/TOOLS.md` chose Claude Code's `TitleCase` names
 because DeepSeek names Claude Code and OpenCode as integration targets. The
@@ -70,7 +72,30 @@ array, so it survives with a smaller item shape.
 
 The benefit is one matching tool name. The cost is a smaller capability and a
 loop change that has nothing to do with vocabulary. This plan keeps the four
-tools and changes their casing.
+tools and changes their casing on Kimi, Gemini and Claude. DeepSeek's array
+does not carry them; see the next decision.
+
+### DeepSeek's array drops the harness-added tools
+
+DeepSeek is offered `read`, `write`, `edit`, `bash`, `job_output`, `job_kill`,
+`job_list`, `glob`, `grep` and `web_fetch`. It is not offered `list`,
+`task_create`, `task_get`, `task_list`, `task_update`, `task` or `complete`.
+The six vision tools were already dropped for every vision-capable model, so
+DeepSeek's array carries none of them either.
+
+None of the seven has a counterpart in `dsh`. `list` is a directory listing
+that `glob` and `bash` already cover, the four task tools are this harness's
+plan machinery, `task` is its blocking subagent, and `complete` is its
+run-ending report. The DeepSeek array is the one being aligned with the model's
+own harness, so the extra tools come off it. Kimi, Gemini and Claude keep all
+seven: their arrays are this harness's own and nothing about them is being
+aligned.
+
+`DefinitionsFor` resolves a DeepSeek model to the vision-capable array minus
+the seven names. The base array, the vision-capable array and Claude's derived
+array keep them, so the subtraction is per provider and every other model's
+bytes stay as they were. DeepSeek gets its own array golden and prompt golden;
+Kimi's and Claude's do not move for this decision.
 
 ### `apply_patch` ships enabled
 
@@ -146,9 +171,11 @@ Phases 2 and 3 add tools and touch different files, so they can run beside
 each other. Phase 4 is documentation only.
 
 Each phase regenerates the committed goldens its own change moves. A rename or
-an added tool always moves the three tool arrays. It moves the two prompt
-goldens whenever the array's membership or a fragment's wording changes, which
-is every phase here except phase 3.
+an added tool always moves every tool array: DeepSeek's own, the base array,
+Kimi's, and Claude's. It moves every prompt golden whenever the array's
+membership or a fragment's wording changes, which is every phase here except
+phase 3. DeepSeek's hosted array and prompt have their own files; the
+`deepseek-flash` cases no longer read Kimi's.
 
 ### Phase 1: core tools
 
@@ -186,8 +213,15 @@ is every phase here except phase 3.
   around the new names.
 - `internal/promptvariant/variants.go`: the `no-bash` drop list and its
   description.
-- `internal/tools/testdata/tools_{claude,deepseek,kimi}.golden.json` and
-  `internal/session/testdata/prompt_{deepseek,kimi}.golden.txt`, regenerated.
+- `internal/tools/definitions.go`: `DefinitionsFor` resolves a DeepSeek model
+  to the vision-capable array minus `list`, the four task tools, `task` and
+  `complete`. Kimi, Gemini and Claude keep them.
+- `internal/tools/testdata/tools_{claude,deepseek,kimi}.golden.json`,
+  `internal/tools/testdata/tools_deepseek_flash.golden.json` and
+  `internal/session/testdata/prompt_{deepseek,kimi}.golden.txt`, plus
+  `internal/session/testdata/prompt_deepseek_flash.golden.txt`, regenerated.
+  The `deepseek-flash` cases in both golden tests read their own files now,
+  not Kimi's.
 
 **Proof**
 
@@ -296,8 +330,12 @@ regenerated, which is the point of them.
   calls by the new names, so the session keeps working. A name map in `fold`
   would rewrite history and break the byte-for-byte replay the cache depends
   on; leave the old names in old logs.
-- **Three tool goldens and two prompt goldens change.** That churn is expected
+- **Four tool goldens and three prompt goldens change.** That churn is expected
   and is the evidence the change reached every surface.
+- **DeepSeek loses the plan tools.** A DeepSeek session cannot keep a task
+  list, delegate through `task`, or end with `complete`. Its head loses the
+  corresponding rules, because each fragment renders from the array. That is
+  the requested array; the other providers still carry all seven.
 - **`apply_patch` widens the editing surface.** It is a second mutating file
   tool with its own failure modes, and the model may choose it where `edit`
   was more reliable. The `no-patch` variant is how that gets measured.
