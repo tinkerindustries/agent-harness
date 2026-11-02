@@ -296,11 +296,13 @@ go test ./internal/mcpclient ./internal/tools
 **What it builds**
 
 - `docs/TOOLS.md`: the catalogue, the per-tool headings and the execution
-  rules. Record that DeepSeek's array carries the ten core tools and none of
-  `list`, the four task tools, `task` or `complete`, while Kimi, Gemini and
-  Claude carry all seven. The "Web search is not on the endpoint we use"
-  section is corrected to describe the Responses surface and the fact that
-  built-in tool types are ignored there.
+  rules. Record that DeepSeek's array carries the core tools and `apply_patch`
+  and none of `list`, the four task tools, `task` or `complete`, while Kimi,
+  Gemini and Claude carry all seven. The "Web search is not on the endpoint we
+  use" section is corrected to describe the Responses surface and the fact
+  that built-in tool types are ignored there. The deny-pattern section records
+  that `apply_patch`'s descriptor is its bare name, because a patch can span
+  files.
 - `docs/MCP.md`: the four older access-tool rows and the prose around them
   still use the pre-rename `MCPListResources`, `MCPReadResource`,
   `MCPListPrompts` and `MCPGetPrompt` spellings. Rename them, and check the
