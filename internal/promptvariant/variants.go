@@ -106,7 +106,8 @@ var variants = map[string]variant{
 	// kimi-steps is the wording arm of the Kimi prompt A/B
 	// (docs/KIMI-INTEGRATION.md §4.4, Phase 9). The other arm is base on
 	// kimi-k3: a Kimi session's shipped head now carries the corrected
-	// seventeen-tool inventory (internal/session), and this variant adds
+	// inventory for its array (internal/session, internal/tools/definitions.go),
+	// and this variant adds
 	// step-by-step execution wording drawn from Kimi's own prompt guidance
 	// (third_party/kimi-docs/guide/prompt-best-practice.md, "Clearly Define
 	// the Steps Needed to Complete the Task"). Running the same suite under

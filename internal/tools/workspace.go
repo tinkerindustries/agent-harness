@@ -23,7 +23,7 @@ func (e *ErrEscapesWorkspace) Error() string {
 // it, checked after symlink resolution (docs/TOOLS.md, "Execution rules").
 // A relative userPath is joined onto root, the ordinary case. An absolute
 // userPath is used as given rather than nested under root a second time —
-// Read's schema documents "absolute or workspace-relative", and a model
+// `read`'s schema documents "absolute or workspace-relative", and a model
 // handed an absolute workspace path in the opening message routinely
 // echoes it back verbatim; treating that as relative would silently
 // double the prefix and report a real file as missing. Either way the
@@ -86,7 +86,7 @@ func (e *Executor) resolveReadPath(userPath string) (string, error) {
 // scratchDir is the workspace subdirectory that holds what a run produces
 // but does not deliver: screenshots, attachments, scratch scripts. It is
 // named here rather than at each use because two rules now key off it — the
-// Screenshot tool's output confinement and the scratch-relative reading
+// `screenshot` tool's output confinement and the scratch-relative reading
 // below.
 const scratchDir = "scratch"
 
@@ -108,9 +108,9 @@ func resolveScratchRelative(root, userPath string) (string, error) {
 // relative path that names nothing as scratch-relative on a second attempt.
 //
 // The models this harness runs write a screenshot to "after/01.png" and then
-// hand that same string back to Glance, Ground, or Detect, because that is
+// hand that same string back to `glance`, `ground`, or `detect`, because that is
 // how the path reads in their own previous tool call — and the file is at
-// scratch/after/01.png, since Screenshot puts every relative path there
+// scratch/after/01.png, since `screenshot` puts every relative path there
 // (resolveScreenshotOutput). Refusing the read teaches nothing the model does
 // not already believe it did right; it just costs a sub-turn per image. So a
 // path that resolves to nothing gets tried once more under scratch/.

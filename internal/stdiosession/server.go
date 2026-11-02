@@ -114,8 +114,8 @@ type Server struct {
 	customReady map[string]customToolResult
 
 	// shells is each session's background-shell registry. The server owns it
-	// rather than a run, so a shell a Bash call started in one run is still
-	// there for BashOutput in the next (internal/tools, Shells). Guarded by
+	// rather than a run, so a shell a bash call started in one run is still
+	// there for job_output in the next (internal/tools, Shells). Guarded by
 	// mu. The OnExit hook is what records the completion and, when nothing is
 	// running, starts the run that tells the model.
 	shells map[string]*tools.Shells

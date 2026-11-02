@@ -99,9 +99,9 @@ func TestRunWithoutSkillsLeavesOpeningMessageUnchanged(t *testing.T) {
 }
 
 // A skill installed for the user lives outside the workspace, so the
-// catalogue names it absolutely and the run has to allow Read to open it.
+// catalogue names it absolutely and the run has to allow `read` to open it.
 // This drives the whole path: discovery, the opening message, the model's
-// Read call, and the body coming back as the tool result.
+// `read` call, and the body coming back as the tool result.
 func TestRunReadsASkillInstalledOutsideTheWorkspace(t *testing.T) {
 	config := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", config)

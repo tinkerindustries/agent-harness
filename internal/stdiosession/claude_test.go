@@ -175,7 +175,7 @@ const testClaudeModel = "claude-sonnet-5-5"
 // provider-neutral), a tool call round-trips through the harness's own
 // dispatcher, the outbound HTTP is a genuine Messages API request (headers,
 // system/messages/tools shape), and its tool array carries Anthropic's own
-// web_search server tool but not the harness's WebFetch
+// web_search server tool but not the harness's web_fetch
 // (internal/tools.definitionsClaude).
 func TestClaudeSessionOverResponsesDialect(t *testing.T) {
 	f, rec := newClaudeFixture(t,

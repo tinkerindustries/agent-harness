@@ -122,7 +122,7 @@ func baseToolNames(model string) []string {
 	return names
 }
 
-// recordingMultiTurnServer answers a streamed request with a TaskList call
+// recordingMultiTurnServer answers a streamed request with a task_list call
 // on its first turn (keeping the loop going without touching anything
 // filesystem-related) and a plain answer on every turn after, recording
 // every request body along the way — so a test can inspect what every
@@ -325,7 +325,7 @@ func TestResumeSendsStoredToolArrayNotAFreshResolution(t *testing.T) {
 	}
 }
 
-// TestTaskSubagentGetsMCPToolsToo pins that a Task subagent — which starts
+// TestTaskSubagentGetsMCPToolsToo pins that a `task` subagent — which starts
 // its own fresh session through Runner.Run (subagentRunner) rather than
 // inheriting the parent's array — gets the same MCP resolution any other
 // new run gets: it is its own run, so it resolves its own array from the

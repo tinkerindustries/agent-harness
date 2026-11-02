@@ -96,16 +96,16 @@ type Session struct {
 	MCPReadOnly  map[string]bool
 	ResultSchema json.RawMessage
 	Status       string
-	// CompleteStatus is the status argument the model gave Complete ("done"
+	// CompleteStatus is the status argument the model gave `complete` ("done"
 	// or "gave_up"), when it called the tool at all. Empty covers both a
-	// pre-migration row and a session that ended without calling Complete;
+	// pre-migration row and a session that ended without calling `complete`;
 	// the browser renders the empty value as
 	// the plain terminal status rather than guessing.
 	CompleteStatus string
 	// Plan is the JSON encoding of the working plan's todos array, written
-	// verbatim from the latest TodoWrite call.
+	// verbatim from the latest `task_create` or `task_update` call.
 	// Empty covers both a pre-migration row and a session that never called
-	// TodoWrite; the browser renders the empty value as "no plan section"
+	// either; the browser renders the empty value as "no plan section"
 	// rather than an empty list.
 	Plan string
 	// RecentToolCalls is the rolling roll of the last few tool calls the
@@ -114,9 +114,9 @@ type Session struct {
 	// gone); it is kept because it rides that write, and dropping it would
 	// save nothing. Nil when the session made none yet.
 	RecentToolCalls []RecentToolCall
-	// Summary is the summary argument the model gave Complete, its own
+	// Summary is the summary argument the model gave `complete`, its own
 	// one-line account of what the run did, shown under the finished table's
-	// session id. Empty when Complete was
+	// session id. Empty when `complete` was
 	// never called.
 	Summary    string
 	CreatedAt  time.Time
@@ -268,7 +268,7 @@ func (s *Store) UpdateSessionStatus(ctx context.Context, id, status string, fini
 
 // FinishSession marks a session terminal the way finishRun ends one: status
 // and finished_at together with complete_status, the status argument the
-// model gave Complete ("" when it never called the tool), and summary, the
+// model gave `complete` ("" when it never called the tool), and summary, the
 // model's own one-line account of the run ("" when it never called the
 // tool). Keeping the complete_status and summary writes in the same UPDATE
 // as the terminal status is what makes the session list able to tell DONE
@@ -307,8 +307,9 @@ const maxRecentToolCalls = 5
 
 // UpdateSessionLiveState atomically rewrites the session row's live plan
 // and recent-tool-call roll. plan is the
-// JSON todos array from the latest TodoWrite call; the empty string keeps
-// the existing plan, so a sub-turn with no TodoWrite never clobbers one
+// JSON todos array from the latest `task_create` or `task_update` call; the
+// empty string keeps the existing plan, so a sub-turn with neither never
+// clobbers one
 // that had it. calls are appended to the stored roll and trimmed to the
 // most recent maxRecentToolCalls. The runner calls this where it already
 // appends tool_call events — the one place that sees every tool call and

@@ -21,7 +21,7 @@ import (
 // reviewScreenshotClient builds a Gemini client pointed at srv, so a test can
 // drive a vision tool end to end without reaching the real API. Named for the
 // tool that originated it, back when it lived in reviewscreenshot_test.go
-// alongside the tool itself; kept here now that Glance, Ground, and Detect
+// alongside the tool itself; kept here now that `glance`, `ground`, and `detect`
 // are the only callers.
 func reviewScreenshotClient(srv *httptest.Server) *gemini.Client {
 	return gemini.NewClient(srv.URL, gemini.WithAPIKeyProvider(func() (string, error) {
@@ -288,7 +288,7 @@ func TestBoxPosition(t *testing.T) {
 	}
 }
 
-// TestExecGroundReturnsAndFormatsBoxes drives Ground end to end against a
+// TestExecGroundReturnsAndFormatsBoxes drives `ground` end to end against a
 // test Gemini server: the 0-1000 grid box in the answer must come back scaled
 // to the actual image's pixels and formatted the way formatMatches renders a
 // single match. This is the path TestParseMatches and TestBoxPosition only
@@ -341,10 +341,10 @@ func TestExecGroundReportsNoMatch(t *testing.T) {
 	}
 }
 
-// TestExecDetectUsesDefaultCategoryAndFormatsInventory pins Detect's one
+// TestExecDetectUsesDefaultCategoryAndFormatsInventory pins `detect`'s one
 // piece of logic: with no category, the request sent to Gemini names
 // detectDefaultCategory, and the result is always numbered (formatInventory),
-// unlike Ground's single-match bare form.
+// unlike `ground`'s single-match bare form.
 func TestExecDetectUsesDefaultCategoryAndFormatsInventory(t *testing.T) {
 	var gotPrompt string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -377,7 +377,7 @@ func TestExecDetectUsesDefaultCategoryAndFormatsInventory(t *testing.T) {
 // path, an explicit one, the scale upscale, and the argument refusals. It is
 // also the regression test for a real bug found while wiring this port up —
 // execCrop originally called a nonexistent e.ResolvePath method (there is
-// only the package-level ResolvePath(root, path)), which meant Crop could
+// only the package-level ResolvePath(root, path)), which meant `crop` could
 // not compile, let alone run.
 func TestExecCrop(t *testing.T) {
 	e, root := newTestExecutor(t)
@@ -449,7 +449,7 @@ func TestExecCrop(t *testing.T) {
 	})
 }
 
-// Crop's output is confined to scratch/ the way Screenshot's is, which is
+// `crop`'s output is confined to scratch/ the way `screenshot`'s is, which is
 // what lets it run in read-only mode (policy.go). A relative path lands there
 // whether or not the caller spells the prefix — the measured lesson behind
 // resolveScratchImageOutput, where refusing the unprefixed spelling cost a
@@ -464,10 +464,10 @@ func TestExecCropConfinesOutputToScratch(t *testing.T) {
 	for _, out := range []string{"cut.png", "scratch/cut2.png"} {
 		res := runTool(t, e, "crop", cropArgs{ImagePath: "shot.png", Region: "0,0,20,20", Output: out})
 		if res.IsError {
-			t.Fatalf("Crop(%q): %s", out, res.Content)
+			t.Fatalf("crop(%q): %s", out, res.Content)
 		}
 		if _, err := os.Stat(filepath.Join(root, "scratch", filepath.Base(out))); err != nil {
-			t.Errorf("Crop(%q) did not land under scratch/: %v", out, err)
+			t.Errorf("crop(%q) did not land under scratch/: %v", out, err)
 		}
 	}
 
@@ -477,7 +477,7 @@ func TestExecCropConfinesOutputToScratch(t *testing.T) {
 	}
 }
 
-// A Glance conversation replays the earlier exchange into the follow-up's
+// A `glance` conversation replays the earlier exchange into the follow-up's
 // prompt, so "look closer at the header" costs one call rather than a fresh
 // description, and image_paths becomes optional. The test captures what the
 // harness actually sent, because that — not the tool result — is where the

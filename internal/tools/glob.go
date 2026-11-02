@@ -14,14 +14,14 @@ type globArgs struct {
 	Path    string `json:"path"`
 }
 
-// skipDirs are noise directories excluded from Glob's walk. Grep keeps its
+// skipDirs are noise directories excluded from `glob`'s walk. `grep` keeps its
 // own list (grepSkipDirs): it answers to ripgrep's behaviour, which searches
 // node_modules.
 var skipDirs = map[string]bool{
 	".git": true, "node_modules": true, ".hg": true, ".svn": true,
 }
 
-// execGlob implements Glob: path matching by pattern, walked from path or
+// execGlob implements `glob`: path matching by pattern, walked from path or
 // the workspace root.
 func execGlob(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result {
 	var args globArgs
@@ -48,7 +48,7 @@ func execGlob(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 		root = resolved
 		// A root outside the workspace is a skill directory. Matches are
 		// then reported absolutely, because a path relative to that root
-		// would not resolve back through Read.
+		// would not resolve back through `read`.
 		outside = !withinRoot(e.Workspace, root)
 	}
 

@@ -288,7 +288,7 @@ VALUES ('legacy-1', 'deepseek-v4-pro', 'high', 1, '/tmp/ws', 'default',
 }
 
 // TestFinishSessionRecordsCompleteStatus proves the finish path writes the
-// model's Complete status argument onto the session row alongside the
+// model's `complete` status argument onto the session row alongside the
 // terminal status, so the session list can tell DONE from GAVE UP without
 // re-walking the event log.
 func TestFinishSessionRecordsCompleteStatus(t *testing.T) {
@@ -317,7 +317,7 @@ func TestFinishSessionRecordsCompleteStatus(t *testing.T) {
 		t.Fatal("expected finished_at set")
 	}
 
-	// A session that ends without calling Complete — the model answered in
+	// A session that ends without calling `complete` — the model answered in
 	// prose and called no tool — keeps the empty string, not a made-up one.
 	if err := s.FinishSession(ctx, "sess-1", StatusOK, "", "", &finished); err != nil {
 		t.Fatalf("finish session: %v", err)

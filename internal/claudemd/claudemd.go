@@ -25,7 +25,7 @@ import (
 const (
 	// MaxFileBytes bounds a single CLAUDE.md read during discovery. A file
 	// larger than this is truncated, and the rendered block says so and names
-	// the path so the agent can Read the rest itself.
+	// the path so the agent can `read` the rest itself.
 	MaxFileBytes = 32 * 1024
 	// MaxTotalBytes bounds the whole block across all files. Files that do
 	// not fit are cut to the remaining budget or dropped, with the shortfall
@@ -36,7 +36,7 @@ const (
 // File is one discovered CLAUDE.md.
 type File struct {
 	// Path is the CLAUDE.md path relative to the workspace root, which is the
-	// form the model passes back to Read.
+	// form the model passes back to `read`.
 	Path string
 	// Content is the file's text, truncated to fit MaxFileBytes and the
 	// run's total budget.

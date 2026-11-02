@@ -20,7 +20,7 @@ import (
 // executeToolCalls runs every call concurrently and returns outcomes in the
 // same order as calls, regardless of completion order — the appender is
 // what must preserve tool_calls order, not the execution itself
-// (docs/TOOLS.md). The four Task tools are the exception and run
+// (docs/TOOLS.md). The four `task` tools are the exception and run
 // synchronously, in calls order, interleaved with the goroutine spawning:
 // task_create mints ids from a counter in execution order, and the store's
 // plan replay (internal/store/status.go) and the frontend both reconstruct
@@ -30,11 +30,11 @@ import (
 //
 // Calls that rewrite the same file are the other exception: they run in one
 // goroutine, in calls order, so the file is never the prize in a race.
-// Edit, Write and apply_patch all read a whole file, apply a change to their
+// `edit`, `write` and `apply_patch` all read a whole file, apply a change to their
 // own copy, and write it back, so two of them racing on one path silently
 // drop whichever finishes first — the model is told both succeeded and one of
 // its changes is simply gone. Ordering them makes disjoint edits both land,
-// and turns the genuinely conflicting case into Edit's own "old_string not
+// and turns the genuinely conflicting case into `edit`'s own "old_string not
 // found" with a note saying why (tools.MutationTargets picks the groups out).
 // Files are grouped separately, so different files still run concurrently,
 // and a patch that spans files holds one group per file it names.
@@ -152,7 +152,7 @@ func (r *Runner) executeToolCall(ctx context.Context, sess store.Session, execut
 		},
 	}
 	callCtx := httplog.WithSessionID(ctx, sess.ID)
-	// Bash streams its command's output; an MCP tool streams whatever
+	// `bash` streams its command's output; an MCP tool streams whatever
 	// progress its server reports while the call is still running, which
 	// is the only thing standing between a three-minute render and a
 	// transcript that looks like a hang (docs/MCP.md, "What a server sends
@@ -175,7 +175,7 @@ func isTaskFamily(name string) bool {
 	return false
 }
 
-// stdoutSink returns the callback a running Bash call uses to publish
+// stdoutSink returns the callback a running `bash` call uses to publish
 // incremental output. Each chunk commits as its own tool_stdout event,
 // mirrored and fanned out to SSE subscribers exactly like any other event
 // batch (docs/DESIGN.md §4.1); liveStdoutWriter is what keeps the volume of

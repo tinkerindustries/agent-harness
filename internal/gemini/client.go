@@ -1,7 +1,7 @@
 // Package gemini is a client for Google's Gemini API. Two callers use it:
-// the vision tools — Glance, Ground, and Detect — which send images DeepSeek
+// the vision tools — `glance`, `ground`, and `detect` — which send images DeepSeek
 // cannot see to a vision model and return its answer or located boxes
-// (docs/TOOLS.md, "Glance" and "Ground and Detect") through Interact, and
+// (docs/TOOLS.md, "glance" and "ground and detect") through Interact, and
 // the agent loop, which drives a full coding session on gemini-3.7-flash
 // through StreamChatCompletion and CreateChatCompletion — the
 // internal/session.Client seam DeepSeek and Kimi already satisfy
@@ -28,7 +28,7 @@
 // is not: it moved onto the same internal/providerhttp.Transport
 // StreamChatCompletion and CreateChatCompletion use (chatTransport,
 // docs/GEMINI-INTEGRATION.md §8), so a transient 429/500/503 no longer costs
-// a Glance/Ground/Detect call the way it used to. Everything else the
+// a `glance`/`ground`/`detect` call the way it used to. Everything else the
 // agentic path needs — ChatInteractionRequest and its step types
 // (chat_types.go), requestFromIntent (intent.go), pumpChatEvents and
 // IsReasoningStarved (stream.go), RepairArguments (toolcall.go), and the
@@ -58,7 +58,7 @@ import (
 // empty string.
 const DefaultBaseURL = "https://generativelanguage.googleapis.com"
 
-// DefaultModel is the vision model Glance, Ground, and Detect use when no
+// DefaultModel is the vision model `glance`, `ground`, and `detect` use when no
 // google.vision_model setting is stored; it is also internal/settings's
 // default for that key. The two are pinned equal by
 // TestGeminiDefaultModelMatchesTheRegistry — this constant is the fallback
@@ -244,7 +244,7 @@ func NewClient(baseURL string, opts ...ClientOption) *Client {
 // Label names the image to the model: Interact emits a text part carrying it
 // ("Image 1: <label>") immediately before the image part, so a finding can
 // say which screenshot it is about instead of referring to a position in the
-// array. Glance, Ground, and Detect all set it to the file's base name.
+// array. `glance`, `ground`, and `detect` all set it to the file's base name.
 type Image struct {
 	Data       []byte
 	MIMEType   string
@@ -266,8 +266,8 @@ type InteractOption func(*interactConfig)
 //
 // Thinking is where a vision call's cost goes: measured over two production
 // sessions, an empty findings list cost 1,947 thinking tokens against one
-// token of answer (docs/reviews/vision-path-2026-08-14.md). Glance defaults
-// to medium, for answering a question about a page; Ground and Detect default
+// token of answer (docs/reviews/vision-path-2026-08-14.md). `glance` defaults
+// to medium, for answering a question about a page; `ground` and `detect` default
 // to low, on the grounds that locating something is perception rather than
 // reasoning (internal/tools/vision.go).
 func WithThinkingLevel(level string) InteractOption {

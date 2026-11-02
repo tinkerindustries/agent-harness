@@ -537,7 +537,7 @@ Body.
 }
 
 // Render names an absolute path for a skill installed outside the workspace
-// so the model can hand the same string back to Read.
+// so the model can hand the same string back to `read`.
 func TestRenderNamesAbsolutePath(t *testing.T) {
 	cat := Catalogue{Skills: []Skill{{
 		Name: "ship-it", Description: "Ship it.", Path: "/Users/someone/.claude/skills/ship-it/SKILL.md",

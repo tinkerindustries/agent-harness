@@ -13,13 +13,13 @@ import (
 // TestPromptNamesExactlyTheToolArray pins each provider's system prompt to
 // that provider's tool array: the prompt's "Tools:" inventory must name
 // exactly the tools in the array — no more, no less — and the availability
-// count ("All eighteen are always available") must match the array length.
+// count must match the array length.
 //
-// The tool array is per-provider, and the system prompt is a second frozen
-// head that nothing else ties to it: the base head names twenty-four tools,
-// DeepSeek's eleven and Kimi's eighteen, and each must be restated the moment
-// a tool is added to or dropped from that array. The head is assembled from
-// the array (internal/session/prompt.go), so this test pins the assembly:
+// The tool array is per-provider (internal/tools/definitions.go), and the
+// system prompt is a second frozen head that nothing else ties to it: each
+// provider's count word must be restated the moment a tool is added to or
+// dropped from that array. The head is assembled from the array
+// (internal/session/prompt.go), so this test pins the assembly:
 // the rendered inventory must still name exactly the tools the array
 // carries. Without it the two can drift, which is the bug this pins: Kimi
 // sessions were once sent an array whose size the prompt did not match.
@@ -164,13 +164,13 @@ func containsSorted(sorted []string, name string) bool {
 // of tool-dropping variants: a variant that subtracts a tool needs no
 // replacements entry, because the head is assembled from the session's
 // tool array (tools.DefinitionsForVariant) rather than from stored text.
-// Dropping Bash, BashOutput, and KillBash names three fewer tools in the
-// inventory, corrects the count word, and takes every rule gated on Bash —
+// Dropping bash and its three job tools names four fewer tools in the
+// inventory, corrects the count word, and takes every rule gated on bash —
 // the shell rule, the batch rule, the background-shell rule, and the plan
-// bullet that mentions "a long run of Bash or Edit calls" — out of the
-// text, while every rule not about Bash survives untouched. The plan group
+// bullet that mentions "a long run of bash or edit calls" — out of the
+// text, while every rule not about bash survives untouched. The plan group
 // itself stays: it is gated on the four plan tools, and its one
-// Bash-naming bullet picks its wording from what is present, so a no-bash
+// bash-naming bullet picks its wording from what is present, so a no-bash
 // head carries the same bullet without the mention.
 func TestVariantDroppedToolRendersAHeadConsistentWithItsArray(t *testing.T) {
 	base, err := RenderSystemPromptFor("deepseek-v4-pro", "")
@@ -300,8 +300,8 @@ func TestKimiStepsVariantAppliesToTheKimiHead(t *testing.T) {
 }
 
 // TestKimiHeadDiffersFromDeepSeekHeadOnlyWhereItMust pins the relationship
-// between the two heads: Kimi's inventory names the eighteen tools and not
-// the six vision tools, and DeepSeek's names the ten it is offered. The
+// between the two heads: Kimi's inventory names the tools in its array and
+// not the six vision tools, and DeepSeek's names the ones it is offered. The
 // search rule is shared, so a change to it lands in both heads; the plan
 // rule is Kimi's alone, because DeepSeek's array carries no plan tools.
 func TestKimiHeadDiffersFromDeepSeekHeadOnlyWhereItMust(t *testing.T) {

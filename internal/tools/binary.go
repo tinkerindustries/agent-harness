@@ -86,7 +86,7 @@ func leadRuneLen(c byte) int {
 	return 0
 }
 
-// binaryFileError is the result both Read and Edit return when the guard
+// binaryFileError is the result both `read` and `edit` return when the guard
 // fires, so the model learns why it got nothing instead of guessing.
 func binaryFileError(path string, size int64) Result {
 	return errorResult("cannot read a binary file: %s (%d bytes)", path, size)

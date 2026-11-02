@@ -36,11 +36,11 @@ import (
 // it never changes by accident. Regenerating one is a deliberate act with a
 // cost attached: the head is the shared prompt-cache prefix, so a moved byte
 // invalidates the cache for every session on that provider. Both goldens were
-// last moved on purpose to tell Bash's `timeout` argument that a default and a
+// last moved on purpose to tell `bash`'s `timeoutMs` argument that a default and a
 // ceiling exist and that a request above the ceiling is clamped rather than
 // refused — models were routinely asking for thirty and sixty minutes, being
 // cut off at the ceiling, and reading the bare "command timed out" as a hung
-// command. Bash is in both arrays, so both files moved together.
+// command. `bash` is in both arrays, so both files moved together.
 func TestToolArrayGolden(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -55,7 +55,7 @@ func TestToolArrayGolden(t *testing.T) {
 		// tools, task, complete), so its bytes are not Kimi's.
 		{"deepseek-flash", "deepseek-flash", "tools_deepseek_flash.golden.json"},
 		// Claude reads images natively like Kimi and Gemini, but also drops
-		// WebFetch — Anthropic's own server-side web_search and web_fetch
+		// web_fetch — Anthropic's own server-side web_search and web_fetch
 		// tools ride the request instead (internal/anthropic's intent
 		// renderer, docs/ANTHROPIC-INTEGRATION.md) — so its array is one
 		// tool shorter than Kimi's and gets its own golden file.

@@ -137,7 +137,7 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (result *RunRes
 	executor.MCP = r.MCP
 	executor.RG = r.RG
 	// The opening message a resumed session carries names the same skills,
-	// some of them outside the workspace, so Read gets the same allowance the
+	// some of them outside the workspace, so `read` gets the same allowance the
 	// first run had. Nothing about the catalogue reaches the request prefix.
 	executor.ReadRoots = skills.Discover(executor.Workspace).ReadRoots()
 
@@ -186,7 +186,7 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (result *RunRes
 	if opts.Prompt != "" || len(attachmentNames) > 0 {
 		// The message the model reads is the attachment block and then the
 		// person's words, exactly the order the opening message puts them
-		// in. Task keeps the words alone, which is what the transcript
+		// in. `task` keeps the words alone, which is what the transcript
 		// renders — the block is addressed to the model, and showing it back
 		// to the person who just pasted the images would be repeating the
 		// file names at them (web/src/api/fold.ts, the continuation block).

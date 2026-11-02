@@ -16,7 +16,7 @@ protocol is the OpenAI Responses API's vocabulary rather than one of ours:
 ## What you need
 
 - **Go**, to build the binary. Nothing else is required to run a session.
-- **`node` on `PATH`**, only for the `Screenshot` tool, which drives a
+- **`node` on `PATH`**, only for the `screenshot` tool, which drives a
   headless browser through a Node script. Without it that one tool reports
   that it is unavailable and the rest of the session is unaffected.
 - **An API key** for whichever provider you intend to run: DeepSeek from

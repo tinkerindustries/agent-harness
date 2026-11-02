@@ -11,15 +11,15 @@ import (
 	"strings"
 )
 
-// ripgrepMaxColumns is the argument Grep passes as --max-columns: a matching
+// ripgrepMaxColumns is the argument `grep` passes as --max-columns: a matching
 // or context line at least this many bytes long is printed as an omission
 // marker instead of its text, so one minified file cannot fill a result. The
 // fallback applies the same rule (grepText) so both paths answer a call alike.
 const ripgrepMaxColumns = 500
 
-// RipgrepPath decides which ripgrep binary Grep runs. explicit is the -rg
+// RipgrepPath decides which ripgrep binary `grep` runs. explicit is the -rg
 // flag, which wins; then AGENT_HARNESS_RG; then the PATH. An empty return
-// means no ripgrep was found and Grep falls back to its own walk.
+// means no ripgrep was found and `grep` falls back to its own walk.
 //
 // A binary named by the flag or the environment must be there: a caller that
 // names one is stating where ripgrep is, and falling back to the walk would
@@ -55,7 +55,7 @@ func checkRipgrep(path string) error {
 	return nil
 }
 
-// ripgrepArgs is the argument list for one Grep call. mode is the resolved
+// ripgrepArgs is the argument list for one `grep` call. mode is the resolved
 // output_mode; path is the search path as the caller spelled it, empty for
 // the workspace root, which ripgrep then searches as its own directory.
 //
@@ -175,7 +175,7 @@ func execRipgrep(ctx context.Context, e *Executor, args grepArgs, mode, path str
 // The two list modes ask ripgrep for --null, which frames every path with a
 // NUL byte, so neither has to find the end of a path by looking for a ":"
 // that the path itself may contain. files_with_matches returns the paths one
-// per line, the shape a model hands back to Read. count splits each entry at
+// per line, the shape a model hands back to `read`. count splits each entry at
 // ripgrep's own NUL and writes the pair as path:count, which is the shape the
 // mode is documented with.
 func renderRipgrepOutput(mode, out string) string {

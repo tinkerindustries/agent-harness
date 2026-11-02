@@ -296,12 +296,12 @@ Two runs against the dev stack on 2026-08-15, `deepseek-v4-flash`, against
 a real user interface. They are what turned the port from plausible into
 verified, and they found real defects.
 
-**The coordinate contract holds on a real page.** `Ground` located a nav tab
-at `x1: 517, y1: 34, x2: 566, y2: 49`; `Crop` at scale 3 wrote a 147x45 image
+**The coordinate contract holds on a real page.** `ground` located a nav tab
+at `x1: 517, y1: 34, x2: 566, y2: 49`; `crop` at scale 3 wrote a 147x45 image
 — exactly 49x15x3, so the box survived the crop arithmetic — and an OCR
-`Glance` of that crop read back `Settings`, the text actually at those
-coordinates. In the same run `Detect` independently boxed the same tab at
-`507-576 x 27-56`: `Ground` boxes the text, `Detect` boxes the link's hit
+`glance` of that crop read back `Settings`, the text actually at those
+coordinates. In the same run `detect` independently boxed the same tab at
+`507-576 x 27-56`: `ground` boxes the text, `detect` boxes the link's hit
 area, and one sits inside the other. Two tools agreeing on an element to
 within its padding is the strongest evidence available without pixel-level
 ground truth.
@@ -316,9 +316,9 @@ image (§6).
 
 | Symptom | Cause | Fix |
 | --- | --- | --- |
-| A `Glance` describing a whole page died with `context deadline exceeded`, and the model paid for a full retry | The 60s vision timeout, inherited from ReviewScreenshot | 120s, in the constant and the setting default alike. The retest's equivalent call produced 3331 output tokens (1772 of them thinking) and landed first time |
-| `Ground` answered "the main heading" with a 15px nav brand | The tool matches the words it is given, not the intent behind them. The page has no larger headline, so it was right | Its description now says so, and says to describe an element by its visible text, position, or the block it sits in |
-| `Detect` reported a status badge shaped like a button as a button | Vision enumerates what looks like the category | Its description now says an inventory is a starting point to check against the markup, and that `category` is worth naming precisely. Set precisely in the retest, it returned exactly the four nav tabs and excluded the badge |
+| A `glance` describing a whole page died with `context deadline exceeded`, and the model paid for a full retry | The 60s vision timeout, inherited from ReviewScreenshot | 120s, in the constant and the setting default alike. The retest's equivalent call produced 3331 output tokens (1772 of them thinking) and landed first time |
+| `ground` answered "the main heading" with a 15px nav brand | The tool matches the words it is given, not the intent behind them. The page has no larger headline, so it was right | Its description now says so, and says to describe an element by its visible text, position, or the block it sits in |
+| `detect` reported a status badge shaped like a button as a button | Vision enumerates what looks like the category | Its description now says an inventory is a starting point to check against the markup, and that `category` is worth naming precisely. Set precisely in the retest, it returned exactly the four nav tabs and excluded the badge |
 
 **And one the deploy found rather than the runs:** `assets/` was missing from
 the Dockerfile's build context, so the image build failed outright once
@@ -326,7 +326,7 @@ the Dockerfile's build context, so the image build failed outright once
 cannot catch that — only the container build can, which is what
 `scripts/build.sh` is for.
 
-## 8. Transcribe, the chunked read §6 left open
+## 8. `transcribe`, the chunked read §6 left open
 
 §6 named `long_screenshot_ocr.py` as "the failure mode we have not had to
 face yet but will", and §7 measured the number that makes it inevitable:
@@ -335,9 +335,9 @@ so a 2,640px document read in one call gets a fifth of the detail per pixel
 that the 800px viewport shot beside it does — and the first live run noticed,
 describing the viewport rather than the page it was asked about, unprompted.
 
-`Transcribe` is that gap closed: cut the image on bands of blank rows, one
+`transcribe` is that gap closed: cut the image on bands of blank rows, one
 vision call per chunk at high resolution, merged back with a report of what
-happened at every join (docs/TOOLS.md, "Transcribe"). Two things about it are
+happened at every join (docs/TOOLS.md, "`transcribe`"). Two things about it are
 worth recording here rather than there.
 
 **What was ported and what was not.** The cut-band search and the
@@ -385,14 +385,14 @@ contiguous, neither duplicated nor dropped. Cost came home as one summed
 usage event per call: 5 calls / 6,146 input tokens / $0.0209, and
 3 calls / 3,627 / $0.0054.
 
-**The flat token budget is confirmed, twice.** One `Glance` call on the whole
+**The flat token budget is confirmed, twice.** One `glance` call on the whole
 8,370px image consumed **1,172** input tokens; one on the 3,709px image
 consumed **1,097**. Each individual chunk cost about 1,229. The budget really
 is flat in image size — §7's ~1,120 figure holds at a 6.5:1 aspect ratio just
 as it does at 4:3.
 
 **But chunking did not measurably recover more text, on either page.** Against
-a single `Glance` with `ocr`, on the 8,370px page: 44 setting keys to Glance's
+a single `glance` with `ocr`, on the 8,370px page: 44 setting keys to `glance`'s
 43 (`http.control_token` the only one missed), 44 metadata blocks to 44,
 14,658 characters to 14,727. On the 3,729px page the two were identical — 42
 keys each, no line in one absent from the other, differing only in whether the
@@ -412,9 +412,9 @@ Two things keep the tool worth having anyway, and one qualification:
   because the single call emitted 9,984 output tokens transcribing the whole
   page in one unbounded go, where the five chunks emitted 4,355 between them.
   A per-chunk output is a bounded output.
-- **It says whether its own output can be trusted.** A `Glance` OCR of a tall
+- **It says whether its own output can be trusted.** A `glance` OCR of a tall
   page returns prose with no statement about what it might have missed;
-  `Transcribe` returns the cut positions and flags the boundaries that were
+  `transcribe` returns the cut positions and flags the boundaries that were
   not clean. That is worth something independent of recall.
 - **The qualification: nothing here tested the case the premise describes.**
   Both targets are rendered UI at ordinary web font sizes. A scan of a printed
@@ -436,7 +436,7 @@ Two things keep the tool worth having anyway, and one qualification:
   (docs/reviews/vision-path-2026-08-14.md). Both live runs were structured
   tasks where the model verified itself, so they say nothing about the
   failure mode that instruction was measured against.
-- **Whether `Transcribe` recovers more text than one `Glance` is unproven,
+- **Whether `transcribe` recovers more text than one `glance` is unproven,
   and the two measurements so far say it does not.** §8 has the numbers: on
   two rendered UI pages, one of them 8,370px tall, a single call recovered the
   same text as five chunks. Its measured wins are a bounded output (and so a

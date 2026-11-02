@@ -132,7 +132,7 @@ func runClaudeSession(ctx context.Context, args []string, in io.Reader, out io.W
 		Hub:        eventHub,
 		Settings:   res,
 		// No vision tool ever reaches this closure: every Claude model
-		// reads images natively, so none is offered Glance/Ground/Detect
+		// reads images natively, so none is offered `glance`/`ground`/`detect`
 		// (docs/ANTHROPIC-INTEGRATION.md). Named for the same reason
 		// runStdioSession's own unreachable case is: what it would have to
 		// be if that ever changed.

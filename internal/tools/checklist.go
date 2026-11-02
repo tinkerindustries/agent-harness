@@ -9,9 +9,9 @@ import (
 )
 
 // Todo is one entry of the model's working plan. The taskId is minted by
-// TaskCreate in array order and is stable for the task's whole life, so a
-// later TaskUpdate can name one task cheaply instead of rewriting the list.
-// The field names match Claude Code's own Task tools: subject is the brief
+// task_create in array order and is stable for the task's whole life, so a
+// later task_update can name one task cheaply instead of rewriting the list.
+// The field names match Claude Code's own task tools: subject is the brief
 // actionable title and description the longer explanation (docs/TOOLS.md).
 type Todo struct {
 	TaskID      string `json:"taskId"`
@@ -22,7 +22,7 @@ type Todo struct {
 }
 
 // validTodoStatus is the 3-value status domain a task can actually hold.
-// "deleted" exists only as a TaskUpdate input trigger and is never a stored
+// "deleted" exists only as a task_update input trigger and is never a stored
 // status, so it deliberately does not appear here.
 var validTodoStatus = map[string]bool{"pending": true, "in_progress": true, "completed": true}
 
@@ -57,11 +57,11 @@ type taskCreateItem struct {
 	Status      string `json:"status"`
 }
 
-// execTaskCreate implements TaskCreate: a state write with no side effects
+// execTaskCreate implements task_create: a state write with no side effects
 // outside the session (docs/TOOLS.md). Every item is validated before any is
 // committed, so a bad call mutates nothing; ids are minted in array order
 // from the executor's nextTaskID. subject and description are both required
-// on every item, matching Claude Code's real TaskCreate schema.
+// on every item, matching Claude Code's own TaskCreate schema.
 func execTaskCreate(_ context.Context, e *Executor, argsRaw json.RawMessage) Result {
 	var args taskCreateArgs
 	if err := json.Unmarshal(argsRaw, &args); err != nil {
@@ -109,7 +109,7 @@ type taskGetArgs struct {
 	TaskID string `json:"taskId"`
 }
 
-// execTaskGet implements TaskGet: fetch one task by taskId. A linear scan is
+// execTaskGet implements task_get: fetch one task by taskId. A linear scan is
 // right — plans are small, and the whole point of the id is a cheap targeted
 // read (docs/TOOLS.md). The single-item result shows the description too,
 // which the compact checklist line deliberately leaves out.
@@ -133,7 +133,7 @@ type taskListArgs struct {
 	Status string `json:"status"`
 }
 
-// execTaskList implements TaskList: the rendered checklist of matching tasks,
+// execTaskList implements task_list: the rendered checklist of matching tasks,
 // or a short message when nothing matches. A fully optional call — no
 // arguments at all lists the whole plan.
 func execTaskList(_ context.Context, e *Executor, argsRaw json.RawMessage) Result {
@@ -164,7 +164,7 @@ type taskUpdateArgs struct {
 	ActiveForm  string `json:"activeForm"`
 }
 
-// execTaskUpdate implements TaskUpdate: patch only the fields present on one
+// execTaskUpdate implements task_update: patch only the fields present on one
 // task, or remove it with status "deleted". "deleted" is only ever an input
 // trigger — a deleted task is removed, never marked — so a "deleted" combined
 // with a patch, an update with nothing to set, or an unknown id are all

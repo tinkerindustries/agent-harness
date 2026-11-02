@@ -113,7 +113,7 @@ func execBash(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 	// forever — past the tool timeout, past a cancelled context. WaitDelay
 	// bounds that wait, and the process group (bashGroup) is what lets the
 	// kill reach the pipe-holder instead of only the direct shell child
-	// (docs/TOOLS.md, "Bash").
+	// (docs/TOOLS.md, "bash").
 	waitDelay := e.bashWaitDelay(ctx)
 	cmd.WaitDelay = waitDelay
 	group := bashGroup(cmd)
@@ -185,7 +185,7 @@ func runGrouped(cmd *exec.Cmd, group *groupKiller) error {
 	return cmd.Wait()
 }
 
-// capturedBuffer is the buffer a Bash call captures its command's stdout and
+// capturedBuffer is the buffer a `bash` call captures its command's stdout and
 // stderr into. cmd.Stdout and cmd.Stderr are distinct writer values, so the
 // two copy goroutines can call Write concurrently; and once WaitDelay can
 // make Wait return while a copy goroutine is still writing, the post-Wait read

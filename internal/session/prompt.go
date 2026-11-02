@@ -43,10 +43,10 @@ not by describing what someone else should do.
 // orders are pinned — the array's by its own golden files, this one by
 // TestPromptGolden and by TestPromptNamesExactlyTheToolArray.
 //
-// The vision block is Screenshot then the five tools that read what it
+// The vision block is `screenshot` then the five tools that read what it
 // captures, which is the order a session uses them in: capture, then look
-// (Glance, or Transcribe when the looking is at more text than one call can
-// resolve), then locate (Ground, Detect), then cut a located box out (Crop).
+// (`glance`, or `transcribe` when the looking is at more text than one call can
+// resolve), then locate (`ground`, `detect`), then cut a located box out (`crop`).
 // Replacing ReviewScreenshot and AskVision with these four changed the head's
 // bytes and therefore the cache prefix once, for every session
 // (docs/CACHE.md, docs/VISION-TOOLKIT.md) — a cost paid deliberately at the
@@ -107,7 +107,7 @@ func inventorySentence(names []string) string {
 }
 
 // numberWord spells n the way the head spells its availability count
-// ("All seventeen are always available"). The count is generated from the
+// ("All <word> are always available"). The count is generated from the
 // tool array, so a count past the end of the table renders "?" rather than a
 // word — visible in the golden head the moment it happens, which is what
 // forces the table to grow.
@@ -414,12 +414,12 @@ func RenderSystemPrompt() string {
 // RenderSystemPromptFor returns the frozen system prompt for the provider
 // serving model, with a named variant's edits made. An empty variant name is
 // the provider's shipped prompt, byte for byte (internal/promptvariant):
-// DeepSeek renders its eleven-tool head, Kimi renders the head for its
-// eighteen-tool array — whose inventory, count word and rules all follow
-// from the array itself (docs/KIMI-INTEGRATION.md §4.4) — Gemini renders
-// the same eighteen-tool head Kimi does, since both resolve to
+// DeepSeek renders the head for its hosted array, Kimi renders the head for
+// its own, whose inventory, count word and rules all follow from the array
+// itself (internal/tools/definitions.go, docs/KIMI-INTEGRATION.md §4.4),
+// Gemini renders the same head Kimi does, since both resolve to
 // tools.definitionsVisionCapable and both have seesImages() true
-// (docs/GEMINI-INTEGRATION.md §5.7) — and a variant that subtracts tools
+// (docs/GEMINI-INTEGRATION.md §5.7), and a variant that subtracts tools
 // (tools.DefinitionsForVariant) renders the head for its own smaller array,
 // with no replacements entry needed to keep the inventory truthful.
 func RenderSystemPromptFor(model, variant string) (string, error) {
@@ -495,7 +495,7 @@ func RenderMCPBlock(array []wire.Tool, instructions map[string]string) string {
 // RenderOpeningMessage builds the first user message: everything specific
 // to this run, which is why it lives here and not in the system prompt
 // (docs/DESIGN.md §3.2). resultSchema, when non-empty, is shown here too —
-// putting it in Complete's tool definition instead would vary the tool
+// putting it in `complete`'s tool definition instead would vary the tool
 // array per request and cost the shared prefix (docs/TOOLS.md).
 //
 // claudeMDBlock, when non-empty, is the rendered contents of the root
@@ -509,7 +509,7 @@ func RenderMCPBlock(array []wire.Tool, instructions map[string]string) string {
 // into under scratch/attachments/. The model cannot
 // guess they exist — nothing in the task text says so — so they are named
 // here, ahead of the task, with the path a tool call can use; the common
-// use is passing one to Glance as the mockup the page should be judged
+// use is passing one to `glance` as the mockup the page should be judged
 // against.
 //
 // mcpBlock, when non-empty, is RenderMCPBlock's output — naming the
@@ -552,7 +552,7 @@ func RenderOpeningMessage(workspace, task string, resultSchema json.RawMessage, 
 // was materialised into under scratch/attachments/. The
 // model cannot guess they exist — nothing in the message text says so — so
 // they are named ahead of the words, with the path a tool call can use; the
-// common use is passing one to Glance as the mockup the page should be
+// common use is passing one to `glance` as the mockup the page should be
 // judged against.
 //
 // subject is the noun the block calls the thing the images came with: "task"

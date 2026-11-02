@@ -79,7 +79,7 @@ func (s *Server) resumeTarget(ctx context.Context, p *CreateRequest) (store.Sess
 	if len(p.Harness.Deny) > 0 && !sameStrings(p.Harness.Deny, sess.DenyPatterns) {
 		return store.Session{}, errorf(CodeInvalidParams, "session %s carries its own deny patterns (%s); a resumed session keeps them and cannot be given a different set", id, strings.Join(sess.DenyPatterns, ", "))
 	}
-	// The result schema is what the Complete tool validates the run's answer
+	// The result schema is what the `complete` tool validates the run's answer
 	// against, and it is on the row for the same reason the rest of this is:
 	// Resume reads it there rather than from the create.
 	if schema := p.ResultSchema; len(schema) > 0 &&

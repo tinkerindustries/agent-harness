@@ -9,7 +9,7 @@ import (
 
 // A rule stated once in the system prompt decays as the context grows.
 // Measured over 85 production sessions, the share of searches made with the
-// Grep and Glob tools fell from 41.7% under 16k tokens to 3.5% above 128k,
+// `grep` and `glob` tools fell from 41.7% under 16k tokens to 3.5% above 128k,
 // and edits refused for want of a read rose from 0% to 1.95%.
 // A reminder re-states the rule further down the conversation, where the
 // system prompt's hold has weakened.
@@ -55,16 +55,16 @@ var reminderPolicies = map[string]Policy{
 		description: "re-states the search rule once past 64k of context, every 32k after that",
 		afterTokens: 64_000,
 		everyTokens: 32_000,
-		text: "Reminder: search with the Grep and Glob tools rather than through Bash. " +
-			"Grep takes a regular expression and an optional glob; Glob takes a path pattern.",
+		text: "Reminder: search with the grep and glob tools rather than through bash. " +
+			"grep takes a regular expression and an optional glob; glob takes a path pattern.",
 	},
 
 	"search-32k": {
 		description: "the same reminder, starting earlier and repeating twice as often",
 		afterTokens: 32_000,
 		everyTokens: 16_000,
-		text: "Reminder: search with the Grep and Glob tools rather than through Bash. " +
-			"Grep takes a regular expression and an optional glob; Glob takes a path pattern.",
+		text: "Reminder: search with the grep and glob tools rather than through bash. " +
+			"grep takes a regular expression and an optional glob; glob takes a path pattern.",
 	},
 
 	"search-64k-system": {
@@ -72,15 +72,15 @@ var reminderPolicies = map[string]Policy{
 		afterTokens: 64_000,
 		everyTokens: 32_000,
 		role:        wire.RoleSystem,
-		text: "Reminder: search with the Grep and Glob tools rather than through Bash. " +
-			"Grep takes a regular expression and an optional glob; Glob takes a path pattern.",
+		text: "Reminder: search with the grep and glob tools rather than through bash. " +
+			"grep takes a regular expression and an optional glob; glob takes a path pattern.",
 	},
 
 	"read-before-edit-64k": {
 		description: "re-states the read-before-edit rule once past 64k of context, every 32k after that",
 		afterTokens: 64_000,
 		everyTokens: 32_000,
-		text: "Reminder: Read a file in this session before you Edit or Write over it. " +
+		text: "Reminder: read a file in this session before you edit or write over it. " +
 			"Having read a different file with the same name does not count.",
 	},
 }

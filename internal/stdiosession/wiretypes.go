@@ -158,7 +158,7 @@ type ItemHarness struct {
 	Rule string `json:"rule,omitempty"`
 	// Truncated says the output was cut to the tool output cap.
 	Truncated bool `json:"truncated,omitempty"`
-	// ChildResponseID is set on a Task tool's output: the sub-agent ran as
+	// ChildResponseID is set on a `task` tool's output: the sub-agent ran as
 	// its own session, and this is the id to read it under.
 	ChildResponseID string `json:"child_response_id,omitempty"`
 	// Source is where a user message item came from — "input" for the
@@ -222,14 +222,14 @@ type ResponseHarness struct {
 	SessionID string `json:"session_id,omitempty"`
 	// Reason is why the run ended — "complete", "no_tool_calls",
 	// "complete_rejected", "cancelled". The status enum does not separate
-	// an agent that called Complete from one that answered without a tool
+	// an agent that called `complete` from one that answered without a tool
 	// call.
 	Reason string `json:"reason,omitempty"`
 	// Text is the final assistant message of the run — the surface's own
 	// `output_text` convenience, computed here so a parent does not have to
 	// walk the output items for it.
 	Text string `json:"text,omitempty"`
-	// Result is the structured result the Complete tool returned, when the
+	// Result is the structured result the `complete` tool returned, when the
 	// response asked for one with text.format.
 	Result json.RawMessage `json:"result,omitempty"`
 	// SubTurns is how many sub-turns the run took.

@@ -80,9 +80,9 @@ There is no settings store here and no screen to type a key into, so a hosted
 session's credentials are the host's to supply. The key reaches this
 process's own Google API client directly and is never written to the state
 directory's own settings table, and it is stripped from the environment
-`Bash` and a stdio `mcp_server` child inherit — both would otherwise get the
+`bash` and a stdio `mcp_server` child inherit — both would otherwise get the
 whole of this process's own environment, key included, as "the parent's
-environment" the next paragraph describes for `Bash`. **When neither is
+environment" the next paragraph describes for `bash`. **When neither is
 set**,
 `initialize` still succeeds — a parent can start the process and query its
 capabilities without a key — and the first `interactions.create` fails with
@@ -102,13 +102,13 @@ Flags:
 | `-model` | `gemini-3.7-flash` | What a create body with no `model` runs on. `initialize`'s `models` names every model this process accepts; see below. |
 | `-prices` | `configs/prices.json` | The price table behind the cost figure on `harness.usage`. A missing table costs the cost figure and nothing else. |
 | `-env` | unset | A `KEY=VALUE` file to take the API key from when the environment carries none. **Only `GEMINI_API_KEY` and `GOOGLE_API_KEY` are read out of it** — see below. A file that cannot be read is fatal. |
-| `-rg` | `$AGENT_HARNESS_RG`, then `rg` on the `PATH` | The ripgrep binary the session's `Grep` calls run. A parent that ships one names it here. A path that is not there is fatal at startup, and nothing on the `PATH` is used when the flag is set. With no binary named and none on the `PATH`, `Grep` falls back to its own Go walk (docs/TOOLS.md, "Grep and Glob"). |
+| `-rg` | `$AGENT_HARNESS_RG`, then `rg` on the `PATH` | The ripgrep binary the session's `grep` calls run. A parent that ships one names it here. A path that is not there is fatal at startup, and nothing on the `PATH` is used when the flag is set. With no binary named and none on the `PATH`, `grep` falls back to its own Go walk (docs/TOOLS.md, "grep and glob"). |
 
 **stdout carries protocol frames and nothing else.** Every log line, warning
 and diagnostic goes to stderr. No `.env` is read implicitly: the parent owns
 the working directory, which for a hosted session is a repository the session
 is about to work in, and a `.env` sitting in it must not contribute
-environment to this process — every command the session's Bash tool runs
+environment to this process — every command the session's `bash` tool runs
 inherits that environment.
 
 `-env FILE` is the one way a file reaches this process, and it does not
@@ -304,7 +304,7 @@ Google's create-interaction body, narrowed, plus a `harness` block.
 | `system_instruction` | no | **Prepended to the first user input**, not sent as a system instruction. See [Deviations](#deviations-from-googles-http-surface). |
 | `tools` | no | See [Tools](#tools). |
 | `previous_interaction_id` | no | Continue that interaction's session, in this process. See below. |
-| `response_format` | no | `schema` becomes the run's result schema, which the agent's `Complete` tool validates its answer against. |
+| `response_format` | no | `schema` becomes the run's result schema, which the agent's `complete` tool validates its answer against. |
 | `generation_config.thinking_level` | no | One of the levels `initialize` gave for this model — `low`, `medium`, `high` for `gemini-3.7-flash`, which refuses `minimal`. Defaults to `high`. A level the model does not take is `-32602`. |
 | `generation_config.max_output_tokens` | no | Per-request output cap. Zero leaves the API's own default. |
 | `stream` | no | Default true. See below. |
@@ -320,7 +320,7 @@ Google's create-interaction body, narrowed, plus a `harness` block.
 #### No sub-turn ceiling
 
 A run takes as many sub-turns as it needs. It ends when the model answers
-without a tool call, calls `Complete`, has `Complete` rejected three times
+without a tool call, calls `complete`, has `complete` rejected three times
 running with the same error, fails, or is cancelled. Nothing counts sub-turns
 against it. A parent that wants a run bounded cancels it with
 `interactions.cancel`.
@@ -371,13 +371,13 @@ conversation that has finished can be retired with
 `harness.close_session` and a later create starts a new one in the same
 process and workspace.
 
-**A finished background shell starts an interaction of its own.** A Bash call
-with `run_in_background` returns a `bash_id`, and that shell belongs to the
+**A finished background shell starts an interaction of its own.** A `bash` call
+with `run_in_background` returns a job id, and that shell belongs to the
 session, not to the interaction that started it: the next interaction's
-`BashOutput` finds it, and `KillBash` ends it. A shell that exits while no
+`job_output` finds it, and `job_kill` ends it. A shell that exits while no
 interaction is running starts one, with the completion as its input: a
 user-message item whose `harness.source` is `"background"`, naming the shell,
-its exit code and the `bash_id`. The interaction's created frame is the first
+its exit code and that job id. The interaction's created frame is the first
 notification, exactly as for a client-driven create, and the model continues
 the same `harness.session_id`. A completion that arrives while an interaction
 is running reaches the model at that interaction's next sub-turn boundary;
@@ -412,7 +412,7 @@ instead.
 
 **A steer the run never reaches is withdrawn.** The loop applies a steer only
 at a sub-turn boundary. A run can end with no boundary after the steer: the
-model answers with no tool calls, calls `Complete`, is cancelled, or fails. Every steer still unapplied
+model answers with no tool calls, calls `complete`, is cancelled, or fails. Every steer still unapplied
 at that point is withdrawn. The model never sees it, and no later interaction
 in the session applies it. The interaction lists the withdrawn steers'
 `message_id`s in `harness.unapplied_message_ids`, in the order they were
@@ -446,7 +446,7 @@ should not have to handle both outcomes. It answers with the interaction as it
 stands.
 
 A tool still running when the cancel arrives has its context cancelled, which
-kills the whole process group of a `Bash` call. A child that has detached from
+kills the whole process group of a `bash` call. A child that has detached from
 its process group and holds the output pipe open is bounded separately, by the
 tool layer's own wait delay — the cancel returns in seconds either way.
 
@@ -552,7 +552,7 @@ recorded it. `harness.source` is:
 
 A `function_result` step's `harness` block carries `rule` when the call was
 refused by permission policy, `truncated` when the output was cut to the
-output cap, and `child_interaction_id` when the call was a `Task` sub-agent
+output cap, and `child_interaction_id` when the call was a `task` sub-agent
 that ran as its own session.
 
 ### Delta types
@@ -627,7 +627,7 @@ output.
 ## Tools
 
 The agent always has this harness's own tools — reading and writing files,
-`Bash`, search, the plan tools, `Complete`. They are the session's whole
+`bash`, search, the plan tools, `complete`. They are the session's whole
 reason to be running on the parent's filesystem and they are not declared,
 configurable or removable from the create body.
 
@@ -822,12 +822,12 @@ harness does not have one.
 
 | `harness.permission_mode` | What runs |
 | --- | --- |
-| `readonly` | Reading, searching, the plan tools, and the tools that only write to the session's own scratch directory. `Bash`, file writes and edits are refused. |
+| `readonly` | Reading, searching, the plan tools, and the tools that only write to the session's own scratch directory. `bash`, file writes and edits are refused. |
 | `full` | Everything. |
 
 `harness.deny` subtracts from whichever mode is set and can never widen it.
 Each entry is matched as a substring of the call's descriptor — the command
-for `Bash`, `"<Tool> <arg>"` otherwise.
+for `bash`, `"<Tool> <arg>"` otherwise.
 
 **The mode gates execution, not the tool array.** The model is offered every
 tool in every mode and a refused call comes back as a `function_result` with
@@ -847,7 +847,7 @@ others' marking. A parent that wants its read-only tools usable in a
 `readonly` session declares only those; the rest would be refused there
 anyway.
 
-Note what `full` means here: the session runs `Bash` as this process's own
+Note what `full` means here: the session runs `bash` as this process's own
 user, in the parent's own working directory, with the parent's environment —
 **minus `GEMINI_API_KEY` and `GOOGLE_API_KEY`**, the one exception, stripped
 in both modes for the reason [Starting the process](#starting-the-process)
@@ -891,9 +891,9 @@ answered. They arrive as an `error` notification followed by
 | `failed` | The loop could not finish: a model error, a transport failure, a store failure. |
 
 `harness.reason` on a completed interaction is `complete` (the agent called
-`Complete`), `no_tool_calls` (it answered and asked for nothing else),
+`complete`), `no_tool_calls` (it answered and asked for nothing else),
 `complete_rejected` (its structured result failed the schema), or `cancelled`.
-Google's status enum does not separate an agent that called `Complete` from
+Google's status enum does not separate an agent that called `complete` from
 one that answered without a tool call. This process never sends the surface's
 `incomplete` status.
 
@@ -908,7 +908,7 @@ status. See [`interactions.append`](#interactionsappend).
 | **stdin closes** | The read loop ends, a run in flight is cancelled, and the process waits for it to record its terminal event before exiting. The interaction's final status is `cancelled`. This is the normal way a parent ends a session. |
 | **stdout breaks** | Writes fail silently — there is nowhere to report a failure to write. The read side discovers the same break and ends the session. |
 | **the parent exits** | Both pipes break; as above. The process does not outlive its parent. |
-| **a tool is running at cancel** | Its context is cancelled, which signals the whole process group of a `Bash` child. A grandchild holding the output pipe is bounded by the tool layer's own wait delay rather than waiting forever. |
+| **a tool is running at cancel** | Its context is cancelled, which signals the whole process group of a `bash` child. A grandchild holding the output pipe is bounded by the tool layer's own wait delay rather than waiting forever. |
 | **the model errors mid-turn** | The stream ends, the loop records the failure, and the client gets `error` then `interaction.completed` with `status: "failed"`. A reasoning-starved response — the budget spent before any answer text — is retried once at double the budget before that, and both attempts are billed and both appear on `harness.usage`. |
 | **a steer is still unapplied when the run ends** | It is withdrawn whatever ended the run, and its `message_id` is listed in `harness.unapplied_message_ids` on the terminal interaction. No later interaction in the session applies it. |
 | **the parent stops reading stdout** | Frames queue in this process rather than being dropped. There is no ceiling: a parent that has stopped reading has stopped hosting the session, and stdin closing is what ends it. |
@@ -1037,5 +1037,5 @@ Raised rather than fixed, in this repo's own convention:
 - **`interaction.status_update` for anything but sub-turn boundaries.** Google
   emits it on interaction-level transitions; here it only ever reports
   `in_progress` at the start of a sub-turn.
-- **`harness.tool_output` for tools other than `Bash`.** Nothing else in the
+- **`harness.tool_output` for tools other than `bash`.** Nothing else in the
   harness produces incremental output today.

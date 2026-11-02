@@ -18,12 +18,12 @@ type editArgs struct {
 	ReplaceAll bool   `json:"replace_all"`
 }
 
-// lineNumberPrefix matches the "  12\t" style prefix Read prepends to every
-// line. old_string must be the file's raw bytes, not a copy-paste of Read's
+// lineNumberPrefix matches the "  12\t" style prefix `read` prepends to every
+// line. old_string must be the file's raw bytes, not a copy-paste of `read`'s
 // display output (docs/TOOLS.md).
 var lineNumberPrefix = regexp.MustCompile(`(?m)^\s*[0-9]+\t`)
 
-// execEdit implements Edit: exact-match replacement, requiring a prior Read
+// execEdit implements `edit`: exact-match replacement, requiring a prior `read`
 // and a unique match unless replace_all is set (docs/TOOLS.md).
 func execEdit(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result {
 	var args editArgs

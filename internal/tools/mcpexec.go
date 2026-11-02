@@ -55,7 +55,7 @@ func (e *Executor) execMCP(ctx context.Context, server, name string, argsRaw jso
 // the output cap, images written into the session's scratch/mcp/ and named
 // in the text, a server-reported isError carried through as an ordinary
 // failed result. Shared by the mcp__<server>__<tool> path above and by the
-// fixed MCPReadResource and MCPGetPrompt tools (mcpresources.go), which
+// fixed read_mcp_resource and get_mcp_prompt tools (mcpresources.go), which
 // receive exactly the same kind of content and have no reason to place it
 // differently.
 //
@@ -82,7 +82,7 @@ func (e *Executor) placeMCPContent(ctx context.Context, server, toolPart string,
 
 	res := Result{Content: b.String(), IsError: content.IsError, Truncated: truncated}
 	// ImageURL never rides with IsError: a failed call is a refusal with a
-	// text result, not a broken image part (the same rule Read follows).
+	// text result, not a broken image part (the same rule `read` follows).
 	if !res.IsError {
 		res.ImageURL = imageURL
 	}
@@ -91,12 +91,12 @@ func (e *Executor) placeMCPContent(ctx context.Context, server, toolPart string,
 
 // writeMCPImage writes one MCP image content block into the workspace at
 // scratch/mcp/<server>-<tool>-<n>.<ext> — the same workspace-confined
-// resolution the Screenshot tool's own output uses
+// resolution the `screenshot` tool's own output uses
 // (resolveScratchRelative, which resolveScratchImageOutput calls in turn),
 // so an MCP image can never land outside scratch/ regardless of how server
 // or toolPart are spelled. Returns the workspace-relative path so the
 // result text can name it the way formatScreenshotReport names a capture,
-// letting Glance be pointed at it directly. An unknown MIME type is
+// letting `glance` be pointed at it directly. An unknown MIME type is
 // reported rather than written under a guessed extension.
 func (e *Executor) writeMCPImage(server, toolPart string, img MCPImage) (string, error) {
 	ext, ok := mcpImageExtensionByMIME[img.MIMEType]

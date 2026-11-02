@@ -230,7 +230,7 @@ func execBashBackground(ctx context.Context, e *Executor, command, dir string) R
 	// (bashGroup below sets one) on a Cmd not created through
 	// CommandContext, and Background() is never Done, so cmd.Cancel is
 	// simply never invoked by it — the command's own lifetime comes only
-	// from KillBash or the registry's Close calling the group killer directly.
+	// from job_kill or the registry's Close calling the group killer directly.
 	cmd := exec.CommandContext(context.Background(), shellPath(), "-c", command)
 	cmd.Dir = dir
 

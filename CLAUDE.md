@@ -80,7 +80,7 @@ suite is for.
   `deepseek-flash`, which reads images natively — a model that could not see
   would be given vision tools that reach Google, so hosting one would need a
   second provider's key. The Claude models read images natively too, and
-  drop the harness's own `WebFetch` in favour of Anthropic's server-side
+  drop the harness's own `web_fetch` in favour of Anthropic's server-side
   `web_search` and `web_fetch` (`docs/ANTHROPIC-INTEGRATION.md`).
   `harness gemini-session` hosts the Gemini models alone: a client speaking
   Google's vocabulary has no way to drive another vendor's model through it.

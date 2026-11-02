@@ -16,7 +16,7 @@ import (
 )
 
 // bashThenAnswerServer answers the first streamed sub-turn with a single
-// Bash tool call and every one after that with a plain answer that ends the
+// `bash` tool call and every one after that with a plain answer that ends the
 // run, so a test can drive exactly one tool execution and inspect what it
 // published.
 func bashThenAnswerServer(t *testing.T, command, finalAnswer string) *httptest.Server {
@@ -68,7 +68,7 @@ func bashThenAnswerServer(t *testing.T, command, finalAnswer string) *httptest.S
 }
 
 // TestBashPublishesLiveStdoutWhenHubSet proves the wiring end to end: with a
-// Hub attached, a Bash call's output reaches the store as tool_stdout events
+// Hub attached, a `bash` call's output reaches the store as tool_stdout events
 // ahead of (or alongside) its terminal tool_result, which is what lets the
 // browser show output as it happens (docs/DESIGN.md §5.2).
 func TestBashPublishesLiveStdoutWhenHubSet(t *testing.T) {
@@ -147,7 +147,7 @@ func TestBashSkipsStdoutEventsWithoutHub(t *testing.T) {
 }
 
 // TestTaskResultCarriesChildSessionID drives a parent session whose one
-// tool call is Task, delegating to a nested subagent run against the same
+// tool call is `task`, delegating to a nested subagent run against the same
 // mock server, and asserts the parent's tool_result names the child session
 // it spawned — what the browser needs to render it as a collapsed child
 // transcript (docs/TOOLS.md "task").
@@ -173,7 +173,7 @@ func TestTaskResultCarriesChildSessionID(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		switch idx {
 		case 0:
-			// Parent sub-turn 1: delegate to a subagent via Task.
+			// Parent sub-turn 1: delegate to a subagent via `task`.
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role: "assistant",
@@ -197,7 +197,7 @@ func TestTaskResultCarriesChildSessionID(t *testing.T) {
 				Usage:   &wire.Usage{PromptTokens: 60, PromptCacheMissTokens: 60, CompletionTokens: 5},
 			})
 		default:
-			// Parent sub-turn 2, now with the Task result in hand: a plain
+			// Parent sub-turn 2, now with the `task` result in hand: a plain
 			// answer that ends the parent's run.
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{Role: "assistant", Content: strPtr("parent done")}}},

@@ -196,7 +196,7 @@ type CreateParams struct {
 
 // TextConfig is the surface's text output configuration. Only `format` is
 // honoured, and only its json_schema member means anything here: the schema
-// becomes the session's result schema, which is what the Complete tool
+// becomes the session's result schema, which is what the `complete` tool
 // validates against (docs/TOOLS.md).
 type TextConfig struct {
 	Format *TextFormat `json:"format,omitempty"`

@@ -144,28 +144,29 @@ built. Kimi publishes its own
 [prompt guidance](../third_party/kimi-docs/guide/prompt-best-practice.md)
 to draw candidate wording from.
 
-One caveat: the prompt names its tools and says "All twenty are always
-available" for DeepSeek, "All fourteen" for Kimi. Any prompt variant has to
-keep that inventory truthful.
+One caveat: the prompt names its tools and states how many are always
+available, both generated from the array it renders
+(`internal/tools/definitions.go`). Any prompt variant has to keep that
+inventory truthful.
 
 ### 4.5 Vision
 
 K3 reads images natively; the DeepSeek models do not. Kimi sessions take the
-multimodal path, and none of `Screenshot`, `Glance`, `Ground`, `Detect`, or
-`Crop` is offered to them.
+multimodal path, and none of `screenshot`, `glance`, `ground`, `detect`, or
+`crop` is offered to them.
 
-Today no image reaches any model but Gemini's. `Screenshot` captures a PNG to
+Today no image reaches any model but Gemini's. `screenshot` captures a PNG to
 disk and returns prose about it — dimensions, page title, what the viewport
-clipped. `Glance`, `Ground`, and `Detect` ship the file to Gemini and return a
+clipped. `glance`, `ground`, and `detect` ship the file to Gemini and return a
 prose answer, a located pixel box, or a numbered inventory of boxes;
-`Crop` cuts one out locally, with no model call at all. The model reads
+`crop` cuts one out locally, with no model call at all. The model reads
 descriptions of, or coordinates in, pictures it never sees
-([`TOOLS.md`](TOOLS.md), "Glance" and "Ground and Detect").
+([`TOOLS.md`](TOOLS.md), "glance" and "ground and detect").
 
 For Kimi that inverts. `Message.Content` gains a parts representation, and
-`Read` returns an `image_url` part when the path is an image and the provider
-can see one. Capture happens through Bash and the `playwright-cli` skill the
-repo already ships; `Read` is what puts the result in front of the model.
+`read` returns an `image_url` part when the path is an image and the provider
+can see one. Capture happens through `bash` and the `playwright-cli` skill the
+repo already ships; `read` is what puts the result in front of the model.
 
 Two facts from
 [`openapi.json`](../third_party/kimi-docs/openapi.json) make this work:
@@ -185,9 +186,9 @@ exactly as it does now. That needs its own golden test.
 Kimi accepts images as base64 data URIs or uploaded file IDs, and rejects plain
 URLs and SVG.
 
-The cost of dropping `Screenshot` is real and worth naming: a Kimi session
+The cost of dropping `screenshot` is real and worth naming: a Kimi session
 loses scripted capture with its scale, colour-scheme, selector, and full-page
-options, and has to drive `playwright-cli` through Bash instead.
+options, and has to drive `playwright-cli` through `bash` instead.
 
 ## 5. Decisions
 
@@ -202,8 +203,8 @@ options, and has to drive `playwright-cli` through Bash instead.
 2. **The Go module path does not change.** Renaming it while the repository
    keeps its name breaks `go get` and touches every import for nothing.
 
-3. **Kimi sessions get their own tool array**, without `Screenshot`,
-   `Glance`, `Ground`, `Detect`, or `Crop`. K3 sees images directly, so the
+3. **Kimi sessions get their own tool array**, without `screenshot`,
+   `glance`, `ground`, `detect`, or `crop`. K3 sees images directly, so the
    Gemini round-trips and the capture tool are all redundant for it.
 
 4. **A second frozen head is now a supported thing, and nothing enforces it —
@@ -294,25 +295,24 @@ serialises unchanged. Extend the fold and the golden tests.
 Verify: the Phase 3 golden test still passes byte-for-byte, plus a new one
 covering a message that does carry parts.
 
-### Phase 8 — Kimi's tool array and image Read — done
+### Phase 8 — Kimi's tool array and image `read` — done
 
-Landed: `internal/tools` now ships two frozen arrays (DeepSeek's
-sixteen unchanged byte for byte, Kimi's fourteen without `Screenshot` and
-`ReviewScreenshot`), each pinned by its own golden file
-(`TestToolArrayGolden`, decision 4). DeepSeek's array has grown since — an
+Landed: `internal/tools` now ships two frozen arrays (DeepSeek's unchanged
+byte for byte, Kimi's without the vision tools), each pinned by its own golden
+file (`TestToolArrayGolden`, decision 4). DeepSeek's array has grown since — an
 `AskVision` tool was added, and then both `ReviewScreenshot` and `AskVision`
-were replaced by `Glance`, `Ground`, `Detect`, and `Crop`
+were replaced by `glance`, `ground`, `detect`, and `crop`
 (docs/VISION-TOOLKIT.md) — but the golden-file mechanism this phase built is
-what still pins both providers' arrays, at their current sizes of twenty
-and fourteen. `Read` returns an `image_url` part when
-the path is a PNG/JPEG/WebP and the provider can see images — the bytes
+what still pins every provider's array, at whatever size
+`internal/tools/definitions.go` gives it. `read` returns an `image_url` part
+when the path is a PNG/JPEG/WebP and the provider can see images — the bytes
 base64-encoded into a data URI, capped by the existing screenshot cap
 setting (`tools.reviewscreenshot_max_bytes`), with a refusal naming the limit
 over the cap. The image bytes live in the `tool_result` event payload
 (`ImageURL`), so the fold rebuilds the parts array identically on every
 replay and stays append-only.
 
-Verify: a Kimi run that captures a page through Bash and `playwright-cli`,
+Verify: a Kimi run that captures a page through `bash` and `playwright-cli`,
 reads the PNG, and answers a question about what is in it. A DeepSeek run over
 the same workspace, unchanged.
 
@@ -324,12 +324,12 @@ for Kimi and had to be restated regardless. Two halves:
 1. **The correction, shipped without an eval.** A prompt naming tools the
    model was never sent is a bug, not a wording choice. Kimi sessions now
    render a second frozen head — assembled in `internal/session` from the
-   same fragment table as DeepSeek's, driven by Kimi's fourteen-tool array
-   and the seesImages capability — whose inventory names the fourteen tools
-   in Kimi's array, whose count word is corrected, and whose vision rule is
-   the one sentence that is true for K3 (Read returns the image for a PNG,
-   JPEG or WebP path). The dropped tools — five of them today, `Screenshot`,
-   `Glance`, `Ground`, `Detect`, and `Crop` — are named nowhere in it.
+   same fragment table as DeepSeek's, driven by Kimi's own array
+   (`internal/tools/definitions.go`) and the seesImages capability — whose
+   inventory names exactly the tools in that array, whose count word is
+   corrected, and whose vision rule is the one sentence that is true for K3
+   (`read` returns the image for a PNG, JPEG or WebP path). The dropped tools — five of them today, `screenshot`,
+   `glance`, `ground`, `detect`, and `crop` — are named nowhere in it.
    DeepSeek's head is untouched byte for byte, proven by the golden files
    `internal/session/testdata/prompt_*.golden.txt`.
    `TestPromptNamesExactlyTheToolArray` pins each head to its own array —

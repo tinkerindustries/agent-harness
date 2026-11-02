@@ -13,7 +13,7 @@ import (
 // this.
 func lineNumbers(on bool) *bool { return &on }
 
-// ripgrepForTest returns the ripgrep binary the Grep path would run, or skips
+// ripgrepForTest returns the ripgrep binary the `grep` path would run, or skips
 // the test naming what it could not find. A machine with no ripgrep falls
 // back to the Go walk, which is the path these tests compare against, so
 // there is nothing to compare.
@@ -71,7 +71,7 @@ func newGrepFixture(t *testing.T) string {
 	return root
 }
 
-// TestGrepRipgrepArguments pins the flag each Grep argument becomes. A
+// TestGrepRipgrepArguments pins the flag each `grep` argument becomes. A
 // dropped or renamed flag changes what a search returns without changing its
 // shape, which no comparison of output against the fallback would catch.
 func TestGrepRipgrepArguments(t *testing.T) {
@@ -277,7 +277,7 @@ func TestGrepRipgrepReportsAMissingPathAsAnError(t *testing.T) {
 // TestGrepRipgrepKeepsAColonInAFileName pins the choice the two list modes
 // make: they ask ripgrep for --null, so a path containing ":" is framed by a
 // NUL rather than a separator it could be split on. files_with_matches is the
-// mode whose output a model hands straight back to Read, and it comes back as
+// mode whose output a model hands straight back to `read`, and it comes back as
 // one whole path per line however the name is spelled.
 func TestGrepRipgrepKeepsAColonInAFileName(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -397,7 +397,7 @@ func TestGrepFallbackMatchesRipgrep(t *testing.T) {
 // list both paths carry. ripgrep does not skip dot-directories on its own
 // once --hidden is passed, so each name has to be named; the walk names the
 // same six. A search that returned .git's contents would be reading a
-// repository's internals into the model's context on every orienting Grep.
+// repository's internals into the model's context on every orienting `grep`.
 func TestGrepSkipsVersionControlDirectoriesOnBothPaths(t *testing.T) {
 	root := newGrepFixture(t)
 	mustMkdirAll(t, root, ".git")

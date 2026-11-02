@@ -114,7 +114,7 @@ type iactStepHarness struct {
 	Rule string `json:"rule,omitempty"`
 	// Truncated says the result was cut to the tool output cap.
 	Truncated bool `json:"truncated,omitempty"`
-	// ChildInteractionID is set on a Task tool's result: the sub-agent ran
+	// ChildInteractionID is set on a `task` tool's result: the sub-agent ran
 	// as its own session, and this is the id to read it under.
 	ChildInteractionID string `json:"child_interaction_id,omitempty"`
 	// Source is where a user_input step came from — "input" for the
@@ -180,12 +180,12 @@ type iactInteractionHarness struct {
 	SessionID string `json:"session_id,omitempty"`
 	// Reason is why the run ended — "complete", "no_tool_calls",
 	// "complete_rejected", "cancelled". The status enum does not separate
-	// an agent that called Complete from one that answered without a tool
+	// an agent that called `complete` from one that answered without a tool
 	// call.
 	Reason string `json:"reason,omitempty"`
 	// Text is the final assistant message of the run.
 	Text string `json:"text,omitempty"`
-	// Result is the structured result the Complete tool returned, when the
+	// Result is the structured result the `complete` tool returned, when the
 	// interaction asked for one with response_format.
 	Result json.RawMessage `json:"result,omitempty"`
 	// SubTurns is how many sub-turns the run took.

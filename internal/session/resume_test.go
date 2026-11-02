@@ -227,7 +227,7 @@ func TestResumeKeepsVariantHeadAndToolArray(t *testing.T) {
 		}
 		for _, name := range wantNames {
 			if name == "bash" {
-				t.Fatal("the no-bash array must not contain Bash")
+				t.Fatal("the no-bash array must not contain bash")
 			}
 		}
 		if len(req.Messages) == 0 || req.Messages[0].Role != "system" {

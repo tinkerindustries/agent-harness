@@ -110,7 +110,7 @@ func TestDiscoverSkipsUnusable(t *testing.T) {
 }
 
 // A file larger than MaxFileBytes is cut, and the rendered block says so and
-// names the path so the agent can Read the rest itself.
+// names the path so the agent can `read` the rest itself.
 func TestDiscoverTruncatesLargeFile(t *testing.T) {
 	ws := t.TempDir()
 	content := strings.Repeat("0123456789abcdef", 2049) // 32784 bytes > 32 KiB

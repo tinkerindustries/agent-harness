@@ -61,7 +61,7 @@ func TestPerRequestDataStaysOutOfTheSystemPrompt(t *testing.T) {
 
 // A run given a result schema must be shown the call shape, not just the
 // schema: a review traced eleven wasted sub-turns to a model that
-// read the schema and put its fields at the top level of the Complete call
+// read the schema and put its fields at the top level of the `complete` call
 // (docs/reviews/sess-bb6c0ed564ddae573c3b1832cb3981f4.md).
 func TestOpeningMessageShowsTheCompleteCallShape(t *testing.T) {
 	schema := json.RawMessage(`{"type":"object","properties":{"branch":{"type":"string"},` +

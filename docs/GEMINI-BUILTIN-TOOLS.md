@@ -28,8 +28,8 @@ tools"):
 | Tool | Executes | Config | Already covered by |
 | --- | --- | --- | --- |
 | `google_search` | Server-side | `search_types`: `web_search`, `image_search`, `enterprise_web_search` | **nothing** |
-| `url_context` | Server-side | none | `WebFetch` |
-| `code_execution` | Server-side | none | `Bash` |
+| `url_context` | Server-side | none | `web_fetch` |
+| `code_execution` | Server-side | none | `bash` |
 | `file_search` | Server-side | `file_search_store_names`, `metadata_filter`, `top_k` | — |
 | `retrieval` | Server-side | `rag_store_config`, `exa_ai_search_config`, … | — |
 | `google_maps` | Server-side | `latitude`, `longitude`, `enable_widget` | — |
@@ -52,7 +52,7 @@ the case that most resembles this one:
 > the policy at run start — never from a live read of the table.
 
 A server-side built-in tool cannot honour that. `readonly` permission mode
-means "Read, Glob, Grep, List, WebFetch only", but a Gemini session with
+means "`read`, `glob`, `grep`, `list`, `web_fetch` only", but a Gemini session with
 `url_context` enabled reaches arbitrary URLs regardless of mode, and no
 `tool_call` event ever reaches `internal/tools` for the policy to judge.
 
@@ -80,13 +80,13 @@ Two things make the exception narrower than it first sounds:
 
 ## 4. Tool by tool
 
-**`google_search` — the only one with a real case.** The harness has `WebFetch`
+**`google_search` — the only one with a real case.** The harness has `web_fetch`
 but no search. A session that knows a URL can read it; a session that does not
 know the URL has nothing. That is a genuine gap for coding work — API changes,
 error messages, library versions. `search_types` also offers `image_search`,
 which returns image bytes and would land in a session that can now see images.
 
-**`url_context` — no.** It fetches URLs, which `WebFetch` already does through
+**`url_context` — no.** It fetches URLs, which `web_fetch` already does through
 the permission gate and the output cap. Adopting it adds an ungated egress path
 in exchange for nothing the harness cannot already do.
 
@@ -95,7 +95,7 @@ sandbox. The harness's entire model is a workspace with repositories cloned
 into it at a path that is identical on both sides of the container mount
 Code executing on Google's infrastructure
 cannot see those repositories, cannot edit a file, and produces nothing that
-reaches the deliverable. Sitting in the array beside `Bash`, it is a trap: two
+reaches the deliverable. Sitting in the array beside `bash`, it is a trap: two
 tools that look like "run code", one of which silently cannot do the job.
 
 **`computer_use` — no, but for a different reason.** It is *client-side*, so it
