@@ -243,6 +243,15 @@ func (t *translator) Event(e store.Event) {
 			source = "reminder"
 		}
 		t.UserInput(p.Text, source, t.messageIDFor(p.SourceSeq))
+	case store.KindBackgroundFinished:
+		var p store.BackgroundFinishedPayload
+		if json.Unmarshal(e.Payload, &p) != nil {
+			return
+		}
+		// A shell's exit is not the client's message and carries no id the
+		// client minted; the parent still sees it as the input that woke the
+		// response.
+		t.UserInput(p.Message(), "background", "")
 	case store.KindTurnStarted:
 		var p store.TurnStartedPayload
 		if json.Unmarshal(e.Payload, &p) != nil {

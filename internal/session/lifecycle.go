@@ -105,7 +105,7 @@ func (r *Runner) FailSetup(ctx context.Context, sessionID string, cause error) e
 // or an unrecoverable error. No count of sub-turns ends it. The returned
 // error is non-nil only for infrastructure failures (store or stream errors);
 // a task the model gave up on is a normal RunResult, not an error.
-func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
+func (r *Runner) Run(ctx context.Context, opts RunOptions) (result *RunResult, runErr error) {
 	if opts.Model == "" {
 		return nil, errors.New("session: model is required")
 	}
@@ -155,15 +155,42 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 		Deny:               opts.Deny,
 		MCPReadOnlyServers: mcpReadOnly,
 	}
+	// A caller with no session registry (a Task subagent, a test) still gets
+	// completion notices while its run lasts: the private registry records
+	// each exit into the log like the server's does, and Close ends what is
+	// left when the run does.
+	shells := opts.Shells
+	ownShells := shells == nil
+	if ownShells {
+		shells = tools.NewShells(sessID, func(sessionID string, exit tools.ShellExit) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := r.RecordBackgroundFinished(ctx, sessionID, exit); err != nil {
+				log.Printf("session: record background exit %s for %s: %v", exit.ID, sessionID, err)
+			}
+		})
+	}
 	executor, err := tools.NewExecutor(opts.Workspace, policy)
 	if err != nil {
 		return nil, err
 	}
-	// A background shell a Bash call started outlives the call itself; it
-	// must not outlive the run. Close kills whatever is still running on
-	// every return path, including the ones above this line's siblings
-	// return early on error, none of which have started anything yet.
-	defer executor.Close()
+	executor.Shells = shells
+	// A shell a Bash call started outlives this run: it is the session's, and
+	// the next turn's BashOutput has to find the same id. A run that ended in
+	// anything but ok is the exception: a stop, a timeout or a failure is
+	// not coming back to read those shells, so CloseAll ends them rather than
+	// leaving a build running with nobody to read it (docs/RUN-CONTROL.md).
+	// A registry this run created itself is closed on every path, because
+	// nobody else holds it.
+	defer func() {
+		if result == nil || result.Status != store.StatusOK || ctx.Err() != nil {
+			executor.CloseAll()
+		}
+		if ownShells {
+			shells.Close()
+		}
+		executor.Close()
+	}()
 	executor.Client = r.clientFor(r.flashModel(ctx))
 	executor.Prices = r.Prices
 	executor.FlashModel = r.flashModel(ctx)
@@ -373,10 +400,38 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 		contextTokens = outcome.usagePayload.PromptTokens
 
 		if outcome.usagePayload.PromptTokens >= r.compactionThreshold(ctx, opts.Model) {
+			// The last event this run has folded. Anything a shell commits
+			// after it during the summariser's model call is not in the
+			// summary, and landed on a row that is about to be retired.
+			var compactedThrough int64
+			for _, e := range allEvents {
+				if e.Seq > compactedThrough {
+					compactedThrough = e.Seq
+				}
+			}
 			newSess, newEvents, err := r.compact(ctx, curSess, allEvents, executor.Workspace)
 			if err != nil {
 				log.Printf("session: compaction failed for %s, continuing uncompacted: %v", curSess.ID, err)
 			} else {
+				// The conversation continues under the successor row, so the
+				// registry moves with it: a shell that exits later is recorded
+				// against the session still running, and a shell started later
+				// belongs to it too. The shells themselves are kept, because a
+				// dev server or a build the summary still describes is exactly
+				// what compaction should not kill.
+				if executor.Shells != nil {
+					executor.Shells.SetSessionID(newSess.ID)
+				}
+				// A shell can exit while compaction is summarising, before the
+				// successor exists. Its notice was committed to the retiring
+				// log; copy it into the successor so the running conversation
+				// still sees it.
+				carried, cerr := r.carryBackgroundNotices(ctx, curSess.ID, compactedThrough, newSess, newEvents)
+				if cerr != nil {
+					log.Printf("session: carry background completions into %s: %v", newSess.ID, cerr)
+				} else {
+					newEvents = carried
+				}
 				curSess = newSess
 				allEvents = newEvents
 				// The compacted child is a new session with a fresh log, so
@@ -390,6 +445,38 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 			}
 		}
 	}
+}
+
+// carryBackgroundNotices copies the background_finished events committed to
+// parentID's log after sinceSeq into the successor's log, and returns the
+// successor's events with them appended. Compaction spends a model call
+// summarising, and a shell can exit during it; the notice belongs to the
+// conversation that is still running, but the row it was recorded on is about
+// to be retired, so the successor is the only log a later fold reads.
+func (r *Runner) carryBackgroundNotices(ctx context.Context, parentID string, sinceSeq int64, successor store.Session, events []store.Event) ([]store.Event, error) {
+	late, err := r.Store.GetEventsAfterKinds(ctx, parentID, sinceSeq, -1,
+		[]store.EventKind{store.KindBackgroundFinished})
+	if err != nil {
+		return events, fmt.Errorf("read late background completions: %w", err)
+	}
+	if len(late) == 0 {
+		return events, nil
+	}
+	inputs := make([]store.EventInput, 0, len(late))
+	for _, e := range late {
+		var p store.BackgroundFinishedPayload
+		if err := json.Unmarshal(e.Payload, &p); err != nil {
+			return events, fmt.Errorf("decode background completion at seq %d: %w", e.Seq, err)
+		}
+		inputs = append(inputs, store.EventInput{Kind: store.KindBackgroundFinished, Payload: p})
+	}
+	appended, err := r.Store.AppendEvents(ctx, successor.ID, inputs)
+	if err != nil {
+		return events, fmt.Errorf("append to %s: %w", successor.ID, err)
+	}
+	r.mirrorAppend(successor, appended)
+	r.publishEvents(successor, appended)
+	return append(events, appended...), nil
 }
 
 // subagentRunner builds the closure Task uses to delegate to a nested,

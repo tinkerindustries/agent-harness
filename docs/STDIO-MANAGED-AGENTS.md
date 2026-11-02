@@ -350,6 +350,19 @@ running is likewise refused — there is nothing to resume that is not already
 here; post a `user.message`/`user.interrupt` through `sessions.events`
 instead.
 
+**A finished background shell starts a turn of its own.** A Bash call with
+`run_in_background` returns a `bash_id`, and that shell belongs to the
+session, not to the turn that started it: the next turn's `BashOutput` finds
+it, and `KillBash` ends it. A shell that exits while the session is idle
+starts a turn, with the completion as its input: a user-message item whose
+`harness.source` is `"background"`, naming the shell, its exit code and the
+`bash_id`. The turn's frames follow the same vocabulary as a `user.message`
+turn, and the model continues the same session. A completion that arrives
+while a turn is running reaches the model at that turn's next sub-turn
+boundary; the running turn is not interrupted. A session that was
+interrupted, timed out or failed is not woken, and its shells are ended with
+it.
+
 ### `sessions.events`
 
 ```jsonc

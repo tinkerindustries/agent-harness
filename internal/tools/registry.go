@@ -311,15 +311,14 @@ type Executor struct {
 	todos      []Todo
 	nextTaskID int
 
-	// shellsMu guards the background shells Bash started with
-	// run_in_background: true. Ids are minted in call order from
-	// nextShellID, the same shape nextTaskID mints TaskCreate's — belongs to
-	// the Executor because the Executor belongs to exactly one session
-	// (docs/DESIGN.md §4.5), so a shell's id is only ever read back by
-	// BashOutput or KillBash calls on that same session.
-	shellsMu    sync.Mutex
-	shells      map[string]*backgroundShell
-	nextShellID int
+	// Shells is the session's background-shell registry, when the caller has
+	// one that outlives this Executor. Nil means this Executor owns the
+	// shells it starts and Close ends them with the run, which is the
+	// subagent path and every test that does not wire a session registry.
+	Shells *Shells
+
+	ownShellsMu sync.Mutex
+	ownShells   *Shells
 
 	// mcpImageMu guards the counter that makes each image an MCP tool
 	// returns land on its own path. Naming a file from the call's own
@@ -354,29 +353,46 @@ func NewExecutor(workspace string, policy *Policy) (*Executor, error) {
 	}, nil
 }
 
-// Close ends every background shell this Executor's session started with
-// Bash's run_in_background that is still running. A background shell is a
-// live process outliving the tool call that started it, so nothing else
-// kills it once the run's own goroutine returns — the same "never leave an
-// agent behind" rule the harness holds itself to for a spawned session
-// applies to a spawned process (CLAUDE.md). internal/session calls this once
-// per run, after the loop returns on every path (docs/RUN-CONTROL.md).
-func (e *Executor) Close() {
-	e.shellsMu.Lock()
-	shells := make([]*backgroundShell, 0, len(e.shells))
-	for _, bg := range e.shells {
-		shells = append(shells, bg)
+// shellsRegistry is the registry this Executor's Bash calls use: the
+// session's when one was handed in, otherwise one this Executor owns. The
+// lazy own one is what keeps every caller that never wires a registry
+// (tests, the subagent path) behaving exactly as it did.
+func (e *Executor) shellsRegistry() *Shells {
+	if e.Shells != nil {
+		return e.Shells
 	}
-	e.shellsMu.Unlock()
+	e.ownShellsMu.Lock()
+	defer e.ownShellsMu.Unlock()
+	if e.ownShells == nil {
+		e.ownShells = NewShells("", nil)
+	}
+	return e.ownShells
+}
 
-	for _, bg := range shells {
-		bg.mu.Lock()
-		done := bg.done
-		bg.mu.Unlock()
-		if !done {
-			bg.killer.forceKill()
-		}
+// Close ends the background shells this Executor owns. A session registry it
+// was handed is the session's, not this run's: it is left alone so the next
+// run's BashOutput can still read a build the last run started. The session's
+// owner calls CloseAll to end those, and internal/session calls CloseAll on a
+// stopped run instead of this.
+func (e *Executor) Close() {
+	e.ownShellsMu.Lock()
+	own := e.ownShells
+	e.ownShellsMu.Unlock()
+	if own != nil {
+		own.Close()
 	}
+}
+
+// CloseAll ends every background shell this Executor can see, the session
+// registry included. It is the stop path's: a run that was cancelled or timed
+// out is not coming back to read those shells, so they must not outlive it
+// (docs/RUN-CONTROL.md).
+func (e *Executor) CloseAll() {
+	if e.Shells != nil {
+		e.Shells.Close()
+		return
+	}
+	e.Close()
 }
 
 func (e *Executor) outputCap(ctx context.Context) int {

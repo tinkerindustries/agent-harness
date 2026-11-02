@@ -240,6 +240,8 @@ var toolFragments = []toolFragment{
   with & inside an ordinary call. Read what it has produced with BashOutput,
   which returns only what is new since the last time you read it, and stop
   it with KillBash when you are done with it rather than leaving it running.
+  When a background shell exits it starts a new turn telling you, so end your
+  turn to wait for a build or a gate instead of polling it.
 `,
 	},
 	{

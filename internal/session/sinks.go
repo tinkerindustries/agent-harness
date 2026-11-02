@@ -2,16 +2,44 @@ package session
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
 	"github.com/mrgeoffrich/agent-harness/internal/hub"
 	"github.com/mrgeoffrich/agent-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/tools"
 )
 
 // sinks.go: where a sub-turn's output goes once it happens — the disk
 // mirror (internal/store/mirror.go) and the hub (internal/hub), the two
 // consumers every event and state change is published to.
+
+// RecordBackgroundFinished commits one background shell's exit to the
+// session's log. The session's shell registry calls it once per shell, after
+// cmd.Wait returns, through the stdio server's OnExit hook. The event is what
+// the fold turns into the model's notice at the next boundary, and what a
+// parent's transcript shows for a shell that finished while nothing was
+// running.
+func (r *Runner) RecordBackgroundFinished(ctx context.Context, sessionID string, exit tools.ShellExit) error {
+	sess, err := r.Store.GetSession(ctx, sessionID)
+	if err != nil {
+		return fmt.Errorf("session: background finished: load %s: %w", sessionID, err)
+	}
+	appended, err := r.Store.AppendEvents(ctx, sessionID, []store.EventInput{{
+		Kind: store.KindBackgroundFinished,
+		Payload: store.BackgroundFinishedPayload{
+			BashID: exit.ID, Command: exit.Command,
+			ExitCode: exit.ExitCode, Killed: exit.Killed, Wedged: exit.Wedged,
+		},
+	}})
+	if err != nil {
+		return fmt.Errorf("session: background finished: append for %s: %w", sessionID, err)
+	}
+	r.mirrorAppend(sess, appended)
+	r.publishEvents(sess, appended)
+	return nil
+}
 
 func (r *Runner) mirrorAppend(sess store.Session, events []store.Event) {
 	if r.Mirror == nil || len(events) == 0 {

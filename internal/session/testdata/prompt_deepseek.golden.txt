@@ -31,6 +31,8 @@ Rules:
   with & inside an ordinary call. Read what it has produced with BashOutput,
   which returns only what is new since the last time you read it, and stop
   it with KillBash when you are done with it rather than leaving it running.
+  When a background shell exits it starts a new turn telling you, so end your
+  turn to wait for a build or a gate instead of polling it.
 - A task that takes three or more steps gets a plan. Call TaskCreate once, at
   the start, with one entry per step. Every entry needs all three of: subject,
   a short title like "Run the test suite"; description, what the step

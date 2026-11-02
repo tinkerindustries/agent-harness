@@ -398,6 +398,36 @@ func TestFoldMultiTurnCarriesReasoning(t *testing.T) {
 // contributes nothing to the messages array, and only the loop's later
 // steer_applied becomes a user message carrying the text verbatim
 // (docs/RUN-CONTROL.md "Two event kinds, not one").
+// TestFoldBackgroundFinished pins that a background shell's exit becomes the
+// user message that wakes the next run, and that it lands after the turn the
+// shell was started from. It is the one event that adds a message no client
+// sent, so its wording and position are both part of what the model reads.
+func TestFoldBackgroundFinished(t *testing.T) {
+	b := &eventBuilder{}
+	events := []store.Event{
+		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "do it"}),
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
+		b.ev(store.KindContentDelta, store.ContentDeltaPayload{Text: "running the gate"}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "stop"}),
+		b.ev(store.KindRunFinished, store.RunFinishedPayload{Reason: "no_tool_calls", Text: "running the gate"}),
+		b.ev(store.KindBackgroundFinished, store.BackgroundFinishedPayload{
+			BashID: "bash_1", Command: "scripts/build.sh", ExitCode: 0,
+		}),
+	}
+	got, err := Fold(testSession(), events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	notice := store.BackgroundFinishedPayload{BashID: "bash_1", Command: "scripts/build.sh"}.Message()
+	want := []wire.Message{
+		wire.SystemMessage("you are a coding agent"),
+		wire.UserMessage("do it"),
+		{Role: wire.RoleAssistant, Content: wire.TextContent("running the gate")},
+		wire.UserMessage(notice),
+	}
+	requireEqualMessages(t, got, want)
+}
+
 func TestFoldSteer(t *testing.T) {
 	b := &eventBuilder{}
 	events := []store.Event{
