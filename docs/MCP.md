@@ -236,17 +236,18 @@ They are **not** tools on the model's array, and that is the whole design.
 The array is frozen for the life of a run, so a server holding a
 documentation set would either flood every request with hundreds of entries
 or change the array whenever its contents changed — invalidating the
-prompt-cache prefix of a session already running. Instead, four fixed tools
+prompt-cache prefix of a session already running. Instead, five fixed tools
 appear whenever a session has any MCP tools at all:
 
 | Tool | What it does |
 | --- | --- |
 | `MCPListResources` | lists resources and templates from the stored snapshot |
+| `list_mcp_resource_templates` | lists resource templates alone, from the stored snapshot |
 | `MCPReadResource` | reads one, live, by server and URI |
 | `MCPListPrompts` | lists prompts and the arguments each takes |
 | `MCPGetPrompt` | renders one, live |
 
-Four definitions, no matter how much is behind them. Listing reads the
+Five definitions, no matter how much is behind them. Listing reads the
 snapshot — so an unreachable server still lists what it had; reading dials,
 because the contents are the point and a stale copy would be worse than an
 error.

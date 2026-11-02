@@ -40,7 +40,7 @@ func TestWithMCPCopiesAndDoesNotCorruptTheFrozenArray(t *testing.T) {
 
 	// The two results must be independent: first must carry only blender's
 	// tool, second only chrome's, and neither must have picked up the
-	// other's. Both also carry the four fixed MCP access tools, which sit
+	// other's. Both also carry the five fixed MCP access tools, which sit
 	// between the base array and the servers' own (docs/MCP.md,
 	// "Resources") — hence the offset on every index below.
 	access := tools.MCPAccessToolCount

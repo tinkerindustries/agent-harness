@@ -49,8 +49,8 @@ func descriptorFor(name string, argsRaw json.RawMessage) string {
 		if u, _ := args["url"].(string); u != "" {
 			return name + " " + u
 		}
-	case "read_mcp_resource", "get_mcp_prompt", "list_mcp_resources", "list_mcp_prompts":
-		// The server, because these four reach a server the same way an
+	case "read_mcp_resource", "get_mcp_prompt", "list_mcp_resources", "list_mcp_resource_templates", "list_mcp_prompts":
+		// The server, because these five reach a server the same way an
 		// mcp__<server>__<tool> call does and an operator denying one
 		// server should be able to deny it here too — and because the
 		// permission gate for the two that dial reads the server back out

@@ -587,13 +587,14 @@ var toolFuncs = map[string]toolFunc{
 	"crop":        execCrop,
 	"transcribe":  execTranscribe,
 	"screenshot":  execScreenshot,
-	// The four fixed MCP tools (mcpresources.go). They are in this table
+	// The five fixed MCP tools (mcpresources.go). They are in this table
 	// unconditionally — a name the model was never offered is a name it
 	// cannot call — while whether they are *offered* is WithMCP's decision.
-	"list_mcp_resources": execMCPListResources,
-	"read_mcp_resource":  execMCPReadResource,
-	"list_mcp_prompts":   execMCPListPrompts,
-	"get_mcp_prompt":     execMCPGetPrompt,
+	"list_mcp_resources":          execMCPListResources,
+	"list_mcp_resource_templates": execMCPListResourceTemplates,
+	"read_mcp_resource":           execMCPReadResource,
+	"list_mcp_prompts":            execMCPListPrompts,
+	"get_mcp_prompt":              execMCPGetPrompt,
 }
 
 // toolArgs turns the argument text a model emitted into a JSON object. A call

@@ -426,7 +426,7 @@ func DefinitionsForVariant(model, variant string) []wire.Tool {
 	return without(defs, dropped...)
 }
 
-// mcpAccessTools are the four fixed tools that reach a server's resources
+// mcpAccessTools are the five fixed tools that reach a server's resources
 // and prompts (mcpresources.go, docs/MCP.md "Resources"). They sit between
 // the built-in array and the servers' own tools, and only when there are
 // servers' own tools to sit in front of: a session with nothing configured
@@ -442,6 +442,14 @@ var mcpAccessTools = []wire.Tool{
 		"type": "object",
 		"properties": {
 			"server": {"type": "string", "description": "Only list this server's resources. Omit for all of them."}
+		}
+	}`),
+	function("list_mcp_resource_templates", "List the resource templates the configured MCP servers advertise, without the resources beside them. "+
+		"A template has {placeholders} in its URI, so it is a shape to fill in rather than something readable as it stands: "+
+		"fill them in and read the result with read_mcp_resource.", `{
+		"type": "object",
+		"properties": {
+			"server": {"type": "string", "description": "Only list this server's resource templates. Omit for all of them."}
 		}
 	}`),
 	function("read_mcp_resource", "Read one resource from one MCP server, by the URI list_mcp_resources gave.", `{
@@ -471,12 +479,12 @@ var mcpAccessTools = []wire.Tool{
 }
 
 // MCPAccessToolCount is how many fixed tools WithMCP inserts ahead of a
-// server's own. Exported for tests that assert on array lengths, so a fifth
+// server's own. Exported for tests that assert on array lengths, so a sixth
 // access tool does not silently turn a meaningful assertion into an
 // arithmetic one.
-const MCPAccessToolCount = 4
+const MCPAccessToolCount = 5
 
-// WithMCP returns base, then the four fixed MCP access tools, then mcp — as
+// WithMCP returns base, then the five fixed MCP access tools, then mcp — as
 // a new slice, with the frozen provider/variant array's bytes first, so the
 // built-in portion's own bytes are unchanged by whatever is or is not
 // configured (docs/MCP.md, "Ordering is deterministic"). Runner.Run calls

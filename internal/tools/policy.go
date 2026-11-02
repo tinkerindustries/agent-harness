@@ -103,13 +103,14 @@ var alwaysAllowed = map[string]bool{
 	"task_list":   true,
 	"task_update": true,
 	"complete":    true,
-	// The two MCP listing tools read this harness's own stored snapshot of
+	// The three MCP listing tools read this harness's own stored snapshot of
 	// what its servers advertise. No server is dialled and nothing leaves
 	// the process, which puts them with the readers rather than behind the
 	// per-server gate their two dialling siblings answer to (see
 	// mcpAccessServerOf).
-	"list_mcp_resources": true,
-	"list_mcp_prompts":   true,
+	"list_mcp_resources":          true,
+	"list_mcp_resource_templates": true,
+	"list_mcp_prompts":            true,
 }
 
 // Check evaluates one tool call. descriptor is what a deny pattern matches
