@@ -2,6 +2,8 @@ package stdiosession
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -677,6 +679,51 @@ func TestContinuedCreateCannotChangeTheSession(t *testing.T) {
 			t.Fatalf("a continued create changed directory: %v", rerr)
 		}
 	})
+}
+
+// TestContinuedCreateAcceptsTheSameDirectoryRespelled pins the other half of
+// the directory check. A run the server started for a background completion
+// carries the session row's workspace, which the harness resolved, so a
+// continuation naming the same directory the way the client spelled it has
+// the same working directory and must be accepted.
+func TestContinuedCreateAcceptsTheSameDirectoryRespelled(t *testing.T) {
+	real, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "same-dir")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	f := newFixtureIn(t, t.TempDir(), real, answer("first"), answer("second"))
+	f.client.handshake(ClientCapabilities{})
+
+	var one CreateResult
+	if rerr := f.client.call(MethodResponsesCreate, f.createParams("first task"), &one); rerr != nil {
+		t.Fatalf("first create: %v", rerr)
+	}
+	f.client.waitFor(NotifyResponseCompleted)
+
+	next := CreateParams{
+		Model:              testModel,
+		PreviousResponseID: one.Response.ID,
+		Harness:            &CreateHarness{CWD: link},
+	}
+	next.Input, _ = json.Marshal("more")
+
+	// A directory the previous run did not work in is still refused.
+	other := next
+	other.Harness = &CreateHarness{CWD: t.TempDir()}
+	if rerr := f.client.call(MethodResponsesCreate, other, nil); rerr == nil || rerr.Code != CodeInvalidParams {
+		t.Fatalf("a continued create changed directory: %v", rerr)
+	}
+
+	var two CreateResult
+	if rerr := f.client.call(MethodResponsesCreate, next, &two); rerr != nil {
+		t.Fatalf("a continuation naming the same directory through a symlink was refused: %s", rerr.Message)
+	}
+	f.client.waitFor(NotifyResponseCompleted)
 }
 
 // TestGetWorksWhileTheRunIsGoing pins that interactions.get on an

@@ -315,6 +315,10 @@ func TestResumeUnknownSession(t *testing.T) {
 // would be silently ignored by session.Resume, which takes them off the row.
 func TestResumeRefusesAChangedPrefix(t *testing.T) {
 	dir, cwd := t.TempDir(), t.TempDir()
+	alias := filepath.Join(t.TempDir(), "same-dir")
+	if err := os.Symlink(cwd, alias); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
 	a := newFixtureIn(t, dir, cwd, answer("first"))
 	a.client.handshake(ClientCapabilities{})
 	var one CreateResult
@@ -329,20 +333,33 @@ func TestResumeRefusesAChangedPrefix(t *testing.T) {
 	b.client.handshake(ClientCapabilities{})
 
 	cases := []struct {
-		name string
-		edit func(*CreateParams)
-		want string
+		name     string
+		edit     func(*CreateParams)
+		want     string
+		accepted bool
 	}{
-		{"a different directory", func(p *CreateParams) { p.Harness.CWD = t.TempDir() }, "cannot change directory"},
-		{"a different permission mode", func(p *CreateParams) { p.Harness.PermissionMode = "full" }, "permission mode"},
-		{"a different deny list", func(p *CreateParams) { p.Harness.Deny = []string{"git push"} }, "deny patterns"},
-		{"a different model", func(p *CreateParams) { p.Model = testAltModel }, "cannot change model"},
+		{"a different directory", func(p *CreateParams) { p.Harness.CWD = t.TempDir() }, "cannot change directory", false},
+		// The session row holds the resolved workspace, so a client that
+		// names the same directory through a symlink is naming the one it
+		// already works in.
+		{"the same directory through a symlink", func(p *CreateParams) { p.Harness.CWD = alias }, "", true},
+		{"a different permission mode", func(p *CreateParams) { p.Harness.PermissionMode = "full" }, "permission mode", false},
+		{"a different deny list", func(p *CreateParams) { p.Harness.Deny = []string{"git push"} }, "deny patterns", false},
+		{"a different model", func(p *CreateParams) { p.Model = testAltModel }, "cannot change model", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			p := resumeParams(sessionID, "second task")
 			tc.edit(&p)
-			rerr := b.client.call(MethodResponsesCreate, p, &CreateResult{})
+			var out CreateResult
+			rerr := b.client.call(MethodResponsesCreate, p, &out)
+			if tc.accepted {
+				if rerr != nil {
+					t.Fatalf("%s was refused: %s", tc.name, rerr.Message)
+				}
+				b.client.waitFor(NotifyResponseCompleted)
+				return
+			}
 			if rerr == nil {
 				t.Fatalf("%s was accepted", tc.name)
 			}
