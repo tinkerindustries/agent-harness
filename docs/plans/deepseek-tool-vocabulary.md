@@ -251,7 +251,9 @@ and the policy.
 - `internal/promptvariant`: a `no-patch` variant that drops it, with its
   description.
 - `internal/session/prompt.go`: the `apply_patch` entry in `toolOrder`.
-- The three tool goldens and the two prompt goldens, regenerated.
+- Every tool golden and every prompt golden, regenerated. DeepSeek's hosted
+  array carries `apply_patch` too, because the tool is added to the base array
+  before DeepSeek's seven-name subtraction.
 
 **Proof**
 
@@ -294,9 +296,11 @@ go test ./internal/mcpclient ./internal/tools
 **What it builds**
 
 - `docs/TOOLS.md`: the catalogue, the per-tool headings and the execution
-  rules. The "Web search is not on the endpoint we use" section is corrected
-  to describe the Responses surface and the fact that built-in tool types are
-  ignored there.
+  rules. Record that DeepSeek's array carries the ten core tools and none of
+  `list`, the four task tools, `task` or `complete`, while Kimi, Gemini and
+  Claude carry all seven. The "Web search is not on the endpoint we use"
+  section is corrected to describe the Responses surface and the fact that
+  built-in tool types are ignored there.
 - `internal/CLAUDE.md`, `ARCHITECTURE.md` and `docs/DESIGN.md` wherever a tool
   is named.
 - Wherever a comment or a document restates the size of an array ("twenty-two",
