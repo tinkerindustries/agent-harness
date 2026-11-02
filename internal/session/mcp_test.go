@@ -98,13 +98,19 @@ func toolNames(t *testing.T, body []byte) []string {
 	return names
 }
 
-// mcpAccessToolNames are the four fixed tools tools.WithMCP inserts between
+// mcpAccessToolNames are the five fixed tools tools.WithMCP inserts between
 // the built-in array and a server's own whenever any MCP tool is present
 // (docs/MCP.md, "Resources"). Spelled out rather than derived from
 // tools.WithMCP, so these tests still assert the order the model is offered
 // rather than agreeing with whatever that function does today.
 func mcpAccessToolNames() []string {
-	return []string{"list_mcp_resources", "read_mcp_resource", "list_mcp_prompts", "get_mcp_prompt"}
+	return []string{
+		"list_mcp_resources",
+		"list_mcp_resource_templates",
+		"read_mcp_resource",
+		"list_mcp_prompts",
+		"get_mcp_prompt",
+	}
 }
 
 func baseToolNames(model string) []string {

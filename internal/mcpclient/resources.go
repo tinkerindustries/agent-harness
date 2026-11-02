@@ -14,12 +14,12 @@ import (
 
 // Resources and prompts are the two things a server advertises that do not
 // become tools on the model's array (docs/MCP.md, "Resources", "Prompts").
-// They are reached through four fixed built-in tools instead, and the
+// They are reached through five fixed built-in tools instead, and the
 // reason is the frozen head: a session's tool array is resolved once and
 // every request of that run carries the same bytes, so a server holding a
 // thousand resources — a documentation set, a database's tables — would
 // either flood the array or force it to change whenever the server's
-// contents did. One tool that lists and one that reads costs four
+// contents did. Two tools that list and two that read cost five
 // definitions no matter how much is behind them.
 //
 // Listing reads the stored snapshot, the same source the tool array is

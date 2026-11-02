@@ -58,6 +58,83 @@ func TestMCPListResourcesSaysSoWhenThereAreNone(t *testing.T) {
 	}
 }
 
+// TestMCPListResourceTemplatesListsTemplatesOnly pins the one thing that
+// separates the fifth access tool from list_mcp_resources: it answers with
+// the URIs a model must fill in before reading, and leaves out the resources
+// it can read as they stand.
+func TestMCPListResourceTemplatesListsTemplatesOnly(t *testing.T) {
+	e, _ := newTestExecutor(t)
+	e.MCP = &fakeMCPProvider{resources: []MCPResource{
+		{Server: "docs", URI: "file:///readme.md", Name: "readme"},
+		{Server: "docs", URI: "file:///page/{slug}", Name: "page", Template: true},
+	}}
+
+	full := runTool(t, e, "list_mcp_resources", struct{}{})
+	for _, want := range []string{"file:///readme.md", "file:///page/{slug}"} {
+		if !strings.Contains(full.Content, want) {
+			t.Fatalf("the combined listing should carry %q, got:\n%s", want, full.Content)
+		}
+	}
+
+	res := runTool(t, e, "list_mcp_resource_templates", struct{}{})
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, "file:///page/{slug}") {
+		t.Errorf("template listing should carry the template, got:\n%s", res.Content)
+	}
+	if strings.Contains(res.Content, "file:///readme.md") {
+		t.Errorf("template listing should not carry a plain resource, got:\n%s", res.Content)
+	}
+}
+
+// TestMCPListResourceTemplatesSaysSoWhenThereAreNone pins the empty answer,
+// including the case that matters most: a server holding resources but no
+// templates must say it has no templates rather than repeat its resources.
+func TestMCPListResourceTemplatesSaysSoWhenThereAreNone(t *testing.T) {
+	const want = "No configured MCP server advertises any resource templates"
+
+	e, _ := newTestExecutor(t)
+	e.MCP = &fakeMCPProvider{}
+
+	res := runTool(t, e, "list_mcp_resource_templates", struct{}{})
+	if res.IsError {
+		t.Fatalf("no templates is not an error: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, want) {
+		t.Fatalf("got: %s", res.Content)
+	}
+
+	e.MCP = &fakeMCPProvider{resources: []MCPResource{{Server: "docs", URI: "file:///readme.md"}}}
+	res = runTool(t, e, "list_mcp_resource_templates", struct{}{})
+	if !strings.Contains(res.Content, want) {
+		t.Fatalf("a server with resources but no templates should say so, got: %s", res.Content)
+	}
+}
+
+// TestMCPListResourceTemplatesFiltersByServer covers the one argument it
+// takes, and its filtered empty answer.
+func TestMCPListResourceTemplatesFiltersByServer(t *testing.T) {
+	e, _ := newTestExecutor(t)
+	e.MCP = &fakeMCPProvider{resources: []MCPResource{
+		{Server: "docs", URI: "file:///page/{slug}", Template: true},
+		{Server: "other", URI: "file:///item/{id}", Template: true},
+	}}
+
+	res := runTool(t, e, "list_mcp_resource_templates", map[string]string{"server": "docs"})
+	if strings.Contains(res.Content, "item/{id}") {
+		t.Errorf("filtered listing should not carry another server's templates, got:\n%s", res.Content)
+	}
+	if !strings.Contains(res.Content, "page/{slug}") {
+		t.Errorf("filtered listing should carry the named server's own, got:\n%s", res.Content)
+	}
+
+	res = runTool(t, e, "list_mcp_resource_templates", map[string]string{"server": "empty"})
+	if !strings.Contains(res.Content, `The "empty" MCP server advertises no resource templates`) {
+		t.Fatalf("a filtered empty answer should name the server, got: %s", res.Content)
+	}
+}
+
 // TestMCPReadResourceReturnsTheContent covers the live read.
 func TestMCPReadResourceReturnsTheContent(t *testing.T) {
 	e, _ := newTestExecutor(t)
@@ -125,12 +202,18 @@ func TestMCPGetPromptRendersIt(t *testing.T) {
 	}
 }
 
-// TestMCPAccessToolsWithoutAProvider pins that the four say what is wrong
+// TestMCPAccessToolsWithoutAProvider pins that the five say what is wrong
 // rather than panicking, for the CLI paths and any context with no MCP
 // wired at all.
 func TestMCPAccessToolsWithoutAProvider(t *testing.T) {
 	e, _ := newTestExecutor(t) // e.MCP left nil
-	for _, name := range []string{"list_mcp_resources", "read_mcp_resource", "list_mcp_prompts", "get_mcp_prompt"} {
+	for _, name := range []string{
+		"list_mcp_resources",
+		"list_mcp_resource_templates",
+		"read_mcp_resource",
+		"list_mcp_prompts",
+		"get_mcp_prompt",
+	} {
 		res := runTool(t, e, name, map[string]string{"server": "s", "uri": "u", "name": "n"})
 		if !res.IsError || !strings.Contains(res.Content, "no MCP servers are configured") {
 			t.Errorf("%s = %+v, want a plain refusal", name, res)
@@ -140,7 +223,7 @@ func TestMCPAccessToolsWithoutAProvider(t *testing.T) {
 
 // TestReadOnlyModeGatesTheTwoDiallingAccessTools pins the permission split:
 // the two that dial a server answer to the same per-server allowance its
-// tools do, while the two that only read this harness's own snapshot are
+// tools do, while the three that only read this harness's own snapshot are
 // always allowed — denying those would refuse a session the ability to find
 // out what it is not allowed to read.
 func TestReadOnlyModeGatesTheTwoDiallingAccessTools(t *testing.T) {
@@ -148,6 +231,9 @@ func TestReadOnlyModeGatesTheTwoDiallingAccessTools(t *testing.T) {
 
 	if d := p.Check("list_mcp_resources", "list_mcp_resources shut"); !d.Allow {
 		t.Errorf("listing should be allowed in readonly mode: %s", d.Rule)
+	}
+	if d := p.Check("list_mcp_resource_templates", "list_mcp_resource_templates shut"); !d.Allow {
+		t.Errorf("listing resource templates should be allowed in readonly mode: %s", d.Rule)
 	}
 	if d := p.Check("list_mcp_prompts", "list_mcp_prompts shut"); !d.Allow {
 		t.Errorf("listing prompts should be allowed in readonly mode: %s", d.Rule)
