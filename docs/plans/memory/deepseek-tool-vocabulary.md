@@ -38,6 +38,19 @@ keeps the methods it has.
   configured (`WithMCP`), so changing them moves no golden file.
 - MCP listings read the stored snapshot; reading dials. The template listing
   follows the same rule.
+- The base array is served to no routed model. `Definitions()` returns it and
+  an unknown model falls back to it; DeepSeek's, Kimi's, Gemini's and Claude's
+  arrays are what sessions are sent. `RenderSystemPrompt()` renders the base
+  head; a provider's head comes from `RenderSystemPromptFor(model, variant)`.
+- A run with a non-empty result schema needs `complete` in its resolved array.
+  `Runner.Run` refuses one without it, and a variant or provider that drops
+  `complete` inherits that refusal.
+- `web_fetch` is also Anthropic's server-side tool name. A Claude request
+  carries only Anthropic's, so a test that checks for the harness's one tells
+  them apart by shape (`input_schema` against `type`), never by name.
+- Lowercase names collide with English words (`ground` inside
+  `run_in_background`, `list` inside `job_list`). A test that scans prompt or
+  message text for a tool name needs word boundaries.
 
 ## Files that matter
 
