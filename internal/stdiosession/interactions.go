@@ -183,6 +183,7 @@ type iactServerCapabilities struct {
 	Cancel              bool     `json:"cancel"`
 	PreviousInteraction bool     `json:"previous_interaction"`
 	ResumeSession       bool     `json:"resume_session"`
+	CloseSession        bool     `json:"close_session"`
 	MCPServers          bool     `json:"mcp_servers"`
 	FunctionTools       bool     `json:"function_tools"`
 	PermissionModes     []string `json:"permission_modes"`
@@ -295,6 +296,7 @@ func (Interactions) Initialize(h Handshake) any {
 			Cancel:              true,
 			PreviousInteraction: true,
 			ResumeSession:       true,
+			CloseSession:        true,
 			MCPServers:          h.MCPServers,
 			FunctionTools:       true,
 			PermissionModes:     h.PermissionModes,

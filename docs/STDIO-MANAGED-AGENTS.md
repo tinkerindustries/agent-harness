@@ -132,6 +132,7 @@ handled in arrival order.
     "events": true,
     "interrupt": true,
     "resume_session": true,
+    "close_session": true,
     "mcp_servers": true,
     "custom_tools": true,
     "permission_modes": ["readonly", "full"]
@@ -190,6 +191,7 @@ the other two report it.
 | `sessions.events` | `POST /v1/sessions/{id}/events` | Post one or more events: a message, an interrupt, or custom-tool results. |
 | `sessions.get` | `GET /v1/sessions/{id}` | Read the session, or one of its turns. |
 | `sessions.delete` | `DELETE /v1/sessions/{id}` | Forget the session. |
+| `harness.close_session` | — | Retire a conversation's in-process resources. The client's `/clear`. |
 | `shutdown` | — | End the session. Equivalent to closing stdin. |
 
 There is no `sessions.cancel`. Anthropic's own surface has none either —
@@ -342,13 +344,15 @@ follow the same way they do on the other two dialects; `stream: false` (a
 harness extension of this field, not Anthropic's) holds the answer until the
 turn ends and returns the fully assembled `session`.
 
-**One at a time.** As on the other two: one process hosts one session, so a
-second `sessions.create` naming a *different* new session while one is
-already open is `-32600`. A second `sessions.create` naming the same session
-via `harness.resume_session_id` while it is already the one this process is
-running is likewise refused — there is nothing to resume that is not already
-here; post a `user.message`/`user.interrupt` through `sessions.events`
-instead.
+**One at a time.** As on the other two: one process runs one live session, so
+a second `sessions.create` naming a *different* new session while the first
+is running is `-32600`. Once the first is idle a create naming a new session
+is accepted; retire the old one first with `harness.close_session` so its
+background shells and wake bookkeeping do not outlive it. A second
+`sessions.create` naming the same session via `harness.resume_session_id`
+while it is already the one this process is running is refused — there is
+nothing to resume that is not already here; post a
+`user.message`/`user.interrupt` through `sessions.events` instead.
 
 **A finished background shell starts a turn of its own.** A Bash call with
 `run_in_background` returns a `bash_id`, and that shell belongs to the
@@ -477,6 +481,28 @@ removes the record, events, and associated sandbox"
 `harness.resume_session_id`'s own backing store would break the one thing
 every dialect's resume story depends on, and no dialect gives a client that
 power today.
+
+### `harness.close_session`
+
+```jsonc
+{"session_id": "sess-…"}
+```
+
+The shared lifecycle verb, spelled the same on all three dialects. It retires
+one conversation's in-process resources and answers `{}`: the session's
+background shells are closed, its turns are forgotten, and its tool provider
+and wake bookkeeping are dropped. The stored row, its status and the
+transcript mirror are untouched, so a later `sessions.create` with
+`harness.resume_session_id` still picks the session up.
+
+`sessions.delete` is this dialect's own forget-the-session call and does the
+same forgetting. `harness.close_session` adds the shell and wake cleanup, and
+is what a client sends for `/clear` before a `sessions.create` that names no
+`harness.resume_session_id`.
+
+Refused with `-32002` while a turn is running or idle awaiting a custom tool
+result. Interrupt first and wait for `session.status_idle`. Closing a
+conversation this process no longer holds is a no-op.
 
 ### `shutdown`
 
@@ -919,8 +945,8 @@ an opaque string the dialect decides what to do with; only the value
 **`Server`'s client-facing lookup.** `append`/`cancelRun`/`get`/`delete`
 today resolve the id a client sent by looking it up in `s.runs`, keyed by
 run id (`s.lookup`). Under `ManagedAgents` a client always sends the session
-id. Since one process hosts exactly one session for its whole life, this
-does not need a second index — a `lookupBySession(id string) (*run, bool)`
+id. Since one process runs one session at a time, this does not need a second
+index — a `lookupBySession(id string) (*run, bool)`
 that checks `id` against the one session this process is running (or has
 most recently run) and returns the current/latest `*run` is enough. Gated by
 the same `AddressID`-style capability, or a second, boolean one

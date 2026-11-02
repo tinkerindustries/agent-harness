@@ -247,7 +247,11 @@ that was ending, and closes a stopped, timed-out or failed run's shells.
 `followCompaction` points the successor session id at the same registry and
 host when a run compacted, so a shell started after the fork is addressable
 by the successor's runs and its completion wakes the successor. `Serve`
-closes the registries when the pipe ends.
+closes the registries when the pipe ends. `harness.close_session` is the one
+lifecycle verb spelled the same in all three vocabularies: it retires a
+conversation's in-process state (its registry, host and wake marks) while
+leaving the stored row resumable, which is the call a client's `/clear` makes
+before creating the next session.
 
 Also implements `tools.MCPProvider` for the two tool shapes a client may
 declare, `function` (called back over the pipe, or — under ManagedAgents —

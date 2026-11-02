@@ -18,6 +18,14 @@ const (
 	MethodResponsesDelete = "responses.delete"
 	MethodShutdown        = "shutdown"
 
+	// MethodCloseSession retires one conversation's in-process resources and
+	// leaves its stored row alone: the client's `/clear`. It is spelled the
+	// same on all three dialects because it names no vendor resource. The
+	// vendor delete verbs forget a run (Responses, Interactions) or a session
+	// (ManagedAgents); a conversation outlives every run in its chain, and its
+	// background shells and wake bookkeeping belong to the conversation.
+	MethodCloseSession = "harness.close_session"
+
 	// MethodFunctionCall is the one request this side sends the client: run
 	// a function tool the client declared in the response's `tools` array.
 	// Its params are a function_call output item and its result a
@@ -121,6 +129,11 @@ type ServerCapabilities struct {
 	// a session up out of the state directory, which is what carries a
 	// conversation across a restart of this process.
 	ResumeSession bool `json:"resume_session"`
+	// CloseSession says harness.close_session is implemented: a client can
+	// retire a conversation's in-process resources (its background shells
+	// among them) without ending the process, then start a new one with a
+	// create that names no continuation.
+	CloseSession bool `json:"close_session"`
 	// MCPServers says an `mcp_server` tool in a create body is dialled.
 	MCPServers bool `json:"mcp_servers"`
 	// FunctionTools says a `function` tool in a create body is called back
@@ -364,4 +377,13 @@ type FunctionCallParams struct {
 type FunctionCallResult struct {
 	Output  []ContentPart `json:"output"`
 	IsError bool          `json:"is_error,omitempty"`
+}
+
+// --- harness.close_session ---
+
+// CloseSessionParams names the conversation to retire. The session id is the
+// one every dialect's create reports: harness.session_id on Responses and
+// Interactions, session.id on ManagedAgents.
+type CloseSessionParams struct {
+	SessionID string `json:"session_id"`
 }

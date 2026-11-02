@@ -256,6 +256,7 @@ type maServerCapabilities struct {
 	Events          bool     `json:"events"`
 	Interrupt       bool     `json:"interrupt"`
 	ResumeSession   bool     `json:"resume_session"`
+	CloseSession    bool     `json:"close_session"`
 	MCPServers      bool     `json:"mcp_servers"`
 	CustomTools     bool     `json:"custom_tools"`
 	PermissionModes []string `json:"permission_modes"`
