@@ -1,4 +1,4 @@
-// Package tools implements the twenty-three tools in docs/TOOLS.md: schemas that
+// Package tools implements the twenty-four tools in docs/TOOLS.md: schemas that
 // match the trained-in shape, argument validation in Go, workspace
 // confinement, per-tool timeouts and output caps, and the permission policy
 // that gates execution without ever changing which tools are on offer
@@ -568,6 +568,7 @@ var toolFuncs = map[string]toolFunc{
 	"read":        execRead,
 	"write":       execWrite,
 	"edit":        execEdit,
+	"apply_patch": execApplyPatch,
 	"bash":        execBash,
 	"job_output":  execJobOutput,
 	"job_kill":    execJobKill,
