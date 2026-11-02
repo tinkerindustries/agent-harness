@@ -42,8 +42,8 @@ func TestParallelToolResultsAppendInCallOrder(t *testing.T) {
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role: "assistant",
 					ToolCalls: []wire.ToolCallDelta{
-						{Index: 0, ID: "call_00_slow", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Bash", Arguments: `{"command":"sleep 0.2 && echo slow"}`}},
-						{Index: 1, ID: "call_01_fast", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Bash", Arguments: `{"command":"echo fast"}`}},
+						{Index: 0, ID: "call_00_slow", Type: "function", Function: wire.ToolCallFuncDelta{Name: "bash", Arguments: `{"command":"sleep 0.2 && echo slow"}`}},
+						{Index: 1, ID: "call_01_fast", Type: "function", Function: wire.ToolCallFuncDelta{Name: "bash", Arguments: `{"command":"echo fast"}`}},
 					},
 				}}},
 			})

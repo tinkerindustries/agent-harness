@@ -40,7 +40,7 @@ func execEdit(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 		return errorResult("old_string and new_string are identical; nothing to change")
 	}
 	if lineNumberPrefix.MatchString(args.OldString) {
-		return errorResult("old_string looks like it includes Read's line-number prefix (e.g. \"   12\\t\"). " +
+		return errorResult("old_string looks like it includes read's line-number prefix (e.g. \"   12\\t\"). " +
 			"That prefix is display only. Copy the text after the tab, not the numbered listing.")
 	}
 
@@ -59,7 +59,7 @@ func execEdit(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 		return binaryFileError(args.FilePath, size)
 	}
 	if !e.wasRead(path) {
-		return errorResult("%s has not been read in this session; Read it before editing", args.FilePath)
+		return errorResult("%s has not been read in this session; read it before editing", args.FilePath)
 	}
 
 	raw, err := os.ReadFile(path)

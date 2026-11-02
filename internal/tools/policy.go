@@ -7,7 +7,7 @@ import (
 
 // Mode is the permission mode a session holds for its whole life
 // (docs/TOOLS.md, "Permissions"). Modes gate execution, never the tool
-// array sent to the model: all twenty-two tools ship in every mode, and a
+// array sent to the model: all twenty-three tools ship in every mode, and a
 // disallowed call is refused at execution time.
 type Mode string
 
@@ -79,16 +79,16 @@ type Policy struct {
 // Crop writes to disk too, and gets the allowance for the same reason
 // Screenshot does — the entry below says why, beside the entry itself.
 var alwaysAllowed = map[string]bool{
-	"Read":       true,
-	"Glob":       true,
-	"Grep":       true,
-	"List":       true,
-	"WebFetch":   true,
-	"Glance":     true,
-	"Ground":     true,
-	"Detect":     true,
-	"Transcribe": true,
-	"Screenshot": true,
+	"read":       true,
+	"glob":       true,
+	"grep":       true,
+	"list":       true,
+	"web_fetch":  true,
+	"glance":     true,
+	"ground":     true,
+	"detect":     true,
+	"transcribe": true,
+	"screenshot": true,
 	// Crop writes a file, which is why it is worth saying why it sits
 	// here beside the readers rather than with Write and Edit: its output
 	// is confined to scratch/ by the same rule Screenshot's is
@@ -97,19 +97,19 @@ var alwaysAllowed = map[string]bool{
 	// Ground-Crop-Glance pipeline behind full permissions, which is the
 	// mode that hands the session every other broad grant — a large
 	// grant to buy a closer look at a screenshot.
-	"Crop":       true,
-	"TaskCreate": true,
-	"TaskGet":    true,
-	"TaskList":   true,
-	"TaskUpdate": true,
-	"Complete":   true,
+	"crop":        true,
+	"task_create": true,
+	"task_get":    true,
+	"task_list":   true,
+	"task_update": true,
+	"complete":    true,
 	// The two MCP listing tools read this harness's own stored snapshot of
 	// what its servers advertise. No server is dialled and nothing leaves
 	// the process, which puts them with the readers rather than behind the
 	// per-server gate their two dialling siblings answer to (see
 	// mcpAccessServerOf).
-	"MCPListResources": true,
-	"MCPListPrompts":   true,
+	"list_mcp_resources": true,
+	"list_mcp_prompts":   true,
 }
 
 // Check evaluates one tool call. descriptor is what a deny pattern matches
@@ -188,7 +188,7 @@ func (p *Policy) Check(toolName, descriptor string) Decision {
 // that names no server to check.
 func mcpAccessServerOf(toolName, descriptor string) (string, bool) {
 	switch toolName {
-	case "MCPReadResource", "MCPGetPrompt":
+	case "read_mcp_resource", "get_mcp_prompt":
 	default:
 		return "", false
 	}

@@ -17,7 +17,7 @@ func TestMCPServerOf(t *testing.T) {
 		},
 		{
 			name:     "prefix absent",
-			toolName: "Read",
+			toolName: "read",
 			wantOK:   false,
 		},
 		{

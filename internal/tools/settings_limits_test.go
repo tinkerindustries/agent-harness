@@ -54,7 +54,7 @@ func TestExecutorResolvesLimitsFromSettings(t *testing.T) {
 	for i := range paths {
 		paths[i] = "shot.png"
 	}
-	res1 := runTool(t, e, "Glance", glanceArgs{
+	res1 := runTool(t, e, "glance", glanceArgs{
 		ImagePaths: paths,
 	})
 	if !res1.IsError || !strings.Contains(res1.Content, "at most 2 images") {
@@ -65,7 +65,7 @@ func TestExecutorResolvesLimitsFromSettings(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(e.Workspace, "big.png"), make([]byte, 1001), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	res2 := runTool(t, e, "Glance", glanceArgs{
+	res2 := runTool(t, e, "glance", glanceArgs{
 		ImagePaths: []string{"big.png"},
 	})
 	if !res2.IsError || !strings.Contains(res2.Content, "over the 1000-byte per-file limit") {

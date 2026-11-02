@@ -101,7 +101,7 @@ func TestFileToolsContainToWorkspace(t *testing.T) {
 		succeed func(t *testing.T, e *Executor, root string)
 	}{
 		{
-			name: "Read",
+			name: "read",
 			check: func(t *testing.T, e *Executor, root, outside, kind string) {
 				path := "../outside.txt"
 				switch kind {
@@ -116,19 +116,19 @@ func TestFileToolsContainToWorkspace(t *testing.T) {
 				case "symlink":
 					writeFile(t, outside, "secret.txt", "x")
 				}
-				if res := runTool(t, e, "Read", readArgs{FilePath: path}); !res.IsError {
+				if res := runTool(t, e, "read", readArgs{FilePath: path}); !res.IsError {
 					t.Fatalf("expected an error for %q, got: %s", path, res.Content)
 				}
 			},
 			succeed: func(t *testing.T, e *Executor, root string) {
 				writeFile(t, root, "a.txt", "hi")
-				if res := runTool(t, e, "Read", readArgs{FilePath: "a.txt"}); res.IsError {
+				if res := runTool(t, e, "read", readArgs{FilePath: "a.txt"}); res.IsError {
 					t.Fatalf("Read rejected an in-workspace file: %s", res.Content)
 				}
 			},
 		},
 		{
-			name: "Write",
+			name: "write",
 			check: func(t *testing.T, e *Executor, root, outside, kind string) {
 				path := "../outside.txt"
 				var want []byte // nil: the target must not exist afterwards
@@ -143,7 +143,7 @@ func TestFileToolsContainToWorkspace(t *testing.T) {
 				case "symlink":
 					path = "escape/new.txt"
 				}
-				res := runTool(t, e, "Write", writeArgs{FilePath: path, Content: "x"})
+				res := runTool(t, e, "write", writeArgs{FilePath: path, Content: "x"})
 				if !res.IsError {
 					t.Fatalf("expected an error for %q, got: %s", path, res.Content)
 				}
@@ -157,14 +157,14 @@ func TestFileToolsContainToWorkspace(t *testing.T) {
 				assertFileState(t, target, want)
 			},
 			succeed: func(t *testing.T, e *Executor, root string) {
-				if res := runTool(t, e, "Write", writeArgs{FilePath: "new.txt", Content: "hi"}); res.IsError {
+				if res := runTool(t, e, "write", writeArgs{FilePath: "new.txt", Content: "hi"}); res.IsError {
 					t.Fatalf("Write rejected an in-workspace path: %s", res.Content)
 				}
 				assertFileState(t, filepath.Join(root, "new.txt"), []byte("hi"))
 			},
 		},
 		{
-			name: "Edit",
+			name: "edit",
 			check: func(t *testing.T, e *Executor, root, outside, kind string) {
 				path := "../outside.txt"
 				target := filepath.Join(filepath.Dir(root), "outside.txt")
@@ -197,7 +197,7 @@ func TestFileToolsContainToWorkspace(t *testing.T) {
 				if kind == "symlink" {
 					markReadPath(e, filepath.Join(root, "escape", "secret.txt"))
 				}
-				res := runTool(t, e, "Edit", editArgs{FilePath: path, OldString: "old", NewString: "new"})
+				res := runTool(t, e, "edit", editArgs{FilePath: path, OldString: "old", NewString: "new"})
 				if !res.IsError {
 					t.Fatalf("expected an error for %q, got: %s", path, res.Content)
 				}
@@ -205,10 +205,10 @@ func TestFileToolsContainToWorkspace(t *testing.T) {
 			},
 			succeed: func(t *testing.T, e *Executor, root string) {
 				writeFile(t, root, "a.txt", "old")
-				if res := runTool(t, e, "Read", readArgs{FilePath: "a.txt"}); res.IsError {
+				if res := runTool(t, e, "read", readArgs{FilePath: "a.txt"}); res.IsError {
 					t.Fatalf("Read failed before Edit: %s", res.Content)
 				}
-				res := runTool(t, e, "Edit", editArgs{FilePath: "a.txt", OldString: "old", NewString: "new"})
+				res := runTool(t, e, "edit", editArgs{FilePath: "a.txt", OldString: "old", NewString: "new"})
 				if res.IsError {
 					t.Fatalf("Edit rejected an in-workspace file: %s", res.Content)
 				}
@@ -216,7 +216,7 @@ func TestFileToolsContainToWorkspace(t *testing.T) {
 			},
 		},
 		{
-			name: "List",
+			name: "list",
 			check: func(t *testing.T, e *Executor, root, outside, kind string) {
 				path := "../outside.txt"
 				switch kind {
@@ -234,19 +234,19 @@ func TestFileToolsContainToWorkspace(t *testing.T) {
 				case "symlink":
 					writeFile(t, outside, "entry.txt", "x")
 				}
-				if res := runTool(t, e, "List", listArgs{Path: path}); !res.IsError {
+				if res := runTool(t, e, "list", listArgs{Path: path}); !res.IsError {
 					t.Fatalf("expected an error for %q, got: %s", path, res.Content)
 				}
 			},
 			succeed: func(t *testing.T, e *Executor, root string) {
 				writeFile(t, root, "a.txt", "x")
-				if res := runTool(t, e, "List", listArgs{Path: "."}); res.IsError {
+				if res := runTool(t, e, "list", listArgs{Path: "."}); res.IsError {
 					t.Fatalf("List rejected an in-workspace path: %s", res.Content)
 				}
 			},
 		},
 		{
-			name: "Glob",
+			name: "glob",
 			check: func(t *testing.T, e *Executor, root, outside, kind string) {
 				path := "../outside.txt"
 				switch kind {
@@ -261,20 +261,20 @@ func TestFileToolsContainToWorkspace(t *testing.T) {
 				case "symlink":
 					writeFile(t, outside, "secret.txt", "x")
 				}
-				if res := runTool(t, e, "Glob", globArgs{Pattern: "**/*", Path: path}); !res.IsError {
+				if res := runTool(t, e, "glob", globArgs{Pattern: "**/*", Path: path}); !res.IsError {
 					t.Fatalf("expected an error for %q, got: %s", path, res.Content)
 				}
 			},
 			succeed: func(t *testing.T, e *Executor, root string) {
 				writeFile(t, root, "a.txt", "x")
-				res := runTool(t, e, "Glob", globArgs{Pattern: "**/*"})
+				res := runTool(t, e, "glob", globArgs{Pattern: "**/*"})
 				if res.IsError {
 					t.Fatalf("Glob rejected an in-workspace path: %s", res.Content)
 				}
 			},
 		},
 		{
-			name: "Grep",
+			name: "grep",
 			check: func(t *testing.T, e *Executor, root, outside, kind string) {
 				path := "../outside.txt"
 				switch kind {
@@ -289,13 +289,13 @@ func TestFileToolsContainToWorkspace(t *testing.T) {
 				case "symlink":
 					writeFile(t, outside, "secret.txt", "needle")
 				}
-				if res := runTool(t, e, "Grep", grepArgs{Pattern: "needle", Path: path}); !res.IsError {
+				if res := runTool(t, e, "grep", grepArgs{Pattern: "needle", Path: path}); !res.IsError {
 					t.Fatalf("expected an error for %q, got: %s", path, res.Content)
 				}
 			},
 			succeed: func(t *testing.T, e *Executor, root string) {
 				writeFile(t, root, "a.txt", "needle")
-				if res := runTool(t, e, "Grep", grepArgs{Pattern: "needle"}); res.IsError {
+				if res := runTool(t, e, "grep", grepArgs{Pattern: "needle"}); res.IsError {
 					t.Fatalf("Grep rejected an in-workspace path: %s", res.Content)
 				}
 			},

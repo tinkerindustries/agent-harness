@@ -533,7 +533,7 @@ func (c Catalogue) Render() string {
 	var b strings.Builder
 	b.WriteString("Skills available in this workspace. Each is a set of instructions for a\n")
 	b.WriteString("particular kind of task, written by whoever maintains it. When one matches\n")
-	b.WriteString("what you have been asked to do, Read its file before starting and follow\n")
+	b.WriteString("what you have been asked to do, read its file before starting and follow\n")
 	b.WriteString("what it says.\n\n")
 	for _, skill := range c.Skills {
 		b.WriteString("- ")
@@ -558,5 +558,5 @@ func dropNotice(n int) string {
 		plural = ""
 	}
 	return "This workspace holds " + strconv.Itoa(n) + " further skill" + plural +
-		" not listed here. Use Glob for SKILL.md if none of the above fits."
+		" not listed here. Use glob for SKILL.md if none of the above fits."
 }

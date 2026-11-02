@@ -37,7 +37,7 @@ func execWrite(_ context.Context, e *Executor, argsRaw json.RawMessage) Result {
 		existed = true
 	}
 	if existed && !e.wasRead(path) {
-		return errorResult("%s exists and has not been read in this session; Read it before overwriting", args.FilePath)
+		return errorResult("%s exists and has not been read in this session; read it before overwriting", args.FilePath)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

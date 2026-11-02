@@ -172,7 +172,7 @@ func execTranscribe(ctx context.Context, e *Executor, argsRaw json.RawMessage) R
 		return errorResult("%s has no pixels to transcribe", args.ImagePath)
 	}
 	if e.Gemini == nil {
-		return errorResult("Transcribe is not available in this context: no Gemini client configured")
+		return errorResult("transcribe is not available in this context: no Gemini client configured")
 	}
 	if over := len(plan) - e.transcribeMaxChunks(ctx); over > 0 {
 		// Unreachable while planChunks honours the same cap; kept because
@@ -892,7 +892,7 @@ func transcribeReport(args transcribeArgs, width, height, offset int, plan []tra
 			fmt.Fprintf(&b, "\n\n%s marked CHECK: no blank band was available there, so the cut went through content and "+
 				"each chunk may have transcribed a different half of the same line. Both chunks were shown the strip "+
 				"either side of the cut; what the merge could match there is in the line above. Before relying on the "+
-				"text at those positions, Crop the source around the y and Glance the result. A merge that goes wrong "+
+				"text at those positions, crop the source around the y and glance the result. A merge that goes wrong "+
 				"drops or repeats a line silently — it does not produce anything that looks broken.",
 				plural(review, "seam"))
 		}

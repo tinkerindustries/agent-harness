@@ -42,7 +42,7 @@ func TestFollowCompactionAliasesTheSuccessor(t *testing.T) {
 // this, the shell was killed at the end of the run and nobody was ever told.
 func TestBackgroundShellCompletionWakesTheSession(t *testing.T) {
 	f := newFixture(t,
-		callThen("call_bash", "Bash", `{"command":"sleep 0.2; echo finished","run_in_background":true}`),
+		callThen("call_bash", "bash", `{"command":"sleep 0.2; echo finished","run_in_background":true}`),
 		answer("started"),
 		answer("the shell finished"),
 	)

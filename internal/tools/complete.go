@@ -91,9 +91,9 @@ func flatResultHint(schema, result, argsRaw json.RawMessage) string {
 	}
 	sort.Strings(strays)
 	return "result is missing, but " + quotedList(strays) + " arrived as top-level " +
-		"arguments. The schema describes the value of the result argument, not Complete's " +
+		"arguments. The schema describes the value of the result argument, not complete's " +
 		"own arguments: nest those fields inside result, as " +
-		`Complete(status=…, summary=…, result={"` + strays[0] + `": …}).`
+		`complete(status=…, summary=…, result={"` + strays[0] + `": …}).`
 }
 
 func quotedList(names []string) string {

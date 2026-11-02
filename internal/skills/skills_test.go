@@ -247,7 +247,7 @@ func TestRenderNamesPathAndDescription(t *testing.T) {
 		{Name: "test-runner", Description: "Run the suite.", Path: "repo/.claude/skills/test-runner/SKILL.md"},
 	}}
 	got := cat.Render()
-	for _, want := range []string{"test-runner", "repo/.claude/skills/test-runner/SKILL.md", "Run the suite.", "Read"} {
+	for _, want := range []string{"test-runner", "repo/.claude/skills/test-runner/SKILL.md", "Run the suite.", "read its file"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("render is missing %q:\n%s", want, got)
 		}

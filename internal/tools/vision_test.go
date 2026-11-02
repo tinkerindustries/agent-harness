@@ -306,7 +306,7 @@ func TestExecGroundReturnsAndFormatsBoxes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res := runTool(t, e, "Ground", groundArgs{ImagePath: "shot.png", Target: "the submit button"})
+	res := runTool(t, e, "ground", groundArgs{ImagePath: "shot.png", Target: "the submit button"})
 	if res.IsError {
 		t.Fatalf("unexpected error: %s", res.Content)
 	}
@@ -332,7 +332,7 @@ func TestExecGroundReportsNoMatch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res := runTool(t, e, "Ground", groundArgs{ImagePath: "shot.png", Target: "a dragon"})
+	res := runTool(t, e, "ground", groundArgs{ImagePath: "shot.png", Target: "a dragon"})
 	if res.IsError {
 		t.Fatalf("unexpected error: %s", res.Content)
 	}
@@ -361,7 +361,7 @@ func TestExecDetectUsesDefaultCategoryAndFormatsInventory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res := runTool(t, e, "Detect", detectArgs{ImagePath: "shot.png"})
+	res := runTool(t, e, "detect", detectArgs{ImagePath: "shot.png"})
 	if res.IsError {
 		t.Fatalf("unexpected error: %s", res.Content)
 	}
@@ -386,7 +386,7 @@ func TestExecCrop(t *testing.T) {
 	}
 
 	t.Run("default output path and dimensions", func(t *testing.T) {
-		res := runTool(t, e, "Crop", cropArgs{ImagePath: "shot.png", Region: "10,10,60,50"})
+		res := runTool(t, e, "crop", cropArgs{ImagePath: "shot.png", Region: "10,10,60,50"})
 		if res.IsError {
 			t.Fatalf("unexpected error: %s", res.Content)
 		}
@@ -407,7 +407,7 @@ func TestExecCrop(t *testing.T) {
 	})
 
 	t.Run("explicit output and scale enlarges the crop", func(t *testing.T) {
-		res := runTool(t, e, "Crop", cropArgs{ImagePath: "shot.png", Region: "0,0,20,20", Output: "scaled.png", Scale: 3})
+		res := runTool(t, e, "crop", cropArgs{ImagePath: "shot.png", Region: "0,0,20,20", Output: "scaled.png", Scale: 3})
 		if res.IsError {
 			t.Fatalf("unexpected error: %s", res.Content)
 		}
@@ -428,21 +428,21 @@ func TestExecCrop(t *testing.T) {
 	})
 
 	t.Run("region is required", func(t *testing.T) {
-		res := runTool(t, e, "Crop", cropArgs{ImagePath: "shot.png"})
+		res := runTool(t, e, "crop", cropArgs{ImagePath: "shot.png"})
 		if !res.IsError || !strings.Contains(res.Content, "region is required") {
 			t.Errorf("got: %s", res.Content)
 		}
 	})
 
 	t.Run("image_path is required", func(t *testing.T) {
-		res := runTool(t, e, "Crop", cropArgs{Region: "0,0,10,10"})
+		res := runTool(t, e, "crop", cropArgs{Region: "0,0,10,10"})
 		if !res.IsError || !strings.Contains(res.Content, "image_path is required") {
 			t.Errorf("got: %s", res.Content)
 		}
 	})
 
 	t.Run("an out-of-range scale is refused", func(t *testing.T) {
-		res := runTool(t, e, "Crop", cropArgs{ImagePath: "shot.png", Region: "0,0,10,10", Scale: 9})
+		res := runTool(t, e, "crop", cropArgs{ImagePath: "shot.png", Region: "0,0,10,10", Scale: 9})
 		if !res.IsError {
 			t.Error("expected a refusal for an out-of-range scale")
 		}
@@ -462,7 +462,7 @@ func TestExecCropConfinesOutputToScratch(t *testing.T) {
 	}
 
 	for _, out := range []string{"cut.png", "scratch/cut2.png"} {
-		res := runTool(t, e, "Crop", cropArgs{ImagePath: "shot.png", Region: "0,0,20,20", Output: out})
+		res := runTool(t, e, "crop", cropArgs{ImagePath: "shot.png", Region: "0,0,20,20", Output: out})
 		if res.IsError {
 			t.Fatalf("Crop(%q): %s", out, res.Content)
 		}
@@ -471,7 +471,7 @@ func TestExecCropConfinesOutputToScratch(t *testing.T) {
 		}
 	}
 
-	res := runTool(t, e, "Crop", cropArgs{ImagePath: "shot.png", Region: "0,0,20,20", Output: absElsewhere(t, "escaped.png")})
+	res := runTool(t, e, "crop", cropArgs{ImagePath: "shot.png", Region: "0,0,20,20", Output: absElsewhere(t, "escaped.png")})
 	if !res.IsError {
 		t.Error("an absolute path outside scratch/ should be refused")
 	}
@@ -498,7 +498,7 @@ func TestGlanceConversationReplaysTheThread(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	first := runTool(t, e, "Glance", glanceArgs{ImagePaths: []string{"shot.png"}, Query: "what is on this page?"})
+	first := runTool(t, e, "glance", glanceArgs{ImagePaths: []string{"shot.png"}, Query: "what is on this page?"})
 	if first.IsError {
 		t.Fatalf("first call: %s", first.Content)
 	}
@@ -513,7 +513,7 @@ func TestGlanceConversationReplaysTheThread(t *testing.T) {
 	}
 
 	// No image_paths: the follow-up continues on the conversation's images.
-	second := runTool(t, e, "Glance", glanceArgs{ConversationID: id, Query: "how many buttons?"})
+	second := runTool(t, e, "glance", glanceArgs{ConversationID: id, Query: "how many buttons?"})
 	if second.IsError {
 		t.Fatalf("follow-up: %s", second.Content)
 	}
@@ -531,7 +531,7 @@ func TestGlanceConversationReplaysTheThread(t *testing.T) {
 		t.Errorf("history nested inside itself: %s", sent[1])
 	}
 
-	if bad := runTool(t, e, "Glance", glanceArgs{ConversationID: "gl-nope", Query: "?"}); !bad.IsError {
+	if bad := runTool(t, e, "glance", glanceArgs{ConversationID: "gl-nope", Query: "?"}); !bad.IsError {
 		t.Error("an unknown conversation_id should be refused")
 	} else if !strings.Contains(bad.Content, id) {
 		t.Errorf("the refusal should name the open conversations, got: %s", bad.Content)

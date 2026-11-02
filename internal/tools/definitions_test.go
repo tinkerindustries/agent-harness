@@ -80,8 +80,8 @@ func TestWithMCPCopiesAndDoesNotCorruptTheFrozenArray(t *testing.T) {
 // array instead of copying.
 func TestWithMCPDoesNotWriteIntoSpareCapacity(t *testing.T) {
 	base := make([]wire.Tool, 2, 5)
-	base[0] = mcpTool("Read")
-	base[1] = mcpTool("Write")
+	base[0] = mcpTool("read")
+	base[1] = mcpTool("write")
 
 	access := tools.MCPAccessToolCount
 	first := tools.WithMCP(base, []wire.Tool{mcpTool("mcp__blender__a")})

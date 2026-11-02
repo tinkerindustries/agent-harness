@@ -46,8 +46,8 @@ func TestTaskCallsPersistPlanToSessionRow(t *testing.T) {
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role: "assistant",
 					ToolCalls: []wire.ToolCallDelta{
-						{Index: 0, ID: "call_00_create", Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskCreate", Arguments: `{"tasks":[{"subject":"Read the spec","description":"Read it","activeForm":"Reading"},{"subject":"Wire it up","description":"Wire it","activeForm":"Wiring"}]}`}},
-						{Index: 1, ID: "call_01_bash", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Bash", Arguments: `{"command":"echo hi"}`}},
+						{Index: 0, ID: "call_00_create", Type: "function", Function: wire.ToolCallFuncDelta{Name: "task_create", Arguments: `{"tasks":[{"subject":"Read the spec","description":"Read it","activeForm":"Reading"},{"subject":"Wire it up","description":"Wire it","activeForm":"Wiring"}]}`}},
+						{Index: 1, ID: "call_01_bash", Type: "function", Function: wire.ToolCallFuncDelta{Name: "bash", Arguments: `{"command":"echo hi"}`}},
 					},
 				}}},
 			})
@@ -59,7 +59,7 @@ func TestTaskCallsPersistPlanToSessionRow(t *testing.T) {
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_10_update", Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskUpdate", Arguments: `{"taskId":"1","status":"completed"}`}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_10_update", Type: "function", Function: wire.ToolCallFuncDelta{Name: "task_update", Arguments: `{"taskId":"1","status":"completed"}`}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
@@ -70,7 +70,7 @@ func TestTaskCallsPersistPlanToSessionRow(t *testing.T) {
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_20_complete", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Complete", Arguments: `{"summary":"wired it up","status":"done"}`}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_20_complete", Type: "function", Function: wire.ToolCallFuncDelta{Name: "complete", Arguments: `{"summary":"wired it up","status":"done"}`}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
@@ -119,7 +119,7 @@ func TestTaskCallsPersistPlanToSessionRow(t *testing.T) {
 
 	// The roll keeps the Bash call and the finishing Complete call, and
 	// drops TaskCreate/TaskUpdate, whose effect the plan panel already shows.
-	if len(sess.RecentToolCalls) != 2 || sess.RecentToolCalls[0].Name != "Bash" || sess.RecentToolCalls[1].Name != "Complete" {
+	if len(sess.RecentToolCalls) != 2 || sess.RecentToolCalls[0].Name != "bash" || sess.RecentToolCalls[1].Name != "complete" {
 		t.Fatalf("unexpected recent tool call roll: %+v", sess.RecentToolCalls)
 	}
 
@@ -157,8 +157,8 @@ func TestTaskReadsDoNotWritePlan(t *testing.T) {
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role: "assistant",
 					ToolCalls: []wire.ToolCallDelta{
-						{Index: 0, ID: "call_00_list", Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}},
-						{Index: 1, ID: "call_01_get", Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskGet", Arguments: `{"taskId":"1"}`}},
+						{Index: 0, ID: "call_00_list", Type: "function", Function: wire.ToolCallFuncDelta{Name: "task_list", Arguments: `{}`}},
+						{Index: 1, ID: "call_01_get", Type: "function", Function: wire.ToolCallFuncDelta{Name: "task_get", Arguments: `{"taskId":"1"}`}},
 					},
 				}}},
 			})
@@ -170,7 +170,7 @@ func TestTaskReadsDoNotWritePlan(t *testing.T) {
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_10_complete", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Complete", Arguments: `{"summary":"nothing to do","status":"done"}`}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_10_complete", Type: "function", Function: wire.ToolCallFuncDelta{Name: "complete", Arguments: `{"summary":"nothing to do","status":"done"}`}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
@@ -209,9 +209,9 @@ func TestTaskReadsDoNotWritePlan(t *testing.T) {
 
 	// The read calls roll like any other tool, alongside the Complete call.
 	if len(sess.RecentToolCalls) != 3 ||
-		sess.RecentToolCalls[0].Name != "TaskList" ||
-		sess.RecentToolCalls[1].Name != "TaskGet" ||
-		sess.RecentToolCalls[2].Name != "Complete" {
+		sess.RecentToolCalls[0].Name != "task_list" ||
+		sess.RecentToolCalls[1].Name != "task_get" ||
+		sess.RecentToolCalls[2].Name != "complete" {
 		t.Fatalf("unexpected recent tool call roll: %+v", sess.RecentToolCalls)
 	}
 }
@@ -253,8 +253,8 @@ func TestSubTurnPublishesFreshPlanAndRecentToolCalls(t *testing.T) {
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role: "assistant",
 					ToolCalls: []wire.ToolCallDelta{
-						{Index: 0, ID: "call_00_create", Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskCreate", Arguments: `{"tasks":[{"subject":"Wire it up","description":"Wire it","activeForm":"Wiring"}]}`}},
-						{Index: 1, ID: "call_01_bash", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Bash", Arguments: `{"command":"echo hi"}`}},
+						{Index: 0, ID: "call_00_create", Type: "function", Function: wire.ToolCallFuncDelta{Name: "task_create", Arguments: `{"tasks":[{"subject":"Wire it up","description":"Wire it","activeForm":"Wiring"}]}`}},
+						{Index: 1, ID: "call_01_bash", Type: "function", Function: wire.ToolCallFuncDelta{Name: "bash", Arguments: `{"command":"echo hi"}`}},
 					},
 				}}},
 			})
@@ -266,7 +266,7 @@ func TestSubTurnPublishesFreshPlanAndRecentToolCalls(t *testing.T) {
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_10_complete", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Complete", Arguments: `{"summary":"wired it up","status":"done"}`}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_10_complete", Type: "function", Function: wire.ToolCallFuncDelta{Name: "complete", Arguments: `{"summary":"wired it up","status":"done"}`}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
@@ -346,7 +346,7 @@ func TestSubTurnPublishesFreshPlanAndRecentToolCalls(t *testing.T) {
 		if !planHasSubject(t, s.Plan, "Wire it up") {
 			continue
 		}
-		if len(s.RecentToolCalls) == 1 && s.RecentToolCalls[0].Name == "Bash" {
+		if len(s.RecentToolCalls) == 1 && s.RecentToolCalls[0].Name == "bash" {
 			sawFullWithPlanAndRoll = true
 		}
 	}

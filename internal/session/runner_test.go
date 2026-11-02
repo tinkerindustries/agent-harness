@@ -427,7 +427,7 @@ func completeToolServer(t *testing.T, status, summary string) *httptest.Server {
 		writeSSEChunk(t, w, wire.ChatCompletionChunk{
 			Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 				Role:      "assistant",
-				ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_complete", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Complete", Arguments: args}}},
+				ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_complete", Type: "function", Function: wire.ToolCallFuncDelta{Name: "complete", Arguments: args}}},
 			}}},
 		})
 		writeSSEChunk(t, w, wire.ChatCompletionChunk{
@@ -490,6 +490,30 @@ func TestRunDoneSetsCompleteStatus(t *testing.T) {
 	}
 }
 
+// TestRunRefusesAResultSchemaWithoutTheCompleteTool pins the one arrangement
+// that cannot work. A result schema is a contract complete carries out: the
+// opening message tells the model its result argument must validate against
+// the schema, and DeepSeek's array does not offer complete. A run allowed to
+// start would instruct the model to call a tool it was never sent, and could
+// never produce the structured result the caller asked for.
+func TestRunRefusesAResultSchemaWithoutTheCompleteTool(t *testing.T) {
+	srv := plainAnswerServer(t, "all done")
+	defer srv.Close()
+	r := newTestRunner(t, srv.URL)
+
+	_, err := r.Run(t.Context(), RunOptions{
+		Model: "deepseek-flash", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Workspace: t.TempDir(), PermissionMode: tools.ModeFull, Prompt: "count them",
+		ResultSchema: json.RawMessage(`{"type":"object","properties":{"count":{"type":"integer"}}}`),
+	})
+	if err == nil {
+		t.Fatal("expected a run whose array has no complete tool to be refused")
+	}
+	if !strings.Contains(err.Error(), "deepseek-flash") || !strings.Contains(err.Error(), "complete") {
+		t.Fatalf("the refusal should name the model and the missing tool, got %q", err)
+	}
+}
+
 // A model that keeps re-sending a Complete the schema keeps rejecting is not
 // correcting anything, and the loop must stop paying for it: one run
 // spent eleven sub-turns and 7% of its budget on identical rejections
@@ -535,7 +559,7 @@ func TestRepeatedCompleteRejectionsEndTheRun(t *testing.T) {
 			errText = string(ev.Payload)
 		}
 	}
-	if !strings.Contains(errText, "Complete rejected") || !strings.Contains(errText, "expected object, got null") {
+	if !strings.Contains(errText, "complete rejected") || !strings.Contains(errText, "expected object, got null") {
 		t.Fatalf("expected an error event naming the rejection, got %q", errText)
 	}
 }
@@ -570,7 +594,7 @@ func TestDifferingCompleteRejectionsDoNotAccumulate(t *testing.T) {
 		writeSSEChunk(t, w, wire.ChatCompletionChunk{
 			Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 				Role:      "assistant",
-				ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_complete", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Complete", Arguments: args}}},
+				ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_complete", Type: "function", Function: wire.ToolCallFuncDelta{Name: "complete", Arguments: args}}},
 			}}},
 		})
 		writeSSEChunk(t, w, wire.ChatCompletionChunk{
@@ -709,7 +733,7 @@ func TestCompactionForksNewSession(t *testing.T) {
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_a", Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_a", Type: "function", Function: wire.ToolCallFuncDelta{Name: "task_list", Arguments: `{}`}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
@@ -818,7 +842,7 @@ func TestRunGeminiCostShowsInSessionTotal(t *testing.T) {
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call-review", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Glance", Arguments: `{"image_paths":["shot.png"],"query":"what is wrong?"}`}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call-review", Type: "function", Function: wire.ToolCallFuncDelta{Name: "glance", Arguments: `{"image_paths":["shot.png"],"query":"what is wrong?"}`}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
@@ -901,8 +925,8 @@ func TestTaskCreateOrderingWithinSubTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	calls := []wire.AssembledToolCall{
-		{ID: "call_00_first", Name: "TaskCreate", Arguments: `{"tasks":[{"subject":"First task","description":"First thing","activeForm":"Firsting"}]}`},
-		{ID: "call_01_second", Name: "TaskCreate", Arguments: `{"tasks":[{"subject":"Second task","description":"Second thing","activeForm":"Seconding"}]}`},
+		{ID: "call_00_first", Name: "task_create", Arguments: `{"tasks":[{"subject":"First task","description":"First thing","activeForm":"Firsting"}]}`},
+		{ID: "call_01_second", Name: "task_create", Arguments: `{"tasks":[{"subject":"Second task","description":"Second thing","activeForm":"Seconding"}]}`},
 	}
 	outcomes := r.executeToolCalls(t.Context(), store.Session{ID: "sess-order"}, executor, calls)
 
@@ -934,7 +958,7 @@ func editBatchFixture(t *testing.T, content string) (*Runner, *tools.Executor, s
 	// Edit refuses a file this session has not read.
 	read := executor.Execute(t.Context(), wire.ToolCall{
 		ID: "call_read", Type: "function",
-		Function: wire.ToolCallFunc{Name: "Read", Arguments: `{"file_path":"styles.css"}`},
+		Function: wire.ToolCallFunc{Name: "read", Arguments: `{"file_path":"styles.css"}`},
 	})
 	if read.Result.IsError {
 		t.Fatalf("Read fixture: %s", read.Result.Content)
@@ -952,8 +976,8 @@ func editBatchFixture(t *testing.T, content string) (*Runner, *tools.Executor, s
 func TestSameFileEditsRunInOrder(t *testing.T) {
 	r, executor, path := editBatchFixture(t, "alpha\nbravo\n")
 	calls := []wire.AssembledToolCall{
-		{ID: "call_00_alpha", Name: "Edit", Arguments: `{"file_path":"styles.css","old_string":"alpha","new_string":"ALPHA"}`},
-		{ID: "call_01_bravo", Name: "Edit", Arguments: `{"file_path":"./styles.css","old_string":"bravo","new_string":"BRAVO"}`},
+		{ID: "call_00_alpha", Name: "edit", Arguments: `{"file_path":"styles.css","old_string":"alpha","new_string":"ALPHA"}`},
+		{ID: "call_01_bravo", Name: "edit", Arguments: `{"file_path":"./styles.css","old_string":"bravo","new_string":"BRAVO"}`},
 	}
 	outcomes := r.executeToolCalls(t.Context(), store.Session{ID: "sess-edits"}, executor, calls)
 
@@ -979,8 +1003,8 @@ func TestSameFileEditsRunInOrder(t *testing.T) {
 func TestSameFileEditsClashExplainsWhy(t *testing.T) {
 	r, executor, path := editBatchFixture(t, "alpha bravo\n")
 	calls := []wire.AssembledToolCall{
-		{ID: "call_00_wide", Name: "Edit", Arguments: `{"file_path":"styles.css","old_string":"alpha bravo","new_string":"charlie"}`},
-		{ID: "call_01_stale", Name: "Edit", Arguments: `{"file_path":"styles.css","old_string":"bravo","new_string":"BRAVO"}`},
+		{ID: "call_00_wide", Name: "edit", Arguments: `{"file_path":"styles.css","old_string":"alpha bravo","new_string":"charlie"}`},
+		{ID: "call_01_stale", Name: "edit", Arguments: `{"file_path":"styles.css","old_string":"bravo","new_string":"BRAVO"}`},
 	}
 	outcomes := r.executeToolCalls(t.Context(), store.Session{ID: "sess-clash"}, executor, calls)
 
@@ -1013,14 +1037,14 @@ func TestDifferentFileEditsStayConcurrent(t *testing.T) {
 	}
 	read := executor.Execute(t.Context(), wire.ToolCall{
 		ID: "call_read2", Type: "function",
-		Function: wire.ToolCallFunc{Name: "Read", Arguments: `{"file_path":"other.css"}`},
+		Function: wire.ToolCallFunc{Name: "read", Arguments: `{"file_path":"other.css"}`},
 	})
 	if read.Result.IsError {
 		t.Fatalf("Read other.css: %s", read.Result.Content)
 	}
 	calls := []wire.AssembledToolCall{
-		{ID: "call_00", Name: "Edit", Arguments: `{"file_path":"styles.css","old_string":"alpha","new_string":"ALPHA"}`},
-		{ID: "call_01", Name: "Edit", Arguments: `{"file_path":"other.css","old_string":"bravo","new_string":"BRAVO"}`},
+		{ID: "call_00", Name: "edit", Arguments: `{"file_path":"styles.css","old_string":"alpha","new_string":"ALPHA"}`},
+		{ID: "call_01", Name: "edit", Arguments: `{"file_path":"other.css","old_string":"bravo","new_string":"BRAVO"}`},
 	}
 	outcomes := r.executeToolCalls(t.Context(), store.Session{ID: "sess-two-files"}, executor, calls)
 	for i, o := range outcomes {
@@ -1216,7 +1240,7 @@ func blockingBashServer(t *testing.T, cmd string, started chan struct{}) *httpte
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_slow", Type: "function", Function: wire.ToolCallFuncDelta{Name: "Bash", Arguments: args}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_slow", Type: "function", Function: wire.ToolCallFuncDelta{Name: "bash", Arguments: args}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{

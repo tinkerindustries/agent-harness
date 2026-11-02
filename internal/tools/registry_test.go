@@ -33,14 +33,14 @@ func callWithArguments(t *testing.T, e *Executor, name, arguments string) Outcom
 // JSON input", which sent the model looking for a filter it did not want.
 func TestExecuteAbsentArgumentsRunAnAllOptionalTool(t *testing.T) {
 	e, _ := newTestExecutor(t)
-	created := callWithArguments(t, e, "TaskCreate",
+	created := callWithArguments(t, e, "task_create",
 		`{"tasks":[{"subject":"Fix the bug","description":"why","activeForm":"Fixing the bug"}]}`)
 	if created.Result.IsError {
 		t.Fatalf("TaskCreate failed: %s", created.Result.Content)
 	}
 
 	for _, arguments := range []string{"", " ", "\n\t "} {
-		got := callWithArguments(t, e, "TaskList", arguments)
+		got := callWithArguments(t, e, "task_list", arguments)
 		if got.Result.IsError {
 			t.Fatalf("TaskList with arguments %q failed: %s", arguments, got.Result.Content)
 		}
@@ -58,8 +58,8 @@ func TestExecuteAbsentArgumentsRunAnAllOptionalTool(t *testing.T) {
 func TestExecuteAbsentArgumentsRefuseByFieldName(t *testing.T) {
 	e, _ := newTestExecutor(t)
 	for _, tc := range []struct{ name, want string }{
-		{"Grep", "pattern is required"},
-		{"Complete", "summary is required"},
+		{"grep", "pattern is required"},
+		{"complete", "summary is required"},
 	} {
 		got := callWithArguments(t, e, tc.name, "")
 		if !got.Result.IsError {

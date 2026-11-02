@@ -107,7 +107,7 @@ func TestClearStartsANewConversation(t *testing.T) {
 // TestCloseSessionRefusesARunningConversation pins the stop-then-close
 // ordering: a run has to be interrupted and reach its terminal frame first.
 func TestCloseSessionRefusesARunningConversation(t *testing.T) {
-	f := newFixture(t, callThen("call_bash", "Bash", `{"command":"sleep 5"}`))
+	f := newFixture(t, callThen("call_bash", "bash", `{"command":"sleep 5"}`))
 	f.client.handshake(ClientCapabilities{})
 
 	p := f.createParams("run something slow")
@@ -143,7 +143,7 @@ func TestCloseSessionEndsItsBackgroundShells(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "marker.txt")
 	cmd := fmt.Sprintf(`{"command":"sleep 1; echo alive > '%s'","run_in_background":true}`, marker)
 	f := newFixture(t,
-		callThen("call_bash", "Bash", cmd),
+		callThen("call_bash", "bash", cmd),
 		answer("started"),
 	)
 	f.client.handshake(ClientCapabilities{})

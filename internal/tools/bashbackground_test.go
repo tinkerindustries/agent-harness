@@ -1,35 +1,36 @@
 package tools
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 )
 
-// pollBashOutput calls BashOutput with args repeatedly until until reports
+// pollJobOutput calls job_output with args repeatedly until until reports
 // true against the result, or fails the test after a bound the slowest CI
 // machine should still clear comfortably. Each call drains whatever is new
 // since the one before it — the same way a real session's repeated polling
 // would — so a caller that wants a filter applied to every read passes it
 // on args rather than adding a second, unfiltered call afterward that would
 // drain the output the filtered one was meant to see.
-func pollBashOutput(t *testing.T, e *Executor, args bashOutputArgs, until func(Result) bool) Result {
+func pollJobOutput(t *testing.T, e *Executor, args jobOutputArgs, until func(Result) bool) Result {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	var last Result
 	for time.Now().Before(deadline) {
-		last = execBashOutput(t.Context(), e, mustJSON(t, args))
+		last = execJobOutput(t.Context(), e, mustJSON(t, args))
 		if until(last) {
 			return last
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("condition never met for background shell %s: %s", args.BashID, last.Content)
+	t.Fatalf("condition never met for background shell %s: %s", args.JobID, last.Content)
 	return last
 }
 
-// drainBackgroundUntilDone polls BashOutput until the shell stops reporting
+// drainBackgroundUntilDone polls job_output until the shell stops reporting
 // "running" and returns every poll's content joined together.
 //
 // Joining is what makes an assertion about the shell's output
@@ -45,7 +46,7 @@ func pollBashOutput(t *testing.T, e *Executor, args bashOutputArgs, until func(R
 func drainBackgroundUntilDone(t *testing.T, e *Executor, id string) Result {
 	t.Helper()
 	var seen strings.Builder
-	res := pollBashOutput(t, e, bashOutputArgs{BashID: id}, func(r Result) bool {
+	res := pollJobOutput(t, e, jobOutputArgs{JobID: id}, func(r Result) bool {
 		seen.WriteString(r.Content)
 		seen.WriteString("\n")
 		return !strings.HasPrefix(r.Content, "Status: running")
@@ -54,11 +55,11 @@ func drainBackgroundUntilDone(t *testing.T, e *Executor, id string) Result {
 	return res
 }
 
-// waitForBackgroundDone polls BashOutput until the shell reports anything
+// waitForBackgroundDone polls job_output until the shell reports anything
 // other than "running", and returns that last poll.
 func waitForBackgroundDone(t *testing.T, e *Executor, id string) Result {
 	t.Helper()
-	return pollBashOutput(t, e, bashOutputArgs{BashID: id}, func(r Result) bool {
+	return pollJobOutput(t, e, jobOutputArgs{JobID: id}, func(r Result) bool {
 		return !strings.HasPrefix(r.Content, "Status: running")
 	})
 }
@@ -80,12 +81,12 @@ func TestBashRunInBackgroundReturnsImmediately(t *testing.T) {
 	}
 }
 
-func TestBashOutputReturnsOnlyNewOutputSinceLastRead(t *testing.T) {
+func TestJobOutputReturnsOnlyNewOutputSinceLastRead(t *testing.T) {
 	e, _ := newTestExecutor(t)
 	started := execBash(t.Context(), e, mustJSON(t, bashArgs{Command: "echo first; sleep 0.2; echo second", RunInBackground: true}))
 	id := extractShellID(t, started.Content)
 
-	first := pollBashOutput(t, e, bashOutputArgs{BashID: id}, func(r Result) bool {
+	first := pollJobOutput(t, e, jobOutputArgs{JobID: id}, func(r Result) bool {
 		return strings.Contains(r.Content, "first")
 	})
 	if strings.Contains(first.Content, "second") {
@@ -104,19 +105,19 @@ func TestBashOutputReturnsOnlyNewOutputSinceLastRead(t *testing.T) {
 	}
 }
 
-func TestBashOutputWithNoNewOutputSaysSo(t *testing.T) {
+func TestJobOutputWithNoNewOutputSaysSo(t *testing.T) {
 	e, _ := newTestExecutor(t)
 	started := execBash(t.Context(), e, mustJSON(t, bashArgs{Command: "echo hi", RunInBackground: true}))
 	id := extractShellID(t, started.Content)
 	waitForBackgroundDone(t, e, id)
 
-	again := execBashOutput(t.Context(), e, mustJSON(t, bashOutputArgs{BashID: id}))
+	again := execJobOutput(t.Context(), e, mustJSON(t, jobOutputArgs{JobID: id}))
 	if !strings.Contains(again.Content, "(no new output)") {
 		t.Fatalf("expected no new output on a repeat poll, got: %s", again.Content)
 	}
 }
 
-func TestBashOutputReportsNonZeroExitCode(t *testing.T) {
+func TestJobOutputReportsNonZeroExitCode(t *testing.T) {
 	e, _ := newTestExecutor(t)
 	started := execBash(t.Context(), e, mustJSON(t, bashArgs{Command: "exit 7", RunInBackground: true}))
 	id := extractShellID(t, started.Content)
@@ -127,13 +128,13 @@ func TestBashOutputReportsNonZeroExitCode(t *testing.T) {
 	}
 }
 
-// TestBashOutputFilterKeepsOnlyMatchingLines spaces its three lines out with
+// TestJobOutputFilterKeepsOnlyMatchingLines spaces its three lines out with
 // sleeps so more than one poll is likely needed, then accumulates every
 // poll's content rather than trusting a single call to have caught
 // everything — each poll only ever returns what is new since the one
 // before it, filter included, so a test that only checked the last one
 // could pass or fail on how the output happened to chunk.
-func TestBashOutputFilterKeepsOnlyMatchingLines(t *testing.T) {
+func TestJobOutputFilterKeepsOnlyMatchingLines(t *testing.T) {
 	e, _ := newTestExecutor(t)
 	started := execBash(t.Context(), e, mustJSON(t, bashArgs{
 		Command:         "echo keep-me; sleep 0.05; echo drop-me; sleep 0.05; echo keep-me-too",
@@ -144,7 +145,7 @@ func TestBashOutputFilterKeepsOnlyMatchingLines(t *testing.T) {
 	var all strings.Builder
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		res := execBashOutput(t.Context(), e, mustJSON(t, bashOutputArgs{BashID: id, Filter: "keep"}))
+		res := execJobOutput(t.Context(), e, mustJSON(t, jobOutputArgs{JobID: id, Filter: "keep"}))
 		all.WriteString(res.Content)
 		if !strings.HasPrefix(res.Content, "Status: running") {
 			break
@@ -161,12 +162,12 @@ func TestBashOutputFilterKeepsOnlyMatchingLines(t *testing.T) {
 	}
 }
 
-func TestKillBashStopsARunningShell(t *testing.T) {
+func TestJobKillStopsARunningShell(t *testing.T) {
 	e, _ := newTestExecutor(t)
 	started := execBash(t.Context(), e, mustJSON(t, bashArgs{Command: "sleep 30", RunInBackground: true}))
 	id := extractShellID(t, started.Content)
 
-	killed := execKillBash(t.Context(), e, mustJSON(t, killBashArgs{ShellID: id}))
+	killed := execJobKill(t.Context(), e, mustJSON(t, jobKillArgs{JobID: id}))
 	if killed.IsError || !strings.Contains(killed.Content, "killed") {
 		t.Fatalf("expected a killed confirmation, got: %+v", killed)
 	}
@@ -177,13 +178,13 @@ func TestKillBashStopsARunningShell(t *testing.T) {
 	}
 }
 
-func TestKillBashOnAnAlreadyFinishedShellIsANoOp(t *testing.T) {
+func TestJobKillOnAnAlreadyFinishedShellIsANoOp(t *testing.T) {
 	e, _ := newTestExecutor(t)
 	started := execBash(t.Context(), e, mustJSON(t, bashArgs{Command: "true", RunInBackground: true}))
 	id := extractShellID(t, started.Content)
 	waitForBackgroundDone(t, e, id)
 
-	killed := execKillBash(t.Context(), e, mustJSON(t, killBashArgs{ShellID: id}))
+	killed := execJobKill(t.Context(), e, mustJSON(t, jobKillArgs{JobID: id}))
 	if killed.IsError {
 		t.Fatalf("expected killing an already-finished shell to be a no-op, not an error: %s", killed.Content)
 	}
@@ -192,13 +193,13 @@ func TestKillBashOnAnAlreadyFinishedShellIsANoOp(t *testing.T) {
 	}
 }
 
-func TestBashOutputAndKillBashUnknownIdAreErrors(t *testing.T) {
+func TestJobOutputAndJobKillUnknownIdAreErrors(t *testing.T) {
 	e, _ := newTestExecutor(t)
-	if res := execBashOutput(t.Context(), e, mustJSON(t, bashOutputArgs{BashID: "bash_999"})); !res.IsError {
-		t.Fatal("expected an unknown bash_id to be an error")
+	if res := execJobOutput(t.Context(), e, mustJSON(t, jobOutputArgs{JobID: "bash_999"})); !res.IsError {
+		t.Fatal("expected an unknown job_id to be an error")
 	}
-	if res := execKillBash(t.Context(), e, mustJSON(t, killBashArgs{ShellID: "bash_999"})); !res.IsError {
-		t.Fatal("expected an unknown shell_id to be an error")
+	if res := execJobKill(t.Context(), e, mustJSON(t, jobKillArgs{JobID: "bash_999"})); !res.IsError {
+		t.Fatal("expected an unknown job_id to be an error")
 	}
 }
 
@@ -220,7 +221,7 @@ func TestExecutorCloseKillsRunningBackgroundShells(t *testing.T) {
 
 // TestSessionShellsSurviveExecutorClose is that rule's other half: a registry
 // the Executor does not own is the session's, so an ordinary run ending
-// leaves the shell for the next run's BashOutput.
+// leaves the shell for the next run's job_output.
 func TestSessionShellsSurviveExecutorClose(t *testing.T) {
 	exits := make(chan ShellExit, 1)
 	registry := NewShells("sess-test", func(_ string, exit ShellExit) { exits <- exit })
@@ -235,7 +236,7 @@ func TestSessionShellsSurviveExecutorClose(t *testing.T) {
 
 	e.Close()
 
-	res := execBashOutput(t.Context(), e, mustJSON(t, bashOutputArgs{BashID: id}))
+	res := execJobOutput(t.Context(), e, mustJSON(t, jobOutputArgs{JobID: id}))
 	if !strings.HasPrefix(res.Content, "Status: running") {
 		t.Fatalf("expected the session registry's shell to outlive the run, got: %s", res.Content)
 	}
@@ -317,14 +318,14 @@ func TestShellsReportTheSessionCurrentAtExit(t *testing.T) {
 	}
 }
 
-// TestBashOutputConcurrentPollsDoNotPanicOrDuplicate drives many concurrent
-// BashOutput calls against one fast-writing shell. buf.String() and
+// TestJobOutputConcurrentPollsDoNotPanicOrDuplicate drives many concurrent
+// job_output calls against one fast-writing shell. buf.String() and
 // readOffset must be read together under bg.mu — reading the buffer
 // outside the lock lets two callers snapshot it at different lengths while
 // sharing one readOffset, and whichever locks second can slice its own,
 // shorter snapshot from an offset the first already advanced past it,
 // which panics with a slice bounds error.
-func TestBashOutputConcurrentPollsDoNotPanicOrDuplicate(t *testing.T) {
+func TestJobOutputConcurrentPollsDoNotPanicOrDuplicate(t *testing.T) {
 	e, _ := newTestExecutor(t)
 	started := execBash(t.Context(), e, mustJSON(t, bashArgs{
 		Command:         "for i in $(seq 1 200); do echo line-$i; done",
@@ -340,7 +341,7 @@ func TestBashOutputConcurrentPollsDoNotPanicOrDuplicate(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 20; j++ {
-				res := execBashOutput(t.Context(), e, mustJSON(t, bashOutputArgs{BashID: id}))
+				res := execJobOutput(t.Context(), e, mustJSON(t, jobOutputArgs{JobID: id}))
 				mu.Lock()
 				combined.WriteString(res.Content)
 				mu.Unlock()
@@ -366,7 +367,91 @@ func TestBashOutputConcurrentPollsDoNotPanicOrDuplicate(t *testing.T) {
 	}
 }
 
-// extractShellID pulls "bash_N" out of Bash's own run_in_background result
+// TestJobListReportsEveryJob pins job_list's row for a job that has exited
+// and one still running, each with the command it was started with.
+func TestJobListReportsEveryJob(t *testing.T) {
+	e, _ := newTestExecutor(t)
+	fast := execBash(t.Context(), e, mustJSON(t, bashArgs{Command: "echo done", RunInBackground: true}))
+	fastID := extractShellID(t, fast.Content)
+	slow := execBash(t.Context(), e, mustJSON(t, bashArgs{Command: "sleep 30", RunInBackground: true}))
+	slowID := extractShellID(t, slow.Content)
+	t.Cleanup(func() { e.CloseAll() })
+
+	waitForBackgroundDone(t, e, fastID)
+
+	res := execJobList(t.Context(), e, mustJSON(t, struct{}{}))
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	for _, want := range []string{
+		fastID + ": exited (exit code 0)",
+		slowID + ": running",
+		"command: echo done",
+		"command: sleep 30",
+	} {
+		if !strings.Contains(res.Content, want) {
+			t.Errorf("job_list is missing %q:\n%s", want, res.Content)
+		}
+	}
+}
+
+// TestJobListWithoutJobsSaysSo pins the empty answer: a session that never
+// started a job reads a sentence rather than an empty result.
+func TestJobListWithoutJobsSaysSo(t *testing.T) {
+	e, _ := newTestExecutor(t)
+	res := execJobList(t.Context(), e, mustJSON(t, struct{}{}))
+	if res.IsError || !strings.Contains(res.Content, "No background jobs") {
+		t.Fatalf("expected an empty-job sentence, got: %+v", res)
+	}
+}
+
+// TestJobOutputWaitBlocksUntilTheJobFinishes pins wait's purpose: the call
+// returns once the job has exited, carrying the output and the exit status,
+// without the caller polling.
+func TestJobOutputWaitBlocksUntilTheJobFinishes(t *testing.T) {
+	e, _ := newTestExecutor(t)
+	started := execBash(t.Context(), e, mustJSON(t, bashArgs{Command: "sleep 0.2; echo finished", RunInBackground: true}))
+	id := extractShellID(t, started.Content)
+
+	begin := time.Now()
+	res := execJobOutput(t.Context(), e, mustJSON(t, jobOutputArgs{JobID: id, Wait: true}))
+	if elapsed := time.Since(begin); elapsed < 150*time.Millisecond {
+		t.Fatalf("wait returned after %s, before the job could have finished", elapsed)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, "completed (exit code 0)") || !strings.Contains(res.Content, "finished") {
+		t.Fatalf("expected the finished job's status and output, got: %s", res.Content)
+	}
+}
+
+// TestJobOutputWaitTimesOutAndLeavesTheJobRunning pins the other half: a wait
+// bounded by the call's own timeout returns what the job has written and does
+// not end the job.
+func TestJobOutputWaitTimesOutAndLeavesTheJobRunning(t *testing.T) {
+	e, _ := newTestExecutor(t)
+	started := execBash(t.Context(), e, mustJSON(t, bashArgs{Command: "echo started; sleep 30", RunInBackground: true}))
+	id := extractShellID(t, started.Content)
+	t.Cleanup(func() { e.CloseAll() })
+
+	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Millisecond)
+	defer cancel()
+	res := execJobOutput(ctx, e, mustJSON(t, jobOutputArgs{JobID: id, Wait: true}))
+	if res.IsError {
+		t.Fatalf("a timed-out wait is not an error: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, "still running") {
+		t.Fatalf("expected the timed-out wait to say the job is still running, got: %s", res.Content)
+	}
+
+	after := execJobOutput(t.Context(), e, mustJSON(t, jobOutputArgs{JobID: id}))
+	if !strings.HasPrefix(after.Content, "Status: running") {
+		t.Fatalf("expected the job to survive a timed-out wait, got: %s", after.Content)
+	}
+}
+
+// extractShellID pulls "bash_N" out of bash's own run_in_background result
 // text, so a test reads the id the same way a model has to: from the
 // result, not from internal state.
 func extractShellID(t *testing.T, content string) string {

@@ -61,8 +61,8 @@ func TestToolsDroppedBy(t *testing.T) {
 			t.Errorf("ToolsDroppedBy(%q) = %v, want nil", name, got)
 		}
 	}
-	if got := ToolsDroppedBy("no-bash"); !reflect.DeepEqual(got, []string{"Bash", "BashOutput", "KillBash"}) {
-		t.Errorf("ToolsDroppedBy(no-bash) = %v, want [Bash BashOutput KillBash]", got)
+	if got := ToolsDroppedBy("no-bash"); !reflect.DeepEqual(got, []string{"bash", "job_output", "job_kill", "job_list"}) {
+		t.Errorf("ToolsDroppedBy(no-bash) = %v, want [bash job_output job_kill job_list]", got)
 	}
 	if got := ToolsDroppedBy("kimi-steps"); got != nil {
 		t.Errorf("ToolsDroppedBy(kimi-steps) = %v, want nil (it drops no tools)", got)
@@ -103,7 +103,7 @@ func TestSearchVariantsNameTheSearchTools(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, tool := range []string{"Grep", "Glob"} {
+		for _, tool := range []string{"grep", "glob"} {
 			if !strings.Contains(got, tool) {
 				t.Errorf("variant %q does not mention %s", name, tool)
 			}

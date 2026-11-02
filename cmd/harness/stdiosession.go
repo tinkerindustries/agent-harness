@@ -71,7 +71,7 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 	prices := fs.String("prices", "configs/prices.json", "price table, for the cost figures reported on harness.usage")
 	model := fs.String("model", "", "model a create body with no `model` runs on (default gemini-3.7-flash, or "+deepSeekSessionModel+" when only a DeepSeek key was supplied, or "+defaultClaudeSessionModel+" when only an Anthropic key was supplied)")
 	envFile := fs.String("env", "", "read the API keys from this KEY=VALUE `file` when the environment does not carry them, for driving the process by hand")
-	rgBinary := fs.String("rg", "", "`path` to the ripgrep binary the session's Grep calls run (default: $AGENT_HARNESS_RG, then `rg` on the PATH, then Grep's own Go walk)")
+	rgBinary := fs.String("rg", "", "`path` to the ripgrep binary the session's grep calls run (default: $AGENT_HARNESS_RG, then `rg` on the PATH, then grep's own Go walk)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

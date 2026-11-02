@@ -17,7 +17,7 @@ func TestRenderOpeningMessageNamesAttachments(t *testing.T) {
 	if !strings.Contains(msg, "Image files attached to this task, materialised into scratch/attachments/") {
 		t.Errorf("opening message should introduce the attachments, got: %s", msg)
 	}
-	for _, want := range []string{"- scratch/attachments/mockup.png", "- scratch/attachments/light.webp", "Glance"} {
+	for _, want := range []string{"- scratch/attachments/mockup.png", "- scratch/attachments/light.webp", "glance"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("opening message should carry %q, got: %s", want, msg)
 		}
