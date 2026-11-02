@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -320,11 +321,18 @@ func TestShellsReportTheSessionCurrentAtExit(t *testing.T) {
 
 // TestJobOutputConcurrentPollsDoNotPanicOrDuplicate drives many concurrent
 // job_output calls against one fast-writing shell. buf.String() and
-// readOffset must be read together under bg.mu — reading the buffer
-// outside the lock lets two callers snapshot it at different lengths while
-// sharing one readOffset, and whichever locks second can slice its own,
-// shorter snapshot from an offset the first already advanced past it,
-// which panics with a slice bounds error.
+// readOffset must be read together under bg.mu. Reading the buffer outside
+// the lock lets two callers snapshot it at different lengths while sharing
+// one readOffset, and whichever locks second can slice its own, shorter
+// snapshot from an offset the first already advanced past it, which panics
+// with a slice bounds error.
+//
+// The results cannot be joined to reconstruct the job's output: they arrive
+// in completion order rather than read order, and a read can end mid-line.
+// The total holds regardless of order. Every byte the shell wrote is returned
+// by exactly one call, so the payload lengths must add up to the output's own
+// length; a byte returned twice makes the total too large and a byte dropped
+// makes it too small.
 func TestJobOutputConcurrentPollsDoNotPanicOrDuplicate(t *testing.T) {
 	e, _ := newTestExecutor(t)
 	started := execBash(t.Context(), e, mustJSON(t, bashArgs{
@@ -335,7 +343,7 @@ func TestJobOutputConcurrentPollsDoNotPanicOrDuplicate(t *testing.T) {
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	var combined strings.Builder
+	var contents []string
 	for i := 0; i < 20; i++ {
 		wg.Add(1)
 		go func() {
@@ -343,7 +351,7 @@ func TestJobOutputConcurrentPollsDoNotPanicOrDuplicate(t *testing.T) {
 			for j := 0; j < 20; j++ {
 				res := execJobOutput(t.Context(), e, mustJSON(t, jobOutputArgs{JobID: id}))
 				mu.Lock()
-				combined.WriteString(res.Content)
+				contents = append(contents, res.Content)
 				mu.Unlock()
 			}
 		}()
@@ -352,18 +360,29 @@ func TestJobOutputConcurrentPollsDoNotPanicOrDuplicate(t *testing.T) {
 
 	// The 20x20 concurrent calls above race Start(); the shell may not have
 	// written anything by the time they are all done. waitForBackgroundDone
-	// keeps polling past that point, and its own returned Result is where
-	// the real content shows up — a further call after it, on a shell
-	// already fully drained, would see nothing and prove nothing.
+	// keeps polling past that point, and its own returned Result carries
+	// whatever the concurrent calls left unread.
 	done := waitForBackgroundDone(t, e, id)
-	mu.Lock()
-	combined.WriteString(done.Content)
-	mu.Unlock()
+	contents = append(contents, done.Content)
 
-	for _, want := range []string{"line-1\n", "line-100\n", "line-200"} {
-		if !strings.Contains(combined.String(), want) {
-			t.Errorf("expected %q somewhere across the concurrent polls, got a %d-byte combined result", want, combined.Len())
+	var want strings.Builder
+	for i := 1; i <= 200; i++ {
+		fmt.Fprintf(&want, "line-%d\n", i)
+	}
+
+	var got int
+	for _, content := range contents {
+		_, payload, ok := strings.Cut(content, "\n\n")
+		if !ok {
+			t.Fatalf("a job_output result carried no payload: %q", content)
 		}
+		if payload == "(no new output)" {
+			continue
+		}
+		got += len(payload)
+	}
+	if got != want.Len() {
+		t.Fatalf("the polls returned %d bytes of output, want %d: a byte was lost or returned twice", got, want.Len())
 	}
 }
 

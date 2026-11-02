@@ -53,6 +53,9 @@ Tests added or extended:
 - `TestMCPAccessToolsAreInTheDispatchTable` in `internal/tools/mcp_test.go` checks that the
   slice length matches `MCPAccessToolCount`, that every access tool has a `toolFuncs`
   entry, and that the new name is present.
+- `TestJobOutputConcurrentPollsDoNotPanicOrDuplicate` in
+  `internal/tools/bashbackground_test.go` asserts on payload bytes rather than on joined
+  text; the next section says why.
 
 ## What was verified, and how
 
@@ -68,31 +71,32 @@ ok  	github.com/mrgeoffrich/agent-harness/internal/tools	9.713s
 printed nothing before the proof ran.
 
 The whole tree was run as well, because the change moves an array that `internal/session`
-compares position by position and the phase's own proof does not include that package:
+compares position by position and the phase's own proof does not include that package.
+That run failed `internal/tools` on `TestJobOutputConcurrentPollsDoNotPanicOrDuplicate`,
+a phase 1 test:
 
 ```
-$ go test -count=1 ./...
-... every package ok ...
 --- FAIL: TestJobOutputConcurrentPollsDoNotPanicOrDuplicate (0.05s)
     bashbackground_test.go:365: expected "line-1\n" somewhere across the concurrent polls, got a 12848-byte combined result
     bashbackground_test.go:365: expected "line-100\n" somewhere across the concurrent polls, got a 12848-byte combined result
     bashbackground_test.go:365: expected "line-200" somewhere across the concurrent polls, got a 12848-byte combined result
 FAIL	github.com/mrgeoffrich/agent-harness/internal/tools	10.431s
-FAIL
 ```
 
-That is a pre-existing, load-dependent test flake, described below and recorded in
-`docs/issues/open/flaky-job-output-concurrent-polls-test.md`. The package passed its own
-proof run in the same session. The test passed 20 consecutive runs on its own after the
-failure:
+The test was fixed on this branch, at the orchestrator's direction, and the fixed version
+was run 20 times and then with the whole tree:
 
 ```
 $ go test -count=20 -run 'TestJobOutputConcurrentPollsDoNotPanicOrDuplicate' ./internal/tools
-ok  	github.com/mrgeoffrich/agent-harness/internal/tools	0.732s
+ok  	github.com/mrgeoffrich/agent-harness/internal/tools	1.059s
+
+$ go test -count=1 ./...
+ok  	github.com/mrgeoffrich/agent-harness/internal/tools	12.821s
+... every package ok ...
 ```
 
-`go test -count=1 ./internal/session` passed inside that same full run, which is the check
-that the five-name array in `mcpAccessToolNames` matches what `WithMCP` builds.
+`internal/session` passed in that run, which is the check that the five-name array in
+`mcpAccessToolNames` matches what `WithMCP` builds, and `internal/mcpclient` passed too.
 
 ## What was left undone
 
@@ -110,15 +114,21 @@ the stored snapshot format is unchanged, all as the phase required.
 
 ## Bugs found and not fixed
 
-`TestJobOutputConcurrentPollsDoNotPanicOrDuplicate` is flaky under the load of a full
-`go test ./...`. It joins the content of 400 concurrent `job_output` results and one final
-poll, then looks for `line-1\n`, `line-100\n` and `line-200` in that joined text. Each
-result starts with `Status: <state>` and a blank line, and a reader can catch the output
-buffer between two writes, so a payload may end mid-line and the next payload carries the
-rest of it. The joined text then holds `line-1Status: running`, which contains neither
-needle. The tool's behaviour is correct; the test's assumption about where the read
-boundaries fall is not. Recorded in
-`docs/issues/open/flaky-job-output-concurrent-polls-test.md`.
+Nothing outstanding.
+
+`TestJobOutputConcurrentPollsDoNotPanicOrDuplicate` was found failing under load and is
+fixed on this branch. It joined the content of 400 concurrent `job_output` results and one
+final poll, then looked for `line-1\n`, `line-100\n` and `line-200` in the joined text. Each
+result starts with `Status: <state>` and a blank line, and a read can end mid-line, so the
+joined text held `line-1Status: running` and contained none of the needles. The results also
+arrive in completion order rather than read order, so joining whole results cannot rebuild
+the stream at all. A join that happened to be in order would still be the wrong assertion.
+
+The test now splits each result at its header, skips the `(no new output)` placeholder, and
+sums the payload bytes against the 200-line output's own length. Every byte the shell writes
+is returned by exactly one call, so a duplicate makes the total too large and a loss makes
+it too small, whatever order the results land in. It keeps the original purpose: 400
+concurrent polls against one job, no panic, no duplicated output.
 
 ## Mechanical friction
 
@@ -128,7 +138,8 @@ a red package, so the whole tree had to be run by hand.
 
 `go test ./... | tail -60` holds every line until the command exits, so the failure was only
 visible at the end. Running the failing package alone next to the loaded run is what showed
-the failure was load-dependent rather than a real regression.
+the failure was load-dependent rather than a real regression. The flake was in a phase 1
+test, so neither the phase's proof nor any package run on its own would have found it.
 
 ## Memory suggestions
 
