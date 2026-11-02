@@ -55,8 +55,8 @@ type Dialect interface {
 	AddressesSession() bool
 
 	// Methods names the five verbs a client calls. The handshake pair,
-	// shutdown and harness.function_call are spelled the same in both and
-	// are not here.
+	// shutdown, harness.function_call and harness.close_session are spelled
+	// the same in every dialect and are not here.
 	Methods() MethodSet
 
 	// Messages is the prose this surface puts on the errors the shared

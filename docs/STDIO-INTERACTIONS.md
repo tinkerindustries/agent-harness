@@ -185,6 +185,7 @@ Result:
     "cancel": true,
     "previous_interaction": true,
     "resume_session": true,
+    "close_session": true,
     "mcp_servers": true,
     "function_tools": true,
     "permission_modes": ["readonly", "full"]
@@ -264,6 +265,7 @@ Empty params. Sent once, after `initialize` returns.
 | `interactions.cancel` | `POST /v1beta/interactions/{id}/cancel` | Interrupt a run. |
 | `interactions.get` | `GET /v1beta/interactions/{id}` | Read an interaction and its assembled steps. |
 | `interactions.delete` | `DELETE /v1beta/interactions/{id}` | Forget an interaction. |
+| `harness.close_session` | — | Retire a conversation's in-process resources. The client's `/clear`. |
 | `shutdown` | — | End the session. Equivalent to closing stdin. |
 
 ### `interactions.create`
@@ -363,8 +365,11 @@ mint it: a client that sends one across a restart gets `-32001`. Crossing a
 restart is `harness.resume_session_id`, below. Sending both on one create is
 `-32602`.
 
-**One at a time.** One process hosts one session, so a create while another
-interaction is in progress is refused with `-32600`. Cancel it or wait.
+**One at a time.** One process runs one live session, so a create while
+another interaction is in progress is refused with `-32600`. Cancel it or wait. A
+conversation that has finished can be retired with
+`harness.close_session` and a later create starts a new one in the same
+process and workspace.
 
 **A finished background shell starts an interaction of its own.** A Bash call
 with `run_in_background` returns a `bash_id`, and that shell belongs to the
@@ -461,6 +466,26 @@ kept the notifications.
 Forgets the interaction. Answers `{}`, as Google's does. It does not erase the
 run: the transcript under the state directory is untouched. An interaction
 still running is refused with `-32002`.
+
+### `harness.close_session`
+
+```jsonc
+{"session_id": "sess-…"}
+```
+
+Retires one conversation's in-process resources and answers `{}`. A client's
+`/clear` is this call followed by an `interactions.create` that names no
+`previous_interaction_id`: the create mints the new session id, and the old
+one stays in the state directory for `harness.resume_session_id`.
+
+The call closes the session's background shells, forgets its runs, and drops
+the tool provider and wake bookkeeping it was holding. Those shells would
+otherwise outlive the conversation and start a run in it when they exit. The
+session's stored row, status and transcript mirror are untouched.
+
+A run still in flight for that session is refused with `-32002`; cancel it
+first and wait for the terminal frame. Closing a conversation this process no
+longer holds is a no-op, so a retried `/clear` is harmless.
 
 ### `shutdown`
 
@@ -1006,9 +1031,9 @@ Raised rather than fixed, in this repo's own convention:
   working directory so the loop can name the file in its opening message, and
   writing into a directory the client owns is a decision this protocol has not
   taken. Write the file yourself and name its path in the text.
-- **More than one interaction at a time.** One process hosts one session. A
-  parent that wants two sessions spawns two processes, which is also how it
-  gets two working directories.
+- **More than one interaction at a time.** One process runs one session at a
+  time. A parent that wants two sessions live at once spawns two processes,
+  which is also how it gets two working directories.
 - **`interaction.status_update` for anything but sub-turn boundaries.** Google
   emits it on interaction-level transitions; here it only ever reports
   `in_progress` at the start of a sub-turn.

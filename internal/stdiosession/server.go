@@ -60,10 +60,12 @@ type Options struct {
 	Dialect Dialect
 }
 
-// Server implements the protocol over one pipe. One process hosts one
-// session: interactions run one at a time, chained by
+// Server implements the protocol over one pipe. One process runs one live
+// session at a time: interactions run one at a time, chained by
 // previous_interaction_id, which is what lets the shared session.Runner be
-// pointed at each interaction's own tool provider in turn.
+// pointed at each interaction's own tool provider in turn. A finished
+// conversation can be retired with harness.close_session, and the next
+// create starts a new one in the same process.
 type Server struct {
 	opts Options
 	conn *Conn
@@ -495,6 +497,8 @@ func (s *Server) handle(ctx context.Context, method string, params json.RawMessa
 	case MethodShutdown:
 		go s.stopRunning("the client asked this session to shut down")
 		return map[string]any{}, nil
+	case MethodCloseSession:
+		return s.closeSession(params)
 	default:
 		if isNotification(method) {
 			return nil, nil
@@ -1134,6 +1138,87 @@ func (s *Server) delete(params json.RawMessage) (any, *rpcError) {
 	return map[string]any{}, nil
 }
 
+// closeSession implements harness.close_session. It retires one
+// conversation's in-process resources and leaves its stored row, status and
+// transcript mirror alone, so harness.resume_session_id can still bring the
+// conversation back later. A client's `/clear` is this call followed by a
+// create that names no continuation; that create mints the new session id.
+//
+// A run in flight is refused the way sessions.delete refuses one, because
+// the client has to interrupt it and see the terminal frame before the
+// conversation is over. Closing a conversation this process does not hold is
+// a no-op, so a retried `/clear` is harmless.
+func (s *Server) closeSession(params json.RawMessage) (any, *rpcError) {
+	var p CloseSessionParams
+	if len(params) > 0 {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return nil, errorf(CodeInvalidParams, "harness.close_session params: %v", err)
+		}
+	}
+	if p.SessionID == "" {
+		return nil, errorf(CodeInvalidParams, "harness.close_session needs session_id")
+	}
+
+	s.mu.Lock()
+	if s.running != nil && s.running.sessionID == p.SessionID {
+		s.mu.Unlock()
+		// Not Messages.DeleteStillRunning: that sentence names the dialect's
+		// own resource ("response", "interaction"), and this method is
+		// spelled the same on all three.
+		return nil, errorf(CodeRunNotRunning, "session %s is still running; interrupt it first", p.SessionID)
+	}
+	// A run that compacted mid-flight has already retargeted its shell
+	// registry at the successor row, while the run itself still carries the id
+	// it started under. Closing that successor would end a live run's shells.
+	if s.running != nil {
+		if sh := s.shells[s.running.sessionID]; sh != nil && sh.SessionID() == p.SessionID {
+			s.mu.Unlock()
+			return nil, errorf(CodeRunNotRunning, "session %s is still running; interrupt it first", p.SessionID)
+		}
+	}
+	for id, it := range s.runs {
+		if it.sessionID == p.SessionID {
+			delete(s.runs, id)
+		}
+	}
+	kept := s.order[:0]
+	for _, id := range s.order {
+		if _, ok := s.runs[id]; ok {
+			kept = append(kept, id)
+		}
+	}
+	s.order = kept
+	delete(s.hosts, p.SessionID)
+	delete(s.woken, p.SessionID)
+
+	// The shell registry is the one thing here that has to be closed rather
+	// than forgotten: its shells would otherwise outlive the conversation and
+	// wake it when they exit (backgroundExited, wakeForBackground). A
+	// registry is closed only when it now belongs to the session being
+	// closed. Compaction retargets it at the successor row (SetSessionID) and
+	// followCompaction leaves the retired parent's key pointing at the same
+	// pointer, so closing the parent must leave the successor's shells alone.
+	// The scan also covers the other order: a close of the successor racing
+	// followCompaction, before the successor's own key exists.
+	closing := map[*tools.Shells]bool{}
+	for id, sh := range s.shells {
+		if id != p.SessionID && sh.SessionID() != p.SessionID {
+			continue
+		}
+		delete(s.shells, id)
+		if sh.SessionID() == p.SessionID {
+			closing[sh] = true
+		}
+	}
+	s.mu.Unlock()
+
+	for sh := range closing {
+		sh.Close()
+	}
+	// An empty body, as delete and shutdown answer.
+	return map[string]any{}, nil
+}
+
 // --- helpers ---
 
 func (s *Server) lookup(id string) (*run, bool) {
@@ -1147,9 +1232,10 @@ func (s *Server) lookup(id string) (*run, bool) {
 // sessionID — the lookup ManagedAgents' sessions.* methods need, since a
 // client of that dialect never learns a bare run id at all and addresses
 // everything by the one session id it holds
-// (docs/STDIO-MANAGED-AGENTS.md, "The seam"). One process hosts one session
-// for its whole life, so there is at most one id in s.order this can ever
-// match; scanning from the end costs nothing a second index would save.
+// (docs/STDIO-MANAGED-AGENTS.md, "The seam"). One process runs one live
+// session at a time, but it can host successive ones, so scanning from the
+// end finds the latest run of sessionID and costs nothing a second index
+// would save.
 func (s *Server) lookupBySession(sessionID string) (*run, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

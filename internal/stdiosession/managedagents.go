@@ -265,6 +265,7 @@ func (ManagedAgents) Initialize(h Handshake) any {
 			Events:          true,
 			Interrupt:       true,
 			ResumeSession:   true,
+			CloseSession:    true,
 			MCPServers:      h.MCPServers,
 			CustomTools:     true,
 			PermissionModes: h.PermissionModes,

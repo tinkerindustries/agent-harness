@@ -112,6 +112,7 @@ func (Responses) Initialize(h Handshake) any {
 			Cancel:           true,
 			PreviousResponse: true,
 			ResumeSession:    true,
+			CloseSession:     true,
 			MCPServers:       h.MCPServers,
 			FunctionTools:    true,
 			PermissionModes:  h.PermissionModes,
