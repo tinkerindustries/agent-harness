@@ -131,8 +131,8 @@ func TestDiscoverTruncatesLargeFile(t *testing.T) {
 	if !strings.Contains(rendered, "big/CLAUDE.md") {
 		t.Errorf("truncation notice should name the path:\n%s", rendered)
 	}
-	if !strings.Contains(rendered, "Read") {
-		t.Errorf("truncation notice should point the agent at the Read tool:\n%s", rendered)
+	if !strings.Contains(rendered, "read tool") {
+		t.Errorf("truncation notice should point the agent at the read tool:\n%s", rendered)
 	}
 }
 

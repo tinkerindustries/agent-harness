@@ -15,7 +15,7 @@ func TestMCPListResourcesNamesServerKindAndURI(t *testing.T) {
 		{Server: "docs", URI: "file:///page/{slug}", Name: "page", Template: true},
 	}}
 
-	res := runTool(t, e, "MCPListResources", struct{}{})
+	res := runTool(t, e, "list_mcp_resources", struct{}{})
 	if res.IsError {
 		t.Fatalf("unexpected error: %s", res.Content)
 	}
@@ -34,7 +34,7 @@ func TestMCPListResourcesFiltersByServer(t *testing.T) {
 		{Server: "other", URI: "file:///elsewhere.md"},
 	}}
 
-	res := runTool(t, e, "MCPListResources", map[string]string{"server": "docs"})
+	res := runTool(t, e, "list_mcp_resources", map[string]string{"server": "docs"})
 	if strings.Contains(res.Content, "elsewhere") {
 		t.Errorf("filtered listing should not carry another server's resources, got:\n%s", res.Content)
 	}
@@ -49,7 +49,7 @@ func TestMCPListResourcesSaysSoWhenThereAreNone(t *testing.T) {
 	e, _ := newTestExecutor(t)
 	e.MCP = &fakeMCPProvider{}
 
-	res := runTool(t, e, "MCPListResources", struct{}{})
+	res := runTool(t, e, "list_mcp_resources", struct{}{})
 	if res.IsError {
 		t.Fatalf("no resources is not an error: %s", res.Content)
 	}
@@ -65,7 +65,7 @@ func TestMCPReadResourceReturnsTheContent(t *testing.T) {
 		"docs file:///readme.md": {Text: "# Readme"},
 	}}
 
-	res := runTool(t, e, "MCPReadResource", map[string]string{"server": "docs", "uri": "file:///readme.md"})
+	res := runTool(t, e, "read_mcp_resource", map[string]string{"server": "docs", "uri": "file:///readme.md"})
 	if res.IsError {
 		t.Fatalf("unexpected error: %s", res.Content)
 	}
@@ -80,7 +80,7 @@ func TestMCPReadResourceRequiresBothArguments(t *testing.T) {
 	e, _ := newTestExecutor(t)
 	e.MCP = &fakeMCPProvider{}
 
-	res := runTool(t, e, "MCPReadResource", map[string]string{"uri": "file:///readme.md"})
+	res := runTool(t, e, "read_mcp_resource", map[string]string{"uri": "file:///readme.md"})
 	if !res.IsError || !strings.Contains(res.Content, "server and uri are required") {
 		t.Fatalf("expected a refusal naming both arguments, got: %+v", res)
 	}
@@ -99,7 +99,7 @@ func TestMCPListPromptsNamesArguments(t *testing.T) {
 		},
 	}}}
 
-	res := runTool(t, e, "MCPListPrompts", struct{}{})
+	res := runTool(t, e, "list_mcp_prompts", struct{}{})
 	for _, want := range []string{"review", "critique", "diff (required)", "tone"} {
 		if !strings.Contains(res.Content, want) {
 			t.Errorf("listing should mention %q, got:\n%s", want, res.Content)
@@ -114,7 +114,7 @@ func TestMCPGetPromptRendersIt(t *testing.T) {
 		"review critique": {Text: "[user] Critique this"},
 	}}
 
-	res := runTool(t, e, "MCPGetPrompt", map[string]any{
+	res := runTool(t, e, "get_mcp_prompt", map[string]any{
 		"server": "review", "name": "critique", "arguments": map[string]string{"diff": "x"},
 	})
 	if res.IsError {
@@ -130,7 +130,7 @@ func TestMCPGetPromptRendersIt(t *testing.T) {
 // wired at all.
 func TestMCPAccessToolsWithoutAProvider(t *testing.T) {
 	e, _ := newTestExecutor(t) // e.MCP left nil
-	for _, name := range []string{"MCPListResources", "MCPReadResource", "MCPListPrompts", "MCPGetPrompt"} {
+	for _, name := range []string{"list_mcp_resources", "read_mcp_resource", "list_mcp_prompts", "get_mcp_prompt"} {
 		res := runTool(t, e, name, map[string]string{"server": "s", "uri": "u", "name": "n"})
 		if !res.IsError || !strings.Contains(res.Content, "no MCP servers are configured") {
 			t.Errorf("%s = %+v, want a plain refusal", name, res)
@@ -146,19 +146,19 @@ func TestMCPAccessToolsWithoutAProvider(t *testing.T) {
 func TestReadOnlyModeGatesTheTwoDiallingAccessTools(t *testing.T) {
 	p := &Policy{Mode: ModeReadOnly, MCPReadOnlyServers: map[string]bool{"open": true}}
 
-	if d := p.Check("MCPListResources", "MCPListResources shut"); !d.Allow {
+	if d := p.Check("list_mcp_resources", "list_mcp_resources shut"); !d.Allow {
 		t.Errorf("listing should be allowed in readonly mode: %s", d.Rule)
 	}
-	if d := p.Check("MCPListPrompts", "MCPListPrompts shut"); !d.Allow {
+	if d := p.Check("list_mcp_prompts", "list_mcp_prompts shut"); !d.Allow {
 		t.Errorf("listing prompts should be allowed in readonly mode: %s", d.Rule)
 	}
-	if d := p.Check("MCPReadResource", "MCPReadResource open"); !d.Allow {
+	if d := p.Check("read_mcp_resource", "read_mcp_resource open"); !d.Allow {
 		t.Errorf("reading from a read-only server should be allowed: %s", d.Rule)
 	}
-	if d := p.Check("MCPReadResource", "MCPReadResource shut"); d.Allow {
+	if d := p.Check("read_mcp_resource", "read_mcp_resource shut"); d.Allow {
 		t.Error("reading from a server not marked read-only should be denied in readonly mode")
 	}
-	if d := p.Check("MCPGetPrompt", "MCPGetPrompt shut"); d.Allow {
+	if d := p.Check("get_mcp_prompt", "get_mcp_prompt shut"); d.Allow {
 		t.Error("a prompt from a server not marked read-only should be denied in readonly mode")
 	}
 }

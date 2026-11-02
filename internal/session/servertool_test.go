@@ -198,7 +198,7 @@ func TestSteerWaitsBehindOpenServerTool(t *testing.T) {
 	const sessionID = "sess-open-server-tool"
 	const steer = "also check the changelog"
 	script := &claudeScript{streams: []string{
-		claudeOpenServerTool("toolu_list", "TaskList", `{}`),
+		claudeOpenServerTool("toolu_list", "task_list", `{}`),
 		claudeServerToolClosed("searched and listed"),
 		claudePlainAnswer("the changelog says so"),
 	}}
@@ -280,7 +280,7 @@ func TestResumeBehindOpenServerToolAnswersTheNewMessage(t *testing.T) {
 
 	const followUp = "now summarise what you found"
 	script := &claudeScript{streams: []string{
-		claudeOpenServerTool("toolu_complete", "Complete", `{"summary":"done","status":"done"}`),
+		claudeOpenServerTool("toolu_complete", "complete", `{"summary":"done","status":"done"}`),
 		claudeServerToolClosed("the search finished"),
 		claudePlainAnswer("here is the summary"),
 	}}

@@ -218,7 +218,7 @@ func maContentText(blocks []maContent) (string, *rpcError) {
 		case "text":
 			parts = append(parts, c.Text)
 		case "image", "document":
-			return "", errorf(CodeUnsupported, "a %s content block is not read; this session reads files off its own filesystem with the Read tool", c.Type)
+			return "", errorf(CodeUnsupported, "a %s content block is not read; this session reads files off its own filesystem with the read tool", c.Type)
 		default:
 			return "", errorf(CodeInvalidParams, "content block type %q", c.Type)
 		}

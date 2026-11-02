@@ -40,7 +40,7 @@ func toolLoopServer(t *testing.T, answerAt int32, onRequest func(n int32, r *htt
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: fmt.Sprintf("call_%d", n), Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: fmt.Sprintf("call_%d", n), Type: "function", Function: wire.ToolCallFuncDelta{Name: "task_list", Arguments: `{}`}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{

@@ -279,7 +279,7 @@ func TestInteractionsHandshakeSpellsGoogle(t *testing.T) {
 func TestInteractionsMalformedToolArgumentsStillComplete(t *testing.T) {
 	useDialect(t, NewInteractions())
 	const args = `{"task">racing-start: "done"}`
-	f := newFixture(t, callThen("call-1", "Read", args), answer("All done."))
+	f := newFixture(t, callThen("call-1", "read", args), answer("All done."))
 	f.client.handshake(ClientCapabilities{})
 
 	var created iactCreateResult

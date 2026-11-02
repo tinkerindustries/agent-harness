@@ -129,7 +129,7 @@ func TestRunReadsASkillInstalledOutsideTheWorkspace(t *testing.T) {
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role: "assistant",
 					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call-read", Type: "function",
-						Function: wire.ToolCallFuncDelta{Name: "Read", Arguments: string(args)}}},
+						Function: wire.ToolCallFuncDelta{Name: "read", Arguments: string(args)}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
@@ -179,7 +179,7 @@ func TestRunReadsASkillInstalledOutsideTheWorkspace(t *testing.T) {
 			if err := json.Unmarshal(event.Payload, &payload); err != nil {
 				t.Fatal(err)
 			}
-			if payload.Name == "Read" && !payload.IsError && strings.Contains(payload.Content, "Run the chain.") {
+			if payload.Name == "read" && !payload.IsError && strings.Contains(payload.Content, "Run the chain.") {
 				sawBody = true
 			}
 		}

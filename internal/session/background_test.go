@@ -73,11 +73,11 @@ func backgroundThenPollServer(t *testing.T, command, firstAnswer, polledAnswer s
 
 		switch idx {
 		case 0:
-			writeToolCall("call_bash", "Bash", string(startArgs))
+			writeToolCall("call_bash", "bash", string(startArgs))
 		case 1:
 			answer(firstAnswer)
 		case 2:
-			writeToolCall("call_poll", "BashOutput", `{"bash_id":"bash_1"}`)
+			writeToolCall("call_poll", "job_output", `{"job_id":"bash_1"}`)
 		default:
 			answer(polledAnswer)
 		}
@@ -135,7 +135,7 @@ func TestBackgroundShellSurvivesTheRunForTheNextResume(t *testing.T) {
 		if strings.HasPrefix(p.Content, "Running in the background with id bash_1") {
 			started = true
 		}
-		if p.Name == "BashOutput" {
+		if p.Name == "job_output" {
 			polled = true
 			if !strings.HasPrefix(p.Content, "Status: running") {
 				t.Fatalf("expected the resumed run to find the shell still running, got: %s", p.Content)
@@ -170,7 +170,7 @@ func heldToolCallServer(t *testing.T, stall time.Duration) *httptest.Server {
 					Role: "assistant",
 					ToolCalls: []wire.ToolCallDelta{{
 						Index: 0, ID: "call_bash", Type: "function",
-						Function: wire.ToolCallFuncDelta{Name: "Bash", Arguments: string(startArgs)},
+						Function: wire.ToolCallFuncDelta{Name: "bash", Arguments: string(startArgs)},
 					}},
 				}}},
 			})
@@ -209,7 +209,7 @@ func TestPrivateShellRegistryRecordsACompletion(t *testing.T) {
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{ToolCalls: []wire.ToolCallDelta{{
 					Index: 0, ID: "call_bash", Type: "function",
-					Function: wire.ToolCallFuncDelta{Name: "Bash", Arguments: string(startArgs)},
+					Function: wire.ToolCallFuncDelta{Name: "bash", Arguments: string(startArgs)},
 				}}}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
@@ -298,7 +298,7 @@ func compactionShellServer(t *testing.T, command string, summarizerDelay time.Du
 					Role: "assistant",
 					ToolCalls: []wire.ToolCallDelta{{
 						Index: 0, ID: "call_bash", Type: "function",
-						Function: wire.ToolCallFuncDelta{Name: "Bash", Arguments: string(startArgs)},
+						Function: wire.ToolCallFuncDelta{Name: "bash", Arguments: string(startArgs)},
 					}},
 				}}},
 			})
@@ -357,7 +357,7 @@ func TestBackgroundShellFollowsCompaction(t *testing.T) {
 	e.Shells = registry
 	out := e.Execute(t.Context(), wire.ToolCall{
 		ID: "poll", Type: "function",
-		Function: wire.ToolCallFunc{Name: "BashOutput", Arguments: `{"bash_id":"bash_1"}`},
+		Function: wire.ToolCallFunc{Name: "job_output", Arguments: `{"job_id":"bash_1"}`},
 	})
 	if !strings.HasPrefix(out.Result.Content, "Status: running") {
 		t.Fatalf("expected the shell to survive compaction, got: %s", out.Result.Content)
@@ -458,7 +458,7 @@ func TestStoppedRunEndsItsBackgroundShells(t *testing.T) {
 	for {
 		out := e.Execute(t.Context(), wire.ToolCall{
 			ID: "poll", Type: "function",
-			Function: wire.ToolCallFunc{Name: "BashOutput", Arguments: `{"bash_id":"bash_1"}`},
+			Function: wire.ToolCallFunc{Name: "job_output", Arguments: `{"job_id":"bash_1"}`},
 		})
 		if !strings.HasPrefix(out.Result.Content, "Status: running") {
 			return

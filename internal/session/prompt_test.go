@@ -2,6 +2,7 @@ package session
 
 import (
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -12,23 +13,21 @@ import (
 // TestPromptNamesExactlyTheToolArray pins each provider's system prompt to
 // that provider's tool array: the prompt's "Tools:" inventory must name
 // exactly the tools in the array — no more, no less — and the availability
-// count ("All fourteen are always available") must match the array length.
+// count ("All seventeen are always available") must match the array length.
 //
-// This is the guard Phase 8 made necessary (docs/KIMI-INTEGRATION.md §4.4,
-// decision 6). The tool array is per-provider, and the system prompt is a
-// second frozen head that nothing else ties to it: the DeepSeek head names
-// seventeen tools and the Kimi head fourteen, and both must be restated the
-// moment a tool is added to or dropped from an array. The head is now
-// assembled from the array (internal/session/prompt.go), so this test pins
-// the assembly: the rendered inventory must still name exactly the tools
-// the array carries. Without it the two can drift — the Phase 9 bug this
-// pins is exactly that: Kimi sessions were sent a fourteen-tool array under
-// a prompt that named sixteen tools.
+// The tool array is per-provider, and the system prompt is a second frozen
+// head that nothing else ties to it: the base head names twenty-three tools,
+// DeepSeek's ten and Kimi's seventeen, and each must be restated the moment
+// a tool is added to or dropped from that array. The head is assembled from
+// the array (internal/session/prompt.go), so this test pins the assembly:
+// the rendered inventory must still name exactly the tools the array
+// carries. Without it the two can drift, which is the bug this pins: Kimi
+// sessions were once sent an array whose size the prompt did not match.
 func TestPromptNamesExactlyTheToolArray(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		model string
-	}{{"deepseek", "deepseek-v4-pro"}, {"kimi", "kimi-k3"}} {
+	}{{"deepseek", "deepseek-v4-pro"}, {"deepseek-flash", "deepseek-flash"}, {"kimi", "kimi-k3"}} {
 		t.Run(tc.name, func(t *testing.T) {
 			prompt, err := RenderSystemPromptFor(tc.model, "")
 			if err != nil {
@@ -59,7 +58,7 @@ func TestPromptNamesExactlyTheToolArray(t *testing.T) {
 			for _, other := range []struct {
 				name  string
 				model string
-			}{{"deepseek", "deepseek-v4-pro"}, {"kimi", "kimi-k3"}} {
+			}{{"deepseek", "deepseek-v4-pro"}, {"deepseek-flash", "deepseek-flash"}, {"kimi", "kimi-k3"}} {
 				if other.name == tc.name {
 					continue
 				}
@@ -67,7 +66,11 @@ func TestPromptNamesExactlyTheToolArray(t *testing.T) {
 					if containsSorted(want, tool.Function.Name) {
 						continue
 					}
-					if strings.Contains(prompt, tool.Function.Name) {
+					// Word boundaries: the names are lower_snake_case now,
+					// and a bare substring test would report "job_list"
+					// as a mention of "list".
+					mention := regexp.MustCompile(`\b` + regexp.QuoteMeta(tool.Function.Name) + `\b`)
+					if mention.MatchString(prompt) {
 						t.Errorf("%s prompt mentions %q, which is not in the %s tool array",
 							tc.name, tool.Function.Name, tc.name)
 					}
@@ -182,11 +185,11 @@ func TestVariantDroppedToolRendersAHeadConsistentWithItsArray(t *testing.T) {
 	baseNames, _ := inventoryFromPrompt(t, base)
 	names, countWord := inventoryFromPrompt(t, got)
 
-	if len(names) != len(baseNames)-3 {
-		t.Fatalf("no-bash head names %d tools, want %d (three fewer than base)", len(names), len(baseNames)-3)
+	if len(names) != len(baseNames)-4 {
+		t.Fatalf("no-bash head names %d tools, want %d (four fewer than base)", len(names), len(baseNames)-4)
 	}
-	if containsSorted(names, "Bash") {
-		t.Error("no-bash inventory still names Bash")
+	if containsSorted(names, "bash") {
+		t.Error("no-bash inventory still names bash")
 	}
 	// The inventory must agree with the array the variant's session is
 	// actually sent — the whole point of generating it from the array.
@@ -199,36 +202,37 @@ func TestVariantDroppedToolRendersAHeadConsistentWithItsArray(t *testing.T) {
 			countWord, word, len(array))
 	}
 
-	// Bash's rules are gone with the tool: the shell rule, the batch rule,
-	// and the plan bullet's Bash mention are all gated on Bash, and the
-	// inventory must not name it either — a head that never mentions Bash at
-	// all is the whole point of dropping the tool.
-	for _, gone := range []string{"- The shell is bash in an Alpine container",
-		"- Send independent tool calls together in one message. Several Reads, a Grep",
-		"mid-stream through a long run of Bash or Edit calls"} {
+	// bash's rules are gone with the tool: the shell rule, the batch rule,
+	// the background-job rule, and the plan bullet's bash mention are all
+	// gated on tools the variant drops, and the inventory must not name bash
+	// either — a head that never mentions bash at all is the whole point of
+	// dropping the tool.
+	for _, gone := range []string{"- The shell is bash on whatever machine you were started on.",
+		"- Send independent tool calls together in one message. Several read calls, a",
+		"mid-stream through a long run of bash or edit calls"} {
 		if strings.Contains(got, gone) {
 			t.Errorf("no-bash head still carries the rule %q", gone)
 		}
 	}
-	if strings.Contains(got, "Bash") {
-		t.Error("no-bash head still mentions Bash anywhere")
+	if strings.Contains(got, "bash") {
+		t.Error("no-bash head still mentions bash anywhere")
 	}
 	// The plan bullet survives without the mention, worded for a session
-	// that has no Bash.
+	// that has no bash.
 	for _, keep := range []string{
-		"- Set a task to in_progress with TaskUpdate before starting it, and to",
-		"mid-stream through a long run of Edit calls, rather than saving the",
+		"- Set a task to in_progress with task_update before starting it, and to",
+		"mid-stream through a long run of edit calls, rather than saving the",
 	} {
 		if !strings.Contains(got, keep) {
-			t.Errorf("no-bash head lost the Bash-free plan wording %q", keep)
+			t.Errorf("no-bash head lost the bash-free plan wording %q", keep)
 		}
 	}
-	// Everything not about Bash survives untouched.
+	// Everything not about bash survives untouched.
 	for _, keep := range []string{
-		"- Read a file before Write-ing over it or Edit-ing it. Edit requires an",
-		"- Prefer Grep and Glob to orient before reading whole files.",
-		"- A task that takes three or more steps gets a plan. Call TaskCreate once, at",
-		"- Tool calls cannot be forced. When the task is done, call Complete",
+		"- Call read on a file before overwriting it with write or changing it with",
+		"- Prefer grep and glob to orient before reading whole files.",
+		"- A task that takes three or more steps gets a plan. Call task_create once, at",
+		"- Tool calls cannot be forced. When the task is done, call complete",
 	} {
 		if !strings.Contains(got, keep) {
 			t.Errorf("no-bash head lost the rule %q", keep)
@@ -260,33 +264,41 @@ func TestKimiStepsVariantAppliesToTheKimiHead(t *testing.T) {
 }
 
 // TestKimiHeadDiffersFromDeepSeekHeadOnlyWhereItMust pins the relationship
-// between the two heads: Kimi's inventory names the sixteen tools and not
-// the two vision tools, and the vision rule is the one true sentence. The
-// shared rules text is the same in both, so a change to a shared rule lands
-// in both heads — that is what the derivation guarantees.
+// between the two heads: Kimi's inventory names the seventeen tools and not
+// the six vision tools, and DeepSeek's names the ten it is offered. The
+// search rule is shared, so a change to it lands in both heads; the plan
+// rule is Kimi's alone, because DeepSeek's array carries no plan tools.
 func TestKimiHeadDiffersFromDeepSeekHeadOnlyWhereItMust(t *testing.T) {
-	deepseek := RenderSystemPrompt()
+	deepseek, err := RenderSystemPromptFor("deepseek-flash", "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	kimi, err := RenderSystemPromptFor("kimi-k3", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, gone := range []string{"Screenshot", "Glance", "Ground", "Detect", "Crop"} {
-		if strings.Contains(kimi, gone) {
+	for _, gone := range []string{"screenshot", "glance", "ground", "detect", "crop", "transcribe"} {
+		// Word boundaries: the head says "run_in_background", which is not
+		// a mention of the ground tool.
+		if regexp.MustCompile(`\b` + gone + `\b`).MatchString(kimi) {
 			t.Errorf("Kimi head still mentions %q", gone)
 		}
 	}
-	if !strings.Contains(kimi, "All sixteen are always available") {
-		t.Error("Kimi head does not say \"All sixteen are always available\"")
+	if !strings.Contains(kimi, "All seventeen are always available") {
+		t.Error("Kimi head does not say \"All seventeen are always available\"")
 	}
-	if strings.Contains(deepseek, "All sixteen") {
-		t.Error("DeepSeek head mentions sixteen tools; it must stay twenty-two")
+	if !strings.Contains(deepseek, "All ten are always available") {
+		t.Error("DeepSeek head does not say \"All ten are always available\"")
 	}
-	// Shared text: the search rule and the plan rule must read identically
-	// in both heads.
-	for _, shared := range []string{"- Prefer Grep and Glob to orient before reading whole files.",
-		"- A task that takes three or more steps gets a plan. Call TaskCreate once, at"} {
-		if !strings.Contains(kimi, shared) || !strings.Contains(deepseek, shared) {
-			t.Errorf("shared rule %q missing from a head", shared)
-		}
+	shared := "- Prefer grep and glob to orient before reading whole files."
+	if !strings.Contains(kimi, shared) || !strings.Contains(deepseek, shared) {
+		t.Errorf("shared rule %q missing from a head", shared)
+	}
+	plan := "- A task that takes three or more steps gets a plan. Call task_create once, at"
+	if !strings.Contains(kimi, plan) {
+		t.Errorf("Kimi head lost the plan rule %q", plan)
+	}
+	if strings.Contains(deepseek, plan) {
+		t.Error("DeepSeek head carries the plan rule, but its array has no plan tools")
 	}
 }

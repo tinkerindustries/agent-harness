@@ -31,7 +31,7 @@ func execTask(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 		return errorResult("subagent_type is required")
 	}
 	if e.RunSubagent == nil {
-		return errorResult("Task is not available in this context: no subagent runner configured")
+		return errorResult("task is not available in this context: no subagent runner configured")
 	}
 
 	summary, childSessionID, err := e.RunSubagent(ctx, args.Description, args.Prompt, args.SubagentType)

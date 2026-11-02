@@ -437,7 +437,7 @@ func iactContentText(blocks []iactContent) (string, *rpcError) {
 		case "text":
 			parts = append(parts, c.Text)
 		case "image":
-			return "", errorf(CodeUnsupported, "an image in `input` is not read; this session reads images off its own filesystem with the Read tool")
+			return "", errorf(CodeUnsupported, "an image in `input` is not read; this session reads images off its own filesystem with the read tool")
 		}
 	}
 	return strings.Join(parts, "\n\n"), nil

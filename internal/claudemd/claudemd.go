@@ -164,7 +164,7 @@ func (c Collection) Render() string {
 			b.WriteString(strconv.Itoa(len(f.Content)))
 			b.WriteString(" bytes to keep the block within budget. Read ")
 			b.WriteString(f.Path)
-			b.WriteString(" in full with the Read tool.\n")
+			b.WriteString(" in full with the read tool.\n")
 		}
 		b.WriteString("\n")
 	}
@@ -182,5 +182,5 @@ func dropNotice(n int) string {
 		plural = ""
 	}
 	return "This workspace holds " + strconv.Itoa(n) + " further CLAUDE.md file" + plural +
-		" not shown here. Use Glob for CLAUDE.md if you need one."
+		" not shown here. Use glob for CLAUDE.md if you need one."
 }

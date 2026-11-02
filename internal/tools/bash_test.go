@@ -92,7 +92,7 @@ func TestBashTimeoutNamesTheClampedCeiling(t *testing.T) {
 	e, _ := newTestExecutor(t)
 	e.Timeouts.BashMax = 200 * time.Millisecond
 
-	res := runTool(t, e, "Bash", bashArgs{Command: "sleep 5", TimeoutMS: 60 * 60 * 1000})
+	res := runTool(t, e, "bash", bashArgs{Command: "sleep 5", TimeoutMS: 60 * 60 * 1000})
 
 	if !res.IsError {
 		t.Fatalf("expected the timed-out command to be reported as an error, got: %+v", res)
@@ -112,7 +112,7 @@ func TestBashTimeoutNamesTheDefaultWhenNoneRequested(t *testing.T) {
 	e, _ := newTestExecutor(t)
 	e.Timeouts.BashDefault = 150 * time.Millisecond
 
-	res := runTool(t, e, "Bash", bashArgs{Command: "sleep 5"})
+	res := runTool(t, e, "bash", bashArgs{Command: "sleep 5"})
 
 	if !res.IsError {
 		t.Fatalf("expected the timed-out command to be reported as an error, got: %+v", res)
@@ -129,7 +129,7 @@ func TestBashTimeoutHonouredRequestSaysNothingExtra(t *testing.T) {
 	e, _ := newTestExecutor(t)
 	e.Timeouts.BashMax = 10 * time.Second
 
-	res := runTool(t, e, "Bash", bashArgs{Command: "sleep 5", TimeoutMS: 200})
+	res := runTool(t, e, "bash", bashArgs{Command: "sleep 5", TimeoutMS: 200})
 
 	if !res.IsError {
 		t.Fatalf("expected the timed-out command to be reported as an error, got: %+v", res)
@@ -218,7 +218,7 @@ func TestBashOrdinaryCommandUnchanged(t *testing.T) {
 
 func TestExecutorTimeoutForHonoursRequestedBashTimeout(t *testing.T) {
 	e, _ := newTestExecutor(t)
-	got := e.timeoutFor(t.Context(), "Bash", mustJSON(t, bashArgs{TimeoutMS: 50}))
+	got := e.timeoutFor(t.Context(), "bash", mustJSON(t, bashArgs{TimeoutMS: 50}))
 	if got != 50*time.Millisecond {
 		t.Fatalf("expected the requested 50ms timeout, got %s", got)
 	}
@@ -227,7 +227,7 @@ func TestExecutorTimeoutForHonoursRequestedBashTimeout(t *testing.T) {
 func TestExecutorTimeoutForCapsBashTimeoutAtMax(t *testing.T) {
 	e, _ := newTestExecutor(t)
 	e.Timeouts.BashMax = time.Second
-	got := e.timeoutFor(t.Context(), "Bash", mustJSON(t, bashArgs{TimeoutMS: 1000 * 60 * 60}))
+	got := e.timeoutFor(t.Context(), "bash", mustJSON(t, bashArgs{TimeoutMS: 1000 * 60 * 60}))
 	if got != time.Second {
 		t.Fatalf("expected the timeout capped at BashMax (1s), got %s", got)
 	}

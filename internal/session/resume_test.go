@@ -226,7 +226,7 @@ func TestResumeKeepsVariantHeadAndToolArray(t *testing.T) {
 			}
 		}
 		for _, name := range wantNames {
-			if name == "Bash" {
+			if name == "bash" {
 				t.Fatal("the no-bash array must not contain Bash")
 			}
 		}
@@ -487,7 +487,7 @@ func TestResumeWithoutPromptContinuesTheExistingTask(t *testing.T) {
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_0", Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_0", Type: "function", Function: wire.ToolCallFuncDelta{Name: "task_list", Arguments: `{}`}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
@@ -620,7 +620,7 @@ func TestCompactionAfterResumeKeepsProvenanceFields(t *testing.T) {
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_a", Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_a", Type: "function", Function: wire.ToolCallFuncDelta{Name: "task_list", Arguments: `{}`}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{

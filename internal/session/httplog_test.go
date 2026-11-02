@@ -209,7 +209,7 @@ func TestWebFetchCompletionIsAttributedToSession(t *testing.T) {
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_webfetch", Type: "function", Function: wire.ToolCallFuncDelta{Name: "WebFetch", Arguments: args}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_webfetch", Type: "function", Function: wire.ToolCallFuncDelta{Name: "web_fetch", Arguments: args}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{

@@ -1,4 +1,4 @@
-// Package tools implements the twenty-two tools in docs/TOOLS.md: schemas that
+// Package tools implements the twenty-three tools in docs/TOOLS.md: schemas that
 // match the trained-in shape, argument validation in Go, workspace
 // confinement, per-tool timeouts and output caps, and the permission policy
 // that gates execution without ever changing which tools are on offer
@@ -418,7 +418,7 @@ func (e *Executor) timeoutFor(ctx context.Context, name string, argsRaw json.Raw
 		return e.mcpTimeout(ctx)
 	}
 	switch name {
-	case "Bash":
+	case "bash":
 		def, max := e.bashTimeouts(ctx)
 		var args bashArgs
 		if json.Unmarshal(argsRaw, &args) == nil && args.TimeoutMS > 0 {
@@ -429,7 +429,7 @@ func (e *Executor) timeoutFor(ctx context.Context, name string, argsRaw json.Raw
 			return max
 		}
 		return def
-	case "WebFetch":
+	case "web_fetch":
 		if e.Timeouts.WebFetch > 0 {
 			return e.Timeouts.WebFetch
 		}
@@ -439,7 +439,7 @@ func (e *Executor) timeoutFor(ctx context.Context, name string, argsRaw json.Raw
 			}
 		}
 		return WebFetchTimeout
-	case "Task":
+	case "task":
 		if e.Timeouts.Task > 0 {
 			return e.Timeouts.Task
 		}
@@ -449,7 +449,7 @@ func (e *Executor) timeoutFor(ctx context.Context, name string, argsRaw json.Raw
 			}
 		}
 		return TaskTimeout
-	case "Glance", "Ground", "Detect":
+	case "glance", "ground", "detect":
 		// Crop makes no model call, so it keeps the default tool timeout below
 		// rather than this one — it has no Gemini round-trip to bound.
 		if e.Timeouts.ReviewScreenshot > 0 {
@@ -461,7 +461,7 @@ func (e *Executor) timeoutFor(ctx context.Context, name string, argsRaw json.Raw
 			}
 		}
 		return ReviewScreenshotTimeout
-	case "Transcribe":
+	case "transcribe":
 		// Not the Glance timeout: Transcribe's budget has to cover every
 		// chunk of an image, and inheriting a per-call one would kill a tall
 		// page part-way through and bill for the chunks that had already
@@ -475,7 +475,7 @@ func (e *Executor) timeoutFor(ctx context.Context, name string, argsRaw json.Raw
 			}
 		}
 		return TranscribeTimeout
-	case "Screenshot":
+	case "screenshot":
 		return e.screenshotTimeout(ctx)
 	default:
 		if e.Timeouts.Tool > 0 {
@@ -565,34 +565,35 @@ func (e *Executor) wasRead(path string) bool {
 type toolFunc func(ctx context.Context, e *Executor, args json.RawMessage) Result
 
 var toolFuncs = map[string]toolFunc{
-	"Read":       execRead,
-	"Write":      execWrite,
-	"Edit":       execEdit,
-	"Bash":       execBash,
-	"BashOutput": execBashOutput,
-	"KillBash":   execKillBash,
-	"Glob":       execGlob,
-	"Grep":       execGrep,
-	"List":       execList,
-	"TaskCreate": execTaskCreate,
-	"TaskGet":    execTaskGet,
-	"TaskList":   execTaskList,
-	"TaskUpdate": execTaskUpdate,
-	"Task":       execTask,
-	"WebFetch":   execWebFetch,
-	"Glance":     execGlance,
-	"Ground":     execGround,
-	"Detect":     execDetect,
-	"Crop":       execCrop,
-	"Transcribe": execTranscribe,
-	"Screenshot": execScreenshot,
+	"read":        execRead,
+	"write":       execWrite,
+	"edit":        execEdit,
+	"bash":        execBash,
+	"job_output":  execJobOutput,
+	"job_kill":    execJobKill,
+	"job_list":    execJobList,
+	"glob":        execGlob,
+	"grep":        execGrep,
+	"list":        execList,
+	"task_create": execTaskCreate,
+	"task_get":    execTaskGet,
+	"task_list":   execTaskList,
+	"task_update": execTaskUpdate,
+	"task":        execTask,
+	"web_fetch":   execWebFetch,
+	"glance":      execGlance,
+	"ground":      execGround,
+	"detect":      execDetect,
+	"crop":        execCrop,
+	"transcribe":  execTranscribe,
+	"screenshot":  execScreenshot,
 	// The four fixed MCP tools (mcpresources.go). They are in this table
 	// unconditionally — a name the model was never offered is a name it
 	// cannot call — while whether they are *offered* is WithMCP's decision.
-	"MCPListResources": execMCPListResources,
-	"MCPReadResource":  execMCPReadResource,
-	"MCPListPrompts":   execMCPListPrompts,
-	"MCPGetPrompt":     execMCPGetPrompt,
+	"list_mcp_resources": execMCPListResources,
+	"read_mcp_resource":  execMCPReadResource,
+	"list_mcp_prompts":   execMCPListPrompts,
+	"get_mcp_prompt":     execMCPGetPrompt,
 }
 
 // toolArgs turns the argument text a model emitted into a JSON object. A call
@@ -642,7 +643,7 @@ func (e *Executor) Execute(ctx context.Context, call wire.ToolCall) Outcome {
 		return Outcome{Name: name, Result: e.execMCP(ctx, server, name, argsRaw)}
 	}
 
-	if name == "Complete" {
+	if name == "complete" {
 		res, payload, ok := e.execComplete(argsRaw)
 		return Outcome{Result: res, Name: name, IsComplete: ok, CompletePayload: payload}
 	}

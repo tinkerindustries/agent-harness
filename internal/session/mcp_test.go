@@ -104,7 +104,7 @@ func toolNames(t *testing.T, body []byte) []string {
 // tools.WithMCP, so these tests still assert the order the model is offered
 // rather than agreeing with whatever that function does today.
 func mcpAccessToolNames() []string {
-	return []string{"MCPListResources", "MCPReadResource", "MCPListPrompts", "MCPGetPrompt"}
+	return []string{"list_mcp_resources", "read_mcp_resource", "list_mcp_prompts", "get_mcp_prompt"}
 }
 
 func baseToolNames(model string) []string {
@@ -135,7 +135,7 @@ func recordingMultiTurnServer(t *testing.T, bodies *[][]byte, mu *sync.Mutex) *h
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_list", Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_list", Type: "function", Function: wire.ToolCallFuncDelta{Name: "task_list", Arguments: `{}`}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
@@ -385,7 +385,7 @@ func TestCompactionKeepsTheSameMCPArray(t *testing.T) {
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
 				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
 					Role:      "assistant",
-					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_a", Type: "function", Function: wire.ToolCallFuncDelta{Name: "TaskList", Arguments: `{}`}}},
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call_00_a", Type: "function", Function: wire.ToolCallFuncDelta{Name: "task_list", Arguments: `{}`}}},
 				}}},
 			})
 			writeSSEChunk(t, w, wire.ChatCompletionChunk{
@@ -648,11 +648,11 @@ func TestResumeEmptyStoredToolSchemaResolvesFresh(t *testing.T) {
 			t.Errorf("unmarshalToolSchema(%q) = nil error, want a failure so the caller resolves fresh", raw)
 		}
 	}
-	got, err := unmarshalToolSchema([]byte(`[{"type":"function","function":{"name":"Read"}}]`))
+	got, err := unmarshalToolSchema([]byte(`[{"type":"function","function":{"name":"read"}}]`))
 	if err != nil {
 		t.Fatalf("unmarshalToolSchema(one tool): %v", err)
 	}
-	if len(got) != 1 || got[0].Function.Name != "Read" {
+	if len(got) != 1 || got[0].Function.Name != "read" {
 		t.Fatalf("unmarshalToolSchema(one tool) = %+v, want the single Read tool", got)
 	}
 }

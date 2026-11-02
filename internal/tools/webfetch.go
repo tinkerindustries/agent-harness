@@ -69,7 +69,7 @@ func execWebFetch(ctx context.Context, e *Executor, argsRaw json.RawMessage) Res
 		return errorResult("url must be http or https: %q", args.URL)
 	}
 	if e.Client == nil {
-		return errorResult("WebFetch is not available in this context: no client configured")
+		return errorResult("web_fetch is not available in this context: no client configured")
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, args.URL, nil)

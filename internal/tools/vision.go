@@ -168,7 +168,7 @@ func execGlance(ctx context.Context, e *Executor, argsRaw json.RawMessage) Resul
 			// from a conversation this session dropped past the cap reads
 			// identically to a typo, and the model can only act on the
 			// difference if it is told.
-			return errorResult("no Glance conversation %q in this session%s", args.ConversationID, glanceConversationHint(e))
+			return errorResult("no glance conversation %q in this session%s", args.ConversationID, glanceConversationHint(e))
 		}
 	}
 	// image_paths is required on a first call and optional on a follow-up,
@@ -189,7 +189,7 @@ func execGlance(ctx context.Context, e *Executor, argsRaw json.RawMessage) Resul
 	}
 	maxImages := e.visionMaxImages(ctx)
 	if len(args.ImagePaths) > maxImages {
-		return errorResult("Glance accepts at most %d images, got %d", maxImages, len(args.ImagePaths))
+		return errorResult("glance accepts at most %d images, got %d", maxImages, len(args.ImagePaths))
 	}
 
 	var images []gemini.Image
@@ -210,7 +210,7 @@ func execGlance(ctx context.Context, e *Executor, argsRaw json.RawMessage) Resul
 		return errorResult("%v", err)
 	}
 	if e.Gemini == nil {
-		return errorResult("Glance is not available in this context: no Gemini client configured")
+		return errorResult("glance is not available in this context: no Gemini client configured")
 	}
 
 	question := glancePrompt(args, len(images))
@@ -304,7 +304,7 @@ func execGround(ctx context.Context, e *Executor, argsRaw json.RawMessage) Resul
 	if args.Target == "" {
 		return errorResult("target is required: say what to locate")
 	}
-	return runLocate(ctx, e, "Ground", args.ImagePath, args.Target, args.Region)
+	return runLocate(ctx, e, "ground", args.ImagePath, args.Target, args.Region)
 }
 
 func execDetect(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result {
@@ -312,7 +312,7 @@ func execDetect(ctx context.Context, e *Executor, argsRaw json.RawMessage) Resul
 	if err := json.Unmarshal(argsRaw, &args); err != nil {
 		return errorResult("invalid arguments: %v", err)
 	}
-	return runLocate(ctx, e, "Detect", args.ImagePath, detectTarget(args.Category), args.Region)
+	return runLocate(ctx, e, "detect", args.ImagePath, detectTarget(args.Category), args.Region)
 }
 
 // runLocate is ground.py's locate() plus its output formatting. Both tools
@@ -388,7 +388,7 @@ func runLocate(ctx context.Context, e *Executor, tool, userPath, target, region 
 	}
 
 	var lines []string
-	if tool == "Detect" {
+	if tool == "detect" {
 		lines = formatInventory(matches, width, height)
 	} else {
 		lines = formatMatches(matches, width, height)

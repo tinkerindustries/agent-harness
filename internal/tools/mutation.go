@@ -25,7 +25,7 @@ import "encoding/json"
 // real reason instead of a scheduling artefact.
 func MutationTarget(workspace, name, argsRaw string) (string, bool) {
 	switch name {
-	case "Edit", "Write":
+	case "edit", "write":
 	default:
 		return "", false
 	}

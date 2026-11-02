@@ -55,7 +55,7 @@ func runClaudeSession(ctx context.Context, args []string, in io.Reader, out io.W
 	prices := fs.String("prices", "configs/prices.json", "price table, for the cost figures reported on harness.usage")
 	model := fs.String("model", "", "model a create body naming no agent.model.id runs on (default "+defaultClaudeModel+")")
 	envFile := fs.String("env", "", "read ANTHROPIC_API_KEY from this KEY=VALUE `file` when the environment does not carry it, for driving the process by hand")
-	rgBinary := fs.String("rg", "", "`path` to the ripgrep binary the session's Grep calls run (default: $AGENT_HARNESS_RG, then `rg` on the PATH, then Grep's own Go walk)")
+	rgBinary := fs.String("rg", "", "`path` to the ripgrep binary the session's grep calls run (default: $AGENT_HARNESS_RG, then `rg` on the PATH, then grep's own Go walk)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

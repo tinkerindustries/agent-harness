@@ -179,7 +179,7 @@ const testClaudeModel = "claude-sonnet-5-5"
 // (internal/tools.definitionsClaude).
 func TestClaudeSessionOverResponsesDialect(t *testing.T) {
 	f, rec := newClaudeFixture(t,
-		claudeToolCall("toolu_1", "TaskCreate", `{"tasks":[{"subject":"x","description":"y","activeForm":"z"}]}`),
+		claudeToolCall("toolu_1", "task_create", `{"tasks":[{"subject":"x","description":"y","activeForm":"z"}]}`),
 		claudeAnswer("All done."),
 	)
 	f.client.handshake(ClientCapabilities{})
@@ -236,12 +236,18 @@ func TestClaudeSessionOverResponsesDialect(t *testing.T) {
 			if tl["type"] != "web_search_20260209" {
 				t.Errorf("web_search tool has type %v, want web_search_20260209", tl["type"])
 			}
-		case "WebFetch":
-			sawWebFetchTool = true
-		case "Read":
+		case "web_fetch":
+			// Anthropic's own server-side web_fetch rides the request under
+			// the same name the harness's function tool now uses, so the
+			// input_schema is what tells them apart: a client tool carries
+			// one, a server tool a type and no schema.
+			if tl["input_schema"] != nil {
+				sawWebFetchTool = true
+			}
+		case "read":
 			sawReadTool = true
 			if tl["input_schema"] == nil {
-				t.Error("the Read tool has no input_schema")
+				t.Error("the read tool has no input_schema")
 			}
 		}
 	}
@@ -249,10 +255,10 @@ func TestClaudeSessionOverResponsesDialect(t *testing.T) {
 		t.Error("the provider request carries no Anthropic web_search server tool")
 	}
 	if sawWebFetchTool {
-		t.Error("the provider request carries the harness's own WebFetch tool; Claude sessions must drop it")
+		t.Error("the provider request carries the harness's own web_fetch tool; Claude sessions must drop it")
 	}
 	if !sawReadTool {
-		t.Error("the provider request carries no Read tool")
+		t.Error("the provider request carries no read tool")
 	}
 
 	// --- the parent end -----------------------------------------------

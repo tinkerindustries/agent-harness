@@ -3,7 +3,7 @@ package tools
 import "encoding/json"
 
 // descriptorFor builds the string a Policy matches deny patterns against
-// and shows the model on denial. Bash uses the literal command, so a deny
+// and shows the model on denial. bash uses the literal command, so a deny
 // pattern like "git push" reads naturally; other tools use "Name arg".
 //
 // An MCP call has no case of its own here: it falls through to the bare
@@ -17,43 +17,39 @@ func descriptorFor(name string, argsRaw json.RawMessage) string {
 	_ = json.Unmarshal(argsRaw, &args)
 
 	switch name {
-	case "Bash":
+	case "bash":
 		if cmd, ok := args["command"].(string); ok {
 			return cmd
 		}
-	case "BashOutput":
-		if id, _ := args["bash_id"].(string); id != "" {
+	case "job_output", "job_kill":
+		if id, _ := args["job_id"].(string); id != "" {
 			return name + " " + id
 		}
-	case "KillBash":
-		if id, _ := args["shell_id"].(string); id != "" {
-			return name + " " + id
-		}
-	case "Read", "Write", "List":
+	case "read", "write", "list":
 		if p := stringArg(args, "file_path", "path"); p != "" {
 			return name + " " + p
 		}
-	case "Edit":
+	case "edit":
 		if p, _ := args["file_path"].(string); p != "" {
 			return name + " " + p
 		}
-	case "Glob":
+	case "glob":
 		if p, _ := args["pattern"].(string); p != "" {
 			return name + " " + p
 		}
-	case "Grep":
+	case "grep":
 		if p, _ := args["pattern"].(string); p != "" {
 			return name + " " + p
 		}
-	case "Task":
+	case "task":
 		if d, _ := args["description"].(string); d != "" {
 			return name + " " + d
 		}
-	case "WebFetch":
+	case "web_fetch":
 		if u, _ := args["url"].(string); u != "" {
 			return name + " " + u
 		}
-	case "MCPReadResource", "MCPGetPrompt", "MCPListResources", "MCPListPrompts":
+	case "read_mcp_resource", "get_mcp_prompt", "list_mcp_resources", "list_mcp_prompts":
 		// The server, because these four reach a server the same way an
 		// mcp__<server>__<tool> call does and an operator denying one
 		// server should be able to deny it here too — and because the
@@ -63,19 +59,19 @@ func descriptorFor(name string, argsRaw json.RawMessage) string {
 		if srv, _ := args["server"].(string); srv != "" {
 			return name + " " + srv
 		}
-	case "Screenshot":
+	case "screenshot":
 		// The URL, so a deny pattern can keep a session off a host the same
-		// way it can for WebFetch — the browser reaches the network too.
+		// way it can for web_fetch — the browser reaches the network too.
 		if u, _ := args["url"].(string); u != "" {
 			return name + " " + u
 		}
-	case "Glance":
+	case "glance":
 		if paths, ok := args["image_paths"].([]any); ok && len(paths) > 0 {
 			if p, ok := paths[0].(string); ok && p != "" {
 				return name + " " + p
 			}
 		}
-	case "Ground", "Detect", "Crop", "Transcribe":
+	case "ground", "detect", "crop", "transcribe":
 		if p := stringArg(args, "image_path"); p != "" {
 			return name + " " + p
 		}

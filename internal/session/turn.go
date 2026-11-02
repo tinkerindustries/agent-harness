@@ -467,8 +467,8 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	}
 
 	outcomes := r.executeToolCalls(ctx, sess, executor, toolCalls)
-	// The plan column can only be persisted after the calls ran: TaskCreate
-	// mints ids and TaskUpdate patches fields inside the handlers, so
+	// The plan column can only be persisted after the calls ran: task_create
+	// mints ids and task_update patches fields inside the handlers, so
 	// executor.Todos() below reflects this sub-turn's mutations. The roll was
 	// already handled by persistLiveState before execution.
 	r.persistTaskState(ctx, sess, executor, toolCalls)
@@ -506,7 +506,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 			completed = true
 			completePayload = oc.CompletePayload
 		}
-		if oc.Name == "Complete" && !oc.IsComplete && oc.Result.IsError && completeError == "" {
+		if oc.Name == "complete" && !oc.IsComplete && oc.Result.IsError && completeError == "" {
 			completeError = oc.Result.Content
 		}
 	}

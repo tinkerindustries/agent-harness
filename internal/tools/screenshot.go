@@ -182,7 +182,7 @@ func validateScreenshotURL(raw string) error {
 	case "http", "https", "file":
 		return nil
 	default:
-		return fmt.Errorf("unsupported URL scheme %q: Screenshot captures http, https, and file URLs", u.Scheme)
+		return fmt.Errorf("unsupported URL scheme %q: screenshot captures http, https, and file URLs", u.Scheme)
 	}
 }
 
@@ -419,7 +419,7 @@ func runScreenshotDriver(ctx context.Context, workspace string, cfg screenshotDr
 
 	node, err := exec.LookPath("node")
 	if err != nil {
-		return report, errors.New("Screenshot is not available in this context: node is not on PATH")
+		return report, errors.New("screenshot is not available in this context: node is not on PATH")
 	}
 
 	script, err := os.CreateTemp("", "harness-screenshot-*.js")

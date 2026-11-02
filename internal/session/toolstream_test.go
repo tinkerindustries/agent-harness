@@ -45,7 +45,7 @@ func bashThenAnswerServer(t *testing.T, command, finalAnswer string) *httptest.S
 					Role: "assistant",
 					ToolCalls: []wire.ToolCallDelta{{
 						Index: 0, ID: "call_bash", Type: "function",
-						Function: wire.ToolCallFuncDelta{Name: "Bash", Arguments: `{"command":"` + command + `"}`},
+						Function: wire.ToolCallFuncDelta{Name: "bash", Arguments: `{"command":"` + command + `"}`},
 					}},
 				}}},
 			})
@@ -150,7 +150,7 @@ func TestBashSkipsStdoutEventsWithoutHub(t *testing.T) {
 // tool call is Task, delegating to a nested subagent run against the same
 // mock server, and asserts the parent's tool_result names the child session
 // it spawned — what the browser needs to render it as a collapsed child
-// transcript (docs/TOOLS.md "Task").
+// transcript (docs/TOOLS.md "task").
 func TestTaskResultCarriesChildSessionID(t *testing.T) {
 	var call int32Counter
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -179,7 +179,7 @@ func TestTaskResultCarriesChildSessionID(t *testing.T) {
 					Role: "assistant",
 					ToolCalls: []wire.ToolCallDelta{{
 						Index: 0, ID: "call_task", Type: "function",
-						Function: wire.ToolCallFuncDelta{Name: "Task", Arguments: `{"description":"look something up","prompt":"find it","subagent_type":"general"}`},
+						Function: wire.ToolCallFuncDelta{Name: "task", Arguments: `{"description":"look something up","prompt":"find it","subagent_type":"general"}`},
 					}},
 				}}},
 			})
@@ -238,7 +238,7 @@ func TestTaskResultCarriesChildSessionID(t *testing.T) {
 		if err := json.Unmarshal(e.Payload, &p); err != nil {
 			t.Fatal(err)
 		}
-		if p.Name == "Task" {
+		if p.Name == "task" {
 			childID = p.ChildSessionID
 		}
 	}

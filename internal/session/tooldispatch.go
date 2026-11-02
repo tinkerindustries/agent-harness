@@ -21,10 +21,10 @@ import (
 // what must preserve tool_calls order, not the execution itself
 // (docs/TOOLS.md). The four Task tools are the exception and run
 // synchronously, in calls order, interleaved with the goroutine spawning:
-// TaskCreate mints ids from a counter in execution order, and the store's
+// task_create mints ids from a counter in execution order, and the store's
 // plan replay (internal/store/status.go) and the frontend both reconstruct
 // those ids by walking the event log in the same calls order, so letting
-// two TaskCreate calls race for the executor's lock would hand the model
+// two task_create calls race for the executor's lock would hand the model
 // ids nobody else can reconstruct.
 //
 // Calls that rewrite the same file are the other exception: they run in one
@@ -91,7 +91,7 @@ func (r *Runner) executeToolCalls(ctx context.Context, sess store.Session, execu
 	return outcomes
 }
 
-// executeToolCall runs one assembled call. A Bash call gets a live stdout sink
+// executeToolCall runs one assembled call. A bash call gets a live stdout sink
 // wired through its context so the browser can show output as it happens
 // instead of only on completion (docs/DESIGN.md §5.2).
 func (r *Runner) executeToolCall(ctx context.Context, sess store.Session, executor *tools.Executor, c wire.AssembledToolCall) tools.Outcome {
@@ -109,19 +109,19 @@ func (r *Runner) executeToolCall(ctx context.Context, sess store.Session, execut
 	// is the only thing standing between a three-minute render and a
 	// transcript that looks like a hang (docs/MCP.md, "What a server sends
 	// back unasked").
-	if r.Hub != nil && (c.Name == "Bash" || strings.HasPrefix(c.Name, tools.MCPToolPrefix)) {
+	if r.Hub != nil && (c.Name == "bash" || strings.HasPrefix(c.Name, tools.MCPToolPrefix)) {
 		callCtx = tools.WithStdoutSink(callCtx, r.stdoutSink(ctx, sess, c.ID))
 	}
 	return executor.Execute(callCtx, call)
 }
 
-// isTaskFamily reports whether name is one of the four Task tools that
+// isTaskFamily reports whether name is one of the four task tools that
 // execute synchronously in calls order rather than in a goroutine, so the
-// ids TaskCreate mints never diverge from what the event-log replay
+// ids task_create mints never diverge from what the event-log replay
 // reconstructs (see executeToolCalls).
 func isTaskFamily(name string) bool {
 	switch name {
-	case "TaskCreate", "TaskGet", "TaskList", "TaskUpdate":
+	case "task_create", "task_get", "task_list", "task_update":
 		return true
 	}
 	return false

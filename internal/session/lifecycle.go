@@ -176,7 +176,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (result *RunResult, r
 	}
 	executor.Shells = shells
 	// A shell a Bash call started outlives this run: it is the session's, and
-	// the next turn's BashOutput has to find the same id. A run that ended in
+	// the next turn's job_output has to find the same id. A run that ended in
 	// anything but ok is the exception: a stop, a timeout or a failure is
 	// not coming back to read those shells, so CloseAll ends them rather than
 	// leaving a build running with nobody to read it (docs/RUN-CONTROL.md).
@@ -565,7 +565,7 @@ const maxCompleteRejections = 3
 func (r *Runner) abandonRun(ctx context.Context, sess store.Session, allEvents []store.Event,
 	agg Usage, subTurn int, lastText, completeError string) (*RunResult, error) {
 
-	msg := fmt.Sprintf("session: Complete rejected %d times running with the same error, ending the run: %s",
+	msg := fmt.Sprintf("session: complete rejected %d times running with the same error, ending the run: %s",
 		maxCompleteRejections, completeError)
 	appended, err := r.Store.AppendEvents(ctx, sess.ID, []store.EventInput{
 		{Kind: store.KindError, Payload: store.ErrorPayload{Message: msg}},

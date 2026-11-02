@@ -498,7 +498,7 @@ func TestTranscribeEndToEnd(t *testing.T) {
 	})
 	e.Gemini = reviewScreenshotClient(srv)
 
-	res := runTool(t, e, "Transcribe", transcribeArgs{ImagePath: "page.png"})
+	res := runTool(t, e, "transcribe", transcribeArgs{ImagePath: "page.png"})
 	if res.IsError {
 		t.Fatalf("Transcribe failed: %s", res.Content)
 	}
@@ -578,7 +578,7 @@ func TestTranscribeDenseImageOverlapsAndDedupes(t *testing.T) {
 	})
 	e.Gemini = reviewScreenshotClient(srv)
 
-	res := runTool(t, e, "Transcribe", transcribeArgs{ImagePath: "dense.png"})
+	res := runTool(t, e, "transcribe", transcribeArgs{ImagePath: "dense.png"})
 	if res.IsError {
 		t.Fatalf("Transcribe failed: %s", res.Content)
 	}
@@ -612,7 +612,7 @@ func TestTranscribeReportsSeamsForReview(t *testing.T) {
 	})
 	e.Gemini = reviewScreenshotClient(srv)
 
-	res := runTool(t, e, "Transcribe", transcribeArgs{ImagePath: "page.png"})
+	res := runTool(t, e, "transcribe", transcribeArgs{ImagePath: "page.png"})
 	if res.IsError {
 		t.Fatalf("Transcribe failed: %s", res.Content)
 	}
@@ -640,7 +640,7 @@ func TestTranscribeFailedChunkReturnsNoPartialTranscript(t *testing.T) {
 	})
 	e.Gemini = reviewScreenshotClient(srv)
 
-	res := runTool(t, e, "Transcribe", transcribeArgs{ImagePath: "page.png"})
+	res := runTool(t, e, "transcribe", transcribeArgs{ImagePath: "page.png"})
 	if !res.IsError {
 		t.Fatalf("a failed chunk must fail the call, got:\n%s", res.Content)
 	}
@@ -668,7 +668,7 @@ func TestTranscribeRegionReportsOriginalCoordinates(t *testing.T) {
 	e.Gemini = reviewScreenshotClient(srv)
 
 	const top = 2000
-	res := runTool(t, e, "Transcribe", transcribeArgs{
+	res := runTool(t, e, "transcribe", transcribeArgs{
 		ImagePath: "page.png",
 		Region:    fmt.Sprintf("0,%d,800,%d", top, page.height()),
 	})
@@ -701,7 +701,7 @@ func TestTranscribeWithoutAGeminiClient(t *testing.T) {
 	e, root := newTestExecutor(t)
 	page.writePNG(t, filepath.Join(root, "page.png"))
 
-	res := runTool(t, e, "Transcribe", transcribeArgs{ImagePath: "page.png"})
+	res := runTool(t, e, "transcribe", transcribeArgs{ImagePath: "page.png"})
 	if !res.IsError || !strings.Contains(res.Content, "no Gemini client") {
 		t.Errorf("got %q, want a refusal naming the missing client", res.Content)
 	}
@@ -709,7 +709,7 @@ func TestTranscribeWithoutAGeminiClient(t *testing.T) {
 
 func TestTranscribeRejectsAMissingFile(t *testing.T) {
 	e, _ := newTestExecutor(t)
-	res := runTool(t, e, "Transcribe", transcribeArgs{ImagePath: "nope.png"})
+	res := runTool(t, e, "transcribe", transcribeArgs{ImagePath: "nope.png"})
 	if !res.IsError {
 		t.Fatal("a missing file should be refused")
 	}
@@ -736,7 +736,7 @@ func TestTranscribeSendsEveryChunkAtHighResolution(t *testing.T) {
 	defer srv.Close()
 	e.Gemini = reviewScreenshotClient(srv)
 
-	if res := runTool(t, e, "Transcribe", transcribeArgs{ImagePath: "page.png"}); res.IsError {
+	if res := runTool(t, e, "transcribe", transcribeArgs{ImagePath: "page.png"}); res.IsError {
 		t.Fatalf("Transcribe failed: %s", res.Content)
 	}
 	mu.Lock()

@@ -213,11 +213,11 @@ func TestScreenshotConfigDefaultsAndBounds(t *testing.T) {
 func TestScreenshotRequiresUrlAndPath(t *testing.T) {
 	e, _ := screenshotExecutor(t)
 
-	res := runTool(t, e, "Screenshot", screenshotArgs{Path: "scratch/a.png"})
+	res := runTool(t, e, "screenshot", screenshotArgs{Path: "scratch/a.png"})
 	if !res.IsError || !strings.Contains(res.Content, "url is required") {
 		t.Errorf("missing url gave: %s", res.Content)
 	}
-	res = runTool(t, e, "Screenshot", screenshotArgs{URL: "http://127.0.0.1/"})
+	res = runTool(t, e, "screenshot", screenshotArgs{URL: "http://127.0.0.1/"})
 	if !res.IsError || !strings.Contains(res.Content, "path is required") {
 		t.Errorf("missing path gave: %s", res.Content)
 	}
@@ -231,7 +231,7 @@ func TestScreenshotValidatesArgumentsBeforeLaunchingTheBrowser(t *testing.T) {
 	e, _ := screenshotExecutor(t)
 	// An absolute path outside scratch/, since a relative one is no longer a
 	// bad argument — it is relocated into scratch/ instead.
-	res := runTool(t, e, "Screenshot", screenshotArgs{URL: "http://127.0.0.1/", Path: filepath.Join(e.Workspace, "repo", "a.png")})
+	res := runTool(t, e, "screenshot", screenshotArgs{URL: "http://127.0.0.1/", Path: filepath.Join(e.Workspace, "repo", "a.png")})
 	if !res.IsError {
 		t.Fatal("expected a refusal")
 	}
@@ -304,7 +304,7 @@ func TestScreenshotCapturesAPage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	res := runTool(t, e, "Screenshot", screenshotArgs{
+	res := runTool(t, e, "screenshot", screenshotArgs{
 		URL:  fileURL(page),
 		Path: "scratch/shot.png",
 	})
@@ -333,7 +333,7 @@ func TestScreenshotCapturesAPage(t *testing.T) {
 
 	// A selector clips to the element, which is the whole reason this drives
 	// the library rather than the playwright CLI.
-	res = runTool(t, e, "Screenshot", screenshotArgs{
+	res = runTool(t, e, "screenshot", screenshotArgs{
 		URL: fileURL(page), Path: "scratch/box.png", Selector: "#box",
 	})
 	if res.IsError {
@@ -364,7 +364,7 @@ func TestScreenshotReportsAMissingSelector(t *testing.T) {
 	}
 
 	e.Timeouts.Screenshot = 20 * 1e9 // 20s: the wait for a missing selector is bounded by this
-	res := runTool(t, e, "Screenshot", screenshotArgs{
+	res := runTool(t, e, "screenshot", screenshotArgs{
 		URL: fileURL(page), Path: "scratch/x.png", Selector: "#nope",
 	})
 	if !res.IsError {
@@ -469,7 +469,7 @@ func TestScreenshotRunsActionsBeforeCapturing(t *testing.T) {
 
 	// #panel is display:none on load, so clipping to it can only succeed if
 	// the click ran first — which makes the capture itself the assertion.
-	res := runTool(t, e, "Screenshot", screenshotArgs{
+	res := runTool(t, e, "screenshot", screenshotArgs{
 		URL:      fileURL(page),
 		Path:     "scratch/panel.png",
 		Selector: "#panel",
@@ -508,7 +508,7 @@ func TestScreenshotFailsOnAnActionThatCannotRun(t *testing.T) {
 	}
 
 	e.Timeouts.Screenshot = 20 * 1e9
-	res := runTool(t, e, "Screenshot", screenshotArgs{
+	res := runTool(t, e, "screenshot", screenshotArgs{
 		URL: fileURL(page), Path: "scratch/x.png",
 		Actions: []screenshotAction{{Type: "click", Selector: "#missing"}},
 	})
