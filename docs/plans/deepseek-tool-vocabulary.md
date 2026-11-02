@@ -156,6 +156,12 @@ is every phase here except phase 3.
 
 - `read`, `write`, `edit`, `glob`, `grep`, `list` and the four task tools take
   their new names.
+- The whole mapping table is this phase's rename list. Besides the tools above,
+  that is `WebFetch` → `web_fetch`, `Task` → `task`, `Complete` → `complete`,
+  the six vision tools' casing (`Screenshot`, `Glance`, `Transcribe`, `Ground`,
+  `Detect`, `Crop`), and the four MCP access tools' names
+  (`list_mcp_resources`, `read_mcp_resource`, `list_mcp_prompts`,
+  `get_mcp_prompt`). No later phase renames a tool.
 - Every table keyed by tool name follows: `internal/tools/registry.go`'s
   dispatch map, `policy.go`'s `alwaysAllowed`, `descriptor.go`'s
   `descriptorFor`, `mutation.go`'s `Edit`/`Write` case, and the task
@@ -183,7 +189,7 @@ is every phase here except phase 3.
 **Proof**
 
 ```
-go test ./internal/tools ./internal/session
+go test ./internal/tools ./internal/session ./internal/promptvariant
 ```
 
 ### Phase 2: `apply_patch`
@@ -224,14 +230,18 @@ misses, a path that escapes the workspace, and a malformed header.
 
 **What it builds**
 
-`list_mcp_resource_templates` joins the MCP access tools, calling the
-`resources/templates/list` method the MCP client does not currently expose.
+`list_mcp_resource_templates` joins the MCP access tools. Its listing reads
+the stored snapshot through `MCPProvider.Resources` and filters `Template`,
+the same way `list_mcp_resources` reads it. No live call: listings read the
+snapshot so an unreachable server still lists what it had, and the probe
+already snapshots `resources/templates/list` (`internal/mcpclient/refresh.go`).
 
-- `internal/mcpclient`: a `ResourceTemplates` method over the live session,
-  with the same reconnect rule every other live call has.
-- `internal/tools/mcpresources.go`: the fifth access tool and its schema.
-- `internal/tools/definitions.go`: `MCPAccessToolCount`.
-- `docs/MCP.md`: the tool list.
+- `internal/tools/mcpresources.go`: the fifth access tool and its executor.
+- `internal/tools/definitions.go`: its schema and `MCPAccessToolCount`.
+- `internal/tools/registry.go`'s `toolFuncs`, `policy.go`'s `alwaysAllowed`
+  (a listing reads the stored snapshot, so it is always allowed), and
+  `descriptor.go`'s case, as its four siblings have.
+- `docs/MCP.md`: the tool list and the resources table.
 
 The MCP access tools join an array only when servers are configured, so this
 phase moves no golden file.
