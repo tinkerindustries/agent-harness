@@ -233,7 +233,12 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (*RunResult, error) {
 	// Discovery runs per session, including for each Task subagent, because a
 	// subagent works the same workspace and benefits from the same skills and
 	// repository instructions.
-	catalogue := skills.Discover(executor.Workspace).Render()
+	found := skills.Discover(executor.Workspace)
+	// A skill installed outside the workspace — the user's own, a plugin's,
+	// or an ancestor repository's — is named by its absolute path in the
+	// catalogue, so Read needs the directory it lives in to open it.
+	executor.ReadRoots = found.ReadRoots()
+	catalogue := found.Render()
 	claudeMD := claudemd.Discover(executor.Workspace).Render()
 	mcpBlock := RenderMCPBlock(opts.Tools, r.resolveMCPInstructions(ctx, sessID))
 	opening := RenderOpeningMessage(executor.Workspace, opts.Prompt, opts.ResultSchema, claudeMD, catalogue, mcpBlock, opts.AttachmentNames)

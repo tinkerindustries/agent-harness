@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -56,6 +57,30 @@ func ResolvePath(root, userPath string) (string, error) {
 		return "", &ErrEscapesWorkspace{Path: userPath, Root: root}
 	}
 	return resolved, nil
+}
+
+// resolveReadPath resolves userPath for a read-only tool. The workspace is
+// tried first and answers every ordinary call. A path that escapes it is
+// tried once more against each ReadRoot — the directories of the skills
+// discovery found installed outside the workspace — and accepted only when
+// it resolves inside one of them. A path that escapes both is refused with
+// the workspace's own error, so the message names the workspace the caller
+// was told to stay in.
+func (e *Executor) resolveReadPath(userPath string) (string, error) {
+	path, err := ResolvePath(e.Workspace, userPath)
+	if err == nil {
+		return path, nil
+	}
+	var escape *ErrEscapesWorkspace
+	if !errors.As(err, &escape) {
+		return "", err
+	}
+	for _, root := range e.ReadRoots {
+		if path, rootErr := ResolvePath(root, userPath); rootErr == nil {
+			return path, nil
+		}
+	}
+	return "", err
 }
 
 // scratchDir is the workspace subdirectory that holds what a run produces

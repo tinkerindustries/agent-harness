@@ -2,9 +2,13 @@ package session
 
 import (
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/mrgeoffrich/agent-harness/internal/store"
@@ -91,5 +95,99 @@ func TestRunWithoutSkillsLeavesOpeningMessageUnchanged(t *testing.T) {
 	}
 	if started.SkillCatalogue != "" {
 		t.Fatalf("skill_catalogue should be empty, got %q", started.SkillCatalogue)
+	}
+}
+
+// A skill installed for the user lives outside the workspace, so the
+// catalogue names it absolutely and the run has to allow Read to open it.
+// This drives the whole path: discovery, the opening message, the model's
+// Read call, and the body coming back as the tool result.
+func TestRunReadsASkillInstalledOutsideTheWorkspace(t *testing.T) {
+	config := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", config)
+
+	skillDir := filepath.Join(config, "skills", "ship-it")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	skillPath := filepath.Join(skillDir, "SKILL.md")
+	body := "---\nname: ship-it\ndescription: Land the work.\n---\n\nRun the chain.\n"
+	if err := os.WriteFile(skillPath, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	resolvedSkill, err := filepath.EvalSymlinks(skillPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var calls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		if calls.Add(1) == 1 {
+			args, _ := json.Marshal(map[string]string{"file_path": skillPath})
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{
+					Role: "assistant",
+					ToolCalls: []wire.ToolCallDelta{{Index: 0, ID: "call-read", Type: "function",
+						Function: wire.ToolCallFuncDelta{Name: "Read", Arguments: string(args)}}},
+				}}},
+			})
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishToolCalls)}},
+			})
+		} else {
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{Role: "assistant", Content: strPtr("shipped")}}},
+			})
+			writeSSEChunk(t, w, wire.ChatCompletionChunk{
+				Choices: []wire.ChunkChoice{{Delta: wire.ChunkDelta{}, FinishReason: strPtr(wire.FinishStop)}},
+			})
+		}
+		fmt.Fprint(w, "data: [DONE]\n\n")
+		w.(http.Flusher).Flush()
+	}))
+	defer srv.Close()
+
+	r := newTestRunner(t, srv.URL)
+	ws := t.TempDir()
+	res, err := r.Run(t.Context(), RunOptions{
+		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
+		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "ship it",
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Status != store.StatusOK {
+		t.Fatalf("expected status ok, got %s", res.Status)
+	}
+
+	events, err := r.Store.GetEvents(t.Context(), res.SessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sawCatalogue, sawBody bool
+	for _, event := range events {
+		switch event.Kind {
+		case store.KindSessionStarted:
+			var payload store.SessionStartedPayload
+			if err := json.Unmarshal(event.Payload, &payload); err != nil {
+				t.Fatal(err)
+			}
+			sawCatalogue = strings.Contains(payload.SkillCatalogue, resolvedSkill)
+		case store.KindToolResult:
+			var payload store.ToolResultPayload
+			if err := json.Unmarshal(event.Payload, &payload); err != nil {
+				t.Fatal(err)
+			}
+			if payload.Name == "Read" && !payload.IsError && strings.Contains(payload.Content, "Run the chain.") {
+				sawBody = true
+			}
+		}
+	}
+	if !sawCatalogue {
+		t.Fatalf("the opening message did not name the installed skill at %s", resolvedSkill)
+	}
+	if !sawBody {
+		t.Fatal("the Read call did not return the skill body")
 	}
 }

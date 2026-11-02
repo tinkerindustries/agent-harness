@@ -93,7 +93,10 @@ protocol:
   `-state-dir`.
 - **It works in the parent's directory.** Nothing clones and nothing leases.
   `tools.NewExecutor` resolves that path and confines every file operation
-  under it, `internal/skills` and `internal/claudemd` discover from it,
+  under it. `internal/skills` discovers from it and from the machine's Claude
+  Code installation, and the directories of skills it finds outside the
+  workspace join `Executor.ReadRoots`, a read-only allowance for `Read`,
+  `List`, `Glob` and `Grep`. `internal/claudemd` discovers from the workspace,
   `Screenshot` and `Crop` write under its `scratch/`, and
   `internal/attachment` addresses files by paths relative to it. What a
   hosted session gives up is the reason a per-run clone existed: an agent in
@@ -234,6 +237,9 @@ are here.
 - **The skills catalogue goes in the opening user message, never the system
   prompt**, and there is no `Skill` tool — a twelfth tool definition would
   enlarge the frozen head to duplicate what `Read` already does (§4.11).
+  Skills installed outside the workspace are named by absolute path, and the
+  only paths outside the workspace a read-only tool accepts are the skill
+  directories discovery reported.
 - **A `usage` event is one request, not one sub-turn.** The reasoning-starved
   retry (§4.5) sends a second request for the same sub-turn and the API bills
   both, so that turn commits two, sharing `sub_turn` and told apart by

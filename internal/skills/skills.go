@@ -1,5 +1,7 @@
 // Package skills discovers Agent Skills shipped inside the repositories a
-// run cloned and renders a catalogue of them for the opening user message.
+// run cloned, installed for the user's own Claude Code, or carried by a
+// Claude Code plugin, and renders a catalogue of them for the opening user
+// message.
 //
 // A skill is a directory holding a SKILL.md whose YAML frontmatter carries a
 // name and a description. Only that one-line description reaches the model up
@@ -10,8 +12,10 @@
 package skills
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,9 +23,9 @@ import (
 	yaml "gopkg.in/yaml.v3"
 )
 
-// skillDirs are the conventions scanned inside each repository.
-// .claude/skills is what repositories in the wild carry; .deepcode/skills is
-// where DeepSeek's own Deep Code agent looks for a project's skills, and
+// skillDirs are the conventions scanned inside each project root.
+// .claude/skills is what Claude Code reads; .deepcode/skills is where
+// DeepSeek's own Deep Code agent looks for a project's skills, and
 // .agents/skills is the vendor-neutral spelling two of this harness's three
 // providers have converged on — Deep Code reads it as the user-level
 // location (third_party/deepseek-docs/quick_start/agent_integrations/deepcode.md)
@@ -46,12 +50,6 @@ var skillDirs = []string{
 // skill dropped in a clone shows up in that repository's diff and in its pull
 // request, which is a change nobody asked for, and one the model then has to
 // remember not to commit.
-//
-// Being under the workspace root rather than somewhere in the image is what
-// makes the skill readable. The catalogue only carries each skill's
-// description; the model opens the SKILL.md itself with Read, and Read is
-// confined to the workspace (internal/tools/workspace.go), so a skill outside
-// it would be advertised and then refuse to open.
 const WorkspaceSkillsDir = "skills"
 
 // Limits on what reaches the model. The catalogue rides in every request of
@@ -65,6 +63,18 @@ const (
 	MaxSkillFileBytes = 256 * 1024
 )
 
+// Ranks order the catalogue when more skills were found than MaxSkills
+// allows. Everything inside the workspace comes before the user's own
+// installation, so a run working in a repository sees that repository's
+// skills rather than losing them to a long personal collection.
+const (
+	rankEnterprise = iota
+	rankProject
+	rankWorkspace
+	rankUser
+	rankPlugin
+)
+
 // Skill is one discovered SKILL.md.
 type Skill struct {
 	// Name identifies the skill. It comes from the frontmatter when present
@@ -74,8 +84,11 @@ type Skill struct {
 	// MaxDescriptionLen. A skill without one is skipped: the description is
 	// the only thing the model sees before deciding to open the skill.
 	Description string
-	// Path is the SKILL.md path relative to the workspace root, which is the
-	// form the model passes back to Read.
+	// Path is the path the model passes back to Read. A skill inside the
+	// workspace is named relative to the workspace root; one installed
+	// outside it — the user's own, a plugin's, or an ancestor repository's —
+	// is named absolutely, and ReadRoots carries the directory that makes it
+	// readable.
 	Path string
 }
 
@@ -86,6 +99,27 @@ type Catalogue struct {
 	Dropped int
 }
 
+// ReadRoots returns the directories outside the workspace that hold a
+// discovered skill, which is what the read-only tools need in order to open
+// it. Empty when every skill sits inside the workspace.
+func (c Catalogue) ReadRoots() []string {
+	seen := make(map[string]bool)
+	var roots []string
+	for _, skill := range c.Skills {
+		if !filepath.IsAbs(skill.Path) {
+			continue
+		}
+		dir := filepath.Dir(skill.Path)
+		if seen[dir] {
+			continue
+		}
+		seen[dir] = true
+		roots = append(roots, dir)
+	}
+	sort.Strings(roots)
+	return roots
+}
+
 // frontmatter is the subset of SKILL.md's YAML header this package reads.
 // Unknown keys are ignored rather than rejected; skills carry fields for
 // other harnesses that mean nothing here.
@@ -94,112 +128,276 @@ type frontmatter struct {
 	Description string `yaml:"description"`
 }
 
-// Discover scans workspace for skills and returns them in a stable order.
+// locations are the user-specific roots a discovery pass reads. Tests pass
+// their own so a developer's installed skills never reach a test.
+type locations struct {
+	configDir  string
+	enterprise string
+}
+
+// userLocations reads where Claude Code keeps its own skills: CLAUDE_CONFIG_DIR
+// when set, ~/.claude otherwise, and the per-OS managed settings directory.
+func userLocations() locations {
+	home, _ := os.UserHomeDir()
+	config := os.Getenv("CLAUDE_CONFIG_DIR")
+	if config == "" && home != "" {
+		config = filepath.Join(home, ".claude")
+	}
+	return locations{
+		configDir:  config,
+		enterprise: enterpriseSkillsDir(),
+	}
+}
+
+// enterpriseSkillsDir is <managed settings directory>/.claude/skills, the
+// enterprise location Claude Code documents. Only the Linux path is quoted
+// in its documentation; the other two follow the same managed settings
+// directories Claude Code uses for its policy files.
+func enterpriseSkillsDir() string {
+	switch runtime.GOOS {
+	case "darwin":
+		return filepath.Join("/Library/Application Support/ClaudeCode", ".claude", "skills")
+	case "windows":
+		return filepath.Join(`C:\ProgramData\ClaudeCode`, ".claude", "skills")
+	default:
+		return filepath.Join("/etc/claude-code", ".claude", "skills")
+	}
+}
+
+// Discover scans workspace and the Claude Code skill locations for skills and
+// returns them in a stable order.
 //
-// Three layouts are covered. A queue-driven run clones each repository into
-// its own subdirectory of the workspace, so skills sit at
+// Four layouts are covered. A hosted run clones each repository into its own
+// subdirectory of the workspace, so project skills sit at
 // <workspace>/<repo>/.claude/skills/<name>/SKILL.md. A CLI run points the
-// workspace straight at a checkout, so they sit one level higher. And the
-// harness's own skills sit at <workspace>/skills/<name>/SKILL.md, outside
-// every repository (WorkspaceSkillsDir). All three are scanned; none recurses
-// further.
+// workspace straight at a checkout, so they sit one level higher, and a run
+// started in a subdirectory of a repository also sees the repository root's
+// .claude/skills. The harness's own skills sit at
+// <workspace>/skills/<name>/SKILL.md, outside every repository
+// (WorkspaceSkillsDir). And Claude Code's own locations are read the way
+// Claude Code reads them: the user's ~/.claude/skills (or
+// $CLAUDE_CONFIG_DIR/skills), the skills synced there from a claude.ai
+// account, every installed plugin's skills/, and the enterprise managed
+// settings directory.
 //
 // Discovery never fails a run. A workspace that cannot be read, a malformed
 // SKILL.md, and a skill with no description all yield no entry and no error.
 func Discover(workspace string) Catalogue {
-	roots := []string{workspace}
-	if entries, err := os.ReadDir(workspace); err == nil {
-		for _, entry := range entries {
-			if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
-				roots = append(roots, filepath.Join(workspace, entry.Name()))
-			}
-		}
+	return discover(workspace, userLocations())
+}
+
+func discover(workspace string, loc locations) Catalogue {
+	ws, err := filepath.Abs(workspace)
+	if err != nil {
+		return Catalogue{}
+	}
+	if resolved, err := filepath.EvalSymlinks(ws); err == nil {
+		ws = resolved
 	}
 
-	var found []Skill
+	type ranked struct {
+		Skill
+		rank int
+	}
+	var found []ranked
 	seen := make(map[string]bool)
-	// The workspace's own skills/ first, so a repository shipping a skill of
-	// the same name sorts after it and the harness's copy is the one a reader
-	// meets first. Scanned directly rather than through skillDirs: it is the
-	// skill directory itself, not a repository that contains one.
-	for _, skill := range scanSkillDir(workspace, filepath.Join(workspace, WorkspaceSkillsDir)) {
-		if seen[skill.Path] {
-			continue
+	add := func(dir string, rank int) {
+		if dir == "" {
+			return
 		}
-		seen[skill.Path] = true
-		found = append(found, skill)
-	}
-	for _, root := range roots {
-		for _, dir := range skillDirs {
-			for _, skill := range scanSkillDir(workspace, filepath.Join(root, dir)) {
-				if seen[skill.Path] {
-					continue
-				}
-				seen[skill.Path] = true
-				found = append(found, skill)
+		for _, candidate := range scanSkillDir(ws, dir) {
+			if seen[candidate.resolved] {
+				continue
 			}
+			seen[candidate.resolved] = true
+			found = append(found, ranked{Skill: candidate.skill, rank: rank})
 		}
 	}
 
-	// Sorting by path rather than by name keeps two repositories that ship a
-	// skill of the same name in a fixed order, and keeps the catalogue
-	// grouped by repository.
-	sort.Slice(found, func(i, j int) bool { return found[i].Path < found[j].Path })
+	// Enterprise first, then the workspace's own project roots, then the
+	// user's installation, then plugins. The order matters only when more
+	// skills were found than the catalogue can carry.
+	add(loc.enterprise, rankEnterprise)
+	for _, root := range projectRoots(ws) {
+		for _, dir := range skillDirs {
+			add(filepath.Join(root, dir), rankProject)
+		}
+	}
+	add(filepath.Join(ws, WorkspaceSkillsDir), rankWorkspace)
+	add(filepath.Join(loc.configDir, "skills"), rankUser)
+	for _, dir := range syncedSkillDirs(loc.configDir) {
+		add(dir, rankUser)
+	}
+	for _, dir := range pluginSkillDirs(loc.configDir) {
+		add(dir, rankPlugin)
+	}
 
-	cat := Catalogue{Skills: found}
-	if len(found) > MaxSkills {
-		cat.Skills = found[:MaxSkills]
+	sort.SliceStable(found, func(i, j int) bool {
+		if found[i].rank != found[j].rank {
+			return found[i].rank < found[j].rank
+		}
+		return found[i].Path < found[j].Path
+	})
+
+	cat := Catalogue{}
+	for _, skill := range found {
+		cat.Skills = append(cat.Skills, skill.Skill)
+	}
+	if len(cat.Skills) > MaxSkills {
+		cat.Skills = cat.Skills[:MaxSkills]
 		cat.Dropped = len(found) - MaxSkills
 	}
 	return cat
 }
 
+// projectRoots returns the directories whose .claude/skills belong to this
+// project: the workspace itself, each repository cloned immediately beneath
+// it, and every directory between the workspace and its git repository root.
+// Claude Code walks up to the repository root, so a run started in a
+// subdirectory sees the skills checked in beside it.
+func projectRoots(ws string) []string {
+	roots := []string{ws}
+	if entries, err := os.ReadDir(ws); err == nil {
+		for _, entry := range entries {
+			name := entry.Name()
+			if strings.HasPrefix(name, ".") {
+				continue
+			}
+			path := filepath.Join(ws, name)
+			if info, err := os.Stat(path); err == nil && info.IsDir() {
+				roots = append(roots, path)
+			}
+		}
+	}
+	if root := gitRoot(ws); root != "" && root != ws {
+		for dir := filepath.Dir(ws); ; dir = filepath.Dir(dir) {
+			roots = append(roots, dir)
+			if dir == root {
+				break
+			}
+			if parent := filepath.Dir(dir); parent == dir {
+				break
+			}
+		}
+	}
+	return roots
+}
+
+// gitRoot walks up from ws to the first directory holding a .git entry, which
+// is a directory in an ordinary checkout and a file in a worktree.
+func gitRoot(ws string) string {
+	for dir := ws; ; dir = filepath.Dir(dir) {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+	}
+}
+
+// syncedSkillDirs returns the per-account directories Claude Code syncs a
+// claude.ai account's skills into: <config>/skills/synced/<account>/.
+func syncedSkillDirs(configDir string) []string {
+	if configDir == "" {
+		return nil
+	}
+	dirs, err := filepath.Glob(filepath.Join(configDir, "skills", "synced", "*"))
+	if err != nil {
+		return nil
+	}
+	return dirs
+}
+
+// pluginSkillDirs returns each installed plugin's skills directory, plus the
+// plugin directories synced into the config dir rather than installed from a
+// marketplace.
+func pluginSkillDirs(configDir string) []string {
+	if configDir == "" {
+		return nil
+	}
+	var dirs []string
+	if data, err := os.ReadFile(filepath.Join(configDir, "plugins", "installed_plugins.json")); err == nil {
+		var installed struct {
+			Plugins map[string][]struct {
+				InstallPath string `json:"installPath"`
+			} `json:"plugins"`
+		}
+		if json.Unmarshal(data, &installed) == nil {
+			for _, versions := range installed.Plugins {
+				for _, version := range versions {
+					if version.InstallPath == "" {
+						continue
+					}
+					dirs = append(dirs, filepath.Join(version.InstallPath, "skills"))
+				}
+			}
+		}
+	}
+	if synced, err := filepath.Glob(filepath.Join(configDir, "plugins", "synced", "*", "*", "skills")); err == nil {
+		dirs = append(dirs, synced...)
+	}
+	sort.Strings(dirs)
+	return dirs
+}
+
+type scannedSkill struct {
+	skill    Skill
+	resolved string
+}
+
 // scanSkillDir reads the immediate children of dir, each of which should hold
-// a SKILL.md.
-func scanSkillDir(workspace, dir string) []Skill {
+// a SKILL.md. A child may be a symlink to a skill directory; Claude Code
+// follows one, so this does too.
+func scanSkillDir(workspace, dir string) []scannedSkill {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
 	}
-	var out []Skill
+	var out []scannedSkill
 	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
 		path := filepath.Join(dir, entry.Name(), "SKILL.md")
-		skill, ok := parseSkillFile(workspace, path, entry.Name())
+		skill, resolved, ok := parseSkillFile(workspace, path, entry.Name())
 		if !ok {
 			continue
 		}
-		out = append(out, skill)
+		out = append(out, scannedSkill{skill: skill, resolved: resolved})
 	}
 	return out
 }
 
 // parseSkillFile reads one SKILL.md and reports whether it yielded a usable
 // skill. dirName is the fallback identity for a file whose frontmatter names
-// no skill.
-func parseSkillFile(workspace, path, dirName string) (Skill, bool) {
+// no skill. The resolved path is the dedupe key: two locations pointing at
+// the same skill load it once, the way Claude Code does.
+func parseSkillFile(workspace, path, dirName string) (Skill, string, bool) {
 	info, err := os.Stat(path)
 	if err != nil || info.IsDir() || info.Size() > MaxSkillFileBytes {
-		return Skill{}, false
+		return Skill{}, "", false
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return Skill{}, false
+		return Skill{}, "", false
 	}
 	block, ok := frontmatterBlock(data)
 	if !ok {
-		return Skill{}, false
+		return Skill{}, "", false
 	}
 	var fm frontmatter
 	if err := yaml.Unmarshal(block, &fm); err != nil {
-		return Skill{}, false
+		// A description written as a plain scalar often carries ": " in
+		// prose ("Adopt a repository into worktree-manager: audit it"),
+		// which strict YAML reads as a second mapping and rejects. Claude
+		// Code loads those skills, so this reads the two fields it needs
+		// from the header directly rather than losing the skill to a
+		// punctuation mark.
+		fm = looseFrontmatter(block)
 	}
 
 	description := collapse(fm.Description)
 	if description == "" {
-		return Skill{}, false
+		return Skill{}, "", false
 	}
 	if len(description) > MaxDescriptionLen {
 		description = strings.TrimSpace(description[:MaxDescriptionLen]) + "…"
@@ -210,11 +408,96 @@ func parseSkillFile(workspace, path, dirName string) (Skill, bool) {
 		name = dirName
 	}
 
-	rel, err := filepath.Rel(workspace, path)
+	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil {
-		return Skill{}, false
+		resolved = path
 	}
-	return Skill{Name: name, Description: description, Path: filepath.ToSlash(rel)}, true
+	rel, err := filepath.Rel(workspace, resolved)
+	shown := resolved
+	if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel) {
+		shown = filepath.ToSlash(rel)
+	}
+	return Skill{Name: name, Description: description, Path: shown}, resolved, true
+}
+
+// looseFrontmatter reads name and description from a header strict YAML
+// refused, one top-level "key: value" line at a time. It understands the two
+// spellings skills use for a long description — a quoted or plain scalar, and
+// the ">" or "|" block whose following indented lines belong to it — because
+// a description is the only field discovery needs.
+func looseFrontmatter(block []byte) frontmatter {
+	var fm frontmatter
+	lines := strings.Split(string(block), "\n")
+	for i := 0; i < len(lines); i++ {
+		key, value, ok := frontmatterLine(lines[i])
+		if !ok {
+			continue
+		}
+		if strings.HasPrefix(value, ">") || strings.HasPrefix(value, "|") {
+			var collected []string
+			for i+1 < len(lines) {
+				next := lines[i+1]
+				if strings.TrimSpace(next) == "" {
+					i++
+					continue
+				}
+				if !strings.HasPrefix(next, " ") && !strings.HasPrefix(next, "\t") {
+					break
+				}
+				collected = append(collected, strings.TrimSpace(next))
+				i++
+			}
+			value = strings.Join(collected, " ")
+		} else {
+			value = unquoteFrontmatter(value)
+		}
+		switch key {
+		case "name":
+			fm.Name = value
+		case "description":
+			fm.Description = value
+		}
+	}
+	return fm
+}
+
+// frontmatterLine splits one top-level "key: value" line. Indented lines are
+// block content, and comments and blank lines carry nothing.
+func frontmatterLine(line string) (string, string, bool) {
+	if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
+		return "", "", false
+	}
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		return "", "", false
+	}
+	key, value, ok := strings.Cut(trimmed, ":")
+	if !ok {
+		return "", "", false
+	}
+	key = strings.TrimSpace(key)
+	if key == "" || strings.ContainsAny(key, " \t") {
+		return "", "", false
+	}
+	return key, strings.TrimSpace(value), true
+}
+
+// unquoteFrontmatter removes one matching pair of quotes from a scalar.
+// Only the escape sequences that matter inside a description are undone.
+func unquoteFrontmatter(value string) string {
+	if len(value) < 2 {
+		return value
+	}
+	switch {
+	case value[0] == '"' && value[len(value)-1] == '"':
+		inner := value[1 : len(value)-1]
+		inner = strings.ReplaceAll(inner, `\"`, `"`)
+		inner = strings.ReplaceAll(inner, `\\`, `\`)
+		return inner
+	case value[0] == '\'' && value[len(value)-1] == '\'':
+		return strings.ReplaceAll(value[1:len(value)-1], "''", "'")
+	}
+	return value
 }
 
 // frontmatterBlock returns the YAML between the opening "---" line and the
@@ -249,9 +532,9 @@ func (c Catalogue) Render() string {
 	}
 	var b strings.Builder
 	b.WriteString("Skills available in this workspace. Each is a set of instructions for a\n")
-	b.WriteString("particular kind of task, written by whoever maintains the repository it\n")
-	b.WriteString("came from. When one matches what you have been asked to do, Read its file\n")
-	b.WriteString("before starting and follow what it says.\n\n")
+	b.WriteString("particular kind of task, written by whoever maintains it. When one matches\n")
+	b.WriteString("what you have been asked to do, Read its file before starting and follow\n")
+	b.WriteString("what it says.\n\n")
 	for _, skill := range c.Skills {
 		b.WriteString("- ")
 		b.WriteString(skill.Name)

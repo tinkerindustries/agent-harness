@@ -33,8 +33,9 @@ func execGlob(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 	}
 
 	root := e.Workspace
+	outside := false
 	if args.Path != "" {
-		resolved, err := ResolvePath(e.Workspace, args.Path)
+		resolved, err := e.resolveReadPath(args.Path)
 		if err != nil {
 			return errorResult("%v", err)
 		}
@@ -45,6 +46,10 @@ func execGlob(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 			return errorResult("%s is a file, not a directory", args.Path)
 		}
 		root = resolved
+		// A root outside the workspace is a skill directory. Matches are
+		// then reported absolutely, because a path relative to that root
+		// would not resolve back through Read.
+		outside = !withinRoot(e.Workspace, root)
 	}
 
 	re, err := globToRegexp(args.Pattern)
@@ -72,6 +77,9 @@ func execGlob(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 			return nil
 		}
 		if re.MatchString(rel) {
+			if outside {
+				rel = filepath.ToSlash(filepath.Join(root, rel))
+			}
 			matches = append(matches, rel)
 		}
 		return nil

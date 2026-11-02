@@ -579,21 +579,42 @@ gives a parent to bound that with.
 
 ### 4.11 Skills
 
-A repository can ship Agent Skills: a directory per skill holding a `SKILL.md`
-whose YAML frontmatter carries a name and a description. `internal/skills`
-scans the workspace at session start, under `.claude/skills/`,
-`.deepcode/skills/` and `.agents/skills/` — the third being the vendor-neutral
-spelling DeepSeek's own agent and Gemini's hosted environment have both
-converged on — plus the workspace's own `skills/` directory, and renders the
-names and descriptions it finds into the opening user message ahead of the
-task. The model reads a skill's body with `Read` when it decides one applies.
+An Agent Skill is a directory holding a `SKILL.md` whose YAML frontmatter
+carries a name and a description. `internal/skills` discovers them at session
+start from the same locations Claude Code reads:
+
+- `.claude/skills/` at the workspace root, in each repository cloned directly
+  beneath it, and in every directory between the workspace and its git
+  repository root;
+- the workspace's own `skills/` directory;
+- the user's `~/.claude/skills/`, or `$CLAUDE_CONFIG_DIR/skills/`, including
+  the `synced/` tree a claude.ai account's skills land in;
+- each installed plugin's `skills/` directory, named by
+  `<config>/plugins/installed_plugins.json`, and the plugin directories
+  synced into `<config>/plugins/synced/`;
+- `.claude/skills/` under the managed settings directory, which is the
+  enterprise location.
+
+`.deepcode/skills/` and `.agents/skills/` are scanned beside `.claude/skills/`
+in every project root: they are the vendor-neutral spellings DeepSeek's own
+agent and Gemini's hosted environment have converged on, and a repository that
+adopted either is not silently ignored. The catalogue renders the names and
+descriptions into the opening user message ahead of the task. The model reads
+a skill's body with `Read` when it decides one applies.
+
+A skill inside the workspace is named relative to the workspace root. One
+installed outside it — the user's, a plugin's, an ancestor repository's — is
+named absolutely, and `Executor.ReadRoots` carries the directory discovery
+found it in so `Read`, `List`, `Glob` and `Grep` can open it. That allowance
+is read-only and covers one discovered skill directory each: `Write`, `Edit`
+and every other mutating tool remain confined to the workspace.
 
 Three consequences follow from §3.2. The catalogue goes in the opening message,
-never the system prompt, so a repository's skills cannot disturb the cached
-head. No `Skill` tool exists, because a twentieth tool definition would enlarge
-that head for every session to duplicate what `Read` already does. An empty
-catalogue renders to nothing, leaving the opening message byte-identical to a
-run with no skills.
+never the system prompt, so a repository's or the user's skills cannot disturb
+the cached head. No `Skill` tool exists, because a twentieth tool definition
+would enlarge that head for every session to duplicate what `Read` already
+does. An empty catalogue renders to nothing, leaving the opening message
+byte-identical to a run with no skills.
 
 The missing tool has one cost, and it is paid by whoever reads the transcript
 rather than in the cached head: with no `Skill` call and no event marking the
@@ -616,10 +637,12 @@ Nothing installs skills into a workspace. The parent owns the directory, so
 whatever it wants a session to have it puts there before the create call —
 which is also why the catalogue can differ per run without costing anything:
 it is in the opening message, so two runs with different skills still share a
-byte-identical system prompt and tool array. This is exactly why an MCP
-server's tools cannot work the same way ([MCP.md](MCP.md)): those go in the
-frozen head, so they must be global, and a per-run choice there would fragment
-the cross-session cache.
+byte-identical system prompt and tool array. The user's own installation and
+its plugins are read where Claude Code keeps them, so they reach every session
+without the parent doing anything. This is exactly why an MCP server's tools
+cannot work the same way ([MCP.md](MCP.md)): those go in the frozen head, so
+they must be global, and a per-run choice there would fragment the
+cross-session cache.
 
 `session_started` carries the rendered catalogue alongside the opening message,
 as an exact substring of it. That is what lets a client lift the catalogue into

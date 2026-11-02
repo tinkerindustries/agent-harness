@@ -86,7 +86,7 @@ func execGrep(ctx context.Context, e *Executor, argsRaw json.RawMessage) Result 
 	root := e.Workspace
 	spelled := ""
 	if args.Path != "" {
-		resolved, err := ResolvePath(e.Workspace, args.Path)
+		resolved, err := e.resolveReadPath(args.Path)
 		if err != nil {
 			return errorResult("%v", err)
 		}
