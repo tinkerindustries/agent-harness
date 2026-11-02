@@ -17,6 +17,9 @@ keeps the methods it has.
 - The provider tool arrays are frozen for a session's life. A rename or an added
   tool moves all three array goldens, and both prompt goldens whenever the
   array's membership or a fragment's wording moves.
+- Old event logs keep the old names. Dispatch and live state speak the new
+  names; `internal/store/status.go` accepts both, so a pre-rename plan still
+  reconstructs.
 - Membership is the array's decision; permission gates execution only. Every
   tool ships in every mode. `alwaysAllowed` in `internal/tools/policy.go` is the
   read-only list.

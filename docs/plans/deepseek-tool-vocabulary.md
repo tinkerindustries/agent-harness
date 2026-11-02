@@ -164,8 +164,11 @@ is every phase here except phase 3.
   `get_mcp_prompt`). No later phase renames a tool.
 - Every table keyed by tool name follows: `internal/tools/registry.go`'s
   dispatch map, `policy.go`'s `alwaysAllowed`, `descriptor.go`'s
-  `descriptorFor`, `mutation.go`'s `Edit`/`Write` case, and the task
-  comparisons in `internal/session/livestate.go` and `tooldispatch.go`.
+  `descriptorFor`, `mutation.go`'s `Edit`/`Write` case, the task comparisons
+  in `internal/session/livestate.go`, `tooldispatch.go` and `turn.go`, and
+  `internal/store/status.go`'s task replay, which accepts both the old and
+  the new names so a resumed session's plan still reconstructs from events
+  written before the rename.
 - `bash` replaces `Bash`, gains `workdir`, and its `timeout` becomes
   `timeoutMs`. `execBash` resolves `workdir` against the workspace with the
   same confinement check every path argument goes through.
