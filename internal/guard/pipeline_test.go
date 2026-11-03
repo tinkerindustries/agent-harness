@@ -43,9 +43,9 @@ func v2(decision string) *fakeStage2 {
 
 func TestPipelineRuleHitBlocksWithoutModels(t *testing.T) {
 	s1, s2 := p1(0), v2("allow")
-	p := &Pipeline{Rules: fakeRules{"no-sudo"}, Escalation: fakeEscalator{"x"}, Stage1: s1, Stage2: s2, GuardVersion: "v1"}
-	d := p.Decide(context.Background(), State{ProposedCommand: "sudo ls"})
-	if d.Verdict != VerdictBlock || d.DecidedBy != DecidedByRules || len(d.Rules) != 1 || d.Rules[0] != "no-sudo" {
+	p := &Pipeline{Rules: fakeRules{"no-elevate"}, Escalation: fakeEscalator{"x"}, Stage1: s1, Stage2: s2, GuardVersion: "v1"}
+	d := p.Decide(context.Background(), State{ProposedCommand: "elevate ls"})
+	if d.Verdict != VerdictBlock || d.DecidedBy != DecidedByRules || len(d.Rules) != 1 || d.Rules[0] != "no-elevate" {
 		t.Fatalf("d = %+v", d)
 	}
 	if s1.calls+s2.calls != 0 || d.Stage2Ran || d.GuardVersion != "v1" {
