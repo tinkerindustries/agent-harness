@@ -55,7 +55,7 @@ func (r *Runner) compact(ctx context.Context, sess store.Session, allEvents []st
 	if err != nil {
 		return sess, allEvents, fmt.Errorf("session: fold for compaction: %w", err)
 	}
-	summary, err := r.summarize(httplog.WithSessionID(ctx, sess.ID), items)
+	summary, err := r.summarize(httplog.WithSessionID(ctx, sess.ID), items, priorCheckpoint(sess.SystemPrompt))
 	if err != nil {
 		return sess, allEvents, fmt.Errorf("session: summarise for compaction: %w", err)
 	}
@@ -110,35 +110,86 @@ func (r *Runner) compact(ctx context.Context, sess store.Session, allEvents []st
 	return canonical, appended, nil
 }
 
-// summarize asks flash, thinking disabled, to compress a folded transcript
-// for continuation in a new session. Non-thinking side work runs cheaper
-// and can force output shape, though a plain instruction is enough here
-// (docs/MODELS.md). The intent states thinking:false and no tools; the
-// provider spells that as it spells its own non-thinking mode.
-func (r *Runner) summarize(ctx context.Context, items []wire.Item) (string, error) {
-	// One labelled line per item that carries prose. A tool call's arguments
-	// and a reasoning item are left out: the summary exists so the work can
-	// continue in a new session, and neither survives compaction anyway.
+// compactionInstruction is the summariser's system prompt. The section
+// headings are what a continuing session reads back from its system prompt.
+const compactionInstruction = `Summarise the following agent session transcript so the work can continue in a new session without it. The reader has not seen the transcript and cannot ask you questions.
+
+Write these sections, in this order. Write "None" under a section with nothing to report.
+
+## Intent
+What the user asked for, in their words where the wording matters, including the acceptance criteria and every later change to the request.
+
+## User corrections and constraints
+Each correction, preference or constraint the user gave, and anything they told the agent not to do. Keep these literal.
+
+## Files
+Each file read, created or changed, with a line on what was done to it and why.
+
+## Errors and fixes
+Each error hit, what caused it, and how it was resolved or that it is still open. Include approaches that failed so they are not retried.
+
+## Work completed
+What is finished and how it was verified, with the exact commands that were run and whether they passed.
+
+## Current work
+What was in progress at the end of the transcript, and the state it was left in.
+
+## Pending work
+Everything still to do, including work the user asked for that has not started.
+
+## Next action
+The single next step, specific enough to start without re-reading anything.
+
+## Critical details
+Exact commands, paths, identifiers, branch names, URLs, ports and values the work depends on. Copy them verbatim.
+
+If the transcript starts with a previous checkpoint, merge it into these sections. Keep what still holds, update what has changed, and drop facts that no longer apply. Do not describe the checkpoint as a separate earlier summary.`
+
+// compactionTranscript renders the input to the summariser: the previous
+// checkpoint if there is one, then one labelled line per item that carries
+// prose or a tool call. A tool call's arguments are cut at
+// maxCompactionCallArgs because the commands and paths in them are what the
+// summary has to preserve, but a patch or file body is not. A reasoning item
+// is left out: it does not survive compaction.
+func compactionTranscript(items []wire.Item, checkpoint string) string {
 	var b strings.Builder
+	if checkpoint != "" {
+		fmt.Fprintf(&b, "[previous checkpoint]\n%s\n[end of previous checkpoint]\n\n", checkpoint)
+	}
 	for _, item := range items {
 		switch item.Type {
 		case wire.ItemMessage:
 			if text := item.Content.String(); text != "" {
 				fmt.Fprintf(&b, "[%s] %s\n", item.Role, text)
 			}
+		case wire.ItemFunctionCall:
+			args := item.Arguments
+			if len(args) > maxCompactionCallArgs {
+				args = args[:maxCompactionCallArgs] + "…(truncated)"
+			}
+			fmt.Fprintf(&b, "[call] %s %s\n", item.Name, args)
 		case wire.ItemFunctionCallOutput:
 			if text := item.Output.String(); text != "" {
 				fmt.Fprintf(&b, "[tool] %s\n", text)
 			}
 		}
 	}
+	return b.String()
+}
 
+const maxCompactionCallArgs = 2000
+
+// summarize asks flash, thinking disabled, to compress a folded transcript
+// for continuation in a new session. Non-thinking side work runs cheaper
+// and can force output shape, though a plain instruction is enough here
+// (docs/MODELS.md). The intent states thinking:false and no tools; the
+// provider spells that as it spells its own non-thinking mode.
+func (r *Runner) summarize(ctx context.Context, items []wire.Item, checkpoint string) (string, error) {
 	intent := wire.ChatIntent{
 		Model: r.flashModel(ctx),
 		Items: []wire.Item{
-			wire.SystemItem("Summarise the following agent session transcript so the work can continue in a new session without it. " +
-				"Cover: the original task, what has been done, the current state of the workspace, and what remains."),
-			wire.UserItem(b.String()),
+			wire.SystemItem(compactionInstruction),
+			wire.UserItem(compactionTranscript(items, checkpoint)),
 		},
 		Thinking:  false,
 		MaxTokens: 8000,

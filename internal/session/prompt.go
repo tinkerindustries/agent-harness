@@ -629,8 +629,22 @@ func completeExample(resultSchema json.RawMessage) string {
 // (docs/CACHE.md).
 func RenderCompactionSummarySystemPromptFor(model, variant, summary string) string {
 	base := renderSystemPromptFor(toolNamesInOrder(tools.DefinitionsForVariant(model, variant)), seesImages(model))
-	return base + "\n\n## Continuing from a prior session\n\n" +
-		"That session ran long enough to need compaction. Here is a summary of what happened before this point:\n\n" + summary
+	return base + compactionSummaryIntro + summary
+}
+
+// compactionSummaryIntro is the text between a compacted session's base
+// system prompt and its summary. priorCheckpoint finds the summary by it.
+const compactionSummaryIntro = "\n\n## Continuing from a prior session\n\n" +
+	"That session ran long enough to need compaction. Here is a summary of what happened before this point:\n\n"
+
+// priorCheckpoint returns the summary a compacted session was seeded with,
+// or "" for a session that was not forked by compaction.
+func priorCheckpoint(systemPrompt string) string {
+	_, summary, ok := strings.Cut(systemPrompt, compactionSummaryIntro)
+	if !ok {
+		return ""
+	}
+	return summary
 }
 
 // RenderCompactionOpeningMessage is the opening user message of a session
