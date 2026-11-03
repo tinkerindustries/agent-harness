@@ -211,8 +211,12 @@ type Executor struct {
 	// internal/session from the skills catalogue. Each tool still refuses
 	// every other path outside the workspace, and `write`, `edit` and the other
 	// mutating tools stay confined to Workspace alone.
-	ReadRoots    []string
-	Policy       *Policy
+	ReadRoots []string
+	Policy    *Policy
+	// Guard, when set, screens each `bash` call under full permission after
+	// the policy has allowed it. internal/session injects it for a run whose
+	// session has an autonomy guard setting; nil is every other caller.
+	Guard        Guard
 	ResultSchema json.RawMessage
 	OutputCap    int
 	Timeouts     Timeouts
@@ -631,6 +635,12 @@ func (e *Executor) Execute(ctx context.Context, call wire.ToolCall) Outcome {
 				IsError: true,
 			},
 		}
+	}
+
+	// The guard runs before the per-call timeout starts, so a slow check does
+	// not use up the command's own time.
+	if denied := e.screenBash(ctx, call.ID, name, argsRaw); denied != nil {
+		return *denied
 	}
 
 	limit := e.timeoutFor(ctx, name, argsRaw)

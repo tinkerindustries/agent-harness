@@ -171,6 +171,17 @@ The edges that matter:
   `agent.custom_tool_use` notification answered later through
   `sessions.events`, rather than a blocking `harness.function_call`
   (`docs/STDIO-MANAGED-AGENTS.md`).
+- **The autonomy guard sits beside the tools, behind two seams.**
+  `internal/guard` holds the decision (rules, the stage 1 classifier, the stage
+  2 reviewer, the state builder) and imports neither `internal/store` nor
+  `internal/session`. `internal/tools` declares `Guard`, which
+  `Executor.Execute` consults for a `bash` call under `full` after the policy
+  has allowed it. `internal/session` implements it (`runGuard`): it builds the
+  state from the event log, runs the pipeline and appends the
+  `guard_decision` event. `Runner.Guards` is how `cmd/harness` hands the
+  session package a pipeline factory, which is where the Anthropic key stays.
+  `internal/stdiosession` owns the `harness.guard` create setting and nothing
+  else about it.
 - Nothing imports `cmd/`.
 
 ## Cross-cutting concerns
@@ -192,7 +203,10 @@ costs the cost figure on `harness.usage` and nothing else.
 at the moment of a tool call. A denial is unconditional and returns through
 the tool result channel for the model to route around — a session never
 blocks on a human. Two modes, `readonly` and `full`, plus optional deny
-patterns from the request. §4.6.
+patterns from the request. §4.6. A `stdio-session` may add the autonomy guard
+on top: it screens `bash` under `full`, records every decision, and in
+`enforce` mode (which no create can select) refuses through the same denial
+route.
 
 **Persistence and observability.** Every event lands in SQLite inside a
 transaction, then appends to the disk mirror; a failed mirror write logs and
@@ -233,7 +247,14 @@ are here.
 - **Assistant messages carrying `tool_calls` have `""` content, never `null`.**
 - **Tool results append in `tool_calls` array order**, regardless of which
   finished first. Parallel calls cannot be disabled, so ordering is what
-  protects the prefix.
+  protects the prefix. Guard checks that run beside their commands do not
+  change this: their records are separate events.
+- **The guard setting is outside the frozen head.** It is stored on the
+  session row and copied by compaction and by `task` subagents, but a resume
+  may replace it, because nothing in a request depends on it. `shadow` never
+  delays or stops a command. A shadow record commits on a context a cancelled
+  run does not cancel, and a run that is ending waits for the ones in flight so
+  the parent receives them before the run's last event.
 - **The skills catalogue goes in the opening user message, never the system
   prompt**, and there is no `skill` tool: a definition would enlarge the
   frozen head to duplicate what `read` already does (§4.11).

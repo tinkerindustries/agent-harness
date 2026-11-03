@@ -103,6 +103,10 @@ type RunOptions struct {
 	// provenance triple.
 	ParentIsUser bool
 
+	// Guard is the autonomy guard setting. It is stored on the session row,
+	// and a `task` subagent inherits it, so its `bash` calls are screened too.
+	Guard store.GuardSetting
+
 	// PromptVariant names the system prompt this run uses. Empty is the
 	// shipped prompt; anything else is an eval run (variants.go).
 	PromptVariant string
@@ -217,6 +221,7 @@ func (o RunOptions) session(status, workspace string) store.Session {
 		Workspace:       workspace,
 		PermissionMode:  string(o.PermissionMode),
 		DenyPatterns:    o.Deny,
+		Guard:           o.Guard,
 		ResultSchema:    o.ResultSchema,
 		Status:          status,
 	}
@@ -354,6 +359,11 @@ type Runner struct {
 	// tools.Executor.RG. Empty means none was found and `grep` falls back to
 	// its own walk.
 	RG string
+
+	// Guards builds the autonomy guard for a session whose setting is active.
+	// Nil means this Runner has no guard: a run whose setting asks for one
+	// fails to start. cmd/harness supplies it for `stdio-session`.
+	Guards GuardFactory
 
 	// Hub, when set, is where every committed event and every session
 	// state change gets published for a browser to watch live. Nil is a

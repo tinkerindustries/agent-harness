@@ -116,7 +116,14 @@ func dsAnswer(text string) string {
 // Gemini client the rest of this package uses.
 func newDeepSeekFixture(t *testing.T, streams ...string) (*fixture, *deepseekRecorder) {
 	t.Helper()
-	dir, cwd := t.TempDir(), t.TempDir()
+	return newDeepSeekFixtureIn(t, t.TempDir(), t.TempDir(), nil, streams...)
+}
+
+// newDeepSeekFixtureIn is newDeepSeekFixture with the state and working
+// directories named, and a hook that may adjust the Runner and the server
+// options before the server starts.
+func newDeepSeekFixtureIn(t *testing.T, dir, cwd string, configure func(*session.Runner, *Options), streams ...string) (*fixture, *deepseekRecorder) {
+	t.Helper()
 
 	rec := &deepseekRecorder{streams: streams}
 	api := rec.serve(t)
@@ -138,13 +145,17 @@ func newDeepSeekFixture(t *testing.T, streams ...string) (*fixture, *deepseekRec
 	mgr := mcpclient.New(st)
 	t.Cleanup(func() { mgr.Close() })
 
-	srv := NewServer(Options{
+	opts := Options{
 		Store: st, Runner: runner, Hub: eventHub, MCP: mgr,
 		Models:       []string{testDeepSeekModel},
 		DefaultModel: testDeepSeekModel,
 		HasAPIKey:    func(string) bool { return true },
 		Version:      "test",
-	})
+	}
+	if configure != nil {
+		configure(runner, &opts)
+	}
+	srv := NewServer(opts)
 
 	clientIn, serverIn := io.Pipe()
 	serverOut, clientOut := io.Pipe()

@@ -31,7 +31,9 @@ constructs another's dependencies.
 DeepSeek model the repository routes, `deepseek-flash`
 (`deepSeekSessionModel`), which reads images natively, and all three Claude
 models; `claude-session` hosts the three Claude models alone, with
-`ANTHROPIC_API_KEY` the one credential it reads. `deepseek-flash` reading
+`ANTHROPIC_API_KEY` the one credential it reads. `stdio-session` alone accepts
+`harness.guard`: it hands the Runner a `Guards` factory that builds the
+pipeline with the Anthropic key, which stays in that closure. `deepseek-flash` reading
 images natively is what keeps a DeepSeek session here to one credential: a
 model that could not see would carry the vision tools built to compensate,
 four of which reach Google
@@ -263,7 +265,10 @@ any configured server is); both are spelled the same in every vocabulary, so
 the handshake's per-model details and the create's effort check are answered
 out of `internal/gemini`'s, `internal/deepseek`'s or `internal/anthropic`'s
 tables, so the providers' differing effort sets reach a client as data rather
-than as a special case anywhere else. `resume.go` is the seam between the two
+than as a special case anywhere else. `guardsetting.go` validates `harness.guard` on a create: the mode, the
+stage 1 endpoint, the `ANTHROPIC_API_KEY` check and the `readonly` refusal, and
+`Options.Guard` is nil under the subcommands that refuse the setting.
+`resume.go` is the seam between the two
 ways a create names a conversation: a run id is minted in memory and dies
 with the process, so continuing across a restart goes by session id out of
 the `-state-dir` store instead, and everything the session's prompt prefix is
@@ -363,7 +368,14 @@ workspace by `pickUpSteers` (at the boundary the steer is applied) and by
 `Resume` (before the continuation is appended), so the file always exists
 before the message naming it reaches the model
 ([`../docs/RUN-CONTROL.md`](../docs/RUN-CONTROL.md), "Images in the
-composer").
+composer"). `guard.go` is the autonomy guard's side of the loop: `runGuard`
+implements `tools.Guard` for one run, builds the state from the event log
+(`guardstate.go`), and appends the `guard_decision` and usage events. A
+`shadow` check runs in its own goroutine on a context a cancelled run does not
+cancel, and `runLoop` waits for the ones in flight before it finishes the run.
+`enforce` decides first and refuses through `tool_denied`. `RunOptions.Guard`,
+`ResumeOptions.Guard` and the session row's `Guard` carry the setting, and
+`Runner.Guards` is the factory `cmd/harness` supplies.
 
 ### `internal/tools`
 Every tool the model can call: schemas matching the trained-in shape, argument
@@ -397,10 +409,28 @@ path that ends them. It carries the session id its completions are recorded
 against, and `SetSessionID` moves that with a compaction. The registry's
 `OnExit` hook fires once per shell after `cmd.Wait`, with the session id
 current at that moment, which is how a completion becomes an event rather
-than a poll result. Depends on:
+than a poll result. `Guard` (guard.go) is the seam the autonomy guard plugs into: an `Executor`
+given one asks it about each `bash` call under `full`, after the policy has
+allowed the call, and a refusal comes back as an ordinary denial. Depends on:
 `internal/wire`, `internal/provider`, `internal/promptvariant`,
 `internal/attachment` (the image-extension-to-MIME-type table the vision
 tools read images by).
+
+### `internal/guard`
+The autonomy guard's decision for one `bash` call: `Rules` (exact-pattern
+rules), `ScriptDetector` (which local scripts a command runs, and whether it
+escalates straight to stage 2), `ResolvePackageScripts`, the stage 1 client for
+`POST <endpoint>/v1/systemone`, the stage 2 Messages client, `Pipeline.Decide`
+combining them, `Version` (one identifier over the rules, both prompts, the
+cut-off and the model ids) and `StateBuilder`, which turns neutral `Inputs`
+and the disk into the `State` a check is made with. `NewPipeline` assembles
+the parts from an endpoint, a model and an Anthropic key the caller supplies;
+the package reads no environment. A stage 1 failure escalates and a stage 2
+failure blocks. The prompts, rules and cut-off are assets under
+`testdata/assets/`; `guardtest` stands up fake stage servers for tests that run
+a session through the guard. Depends on `internal/providerhttp`; it imports
+neither `internal/store` nor `internal/session`.
+`../docs/plans/agent-harness-guard.md` is the hand-off it implements.
 
 ### `internal/fold`
 Folds the event log into the wire `messages` array (`internal/wire`'s
@@ -423,7 +453,9 @@ which file holds which: the `Store` type and the single-writer loop stay in
 and column migration; `sessions.go` the status vocabulary and session CRUD — including
 `mcp_read_only`, the copy of the per-server read-only allowance a run froze,
 kept beside `permission_mode` and `deny_patterns` so a caller that must hold a
-resume to what the session started with has it;
+resume to what the session started with has it, and `guard`, the autonomy
+guard setting (`GuardSetting`), which unlike those a resume may replace
+(`UpdateSessionGuard`);
 `events.go` the event payload types and the append-only log's queries;
 `mcp.go` is the `mcp_servers` table
 ([`../docs/MCP.md`](../docs/MCP.md)) — CRUD plus `SaveMCPProbe`, whose one

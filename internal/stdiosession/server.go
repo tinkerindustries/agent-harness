@@ -53,6 +53,11 @@ type Options struct {
 
 	Version string
 
+	// Guard, when set, lets a create name harness.guard. Nil refuses the
+	// setting as unsupported, which is what `gemini-session` and
+	// `claude-session` get.
+	Guard *GuardOptions
+
 	// Dialect is the parent-facing vocabulary this process speaks. The
 	// composition point picks it from the subcommand the process was
 	// spawned as; nil is the Responses one, which is what `stdio-session`
@@ -689,6 +694,27 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 		mode = tools.Mode(frozenMode)
 	}
 
+	var guardSetting *store.GuardSetting
+	if p.Harness != nil && p.Harness.Guard != nil || resume {
+		var stored store.GuardSetting
+		permission := mode
+		if resume {
+			sess, rerr := s.storedSession(ctx, sessionID)
+			if rerr != nil {
+				return nil, rerr
+			}
+			stored, permission = sess.Guard, tools.Mode(sess.PermissionMode)
+		}
+		var cfg *GuardConfig
+		if p.Harness != nil {
+			cfg = p.Harness.Guard
+		}
+		var rerr *rpcError
+		if guardSetting, rerr = s.resolveGuard(cfg, stored, permission); rerr != nil {
+			return nil, rerr
+		}
+	}
+
 	host, rerr := s.buildTools(ctx, p.Tools)
 	if rerr != nil {
 		return nil, rerr
@@ -713,6 +739,7 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 		description:     harnessString(p.Harness, func(h *CreateHarness) string { return h.Description }),
 		stream:          p.Stream,
 		host:            host,
+		guard:           guardSetting,
 	})
 }
 
@@ -734,6 +761,9 @@ type beginRunParams struct {
 	messageID, title, description string
 	stream                        *bool
 	host                          *hostTools
+	// guard is the autonomy guard setting the create named. Nil leaves a
+	// resumed session's stored setting in force and starts a new one with none.
+	guard *store.GuardSetting
 	// notices are the background_finished events the run is starting to
 	// deliver. Only a wake passes any: the run has no create body to carry a
 	// user message, so the notice is fed to the translator before the loop
@@ -856,6 +886,9 @@ func (s *Server) beginRun(ctx context.Context, p beginRunParams) (any, *rpcError
 	if len(p.resultSchema) > 0 {
 		opts.ResultSchema = p.resultSchema
 	}
+	if p.guard != nil {
+		opts.Guard = *p.guard
+	}
 
 	go func() {
 		defer close(it.done)
@@ -867,6 +900,7 @@ func (s *Server) beginRun(ctx context.Context, p beginRunParams) (any, *rpcError
 			res, err = s.opts.Runner.Resume(runCtx, session.ResumeOptions{
 				SessionID: p.sessionID, Prompt: p.prompt,
 				MaxTokens: opts.MaxTokens,
+				Guard:     p.guard,
 				Shells:    shells,
 			})
 		} else {

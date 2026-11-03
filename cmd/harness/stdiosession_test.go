@@ -528,3 +528,58 @@ func TestGeminiSessionNeverDefaultsToClaude(t *testing.T) {
 		t.Error("gemini-session accepted -model " + defaultClaudeSessionModel)
 	}
 }
+
+// guardCreate drives one process through initialize and a create that names
+// harness.guard, and returns the create's JSON-RPC error code and message.
+func guardCreate(t *testing.T, invoked, method string, env map[string]string) (int, string) {
+	t.Helper()
+	clearKeyEnv(t)
+	for k, v := range env {
+		t.Setenv(k, v)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	create := `{"jsonrpc":"2.0","id":2,"method":"` + method + `","params":{"input":"hi",` +
+		`"harness":{"cwd":"` + t.TempDir() + `","permission_mode":"full",` +
+		`"guard":{"mode":"shadow","stage1_endpoint":"http://127.0.0.1:1"}}}}`
+	in := strings.NewReader(
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"client_info":{"name":"test"},"capabilities":{}}}` + "\n" +
+			`{"jsonrpc":"2.0","method":"initialized","params":{}}` + "\n" +
+			create + "\n")
+	var out bytes.Buffer
+	if err := runStdioSession(ctx, invoked, []string{"-state-dir", t.TempDir()}, in, &out); err != nil {
+		t.Fatalf("runStdioSession: %v", err)
+	}
+	for _, line := range strings.Split(out.String(), "\n") {
+		var frame struct {
+			ID    int `json:"id"`
+			Error *struct {
+				Code    int    `json:"code"`
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if json.Unmarshal([]byte(line), &frame) == nil && frame.ID == 2 {
+			if frame.Error == nil {
+				t.Fatalf("the create succeeded: %s", line)
+			}
+			return frame.Error.Code, frame.Error.Message
+		}
+	}
+	t.Fatalf("no answer to the create in %q", out.String())
+	return 0, ""
+}
+
+func TestStdioSessionRefusesAGuardWithoutTheAnthropicKey(t *testing.T) {
+	code, message := guardCreate(t, "stdio-session", "responses.create", map[string]string{"DEEPSEEK_API_KEY": "sk-test"})
+	if code != -32003 || !strings.Contains(message, "ANTHROPIC_API_KEY") {
+		t.Fatalf("create = %d %q, want -32003 naming ANTHROPIC_API_KEY", code, message)
+	}
+}
+
+func TestGeminiSessionRefusesAGuardSetting(t *testing.T) {
+	code, message := guardCreate(t, "gemini-session", "interactions.create", map[string]string{"GEMINI_API_KEY": "gk-test", "ANTHROPIC_API_KEY": "ak-test"})
+	if code != -32004 || !strings.Contains(message, "harness.guard") {
+		t.Fatalf("create = %d %q, want -32004 naming harness.guard", code, message)
+	}
+}
