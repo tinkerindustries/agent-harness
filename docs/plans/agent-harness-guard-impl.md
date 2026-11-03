@@ -38,7 +38,7 @@ and cut-off belong to classifier-research and are not restated here.
 | Phase | Name | Depends on | Runs beside |
 |---|---|---|---|
 | 1 | Port rules, script detection and package scripts | nothing, but see Open questions | 2 |
-| 2 | Stage clients, pipeline and guard version | nothing, but see Open questions | 1 |
+| 2 | Stage clients, pipeline and guard version | nothing | 1 |
 | 3 | Session state, decision record and the `harness.guard` frame | 1, 2 | |
 | 4 | The `create` setting, the executor hook and the modes | 3 | |
 
@@ -81,7 +81,7 @@ Reading session state, calling a model and anything under `internal/session` or 
 
 ### Phase 2: Stage clients, pipeline and guard version
 
-**Depends on**: nothing in this plan. The guard assets have to be committed first (see Open questions).
+**Depends on**: nothing in this plan. The guard assets are committed under `internal/guard/testdata/assets/`.
 
 **What it builds**
 
@@ -199,18 +199,21 @@ Selecting `enforce`, any change to a rule, prompt or cut-off, and Turret's use o
 
 ## Open questions
 
-- **Before phases 1 and 2 can start**, a classifier-research session commits two sets of files onto the feature
-  branch. Neither exists in this repo. The orchestrator checks they are present before spawning, and does not
-  spawn the phase if they are not. The parity fixtures go under `internal/guard/testdata/parity/`, exported
-  from `autonomy-actions` only, covering `check`, `executed_scripts`, `escalation_reasons` and
-  `package_scripts`. The guard assets go under `internal/guard/testdata/assets/`: the stage 1 prompt, the stage
-  1 state fields, the stage 2 prompt, schema and request shape, the cut-off and the model ids, as the hand-off's
-  "Source of truth" table names them. The hand-off links to `autonomy-guard.md` and `AUTONOMY-STAGE2-PROMPT.md`,
-  and neither is in this repo. Owner: Geoff, through classifier-research.
-- The fixture and asset file formats are whatever classifier-research exports. Phases 1 and 2 read them as
-  found. If a format is ambiguous, the agent asks the orchestrator and does not guess.
-- Per-stage timeouts and the stage 1 `keep_alive` are not in this repo. Phase 2 takes them from the guard assets
-  and uses a stated default when the assets give none. Owner: Geoff.
+- **Before phase 1 can start**, a classifier-research session commits the parity fixtures under
+  `internal/guard/testdata/parity/`, exported from `autonomy-actions` only, covering `check`,
+  `executed_scripts`, `escalation_reasons` and `package_scripts`. They do not exist yet, and the exporter has to
+  be written in classifier-research first. The orchestrator checks they are present before spawning phase 1.
+  Owner: Geoff, through classifier-research.
+- The guard assets are committed under `internal/guard/testdata/assets/`, with a README that names each file's
+  origin and the values that are not in a file (the cut-off, the stage 1 request, latency figures). They include
+  the Python sources phase 1 ports. The Ollama server's address and the guard results document are not in
+  them, because this repository is public. Phase 2 can start now.
+- The fixture file format is whatever classifier-research exports. Phase 1 reads it as found. If the format is
+  ambiguous, the agent asks the orchestrator and does not guess.
+- The evals set no per-stage deadline. Phase 2 picks defaults from the latency figures in the assets README and
+  states them in its PR body. Owner: Geoff, to confirm them before a parent turns shadow on.
+- The guard's prompts and rules are in a public repository once phases 1 and 2 land. That is inherent in a Go
+  port, and it lets anyone read what the guard blocks. Owner: Geoff.
 - Modification time as the origin signal for files a `bash` command wrote is a weaker signal than the evals
   had. Shadow records show how often it matters. Owner: Geoff, after shadow data exists.
 - The plan accepts the hand-off's fallback when stage 1 is unreachable: every command goes to stage 2. Whether

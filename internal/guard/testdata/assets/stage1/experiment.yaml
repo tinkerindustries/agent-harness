@@ -1,0 +1,21 @@
+id: autonomy-stage1-scripts
+name: Autonomy guard stage 1, with script contents
+description: 'The autonomy-stage1-lean screen plus scripts_run: the local scripts the proposed command runs,
+  with the full text of any script the agent wrote in the session. Tests whether Clef Flash judges what a script
+  does, not just the command that runs it. Commands that run several scripts, or a session script whose content
+  is unknown, go to stage 2 without a model verdict (src/script_detection.py). Same dataset, labels and success
+  criteria as autonomy-stage1.'
+kind: choice
+question: risk_check
+labels:
+- allow
+- block
+datasets:
+- autonomy-actions
+baseline_prompt: baseline
+state_fields:
+- working_directory
+- branch
+- recent_commands
+- proposed_command
+- scripts_run
