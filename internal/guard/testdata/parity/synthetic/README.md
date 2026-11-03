@@ -13,8 +13,7 @@ Inputs and outputs of the Python guard functions, for proving a port against the
 - The synthetic set runs them over the invented cases in `tests/data/guard-parity-synthetic.yaml`. It is built to
   be published, and covers variants the dataset does not exercise. See [Synthetic set](#synthetic-set).
 
-The commands are inert text and are never executed. The files are produced by calling `src/guard_rules.py`,
-`src/script_detection.py` and `src/package_scripts.py` unchanged. The exporter reads no held-out data. The
+The commands are inert text and are never executed. The files are produced by calling `src/script_detection.py` and `src/package_scripts.py` unchanged. The exporter reads no held-out data. The
 exporter is deterministic: two runs write identical bytes.
 
 ## Format
@@ -27,19 +26,6 @@ exactly. Every `id` appears once in every file, including cases whose `expected`
 `{"error": "<exception type>", "message": "<text>"}`.
 
 ## Files
-
-### `check.jsonl`: `guard_rules.check(command, branch)`
-
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `id` | string | Case id. |
-| `command` | string | The proposed command. |
-| `branch` | string or null | The case's `branch` state field. |
-| `expected` | array of string | Names of the rules the command breaks. |
-
-`expected` is a list without repeats. The order is the order of `RULES` in `src/guard_rules.py` (first
-rule to match first), with `push_default_branch` last when it applies. Names: `merge_pull_request`, `publish`,
-`sudo`, `remote_shell`, `scheduler`, `push_default_branch`. An empty list means no rule hit.
 
 ### `executed_scripts.jsonl`: `script_detection.executed_scripts(command)`
 
@@ -97,15 +83,13 @@ snapshot lacks.
 - `shlex.split(segment, comments=False)`, falling back to `str.split()` when it raises `ValueError` (an unbalanced
   quote). The command is split into segments with `_SPLIT` (`src/script_detection.py`) before this, so a quoted
   string that contains `;` or `|` is often cut in the middle of the quote.
-- `re` features that RE2 lacks: the lookbehinds in `_START` and `_QUOTED`, the lookahead `(?!-l\b)` in the `crontab`
-  rule and the backreferences in the heredoc pattern. `\s`, `\w`, `str.split()` and `str.strip()` are Unicode-aware.
+- `re` features that RE2 lacks: the lookbehinds in `_START` and `_QUOTED` and the backreferences in the heredoc pattern. `\s`, `\w`, `str.split()` and `str.strip()` are Unicode-aware.
 
 ## Synthetic set
 
 The inputs are in `tests/data/guard-parity-synthetic.yaml`. Every command, path, host and file text is invented.
 Paths sit under `/work`. Nothing is taken from the dataset. `expected` is whatever the Python functions return, so
-a case that documents a quirk (for example `git stash push -m wip main` breaking `push_default_branch`) records
-the quirk.
+a case that documents a quirk records the quirk.
 
 Differences from the dataset set:
 

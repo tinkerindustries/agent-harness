@@ -30,12 +30,13 @@ type GuardDecider interface {
 	Decide(ctx context.Context, state guard.State) guard.Decision
 }
 
-// GuardFactory builds the decider for a session's guard setting. cmd/harness
-// supplies it, since it holds the Anthropic credential and the stage clients.
-type GuardFactory func(setting store.GuardSetting) (GuardDecider, error)
+// GuardFactory builds the decider for a session's guard setting and the policy
+// bundle the process holds for it. cmd/harness supplies it, since it holds the
+// Anthropic credential and the stage clients.
+type GuardFactory func(setting store.GuardSetting, bundle *guard.Bundle) (GuardDecider, error)
 
 // runGuard is the tools.Guard a run's Executor carries. It lives for one run;
-// a `task` subagent builds its own from the same setting.
+// a `task` subagent builds its own from the same setting and bundle.
 type runGuard struct {
 	runner  *Runner
 	decider GuardDecider
@@ -47,18 +48,24 @@ type runGuard struct {
 // newRunGuard returns the guard for a run under setting and permission mode,
 // or nil when the run is not screened: the setting is off, or the session
 // cannot run `bash` at all.
-func (r *Runner) newRunGuard(setting store.GuardSetting, mode tools.Mode) (*runGuard, error) {
+func (r *Runner) newRunGuard(setting store.GuardSetting, bundle *guard.Bundle, mode tools.Mode) (*runGuard, error) {
 	if !setting.Active() || mode != tools.ModeFull {
 		return nil, nil
 	}
 	if r.Guards == nil {
 		return nil, fmt.Errorf("session: the autonomy guard is %s but this runner has no guard configured", setting.Mode)
 	}
-	decider, err := r.Guards(setting)
+	if bundle == nil {
+		return nil, fmt.Errorf("session: the autonomy guard is %s but no policy bundle was supplied", setting.Mode)
+	}
+	decider, err := r.Guards(setting, bundle)
 	if err != nil {
 		return nil, fmt.Errorf("session: build the autonomy guard: %w", err)
 	}
-	return &runGuard{runner: r, decider: decider, mode: setting.Mode}, nil
+	return &runGuard{
+		runner: r, decider: decider, mode: setting.Mode,
+		builder: guard.StateBuilder{Fields: bundle.StateFields()},
+	}, nil
 }
 
 type guardCtxKey struct{}

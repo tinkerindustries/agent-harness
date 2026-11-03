@@ -7,7 +7,7 @@ func TestSessionGuardSettingRoundTripsAndCanBeReplaced(t *testing.T) {
 	ctx := t.Context()
 	base := Session{ID: "sess_g", Model: "m", Effort: "high", Workspace: "/w", PermissionMode: "full"}
 
-	want := GuardSetting{Mode: GuardModeShadow, Stage1Endpoint: "http://stage1.invalid", Stage2Model: "claude-haiku-5-5"}
+	want := GuardSetting{Mode: GuardModeShadow, Stage1Endpoint: "http://stage1.invalid", PolicyHash: "abc123"}
 	withGuard := base
 	withGuard.Guard = want
 	if err := s.CreateSession(ctx, withGuard); err != nil {

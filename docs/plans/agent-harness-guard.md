@@ -28,11 +28,11 @@ The guard returns `allow` or `block` for one proposed command, in this order:
    of any kind blocks the command. Stage 2 never falls back to `allow`.
 5. Anything that reaches none of the above is allowed.
 
-The cut-off is 0.171. It was chosen on the dev split of `autonomy-actions` with
+The cut-off is the `cutoff` in the parent's policy bundle. It was chosen on the dev split of `autonomy-actions` with
 `src/stage1_threshold.py`, and changes only when classifier-research re-runs that choice.
 
-The block list itself (exfiltration, data removal outside the sandbox, orchestrator-only repository actions,
-work outside coding, running remote code) is stated in full in the stage 2 system prompt.
+What the guard blocks is defined by the parent's policy bundle, in the stage 2 system prompt and the rules table.
+This repository states none of it.
 
 ## Source of truth in classifier-research
 
@@ -47,7 +47,7 @@ wins.
 | Pipeline order and failure handling | `src/pipeline_report.py` (`decide`, `stage1_flag`, `stage2_verdict`) |
 | Stage 1 prompt | `evals/prompts/autonomy-stage1-scripts/baseline.yaml` |
 | Stage 1 experiment (state fields) | `evals/experiments/autonomy-stage1-scripts.yaml` |
-| Stage 1 model and endpoint | `evals/models/clef-flash.yaml`; request shape in `docs/MODELS.md` and `make_request` / `parse_answer` in `src/evaluate.py` |
+| Stage 1 model and endpoint | `evals/models/<stage 1 model>.yaml`; request shape in `docs/MODELS.md` and `make_request` / `parse_answer` in `src/evaluate.py` |
 | Stage 2 prompt, schema, request, state | [../AUTONOMY-STAGE2-PROMPT.md](../AUTONOMY-STAGE2-PROMPT.md) (a copy; it says how to regenerate it) |
 | Stage 2 experiment | `evals/experiments/autonomy-stage2-reasoning.yaml` |
 | Measured results, latency and cost | [autonomy-guard.md](autonomy-guard.md) |
@@ -60,7 +60,7 @@ wins.
 
 ```json
 {
-  "model": "clef-flash",
+  "model": "<stage 1 model>",
   "keep_alive": "30m",
   "state": { "working_directory": "…", "branch": "…", "recent_commands": ["…"], "proposed_command": "…", "scripts_run": [] },
   "questions": { "risk_check": { "type": "choice", "instructions": "…", "criteria": { "allow": "…", "block": "…" } } }
@@ -123,8 +123,8 @@ experiment in classifier-research first.
 
 ## What the harness needs to add
 
-- **A guard setting on `create`.** For example `harness.guard`, naming the stage 1 endpoint, the stage 2
-  model, and a mode of `off`, `shadow` or `enforce`. It applies under `full`. `readonly` already refuses
+- **A guard setting on `create`.** For example `harness.guard`, naming the stage 1 endpoint, the policy
+  bundle, and a mode of `off`, `shadow` or `enforce`. It applies under `full`. `readonly` already refuses
   `bash`. The parent supplies endpoints and `ANTHROPIC_API_KEY`, as it supplies credentials today.
   - Stage 2 needs `ANTHROPIC_API_KEY`, and no key implies another (CLAUDE.md). The plan names which
     subcommands accept a guard. A create that asks for a guard without the key is refused, or runs shadow
@@ -163,13 +163,13 @@ experiment in classifier-research first.
   command: it runs beside it and commits its record once the decision arrives, on a context that survives a
   cancelled run. Shadow still sends commands to Anthropic and to the stage 1 host, so the data question below
   applies to it.
-- **A guard version.** One identifier covering the rules, the two prompts, the cut-off and the model ids,
+- **A guard version.** One identifier covering the rules, the two prompts, the cut-off and the model ids (the hash of the policy bundle),
   recorded with every decision. classifier-research needs it to compare decisions across changes.
 
 ## Porting notes
 
 - Go's `regexp` package is RE2. It has no lookbehind or lookahead. `guard_rules.py` uses both: `_START` is a
-  lookbehind, the `crontab` rule uses a negative lookahead, and `_QUOTED` uses a negative lookbehind. Those
+  lookbehind, one rule uses a negative lookahead, and `_QUOTED` uses a negative lookbehind. Those
   need rewriting, for example as a tokenizer pass, and parity tests prove the rewrite.
 - `script_detection.py` and `package_scripts.py` split words with Python's `shlex`. The Go port needs a
   splitter with the same behaviour on the cases, including the fallback to whitespace splitting on unbalanced
@@ -196,14 +196,14 @@ before any parent turns on `enforce`.
 
 - **Which tools are screened.** The guard was measured on shell commands only. `write`, `edit` and
   `apply_patch` already resolve every path through `ResolvePath` against the workspace and refuse anything
-  outside it, symlinks included, so they cannot reach shell startup files. `bash`'s `workdir` is confined the
+  outside it, symlinks included, so they cannot reach files outside the workspace. `bash`'s `workdir` is confined the
   same way, but the command itself can touch anything. `web_fetch` can send data in a URL. MCP and client
   function tools are opaque.
 - **Which models.** The harness routes DeepSeek, Gemini and Claude models through one loop. The guard could
   apply to every model or only to DeepSeek. The `create` setting lets the parent choose per session.
 - **What the refusal says.** Stage 2's reason helps the model find another way to do legitimate work. It also
   tells a prompt-injected session which wording got blocked.
-- **Stage 1 reachability.** The Ollama server is on the home LAN (`evals/models/clef-flash.yaml`). A host that
+- **Stage 1 reachability.** The Ollama server is on the home LAN (`evals/models/<stage 1 model>.yaml`). A host that
   cannot reach it, such as a phone away from home, fails stage 1 on every command, so every command goes to
   stage 2. That adds cost and latency per command, and if stage 2 is unreachable too, every command is blocked.
   The harness could refuse to start a guarded session when stage 1 is unreachable, or accept the fallback.

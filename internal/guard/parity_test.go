@@ -3,7 +3,6 @@ package guard
 import (
 	"bufio"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -16,7 +15,10 @@ import (
 // The synthetic set is committed. The full set holds private commands, so a
 // failure on it names the case id, the file and the field and nothing else.
 
-const parityEnv = "GUARD_PARITY_DIR"
+const (
+	parityEnv = "GUARD_PARITY_DIR"
+	policyEnv = "GUARD_POLICY_FILE"
+)
 
 type parityRow struct {
 	ID               string                     `json:"id"`
@@ -125,7 +127,10 @@ func (s *snapshotFS) ReadText(p string) (string, error) {
 	return text, nil
 }
 
-func runParity(t *testing.T, dir string) {
+// runParity checks the functions that stay in code against the fixtures in
+// dir. When rules is set it also checks the rule checker built from the
+// private bundle against dir's check.jsonl.
+func runParity(t *testing.T, dir string, rules *Rules) {
 	counts := map[string]int{}
 	check := func(file string, rows []parityRow, got func(parityRow) any) {
 		for _, row := range rows {
@@ -141,13 +146,15 @@ func runParity(t *testing.T, dir string) {
 		}
 	}
 
-	check("check", readParityRows(t, dir, "check"), func(r parityRow) any {
-		branch := ""
-		if r.Branch != nil {
-			branch = *r.Branch
-		}
-		return normalise(t, stringList(NewRules().CheckRules(r.Command, branch)))
-	})
+	if rules != nil {
+		check("check", readParityRows(t, dir, "check"), func(r parityRow) any {
+			branch := ""
+			if r.Branch != nil {
+				branch = *r.Branch
+			}
+			return normalise(t, stringList(rules.CheckRules(r.Command, branch)))
+		})
+	}
 	check("executed_scripts", readParityRows(t, dir, "executed_scripts"), func(r parityRow) any {
 		return normalise(t, stringList(ExecutedScripts(r.Command)))
 	})
@@ -180,17 +187,45 @@ func runParity(t *testing.T, dir string) {
 			t.Errorf("%s: no cases read", name)
 		}
 	}
-	_ = fmt.Sprint
 }
 
 func TestParitySynthetic(t *testing.T) {
-	runParity(t, filepath.Join("testdata", "parity", "synthetic"))
+	runParity(t, filepath.Join("testdata", "parity", "synthetic"), nil)
 }
 
+// TestParityFull runs the private export, and the private synthetic check set
+// in its synthetic subdirectory, against the converted bundle.
 func TestParityFull(t *testing.T) {
-	dir := os.Getenv(parityEnv)
-	if dir == "" {
-		t.Skipf("%s is not set; the full parity export is local only, so this run covers the synthetic set alone", parityEnv)
+	dir, policy := os.Getenv(parityEnv), os.Getenv(policyEnv)
+	if dir == "" || policy == "" {
+		t.Skipf("%s and %s are not set; the private parity run is local only", parityEnv, policyEnv)
 	}
-	runParity(t, dir)
+	data, err := os.ReadFile(policy)
+	if err != nil {
+		t.Fatalf("read the policy file: %v", err)
+	}
+	bundle, err := LoadBundle(data)
+	if err != nil {
+		t.Fatalf("load the policy file: %v", err)
+	}
+	rules := bundle.Rules()
+	t.Run("export", func(t *testing.T) { runParity(t, dir, &rules) })
+	t.Run("synthetic check", func(t *testing.T) {
+		counts := 0
+		for _, row := range readParityRows(t, filepath.Join(dir, "synthetic"), "check") {
+			counts++
+			branch := ""
+			if row.Branch != nil {
+				branch = *row.Branch
+			}
+			got := normalise(t, stringList(rules.CheckRules(row.Command, branch)))
+			if !reflect.DeepEqual(row.Expected, got) {
+				t.Errorf("case %s in synthetic check: field expected differs from the port's result", row.ID)
+			}
+		}
+		if counts == 0 {
+			t.Error("synthetic check: no cases read")
+		}
+		t.Logf("synthetic check: %d cases", counts)
+	})
 }

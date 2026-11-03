@@ -29,7 +29,7 @@ func TestResponsesTranslatorEmitsGuardDecision(t *testing.T) {
 	event := guardEventFor(t, store.GuardDecisionPayload{
 		ToolCallID: "call_7", Mode: "shadow", GuardVersion: "v-test", Verdict: "block", DecidedBy: "stage2",
 		PBlock: &pb, Escalation: []string{"unscreened_script"}, Stage2Ran: true,
-		Stage2Model: "claude-haiku-5-5", Stage2Reason: "pushes to the default branch",
+		Stage2Model: "invented-stage2-model", Stage2Reason: "an invented reason",
 		Stage2Usage:     &store.GuardUsage{InputTokens: 10, OutputTokens: 20, CacheCreationInputTokens: 30, CacheReadInputTokens: 40},
 		Stage2LatencyMs: 900, LatencyMs: 950,
 	})
@@ -51,7 +51,7 @@ func TestResponsesTranslatorEmitsGuardDecision(t *testing.T) {
 	if err := json.Unmarshal(raw, &got); err != nil {
 		t.Fatal(err)
 	}
-	want := `{"call_id":"call_7","guard":{"decided_by":"stage2","escalation":["unscreened_script"],"guard_version":"v-test","latency_ms":950,"mode":"shadow","p_block":0.42,"stage2":{"latency_ms":900,"model":"claude-haiku-5-5","reason":"pushes to the default branch","usage":{"cache_creation_input_tokens":30,"cache_read_input_tokens":40,"input_tokens":10,"output_tokens":20}},"verdict":"block"},"response_id":"resp_1","sequence_number":0,"type":"harness.guard"}`
+	want := `{"call_id":"call_7","guard":{"decided_by":"stage2","escalation":["unscreened_script"],"guard_version":"v-test","latency_ms":950,"mode":"shadow","p_block":0.42,"stage2":{"latency_ms":900,"model":"invented-stage2-model","reason":"an invented reason","usage":{"cache_creation_input_tokens":30,"cache_read_input_tokens":40,"input_tokens":10,"output_tokens":20}},"verdict":"block"},"response_id":"resp_1","sequence_number":0,"type":"harness.guard"}`
 	wantMap := map[string]any{}
 	if err := json.Unmarshal([]byte(want), &wantMap); err != nil {
 		t.Fatal(err)

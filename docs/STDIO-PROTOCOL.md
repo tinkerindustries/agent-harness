@@ -503,7 +503,7 @@ The Responses API's create-response body, narrowed, plus a `harness` block.
 | `harness.resume_session_id` | no | Continue that session, read out of the state directory. See [Resuming across process restarts](#resuming-across-process-restarts). |
 | `harness.permission_mode` | no | `readonly` (default) or `full`. See [Permissions](#permissions). |
 | `harness.deny` | no | Substring patterns matched against a call's descriptor. Only ever subtracts from what the mode allows. |
-| `harness.guard` | no | `{mode, stage1_endpoint, stage2_model}`: the autonomy guard that screens `bash` calls under `full`. See [The autonomy guard](#the-autonomy-guard). `gemini-session` and `claude-session` refuse it with `-32004`. |
+| `harness.guard` | no | `{mode, stage1_endpoint, policy}`: the autonomy guard that screens `bash` calls under `full`. `policy` is the parent's policy bundle. See [The autonomy guard](#the-autonomy-guard). `gemini-session` and `claude-session` refuse it with `-32004`. |
 | `harness.max_sub_turns` | — | **Refused** with `-32004`, whatever its value. See [No sub-turn ceiling](#no-sub-turn-ceiling). |
 | `harness.message_id` | no | Echoed on the user message item this input becomes. |
 | `harness.title`, `harness.description` | no | Name the run in this harness's own records. |
@@ -808,7 +808,7 @@ the `function_call` item it screened:
            "verdict": "block", "decided_by": "stage2",
            "escalation": ["unscreened_script"],
            "p_block": 0.42,
-           "stage2": {"model": "claude-haiku-5-5",
+           "stage2": {"model": "…",
                       "reason": "…", "latency_ms": 900,
                       "usage": {"input_tokens": 10, "output_tokens": 20,
                                 "cache_creation_input_tokens": 30,
@@ -825,11 +825,11 @@ matches it to the call by `call_id` and does not assume an order against the
 | Field | Meaning |
 | --- | --- |
 | `mode` | `shadow` (the command runs whatever the verdict) or `enforce` (a `block` refuses the command). |
-| `guard_version` | An identifier that changes when the rules, either prompt, the stage 1 cut-off or either model id changes. |
+| `guard_version` | The hash of the policy bundle in force, which changes when any part of the bundle changes. |
 | `verdict` | `allow` or `block`. |
 | `decided_by` | `rules`, `stage1` or `stage2`. |
 | `rules` | The names of the rules that hit. Present when `decided_by` is `rules`. |
-| `escalation` | Why the command skipped stage 1 for stage 2. Absent when it did not. |
+| `escalation` | Why the command skipped stage 1 for stage 2, including `no_stage1` when the policy has no stage 1. Absent when it did not. |
 | `p_block` | Stage 1's probability of `block`. Absent when stage 1 did not run or failed. |
 | `stage1_error` | Why stage 1 failed, when it did. The command then went to stage 2. |
 | `stage1_latency_ms` | Stage 1's wall time, when it ran. |
@@ -1021,8 +1021,8 @@ differently is `-32602` rather than a silent override. Sending them unchanged
 is fine.
 
 `harness.guard` is the exception: it is outside the prefix, so a resuming
-create may name a different one. A create that names none keeps the stored
-setting. See [The autonomy guard](#the-autonomy-guard).
+create may name a different one, and send a different policy bundle with it. A
+create that names none keeps the stored setting. See [The autonomy guard](#the-autonomy-guard).
 
 ### The tools have to come back
 
@@ -1108,24 +1108,53 @@ gives it to decide with.
 ### The autonomy guard
 
 `harness.guard` on a `stdio-session` create screens the session's `bash` calls
-before they run:
+before they run. The harness supplies the mechanism and the parent supplies the
+policy: what the guard allows and blocks is defined by the policy bundle the
+parent sends in `policy`, and nothing in this repository states it.
 
 ```jsonc
 "harness": {"cwd": "/work", "permission_mode": "full",
             "guard": {"mode": "shadow",
                       "stage1_endpoint": "http://classifier.example:11434",
-                      "stage2_model": "claude-haiku-5-5"}}
+                      "policy": { /* the parent's policy bundle */ }}}
 ```
 
 | Field | Meaning |
 | --- | --- |
 | `mode` | Required. `off`, `shadow` or `enforce`. A create naming `enforce` is refused with `-32004`: no parent can select it yet. |
-| `stage1_endpoint` | The host stage 1 posts to (`<endpoint>/v1/systemone`). An `http` or `https` URL. Required with `shadow` unless the session already stores one. |
-| `stage2_model` | The Anthropic model stage 2 asks. Defaults to the stored value, then to `claude-haiku-5-5`. |
+| `stage1_endpoint` | The host stage 1 posts to (`<endpoint>/v1/systemone`). An `http` or `https` URL. Required with an active mode when the policy has a stage 1, unless the session already stores one. A policy with no stage 1 needs none. |
+| `policy` | The policy bundle, a JSON object. Required with an active mode unless this process already holds a bundle for the session. See below. |
 
-The guard applies to `bash` only, and only under `full`. Rules run first, then
-the stage 1 classifier, then stage 2. A stage 1 failure sends the command to
-stage 2, and a stage 2 failure blocks it. Stage 2 never falls back to `allow`.
+#### The policy bundle
+
+The bundle is the parent's content for the guard. The harness reads these
+parts of it and applies them without interpreting their meaning:
+
+| Part | What the harness does with it |
+| --- | --- |
+| `schema_version` | Refuses a version it does not read. |
+| `cutoff` | The probability at or above which a stage 1 answer escalates to stage 2. Must be a probability. |
+| `stage1` | Optional. `model`, `state_fields` and `questions`. The questions are sent to the stage 1 host as given. Without it every command the rules do not catch goes to stage 2, and a decision records `no_stage1` in `escalation`. |
+| `stage2` | Required. `model`, `effort`, `max_tokens`, `state_fields`, `system` and `schema`. The system prompt and the output schema are sent to Anthropic as given. Stage 2 is never skipped, so a guard never allows on the rules alone. |
+| `state_fields` | Which of `working_directory`, `branch`, `recent_commands`, `proposed_command`, `scripts_run` and `package_scripts` each stage receives, in the order sent. `proposed_command` is always listed. The harness fills only the fields some stage receives. |
+| `rules` | `macros`, a `table` of named rules whose patterns are RE2 expressions anchored at a command start, and `default_branches`. A pattern may carry an `unless_followed_by` exception the matcher checks by hand. The `git push` check uses `default_branches`, and an empty list turns it off. |
+
+A bundle is validated when the create arrives. A bundle the loader refuses
+fails the create with `-32602`, and the message names the field inside it, as
+`harness.guard.policy.<field>: <reason>`. A message never repeats the bundle's
+text. The bundle's hash is the guard version recorded on every decision and in
+the session row.
+
+The bundle is held in the process's memory for the session's life. It is never
+written to the state directory, the session row, a frame or a log. The row
+stores the mode, the stage 1 endpoint and the bundle's hash. A parent that
+resumes a session in a new process sends the bundle again. A create that names
+`policy` with `mode` `off` has the bundle validated and then ignored.
+
+The guard applies to `bash` only, and only under `full`. The rules run first,
+then the stage 1 classifier when the policy has one, then stage 2. A stage 1
+failure sends the command to stage 2, and a stage 2 failure blocks it. Stage 2
+never falls back to `allow`.
 
 In `shadow` the check runs beside the command: the command starts at once and
 the decision is recorded and sent as a `harness.guard` frame when it arrives.
@@ -1145,14 +1174,25 @@ A create is refused when:
   stored;
 - the session is `readonly`, where `bash` is already refused, and `mode` is not
   `off` (`-32602`);
-- `mode` or `stage1_endpoint` is missing or malformed (`-32602`);
+- `mode` is missing or malformed, or `stage1_endpoint` is malformed or missing
+  from a policy that has a stage 1 (`-32602`);
+- `policy` is invalid (`-32602`, naming the field);
+- the mode leaves the guard active and neither the create nor this process
+  supplies a bundle (`-32602`, naming `harness.guard.policy`);
 - the subcommand is `gemini-session` or `claude-session` (`-32004`). Neither
   vocabulary has a frame for the decision.
 
-The setting is stored on the session row, and a `task` subagent and a
-compaction successor start from it. A resuming create or a `previous_response_id`
-continuation that names `harness.guard` replaces the stored setting, and one
-that names none keeps it. `{"mode": "off"}` turns a stored guard off.
+The mode, the endpoint and the bundle's hash are stored on the session row. A
+`task` subagent starts from the setting and the bundle the parent session
+holds. A compaction successor, a background wake and a `previous_response_id`
+continuation use the bundle the process holds for the conversation, so a
+continuation needs to send none. A resuming create or a continuation that names
+`harness.guard` replaces the stored setting. One that sends a `policy` replaces
+the held bundle too, and the decisions it records carry the new bundle's hash as
+their `guard_version`. One that names none keeps both. A resume that leaves the
+guard active in a process that holds no bundle must send one.
+`{"mode": "off"}` turns a stored guard off. `harness.close_session` releases the
+held bundle.
 
 ## Errors
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/mrgeoffrich/agent-harness/internal/cache"
 	"github.com/mrgeoffrich/agent-harness/internal/fold"
+	"github.com/mrgeoffrich/agent-harness/internal/guard"
 	"github.com/mrgeoffrich/agent-harness/internal/skills"
 	"github.com/mrgeoffrich/agent-harness/internal/store"
 	"github.com/mrgeoffrich/agent-harness/internal/tools"
@@ -38,6 +39,9 @@ type ResumeOptions struct {
 	// and is stored in its place. The guard is not part of the cached prefix,
 	// so a resume may change it. Nil keeps the stored setting.
 	Guard *store.GuardSetting
+	// GuardBundle is the policy bundle the guard screens with, whether it came
+	// from this resume or an earlier run in the process. It is never stored.
+	GuardBundle *guard.Bundle
 	// Shells is the session's background-shell registry, the same one Run
 	// was handed, so a bash_id minted before the session went idle is still
 	// readable after it resumes. Nil is the test path: Resume creates a
@@ -121,7 +125,7 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (result *RunRes
 	if err != nil {
 		return nil, err
 	}
-	screen, err := r.newRunGuard(sess.Guard, policy.Mode)
+	screen, err := r.newRunGuard(sess.Guard, opts.GuardBundle, policy.Mode)
 	if err != nil {
 		return nil, err
 	}
@@ -164,6 +168,7 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (result *RunRes
 		MaxTokens:     opts.MaxTokens, Workspace: sess.Workspace,
 		PermissionMode: tools.Mode(sess.PermissionMode), Deny: sess.DenyPatterns,
 		Guard:        sess.Guard,
+		GuardBundle:  opts.GuardBundle,
 		ResultSchema: sess.ResultSchema,
 		ParentID:     sess.ParentID,
 		JobType:      sess.JobType, ParentAgentType: sess.ParentAgentType, ParentAgentID: sess.ParentAgentID,

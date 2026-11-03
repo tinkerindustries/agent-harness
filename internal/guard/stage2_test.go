@@ -3,6 +3,7 @@ package guard
 import (
 	"context"
 	"encoding/json"
+	"github.com/mrgeoffrich/agent-harness/internal/guard/guardtest"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -16,7 +17,7 @@ func stage2Server(t *testing.T, handler http.HandlerFunc) *Stage2Client {
 	t.Helper()
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
-	c, err := NewStage2Client(Stage2Config{BaseURL: srv.URL, APIKey: "sk-test", Timeout: 2 * time.Second, RetryBase: time.Millisecond, RetryMax: 2 * time.Millisecond})
+	c, err := NewStage2Client(Stage2Config{Bundle: mustBundle(t), BaseURL: srv.URL, APIKey: "sk-test", Timeout: 2 * time.Second, RetryBase: time.Millisecond, RetryMax: 2 * time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +55,7 @@ func TestStage2Verdict(t *testing.T) {
 	if gotKey != "sk-test" || gotVersion != "2023-06-01" || gotPath != "/v1/messages" {
 		t.Fatalf("key=%q version=%q path=%q", gotKey, gotVersion, gotPath)
 	}
-	if req["model"] != "claude-haiku-5-5" || req["max_tokens"] != float64(16000) {
+	if req["model"] != guardtest.Stage2Model || req["max_tokens"] != float64(1234) {
 		t.Fatalf("request = %v", req)
 	}
 	if _, ok := req["temperature"]; ok {
@@ -145,7 +146,7 @@ func TestStage2TimeoutCoversRetries(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-release }))
 	defer srv.Close()
 	defer close(release)
-	c, err := NewStage2Client(Stage2Config{BaseURL: srv.URL, APIKey: "k", Timeout: 100 * time.Millisecond, MaxRetries: 3, RetryBase: time.Millisecond, RetryMax: time.Millisecond})
+	c, err := NewStage2Client(Stage2Config{Bundle: mustBundle(t), BaseURL: srv.URL, APIKey: "k", Timeout: 100 * time.Millisecond, MaxRetries: 3, RetryBase: time.Millisecond, RetryMax: time.Millisecond})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,7 +160,34 @@ func TestStage2TimeoutCoversRetries(t *testing.T) {
 }
 
 func TestStage2NeedsKey(t *testing.T) {
-	if _, err := NewStage2Client(Stage2Config{}); err == nil || !strings.Contains(err.Error(), "ANTHROPIC_API_KEY") {
+	if _, err := NewStage2Client(Stage2Config{Bundle: mustBundle(t)}); err == nil || !strings.Contains(err.Error(), "ANTHROPIC_API_KEY") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestStage2SendsTheBundlesContent(t *testing.T) {
+	bundle := mustBundle(t, func(b map[string]any) {
+		section(b, "stage2")["state_fields"] = []any{"proposed_command", "scripts_run", "working_directory"}
+	})
+	c, err := NewStage2Client(Stage2Config{Bundle: bundle, APIKey: "k"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := c.request(State{WorkingDirectory: "/w", Branch: "b", ProposedCommand: "ls", PackageScripts: []PackageScriptEntry{{Runner: "npm"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"model":"` + guardtest.Stage2Model + `","max_tokens":1234,` +
+		`"system":[{"type":"text","text":"Invented system prompt with <angle> & ampersand.","cache_control":{"type":"ephemeral"}}],` +
+		`"messages":[{"role":"user","content":"{\n  \"proposed_command\": \"ls\",\n  \"scripts_run\": [],\n  \"working_directory\": \"/w\"\n}"}],` +
+		`"output_config":{"effort":"low","format":{"type":"json_schema","schema":` + string(bundle.stage2.schema) + `}}}`
+	if string(body) != want {
+		t.Fatalf("body = %s\nwant   %s", body, want)
+	}
+}
+
+func TestStage2NeedsABundle(t *testing.T) {
+	if _, err := NewStage2Client(Stage2Config{APIKey: "k"}); err == nil {
+		t.Fatal("no bundle accepted")
 	}
 }

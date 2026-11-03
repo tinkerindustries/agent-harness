@@ -15,12 +15,6 @@ import (
 )
 
 const (
-	// DefaultStage2Model is the stage 2 reviewer.
-	DefaultStage2Model = "claude-haiku-5-5"
-	// Stage2Effort is the output_config effort the evals ran at.
-	Stage2Effort = "medium"
-	// Stage2MaxTokens is the evals' max_tokens.
-	Stage2MaxTokens = 16000
 	// DefaultStage2BaseURL is the Anthropic API host.
 	DefaultStage2BaseURL = "https://api.anthropic.com"
 	// DefaultStage2Timeout covers the request and its retries. The evals measured
@@ -42,7 +36,9 @@ type Stage2Config struct {
 	// APIKey is supplied by the caller. The package never reads the environment.
 	APIKey     string
 	HTTPClient *http.Client
-	Model      string
+	// Bundle supplies the model, effort, token limit, prompt, schema and
+	// state fields.
+	Bundle *Bundle
 	// Timeout bounds one Review call including every retry.
 	Timeout    time.Duration
 	MaxRetries int
@@ -57,6 +53,9 @@ type Stage2Client struct {
 	timeout   time.Duration
 	system    string
 	schema    json.RawMessage
+	effort    string
+	maxTokens int
+	fields    []string
 }
 
 // NewStage2Client builds a client. It fails when APIKey is empty.
@@ -64,19 +63,16 @@ func NewStage2Client(cfg Stage2Config) (*Stage2Client, error) {
 	if strings.TrimSpace(cfg.APIKey) == "" {
 		return nil, ErrNoAnthropicKey
 	}
-	p, err := loadPrompts()
-	if err != nil {
-		return nil, err
+	if cfg.Bundle == nil {
+		return nil, errors.New("guard: stage 2 needs a policy")
 	}
+	policy := cfg.Bundle.stage2
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = DefaultStage2BaseURL
 	}
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
 		httpClient = &http.Client{}
-	}
-	if cfg.Model == "" {
-		cfg.Model = DefaultStage2Model
 	}
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = DefaultStage2Timeout
@@ -109,10 +105,13 @@ func NewStage2Client(cfg Stage2Config) (*Stage2Client, error) {
 				req.Header.Set("anthropic-version", anthropicVersion)
 			},
 		},
-		model:   cfg.Model,
-		timeout: cfg.Timeout,
-		system:  p.Stage2System,
-		schema:  p.Stage2Schema,
+		model:     policy.model,
+		timeout:   cfg.Timeout,
+		system:    policy.system,
+		schema:    policy.schema,
+		effort:    policy.effort,
+		maxTokens: policy.maxTokens,
+		fields:    policy.fields,
 	}, nil
 }
 
@@ -169,17 +168,17 @@ type stage2Format struct {
 }
 
 func (c *Stage2Client) request(state State) ([]byte, error) {
-	text, err := state.stage2Text()
+	text, err := state.indented(c.fields)
 	if err != nil {
 		return nil, err
 	}
 	return marshalNoEscape(stage2Request{
 		Model:     c.model,
-		MaxTokens: Stage2MaxTokens,
+		MaxTokens: c.maxTokens,
 		System:    []stage2System{{Type: "text", Text: c.system, CacheControl: cacheControl{Type: "ephemeral"}}},
 		Messages:  []stage2Message{{Role: "user", Content: text}},
 		OutputConfig: stage2OutputConf{
-			Effort: Stage2Effort,
+			Effort: c.effort,
 			Format: stage2Format{Type: "json_schema", Schema: c.schema},
 		},
 	})

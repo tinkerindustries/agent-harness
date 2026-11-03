@@ -9,6 +9,9 @@ import (
 const (
 	EscalationSeveralScripts   = "runs_several_scripts"
 	EscalationUnscreenedScript = "unscreened_script"
+	// EscalationNoStage1 is added by the pipeline, not the detector, when the
+	// policy has no stage 1.
+	EscalationNoStage1 = "no_stage1"
 )
 
 var (

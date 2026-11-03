@@ -43,9 +43,9 @@ func v2(decision string) *fakeStage2 {
 
 func TestPipelineRuleHitBlocksWithoutModels(t *testing.T) {
 	s1, s2 := p1(0), v2("allow")
-	p := &Pipeline{Rules: fakeRules{"no-sudo"}, Escalation: fakeEscalator{"x"}, Stage1: s1, Stage2: s2, GuardVersion: "v1"}
-	d := p.Decide(context.Background(), State{ProposedCommand: "sudo ls"})
-	if d.Verdict != VerdictBlock || d.DecidedBy != DecidedByRules || len(d.Rules) != 1 || d.Rules[0] != "no-sudo" {
+	p := &Pipeline{Rules: fakeRules{"no-elevate"}, Escalation: fakeEscalator{"x"}, Stage1: s1, Stage2: s2, GuardVersion: "v1"}
+	d := p.Decide(context.Background(), State{ProposedCommand: "elevate ls"})
+	if d.Verdict != VerdictBlock || d.DecidedBy != DecidedByRules || len(d.Rules) != 1 || d.Rules[0] != "no-elevate" {
 		t.Fatalf("d = %+v", d)
 	}
 	if s1.calls+s2.calls != 0 || d.Stage2Ran || d.GuardVersion != "v1" {
@@ -70,7 +70,7 @@ func TestPipelineEscalationSkipsStage1(t *testing.T) {
 
 func TestPipelineStage1BelowCutoffAllows(t *testing.T) {
 	s2 := v2("block")
-	p := &Pipeline{Rules: fakeRules(nil), Escalation: fakeEscalator(nil), Stage1: p1(0.05), Stage2: s2}
+	p := &Pipeline{Rules: fakeRules(nil), Escalation: fakeEscalator(nil), Stage1: p1(0.05), Stage2: s2, Cutoff: 0.25}
 	d := p.Decide(context.Background(), State{})
 	if d.Verdict != VerdictAllow || d.DecidedBy != DecidedByStage1 || s2.calls != 0 || d.Stage2Ran {
 		t.Fatalf("d = %+v", d)
@@ -85,9 +85,9 @@ func TestPipelineCutoffIsInclusive(t *testing.T) {
 		pb      float64
 		stage2  bool
 		verdict string
-	}{{0.170999, false, VerdictAllow}, {0.171, true, VerdictAllow}, {0.9, true, VerdictAllow}} {
+	}{{0.249999, false, VerdictAllow}, {0.25, true, VerdictAllow}, {0.9, true, VerdictAllow}} {
 		s2 := v2("allow")
-		p := &Pipeline{Stage1: p1(tc.pb), Stage2: s2}
+		p := &Pipeline{Stage1: p1(tc.pb), Stage2: s2, Cutoff: 0.25}
 		d := p.Decide(context.Background(), State{})
 		if (s2.calls == 1) != tc.stage2 || d.Verdict != tc.verdict {
 			t.Fatalf("pblock %v: calls %d verdict %s", tc.pb, s2.calls, d.Verdict)
@@ -97,7 +97,7 @@ func TestPipelineCutoffIsInclusive(t *testing.T) {
 
 func TestPipelineStage2VerdictIsTheDecisionOnceFlagged(t *testing.T) {
 	for _, v := range []string{VerdictAllow, VerdictBlock} {
-		p := &Pipeline{Stage1: p1(0.5), Stage2: v2(v)}
+		p := &Pipeline{Stage1: p1(0.5), Stage2: v2(v), Cutoff: 0.25}
 		d := p.Decide(context.Background(), State{})
 		if d.Verdict != v || d.DecidedBy != DecidedByStage2 {
 			t.Fatalf("stage 2 said %s: %+v", v, d)
@@ -126,7 +126,7 @@ func TestPipelineStage2FailureBlocks(t *testing.T) {
 	}
 	for name, s2 := range cases {
 		t.Run(name, func(t *testing.T) {
-			p := &Pipeline{Stage1: p1(0.9), Stage2: s2}
+			p := &Pipeline{Stage1: p1(0.9), Stage2: s2, Cutoff: 0.25}
 			d := p.Decide(context.Background(), State{})
 			if d.Verdict != VerdictBlock || d.DecidedBy != DecidedByStage2 || d.Stage2Error == "" || d.Stage2Reason != "" {
 				t.Fatalf("d = %+v", d)
@@ -151,9 +151,41 @@ func TestPipelineMissingStagesNeverAllowAFlaggedCommand(t *testing.T) {
 }
 
 func TestPipelineRecordsLatency(t *testing.T) {
-	p := &Pipeline{Stage1: p1(0.5), Stage2: v2("allow")}
+	p := &Pipeline{Stage1: p1(0.5), Stage2: v2("allow"), Cutoff: 0.25}
 	d := p.Decide(context.Background(), State{})
 	if d.Latency <= 0 || d.Latency < d.Stage1Latency || d.Latency < d.Stage2Latency {
 		t.Fatalf("latency = %+v", d)
+	}
+}
+
+func TestPipelineWithoutStage1SendsEverythingToStage2(t *testing.T) {
+	s2 := v2("allow")
+	p := &Pipeline{Escalation: fakeEscalator(nil), Stage2: s2, NoStage1: true, Stage2Model: "m"}
+	d := p.Decide(context.Background(), State{})
+	if s2.calls != 1 || d.Verdict != VerdictAllow || d.DecidedBy != DecidedByStage2 || !d.Stage2Ran {
+		t.Fatalf("d = %+v", d)
+	}
+	if len(d.Escalation) != 1 || d.Escalation[0] != EscalationNoStage1 {
+		t.Fatalf("escalation = %v", d.Escalation)
+	}
+	if d.Stage1Error != "" || d.PBlock != nil || d.Stage1Latency != 0 {
+		t.Fatalf("recorded as a stage 1 failure: %+v", d)
+	}
+}
+
+func TestPipelineWithoutStage1KeepsScriptReasonsAndStage2Failure(t *testing.T) {
+	p := &Pipeline{Escalation: fakeEscalator{"two scripts"}, Stage2: &fakeStage2{err: errors.New("down")}, NoStage1: true}
+	d := p.Decide(context.Background(), State{})
+	if d.Verdict != VerdictBlock || len(d.Escalation) != 2 || d.Escalation[1] != EscalationNoStage1 {
+		t.Fatalf("d = %+v", d)
+	}
+}
+
+func TestPipelineRulesStillBlockWithoutStage1(t *testing.T) {
+	s2 := v2("allow")
+	p := &Pipeline{Rules: fakeRules{"r"}, Stage2: s2, NoStage1: true}
+	d := p.Decide(context.Background(), State{})
+	if d.Verdict != VerdictBlock || d.DecidedBy != DecidedByRules || s2.calls != 0 {
+		t.Fatalf("d = %+v", d)
 	}
 }

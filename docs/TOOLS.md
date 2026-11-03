@@ -1108,9 +1108,11 @@ it never varies within a provider's sessions ([CACHE.md](CACHE.md)).
 A `stdio-session` create may also add an autonomy guard (`harness.guard`,
 [`STDIO-PROTOCOL.md`](STDIO-PROTOCOL.md) "The autonomy guard"). It screens each
 `bash` call under full access, after the mode and the deny patterns have
-allowed it and before the command starts. Rules, then a local classifier, then
-a Claude model decide `allow` or `block` for the command, and each decision is
-recorded in the event log. In `shadow` mode the model calls run beside the
+allowed it and before the command starts. Rules, then a local classifier (when
+the policy has one), then a Claude model decide `allow` or `block` for the
+command, and each decision is recorded in the event log. What the guard allows
+and blocks is defined by the policy bundle the parent sends in
+`harness.guard.policy`; this repository holds the mechanism and no policy. In `shadow` mode the model calls run beside the
 command and never stop it; only the local read of the session's state comes
 before it. In `enforce` mode a block is a denial like a deny
 pattern: the command does not run, and the result names the guard and the
@@ -1120,7 +1122,7 @@ reason, which goes to the log and the parent only. A create cannot select
 the workspace, and `web_fetch`, MCP tools and a client's function tools are
 not checked. A command started with `run_in_background` is checked when it
 starts and not afterwards. A `task` subagent runs under its parent's guard
-setting.
+setting and policy bundle.
 
 A denial is not an error. It returns as a tool result naming the rule that
 refused it, which is the shape the model recovers from — it picks a different

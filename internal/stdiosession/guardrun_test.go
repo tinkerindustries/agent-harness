@@ -25,10 +25,10 @@ func guardFixture(t *testing.T, fake *guardtest.Fake, hasKey bool, streams ...st
 func guardFixtureIn(t *testing.T, dir, cwd string, fake *guardtest.Fake, hasKey bool, streams ...string) (*fixture, *deepseekRecorder) {
 	t.Helper()
 	return newDeepSeekFixtureIn(t, dir, cwd, func(r *session.Runner, o *Options) {
-		r.Guards = func(setting store.GuardSetting) (session.GuardDecider, error) {
+		r.Guards = func(setting store.GuardSetting, bundle *guard.Bundle) (session.GuardDecider, error) {
 			return guard.NewPipeline(guard.PipelineConfig{
+				Bundle:         bundle,
 				Stage1Endpoint: setting.Stage1Endpoint,
-				Stage2Model:    setting.Stage2Model,
 				AnthropicKey:   "sk-ant-test",
 				Stage2BaseURL:  fake.Stage2URL,
 			})
@@ -41,7 +41,7 @@ func (f *fixture) guardParams(text, mode string, fake *guardtest.Fake) CreatePar
 	p := f.createParams(text)
 	p.Model = testDeepSeekModel
 	p.Harness.PermissionMode = "full"
-	p.Harness.Guard = &GuardConfig{Mode: mode, Stage1Endpoint: fake.Stage1URL}
+	p.Harness.Guard = &GuardConfig{Mode: mode, Stage1Endpoint: fake.Stage1URL, Policy: guardtest.BundleJSON()}
 	return p
 }
 
@@ -224,15 +224,21 @@ func TestGuardResumeTakesTheCreatesMode(t *testing.T) {
 	}
 	a.close()
 
-	// Second process, the create names no guard: the stored shadow applies.
+	// Second process: the stored shadow and its endpoint apply, and the create
+	// supplies the bundle the process does not hold.
 	b, _ := guardFixtureIn(t, dir, cwd, fake, true,
 		dsToolCall("call-2", "bash", `{"command":"touch ran-2"}`), dsAnswer("two"))
 	b.client.handshake(ClientCapabilities{})
-	if rerr := b.client.call(MethodResponsesCreate, resumeParams(sessionID, "second"), &CreateResult{}); rerr != nil {
+	if rerr := b.client.call(MethodResponsesCreate, resumeParams(sessionID, "second"), &CreateResult{}); rerr == nil || !strings.Contains(rerr.Message, "harness.guard.policy") {
+		t.Fatalf("a resume with an active guard and no bundle = %v", rerr)
+	}
+	rb := resumeParams(sessionID, "second")
+	rb.Harness.Guard = &GuardConfig{Mode: "shadow", Policy: guardtest.BundleJSON()}
+	if rerr := b.client.call(MethodResponsesCreate, rb, &CreateResult{}); rerr != nil {
 		t.Fatalf("resume: %v", rerr)
 	}
 	if n := len(guardFrames(b.client.waitFor(NotifyResponseCompleted))); n != 1 {
-		t.Fatalf("a resume naming no guard: frames = %d, want the stored shadow's 1", n)
+		t.Fatalf("a resume naming the stored shadow: frames = %d, want 1", n)
 	}
 	if err := b.client.call(MethodShutdown, map[string]any{}, nil); err != nil {
 		t.Fatal(err)
@@ -280,7 +286,7 @@ func TestGuardCanBeTurnedOnByAResume(t *testing.T) {
 		dsToolCall("call-2", "bash", `{"command":"touch ran-2"}`), dsAnswer("two"))
 	b.client.handshake(ClientCapabilities{})
 	rp := resumeParams(sessionID, "second")
-	rp.Harness.Guard = &GuardConfig{Mode: "shadow", Stage1Endpoint: fake.Stage1URL}
+	rp.Harness.Guard = &GuardConfig{Mode: "shadow", Stage1Endpoint: fake.Stage1URL, Policy: guardtest.BundleJSON()}
 	if rerr := b.client.call(MethodResponsesCreate, rp, &CreateResult{}); rerr != nil {
 		t.Fatalf("resume: %v", rerr)
 	}

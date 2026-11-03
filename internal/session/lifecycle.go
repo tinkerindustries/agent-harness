@@ -185,7 +185,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (result *RunResult, r
 	if err != nil {
 		return nil, err
 	}
-	screen, err := r.newRunGuard(opts.Guard, opts.PermissionMode)
+	screen, err := r.newRunGuard(opts.Guard, opts.GuardBundle, opts.PermissionMode)
 	if err != nil {
 		return nil, err
 	}
@@ -520,6 +520,7 @@ func (r *Runner) subagentRunner(parentID string, parentOpts RunOptions, workspac
 			Workspace:       workspace,
 			PermissionMode:  parentOpts.PermissionMode,
 			Guard:           parentOpts.Guard,
+			GuardBundle:     parentOpts.GuardBundle,
 			Deny:            parentOpts.Deny,
 			Prompt:          prompt,
 			ParentID:        parentID,

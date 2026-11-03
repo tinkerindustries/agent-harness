@@ -1,7 +1,10 @@
 package stdiosession
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"net/url"
 	"strings"
 
@@ -16,11 +19,14 @@ type GuardConfig struct {
 	// Mode is "off", "shadow" or "enforce". A create cannot select "enforce".
 	Mode string `json:"mode"`
 	// Stage1Endpoint is the host the stage 1 classifier is posted to, without
-	// the path. Required with "shadow" unless the session already stores one.
+	// the path. Required with an active mode when the policy has a stage 1,
+	// unless the session already stores one.
 	Stage1Endpoint string `json:"stage1_endpoint,omitempty"`
-	// Stage2Model is the Anthropic model stage 2 asks. Empty takes the
-	// stored value, then the guard's default.
-	Stage2Model string `json:"stage2_model,omitempty"`
+	// Policy is the policy bundle: the parent's content for the guard. It is
+	// loaded and held in memory for the session's life. It is never stored,
+	// logged or sent, and a resume that omits it keeps the one the process
+	// holds.
+	Policy json.RawMessage `json:"policy,omitempty"`
 }
 
 // GuardOptions says this process can host the autonomy guard. Options.Guard
@@ -32,43 +38,87 @@ type GuardOptions struct {
 
 const guardKeyMessage = "harness.guard needs an Anthropic API key for stage 2: set ANTHROPIC_API_KEY in the environment you spawn this process with"
 
-// resolveGuard returns the guard setting a run starts with.
+// resolveGuard returns the guard setting and policy bundle a run starts with.
 //
 // cfg is the create's setting, stored the setting already on the session
-// (zero for a new one) and permission the session's permission mode. A create
-// that names no guard returns nil, which leaves the stored setting in force.
-// A setting that would screen calls is refused when this process cannot host
-// it, whether it came from the create or from the row.
-func (s *Server) resolveGuard(cfg *GuardConfig, stored store.GuardSetting, permission tools.Mode) (*store.GuardSetting, *rpcError) {
-	var out *store.GuardSetting
+// (zero for a new one), permission the session's permission mode and held the
+// bundle this process already holds for the session (nil when none). A create
+// that names no guard returns a nil setting, which leaves the stored setting
+// in force. The returned bundle is the one the create sent, nil when it sent
+// none or the setting is not active. A setting that would screen calls is
+// refused when this process cannot host it, whether it came from the create
+// or from the row, and when no bundle, sent or held, backs it.
+func (s *Server) resolveGuard(cfg *GuardConfig, stored store.GuardSetting, permission tools.Mode, held *guard.Bundle) (*store.GuardSetting, *guard.Bundle, *rpcError) {
+	var (
+		out    *store.GuardSetting
+		sent   *guard.Bundle
+		bundle = held
+	)
 	effective := stored
 	if cfg != nil {
 		if s.opts.Guard == nil {
-			return nil, errorf(CodeUnsupported, "harness.guard: this subcommand does not support the autonomy guard; `harness stdio-session` does")
+			return nil, nil, errorf(CodeUnsupported, "harness.guard: this subcommand does not support the autonomy guard; `harness stdio-session` does")
 		}
-		merged, rerr := mergeGuard(cfg, stored)
+		if hasPolicy(cfg.Policy) {
+			b, rerr := loadPolicy(cfg.Policy)
+			if rerr != nil {
+				return nil, nil, rerr
+			}
+			sent, bundle = b, b
+		}
+		merged, rerr := mergeGuard(cfg, stored, bundle)
 		if rerr != nil {
-			return nil, rerr
+			return nil, nil, rerr
 		}
 		out, effective = &merged, merged
 	}
 	if !effective.Active() {
-		return out, nil
+		return out, nil, nil
 	}
 	if s.opts.Guard == nil {
-		return nil, errorf(CodeUnsupported, "this session carries an autonomy guard setting and this subcommand cannot host it; resume it under `harness stdio-session`")
+		return nil, nil, errorf(CodeUnsupported, "this session carries an autonomy guard setting and this subcommand cannot host it; resume it under `harness stdio-session`")
 	}
 	if permission != tools.ModeFull {
-		return nil, errorf(CodeInvalidParams, "harness.guard: the guard screens `bash` and `bash` is refused under %q; use harness.permission_mode %q or send mode %q", permission, tools.ModeFull, store.GuardModeOff)
+		return nil, nil, errorf(CodeInvalidParams, "harness.guard: the guard screens `bash` and `bash` is refused under %q; use harness.permission_mode %q or send mode %q", permission, tools.ModeFull, store.GuardModeOff)
 	}
 	if s.opts.Guard.HasAPIKey == nil || !s.opts.Guard.HasAPIKey() {
-		return nil, errorf(CodeCredentialsMissing, "%s", guardKeyMessage)
+		return nil, nil, errorf(CodeCredentialsMissing, "%s", guardKeyMessage)
 	}
-	return out, nil
+	if bundle == nil {
+		return nil, nil, errorf(CodeInvalidParams, "%s", policyMissingMessage)
+	}
+	return out, sent, nil
 }
 
-// mergeGuard applies a create's setting over the stored one.
-func mergeGuard(cfg *GuardConfig, stored store.GuardSetting) (store.GuardSetting, *rpcError) {
+const policyMissingMessage = "harness.guard.policy is required: the guard is active and this process holds no policy bundle for the session; send the bundle on every create that leaves the guard active"
+
+func hasPolicy(raw json.RawMessage) bool {
+	t := bytes.TrimSpace(raw)
+	return len(t) > 0 && !bytes.Equal(t, []byte("null"))
+}
+
+// loadPolicy validates a create's bundle. A refusal names the field inside
+// the bundle and the reason, and never repeats any of the bundle's text.
+func loadPolicy(raw json.RawMessage) (*guard.Bundle, *rpcError) {
+	b, err := guard.LoadBundle(raw)
+	if err == nil {
+		return b, nil
+	}
+	var be *guard.BundleError
+	if errors.As(err, &be) {
+		field := "harness.guard.policy"
+		if be.Field != "" {
+			field += "." + be.Field
+		}
+		return nil, errorf(CodeInvalidParams, "%s: %s", field, be.Reason)
+	}
+	return nil, errorf(CodeInvalidParams, "harness.guard.policy is not a valid policy bundle")
+}
+
+// mergeGuard applies a create's setting over the stored one, under the bundle
+// the run will screen with. A nil bundle skips the checks that depend on it;
+// resolveGuard refuses the setting afterwards.
+func mergeGuard(cfg *GuardConfig, stored store.GuardSetting, bundle *guard.Bundle) (store.GuardSetting, *rpcError) {
 	out := stored
 	switch cfg.Mode {
 	case store.GuardModeOff, store.GuardModeShadow:
@@ -83,20 +133,19 @@ func mergeGuard(cfg *GuardConfig, stored store.GuardSetting) (store.GuardSetting
 	if e := strings.TrimSpace(cfg.Stage1Endpoint); e != "" {
 		out.Stage1Endpoint = e
 	}
-	if m := strings.TrimSpace(cfg.Stage2Model); m != "" {
-		out.Stage2Model = m
-	}
 	if !out.Active() {
 		return out, nil
 	}
-	if out.Stage1Endpoint == "" {
-		return out, errorf(CodeInvalidParams, "harness.guard.stage1_endpoint is required with mode %q", out.Mode)
+	if bundle != nil && bundle.HasStage1() && out.Stage1Endpoint == "" {
+		return out, errorf(CodeInvalidParams, "harness.guard.stage1_endpoint is required with mode %q when the policy has a stage 1", out.Mode)
 	}
-	if u, err := url.Parse(out.Stage1Endpoint); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return out, errorf(CodeInvalidParams, "harness.guard.stage1_endpoint %q must be an http or https URL", out.Stage1Endpoint)
+	if out.Stage1Endpoint != "" {
+		if u, err := url.Parse(out.Stage1Endpoint); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			return out, errorf(CodeInvalidParams, "harness.guard.stage1_endpoint %q must be an http or https URL", out.Stage1Endpoint)
+		}
 	}
-	if out.Stage2Model == "" {
-		out.Stage2Model = guard.DefaultStage2Model
+	if bundle != nil {
+		out.PolicyHash = bundle.Version()
 	}
 	return out, nil
 }

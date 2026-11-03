@@ -229,10 +229,10 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 	// closure and never reaches the settings table or the session row.
 	var guardOpts *stdiosession.GuardOptions
 	if !interactions {
-		runner.Guards = func(setting store.GuardSetting) (session.GuardDecider, error) {
+		runner.Guards = func(setting store.GuardSetting, bundle *guard.Bundle) (session.GuardDecider, error) {
 			return guard.NewPipeline(guard.PipelineConfig{
+				Bundle:         bundle,
 				Stage1Endpoint: setting.Stage1Endpoint,
-				Stage2Model:    setting.Stage2Model,
 				AnthropicKey:   anthropicKey,
 			})
 		}

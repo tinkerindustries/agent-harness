@@ -21,6 +21,7 @@ import (
 	"sync"
 
 	"github.com/mrgeoffrich/agent-harness/internal/gemini"
+	"github.com/mrgeoffrich/agent-harness/internal/guard"
 	"github.com/mrgeoffrich/agent-harness/internal/httplog"
 	"github.com/mrgeoffrich/agent-harness/internal/hub"
 	"github.com/mrgeoffrich/agent-harness/internal/pricing"
@@ -106,6 +107,10 @@ type RunOptions struct {
 	// Guard is the autonomy guard setting. It is stored on the session row,
 	// and a `task` subagent inherits it, so its `bash` calls are screened too.
 	Guard store.GuardSetting
+	// GuardBundle is the policy bundle the guard screens with. It is held in
+	// memory only: it is never stored, logged or sent, and a `task` subagent
+	// inherits it with the setting.
+	GuardBundle *guard.Bundle
 
 	// PromptVariant names the system prompt this run uses. Empty is the
 	// shipped prompt; anything else is an eval run (variants.go).

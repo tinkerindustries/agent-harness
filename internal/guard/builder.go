@@ -78,6 +78,10 @@ type StateBuilder struct {
 	FS StateFileSystem
 	// Branch names the branch checked out in dir. Nil runs git.
 	Branch func(ctx context.Context, dir string) string
+	// Fields names the state fields to fill in; the rest stay empty and cost
+	// nothing, which matters for package_scripts, whose resolution reads
+	// files. Nil fills them all. Bundle.StateFields is the set a bundle needs.
+	Fields FieldSet
 }
 
 // Build fills the State for one bash call.
@@ -95,14 +99,20 @@ func (b StateBuilder) Build(ctx context.Context, in Inputs) State {
 	if repos == nil {
 		repos = Repositories(in.Directory)
 	}
-	return State{
-		WorkingDirectory: in.Directory,
-		Branch:           branch(ctx, in.Directory),
-		RecentCommands:   RecentCommands(in.Commands),
-		ProposedCommand:  in.Command,
-		ScriptsRun:       b.scripts(fsys, in, effective),
-		PackageScripts:   ResolvePackageScripts(fsys, in.Command, effective, repos),
+	st := State{WorkingDirectory: in.Directory, ProposedCommand: in.Command}
+	if b.Fields.wants(FieldBranch) {
+		st.Branch = branch(ctx, in.Directory)
 	}
+	if b.Fields.wants(FieldRecentCommands) {
+		st.RecentCommands = RecentCommands(in.Commands)
+	}
+	if b.Fields.wants(FieldScriptsRun) {
+		st.ScriptsRun = b.scripts(fsys, in, effective)
+	}
+	if b.Fields.wants(FieldPackageScripts) {
+		st.PackageScripts = ResolvePackageScripts(fsys, in.Command, effective, repos)
+	}
+	return st
 }
 
 func (b StateBuilder) scripts(fsys StateFileSystem, in Inputs, effective string) []ScriptEntry {
