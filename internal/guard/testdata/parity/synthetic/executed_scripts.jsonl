@@ -1,0 +1,179 @@
+{"command": "bash a.sh\r\nbash b.sh\r\n", "expected": ["a.sh", "b.sh"], "id": "carriage-return-line-end"}
+{"command": "cd /tmp/scratch && WAIT=1 node drive.mjs | tail -2", "expected": ["drive.mjs"], "id": "cd-then-script"}
+{"command": "python3 gen.py # run once", "expected": ["gen.py"], "id": "comment-after-script"}
+{"command": "# python3 gen.py", "expected": [], "id": "comment-before-script"}
+{"command": ".", "expected": [], "id": "dot-bare"}
+{"command": ". ./env.sh", "expected": ["./env.sh"], "id": "dot-source"}
+{"command": ". scripts/env.sh && npm test", "expected": ["scripts/env.sh"], "id": "dot-source-then-command"}
+{"command": "echo 'a; python3 gen.py' done", "expected": [], "id": "echo-with-semicolon-in-quotes"}
+{"command": "", "expected": [], "id": "empty-command"}
+{"command": "bash my\\ tools/run.sh", "expected": ["my tools/run.sh"], "id": "escaped-space-in-script"}
+{"command": "python3\fgen.py", "expected": [], "id": "form-feed-separated"}
+{"command": "cat <<EOF\npython3 hidden.py\nEOF", "expected": [], "id": "heredoc-body-with-script"}
+{"command": "bash <<EOF\n./inside.sh\nEOF", "expected": [], "id": "heredoc-fed-to-interpreter"}
+{"command": "cat <<EOF > run.txt\ntext\nEOF\nbash after.sh", "expected": ["after.sh"], "id": "heredoc-then-script"}
+{"command": "cat <<EOF\npython3 shown.py", "expected": ["shown.py"], "id": "heredoc-unterminated-with-script"}
+{"command": "python3 tools/gen.py -c other", "expected": ["tools/gen.py"], "id": "inline-after-script"}
+{"command": "bash -c \"ls tools\"", "expected": [], "id": "inline-bash-c"}
+{"command": "node -e \"console.log(1)\"", "expected": [], "id": "inline-node-e"}
+{"command": "node --eval \"console.log(1)\"", "expected": [], "id": "inline-node-eval"}
+{"command": "node -p \"1+1\"", "expected": [], "id": "inline-node-p"}
+{"command": "node --print \"1+1\"", "expected": [], "id": "inline-node-print"}
+{"command": "perl -e \"print 1\"", "expected": [], "id": "inline-perl-e"}
+{"command": "python3 -c \"print(1)\"", "expected": [], "id": "inline-python-c"}
+{"command": "python3 -", "expected": [], "id": "inline-stdin-dash"}
+{"command": "python3 - <<'EOF'\nprint(1)\nEOF", "expected": [], "id": "inline-stdin-heredoc"}
+{"command": "bash tools/gen.sh", "expected": ["tools/gen.sh"], "id": "interp-bash"}
+{"command": "bash tools/gen.bash", "expected": ["tools/gen.bash"], "id": "interp-bash-ext"}
+{"command": "bun tools/gen.ts", "expected": ["tools/gen.ts"], "id": "interp-bun"}
+{"command": "bun run tools/gen.ts", "expected": [], "id": "interp-bun-run"}
+{"command": "tsx tools/gen.cts", "expected": ["tools/gen.cts"], "id": "interp-cts"}
+{"command": "deno tools/gen.ts", "expected": ["tools/gen.ts"], "id": "interp-deno"}
+{"command": "deno run tools/gen.ts", "expected": [], "id": "interp-deno-run"}
+{"command": "bash tools/", "expected": ["tools/"], "id": "interp-directory-target"}
+{"command": "mypython tools/gen.py", "expected": [], "id": "interp-glued-name"}
+{"command": "tsx tools/gen.mts", "expected": ["tools/gen.mts"], "id": "interp-mts"}
+{"command": "python3", "expected": [], "id": "interp-no-arguments"}
+{"command": "node tools/gen.mjs", "expected": ["tools/gen.mjs"], "id": "interp-node"}
+{"command": "node server", "expected": [], "id": "interp-node-bare-name"}
+{"command": "node tools/gen.cjs", "expected": ["tools/gen.cjs"], "id": "interp-node-cjs"}
+{"command": "node gen.js", "expected": ["gen.js"], "id": "interp-node-js"}
+{"command": "python3 -u", "expected": [], "id": "interp-only-options"}
+{"command": "bash -x -e", "expected": [], "id": "interp-only-short-options"}
+{"command": "perl tools/gen.pl", "expected": ["tools/gen.pl"], "id": "interp-perl"}
+{"command": "python tools/gen.py", "expected": ["tools/gen.py"], "id": "interp-python"}
+{"command": "/opt/venv/bin/python tools/gen.py", "expected": ["tools/gen.py"], "id": "interp-python-absolute"}
+{"command": ".venv/bin/python tools/gen.py", "expected": ["tools/gen.py"], "id": "interp-python-relative-venv"}
+{"command": "python3.11.2 gen.py", "expected": [], "id": "interp-python-three-part-version"}
+{"command": "python2.7 gen.py", "expected": ["gen.py"], "id": "interp-python2-minor"}
+{"command": "python3 tools/gen.py --verbose", "expected": ["tools/gen.py"], "id": "interp-python3"}
+{"command": "python3.11 tools/gen.py", "expected": ["tools/gen.py"], "id": "interp-python3-minor"}
+{"command": "pythonw gen.py", "expected": [], "id": "interp-pythonw"}
+{"command": "ruby tools/gen.rb", "expected": ["tools/gen.rb"], "id": "interp-ruby"}
+{"command": "python3 tools/gen.py other.py --flag third.sh", "expected": ["tools/gen.py"], "id": "interp-script-then-args"}
+{"command": "sh tools/gen.sh", "expected": ["tools/gen.sh"], "id": "interp-sh"}
+{"command": "bash gen", "expected": [], "id": "interp-shell-bare-name"}
+{"command": "bash tools/gen", "expected": ["tools/gen"], "id": "interp-shell-no-suffix-with-slash"}
+{"command": "ts-node tools/gen.ts", "expected": ["tools/gen.ts"], "id": "interp-ts-node"}
+{"command": "tsx tools/gen.ts", "expected": ["tools/gen.ts"], "id": "interp-tsx"}
+{"command": "python3 -u -O tools/gen.py", "expected": ["tools/gen.py"], "id": "interp-unbuffered-flag-then-script"}
+{"command": "node tools/gen.txt", "expected": ["tools/gen.txt"], "id": "interp-unknown-suffix"}
+{"command": "python3 tools/GEN.PY", "expected": ["tools/GEN.PY"], "id": "interp-uppercase-suffix"}
+{"command": "zsh tools/gen.zsh", "expected": ["tools/gen.zsh"], "id": "interp-zsh"}
+{"command": "   python3 gen.py   ", "expected": ["gen.py"], "id": "leading-and-trailing-spaces"}
+{"command": "git commit -m \"run python3 gen.py later\"", "expected": [], "id": "message-mentions-script"}
+{"command": "python3 tools/gen.py -m other", "expected": ["tools/gen.py"], "id": "module-after-script"}
+{"command": "python3 -u -m http.server", "expected": [], "id": "module-flag-before-m"}
+{"command": "python3 -m pytest tests/test_gen.py", "expected": [], "id": "module-python-m"}
+{"command": "python3\u00a0gen.py", "expected": [], "id": "nbsp-between-words"}
+{"command": "python3\u00a0gen.py \"x", "expected": ["gen.py"], "id": "nbsp-with-unbalanced-quote"}
+{"command": "bash \"tools/r\u00e9sum\u00e9 script.sh\"", "expected": ["tools/r\u00e9sum\u00e9 script.sh"], "id": "non-ascii-quoted-name"}
+{"command": "python3 tools/caf\u00e9.py", "expected": ["tools/caf\u00e9.py"], "id": "non-ascii-script-name"}
+{"command": "npm exec tsx tools/gen.ts", "expected": [], "id": "npm-exec-not-handled"}
+{"command": "npx", "expected": [], "id": "npx-bare"}
+{"command": "npx --yes tsx tools/gen.ts", "expected": ["tools/gen.ts"], "id": "npx-flag"}
+{"command": "npx tools/gen.js", "expected": ["tools/gen.js"], "id": "npx-script-path"}
+{"command": "npx prettier --write .", "expected": [], "id": "npx-tool"}
+{"command": "npx ts-node tools/gen.ts", "expected": ["tools/gen.ts"], "id": "npx-ts-node"}
+{"command": "npx tsx tools/gen.ts", "expected": ["tools/gen.ts"], "id": "npx-tsx"}
+{"command": "python3 z.py; python3 m.py; python3 a.py", "expected": ["z.py", "m.py", "a.py"], "id": "order-reverse-alphabet"}
+{"command": "/opt/tools/run.py", "expected": ["/opt/tools/run.py"], "id": "path-absolute"}
+{"command": "run.sh", "expected": [], "id": "path-bare-name-with-suffix"}
+{"command": "./bin/tool", "expected": [], "id": "path-binary-in-bin"}
+{"command": "./run.sh", "expected": ["./run.sh"], "id": "path-dot-slash"}
+{"command": "./.hooks/pre.sh", "expected": ["./.hooks/pre.sh"], "id": "path-dotfile-script"}
+{"command": "~/bin/run.sh", "expected": ["~/bin/run.sh"], "id": "path-home-relative"}
+{"command": "./run", "expected": [], "id": "path-no-suffix"}
+{"command": "../shared/run.sh", "expected": ["../shared/run.sh"], "id": "path-parent-relative"}
+{"command": "\"$TOOLS/run.sh\" --fast", "expected": ["$TOOLS/run.sh"], "id": "path-quoted-variable"}
+{"command": "scripts/run.sh --fast", "expected": ["scripts/run.sh"], "id": "path-relative-dir"}
+{"command": "./notes.txt", "expected": [], "id": "path-text-suffix"}
+{"command": "scripts/RUN.SH", "expected": [], "id": "path-uppercase-suffix"}
+{"command": "$TOOLS/run.sh", "expected": ["$TOOLS/run.sh"], "id": "path-variable-prefix"}
+{"command": "ls -la", "expected": [], "id": "plain-ls"}
+{"command": "pnpm exec", "expected": [], "id": "pnpm-exec-bare"}
+{"command": "pnpm exec eslint .", "expected": [], "id": "pnpm-exec-tool"}
+{"command": "pnpm exec tsx tools/gen.ts", "expected": ["tools/gen.ts"], "id": "pnpm-exec-tsx"}
+{"command": "pnpm node tools/gen.js", "expected": ["tools/gen.js"], "id": "pnpm-node"}
+{"command": "pnpm run build", "expected": [], "id": "pnpm-run-script"}
+{"command": "pnpm run tsx tools/gen.ts", "expected": [], "id": "pnpm-run-tsx-name"}
+{"command": "pnpm tsx tools/gen.ts", "expected": ["tools/gen.ts"], "id": "pnpm-tsx"}
+{"command": "pnpx tsx tools/gen.ts", "expected": ["tools/gen.ts"], "id": "pnpx-tsx"}
+{"command": "MSG='a b' bash run.sh", "expected": ["run.sh"], "id": "quoted-env-value-with-script"}
+{"command": "python3 \"tools/gen.py\"", "expected": ["tools/gen.py"], "id": "quoted-script-name"}
+{"command": "python3 'tools/gen.py'", "expected": ["tools/gen.py"], "id": "quoted-script-single"}
+{"command": "python3 \"my tools/gen script.py\" arg", "expected": ["my tools/gen script.py"], "id": "quoted-script-with-space"}
+{"command": "python3 gen.py>out.txt", "expected": [], "id": "redirect-glued-to-script"}
+{"command": "python3 gen.py > out.txt", "expected": ["gen.py"], "id": "redirect-spaced"}
+{"command": "bash a.sh; bash b.sh; bash a.sh; bash c.sh", "expected": ["a.sh", "b.sh", "c.sh"], "id": "repeat-interleaved"}
+{"command": "bash a.sh && bash a.sh", "expected": ["a.sh"], "id": "repeat-same-script"}
+{"command": "bash a.sh one; bash a.sh two", "expected": ["a.sh"], "id": "repeat-with-different-args"}
+{"command": "bash ./a.sh && bash a.sh", "expected": ["./a.sh", "a.sh"], "id": "same-script-different-spelling"}
+{"command": "bash a.sh && bash b.sh", "expected": ["a.sh", "b.sh"], "id": "sep-and"}
+{"command": "bash a.sh & bash b.sh", "expected": ["a.sh"], "id": "sep-background-ampersand"}
+{"command": "echo `bash tools/a.sh`", "expected": ["tools/a.sh"], "id": "sep-backticks"}
+{"command": "((bash a.sh))", "expected": ["a.sh"], "id": "sep-nested-parens"}
+{"command": "bash a.sh\nbash b.sh", "expected": ["a.sh", "b.sh"], "id": "sep-newline"}
+{"command": "bash a.sh || bash b.sh", "expected": ["a.sh", "b.sh"], "id": "sep-or"}
+{"command": "(bash a.sh)", "expected": ["a.sh"], "id": "sep-parens"}
+{"command": "./a.sh | ./b.sh", "expected": ["./a.sh", "./b.sh"], "id": "sep-pipe"}
+{"command": "bash a.sh; bash b.sh", "expected": ["a.sh", "b.sh"], "id": "sep-semicolon"}
+{"command": "echo $(python3 tools/a.py)", "expected": ["tools/a.py"], "id": "sep-substitution"}
+{"command": "; && || |", "expected": [], "id": "separators-only"}
+{"command": "source", "expected": [], "id": "source-bare"}
+{"command": "source ./env.sh", "expected": ["./env.sh"], "id": "source-dot-slash"}
+{"command": "source env.sh", "expected": ["env.sh"], "id": "source-file"}
+{"command": "source .env.local", "expected": [".env.local"], "id": "source-without-suffix"}
+{"command": "   ", "expected": [], "id": "spaces-only"}
+{"command": "python3 gen.py 2>&1 | tail -3", "expected": ["gen.py"], "id": "stderr-redirect"}
+{"command": "python3\tgen.py", "expected": ["gen.py"], "id": "tab-separated"}
+{"command": "echo 'a; python3 b.py' c", "expected": [], "id": "unbalanced-after-semicolon"}
+{"command": "echo it's; python3 gen.py", "expected": ["gen.py"], "id": "unbalanced-apostrophe-in-word"}
+{"command": "echo \"start; python3 gen.py", "expected": ["gen.py"], "id": "unbalanced-before-script"}
+{"command": "python3 gen.py \"unterminated", "expected": ["gen.py"], "id": "unbalanced-double-at-end"}
+{"command": "\"python3 gen.py", "expected": [], "id": "unbalanced-double-at-start"}
+{"command": "FOO=\"a bash gen.sh", "expected": ["gen.sh"], "id": "unbalanced-env-value"}
+{"command": "bash ok.sh && bash bad.sh \"x", "expected": ["ok.sh", "bad.sh"], "id": "unbalanced-in-second-segment-only"}
+{"command": "python3 \"gen.py", "expected": ["\"gen.py"], "id": "unbalanced-inside-script-name"}
+{"command": "bash gen.sh 'unterminated", "expected": ["gen.sh"], "id": "unbalanced-single-at-end"}
+{"command": "python3 gen.py \\", "expected": ["gen.py"], "id": "unbalanced-trailing-backslash"}
+{"command": "bash a.sh \"x; bash b.sh \"y", "expected": ["a.sh", "b.sh"], "id": "unbalanced-two-segments"}
+{"command": "time python3 gen.py \"x", "expected": ["gen.py"], "id": "unbalanced-wrapper-and-quote"}
+{"command": "uv run", "expected": [], "id": "uv-run-bare"}
+{"command": "uv run --no-progress tools/gen.py", "expected": ["tools/gen.py"], "id": "uv-run-flag"}
+{"command": "uv run python -m pytest", "expected": [], "id": "uv-run-module"}
+{"command": "uv run python tools/gen.py", "expected": ["tools/gen.py"], "id": "uv-run-python"}
+{"command": "uv run tools/gen.py", "expected": ["tools/gen.py"], "id": "uv-run-script"}
+{"command": "uv run tools/gen", "expected": [], "id": "uv-run-script-without-suffix"}
+{"command": "uv run pytest", "expected": [], "id": "uv-run-tool"}
+{"command": "uv run --with rich python tools/gen.py", "expected": [], "id": "uv-run-with-option-value"}
+{"command": "uv sync", "expected": [], "id": "uv-sync"}
+{"command": "node --import", "expected": [], "id": "value-option-at-end"}
+{"command": "node --import=tsx tools/gen.mjs", "expected": ["tools/gen.mjs"], "id": "value-option-equals-form"}
+{"command": "node --import tsx tools/gen.mjs", "expected": ["tools/gen.mjs"], "id": "value-option-node-import"}
+{"command": "node --loader ts-node/esm tools/gen.mjs", "expected": ["tools/gen.mjs"], "id": "value-option-node-loader"}
+{"command": "node -r ts-node/register tools/gen.js", "expected": ["tools/gen.js"], "id": "value-option-node-r"}
+{"command": "node --require ./setup.js tools/gen.js", "expected": ["tools/gen.js"], "id": "value-option-node-require"}
+{"command": "python3 -W ignore tools/gen.py", "expected": ["tools/gen.py"], "id": "value-option-python-W"}
+{"command": "python3 -X dev tools/gen.py", "expected": ["tools/gen.py"], "id": "value-option-python-X"}
+{"command": "node --max-old-space-size 4096 tools/gen.mjs", "expected": [], "id": "value-option-unlisted-flag-value"}
+{"command": "caffeinate 3 python3 tools/gen.py", "expected": ["tools/gen.py"], "id": "wrap-caffeinate-bare-number"}
+{"command": "caffeinate -i python3 tools/gen.py", "expected": ["tools/gen.py"], "id": "wrap-caffeinate-flag"}
+{"command": "caffeinate -t 3 python3 tools/gen.py", "expected": [], "id": "wrap-caffeinate-time-option"}
+{"command": "command bash tools/gen.sh", "expected": ["tools/gen.sh"], "id": "wrap-command"}
+{"command": "nohup -- ./run.sh", "expected": ["./run.sh"], "id": "wrap-dash-option-then-script"}
+{"command": "env FOO=1 node tools/gen.js", "expected": ["tools/gen.js"], "id": "wrap-env"}
+{"command": "FOO=1 BAR=2 python3 tools/gen.py", "expected": ["tools/gen.py"], "id": "wrap-env-assignment"}
+{"command": "FOO=1 BAR=2", "expected": [], "id": "wrap-env-assignment-only"}
+{"command": "env -i bash tools/gen.sh", "expected": ["tools/gen.sh"], "id": "wrap-env-dash-i"}
+{"command": "exec ./run.sh", "expected": ["./run.sh"], "id": "wrap-exec"}
+{"command": "time nohup env A=1 python3 tools/gen.py", "expected": ["tools/gen.py"], "id": "wrap-nested"}
+{"command": "nohup python3 tools/gen.py > out.log 2>&1 &", "expected": ["tools/gen.py"], "id": "wrap-nohup"}
+{"command": "nohup", "expected": [], "id": "wrap-only"}
+{"command": "FOO=\"a b\" python3 tools/gen.py", "expected": ["tools/gen.py"], "id": "wrap-quoted-env-value"}
+{"command": "time python3 tools/gen.py", "expected": ["tools/gen.py"], "id": "wrap-time"}
+{"command": "time 5 ./run.sh", "expected": ["./run.sh"], "id": "wrap-time-then-number"}
+{"command": "timeout 30 python3 tools/gen.py", "expected": [], "id": "wrap-unknown-timeout"}
+{"command": "yarn exec -- tsx tools/gen.ts", "expected": ["tools/gen.ts"], "id": "yarn-exec-double-dash"}
+{"command": "yarn exec node tools/gen.js", "expected": ["tools/gen.js"], "id": "yarn-exec-node"}
+{"command": "yarn node tools/gen.js", "expected": ["tools/gen.js"], "id": "yarn-node"}
