@@ -17,6 +17,7 @@ import (
 	"github.com/mrgeoffrich/agent-harness/internal/config"
 	"github.com/mrgeoffrich/agent-harness/internal/deepseek"
 	"github.com/mrgeoffrich/agent-harness/internal/gemini"
+	"github.com/mrgeoffrich/agent-harness/internal/guard"
 	"github.com/mrgeoffrich/agent-harness/internal/hub"
 	"github.com/mrgeoffrich/agent-harness/internal/mcpclient"
 	"github.com/mrgeoffrich/agent-harness/internal/pricing"
@@ -222,6 +223,21 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 		ToolEnvFilter: stripProviderAPIKeys,
 		RG:            rgPath,
 	}
+	// The guard is a `stdio-session` feature: a `gemini-session` client
+	// speaks Google's vocabulary, which has no setting for it, and the
+	// Runner there has no guard to build. The stage 2 key stays in this
+	// closure and never reaches the settings table or the session row.
+	var guardOpts *stdiosession.GuardOptions
+	if !interactions {
+		runner.Guards = func(setting store.GuardSetting) (session.GuardDecider, error) {
+			return guard.NewPipeline(guard.PipelineConfig{
+				Stage1Endpoint: setting.Stage1Endpoint,
+				Stage2Model:    setting.Stage2Model,
+				AnthropicKey:   anthropicKey,
+			})
+		}
+		guardOpts = &stdiosession.GuardOptions{HasAPIKey: func() bool { return anthropicKey != "" }}
+	}
 
 	srv := stdiosession.NewServer(stdiosession.Options{
 		// The parent-facing vocabulary. `stdio-session` speaks the OpenAI
@@ -247,6 +263,7 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 			}
 		},
 		Version: buildVersion(),
+		Guard:   guardOpts,
 	})
 
 	log.Printf("ready; default model %s, state under %s", chosen, dir)

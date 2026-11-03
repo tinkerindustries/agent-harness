@@ -34,6 +34,10 @@ type ResumeOptions struct {
 	// workspace itself, before the message naming them is appended.
 	AttachmentIDs []string
 	MaxTokens     int
+	// Guard, when set, replaces the guard setting stored on the session row
+	// and is stored in its place. The guard is not part of the cached prefix,
+	// so a resume may change it. Nil keeps the stored setting.
+	Guard *store.GuardSetting
 	// Shells is the session's background-shell registry, the same one Run
 	// was handed, so a bash_id minted before the session went idle is still
 	// readable after it resumes. Nil is the test path: Resume creates a
@@ -63,6 +67,12 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (result *RunRes
 	allEvents, err := r.Store.GetEvents(ctx, sess.ID)
 	if err != nil {
 		return nil, fmt.Errorf("session: resume: load events: %w", err)
+	}
+	if opts.Guard != nil && *opts.Guard != sess.Guard {
+		if err := r.Store.UpdateSessionGuard(ctx, sess.ID, *opts.Guard); err != nil {
+			return nil, fmt.Errorf("session: resume: store guard setting: %w", err)
+		}
+		sess.Guard = *opts.Guard
 	}
 	detector := primeDetector(sess, allEvents)
 	startSubTurn := countTurns(allEvents) + 1
@@ -111,6 +121,13 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (result *RunRes
 	if err != nil {
 		return nil, err
 	}
+	screen, err := r.newRunGuard(sess.Guard, policy.Mode)
+	if err != nil {
+		return nil, err
+	}
+	if screen != nil {
+		executor.Guard = screen
+	}
 	executor.Shells = shells
 	// See lifecycle.go's Run: a shell outlives an ok run and is ended
 	// explicitly when the run was stopped, timed out or failed.
@@ -146,6 +163,7 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (result *RunRes
 		PromptVariant: sess.PromptVariant,
 		MaxTokens:     opts.MaxTokens, Workspace: sess.Workspace,
 		PermissionMode: tools.Mode(sess.PermissionMode), Deny: sess.DenyPatterns,
+		Guard:        sess.Guard,
 		ResultSchema: sess.ResultSchema,
 		ParentID:     sess.ParentID,
 		JobType:      sess.JobType, ParentAgentType: sess.ParentAgentType, ParentAgentID: sess.ParentAgentID,

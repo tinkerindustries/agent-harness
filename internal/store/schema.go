@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 	system_prompt     TEXT NOT NULL,
 	tool_schema       TEXT NOT NULL,
 	mcp_read_only     TEXT NOT NULL DEFAULT '{}',
+	guard             TEXT NOT NULL DEFAULT '',
 	result_schema     TEXT,
 	status            TEXT NOT NULL,
 	created_at        TEXT NOT NULL,
@@ -236,6 +237,10 @@ var sessionMigrationColumns = []migrationColumn{
 	// what the session may call. Older rows default to "{}" — nothing
 	// read-only — which is the same answer an absent server already gets.
 	{"mcp_read_only", "TEXT NOT NULL DEFAULT '{}'"},
+	// guard: the autonomy guard setting (GuardSetting) as JSON, empty when the
+	// session has none. It is on the row so a resume, a compaction successor
+	// and a `task` subagent all start from the same setting.
+	{"guard", "TEXT NOT NULL DEFAULT ''"},
 	{"job_type", "TEXT NOT NULL DEFAULT 'implementation'"},
 	// task: the job's description, the launching instruction of the run, so
 	// the session list can say what a session is about without reading the

@@ -258,6 +258,10 @@ type CreateHarness struct {
 	// Title and Description name the run in this harness's own records.
 	Title       string `json:"title,omitempty"`
 	Description string `json:"description,omitempty"`
+	// Guard is the autonomy guard setting. Only `stdio-session` accepts it;
+	// the other subcommands refuse a create that names it. Unlike the fields
+	// the prefix is built from, a resume may change it.
+	Guard *GuardConfig `json:"guard,omitempty"`
 }
 
 // Tool is the surface's tool union, narrowed to the two members that mean
