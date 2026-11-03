@@ -4,10 +4,14 @@ Every session working on this feature reads this file. Keep it to one screen. No
 
 ## Schema
 
-- The policy bundle, a JSON object the parent sends in `harness.guard.policy`. Top-level fields: a schema version,
-  `cutoff`, `stage1` (optional: `model`, `questions`), `stage2` (`model`, `effort`, `max_tokens`, `system`,
-  `schema`), the state fields each stage receives, and `rules` (the pattern table and `default_branches`). Phase 1
-  settles the rules' inner shape and the loader's names.
+- The policy bundle is a JSON object: `schema_version`, `cutoff`, `stage1` (optional: `model`, `state_fields`,
+  `questions`), `stage2` (`model`, `effort`, `max_tokens`, `state_fields`, `system`, `schema`) and `rules` (`macros`,
+  `table` of `{name, patterns:[{match, unless_followed_by}]}`, `default_branches`). `guard.LoadBundle([]byte)`
+  returns an opaque `*Bundle` or a `*BundleError{Field, Reason}` whose `Field` is relative to the bundle, so the
+  create prefixes `harness.guard.policy.`. `Bundle.Version()` is the guard version, `HasStage1()` says whether
+  `stage1_endpoint` is needed, and `StateFields()` is what a `StateBuilder.Fields` must fill.
+- `NewPipeline` takes `PipelineConfig.Bundle`, the stage 1 endpoint and the key. A bundle with no stage 1 shows on
+  records as `no_stage1` in `escalation`, never as a stage 1 error.
 - The state fields are `working_directory`, `branch`, `recent_commands`, `proposed_command`, `scripts_run` and
   `package_scripts`. Each stage's list is a subset, in the order sent, and always includes `proposed_command`.
 - `harness.guard` on create is `mode`, `stage1_endpoint` and `policy`. `stage2_model` is gone.
@@ -32,10 +36,9 @@ Every session working on this feature reads this file. Keep it to one screen. No
 
 | Path | Why an agent needs it |
 |---|---|
-| `internal/guard/assets.go`, `rulesidentity.go`, `version.go` | The embedded content and the version that phase 1 replaces with the bundle. |
-| `internal/guard/rules.go` | The rule table and the matcher that phase 1 builds from the bundle. |
-| `internal/guard/stage1.go`, `stage2.go`, `compose.go` | The clients and `NewPipeline`, which take their content from the bundle. |
-| `internal/guard/guardtest/guardtest.go` | Fake stage servers shared by the session and stdiosession tests. |
+| `internal/guard/bundle.go` | The bundle type, `LoadBundle`, `BundleError`, validation and the hash. |
+| `internal/guard/compose.go`, `guardtest/bundle.go` | `NewPipeline`, and `BundleJSON`, the invented bundle every package's tests use. |
+| `cmd/harness/stdiosession.go` | The `runner.Guards` factory, a stub that fails a guarded create until phase 2 fills it. |
 | `internal/stdiosession/guardsetting.go` | `GuardConfig`, `resolveGuard` and `mergeGuard`, where the create's setting is checked. |
 | `internal/session/guard.go`, `lifecycle.go`, `resume.go` | `Runner.Guards`, the run guard, and where run and resume options carry the setting. |
 | `internal/store/sessions.go` | `GuardSetting` and the `guard` column. |
