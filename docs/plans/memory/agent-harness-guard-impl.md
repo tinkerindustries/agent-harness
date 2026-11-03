@@ -6,17 +6,14 @@ Every session working on this feature reads this file. Keep it to one screen. No
 
 - `harness.guard` on `create`, `stdio-session` only: mode (`off`, `shadow`, `enforce`), stage 1 endpoint, stage 2
   model. Stored on the session row. `enforce` is refused at create.
-- One new event kind, a guard decision, keyed by tool call id: deciding stage, rule names, p(block), stage 2
-  reason, latency, token usage, guard version, mode.
-- One new Responses-vocabulary notification, `harness.guard`, carrying that record. The other two vocabularies
-  skip the event.
-- `internal/guard` is one package. `Rules` satisfies `RuleChecker` and `ScriptDetector` satisfies `Escalator`
-  (interfaces in `pipeline.go`), and `RulesIdentity()` is the value for `VersionInputs.Rules`. `Decision` has
-  optional `PBlock` and `Stage2Usage` (four token counts); phase 3 persists it and adds the mode.
-- Phase 3 fills `State` from the session: `ResolvePackageScripts(fsys, command, dir, repositories)` takes the
-  effective directory (`workdir`, else `harness.cwd`) and a repository list (the directory up to
-  `/.claude/worktrees/`, or the directory itself). `PackageScriptFile.Excerpt` is `*string` and stays nullable.
-  A session-origin `ScriptEntry` with nil `Content` is unscreened and escalates.
+- `internal/guard` holds the whole decision: `Rules`, `ScriptDetector`, `Pipeline.Decide`, the two stage clients,
+  `Version` (take `RulesIdentity()` for `VersionInputs.Rules`) and `StateBuilder`. `Decision` has optional `PBlock`
+  and `Stage2Usage`, and no mode.
+- The record is the `guard_decision` event, keyed by tool call id, with the mode set by the caller. A stage 2
+  answer also writes a `usage` event with `Model` set. `session.GuardEvents` builds both. The Responses
+  translator turns the event into the `harness.guard` frame. The other two translators skip it.
+- `session.BuildGuardState` builds the state from the log and the round's calls (`GuardCall.Round`).
+  `session.LoadGuardHistory` follows `ParentID` through compaction only, not through `task` subagents.
 
 ## Invariants
 
@@ -25,6 +22,7 @@ Every session working on this feature reads this file. Keep it to one screen. No
 - A guard decision never reaches the model's request: `internal/fold` ignores the event kind.
 - `shadow` never delays or stops a command. `enforce` refuses through the existing denial route.
 - Results append in `tool_calls` order whatever order the checks finish in.
+- A write in the same tool round as the checked `bash` has no result yet, so its script is unreadable and escalates.
 - No rule, prompt, cut-off or model id changes here. The guard version changes when any of them does.
 - A resume does not re-run a tool call, so a recorded decision is never read back.
 - Nothing but protocol frames reaches stdout. The guard logs to stderr.
@@ -35,31 +33,23 @@ Every session working on this feature reads this file. Keep it to one screen. No
 
 | Path | Why an agent needs it |
 |---|---|
-| `docs/plans/agent-harness-guard.md` | The hand-off: decision order, both model calls, the state field table. |
-| `internal/tools/policy.go` | `Policy.Check` is synchronous and sees only the descriptor. The guard sits beside it. |
-| `internal/tools/registry.go` | `Executor.Execute` runs the policy check and then the tool. |
-| `internal/tools/mutation.go` | `MutationTargets` resolves `write`, `edit` and `apply_patch` paths. |
-| `internal/session/tooldispatch.go` | Runs a round's calls concurrently and orders results. |
-| `internal/session/turn.go` | Commits tool calls, then results, and routes a denial to `tool_denied`. |
-| `internal/session/compact.go` | Compaction forks a successor row, so state history can be cut. |
-| `internal/session/lifecycle.go`, `resume.go` | Each builds a `Policy` and an `Executor`. Both pass run options to subagents. |
-| `internal/store/events.go`, `schema.go` | Event kinds and payloads, and the session row. |
-| `internal/fold/fold.go` | Folds the log into the request. Gives an interrupted call an interrupted output. |
-| `internal/stdiosession/translate.go` | The Responses translator. Its `harness.usage` handling is the model for `harness.guard`. |
+| `internal/tools/policy.go`, `registry.go` | `Policy.Check` sees only the descriptor. `Executor.Execute` checks it, then runs the tool. |
+| `internal/session/tooldispatch.go`, `turn.go` | A round's calls run concurrently. Results commit together, and a denial becomes `tool_denied`. |
+| `internal/session/lifecycle.go`, `resume.go` | Each builds a `Policy` and an `Executor`, and both hand run options to `task` subagents. |
+| `internal/session/guardstate.go` | `BuildGuardState`, `GuardEvents`, `GuardCall`. Phase 4 calls these from `Runner`. |
+| `internal/guard/pipeline.go`, `builder.go` | `Pipeline.Decide`, `Decision`, and `StateBuilder.Build`. |
+| `internal/store/events.go`, `schema.go` | The guard event payload, and the session row the setting is stored on. |
 | `internal/stdiosession/methods.go`, `resume.go` | `CreateHarness`, and the checks a resume makes against the row. |
-| `internal/guard/pipeline.go`, `state.go` | `Pipeline.Decide`, `Decision`, the stage and rule interfaces, and the `State` the model sees. |
-| `internal/guard/scripts.go`, `pkgscripts.go` | `ExecutedScripts`, and `ResolvePackageScripts` with its `FileSystem` interface. |
-| `internal/providerhttp` | `Transport` retries 429 and 5xx with backoff. A stage deadline covers the retries. |
-| `docs/STDIO-PROTOCOL.md` | The wire contract. Read before touching `internal/stdiosession`. |
+| `docs/STDIO-PROTOCOL.md` | The wire contract, including the `harness.guard` section. Read before touching `internal/stdiosession`. |
 
 ## External facts
 
 | Fact | Source |
 |---|---|
 | Stage 1 is `POST <endpoint>/v1/systemone` on an Ollama server, model `clef-flash`, `keep_alive` `30m`. A valid answer has exactly the `allow` and `block` labels, each in [0, 1], summing to 1 within 0.01. | The hand-off, "Stage 1". Exact bytes are in the guard assets. |
-| Stage 2 is the Anthropic Messages API with `output_config.format` carrying a `reason`-then-`decision` schema, one cache breakpoint on the fixed system prompt, and effort medium. A verdict needs `stop_reason` `end_turn` and exactly the keys `reason` and `decision`. | The hand-off, "Stage 2". Exact request is in the guard assets. |
-| The stage 2 model is `claude-haiku-5-5`. `internal/provider` routes no Haiku model, which is fine because it is not a session model. | The hand-off; `docs/ANTHROPIC-INTEGRATION.md` for the Messages client's conventions. |
-| The guard assets (prompts, models, cut-off 0.171, the Python sources) are committed under `internal/guard/testdata/assets/`, and its README names each file. Synthetic parity fixtures are committed under `internal/guard/testdata/parity/synthetic/`. The full export is local only and reached through `GUARD_PARITY_DIR`. | The assets README; the plan's Open questions. |
+| Stage 2 is the Anthropic Messages API, model `claude-haiku-5-5`, effort medium, one cache breakpoint, a `reason`-then-`decision` schema. `internal/provider` routes no Haiku model, which is fine because it is not a session model. | The hand-off, "Stage 2". Exact request is in the guard assets. |
+| `Table.Cost` has one rate per model. Haiku 5.5's rates above 100,000 prompt tokens are not represented. | `configs/prices.json`, the `claude-haiku-5-5` entry. |
+| The guard assets (prompts, models, cut-off 0.171, the Python sources) are under `internal/guard/testdata/assets/`. Synthetic parity fixtures are under `internal/guard/testdata/parity/synthetic/`. The full export is local only, through `GUARD_PARITY_DIR`. | The assets README; the plan's Open questions. |
 
 ## Vocabulary
 
