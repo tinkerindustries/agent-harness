@@ -172,16 +172,19 @@ The edges that matter:
   `sessions.events`, rather than a blocking `harness.function_call`
   (`docs/STDIO-MANAGED-AGENTS.md`).
 - **The autonomy guard sits beside the tools, behind two seams.**
-  `internal/guard` holds the decision (rules, the stage 1 classifier, the stage
-  2 reviewer, the state builder) and imports neither `internal/store` nor
-  `internal/session`. `internal/tools` declares `Guard`, which
+  `internal/guard` holds the mechanism (the policy bundle loader, the rule
+  matcher, the stage 1 classifier, the stage 2 reviewer, the state builder) and
+  imports neither `internal/store` nor `internal/session`. The policy itself is
+  the parent's: it arrives as a bundle on the create, and nothing in this
+  repository says what the guard allows or blocks. `internal/tools` declares `Guard`, which
   `Executor.Execute` consults for a `bash` call under `full` after the policy
   has allowed it. `internal/session` implements it (`runGuard`): it builds the
   state from the event log, runs the pipeline and appends the
   `guard_decision` event. `Runner.Guards` is how `cmd/harness` hands the
-  session package a pipeline factory, which is where the Anthropic key stays.
-  `internal/stdiosession` owns the `harness.guard` create setting and nothing
-  else about it.
+  session package a pipeline factory, which is where the Anthropic key stays;
+  the factory receives the session's bundle with its setting.
+  `internal/stdiosession` owns the `harness.guard` create setting, validates
+  the bundle with `guard.LoadBundle` and holds it in memory per session.
 - Nothing imports `cmd/`.
 
 ## Cross-cutting concerns
@@ -251,7 +254,11 @@ are here.
   change this: their records are separate events.
 - **The guard setting is outside the frozen head.** It is stored on the
   session row and copied by compaction and by `task` subagents, but a resume
-  may replace it, because nothing in a request depends on it. `shadow` never
+  may replace it, because nothing in a request depends on it. The row holds the
+  mode, the stage 1 endpoint and the policy bundle's hash. The bundle is held in
+  memory by `internal/stdiosession` for the conversation's life, passed to the
+  loop in the run and resume options, copied to a compaction successor and
+  released by `harness.close_session`. It is never stored, framed or logged. `shadow` never
   stops a command, and only the local read of the session's state comes before
   it: the model calls and the record run beside it. A shadow record commits on a context a cancelled
   run does not cancel, and a run that is ending waits for the ones in flight so

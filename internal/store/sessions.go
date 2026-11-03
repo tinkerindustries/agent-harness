@@ -668,14 +668,16 @@ const (
 )
 
 // GuardSetting is the autonomy guard configuration a session runs under. It
-// holds no credential: the stage 2 key comes from the process environment.
+// holds no credential and no policy text: the stage 2 key comes from the
+// process environment and the bundle is held in memory by the process.
 type GuardSetting struct {
 	// Mode is GuardModeOff, GuardModeShadow or GuardModeEnforce.
 	Mode string `json:"mode,omitempty"`
 	// Stage1Endpoint is the host stage 1 posts to, without the path.
 	Stage1Endpoint string `json:"stage1_endpoint,omitempty"`
-	// Stage2Model is the Anthropic model stage 2 asks.
-	Stage2Model string `json:"stage2_model,omitempty"`
+	// PolicyHash is the hash of the policy bundle the setting was made
+	// under. The bundle itself is never stored.
+	PolicyHash string `json:"policy_hash,omitempty"`
 }
 
 // Active reports whether the setting screens any call.

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mrgeoffrich/agent-harness/internal/guard"
 	"github.com/mrgeoffrich/agent-harness/internal/hub"
 	"github.com/mrgeoffrich/agent-harness/internal/mcpclient"
 	"github.com/mrgeoffrich/agent-harness/internal/session"
@@ -128,6 +129,11 @@ type Server struct {
 	// the run a background completion starts has the same client-declared
 	// tools the client last sent. Guarded by mu.
 	hosts map[string]*hostTools
+	// bundles is the autonomy guard's policy bundle for each session, held in
+	// memory only. A continuation, a background wake and a compaction
+	// successor screen with it, and harness.close_session releases it. It is
+	// never stored, logged or sent. Guarded by mu.
+	bundles map[string]*guard.Bundle
 	// woken is the highest background_finished seq a wake run has been
 	// started for, per session. It is what stops a wake that cannot start
 	// from turning every end-of-run check into another attempt; a newer
@@ -224,6 +230,7 @@ func NewServer(opts Options) *Server {
 		customReady:   map[string]customToolResult{},
 		shells:        map[string]*tools.Shells{},
 		hosts:         map[string]*hostTools{},
+		bundles:       map[string]*guard.Bundle{},
 		woken:         map[string]int64{},
 	}
 	if opts.MCP != nil {
@@ -375,6 +382,11 @@ func (s *Server) followCompaction(from string, res *session.RunResult, shells *t
 	if host, ok := s.hosts[from]; ok {
 		if _, ok := s.hosts[res.SessionID]; !ok {
 			s.hosts[res.SessionID] = host
+		}
+	}
+	if b, ok := s.bundles[from]; ok {
+		if _, ok := s.bundles[res.SessionID]; !ok {
+			s.bundles[res.SessionID] = b
 		}
 	}
 	return res.SessionID
@@ -694,7 +706,10 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 		mode = tools.Mode(frozenMode)
 	}
 
-	var guardSetting *store.GuardSetting
+	var (
+		guardSetting *store.GuardSetting
+		guardBundle  *guard.Bundle
+	)
 	if p.Harness != nil && p.Harness.Guard != nil || resume {
 		var stored store.GuardSetting
 		permission := mode
@@ -710,7 +725,8 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 			cfg = p.Harness.Guard
 		}
 		var rerr *rpcError
-		if guardSetting, rerr = s.resolveGuard(cfg, stored, permission); rerr != nil {
+		guardSetting, guardBundle, rerr = s.resolveGuard(cfg, stored, permission, s.heldBundle(sessionID))
+		if rerr != nil {
 			return nil, rerr
 		}
 	}
@@ -740,7 +756,16 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 		stream:          p.Stream,
 		host:            host,
 		guard:           guardSetting,
+		bundle:          guardBundle,
 	})
+}
+
+// heldBundle is the policy bundle this process holds for a session, nil when
+// it holds none.
+func (s *Server) heldBundle(sessionID string) *guard.Bundle {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.bundles[sessionID]
 }
 
 // beginRunParams is what starting a run needs. create() builds one for every
@@ -764,6 +789,9 @@ type beginRunParams struct {
 	// guard is the autonomy guard setting the create named. Nil leaves a
 	// resumed session's stored setting in force and starts a new one with none.
 	guard *store.GuardSetting
+	// bundle is the policy bundle the create sent. Nil keeps the one the
+	// process already holds for the session.
+	bundle *guard.Bundle
 	// notices are the background_finished events the run is starting to
 	// deliver. Only a wake passes any: the run has no create body to carry a
 	// user message, so the notice is fed to the translator before the loop
@@ -805,6 +833,10 @@ func (s *Server) beginRun(ctx context.Context, p beginRunParams) (any, *rpcError
 	s.order = append(s.order, it.id)
 	s.running = it
 	s.hosts[p.sessionID] = p.host
+	if p.bundle != nil {
+		s.bundles[p.sessionID] = p.bundle
+	}
+	bundle := s.bundles[p.sessionID]
 	// The runner is shared and its MCP field is per interaction. Only one
 	// interaction runs at a time (the guard above), and this is set before
 	// the run starts and left alone until it ends, so the field is never
@@ -889,6 +921,7 @@ func (s *Server) beginRun(ctx context.Context, p beginRunParams) (any, *rpcError
 	if p.guard != nil {
 		opts.Guard = *p.guard
 	}
+	opts.GuardBundle = bundle
 
 	go func() {
 		defer close(it.done)
@@ -899,9 +932,10 @@ func (s *Server) beginRun(ctx context.Context, p beginRunParams) (any, *rpcError
 		if p.resume {
 			res, err = s.opts.Runner.Resume(runCtx, session.ResumeOptions{
 				SessionID: p.sessionID, Prompt: p.prompt,
-				MaxTokens: opts.MaxTokens,
-				Guard:     p.guard,
-				Shells:    shells,
+				MaxTokens:   opts.MaxTokens,
+				Guard:       p.guard,
+				GuardBundle: bundle,
+				Shells:      shells,
 			})
 		} else {
 			res, err = s.opts.Runner.Run(runCtx, opts)
@@ -1223,6 +1257,15 @@ func (s *Server) closeSession(params json.RawMessage) (any, *rpcError) {
 	}
 	s.order = kept
 	delete(s.hosts, p.SessionID)
+	// followCompaction shares one bundle between a retired session and its
+	// successor, so closing either releases both.
+	if b, ok := s.bundles[p.SessionID]; ok {
+		for id, held := range s.bundles {
+			if held == b {
+				delete(s.bundles, id)
+			}
+		}
+	}
 	delete(s.woken, p.SessionID)
 
 	// The shell registry is the one thing here that has to be closed rather
