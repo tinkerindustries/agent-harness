@@ -88,8 +88,13 @@ func (f *Fake) serveStage1(w http.ResponseWriter, r *http.Request) {
 		State struct {
 			ProposedCommand string `json:"proposed_command"`
 		} `json:"state"`
+		Questions map[string]json.RawMessage `json:"questions"`
 	}
 	_ = json.Unmarshal(body, &req)
+	question := Question
+	for name := range req.Questions {
+		question = name
+	}
 
 	f.mu.Lock()
 	f.stage1 = append(f.stage1, string(body))
@@ -115,7 +120,7 @@ func (f *Fake) serveStage1(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "stage 1 down", b.Stage1Status)
 		return
 	}
-	fmt.Fprintf(w, `{"answers":{"risk_check":{"choice":"block","probabilities":{"allow":%g,"block":%g}}}}`, 1-b.PBlock, b.PBlock)
+	fmt.Fprintf(w, `{"answers":{%q:{"choice":"block","probabilities":{"allow":%g,"block":%g}}}}`, question, 1-b.PBlock, b.PBlock)
 }
 
 func (f *Fake) serveStage2(w http.ResponseWriter, r *http.Request) {

@@ -15,8 +15,6 @@ import (
 )
 
 const (
-	// DefaultStage1Model is the System One model id, from the stage 1 model asset.
-	DefaultStage1Model = "clef-flash"
 	// Stage1KeepAlive keeps the model loaded between commands.
 	Stage1KeepAlive = "30m"
 	// DefaultStage1Timeout covers the request and its retries. The evals measured
@@ -33,7 +31,8 @@ type Stage1Config struct {
 	// Endpoint is the System One host, without the /v1/systemone path.
 	Endpoint   string
 	HTTPClient *http.Client
-	Model      string
+	// Bundle supplies the model and the questions. It must have a stage 1.
+	Bundle *Bundle
 	// Timeout bounds one Classify call including every retry.
 	Timeout    time.Duration
 	MaxRetries int
@@ -47,6 +46,8 @@ type Stage1Client struct {
 	model     string
 	timeout   time.Duration
 	questions json.RawMessage
+	question  string
+	fields    []string
 }
 
 // NewStage1Client builds a client for cfg.Endpoint.
@@ -54,16 +55,13 @@ func NewStage1Client(cfg Stage1Config) (*Stage1Client, error) {
 	if strings.TrimSpace(cfg.Endpoint) == "" {
 		return nil, errors.New("guard: stage 1 endpoint is empty")
 	}
-	p, err := loadPrompts()
-	if err != nil {
-		return nil, err
+	if cfg.Bundle == nil || cfg.Bundle.stage1 == nil {
+		return nil, errors.New("guard: the policy has no stage 1")
 	}
+	policy := cfg.Bundle.stage1
 	httpClient := cfg.HTTPClient
 	if httpClient == nil {
 		httpClient = &http.Client{}
-	}
-	if cfg.Model == "" {
-		cfg.Model = DefaultStage1Model
 	}
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = DefaultStage1Timeout
@@ -92,16 +90,18 @@ func NewStage1Client(cfg Stage1Config) (*Stage1Client, error) {
 			ErrPrefix:      "guard stage 1",
 			SetAuth:        func(*http.Request, string) {},
 		},
-		model:     cfg.Model,
+		model:     policy.model,
 		timeout:   cfg.Timeout,
-		questions: p.Stage1Questions,
+		questions: policy.questions,
+		question:  policy.question,
+		fields:    policy.fields,
 	}, nil
 }
 
 type stage1Request struct {
 	Model     string          `json:"model"`
 	KeepAlive string          `json:"keep_alive"`
-	State     stage1State     `json:"state"`
+	State     json.RawMessage `json:"state"`
 	Questions json.RawMessage `json:"questions"`
 }
 
@@ -112,13 +112,17 @@ type Stage1Result struct {
 	PAllow float64
 }
 
-// PBlock sends the state's first five fields and returns the validated answer.
+// PBlock sends the state's listed fields and returns the validated answer.
 // Any failure, whether a timeout, a transport error, a non-200 status or an
 // invalid answer, comes back as an error and the caller escalates.
 func (c *Stage1Client) PBlock(ctx context.Context, state State) (Stage1Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
-	body, err := marshalNoEscape(stage1Request{Model: c.model, KeepAlive: Stage1KeepAlive, State: state.stage1(), Questions: c.questions})
+	encoded, err := state.encode(c.fields)
+	if err != nil {
+		return Stage1Result{}, fmt.Errorf("guard stage 1: encode state: %w", err)
+	}
+	body, err := marshalNoEscape(stage1Request{Model: c.model, KeepAlive: Stage1KeepAlive, State: encoded, Questions: c.questions})
 	if err != nil {
 		return Stage1Result{}, fmt.Errorf("guard stage 1: encode request: %w", err)
 	}
@@ -134,7 +138,7 @@ func (c *Stage1Client) PBlock(ctx context.Context, state State) (Stage1Result, e
 	if resp.StatusCode != http.StatusOK {
 		return Stage1Result{}, fmt.Errorf("guard stage 1: status %d: %s", resp.StatusCode, snippet(data))
 	}
-	return parseStage1(data)
+	return parseStage1(data, c.question)
 }
 
 type stage1Response struct {
@@ -144,14 +148,14 @@ type stage1Response struct {
 	} `json:"answers"`
 }
 
-func parseStage1(data []byte) (Stage1Result, error) {
+func parseStage1(data []byte, question string) (Stage1Result, error) {
 	var resp stage1Response
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return Stage1Result{}, fmt.Errorf("guard stage 1: decode answer: %w", err)
 	}
-	answer, ok := resp.Answers[stage1Question]
+	answer, ok := resp.Answers[question]
 	if !ok {
-		return Stage1Result{}, fmt.Errorf("guard stage 1: answer has no %s", stage1Question)
+		return Stage1Result{}, errors.New("guard stage 1: answer does not have the question")
 	}
 	if answer.Choice != "allow" && answer.Choice != "block" {
 		return Stage1Result{}, fmt.Errorf("guard stage 1: choice %q is not a label", answer.Choice)

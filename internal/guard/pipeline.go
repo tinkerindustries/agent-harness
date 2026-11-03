@@ -5,10 +5,6 @@ import (
 	"time"
 )
 
-// DefaultCutoff is the stage 1 threshold. A command with p(block) at or above
-// it goes to stage 2. classifier-research chose it; it changes there first.
-const DefaultCutoff = 0.171
-
 // Verdicts and deciding stages.
 const (
 	VerdictAllow = "allow"
@@ -76,8 +72,13 @@ type Pipeline struct {
 	Stage2     Reviewer
 	// Stage2Model is recorded on a decision that reached stage 2.
 	Stage2Model string
-	// Cutoff is the stage 1 threshold; zero takes DefaultCutoff.
-	Cutoff       float64
+	// Cutoff is the stage 1 threshold: a command with p(block) at or above it
+	// goes to stage 2.
+	Cutoff float64
+	// NoStage1 is set when the policy has no stage 1. Every command the rules
+	// do not catch then goes to stage 2, with EscalationNoStage1 among the
+	// reasons.
+	NoStage1     bool
 	GuardVersion string
 }
 
@@ -102,6 +103,9 @@ func (p *Pipeline) decide(ctx context.Context, state State, d *Decision) {
 	}
 	if p.Escalation != nil {
 		d.Escalation = p.Escalation.EscalationReasons(state.ProposedCommand, state.ScriptsRun)
+	}
+	if p.NoStage1 {
+		d.Escalation = append(d.Escalation, EscalationNoStage1)
 	}
 	if len(d.Escalation) == 0 && !p.runStage1(ctx, state, d) {
 		d.Verdict, d.DecidedBy = VerdictAllow, DecidedByStage1
@@ -128,11 +132,7 @@ func (p *Pipeline) runStage1(ctx context.Context, state State, d *Decision) bool
 	}
 	pb := res.PBlock
 	d.PBlock = &pb
-	cutoff := p.Cutoff
-	if cutoff == 0 {
-		cutoff = DefaultCutoff
-	}
-	return pb >= cutoff
+	return pb >= p.Cutoff
 }
 
 func (p *Pipeline) runStage2(ctx context.Context, state State, d *Decision) {

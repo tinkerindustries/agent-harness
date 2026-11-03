@@ -98,10 +98,14 @@ func bashCall(id, command string) scriptedCall {
 func guardRunner(t *testing.T, model *httptest.Server, fake *guardtest.Fake) *Runner {
 	t.Helper()
 	r := newTestRunner(t, model.URL)
+	bundle, err := guard.LoadBundle(guardtest.BundleJSON())
+	if err != nil {
+		t.Fatal(err)
+	}
 	r.Guards = func(setting store.GuardSetting) (GuardDecider, error) {
 		return guard.NewPipeline(guard.PipelineConfig{
+			Bundle:         bundle,
 			Stage1Endpoint: setting.Stage1Endpoint,
-			Stage2Model:    setting.Stage2Model,
 			AnthropicKey:   "sk-ant-test",
 			Stage2BaseURL:  fake.Stage2URL,
 		})
@@ -110,7 +114,7 @@ func guardRunner(t *testing.T, model *httptest.Server, fake *guardtest.Fake) *Ru
 }
 
 func guardSetting(mode string, fake *guardtest.Fake) store.GuardSetting {
-	return store.GuardSetting{Mode: mode, Stage1Endpoint: fake.Stage1URL, Stage2Model: guard.DefaultStage2Model}
+	return store.GuardSetting{Mode: mode, Stage1Endpoint: fake.Stage1URL}
 }
 
 func runOptions(ws string, g store.GuardSetting) RunOptions {
@@ -190,7 +194,7 @@ func (l loggedEvents) guardUsage(t *testing.T) []store.UsagePayload {
 		if err := json.Unmarshal(e.Payload, &p); err != nil {
 			t.Fatal(err)
 		}
-		if p.Model == guard.DefaultStage2Model {
+		if p.Model == guardtest.Stage2Model {
 			out = append(out, p)
 		}
 	}
@@ -427,7 +431,7 @@ func TestEnforceAllowRunsTheCommand(t *testing.T) {
 // Rules block without a model, and the refusal names them.
 func TestEnforceRuleBlockNamesTheRules(t *testing.T) {
 	fake := guardtest.New(t)
-	model := (&modelScript{turns: [][]scriptedCall{{bashCall("call_a", "sudo true")}, {}}}).serve(t)
+	model := (&modelScript{turns: [][]scriptedCall{{bashCall("call_a", "elevate true")}, {}}}).serve(t)
 	r := guardRunner(t, model, fake)
 
 	res, err := r.Run(t.Context(), runOptions(t.TempDir(), guardSetting(store.GuardModeEnforce, fake)))
@@ -435,7 +439,7 @@ func TestEnforceRuleBlockNamesTheRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	denials := eventsOf(t, r, res.SessionID).denials(t)
-	if len(denials) != 1 || denials[0].Rule != "autonomy guard (rules: sudo)" {
+	if len(denials) != 1 || denials[0].Rule != "autonomy guard (rules: elevate)" {
 		t.Fatalf("denials = %+v", denials)
 	}
 	if n := len(fake.Stage1Requests()) + len(fake.Stage2Requests()); n != 0 {
