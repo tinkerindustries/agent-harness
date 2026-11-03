@@ -10,6 +10,10 @@ Every session working on this feature reads this file. Keep it to one screen. No
   reason, latency, token usage, guard version, mode.
 - One new Responses-vocabulary notification, `harness.guard`, carrying that record. The other two vocabularies
   skip the event.
+- `internal/guard` is one package shared by phases 1 to 4. Phase 1's rules type satisfies `RuleChecker` and its
+  script type satisfies `Escalator` (both in `pipeline.go`), and it passes `ScriptEntry` from `state.go`. `Version`
+  takes a rules identity string that the rules code supplies. `Decision` has optional `PBlock` and `Stage2Usage`
+  (four token counts); phase 3 persists it and adds the mode.
 
 ## Invariants
 
@@ -40,6 +44,7 @@ Every session working on this feature reads this file. Keep it to one screen. No
 | `internal/fold/fold.go` | Folds the log into the request. Gives an interrupted call an interrupted output. |
 | `internal/stdiosession/translate.go` | The Responses translator. Its `harness.usage` handling is the model for `harness.guard`. |
 | `internal/stdiosession/methods.go`, `resume.go` | `CreateHarness`, and the checks a resume makes against the row. |
+| `internal/guard/pipeline.go`, `state.go` | `Pipeline.Decide`, `Decision`, the stage and rule interfaces, and the `State` the model sees. |
 | `internal/providerhttp` | `Transport` retries 429 and 5xx with backoff. A stage deadline covers the retries. |
 | `docs/STDIO-PROTOCOL.md` | The wire contract. Read before touching `internal/stdiosession`. |
 
