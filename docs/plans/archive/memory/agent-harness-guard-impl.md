@@ -9,6 +9,10 @@ Every session working on this feature reads this file. Keep it to one screen. No
 - `internal/guard` holds the whole decision: `Rules`, `ScriptDetector`, `Pipeline.Decide`, the two stage clients,
   `Version` (take `RulesIdentity()` for `VersionInputs.Rules`) and `StateBuilder`. `Decision` has optional `PBlock`
   and `Stage2Usage`, and no mode.
+- `tools.Guard` is the seam `Executor.Execute` consults for `bash` under `full`. `session.runGuard` implements it,
+  `Runner.Guards` is the factory `cmd/harness` supplies (the only place the Anthropic key is held), and
+  `guard.NewPipeline` assembles the parts. `guardtest` holds the shared fake stage servers. The guard setting is
+  the one stored session attribute a resume may replace.
 - The record is the `guard_decision` event, keyed by tool call id, with the mode set by the caller. A stage 2
   answer also writes a `usage` event with `Model` set. `session.GuardEvents` builds both. The Responses
   translator turns the event into the `harness.guard` frame. The other two translators skip it.
@@ -22,6 +26,7 @@ Every session working on this feature reads this file. Keep it to one screen. No
 - A guard decision never reaches the model's request: `internal/fold` ignores the event kind.
 - `shadow` never delays or stops a command. `enforce` refuses through the existing denial route.
 - Results append in `tool_calls` order whatever order the checks finish in.
+- A run's last event closes the parent's subscription, so a run that is ending waits for shadow checks in flight.
 - A write in the same tool round as the checked `bash` has no result yet, so its script is unreadable and escalates.
 - No rule, prompt, cut-off or model id changes here. The guard version changes when any of them does.
 - A resume does not re-run a tool call, so a recorded decision is never read back.

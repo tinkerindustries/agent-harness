@@ -11,7 +11,7 @@ call runs. The guard applies exact-pattern rules, then a small local classifier 
 decides and records every call, the command runs regardless, and the parent receives each decision as a frame.
 The `enforce` path is built and tested but a create cannot select it yet.
 
-[agent-harness-guard.md](agent-harness-guard.md) is the hand-off from classifier-research and states what the
+[agent-harness-guard.md](../agent-harness-guard.md) is the hand-off from classifier-research and states what the
 guard decides, the two model calls and how the state is built. This plan is the harness's side of that
 document. Where the two disagree on a point of harness behaviour, this plan wins. The decision rules, prompts
 and cut-off belong to classifier-research and are not restated here.
