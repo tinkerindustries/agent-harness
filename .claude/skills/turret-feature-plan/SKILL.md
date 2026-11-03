@@ -14,7 +14,7 @@ them. Everything the implementation agents need has to be on the page.
 | `docs/plans/memory/<slug>.md` | The feature memory: the shared facts every agent on this feature needs, kept small |
 
 Read [docs/plans/README.md](../../../docs/plans/README.md) first. It is the repo's own word
-on what a plan is and where reports land, and it wins over anything here that contradicts it.
+on what a plan is and where a phase's record lands, and it wins over anything here that contradicts it.
 
 ## Interview the user, more than once
 
@@ -107,8 +107,8 @@ the review raises. Those files are the output and nothing else is.
 ## Choose the slug
 
 One short kebab-case name for the feature, used for the plan file, the memory file and the
-report directory. `docs/plans/reports/<slug>/` is where agents write their reports, so the
-slug is the thing tying the three together. Check it is not already taken.
+feature branch, `feature/<slug>`. A phase's record is its pull request body, so the slug is
+what ties the three together. Check it is not already taken.
 
 ## Shape the phases
 
@@ -119,9 +119,15 @@ fits — a phase spanning six subsystems will be half-done when the session runs
 Every phase carries:
 
 - **Depends on** — the phases that must land first, by number, or "nothing".
-- **What it builds** — the behaviour, and the files or subsystems it lives in.
+- **What it builds** — the behaviour, and the subsystem it lives in.
+- **How to approach it** — a few sentences of direction: the existing code or pattern to
+  build on, the approach you would take and why, the trap you found while exploring. Keep it
+  to direction and leave out file names, function signatures and module layouts. The agent
+  that runs the phase reads the code as it stands then, which is not the code you read once
+  earlier phases have landed. It also follows a plan literally, so a named file becomes a
+  requirement even where a better one exists.
 - **Proof** — the command that passes, or the observation on screen, that says it is done.
-  The orchestrator quotes this into the job prompt and the report answers it, so a proof
+  The orchestrator quotes this into the job prompt and the PR body answers it, so a proof
   nobody can run is a phase nobody can close.
 - **Out of scope for this phase** — where a neighbouring phase's work starts, when the
   boundary is easy to walk over.
@@ -151,14 +157,31 @@ what a design document settled: say so in the plan, and have the phase that buil
 change correct the document so one description of the surface remains. When the reason for
 the change is worth keeping, it goes in `docs/decisions/design-departures.md`.
 
+### How big a phase is
+
+Every phase pays a fixed cost before it builds anything. Its fresh session reads the plan,
+the memory and the code it is about to change, and on the runs measured so far that came to
+about two fifths of a Sonnet phase's cost. A small phase pays that for little work. Measured
+on Sonnet phases, the median cost per changed line fell by almost half from phases under 800
+changed lines to phases over 3,000.
+
+Aim for a phase that lands roughly 1,500 to 3,000 changed lines, tests included. Fold a phase
+you expect to land under about 800 lines into a neighbour it shares files with, unless it has
+to stand alone: a design phase, a spike whose answer decides the next phase, or work that
+must land before two parallel phases can start.
+
+The upper bound is the session's room. A phase spanning many subsystems, or one whose proof
+needs the whole feature standing, will run out of context before it is done. Split that one
+by subsystem.
+
 ### How many phases
 
-The orchestrator runs on one delegation, which caps how many sessions it may hold live and
-how many it may create in all (`src/main/orchestration/caps.ts`, and
-`docs/design/orchestration-safety.md` for why). It reuses sessions rather than spawning one
-per phase, and a plan with a dozen phases still strains that. Aim for the work to divide into
-a handful of substantial phases. If it will not, say so in the plan and split the feature into
-two plans that land in sequence.
+The orchestrator gives every phase a fresh session. Its delegation caps how many sessions it
+holds live at once, and archiving a collected phase frees its slot
+(`src/main/orchestration/caps.ts`, and `docs/design/orchestration-safety.md` for why). So the
+number of phases is bounded by the sizing above rather than by the caps. A feature that would
+still need more than about a dozen phases at that size is two features. Say so in the plan
+and split it into two plans that land in sequence.
 
 ## Write the feature memory
 
@@ -180,10 +203,10 @@ What does not belong in it:
 
 - Code. A schema is written as a type or a table, and an implementation is not.
 - Anything derivable by reading the file it would link to instead.
-- Progress, status, or what has been built so far. That is the plan and the reports.
+- Progress, status, or what has been built so far. That is the plan and the pull requests.
 
 The orchestrator is the only thing that edits this file after you write it. Implementation
-agents suggest additions in their reports and the orchestrator decides.
+agents suggest additions in their PR bodies and the orchestrator decides.
 
 Templates: [assets/plan-template.md](assets/plan-template.md) and
 [assets/memory-template.md](assets/memory-template.md). Keep every heading they carry, and
@@ -207,7 +230,7 @@ the user's request it comes from. Anything you cannot trace:
 Then check the other direction: everything in the request appears somewhere in the plan.
 
 The **Not building** section is not decoration. It is what the orchestrator holds each
-agent's work against when a report proposes going further, so write down the tempting
+agent's work against when a PR body proposes going further, so write down the tempting
 adjacent things and say they are out.
 
 Tell the user what the review removed and where it went. That is the moment they get to
