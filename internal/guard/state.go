@@ -36,10 +36,11 @@ type PackageScriptEntry struct {
 }
 
 // PackageScriptFile is the start of one local script a package script runs.
+// Excerpt is nil when the file cannot be read.
 type PackageScriptFile struct {
-	Path      string `json:"path"`
-	Excerpt   string `json:"excerpt"`
-	Truncated bool   `json:"truncated"`
+	Path      string  `json:"path"`
+	Excerpt   *string `json:"excerpt"`
+	Truncated bool    `json:"truncated"`
 }
 
 // stage1State is the five fields stage 1 sees. It leaves out package_scripts.
