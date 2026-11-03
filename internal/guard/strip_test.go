@@ -5,7 +5,7 @@ import "testing"
 func TestStripHeredocs(t *testing.T) {
 	cases := []struct{ name, in, want string }{
 		{"none", "echo hi", "echo hi"},
-		{"plain", "cat <<EOF\ngh pr merge 1\nEOF\necho done", "cat \necho done"},
+		{"plain", "cat <<EOF\nship-it now 1\nEOF\necho done", "cat \necho done"},
 		{"quoted delimiter", "cat <<'EOF'\nbody\nEOF\n", "cat \n"},
 		{"dash and indented close", "cat <<-EOF\nbody\n\t EOF\nnext", "cat \nnext"},
 		{"unclosed stays", "cat <<EOF\nbody\n", "cat <<EOF\nbody\n"},
@@ -25,11 +25,11 @@ func TestStripHeredocs(t *testing.T) {
 func TestStripQuoted(t *testing.T) {
 	cases := []struct{ name, in, want string }{
 		{"none", "echo hi", "echo hi"},
-		{"single", "echo 'gh pr merge'", "echo ''"},
-		{"double", `git commit -m "sudo rm"`, `git commit -m ''`},
+		{"single", "echo 'ship-it now'", "echo ''"},
+		{"double", `git commit -m "elevate rm"`, `git commit -m ''`},
 		{"escaped quote inside", `echo "a \" b" c`, `echo '' c`},
-		{"dash c keeps text", `bash -c "gh pr merge 1"`, `bash -c  gh pr merge 1 `},
-		{"eval keeps text", `eval 'sudo ls'`, `eval  sudo ls `},
+		{"dash c keeps text", `bash -c "ship-it now 1"`, `bash -c  ship-it now 1 `},
+		{"eval keeps text", `eval 'elevate ls'`, `eval  elevate ls `},
 		{"word before quote blocks the match", `echo a"b"`, `echo a"b"`},
 		{"unclosed", `echo "abc`, `echo "abc`},
 		{"backslash newline ends the string", "echo \"a\\\nb\"", "echo \"a\\\nb\""},

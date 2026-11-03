@@ -47,7 +47,7 @@ wins.
 | Pipeline order and failure handling | `src/pipeline_report.py` (`decide`, `stage1_flag`, `stage2_verdict`) |
 | Stage 1 prompt | `evals/prompts/autonomy-stage1-scripts/baseline.yaml` |
 | Stage 1 experiment (state fields) | `evals/experiments/autonomy-stage1-scripts.yaml` |
-| Stage 1 model and endpoint | `evals/models/clef-flash.yaml`; request shape in `docs/MODELS.md` and `make_request` / `parse_answer` in `src/evaluate.py` |
+| Stage 1 model and endpoint | `evals/models/<stage 1 model>.yaml`; request shape in `docs/MODELS.md` and `make_request` / `parse_answer` in `src/evaluate.py` |
 | Stage 2 prompt, schema, request, state | [../AUTONOMY-STAGE2-PROMPT.md](../AUTONOMY-STAGE2-PROMPT.md) (a copy; it says how to regenerate it) |
 | Stage 2 experiment | `evals/experiments/autonomy-stage2-reasoning.yaml` |
 | Measured results, latency and cost | [autonomy-guard.md](autonomy-guard.md) |
@@ -60,7 +60,7 @@ wins.
 
 ```json
 {
-  "model": "clef-flash",
+  "model": "<stage 1 model>",
   "keep_alive": "30m",
   "state": { "working_directory": "…", "branch": "…", "recent_commands": ["…"], "proposed_command": "…", "scripts_run": [] },
   "questions": { "risk_check": { "type": "choice", "instructions": "…", "criteria": { "allow": "…", "block": "…" } } }
@@ -203,7 +203,7 @@ before any parent turns on `enforce`.
   apply to every model or only to DeepSeek. The `create` setting lets the parent choose per session.
 - **What the refusal says.** Stage 2's reason helps the model find another way to do legitimate work. It also
   tells a prompt-injected session which wording got blocked.
-- **Stage 1 reachability.** The Ollama server is on the home LAN (`evals/models/clef-flash.yaml`). A host that
+- **Stage 1 reachability.** The Ollama server is on the home LAN (`evals/models/<stage 1 model>.yaml`). A host that
   cannot reach it, such as a phone away from home, fails stage 1 on every command, so every command goes to
   stage 2. That adds cost and latency per command, and if stage 2 is unreachable too, every command is blocked.
   The harness could refuse to start a guarded session when stage 1 is unreachable, or accept the fallback.

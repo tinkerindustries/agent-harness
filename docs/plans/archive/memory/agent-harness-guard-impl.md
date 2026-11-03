@@ -51,7 +51,7 @@ Every session working on this feature reads this file. Keep it to one screen. No
 
 | Fact | Source |
 |---|---|
-| Stage 1 is `POST <endpoint>/v1/systemone` on an Ollama server, model `clef-flash`, `keep_alive` `30m`. A valid answer has exactly the `allow` and `block` labels, each in [0, 1], summing to 1 within 0.01. | The hand-off, "Stage 1". Exact bytes are in the guard assets. |
+| Stage 1 is `POST <endpoint>/v1/systemone` on an Ollama server, with the stage 1 model, `keep_alive` `30m`. A valid answer has exactly the `allow` and `block` labels, each in [0, 1], summing to 1 within 0.01. | The hand-off, "Stage 1". Exact bytes are in the guard assets. |
 | Stage 2 is the Anthropic Messages API, model `claude-haiku-5-5`, effort medium, one cache breakpoint, a `reason`-then-`decision` schema. `internal/provider` routes no Haiku model, which is fine because it is not a session model. | The hand-off, "Stage 2". Exact request is in the guard assets. |
 | `Table.Cost` has one rate per model. Haiku 5.5's rates above 100,000 prompt tokens are not represented. | `configs/prices.json`, the `claude-haiku-5-5` entry. |
 | The guard assets (prompts, models, cut-off, the Python sources) are under `internal/guard/testdata/assets/`. Synthetic parity fixtures are under `internal/guard/testdata/parity/synthetic/`. The full export is local only, through `GUARD_PARITY_DIR`. | The assets README; the plan's Open questions. |
