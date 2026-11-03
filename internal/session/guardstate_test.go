@@ -326,12 +326,12 @@ func TestGuardHistoryAcrossCompaction(t *testing.T) {
 
 func TestGuardEventsRecordsDecisionAndStage2Usage(t *testing.T) {
 	prices := &pricing.Table{CapturedAt: "2026-11-03", Models: map[string]pricing.ModelPrices{
-		"claude-haiku-5-5": {InputCacheHitPerMillionUSD: 0.01, InputCacheMissPerMillionUSD: 0.10, InputCacheWritePerMillionUSD: 0.125, OutputPerMillionUSD: 0.50},
+		"invented-stage2-model": {InputCacheHitPerMillionUSD: 0.01, InputCacheMissPerMillionUSD: 0.10, InputCacheWritePerMillionUSD: 0.125, OutputPerMillionUSD: 0.50},
 	}}
 	pb := 0.4
 	d := guard.Decision{
 		Verdict: guard.VerdictBlock, DecidedBy: guard.DecidedByStage2, PBlock: &pb, Stage2Ran: true,
-		Stage2Model: "claude-haiku-5-5", Stage2Reason: "writes outside the repo", GuardVersion: "v1",
+		Stage2Model: "invented-stage2-model", Stage2Reason: "an invented reason", GuardVersion: "v1",
 		Stage2Usage: &guard.Usage{InputTokens: 1000, OutputTokens: 200, CacheCreationInputTokens: 4000, CacheReadInputTokens: 2000},
 		Latency:     1500 * time.Millisecond,
 	}
@@ -344,7 +344,7 @@ func TestGuardEventsRecordsDecisionAndStage2Usage(t *testing.T) {
 		t.Errorf("decision payload = %+v", dec)
 	}
 	u := inputs[1].Payload.(store.UsagePayload)
-	if u.Model != "claude-haiku-5-5" || u.PromptTokens != 7000 || u.PromptCacheMissTokens != 1000 || u.PromptCacheHitTokens != 2000 || u.PromptCacheWriteTokens != 4000 || u.CompletionTokens != 200 {
+	if u.Model != "invented-stage2-model" || u.PromptTokens != 7000 || u.PromptCacheMissTokens != 1000 || u.PromptCacheHitTokens != 2000 || u.PromptCacheWriteTokens != 4000 || u.CompletionTokens != 200 {
 		t.Errorf("usage payload = %+v", u)
 	}
 	wantCost := (1000*0.10 + 2000*0.01 + 4000*0.125 + 200*0.50) / 1e6

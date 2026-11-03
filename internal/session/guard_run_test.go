@@ -94,15 +94,45 @@ func bashCall(id, command string) scriptedCall {
 	return scriptedCall{id: id, name: "bash", args: string(args)}
 }
 
-// guardRunner is a Runner whose guard talks to the fake stage servers.
-func guardRunner(t *testing.T, model *httptest.Server, fake *guardtest.Fake) *Runner {
+// testBundle loads the invented bundle, or the invented bundle after edits.
+func testBundle(t testing.TB, edits ...func(map[string]any)) *guard.Bundle {
 	t.Helper()
-	r := newTestRunner(t, model.URL)
-	bundle, err := guard.LoadBundle(guardtest.BundleJSON())
+	b, err := guard.LoadBundle(guardtest.BundleJSON(edits...))
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.Guards = func(setting store.GuardSetting) (GuardDecider, error) {
+	return b
+}
+
+// bundleLog records the bundle each guard the factory built was given.
+type bundleLog struct {
+	mu  sync.Mutex
+	got []*guard.Bundle
+}
+
+func (l *bundleLog) add(b *guard.Bundle) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.got = append(l.got, b)
+}
+
+func (l *bundleLog) all() []*guard.Bundle {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]*guard.Bundle(nil), l.got...)
+}
+
+// guardRunner is a Runner whose guard talks to the fake stage servers.
+func guardRunner(t *testing.T, model *httptest.Server, fake *guardtest.Fake) *Runner {
+	t.Helper()
+	return guardRunnerLog(t, model, fake, &bundleLog{})
+}
+
+func guardRunnerLog(t *testing.T, model *httptest.Server, fake *guardtest.Fake, seen *bundleLog) *Runner {
+	t.Helper()
+	r := newTestRunner(t, model.URL)
+	r.Guards = func(setting store.GuardSetting, bundle *guard.Bundle) (GuardDecider, error) {
+		seen.add(bundle)
 		return guard.NewPipeline(guard.PipelineConfig{
 			Bundle:         bundle,
 			Stage1Endpoint: setting.Stage1Endpoint,
@@ -117,10 +147,19 @@ func guardSetting(mode string, fake *guardtest.Fake) store.GuardSetting {
 	return store.GuardSetting{Mode: mode, Stage1Endpoint: fake.Stage1URL}
 }
 
+var sharedBundle = func() *guard.Bundle {
+	b, err := guard.LoadBundle(guardtest.BundleJSON())
+	if err != nil {
+		panic(err)
+	}
+	return b
+}()
+
 func runOptions(ws string, g store.GuardSetting) RunOptions {
 	return RunOptions{
 		Model: "test-model", Effort: wire.EffortHigh, Thinking: true, MaxTokens: 4000,
 		Workspace: ws, PermissionMode: tools.ModeFull, Prompt: "do the work", Guard: g,
+		GuardBundle: sharedBundle,
 	}
 }
 
@@ -502,7 +541,7 @@ func TestResumeTakesTheCreatesMode(t *testing.T) {
 	ctx := t.Context()
 
 	// No setting named: the stored shadow keeps screening, and does not refuse.
-	if _, err := r.Resume(ctx, ResumeOptions{SessionID: id, Prompt: "again", MaxTokens: 4000}); err != nil {
+	if _, err := r.Resume(ctx, ResumeOptions{SessionID: id, Prompt: "again", MaxTokens: 4000, GuardBundle: sharedBundle}); err != nil {
 		t.Fatal(err)
 	}
 	if !fileExists(filepath.Join(ws, "ran-b")) {
@@ -514,7 +553,7 @@ func TestResumeTakesTheCreatesMode(t *testing.T) {
 
 	// A changed mode from the resume replaces the stored one and is stored.
 	enforce := guardSetting(store.GuardModeEnforce, fake)
-	if _, err := r.Resume(ctx, ResumeOptions{SessionID: id, Prompt: "third", MaxTokens: 4000, Guard: &enforce}); err != nil {
+	if _, err := r.Resume(ctx, ResumeOptions{SessionID: id, Prompt: "third", MaxTokens: 4000, Guard: &enforce, GuardBundle: sharedBundle}); err != nil {
 		t.Fatal(err)
 	}
 	if fileExists(filepath.Join(ws, "ran-c")) {
@@ -526,7 +565,7 @@ func TestResumeTakesTheCreatesMode(t *testing.T) {
 
 	// Naming off turns it off, and that is stored too.
 	off := store.GuardSetting{Mode: store.GuardModeOff}
-	if _, err := r.Resume(ctx, ResumeOptions{SessionID: id, Prompt: "fourth", MaxTokens: 4000, Guard: &off}); err != nil {
+	if _, err := r.Resume(ctx, ResumeOptions{SessionID: id, Prompt: "fourth", MaxTokens: 4000, Guard: &off, GuardBundle: sharedBundle}); err != nil {
 		t.Fatal(err)
 	}
 	if !fileExists(filepath.Join(ws, "ran-d")) {
@@ -599,6 +638,128 @@ func TestCompactionSuccessorKeepsTheGuardSetting(t *testing.T) {
 	}
 	if successor.ID == sess.ID || successor.Guard != setting {
 		t.Fatalf("successor setting = %+v", successor.Guard)
+	}
+}
+
+func TestShadowDecisionsCarryTheBundleHashAsTheirVersion(t *testing.T) {
+	fake := guardtest.New(t)
+	model := (&modelScript{turns: [][]scriptedCall{{bashCall("call_a", "touch ran-a")}, {}}}).serve(t)
+	r := guardRunner(t, model, fake)
+
+	res, err := r.Run(t.Context(), runOptions(t.TempDir(), guardSetting(store.GuardModeShadow, fake)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := eventsOf(t, r, res.SessionID).decisions(t)
+	if len(d) != 1 || d[0].GuardVersion != sharedBundle.Version() {
+		t.Fatalf("decisions = %+v, want version %q", d, sharedBundle.Version())
+	}
+}
+
+func TestResumeWithoutABundleFailsAndWithOneScreens(t *testing.T) {
+	fake := guardtest.New(t)
+	script := &modelScript{turns: [][]scriptedCall{
+		{bashCall("call_a", "touch ran-a")}, {},
+		{bashCall("call_b", "touch ran-b")}, {},
+	}}
+	seen := &bundleLog{}
+	r := guardRunnerLog(t, script.serve(t), fake, seen)
+	ws := t.TempDir()
+	res, err := r.Run(t.Context(), runOptions(ws, guardSetting(store.GuardModeShadow, fake)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := t.Context()
+	if _, err := r.Resume(ctx, ResumeOptions{SessionID: res.SessionID, Prompt: "again", MaxTokens: 4000}); err == nil || !strings.Contains(err.Error(), "no policy bundle") {
+		t.Fatalf("a resume of a guarded session with no bundle = %v", err)
+	}
+	if _, err := r.Resume(ctx, ResumeOptions{SessionID: res.SessionID, Prompt: "again", MaxTokens: 4000, GuardBundle: sharedBundle}); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(eventsOf(t, r, res.SessionID).decisions(t)); n != 2 {
+		t.Fatalf("decisions = %d, want 2", n)
+	}
+}
+
+func TestResumeWithADifferentBundleChangesTheRecordedVersion(t *testing.T) {
+	fake := guardtest.New(t)
+	script := &modelScript{turns: [][]scriptedCall{
+		{bashCall("call_a", "touch ran-a")}, {},
+		{bashCall("call_b", "touch ran-b")}, {},
+	}}
+	r := guardRunner(t, script.serve(t), fake)
+	res, err := r.Run(t.Context(), runOptions(t.TempDir(), guardSetting(store.GuardModeShadow, fake)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := testBundle(t, func(m map[string]any) { m["cutoff"] = 0.4 })
+	if other.Version() == sharedBundle.Version() {
+		t.Fatal("the edited bundle has the same version")
+	}
+	if _, err := r.Resume(t.Context(), ResumeOptions{SessionID: res.SessionID, Prompt: "again", MaxTokens: 4000, GuardBundle: other}); err != nil {
+		t.Fatal(err)
+	}
+	d := eventsOf(t, r, res.SessionID).decisions(t)
+	if len(d) != 2 || d[0].GuardVersion != sharedBundle.Version() || d[1].GuardVersion != other.Version() {
+		t.Fatalf("versions = %+v", d)
+	}
+}
+
+func TestSubagentAndSuccessorBuildTheirGuardsFromTheSameBundle(t *testing.T) {
+	fake := guardtest.New(t)
+	task := scriptedCall{id: "call_task", name: "task", args: `{"description":"look","prompt":"find it","subagent_type":"general"}`}
+	script := &modelScript{turns: [][]scriptedCall{
+		{task}, {bashCall("call_sub", "touch ran-sub")}, {}, {},
+	}}
+	seen := &bundleLog{}
+	r := guardRunnerLog(t, script.serve(t), fake, seen)
+	res, err := r.Run(t.Context(), runOptions(t.TempDir(), guardSetting(store.GuardModeShadow, fake)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var childID string
+	for _, p := range eventsOf(t, r, res.SessionID).results(t) {
+		if p.Name == "task" {
+			childID = p.ChildSessionID
+		}
+	}
+	d := eventsOf(t, r, childID).decisions(t)
+	if len(d) != 1 || d[0].GuardVersion != sharedBundle.Version() {
+		t.Fatalf("the subagent's decisions = %+v", d)
+	}
+	if got := seen.all(); len(got) != 2 || got[0] != sharedBundle || got[1] != sharedBundle {
+		t.Fatalf("bundles the factory saw = %v", got)
+	}
+}
+
+func TestAResumedCompactionSuccessorScreensWithTheBundleItIsGiven(t *testing.T) {
+	fake := guardtest.New(t)
+	model := plainAnswerServer(t, "done")
+	defer model.Close()
+	seen := &bundleLog{}
+	r := guardRunnerLog(t, model, fake, seen)
+
+	res, err := r.Run(t.Context(), runOptions(t.TempDir(), guardSetting(store.GuardModeShadow, fake)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess, _ := r.Store.GetSession(t.Context(), res.SessionID)
+	events, _ := r.Store.GetEvents(t.Context(), sess.ID)
+	successor, _, err := r.compact(t.Context(), sess, events, sess.Workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Store.UpdateSessionStatus(t.Context(), successor.ID, store.StatusOK, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Resume(t.Context(), ResumeOptions{SessionID: successor.ID, Prompt: "go on", MaxTokens: 4000}); err == nil || !strings.Contains(err.Error(), "no policy bundle") {
+		t.Fatalf("the successor resumed with no bundle: %v", err)
+	}
+	if _, err := r.Resume(t.Context(), ResumeOptions{SessionID: successor.ID, Prompt: "go on", MaxTokens: 4000, GuardBundle: sharedBundle}); err != nil {
+		t.Fatal(err)
+	}
+	if got := seen.all(); len(got) != 2 || got[1] != sharedBundle {
+		t.Fatalf("bundles the factory saw = %v", got)
 	}
 }
 

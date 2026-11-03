@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -18,6 +17,7 @@ import (
 	"github.com/mrgeoffrich/agent-harness/internal/config"
 	"github.com/mrgeoffrich/agent-harness/internal/deepseek"
 	"github.com/mrgeoffrich/agent-harness/internal/gemini"
+	"github.com/mrgeoffrich/agent-harness/internal/guard"
 	"github.com/mrgeoffrich/agent-harness/internal/hub"
 	"github.com/mrgeoffrich/agent-harness/internal/mcpclient"
 	"github.com/mrgeoffrich/agent-harness/internal/pricing"
@@ -229,10 +229,12 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 	// closure and never reaches the settings table or the session row.
 	var guardOpts *stdiosession.GuardOptions
 	if !interactions {
-		runner.Guards = func(setting store.GuardSetting) (session.GuardDecider, error) {
-			// No create carries a policy bundle yet, so a guarded session
-			// cannot be built. guard.PipelineConfig.Bundle is where one goes.
-			return nil, errors.New("the autonomy guard needs a policy bundle, which a create cannot supply yet")
+		runner.Guards = func(setting store.GuardSetting, bundle *guard.Bundle) (session.GuardDecider, error) {
+			return guard.NewPipeline(guard.PipelineConfig{
+				Bundle:         bundle,
+				Stage1Endpoint: setting.Stage1Endpoint,
+				AnthropicKey:   anthropicKey,
+			})
 		}
 		guardOpts = &stdiosession.GuardOptions{HasAPIKey: func() bool { return anthropicKey != "" }}
 	}
