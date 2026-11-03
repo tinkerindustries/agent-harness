@@ -15,8 +15,8 @@ The bundle is also what makes the guard fit other scenarios, such as a persisten
 It chooses which of the state fields each stage receives, and it may leave out stage 1. How the guard hooks into a
 persistent assistant is a separate piece of work and is not planned here.
 
-The guard shipped in the plan [archive/agent-harness-guard-impl.md](archive/agent-harness-guard-impl.md), against
-the hand-off in [agent-harness-guard.md](agent-harness-guard.md). This repository is public and the prompts and
+The guard shipped in the plan [agent-harness-guard-impl.md](agent-harness-guard-impl.md), against
+the hand-off in [agent-harness-guard.md](../agent-harness-guard.md). This repository is public and the prompts and
 rules are to stay private. Content already published stays in git history, which this plan cannot undo.
 
 ## Not building
