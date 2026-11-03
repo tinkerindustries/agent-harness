@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mrgeoffrich/agent-harness/internal/guard"
 	"github.com/mrgeoffrich/agent-harness/internal/pricing"
 	"github.com/mrgeoffrich/agent-harness/internal/provider"
 )
@@ -55,5 +56,22 @@ func TestGeminiCodingModelResolvesThroughTheCostLookup(t *testing.T) {
 	}
 	if cost <= 0 {
 		t.Errorf("Cost(gemini-3.7-flash) = %v, want > 0 for non-zero token counts", cost)
+	}
+}
+
+// TestGuardStage2ModelIsPriced covers the one model the harness bills that is
+// not a session model: the autonomy guard's stage 2. Its tokens are recorded
+// as usage events, and a missing entry would report them as $0.
+func TestGuardStage2ModelIsPriced(t *testing.T) {
+	table, err := pricing.Load("../../configs/prices.json")
+	if err != nil {
+		t.Fatalf("load the shipped price table: %v", err)
+	}
+	cost, _, err := table.Cost(guard.DefaultStage2Model, time.Now(), 1000, 2000, 500, 300)
+	if err != nil {
+		t.Fatalf("Cost(%s): %v", guard.DefaultStage2Model, err)
+	}
+	if cost <= 0 {
+		t.Errorf("Cost(%s) = %v, want > 0", guard.DefaultStage2Model, cost)
 	}
 }

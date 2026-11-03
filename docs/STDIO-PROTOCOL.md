@@ -702,6 +702,7 @@ HTTP frames do.
 | `response.failed` | yes | `{type, sequence_number, response}` |
 | `harness.tool_output` | no | `{type, sequence_number, response_id, call_id, text}` |
 | `harness.usage` | no | `{type, sequence_number, response_id, sub_turn, usage}` |
+| `harness.guard` | no | `{type, sequence_number, response_id, call_id, guard}` |
 
 There is no `[DONE]`: the HTTP stream ends on `response.completed` and so does
 this one, after which the pipe stays open for the next response.
@@ -793,6 +794,51 @@ price table was loaded.
 sibling to add on. The Interactions vocabulary splits the same figures the
 other way, so a client porting between them must not carry the arithmetic
 across.
+
+### `harness.guard`
+
+The autonomy guard's verdict on one `bash` call, addressed by the `call_id` of
+the `function_call` item it screened:
+
+```jsonc
+{"type": "harness.guard", "sequence_number": 52, "response_id": "resp_…",
+ "call_id": "call_…",
+ "guard": {"mode": "shadow", "guard_version": "…",
+           "verdict": "block", "decided_by": "stage2",
+           "escalation": ["unscreened_script"],
+           "p_block": 0.42,
+           "stage2": {"model": "claude-haiku-5-5",
+                      "reason": "…", "latency_ms": 900,
+                      "usage": {"input_tokens": 10, "output_tokens": 20,
+                                "cache_creation_input_tokens": 30,
+                                "cache_read_input_tokens": 40}},
+           "latency_ms": 950}}
+```
+
+One frame per screened call, whether it was allowed or blocked. It is a
+standalone notification rather than a field on the call's output item,
+because the decision can be committed after the call's result. A parent
+matches it to the call by `call_id` and does not assume an order against the
+`function_call_output` item.
+
+| Field | Meaning |
+| --- | --- |
+| `mode` | `shadow` (the command runs whatever the verdict) or `enforce` (a `block` refuses the command). |
+| `guard_version` | An identifier that changes when the rules, either prompt, the stage 1 cut-off or either model id changes. |
+| `verdict` | `allow` or `block`. |
+| `decided_by` | `rules`, `stage1` or `stage2`. |
+| `rules` | The names of the rules that hit. Present when `decided_by` is `rules`. |
+| `escalation` | Why the command skipped stage 1 for stage 2. Absent when it did not. |
+| `p_block` | Stage 1's probability of `block`. Absent when stage 1 did not run or failed. |
+| `stage1_error` | Why stage 1 failed, when it did. The command then went to stage 2. |
+| `stage1_latency_ms` | Stage 1's wall time, when it ran. |
+| `stage2` | Present when stage 2 was called: its `model`, its `reason`, an `error` when it returned no verdict, its `latency_ms` and its token `usage`. A stage 2 failure of any kind is a `block`. |
+| `latency_ms` | The whole decision's wall time. |
+
+Stage 2's tokens are also recorded as a usage event naming its model, and
+appear on `harness.usage` and in the run's cost like any other request.
+`harness.guard` is a frame of this vocabulary only: the Interactions and
+Managed Agents vocabularies carry nothing for it.
 
 ### `harness.tool_output`
 

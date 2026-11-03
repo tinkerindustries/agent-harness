@@ -361,6 +361,15 @@ func (t *translator) Event(e store.Event) {
 			Type: NotifyUsage, SequenceNumber: t.next(),
 			ResponseID: t.responseID, SubTurn: p.SubTurn, Usage: one,
 		})
+	case store.KindGuardDecision:
+		var p store.GuardDecisionPayload
+		if json.Unmarshal(e.Payload, &p) != nil {
+			return
+		}
+		t.emit(NotifyGuard, guardEvent{
+			Type: NotifyGuard, SequenceNumber: t.next(),
+			ResponseID: t.responseID, CallID: p.ToolCallID, Guard: guardDecisionFrom(p),
+		})
 	case store.KindTurnFinished:
 		t.CloseText()
 	case store.KindError:
@@ -378,6 +387,29 @@ func (t *translator) Event(e store.Event) {
 			},
 		})
 	}
+}
+
+func guardDecisionFrom(p store.GuardDecisionPayload) GuardDecision {
+	d := GuardDecision{
+		Mode: p.Mode, GuardVersion: p.GuardVersion, Verdict: p.Verdict, DecidedBy: p.DecidedBy,
+		Rules: p.Rules, Escalation: p.Escalation, PBlock: p.PBlock, Stage1Error: p.Stage1Error,
+		Stage1LatencyMs: p.Stage1LatencyMs, LatencyMs: p.LatencyMs,
+	}
+	if p.Stage2Ran {
+		d.Stage2 = &GuardStage2{
+			Model: p.Stage2Model, Reason: p.Stage2Reason, Error: p.Stage2Error,
+			LatencyMs: p.Stage2LatencyMs, Usage: guardUsageFrom(p.Stage2Usage),
+		}
+	}
+	return d
+}
+
+func guardUsageFrom(u *store.GuardUsage) *GuardUsage {
+	if u == nil {
+		return nil
+	}
+	out := GuardUsage(*u)
+	return &out
 }
 
 // setFirstMessageID records the id the create body's own input was sent

@@ -1,6 +1,9 @@
 package tools
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // MutationTargets reports the workspace files a call to name would rewrite,
 // and nil when it rewrites none. Its purpose is upstream: the runner fans
@@ -70,6 +73,47 @@ func MutationTargets(workspace, name, argsRaw string) []string {
 			}
 		}
 		return targets
+	}
+	return nil
+}
+
+// CreatedTargets reports which of the files MutationTargets names a
+// successful call to name made, as opposed to rewrote. A `write` says so in
+// its result ("Created <path>" against "Overwrote <path>"), so result is the
+// result content of the call. A patch's Add File operations and the
+// destination of a move create files; an update does not. `edit` never
+// creates.
+func CreatedTargets(workspace, name, argsRaw, result string) []string {
+	switch name {
+	case "write":
+		if !strings.HasPrefix(result, "Created ") {
+			return nil
+		}
+		return MutationTargets(workspace, name, argsRaw)
+
+	case "apply_patch":
+		var args applyPatchArgs
+		if err := json.Unmarshal([]byte(argsRaw), &args); err != nil || args.Input == "" {
+			return nil
+		}
+		ops, err := parsePatch(args.Input)
+		if err != nil {
+			return nil
+		}
+		var created []string
+		for _, op := range ops {
+			display := op.moveTo
+			if op.kind == patchAdd {
+				display = op.path
+			}
+			if display == "" {
+				continue
+			}
+			if path, err := ResolvePath(workspace, display); err == nil {
+				created = append(created, path)
+			}
+		}
+		return created
 	}
 	return nil
 }

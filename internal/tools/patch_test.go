@@ -360,3 +360,28 @@ func TestMutationTargetsReportsEveryFileAPatchRewrites(t *testing.T) {
 		t.Fatalf("a malformed patch reported targets %v", got)
 	}
 }
+
+// TestCreatedTargets pins which files a successful call made, as opposed to
+// rewrote: the autonomy guard reads it to tell a script the session created
+// from one it changed.
+func TestCreatedTargets(t *testing.T) {
+	root := t.TempDir()
+	write, _ := json.Marshal(map[string]string{"file_path": "s.sh", "content": "x"})
+	if got := CreatedTargets(root, "write", string(write), "Created s.sh"); len(got) != 1 || filepath.Base(got[0]) != "s.sh" {
+		t.Errorf("a created write reported %v", got)
+	}
+	if got := CreatedTargets(root, "write", string(write), "Overwrote s.sh"); got != nil {
+		t.Errorf("an overwriting write reported %v", got)
+	}
+	edit, _ := json.Marshal(map[string]string{"file_path": "s.sh"})
+	if got := CreatedTargets(root, "edit", string(edit), "Edited s.sh"); got != nil {
+		t.Errorf("an edit reported %v", got)
+	}
+	patch := "*** Begin Patch\n*** Update File: a.go\n*** Move to: moved.go\n*** Add File: b.txt\n+bravo\n" +
+		"*** Update File: c.txt\n@@\n-x\n+y\n*** End Patch\n"
+	args, _ := json.Marshal(applyPatchArgs{Input: patch})
+	got := CreatedTargets(root, "apply_patch", string(args), "Applied a patch")
+	if len(got) != 2 || filepath.Base(got[0]) != "moved.go" || filepath.Base(got[1]) != "b.txt" {
+		t.Errorf("a patch reported %v, want the move destination and the added file", got)
+	}
+}
