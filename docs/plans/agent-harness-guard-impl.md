@@ -144,7 +144,10 @@ log lacks the earlier writes and commands, follow the parent link so history car
 is ignored by `internal/fold`, like `tool_stdout`, so it never reaches a request. The Interactions and Managed
 Agents translators skip it. The Responses translator emits `harness.guard` as a standalone notification like
 `harness.usage`, because the decision may be committed after the call's result. Record stage 2's tokens as
-usage events with the model set, which the cost summing already separates.
+usage events with the model set, which the cost summing already separates. Document the frame in
+`docs/STDIO-PROTOCOL.md` in this phase, since the wire contract changes here. Keep `internal/guard` free of
+imports of `internal/store` or `internal/session`: the payload type belongs with the other event payloads in the
+store package, and the builder takes neutral inputs, so a package that already depends on both can compose them.
 
 **Proof**
 
@@ -185,7 +188,7 @@ must not delay the command, and its record commits on a context that survives a 
 a block takes the existing denial route, so the model and the parent see it as they see a deny pattern today.
 Several checks can be in flight at once and results still append in `tool_calls` order. Test the enforce path
 by constructing it directly, since no create can select it. Update the documents that describe current
-behaviour: the `create` table and the new frame in `docs/STDIO-PROTOCOL.md`, the Permissions section of
+behaviour: the `create` table in `docs/STDIO-PROTOCOL.md`, the Permissions section of
 `docs/TOOLS.md`, `ARCHITECTURE.md` and the codemap in `internal/CLAUDE.md`. Describe what the code does and
 leave out counts and history.
 
