@@ -35,16 +35,21 @@ type GuardHistory struct {
 // maxGuardAncestors bounds the walk up a chain of compactions.
 const maxGuardAncestors = 64
 
-// LoadGuardHistory reads sess's event log and, when sess was forked by
-// compaction, the logs of the sessions it continues. The successor's own log
-// holds only its opening message, so the earlier writes and commands are
+// guardEventKinds are the event kinds GuardInputs reads. The read filters on
+// them in SQL, so a check never pulls reasoning, content, usage or streamed
+// output off the disk.
+var guardEventKinds = []store.EventKind{store.KindToolCall, store.KindToolResult, store.KindToolDenied}
+
+// LoadGuardHistory reads the tool traffic of sess's event log and, when sess
+// was forked by compaction, of the sessions it continues. The successor's own
+// log holds only its opening message, so the earlier writes and commands are
 // found by following ParentID to the session the summary came from.
 func LoadGuardHistory(ctx context.Context, st *store.Store, sess store.Session) (GuardHistory, error) {
 	var chain [][]store.Event
 	start := sess.CreatedAt
 	cur := sess
 	for i := 0; ; i++ {
-		events, err := st.GetEvents(ctx, cur.ID)
+		events, err := st.GetEventsAfterKinds(ctx, cur.ID, 0, 0, guardEventKinds)
 		if err != nil {
 			return GuardHistory{}, fmt.Errorf("session: guard history for %s: %w", cur.ID, err)
 		}

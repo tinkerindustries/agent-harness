@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -294,6 +295,11 @@ func TestGuardHistoryAcrossCompaction(t *testing.T) {
 	h, err := LoadGuardHistory(t.Context(), r.Store, child)
 	if err != nil {
 		t.Fatalf("LoadGuardHistory: %v", err)
+	}
+	for _, e := range h.Events {
+		if !slices.Contains(guardEventKinds, e.Kind) {
+			t.Errorf("history holds a %s event, which the guard state never reads", e.Kind)
+		}
 	}
 	parent, _ := r.Store.GetSession(t.Context(), child.ParentID)
 	if !h.Start.Equal(parent.CreatedAt) {

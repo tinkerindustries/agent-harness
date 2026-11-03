@@ -1110,8 +1110,9 @@ A `stdio-session` create may also add an autonomy guard (`harness.guard`,
 `bash` call under full access, after the mode and the deny patterns have
 allowed it and before the command starts. Rules, then a local classifier, then
 a Claude model decide `allow` or `block` for the command, and each decision is
-recorded in the event log. In `shadow` mode the check runs beside the command
-and never delays or stops it. In `enforce` mode a block is a denial like a deny
+recorded in the event log. In `shadow` mode the model calls run beside the
+command and never stop it; only the local read of the session's state comes
+before it. In `enforce` mode a block is a denial like a deny
 pattern: the command does not run, and the result names the guard and the
 stage (and the rules, when they decided). It does not carry the Claude model's
 reason, which goes to the log and the parent only. A create cannot select
