@@ -43,6 +43,11 @@ const (
 	// is an hour late for anything showing spend as it accrues. The
 	// response.completed total still arrives and is still authoritative.
 	NotifyUsage = "harness.usage"
+	// NotifyGuard is this protocol's own: the autonomy guard's verdict on one
+	// bash call. It is a standalone notification because the decision can be
+	// committed after the call's result (docs/STDIO-PROTOCOL.md,
+	// "harness.guard").
+	NotifyGuard = "harness.guard"
 )
 
 // Output item types. The first three are the surface's own; the last two are
@@ -306,6 +311,49 @@ type toolOutput struct {
 	ResponseID     string `json:"response_id"`
 	CallID         string `json:"call_id"`
 	Text           string `json:"text"`
+}
+
+// GuardDecision is the guard's verdict on one call, as harness.guard carries
+// it.
+type GuardDecision struct {
+	Mode         string       `json:"mode"`
+	GuardVersion string       `json:"guard_version"`
+	Verdict      string       `json:"verdict"`
+	DecidedBy    string       `json:"decided_by"`
+	Rules        []string     `json:"rules,omitempty"`
+	Escalation   []string     `json:"escalation,omitempty"`
+	PBlock       *float64     `json:"p_block,omitempty"`
+	Stage1Error  string       `json:"stage1_error,omitempty"`
+	Stage2       *GuardStage2 `json:"stage2,omitempty"`
+
+	Stage1LatencyMs int64 `json:"stage1_latency_ms,omitempty"`
+	LatencyMs       int64 `json:"latency_ms"`
+}
+
+// GuardUsage is the token count of one stage 2 call.
+type GuardUsage struct {
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+}
+
+// GuardStage2 is what stage 2 did on a call that reached it.
+type GuardStage2 struct {
+	Model     string      `json:"model,omitempty"`
+	Reason    string      `json:"reason,omitempty"`
+	Error     string      `json:"error,omitempty"`
+	LatencyMs int64       `json:"latency_ms,omitempty"`
+	Usage     *GuardUsage `json:"usage,omitempty"`
+}
+
+// guardEvent is the payload of harness.guard.
+type guardEvent struct {
+	Type           string        `json:"type"`
+	SequenceNumber int           `json:"sequence_number"`
+	ResponseID     string        `json:"response_id"`
+	CallID         string        `json:"call_id"`
+	Guard          GuardDecision `json:"guard"`
 }
 
 // usageEvent is the payload of harness.usage.

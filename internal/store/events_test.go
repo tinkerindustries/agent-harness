@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -33,5 +34,40 @@ func TestBackgroundFinishedMessageReportsKilledAndWedged(t *testing.T) {
 	wedged := BackgroundFinishedPayload{BashID: "bash_3", Wedged: true}.Message()
 	if !strings.Contains(wedged, "left a process holding its output open") {
 		t.Errorf("wedged message = %q", wedged)
+	}
+}
+
+// TestGuardDecisionRoundTrips pins that a guard decision is a kind the log
+// can hold and filter by, and that its payload survives the log.
+func TestGuardDecisionRoundTrips(t *testing.T) {
+	if !ValidEventKind(string(KindGuardDecision)) {
+		t.Fatal("guard_decision is not in EventKinds")
+	}
+	s := openTestStore(t)
+	ctx := t.Context()
+	mustCreateSession(t, s, "sess-1")
+	pb := 0.25
+	want := GuardDecisionPayload{
+		ToolCallID: "call_1", Mode: "shadow", GuardVersion: "v1", Verdict: "allow", DecidedBy: "stage1",
+		PBlock: &pb, Stage1LatencyMs: 12, LatencyMs: 13,
+	}
+	if _, err := s.AppendEvents(ctx, "sess-1", []EventInput{{Kind: KindGuardDecision, Payload: want}}); err != nil {
+		t.Fatal(err)
+	}
+	events, err := s.GetEvents(ctx, "sess-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *GuardDecisionPayload
+	for _, e := range events {
+		if e.Kind == KindGuardDecision {
+			found = new(GuardDecisionPayload)
+			if err := json.Unmarshal(e.Payload, found); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if found == nil || found.ToolCallID != "call_1" || found.Verdict != "allow" || found.PBlock == nil || *found.PBlock != 0.25 || found.LatencyMs != 13 {
+		t.Fatalf("round trip = %+v", found)
 	}
 }

@@ -229,7 +229,7 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Item, error) {
 			items = append(items, wire.UserItem(p.Message()))
 
 		case store.KindToolStdout, store.KindUsage, store.KindRunFinished, store.KindError, store.KindSteerMessage,
-			store.KindSteerWithdrawn:
+			store.KindSteerWithdrawn, store.KindGuardDecision:
 			// Carry no conversation content. Usage and errors are
 			// diagnostics; run_finished is a terminal marker read by the
 			// runner, not something the model replays. steer_message joins
@@ -238,6 +238,8 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Item, error) {
 			// move an item the fold had already placed (docs/RUN-CONTROL.md
 			// "Two event kinds, not one"). steer_withdrawn closes a steer the
 			// model was never shown, so it places nothing either.
+			// guard_decision is the autonomy guard's record of a bash call;
+			// the model never sees it.
 		}
 	}
 
