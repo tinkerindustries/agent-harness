@@ -7,3 +7,11 @@ refused.
 
 Only `stdio-session` accepts a guard setting, so the path that can store one is the Responses dialect. Check
 whether a wake in that dialect can reach the same state.
+
+## Resolution
+
+Not reachable. `cmd/harness` reads `ANTHROPIC_API_KEY` once at process start, so the key a create was checked
+against is the key every later run in that process sees. A background wake or a Managed Agents `sessions.events`
+turn only starts a run for a session this process already holds, and that session passed the check when it was
+created or resumed. A session whose stored setting is active cannot be created or resumed under `claude-session` or
+`gemini-session`, because `resolveGuard` refuses it there.

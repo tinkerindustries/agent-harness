@@ -359,11 +359,14 @@ func TestJobOutputConcurrentPollsDoNotPanicOrDuplicate(t *testing.T) {
 	wg.Wait()
 
 	// The 20x20 concurrent calls above race Start(); the shell may not have
-	// written anything by the time they are all done. waitForBackgroundDone
-	// keeps polling past that point, and its own returned Result carries
-	// whatever the concurrent calls left unread.
-	done := waitForBackgroundDone(t, e, id)
-	contents = append(contents, done.Content)
+	// written anything by the time they are all done. The polls that follow
+	// consume output too, and a poll that lands between a write and the exit
+	// carries those bytes away, so every poll's result is kept and not just
+	// the last one.
+	pollJobOutput(t, e, jobOutputArgs{JobID: id}, func(r Result) bool {
+		contents = append(contents, r.Content)
+		return !strings.HasPrefix(r.Content, "Status: running")
+	})
 
 	var want strings.Builder
 	for i := 1; i <= 200; i++ {

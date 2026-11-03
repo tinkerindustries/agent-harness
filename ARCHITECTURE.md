@@ -252,7 +252,8 @@ are here.
 - **The guard setting is outside the frozen head.** It is stored on the
   session row and copied by compaction and by `task` subagents, but a resume
   may replace it, because nothing in a request depends on it. `shadow` never
-  delays or stops a command. A shadow record commits on a context a cancelled
+  stops a command, and only the local read of the session's state comes before
+  it: the model calls and the record run beside it. A shadow record commits on a context a cancelled
   run does not cancel, and a run that is ending waits for the ones in flight so
   the parent receives them before the run's last event.
 - **The skills catalogue goes in the opening user message, never the system
