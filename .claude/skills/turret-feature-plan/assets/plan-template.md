@@ -2,7 +2,6 @@
 
 - **Slug**: <kebab-case-slug>
 - **Memory**: [memory/<slug>.md](memory/<slug>.md)
-- **Reports**: [reports/<slug>/](reports/<slug>/)
 
 ## What this builds
 
@@ -12,7 +11,7 @@ once it lands that they cannot do now.
 ## Not building
 
 The adjacent things this feature does not include, one line each, with a word on why. The
-orchestrator holds agent reports against this list.
+orchestrator holds each phase's pull request against this list.
 
 -
 
@@ -31,6 +30,11 @@ orchestrator holds agent reports against this list.
 
 The behaviour, and where it lives.
 
+**How to approach it**
+
+The direction you would take and why: what to build on, what pattern to follow, what to watch
+out for. Not the files or the functions.
+
 **Proof**
 
 The command that passes or the observation on screen that closes this phase.
@@ -44,6 +48,8 @@ Where the neighbouring phase's work starts.
 **Depends on**: 1
 
 **What it builds**
+
+**How to approach it**
 
 **Proof**
 
