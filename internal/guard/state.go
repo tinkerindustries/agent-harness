@@ -1,5 +1,10 @@
 package guard
 
+import (
+	"bytes"
+	"encoding/json"
+)
+
 // Origins a script can carry in State.ScriptsRun.
 const (
 	OriginWrittenThisSession = "written_this_session"
@@ -7,8 +12,8 @@ const (
 	OriginExisting           = "existing"
 )
 
-// State is what the guard reads about one proposed command. The field order is
-// the order stage 2 receives them in; stage 1 receives the first five.
+// State is what the guard reads about one proposed command. A bundle chooses
+// which of these fields each stage receives, and in what order.
 type State struct {
 	WorkingDirectory string               `json:"working_directory"`
 	Branch           string               `json:"branch"`
@@ -43,15 +48,6 @@ type PackageScriptFile struct {
 	Truncated bool    `json:"truncated"`
 }
 
-// stage1State is the five fields stage 1 sees. It leaves out package_scripts.
-type stage1State struct {
-	WorkingDirectory string        `json:"working_directory"`
-	Branch           string        `json:"branch"`
-	RecentCommands   []string      `json:"recent_commands"`
-	ProposedCommand  string        `json:"proposed_command"`
-	ScriptsRun       []ScriptEntry `json:"scripts_run"`
-}
-
 // normalised returns a copy whose lists are never nil, so they encode as []
 // and never as null.
 func (s State) normalised() State {
@@ -76,22 +72,101 @@ func (s State) normalised() State {
 	return s
 }
 
-func (s State) stage1() stage1State {
-	n := s.normalised()
-	return stage1State{
-		WorkingDirectory: n.WorkingDirectory,
-		Branch:           n.Branch,
-		RecentCommands:   n.RecentCommands,
-		ProposedCommand:  n.ProposedCommand,
-		ScriptsRun:       n.ScriptsRun,
-	}
+// The state fields a bundle's stage may list. The names are the keys of the
+// JSON a stage receives.
+const (
+	FieldWorkingDirectory = "working_directory"
+	FieldBranch           = "branch"
+	FieldRecentCommands   = "recent_commands"
+	FieldProposedCommand  = "proposed_command"
+	FieldScriptsRun       = "scripts_run"
+	FieldPackageScripts   = "package_scripts"
+)
+
+var stateFieldNames = []string{
+	FieldWorkingDirectory, FieldBranch, FieldRecentCommands,
+	FieldProposedCommand, FieldScriptsRun, FieldPackageScripts,
 }
 
-// stage2Text is the user message: the state as JSON indented by 2.
-func (s State) stage2Text() (string, error) {
-	b, err := marshalIndent(s.normalised(), "  ")
+func knownField(name string) bool {
+	for _, f := range stateFieldNames {
+		if f == name {
+			return true
+		}
+	}
+	return false
+}
+
+// FieldSet is a set of state field names. A nil FieldSet means every field.
+type FieldSet map[string]bool
+
+func (f FieldSet) wants(name string) bool { return f == nil || f[name] }
+
+func (s State) fieldValue(name string) any {
+	switch name {
+	case FieldWorkingDirectory:
+		return s.WorkingDirectory
+	case FieldBranch:
+		return s.Branch
+	case FieldRecentCommands:
+		return s.RecentCommands
+	case FieldProposedCommand:
+		return s.ProposedCommand
+	case FieldScriptsRun:
+		return s.ScriptsRun
+	case FieldPackageScripts:
+		return s.PackageScripts
+	}
+	return nil
+}
+
+// encode returns the compact JSON object a stage receives: exactly the listed
+// fields, in the listed order.
+func (s State) encode(fields []string) ([]byte, error) {
+	n := s.normalised()
+	var buf bytes.Buffer
+	buf.WriteByte('{')
+	for i, f := range fields {
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		key, err := marshalNoEscape(f)
+		if err != nil {
+			return nil, err
+		}
+		val, err := marshalNoEscape(n.fieldValue(f))
+		if err != nil {
+			return nil, err
+		}
+		buf.Write(key)
+		buf.WriteByte(':')
+		buf.Write(val)
+	}
+	buf.WriteByte('}')
+	return buf.Bytes(), nil
+}
+
+// indented is encode laid out with a two space indent, the stage 2 user
+// message.
+func (s State) indented(fields []string) (string, error) {
+	compact, err := s.encode(fields)
 	if err != nil {
 		return "", err
 	}
-	return string(b), nil
+	var out bytes.Buffer
+	if err := json.Indent(&out, compact, "", "  "); err != nil {
+		return "", err
+	}
+	return out.String(), nil
+}
+
+// marshalNoEscape marshals without HTML escaping, so < > & stay literal.
+func marshalNoEscape(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }

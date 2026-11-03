@@ -24,11 +24,15 @@ func guardFixture(t *testing.T, fake *guardtest.Fake, hasKey bool, streams ...st
 
 func guardFixtureIn(t *testing.T, dir, cwd string, fake *guardtest.Fake, hasKey bool, streams ...string) (*fixture, *deepseekRecorder) {
 	t.Helper()
+	bundle, err := guard.LoadBundle(guardtest.BundleJSON())
+	if err != nil {
+		t.Fatal(err)
+	}
 	return newDeepSeekFixtureIn(t, dir, cwd, func(r *session.Runner, o *Options) {
 		r.Guards = func(setting store.GuardSetting) (session.GuardDecider, error) {
 			return guard.NewPipeline(guard.PipelineConfig{
+				Bundle:         bundle,
 				Stage1Endpoint: setting.Stage1Endpoint,
-				Stage2Model:    setting.Stage2Model,
 				AnthropicKey:   "sk-ant-test",
 				Stage2BaseURL:  fake.Stage2URL,
 			})

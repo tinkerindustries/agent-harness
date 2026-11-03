@@ -78,16 +78,6 @@ func TestResolvePackageScriptsOnDisk(t *testing.T) {
 	}
 }
 
-func TestRulesIdentityIsStable(t *testing.T) {
-	a, b := RulesIdentity(), RulesIdentity()
-	if a == "" || a != b {
-		t.Errorf("identity %q then %q", a, b)
-	}
-	if guardRulesSource == "" || scriptDetectionSource == "" || packageScriptsSource == "" {
-		t.Error("a ported source is not embedded")
-	}
-}
-
 var (
 	_ RuleChecker = Rules{}
 	_ Escalator   = ScriptDetector{}

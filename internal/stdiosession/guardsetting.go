@@ -5,7 +5,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/mrgeoffrich/agent-harness/internal/guard"
 	"github.com/mrgeoffrich/agent-harness/internal/store"
 	"github.com/mrgeoffrich/agent-harness/internal/tools"
 )
@@ -94,9 +93,6 @@ func mergeGuard(cfg *GuardConfig, stored store.GuardSetting) (store.GuardSetting
 	}
 	if u, err := url.Parse(out.Stage1Endpoint); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		return out, errorf(CodeInvalidParams, "harness.guard.stage1_endpoint %q must be an http or https URL", out.Stage1Endpoint)
-	}
-	if out.Stage2Model == "" {
-		out.Stage2Model = guard.DefaultStage2Model
 	}
 	return out, nil
 }
