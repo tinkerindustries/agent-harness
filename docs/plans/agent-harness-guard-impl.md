@@ -20,6 +20,7 @@ and cut-off belong to classifier-research and are not restated here.
 
 - Anything in classifier-research (hand-off phases 1, 2 and 7): the holdout score, the fixture export, the
   shadow-log import and the false-block measurement.
+- Committing the full parity export. It holds real commands, paths and script text from private sessions.
 - Anything in Turret (hand-off phase 6).
 - A way for a parent to select `enforce`. The code exists and is gated off.
 - A guard on `gemini-session` or `claude-session`. They refuse the setting.
@@ -48,7 +49,7 @@ and store packages, so they run in sequence.
 
 ### Phase 1: Port rules, script detection and package scripts
 
-**Depends on**: nothing in this plan. The parity fixtures have to be committed first (see Open questions).
+**Depends on**: nothing in this plan. The parity fixtures are in place (see Open questions).
 
 **What it builds**
 
@@ -60,7 +61,12 @@ named in the "Source of truth" table of the hand-off. It also holds a word split
 **How to approach it**
 
 The fixtures are the specification. Read them before the Python, because the hand-off says the code wins and
-the fixtures are exported from the code. Go's `regexp` is RE2 and has no lookaround. The Python rules use a
+the fixtures are exported from the code. There are two sets. The synthetic set is committed under
+`internal/guard/testdata/parity/synthetic/` and covers the edge cases the real data does not reach. The full set
+is exported from `autonomy-actions`. It holds commands, paths and file text from private sessions, and this
+repository is public, so it is never committed, quoted in a PR body or copied into a test log. The parity test
+reads it from the directory named by `GUARD_PARITY_DIR` and skips with a message when the variable is unset.
+Go's `regexp` is RE2 and has no lookaround. The Python rules use a
 lookbehind to find the start of a command, a negative lookahead in one rule and a negative lookbehind for
 quoted text. Replace those with a tokenising pass that tracks quoting and command boundaries, and keep each
 rule's regex simple. The stripping of heredoc bodies and quoted strings, except text after `-c` or `eval`, is
@@ -71,9 +77,10 @@ your own to the fixture directory.
 
 **Proof**
 
-`go test ./internal/guard/... -run Parity` passes every fixture case for `check`, `executed_scripts`,
-`escalation_reasons` and `package_scripts`, and `scripts/build.sh` passes and ends by printing `bin/harness`.
-The PR body lists any fixture case it had to skip and why. It should list none.
+`go test ./internal/guard/... -run Parity` passes every synthetic case for `check`, `executed_scripts`,
+`escalation_reasons` and `package_scripts`. With `GUARD_PARITY_DIR` set to the full export, the same command
+passes every case there too. `scripts/build.sh` passes and ends by printing `bin/harness`. The PR body gives the
+number of cases each run covered and lists any case it had to skip and why. It should list none.
 
 **Out of scope for this phase**
 
@@ -199,11 +206,12 @@ Selecting `enforce`, any change to a rule, prompt or cut-off, and Turret's use o
 
 ## Open questions
 
-- **Before phase 1 can start**, a classifier-research session commits the parity fixtures under
-  `internal/guard/testdata/parity/`, exported from `autonomy-actions` only, covering `check`,
-  `executed_scripts`, `escalation_reasons` and `package_scripts`. They do not exist yet, and the exporter has to
-  be written in classifier-research first. The orchestrator checks they are present before spawning phase 1.
-  Owner: Geoff, through classifier-research.
+- The parity fixtures come in two sets, both exported by classifier-research. The synthetic set is invented
+  input with expected values taken from the Python, and it is committed under
+  `internal/guard/testdata/parity/synthetic/` with a README of the file format. The full set is exported from
+  `autonomy-actions`, stays on Geoff's machine, and is reached through `GUARD_PARITY_DIR`. The orchestrator
+  checks the synthetic set is committed before spawning phase 1, and passes the full set's path in the job
+  prompt. Owner: Geoff.
 - The guard assets are committed under `internal/guard/testdata/assets/`, with a README that names each file's
   origin and the values that are not in a file (the cut-off, the stage 1 request, latency figures). They include
   the Python sources phase 1 ports. The Ollama server's address and the guard results document are not in

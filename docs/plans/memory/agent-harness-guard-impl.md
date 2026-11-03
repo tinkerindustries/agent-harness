@@ -21,6 +21,7 @@ Every session working on this feature reads this file. Keep it to one screen. No
 - No rule, prompt, cut-off or model id changes here. The guard version changes when any of them does.
 - A resume does not re-run a tool call, so a recorded decision is never read back.
 - Nothing but protocol frames reaches stdout. The guard logs to stderr.
+- Nothing from the full parity export is committed, quoted in a PR body or printed into a log. This repository is public.
 - `gemini-session` and `claude-session` refuse the setting. A guard without `ANTHROPIC_API_KEY` is refused.
 
 ## Files that matter
@@ -49,7 +50,7 @@ Every session working on this feature reads this file. Keep it to one screen. No
 | Stage 1 is `POST <endpoint>/v1/systemone` on an Ollama server, model `clef-flash`, `keep_alive` `30m`. A valid answer has exactly the `allow` and `block` labels, each in [0, 1], summing to 1 within 0.01. | The hand-off, "Stage 1". Exact bytes are in the guard assets. |
 | Stage 2 is the Anthropic Messages API with `output_config.format` carrying a `reason`-then-`decision` schema, one cache breakpoint on the fixed system prompt, and effort medium. A verdict needs `stop_reason` `end_turn` and exactly the keys `reason` and `decision`. | The hand-off, "Stage 2". Exact request is in the guard assets. |
 | The stage 2 model is `claude-haiku-5-5`. `internal/provider` routes no Haiku model, which is fine because it is not a session model. | The hand-off; `docs/ANTHROPIC-INTEGRATION.md` for the Messages client's conventions. |
-| The guard assets (prompts, models, cut-off 0.171, the Python sources) are committed under `internal/guard/testdata/assets/`, and its README names each file. Parity fixtures from classifier-research go under `internal/guard/testdata/parity/` and are not there yet. | The assets README; the plan's Open questions. |
+| The guard assets (prompts, models, cut-off 0.171, the Python sources) are committed under `internal/guard/testdata/assets/`, and its README names each file. Synthetic parity fixtures are committed under `internal/guard/testdata/parity/synthetic/`. The full export is local only and reached through `GUARD_PARITY_DIR`. | The assets README; the plan's Open questions. |
 
 ## Vocabulary
 
