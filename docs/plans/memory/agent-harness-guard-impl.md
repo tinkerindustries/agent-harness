@@ -10,10 +10,13 @@ Every session working on this feature reads this file. Keep it to one screen. No
   reason, latency, token usage, guard version, mode.
 - One new Responses-vocabulary notification, `harness.guard`, carrying that record. The other two vocabularies
   skip the event.
-- `internal/guard` is one package shared by phases 1 to 4. Phase 1's rules type satisfies `RuleChecker` and its
-  script type satisfies `Escalator` (both in `pipeline.go`), and it passes `ScriptEntry` from `state.go`. `Version`
-  takes a rules identity string that the rules code supplies. `Decision` has optional `PBlock` and `Stage2Usage`
-  (four token counts); phase 3 persists it and adds the mode.
+- `internal/guard` is one package. `Rules` satisfies `RuleChecker` and `ScriptDetector` satisfies `Escalator`
+  (interfaces in `pipeline.go`), and `RulesIdentity()` is the value for `VersionInputs.Rules`. `Decision` has
+  optional `PBlock` and `Stage2Usage` (four token counts); phase 3 persists it and adds the mode.
+- Phase 3 fills `State` from the session: `ResolvePackageScripts(fsys, command, dir, repositories)` takes the
+  effective directory (`workdir`, else `harness.cwd`) and a repository list (the directory up to
+  `/.claude/worktrees/`, or the directory itself). `PackageScriptFile.Excerpt` is `*string` and stays nullable.
+  A session-origin `ScriptEntry` with nil `Content` is unscreened and escalates.
 
 ## Invariants
 
@@ -45,6 +48,7 @@ Every session working on this feature reads this file. Keep it to one screen. No
 | `internal/stdiosession/translate.go` | The Responses translator. Its `harness.usage` handling is the model for `harness.guard`. |
 | `internal/stdiosession/methods.go`, `resume.go` | `CreateHarness`, and the checks a resume makes against the row. |
 | `internal/guard/pipeline.go`, `state.go` | `Pipeline.Decide`, `Decision`, the stage and rule interfaces, and the `State` the model sees. |
+| `internal/guard/scripts.go`, `pkgscripts.go` | `ExecutedScripts`, and `ResolvePackageScripts` with its `FileSystem` interface. |
 | `internal/providerhttp` | `Transport` retries 429 and 5xx with backoff. A stage deadline covers the retries. |
 | `docs/STDIO-PROTOCOL.md` | The wire contract. Read before touching `internal/stdiosession`. |
 
