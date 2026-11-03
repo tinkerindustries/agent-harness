@@ -93,7 +93,11 @@ type Session struct {
 	// Policy.MCPReadOnlyServers). A resume reads it here rather than
 	// resolving it again, so nothing an operator or a client changes between
 	// the run and the resume can widen what the session may call.
-	MCPReadOnly  map[string]bool
+	MCPReadOnly map[string]bool
+	// Guard is the autonomy guard setting the session runs under. The zero
+	// value is no guard. It is not part of the cached prefix, so a resume may
+	// replace it (UpdateSessionGuard).
+	Guard        GuardSetting
 	ResultSchema json.RawMessage
 	Status       string
 	// CompleteStatus is the status argument the model gave `complete` ("done"
@@ -166,6 +170,10 @@ func (s *Store) CreateSession(ctx context.Context, sess Session) error {
 	if err != nil {
 		return err
 	}
+	guardJSON, err := guardSettingJSON(sess.Guard)
+	if err != nil {
+		return err
+	}
 	var resultSchema sql.NullString
 	if len(sess.ResultSchema) > 0 {
 		resultSchema = sql.NullString{String: string(sess.ResultSchema), Valid: true}
@@ -184,12 +192,12 @@ func (s *Store) CreateSession(ctx context.Context, sess Session) error {
 			INSERT INTO sessions (id, parent_id, job_type, task, title, description, phase, total_phases,
 				parent_agent_type, parent_agent_id,
 				model, prompt_variant, effort, thinking, workspace, permission_mode, deny_patterns, system_prompt,
-				tool_schema, mcp_read_only, result_schema, status, created_at, finished_at, version, parent_is_user)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, ?)`,
+				tool_schema, mcp_read_only, guard, result_schema, status, created_at, finished_at, version, parent_is_user)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, ?)`,
 			sess.ID, parentID, sess.JobType, sess.Task, sess.Title, sess.Description, sess.Phase, sess.TotalPhases,
 			sess.ParentAgentType, sess.ParentAgentID,
 			sess.Model, sess.PromptVariant, sess.Effort, sess.Thinking, sess.Workspace, sess.PermissionMode,
-			deny, sess.SystemPrompt, toolSchema, readOnly, resultSchema, sess.Status, createdAt.Format(time.RFC3339Nano),
+			deny, sess.SystemPrompt, toolSchema, readOnly, guardJSON, resultSchema, sess.Status, createdAt.Format(time.RFC3339Nano),
 			sess.ParentIsUser)
 		return err
 	})
@@ -532,11 +540,11 @@ func scanSession(row interface {
 	var parentID, resultSchema, finishedAt sql.NullString
 	var thinking int
 	var parentIsUser int
-	var denyJSON, createdAt, recentCalls, readOnlyJSON string
+	var denyJSON, createdAt, recentCalls, readOnlyJSON, guardJSON string
 	err := row.Scan(&sess.ID, &parentID, &sess.JobType, &sess.Task, &sess.Title, &sess.Description,
 		&sess.Phase, &sess.TotalPhases, &sess.ParentAgentType, &sess.ParentAgentID,
 		&sess.Model, &sess.PromptVariant, &sess.Effort, &thinking, &sess.Workspace,
-		&sess.PermissionMode, &denyJSON, &sess.SystemPrompt, (*sqlText)(&sess.ToolSchema), &readOnlyJSON, &resultSchema,
+		&sess.PermissionMode, &denyJSON, &sess.SystemPrompt, (*sqlText)(&sess.ToolSchema), &readOnlyJSON, &guardJSON, &resultSchema,
 		&sess.Status, &createdAt, &finishedAt, &sess.CompleteStatus, &sess.Plan, &recentCalls, &sess.Summary,
 		&sess.Version, &parentIsUser)
 	if err != nil {
@@ -556,6 +564,11 @@ func scanSession(row interface {
 	if readOnlyJSON != "" {
 		if err := json.Unmarshal([]byte(readOnlyJSON), &sess.MCPReadOnly); err != nil {
 			return Session{}, fmt.Errorf("store: decode mcp_read_only: %w", err)
+		}
+	}
+	if guardJSON != "" {
+		if err := json.Unmarshal([]byte(guardJSON), &sess.Guard); err != nil {
+			return Session{}, fmt.Errorf("store: decode guard: %w", err)
 		}
 	}
 	// The column defaults to '' on a pre-migration row, which is not valid
@@ -599,7 +612,7 @@ func (t *sqlText) Scan(src any) error {
 const sessionColumns = `id, parent_id, job_type, task, title, description, phase, total_phases,
 	parent_agent_type, parent_agent_id, model, prompt_variant, effort,
 	thinking, workspace, permission_mode, deny_patterns, system_prompt, tool_schema,
-	mcp_read_only, result_schema, status, created_at, finished_at, complete_status, plan, recent_tool_calls, summary, version, parent_is_user`
+	mcp_read_only, guard, result_schema, status, created_at, finished_at, complete_status, plan, recent_tool_calls, summary, version, parent_is_user`
 
 // GetSession reads one session by id.
 func (s *Store) GetSession(ctx context.Context, id string) (Session, error) {
@@ -644,4 +657,60 @@ func mcpReadOnlyJSON(m map[string]bool) (string, error) {
 		return "", fmt.Errorf("store: encode mcp_read_only: %w", err)
 	}
 	return string(b), nil
+}
+
+// Autonomy guard modes. The zero value of GuardSetting.Mode is the same as
+// GuardModeOff.
+const (
+	GuardModeOff     = "off"
+	GuardModeShadow  = "shadow"
+	GuardModeEnforce = "enforce"
+)
+
+// GuardSetting is the autonomy guard configuration a session runs under. It
+// holds no credential: the stage 2 key comes from the process environment.
+type GuardSetting struct {
+	// Mode is GuardModeOff, GuardModeShadow or GuardModeEnforce.
+	Mode string `json:"mode,omitempty"`
+	// Stage1Endpoint is the host stage 1 posts to, without the path.
+	Stage1Endpoint string `json:"stage1_endpoint,omitempty"`
+	// Stage2Model is the Anthropic model stage 2 asks.
+	Stage2Model string `json:"stage2_model,omitempty"`
+}
+
+// Active reports whether the setting screens any call.
+func (g GuardSetting) Active() bool {
+	return g.Mode == GuardModeShadow || g.Mode == GuardModeEnforce
+}
+
+// guardSettingJSON encodes a setting for the guard column. A session with no
+// guard stores the empty string.
+func guardSettingJSON(g GuardSetting) (string, error) {
+	if g == (GuardSetting{}) {
+		return "", nil
+	}
+	b, err := json.Marshal(g)
+	if err != nil {
+		return "", fmt.Errorf("store: encode guard: %w", err)
+	}
+	return string(b), nil
+}
+
+// UpdateSessionGuard replaces the guard setting on a session's row. The
+// setting is outside the cached prefix, so a resume can change it.
+func (s *Store) UpdateSessionGuard(ctx context.Context, id string, g GuardSetting) error {
+	enc, err := guardSettingJSON(g)
+	if err != nil {
+		return err
+	}
+	return s.submit(ctx, func(tx *sql.Tx) error {
+		res, err := tx.Exec(`UPDATE sessions SET guard = ?, version = version + 1 WHERE id = ?`, enc, id)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrNotFound
+		}
+		return nil
+	})
 }

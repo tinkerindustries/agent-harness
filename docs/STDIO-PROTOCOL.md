@@ -503,6 +503,7 @@ The Responses API's create-response body, narrowed, plus a `harness` block.
 | `harness.resume_session_id` | no | Continue that session, read out of the state directory. See [Resuming across process restarts](#resuming-across-process-restarts). |
 | `harness.permission_mode` | no | `readonly` (default) or `full`. See [Permissions](#permissions). |
 | `harness.deny` | no | Substring patterns matched against a call's descriptor. Only ever subtracts from what the mode allows. |
+| `harness.guard` | no | `{mode, stage1_endpoint, stage2_model}`: the autonomy guard that screens `bash` calls under `full`. See [The autonomy guard](#the-autonomy-guard). `gemini-session` and `claude-session` refuse it with `-32004`. |
 | `harness.max_sub_turns` | — | **Refused** with `-32004`, whatever its value. See [No sub-turn ceiling](#no-sub-turn-ceiling). |
 | `harness.message_id` | no | Echoed on the user message item this input becomes. |
 | `harness.title`, `harness.description` | no | Name the run in this harness's own records. |
@@ -702,6 +703,7 @@ HTTP frames do.
 | `response.failed` | yes | `{type, sequence_number, response}` |
 | `harness.tool_output` | no | `{type, sequence_number, response_id, call_id, text}` |
 | `harness.usage` | no | `{type, sequence_number, response_id, sub_turn, usage}` |
+| `harness.guard` | no | `{type, sequence_number, response_id, call_id, guard}` |
 
 There is no `[DONE]`: the HTTP stream ends on `response.completed` and so does
 this one, after which the pipe stays open for the next response.
@@ -793,6 +795,51 @@ price table was loaded.
 sibling to add on. The Interactions vocabulary splits the same figures the
 other way, so a client porting between them must not carry the arithmetic
 across.
+
+### `harness.guard`
+
+The autonomy guard's verdict on one `bash` call, addressed by the `call_id` of
+the `function_call` item it screened:
+
+```jsonc
+{"type": "harness.guard", "sequence_number": 52, "response_id": "resp_…",
+ "call_id": "call_…",
+ "guard": {"mode": "shadow", "guard_version": "…",
+           "verdict": "block", "decided_by": "stage2",
+           "escalation": ["unscreened_script"],
+           "p_block": 0.42,
+           "stage2": {"model": "claude-haiku-5-5",
+                      "reason": "…", "latency_ms": 900,
+                      "usage": {"input_tokens": 10, "output_tokens": 20,
+                                "cache_creation_input_tokens": 30,
+                                "cache_read_input_tokens": 40}},
+           "latency_ms": 950}}
+```
+
+One frame per screened call, whether it was allowed or blocked. It is a
+standalone notification rather than a field on the call's output item,
+because the decision can be committed after the call's result. A parent
+matches it to the call by `call_id` and does not assume an order against the
+`function_call_output` item.
+
+| Field | Meaning |
+| --- | --- |
+| `mode` | `shadow` (the command runs whatever the verdict) or `enforce` (a `block` refuses the command). |
+| `guard_version` | An identifier that changes when the rules, either prompt, the stage 1 cut-off or either model id changes. |
+| `verdict` | `allow` or `block`. |
+| `decided_by` | `rules`, `stage1` or `stage2`. |
+| `rules` | The names of the rules that hit. Present when `decided_by` is `rules`. |
+| `escalation` | Why the command skipped stage 1 for stage 2. Absent when it did not. |
+| `p_block` | Stage 1's probability of `block`. Absent when stage 1 did not run or failed. |
+| `stage1_error` | Why stage 1 failed, when it did. The command then went to stage 2. |
+| `stage1_latency_ms` | Stage 1's wall time, when it ran. |
+| `stage2` | Present when stage 2 was called: its `model`, its `reason`, an `error` when it returned no verdict, its `latency_ms` and its token `usage`. A stage 2 failure of any kind is a `block`. |
+| `latency_ms` | The whole decision's wall time. |
+
+Stage 2's tokens are also recorded as a usage event naming its model, and
+appear on `harness.usage` and in the run's cost like any other request.
+`harness.guard` is a frame of this vocabulary only: the Interactions and
+Managed Agents vocabularies carry nothing for it.
 
 ### `harness.tool_output`
 
@@ -973,6 +1020,10 @@ create therefore inherits `model`, `harness.cwd`, `harness.permission_mode`,
 differently is `-32602` rather than a silent override. Sending them unchanged
 is fine.
 
+`harness.guard` is the exception: it is outside the prefix, so a resuming
+create may name a different one. A create that names none keeps the stored
+setting. See [The autonomy guard](#the-autonomy-guard).
+
 ### The tools have to come back
 
 The tool array is the part a restart genuinely breaks. A `function` tool was
@@ -1054,6 +1105,55 @@ gives. There is no sandbox otherwise. Deciding whether a given session gets
 `full` is the parent's, and the mode is the whole of what this protocol
 gives it to decide with.
 
+### The autonomy guard
+
+`harness.guard` on a `stdio-session` create screens the session's `bash` calls
+before they run:
+
+```jsonc
+"harness": {"cwd": "/work", "permission_mode": "full",
+            "guard": {"mode": "shadow",
+                      "stage1_endpoint": "http://classifier.example:11434",
+                      "stage2_model": "claude-haiku-5-5"}}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `mode` | Required. `off`, `shadow` or `enforce`. A create naming `enforce` is refused with `-32004`: no parent can select it yet. |
+| `stage1_endpoint` | The host stage 1 posts to (`<endpoint>/v1/systemone`). An `http` or `https` URL. Required with `shadow` unless the session already stores one. |
+| `stage2_model` | The Anthropic model stage 2 asks. Defaults to the stored value, then to `claude-haiku-5-5`. |
+
+The guard applies to `bash` only, and only under `full`. Rules run first, then
+the stage 1 classifier, then stage 2. A stage 1 failure sends the command to
+stage 2, and a stage 2 failure blocks it. Stage 2 never falls back to `allow`.
+
+In `shadow` the check runs beside the command: the command starts at once and
+the decision is recorded and sent as a `harness.guard` frame when it arrives.
+A run that is ending waits, for a bounded time, for checks still in flight,
+so each frame precedes `response.completed`. In `enforce` the check finishes first, and a `block`
+returns a `function_call_output` with `is_error: true` and a `harness.rule` of
+`autonomy guard (stage 2)` or `autonomy guard (rules: <names>)`. The command
+does not run. The output text names the guard and the stage and never carries
+stage 2's reason, which only the `harness.guard` frame and the log hold.
+
+A create is refused when:
+
+- `mode` is `enforce` (`-32004`);
+- the process has no `ANTHROPIC_API_KEY`, which stage 2 needs (`-32003`, naming
+  the variable). The key is read from the environment the process was spawned
+  with, and from the `-env` file when the environment has none. It is never
+  stored;
+- the session is `readonly`, where `bash` is already refused, and `mode` is not
+  `off` (`-32602`);
+- `mode` or `stage1_endpoint` is missing or malformed (`-32602`);
+- the subcommand is `gemini-session` or `claude-session` (`-32004`). Neither
+  vocabulary has a frame for the decision.
+
+The setting is stored on the session row, and a `task` subagent and a
+compaction successor start from it. A resuming create or a `previous_response_id`
+continuation that names `harness.guard` replaces the stored setting, and one
+that names none keeps it. `{"mode": "off"}` turns a stored guard off.
+
 ## Errors
 
 Every method-level failure is a JSON-RPC error object. `data`, when present,
@@ -1070,8 +1170,8 @@ client has the vendor's string code as well as this protocol's numeric one.
 | `-32000` | not initialized | Any method before the handshake completes. |
 | `-32001` | response not found | A response id this process never minted, or has deleted. |
 | `-32002` | response not running | An append or delete against a response that is not `in_progress`. |
-| `-32003` | credentials missing | `responses.create` with no API key in the environment. |
-| `-32004` | unsupported | `agent`; `harness.max_sub_turns`; a server-side tool type; an `mcp_server` tool with no MCP client; image input. |
+| `-32003` | credentials missing | `responses.create` with no API key in the environment for the model, or a `harness.guard` with no `ANTHROPIC_API_KEY`. |
+| `-32004` | unsupported | `agent`; `harness.max_sub_turns`; `harness.guard` mode `enforce`, or `harness.guard` on a subcommand that has no guard; a server-side tool type; an `mcp_server` tool with no MCP client; image input. |
 | `-32005` | session not found | A `harness.resume_session_id` this process's state directory holds no session for. |
 | `-32006` | toolset mismatch | A resuming create whose tools do not reproduce the array the session froze. |
 

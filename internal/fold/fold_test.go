@@ -2,6 +2,7 @@ package fold
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 	"time"
 
@@ -958,5 +959,40 @@ func TestInterruptedToolCallAppendOnly(t *testing.T) {
 				t.Fatalf("fold events[:%d] message %d differs from the full fold:\n partial: %s\n   full: %s", n, i, raw, fullJSON[i])
 			}
 		}
+	}
+}
+
+// TestFoldIgnoresGuardDecision pins that the autonomy guard's record of a bash
+// call never reaches a request, wherever in the log it was committed: between
+// the call and its result, or after the result.
+func TestFoldIgnoresGuardDecision(t *testing.T) {
+	log := func(withGuard bool) []store.Event {
+		b := &eventBuilder{}
+		events := []store.Event{
+			b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "do it"}),
+			b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
+			b.ev(store.KindToolCall, store.ToolCallPayload{ID: "call_1", Name: "bash", Arguments: `{"command":"echo hi"}`}),
+			b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "tool_calls"}),
+		}
+		decision := b.ev(store.KindGuardDecision, store.GuardDecisionPayload{ToolCallID: "call_1", Mode: "shadow", Verdict: "block", DecidedBy: "stage2"})
+		if withGuard {
+			events = append(events, decision)
+		}
+		events = append(events, b.ev(store.KindToolResult, store.ToolResultPayload{ToolCallID: "call_1", Name: "bash", Content: "hi"}))
+		if withGuard {
+			events = append(events, b.ev(store.KindGuardDecision, store.GuardDecisionPayload{ToolCallID: "call_1", Mode: "shadow", Verdict: "allow", DecidedBy: "stage1"}))
+		}
+		return events
+	}
+	want, err := Fold(testSession(), log(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Fold(testSession(), log(true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("a guard_decision changed the folded items:\n got %+v\nwant %+v", got, want)
 	}
 }
