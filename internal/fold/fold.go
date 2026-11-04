@@ -96,6 +96,41 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Item, error) {
 	// for, in call order. An id leaves it when its tool_result or
 	// tool_denied arrives.
 	var pending []string
+	// answered holds the ids that already have a function_call_output in
+	// items, whether a real result, a denial or a stand-in. A provider rejects
+	// a second output for the same call outright (DeepSeek: "400 Duplicate
+	// tool output for call_id"), and the log cannot be rewritten, so a log
+	// that holds one — a result that landed after its call was closed off, or
+	// one recorded twice — must still fold to a request the provider accepts.
+	// The first output wins.
+	answered := map[string]bool{}
+	// heldNotices are background_finished messages that arrived while tool
+	// calls were still awaiting their results. A shell can exit mid-round,
+	// and Runner.RecordBackgroundFinished commits the exit the moment it
+	// happens, so the log can read tool_call, background_finished,
+	// tool_result. A user message between a call and its output is invalid
+	// on every provider, and the notice is no proof the round was abandoned,
+	// so it waits for the round's last output (or for a boundary that does
+	// close the round off) and lands after it.
+	var heldNotices []string
+
+	// emitOutput appends a function_call_output item unless its call already
+	// has one.
+	emitOutput := func(item wire.Item) {
+		if answered[item.CallID] {
+			return
+		}
+		answered[item.CallID] = true
+		items = append(items, item)
+	}
+
+	// releaseNotices places the held background notices as user messages.
+	releaseNotices := func() {
+		for _, msg := range heldNotices {
+			items = append(items, wire.UserItem(msg))
+		}
+		heldNotices = nil
+	}
 
 	flushAssistant := func() {
 		// The reasoning item comes first, ahead of the text and the calls it
@@ -137,9 +172,12 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Item, error) {
 	// emits no stand-in, and folding further only ever appends one.
 	flushOrphanedCalls := func() {
 		for _, id := range pending {
-			items = append(items, wire.FunctionCallOutputItem(id, interruptedToolOutput, ""))
+			emitOutput(wire.FunctionCallOutputItem(id, interruptedToolOutput, ""))
 		}
 		pending = nil
+		// The round is closed off, so a notice held behind it goes first,
+		// ahead of whatever message this boundary is about to place.
+		releaseNotices()
 	}
 
 	for _, e := range events {
@@ -194,16 +232,22 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Item, error) {
 			if err := json.Unmarshal(e.Payload, &p); err != nil {
 				return nil, fmt.Errorf("fold: tool_result at seq %d: %w", e.Seq, err)
 			}
-			items = append(items, toolResultItem(p))
+			emitOutput(toolResultItem(p))
 			pending = dropPending(pending, p.ToolCallID)
+			if len(pending) == 0 {
+				releaseNotices()
+			}
 
 		case store.KindToolDenied:
 			var p store.ToolDeniedPayload
 			if err := json.Unmarshal(e.Payload, &p); err != nil {
 				return nil, fmt.Errorf("fold: tool_denied at seq %d: %w", e.Seq, err)
 			}
-			items = append(items, wire.FunctionCallOutputItem(p.ToolCallID, p.Content, ""))
+			emitOutput(wire.FunctionCallOutputItem(p.ToolCallID, p.Content, ""))
 			pending = dropPending(pending, p.ToolCallID)
+			if len(pending) == 0 {
+				releaseNotices()
+			}
 
 		case store.KindSteerApplied:
 			var p store.SteerAppliedPayload
@@ -222,10 +266,15 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Item, error) {
 			if err := json.Unmarshal(e.Payload, &p); err != nil {
 				return nil, fmt.Errorf("fold: background_finished at seq %d: %w", e.Seq, err)
 			}
-			// The same boundary a steer waits for: a shell can exit while a
-			// tool call is in flight, and the notice must not land between a
-			// call and its result.
-			flushOrphanedCalls()
+			// A shell can exit while a tool round is in flight, and the
+			// notice must not land between a call and its result. Nor is it
+			// evidence the round was abandoned — the exit is committed when
+			// it happens, not when the loop next looks — so unlike a steer it
+			// does not flush stand-ins: it waits for the outputs.
+			if len(pending) > 0 || len(turnCallIDs) > 0 {
+				heldNotices = append(heldNotices, p.Message())
+				break
+			}
 			items = append(items, wire.UserItem(p.Message()))
 
 		case store.KindToolStdout, store.KindUsage, store.KindRunFinished, store.KindError, store.KindSteerMessage,
