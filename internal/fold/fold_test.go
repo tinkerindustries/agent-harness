@@ -962,6 +962,151 @@ func TestInterruptedToolCallAppendOnly(t *testing.T) {
 	}
 }
 
+// toolOutputIDs returns the call id of every function_call_output in items, in
+// order.
+func toolOutputIDs(items []wire.Item) []string {
+	var ids []string
+	for _, it := range items {
+		if it.Type == wire.ItemFunctionCallOutput {
+			ids = append(ids, it.CallID)
+		}
+	}
+	return ids
+}
+
+// TestFoldBackgroundFinishedMidToolRound is the wedged-session bug. A shell
+// started with run_in_background can exit while a later sub-turn's tools are
+// still running, and Runner.RecordBackgroundFinished commits that exit at the
+// moment it happens: the log reads tool_call, background_finished,
+// tool_result. The fold used to treat the notice as proof the conversation had
+// moved past the round, closed the still-running calls off with stand-in
+// outputs, and then emitted the real results too, so the request carried two
+// outputs for one call and DeepSeek answered "400 Duplicate tool output for
+// call_id" on every request for the rest of the session's life.
+//
+// The notice must wait until the round's results are in, so each call has
+// exactly one output and the notice follows the last of them.
+func TestFoldBackgroundFinishedMidToolRound(t *testing.T) {
+	b := &eventBuilder{}
+	events := []store.Event{
+		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "run the gate"}),
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
+		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 0, ID: "call_00_a", Name: "Bash", Arguments: `{"command":"a"}`}),
+		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 1, ID: "call_01_b", Name: "Bash", Arguments: `{"command":"b"}`}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "tool_calls"}),
+		// A shell from an earlier turn exits while the tools run.
+		b.ev(store.KindBackgroundFinished, store.BackgroundFinishedPayload{BashID: "bash_1", Command: "scripts/build.sh"}),
+		b.ev(store.KindToolResult, store.ToolResultPayload{ToolCallID: "call_00_a", Name: "Bash", Content: "a done"}),
+		b.ev(store.KindToolResult, store.ToolResultPayload{ToolCallID: "call_01_b", Name: "Bash", Content: "b done"}),
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 2}),
+		b.ev(store.KindContentDelta, store.ContentDeltaPayload{Text: "carrying on"}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "stop"}),
+	}
+
+	got, err := Fold(testSession(), events)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	notice := store.BackgroundFinishedPayload{BashID: "bash_1", Command: "scripts/build.sh"}.Message()
+	want := []wire.Message{
+		wire.SystemMessage("you are a coding agent"),
+		wire.UserMessage("run the gate"),
+		{
+			Role:    wire.RoleAssistant,
+			Content: wire.TextContent(""),
+			ToolCalls: []wire.ToolCall{
+				{ID: "call_00_a", Type: "function", Function: wire.ToolCallFunc{Name: "Bash", Arguments: `{"command":"a"}`}},
+				{ID: "call_01_b", Type: "function", Function: wire.ToolCallFunc{Name: "Bash", Arguments: `{"command":"b"}`}},
+			},
+		},
+		{Role: wire.RoleTool, Content: wire.TextContent("a done"), ToolCallID: "call_00_a"},
+		{Role: wire.RoleTool, Content: wire.TextContent("b done"), ToolCallID: "call_01_b"},
+		wire.UserMessage(notice),
+		{Role: wire.RoleAssistant, Content: wire.TextContent("carrying on")},
+	}
+	requireEqualMessages(t, got, want)
+}
+
+// TestFoldBackgroundFinishedMidToolRoundAppendOnly holds the deferral to the
+// property the prompt cache rests on: folding any prefix of the log agrees
+// with the full fold on every item both include.
+func TestFoldBackgroundFinishedMidToolRoundAppendOnly(t *testing.T) {
+	b := &eventBuilder{}
+	events := []store.Event{
+		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "run the gate"}),
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
+		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 0, ID: "call_00_a", Name: "Bash", Arguments: `{"command":"a"}`}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "tool_calls"}),
+		b.ev(store.KindBackgroundFinished, store.BackgroundFinishedPayload{BashID: "bash_1", Command: "scripts/build.sh"}),
+		b.ev(store.KindToolResult, store.ToolResultPayload{ToolCallID: "call_00_a", Name: "Bash", Content: "a done"}),
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 2}),
+		b.ev(store.KindContentDelta, store.ContentDeltaPayload{Text: "done"}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "stop"}),
+	}
+
+	sess := testSession()
+	full, err := Fold(sess, events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fullJSON := make([]string, len(full))
+	for i, it := range full {
+		raw, err := json.Marshal(it)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fullJSON[i] = string(raw)
+	}
+	for n := 0; n <= len(events); n++ {
+		partial, err := Fold(sess, events[:n])
+		if err != nil {
+			t.Fatalf("fold events[:%d]: %v", n, err)
+		}
+		if len(partial) > len(full) {
+			t.Fatalf("fold events[:%d] produced %d items, more than the full fold's %d", n, len(partial), len(full))
+		}
+		for i, it := range partial {
+			raw, err := json.Marshal(it)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(raw) != fullJSON[i] {
+				t.Fatalf("fold events[:%d] item %d differs from the full fold:\n partial: %s\n   full: %s", n, i, raw, fullJSON[i])
+			}
+		}
+	}
+}
+
+// TestFoldNeverEmitsTwoOutputsForOneCall is the backstop for logs that
+// already hold a second output for a call, whatever wrote it: a session whose
+// log was poisoned before the fix above must be able to send a request
+// again, because the log cannot be rewritten. The first output wins.
+func TestFoldNeverEmitsTwoOutputsForOneCall(t *testing.T) {
+	b := &eventBuilder{}
+	events := []store.Event{
+		b.ev(store.KindSessionStarted, store.SessionStartedPayload{OpeningMessage: "run it"}),
+		b.ev(store.KindTurnStarted, store.TurnStartedPayload{SubTurn: 1}),
+		b.ev(store.KindToolCall, store.ToolCallPayload{Index: 0, ID: "call_00_a", Name: "Bash", Arguments: `{"command":"a"}`}),
+		b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "tool_calls"}),
+		// A user message closes the round off, so the call gets a stand-in...
+		b.ev(store.KindSteerApplied, store.SteerAppliedPayload{Text: "hurry up", Role: wire.RoleUser}),
+		// ...and then the real result lands late, as a second output.
+		b.ev(store.KindToolResult, store.ToolResultPayload{ToolCallID: "call_00_a", Name: "Bash", Content: "a done"}),
+		// A result recorded twice.
+		b.ev(store.KindToolResult, store.ToolResultPayload{ToolCallID: "call_00_a", Name: "Bash", Content: "a done"}),
+	}
+
+	got, err := Fold(testSession(), events)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := toolOutputIDs(got)
+	if len(ids) != 1 || ids[0] != "call_00_a" {
+		t.Fatalf("outputs = %v, want exactly one for call_00_a", ids)
+	}
+}
+
 // TestFoldIgnoresGuardDecision pins that the autonomy guard's record of a bash
 // call never reaches a request, wherever in the log it was committed: between
 // the call and its result, or after the result.
