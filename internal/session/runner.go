@@ -18,10 +18,10 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"sync"
 
 	"github.com/mrgeoffrich/agent-harness/internal/gemini"
-	"github.com/mrgeoffrich/agent-harness/internal/guard"
 	"github.com/mrgeoffrich/agent-harness/internal/httplog"
 	"github.com/mrgeoffrich/agent-harness/internal/hub"
 	"github.com/mrgeoffrich/agent-harness/internal/pricing"
@@ -107,10 +107,6 @@ type RunOptions struct {
 	// Guard is the autonomy guard setting. It is stored on the session row,
 	// and a `task` subagent inherits it, so its `bash` calls are screened too.
 	Guard store.GuardSetting
-	// GuardBundle is the policy bundle the guard screens with. It is held in
-	// memory only: it is never stored, logged or sent, and a `task` subagent
-	// inherits it with the setting.
-	GuardBundle *guard.Bundle
 
 	// PromptVariant names the system prompt this run uses. Empty is the
 	// shipped prompt; anything else is an eval run (variants.go).
@@ -365,10 +361,17 @@ type Runner struct {
 	// its own walk.
 	RG string
 
-	// Guards builds the autonomy guard for a session whose setting is active.
-	// Nil means this Runner has no guard: a run whose setting asks for one
-	// fails to start. cmd/harness supplies it for `stdio-session`.
-	Guards GuardFactory
+	// Approver is how a screened `bash` call the classifier did not allow
+	// reaches the parent. Nil refuses every such call. Like MCP, the parent
+	// facing server sets it for the one run in flight.
+	Approver Approver
+	// GuardHTTP is the HTTP client the guard's classifier calls use. Nil takes
+	// a default one; tests set it.
+	GuardHTTP *http.Client
+
+	// BrowserProxy is the proxy the `screenshot` tool's browser is launched
+	// with, handed to every Executor. Nil launches it with none.
+	BrowserProxy *tools.BrowserProxy
 
 	// Hub, when set, is where every committed event and every session
 	// state change gets published for a browser to watch live. Nil is a

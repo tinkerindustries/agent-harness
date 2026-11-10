@@ -144,6 +144,12 @@ func WithAPIKeyProvider(fn func() (string, error)) ClientOption {
 	}
 }
 
+// WithRoute lets the parent redirect this client's requests to a gateway and
+// say the gateway supplies the credential (providerhttp.Route).
+func WithRoute(r *providerhttp.Route) ClientOption {
+	return func(c *Client) { c.chatTransport.Route = r }
+}
+
 // WithHTTPClient overrides the default HTTP client, e.g. in tests. Both
 // httpClient and chatTransport.HTTPClient move together, for the same reason
 // WithAPIKeyProvider sets both fields: whichever *http.Client
@@ -225,7 +231,9 @@ func NewClient(baseURL string, opts ...ClientOption) *Client {
 		// vision-path-shaped default of application/json for a surface that
 		// has never been measured against it.
 		SetAuth: func(req *http.Request, apiKey string) {
-			req.Header.Set("x-goog-api-key", apiKey)
+			if apiKey != "" {
+				req.Header.Set("x-goog-api-key", apiKey)
+			}
 		},
 		Accept: "text/event-stream",
 	}

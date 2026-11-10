@@ -529,9 +529,11 @@ func TestGeminiSessionNeverDefaultsToClaude(t *testing.T) {
 	}
 }
 
-// guardCreate drives one process through initialize and a create that names
-// harness.guard, and returns the create's JSON-RPC error code and message.
-func guardCreate(t *testing.T, invoked, method string, env map[string]string) (int, string) {
+// harnessCreate drives one process through initialize (claiming the
+// capabilities named) and a create whose `harness` block carries extra, and
+// returns the create's JSON-RPC error code and message, both zero when the
+// create was accepted.
+func harnessCreate(t *testing.T, invoked, method, model, capabilities, extra string, env map[string]string) (int, string) {
 	t.Helper()
 	clearKeyEnv(t)
 	for k, v := range env {
@@ -540,11 +542,10 @@ func guardCreate(t *testing.T, invoked, method string, env map[string]string) (i
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	create := `{"jsonrpc":"2.0","id":2,"method":"` + method + `","params":{"input":"hi",` +
-		`"harness":{"cwd":"` + t.TempDir() + `","permission_mode":"full",` +
-		`"guard":{"mode":"shadow","stage1_endpoint":"http://127.0.0.1:1"}}}}`
+	create := `{"jsonrpc":"2.0","id":2,"method":"` + method + `","params":{"model":"` + model + `","input":"hi",` +
+		`"harness":{"cwd":"` + t.TempDir() + `","permission_mode":"full",` + extra + `}}}`
 	in := strings.NewReader(
-		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"client_info":{"name":"test"},"capabilities":{}}}` + "\n" +
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"client_info":{"name":"test"},"capabilities":` + capabilities + `}}` + "\n" +
 			`{"jsonrpc":"2.0","method":"initialized","params":{}}` + "\n" +
 			create + "\n")
 	var out bytes.Buffer
@@ -561,7 +562,7 @@ func guardCreate(t *testing.T, invoked, method string, env map[string]string) (i
 		}
 		if json.Unmarshal([]byte(line), &frame) == nil && frame.ID == 2 {
 			if frame.Error == nil {
-				t.Fatalf("the create succeeded: %s", line)
+				return 0, ""
 			}
 			return frame.Error.Code, frame.Error.Message
 		}
@@ -570,16 +571,40 @@ func guardCreate(t *testing.T, invoked, method string, env map[string]string) (i
 	return 0, ""
 }
 
-func TestStdioSessionRefusesAGuardWithoutTheAnthropicKey(t *testing.T) {
-	code, message := guardCreate(t, "stdio-session", "responses.create", map[string]string{"DEEPSEEK_API_KEY": "sk-test"})
-	if code != -32003 || !strings.Contains(message, "ANTHROPIC_API_KEY") {
-		t.Fatalf("create = %d %q, want -32003 naming ANTHROPIC_API_KEY", code, message)
+const guardBlock = `"guard":{"classify_url":"http://127.0.0.1:1/classify","scenario":"repo"}`
+
+// A guard needs a parent that can answer approval requests: without the
+// capability the create is refused, naming it, rather than starting a session
+// whose blocked commands have nobody to ask.
+func TestStdioSessionRefusesAGuardWithoutTheApprovalsCapability(t *testing.T) {
+	code, message := harnessCreate(t, "stdio-session", "responses.create", "deepseek-flash", `{}`, guardBlock, map[string]string{"DEEPSEEK_API_KEY": "sk-test"})
+	if code != -32602 || !strings.Contains(message, "approvals") {
+		t.Fatalf("create = %d %q, want -32602 naming approvals", code, message)
+	}
+	if code, message := harnessCreate(t, "stdio-session", "responses.create", "deepseek-flash", `{"approvals":true}`, guardBlock, map[string]string{"DEEPSEEK_API_KEY": "sk-test"}); code != 0 {
+		t.Fatalf("create with the capability = %d %q, want accepted", code, message)
 	}
 }
 
-func TestGeminiSessionRefusesAGuardSetting(t *testing.T) {
-	code, message := guardCreate(t, "gemini-session", "interactions.create", map[string]string{"GEMINI_API_KEY": "gk-test", "ANTHROPIC_API_KEY": "ak-test"})
-	if code != -32004 || !strings.Contains(message, "harness.guard") {
-		t.Fatalf("create = %d %q, want -32004 naming harness.guard", code, message)
+// gemini-session hosts the guard too: its vocabulary has no frame for the
+// verdict any more, and the approval request is a JSON-RPC request in both.
+func TestGeminiSessionAcceptsAGuardSetting(t *testing.T) {
+	code, message := harnessCreate(t, "gemini-session", "interactions.create", "gemini-3.7-flash", `{"approvals":true}`, guardBlock, map[string]string{"GEMINI_API_KEY": "gk-test"})
+	if code != 0 {
+		t.Fatalf("create = %d %q, want accepted", code, message)
+	}
+}
+
+// A session whose gateway supplies the key starts with no key in the
+// environment; the same create without the gateway fields is the -32003 it
+// always was, naming the variable.
+func TestCreateWithAGatewayKeyNeedsNoProviderKey(t *testing.T) {
+	code, message := harnessCreate(t, "stdio-session", "responses.create", "deepseek-flash", `{}`, `"providers":{}`, nil)
+	if code != -32003 || !strings.Contains(message, "DEEPSEEK_API_KEY") {
+		t.Fatalf("create with no key and no gateway = %d %q, want -32003 naming DEEPSEEK_API_KEY", code, message)
+	}
+	providers := `"providers":{"deepseek":{"base_url":"http://127.0.0.1:1","gateway_supplies_key":true}}`
+	if code, message := harnessCreate(t, "stdio-session", "responses.create", "deepseek-flash", `{}`, providers, nil); code != 0 {
+		t.Fatalf("create with a gateway key = %d %q, want accepted", code, message)
 	}
 }

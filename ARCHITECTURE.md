@@ -171,20 +171,23 @@ The edges that matter:
   `agent.custom_tool_use` notification answered later through
   `sessions.events`, rather than a blocking `harness.function_call`
   (`docs/STDIO-MANAGED-AGENTS.md`).
-- **The autonomy guard sits beside the tools, behind two seams.**
-  `internal/guard` holds the mechanism (the policy bundle loader, the rule
-  matcher, the stage 1 classifier, the stage 2 reviewer, the state builder) and
-  imports neither `internal/store` nor `internal/session`. The policy itself is
-  the parent's: it arrives as a bundle on the create, and nothing in this
-  repository says what the guard allows or blocks. `internal/tools` declares `Guard`, which
-  `Executor.Execute` consults for a `bash` call under `full` after the policy
-  has allowed it. `internal/session` implements it (`runGuard`): it builds the
-  state from the event log, runs the pipeline and appends the
-  `guard_decision` event. `Runner.Guards` is how `cmd/harness` hands the
-  session package a pipeline factory, which is where the Anthropic key stays;
-  the factory receives the session's bundle with its setting.
-  `internal/stdiosession` owns the `harness.guard` create setting, validates
-  the bundle with `guard.LoadBundle` and holds it in memory per session.
+- **The autonomy guard is a client, behind two seams.** `internal/guard` is the
+  client of the parent's `POST /classify` endpoint and nothing else: it posts one
+  `bash` call and reports allow, block or unreachable. This repository holds no
+  rules, no policy and no classifier. `internal/tools` declares `Guard`, which
+  `Executor.Execute` consults for a `bash` call under `full` after the mode and
+  the deny patterns have allowed it, so a verdict never widens them.
+  `internal/session` implements it (`runGuard`): allow runs the call, and block
+  or unreachable asks the parent through `Runner.Approver` and runs the call only
+  on an approval. `internal/stdiosession` owns the `harness.guard` create setting
+  and sets `Runner.Approver` to send `harness.approval_request` for the run in
+  flight.
+- **Provider routes and the browser proxy are the process's.** Each provider
+  client holds a `providerhttp.Route` that a create's `harness.providers`
+  replaces: the base URL its requests go to and whether the parent's gateway
+  supplies the key, in which case no credential header is sent. `Runner.BrowserProxy`
+  is what the `screenshot` tool's browser is launched with. Both are set under
+  the server's lock when a run starts, and only one run is ever in flight.
 - Nothing imports `cmd/`.
 
 ## Cross-cutting concerns
@@ -206,10 +209,10 @@ costs the cost figure on `harness.usage` and nothing else.
 at the moment of a tool call. A denial is unconditional and returns through
 the tool result channel for the model to route around — a session never
 blocks on a human. Two modes, `readonly` and `full`, plus optional deny
-patterns from the request. §4.6. A `stdio-session` may add the autonomy guard
-on top: it screens `bash` under `full`, records every decision, and in
-`enforce` mode (which no create can select) refuses through the same denial
-route.
+patterns from the request. §4.6. A `stdio-session` or `gemini-session` may add
+the autonomy guard on top: it asks the parent's classifier about each `bash`
+call under `full` and, when the classifier does not allow it, asks the parent,
+refusing through the same denial route unless the parent approves.
 
 **Persistence and observability.** Every event lands in SQLite inside a
 transaction, then appends to the disk mirror; a failed mirror write logs and
@@ -255,14 +258,10 @@ are here.
 - **The guard setting is outside the frozen head.** It is stored on the
   session row and copied by compaction and by `task` subagents, but a resume
   may replace it, because nothing in a request depends on it. The row holds the
-  mode, the stage 1 endpoint and the policy bundle's hash. The bundle is held in
-  memory by `internal/stdiosession` for the conversation's life, passed to the
-  loop in the run and resume options, copied to a compaction successor and
-  released by `harness.close_session`. It is never stored, framed or logged. `shadow` never
-  stops a command, and only the local read of the session's state comes before
-  it: the model calls and the record run beside it. A shadow record commits on a context a cancelled
-  run does not cancel, and a run that is ending waits for the ones in flight so
-  the parent receives them before the run's last event.
+  classifier URL, the scenario and the engine name, and no credential. The
+  classify call and the approval wait both come before the command starts and
+  outside the per-call timeout, so a slow check or a slow person does not eat
+  the command's budget.
 - **The skills catalogue goes in the opening user message, never the system
   prompt**, and there is no `skill` tool: a definition would enlarge the
   frozen head to duplicate what `read` already does (§4.11).

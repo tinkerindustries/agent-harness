@@ -57,25 +57,3 @@ func TestGeminiCodingModelResolvesThroughTheCostLookup(t *testing.T) {
 		t.Errorf("Cost(gemini-3.7-flash) = %v, want > 0 for non-zero token counts", cost)
 	}
 }
-
-// guardStage2Model is the Anthropic model a deployment is expected to name in
-// its guard policy. The policy is the parent's, so the test below only holds
-// the price table to covering it.
-const guardStage2Model = "claude-haiku-5-5"
-
-// TestGuardStage2ModelIsPriced covers the one model the harness bills that is
-// not a session model: the autonomy guard's stage 2. Its tokens are recorded
-// as usage events, and a missing entry would report them as $0.
-func TestGuardStage2ModelIsPriced(t *testing.T) {
-	table, err := pricing.Load("../../configs/prices.json")
-	if err != nil {
-		t.Fatalf("load the shipped price table: %v", err)
-	}
-	cost, _, err := table.Cost(guardStage2Model, time.Now(), 1000, 2000, 500, 300)
-	if err != nil {
-		t.Fatalf("Cost(%s): %v", guardStage2Model, err)
-	}
-	if cost <= 0 {
-		t.Errorf("Cost(%s) = %v, want > 0", guardStage2Model, cost)
-	}
-}

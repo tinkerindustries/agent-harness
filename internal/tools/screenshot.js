@@ -18,7 +18,9 @@ const { chromium } = require("playwright");
 async function main() {
   const cfg = JSON.parse(process.argv[2]);
 
-  const browser = await chromium.launch();
+  // The parent's proxy, when it named one. Chromium reads no HTTPS_PROXY on
+  // macOS or Windows, so it has to be handed to the launch.
+  const browser = await chromium.launch(cfg.proxy ? { proxy: { server: cfg.proxy } } : {});
   // Everything after the launch is wrapped, so the browser is closed on any
   // failure. A leaked chromium would outlive the tool call and hold its
   // share of the container's memory for the rest of the session.

@@ -19,6 +19,7 @@ import (
 	"github.com/mrgeoffrich/agent-harness/internal/mcpclient"
 	"github.com/mrgeoffrich/agent-harness/internal/pricing"
 	"github.com/mrgeoffrich/agent-harness/internal/provider"
+	"github.com/mrgeoffrich/agent-harness/internal/providerhttp"
 	"github.com/mrgeoffrich/agent-harness/internal/session"
 	"github.com/mrgeoffrich/agent-harness/internal/settings"
 	"github.com/mrgeoffrich/agent-harness/internal/stdiosession"
@@ -113,7 +114,8 @@ func runClaudeSession(ctx context.Context, args []string, in io.Reader, out io.W
 		priceTable = nil
 	}
 
-	anthropicClient := anthropic.NewClient(anthropic.DefaultBaseURL, anthropic.WithAPIKeyProvider(func() (string, error) {
+	anthropicRoute := &providerhttp.Route{}
+	anthropicClient := anthropic.NewClient(anthropic.DefaultBaseURL, anthropic.WithRoute(anthropicRoute), anthropic.WithAPIKeyProvider(func() (string, error) {
 		return anthropicKey, nil
 	}))
 
@@ -140,6 +142,7 @@ func runClaudeSession(ctx context.Context, args []string, in io.Reader, out io.W
 		ToolEnvFilter: stripProviderAPIKeys,
 		ToolTimeouts:  tools.Timeouts{HostTool: claudeCustomToolTimeout},
 		RG:            rgPath,
+		BrowserProxy:  &tools.BrowserProxy{},
 	}
 
 	srv := stdiosession.NewServer(stdiosession.Options{
@@ -152,6 +155,7 @@ func runClaudeSession(ctx context.Context, args []string, in io.Reader, out io.W
 		DefaultModel: chosen,
 		ServerName:   "agent-harness claude-session",
 		HasAPIKey:    func(string) bool { return anthropicKey != "" },
+		Routes:       map[provider.Name]*providerhttp.Route{provider.Anthropic: anthropicRoute},
 		Version:      buildVersion(),
 	})
 

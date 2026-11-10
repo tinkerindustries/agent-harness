@@ -1,3 +1,8 @@
+> **Superseded.** The guard's rules, escalation and stages left this repository: the classifier now runs
+> behind the parent's `POST /classify` endpoint, and this repository holds only its client and the
+> `harness.approval_request` it raises ([STDIO-PROTOCOL.md](../STDIO-PROTOCOL.md), "The autonomy guard").
+> What follows describes the in-process guard it replaced and is kept as history.
+
 # Plan: the autonomy guard in agent-harness
 
 Status: not started. This is the hand-off from classifier-research to agent-harness. agent-harness writes

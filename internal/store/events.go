@@ -33,9 +33,10 @@ const (
 	// run did not ask for: a shell started in an earlier run finishing while
 	// the session is idle is what wakes it.
 	KindBackgroundFinished EventKind = "background_finished"
-	// KindGuardDecision records the autonomy guard's verdict on one bash
-	// call. It is analysis data: internal/fold ignores it, so it never
-	// reaches a request, and nothing reads it back.
+	// KindGuardDecision is retired: an earlier autonomy guard recorded its
+	// verdict on one bash call under it. Nothing writes it now. It stays a
+	// valid kind so a state directory from before reads back, and
+	// internal/fold ignores it.
 	KindGuardDecision EventKind = "guard_decision"
 )
 
@@ -251,51 +252,6 @@ type UsagePayload struct {
 	Calls              int  `json:"calls,omitempty"`
 	ExpectedMissTokens int  `json:"expected_miss_tokens"`
 	ChurnPointIndex    *int `json:"churn_point_index,omitempty"`
-}
-
-// GuardDecisionPayload is the autonomy guard's verdict on one bash call and
-// how it got there. One event per screened call, keyed by ToolCallID, written
-// whether the call was allowed or blocked and whether or not the mode lets
-// the verdict stop it. The payload is also the body of the harness.guard
-// notification (docs/STDIO-PROTOCOL.md).
-type GuardDecisionPayload struct {
-	ToolCallID string `json:"tool_call_id"`
-	// Mode is "shadow" or "enforce".
-	Mode string `json:"mode"`
-	// GuardVersion identifies the rules, prompts, cut-off and model ids the
-	// decision was made under.
-	GuardVersion string `json:"guard_version"`
-	// Verdict is "allow" or "block".
-	Verdict string `json:"verdict"`
-	// DecidedBy is "rules", "stage1" or "stage2".
-	DecidedBy string `json:"decided_by"`
-	// Rules are the rule names that hit, when DecidedBy is "rules".
-	Rules []string `json:"rules,omitempty"`
-	// Escalation holds why the command skipped stage 1 for stage 2.
-	Escalation []string `json:"escalation,omitempty"`
-	// PBlock is stage 1's p(block). It is absent when stage 1 did not run or
-	// failed.
-	PBlock      *float64 `json:"p_block,omitempty"`
-	Stage1Error string   `json:"stage1_error,omitempty"`
-	Stage2Ran   bool     `json:"stage2_ran,omitempty"`
-	// Stage2Model is the model stage 2 used.
-	Stage2Model  string `json:"stage2_model,omitempty"`
-	Stage2Reason string `json:"stage2_reason,omitempty"`
-	Stage2Error  string `json:"stage2_error,omitempty"`
-	// Stage2Usage is stage 2's token count, when the API answered.
-	Stage2Usage *GuardUsage `json:"stage2_usage,omitempty"`
-
-	Stage1LatencyMs int64 `json:"stage1_latency_ms,omitempty"`
-	Stage2LatencyMs int64 `json:"stage2_latency_ms,omitempty"`
-	LatencyMs       int64 `json:"latency_ms"`
-}
-
-// GuardUsage is the token count of one stage 2 call, under Anthropic's names.
-type GuardUsage struct {
-	InputTokens              int `json:"input_tokens"`
-	OutputTokens             int `json:"output_tokens"`
-	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 }
 
 // TurnFinishedPayload closes out a sub-turn's assistant message. ElapsedMs is

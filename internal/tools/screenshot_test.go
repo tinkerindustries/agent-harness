@@ -2,10 +2,13 @@ package tools
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -523,5 +526,73 @@ func TestScreenshotFailsOnAnActionThatCannotRun(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "scratch", "x.png")); err == nil {
 		t.Error("a failed action must not leave a capture of the wrong state behind")
+	}
+}
+
+// The browser is launched with the proxy the parent named, which is the only
+// way a macOS or Windows Chromium is pointed at one: it reads no HTTPS_PROXY.
+// The page lives at a name that resolves nowhere, so a capture that carries its
+// title came through the proxy. It fails if the driver launches Chromium with
+// no proxy argument, or if the executor does not hand the URL to the driver.
+// Skipped where the browser stack is absent, like TestScreenshotCapturesAPage.
+func TestScreenshotLaunchesTheBrowserWithTheParentsProxy(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is not on PATH")
+	}
+	var mu sync.Mutex
+	var hosts []string
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		hosts = append(hosts, r.Host)
+		mu.Unlock()
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte("<!doctype html><title>Via the proxy</title><p>hi</p>"))
+	}))
+	defer proxy.Close()
+
+	e, root := screenshotExecutor(t)
+	e.BrowserProxy = &BrowserProxy{}
+	e.BrowserProxy.Set(proxy.URL)
+
+	res := runTool(t, e, "screenshot", screenshotArgs{URL: "http://proxied.invalid/page", Path: "scratch/proxied.png"})
+	if res.IsError {
+		if strings.Contains(res.Content, "browser driver failed to run") {
+			t.Skipf("no usable Playwright browser here: %s", res.Content)
+		}
+		t.Fatalf("capture failed: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, "Via the proxy") {
+		t.Errorf("the capture did not come through the proxy: %s", res.Content)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(hosts) == 0 || hosts[0] != "proxied.invalid" {
+		t.Errorf("the proxy saw hosts %v, want proxied.invalid", hosts)
+	}
+	if _, err := os.Stat(filepath.Join(root, "scratch", "proxied.png")); err != nil {
+		t.Errorf("no image written: %v", err)
+	}
+}
+
+func TestScreenshotConfigCarriesNoProxyUnlessNamed(t *testing.T) {
+	var p *BrowserProxy
+	if p.URL() != "" {
+		t.Errorf("a nil BrowserProxy names %q, want none", p.URL())
+	}
+	p = &BrowserProxy{}
+	p.Set("http://127.0.0.1:9")
+	if p.URL() != "http://127.0.0.1:9" {
+		t.Errorf("URL = %q", p.URL())
+	}
+	p.Set("")
+	if p.URL() != "" {
+		t.Errorf("a cleared proxy names %q", p.URL())
+	}
+	raw, err := json.Marshal(screenshotDriverConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "proxy") {
+		t.Errorf("a config with no proxy still carries the key: %s", raw)
 	}
 }

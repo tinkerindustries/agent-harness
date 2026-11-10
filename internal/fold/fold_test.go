@@ -1107,8 +1107,8 @@ func TestFoldNeverEmitsTwoOutputsForOneCall(t *testing.T) {
 	}
 }
 
-// TestFoldIgnoresGuardDecision pins that the autonomy guard's record of a bash
-// call never reaches a request, wherever in the log it was committed: between
+// TestFoldIgnoresGuardDecision pins that a retired autonomy guard's record of a
+// bash call, still in an older log, never reaches a request, wherever in the log it was committed: between
 // the call and its result, or after the result.
 func TestFoldIgnoresGuardDecision(t *testing.T) {
 	log := func(withGuard bool) []store.Event {
@@ -1119,13 +1119,13 @@ func TestFoldIgnoresGuardDecision(t *testing.T) {
 			b.ev(store.KindToolCall, store.ToolCallPayload{ID: "call_1", Name: "bash", Arguments: `{"command":"echo hi"}`}),
 			b.ev(store.KindTurnFinished, store.TurnFinishedPayload{FinishReason: "tool_calls"}),
 		}
-		decision := b.ev(store.KindGuardDecision, store.GuardDecisionPayload{ToolCallID: "call_1", Mode: "shadow", Verdict: "block", DecidedBy: "stage2"})
+		decision := b.ev(store.KindGuardDecision, map[string]any{"tool_call_id": "call_1", "mode": "shadow", "verdict": "block"})
 		if withGuard {
 			events = append(events, decision)
 		}
 		events = append(events, b.ev(store.KindToolResult, store.ToolResultPayload{ToolCallID: "call_1", Name: "bash", Content: "hi"}))
 		if withGuard {
-			events = append(events, b.ev(store.KindGuardDecision, store.GuardDecisionPayload{ToolCallID: "call_1", Mode: "shadow", Verdict: "allow", DecidedBy: "stage1"}))
+			events = append(events, b.ev(store.KindGuardDecision, map[string]any{"tool_call_id": "call_1", "mode": "shadow", "verdict": "allow"}))
 		}
 		return events
 	}

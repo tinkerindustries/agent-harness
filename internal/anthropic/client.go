@@ -79,6 +79,12 @@ func WithAPIKeyProvider(fn func() (string, error)) ClientOption {
 	return func(c *Client) { c.transport.APIKeyProvider = fn }
 }
 
+// WithRoute lets the parent redirect this client's requests to a gateway and
+// say the gateway supplies the credential (providerhttp.Route).
+func WithRoute(r *providerhttp.Route) ClientOption {
+	return func(c *Client) { c.transport.Route = r }
+}
+
 // WithHTTPClient overrides the default HTTP client, e.g. in tests.
 func WithHTTPClient(h *http.Client) ClientOption {
 	return func(c *Client) {
@@ -135,7 +141,9 @@ func NewClient(baseURL string, opts ...ClientOption) *Client {
 			// this is the seam the plan names ("hand-rolled on
 			// internal/providerhttp.Transport with SetAuth") for all three.
 			SetAuth: func(req *http.Request, apiKey string) {
-				req.Header.Set("x-api-key", apiKey)
+				if apiKey != "" {
+					req.Header.Set("x-api-key", apiKey)
+				}
 				req.Header.Set("anthropic-version", anthropicVersion)
 				req.Header.Set("anthropic-beta", thinkingBindingBeta)
 			},

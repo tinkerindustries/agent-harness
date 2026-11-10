@@ -1,153 +1,90 @@
 package stdiosession
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
 	"net/url"
 	"strings"
 
-	"github.com/mrgeoffrich/agent-harness/internal/guard"
+	"github.com/mrgeoffrich/agent-harness/internal/session"
 	"github.com/mrgeoffrich/agent-harness/internal/store"
-	"github.com/mrgeoffrich/agent-harness/internal/tools"
 )
 
 // GuardConfig is `harness.guard` on a create: the autonomy guard that screens
-// the session's `bash` calls (docs/STDIO-PROTOCOL.md, "Permissions").
+// the session's `bash` calls (docs/STDIO-PROTOCOL.md, "The autonomy guard").
 type GuardConfig struct {
-	// Mode is "off", "shadow" or "enforce". A create cannot select "enforce".
-	Mode string `json:"mode"`
-	// Stage1Endpoint is the host the stage 1 classifier is posted to, without
-	// the path. Required with an active mode when the policy has a stage 1,
-	// unless the session already stores one.
-	Stage1Endpoint string `json:"stage1_endpoint,omitempty"`
-	// Policy is the policy bundle: the parent's content for the guard. It is
-	// loaded and held in memory for the session's life. It is never stored,
-	// logged or sent, and a resume that omits it keeps the one the process
-	// holds.
-	Policy json.RawMessage `json:"policy,omitempty"`
+	// ClassifyURL is the parent's `POST /classify` endpoint, an http or https
+	// URL. Empty turns the guard off, including a stored one.
+	ClassifyURL string `json:"classify_url"`
+	// Scenario is what the classifier is told the session is for: "repo" or
+	// "assistant". Required with a ClassifyURL.
+	Scenario string `json:"scenario,omitempty"`
+	// Engine names the parent's engine in the classifier's request. Empty
+	// sends "agent-harness".
+	Engine string `json:"engine,omitempty"`
 }
 
 // GuardOptions says this process can host the autonomy guard. Options.Guard
 // is nil under the subcommands that refuse the setting.
-type GuardOptions struct {
-	// HasAPIKey reports whether ANTHROPIC_API_KEY reached this process.
-	HasAPIKey func() bool
-}
+type GuardOptions struct{}
 
-const guardKeyMessage = "harness.guard needs an Anthropic API key for stage 2: set ANTHROPIC_API_KEY in the environment you spawn this process with"
-
-// resolveGuard returns the guard setting and policy bundle a run starts with.
+// resolveGuard returns the guard setting a run starts with: the create's when
+// it names one, nil to leave the stored one in force.
 //
-// cfg is the create's setting, stored the setting already on the session
-// (zero for a new one), permission the session's permission mode and held the
-// bundle this process already holds for the session (nil when none). A create
-// that names no guard returns a nil setting, which leaves the stored setting
-// in force. The returned bundle is the one the create sent, nil when it sent
-// none or the setting is not active. A setting that would screen calls is
-// refused when this process cannot host it, whether it came from the create
-// or from the row, and when no bundle, sent or held, backs it.
-func (s *Server) resolveGuard(cfg *GuardConfig, stored store.GuardSetting, permission tools.Mode, held *guard.Bundle) (*store.GuardSetting, *guard.Bundle, *rpcError) {
-	var (
-		out    *store.GuardSetting
-		sent   *guard.Bundle
-		bundle = held
-	)
+// A setting that would screen calls is refused when this process cannot host
+// it, whether it came from the create or from the row, and when the client did
+// not claim the approvals capability, because a block verdict would have
+// nobody to ask. The permission mode is not consulted: under `readonly`,
+// `bash` is refused before the guard is asked.
+func (s *Server) resolveGuard(cfg *GuardConfig, stored store.GuardSetting) (*store.GuardSetting, *rpcError) {
+	var out *store.GuardSetting
 	effective := stored
 	if cfg != nil {
 		if s.opts.Guard == nil {
-			return nil, nil, errorf(CodeUnsupported, "harness.guard: this subcommand does not support the autonomy guard; `harness stdio-session` does")
+			return nil, errorf(CodeUnsupported, "harness.guard: this subcommand does not support the autonomy guard; `harness stdio-session` and `harness gemini-session` do")
 		}
-		if hasPolicy(cfg.Policy) {
-			b, rerr := loadPolicy(cfg.Policy)
-			if rerr != nil {
-				return nil, nil, rerr
-			}
-			sent, bundle = b, b
-		}
-		merged, rerr := mergeGuard(cfg, stored, bundle)
+		setting, rerr := guardSettingFrom(cfg)
 		if rerr != nil {
-			return nil, nil, rerr
+			return nil, rerr
 		}
-		out, effective = &merged, merged
+		out, effective = &setting, setting
 	}
 	if !effective.Active() {
-		return out, nil, nil
-	}
-	if s.opts.Guard == nil {
-		return nil, nil, errorf(CodeUnsupported, "this session carries an autonomy guard setting and this subcommand cannot host it; resume it under `harness stdio-session`")
-	}
-	if permission != tools.ModeFull {
-		return nil, nil, errorf(CodeInvalidParams, "harness.guard: the guard screens `bash` and `bash` is refused under %q; use harness.permission_mode %q or send mode %q", permission, tools.ModeFull, store.GuardModeOff)
-	}
-	if s.opts.Guard.HasAPIKey == nil || !s.opts.Guard.HasAPIKey() {
-		return nil, nil, errorf(CodeCredentialsMissing, "%s", guardKeyMessage)
-	}
-	if bundle == nil {
-		return nil, nil, errorf(CodeInvalidParams, "%s", policyMissingMessage)
-	}
-	return out, sent, nil
-}
-
-const policyMissingMessage = "harness.guard.policy is required: the guard is active and this process holds no policy bundle for the session; send the bundle on every create that leaves the guard active"
-
-func hasPolicy(raw json.RawMessage) bool {
-	t := bytes.TrimSpace(raw)
-	return len(t) > 0 && !bytes.Equal(t, []byte("null"))
-}
-
-// loadPolicy validates a create's bundle. A refusal names the field inside
-// the bundle and the reason, and never repeats any of the bundle's text.
-func loadPolicy(raw json.RawMessage) (*guard.Bundle, *rpcError) {
-	b, err := guard.LoadBundle(raw)
-	if err == nil {
-		return b, nil
-	}
-	var be *guard.BundleError
-	if errors.As(err, &be) {
-		field := "harness.guard.policy"
-		if be.Field != "" {
-			field += "." + be.Field
-		}
-		return nil, errorf(CodeInvalidParams, "%s: %s", field, be.Reason)
-	}
-	return nil, errorf(CodeInvalidParams, "harness.guard.policy is not a valid policy bundle")
-}
-
-// mergeGuard applies a create's setting over the stored one, under the bundle
-// the run will screen with. A nil bundle skips the checks that depend on it;
-// resolveGuard refuses the setting afterwards.
-func mergeGuard(cfg *GuardConfig, stored store.GuardSetting, bundle *guard.Bundle) (store.GuardSetting, *rpcError) {
-	out := stored
-	switch cfg.Mode {
-	case store.GuardModeOff, store.GuardModeShadow:
-		out.Mode = cfg.Mode
-	case store.GuardModeEnforce:
-		return out, errorf(CodeUnsupported, "harness.guard.mode %q: a create cannot select it yet; use %q", cfg.Mode, store.GuardModeShadow)
-	case "":
-		return out, errorf(CodeInvalidParams, "harness.guard.mode is required: %q, %q or %q", store.GuardModeOff, store.GuardModeShadow, store.GuardModeEnforce)
-	default:
-		return out, errorf(CodeInvalidParams, "harness.guard.mode %q must be %q or %q", cfg.Mode, store.GuardModeOff, store.GuardModeShadow)
-	}
-	if e := strings.TrimSpace(cfg.Stage1Endpoint); e != "" {
-		out.Stage1Endpoint = e
-	}
-	if !out.Active() {
 		return out, nil
 	}
-	if bundle != nil && bundle.HasStage1() && out.Stage1Endpoint == "" {
-		return out, errorf(CodeInvalidParams, "harness.guard.stage1_endpoint is required with mode %q when the policy has a stage 1", out.Mode)
+	if s.opts.Guard == nil {
+		return nil, errorf(CodeUnsupported, "this session carries an autonomy guard setting and this subcommand cannot host it; resume it under `harness stdio-session`")
 	}
-	if out.Stage1Endpoint != "" {
-		if u, err := url.Parse(out.Stage1Endpoint); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			return out, errorf(CodeInvalidParams, "harness.guard.stage1_endpoint %q must be an http or https URL", out.Stage1Endpoint)
-		}
-	}
-	if bundle != nil {
-		out.PolicyHash = bundle.Version()
+	s.mu.Lock()
+	approvals := s.clientCaps.Approvals
+	s.mu.Unlock()
+	if !approvals {
+		return nil, errorf(CodeInvalidParams, "harness.guard is active and the client did not claim the approvals capability at initialize, so a blocked command would have nobody to ask")
 	}
 	return out, nil
+}
+
+func guardSettingFrom(cfg *GuardConfig) (store.GuardSetting, *rpcError) {
+	raw := strings.TrimSpace(cfg.ClassifyURL)
+	if raw == "" {
+		return store.GuardSetting{}, nil
+	}
+	if !httpURL(raw) {
+		return store.GuardSetting{}, errorf(CodeInvalidParams, "harness.guard.classify_url must be an http or https URL")
+	}
+	switch cfg.Scenario {
+	case "repo", "assistant":
+	case "":
+		return store.GuardSetting{}, errorf(CodeInvalidParams, "harness.guard.scenario is required with classify_url: \"repo\" or \"assistant\"")
+	default:
+		return store.GuardSetting{}, errorf(CodeInvalidParams, "harness.guard.scenario %q must be \"repo\" or \"assistant\"", cfg.Scenario)
+	}
+	return store.GuardSetting{ClassifyURL: raw, Scenario: cfg.Scenario, Engine: strings.TrimSpace(cfg.Engine)}, nil
+}
+
+// httpURL reports whether raw is an absolute http or https URL with a host.
+func httpURL(raw string) bool {
+	u, err := url.Parse(raw)
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
 }
 
 // storedSession reads the row of a session this create continues.
@@ -157,4 +94,22 @@ func (s *Server) storedSession(ctx context.Context, id string) (store.Session, *
 		return store.Session{}, errorf(CodeInternalError, "read session %s: %v", id, err)
 	}
 	return sess, nil
+}
+
+// approverFor is the session.Approver for the run with the given response id:
+// it sends harness.approval_request and waits for the answer. A failure to get
+// one, including the run being cancelled or the pipe closing, is an error and
+// so a refusal. Only an explicit "approve" runs the command.
+func (s *Server) approverFor(runID string) session.Approver {
+	return func(ctx context.Context, req session.ApprovalRequest) (session.ApprovalAnswer, error) {
+		var res ApprovalAnswerResult
+		err := s.conn.Call(ctx, MethodApprovalRequest, ApprovalRequestParams{
+			ResponseID: runID, Type: "command_approval", CallID: req.CallID,
+			Command: req.Command, Cwd: req.Workdir, Verdict: req.Verdict, Reason: req.Reason,
+		}, &res)
+		if err != nil {
+			return session.ApprovalAnswer{}, err
+		}
+		return session.ApprovalAnswer{Approve: res.Decision == "approve", Message: res.Message}, nil
+	}
 }

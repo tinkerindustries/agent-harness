@@ -44,6 +44,8 @@ type deepseekRecorder struct {
 	bodies   []string
 	streams  []string
 	nextResp int
+	// url is the base URL the recorder answers on, set by serve.
+	url string
 }
 
 func (d *deepseekRecorder) serve(t *testing.T) *httptest.Server {
@@ -66,6 +68,7 @@ func (d *deepseekRecorder) serve(t *testing.T) *httptest.Server {
 		w.Write([]byte(stream))
 	}))
 	t.Cleanup(srv.Close)
+	d.url = srv.URL
 	return srv
 }
 

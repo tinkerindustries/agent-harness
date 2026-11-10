@@ -301,6 +301,9 @@ type Executor struct {
 	// for the same call, except that the walk cannot filter by file type
 	// (internal/tools/grep.go, docs/TOOLS.md).
 	RG string
+	// BrowserProxy is the proxy the `screenshot` browser is launched with.
+	// Nil launches it with none.
+	BrowserProxy *BrowserProxy
 
 	// Settings, when set, is where the tool limits (output caps, timeouts,
 	// web_fetch and vision bounds) resolve from on every call, so a limit

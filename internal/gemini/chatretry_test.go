@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/mrgeoffrich/agent-harness/internal/gemini/geminitest"
+	"github.com/mrgeoffrich/agent-harness/internal/providerhttp"
 	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
@@ -149,5 +150,29 @@ func TestStreamChatCompletionDoesNotRetryPermanentStatus(t *testing.T) {
 	}
 	if attempts != 1 {
 		t.Errorf("server saw %d attempt(s), want 1: a 400 must not be retried", attempts)
+	}
+}
+
+// A Gemini client whose route says the gateway supplies the key sends no
+// x-goog-api-key at all, and goes to the route's base URL.
+func TestChatThroughAGatewayRouteSendsNoKey(t *testing.T) {
+	var hdr http.Header
+	var path string
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hdr, path = r.Header.Clone(), r.URL.Path
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer gateway.Close()
+
+	route := &providerhttp.Route{}
+	route.Set(gateway.URL+"/gemini", true)
+	c := NewClient("http://api.invalid", WithRoute(route), WithAPIKeyProvider(func() (string, error) { return "", nil }))
+	_, _ = c.chatTransport.Do(context.Background(), http.MethodPost, "/v1beta/interactions", []byte(`{}`))
+
+	if path != "/gemini/v1beta/interactions" {
+		t.Errorf("gateway saw path %q", path)
+	}
+	if _, present := hdr["X-Goog-Api-Key"]; present {
+		t.Errorf("an x-goog-api-key header was sent: %q", hdr.Get("X-Goog-Api-Key"))
 	}
 }

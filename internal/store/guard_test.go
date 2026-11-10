@@ -1,13 +1,16 @@
 package store
 
-import "testing"
+import (
+	"database/sql"
+	"testing"
+)
 
 func TestSessionGuardSettingRoundTripsAndCanBeReplaced(t *testing.T) {
 	s := openTestStore(t)
 	ctx := t.Context()
 	base := Session{ID: "sess_g", Model: "m", Effort: "high", Workspace: "/w", PermissionMode: "full"}
 
-	want := GuardSetting{Mode: GuardModeShadow, Stage1Endpoint: "http://stage1.invalid", PolicyHash: "abc123"}
+	want := GuardSetting{ClassifyURL: "http://gateway.invalid/classify", Scenario: "repo", Engine: "deepseek"}
 	withGuard := base
 	withGuard.Guard = want
 	if err := s.CreateSession(ctx, withGuard); err != nil {
@@ -21,10 +24,10 @@ func TestSessionGuardSettingRoundTripsAndCanBeReplaced(t *testing.T) {
 		t.Fatalf("guard = %+v", got.Guard)
 	}
 
-	if err := s.UpdateSessionGuard(ctx, "sess_g", GuardSetting{Mode: GuardModeOff}); err != nil {
+	if err := s.UpdateSessionGuard(ctx, "sess_g", GuardSetting{}); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ = s.GetSession(ctx, "sess_g"); got.Guard != (GuardSetting{Mode: GuardModeOff}) || got.Guard.Active() {
+	if got, _ = s.GetSession(ctx, "sess_g"); got.Guard != (GuardSetting{}) || got.Guard.Active() {
 		t.Fatalf("guard after update = %+v", got.Guard)
 	}
 	if err := s.UpdateSessionGuard(ctx, "missing", want); err != ErrNotFound {
@@ -38,5 +41,30 @@ func TestSessionGuardSettingRoundTripsAndCanBeReplaced(t *testing.T) {
 	}
 	if got, _ = s.GetSession(ctx, "sess_plain"); got.Guard != (GuardSetting{}) {
 		t.Fatalf("a session with no guard reads back %+v", got.Guard)
+	}
+}
+
+// TestRowFromTheOldGuardReadsAsOff pins that a state directory written when the
+// guard was configured by a mode, a stage 1 endpoint and a policy hash still
+// opens, and its session reads back with no guard rather than a half-set one.
+func TestRowFromTheOldGuardReadsAsOff(t *testing.T) {
+	s := openTestStore(t)
+	ctx := t.Context()
+	if err := s.CreateSession(ctx, Session{ID: "sess_old", Model: "m", Effort: "high", Workspace: "/w", PermissionMode: "full"}); err != nil {
+		t.Fatal(err)
+	}
+	old := `{"mode":"shadow","stage1_endpoint":"http://stage1.invalid","policy_hash":"abc123"}`
+	if err := s.submit(ctx, func(tx *sql.Tx) error {
+		_, err := tx.Exec(`UPDATE sessions SET guard = ? WHERE id = ?`, old, "sess_old")
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetSession(ctx, "sess_old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Guard.Active() {
+		t.Fatalf("an old guard row reads as active: %+v", got.Guard)
 	}
 }

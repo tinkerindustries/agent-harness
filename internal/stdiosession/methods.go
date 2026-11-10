@@ -32,6 +32,10 @@ const (
 	// function_call_output's own fields, so the shapes are the surface's
 	// even though the direction is not.
 	MethodFunctionCall = "harness.function_call"
+	// MethodApprovalRequest is a server → client request: the autonomy guard
+	// did not allow a `bash` call, and the client decides whether it runs.
+	// The client claims `capabilities.approvals` at initialize to receive it.
+	MethodApprovalRequest = "harness.approval_request"
 )
 
 // --- initialize ---
@@ -62,6 +66,10 @@ type ClientInfo struct {
 type ClientCapabilities struct {
 	// FunctionCalls says the client answers harness.function_call requests.
 	FunctionCalls bool `json:"function_calls,omitempty"`
+	// Approvals says the client answers harness.approval_request. A create
+	// whose `harness.guard` is active is refused without it, because the
+	// guard's block verdicts would have nobody to ask.
+	Approvals bool `json:"approvals,omitempty"`
 }
 
 // InitializeResult is this process's own half of the handshake.
@@ -262,6 +270,53 @@ type CreateHarness struct {
 	// the other subcommands refuse a create that names it. Unlike the fields
 	// the prefix is built from, a resume may change it.
 	Guard *GuardConfig `json:"guard,omitempty"`
+	// Providers routes each provider's model traffic, by provider name
+	// ("deepseek", "gemini", "anthropic"). A provider the create does not name
+	// keeps the route the process already holds. See ProviderRoute.
+	Providers map[string]ProviderRoute `json:"providers,omitempty"`
+	// BrowserProxy is the proxy URL the `screenshot` tool's browser is
+	// launched with: http, https or socks5. Absent keeps what the process
+	// holds; an empty string clears it.
+	BrowserProxy *string `json:"browser_proxy,omitempty"`
+}
+
+// ProviderRoute is where one provider's requests go for this process. A create
+// that names a provider replaces its whole route.
+type ProviderRoute struct {
+	// BaseURL replaces the provider's own host, as an http or https URL. Empty
+	// keeps the provider's own.
+	BaseURL string `json:"base_url,omitempty"`
+	// GatewaySuppliesKey says whatever BaseURL names adds the provider's
+	// credential. The process then needs no key for the provider (the create
+	// is not refused with -32003 without one) and a request carries no
+	// credential header of its own.
+	GatewaySuppliesKey bool `json:"gateway_supplies_key,omitempty"`
+}
+
+// ApprovalRequestParams is the params of harness.approval_request.
+type ApprovalRequestParams struct {
+	// ResponseID is the response whose run is asking.
+	ResponseID string `json:"response_id,omitempty"`
+	// Type is always "command_approval".
+	Type string `json:"type"`
+	// CallID is the call_id of the `function_call` item for the command.
+	CallID  string `json:"call_id"`
+	Command string `json:"command"`
+	// Cwd is the absolute directory the command runs in.
+	Cwd string `json:"cwd"`
+	// Verdict is "block" or "unreachable".
+	Verdict string `json:"verdict"`
+	// Reason is the classifier's explanation, or why it did not answer.
+	Reason string `json:"reason,omitempty"`
+}
+
+// ApprovalAnswerResult is the result a client answers harness.approval_request
+// with. A JSON-RPC error answer is a refusal.
+type ApprovalAnswerResult struct {
+	// Decision is "approve" or "deny"; anything else denies.
+	Decision string `json:"decision"`
+	// Message is a note the model reads with a denial.
+	Message string `json:"message,omitempty"`
 }
 
 // Tool is the surface's tool union, narrowed to the two members that mean

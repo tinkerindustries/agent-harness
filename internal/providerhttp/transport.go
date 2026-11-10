@@ -110,6 +110,11 @@ type Transport struct {
 	// shape and the header is ignored, so one value serves both call
 	// shapes.
 	Accept string
+
+	// Route, when set, can redirect this transport's requests to a gateway
+	// and stop it sending a credential of its own. Nil is every provider
+	// talking to its own host with its own key.
+	Route *Route
 }
 
 func (t *Transport) errorf(op string, err error) error {
@@ -128,18 +133,23 @@ func (t *Transport) WrapError(op string, err error) error {
 }
 
 func (t *Transport) newRequest(ctx context.Context, method, path string, body []byte) (*http.Request, error) {
-	apiKey, err := t.APIKeyProvider()
-	if err != nil {
-		return nil, t.errorf("resolve api key", err)
-	}
-	if apiKey == "" {
-		return nil, t.NoAPIKey
+	var apiKey string
+	gatewayKey := t.Route.GatewayKey()
+	if !gatewayKey {
+		var err error
+		apiKey, err = t.APIKeyProvider()
+		if err != nil {
+			return nil, t.errorf("resolve api key", err)
+		}
+		if apiKey == "" {
+			return nil, t.NoAPIKey
+		}
 	}
 	var bodyReader io.Reader
 	if body != nil {
 		bodyReader = bytes.NewReader(body)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, t.BaseURL+path, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, method, t.Route.base(t.BaseURL)+path, bodyReader)
 	if err != nil {
 		return nil, err
 	}
@@ -151,9 +161,12 @@ func (t *Transport) newRequest(ctx context.Context, method, path string, body []
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
+	// SetAuth runs with an empty key when the gateway supplies the credential:
+	// it still sets the headers that are not the credential (Anthropic's
+	// version and beta), and none of them sets a credential header for "".
 	if t.SetAuth != nil {
 		t.SetAuth(req, apiKey)
-	} else {
+	} else if apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 	return req, nil

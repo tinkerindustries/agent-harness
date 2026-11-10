@@ -816,9 +816,15 @@ then resumed. A crashed parent costs nothing but the sub-turn in flight.
 ## Permissions
 
 Set once, on the create that starts a chain, and **never asked about again**.
-There is no approval request in this protocol, in either direction. A loop
-that blocks on a human stalls when nobody is watching, which is why this
-harness does not have one.
+The mode and `harness.deny` decide, in Go, at the moment of the call. The one
+request this process makes of its parent about a call is the autonomy guard's
+`harness.approval_request`, which exists only when the parent named a classifier
+with `harness.guard` and claimed the `approvals` capability. It is the same
+request and answer as under `stdio-session`
+([STDIO-PROTOCOL.md, "The autonomy guard"](STDIO-PROTOCOL.md#the-autonomy-guard)),
+and so are `harness.providers` and `harness.browser_proxy`
+([STDIO-PROTOCOL.md, "Routing model traffic through a gateway"](STDIO-PROTOCOL.md#routing-model-traffic-through-a-gateway)).
+Without a classifier a loop never blocks on a human.
 
 | `harness.permission_mode` | What runs |
 | --- | --- |

@@ -251,3 +251,58 @@ func TestAcceptOverrideReachesTheWire(t *testing.T) {
 		t.Errorf("Accept = %q, want text/event-stream", got)
 	}
 }
+
+// A Route redirects the request to the gateway's base URL and, when the
+// gateway supplies the credential, sends no key of its own: the key provider
+// is never asked and no credential header is set. It fails if the transport
+// still sends to its own BaseURL, still sends "Authorization: Bearer ", or
+// still fails locally with NoAPIKey when the provider has no key.
+func TestRouteRedirectsAndDropsTheCredential(t *testing.T) {
+	var gotPath, gotAuth, gotCustom string
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotAuth, gotCustom = r.URL.Path, r.Header.Get("Authorization"), r.Header.Get("X-Static")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer gateway.Close()
+
+	asked := false
+	route := &Route{}
+	tr := &Transport{
+		BaseURL:        "http://provider.invalid",
+		APIKeyProvider: func() (string, error) { asked = true; return "", nil },
+		HTTPClient:     gateway.Client(),
+		NoAPIKey:       errors.New("no key"),
+		SetAuth: func(req *http.Request, apiKey string) {
+			req.Header.Set("X-Static", "kept")
+			if apiKey != "" {
+				req.Header.Set("Authorization", "Bearer "+apiKey)
+			}
+		},
+	}
+	tr.Route = route
+
+	route.Set(gateway.URL+"/deepseek/", true)
+	resp, err := tr.Do(context.Background(), http.MethodPost, "/responses", []byte(`{}`))
+	if err != nil {
+		t.Fatalf("Do through a gateway route: %v", err)
+	}
+	resp.Body.Close()
+	if gotPath != "/deepseek/responses" {
+		t.Errorf("gateway saw path %q, want /deepseek/responses", gotPath)
+	}
+	if gotAuth != "" {
+		t.Errorf("gateway saw Authorization %q, want none", gotAuth)
+	}
+	if gotCustom != "kept" {
+		t.Errorf("SetAuth did not run for the non-credential headers: X-Static = %q", gotCustom)
+	}
+	if asked {
+		t.Error("the key provider was asked although the gateway supplies the key")
+	}
+
+	// Without gatewayKey the same transport is back to needing a key.
+	route.Set(gateway.URL, false)
+	if _, err := tr.Do(context.Background(), http.MethodPost, "/responses", []byte(`{}`)); !errors.Is(err, tr.NoAPIKey) {
+		t.Errorf("Do with a base URL route and no key = %v, want NoAPIKey", err)
+	}
+}

@@ -185,13 +185,10 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (result *RunResult, r
 	if err != nil {
 		return nil, err
 	}
-	screen, err := r.newRunGuard(opts.Guard, opts.GuardBundle, opts.PermissionMode)
-	if err != nil {
-		return nil, err
-	}
-	if screen != nil {
+	if screen := r.newRunGuard(opts.Guard, opts.PermissionMode); screen != nil {
 		executor.Guard = screen
 	}
+	executor.BrowserProxy = r.BrowserProxy
 	executor.Shells = shells
 	// A shell a `bash` call started outlives this run: it is the session's, and
 	// the next turn's job_output has to find the same id. A run that ended in
@@ -390,7 +387,6 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 		lastText = outcome.text
 
 		if outcome.completed {
-			drainGuard(ctx, executor)
 			return r.finishRun(ctx, curSess, allEvents, "complete", store.StatusOK,
 				outcome.text, outcome.payload.Result, outcome.payload.Summary, outcome.payload.Status, agg, subTurn)
 		}
@@ -398,7 +394,6 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 		// was owed; the next boundary is clear, so one more sub-turn delivers
 		// it rather than ending the run and withdrawing it unseen.
 		if !outcome.hasToolCalls && !outcome.deferred {
-			drainGuard(ctx, executor)
 			return r.finishRun(ctx, curSess, allEvents, "no_tool_calls", store.StatusOK,
 				outcome.text, nil, "", "", agg, subTurn)
 		}
@@ -414,7 +409,6 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 			lastCompleteError, completeRejections = outcome.completeError, 1
 		}
 		if completeRejections >= maxCompleteRejections {
-			drainGuard(ctx, executor)
 			return r.abandonRun(ctx, curSess, allEvents, agg, subTurn, lastText, lastCompleteError)
 		}
 
@@ -520,7 +514,6 @@ func (r *Runner) subagentRunner(parentID string, parentOpts RunOptions, workspac
 			Workspace:       workspace,
 			PermissionMode:  parentOpts.PermissionMode,
 			Guard:           parentOpts.Guard,
-			GuardBundle:     parentOpts.GuardBundle,
 			Deny:            parentOpts.Deny,
 			Prompt:          prompt,
 			ParentID:        parentID,
