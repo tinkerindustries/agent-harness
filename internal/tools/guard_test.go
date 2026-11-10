@@ -53,7 +53,7 @@ func TestGuardRefusalIsADenialAndTheCommandDoesNotRun(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(ws, "ran")); err == nil {
 		t.Fatal("the refused command ran")
 	}
-	if len(g.calls) != 1 || g.calls[0] != (GuardCall{ID: "call_1", Command: "touch ran", Workdir: "."}) {
+	if len(g.calls) != 1 || g.calls[0] != (GuardCall{ID: "call_1", Command: "touch ran", Workdir: e.Workspace}) {
 		t.Fatalf("calls = %+v", g.calls)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mrgeoffrich/agent-harness/internal/settings"
@@ -145,6 +146,7 @@ func execScreenshot(ctx context.Context, e *Executor, argsRaw json.RawMessage) R
 	if err != nil {
 		return errorResult("%v", err)
 	}
+	cfg.Proxy = e.BrowserProxy.URL()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return errorResult("create output directory: %v", err)
 	}
@@ -266,6 +268,35 @@ type screenshotDriverConfig struct {
 	ActionTimeoutMS     int                `json:"actionTimeoutMs"`
 	NavigationTimeoutMS int                `json:"navigationTimeoutMs"`
 	SettleTimeoutMS     int                `json:"settleTimeoutMs"`
+	// Proxy is the proxy server the browser is launched with, or empty for
+	// none.
+	Proxy string `json:"proxy,omitempty"`
+}
+
+// BrowserProxy is the proxy URL the `screenshot` tool launches its browser
+// with. The parent names it after the Executor is built, so it is read at each
+// capture. A nil *BrowserProxy, or an empty URL, launches the browser with no
+// proxy.
+type BrowserProxy struct {
+	mu  sync.RWMutex
+	url string
+}
+
+// Set replaces the proxy URL. An empty string clears it.
+func (p *BrowserProxy) Set(url string) {
+	p.mu.Lock()
+	p.url = url
+	p.mu.Unlock()
+}
+
+// URL returns the proxy URL, or "" for none.
+func (p *BrowserProxy) URL() string {
+	if p == nil {
+		return ""
+	}
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.url
 }
 
 // The action verbs the driver understands, and what each requires.

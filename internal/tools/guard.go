@@ -10,6 +10,8 @@ import (
 type GuardCall struct {
 	ID      string
 	Command string
+	// Workdir is the absolute directory the command runs in, resolved the way
+	// `bash` resolves its own workdir argument.
 	Workdir string
 }
 
@@ -23,8 +25,7 @@ type GuardRefusal struct {
 
 // Guard screens a `bash` call before it runs. Executor.Execute asks it only
 // under full permission, after the policy has allowed the call. A nil result
-// lets the call run, and a Guard that records its verdict beside the command
-// returns nil at once.
+// lets the call run.
 type Guard interface {
 	Screen(ctx context.Context, call GuardCall) *GuardRefusal
 }
@@ -40,7 +41,12 @@ func (e *Executor) screenBash(ctx context.Context, id, name string, argsRaw json
 	if json.Unmarshal(argsRaw, &args) != nil || args.Command == "" {
 		return nil
 	}
-	refusal := e.Guard.Screen(ctx, GuardCall{ID: id, Command: args.Command, Workdir: args.Workdir})
+	dir, err := e.bashWorkdir(args.Workdir)
+	if err != nil {
+		// `bash` refuses this call itself, so there is nothing to screen.
+		return nil
+	}
+	refusal := e.Guard.Screen(ctx, GuardCall{ID: id, Command: args.Command, Workdir: dir})
 	if refusal == nil {
 		return nil
 	}

@@ -760,6 +760,12 @@ in `readonly` unless every one of them is marked `harness.read_only`. Note
 what `full` strips from `bash`'s environment here: `ANTHROPIC_API_KEY`
 alone, this subcommand's one credential.
 
+`harness.providers` (for `anthropic`) and `harness.browser_proxy` are accepted as
+under `stdio-session` ([STDIO-PROTOCOL.md, "Routing model traffic through a
+gateway"](STDIO-PROTOCOL.md#routing-model-traffic-through-a-gateway)).
+`harness.guard` is not: this vocabulary has no approval request, and a create
+naming it is refused with `-32004`.
+
 ## Errors
 
 Same JSON-RPC error numbers as the other two dialects, same meanings, with

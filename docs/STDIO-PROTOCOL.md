@@ -141,7 +141,7 @@ already the session id `harness.resume_session_id` names, never a run id.
 - [Ordering guarantees](#ordering-guarantees)
 - [Tools](#tools)
 - [Resuming across process restarts](#resuming-across-process-restarts)
-- [Permissions](#permissions)
+- [Permissions](#permissions), including [the autonomy guard](#the-autonomy-guard) and [routing through a gateway](#routing-model-traffic-through-a-gateway)
 - [Errors](#errors)
 - [Lifecycle](#lifecycle)
 - [Deviations from the HTTP surface](#deviations-from-the-http-surface)
@@ -182,6 +182,10 @@ directory's own settings table, and all four variables are stripped from the
 environment `bash` and a stdio `mcp_server` child inherit — both would
 otherwise get the whole of this process's own environment, keys included, as
 "the parent's environment" the next paragraph describes for `bash`.
+
+A parent that fronts model traffic with a gateway supplies no key at all and
+says so on the create instead: see [Routing model traffic through a
+gateway](#routing-model-traffic-through-a-gateway).
 
 **No key is required, and none implies another.** A host that supplies one
 runs that provider's models; the models it did not supply a key for are
@@ -329,10 +333,15 @@ them without waiting, so sending `initialize`, `initialized` and a first
 {
   "client_info": {"name": "example-client", "version": "1.4.0"},
   "capabilities": {
-    "function_calls": true   // this client answers harness.function_call
+    "function_calls": true,  // this client answers harness.function_call
+    "approvals": true        // this client answers harness.approval_request
   }
 }
 ```
+
+`capabilities.approvals` is load-bearing the same way: a create whose
+`harness.guard` is active is refused with `-32602` without it, because a blocked
+command would have nobody to ask.
 
 `capabilities.function_calls` is load-bearing. A client that does not claim it
 cannot declare `function` tools: the create is refused rather than accepted
@@ -503,7 +512,9 @@ The Responses API's create-response body, narrowed, plus a `harness` block.
 | `harness.resume_session_id` | no | Continue that session, read out of the state directory. See [Resuming across process restarts](#resuming-across-process-restarts). |
 | `harness.permission_mode` | no | `readonly` (default) or `full`. See [Permissions](#permissions). |
 | `harness.deny` | no | Substring patterns matched against a call's descriptor. Only ever subtracts from what the mode allows. |
-| `harness.guard` | no | `{mode, stage1_endpoint, policy}`: the autonomy guard that screens `bash` calls under `full`. `policy` is the parent's policy bundle. See [The autonomy guard](#the-autonomy-guard). `gemini-session` and `claude-session` refuse it with `-32004`. |
+| `harness.guard` | no | `{classify_url, scenario, engine}`: the autonomy guard that screens `bash` calls under `full` through the parent's `POST /classify` endpoint, asking the parent about a command the endpoint does not allow. See [The autonomy guard](#the-autonomy-guard). `claude-session` refuses it with `-32004`. |
+| `harness.providers` | no | Per provider (`deepseek`, `gemini`, `anthropic`): `{base_url, gateway_supplies_key}`. Points that provider's model traffic at a gateway and says the gateway adds the key. See [Routing model traffic through a gateway](#routing-model-traffic-through-a-gateway). |
+| `harness.browser_proxy` | no | The proxy URL (`http`, `https` or `socks5`) the `screenshot` tool's browser is launched with. An empty string clears it. See [Routing model traffic through a gateway](#routing-model-traffic-through-a-gateway). |
 | `harness.max_sub_turns` | — | **Refused** with `-32004`, whatever its value. See [No sub-turn ceiling](#no-sub-turn-ceiling). |
 | `harness.message_id` | no | Echoed on the user message item this input becomes. |
 | `harness.title`, `harness.description` | no | Name the run in this harness's own records. |
@@ -703,7 +714,6 @@ HTTP frames do.
 | `response.failed` | yes | `{type, sequence_number, response}` |
 | `harness.tool_output` | no | `{type, sequence_number, response_id, call_id, text}` |
 | `harness.usage` | no | `{type, sequence_number, response_id, sub_turn, usage}` |
-| `harness.guard` | no | `{type, sequence_number, response_id, call_id, guard}` |
 
 There is no `[DONE]`: the HTTP stream ends on `response.completed` and so does
 this one, after which the pipe stays open for the next response.
@@ -795,51 +805,6 @@ price table was loaded.
 sibling to add on. The Interactions vocabulary splits the same figures the
 other way, so a client porting between them must not carry the arithmetic
 across.
-
-### `harness.guard`
-
-The autonomy guard's verdict on one `bash` call, addressed by the `call_id` of
-the `function_call` item it screened:
-
-```jsonc
-{"type": "harness.guard", "sequence_number": 52, "response_id": "resp_…",
- "call_id": "call_…",
- "guard": {"mode": "shadow", "guard_version": "…",
-           "verdict": "block", "decided_by": "stage2",
-           "escalation": ["unscreened_script"],
-           "p_block": 0.42,
-           "stage2": {"model": "…",
-                      "reason": "…", "latency_ms": 900,
-                      "usage": {"input_tokens": 10, "output_tokens": 20,
-                                "cache_creation_input_tokens": 30,
-                                "cache_read_input_tokens": 40}},
-           "latency_ms": 950}}
-```
-
-One frame per screened call, whether it was allowed or blocked. It is a
-standalone notification rather than a field on the call's output item,
-because the decision can be committed after the call's result. A parent
-matches it to the call by `call_id` and does not assume an order against the
-`function_call_output` item.
-
-| Field | Meaning |
-| --- | --- |
-| `mode` | `shadow` (the command runs whatever the verdict) or `enforce` (a `block` refuses the command). |
-| `guard_version` | The hash of the policy bundle in force, which changes when any part of the bundle changes. |
-| `verdict` | `allow` or `block`. |
-| `decided_by` | `rules`, `stage1` or `stage2`. |
-| `rules` | The names of the rules that hit. Present when `decided_by` is `rules`. |
-| `escalation` | Why the command skipped stage 1 for stage 2, including `no_stage1` when the policy has no stage 1. Absent when it did not. |
-| `p_block` | Stage 1's probability of `block`. Absent when stage 1 did not run or failed. |
-| `stage1_error` | Why stage 1 failed, when it did. The command then went to stage 2. |
-| `stage1_latency_ms` | Stage 1's wall time, when it ran. |
-| `stage2` | Present when stage 2 was called: its `model`, its `reason`, an `error` when it returned no verdict, its `latency_ms` and its token `usage`. A stage 2 failure of any kind is a `block`. |
-| `latency_ms` | The whole decision's wall time. |
-
-Stage 2's tokens are also recorded as a usage event naming its model, and
-appear on `harness.usage` and in the run's cost like any other request.
-`harness.guard` is a frame of this vocabulary only: the Interactions and
-Managed Agents vocabularies carry nothing for it.
 
 ### `harness.tool_output`
 
@@ -1021,8 +986,10 @@ differently is `-32602` rather than a silent override. Sending them unchanged
 is fine.
 
 `harness.guard` is the exception: it is outside the prefix, so a resuming
-create may name a different one, and send a different policy bundle with it. A
-create that names none keeps the stored setting. See [The autonomy guard](#the-autonomy-guard).
+create may name a different one. A create that names none keeps the stored
+setting. `harness.providers` and `harness.browser_proxy` are the process's, not
+the session's, so a resuming create re-sends them as it would after any restart.
+See [The autonomy guard](#the-autonomy-guard).
 
 ### The tools have to come back
 
@@ -1066,9 +1033,11 @@ then resumed. A crashed parent costs nothing but the sub-turn in flight.
 ## Permissions
 
 Set once, on the create that starts a chain, and **never asked about again**.
-There is no approval request in this protocol, in either direction. A loop
-that blocks on a human stalls when nobody is watching, which is why this
-harness does not have one.
+The mode and `harness.deny` decide, in Go, at the moment of the call. The one
+request this process makes of its parent about a call is the autonomy guard's
+[`harness.approval_request`](#the-autonomy-guard), which exists only when the
+parent configured a classifier and claimed the `approvals` capability; without
+one a loop never blocks on a human.
 
 | `harness.permission_mode` | What runs |
 | --- | --- |
@@ -1107,92 +1076,132 @@ gives it to decide with.
 
 ### The autonomy guard
 
-`harness.guard` on a `stdio-session` create screens the session's `bash` calls
-before they run. The harness supplies the mechanism and the parent supplies the
-policy: what the guard allows and blocks is defined by the policy bundle the
-parent sends in `policy`, and nothing in this repository states it.
+`harness.guard` on a `stdio-session` or `gemini-session` create screens the
+session's `bash` calls before they run. This process holds no classifier. The
+parent runs a `POST /classify` endpoint (in practice behind its gateway, which
+adds the endpoint's credential) and names it; what the endpoint allows and
+blocks is its own.
 
 ```jsonc
 "harness": {"cwd": "/work", "permission_mode": "full",
-            "guard": {"mode": "shadow",
-                      "stage1_endpoint": "http://classifier.example:11434",
-                      "policy": { /* the parent's policy bundle */ }}}
+            "guard": {"classify_url": "http://127.0.0.1:41234/classify",
+                      "scenario": "repo", "engine": "deepseek"}}
 ```
 
 | Field | Meaning |
 | --- | --- |
-| `mode` | Required. `off`, `shadow` or `enforce`. A create naming `enforce` is refused with `-32004`: no parent can select it yet. |
-| `stage1_endpoint` | The host stage 1 posts to (`<endpoint>/v1/systemone`). An `http` or `https` URL. Required with an active mode when the policy has a stage 1, unless the session already stores one. A policy with no stage 1 needs none. |
-| `policy` | The policy bundle, a JSON object. Required with an active mode unless this process already holds a bundle for the session. See below. |
+| `classify_url` | The endpoint, an `http` or `https` URL. Empty turns the guard off, including a stored one. |
+| `scenario` | Required with a `classify_url`: `repo` or `assistant`. Sent to the endpoint, which chooses its policy by it. |
+| `engine` | Optional. The parent's name for the engine, sent to the endpoint. Defaults to `agent-harness`. |
 
-#### The policy bundle
+**The request.** For each `bash` call the process posts JSON to `classify_url`
+with a deadline of 20 seconds:
 
-The bundle is the parent's content for the guard. The harness reads these
-parts of it and applies them without interpreting their meaning:
+```jsonc
+{"command": "rm -rf build", "shell": "bash", "cwd": "/work", "branch": "main",
+ "scenario": "repo", "engine": "deepseek", "session_id": "sess-…", "call_id": "call_…"}
+```
 
-| Part | What the harness does with it |
-| --- | --- |
-| `schema_version` | Refuses a version it does not read. |
-| `cutoff` | The probability at or above which a stage 1 answer escalates to stage 2. Must be a probability. |
-| `stage1` | Optional. `model`, `state_fields` and `questions`. The questions are sent to the stage 1 host as given. Without it every command the rules do not catch goes to stage 2, and a decision records `no_stage1` in `escalation`. |
-| `stage2` | Required. `model`, `effort`, `max_tokens`, `state_fields`, `system` and `schema`. The system prompt and the output schema are sent to Anthropic as given. Stage 2 is never skipped, so a guard never allows on the rules alone. |
-| `state_fields` | Which of `working_directory`, `branch`, `recent_commands`, `proposed_command`, `scripts_run` and `package_scripts` each stage receives, in the order sent. `proposed_command` is always listed. The harness fills only the fields some stage receives. |
-| `rules` | `macros`, a `table` of named rules whose patterns are RE2 expressions anchored at a command start, and `default_branches`. A pattern may carry an `unless_followed_by` exception the matcher checks by hand. The `git push` check uses `default_branches`, and an empty list turns it off. |
+`cwd` is the absolute directory the command runs in (the call's `workdir`
+resolved against the working directory). `branch` is the branch checked out
+there, and absent outside a repository or on a detached HEAD. `call_id` is the
+`call_id` of the call's `function_call` item. The answer is a `200` with
+`{"verdict": "allow" | "block", "reason": "…", "decided_by": "…",
+"guard_version": "…"}`. **Anything else is "unreachable"**: a transport failure,
+any other status, a body that does not parse, a verdict that is neither value,
+or no answer inside the deadline.
 
-A bundle is validated when the create arrives. A bundle the loader refuses
-fails the create with `-32602`, and the message names the field inside it, as
-`harness.guard.policy.<field>: <reason>`. A message never repeats the bundle's
-text. The bundle's hash is the guard version recorded on every decision and in
-the session row.
+**The effect.** The rule is this and nothing more. If the session's mode or a
+`harness.deny` pattern refuses the call, it is refused and the endpoint is never
+asked: an allow never widens the mode. Otherwise `allow` runs the command
+without asking, and `block` or unreachable asks the parent. A verdict on its own
+never refuses a call.
 
-The bundle is held in the process's memory for the session's life. It is never
-written to the state directory, the session row, a frame or a log. The row
-stores the mode, the stage 1 endpoint and the bundle's hash. A parent that
-resumes a session in a new process sends the bundle again. A create that names
-`policy` with `mode` `off` has the bundle validated and then ignored.
+**The approval request.** A server → client request, like `harness.function_call`:
 
-The guard applies to `bash` only, and only under `full`. The rules run first,
-then the stage 1 classifier when the policy has one, then stage 2. A stage 1
-failure sends the command to stage 2, and a stage 2 failure blocks it. Stage 2
-never falls back to `allow`.
+```jsonc
+// server → client
+{"id": "h7", "method": "harness.approval_request",
+ "params": {"response_id": "resp_…", "type": "command_approval",
+            "call_id": "call_98231", "command": "rm -rf build", "cwd": "/work",
+            "verdict": "block", "reason": "…"}}
 
-In `shadow` the check runs beside the command: the command starts at once and
-the decision is recorded and sent as a `harness.guard` frame when it arrives.
-A run that is ending waits, for a bounded time, for checks still in flight,
-so each frame precedes `response.completed`. In `enforce` the check finishes first, and a `block`
-returns a `function_call_output` with `is_error: true` and a `harness.rule` of
-`autonomy guard (stage 2)` or `autonomy guard (rules: <names>)`. The command
-does not run. The output text names the guard and the stage and never carries
-stage 2's reason, which only the `harness.guard` frame and the log hold.
+// client → server
+{"id": "h7", "result": {"decision": "approve"}}
+{"id": "h7", "result": {"decision": "deny", "message": "not in this repo"}}
+```
+
+`verdict` is `block` or `unreachable`; for `unreachable`, `reason` says why the
+endpoint did not answer. The run holds that call, and only that call, until the
+answer arrives. **Only `"decision": "approve"` runs the command.** Every other
+answer refuses it, and so does a JSON-RPC error, a client that declined the
+method, a closed pipe, and the response being cancelled, interrupted or torn
+down while the request is pending: an ask fails closed. How long to wait for a
+person is the parent's to bound by answering. This process sets no timeout of
+its own on the request.
+
+A refusal is an ordinary `function_call_output` with `is_error: true` and a
+`harness.rule` of `autonomy guard`. Its text says the command was not run and
+carries the answer's `message` when the parent sent one. It never carries the
+endpoint's `reason`, so the model cannot learn from it what to rephrase. The
+`reason` goes to the parent only.
+
+The guard applies to `bash` only and only under `full`; a `readonly` session
+refuses `bash` before the guard is asked. A command started with
+`run_in_background` is checked when it starts and not afterwards. A `task`
+subagent runs under its parent's setting. Nothing about a verdict is stored or
+sent as a frame: the only trace is the approval request.
 
 A create is refused when:
 
-- `mode` is `enforce` (`-32004`);
-- the process has no `ANTHROPIC_API_KEY`, which stage 2 needs (`-32003`, naming
-  the variable). The key is read from the environment the process was spawned
-  with, and from the `-env` file when the environment has none. It is never
-  stored;
-- the session is `readonly`, where `bash` is already refused, and `mode` is not
-  `off` (`-32602`);
-- `mode` is missing or malformed, or `stage1_endpoint` is malformed or missing
-  from a policy that has a stage 1 (`-32602`);
-- `policy` is invalid (`-32602`, naming the field);
-- the mode leaves the guard active and neither the create nor this process
-  supplies a bundle (`-32602`, naming `harness.guard.policy`);
-- the subcommand is `gemini-session` or `claude-session` (`-32004`). Neither
-  vocabulary has a frame for the decision.
+- the client did not claim `capabilities.approvals` and the guard is active
+  (`-32602`);
+- `classify_url` is not an `http` or `https` URL, or `scenario` is missing or
+  neither value (`-32602`);
+- the subcommand is `claude-session` (`-32004`).
 
-The mode, the endpoint and the bundle's hash are stored on the session row. A
-`task` subagent starts from the setting and the bundle the parent session
-holds. A compaction successor, a background wake and a `previous_response_id`
-continuation use the bundle the process holds for the conversation, so a
-continuation needs to send none. A resuming create or a continuation that names
-`harness.guard` replaces the stored setting. One that sends a `policy` replaces
-the held bundle too, and the decisions it records carry the new bundle's hash as
-their `guard_version`. One that names none keeps both. A resume that leaves the
-guard active in a process that holds no bundle must send one.
-`{"mode": "off"}` turns a stored guard off. `harness.close_session` releases the
-held bundle.
+The setting (URL, scenario and engine, never a credential) is stored on the
+session row. A resuming create or a continuation that names `harness.guard`
+replaces it, `{"classify_url": ""}` turns a stored guard off, and one that names
+none keeps it. A resume that leaves the guard active still needs the
+`approvals` capability.
+
+### Routing model traffic through a gateway
+
+A parent that fronts this process's traffic with a gateway (so that it, not the
+process, holds the credentials) says so on the create:
+
+```jsonc
+"harness": {"providers": {"deepseek": {"base_url": "http://127.0.0.1:41234/deepseek",
+                                       "gateway_supplies_key": true}},
+            "browser_proxy": "http://127.0.0.1:41235"}
+```
+
+- `providers` is keyed by provider name: `deepseek`, `gemini` or `anthropic`
+  (`anthropic` alone under `claude-session`). Any other name is `-32602`. A
+  provider the create does not name keeps the route the process already holds;
+  one it names has its whole route replaced.
+- `base_url` replaces the provider's own host. Requests go to
+  `<base_url><the provider's path>`, so a gateway can serve each provider under
+  its own prefix. Empty keeps the provider's own host.
+- `gateway_supplies_key` says whatever `base_url` names adds the credential. The
+  process then needs no key for that provider: the create is not refused with
+  `-32003` for the missing variable, no `Authorization`, `x-api-key` or
+  `x-goog-api-key` header is sent, and the provider's other headers
+  (`anthropic-version`, `anthropic-beta`, `Content-Type`) still are.
+- `browser_proxy` is handed to the `screenshot` tool's browser at launch. Chromium
+  does not read `HTTPS_PROXY` (measured: Playwright's Chromium on Linux ignores
+  `HTTP_PROXY`, `HTTPS_PROXY` and lower-case forms, and takes a proxy only from
+  its launch option; on macOS and Windows Chromium takes its settings from the
+  system), so the proxy has to be named here. Chromium sends loopback
+  destinations direct. The proxy does not apply to `bash` or any other tool:
+  those inherit the process's environment, which is the parent's to set at spawn.
+
+These are the **process's**, not the session's: one process hosts one session,
+and a create that names a route replaces what the process held. A refused create
+changes nothing. The model traffic of a gateway-keyed provider is never sent
+with a key, so a gateway that does not add one gets a `401`, which the run
+reports as the provider's own failure.
 
 ## Errors
 
@@ -1210,8 +1219,8 @@ client has the vendor's string code as well as this protocol's numeric one.
 | `-32000` | not initialized | Any method before the handshake completes. |
 | `-32001` | response not found | A response id this process never minted, or has deleted. |
 | `-32002` | response not running | An append or delete against a response that is not `in_progress`. |
-| `-32003` | credentials missing | `responses.create` with no API key in the environment for the model, or a `harness.guard` with no `ANTHROPIC_API_KEY`. |
-| `-32004` | unsupported | `agent`; `harness.max_sub_turns`; `harness.guard` mode `enforce`, or `harness.guard` on a subcommand that has no guard; a server-side tool type; an `mcp_server` tool with no MCP client; image input. |
+| `-32003` | credentials missing | `responses.create` with no API key in the environment for the model, or a model whose provider has no key and no `gateway_supplies_key`. |
+| `-32004` | unsupported | `agent`; `harness.max_sub_turns`; `harness.guard` on a subcommand that has no guard; a server-side tool type; an `mcp_server` tool with no MCP client; image input. |
 | `-32005` | session not found | A `harness.resume_session_id` this process's state directory holds no session for. |
 | `-32006` | toolset mismatch | A resuming create whose tools do not reproduce the array the session froze. |
 

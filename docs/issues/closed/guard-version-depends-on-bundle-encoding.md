@@ -7,3 +7,9 @@ compaction of whitespace. A serialiser that escapes `<`, `>` and `&` (Go's `json
 One parent sending one bundle is unaffected. Two parents, or one parent that changes its serialiser, record
 different versions for the same content, which makes decisions harder to compare across them. If it matters, hash a
 canonical re-encoding of those two objects, with the escaping fixed, instead of the received bytes.
+
+## Resolution
+
+Gone with the thing it described. The policy bundle and its version hash left this repository when the guard
+became a client of the parent's `POST /classify` endpoint (`docs/STDIO-PROTOCOL.md`, "The autonomy guard"). Nothing
+here hashes a bundle any more, and the endpoint's own `guard_version` is the endpoint's to keep stable.

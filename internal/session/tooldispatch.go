@@ -40,10 +40,6 @@ import (
 // and a patch that spans files holds one group per file it names.
 func (r *Runner) executeToolCalls(ctx context.Context, sess store.Session, executor *tools.Executor, calls []wire.AssembledToolCall) []tools.Outcome {
 	outcomes := make([]tools.Outcome, len(calls))
-	var round []store.ToolCallPayload
-	if executor.Guard != nil {
-		round = toolCallPayloads(calls)
-	}
 	var wg sync.WaitGroup
 	// Calls that rewrite a file another call in this batch also rewrites, in
 	// the order the model asked for them. Grouping is by resolved path, so
@@ -55,7 +51,7 @@ func (r *Runner) executeToolCalls(ctx context.Context, sess store.Session, execu
 	runOf := make(map[string]*mutationRun)
 	for i, c := range calls {
 		if isTaskFamily(c.Name) {
-			outcomes[i] = r.executeToolCall(ctx, sess, executor, c, round)
+			outcomes[i] = r.executeToolCall(ctx, sess, executor, c)
 			continue
 		}
 		targets := tools.MutationTargets(executor.Workspace, c.Name, c.Arguments)
@@ -63,7 +59,7 @@ func (r *Runner) executeToolCalls(ctx context.Context, sess store.Session, execu
 			wg.Add(1)
 			go func(i int, c wire.AssembledToolCall) {
 				defer wg.Done()
-				outcomes[i] = r.executeToolCall(ctx, sess, executor, c, round)
+				outcomes[i] = r.executeToolCall(ctx, sess, executor, c)
 			}(i, c)
 			continue
 		}
@@ -97,7 +93,7 @@ func (r *Runner) executeToolCalls(ctx context.Context, sess store.Session, execu
 			defer wg.Done()
 			applied := 0
 			for _, i := range idx {
-				outcomes[i] = r.executeToolCall(ctx, sess, executor, calls[i], round)
+				outcomes[i] = r.executeToolCall(ctx, sess, executor, calls[i])
 				if !outcomes[i].Result.IsError {
 					applied++
 					continue
@@ -146,7 +142,7 @@ func (g *mutationRun) absorb(other *mutationRun, runOf map[string]*mutationRun) 
 // executeToolCall runs one assembled call. A bash call gets a live stdout sink
 // wired through its context so the browser can show output as it happens
 // instead of only on completion (docs/DESIGN.md §5.2).
-func (r *Runner) executeToolCall(ctx context.Context, sess store.Session, executor *tools.Executor, c wire.AssembledToolCall, round []store.ToolCallPayload) tools.Outcome {
+func (r *Runner) executeToolCall(ctx context.Context, sess store.Session, executor *tools.Executor, c wire.AssembledToolCall) tools.Outcome {
 	call := wire.ToolCall{
 		ID:   c.ID,
 		Type: "function",
@@ -165,7 +161,7 @@ func (r *Runner) executeToolCall(ctx context.Context, sess store.Session, execut
 		callCtx = tools.WithStdoutSink(callCtx, r.stdoutSink(ctx, sess, c.ID))
 	}
 	if executor.Guard != nil && c.Name == "bash" {
-		callCtx = withGuardScope(callCtx, sess, round)
+		callCtx = withGuardScope(callCtx, sess.ID)
 	}
 	return executor.Execute(callCtx, call)
 }

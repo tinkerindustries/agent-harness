@@ -5,210 +5,121 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/mrgeoffrich/agent-harness/internal/guard"
 	"github.com/mrgeoffrich/agent-harness/internal/store"
 	"github.com/mrgeoffrich/agent-harness/internal/tools"
-	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
-const (
-	// guardDecideTimeout caps a shadow check on a context that outlives the
-	// run. Each stage client has a shorter deadline of its own.
-	guardDecideTimeout = 60 * time.Second
-	// guardCommitTimeout bounds the append of a decision.
-	guardCommitTimeout = 10 * time.Second
-	// guardDrainTimeout bounds how long a run that is ending waits for shadow
-	// checks still in flight.
-	guardDrainTimeout = 45 * time.Second
-)
-
-// GuardDecider is the autonomy guard's pipeline. *guard.Pipeline satisfies it.
-type GuardDecider interface {
-	Decide(ctx context.Context, state guard.State) guard.Decision
+// ApprovalRequest is what the loop asks its parent when the classifier did not
+// allow a `bash` call: the call, and why the classifier did not.
+type ApprovalRequest struct {
+	SessionID string
+	CallID    string
+	Command   string
+	// Workdir is the directory the command runs in.
+	Workdir string
+	// Verdict is guard.Block or guard.Unreachable.
+	Verdict string
+	// Reason is the classifier's explanation for a block, or why it was
+	// unreachable. It is for the parent and a person: the model never reads it.
+	Reason string
 }
 
-// GuardFactory builds the decider for a session's guard setting and the policy
-// bundle the process holds for it. cmd/harness supplies it, since it holds the
-// Anthropic credential and the stage clients.
-type GuardFactory func(setting store.GuardSetting, bundle *guard.Bundle) (GuardDecider, error)
+// ApprovalAnswer is the parent's decision.
+type ApprovalAnswer struct {
+	Approve bool
+	// Message is the person's note for a refusal. The model reads it.
+	Message string
+}
+
+// Approver asks the parent about one call and waits. An error, including a
+// cancelled ctx, is a refusal: nothing the loop does leaves a call running
+// because nobody answered.
+type Approver func(ctx context.Context, req ApprovalRequest) (ApprovalAnswer, error)
 
 // runGuard is the tools.Guard a run's Executor carries. It lives for one run;
-// a `task` subagent builds its own from the same setting and bundle.
+// a `task` subagent builds its own from the same setting.
+//
+// The effect of the classifier is this and nothing more: the permission mode
+// and `deny` patterns have already refused what they refuse before Screen is
+// asked (tools.Executor.Execute), so an allow never widens them. Allow runs
+// the call without asking. Block, or an endpoint that does not answer, asks
+// the parent, and the call runs only on an approval. A verdict on its own
+// never refuses a call.
 type runGuard struct {
-	runner  *Runner
-	decider GuardDecider
-	mode    string
-	builder guard.StateBuilder
-	pending sync.WaitGroup
+	classify *guard.Client
+	approve  Approver
+	setting  store.GuardSetting
 }
 
 // newRunGuard returns the guard for a run under setting and permission mode,
 // or nil when the run is not screened: the setting is off, or the session
 // cannot run `bash` at all.
-func (r *Runner) newRunGuard(setting store.GuardSetting, bundle *guard.Bundle, mode tools.Mode) (*runGuard, error) {
+func (r *Runner) newRunGuard(setting store.GuardSetting, mode tools.Mode) *runGuard {
 	if !setting.Active() || mode != tools.ModeFull {
-		return nil, nil
-	}
-	if r.Guards == nil {
-		return nil, fmt.Errorf("session: the autonomy guard is %s but this runner has no guard configured", setting.Mode)
-	}
-	if bundle == nil {
-		return nil, fmt.Errorf("session: the autonomy guard is %s but no policy bundle was supplied", setting.Mode)
-	}
-	decider, err := r.Guards(setting, bundle)
-	if err != nil {
-		return nil, fmt.Errorf("session: build the autonomy guard: %w", err)
+		return nil
 	}
 	return &runGuard{
-		runner: r, decider: decider, mode: setting.Mode,
-		builder: guard.StateBuilder{Fields: bundle.StateFields()},
-	}, nil
+		classify: &guard.Client{URL: setting.ClassifyURL, HTTP: r.GuardHTTP},
+		approve:  r.Approver,
+		setting:  setting,
+	}
 }
 
 type guardCtxKey struct{}
 
-// guardCallScope is what executeToolCall tells the guard about the call: the
-// session whose log the decision joins, and the other calls of its round.
-type guardCallScope struct {
-	sess  store.Session
-	round []store.ToolCallPayload
-}
-
-func withGuardScope(ctx context.Context, sess store.Session, round []store.ToolCallPayload) context.Context {
-	return context.WithValue(ctx, guardCtxKey{}, guardCallScope{sess: sess, round: round})
+func withGuardScope(ctx context.Context, sessionID string) context.Context {
+	return context.WithValue(ctx, guardCtxKey{}, sessionID)
 }
 
 // Screen implements tools.Guard.
 func (g *runGuard) Screen(ctx context.Context, call tools.GuardCall) *tools.GuardRefusal {
-	scope, ok := ctx.Value(guardCtxKey{}).(guardCallScope)
-	if !ok {
-		log.Printf("session: autonomy guard has no session scope for %s", call.ID)
-		return g.unavailable()
+	sessionID, _ := ctx.Value(guardCtxKey{}).(string)
+	dir := call.Workdir
+	engine := g.setting.Engine
+	if engine == "" {
+		engine = "agent-harness"
 	}
-	state, err := g.state(ctx, scope, call)
-	if err != nil {
-		log.Printf("session: autonomy guard state for %s: %v", call.ID, err)
-		return g.unavailable()
+	res := g.classify.Classify(ctx, guard.Request{
+		Command: call.Command, Shell: "bash", CWD: dir, Branch: guard.Branch(ctx, dir),
+		Scenario: g.setting.Scenario, Engine: engine, SessionID: sessionID, CallID: call.ID,
+	})
+	if ctx.Err() != nil {
+		return refusal("the run was stopped before the command was checked")
 	}
-	if g.mode == store.GuardModeShadow {
-		g.pending.Add(1)
-		go g.shadow(ctx, scope.sess, call.ID, state)
+	if res.Verdict == guard.Allow {
 		return nil
 	}
-	d := g.decider.Decide(ctx, state)
-	if ctx.Err() != nil {
-		return refusalFor(guard.Decision{Verdict: guard.VerdictBlock, DecidedBy: guard.DecidedByStage2})
+	reason := res.Reason
+	if res.Verdict == guard.Unreachable {
+		reason = "the classifier did not answer: " + res.Err
 	}
-	g.record(scope.sess, call.ID, d)
-	if d.Verdict == guard.VerdictBlock {
-		return refusalFor(d)
+	if g.approve == nil {
+		log.Printf("session: autonomy guard has no approver for %s; refusing", call.ID)
+		return refusal("nobody was available to approve it")
+	}
+	ans, err := g.approve(ctx, ApprovalRequest{
+		SessionID: sessionID, CallID: call.ID, Command: call.Command, Workdir: dir,
+		Verdict: res.Verdict, Reason: reason,
+	})
+	if err != nil || ctx.Err() != nil {
+		return refusal("it was not approved")
+	}
+	if !ans.Approve {
+		if msg := strings.TrimSpace(ans.Message); msg != "" {
+			return refusal("it was not approved: " + msg)
+		}
+		return refusal("it was not approved")
 	}
 	return nil
 }
 
-func (g *runGuard) state(ctx context.Context, scope guardCallScope, call tools.GuardCall) (guard.State, error) {
-	hist, err := LoadGuardHistory(ctx, g.runner.Store, scope.sess)
-	if err != nil {
-		return guard.State{}, err
-	}
-	return BuildGuardState(ctx, g.builder, scope.sess.Workspace, hist, GuardCall{
-		ID: call.ID, Command: call.Command, Workdir: call.Workdir, Round: scope.round,
-	}), nil
-}
-
-// unavailable is what a mode that refuses does when it cannot build the state
-// the check needs. Shadow lets the command run.
-func (g *runGuard) unavailable() *tools.GuardRefusal {
-	if g.mode != store.GuardModeEnforce {
-		return nil
-	}
+// refusal is the tool result for a refused call. It never carries the
+// classifier's reason, so a model cannot learn from it what to rephrase.
+func refusal(why string) *tools.GuardRefusal {
 	return &tools.GuardRefusal{
-		Rule:    "autonomy guard: unavailable",
-		Content: "Denied by the autonomy guard: it could not read the session to check this command. The command was not run.",
+		Rule:    "autonomy guard",
+		Content: fmt.Sprintf("Denied by the autonomy guard: %s. The command was not run.", why),
 	}
-}
-
-// shadow runs the check beside the command. The decision is made and
-// committed on contexts that a cancelled run does not cancel, because a
-// cancelled stage call would be recorded as a stage failure.
-func (g *runGuard) shadow(ctx context.Context, sess store.Session, callID string, state guard.State) {
-	defer g.pending.Done()
-	decideCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), guardDecideTimeout)
-	defer cancel()
-	g.record(sess, callID, g.decider.Decide(decideCtx, state))
-}
-
-// record appends the decision, and stage 2's usage, to the session's log.
-func (g *runGuard) record(sess store.Session, callID string, d guard.Decision) {
-	r := g.runner
-	ctx, cancel := context.WithTimeout(context.Background(), guardCommitTimeout)
-	defer cancel()
-	appended, err := r.Store.AppendEvents(ctx, sess.ID, GuardEvents(callID, g.mode, d, r.Prices, time.Now().UTC()))
-	if err != nil {
-		log.Printf("session: record autonomy guard decision for %s in %s: %v", callID, sess.ID, err)
-		return
-	}
-	r.mirrorAppend(sess, appended)
-	r.publishEvents(sess, appended)
-}
-
-// Drain waits for shadow checks still in flight, so their records reach the
-// parent before the run's last event closes the stream. It gives up when ctx
-// ends or after guardDrainTimeout. The checks carry on and commit on their
-// own.
-func (g *runGuard) Drain(ctx context.Context) {
-	done := make(chan struct{})
-	go func() {
-		g.pending.Wait()
-		close(done)
-	}()
-	timer := time.NewTimer(guardDrainTimeout)
-	defer timer.Stop()
-	select {
-	case <-done:
-	case <-ctx.Done():
-	case <-timer.C:
-	}
-}
-
-// refusalFor is the refusal for a blocked decision. It names the guard, the
-// stage and, when the rules decided, their names. It never carries stage 2's
-// reason.
-func refusalFor(d guard.Decision) *tools.GuardRefusal {
-	who := "stage 2"
-	switch d.DecidedBy {
-	case guard.DecidedByRules:
-		who = "rules"
-		if len(d.Rules) > 0 {
-			who += ": " + strings.Join(d.Rules, ", ")
-		}
-	case guard.DecidedByStage1:
-		who = "stage 1"
-	}
-	return &tools.GuardRefusal{
-		Rule:    "autonomy guard (" + who + ")",
-		Content: fmt.Sprintf("Denied by the autonomy guard (%s). The command was not run.", who),
-	}
-}
-
-// drainGuard lets a run that is about to end collect the shadow records still
-// in flight. A cancelled run does not wait.
-func drainGuard(ctx context.Context, executor *tools.Executor) {
-	if ctx.Err() != nil {
-		return
-	}
-	if g, ok := executor.Guard.(*runGuard); ok {
-		g.Drain(ctx)
-	}
-}
-
-func toolCallPayloads(calls []wire.AssembledToolCall) []store.ToolCallPayload {
-	out := make([]store.ToolCallPayload, len(calls))
-	for i, c := range calls {
-		out[i] = store.ToolCallPayload{Index: i, ID: c.ID, Name: c.Name, Arguments: c.Arguments}
-	}
-	return out
 }

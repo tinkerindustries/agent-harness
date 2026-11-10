@@ -17,11 +17,11 @@ import (
 	"github.com/mrgeoffrich/agent-harness/internal/config"
 	"github.com/mrgeoffrich/agent-harness/internal/deepseek"
 	"github.com/mrgeoffrich/agent-harness/internal/gemini"
-	"github.com/mrgeoffrich/agent-harness/internal/guard"
 	"github.com/mrgeoffrich/agent-harness/internal/hub"
 	"github.com/mrgeoffrich/agent-harness/internal/mcpclient"
 	"github.com/mrgeoffrich/agent-harness/internal/pricing"
 	"github.com/mrgeoffrich/agent-harness/internal/provider"
+	"github.com/mrgeoffrich/agent-harness/internal/providerhttp"
 	"github.com/mrgeoffrich/agent-harness/internal/session"
 	"github.com/mrgeoffrich/agent-harness/internal/settings"
 	"github.com/mrgeoffrich/agent-harness/internal/stdiosession"
@@ -163,7 +163,11 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 		priceTable = nil
 	}
 
-	geminiClient := gemini.NewClient(gemini.DefaultBaseURL, gemini.WithAPIKeyProvider(func() (string, error) {
+	// A create's `harness.providers` points each provider's traffic at a
+	// gateway and says whether the gateway adds the key
+	// (stdiosession.ProviderRoute). The routes are the process's own.
+	geminiRoute, deepSeekRoute, anthropicRoute := &providerhttp.Route{}, &providerhttp.Route{}, &providerhttp.Route{}
+	geminiClient := gemini.NewClient(gemini.DefaultBaseURL, gemini.WithRoute(geminiRoute), gemini.WithAPIKeyProvider(func() (string, error) {
 		return apiKey, nil
 	}))
 	// The Responses API, not Chat Completions: this entry point speaks that
@@ -172,10 +176,10 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 	// deliberately unchanged and still posts /chat/completions — a session
 	// speaks one surface for its whole life, so switching that one is a
 	// decision about its running sessions rather than a wiring change.
-	deepSeekClient := deepseek.NewResponsesClient(deepseek.DefaultBaseURL, "", deepseek.WithAPIKeyProvider(func() (string, error) {
+	deepSeekClient := deepseek.NewResponsesClient(deepseek.DefaultBaseURL, "", deepseek.WithRoute(deepSeekRoute), deepseek.WithAPIKeyProvider(func() (string, error) {
 		return deepSeekKey, nil
 	}))
-	anthropicClient := anthropic.NewClient(anthropic.DefaultBaseURL, anthropic.WithAPIKeyProvider(func() (string, error) {
+	anthropicClient := anthropic.NewClient(anthropic.DefaultBaseURL, anthropic.WithRoute(anthropicRoute), anthropic.WithAPIKeyProvider(func() (string, error) {
 		return anthropicKey, nil
 	}))
 	// The composition point the architecture names: one client per provider,
@@ -222,21 +226,7 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 		GeminiModel:   func() (string, error) { return geminiVisionModel(chosen), nil },
 		ToolEnvFilter: stripProviderAPIKeys,
 		RG:            rgPath,
-	}
-	// The guard is a `stdio-session` feature: a `gemini-session` client
-	// speaks Google's vocabulary, which has no setting for it, and the
-	// Runner there has no guard to build. The stage 2 key stays in this
-	// closure and never reaches the settings table or the session row.
-	var guardOpts *stdiosession.GuardOptions
-	if !interactions {
-		runner.Guards = func(setting store.GuardSetting, bundle *guard.Bundle) (session.GuardDecider, error) {
-			return guard.NewPipeline(guard.PipelineConfig{
-				Bundle:         bundle,
-				Stage1Endpoint: setting.Stage1Endpoint,
-				AnthropicKey:   anthropicKey,
-			})
-		}
-		guardOpts = &stdiosession.GuardOptions{HasAPIKey: func() bool { return anthropicKey != "" }}
+		BrowserProxy:  &tools.BrowserProxy{},
 	}
 
 	srv := stdiosession.NewServer(stdiosession.Options{
@@ -263,7 +253,10 @@ func runStdioSession(ctx context.Context, invoked string, args []string, in io.R
 			}
 		},
 		Version: buildVersion(),
-		Guard:   guardOpts,
+		Guard:   &stdiosession.GuardOptions{},
+		Routes: map[provider.Name]*providerhttp.Route{
+			provider.Gemini: geminiRoute, provider.DeepSeek: deepSeekRoute, provider.Anthropic: anthropicRoute,
+		},
 	})
 
 	log.Printf("ready; default model %s, state under %s", chosen, dir)

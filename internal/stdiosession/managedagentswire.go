@@ -101,7 +101,9 @@ type maCreateHarness struct {
 	ResultSchema    json.RawMessage `json:"result_schema,omitempty"`
 	// Guard is decoded only so a create that names it is refused: this
 	// vocabulary has no guard.
-	Guard *GuardConfig `json:"guard,omitempty"`
+	Guard        *GuardConfig             `json:"guard,omitempty"`
+	Providers    map[string]ProviderRoute `json:"providers,omitempty"`
+	BrowserProxy *string                  `json:"browser_proxy,omitempty"`
 }
 
 func (h *maCreateHarness) toCreateHarness() *CreateHarness {
@@ -112,6 +114,7 @@ func (h *maCreateHarness) toCreateHarness() *CreateHarness {
 		CWD: h.CWD, ResumeSessionID: h.ResumeSessionID, PermissionMode: h.PermissionMode,
 		Deny: h.Deny, MaxSubTurns: h.MaxSubTurns, MessageID: h.MessageID,
 		Title: h.Title, Description: h.Description, Guard: h.Guard,
+		Providers: h.Providers, BrowserProxy: h.BrowserProxy,
 	}
 }
 

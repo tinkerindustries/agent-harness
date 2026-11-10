@@ -31,10 +31,11 @@ constructs another's dependencies.
 DeepSeek model the repository routes, `deepseek-flash`
 (`deepSeekSessionModel`), which reads images natively, and all three Claude
 models; `claude-session` hosts the three Claude models alone, with
-`ANTHROPIC_API_KEY` the one credential it reads. `stdio-session` alone accepts
-`harness.guard`: it hands the Runner a `Guards` factory that builds the
-pipeline from the session's setting and policy bundle with the Anthropic key,
-which stays in that closure. `deepseek-flash` reading
+`ANTHROPIC_API_KEY` the one credential it reads. `stdio-session` and `gemini-session` accept
+`harness.guard`, `harness.providers` and `harness.browser_proxy`: it builds one
+`providerhttp.Route` per provider client and hands the server the set, and gives
+the Runner a `tools.BrowserProxy`. `claude-session` accepts the last two for
+Anthropic alone. `deepseek-flash` reading
 images natively is what keeps a DeepSeek session here to one credential: a
 model that could not see would carry the vision tools built to compensate,
 four of which reach Google
@@ -266,15 +267,11 @@ any configured server is); both are spelled the same in every vocabulary, so
 the handshake's per-model details and the create's effort check are answered
 out of `internal/gemini`'s, `internal/deepseek`'s or `internal/anthropic`'s
 tables, so the providers' differing effort sets reach a client as data rather
-than as a special case anywhere else. `guardsetting.go` validates `harness.guard` on a create: the mode, the policy
-bundle (loaded with `guard.LoadBundle`, a refusal naming its field), the stage 1
-endpoint when the bundle has a stage 1, the `ANTHROPIC_API_KEY` check and the
-`readonly` refusal, and `Options.Guard` is nil under the subcommands that
-refuse the setting. The server holds each session's bundle in memory
-(`Server.bundles`), hands it to the loop in the run and resume options,
-copies it to a compaction successor in `followCompaction` and releases it in
-`harness.close_session`; it is never stored, framed or logged.
-`resume.go` is the seam between the two
+than as a special case anywhere else. `guardsetting.go` validates `harness.guard` on a create (the classify URL, the scenario, the
+client's `approvals` capability) and builds `Runner.Approver`, which sends
+`harness.approval_request` and waits; `gateway.go` validates and applies
+`harness.providers` and `harness.browser_proxy` once a run is accepted, so a
+refused create leaves the process's routes as they were. `resume.go` is the seam between the two
 ways a create names a conversation: a run id is minted in memory and dies
 with the process, so continuing across a restart goes by session id out of
 the `-state-dir` store instead, and everything the session's prompt prefix is
@@ -375,16 +372,12 @@ workspace by `pickUpSteers` (at the boundary the steer is applied) and by
 before the message naming it reaches the model
 ([`../docs/RUN-CONTROL.md`](../docs/RUN-CONTROL.md), "Images in the
 composer"). `guard.go` is the autonomy guard's side of the loop: `runGuard`
-implements `tools.Guard` for one run, builds the state from the event log
-(`guardstate.go`), and appends the `guard_decision` and usage events. A
-`shadow` check runs in its own goroutine on a context a cancelled run does not
-cancel, and `runLoop` waits for the ones in flight before it finishes the run.
-`enforce` decides first and refuses through `tool_denied`. `RunOptions.Guard`,
-`ResumeOptions.Guard` and the session row's `Guard` carry the setting (the mode,
-the stage 1 endpoint and the bundle's hash), `RunOptions.GuardBundle` and
-`ResumeOptions.GuardBundle` carry the in-memory bundle, a `task` subagent
-inherits both, and `Runner.Guards` is the factory `cmd/harness` supplies, given
-the setting and the bundle.
+implements `tools.Guard` for one run. It calls the classifier, runs the call on
+allow, and on block or unreachable asks `Runner.Approver`, running the call only
+on an approval (an error, including a cancelled ctx, refuses). `RunOptions.Guard`,
+`ResumeOptions.Guard` and the session row's `Guard` carry the setting (the
+classify URL, the scenario and the engine), and a `task` subagent inherits it.
+`Runner.BrowserProxy` is handed to every Executor.
 
 ### `internal/tools`
 Every tool the model can call: schemas matching the trained-in shape, argument
@@ -426,29 +419,13 @@ allowed the call, and a refusal comes back as an ordinary denial. Depends on:
 tools read images by).
 
 ### `internal/guard`
-The autonomy guard's mechanism for one `bash` call. The policy is the parent's:
-`bundle.go`'s `LoadBundle` parses and validates a policy bundle (prompts,
-questions, schema, cut-off, model ids, state field lists and rules) into an
-opaque `*Bundle`, refusing a bad one with a `*BundleError` that names the field
-and never repeats bundle text, and `Bundle.Version` is the hash of its content,
-which is the guard version on every record. Nothing in this repository says
-what the guard allows or blocks. The mechanism is `Rules` built from the
-bundle's pattern table (`CheckRules`, plus the `git push` check against its
-default branch names), `ScriptDetector` (which local scripts a command runs,
-and whether it escalates straight to stage 2), `ResolvePackageScripts`, the
-stage 1 client for `POST <endpoint>/v1/systemone`, the stage 2 Messages client,
-`Pipeline.Decide` combining them, and `StateBuilder`, which turns neutral
-`Inputs` and the disk into the `State` a check is made with, filling only the
-fields in `Bundle.StateFields`. Each stage's client takes its content from the
-bundle. A bundle without a stage 1 sends every command the rules do not catch to
-stage 2 and records `no_stage1` in `escalation`. `NewPipeline` assembles the
-parts from a `PipelineConfig` (the bundle, the stage 1 endpoint and an
-Anthropic key the caller supplies); the package reads no environment. A stage 1
-failure escalates and a stage 2 failure blocks. `guardtest` holds the invented
-bundle every package's tests use (`BundleJSON`) and fake stage servers for tests
-that run a session through the guard. Depends on `internal/providerhttp`; it
-imports neither `internal/store` nor `internal/session`.
-`../docs/plans/agent-harness-guard.md` is the hand-off it implements.
+The client of the parent's `POST /classify` endpoint, and nothing else: `Client.Classify`
+posts one `Request` (the command, the shell, the directory it runs in, the
+branch, the scenario, the engine and the ids) and reports `Allow`, `Block` or
+`Unreachable`, where unreachable is everything but a `200` carrying one of the
+two verdicts (a bad status, a body that does not parse, no answer in 20 seconds).
+`Branch` reads the checked-out branch for the request. Nothing in this repository
+says what the guard allows or blocks. Depends on nothing internal.
 
 ### `internal/fold`
 Folds the event log into the wire `messages` array (`internal/wire`'s
@@ -472,7 +449,7 @@ and column migration; `sessions.go` the status vocabulary and session CRUD — i
 `mcp_read_only`, the copy of the per-server read-only allowance a run froze,
 kept beside `permission_mode` and `deny_patterns` so a caller that must hold a
 resume to what the session started with has it, and `guard`, the autonomy
-guard setting (`GuardSetting`: the mode, the stage 1 endpoint and the policy bundle's hash), which unlike those a resume may replace
+guard setting (`GuardSetting`: the classify URL, the scenario and the engine name), which unlike those a resume may replace
 (`UpdateSessionGuard`);
 `events.go` the event payload types and the append-only log's queries;
 `mcp.go` is the `mcp_servers` table

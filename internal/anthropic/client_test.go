@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mrgeoffrich/agent-harness/internal/providerhttp"
 	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
@@ -568,5 +569,37 @@ func TestOtherInvalidRequestIsNotResent(t *testing.T) {
 	}
 	if got := seen(); !reflect.DeepEqual(got, []string{"error"}) {
 		t.Fatalf("behaviours sent = %v, want one request", got)
+	}
+}
+
+// A client whose route says the gateway supplies the key sends no x-api-key,
+// still sends the version and beta headers the gateway forwards, and goes to
+// the route's base URL. It fails if an empty x-api-key header is sent, or if
+// the version headers go missing with the key.
+func TestClientThroughAGatewayRouteSendsNoKey(t *testing.T) {
+	var hdr http.Header
+	var path string
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hdr, path = r.Header.Clone(), r.URL.Path
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer gateway.Close()
+
+	route := &providerhttp.Route{}
+	route.Set(gateway.URL+"/anthropic", true)
+	c := NewClient("http://api.invalid", WithRoute(route), WithAPIKeyProvider(func() (string, error) { return "", nil }))
+	_, _ = c.transport.Do(context.Background(), http.MethodPost, "/v1/messages", []byte(`{}`))
+
+	if path != "/anthropic/v1/messages" {
+		t.Errorf("gateway saw path %q", path)
+	}
+	if _, present := hdr["X-Api-Key"]; present {
+		t.Errorf("an x-api-key header was sent: %q", hdr.Get("X-Api-Key"))
+	}
+	if hdr.Get("Authorization") != "" {
+		t.Errorf("an Authorization header was sent: %q", hdr.Get("Authorization"))
+	}
+	if hdr.Get("anthropic-version") == "" {
+		t.Error("anthropic-version was dropped with the key")
 	}
 }
