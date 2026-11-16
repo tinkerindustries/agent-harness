@@ -12,10 +12,13 @@ never learns Anthropic's request shape.
 
 It hosts three models: `claude-opus-5-5`, `claude-sonnet-5-5` and
 `claude-fable-5-1` (`modelinfo.go`). `internal/provider.Anthropic` routes
-them, `internal/tools.DefinitionsFor` gives them the vision-capable tool
-array without `web_fetch` (Anthropic's own `web_search` and `web_fetch`
-server tools ride the request instead, appended after the client-declared
-array by `intent.go`'s `toolsFromWire`), and `harness stdio-session` hosts
+them, `internal/tools.DefinitionsFor` gives them Claude Code's own tools
+under Claude Code's names — `Read`, `Bash`, `TaskOutput`, `TaskCreate`,
+`Agent` and the rest (`docs/TOOLS.md`, "Claude's array"; `internal/toolvocab`
+translates each call to the harness's canonical name before it is logged) —
+without `web_fetch` (Anthropic's own `web_search` and `web_fetch` server
+tools ride the request instead, appended after the client-declared array by
+`intent.go`'s `toolsFromWire`), and `harness stdio-session` hosts
 all three behind `ANTHROPIC_API_KEY` (`cmd/harness/stdiosession.go`,
 `docs/STDIO-PROTOCOL.md`).
 

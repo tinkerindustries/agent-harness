@@ -74,14 +74,14 @@ The array is chosen per model, through `provider.SeesImages` and
 (docs/KIMI-INTEGRATION.md §4.5, decision 5; docs/DEEPSEEK-VISION.md), and
 `internal/tools/definitions.go` is the authority on what each one holds:
 
-- **Kimi, Gemini and Claude** carry the full set minus the six vision tools
+- **Kimi and Gemini** carry the full set minus the six vision tools
   (`screenshot`, `glance`, `ground`, `detect`, `transcribe`, `crop`), and keep
   all seven harness-added tools (`list`, the four task tools, `task` and
   `complete`): those models read images natively, so all six vision tools are
   redundant, and capture happens
-  through `bash` and the `playwright-cli` skill instead. Claude's array drops
-  `web_fetch` as well, because Anthropic's own server-side `web_search` and
-  `web_fetch` ride every Claude request instead.
+  through `bash` and the `playwright-cli` skill instead.
+- **Claude** carries Claude Code's own tools, under Claude Code's names and
+  argument spellings: see "Claude's array" below.
 - **DeepSeek** carries the same vision-free set minus `list`, `task_create`,
   `task_get`, `task_list`, `task_update`, `task` and `complete`. None of the
   seven has a counterpart in `dsh`: `list` is a directory listing `glob` and
@@ -95,6 +95,50 @@ The array is chosen per model, through `provider.SeesImages` and
 - Any other model gets the base array, unchanged byte for byte: `Definitions`
   returns it and an unknown name falls back to it. No routed model is sent it,
   and request validation rejects an unknown name before a session exists.
+
+### Claude's array
+
+A Claude model is offered the tools Claude Code ships, under the names and
+argument spellings Claude Code gives them, because that is the vocabulary the
+model was trained to drive. The canonical names above are aligned with
+DeepSeek's harness, and nothing about them is a reason to send them to Claude.
+The array is written out in `internal/tools/definitions_claude.go` rather than
+derived from the base one:
+
+| Claude Code tool | Arguments | Runs as |
+| --- | --- | --- |
+| `Read` | `file_path`, `offset?`, `limit?` | `read` |
+| `Write` | `file_path`, `content` | `write` |
+| `Edit` | `file_path`, `old_string`, `new_string`, `replace_all?` | `edit` |
+| `Bash` | `command`, `timeout?`, `description?`, `run_in_background?` | `bash`, `timeout` as `timeoutMs` |
+| `TaskOutput` | `task_id`, `block?`, `timeout?` | `job_output`: `task_id` as `job_id`, `block` as `wait` (an omitted `block` waits, Claude Code's default), `timeout` bounding the wait |
+| `TaskStop` | `task_id` | `job_kill` |
+| `Glob` | `pattern`, `path?` | `glob` |
+| `Grep` | as `grep` | `grep` |
+| `TaskCreate` | `subject`, `description`, `activeForm?` | `task_create` with a one-task `tasks` array; an omitted `activeForm` is the subject |
+| `TaskGet` | `taskId` | `task_get` |
+| `TaskList` | none | `task_list` |
+| `TaskUpdate` | `taskId`, `status?`, `subject?`, `description?`, `activeForm?` | `task_update` |
+| `Agent` | `description`, `prompt`, `subagent_type?` | `task`; an omitted `subagent_type` is `general-purpose` |
+
+Anthropic's server-side `web_search` and `web_fetch` ride every Claude request
+after this array (`docs/ANTHROPIC-INTEGRATION.md`), so the harness's own
+`web_fetch` is not in it. Nor is anything Claude Code has no counterpart for:
+`apply_patch`, `list`, `job_list` or `complete`. A Claude session therefore
+cannot end with a structured result, and `Runner.Run` refuses a create that
+asks for a result schema, as it does for DeepSeek.
+
+The translation happens at the model boundary and nowhere else
+(`internal/toolvocab`). A call Claude makes is turned into the canonical name
+and arguments before it is committed to the log, so the executor, the
+permission policy, deny patterns, the live plan and every parent-facing frame
+see `bash` and `task_create` on every provider; a deny pattern is written once.
+History rendered back into a Claude request is turned the other way, and the
+system prompt names each tool the way the array offers it (`Call Read on a
+file`), as do a backgrounded command's reply and the notice a background
+shell's exit produces. The vocabulary is a pure function of the array frozen
+on the session row, so a Claude session started before this array existed
+keeps the canonical names it was offered for its whole life.
 
 Each array is a frozen request head shared by every session that sends it,
 pinned by its own golden file

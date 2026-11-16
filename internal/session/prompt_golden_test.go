@@ -25,9 +25,11 @@ import (
 // true (runner.go, docs/GEMINI-INTEGRATION.md §5.7), so the rendered head is
 // not just equal by chance but the same bytes for the same reason.
 // deepseek-flash reads its own file, because DeepSeek's array is the one
-// that drops the harness-added tools. There is no provider-specific wording
-// in the head: nothing in it names a provider or a model, only tool names
-// and the one capability sentence.
+// that drops the harness-added tools. Claude reads its own because its array
+// names Claude Code's tools (internal/toolvocab), so its inventory and rules
+// say Read and TaskOutput where every other head says read and job_output.
+// There is no provider-specific wording in the head: nothing in it names a
+// provider or a model, only tool names and the one capability sentence.
 func TestPromptGolden(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -38,6 +40,7 @@ func TestPromptGolden(t *testing.T) {
 		{"kimi", "kimi-k3", "prompt_kimi.golden.txt"},
 		{"gemini", "gemini-3.7-flash", "prompt_kimi.golden.txt"},
 		{"deepseek-flash", "deepseek-flash", "prompt_deepseek_flash.golden.txt"},
+		{"claude", "claude-sonnet-5-5", "prompt_claude.golden.txt"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

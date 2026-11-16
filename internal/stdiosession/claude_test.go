@@ -176,10 +176,13 @@ const testClaudeModel = "claude-sonnet-5-5"
 // dispatcher, the outbound HTTP is a genuine Messages API request (headers,
 // system/messages/tools shape), and its tool array carries Anthropic's own
 // web_search server tool but not the harness's web_fetch
-// (internal/tools.definitionsClaude).
+// (internal/tools.definitionsClaude). The array names Claude Code's tools
+// under Claude Code's names, the model's call in that vocabulary runs, and
+// the parent sees it under the harness's canonical name
+// (internal/toolvocab).
 func TestClaudeSessionOverResponsesDialect(t *testing.T) {
 	f, rec := newClaudeFixture(t,
-		claudeToolCall("toolu_1", "task_create", `{"tasks":[{"subject":"x","description":"y","activeForm":"z"}]}`),
+		claudeToolCall("toolu_1", "TaskCreate", `{"subject":"x","description":"y","activeForm":"z"}`),
 		claudeAnswer("All done."),
 	)
 	f.client.handshake(ClientCapabilities{})
@@ -244,11 +247,13 @@ func TestClaudeSessionOverResponsesDialect(t *testing.T) {
 			if tl["input_schema"] != nil {
 				sawWebFetchTool = true
 			}
-		case "read":
+		case "Read":
 			sawReadTool = true
 			if tl["input_schema"] == nil {
-				t.Error("the read tool has no input_schema")
+				t.Error("the Read tool has no input_schema")
 			}
+		case "read", "bash", "task_create", "job_output", "apply_patch", "complete":
+			t.Errorf("the provider request offers %v, a canonical name; Claude is offered Claude Code's", tl["name"])
 		}
 	}
 	if !sawWebSearch {
@@ -258,7 +263,7 @@ func TestClaudeSessionOverResponsesDialect(t *testing.T) {
 		t.Error("the provider request carries the harness's own web_fetch tool; Claude sessions must drop it")
 	}
 	if !sawReadTool {
-		t.Error("the provider request carries no read tool")
+		t.Error("the provider request carries no Read tool")
 	}
 
 	// --- the parent end -----------------------------------------------
@@ -278,6 +283,17 @@ func TestClaudeSessionOverResponsesDialect(t *testing.T) {
 	}
 	if got := stepTypes(seen); !containsString(got, ItemFunctionCall) || !containsString(got, ItemFunctionCallOutput) {
 		t.Errorf("the parent did not see the call and its output: %v", got)
+	}
+	for _, s := range steps(seen) {
+		if s.Item.Type == ItemFunctionCall && s.Item.Name != "task_create" {
+			t.Errorf("the parent saw the call as %q, want the canonical task_create", s.Item.Name)
+		}
+	}
+	// The call ran as task_create: the tool result the second request
+	// replays is the plan it built, not a refusal of the arguments.
+	if !strings.Contains(bodies[1], `"tool_result"`) || strings.Contains(bodies[1], "is required") ||
+		strings.Contains(bodies[1], "invalid arguments") || !strings.Contains(bodies[1], "[ ] #1 x") {
+		t.Errorf("the TaskCreate call did not run as task_create: %s", bodies[1])
 	}
 	if txt := textOf(seen, ItemMessage); txt != "All done." {
 		t.Errorf("assistant text = %q, want %q", txt, "All done.")

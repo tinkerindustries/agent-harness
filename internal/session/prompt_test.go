@@ -27,7 +27,7 @@ func TestPromptNamesExactlyTheToolArray(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		model string
-	}{{"deepseek", "deepseek-v4-pro"}, {"deepseek-flash", "deepseek-flash"}, {"kimi", "kimi-k3"}} {
+	}{{"deepseek", "deepseek-v4-pro"}, {"deepseek-flash", "deepseek-flash"}, {"kimi", "kimi-k3"}, {"claude", "claude-sonnet-5-5"}} {
 		t.Run(tc.name, func(t *testing.T) {
 			prompt, err := RenderSystemPromptFor(tc.model, "")
 			if err != nil {
@@ -54,7 +54,13 @@ func TestPromptNamesExactlyTheToolArray(t *testing.T) {
 			// The inventory is the contract, but a prompt must not name a
 			// tool its provider's array does not carry anywhere in the text
 			// either: a stray reference to a tool the model was never sent
-			// is an instruction it cannot follow.
+			// is an instruction it cannot follow. Claude's head is checked by
+			// TestClaudeHeadNamesOnlyClaudeCodesTools instead: its prose
+			// keeps the verb "read" and the shell "bash", which a word match
+			// against the canonical names would report.
+			if tc.name == "claude" {
+				return
+			}
 			for _, other := range []struct {
 				name  string
 				model string
@@ -77,6 +83,39 @@ func TestPromptNamesExactlyTheToolArray(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestClaudeHeadNamesOnlyClaudeCodesTools pins that a Claude head never
+// sends the model to a canonical tool name: every rule names the tool the way
+// Claude's array offers it, and no rule survives about a tool the array does
+// not carry (apply_patch, job_list, list, complete, web_fetch, the vision
+// tools). The canonical names that are also ordinary words — read, write,
+// edit, bash, grep and glob — are checked as tools: as the first word
+// after "Call", "Use", "with" and the like.
+func TestClaudeHeadNamesOnlyClaudeCodesTools(t *testing.T) {
+	prompt, err := RenderSystemPromptFor("claude-sonnet-5-5", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range tools.Definitions() {
+		name := tool.Function.Name
+		if !strings.Contains(name, "_") && !containsSorted([]string{"complete", "crop", "detect", "glance", "ground", "list", "screenshot", "transcribe"}, name) {
+			continue
+		}
+		if regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\b`).MatchString(prompt) {
+			t.Errorf("Claude's head mentions %s, a canonical name Claude is not offered", name)
+		}
+	}
+	asTool := regexp.MustCompile(`\b(?:Call|call|Use|use|with|to|Several|single|each|a|of) (read|write|edit|bash|grep|glob)\b`)
+	if m := asTool.FindString(prompt); m != "" {
+		t.Errorf("Claude's head names a tool canonically: %q", m)
+	}
+	for _, want := range []string{"Call Read on a file", "Read what it has produced with TaskOutput",
+		"stop\n  it with TaskStop", "call\n  TaskCreate once for each step", "Read returns the image"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("Claude's head lacks %q", want)
+		}
 	}
 }
 

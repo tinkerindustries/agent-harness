@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/mrgeoffrich/agent-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/toolvocab"
 	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
@@ -69,6 +70,20 @@ func dropPending(pending []string, id string) []string {
 // that way.
 func Fold(sess store.Session, events []store.Event) ([]wire.Item, error) {
 	items := []wire.Item{wire.SystemItem(sess.SystemPrompt)}
+
+	// A background shell's exit notice names the call that reads its output,
+	// and that has to be the call this session's model was offered: TaskOutput
+	// for a Claude session, job_output for every other (internal/toolvocab).
+	// The vocabulary comes from the row's frozen tool_schema, read once and
+	// only when there is a notice to word.
+	var vocab *toolvocab.Vocabulary
+	backgroundNotice := func(p store.BackgroundFinishedPayload) string {
+		if vocab == nil {
+			v := toolvocab.OfSchema(sess.ToolSchema)
+			vocab = &v
+		}
+		return p.MessageFor(vocab.Exposed("job_output"), vocab.ExposedArg("job_output", "job_id"))
+	}
 
 	var reasoning, content strings.Builder
 	var toolCalls []wire.Item
@@ -271,11 +286,12 @@ func Fold(sess store.Session, events []store.Event) ([]wire.Item, error) {
 			// evidence the round was abandoned — the exit is committed when
 			// it happens, not when the loop next looks — so unlike a steer it
 			// does not flush stand-ins: it waits for the outputs.
+			msg := backgroundNotice(p)
 			if len(pending) > 0 || len(turnCallIDs) > 0 {
-				heldNotices = append(heldNotices, p.Message())
+				heldNotices = append(heldNotices, msg)
 				break
 			}
-			items = append(items, wire.UserItem(p.Message()))
+			items = append(items, wire.UserItem(msg))
 
 		case store.KindToolStdout, store.KindUsage, store.KindRunFinished, store.KindError, store.KindSteerMessage,
 			store.KindSteerWithdrawn, store.KindGuardDecision:

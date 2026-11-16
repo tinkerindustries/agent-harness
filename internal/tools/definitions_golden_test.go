@@ -54,11 +54,12 @@ func TestToolArrayGolden(t *testing.T) {
 		// whose array drops the harness-added tools (list, the four task
 		// tools, task, complete), so its bytes are not Kimi's.
 		{"deepseek-flash", "deepseek-flash", "tools_deepseek_flash.golden.json"},
-		// Claude reads images natively like Kimi and Gemini, but also drops
-		// web_fetch — Anthropic's own server-side web_search and web_fetch
-		// tools ride the request instead (internal/anthropic's intent
-		// renderer, docs/ANTHROPIC-INTEGRATION.md) — so its array is one
-		// tool shorter than Kimi's and gets its own golden file.
+		// Claude is offered Claude Code's own tools under Claude Code's
+		// names (definitions_claude.go, docs/TOOLS.md "Claude's array"),
+		// without web_fetch — Anthropic's own server-side web_search and
+		// web_fetch ride the request instead (internal/anthropic's intent
+		// renderer, docs/ANTHROPIC-INTEGRATION.md) — so its bytes are no
+		// other array's and it gets its own golden file.
 		{"claude", "claude-sonnet-5-5", "tools_claude.golden.json"},
 	}
 	for _, tc := range cases {

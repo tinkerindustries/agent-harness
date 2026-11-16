@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/mrgeoffrich/agent-harness/internal/toolvocab"
 )
 
 // backgroundShell tracks one bash call started with run_in_background: true,
@@ -294,14 +296,29 @@ func execBashBackground(ctx context.Context, e *Executor, command, dir string) R
 		registry.finished(ShellExit{ID: id, Command: command, ExitCode: exitCode, Killed: killed, Wedged: wedged})
 	}()
 
-	return Result{Content: fmt.Sprintf(
-		"Running in the background with id %s. Use job_output with this id to read its output, job_list to see every job, and job_kill to stop it.", id)}
+	return Result{Content: backgroundStartedMessage(e.Vocabulary, id)}
+}
+
+// backgroundStartedMessage is what a backgrounded bash call returns: the id,
+// and the tools that act on it, named the way the session's array offers
+// them.
+func backgroundStartedMessage(v toolvocab.Vocabulary, id string) string {
+	output, kill := v.Exposed("job_output"), v.Exposed("job_kill")
+	if v.Offers("job_list") {
+		return fmt.Sprintf("Running in the background with id %s. Use %s with this id to read its output, %s to see every job, and %s to stop it.",
+			id, output, v.Exposed("job_list"), kill)
+	}
+	return fmt.Sprintf("Running in the background with id %s. Use %s with this id to read its output, and %s to stop it.", id, output, kill)
 }
 
 type jobOutputArgs struct {
 	JobID  string `json:"job_id"`
 	Filter string `json:"filter"`
 	Wait   bool   `json:"wait"`
+	// TimeoutMS bounds a wait below the call's own timeout. It is not in the
+	// canonical schema: it is what Claude Code's TaskOutput timeout becomes
+	// (internal/toolvocab), so only a Claude model ever sends it.
+	TimeoutMS int `json:"timeoutMs"`
 }
 
 // execJobOutput implements job_output: the output a background job has
@@ -340,7 +357,13 @@ func execJobOutput(ctx context.Context, e *Executor, argsRaw json.RawMessage) Re
 
 	waitedOut := false
 	if args.Wait {
-		waitedOut = !registry.wait(ctx, bg)
+		waitCtx := ctx
+		if args.TimeoutMS > 0 {
+			var cancel context.CancelFunc
+			waitCtx, cancel = context.WithTimeout(ctx, time.Duration(args.TimeoutMS)*time.Millisecond)
+			defer cancel()
+		}
+		waitedOut = !registry.wait(waitCtx, bg)
 	}
 
 	// buf.String() must be taken under bg.mu, alongside readOffset:

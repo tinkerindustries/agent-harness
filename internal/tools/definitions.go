@@ -5,6 +5,7 @@ import (
 
 	"github.com/mrgeoffrich/agent-harness/internal/promptvariant"
 	"github.com/mrgeoffrich/agent-harness/internal/provider"
+	"github.com/mrgeoffrich/agent-harness/internal/toolvocab"
 	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
@@ -313,22 +314,18 @@ var definitionsDeepSeek = []wire.Tool{
 // file rather than a duplicate).
 var definitionsVisionCapable = without(definitionsDeepSeek, "screenshot", "glance", "ground", "detect", "transcribe", "crop")
 
-// definitionsClaude is definitionsVisionCapable minus web_fetch: a Claude
-// session carries Anthropic's own server-side web_search and web_fetch tools
-// instead (internal/anthropic's intent renderer appends them after this
-// array, docs/ANTHROPIC-INTEGRATION.md), so the harness's own web_fetch would
-// be a second, redundant way to fetch a URL. The six vision tools are
-// already dropped for the same reason every vision-capable model drops
-// them — Claude reads images natively.
-var definitionsClaude = without(definitionsVisionCapable, "web_fetch")
+// definitionsClaude, Claude Code's own tools under Claude Code's names, is in
+// definitions_claude.go: it is written out rather than derived from this
+// array, because its schemas are Claude Code's.
 
 // definitionsDeepSeekHosted is the array a DeepSeek model is offered: the
 // vision-capable array minus the harness's own additions, which have no
 // counterpart in DeepSeek's harness
 // (docs/plans/archive/deepseek-tool-vocabulary.md, "DeepSeek's array drops the
-// harness-added tools"). Kimi, Gemini and Claude
-// keep all seven, because their arrays are this harness's own and nothing
-// about them is being aligned with DeepSeek's.
+// harness-added tools"). Kimi and Gemini keep all seven, because their arrays
+// are this harness's own and nothing about them is being aligned with
+// DeepSeek's. Claude's carries the five of them Claude Code has a counterpart
+// for, under Claude Code's names (definitions_claude.go).
 var definitionsDeepSeekHosted = without(definitionsVisionCapable,
 	"list", "task_create", "task_get", "task_list", "task_update", "task", "complete")
 
@@ -375,10 +372,11 @@ func Definitions() []wire.Tool {
 // DefinitionsFor returns the frozen tool array for model. A Claude model
 // resolves to definitionsClaude and a DeepSeek model to
 // definitionsDeepSeekHosted, both before the vision check runs, because
-// provider.SeesImages is also true for it and would otherwise hand back
-// definitionsVisionCapable with web_fetch still in it — the one array-level
-// decision that is the provider's rather than the vision table's, since it
-// is about which web tool the model carries rather than whether it can see.
+// provider.SeesImages is also true for them and would otherwise hand back
+// definitionsVisionCapable — the array-level decisions that are the
+// provider's rather than the vision table's, since they are about which
+// vocabulary and which tools the model carries rather than whether it can
+// see.
 // A DeepSeek model is the one provider whose array is subtracted from: the
 // harness-added list, task and complete tools have no counterpart in
 // DeepSeek's own harness, so they come off the array that model is offered
@@ -427,13 +425,23 @@ func DefinitionsFor(model string) []wire.Tool {
 // (store.Session.PromptVariant), and a resumed session resolves through it
 // too (internal/session/resume.go), so the array a variant session is sent
 // is the same before and after a resume.
+//
+// A variant names the tools it drops canonically, so each name is turned into
+// the one the array offers it under first (internal/toolvocab): no-bash drops
+// Bash and TaskOutput from Claude's array as it drops bash and job_output from
+// every other.
 func DefinitionsForVariant(model, variant string) []wire.Tool {
 	defs := DefinitionsFor(model)
 	dropped := promptvariant.ToolsDroppedBy(variant)
 	if len(dropped) == 0 {
 		return defs
 	}
-	return without(defs, dropped...)
+	vocab := toolvocab.Of(defs)
+	exposed := make([]string, len(dropped))
+	for i, name := range dropped {
+		exposed[i] = vocab.Exposed(name)
+	}
+	return without(defs, exposed...)
 }
 
 // mcpAccessTools are the five fixed tools that reach a server's resources
