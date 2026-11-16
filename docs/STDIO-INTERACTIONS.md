@@ -893,6 +893,7 @@ answered. They arrive as an `error` notification followed by
 | --- | --- |
 | `in_progress` | Running. |
 | `completed` | The run ended on its own terms. `harness.reason` says which way. |
+| `incomplete` | The provider ended its last response early (`harness.reason` is `truncated` or `content_filter`); `harness.text` is what arrived. |
 | `cancelled` | `interactions.cancel`, `shutdown`, or stdin closing. |
 | `failed` | The loop could not finish: a model error, a transport failure, a store failure. |
 
@@ -900,8 +901,9 @@ answered. They arrive as an `error` notification followed by
 `complete`), `no_tool_calls` (it answered and asked for nothing else),
 `complete_rejected` (its structured result failed the schema), or `cancelled`.
 Google's status enum does not separate an agent that called `complete` from
-one that answered without a tool call. This process never sends the surface's
-`incomplete` status.
+one that answered without a tool call. An interaction whose last response the
+provider cut off at its token ceiling, or withheld, is `incomplete` with
+`harness.reason` `truncated` or `content_filter`.
 
 `harness.unapplied_message_ids` on an interaction that is no longer
 `in_progress` names the steers the run ended without applying, whatever its

@@ -1039,12 +1039,17 @@ func (s *Server) complete(it *run, tr Translator) {
 }
 
 // statusFor maps a run's terminal reason onto the surface's status enum: a
-// failed run is `failed`, and everything else that ended on its own terms is
+// failed run is `failed`, a response the provider cut short or withheld is
+// `incomplete`, and everything else that ended on its own terms is
 // `completed`, with harness.reason carrying which way (internal/session,
 // RunResult.Reason).
 func statusFor(res *session.RunResult) string {
 	if res.Status == store.StatusFailed {
 		return StatusFailed
+	}
+	switch res.Reason {
+	case session.ReasonTruncated, session.ReasonContentFilter:
+		return StatusIncomplete
 	}
 	return StatusCompleted
 }

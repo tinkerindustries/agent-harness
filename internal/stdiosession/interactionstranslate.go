@@ -150,6 +150,37 @@ func (t *iactTranslator) foldDelta(idx int, d iactDelta) {
 	}
 }
 
+// reconcile makes an open step's streamed text equal the authoritative text
+// the log committed for it: its content for a model_output step (output true),
+// its summary for a thought step. step.stop carries no content, so the
+// correction reaches a parent through interactions.get and the final
+// interaction rather than the stream.
+func (t *iactTranslator) reconcile(idx int, output bool, text string) {
+	t.stepsMu.Lock()
+	defer t.stepsMu.Unlock()
+	pos, ok := t.stepAt[idx]
+	if !ok {
+		return
+	}
+	parts := &t.steps[pos].Summary
+	if output {
+		parts = &t.steps[pos].Content
+	}
+	streamed := ""
+	for _, part := range *parts {
+		if part.Type == "text" {
+			streamed += part.Text
+		}
+	}
+	if streamed == text {
+		return
+	}
+	*parts = nil
+	if text != "" {
+		*parts = []iactContent{{Type: "text", Text: text}}
+	}
+}
+
 func iactAppendText(parts *[]iactContent, text string) {
 	if text == "" {
 		return
@@ -237,6 +268,10 @@ func (t *iactTranslator) Event(e store.Event) {
 		if p.ThoughtSignature != "" {
 			t.delta(t.thought, iactDelta{Type: iactDeltaThoughtSignature, Signature: p.ThoughtSignature})
 		}
+		// The committed summary is authoritative: the live deltas can carry
+		// reasoning from an attempt the loop discarded (a reasoning-starved
+		// retry), which must not survive in the assembled step.
+		t.reconcile(t.thought, false, p.Text)
 		t.stopStep(t.thought)
 		t.thought = -1
 	case store.KindContentDelta:
@@ -250,6 +285,7 @@ func (t *iactTranslator) Event(e store.Event) {
 				t.delta(t.output, iactDelta{Type: iactDeltaText, Text: p.Text})
 			}
 		}
+		t.reconcile(t.output, true, p.Text)
 		t.stopStep(t.output)
 		t.output = -1
 	case store.KindToolCall:
@@ -395,9 +431,26 @@ func (t *iactTranslator) CloseText() {
 func (t *iactTranslator) snapshot() ([]iactStep, iactUsage) {
 	t.stepsMu.Lock()
 	defer t.stepsMu.Unlock()
+	// A deep copy: the caller serialises it after the lock is released, while
+	// the stream goroutine goes on appending to the live steps and usage.
 	steps := make([]iactStep, len(t.steps))
-	copy(steps, t.steps)
-	return steps, t.usage
+	for i, s := range t.steps {
+		s.Arguments = append(toolArguments(nil), s.Arguments...)
+		s.Content = append([]iactContent(nil), s.Content...)
+		s.Summary = append([]iactContent(nil), s.Summary...)
+		s.Result = append([]iactContent(nil), s.Result...)
+		if s.Harness != nil {
+			h := *s.Harness
+			s.Harness = &h
+		}
+		steps[i] = s
+	}
+	usage := t.usage
+	if usage.Harness != nil {
+		h := *usage.Harness
+		usage.Harness = &h
+	}
+	return steps, usage
 }
 
 func (t *iactTranslator) addUsage(u iactUsage) {
@@ -413,6 +466,7 @@ func (t *iactTranslator) addUsage(u iactUsage) {
 	}
 	if u.Harness != nil {
 		t.usage.Harness.CostUSD += u.Harness.CostUSD
+		t.usage.Harness.CacheWriteTokens += u.Harness.CacheWriteTokens
 	}
 }
 
@@ -423,12 +477,12 @@ func (t *iactTranslator) addUsage(u iactUsage) {
 // the other direction).
 func iactUsageFrom(p store.UsagePayload) iactUsage {
 	return iactUsage{
-		TotalTokens:        p.PromptCacheHitTokens + p.PromptCacheMissTokens + p.CompletionTokens,
-		TotalInputTokens:   p.PromptCacheHitTokens + p.PromptCacheMissTokens,
+		TotalTokens:        inputTokens(p) + p.CompletionTokens,
+		TotalInputTokens:   inputTokens(p),
 		TotalCachedTokens:  p.PromptCacheHitTokens,
 		TotalOutputTokens:  p.CompletionTokens - p.ReasoningTokens,
 		TotalThoughtTokens: p.ReasoningTokens,
-		Harness:            &iactUsageX{CostUSD: p.CostUSD},
+		Harness:            &iactUsageX{CostUSD: p.CostUSD, CacheWriteTokens: p.PromptCacheWriteTokens},
 	}
 }
 

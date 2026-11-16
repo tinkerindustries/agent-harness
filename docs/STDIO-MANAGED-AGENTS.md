@@ -545,6 +545,33 @@ this harness's own transcript does needs both numbers, because this
 vocabulary has no id above `sub_turn` on its own frames the way
 `interaction_id`/`response_id` already carried one.
 
+### Usage
+
+`session.usage`'s `input_tokens` is the whole prompt, and
+`cache_read_input_tokens` and `cache_creation_input_tokens` are parts of it, not
+additions to it. That differs from Anthropic's own usage object, where
+`input_tokens` excludes both; here `total_tokens` is `input_tokens` plus
+`output_tokens`. `cache_creation_input_tokens` is what the request wrote into the
+prompt cache, absent when zero. A request that failed after the provider had
+reported usage still emits `session.usage`: those tokens were billed.
+
+### Citations and server tools
+
+An `agent.message`'s `content` is one text block per block the provider wrote,
+and a block carries `citations` when the provider cited sources for it:
+`{type, url, title, cited_text}`, where `type` is Anthropic's own citation type
+(`web_search_result_location`, `char_location`, ...). The provider's encrypted
+index is replay data and is not sent. If the provider's blocks do not
+reproduce the committed text exactly the message is one uncited text block.
+
+A tool the provider ran itself, today Claude's `web_search` and `web_fetch`, is
+reported as an `agent.tool_use` and an `agent.tool_result` with
+`harness.server_tool: true`, together, after the fact, in the turn that used it.
+Nothing is owed to it and it is never pending. The result's `harness.sources`
+names the pages (`url`, `title`), its text lists them, and `harness.tool_error`
+and `is_error` say it failed. The pages' own content is encrypted by the
+provider and is not forwarded.
+
 ### `agent.tool_use` vs `agent.mcp_tool_use` vs `agent.custom_tool_use`
 
 Three call sites, one distinction Anthropic's own vocabulary already makes
@@ -577,17 +604,20 @@ would refuse is denied outright rather than asked about.
 ```
 
 `stop_reason.type` is one of Anthropic's own three (`end_turn`,
-`requires_action`, `user_interrupt`), plus one this process adds:
+`requires_action`, `user_interrupt`), plus three this process adds:
 
 | `stop_reason.type` | Anthropic's own | When |
 | --- | --- | --- |
 | `end_turn` | yes | The turn ended on its own terms — the model answered without a tool call, or called `complete` successfully. |
 | `requires_action` | yes | A custom tool call is pending; `stop_reason.event_ids` names it/them. |
 | `user_interrupt` | yes | `user.interrupt` ended the turn, or the process is shutting down. |
+| `truncated` | **no — this process's own** | The provider ended its last response at the token ceiling, so the answer in `harness.text` is cut off. Folding it into `end_turn` would read as a finished answer. |
+| `content_filter` | **no — this process's own** | The provider's content filter ended the last response. |
 | `complete_rejected` | **no — this process's own** | `complete`'s structured answer failed the result schema three times running. Anthropic's own three-value enum has nothing for a harness-specific validation loop; adding a fourth is more honest than folding it into `end_turn`, which a client would read as success. |
 
 `harness.reason` carries what `harness.reason` already carries on the other
-two dialects (`complete`, `no_tool_calls`, `complete_rejected`, `cancelled`),
+two dialects (`complete`, `no_tool_calls`, `truncated`, `content_filter`,
+`complete_rejected`, `cancelled`),
 plus `failed` for a run that ended in an error, which this dialect has no
 `status` field to carry — `stop_reason.type` is the coarse, Anthropic-shaped signal; `harness.reason`
 is the fine one, same division of labour `status`/`harness.reason` already

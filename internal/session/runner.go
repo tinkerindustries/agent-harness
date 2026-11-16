@@ -264,7 +264,8 @@ type RunResult struct {
 	// tool call (docs/DESIGN.md §4.6) — not a sign of anything wrong.
 	CompleteStatus string
 	// Reason is run_finished's reason for the run ending: "complete",
-	// "no_tool_calls", "complete_rejected". Status alone does not separate
+	// "no_tool_calls", "truncated", "content_filter", "complete_rejected".
+	// Status alone does not separate
 	// the ways a run can end without a valid result, and the queue result's
 	// error code is derived from this.
 	Reason string

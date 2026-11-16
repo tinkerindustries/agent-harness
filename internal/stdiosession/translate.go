@@ -58,6 +58,12 @@ type translator struct {
 
 	usage Usage
 
+	// blocks is the projection of the provider blocks the current sub-turn's
+	// reasoning event carried. They are committed ahead of the answer text
+	// they describe, so it waits here for the content event to annotate; a
+	// new sub-turn discards whatever was not used.
+	blocks pbProjection
+
 	// idMu guards the message-id map, which the append handler writes from
 	// its own goroutine while this translator reads it from the streaming
 	// one.
@@ -192,6 +198,93 @@ func (t *translator) foldDelta(method string, idx int, text string) {
 	}
 }
 
+// serverToolCalls emits one server_tool_call item for each tool the provider
+// ran itself. The loop never executes these, so they are reported complete:
+// the call and what it found arrive in the same response.
+func (t *translator) serverToolCalls(calls []pbServerTool) {
+	for _, c := range calls {
+		args := toolArguments(c.Input)
+		if len(args) == 0 {
+			args = toolArguments("{}")
+		}
+		h := &ItemHarness{ToolError: c.Error}
+		for _, s := range c.Sources {
+			h.Sources = append(h.Sources, Source{URL: s.URL, Title: s.Title})
+		}
+		idx := t.addItem(OutputItem{
+			Type: ItemServerToolCall, CallID: c.ID, Name: c.Name,
+			Arguments: args, Harness: h,
+		})
+		t.doneItem(idx)
+	}
+}
+
+// annotate attaches the citations the provider gave an answer to the message
+// item that holds it, each against the characters of the text block it was
+// attached to. It does nothing unless the projected blocks concatenate to
+// exactly the committed text, because an offset into any other text would
+// point at the wrong characters.
+func (t *translator) annotate(idx int, text string) {
+	if !t.blocks.annotated() || !t.blocks.matches(text) {
+		return
+	}
+	t.itemsMu.Lock()
+	defer t.itemsMu.Unlock()
+	pos, ok := t.itemAt[idx]
+	if !ok {
+		return
+	}
+	parts := t.items[pos].Content
+	if len(parts) != 1 || parts[0].Type != PartOutputText || parts[0].Text != text {
+		return
+	}
+	var notes []Annotation
+	offset := 0
+	for _, b := range t.blocks.Text {
+		end := offset + runeLen(b.Text)
+		for _, c := range b.Citations {
+			kind := "citation"
+			if c.URL != "" {
+				kind = "url_citation"
+			}
+			notes = append(notes, Annotation{
+				Type: kind, URL: c.URL, Title: c.Title,
+				StartIndex: offset, EndIndex: end, CitedText: c.CitedText,
+			})
+		}
+		offset = end
+	}
+	parts[0].Annotations = notes
+}
+
+// reconcile makes an open item's streamed text of one kind equal the
+// authoritative text the log committed for it, replacing it when the two
+// differ. The stream cannot retract text a client has already been sent, so
+// the corrected item rides on output_item.done and in every later
+// responses.get (docs/STDIO-PROTOCOL.md).
+func (t *translator) reconcile(idx int, kind, text string) {
+	t.itemsMu.Lock()
+	defer t.itemsMu.Unlock()
+	pos, ok := t.itemAt[idx]
+	if !ok {
+		return
+	}
+	item := &t.items[pos]
+	streamed := ""
+	for _, part := range item.Content {
+		if part.Type == kind {
+			streamed += part.Text
+		}
+	}
+	if streamed == text {
+		return
+	}
+	item.Content = nil
+	if text != "" {
+		item.Content = []ContentPart{{Type: kind, Text: text}}
+	}
+}
+
 func appendText(parts *[]ContentPart, kind, text string) {
 	if text == "" {
 		return
@@ -259,6 +352,7 @@ func (t *translator) Event(e store.Event) {
 		}
 		t.CloseText()
 		t.subTurn = p.SubTurn
+		t.blocks = pbProjection{}
 		t.emit(NotifyResponseInProgress, inProgress{
 			Type: NotifyResponseInProgress, SequenceNumber: t.next(),
 			ResponseID: t.responseID,
@@ -278,8 +372,18 @@ func (t *translator) Event(e store.Event) {
 				t.delta(NotifyReasoningTextDelta, t.reasoning, p.Text)
 			}
 		}
+		// The committed text is authoritative. The live deltas it follows can
+		// carry text the loop then discarded — a reasoning-starved attempt's
+		// reasoning, streamed before the retry that replaced it — and the item
+		// output_item.done carries must match the event log and the history
+		// replayed to the model, not the concatenation of both attempts.
+		t.reconcile(t.reasoning, PartReasoningText, p.Text)
 		t.doneItem(t.reasoning)
 		t.reasoning = -1
+		// Claude's structured response blocks ride on this event: the server
+		// tools it ran and the citations on its answer (providerblocks.go).
+		t.blocks = projectProviderBlocks(p.ProviderBlocks)
+		t.serverToolCalls(t.blocks.ServerTools)
 	case store.KindContentDelta:
 		var p store.ContentDeltaPayload
 		if json.Unmarshal(e.Payload, &p) != nil {
@@ -291,6 +395,8 @@ func (t *translator) Event(e store.Event) {
 				t.delta(NotifyOutputTextDelta, t.message, p.Text)
 			}
 		}
+		t.reconcile(t.message, PartOutputText, p.Text)
+		t.annotate(t.message, p.Text)
 		t.doneItem(t.message)
 		t.message = -1
 	case store.KindToolCall:
@@ -439,12 +545,40 @@ func (t *translator) CloseText() {
 // snapshot returns the response as assembled so far: the output items and
 // the running usage total. Safe to call while the run is still going, which
 // is what responses.get on an in-progress response needs.
+//
+// The result is a deep copy. The caller serialises it after this returns and
+// the lock is released, while the stream goroutine goes on appending to the
+// live items' content and arguments and to the usage's harness block, so
+// anything shared with them would change under the reader.
 func (t *translator) snapshot() ([]OutputItem, Usage) {
 	t.itemsMu.Lock()
 	defer t.itemsMu.Unlock()
 	items := make([]OutputItem, len(t.items))
-	copy(items, t.items)
-	return items, t.usage
+	for i, it := range t.items {
+		items[i] = it.clone()
+	}
+	usage := t.usage
+	if usage.Harness != nil {
+		h := *usage.Harness
+		usage.Harness = &h
+	}
+	return items, usage
+}
+
+// clone copies everything an item holds by reference, so the copy and the
+// original can be written and read independently.
+func (it OutputItem) clone() OutputItem {
+	it.Content = append([]ContentPart(nil), it.Content...)
+	it.Output = append([]ContentPart(nil), it.Output...)
+	for i := range it.Content {
+		it.Content[i].Annotations = append([]Annotation(nil), it.Content[i].Annotations...)
+	}
+	it.Arguments = append(toolArguments(nil), it.Arguments...)
+	if it.Harness != nil {
+		h := *it.Harness
+		it.Harness = &h
+	}
+	return it
 }
 
 func (t *translator) addUsage(u Usage) {
@@ -460,6 +594,7 @@ func (t *translator) addUsage(u Usage) {
 	}
 	if u.Harness != nil {
 		t.usage.Harness.CostUSD += u.Harness.CostUSD
+		t.usage.Harness.CacheWriteTokens += u.Harness.CacheWriteTokens
 	}
 }
 
@@ -472,16 +607,29 @@ func (t *translator) addUsage(u Usage) {
 // output_tokens is the whole output including reasoning, which is what the
 // surface means by it and what the harness bills: reasoning_tokens is a
 // breakdown of that total, not an addition to it.
+//
+// Input is the whole prompt: cache reads, ordinary input and cache writes.
+// Claude's cache-miss figure deliberately leaves writes out because they are
+// priced differently, so summing hit and miss alone would drop them from the
+// total precisely on the requests that populate the cache. Every other
+// provider records no writes, so for them nothing changes.
 func usageFrom(p store.UsagePayload) Usage {
-	input := p.PromptCacheHitTokens + p.PromptCacheMissTokens
+	input := inputTokens(p)
 	return Usage{
 		InputTokens:         input,
 		InputTokensDetails:  InputDetails{CachedTokens: p.PromptCacheHitTokens},
 		OutputTokens:        p.CompletionTokens,
 		OutputTokensDetails: OutputDetail{ReasoningTokens: p.ReasoningTokens},
 		TotalTokens:         input + p.CompletionTokens,
-		Harness:             &UsageX{CostUSD: p.CostUSD},
+		Harness:             &UsageX{CostUSD: p.CostUSD, CacheWriteTokens: p.PromptCacheWriteTokens},
 	}
+}
+
+// inputTokens is a stored request's whole prompt: cache reads, ordinary input
+// and cache writes. The three vocabularies each report input as one total, so
+// they share this rather than each rebuilding it from hit and miss.
+func inputTokens(p store.UsagePayload) int {
+	return p.PromptCacheHitTokens + p.PromptCacheMissTokens + p.PromptCacheWriteTokens
 }
 
 // Resource builds the `response` resource. The items and the usage come from
