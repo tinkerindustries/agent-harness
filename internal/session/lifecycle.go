@@ -381,6 +381,9 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 	for subTurn := startSubTurn; ; subTurn++ {
 		outcome, err := r.runSubTurn(ctx, curSess, &allEvents, opts, executor, detector, subTurn, &appliedSeq, &reminders, contextTokens)
 		if err != nil {
+			// A failed sub-turn can still carry the usage of a request that
+			// was billed before it failed (commitFailedUsage).
+			agg.add(outcome.usagePayload)
 			return r.fail(ctx, curSess, allEvents, subTurn-1, agg, err)
 		}
 		agg.add(outcome.usagePayload)
@@ -394,7 +397,7 @@ func (r *Runner) runLoop(ctx context.Context, curSess store.Session, allEvents [
 		// was owed; the next boundary is clear, so one more sub-turn delivers
 		// it rather than ending the run and withdrawing it unseen.
 		if !outcome.hasToolCalls && !outcome.deferred {
-			return r.finishRun(ctx, curSess, allEvents, "no_tool_calls", store.StatusOK,
+			return r.finishRun(ctx, curSess, allEvents, endReasonFor(outcome.finishReason), store.StatusOK,
 				outcome.text, nil, "", "", agg, subTurn)
 		}
 
@@ -593,6 +596,32 @@ func (r *Runner) abandonRun(ctx context.Context, sess store.Session, allEvents [
 	}
 	return r.finishRun(ctx, sess, allEvents, ReasonCompleteRejected, store.StatusFailed,
 		lastText, nil, "", "", agg, subTurn)
+}
+
+// Reasons a run that stopped asking for tools ended on. ReasonNoToolCalls is
+// the ordinary one: the model answered and asked for nothing else. The other
+// two are the provider ending the response early — the token ceiling
+// (finish reason "length") or a content filter — which leaves the text the
+// run finished with partial or withheld, and which a caller must be able to
+// tell from a finished answer. The run's session status stays ok, because the
+// loop itself ended cleanly; the reason is what carries the difference.
+const (
+	ReasonNoToolCalls   = "no_tool_calls"
+	ReasonTruncated     = "truncated"
+	ReasonContentFilter = "content_filter"
+)
+
+// endReasonFor is the run_finished reason for a run whose last sub-turn made
+// no tool calls, chosen by the provider's finish reason for that response.
+func endReasonFor(finishReason string) string {
+	switch finishReason {
+	case wire.FinishLength:
+		return ReasonTruncated
+	case wire.FinishContentFilter:
+		return ReasonContentFilter
+	default:
+		return ReasonNoToolCalls
+	}
 }
 
 // ReasonCompleteRejected is run_finished's reason for a run abandonRun ended.

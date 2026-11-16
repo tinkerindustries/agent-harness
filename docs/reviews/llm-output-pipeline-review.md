@@ -147,3 +147,47 @@ Cleanup of `.review-go-cache/` and `.review-go-mod/` was rejected by the approva
 4. Add citation/server-tool projections and cross-boundary fixtures.
 
 The recurring gap is that individual layers retain information, but the next boundary either drops it or assumes a simpler shape. Tests that begin with provider events and assert the final parent resource are the most useful protection here.
+
+## Resolution
+
+All six findings were addressed on the branch that follows this review. The
+tests start from provider events or committed events and assert what the
+parent receives (`internal/session/finishusage_test.go`,
+`internal/stdiosession/pipeline_test.go`).
+
+1. **Truncation.** `subTurnOutcome` now carries the finish reason. A run whose
+   last response made no tool calls ends with reason `truncated` (finish reason
+   `length`) or `content_filter` instead of `no_tool_calls`. The Responses and
+   Interactions dialects report status `incomplete` for both, and Managed Agents
+   reports `stop_reason.type` `truncated` / `content_filter`. The run's own
+   session status stays `ok`, since the loop ended cleanly, and the partial text
+   still comes back in `harness.text`.
+2. **Usage on failure.** `Runner.stream` returns the usage it collected along
+   with a stream error, and `commitFailedUsage` writes it as usage events, for
+   both a failed first request and a failed starvation retry, without writing
+   any reasoning, content or `turn_finished`. `primeDetector` ignores usage from
+   a sub-turn that never finished, so a resume's churn baseline is unchanged.
+3. **Cache writes.** All three dialects build input from hit + miss + write.
+   Responses reports `harness.cache_write_tokens`, Managed Agents reports
+   `cache_creation_input_tokens` (and its `input_tokens` semantics are now
+   documented), and Interactions reports `harness.cache_write_tokens`. Providers
+   that record no writes are unchanged. Input is rebuilt from the three parts
+   rather than taken from the stored prompt total, so that providers whose
+   stored total is not their hit + miss sum report exactly what they did.
+4. **Retry reasoning.** Rather than invent a retraction frame, the committed
+   event now overwrites the streamed text of the open item (Responses,
+   Interactions), so `output_item.done` and `get` match the log. Managed Agents
+   already built its final event from the committed text. A client that
+   assembles from deltas replaces the item with the `.done` one.
+5. **Snapshots.** The three translators' `snapshot` now deep-copy items, steps
+   and events, their argument bytes and usage blocks.
+6. **Citations.** `providerblocks.go` projects the stored provider blocks.
+   Responses gets `annotations` on `output_text` and a `server_tool_call` item;
+   Managed Agents gets per-block `citations` and `agent.tool_use` /
+   `agent.tool_result` pairs marked `harness.server_tool`. Encrypted search
+   content, citation indices and thinking signatures are not forwarded.
+   Interactions hosts Gemini alone and is not changed for this.
+
+Not done: a race-detector run and a citation test through the real Anthropic stream decoder, which is
+unexported from `internal/anthropic`. The citation tests use the block shape
+`internal/anthropic/stream.go` renders.

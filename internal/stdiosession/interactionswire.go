@@ -153,6 +153,9 @@ type iactUsage struct {
 type iactUsageX struct {
 	CostUSD  float64 `json:"cost_usd"`
 	SubTurns int     `json:"sub_turns,omitempty"`
+	// CacheWriteTokens is the part of total_input_tokens written into a prompt
+	// cache; only Claude reports it, and this dialect hosts Gemini alone today.
+	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
 }
 
 // iactInteraction is Google's iactInteraction resource, narrowed to the fields this
