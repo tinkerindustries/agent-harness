@@ -291,10 +291,20 @@ type BackgroundFinishedPayload struct {
 	Wedged   bool   `json:"wedged,omitempty"`
 }
 
-// Message is the text the model reads for this exit: what ended, how, and the
-// job_output call that still has its output. Fold and every parent-facing
-// translator build the message here so they cannot word it differently.
+// Message is the text for this exit in the harness's canonical tool names:
+// what ended, how, and the job_output call that still has its output. Every
+// parent-facing translator builds it here, and so does the fold for a session
+// whose array names the tools canonically, so the two cannot word it
+// differently.
 func (p BackgroundFinishedPayload) Message() string {
+	return p.MessageFor("job_output", "job_id")
+}
+
+// MessageFor is Message with the output tool and its id argument named the
+// way the session's array offers them (internal/toolvocab): the fold renders
+// a Claude session's notice with TaskOutput and task_id, the call that model
+// can actually make. Only the names differ.
+func (p BackgroundFinishedPayload) MessageFor(outputTool, idArg string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Background shell %s ", p.BashID)
 	if c := commandSummary(p.Command); c != "" {
@@ -308,7 +318,7 @@ func (p BackgroundFinishedPayload) Message() string {
 	default:
 		fmt.Fprintf(&b, "finished with exit code %d.", p.ExitCode)
 	}
-	fmt.Fprintf(&b, " Its output is still readable with job_output using job_id %q.", p.BashID)
+	fmt.Fprintf(&b, " Its output is still readable with %s using %s %q.", outputTool, idArg, p.BashID)
 	return b.String()
 }
 

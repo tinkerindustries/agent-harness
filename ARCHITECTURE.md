@@ -138,8 +138,10 @@ mcpclient ───────────────────────�
 level above the shared types. `deepseek`'s row stands for four sibling
 packages, not one: `internal/kimi`, `internal/gemini` and
 `internal/anthropic` sit at the same level, reading `wire` directly and
-depending on nothing else internal. `cache` and `promptvariant` import
-`wire` directly as well, and `provider` — the model→provider table both
+depending on nothing else internal. `cache`, `promptvariant` and
+`toolvocab` — how a tool array names the harness's tools to the model, read by
+`tools`, `session` and `fold` — import `wire` directly as well, and
+`provider` — the model→provider table both
 client construction and request validation consult
 (docs/KIMI-INTEGRATION.md §4.3) — is a leaf beside it.
 

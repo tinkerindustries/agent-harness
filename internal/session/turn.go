@@ -14,6 +14,7 @@ import (
 	"github.com/mrgeoffrich/agent-harness/internal/hub"
 	"github.com/mrgeoffrich/agent-harness/internal/store"
 	"github.com/mrgeoffrich/agent-harness/internal/tools"
+	"github.com/mrgeoffrich/agent-harness/internal/toolvocab"
 	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
@@ -408,6 +409,17 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 			toolCalls[i].Name, sess.ID, subTurn)
 		toolCalls[i].Arguments = repaired
 	}
+	// A Claude model calls Claude Code's tools — Bash with timeout,
+	// TaskOutput with task_id — and everything from here on speaks the
+	// harness's canonical vocabulary: the log, the executor, the policy and
+	// deny patterns, the live plan, and every parent-facing frame
+	// (internal/toolvocab). The translation happens once, here, after the
+	// repair above has fixed the model's own bytes. History goes back to the
+	// model in its own vocabulary in stream.
+	vocab := toolvocab.Of(opts.Tools)
+	for i := range toolCalls {
+		toolCalls[i].Name, toolCalls[i].Arguments = vocab.FromModel(toolCalls[i].Name, toolCalls[i].Arguments)
+	}
 
 	var inputs []store.EventInput
 	// The discarded attempt is committed ahead of everything the retry
@@ -719,9 +731,12 @@ func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestItems
 func (r *Runner) stream(ctx context.Context, model string, toolArray []wire.Tool, items []wire.Item, effort string, thinking bool, maxTokens int, live *liveSink) (
 	reasoning, content string, assembler *wire.ToolCallAssembler, finishReason string, usage *wire.Usage, signature string, providerBlocks json.RawMessage, err error) {
 
+	// The log holds every call under its canonical name; a model offered
+	// another vocabulary reads its own past calls in that one
+	// (internal/toolvocab). items is the identity for every other array.
 	intent := wire.ChatIntent{
 		Model:     model,
-		Items:     items,
+		Items:     toolvocab.Of(toolArray).ItemsToModel(items),
 		Effort:    effort,
 		Thinking:  thinking,
 		MaxTokens: maxTokens,

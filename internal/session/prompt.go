@@ -3,11 +3,13 @@ package session
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/mrgeoffrich/agent-harness/internal/promptvariant"
 	"github.com/mrgeoffrich/agent-harness/internal/tools"
+	"github.com/mrgeoffrich/agent-harness/internal/toolvocab"
 	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
@@ -62,10 +64,15 @@ var toolOrder = []string{
 // whose array is the DeepSeek or Kimi one renders the frozen head byte for
 // byte (TestPromptGolden); a variant that subtracts tools (internal/prompt
 // variant) renders the same head with those tools' names and rules gone.
+//
+// The names it returns are canonical whatever vocabulary the array offers
+// them in (internal/toolvocab): toolOrder and the fragments' needs are
+// written in the harness's own names.
 func toolNamesInOrder(array []wire.Tool) []string {
+	vocab := toolvocab.Of(array)
 	have := make(map[string]bool, len(array))
 	for _, t := range array {
-		have[t.Function.Name] = true
+		have[vocab.Canonical(t.Function.Name)] = true
 	}
 	names := make([]string, 0, len(array))
 	for _, name := range toolOrder {
@@ -158,13 +165,23 @@ type toolFragment struct {
 	// (seesImages in runner.go), and no tool array says so — so it is
 	// selected here rather than by which tools happen to be present.
 	seesImages *bool
-	// text is the fragment's contribution, byte for byte the frozen head's.
+	// claudeCode, when set, additionally requires the array's vocabulary to
+	// match: true renders only for an array offering Claude Code's tools
+	// under Claude Code's names, false only for one in the harness's own
+	// (internal/toolvocab). It is for the one rule whose wording turns on a
+	// tool's shape rather than its name — TaskCreate adds one task per call
+	// where task_create takes the whole plan.
+	claudeCode *bool
+	// text is the fragment's contribution, byte for byte the frozen head's
+	// once every {name} in it is replaced by the name the array offers that
+	// tool under (expandToolNames). A tool named in prose is always written
+	// as a placeholder; the verb "read" and the shell "bash" are not.
 	text string
 }
 
 // renders reports whether the fragment belongs in a head assembled for this
 // tool set and provider capability.
-func (f toolFragment) renders(have map[string]bool, seesImages bool) bool {
+func (f toolFragment) renders(have map[string]bool, seesImages, claudeCode bool) bool {
 	for _, name := range f.needs {
 		if !have[name] {
 			return false
@@ -176,6 +193,9 @@ func (f toolFragment) renders(have map[string]bool, seesImages bool) bool {
 		}
 	}
 	if f.seesImages != nil && *f.seesImages != seesImages {
+		return false
+	}
+	if f.claudeCode != nil && *f.claudeCode != claudeCode {
 		return false
 	}
 	return true
@@ -203,9 +223,9 @@ func capability(b bool) *bool { return &b }
 var toolFragments = []toolFragment{
 	{
 		needs: []string{"read", "write", "edit"},
-		text: `- Call read on a file before overwriting it with write or changing it with
-  edit. edit requires an exact, unique match of old_string against the file's
-  real bytes; the line-number prefix read shows you is for your reference only
+		text: `- Call {read} on a file before overwriting it with {write} or changing it with
+  {edit}. {edit} requires an exact, unique match of old_string against the file's
+  real bytes; the line-number prefix {read} shows you is for your reference only
   and must never appear inside old_string.
 `,
 	},
@@ -219,19 +239,19 @@ var toolFragments = []toolFragment{
 	},
 	{
 		needs: []string{"read", "grep", "glob", "bash"},
-		text: `- Send independent tool calls together in one message. Several read calls, a
-  grep beside a glob, bash commands that do not depend on each other —
+		text: `- Send independent tool calls together in one message. Several {read} calls, a
+  {grep} beside a {glob}, {bash} commands that do not depend on each other —
   batched, they run concurrently and cost one round trip instead of five. Two
   calls that write the same file are the one exception: they are applied in
   the order you sent them, never merged, so the second is working from bytes
-  the first has already replaced. Make the change in a single edit where you
+  the first has already replaced. Make the change in a single {edit} where you
   can, and where you cannot, send the second only after seeing the first land.
 `,
 	},
 	{
 		needs: []string{"read", "grep", "glob"},
-		text: `- Use read to inspect files, with offset and limit for large files. Use glob
-  to discover file paths and grep to search file contents. Read matched files
+		text: `- Use {read} to inspect files, with offset and limit for large files. Use {glob}
+  to discover file paths and {grep} to search file contents. Read matched files
   when you need surrounding context.
 `,
 	},
@@ -244,8 +264,8 @@ var toolFragments = []toolFragment{
 	},
 	{
 		needs: []string{"bash"},
-		text: `- Use bash to run builds, tests, git commands and other shell operations.
-  Check each bash result for errors, nonzero exit codes and timeouts.
+		text: `- Use {bash} to run builds, tests, git commands and other shell operations.
+  Check each {bash} result for errors, nonzero exit codes and timeouts.
   Investigate failures before continuing. Run relevant code or tests to
   verify changes, and report any checks you could not run.
 `,
@@ -259,19 +279,35 @@ var toolFragments = []toolFragment{
 	{
 		needs: []string{"bash", "job_output", "job_kill", "job_list"},
 		text: `- A dev server, a watcher, or anything else meant to keep running rather
-  than finish belongs in bash with run_in_background set, not backgrounded
-  with & inside an ordinary call. Read what it has produced with job_output,
+  than finish belongs in {bash} with run_in_background set, not backgrounded
+  with & inside an ordinary call. Read what it has produced with {job_output},
   which returns only what is new since the last time you read it, and stop
-  it with job_kill when you are done with it rather than leaving it running.
-  job_list names every job the session has started, with its command and
+  it with {job_kill} when you are done with it rather than leaving it running.
+  {job_list} names every job the session has started, with its command and
   whether it is still running. When a background job exits it starts a new
   turn telling you, so end your turn to wait for a build or a gate instead of
   polling it.
 `,
 	},
 	{
-		needs: []string{"task_create", "task_get", "task_list", "task_update"},
-		text: `- A task that takes three or more steps gets a plan. Call task_create once, at
+		// The same rule for an array with no job_list, which is Claude
+		// Code's: TaskOutput and TaskStop are all it has for a
+		// background task.
+		needs:  []string{"bash", "job_output", "job_kill"},
+		unless: []string{"job_list"},
+		text: `- A dev server, a watcher, or anything else meant to keep running rather
+  than finish belongs in {bash} with run_in_background set, not backgrounded
+  with & inside an ordinary call. Read what it has produced with {job_output},
+  which returns only what is new since the last time you read it, and stop
+  it with {job_kill} when you are done with it rather than leaving it running.
+  When a background job exits it starts a new turn telling you, so end your
+  turn to wait for a build or a gate instead of polling it.
+`,
+	},
+	{
+		needs:      []string{"task_create", "task_get", "task_list", "task_update"},
+		claudeCode: capability(false),
+		text: `- A task that takes three or more steps gets a plan. Call {task_create} once, at
   the start, with one entry per step. Every entry needs all three of: subject,
   a short title like "Run the test suite"; description, what the step
   involves; activeForm, the subject in the present continuous, like "Running
@@ -280,41 +316,53 @@ var toolFragments = []toolFragment{
 `,
 	},
 	{
+		// Claude Code's TaskCreate adds one task per call.
+		needs:      []string{"task_create", "task_get", "task_list", "task_update"},
+		claudeCode: capability(true),
+		text: `- A task that takes three or more steps gets a plan. At the start, call
+  {task_create} once for each step, in order. Give every one all three of:
+  subject, a short title like "Run the test suite"; description, what the
+  step involves; activeForm, the subject in the present continuous, like
+  "Running the test suite", which a human watching the run sees while that
+  step is in progress. A one- or two-step task needs no plan — do the work.
+`,
+	},
+	{
 		needs: []string{"task_create", "task_get", "task_list", "task_update", "bash"},
-		text: `- Set a task to in_progress with task_update before starting it, and to
-  completed with task_update as soon as it is done. Keep exactly one task
+		text: `- Set a task to in_progress with {task_update} before starting it, and to
+  completed with {task_update} as soon as it is done. Keep exactly one task
   in_progress. Send each update at the moment the step changes state, even
-  mid-stream through a long run of bash or edit calls, rather than saving the
+  mid-stream through a long run of {bash} or {edit} calls, rather than saving the
   updates for the end of the run.
 `,
 	},
 	{
 		needs:  []string{"task_create", "task_get", "task_list", "task_update"},
 		unless: []string{"bash"},
-		text: `- Set a task to in_progress with task_update before starting it, and to
-  completed with task_update as soon as it is done. Keep exactly one task
+		text: `- Set a task to in_progress with {task_update} before starting it, and to
+  completed with {task_update} as soon as it is done. Keep exactly one task
   in_progress. Send each update at the moment the step changes state, even
-  mid-stream through a long run of edit calls, rather than saving the
+  mid-stream through a long run of {edit} calls, rather than saving the
   updates for the end of the run.
 `,
 	},
 	{
 		needs: []string{"task_create", "task_get", "task_list", "task_update"},
-		text: `- One task_update call names one taskId and sets the one or two fields that
+		text: `- One {task_update} call names one taskId and sets the one or two fields that
   changed. Do not re-send the whole plan.
 - Mark a task completed only when it actually worked. If a step's command
   failed or its fix did not hold, leave that task in_progress and call
-  task_create for what is still outstanding. A plan of completed tasks that
+  {task_create} for what is still outstanding. A plan of completed tasks that
   did not work produces a false summary at the end of the run.
-- Call task_list to re-read the plan when you have lost track of it, and
-  task_get with a taskId to re-read one task's description. Read the plan back
+- Call {task_list} to re-read the plan when you have lost track of it, and
+  {task_get} with a taskId to re-read one task's description. Read the plan back
   after a long stretch of work rather than guessing what is left.
 `,
 	},
 	{
 		needs: []string{"task", "web_fetch"},
-		text: `- Delegate self-contained side work to task when it would otherwise clutter
-  this conversation, and use web_fetch to read documentation or a URL you
+		text: `- Delegate self-contained side work to {task} when it would otherwise clutter
+  this conversation, and use {web_fetch} to read documentation or a URL you
   were given.
 `,
 	},
@@ -381,7 +429,7 @@ var toolFragments = []toolFragment{
 	},
 	{
 		seesImages: capability(true),
-		text: `- You can see images: read returns the image when the path is a PNG, JPEG, or
+		text: `- You can see images: {read} returns the image when the path is a PNG, JPEG, or
   WebP file.
 `,
 	},
@@ -393,21 +441,31 @@ var toolFragments = []toolFragment{
 // are deterministic — a pure function of names and seesImages — so every
 // session with the same tool set shares the same head, the prompt cache's
 // prefix (docs/CACHE.md).
-func renderSystemPromptFor(names []string, seesImages bool) string {
+//
+// The array may name its tools in another vocabulary than the harness's own
+// (internal/toolvocab) — Claude's names Claude Code's tools. Which fragments
+// render is decided on the canonical names, and the inventory and every
+// rule name each tool the way the array offers it, so a Claude head says
+// "Call Read" where every other says "Call read".
+func renderSystemPromptFor(array []wire.Tool, seesImages bool) string {
+	vocab := toolvocab.Of(array)
+	names := toolNamesInOrder(array)
 	have := make(map[string]bool, len(names))
-	for _, name := range names {
+	exposed := make([]string, len(names))
+	for i, name := range names {
 		have[name] = true
+		exposed[i] = vocab.Exposed(name)
 	}
 	var b strings.Builder
 	b.WriteString(promptPreamble)
-	b.WriteString(inventorySentence(names))
+	b.WriteString(inventorySentence(exposed))
 	b.WriteString("All ")
 	b.WriteString(numberWord(len(names)))
 	b.WriteString(availabilityTail)
 	b.WriteString("Rules:\n")
 	for _, f := range toolFragments {
-		if f.renders(have, seesImages) {
-			b.WriteString(f.text)
+		if f.renders(have, seesImages, vocab.ClaudeCode()) {
+			b.WriteString(expandToolNames(f.text, vocab))
 		}
 	}
 	// Every fragment ends with a newline so that adding one to the end of
@@ -418,6 +476,19 @@ func renderSystemPromptFor(names []string, seesImages bool) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+// toolPlaceholder is a tool named in a fragment's text: {read}, {job_output}.
+var toolPlaceholder = regexp.MustCompile(`\{([a-z_]+)\}`)
+
+// expandToolNames replaces every {name} in a fragment's text with the name
+// the array offers that tool under. An array in the harness's own
+// vocabulary gets the canonical names back, byte for byte the head before
+// the fragments were written with placeholders (TestPromptGolden).
+func expandToolNames(text string, vocab toolvocab.Vocabulary) string {
+	return toolPlaceholder.ReplaceAllStringFunc(text, func(m string) string {
+		return vocab.Exposed(m[1 : len(m)-1])
+	})
+}
+
 // RenderSystemPrompt returns the frozen prompt for the base tool array. It
 // is what a caller with no provider in hand renders — the tests that pin the
 // head's bytes, and any direct CLI caller — and it is not what any provider's
@@ -425,7 +496,7 @@ func renderSystemPromptFor(names []string, seesImages bool) string {
 // Sessions store their render directly on creation and never call it again
 // for the life of that session (docs/CACHE.md).
 func RenderSystemPrompt() string {
-	return renderSystemPromptFor(toolNamesInOrder(tools.Definitions()), false)
+	return renderSystemPromptFor(tools.Definitions(), false)
 }
 
 // RenderSystemPromptFor returns the frozen system prompt for the provider
@@ -440,7 +511,7 @@ func RenderSystemPrompt() string {
 // (tools.DefinitionsForVariant) renders the head for its own smaller array,
 // with no replacements entry needed to keep the inventory truthful.
 func RenderSystemPromptFor(model, variant string) (string, error) {
-	base := renderSystemPromptFor(toolNamesInOrder(tools.DefinitionsForVariant(model, variant)), seesImages(model))
+	base := renderSystemPromptFor(tools.DefinitionsForVariant(model, variant), seesImages(model))
 	return promptvariant.Apply(variant, base)
 }
 
@@ -645,7 +716,7 @@ func completeExample(resultSchema json.RawMessage) string {
 // cache checkpoint rather than just more body text in a user message
 // (docs/CACHE.md).
 func RenderCompactionSummarySystemPromptFor(model, variant, summary string) string {
-	base := renderSystemPromptFor(toolNamesInOrder(tools.DefinitionsForVariant(model, variant)), seesImages(model))
+	base := renderSystemPromptFor(tools.DefinitionsForVariant(model, variant), seesImages(model))
 	return base + compactionSummaryIntro + summary
 }
 

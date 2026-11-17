@@ -19,6 +19,7 @@ import (
 	"github.com/mrgeoffrich/agent-harness/internal/pricing"
 	"github.com/mrgeoffrich/agent-harness/internal/settings"
 	"github.com/mrgeoffrich/agent-harness/internal/store"
+	"github.com/mrgeoffrich/agent-harness/internal/toolvocab"
 	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
@@ -304,6 +305,14 @@ type Executor struct {
 	// BrowserProxy is the proxy the `screenshot` browser is launched with.
 	// Nil launches it with none.
 	BrowserProxy *BrowserProxy
+
+	// Vocabulary is how the session's tool array names the tools to the
+	// model (internal/toolvocab). Calls reach Execute already in canonical
+	// form; this is read only where a result's own text names another tool
+	// for the model to call next, so a Claude model is pointed at TaskOutput
+	// rather than at a job_output it was never offered. The zero value names
+	// every tool canonically.
+	Vocabulary toolvocab.Vocabulary
 
 	// Settings, when set, is where the tool limits (output caps, timeouts,
 	// web_fetch and vision bounds) resolve from on every call, so a limit

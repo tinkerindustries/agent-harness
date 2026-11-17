@@ -296,10 +296,17 @@ func TestApplyPatchReportsEveryFileItChanged(t *testing.T) {
 }
 
 // TestApplyPatchIsInEveryProviderArray pins the membership the phase asks
-// for: the tool sits in the base array, so it reaches Kimi's, Gemini's and
-// Claude's arrays, and it survives DeepSeek's seven-name subtraction.
+// for: the tool sits in the base array, so it reaches Kimi's and Gemini's
+// arrays, and it survives DeepSeek's seven-name subtraction. Claude's array is
+// Claude Code's tools, which have no patch tool, so it is the one array
+// without it.
 func TestApplyPatchIsInEveryProviderArray(t *testing.T) {
-	for _, model := range []string{"deepseek-v4-pro", "deepseek-flash", "kimi-k3", "gemini-3.7-flash", "claude-sonnet-5-5"} {
+	for _, tool := range DefinitionsFor("claude-sonnet-5-5") {
+		if tool.Function.Name == "apply_patch" {
+			t.Error("Claude's array carries apply_patch, which Claude Code has no counterpart for")
+		}
+	}
+	for _, model := range []string{"deepseek-v4-pro", "deepseek-flash", "kimi-k3", "gemini-3.7-flash"} {
 		found := false
 		for _, tool := range DefinitionsFor(model) {
 			if tool.Function.Name == "apply_patch" {

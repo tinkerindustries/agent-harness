@@ -19,6 +19,7 @@ import (
 	"github.com/mrgeoffrich/agent-harness/internal/skills"
 	"github.com/mrgeoffrich/agent-harness/internal/store"
 	"github.com/mrgeoffrich/agent-harness/internal/tools"
+	"github.com/mrgeoffrich/agent-harness/internal/toolvocab"
 	"github.com/mrgeoffrich/agent-harness/internal/wire"
 )
 
@@ -210,6 +211,7 @@ func (r *Runner) Run(ctx context.Context, opts RunOptions) (result *RunResult, r
 	executor.Prices = r.Prices
 	executor.FlashModel = r.flashModel(ctx)
 	executor.SeeImages = seesImages(opts.Model)
+	executor.Vocabulary = toolvocab.Of(opts.Tools)
 	executor.Gemini = r.Gemini
 	executor.GeminiModel = r.GeminiModel
 	executor.Settings = r.Settings

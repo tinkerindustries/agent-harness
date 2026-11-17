@@ -41,8 +41,9 @@ model that could not see would carry the vision tools built to compensate,
 four of which reach Google
 ([`../docs/DEEPSEEK-VISION.md`](../docs/DEEPSEEK-VISION.md)). The Claude
 models read images natively too, and their tool array
-(`internal/tools.DefinitionsFor`) drops the harness's own `web_fetch` in
-favour of Anthropic's own server-side `web_search` and `web_fetch`
+(`internal/tools.DefinitionsFor`) is Claude Code's own tools under Claude
+Code's names, without the harness's own `web_fetch`, in favour of
+Anthropic's own server-side `web_search` and `web_fetch`
 ([`../docs/ANTHROPIC-INTEGRATION.md`](../docs/ANTHROPIC-INTEGRATION.md)).
 `claude-session`'s own `Runner.ToolTimeouts.HostTool` is set to a figure with
 no natural ceiling: its client-declared tools resolve on an asynchronous
@@ -384,13 +385,18 @@ Every tool the model can call: schemas matching the trained-in shape, argument
 validation in Go, workspace confinement, per-tool timeouts and output caps, and
 the permission policy that gates execution. Also owns the frozen tool
 definitions the request head carries (`definitions.go`): the base array, the
-vision-capable array the base yields once the six vision tools come off, the
-Claude array that drops the harness's `web_fetch` as well, and DeepSeek's
-hosted array, which is the vision-capable one minus `list`, the four task
-tools, `task` and `complete`. `DefinitionsForVariant` resolves a session's
-array from those through the provider→model table and subtracts the named
-variant's dropped tools (`internal/promptvariant`), so a variant session's
-row, head, and requests all carry the same smaller array. The catalogue and its wording are
+vision-capable array the base yields once the six vision tools come off,
+DeepSeek's hosted array, which is the vision-capable one minus `list`, the
+four task tools, `task` and `complete`, and the Claude array
+(`definitions_claude.go`), Claude Code's own tools under Claude Code's names
+and argument spellings, written out rather than derived. `DefinitionsForVariant`
+resolves a session's array from those through the provider→model table and
+subtracts the named variant's dropped tools (`internal/promptvariant`, named
+canonically and turned into the array's own names through
+`internal/toolvocab`), so a variant session's row, head, and requests all
+carry the same smaller array. Calls reach `Executor.Execute` in canonical
+form; `Executor.Vocabulary` is read only where a result's own text names the
+next tool to call. The catalogue and its wording are
 [`../docs/TOOLS.md`](../docs/TOOLS.md); a change here is a cache-prefix change.
 It also declares `MCPProvider`, the narrow seam `internal/mcpclient`
 implements, and owns the `mcp__` naming vocabulary
@@ -415,8 +421,22 @@ than a poll result. `Guard` (guard.go) is the seam the autonomy guard plugs into
 given one asks it about each `bash` call under `full`, after the policy has
 allowed the call, and a refusal comes back as an ordinary denial. Depends on:
 `internal/wire`, `internal/provider`, `internal/promptvariant`,
-`internal/attachment` (the image-extension-to-MIME-type table the vision
-tools read images by).
+`internal/toolvocab`, `internal/attachment` (the image-extension-to-MIME-type
+table the vision tools read images by).
+
+### `internal/toolvocab`
+How one tool array names the harness's tools to the model. The harness has one
+vocabulary of its own — the canonical names `internal/tools` dispatches on,
+the log records, the policy and deny patterns match and every parent-facing
+frame shows — and a Claude array offers Claude Code's instead (`Read`, `Bash`
+with `timeout`, `TaskOutput` with `task_id`, one-task `TaskCreate`, `Agent`).
+`Of` builds a `Vocabulary` from an array, so it is a pure function of the
+array frozen on the session row; `FromModel` turns a call into canonical form
+before `internal/session` commits it, `ItemsToModel` turns logged history back
+for the request, and `Exposed`/`ExposedArg` name a tool in the prompt, a
+backgrounded command's reply and `internal/fold`'s background-exit notice. The
+zero value is the identity. [`../docs/TOOLS.md`](../docs/TOOLS.md), "Claude's
+array". Depends on: `internal/wire`.
 
 ### `internal/guard`
 The client of the parent's `POST /classify` endpoint, and nothing else: `Client.Classify`
@@ -430,7 +450,10 @@ says what the guard allows or blocks. Depends on nothing internal.
 ### `internal/fold`
 Folds the event log into the wire `messages` array (`internal/wire`'s
 `Message`, the shape every provider's Chat-Completions-style request is
-rendered from). Pure, append-only, a switch on event kind. §4.1.
+rendered from). Pure, append-only, a switch on event kind. The one thing it
+reads off the session row beyond the system prompt is the frozen tool array,
+through `internal/toolvocab`, so a background shell's exit notice names the
+output tool the way the session's model was offered it. §4.1.
 
 ### `internal/store`
 SQLite (`modernc.org/sqlite`, pure Go, WAL) plus the derived disk mirror under
