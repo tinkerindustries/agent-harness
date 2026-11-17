@@ -3,8 +3,24 @@ package stdiosession
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
+
+// symlinkOrSkip makes link point at target. Windows refuses to create a
+// symlink without Developer Mode or an elevated process, and a directory
+// junction is no substitute — filepath.EvalSymlinks has not followed mount
+// points since Go 1.23 — so there the check that needs one is skipped rather
+// than failed. Anywhere else a failure is a real one.
+func symlinkOrSkip(t *testing.T, target, link string) {
+	t.Helper()
+	if err := os.Symlink(target, link); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("symlink: %v (Windows needs Developer Mode or an elevated process to create one)", err)
+		}
+		t.Fatalf("symlink: %v", err)
+	}
+}
 
 // TestSameDirFollowsTheFilesystem pins that two spellings of one directory
 // compare equal. A run started by a background completion carries the session
@@ -16,18 +32,21 @@ func TestSameDirFollowsTheFilesystem(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	link := filepath.Join(t.TempDir(), "same-dir")
-	if err := os.Symlink(real, link); err != nil {
-		t.Fatalf("symlink: %v", err)
-	}
 	sep := string(filepath.Separator)
 
-	if !sameDir(real, link) {
-		t.Errorf("sameDir(%q, %q) = false, want true", real, link)
-	}
-	if !sameDir(link+sep, real+sep+".") {
+	if !sameDir(real+sep, real+sep+".") {
 		t.Error("a trailing separator and a . component make one directory compare unequal")
 	}
+	t.Run("through a symlink", func(t *testing.T) {
+		link := filepath.Join(t.TempDir(), "same-dir")
+		symlinkOrSkip(t, real, link)
+		if !sameDir(real, link) {
+			t.Errorf("sameDir(%q, %q) = false, want true", real, link)
+		}
+		if !sameDir(link+sep, real+sep+".") {
+			t.Error("a trailing separator and a . component make one directory compare unequal")
+		}
+	})
 	if sameDir(real, t.TempDir()) {
 		t.Error("two different directories compare equal")
 	}

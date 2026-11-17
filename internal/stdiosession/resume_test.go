@@ -316,9 +316,6 @@ func TestResumeUnknownSession(t *testing.T) {
 func TestResumeRefusesAChangedPrefix(t *testing.T) {
 	dir, cwd := t.TempDir(), t.TempDir()
 	alias := filepath.Join(t.TempDir(), "same-dir")
-	if err := os.Symlink(cwd, alias); err != nil {
-		t.Fatalf("symlink: %v", err)
-	}
 	a := newFixtureIn(t, dir, cwd, answer("first"))
 	a.client.handshake(ClientCapabilities{})
 	var one CreateResult
@@ -337,18 +334,24 @@ func TestResumeRefusesAChangedPrefix(t *testing.T) {
 		edit     func(*CreateParams)
 		want     string
 		accepted bool
+		// symlink makes alias point at cwd before the case runs; the case
+		// is skipped where the OS will not create one (symlinkOrSkip).
+		symlink bool
 	}{
-		{"a different directory", func(p *CreateParams) { p.Harness.CWD = t.TempDir() }, "cannot change directory", false},
+		{"a different directory", func(p *CreateParams) { p.Harness.CWD = t.TempDir() }, "cannot change directory", false, false},
 		// The session row holds the resolved workspace, so a client that
 		// names the same directory through a symlink is naming the one it
 		// already works in.
-		{"the same directory through a symlink", func(p *CreateParams) { p.Harness.CWD = alias }, "", true},
-		{"a different permission mode", func(p *CreateParams) { p.Harness.PermissionMode = "full" }, "permission mode", false},
-		{"a different deny list", func(p *CreateParams) { p.Harness.Deny = []string{"git push"} }, "deny patterns", false},
-		{"a different model", func(p *CreateParams) { p.Model = testAltModel }, "cannot change model", false},
+		{"the same directory through a symlink", func(p *CreateParams) { p.Harness.CWD = alias }, "", true, true},
+		{"a different permission mode", func(p *CreateParams) { p.Harness.PermissionMode = "full" }, "permission mode", false, false},
+		{"a different deny list", func(p *CreateParams) { p.Harness.Deny = []string{"git push"} }, "deny patterns", false, false},
+		{"a different model", func(p *CreateParams) { p.Model = testAltModel }, "cannot change model", false, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.symlink {
+				symlinkOrSkip(t, cwd, alias)
+			}
 			p := resumeParams(sessionID, "second task")
 			tc.edit(&p)
 			var out CreateResult
