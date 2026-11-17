@@ -542,8 +542,15 @@ func harnessCreate(t *testing.T, invoked, method, model, capabilities, extra str
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// The directory is JSON-encoded rather than spliced in raw: a Windows
+	// path's backslashes are invalid escapes in a JSON string, and the frame
+	// would be refused as malformed before the create it carries is read.
+	cwd, err := json.Marshal(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	create := `{"jsonrpc":"2.0","id":2,"method":"` + method + `","params":{"model":"` + model + `","input":"hi",` +
-		`"harness":{"cwd":"` + t.TempDir() + `","permission_mode":"full",` + extra + `}}}`
+		`"harness":{"cwd":` + string(cwd) + `,"permission_mode":"full",` + extra + `}}}`
 	in := strings.NewReader(
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"client_info":{"name":"test"},"capabilities":` + capabilities + `}}` + "\n" +
 			`{"jsonrpc":"2.0","method":"initialized","params":{}}` + "\n" +

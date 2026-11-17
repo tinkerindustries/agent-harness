@@ -2,7 +2,6 @@ package stdiosession
 
 import (
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -692,9 +691,7 @@ func TestContinuedCreateAcceptsTheSameDirectoryRespelled(t *testing.T) {
 		t.Fatal(err)
 	}
 	link := filepath.Join(t.TempDir(), "same-dir")
-	if err := os.Symlink(real, link); err != nil {
-		t.Fatalf("symlink: %v", err)
-	}
+	symlinkOrSkip(t, real, link)
 
 	f := newFixtureIn(t, t.TempDir(), real, answer("first"), answer("second"))
 	f.client.handshake(ClientCapabilities{})
