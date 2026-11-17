@@ -723,8 +723,9 @@ The frames this process does **not** send, which the HTTP surface does:
 `response.reasoning_text.done`, `response.function_call_arguments.done`, and
 the `response.web_search_call.*` family. The `.done` frames carry the
 completed value of something whose deltas the client already has, and
-`response.output_item.done` carries the assembled item anyway; web search is a
-server-side tool this harness does not use.
+`response.output_item.done` carries the assembled item anyway. A tool the
+provider ran itself arrives as one complete `server_tool_call` item rather
+than as `web_search_call` frames.
 
 **An unrecognised notification must be ignored, in both directions.** This
 process ignores any notification it does not know, and a client must do the
@@ -742,6 +743,15 @@ of its fields are meaningful. These are the types this surface produces:
 | `message`, `role: "assistant"` | — | `response.output_text.delta` |
 | `function_call` | `call_id`, `name`, `arguments` (`{}`) | `response.function_call_arguments.delta` |
 | `function_call_output` | `call_id`, `name`, `output` (complete), `harness.is_error`, `harness.rule`, `harness.truncated`, `harness.child_response_id` | none |
+| `server_tool_call` | `call_id`, `name`, `arguments` (complete), `harness.sources`, `harness.tool_error` | none |
+
+`server_tool_call` is a tool the provider ran itself, which today means
+Claude's server-side `web_search` and `web_fetch`. Nothing is owed to it: the
+loop never executes it and the client never answers it, so it arrives
+complete, in the sub-turn that used it, after that sub-turn's reasoning.
+`harness.sources` names the pages it searched or fetched (`url`, `title`) and
+`harness.tool_error` is the provider's error code when it failed. The pages'
+own content is not forwarded: the provider returns it encrypted, for replay.
 
 Two of those five are this protocol's own, and both follow from a response
 being a whole agentic run rather than one model turn. On the HTTP surface a
@@ -779,6 +789,25 @@ parts, typed by direction the way the Responses surface types them:
 same string the provider is sent, so a parent renders a screenshot straight
 from the frame.
 
+An `output_text` part carries `annotations` when the provider cited sources
+for it, which today is a Claude answer that used a server-side search or
+fetch. Each is `{type, url, title, start_index, end_index, cited_text}`:
+`type` is `url_citation` for a page and `citation` for a document the client
+supplied, the indices are character (Unicode code point) offsets into the
+part's `text` with the end exclusive, and `cited_text` is the passage the
+provider quoted. They arrive on the message item's `response.output_item.done`
+and in every later `responses.get`, not as deltas. A citation is attached only
+when the provider's blocks reproduce the committed text exactly; otherwise the
+part carries none.
+
+**`response.output_item.done` is authoritative for reasoning and answer
+text.** Deltas carry the text as the provider produced it, and a delta cannot
+be taken back. When the loop discards an attempt (a reasoning-starved request
+is retried at double the budget, and the first attempt's reasoning has already
+streamed) the item's `.done` carries the accepted attempt's text alone, which
+is also what the event log holds and the model is shown on the next request. A
+client that assembled the item from deltas replaces it with the `.done` item.
+
 ### `harness.usage`
 
 One request's token accounting, as it happens:
@@ -793,6 +822,15 @@ One request's token accounting, as it happens:
            "harness": {"cost_usd": 0.0031}}}
 ```
 
+`input_tokens` is the whole prompt. For Claude that includes the tokens the
+request wrote into the provider's prompt cache, which are priced apart from
+both ordinary and cached input and are reported as
+`usage.harness.cache_write_tokens` (absent when zero). `cached_tokens` counts
+reads only.
+
+A request that failed after the provider had already reported usage still
+emits its `harness.usage` frame: those tokens were billed even though nothing
+of the response was kept.
 The HTTP surface reports usage once, on the terminal frame, which for a run
 spanning a hundred sub-turns is an hour late for anything showing spend as it
 accrues. The `response.completed` total still arrives and is still
@@ -1235,15 +1273,21 @@ answered. They arrive as an `error` notification followed by
 | --- | --- |
 | `in_progress` | Running. |
 | `completed` | The run ended on its own terms. `harness.reason` says which way. |
+| `incomplete` | The provider ended its last response early: it hit the token ceiling or withheld the rest. `harness.reason` says which, and `harness.text` is what arrived. |
 | `cancelled` | `responses.cancel`, `shutdown`, or stdin closing. |
 | `failed` | The loop could not finish: a model error, a transport failure, a store failure. |
 
 `harness.reason` on a completed response is `complete` (the agent called
 `complete`), `no_tool_calls` (it answered and asked for nothing else),
 `complete_rejected` (its structured result failed the schema), or `cancelled`.
-The surface's status enum does not separate an agent that called `complete` from
-one that answered without a tool call. This process never sends the surface's
-`incomplete` status.
+On an `incomplete` one it is `truncated` (the provider stopped at its token
+ceiling, finish reason `length`) or `content_filter` (the provider's filter
+ended the response). The surface's status enum does not separate an agent that
+called `complete` from one that answered without a tool call.
+
+A run ends `incomplete` only when its final response, the one with no tool
+calls, was cut short. A cut-off response that did make tool calls is not
+cut-off in this sense: the loop runs the calls and the next response continues.
 
 `harness.unapplied_message_ids` on a response that is no longer `in_progress`
 names the steers the run ended without applying, whatever its status. See

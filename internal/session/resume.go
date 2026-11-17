@@ -310,6 +310,19 @@ func primeDetector(sess store.Session, events []store.Event) *cache.Detector {
 	// The last usage event of the turn, not the first: a sub-turn that hit
 	// the reasoning-starved retry commits one per request, and it is the
 	// final attempt whose prefix the resumed session builds on.
+	//
+	// A sub-turn that failed carries usage events too (commitFailedUsage) but
+	// never reached turn_finished, and its request is not part of the history
+	// a resumed session replays, so it primes nothing.
+	finished := false
+	for _, e := range events[lastTurnIdx:] {
+		if e.Kind == store.KindTurnFinished {
+			finished = true
+		}
+	}
+	if !finished {
+		return cache.NewDetector()
+	}
 	var last *store.UsagePayload
 	for _, e := range events[lastTurnIdx:] {
 		if e.Kind != store.KindUsage {

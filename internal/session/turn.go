@@ -39,6 +39,11 @@ type subTurnOutcome struct {
 	// compares it across sub-turns to notice a model retrying an identical
 	// rejection rather than correcting it (see maxCompleteRejections).
 	completeError string
+	// finishReason is the provider's finish reason for the response that
+	// produced this sub-turn (the retry's, when the starvation retry ran). The
+	// loop reads it when the sub-turn has no tool calls, to tell an answer the
+	// model finished from one the provider cut short or withheld.
+	finishReason string
 }
 
 // steerBatchSize caps how many pending steers one sub-turn boundary applies.
@@ -356,7 +361,11 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	live := newLiveSink(r.Hub, sess.ID, subTurn)
 	reasoning, content, assembler, finishReason, usage, signature, providerBlocks, err := r.stream(httplog.WithSessionID(ctx, sess.ID), sess.Model, opts.Tools, items, opts.Effort, opts.Thinking, opts.MaxTokens, live)
 	if err != nil {
-		return subTurnOutcome{}, fmt.Errorf("session: sub-turn %d: %w", subTurn, err)
+		// A request that failed after the provider reported usage was still
+		// billed. The usage is committed on its own, since the assistant turn
+		// is not: nothing of the incomplete response enters the history.
+		failed := r.commitFailedUsage(ctx, sess, allEvents, subTurn, streamStart, attemptUsage{usage: usage, attempt: 0})
+		return subTurnOutcome{usagePayload: failed}, fmt.Errorf("session: sub-turn %d: %w", subTurn, err)
 	}
 
 	// Reasoning spends max_tokens before the answer starts, so an
@@ -373,7 +382,11 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 		starved = usage
 		reasoning, content, assembler, finishReason, usage, signature, providerBlocks, err = r.stream(ctx, sess.Model, opts.Tools, items, opts.Effort, opts.Thinking, opts.MaxTokens*2, live)
 		if err != nil {
-			return subTurnOutcome{}, fmt.Errorf("session: sub-turn %d retry: %w", subTurn, err)
+			// Both requests were billed: the starved attempt that succeeded
+			// and whatever the retry reported before it failed.
+			failed := r.commitFailedUsage(ctx, sess, allEvents, subTurn, streamStart,
+				attemptUsage{usage: starved, attempt: 1}, attemptUsage{usage: usage, attempt: 2})
+			return subTurnOutcome{usagePayload: failed}, fmt.Errorf("session: sub-turn %d retry: %w", subTurn, err)
 		}
 	}
 	// Elapsed covers the retry too; the run waited on both requests.
@@ -475,7 +488,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	r.publishState(ctx, sess)
 
 	if len(toolCalls) == 0 {
-		return subTurnOutcome{usagePayload: usagePayload, text: content, deferred: deferred}, nil
+		return subTurnOutcome{usagePayload: usagePayload, text: content, deferred: deferred, finishReason: finishReason}, nil
 	}
 
 	outcomes := r.executeToolCalls(ctx, sess, executor, toolCalls)
@@ -549,7 +562,55 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 		text:          content,
 		completeError: completeError,
 		deferred:      deferred,
+		finishReason:  finishReason,
 	}, nil
+}
+
+// attemptUsage is one request's usage figures and the attempt number its
+// usage event is stored under (0 for an ordinary sub-turn, 1 and 2 for the
+// reasoning-starved attempt and its retry).
+type attemptUsage struct {
+	usage   *wire.Usage
+	attempt int
+}
+
+// commitFailedUsage records the usage of requests that were billed but whose
+// sub-turn then failed, and returns the last payload it committed (zero when
+// no attempt reported any). A sub-turn that fails is otherwise left with a
+// turn_started and nothing else, so spend the provider reported before the
+// failure would be absent from the stored accounting and from every total
+// derived from it.
+//
+// It writes only usage events, never reasoning, content or tool calls: the
+// incomplete response is not replayable history. The write goes through a
+// context detached from ctx because a stop or a deadline is what often ends
+// a request this way, and Store.submit refuses a cancelled context.
+func (r *Runner) commitFailedUsage(ctx context.Context, sess store.Session, allEvents *[]store.Event,
+	subTurn int, sentAt time.Time, attempts ...attemptUsage) store.UsagePayload {
+
+	var inputs []store.EventInput
+	var last store.UsagePayload
+	for _, a := range attempts {
+		if a.usage == nil {
+			continue
+		}
+		last = r.buildUsagePayload(sess.Model, a.usage, nil, nil, subTurn, a.attempt, sentAt)
+		inputs = append(inputs, store.EventInput{Kind: store.KindUsage, Payload: last})
+	}
+	if len(inputs) == 0 {
+		return store.UsagePayload{}
+	}
+	commitCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), toolResultCommitTimeout)
+	defer cancel()
+	appended, err := r.Store.AppendEvents(commitCtx, sess.ID, inputs)
+	if err != nil {
+		log.Printf("session: commit usage of failed sub-turn %d in %s: %v", subTurn, sess.ID, err)
+		return store.UsagePayload{}
+	}
+	r.mirrorAppend(sess, appended)
+	r.publishEvents(sess, appended)
+	*allEvents = append(*allEvents, appended...)
+	return last
 }
 
 // lastSubTurnProviderBlocks returns the provider blocks the last committed
@@ -735,7 +796,10 @@ func (r *Runner) stream(ctx context.Context, model string, toolArray []wire.Tool
 		}
 	}
 	if streamErr != nil {
-		return "", "", nil, "", nil, "", nil, streamErr
+		// The usage the provider reported before it failed comes back with the
+		// error: those tokens were billed whether or not the response is
+		// usable, and the caller accounts for them (commitFailedUsage).
+		return "", "", nil, "", usage, "", nil, streamErr
 	}
 	return reasoningBuf.String(), contentBuf.String(), assembler, finishReason, usage, signature, providerBlocks, nil
 }

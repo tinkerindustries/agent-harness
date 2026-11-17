@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mrgeoffrich/agent-harness/internal/hub"
+	"github.com/mrgeoffrich/agent-harness/internal/session"
 	"github.com/mrgeoffrich/agent-harness/internal/store"
 	"github.com/mrgeoffrich/agent-harness/internal/tools"
 )
@@ -57,6 +58,11 @@ type maTranslator struct {
 	// sub-turn (KindTurnStarted); read by Server.events to decide whether a
 	// posted user.message must be refused.
 	pendingCustom []string
+
+	// blocks is the projection of the provider blocks the current sub-turn's
+	// thinking event carried, held for the message event they describe (see
+	// translator.blocks).
+	blocks pbProjection
 
 	stepsMu sync.Mutex
 	events  []maEventOut
@@ -124,7 +130,7 @@ func (t *maTranslator) closeMessage(text string) {
 	}
 	id := t.messageEventID
 	t.messageEventID = ""
-	content := maTextContent(text)
+	content := t.messageContent(text)
 	h := t.harness()
 	t.record(maEventOut{Type: notifyMAAgentMessage, ID: id, Content: content, Harness: h})
 	t.emit(notifyMAAgentMessage, maMessage{SessionID: t.sessionID, ID: id, Content: content, Harness: h})
@@ -140,6 +146,66 @@ func (t *maTranslator) closeThinking(text string) {
 	h := t.harness()
 	t.record(maEventOut{Type: notifyMAAgentThinking, ID: id, Thinking: content, Harness: h})
 	t.emit(notifyMAAgentThinking, maThinking{SessionID: t.sessionID, ID: id, Thinking: content, Harness: h})
+}
+
+// messageContent is an agent.message's content: one text block per block the
+// provider wrote, each with its own citations, when the blocks the thinking
+// event carried concatenate to exactly the committed text; otherwise the text
+// as a single uncited block.
+func (t *maTranslator) messageContent(text string) []maContent {
+	if !t.blocks.annotated() || !t.blocks.matches(text) {
+		return maTextContent(text)
+	}
+	var out []maContent
+	for _, b := range t.blocks.Text {
+		if b.Text == "" {
+			continue
+		}
+		c := maContent{Type: "text", Text: b.Text}
+		for _, cite := range b.Citations {
+			c.Citations = append(c.Citations, maCitation{Type: cite.Kind, URL: cite.URL, Title: cite.Title, CitedText: cite.CitedText})
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// emitServerTools reports each tool the provider ran itself as an
+// agent.tool_use and its agent.tool_result, both marked harness.server_tool.
+// Nothing waits on them: the loop never executes these and no client answers
+// them, so the pair is reported together after the fact.
+func (t *maTranslator) emitServerTools(calls []pbServerTool) {
+	for _, c := range calls {
+		input := toolArguments(c.Input)
+		if len(input) == 0 {
+			input = toolArguments("{}")
+		}
+		h := t.harness()
+		h.ServerTool = true
+		t.record(maEventOut{Type: notifyMAAgentToolUse, ID: c.ID, Name: c.Name, Input: input, Harness: h})
+		t.emit(notifyMAAgentToolUse, maToolUse{SessionID: t.sessionID, ID: c.ID, Name: c.Name, Input: input, Harness: h})
+
+		var lines []string
+		rh := t.harness()
+		rh.ServerTool = true
+		rh.ToolError = c.Error
+		for _, s := range c.Sources {
+			rh.Sources = append(rh.Sources, Source{URL: s.URL, Title: s.Title})
+			if s.Title != "" {
+				lines = append(lines, s.Title+" - "+s.URL)
+			} else {
+				lines = append(lines, s.URL)
+			}
+		}
+		if c.Error != "" {
+			lines = append(lines, c.Error)
+		}
+		result := maTextContent(strings.Join(lines, "\n"))
+		id := t.mintID()
+		isErr := c.Error != ""
+		t.record(maEventOut{Type: notifyMAAgentToolResult, ID: id, ToolUseID: c.ID, Content: result, IsError: isErr, Harness: rh})
+		t.emit(notifyMAAgentToolResult, maToolResult{SessionID: t.sessionID, ID: id, ToolUseID: c.ID, Content: result, IsError: isErr, Harness: rh})
+	}
 }
 
 // Live folds in one coalesced live delta.
@@ -186,6 +252,7 @@ func (t *maTranslator) Event(e store.Event) {
 		}
 		t.CloseText()
 		t.subTurn = p.SubTurn
+		t.blocks = pbProjection{}
 		t.stepsMu.Lock()
 		t.pendingCustom = nil
 		t.stepsMu.Unlock()
@@ -202,6 +269,8 @@ func (t *maTranslator) Event(e store.Event) {
 			t.deltaText(t.thinkingEventID, p.Text)
 		}
 		t.closeThinking(p.Text)
+		t.blocks = projectProviderBlocks(p.ProviderBlocks)
+		t.emitServerTools(t.blocks.ServerTools)
 	case store.KindContentDelta:
 		var p store.ContentDeltaPayload
 		if json.Unmarshal(e.Payload, &p) != nil {
@@ -392,9 +461,25 @@ func (t *maTranslator) CloseText() {
 func (t *maTranslator) snapshot() ([]maEventOut, maUsage) {
 	t.stepsMu.Lock()
 	defer t.stepsMu.Unlock()
+	// A deep copy: the caller serialises it after the lock is released, while
+	// the stream goroutine goes on appending to the live events and usage.
 	events := make([]maEventOut, len(t.events))
-	copy(events, t.events)
-	return events, t.usage
+	for i, e := range t.events {
+		e.Input = append(toolArguments(nil), e.Input...)
+		e.Content = append([]maContent(nil), e.Content...)
+		e.Thinking = append([]maContent(nil), e.Thinking...)
+		if e.Harness != nil {
+			h := *e.Harness
+			e.Harness = &h
+		}
+		events[i] = e
+	}
+	usage := t.usage
+	if usage.Harness != nil {
+		h := *usage.Harness
+		usage.Harness = &h
+	}
+	return events, usage
 }
 
 func (t *maTranslator) addUsage(u maUsage) {
@@ -402,6 +487,7 @@ func (t *maTranslator) addUsage(u maUsage) {
 	defer t.stepsMu.Unlock()
 	t.usage.InputTokens += u.InputTokens
 	t.usage.CacheReadInputTokens += u.CacheReadInputTokens
+	t.usage.CacheCreationInputTokens += u.CacheCreationInputTokens
 	t.usage.OutputTokens += u.OutputTokens
 	t.usage.TotalTokens += u.TotalTokens
 	if t.usage.Harness == nil {
@@ -415,13 +501,21 @@ func (t *maTranslator) addUsage(u maUsage) {
 // maUsageFrom maps one stored usage payload onto this dialect's usage
 // object, the same hit/miss-to-total mapping iactUsageFrom makes for
 // Google's own shape.
+//
+// Unlike Anthropic's own usage, where input_tokens excludes the cache
+// figures, input_tokens here is the whole prompt and the two cache fields
+// are parts of it — which is what it has always meant for cache reads, and
+// what keeps total_tokens equal to input plus output. Cache writes are a
+// part of it too (docs/STDIO-MANAGED-AGENTS.md, "Usage").
 func maUsageFrom(p store.UsagePayload) maUsage {
+	input := inputTokens(p)
 	return maUsage{
-		InputTokens:          p.PromptCacheHitTokens + p.PromptCacheMissTokens,
-		CacheReadInputTokens: p.PromptCacheHitTokens,
-		OutputTokens:         p.CompletionTokens,
-		TotalTokens:          p.PromptCacheHitTokens + p.PromptCacheMissTokens + p.CompletionTokens,
-		Harness:              &maUsageX{CostUSD: p.CostUSD},
+		InputTokens:              input,
+		CacheReadInputTokens:     p.PromptCacheHitTokens,
+		CacheCreationInputTokens: p.PromptCacheWriteTokens,
+		OutputTokens:             p.CompletionTokens,
+		TotalTokens:              input + p.CompletionTokens,
+		Harness:                  &maUsageX{CostUSD: p.CostUSD},
 	}
 }
 
@@ -447,6 +541,10 @@ func maStopReasonType(reason string) string {
 		return "user_interrupt"
 	case "complete_rejected":
 		return "complete_rejected"
+	case session.ReasonTruncated:
+		return "truncated"
+	case session.ReasonContentFilter:
+		return "content_filter"
 	default:
 		return "end_turn"
 	}

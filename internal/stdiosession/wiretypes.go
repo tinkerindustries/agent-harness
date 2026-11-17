@@ -59,6 +59,11 @@ const (
 	ItemReasoning          = "reasoning"
 	ItemFunctionCall       = "function_call"
 	ItemFunctionCallOutput = "function_call_output"
+	// ItemServerToolCall is a tool the provider ran itself — Claude's
+	// server-side web_search and web_fetch. The loop never executes it and
+	// the client never answers it: the call and what it found arrive together,
+	// in the response that used them. harness.sources names the pages.
+	ItemServerToolCall = "server_tool_call"
 )
 
 // Content part types, from the Responses content-part union. The surface
@@ -79,6 +84,11 @@ const (
 	StatusCompleted  = "completed"
 	StatusFailed     = "failed"
 	StatusCancelled  = "cancelled"
+	// StatusIncomplete is the surface's own status for a response the
+	// provider ended early: its token ceiling or a content filter. The run
+	// itself finished cleanly, so harness.reason says which of the two it was
+	// (`truncated`, `content_filter`).
+	StatusIncomplete = "incomplete"
 )
 
 // ContentPart is one part of an item's content or output.
@@ -90,6 +100,30 @@ type ContentPart struct {
 	Type     string `json:"type"`
 	Text     string `json:"text,omitempty"`
 	ImageURL string `json:"image_url,omitempty"`
+	// Annotations are the citations the provider attached to this part's
+	// text, each naming the characters it supports. Only a Claude answer that
+	// used a server-side search or fetch carries any.
+	Annotations []Annotation `json:"annotations,omitempty"`
+}
+
+// Annotation is one citation on an output_text part. Type is "url_citation"
+// when the source is a page and "citation" when it is a document the client
+// supplied. StartIndex and EndIndex are character (Unicode code point)
+// offsets into the part's text, end exclusive. CitedText is the passage the
+// provider quoted from the source.
+type Annotation struct {
+	Type       string `json:"type"`
+	URL        string `json:"url,omitempty"`
+	Title      string `json:"title,omitempty"`
+	StartIndex int    `json:"start_index"`
+	EndIndex   int    `json:"end_index"`
+	CitedText  string `json:"cited_text,omitempty"`
+}
+
+// Source is a page a provider-run tool searched or fetched.
+type Source struct {
+	URL   string `json:"url"`
+	Title string `json:"title,omitempty"`
 }
 
 // TextPart builds the one-part content a plain string becomes, typed for the
@@ -168,6 +202,11 @@ type ItemHarness struct {
 	// MessageID echoes the client-supplied id from responses.create or
 	// responses.append, on the user message item that carries that input.
 	MessageID string `json:"message_id,omitempty"`
+	// Sources names the pages a server_tool_call searched or fetched.
+	Sources []Source `json:"sources,omitempty"`
+	// ToolError is the provider's error code for a server_tool_call that
+	// failed, such as max_uses_exceeded.
+	ToolError string `json:"tool_error,omitempty"`
 }
 
 // Usage is the Responses usage object, in the surface's own field names.
@@ -197,6 +236,11 @@ type OutputDetail struct {
 type UsageX struct {
 	CostUSD  float64 `json:"cost_usd"`
 	SubTurns int     `json:"sub_turns,omitempty"`
+	// CacheWriteTokens is the part of input_tokens the provider wrote into its
+	// prompt cache, priced apart from both ordinary and cached input. Only
+	// Claude reports it; it is absent for the others. input_tokens already
+	// counts it.
+	CacheWriteTokens int `json:"cache_write_tokens,omitempty"`
 }
 
 // Response is the Responses `response` resource, narrowed to the fields this
@@ -221,9 +265,9 @@ type ResponseHarness struct {
 	// should quote; the response id is derived from it.
 	SessionID string `json:"session_id,omitempty"`
 	// Reason is why the run ended — "complete", "no_tool_calls",
-	// "complete_rejected", "cancelled". The status enum does not separate
-	// an agent that called `complete` from one that answered without a tool
-	// call.
+	// "truncated", "content_filter", "complete_rejected", "cancelled". The
+	// status enum does not separate an agent that called `complete` from one
+	// that answered without a tool call.
 	Reason string `json:"reason,omitempty"`
 	// Text is the final assistant message of the run — the surface's own
 	// `output_text` convenience, computed here so a parent does not have to

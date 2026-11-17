@@ -48,6 +48,19 @@ type maContent struct {
 	Text     string `json:"text,omitempty"`
 	MIMEType string `json:"mime_type,omitempty"`
 	Data     string `json:"data,omitempty"`
+	// Citations are the sources the provider attached to this text block, as
+	// Anthropic's own text blocks carry them.
+	Citations []maCitation `json:"citations,omitempty"`
+}
+
+// maCitation is one citation on a text block, narrowed to what a parent can
+// display: Anthropic's citation type, the page or document, and the quoted
+// passage. The provider's encrypted index is replay data and is not sent.
+type maCitation struct {
+	Type      string `json:"type"`
+	URL       string `json:"url,omitempty"`
+	Title     string `json:"title,omitempty"`
+	CitedText string `json:"cited_text,omitempty"`
 }
 
 func maTextContent(s string) []maContent {
@@ -310,6 +323,15 @@ type maStepHarness struct {
 	Source string `json:"source,omitempty"`
 	// MessageID echoes the client-supplied id.
 	MessageID string `json:"message_id,omitempty"`
+	// ServerTool marks an agent.tool_use or agent.tool_result as one the
+	// provider ran itself (Claude's web_search and web_fetch). Nothing is owed
+	// to it: the call and its result are reported together, after the fact.
+	ServerTool bool `json:"server_tool,omitempty"`
+	// Sources names the pages a server tool searched or fetched, on its
+	// agent.tool_result.
+	Sources []Source `json:"sources,omitempty"`
+	// ToolError is the provider's error code for a server tool that failed.
+	ToolError string `json:"tool_error,omitempty"`
 }
 
 // --- agent.tool_use / agent.mcp_tool_use ---
@@ -420,11 +442,15 @@ type maErrorEvent struct {
 // since Anthropic's real Managed Agents usage shape is not one this process
 // reads from live traffic (docs/plans/archive/claude-provider.md, "Not building").
 type maUsage struct {
-	InputTokens          int       `json:"input_tokens"`
-	CacheReadInputTokens int       `json:"cache_read_input_tokens,omitempty"`
-	OutputTokens         int       `json:"output_tokens"`
-	TotalTokens          int       `json:"total_tokens"`
-	Harness              *maUsageX `json:"harness,omitempty"`
+	InputTokens          int `json:"input_tokens"`
+	CacheReadInputTokens int `json:"cache_read_input_tokens,omitempty"`
+	// CacheCreationInputTokens is Anthropic's own name for cache writes. Like
+	// cache_read_input_tokens it is a part of input_tokens, not an addition to
+	// it: this dialect's input_tokens is the whole prompt.
+	CacheCreationInputTokens int       `json:"cache_creation_input_tokens,omitempty"`
+	OutputTokens             int       `json:"output_tokens"`
+	TotalTokens              int       `json:"total_tokens"`
+	Harness                  *maUsageX `json:"harness,omitempty"`
 }
 
 type maUsageX struct {
