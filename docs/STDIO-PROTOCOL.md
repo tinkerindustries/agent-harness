@@ -250,7 +250,7 @@ harness routes, plus exactly one DeepSeek model, plus three Claude models:
 
 | Model | Provider | Key |
 | --- | --- | --- |
-| `gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.5-flash-lite` | Google | `GEMINI_API_KEY` / `GOOGLE_API_KEY` |
+| `gemini-4-neon`, `gemini-4-hydrogen`, `gemini-4-carbon`, `gemini-4-argon`, `gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3.6-flash`, `gemini-3.5-flash`, `gemini-3.5-flash-lite` | Google | `GEMINI_API_KEY` / `GOOGLE_API_KEY` |
 | `deepseek-flash` | DeepSeek | `DEEPSEEK_API_KEY` |
 | `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-fable-5-1` | Anthropic | `ANTHROPIC_API_KEY` |
 
@@ -367,9 +367,33 @@ Result:
     "function_tools": true,
     "permission_modes": ["readonly", "full"]
   },
-  "models": ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "deepseek-flash"],
+  "models": ["gemini-4-neon", "gemini-4-hydrogen", "gemini-4-carbon", "gemini-4-argon", "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite", "deepseek-flash"],
   "default_model": "gemini-3.7-flash",
   "model_details": [
+    {
+      "id": "gemini-4-neon",
+      "display_name": "Gemini 4 Neon",
+      "context_window_tokens": 1048576,
+      "reasoning_efforts": ["low", "medium", "high", "xhigh"]
+    },
+    {
+      "id": "gemini-4-hydrogen",
+      "display_name": "Gemini 4 Hydrogen",
+      "context_window_tokens": 1048576,
+      "reasoning_efforts": ["low", "medium", "high", "xhigh"]
+    },
+    {
+      "id": "gemini-4-carbon",
+      "display_name": "Gemini 4 Carbon",
+      "context_window_tokens": 1048576,
+      "reasoning_efforts": ["low", "medium", "high"]
+    },
+    {
+      "id": "gemini-4-argon",
+      "display_name": "Gemini 4 Argon",
+      "context_window_tokens": 1048576,
+      "reasoning_efforts": ["low", "medium", "high"]
+    },
     {
       "id": "gemini-3.8-flash",
       "display_name": "Gemini 3.8 Flash",

@@ -23,7 +23,8 @@ const (
 	DeepSeek Name = "deepseek"
 	// Kimi is Moonshot AI's platform, serving kimi-k3 (third_party/kimi-docs/).
 	Kimi Name = "kimi"
-	// Gemini is Google's Gemini API, serving gemini-3.8-flash, gemini-3.7-flash,
+	// Gemini is Google's Gemini API, serving gemini-4-neon, gemini-4-hydrogen,
+	// gemini-4-carbon, gemini-4-argon, gemini-3.8-flash, gemini-3.7-flash,
 	// gemini-3.6-flash, gemini-3.5-flash and gemini-3.5-flash-lite through the
 	// Interactions surface (docs/GEMINI-INTEGRATION.md). internal/gemini also
 	// serves the vision tools (`glance`, `ground`, `detect`) on this same provider,
@@ -42,6 +43,10 @@ const (
 var models = map[string]Name{
 	"deepseek-flash":        DeepSeek,
 	"kimi-k3":               Kimi,
+	"gemini-4-neon":         Gemini,
+	"gemini-4-hydrogen":     Gemini,
+	"gemini-4-carbon":       Gemini,
+	"gemini-4-argon":        Gemini,
 	"gemini-3.8-flash":      Gemini,
 	"gemini-3.7-flash":      Gemini,
 	"gemini-3.6-flash":      Gemini,
@@ -103,6 +108,9 @@ func KnownModels() []string {
 // (released after 2026-08-21), but its own live page at
 // ai.google.dev/gemini-api/docs/models/gemini-3.8-flash states its input
 // types outright — "Text, Image, Video, Audio, and PDF" — read 2026-09-08.
+// The four gemini-4 models are set true on the same footing: each model page
+// at ai.google.dev/gemini-api/docs/models/<id> lists its inputs as Text,
+// Image, Video, Audio and PDF, read 2026-11-22.
 // claude-opus-5-5, claude-sonnet-5-5 and claude-fable-5-1 are set true on the
 // same grounds as every other entry here reading images is a trained-in
 // capability of the model itself, and Anthropic's own vision docs
@@ -112,6 +120,10 @@ func KnownModels() []string {
 var visionCapable = map[string]bool{
 	"deepseek-flash":        true,
 	"kimi-k3":               true,
+	"gemini-4-neon":         true,
+	"gemini-4-hydrogen":     true,
+	"gemini-4-carbon":       true,
+	"gemini-4-argon":        true,
 	"gemini-3.8-flash":      true,
 	"gemini-3.7-flash":      true,
 	"gemini-3.6-flash":      true,

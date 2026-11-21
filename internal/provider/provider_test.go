@@ -9,6 +9,10 @@ func TestModelForResolvesKnownModels(t *testing.T) {
 	}{
 		{"deepseek-flash", DeepSeek},
 		{"kimi-k3", Kimi},
+		{"gemini-4-neon", Gemini},
+		{"gemini-4-hydrogen", Gemini},
+		{"gemini-4-carbon", Gemini},
+		{"gemini-4-argon", Gemini},
 		{"gemini-3.8-flash", Gemini},
 		{"gemini-3.7-flash", Gemini},
 		{"gemini-3.6-flash", Gemini},
@@ -64,6 +68,10 @@ func TestSeesImages(t *testing.T) {
 	}{
 		{"deepseek-flash", true},
 		{"kimi-k3", true},
+		{"gemini-4-neon", true},
+		{"gemini-4-hydrogen", true},
+		{"gemini-4-carbon", true},
+		{"gemini-4-argon", true},
 		{"gemini-3.8-flash", true},
 		{"gemini-3.7-flash", true},
 		{"gemini-3.6-flash", true},

@@ -64,3 +64,24 @@ func TestDefaultModelIsInTheTable(t *testing.T) {
 		t.Errorf("DefaultModel %q has no thinking-level entry", DefaultModel)
 	}
 }
+
+func TestGemini4ThinkingLevels(t *testing.T) {
+	for _, model := range []string{"gemini-4-neon", "gemini-4-hydrogen"} {
+		if !LevelSupported(model, ThinkingLevelXHigh) {
+			t.Errorf("LevelSupported said %s does not take xhigh", model)
+		}
+	}
+	for _, model := range []string{"gemini-4-carbon", "gemini-4-argon"} {
+		if LevelSupported(model, ThinkingLevelXHigh) {
+			t.Errorf("LevelSupported said %s takes xhigh", model)
+		}
+	}
+	for _, model := range []string{"gemini-4-neon", "gemini-4-hydrogen", "gemini-4-carbon", "gemini-4-argon"} {
+		if LevelSupported(model, ThinkingLevelMinimal) {
+			t.Errorf("LevelSupported said %s takes minimal", model)
+		}
+		if ContextWindowTokens(model) != 1048576 || DisplayName(model) == "" {
+			t.Errorf("%s has no context window or display name", model)
+		}
+	}
+}

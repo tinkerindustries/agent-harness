@@ -14,12 +14,21 @@ import "slices"
 // thinking" table, read 2026-09-08; unlike the other four entries here it is
 // not yet confirmed against a live 400.
 //
-// The table covers every Gemini model this repository names — the five
+// The table covers every Gemini model this repository names — the nine
 // internal/provider routes and google.vision_model may be pointed at. A
 // model absent here is not refused: LevelsFor returns nil and the caller
 // passes the level through for the API to judge, because a table that has
 // not been updated for a new model must not be what stops it working.
+//
+// The four gemini-4 entries follow each model's page at
+// ai.google.dev/gemini-api/docs/models/<id>, read 2026-11-22, and have not
+// been confirmed against a live 400. Hydrogen and Neon take "xhigh" as well;
+// Carbon and Argon stop at "high". None takes "minimal".
 var thinkingLevels = map[string][]string{
+	"gemini-4-neon":         {ThinkingLevelLow, ThinkingLevelMedium, ThinkingLevelHigh, ThinkingLevelXHigh},
+	"gemini-4-hydrogen":     {ThinkingLevelLow, ThinkingLevelMedium, ThinkingLevelHigh, ThinkingLevelXHigh},
+	"gemini-4-carbon":       {ThinkingLevelLow, ThinkingLevelMedium, ThinkingLevelHigh},
+	"gemini-4-argon":        {ThinkingLevelLow, ThinkingLevelMedium, ThinkingLevelHigh},
 	"gemini-3.8-flash":      {ThinkingLevelLow, ThinkingLevelMedium, ThinkingLevelHigh},
 	"gemini-3.7-flash":      {ThinkingLevelLow, ThinkingLevelMedium, ThinkingLevelHigh},
 	"gemini-3.6-flash":      {ThinkingLevelMinimal, ThinkingLevelLow, ThinkingLevelMedium, ThinkingLevelHigh},
@@ -57,6 +66,10 @@ func LevelSupported(model, level string) bool {
 // figure today; a model added later without an entry here reports zero,
 // which InitializeResult.ModelDetails then omits rather than guesses at.
 var contextWindowTokens = map[string]int{
+	"gemini-4-neon":         1048576,
+	"gemini-4-hydrogen":     1048576,
+	"gemini-4-carbon":       1048576,
+	"gemini-4-argon":        1048576,
 	"gemini-3.8-flash":      1048576,
 	"gemini-3.7-flash":      1048576,
 	"gemini-3.6-flash":      1048576,
@@ -68,6 +81,10 @@ var contextWindowTokens = map[string]int{
 // `models.get` response's displayName field. A model absent here has none:
 // callers fall back to the bare id rather than inventing one.
 var displayNames = map[string]string{
+	"gemini-4-neon":         "Gemini 4 Neon",
+	"gemini-4-hydrogen":     "Gemini 4 Hydrogen",
+	"gemini-4-carbon":       "Gemini 4 Carbon",
+	"gemini-4-argon":        "Gemini 4 Argon",
 	"gemini-3.8-flash":      "Gemini 3.8 Flash",
 	"gemini-3.7-flash":      "Gemini 3.7 Flash",
 	"gemini-3.6-flash":      "Gemini 3.6 Flash",
