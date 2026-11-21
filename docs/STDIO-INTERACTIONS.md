@@ -190,9 +190,33 @@ Result:
     "function_tools": true,
     "permission_modes": ["readonly", "full"]
   },
-  "models": ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"],
+  "models": ["gemini-4-neon", "gemini-4-hydrogen", "gemini-4-carbon", "gemini-4-argon", "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"],
   "default_model": "gemini-3.7-flash",
   "model_details": [
+    {
+      "id": "gemini-4-neon",
+      "display_name": "Gemini 4 Neon",
+      "context_window_tokens": 1048576,
+      "thinking_levels": ["low", "medium", "high", "xhigh"]
+    },
+    {
+      "id": "gemini-4-hydrogen",
+      "display_name": "Gemini 4 Hydrogen",
+      "context_window_tokens": 1048576,
+      "thinking_levels": ["low", "medium", "high", "xhigh"]
+    },
+    {
+      "id": "gemini-4-carbon",
+      "display_name": "Gemini 4 Carbon",
+      "context_window_tokens": 1048576,
+      "thinking_levels": ["low", "medium", "high"]
+    },
+    {
+      "id": "gemini-4-argon",
+      "display_name": "Gemini 4 Argon",
+      "context_window_tokens": 1048576,
+      "thinking_levels": ["low", "medium", "high"]
+    },
     {
       "id": "gemini-3.8-flash",
       "display_name": "Gemini 3.8 Flash",

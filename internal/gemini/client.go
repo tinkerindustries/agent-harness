@@ -73,6 +73,7 @@ const (
 	ThinkingLevelLow     = "low"
 	ThinkingLevelMedium  = "medium"
 	ThinkingLevelHigh    = "high"
+	ThinkingLevelXHigh   = "xhigh"
 )
 
 // Values for generation_config.thinking_summaries (openapi.json
