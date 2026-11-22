@@ -31,6 +31,9 @@ const (
 	// names this process accepts — a resume may not change model, and that
 	// is a different refusal from naming a model nobody hosts.
 	testAltModel = "gemini-3.5-flash"
+	// testFlexModel is a hosted model that offers the flex service tier;
+	// testModel and testAltModel do not.
+	testFlexModel = "gemini-3.8-flash"
 	// testDeepSeekModel is the one DeepSeek model cmd/harness hosts
 	// (deepSeekSessionModel), advertised here so the create path is
 	// exercised with a model from the other provider.
@@ -386,7 +389,7 @@ func newFixtureIn(t *testing.T, dir, cwd string, streams ...string) *fixture {
 	srv := NewServer(Options{
 		Store: st, Runner: runner, Hub: eventHub, MCP: mgr,
 		Dialect:      dialectUnderTest,
-		Models:       []string{testModel, testAltModel, testDeepSeekModel},
+		Models:       []string{testModel, testAltModel, testDeepSeekModel, testFlexModel},
 		DefaultModel: testModel,
 		HasAPIKey:    func(string) bool { return true },
 		Version:      "test",

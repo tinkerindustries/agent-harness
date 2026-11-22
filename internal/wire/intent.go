@@ -19,4 +19,7 @@ type ChatIntent struct {
 	Thinking  bool
 	MaxTokens int
 	Tools     []Tool
+	// ServiceTier is the provider's pricing and latency tier for the
+	// request, empty for its default. Only Gemini reads it today.
+	ServiceTier string
 }

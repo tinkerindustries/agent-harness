@@ -600,6 +600,9 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 	if effort := p.Effort; effort != "" && !reasoningEffortSupported(model, effort) {
 		return nil, errorf(CodeInvalidParams, s.m.EffortRefused, effort, model, strings.Join(reasoningEfforts(model), ", "))
 	}
+	if rerr := checkServiceTier(model, p.ServiceTier); rerr != nil {
+		return nil, rerr
+	}
 	gateway, rerr := s.planGateway(p.Harness)
 	if rerr != nil {
 		return nil, rerr
@@ -741,6 +744,7 @@ func (s *Server) create(ctx context.Context, params json.RawMessage) (any, *rpcE
 		deny:            harnessSlice(p.Harness, func(h *CreateHarness) []string { return h.Deny }),
 		prompt:          text,
 		effort:          p.Effort,
+		serviceTier:     p.ServiceTier,
 		maxOutputTokens: p.MaxOutputTokens,
 		resultSchema:    p.ResultSchema,
 		prevRunID:       p.PreviousRunID,
@@ -765,7 +769,7 @@ type beginRunParams struct {
 	model, sessionID, cwd         string
 	mode                          tools.Mode
 	deny                          []string
-	prompt, effort                string
+	prompt, effort, serviceTier   string
 	maxOutputTokens               int
 	resultSchema                  json.RawMessage
 	prevRunID                     string
@@ -885,6 +889,7 @@ func (s *Server) beginRun(ctx context.Context, p beginRunParams) (any, *rpcError
 		Effort:         effortFrom(p.effort),
 		Thinking:       true,
 		MaxTokens:      p.maxOutputTokens,
+		ServiceTier:    p.serviceTier,
 		Workspace:      p.cwd,
 		PermissionMode: p.mode,
 		Deny:           p.deny,
@@ -916,9 +921,10 @@ func (s *Server) beginRun(ctx context.Context, p beginRunParams) (any, *rpcError
 		if p.resume {
 			res, err = s.opts.Runner.Resume(runCtx, session.ResumeOptions{
 				SessionID: p.sessionID, Prompt: p.prompt,
-				MaxTokens: opts.MaxTokens,
-				Guard:     p.guard,
-				Shells:    shells,
+				MaxTokens:   opts.MaxTokens,
+				ServiceTier: opts.ServiceTier,
+				Guard:       p.guard,
+				Shells:      shells,
 			})
 		} else {
 			res, err = s.opts.Runner.Run(runCtx, opts)

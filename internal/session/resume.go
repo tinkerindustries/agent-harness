@@ -35,6 +35,9 @@ type ResumeOptions struct {
 	// workspace itself, before the message naming them is appended.
 	AttachmentIDs []string
 	MaxTokens     int
+	// ServiceTier is the service tier for the continuation's requests. Like
+	// MaxTokens it belongs to this run, so a resume names it again.
+	ServiceTier string
 	// Guard, when set, replaces the guard setting stored on the session row
 	// and is stored in its place. The guard is not part of the cached prefix,
 	// so a resume may change it. Nil keeps the stored setting.
@@ -160,7 +163,7 @@ func (r *Runner) Resume(ctx context.Context, opts ResumeOptions) (result *RunRes
 	runOpts := RunOptions{
 		Model: sess.Model, Effort: sess.Effort, Thinking: sess.Thinking,
 		PromptVariant: sess.PromptVariant,
-		MaxTokens:     opts.MaxTokens, Workspace: sess.Workspace,
+		MaxTokens:     opts.MaxTokens, ServiceTier: opts.ServiceTier, Workspace: sess.Workspace,
 		PermissionMode: tools.Mode(sess.PermissionMode), Deny: sess.DenyPatterns,
 		Guard:        sess.Guard,
 		ResultSchema: sess.ResultSchema,

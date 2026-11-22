@@ -168,6 +168,7 @@ type ModelDetails struct {
 	DisplayName         string
 	ContextWindowTokens int
 	Efforts             []string
+	ServiceTiers        []string
 }
 
 // FunctionCall is one client-declared function tool call to hand back over
@@ -190,6 +191,7 @@ func modelDetailsFor(models []string) []ModelDetails {
 			DisplayName:         displayName(m),
 			ContextWindowTokens: contextWindowTokens(m),
 			Efforts:             reasoningEfforts(m),
+			ServiceTiers:        serviceTiers(m),
 		})
 	}
 	return out

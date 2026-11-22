@@ -457,6 +457,53 @@ OpenAI-format, where Gemini wants `{"type":"image","mime_type":...,"data":...}`
 with an optional `resolution`. The translation lives in the Gemini request
 builder.
 
+### 5.8 Service tiers
+
+`service_tier` is a top-level field of an interaction request. The vendored
+`third_party/gemini-docs/openapi.json` lists four values in its `ServiceTier`
+enum: `flex`, `standard`, `priority` and `deferred`. The harness sends `flex`
+and nothing else. `standard` is what the API serves when the field is absent,
+so a create naming `standard` omits the field and is the same request as one
+naming nothing.
+
+Google's [Flex inference](https://aistudio.google.com/docs/flex-inference)
+page is the source for which models offer Flex. `flexModels` in
+`internal/gemini/servicetiers.go` is that list narrowed to the models the
+harness routes. `gemini-3.7-flash`, the default session model, and
+`gemini-3.5-flash` are not on the page's list, so a create naming `flex` for
+either is refused. A model hosted but missing from the table is refused too,
+until the table is updated.
+
+The tier travels as `wire.ChatIntent.ServiceTier`, which `requestFromIntent`
+copies to `ChatInteractionRequest.ServiceTier`. The field is last and
+`omitempty`, so a request with no tier serialises as it always has. It is a
+property of a run, carried on `session.RunOptions` and
+`session.ResumeOptions` like `MaxTokens`. It is not stored on the session row
+and does not touch the frozen prefix, so a create that resumes a session
+names it again. Compaction summaries and `task` subagent runs send no tier.
+
+What the page says Flex means for a session, none of it measured here:
+
+- Requests are priced at a discount and served on best-effort capacity with a
+  latency target in minutes. Read the page for the current figures.
+- A full Flex queue answers 503 or 429, and the API does not fall back to the
+  standard tier. The page's own sample retries and then resends without
+  `service_tier`.
+- The page does not say whether streaming, function calling, thought
+  signatures or caching work under Flex, and documents no response field that
+  names the tier that served a request.
+
+What the harness does about it today:
+
+- Retries follow `retry.go` and the retry settings in `client.go`. A capacity
+  rejection that outlasts them fails the run. There is no resend on the
+  standard tier.
+- `defaultIdleTimeout` in `stream.go` bounds a silent stream. Whether Flex
+  holds a stream silent for longer than that after the response headers is
+  not known.
+- `internal/pricing` has no tier, so a Flex run is costed at standard rates.
+  The reported cost is higher than the bill.
+
 ## 6. Decisions
 
 ### Settled

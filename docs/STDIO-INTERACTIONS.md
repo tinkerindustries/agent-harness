@@ -197,31 +197,36 @@ Result:
       "id": "gemini-4-neon",
       "display_name": "Gemini 4 Neon",
       "context_window_tokens": 1048576,
-      "thinking_levels": ["low", "medium", "high", "xhigh"]
+      "thinking_levels": ["low", "medium", "high", "xhigh"],
+      "service_tiers": ["flex"]
     },
     {
       "id": "gemini-4-hydrogen",
       "display_name": "Gemini 4 Hydrogen",
       "context_window_tokens": 1048576,
-      "thinking_levels": ["low", "medium", "high", "xhigh"]
+      "thinking_levels": ["low", "medium", "high", "xhigh"],
+      "service_tiers": ["flex"]
     },
     {
       "id": "gemini-4-carbon",
       "display_name": "Gemini 4 Carbon",
       "context_window_tokens": 1048576,
-      "thinking_levels": ["low", "medium", "high"]
+      "thinking_levels": ["low", "medium", "high"],
+      "service_tiers": ["flex"]
     },
     {
       "id": "gemini-4-argon",
       "display_name": "Gemini 4 Argon",
       "context_window_tokens": 1048576,
-      "thinking_levels": ["low", "medium", "high"]
+      "thinking_levels": ["low", "medium", "high"],
+      "service_tiers": ["flex"]
     },
     {
       "id": "gemini-3.8-flash",
       "display_name": "Gemini 3.8 Flash",
       "context_window_tokens": 1048576,
-      "thinking_levels": ["low", "medium", "high"]
+      "thinking_levels": ["low", "medium", "high"],
+      "service_tiers": ["flex"]
     },
     {
       "id": "gemini-3.7-flash",
@@ -233,7 +238,8 @@ Result:
       "id": "gemini-3.6-flash",
       "display_name": "Gemini 3.6 Flash",
       "context_window_tokens": 1048576,
-      "thinking_levels": ["minimal", "low", "medium", "high"]
+      "thinking_levels": ["minimal", "low", "medium", "high"],
+      "service_tiers": ["flex"]
     },
     {
       "id": "gemini-3.5-flash",
@@ -245,7 +251,8 @@ Result:
       "id": "gemini-3.5-flash-lite",
       "display_name": "Gemini 3.5 Flash Lite",
       "context_window_tokens": 1048576,
-      "thinking_levels": ["minimal", "low", "medium", "high"]
+      "thinking_levels": ["minimal", "low", "medium", "high"],
+      "service_tiers": ["flex"]
     }
   ]
 }
@@ -273,6 +280,10 @@ data, not a version.
   the API for it to judge. A create naming a level its model refuses is
   answered `-32602` before the run starts, rather than reaching Google and
   failing the interaction mid-stream.
+
+- `service_tiers` lists the non-default service tiers `service_tier` may name
+  **for this model**. Only models that offer a tier carry it. Today that is
+  `flex`, on a subset of the Gemini models. Absent means the model has one tier.
 
 ### `initialized` (notification)
 
@@ -331,6 +342,7 @@ Google's create-interaction body, narrowed, plus a `harness` block.
 | `response_format` | no | `schema` becomes the run's result schema, which the agent's `complete` tool validates its answer against. |
 | `generation_config.thinking_level` | no | One of the levels `initialize` gave for this model — `low`, `medium`, `high` for `gemini-3.7-flash`, which refuses `minimal`. Defaults to `high`. A level the model does not take is `-32602`. |
 | `generation_config.max_output_tokens` | no | Per-request output cap. Zero leaves the API's own default. |
+| `service_tier` | no | `flex` or `standard`, for a model whose `model_details` lists it in `service_tiers`. Omitted and `standard` are the same request. Google's own top-level field, spelled the same. |
 | `stream` | no | Default true. See below. |
 | `store` | no | Accepted and ignored: this process always stores, because the loop's state machine *is* its event log. |
 | `harness.cwd` | yes, unless continuing | The directory the session works in. Absolute. |
@@ -407,6 +419,21 @@ the same `harness.session_id`. A completion that arrives while an interaction
 is running reaches the model at that interaction's next sub-turn boundary;
 the running one is not interrupted. A session that was stopped, timed out or
 failed is not woken, and its shells are ended with it.
+
+### `service_tier`
+
+`service_tier` on a create selects the provider's pricing and latency tier for
+that run's model requests. `standard` and an omitted field are the same
+request: the field is not sent. `flex` is sent as `service_tier: "flex"` and
+is accepted only for a model whose `model_details.service_tiers` lists it.
+Any other value, or `flex` on a model without it, is answered `-32602` before
+the run starts.
+
+The tier belongs to the run, not the session. It is not stored on the session
+row, so a create that resumes a session names it again. Compaction summaries
+and `task` subagent runs do not carry it. Only Google's models offer a tier,
+and [`GEMINI-INTEGRATION.md`](GEMINI-INTEGRATION.md), "Service tiers", records what Flex means for
+the loop.
 
 ### `interactions.append`
 

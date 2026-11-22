@@ -81,6 +81,7 @@ func requestFromIntent(intent wire.ChatIntent) ChatInteractionRequest {
 		Store:             false,
 		Input:             input,
 		Tools:             toolsFromWire(intent.Tools),
+		ServiceTier:       requestServiceTier(intent.ServiceTier),
 	}
 	// generation_config is always sent on this path, because
 	// thinking_summaries is always wanted: absent it, the API returns

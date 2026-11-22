@@ -74,6 +74,7 @@ type RunOptions struct {
 	Effort         string
 	Thinking       bool
 	MaxTokens      int
+	ServiceTier    string
 	Workspace      string
 	PermissionMode tools.Mode
 	Deny           []string
