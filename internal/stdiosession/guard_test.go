@@ -98,6 +98,18 @@ func (f *fixture) guardParams(text, classifyURL string) CreateParams {
 	return p
 }
 
+// resolvedCWD is the directory the session reports for f.cwd. The tools
+// Executor resolves symlinks, and on macOS t.TempDir() sits under /var, which
+// is a link to /private/var.
+func resolvedCWD(f *fixture) string {
+	f.t.Helper()
+	dir, err := filepath.EvalSymlinks(f.cwd)
+	if err != nil {
+		f.t.Fatalf("resolve %s: %v", f.cwd, err)
+	}
+	return dir
+}
+
 func ran(f *fixture, name string) bool {
 	_, err := os.Stat(filepath.Join(f.cwd, name))
 	return err == nil
@@ -134,7 +146,7 @@ func TestGuardAllowRunsTheCommandWithoutAsking(t *testing.T) {
 		t.Fatalf("classifier requests = %d, want 1", len(reqs))
 	}
 	r := reqs[0]
-	if r["command"] != "touch ran-1" || r["shell"] != "bash" || r["cwd"] != f.cwd || r["scenario"] != "repo" ||
+	if r["command"] != "touch ran-1" || r["shell"] != "bash" || r["cwd"] != resolvedCWD(f) || r["scenario"] != "repo" ||
 		r["engine"] != "deepseek" || r["call_id"] != "call-1" || r["session_id"] == "" {
 		t.Fatalf("classify request = %v", r)
 	}
@@ -178,7 +190,7 @@ func TestGuardBlockAsksTheParent(t *testing.T) {
 				t.Fatalf("approval requests = %d, want 1", len(asked))
 			}
 			a := asked[0]
-			if a.Type != "command_approval" || a.CallID != "call-1" || a.Command != "touch ran-1" || a.Cwd != f.cwd ||
+			if a.Type != "command_approval" || a.CallID != "call-1" || a.Command != "touch ran-1" || a.Cwd != resolvedCWD(f) ||
 				a.Verdict != "block" || a.Reason != "the command deletes the repository" || a.ResponseID == "" {
 				t.Fatalf("approval request = %+v", a)
 			}
