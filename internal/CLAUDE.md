@@ -141,7 +141,9 @@ chunk shape, and Gemini's SSE frames carry a different vocabulary entirely —
 so `stream.go`'s own `pumpChatEvents` still reads the body `Transport.Do`
 retried into existence. Request and response bodies are Go
 structs, never `map[string]any`, for the same byte-stability reason as the
-other two clients. Depends on: `internal/wire`, `internal/providerhttp` (just
+other two clients. `servicetiers.go` is the per-model table of the service tiers a model offers
+(docs/GEMINI-INTEGRATION.md §5.8), read by the handshake and the create check
+in `internal/stdiosession`. Depends on: `internal/wire`, `internal/providerhttp` (just
 `Transport`, for retry-with-backoff — never `PumpStream`).
 
 ### `internal/anthropic`

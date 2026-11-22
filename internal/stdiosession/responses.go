@@ -98,6 +98,7 @@ func (Responses) Initialize(h Handshake) any {
 			DisplayName:         d.DisplayName,
 			ContextWindowTokens: d.ContextWindowTokens,
 			ReasoningEfforts:    d.Efforts,
+			ServiceTiers:        d.ServiceTiers,
 		})
 	}
 	return InitializeResult{

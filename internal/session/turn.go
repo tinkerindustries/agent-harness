@@ -359,7 +359,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	// wall time the run waited on the API.
 	streamStart := time.Now()
 	live := newLiveSink(r.Hub, sess.ID, subTurn)
-	reasoning, content, assembler, finishReason, usage, signature, providerBlocks, err := r.stream(httplog.WithSessionID(ctx, sess.ID), sess.Model, opts.Tools, items, opts.Effort, opts.Thinking, opts.MaxTokens, live)
+	reasoning, content, assembler, finishReason, usage, signature, providerBlocks, err := r.stream(httplog.WithSessionID(ctx, sess.ID), sess.Model, opts.Tools, items, opts.Effort, opts.Thinking, opts.MaxTokens, opts.ServiceTier, live)
 	if err != nil {
 		// A request that failed after the provider reported usage was still
 		// billed. The usage is committed on its own, since the assistant turn
@@ -380,7 +380,7 @@ func (r *Runner) runSubTurn(ctx context.Context, sess store.Session, allEvents *
 	var starved *wire.Usage
 	if r.clientFor(sess.Model).IsReasoningStarved(finishReason, content) && len(assembler.Finalize()) == 0 {
 		starved = usage
-		reasoning, content, assembler, finishReason, usage, signature, providerBlocks, err = r.stream(ctx, sess.Model, opts.Tools, items, opts.Effort, opts.Thinking, opts.MaxTokens*2, live)
+		reasoning, content, assembler, finishReason, usage, signature, providerBlocks, err = r.stream(ctx, sess.Model, opts.Tools, items, opts.Effort, opts.Thinking, opts.MaxTokens*2, opts.ServiceTier, live)
 		if err != nil {
 			// Both requests were billed: the starved attempt that succeeded
 			// and whatever the retry reported before it failed.
@@ -728,19 +728,20 @@ func (r *Runner) buildUsagePayload(model string, usage *wire.Usage, requestItems
 // one, both match the head rendered from the same array and the schema
 // stored on the row. A resumed session's array cannot drift even if a
 // server is enabled or disabled, or a variant redefined, while it runs.
-func (r *Runner) stream(ctx context.Context, model string, toolArray []wire.Tool, items []wire.Item, effort string, thinking bool, maxTokens int, live *liveSink) (
+func (r *Runner) stream(ctx context.Context, model string, toolArray []wire.Tool, items []wire.Item, effort string, thinking bool, maxTokens int, serviceTier string, live *liveSink) (
 	reasoning, content string, assembler *wire.ToolCallAssembler, finishReason string, usage *wire.Usage, signature string, providerBlocks json.RawMessage, err error) {
 
 	// The log holds every call under its canonical name; a model offered
 	// another vocabulary reads its own past calls in that one
 	// (internal/toolvocab). items is the identity for every other array.
 	intent := wire.ChatIntent{
-		Model:     model,
-		Items:     toolvocab.Of(toolArray).ItemsToModel(items),
-		Effort:    effort,
-		Thinking:  thinking,
-		MaxTokens: maxTokens,
-		Tools:     toolArray,
+		Model:       model,
+		Items:       toolvocab.Of(toolArray).ItemsToModel(items),
+		Effort:      effort,
+		Thinking:    thinking,
+		MaxTokens:   maxTokens,
+		Tools:       toolArray,
+		ServiceTier: serviceTier,
 	}
 
 	release, err := r.acquireModelSlot(ctx, model)

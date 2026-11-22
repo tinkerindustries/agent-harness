@@ -110,6 +110,7 @@ type iactCreateParams struct {
 	PreviousInteractionID string                `json:"previous_interaction_id,omitempty"`
 	ResponseFormat        *iactResponseFormat   `json:"response_format,omitempty"`
 	GenerationConfig      *iactGenerationConfig `json:"generation_config,omitempty"`
+	ServiceTier           string                `json:"service_tier,omitempty"`
 	Stream                *bool                 `json:"stream,omitempty"`
 	// Store is accepted and ignored. This process always stores: the loop's
 	// own state machine is its event log, and a run that kept nothing could
@@ -197,6 +198,7 @@ type iactModelDetail struct {
 	DisplayName         string   `json:"display_name,omitempty"`
 	ContextWindowTokens int      `json:"context_window_tokens,omitempty"`
 	ThinkingLevels      []string `json:"thinking_levels,omitempty"`
+	ServiceTiers        []string `json:"service_tiers,omitempty"`
 }
 
 // iactFunctionCallParams is a Google FunctionCallStep, sent to the client
@@ -237,6 +239,7 @@ func (Interactions) DecodeCreate(params json.RawMessage) (*CreateRequest, *rpcEr
 		Instructions:  p.SystemInstruction,
 		PreviousRunID: p.PreviousInteractionID,
 		Tools:         p.Tools,
+		ServiceTier:   p.ServiceTier,
 		Stream:        p.Stream,
 		Harness:       p.Harness,
 	}
@@ -282,6 +285,7 @@ func (Interactions) Initialize(h Handshake) any {
 			DisplayName:         d.DisplayName,
 			ContextWindowTokens: d.ContextWindowTokens,
 			ThinkingLevels:      d.Efforts,
+			ServiceTiers:        d.ServiceTiers,
 		})
 	}
 	return iactInitializeResult{

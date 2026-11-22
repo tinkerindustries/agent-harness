@@ -88,6 +88,33 @@ func reasoningEffortSupported(model, effort string) bool {
 	}
 }
 
+// serviceTiers is the non-default service tiers model offers. Only Google's
+// models offer one.
+func serviceTiers(model string) []string {
+	if providerOf(model) != provider.Gemini {
+		return nil
+	}
+	return gemini.ServiceTiersFor(model)
+}
+
+// checkServiceTier refuses a create whose service_tier is not a value this
+// process knows, or names a tier model does not offer. Left to the API the
+// second is a 400 in the middle of a started run. The standard tier, spelled
+// or omitted, is valid for every model.
+func checkServiceTier(model, tier string) *rpcError {
+	switch tier {
+	case "", gemini.ServiceTierStandard:
+		return nil
+	case gemini.ServiceTierFlex:
+		if providerOf(model) == provider.Gemini && gemini.ServiceTierSupported(model, tier) {
+			return nil
+		}
+		return errorf(CodeInvalidParams, "service_tier %q: %s does not offer it; the handshake's model_details lists the service_tiers each model offers", tier, model)
+	default:
+		return errorf(CodeInvalidParams, "service_tier %q: want %q or %q", tier, gemini.ServiceTierStandard, gemini.ServiceTierFlex)
+	}
+}
+
 // missingKeyMessage names the environment variable whose absence stopped a
 // create on model, in the message the -32003 error carries. The parent
 // supplies credentials (docs/STDIO-PROTOCOL.md, "Starting the process"), and

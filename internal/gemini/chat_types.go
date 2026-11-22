@@ -62,6 +62,10 @@ type ChatInteractionRequest struct {
 	Input            []any             `json:"input"`
 	Tools            []FunctionTool    `json:"tools,omitempty"`
 	GenerationConfig *GenerationConfig `json:"generation_config,omitempty"`
+	// ServiceTier is the top-level service_tier field. It is last and
+	// omitempty so a request that does not name a tier serialises exactly as
+	// it did before the field existed.
+	ServiceTier string `json:"service_tier,omitempty"`
 }
 
 // FunctionTool is one entry of the agentic tools array: flattened, unlike

@@ -121,6 +121,7 @@ table to carry both usefully:
 | `response_format.schema` | `text.format.schema` |
 | `previous_interaction_id` | `previous_response_id` |
 | `thinking_levels` on `model_details` | `reasoning_efforts` |
+| `service_tier`, and `service_tiers` on `model_details` | the same names |
 | `index` on a step frame | `output_index` on an item frame |
 | `event_type` on every frame | `type`, and a `sequence_number` |
 | `thought_signature` delta | *(no counterpart)* |
@@ -374,31 +375,36 @@ Result:
       "id": "gemini-4-neon",
       "display_name": "Gemini 4 Neon",
       "context_window_tokens": 1048576,
-      "reasoning_efforts": ["low", "medium", "high", "xhigh"]
+      "reasoning_efforts": ["low", "medium", "high", "xhigh"],
+      "service_tiers": ["flex"]
     },
     {
       "id": "gemini-4-hydrogen",
       "display_name": "Gemini 4 Hydrogen",
       "context_window_tokens": 1048576,
-      "reasoning_efforts": ["low", "medium", "high", "xhigh"]
+      "reasoning_efforts": ["low", "medium", "high", "xhigh"],
+      "service_tiers": ["flex"]
     },
     {
       "id": "gemini-4-carbon",
       "display_name": "Gemini 4 Carbon",
       "context_window_tokens": 1048576,
-      "reasoning_efforts": ["low", "medium", "high"]
+      "reasoning_efforts": ["low", "medium", "high"],
+      "service_tiers": ["flex"]
     },
     {
       "id": "gemini-4-argon",
       "display_name": "Gemini 4 Argon",
       "context_window_tokens": 1048576,
-      "reasoning_efforts": ["low", "medium", "high"]
+      "reasoning_efforts": ["low", "medium", "high"],
+      "service_tiers": ["flex"]
     },
     {
       "id": "gemini-3.8-flash",
       "display_name": "Gemini 3.8 Flash",
       "context_window_tokens": 1048576,
-      "reasoning_efforts": ["low", "medium", "high"]
+      "reasoning_efforts": ["low", "medium", "high"],
+      "service_tiers": ["flex"]
     },
     {
       "id": "gemini-3.7-flash",
@@ -410,7 +416,8 @@ Result:
       "id": "gemini-3.6-flash",
       "display_name": "Gemini 3.6 Flash",
       "context_window_tokens": 1048576,
-      "reasoning_efforts": ["minimal", "low", "medium", "high"]
+      "reasoning_efforts": ["minimal", "low", "medium", "high"],
+      "service_tiers": ["flex"]
     },
     {
       "id": "gemini-3.5-flash",
@@ -422,7 +429,8 @@ Result:
       "id": "gemini-3.5-flash-lite",
       "display_name": "Gemini 3.5 Flash Lite",
       "context_window_tokens": 1048576,
-      "reasoning_efforts": ["minimal", "low", "medium", "high"]
+      "reasoning_efforts": ["minimal", "low", "medium", "high"],
+      "service_tiers": ["flex"]
     },
     {
       "id": "deepseek-flash",
@@ -471,6 +479,10 @@ data, not a version.
   it onto `high` rather than rejecting it, so a client offering Gemini's set
   is never refused for sending it, but nothing promises it is a distinct
   gradation, so it is not published as one.
+
+- `service_tiers` lists the non-default service tiers `service_tier` may name
+  **for this model**. Only models that offer a tier carry it. Today that is
+  `flex`, on a subset of the Gemini models. Absent means the model has one tier.
 
 ### `initialized` (notification)
 
@@ -530,6 +542,7 @@ The Responses API's create-response body, narrowed, plus a `harness` block.
 | `text.format` | no | `schema` becomes the run's result schema, which the agent's `complete` tool validates its answer against. |
 | `reasoning.effort` | no | One of the levels `initialize` gave for this model — `low`, `medium`, `high` for `gemini-3.7-flash`, which refuses `minimal`. Defaults to `high`. A level the model does not take is `-32602`. |
 | `reasoning.max_output_tokens` | no | Per-request output cap. Zero leaves the provider's own default. Anthropic's Messages API has none and refuses zero, so a Claude model gets 64,000. |
+| `service_tier` | no | `flex` or `standard`, for a model whose `model_details` lists it in `service_tiers`. Omitted and `standard` are the same request. See [`service_tier`](#service_tier). |
 | `stream` | no | Default true. See below. |
 | `store` | no | Accepted and ignored: this process always stores, because the loop's state machine *is* its event log. |
 | `harness.cwd` | yes, unless continuing | The directory the session works in. Absolute. |
@@ -609,6 +622,21 @@ for a client-driven create, and the model continues the same
 reaches the model at that response's next sub-turn boundary as the same user
 item; the running response is not interrupted. A session that was stopped,
 timed out or failed is not woken, and its shells are ended with it.
+
+### `service_tier`
+
+`service_tier` on a create selects the provider's pricing and latency tier for
+that run's model requests. `standard` and an omitted field are the same
+request: the field is not sent. `flex` is sent as `service_tier: "flex"` and
+is accepted only for a model whose `model_details.service_tiers` lists it.
+Any other value, or `flex` on a model without it, is answered `-32602` before
+the run starts.
+
+The tier belongs to the run, not the session. It is not stored on the session
+row, so a create that resumes a session names it again. Compaction summaries
+and `task` subagent runs do not carry it. Only Google's models offer a tier,
+and [`GEMINI-INTEGRATION.md`](GEMINI-INTEGRATION.md), "Service tiers", records what Flex means for
+the loop.
 
 ### `responses.append`
 

@@ -34,6 +34,10 @@ type CreateRequest struct {
 	// Effort is the thinking control, empty when the body named none.
 	Effort string
 
+	// ServiceTier is the provider's service tier, empty when the body named
+	// none. Both surfaces spell it `service_tier`.
+	ServiceTier string
+
 	// MaxOutputTokens caps one model call's output, reasoning included. It
 	// is per request, not per run: a run here spans many.
 	MaxOutputTokens int
@@ -97,6 +101,7 @@ func decodeCreate(params json.RawMessage) (*CreateRequest, *rpcError) {
 		Prompt:          prompt,
 		Instructions:    p.Instructions,
 		Effort:          effortOf(p.Reasoning),
+		ServiceTier:     p.ServiceTier,
 		MaxOutputTokens: p.MaxOutputTokens,
 		ResultSchema:    schemaOf(p.Text),
 		PreviousRunID:   p.PreviousResponseID,

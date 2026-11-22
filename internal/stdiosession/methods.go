@@ -109,6 +109,9 @@ type ModelDetail struct {
 	// has no table for the model, in which case a create naming any effort
 	// reaches the API for it to judge rather than being refused here.
 	ReasoningEfforts []string `json:"reasoning_efforts,omitempty"`
+	// ServiceTiers is the non-default service tiers service_tier may name
+	// for this model. Omitted when the model offers none.
+	ServiceTiers []string `json:"service_tiers,omitempty"`
 }
 
 // ServerInfo names this process.
@@ -184,6 +187,9 @@ type CreateParams struct {
 	// MaxOutputTokens caps one model call's output, reasoning included. It
 	// is per request, not per run: a response here spans many.
 	MaxOutputTokens int `json:"max_output_tokens,omitempty"`
+	// ServiceTier is accepted for a model that offers one: `flex` or
+	// `standard`. docs/STDIO-PROTOCOL.md, "service_tier".
+	ServiceTier string `json:"service_tier,omitempty"`
 	// Stream, when false, holds the JSON-RPC answer until the run ends and
 	// returns the whole assembled Response. The notifications are sent
 	// either way, so a client that sets it false and ignores them gets
